@@ -5,6 +5,9 @@ import "@testing-library/jest-dom";
 import type { BoardRowData } from "./BoardTable.js";
 import type { QuestTitlePreview, QuestmasterTask, SessionAttentionRecord } from "../types.js";
 import type { LeaderWorkboardView } from "../store-types.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
+import { getQuestPhaseThreadTabTitleColorValue } from "../utils/quest-phase-theme.js";
 
 interface MockStoreState {
   sessionBoards: Map<string, BoardRowData[]>;
@@ -140,6 +143,19 @@ function getTabTitle(container: HTMLElement, threadKey: string): HTMLElement {
   return within(tab).getByTestId("thread-tab-title");
 }
 
+function threadStatus(threadKey: string, kind: LeaderThreadStatus["kind"]): LeaderThreadStatus {
+  return {
+    kind,
+    label: kind === "waiting" ? "Thread Waiting" : "Thread Ready",
+    threadKey,
+    questId: threadKey,
+    summary: kind === "waiting" ? "waiting for worker" : "worker reply received",
+    messageId: `${threadKey}-${kind}`,
+    timestamp: 20,
+    updatedAt: 20,
+  };
+}
+
 describe("WorkBoardBar tab title source precedence", () => {
   beforeEach(() => {
     resetStore();
@@ -153,6 +169,52 @@ describe("WorkBoardBar tab title source precedence", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
+  });
+
+  it("uses normal foreground only while a completed tab has authoritative Thread Waiting", () => {
+    // The server-owned current status is the only Waiting signal. Replacing it
+    // with Ready or clearing it must immediately restore q-1214's done gray.
+    const completedQuest = quest("q-1972", "Prevent live frontend build disappearance");
+    resetStore({
+      quests: [completedQuest],
+      sessions: new Map([["s1", { leaderThreadStatuses: { "q-1972": threadStatus("q-1972", "waiting") } }]]),
+    });
+
+    const view = render(<WorkBoardBar sessionId="s1" currentThreadKey="main" openThreadKeys={["q-1972"]} />);
+    const waitingTitle = getTabTitle(view.container, "q-1972");
+    const waitingTab = view.getByTestId("thread-tab");
+    expect(waitingTitle).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
+    expect(within(waitingTab).queryByTestId("thread-tab-needs-input-bell")).toBeNull();
+    expect(within(waitingTab).queryByTestId("thread-tab-blue-notification-bell")).toBeNull();
+    expect(within(waitingTab).queryByTestId("thread-tab-active-output-indicator")).toBeNull();
+    expect(waitingTitle.getAttribute("style") ?? "").not.toContain("animation");
+
+    mockState.sessions = new Map([["s1", { leaderThreadStatuses: { "q-1972": threadStatus("q-1972", "ready") } }]]);
+    view.rerender(<WorkBoardBar sessionId="s1" currentThreadKey="main" openThreadKeys={["q-1972"]} />);
+    expect(getTabTitle(view.container, "q-1972")).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
+
+    mockState.sessions = new Map([["s1", { leaderThreadStatuses: {} }]]);
+    view.rerender(<WorkBoardBar sessionId="s1" currentThreadKey="main" openThreadKeys={["q-1972"]} />);
+    expect(getTabTitle(view.container, "q-1972")).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
+  });
+
+  it("keeps an active phase color when that thread also has Thread Waiting", () => {
+    // Waiting only overrides the completed muted token; active Journey phase
+    // color remains authoritative for unfinished work.
+    resetStore({
+      sessionBoards: new Map([
+        ["s1", [{ questId: "q-1976", title: "Highlight waiting tabs", status: "WORKING", updatedAt: 20 }]],
+      ]),
+      sessions: new Map([["s1", { leaderThreadStatuses: { "q-1976": threadStatus("q-1976", "waiting") } }]]),
+    });
+
+    const { container } = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1976"]} />);
+    const phase = getQuestJourneyPhaseForState("WORKING");
+    expect(phase).toBeDefined();
+    expect(getTabTitle(container, "q-1976")).toHaveAttribute(
+      "data-title-color",
+      getQuestPhaseThreadTabTitleColorValue(phase!.color),
+    );
   });
 
   it("keeps the Questmaster title when a later partial review record only has the quest id", () => {

@@ -636,9 +636,11 @@ describe("Playground", () => {
       "true",
     );
     const completedMoreRow = moreRows.find((row) => row.getAttribute("data-thread-key") === "q-88")!;
+    // The Playground keeps this completed row in authoritative Thread Waiting,
+    // so its hidden title demonstrates the temporary normal-foreground override.
     expect(within(completedMoreRow).getByTestId("thread-tabs-more-row-title")).toHaveAttribute(
       "data-title-color",
-      "var(--color-cc-muted)",
+      "var(--color-cc-fg)",
     );
     fireEvent.click(moreButton);
     const activeOutputTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-42");
@@ -729,6 +731,29 @@ describe("Playground", () => {
     expect(workBoardBar.getByTestId("workboard-other-threads-content")).toHaveTextContent(
       "Off-board routed discussion",
     );
+  });
+
+  it("documents an unselected completed Waiting tab with normal foreground text", () => {
+    // The dedicated control makes the completed-plus-Waiting state visible in
+    // the real Playground component while Main remains selected as a contrast.
+    setMeasuredRailWidth(392);
+    render(<Playground />);
+
+    const workBoardBar = getWorkBoardBarSection();
+    fireEvent.click(workBoardBar.getByText("Seed board data"));
+    fireEvent.click(workBoardBar.getByText("Show waiting completed tab"));
+
+    const waitingTab = workBoardBar
+      .getAllByTestId("thread-tab")
+      .find((tab) => tab.getAttribute("data-thread-key") === "q-88")!;
+    expect(within(waitingTab).getByTestId("thread-tab-select")).toHaveAttribute("aria-pressed", "false");
+    expect(within(waitingTab).getByTestId("thread-tab-title")).toHaveAttribute(
+      "data-title-color",
+      "var(--color-cc-fg)",
+    );
+    expect(within(waitingTab).queryByTestId("thread-tab-needs-input-bell")).toBeNull();
+    expect(within(waitingTab).queryByTestId("thread-tab-blue-notification-bell")).toBeNull();
+    expect(within(waitingTab).queryByTestId("thread-tab-active-output-indicator")).toBeNull();
   });
 
   it("documents the approved active v2 phase palette with separate readable text and accent tokens", () => {

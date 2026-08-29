@@ -4,6 +4,7 @@ import "@testing-library/jest-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardRowData } from "./BoardTable.js";
 import type { QuestTitlePreview, QuestmasterTask, SessionAttentionRecord, SessionState } from "../types.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
 import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
 
@@ -117,6 +118,19 @@ function expectNoNotificationSurfaceTone(element: HTMLElement) {
 function getPhaseColor(status: string): string | undefined {
   const phase = getQuestJourneyPhaseForState(status);
   return phase ? getQuestPhaseColorValue(phase.color) : undefined;
+}
+
+function waitingThreadStatus(threadKey: string): LeaderThreadStatus {
+  return {
+    kind: "waiting",
+    label: "Thread Waiting",
+    threadKey,
+    questId: threadKey,
+    summary: "waiting for worker",
+    messageId: `${threadKey}-waiting`,
+    timestamp: 20,
+    updatedAt: 20,
+  };
 }
 
 function setMeasuredRailWidth(width: number, threadTabWidth = width) {
@@ -756,6 +770,56 @@ describe("WorkBoardBar overflow tabs", () => {
     expect(completedTitle).not.toHaveStyle({
       color: getPhaseColor("PORTING"),
     });
+  });
+
+  it("uses normal foreground for a completed hidden row with authoritative Thread Waiting", async () => {
+    // Hidden rows use the same completed-plus-Waiting override as visible tabs,
+    // without turning the aggregate More control into a new attention surface.
+    resetStore({
+      sessions: new Map([
+        [
+          "s1",
+          {
+            leaderThreadStatuses: { "q-4": waitingThreadStatus("q-4") },
+          } as unknown as SessionState,
+        ],
+      ]),
+      sessionCompletedBoards: new Map([
+        [
+          "s1",
+          [
+            {
+              questId: "q-4",
+              title: "Waiting hidden thread",
+              status: "DONE",
+              updatedAt: 4,
+              completedAt: 4,
+            },
+          ],
+        ],
+      ]),
+    });
+
+    render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-5"
+        openThreadKeys={["q-1", "q-2", "q-3", "q-4", "q-5"]}
+        threadRows={THREAD_ROWS}
+      />,
+    );
+
+    const moreButton = await screen.findByTestId("thread-tabs-more-button");
+    expect(moreButton).toHaveAttribute("data-has-needs-input", "false");
+    expect(moreButton).toHaveAttribute("data-has-blue-notification", "false");
+    fireEvent.click(moreButton);
+    const waitingRow = screen
+      .getAllByTestId("thread-tabs-more-row")
+      .find((row) => row.getAttribute("data-thread-key") === "q-4")!;
+    expect(within(waitingRow).getByTestId("thread-tabs-more-row-title")).toHaveAttribute(
+      "data-title-color",
+      "var(--color-cc-fg)",
+    );
   });
 
   it("keeps unfinished off-board quest tab titles unmuted and closable", async () => {

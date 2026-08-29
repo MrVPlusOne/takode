@@ -26,6 +26,7 @@ import {
   getQuestJourneyPhaseForState,
   getQuestJourneyPresentation,
 } from "../../shared/quest-journey.js";
+import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { ActiveTurnRoute } from "../types.js";
 import { BoardTable, orderBoardRows } from "./BoardTable.js";
 import type { BoardRowData } from "./BoardTable.js";
@@ -52,6 +53,7 @@ export interface WorkBoardThreadNavigationRow {
 }
 
 const DONE_THREAD_TITLE_COLOR = "var(--color-cc-muted)";
+const NORMAL_THREAD_TITLE_COLOR = "var(--color-cc-fg)";
 const QUEUED_THREAD_TITLE_COLOR = "var(--color-cc-fg)";
 
 export { activeBoardSummarySegments, boardSummary };
@@ -473,6 +475,17 @@ function completedQuestTitleColor(quest?: QuestmasterTask): string | undefined {
   return quest && isCompletedJourneyPresentationStatus(quest.status) ? DONE_THREAD_TITLE_COLOR : undefined;
 }
 
+function currentThreadTitleColor(
+  baseTitleColor: string | undefined,
+  threadKey: string,
+  statuses: Readonly<Record<string, LeaderThreadStatus>> | undefined,
+): string | undefined {
+  if (baseTitleColor === DONE_THREAD_TITLE_COLOR && statuses?.[threadStatusKey(threadKey)]?.kind === "waiting") {
+    return NORMAL_THREAD_TITLE_COLOR;
+  }
+  return baseTitleColor;
+}
+
 function boardRowTitleColor(row: BoardRowData): string | undefined {
   if (isCompletedBoardRow(row)) return DONE_THREAD_TITLE_COLOR;
   if ((row.status ?? "").trim().toUpperCase() === "QUEUED") return QUEUED_THREAD_TITLE_COLOR;
@@ -871,6 +884,7 @@ function ThreadTabRail({
   const showMainMutedNeedsInput = mainMutedNeedsInput && !mainNeedsInput && !mainBlueNudge;
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const activeTurnRoute = useStore((s) => s.activeTurnRoutes.get(sessionId));
+  const threadStatuses = useStore((s) => s.sessions.get(sessionId)?.leaderThreadStatuses);
   const quests = useStore((s) => s.quests);
   const questDetails = useStore((s) => s.questDetails ?? new Map<string, QuestmasterTask>());
   const questById = useMemo(() => {
@@ -1128,7 +1142,11 @@ function ThreadTabRail({
               const hoverQuest = tab.questId ? questById.get(normalizeThreadKey(tab.questId)) : undefined;
               const displayQuestId = hoverQuest?.questId ?? tab.questId;
               const displayTitle = tab.title;
-              const displayTitleColor = completedQuestTitleColor(hoverQuest) ?? tab.titleColor;
+              const displayTitleColor = currentThreadTitleColor(
+                completedQuestTitleColor(hoverQuest) ?? tab.titleColor,
+                tab.threadKey,
+                threadStatuses,
+              );
               const reorderable = onReorderThreadTabs && sortableTabKeySet.has(normalizeThreadKey(tab.threadKey));
               const title = hoverQuest
                 ? undefined
@@ -1324,7 +1342,11 @@ function ThreadTabRail({
                     const hoverQuest = tab.questId ? questById.get(normalizeThreadKey(tab.questId)) : undefined;
                     const displayQuestId = hoverQuest?.questId ?? tab.questId;
                     const displayTitle = tab.title;
-                    const displayTitleColor = completedQuestTitleColor(hoverQuest) ?? tab.titleColor;
+                    const displayTitleColor = currentThreadTitleColor(
+                      completedQuestTitleColor(hoverQuest) ?? tab.titleColor,
+                      tab.threadKey,
+                      threadStatuses,
+                    );
                     return (
                       <div
                         key={threadKey}

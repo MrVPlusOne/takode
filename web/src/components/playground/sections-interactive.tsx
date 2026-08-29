@@ -24,6 +24,7 @@ import { PlaygroundQuestJourneyPalette } from "./PlaygroundQuestJourneyPalette.j
 import { PlaygroundQuestStatusPanelSection, PlaygroundQuestmasterCompactSection } from "./PlaygroundQuestSections.js";
 import { PlaygroundTodoStates } from "./PlaygroundTodoStates.js";
 import { PlaygroundTimerStates } from "./PlaygroundTimerStates.js";
+import { MOCK_SESSION_ID } from "./fixtures.js";
 import {
   Card,
   PlaygroundAddressedSuggestedAnswerNotificationMarker,
@@ -1237,6 +1238,27 @@ export function PlaygroundInteractiveSections() {
                   // Seed Zustand store with mock board and orchestrator session
                   const state = useStore.getState();
                   const now = Date.now();
+                  const baseSession = state.sessions.get(MOCK_SESSION_ID);
+                  if (!baseSession) throw new Error("Playground base session is not seeded");
+                  state.addSession({
+                    ...baseSession,
+                    session_id: boardSessionId,
+                    cwd: "/mock/playground",
+                    is_containerized: false,
+                    isOrchestrator: true,
+                    leaderThreadStatuses: {
+                      "q-88": {
+                        kind: "waiting",
+                        label: "Thread Waiting",
+                        threadKey: "q-88",
+                        questId: "q-88",
+                        summary: "awaiting a read-only worker follow-up",
+                        messageId: "playground-board-bar-q88-waiting",
+                        timestamp: now - 10_000,
+                        updatedAt: now - 10_000,
+                      },
+                    },
+                  });
                   const mediumRepeatedJourneyPhaseIds: QuestJourneyPhaseId[] = [
                     "alignment",
                     ...Array.from({ length: 4 }, () => ["work", "user-checkpoint"] as const).flat(),
@@ -1619,6 +1641,16 @@ export function PlaygroundInteractiveSections() {
               <button
                 type="button"
                 onClick={() => {
+                  setBoardOpenThreadKeys((keys) => ["q-88", ...keys.filter((key) => key !== "q-88")]);
+                  setBoardPreviewThreadKey("main");
+                }}
+                className="ml-2 text-xs font-medium px-3 py-1.5 rounded-md bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 transition-colors cursor-pointer"
+              >
+                Show waiting completed tab
+              </button>
+              <button
+                type="button"
+                onClick={() => {
                   const crowdKeys = Array.from({ length: 12 }, (_, index) => `q-${1101 + index}`);
                   setBoardOpenThreadKeys(crowdKeys);
                   setBoardPreviewThreadKey(crowdKeys.at(-1) ?? "main");
@@ -1662,7 +1694,7 @@ export function PlaygroundInteractiveSections() {
                   All Threads
                 </button>
               </div>
-              <div className="max-w-[28rem] border border-cc-border rounded-lg overflow-hidden">
+              <div className="max-w-[28rem] border border-cc-border rounded-lg overflow-visible">
                 <WorkBoardBar
                   sessionId="playground-board-bar"
                   currentThreadKey={boardPreviewThreadKey}
@@ -1868,8 +1900,9 @@ export function PlaygroundInteractiveSections() {
                 collapse into More for tab sizing, phase color, close affordance, overflow, and insertion checks. Hover
                 q-42 to inspect the shared quest hover card with a medium-long repeated Journey clamped around current
                 row 12. The retained q-1932 tab is absent from the paged quest list and recovers its canonical title
-                only from the bounded title projection; the active-output route targets q-42 so Main stays visually
-                quiet.
+                only from the bounded title projection. q-88 is completed but has authoritative Thread Waiting; use the
+                dedicated control to keep it visible while Main remains selected. The active-output route targets q-42
+                so Main stays visually quiet.
               </p>
             </div>
           </Card>
