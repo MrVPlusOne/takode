@@ -7,7 +7,7 @@ const {
   buildPanelHtml,
   getCspConnectOrigins,
   getEmbeddedAppUrl,
-  getHealthUrl,
+  getReadinessUrl,
   normalizeBaseUrl,
 } = require("../src/panel");
 const {
@@ -33,10 +33,10 @@ test("normalizeBaseUrl rejects non-http protocols so the iframe target stays pre
   );
 });
 
-test("getHealthUrl always points at the Takode root health endpoint", () => {
+test("getReadinessUrl always points at the Takode application readiness endpoint", () => {
   assert.equal(
-    getHealthUrl("http://127.0.0.1:5174/#/session/demo"),
-    "http://127.0.0.1:5174/api/health",
+    getReadinessUrl("http://127.0.0.1:5174/#/session/demo"),
+    "http://127.0.0.1:5174/api/ready",
   );
 });
 
@@ -47,7 +47,7 @@ test("getEmbeddedAppUrl marks the iframe session as a VS Code host", () => {
   );
 });
 
-test("buildPanelHtml embeds the Takode iframe URL and the health probe target", () => {
+test("buildPanelHtml embeds the Takode iframe URL and the application-readiness probe target", () => {
   const html = buildPanelHtml({
     baseUrl: "http://127.0.0.1:5174/",
     cspSource: "vscode-webview://test",
@@ -55,12 +55,15 @@ test("buildPanelHtml embeds the Takode iframe URL and the health probe target", 
   });
 
   // This keeps the test focused on the prototype behavior: the iframe must
-  // load the exact Takode origin, while health checks keep the panel honest
+  // load the exact Takode origin, while readiness checks keep the panel honest
   // when the local server is missing or restarted.
   assert.match(html, /<iframe[\s\S]*id="takode-frame"/);
   assert.match(html, /"http:\/\/127\.0\.0\.1:5174\/"/);
   assert.match(html, /"http:\/\/127\.0\.0\.1:5174\/\?takodeHost=vscode"/);
-  assert.match(html, /"http:\/\/127\.0\.0\.1:5174\/api\/health"/);
+  assert.match(html, /"http:\/\/127\.0\.0\.1:5174\/api\/ready"/);
+  assert.match(html, /contentType\.toLowerCase\(\)\.includes\("application\/json"\)/);
+  assert.match(html, /body\?\.ok === true/);
+  assert.match(html, /finally \{[\s\S]*clearTimeout\(timeoutId\)/);
   assert.match(html, /takode:vscode-context/);
   assert.match(html, /takode:vscode-ready/);
   assert.match(html, /takode:open-file/);
@@ -79,7 +82,7 @@ test("buildPanelHtml can load the iframe through a VS Code-forwarded URL", () =>
   });
 
   assert.match(html, /"https:\/\/forwarded\.example\/vscode-remote-resource\/takode\/\?takodeHost=vscode"/);
-  assert.match(html, /"https:\/\/forwarded\.example\/vscode-remote-resource\/takode\/api\/health"/);
+  assert.match(html, /"https:\/\/forwarded\.example\/vscode-remote-resource\/takode\/api\/ready"/);
   assert.match(html, /frame-src[^"]*https:\/\/forwarded\.example/);
   assert.match(html, /connect-src[^"]*https:\/\/forwarded\.example/);
   assert.match(html, /loadingUrl\.textContent = baseUrl/);

@@ -35,6 +35,8 @@ import type { ShortcutSettings } from "./shortcuts.js";
 import type { SessionDefaultsSettings } from "../shared/session-defaults.js";
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 
+export { checkHealth, checkReadiness } from "./api/server-status.js";
+
 export type {
   FetchRecentAskBundlesOptions,
   RecentAskBundle,
@@ -230,26 +232,6 @@ async function del<T = unknown>(path: string, body?: object): Promise<T> {
     throw new Error(err.error || res.statusText);
   }
   return res.json();
-}
-
-export async function checkHealth(): Promise<boolean> {
-  const start = performance.now();
-  try {
-    const res = await fetch(`${BASE}/health`, { signal: AbortSignal.timeout(10_000) });
-    const elapsed = performance.now() - start;
-    if (elapsed > 5000) {
-      console.warn(`[health] slow response: ${Math.round(elapsed)}ms`);
-    }
-    return res.ok;
-  } catch (err) {
-    const elapsed = performance.now() - start;
-    console.warn(
-      `[health] failed after ${Math.round(elapsed)}ms:`,
-      err instanceof Error ? err.message : err,
-      `visibility=${document.visibilityState}`,
-    );
-    return false;
-  }
 }
 
 export function buildLogStreamUrl(query?: LogQuery & { tail?: number }): string {

@@ -136,7 +136,7 @@ cd takode && bun install --cwd web --frozen-lockfile
 make serve
 ```
 
-`make serve` starts the local Takode server and web app.
+Production starts serve a validated, isolated frontend snapshot rather than the checkout's mutable `web/dist`. `make serve` builds that snapshot and reuses the last validated one if a restart build fails; direct CLI, package-script, and service starts copy the packaged or explicitly configured build before starting. Later development builds or cleanup cannot remove the UI from an already-running server.
 
 Then:
 

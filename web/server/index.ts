@@ -54,6 +54,8 @@ import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
 import { resumeRestartContinuations } from "./restart-continuation-store.js";
 import { requestStartupRecoveryRelaunch, runStartupRecovery } from "./startup-recovery.js";
 import { getStaticAssetCacheControl } from "./static-asset-cache.js";
+import { checkFrontendAvailability } from "./frontend-availability.js";
+import { cleanupOwnedFrontendRuntimeSnapshot } from "./frontend-runtime-snapshot.js";
 import { markCodexIntentionalRelaunch, markSessionRelaunchPending } from "./bridge/codex-recovery-orchestrator.js";
 import { deliverModelProvenanceMigration } from "./model-provenance-migration-delivery.js";
 import {
@@ -114,10 +116,26 @@ import { refreshCodexModelCatalogOnStartup } from "./codex-model-catalog.js";
 
 const defaultPort = process.env.NODE_ENV === "production" ? DEFAULT_PORT_PROD : DEFAULT_PORT_DEV;
 const port = Number(process.env.PORT) || defaultPort;
+const frontendRequired = process.env.NODE_ENV === "production";
+const frontendRoot = resolve(packageRoot, process.env.COMPANION_FRONTEND_ROOT?.trim() || "dist");
+const checkCurrentFrontendAvailability = () =>
+  checkFrontendAvailability({
+    required: frontendRequired,
+    frontendRoot,
+  });
 
 // Initialize file-based logging before anything else logs
 initServerLogger(port);
 const serverLog = createLogger("server");
+
+const startupFrontendAvailability = await checkCurrentFrontendAvailability();
+if (frontendRequired && !startupFrontendAvailability.ready) {
+  serverLog.error("Production frontend is unavailable at startup", {
+    reason: startupFrontendAvailability.reason,
+  });
+} else if (frontendRequired) {
+  serverLog.info("Production frontend readiness verified");
+}
 
 await initWithPort(port);
 await bootstrapQuestStore({
@@ -866,7 +884,7 @@ app.route(
     timerManager,
     imageStore,
     pushoverNotifier,
-    { requestRestart, codexSidecarRegistry },
+    { requestRestart, codexSidecarRegistry, checkFrontendAvailability: checkCurrentFrontendAvailability },
     perfTracer,
     sleepInhibitor,
     resourceLeaseManager,
@@ -876,18 +894,17 @@ app.route(
 
 // In production, serve built frontend using absolute path (works when installed as npm package)
 if (process.env.NODE_ENV === "production") {
-  const distDir = resolve(packageRoot, "dist");
   app.use(
     "/*",
     serveStatic({
-      root: distDir,
+      root: frontendRoot,
       onFound: (path, c) => {
         const cacheControl = getStaticAssetCacheControl(path);
         if (cacheControl) c.header("Cache-Control", cacheControl);
       },
     }),
   );
-  app.get("/*", serveStatic({ path: resolve(distDir, "index.html") }));
+  app.get("/*", serveStatic({ path: resolve(frontendRoot, "index.html") }));
 }
 
 const server = Bun.serve<SocketData>({
@@ -993,9 +1010,15 @@ wsBridge.startStuckSessionWatchdog();
   }, CHECK_INTERVAL_MS);
 }
 
+const listeningFrontendAvailability = await checkCurrentFrontendAvailability();
 console.log(`Server running on http://localhost:${server.port}`);
 console.log(`  CLI WebSocket:     ws://localhost:${server.port}/ws/cli/:sessionId`);
 console.log(`  Browser WebSocket: ws://localhost:${server.port}/ws/browser/:sessionId`);
+if (frontendRequired) {
+  console.log(
+    `  Application ready: ${listeningFrontendAvailability.ready ? "yes" : `no (${listeningFrontendAvailability.reason})`}`,
+  );
+}
 
 if (process.env.NODE_ENV !== "production") {
   console.log("Dev mode: frontend at http://localhost:5174");
@@ -1087,16 +1110,24 @@ sleepInhibitor.start();
 // ── Shutdown helpers ─────────────────────────────────────────────────────────
 async function performShutdown() {
   serverLog.info("Persisting state before shutdown...");
-  await codexWorkerV2RolloutService.destroy();
-  idleManager.stop();
-  sleepInhibitor.stop();
-  await sessionStore.flushAll();
-  containerManager.persistState(CONTAINER_STATE_PATH);
-  pushoverNotifier.destroy();
-  timerManager.destroy();
-  resourceLeaseManager.destroy();
-  cronScheduler.destroy();
-  await flushServerLogger();
+  try {
+    await codexWorkerV2RolloutService.destroy();
+    idleManager.stop();
+    sleepInhibitor.stop();
+    await sessionStore.flushAll();
+    containerManager.persistState(CONTAINER_STATE_PATH);
+    pushoverNotifier.destroy();
+    timerManager.destroy();
+    resourceLeaseManager.destroy();
+    cronScheduler.destroy();
+  } finally {
+    await cleanupOwnedFrontendRuntimeSnapshot().catch((error) => {
+      serverLog.error("Failed to remove owned frontend runtime snapshot", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+    await flushServerLogger();
+  }
 }
 
 function gracefulShutdown() {

@@ -36,7 +36,7 @@
     "dev:api": "bun --no-install --watch server/index.ts",
     "dev:vite": "./node_modules/.bin/vite",
     "build": "./node_modules/.bin/vite build",
-    "start": "NODE_ENV=production bun --no-install server/index.ts",
+    "start": "NODE_ENV=production bun --no-install server/production-entry.ts",
     "serve": "bun --no-install serve.ts",
     "prepublishOnly": "bun --no-install run build",
     "typecheck": "./scripts/typecheck.sh",

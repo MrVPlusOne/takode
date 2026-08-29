@@ -1,5 +1,12 @@
 // @vitest-environment jsdom
-import { ApiError, api, getTranscriptionRequestTimeoutMs, resolveAudioUploadFilename } from "./api.js";
+import {
+  ApiError,
+  api,
+  checkHealth,
+  checkReadiness,
+  getTranscriptionRequestTimeoutMs,
+  resolveAudioUploadFilename,
+} from "./api.js";
 import type { VoiceTranscriptionResult } from "./api.js";
 import {
   _clearTranscriptionProgressHandlersForTest,
@@ -24,6 +31,48 @@ function mockResponse(data: unknown, status = 200, headers: Record<string, strin
 beforeEach(() => {
   mockFetch.mockReset();
   _clearTranscriptionProgressHandlersForTest();
+});
+
+// ===========================================================================
+// Server status probes
+// ===========================================================================
+describe("server status probes", () => {
+  it("keeps backend liveness on /health", async () => {
+    // Liveness remains a distinct signal so an unavailable frontend does not
+    // make connected browsers treat the entire backend as unreachable.
+    mockFetch.mockResolvedValueOnce(mockResponse({ ok: true }));
+
+    await expect(checkHealth()).resolves.toBe(true);
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/health");
+  });
+
+  it("uses /ready when a caller needs the web application", async () => {
+    // Restart flows must wait for frontend entry assets, not merely for the
+    // backend process to accept connections again.
+    mockFetch.mockResolvedValueOnce(mockResponse({ ok: false }, 503, { "content-type": "application/json" }));
+
+    await expect(checkReadiness()).resolves.toBe(false);
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/ready");
+    expect(mockFetch.mock.calls[0][1]).toMatchObject({ cache: "no-store" });
+  });
+
+  it("rejects an old SPA fallback that returns index HTML for /ready", async () => {
+    // Older production servers can route an unknown API path through the SPA
+    // fallback with HTTP 200; status alone must not be mistaken for readiness.
+    mockFetch.mockResolvedValueOnce(mockResponse("<html>Takode</html>", 200, { "content-type": "text/html" }));
+
+    await expect(checkReadiness()).resolves.toBe(false);
+  });
+
+  it("accepts the readiness JSON contract only when ok is true", async () => {
+    mockFetch.mockResolvedValueOnce(mockResponse({ ok: true }, 200, { "content-type": "application/json" }));
+
+    await expect(checkReadiness()).resolves.toBe(true);
+  });
 });
 
 // ===========================================================================

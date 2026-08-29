@@ -10,6 +10,7 @@ import type { SessionStore } from "../session-store.js";
 import type { WorktreeTracker } from "../worktree-tracker.js";
 import type { TerminalManager } from "../terminal-manager.js";
 import type { PerfTracer } from "../perf-tracer.js";
+import type { FrontendAvailabilityChecker } from "../frontend-availability.js";
 import { GIT_CMD_TIMEOUT } from "../constants.js";
 import { validateCompanionAuth } from "./auth.js";
 import { createSessionsRoutes } from "./sessions.js";
@@ -161,6 +162,7 @@ export function createRoutes(
   options?: {
     requestRestart?: () => void;
     codexSidecarRegistry?: import("../codex-sidecar-auth.js").CodexSidecarRegistry;
+    checkFrontendAvailability?: FrontendAvailabilityChecker;
   },
   perfTracer?: PerfTracer,
   sleepInhibitor?: import("../sleep-inhibitor.js").SleepInhibitor,
@@ -217,6 +219,7 @@ export function createRoutes(
     sleepInhibitor,
     options,
     perfTracer,
+    checkFrontendAvailability: options?.checkFrontendAvailability,
     resolveId,
     authenticateTakodeCaller,
     authenticateCompanionCallerOptional,

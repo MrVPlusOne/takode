@@ -24,9 +24,9 @@ function normalizeBaseUrl(value) {
   return url.toString();
 }
 
-function getHealthUrl(baseUrl) {
+function getReadinessUrl(baseUrl) {
   const url = new URL(baseUrl);
-  url.pathname = `${url.pathname.replace(/\/$/, "")}/api/health`;
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/api/ready`;
   url.search = "";
   url.hash = "";
   return url.toString();
@@ -69,7 +69,7 @@ function escapeHtml(value) {
 }
 
 function buildPanelHtml({ baseUrl, resolvedBaseUrl = baseUrl, cspSource, nonce }) {
-  const healthUrl = getHealthUrl(resolvedBaseUrl);
+  const readinessUrl = getReadinessUrl(resolvedBaseUrl);
   const embeddedAppUrl = getEmbeddedAppUrl(resolvedBaseUrl);
   const cspConnectOrigins = getCspConnectOrigins(baseUrl, resolvedBaseUrl).join(" ");
 
@@ -239,7 +239,7 @@ function buildPanelHtml({ baseUrl, resolvedBaseUrl = baseUrl, cspSource, nonce }
       const vscode = acquireVsCodeApi();
       const baseUrl = ${JSON.stringify(baseUrl)};
       const embeddedAppUrl = ${JSON.stringify(embeddedAppUrl)};
-      const healthUrl = ${JSON.stringify(healthUrl)};
+      const readinessUrl = ${JSON.stringify(readinessUrl)};
       const frame = document.getElementById("takode-frame");
       const loading = document.getElementById("loading");
       const error = document.getElementById("error");
@@ -248,7 +248,7 @@ function buildPanelHtml({ baseUrl, resolvedBaseUrl = baseUrl, cspSource, nonce }
       const retryButton = document.getElementById("retry-button");
       const openButton = document.getElementById("open-button");
       let frameHasLoaded = false;
-      let lastHealthOk = false;
+      let lastReadinessOk = false;
       let latestSelectionPayload = null;
 
       loadingUrl.textContent = baseUrl;
@@ -256,8 +256,8 @@ function buildPanelHtml({ baseUrl, resolvedBaseUrl = baseUrl, cspSource, nonce }
       vscode.setState({ baseUrl });
 
       function updateOverlay() {
-        loading.classList.toggle("hidden", frameHasLoaded || !lastHealthOk);
-        error.classList.toggle("hidden", lastHealthOk);
+        loading.classList.toggle("hidden", frameHasLoaded || !lastReadinessOk);
+        error.classList.toggle("hidden", lastReadinessOk);
       }
 
       function debug(text, data) {
@@ -287,19 +287,26 @@ function buildPanelHtml({ baseUrl, resolvedBaseUrl = baseUrl, cspSource, nonce }
       }
 
       async function ping() {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 4000);
-          const response = await fetch(healthUrl + "?t=" + Date.now(), {
+          const response = await fetch(readinessUrl + "?t=" + Date.now(), {
             cache: "no-store",
             signal: controller.signal
           });
-          clearTimeout(timeoutId);
-          lastHealthOk = response.ok;
+          const contentType = response.headers.get("content-type") || "";
+          if (response.ok && contentType.toLowerCase().includes("application/json")) {
+            const body = await response.json().catch(() => null);
+            lastReadinessOk = body?.ok === true;
+          } else {
+            lastReadinessOk = false;
+          }
         } catch (_error) {
-          lastHealthOk = false;
+          lastReadinessOk = false;
+        } finally {
+          clearTimeout(timeoutId);
         }
-        debug("ping", { ok: lastHealthOk });
+        debug("ping", { ok: lastReadinessOk });
         updateOverlay();
       }
 
@@ -391,6 +398,6 @@ module.exports = {
   buildPanelHtml,
   getCspConnectOrigins,
   getEmbeddedAppUrl,
-  getHealthUrl,
+  getReadinessUrl,
   normalizeBaseUrl,
 };

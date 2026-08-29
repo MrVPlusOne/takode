@@ -12,6 +12,12 @@ process.env.__COMPANION_PACKAGE_ROOT = resolve(__dirname, "..");
 
 const command = process.argv[2];
 
+async function startForegroundServer(): Promise<void> {
+  process.env.NODE_ENV = process.env.NODE_ENV || "production";
+  const { startProductionServer } = await import("../server/production-entry.js");
+  await startProductionServer();
+}
+
 // Management subcommands that delegate to ctl.ts
 const CTL_COMMANDS = new Set(["sessions", "envs", "cron", "skills", "settings", "assistant", "ctl-help"]);
 
@@ -59,8 +65,7 @@ switch (command) {
     break;
 
   case "serve": {
-    process.env.NODE_ENV = process.env.NODE_ENV || "production";
-    await import("../server/index.ts");
+    await startForegroundServer();
     break;
   }
 
@@ -80,8 +85,7 @@ switch (command) {
       }
     })();
     if (forceForeground || launchedByInit) {
-      process.env.NODE_ENV = process.env.NODE_ENV || "production";
-      await import("../server/index.ts");
+      await startForegroundServer();
       break;
     }
     const { start } = await import("../server/service.js");
@@ -216,8 +220,7 @@ switch (command) {
 
   case undefined: {
     // Default: start server in foreground
-    process.env.NODE_ENV = process.env.NODE_ENV || "production";
-    await import("../server/index.ts");
+    await startForegroundServer();
     break;
   }
 

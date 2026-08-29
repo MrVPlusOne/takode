@@ -36,6 +36,7 @@ import {
 import type { VsCodeSelectionState, VsCodeWindowState } from "../session-types.js";
 import { trafficStats } from "../traffic-stats.js";
 import { loadCodexModelCatalog } from "../codex-model-catalog.js";
+import type { FrontendAvailability } from "../frontend-availability.js";
 
 function getCodexModelVariantRank(slug: string): number {
   if (slug.includes("-codex-spark")) return 2;
@@ -239,6 +240,7 @@ export function createSystemRoutes(ctx: RouteContext) {
     sessionStore,
     pathExists,
     resolveId,
+    checkFrontendAvailability,
   } = ctx;
   const bridgeAny = wsBridge as any;
   const browserTransportState = () => bridgeAny.getBrowserTransportState?.() ?? bridgeAny.browserTransportState;
@@ -247,6 +249,27 @@ export function createSystemRoutes(ctx: RouteContext) {
   // ─── Health ─────────────────────────────────────────────────────────
 
   api.get("/health", (c) => c.json({ ok: true, timestamp: Date.now() }));
+
+  api.get("/ready", async (c) => {
+    c.header("Cache-Control", "no-store");
+    let frontend: FrontendAvailability;
+    try {
+      frontend = checkFrontendAvailability
+        ? await checkFrontendAvailability()
+        : { required: false, ready: true, reason: "not_required" };
+    } catch {
+      frontend = { required: true, ready: false, reason: "check_failed" };
+    }
+
+    return c.json(
+      {
+        ok: frontend.ready,
+        timestamp: Date.now(),
+        frontend,
+      },
+      frontend.ready ? 200 : 503,
+    );
+  });
 
   api.get("/traffic/stats", (c) => {
     return c.json({

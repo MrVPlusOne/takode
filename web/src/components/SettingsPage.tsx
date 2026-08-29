@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   api,
   ApiError,
-  checkHealth,
+  checkReadiness,
   isInterruptRestartBlockersResponse,
   type ImportStats,
   type AutoApprovalConfig,
@@ -641,10 +641,10 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       }
     }
 
-    // Poll for server to come back
+    // Wait for both the backend and its production frontend to become usable.
     healthPollRef.current = setInterval(async () => {
-      const healthy = await checkHealth();
-      if (healthy) {
+      const ready = await checkReadiness();
+      if (ready) {
         if (healthPollRef.current) clearInterval(healthPollRef.current);
         if (healthTimeoutRef.current) clearTimeout(healthTimeoutRef.current);
         healthPollRef.current = null;

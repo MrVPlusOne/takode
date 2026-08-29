@@ -122,6 +122,7 @@ vi.mock("../api.js", () => ({
     getAutoApprovalLogEntry: (...args: unknown[]) => mockApi.getAutoApprovalLogEntry(...args),
   },
   ApiError: mockApiErrorClass,
+  checkReadiness: vi.fn().mockResolvedValue(true),
   isInterruptRestartBlockersResponse: (value: unknown) => {
     if (!value || typeof value !== "object") return false;
     const candidate = value as { mode?: unknown; herdDelivery?: unknown };
