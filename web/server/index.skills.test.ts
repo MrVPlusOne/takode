@@ -321,6 +321,10 @@ describe("index startup skill registration", () => {
     expect(source).toContain("A recoverable interruption does not create a new or smaller Work occurrence");
     expect(source).toContain("~/.companion/quest-journey-phases/work/leader.md");
     expect(source).toContain("owns the recovery-routing rule");
+    expect(source).toContain("worker returns the compact Work handoff and stops the Work turn");
+    expect(source).toContain("without waiting for Memory closure");
+    expect(source).toContain("Ordinary read-only follow-up questions during Memory");
+    expect(source).toContain("do not reopen the quest");
     expect(source).not.toContain("allow one short verification window");
     expect(source).not.toContain("exact-once replay proof and recovery-suppression boundaries remain authoritative");
     expect(source).not.toContain("`EXECUTING`");
@@ -332,6 +336,9 @@ describe("index startup skill registration", () => {
     expect(topLevelSource).toContain("fresh explicit approval before external consequences");
     expect(topLevelSource).toContain("Harmless typo-only corrections can still proceed");
     expect(topLevelSource).toContain("Route read-only implementation follow-ups to context-rich sources");
+    expect(topLevelSource).toContain("Report accepted Work before Memory closure");
+    expect(topLevelSource).toContain("send final Memory to the normal same worker without waiting for closure");
+    expect(topLevelSource).toContain("Ordinary read-only follow-ups during Memory use accepted evidence");
     expect(topLevelSource).toContain("Use direct worker errands only for tiny context-rich follow-ups");
     expect(topLevelSource).toContain("They create no quest, board row, claim, phase note, Memory closure");
     expect(topLevelSource).toContain("promote to a normal quest/Journey");

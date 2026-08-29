@@ -144,6 +144,8 @@ For valuable nontrivial phase outcomes, a worker or reviewer may run `takode wor
 
 Keep final chat handoffs much shorter than the phase note. Treat the Questmaster phase feedback as the source of truth for detailed results, recommended next action, blockers, evidence, findings, and handoff facts. In chat, name the phase feedback index and include only the concise outcome or verdict plus urgent blockers, safety facts, or deltas the leader must see immediately. Narrow exceptions still belong in chat when they are the handoff itself: User Checkpoint packets for the leader to publish, Work's selected target plus ordered `Synced SHAs:` and target sync status, final Memory's required memory statement and completion status, urgent blockers or safety facts, and concise verdicts needed for routing.
 
+After a successful Work -> Memory transition, stop the Work turn so the leader can report the accepted outcome immediately. Final Memory resumes under the Memory phase brief and remains mandatory before the quest is technically complete.
+
 Prefer current-phase inference:
 
 ```bash

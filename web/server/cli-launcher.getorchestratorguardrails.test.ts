@@ -403,6 +403,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("`~/.companion/quest-journey-phases/work/leader.md`");
     expect(guardrails).toContain("The Work leader brief remains the complete owner of recovery behavior");
     expect(guardrails).toContain("That brief owns the complete recovery rule");
+    expect(guardrails).toContain("Report accepted Work before Memory closure");
+    expect(guardrails).toContain("the worker stops the Work turn");
+    expect(guardrails).toContain("Ordinary read-only follow-ups during Memory use accepted evidence without reopening");
     expect(guardrails).not.toContain("genuinely optional or deferred work");
     expect(guardrails).not.toContain("accepted Work evidence, synchronized commit or artifact metadata");
   });
@@ -533,7 +536,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Escalate alignment back to the user only");
     expect(guardrails).toContain("significant ambiguity, scope change, Journey revision, user-visible tradeoff");
     expect(guardrails).toContain("point the worker at the exact prior messages, quests, or discussions");
-    expect(guardrails).toContain("Fresh human feedback resets the active cycle");
+    expect(guardrails).toContain("Fresh human feedback that changes accepted work resets the active cycle");
+    expect(guardrails).toContain(
+      "An ordinary read-only clarification during Memory does not reset or reopen the quest",
+    );
     expect(guardrails).toContain("do not let stale old-scope completions advance the quest");
     expect(guardrails).toContain("zero-tracked-change quests");
     expect(guardrails).toContain("Work still produces the accepted artifact or finding");
@@ -616,7 +622,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("After the user answers a same-session `takode notify needs-input` prompt");
     expect(guardrails).toContain("Use this only for notifications created by your current session");
     expect(guardrails).toContain("so the user never misses it");
-    expect(guardrails).toContain("Fresh human feedback outranks stale completions");
+    expect(guardrails).toContain("Fresh human feedback that changes accepted work outranks stale completions");
     expect(guardrails).toContain("Do **not** call `takode notify review` for quest completion");
     expect(guardrails).toContain("Takode already sends that review notification automatically");
     // Detailed content moved to sub-skill files, not inline

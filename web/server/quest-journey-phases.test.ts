@@ -168,6 +168,8 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(work.assigneeBrief).toContain("Deliver cosmetic or non-material issues with a caveat");
     expect(work.assigneeBrief).toContain("A new validator or hard gate introduced mid-Work");
     expect(work.assigneeBrief).toContain("Do not call Work complete or hand off to Memory");
+    expect(work.assigneeBrief).toContain("return the compact Work handoff and stop the Work turn");
+    expect(work.assigneeBrief).toContain("Do not begin final Memory in the same turn");
     expect(work.leaderBrief).toContain("separate quest with its own Alignment -> Work -> Memory flow");
     expect(work.leaderBrief).toContain("evidence alone does not authorize the broader scope");
     expect(work.leaderBrief).toContain("Normal non-transforming safeguards remain mandatory");
@@ -186,6 +188,10 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(work.leaderBrief).toContain("Do not defer this correction to final Memory");
     expect(work.leaderBrief).toContain("before telling the user a feature is implemented, available, or ready to test");
     expect(work.leaderBrief).toContain("When accepted scope still includes implementation");
+    expect(work.leaderBrief).toContain("promptly report the main accepted answer, finding, or outcome");
+    expect(work.leaderBrief).toContain("do not describe the still-open quest as technically complete");
+    expect(work.leaderBrief).toContain("The user-facing thread may be Ready");
+    expect(work.nextLeaderAction).toContain("promptly report the accepted outcome to the user");
     expect(work.leaderBrief).not.toContain("Give the worker the exact approved scope");
     expect(checkpoint.leaderBrief).toContain("return the current quest to its assigned worker in `WORKING`");
     expect(checkpoint.leaderBrief).toContain(
@@ -221,6 +227,11 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(memory.assigneeBrief).toContain("exactly one memory statement");
     expect(memory.assigneeBrief).toContain("plain-language user-facing outcome");
     expect(memory.assigneeBrief).toContain("do not paste the whole phase note into the final debrief");
+    expect(memory.leaderBrief).toContain("Memory is asynchronous post-processing");
+    expect(memory.leaderBrief).toContain("report it now from the current Work note");
+    expect(memory.leaderBrief).toContain("ordinary read-only follow-up questions during Memory");
+    expect(memory.leaderBrief).toContain("without reopening the quest");
+    expect(memory.nextLeaderAction).toContain("report the accepted Work outcome immediately");
     expect(memory.leaderBrief).toContain("normal same-worker Memory owner");
     expect(memory.leaderBrief).toContain("route the assigned Work worker back to Work");
     expect(memory.assigneeBrief).toContain("route the assigned Work worker back to Work");
@@ -245,6 +256,10 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(lifecycle).toContain("Before telling the user that a feature is implemented, available, or ready to test");
     expect(lifecycle).toContain("When the accepted outcome still includes implementation");
     expect(lifecycle).toContain("design-only or investigation quests may enter Memory");
+    expect(lifecycle).toContain("worker returns the compact Work handoff and stops the Work turn");
+    expect(lifecycle).toContain("without waiting for Memory closure");
+    expect(lifecycle).toContain("Ordinary read-only follow-up questions during Memory");
+    expect(lifecycle).toContain("do not reopen the quest");
   });
 
   it("builds a read-only active v2 phase catalog with source metadata and exact display paths", async () => {

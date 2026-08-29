@@ -345,6 +345,12 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("alignment -> work -> memory");
     expect(result).toContain("Work owns the old middle phases");
     expect(result).toContain("worker-owned Work -> Memory");
+    expect(result).toContain("Report accepted Work before Memory closure");
+    expect(result).toContain("the worker stops the Work turn");
+    expect(result).toContain("Promptly tell the user the main accepted answer, finding, or outcome");
+    expect(result).toContain("a user-facing thread may be Ready once the accepted result is reported");
+    expect(result).toContain("Ordinary read-only follow-ups during Memory use accepted evidence without reopening");
+    expect(result).toContain("An ordinary read-only clarification during Memory does not reset or reopen the quest");
     expect(result).toContain("Embedded review phases are not part of active Quest Journey v2");
     expect(result).toContain("separate review quest");
     expect(result).toContain("User Checkpoint pauses Work");

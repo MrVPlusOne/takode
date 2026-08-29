@@ -67,11 +67,15 @@ The command is:
 takode board work-to-memory q-N --work-note <feedback-index>
 ```
 
-Leaders can still inspect or intervene, but routine Work completion does not require leader approval.
+After the transition succeeds, the worker returns the compact Work handoff and stops the Work turn rather than starting final Memory immediately. This creates the normal leader-visible boundary. The leader promptly reports the main accepted answer, finding, or outcome from the Work note, then sends the Memory phase instruction to the normal same worker without waiting for Memory closure. The outcome report must preserve the delivery-evidence guard and must not claim that the still-open quest is technically complete.
+
+Leaders can still inspect or intervene, but routine Work completion does not require leader approval. A user-facing thread may be Ready once the accepted result has been reported even while the quest remains open in Memory for mandatory durable closure.
 
 ## Memory
 
-Final Memory is mandatory for every non-cancelled quest. Memory normally stays with the same worker after Work. It performs catalog/direct-file memory triage, writes or defers durable memory, reconciles quest title/TLDR/description against delivered scope, settles genuine User review checks, records cleanup/follow-ups, writes final debrief metadata, and completes the quest.
+Final Memory is mandatory for every non-cancelled quest. It is asynchronous post-processing from the user's perspective, not an extra delay before the accepted Work result is reported. Memory normally stays with the same worker after Work. It performs catalog/direct-file memory triage, writes or defers durable memory, reconciles quest title/TLDR/description against delivered scope, settles genuine User review checks, records cleanup/follow-ups, writes final debrief metadata, and completes the quest.
+
+A quest in `MEMORY` remains technically open but is downstream-unblocking because its substantive result is accepted and synced when applicable. A dependent may proceed unless it explicitly requires an output produced by Memory; that exceptional dependency remains leader-managed. Ordinary read-only follow-up questions during Memory use accepted Work/Memory evidence or the context-rich responsible worker and do not reopen the quest. A changed accepted result or a request for new investigation, implementation, validation, or another substantive deliverable follows the normal rework lifecycle.
 
 Exactly one final memory statement is required:
 
@@ -111,4 +115,4 @@ quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md 
 
 Use phase-scoped inference when available, or explicit `--phase`, `--phase-position`, `--phase-occurrence`, `--phase-occurrence-id`, or `--journey-run` when needed. Keep phase notes useful and compressed: decisions, blockers, evidence, user choices, external state, residual risks, and next-phase handoff facts. Avoid file-by-file diff narration, long command transcripts, routine green-test lists, and repeated commit metadata.
 
-Final chat handoffs should point to the phase feedback index and repeat only urgent blockers, safety facts, or narrow phase-required exceptions.
+Final chat handoffs should point to the phase feedback index and include the concise outcome or verdict plus only urgent blockers, safety facts, or narrow phase-required exceptions.

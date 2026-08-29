@@ -95,6 +95,9 @@ describe("quest skill ownership docs", () => {
     expect(docs).toContain("User Checkpoint packets");
     expect(docs).toContain("Work's selected target plus ordered `Synced SHAs:`");
     expect(docs).toContain("final Memory's required memory statement");
+    expect(docs).toContain("After a successful Work -> Memory transition, stop the Work turn");
+    expect(docs).toContain("the leader can report the accepted outcome immediately");
+    expect(docs).toContain("Final Memory resumes under the Memory phase brief and remains mandatory");
   });
 
   it("documents the generic two-axis tag taxonomy with mocked non-examples", () => {

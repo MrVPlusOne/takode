@@ -50,6 +50,16 @@ describe("leader skill preload builder", () => {
     expect(isLeaderSkillPreloadSourceId(orchestration.agentSource.sessionId)).toBe(true);
   });
 
+  it("preloads the accepted-Work-before-Memory contract from the real orchestration skill", async () => {
+    const bundles = await buildLeaderSkillPreloadBundles();
+    const orchestration = bundles.find((bundle) => bundle.skillName === "takode-orchestration");
+
+    expect(orchestration?.content).toContain("Report accepted Work before Memory closure");
+    expect(orchestration?.content).toContain("send final Memory to the normal same worker without waiting for closure");
+    expect(orchestration?.content).toContain("Ordinary read-only follow-ups during Memory use accepted evidence");
+    expect(orchestration?.content).toContain("Final Memory is mandatory");
+  });
+
   it("keeps visible preload events separate while model delivery is atomic", async () => {
     const readFile = vi.fn(async (path: string) => `content for ${path}`);
     const bundles = await buildLeaderSkillPreloadBundles({ packageRoot: "/repo", readFile });
