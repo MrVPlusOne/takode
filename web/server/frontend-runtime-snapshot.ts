@@ -75,6 +75,41 @@ export function getOwnedFrontendRuntimeSnapshotCleanupRoot(): string | null {
   return ownedRuntimeSnapshotCleanupRoot;
 }
 
+export interface FrontendServingServer {
+  stop(closeActiveConnections?: boolean): Promise<void>;
+}
+
+export type FrontendShutdownFailurePhase = "stop" | "cleanup";
+
+export interface StopFrontendServerBeforeCleanupOptions {
+  server: FrontendServingServer;
+  cleanup?: () => Promise<void>;
+  onFailure: (phase: FrontendShutdownFailurePhase, error: unknown) => void;
+}
+
+/**
+ * Stops HTTP/WebSocket serving before removing a direct-start frontend snapshot.
+ *
+ * If listener shutdown fails, preserve the snapshot and let process exit close the
+ * server rather than reintroducing a live API with missing static assets.
+ */
+export async function stopFrontendServerBeforeSnapshotCleanup(
+  options: StopFrontendServerBeforeCleanupOptions,
+): Promise<void> {
+  try {
+    await options.server.stop(true);
+  } catch (error) {
+    options.onFailure("stop", error);
+    return;
+  }
+
+  try {
+    await (options.cleanup ?? cleanupOwnedFrontendRuntimeSnapshot)();
+  } catch (error) {
+    options.onFailure("cleanup", error);
+  }
+}
+
 function validatePrefix(prefix: string): void {
   if (!prefix || prefix === "." || prefix === ".." || prefix.includes("/") || prefix.includes("\\")) {
     throw new Error("Frontend runtime snapshot prefix must be a non-empty path segment");

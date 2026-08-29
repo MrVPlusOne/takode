@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import {
   createValidatedFrontendRuntimeSnapshot,
   resolveFrontendRuntimeParent,
+  stopFrontendServerBeforeSnapshotCleanup,
   type FrontendRuntimeSnapshotCopier,
   type FrontendRuntimeSnapshotValidator,
 } from "./frontend-runtime-snapshot.js";
@@ -204,5 +205,45 @@ describe("createValidatedFrontendRuntimeSnapshot", () => {
     await expectAbsent(copiedRoot);
     expect(await readdir(runtimeParent)).toEqual([]);
     expect(await snapshotFiles(sourceRoot)).toEqual(sourceBefore);
+  });
+});
+
+describe("stopFrontendServerBeforeSnapshotCleanup", () => {
+  it("stops active serving before deleting the owned frontend", async () => {
+    // The outage contract requires the API listener to close before its static tree disappears.
+    const order: string[] = [];
+    const server = {
+      stop: vi.fn(async (closeActiveConnections?: boolean) => {
+        expect(closeActiveConnections).toBe(true);
+        order.push("stop");
+      }),
+    };
+    const cleanup = vi.fn(async () => {
+      order.push("cleanup");
+    });
+    const onFailure = vi.fn();
+
+    await stopFrontendServerBeforeSnapshotCleanup({ server, cleanup, onFailure });
+
+    expect(order).toEqual(["stop", "cleanup"]);
+    expect(server.stop).toHaveBeenCalledOnce();
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(onFailure).not.toHaveBeenCalled();
+  });
+
+  it("preserves the snapshot when listener shutdown fails", async () => {
+    // Process exit will still close the listener, but deleting first would recreate health-200/static-404 split-brain.
+    const stopFailure = new Error("listener would not stop");
+    const cleanup = vi.fn(async () => undefined);
+    const onFailure = vi.fn();
+
+    await stopFrontendServerBeforeSnapshotCleanup({
+      server: { stop: vi.fn(async () => Promise.reject(stopFailure)) },
+      cleanup,
+      onFailure,
+    });
+
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(onFailure).toHaveBeenCalledWith("stop", stopFailure);
   });
 });

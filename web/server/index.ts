@@ -55,7 +55,7 @@ import { resumeRestartContinuations } from "./restart-continuation-store.js";
 import { requestStartupRecoveryRelaunch, runStartupRecovery } from "./startup-recovery.js";
 import { getStaticAssetCacheControl } from "./static-asset-cache.js";
 import { checkFrontendAvailability } from "./frontend-availability.js";
-import { cleanupOwnedFrontendRuntimeSnapshot } from "./frontend-runtime-snapshot.js";
+import { stopFrontendServerBeforeSnapshotCleanup } from "./frontend-runtime-snapshot.js";
 import { markCodexIntentionalRelaunch, markSessionRelaunchPending } from "./bridge/codex-recovery-orchestrator.js";
 import { deliverModelProvenanceMigration } from "./model-provenance-migration-delivery.js";
 import {
@@ -1110,6 +1110,18 @@ sleepInhibitor.start();
 // ── Shutdown helpers ─────────────────────────────────────────────────────────
 async function performShutdown() {
   serverLog.info("Persisting state before shutdown...");
+  await stopFrontendServerBeforeSnapshotCleanup({
+    server,
+    onFailure: (phase, error) => {
+      serverLog.error(
+        phase === "stop"
+          ? "Failed to stop frontend-serving listener; preserving runtime snapshot"
+          : "Failed to remove owned frontend runtime snapshot",
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    },
+  });
+
   try {
     await codexWorkerV2RolloutService.destroy();
     idleManager.stop();
@@ -1121,11 +1133,6 @@ async function performShutdown() {
     resourceLeaseManager.destroy();
     cronScheduler.destroy();
   } finally {
-    await cleanupOwnedFrontendRuntimeSnapshot().catch((error) => {
-      serverLog.error("Failed to remove owned frontend runtime snapshot", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
     await flushServerLogger();
   }
 }
