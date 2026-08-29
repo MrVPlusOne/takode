@@ -1515,6 +1515,122 @@ describe("thread window hydration", () => {
     expect(main.entries.map((entry) => entry.message.type)).not.toContain("codex_auto_pause_recovery_summary");
   });
 
+  it("selects bounded ordinary windows from root rows instead of child-owned conversation ranges", () => {
+    // The server window budget must be spent on rows the ordinary feed can
+    // render; child-heavy tails remain available only through the inspector.
+    const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const history: BrowserIncomingMessage[] = [
+      user("root-user", "visible root request"),
+      assistant("root-answer", "visible root answer"),
+      successfulResult("root-result"),
+    ];
+    for (let index = 0; index < 4; index++) {
+      const childUser = user(`child-user-${index}`, `hidden child request ${index}`);
+      childUser.codexSubagent = ownership;
+      const childAnswer = assistant(`child-answer-${index}`, `hidden child answer ${index}`);
+      childAnswer.codexSubagent = ownership;
+      const childResult = successfulResult(`child-result-${index}`);
+      childResult.codexSubagent = ownership;
+      history.push(childUser, childAnswer, childResult);
+    }
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: -1,
+      itemCount: 2,
+      sectionItemCount: 1,
+      visibleItemCount: 2,
+      includeMessage: (message) => message.codexSubagent == null,
+    });
+
+    expect(sync.window).toEqual(
+      expect.objectContaining({
+        from_item: 0,
+        item_count: 1,
+        total_items: 1,
+        source_history_length: history.length,
+        has_older_items: false,
+        has_newer_items: false,
+      }),
+    );
+    expect(sync.entries.map((entry) => entry.history_index)).toEqual([0, 1, 2]);
+    expect(sync.entries.every((entry) => entry.message.codexSubagent == null)).toBe(true);
+  });
+
+  it("preserves raw history indexes while excluding ineligible rows before projected routing and closure", () => {
+    // Search/feed consumers may exclude authoritative native-child rows, but
+    // retained root targets must keep their durable raw history positions and
+    // child-only routed runs must not synthesize Main activity markers.
+    const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const childQuest = user("child-quest", "hidden child quest activity", "q-1975");
+    childQuest.codexSubagent = ownership;
+    const rootMain = user("root-main", "visible root activity");
+    const history: BrowserIncomingMessage[] = [childQuest, rootMain];
+
+    const entries = buildProjectedThreadEntries(history, "main", {
+      includeMessage: (message) => message.codexSubagent == null,
+    });
+
+    expect(entries).toEqual([{ message: rootMain, history_index: 1 }]);
+  });
+
+  it("keeps root tool closure owner-scoped when a child reuses the same provider tool id", () => {
+    // Provider tool ids are not session-global. Root-facing projections must
+    // retain the root result at its raw index without admitting child support.
+    const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const rootTool = bashAssistant("root-tool", "root command", { toolUseId: "shared-tool-id" });
+    const childTool = bashAssistant("child-tool", "child command", { toolUseId: "shared-tool-id" });
+    childTool.codexSubagent = ownership;
+    const childSupport = assistant("child-support", "hidden child follow-up", {
+      parentToolUseId: "shared-tool-id",
+    });
+    childSupport.codexSubagent = ownership;
+    const childPreview = toolResultPreview("shared-tool-id", "hidden child result");
+    childPreview.codexSubagent = ownership;
+    const rootPreview = toolResultPreview("shared-tool-id", "visible root result");
+    const history: BrowserIncomingMessage[] = [
+      user("root-user", "run the root command"),
+      rootTool,
+      childTool,
+      childSupport,
+      childPreview,
+      rootPreview,
+    ];
+
+    const entries = buildProjectedThreadEntries(history, "main", {
+      includeMessage: (message) => message.codexSubagent == null,
+    });
+
+    expect(entries.map((entry) => entry.history_index)).toEqual([0, 1, 5]);
+    expect(entries.some((entry) => entry.message === childTool || entry.message === childSupport)).toBe(false);
+    const preview = entries.at(-1)?.message;
+    expect(preview?.type).toBe("tool_result_preview");
+    if (preview?.type === "tool_result_preview") {
+      expect(preview.codexSubagent).toBeUndefined();
+      expect(preview.previews).toEqual([expect.objectContaining({ content: "visible root result" })]);
+    }
+  });
+
+  it("does not reintroduce an excluded child result at the next root turn boundary", () => {
+    const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const childResult = successfulResult("child-result");
+    childResult.codexSubagent = ownership;
+    const history: BrowserIncomingMessage[] = [
+      user("root-one", "first root turn"),
+      assistant("root-answer", "root answer"),
+      childResult,
+      user("root-two", "second root turn"),
+    ];
+
+    const entries = buildProjectedThreadEntries(history, "main", {
+      includeMessage: (message) => message.codexSubagent == null,
+    });
+
+    expect(entries.map((entry) => entry.history_index)).toEqual([0, 1, 3]);
+    expect(entries.some((entry) => entry.message === childResult)).toBe(false);
+  });
+
   it("keeps reasoning details in chronological order only in their attributed thread", () => {
     const reasoning: BrowserIncomingMessage = {
       type: "codex_reasoning_detail",

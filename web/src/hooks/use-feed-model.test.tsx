@@ -138,7 +138,7 @@ function collapsedEntryIds(turn: {
   });
 }
 
-describe("native Codex child audit grouping", () => {
+describe("canonical native Codex child transcript grouping", () => {
   it("keeps parented child rows top-level and isolates adjacent child/root tool groups", () => {
     const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
     const childResult = {

@@ -688,6 +688,38 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     expect(normalized?.agentSource).toBeUndefined();
   });
 
+  it("preserves native child ownership on rendered terminal results", () => {
+    const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const baseResult: Extract<BrowserIncomingMessage, { type: "result" }> = {
+      type: "result" as const,
+      data: {
+        type: "result" as const,
+        subtype: "error_during_execution" as const,
+        is_error: true,
+        result: "child failed",
+        duration_ms: 1,
+        duration_api_ms: 1,
+        num_turns: 1,
+        total_cost_usd: 0,
+        session_id: "session-1",
+      },
+      codexSubagent: ownership,
+    } as Extract<BrowserIncomingMessage, { type: "result" }>;
+
+    const [failed] = normalizeHistoryMessageToChatMessages(baseResult, 15);
+    const [successful] = normalizeHistoryMessageToChatMessages(
+      {
+        ...baseResult,
+        data: { ...baseResult.data, subtype: "success", is_error: false, result: "child done" },
+      } as BrowserIncomingMessage,
+      16,
+      { includeSuccessfulResult: true },
+    );
+
+    expect(failed).toMatchObject({ variant: "error", metadata: { codexSubagent: ownership } });
+    expect(successful).toMatchObject({ content: "child done", metadata: { codexSubagent: ownership } });
+  });
+
   it("preserves stable child error identity, chronology, route, and ownership", () => {
     const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
     const [normalized] = normalizeHistoryMessageToChatMessages(

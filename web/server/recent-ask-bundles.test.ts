@@ -134,6 +134,61 @@ describe("recent ask streamed response boundaries", () => {
 });
 
 describe("buildRecentAskBundles", () => {
+  it("excludes native child responses and terminal results from root Recent bundles", () => {
+    // Recent opens responses in the ordinary root feed. Child-owned rows remain
+    // inspector-only and cannot satisfy a root notification anchor or close the bundle.
+    const childResponse = assistant("child-response", "Hidden child response", 11);
+    childResponse.codexSubagent = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const childResult = result();
+    childResult.codexSubagent = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const response = buildRecentAskBundles({
+      documents: [
+        doc([user("root-ask", "Root ask", 10), childResponse, childResult], {
+          notifications: [
+            {
+              id: "child-review",
+              category: "review",
+              timestamp: 12,
+              messageId: "child-response",
+              done: false,
+              threadKey: "main",
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(response.groups).toEqual([
+      expect.objectContaining({
+        members: [expect.objectContaining({ messageId: "root-ask" })],
+        status: "awaiting_response",
+      }),
+    ]);
+    expect(response.groups[0]?.response).toBeUndefined();
+  });
+
+  it("excludes a native child user row without hiding the preceding root conversation", () => {
+    // A normal-session scan starts at its newest real root ask. A later child
+    // user row must neither become a bundle nor truncate the earlier root bundle.
+    const childAsk = user("child-ask", "Hidden child ask", 12);
+    childAsk.codexSubagent = { childId: "opaque-child", rootTurnId: "root-ask" };
+    const response = buildRecentAskBundles({
+      documents: [
+        doc([user("root-ask", "Root ask", 10), assistant("root-response", "Root response", 11), childAsk], {
+          isOrchestrator: false,
+        }),
+      ],
+    });
+
+    expect(response.groups).toEqual([
+      expect.objectContaining({
+        members: [expect.objectContaining({ messageId: "root-ask" })],
+        response: expect.objectContaining({ messageId: "root-response" }),
+        status: "responded",
+      }),
+    ]);
+  });
+
   it("collapses repeated same-destination asks to the newest direct-human message", () => {
     const response = buildRecentAskBundles({
       documents: [

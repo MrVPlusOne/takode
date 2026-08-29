@@ -140,6 +140,7 @@ import {
   findVisibleSectionEndIndex,
   findVisibleSectionStartIndex,
 } from "./MessageFeed.js";
+import { collectCodexTerminalEntries } from "./MessageFeedLiveActivity.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -515,6 +516,92 @@ function makeDomRect(height: number, width = 0): DOMRect {
 }
 
 describe("MessageFeed - Codex terminal chips", () => {
+  it("collects only root-owned terminal commands before tool-id deduplication", () => {
+    // Child and root tools can reuse provider-local IDs. The child row must not
+    // steal the root command's rail identity or consult root result state.
+    const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const child = makeMessage({
+      id: "child-shared-tool",
+      role: "assistant",
+      content: "",
+      contentBlocks: [{ type: "tool_use", id: "shared-tool", name: "Bash", input: { command: "child-hidden" } }],
+      metadata: { codexSubagent: ownership },
+    });
+    const root = makeMessage({
+      id: "root-shared-tool",
+      role: "assistant",
+      content: "",
+      contentBlocks: [{ type: "tool_use", id: "shared-tool", name: "Bash", input: { command: "root-visible" } }],
+    });
+
+    expect(collectCodexTerminalEntries([child, root]).map((entry) => entry.preview)).toEqual(["root-visible"]);
+  });
+
+  it("shows only a genuinely live root command when root and child terminal activity coexist", () => {
+    // Producer-shaped child results stay message-local, while root results live
+    // in the session map. Neither a settled child nor a settled root command
+    // may survive in the main-feed rail.
+    const sid = "test-codex-root-only-live-terminal";
+    const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
+    setStoreSessionBackend(sid, "codex");
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-root", role: "user", content: "Run root and child checks" }),
+      makeMessage({
+        id: "child-terminal-message",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "child-terminal", name: "Bash", input: { command: "child-hidden --scan" } },
+        ],
+        metadata: {
+          codexSubagent: ownership,
+          codexSubagentToolResults: {
+            "child-terminal": {
+              tool_use_id: "child-terminal",
+              content: "child complete",
+              is_error: false,
+              total_size: 14,
+              is_truncated: false,
+            },
+          },
+        },
+      }),
+      makeMessage({
+        id: "root-settled-message",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "root-settled", name: "Bash", input: { command: "root-done --check" } },
+        ],
+      }),
+      makeMessage({
+        id: "root-live-message",
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "tool_use", id: "root-live", name: "Bash", input: { command: "root-live --watch" } }],
+      }),
+    ]);
+    setStoreToolProgress(sid, [
+      { toolUseId: "root-settled", toolName: "Bash", elapsedSeconds: 20 },
+      { toolUseId: "root-live", toolName: "Bash", elapsedSeconds: 20 },
+    ]);
+    setStoreToolStartTimestamps(sid, {
+      "root-settled": Date.now() - 20_000,
+      "root-live": Date.now() - 20_000,
+    });
+    setStoreToolResults(sid, {
+      "root-settled": { content: "root complete", is_truncated: false, duration_seconds: 0.2 },
+    });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    const chips = screen.getAllByTestId("codex-live-terminal-chip");
+    expect(chips).toHaveLength(1);
+    expect(chips[0].textContent).toContain("root-live");
+    expect(screen.queryByText("child-hidden --scan")).toBeNull();
+    expect(screen.getByText("root-done --check")).toBeTruthy();
+  });
+
   it("renders a top rail chip and compact inline stub for a long-running Codex Bash command", () => {
     const sid = "test-codex-live-terminal";
     setStoreSessionBackend(sid, "codex");
@@ -749,7 +836,7 @@ describe("MessageFeed - Codex terminal chips", () => {
     expect(inspector.style.height).toBe("468px");
   });
 
-  it("removes the live chip once the Codex Bash command has a final result", () => {
+  it("retires a visible root terminal chip and inline stub as soon as its final result arrives", () => {
     const sid = "test-codex-live-complete";
     setStoreSessionBackend(sid, "codex");
     setStoreMessages(sid, [
@@ -760,6 +847,16 @@ describe("MessageFeed - Codex terminal chips", () => {
         contentBlocks: [{ type: "tool_use", id: "tu-live-3", name: "Bash", input: { command: "bun run test" } }],
       }),
     ]);
+    setStoreToolProgress(sid, [
+      { toolUseId: "tu-live-3", toolName: "Bash", elapsedSeconds: 15, output: "RUN tests\n" },
+    ]);
+    setStoreToolStartTimestamps(sid, { "tu-live-3": Date.now() - 15_000 });
+
+    const view = render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByTestId("codex-live-terminal-chip")).toBeTruthy();
+    expect(screen.getByText("Live terminal")).toBeTruthy();
+
     setStoreToolResults(sid, {
       "tu-live-3": {
         content: "12 passed",
@@ -767,8 +864,7 @@ describe("MessageFeed - Codex terminal chips", () => {
         duration_seconds: 15.2,
       },
     });
-
-    render(<MessageFeed sessionId={sid} />);
+    view.rerender(<MessageFeed sessionId={sid} />);
 
     expect(screen.queryByTestId("codex-live-terminal-chip")).toBeNull();
     expect(screen.queryByTestId("live-activity-rail")).toBeNull();

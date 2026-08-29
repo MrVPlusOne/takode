@@ -114,6 +114,26 @@ describe("searchGlobalStarredMessages", () => {
     });
   });
 
+  it("keeps proven child-owned stars stored but out of ordinary starred search", () => {
+    // The read-only inspector has no exact starred-message target. A proven
+    // child star therefore remains durable sidecar data without becoming a blank feed jump.
+    const child = assistant("child-star", "child-only starred content", 20);
+    child.codexSubagent = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const response = searchGlobalStarredMessages({
+      docs: [
+        doc({
+          messageHistory: [assistant("root-star", "root starred content", 10), child],
+          starredMessages: {
+            "root-star": star("root-star", "assistant", 0, 10, 100),
+            "child-star": star("child-star", "assistant", 1, 20, 200),
+          },
+        }),
+      ],
+    });
+
+    expect(response.results.map((result) => result.messageId)).toEqual(["root-star"]);
+  });
+
   it("searches archived search-only excerpts and includes archived reviewer context", () => {
     const response = searchGlobalStarredMessages({
       query: "dragonfruit",

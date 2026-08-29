@@ -3,6 +3,7 @@ import type { SearchExcerpt } from "./session-store.js";
 import { multiWordMatch, normalizeForSearch } from "../shared/search-utils.js";
 import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
 import { buildCodexAutoPauseRecoverySearchText } from "./codex-auto-pause-types.js";
+import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
 
 export type SessionSearchMatchedField =
   | "session_number"
@@ -241,9 +242,10 @@ function messageMatchCandidate(
 
   let scanned = 0;
   for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    if (!isRootAgentHistoryMessage(msg)) continue;
     if (scanned >= maxMessagesToScan) break;
     scanned++;
-    const msg = history[i];
 
     // Search user messages and server-authored recovery summaries.
     if (msg.type === "user_message") {

@@ -1,5 +1,6 @@
 import type { BrowserIncomingMessage, ContentBlock, StarredMessageRecord } from "./session-types.js";
 import { authoritativeMessageOwner } from "./authoritative-message-owner.js";
+import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
 import {
   ALL_THREADS_KEY,
   MAIN_THREAD_KEY,
@@ -109,7 +110,9 @@ export function searchSessionMessages(input: SearchSessionMessagesInput): Messag
     sessionNum: input.sessionNum,
   });
   const projectionKey = scope.kind === "current_thread" ? scope.threadKey : ALL_THREADS_KEY;
-  const entries = buildProjectedThreadEntries(input.messageHistory, projectionKey);
+  const entries = buildProjectedThreadEntries(input.messageHistory, projectionKey, {
+    includeMessage: (message) => isRootAgentHistoryMessage(message),
+  });
   const candidates = entries
     .map((entry) =>
       buildCandidate({

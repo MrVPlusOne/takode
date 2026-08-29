@@ -91,6 +91,38 @@ describe("searchSessionMessages", () => {
     expect(response.results[0]?.questId).toBeUndefined();
   });
 
+  it("excludes proven native child rows from root-feed message search", () => {
+    // Universal Messages navigates into the ordinary feed. Child-owned matches
+    // remain authoritative but are intentionally discoverable through the inspector instead.
+    const childAssistant = assistant("child-assistant", "shared child and root phrase", 20);
+    childAssistant.codexSubagent = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const childUser = user("child-user", "shared child and root phrase", 30);
+    childUser.codexSubagent = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const childError: BrowserIncomingMessage = {
+      type: "error",
+      id: "child-error",
+      message: "shared child and root phrase",
+      timestamp: 40,
+      codexSubagent: { childId: "opaque-child", rootTurnId: "root-turn" },
+    };
+    const response = searchSessionMessages({
+      sessionId: "normal-session",
+      sessionNum: 123,
+      isLeaderSession: false,
+      messageHistory: [
+        childAssistant,
+        assistant("root-assistant", "shared child and root phrase", 10),
+        childUser,
+        childError,
+      ],
+      query: "shared child and root phrase",
+      filters: { user: true, assistant: true, event: true },
+    });
+
+    expect(response.results.map((result) => result.messageId)).toEqual(["root-assistant"]);
+    expect(response.results[0]?.historyIndex).toBe(1);
+  });
+
   it("uses Main thread projection for leader current-thread scope", () => {
     const response = searchSessionMessages({
       sessionId: "leader-session",

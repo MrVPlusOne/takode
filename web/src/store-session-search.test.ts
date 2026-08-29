@@ -34,6 +34,26 @@ describe("store session search helpers", () => {
     ).toEqual([{ messageId: "m1" }]);
   });
 
+  it("excludes proven native child rows from ordinary in-session search", () => {
+    // Search targets scroll the root feed, so every returned match must remain
+    // renderable there; child transcript search belongs to the inspector.
+    expect(
+      computeSessionSearchMatches(
+        [
+          { id: "root", role: "assistant", content: "shared searchable phrase" },
+          {
+            id: "child",
+            role: "assistant",
+            content: "shared searchable phrase",
+            metadata: { codexSubagent: { childId: "opaque-child", rootTurnId: "root-turn" } },
+          },
+        ],
+        "searchable phrase",
+        "strict",
+      ),
+    ).toEqual([{ messageId: "root" }]);
+  });
+
   it("matches fuzzy searches by requiring every query token", () => {
     // Fuzzy mode is intentionally forgiving on spacing/order but still requires
     // all meaningful tokens so broad queries do not over-highlight the feed.

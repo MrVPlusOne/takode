@@ -12,6 +12,7 @@ import {
 } from "./codex-auto-pause-types.js";
 import { deriveCodexNativeSubagentSnapshot } from "./codex-native-subagent-state.js";
 import { repairRestoredCodexNativeSubagentAuthority } from "./codex-native-subagent-ownership-repair.js";
+import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
 import type {
   SessionState,
   BrowserIncomingMessage,
@@ -679,6 +680,7 @@ export class SessionStore {
     const excerpts: SearchExcerpt[] = [];
     const MAX_CONTENT_LEN = 500;
     for (const msg of messages) {
+      if (!isRootAgentHistoryMessage(msg)) continue;
       if (msg.type === "user_message") {
         const content = (msg.content || "").trim();
         if (!content) continue;

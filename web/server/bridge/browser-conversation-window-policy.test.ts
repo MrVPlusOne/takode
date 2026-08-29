@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage } from "../session-types.js";
 import {
   configureBoundedConversationSubscribe,
+  prepareBoundedConversationSubscribe,
   recordBoundedConversationRequest,
   recordBoundedConversationViewUpdate,
   shouldDeliverBrowserEventToSocket,
@@ -25,6 +26,48 @@ function threadSocket(threadKey: string): BrowserConversationWindowSocketData {
 }
 
 describe("bounded browser conversation delivery", () => {
+  it("prepares the initial history window from root turns instead of a child-owned tail", () => {
+    const history: BrowserIncomingMessage[] = [];
+    const result = (codexSubagent?: BrowserIncomingMessage["codexSubagent"]): BrowserIncomingMessage =>
+      ({
+        type: "result",
+        data: { type: "result", subtype: "success", is_error: false },
+        ...(codexSubagent ? { codexSubagent } : {}),
+      }) as BrowserIncomingMessage;
+    for (let index = 0; index < 10; index++) {
+      history.push({ type: "user_message", id: `root-${index}`, content: "root", timestamp: index });
+      history.push(result());
+    }
+    const ownership = { childId: "opaque-child", rootTurnId: "root-9" };
+    for (let index = 0; index < 20; index++) {
+      history.push({
+        type: "user_message",
+        id: `child-${index}`,
+        content: "child",
+        timestamp: 100 + index,
+        codexSubagent: ownership,
+      });
+      history.push(result(ownership));
+    }
+
+    const prepared = prepareBoundedConversationSubscribe({
+      session: { messageHistory: history, eventBuffer: [], nextEventSeq: 1 },
+      socketData: {},
+      feedWindowSyncVersion: 1,
+      initialThreadWindow: null,
+      historyWindowSectionTurnCount: 1,
+      historyWindowVisibleSectionCount: 3,
+      historyWindowTargetMessageId: undefined,
+      historyWindowTargetIndex: undefined,
+      lastAckSeq: 0,
+      running: false,
+      isHistoryBackedEvent: () => false,
+    });
+
+    expect(prepared.historyView).toMatchObject({ fromTurn: 7, turnCount: 3 });
+    expect(prepared.boundedView).toMatchObject({ kind: "history", request: { fromTurn: 7, turnCount: 3 } });
+  });
+
   it("fails closed to legacy delivery when capability metadata has no bounded view", () => {
     const socketData: BrowserConversationWindowSocketData = {};
     expect(

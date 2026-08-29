@@ -1045,4 +1045,53 @@ describe("MessageFeed duplicate rendering regression", () => {
       assertSingleAttachedRow();
     }
   });
+
+  it("keeps adjacent live root tools grouped when frozen child rows are filtered", () => {
+    // The canonical frozen prefix counts child rows that the root projection
+    // removes. Reusing that raw count would incrementally freeze each new root
+    // tool and split a group that the full feed model keeps together.
+    const sid = "test-filtered-child-frozen-prefix";
+    const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const rootUser = makeMessage({ id: "root-user", role: "user", content: "Run both root checks." });
+    const childOne = makeMessage({
+      id: "frozen-child-one",
+      role: "assistant",
+      content: "Hidden child one",
+      metadata: { codexSubagent: ownership },
+    });
+    const childTwo = makeMessage({
+      id: "frozen-child-two",
+      role: "assistant",
+      content: "Hidden child two",
+      metadata: { codexSubagent: ownership },
+    });
+    const firstRootTool = makeMessage({
+      id: "first-root-tool-message",
+      role: "assistant",
+      content: "",
+      contentBlocks: [{ type: "tool_use", id: "first-root-tool", name: "Bash", input: { command: "root-one" } }],
+    });
+    const secondRootTool = makeMessage({
+      id: "second-root-tool-message",
+      role: "assistant",
+      content: "",
+      contentBlocks: [{ type: "tool_use", id: "second-root-tool", name: "Bash", input: { command: "root-two" } }],
+    });
+
+    mockStoreValues.sessions = new Map([[sid, { backend_type: "codex" }]]);
+    mockStoreValues.messageFrozenCounts = new Map([[sid, 3]]);
+    setStoreMessages(sid, [rootUser, childOne, childTwo]);
+    const view = render(<MessageFeed sessionId={sid} />);
+
+    setStoreMessages(sid, [rootUser, childOne, childTwo, firstRootTool]);
+    view.rerender(<MessageFeed sessionId={sid} />);
+    setStoreMessages(sid, [rootUser, childOne, childTwo, firstRootTool, secondRootTool]);
+    view.rerender(<MessageFeed sessionId={sid} />);
+
+    const toolGroups = view.container.querySelectorAll('[data-feed-block-id^="tool-group:"]');
+    expect(toolGroups).toHaveLength(1);
+    expect(toolGroups[0]?.textContent).toContain("root-one");
+    expect(toolGroups[0]?.textContent).toContain("root-two");
+    expect(view.container.textContent).not.toContain("Hidden child");
+  });
 });

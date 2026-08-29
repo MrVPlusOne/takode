@@ -205,6 +205,38 @@ describe("Codex native subagent browser authority", () => {
     ).toEqual(ownership);
   });
 
+  it("keeps live child terminal results from settling or failing the root session", () => {
+    wsModule.connectSession("s1");
+    fire({ type: "session_init", session: session("s1", snapshot("safe-child", 1)) });
+    const ownership = { childId: "safe-child", rootTurnId: "turn-safe-child" };
+    const store = useStore.getState();
+    store.setSessionStatus("s1", "running");
+    store.setStreaming("s1", "root stream");
+    store.setToolProgress("s1", "root-tool", { toolName: "Bash", elapsedSeconds: 9 });
+
+    fire({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        result: "child failed",
+        duration_ms: 1,
+        duration_api_ms: 1,
+        num_turns: 1,
+        total_cost_usd: 0,
+        session_id: "s1",
+      },
+      codexSubagent: ownership,
+    });
+
+    const next = useStore.getState();
+    expect(next.sessionStatus.get("s1")).toBe("running");
+    expect(next.streaming.get("s1")).toBe("root stream");
+    expect(next.toolProgress.get("s1")?.has("root-tool")).toBe(true);
+    expect(next.messages.get("s1")?.some((message) => message.content.includes("child failed"))).toBe(false);
+  });
+
   it("preserves stable child errors as owned chronological audit rows", () => {
     wsModule.connectSession("s1");
     fire({ type: "session_init", session: session("s1", snapshot("safe-child", 1)) });
@@ -409,6 +441,21 @@ describe("Codex native subagent browser authority", () => {
           client_msg_id: "colliding-upload",
           codexSubagent: ownership,
         },
+        {
+          type: "result",
+          data: {
+            type: "result",
+            subtype: "error_during_execution",
+            is_error: true,
+            result: "Must not clear root task",
+            duration_ms: 1,
+            duration_api_ms: 1,
+            num_turns: 1,
+            total_cost_usd: 0,
+            session_id: "s1",
+          },
+          codexSubagent: ownership,
+        },
       ],
     });
 
@@ -426,6 +473,9 @@ describe("Codex native subagent browser authority", () => {
       },
     ]);
     expect(state.sessionTaskPreview.get("s1")).toMatchObject({ text: "Root work" });
+    expect(state.messages.get("s1")?.find((message) => message.id === "hist-error-4")?.metadata).toEqual({
+      codexSubagent: ownership,
+    });
     expect(state.toolStartTimestamps.get("s1")).toEqual(new Map([["root-todo", 100]]));
     expect(state.changedFiles.get("s1")).toEqual(new Set(["/tmp/root.ts"]));
     expect(state.sessionPreviews.get("s1")).toBe("Root preview");

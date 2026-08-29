@@ -577,6 +577,39 @@ describe("searchSessionDocuments", () => {
     expect(out.results[0].matchedField).toBe("name");
   });
 
+  it("excludes proven native child messages from sidebar session search", () => {
+    // Sidebar results open the root feed, so child-only text cannot be a stable
+    // message target even though the authoritative history remains intact.
+    const child: BrowserIncomingMessage = {
+      type: "assistant",
+      message: {
+        id: "child-assistant",
+        role: "assistant",
+        type: "message",
+        model: "test",
+        content: [{ type: "text", text: "shared root child search phrase" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: 2000,
+      codexSubagent: { childId: "opaque-child", rootTurnId: "root-turn" },
+    };
+    const root: BrowserIncomingMessage = {
+      type: "user_message",
+      id: "root-user",
+      content: "shared root child search phrase",
+      timestamp: 1000,
+    };
+    const out = searchSessionDocuments(
+      [{ sessionId: "s-root-only", archived: false, createdAt: 100, messageHistory: [root, child] }],
+      { query: "shared root child search phrase" },
+    );
+
+    expect(out.results).toHaveLength(1);
+    expect(out.results[0].messageMatch?.id).toBe("root-user");
+  });
+
   it("searches assistant text responses in full history", () => {
     const docs: SessionSearchDocument[] = [
       {

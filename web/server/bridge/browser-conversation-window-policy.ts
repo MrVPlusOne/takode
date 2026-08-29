@@ -11,6 +11,7 @@ import type {
   ReplayableBrowserIncomingMessage,
 } from "../session-types.js";
 import { findTurnBoundaries } from "../takode-messages.js";
+import { isRootAgentHistoryMessage } from "../root-agent-feed-message.js";
 import { routeFromHistoryEntry } from "../thread-routing-metadata.js";
 
 export interface BoundedHistoryViewRequest {
@@ -78,7 +79,10 @@ export function prepareBoundedConversationSubscribe(input: {
     : 0;
   const historyView = hasHistoryWindow
     ? {
-        fromTurn: Math.max(0, findTurnBoundaries(input.session.messageHistory).length - turnCount),
+        fromTurn: Math.max(
+          0,
+          findTurnBoundaries(input.session.messageHistory, isRootAgentHistoryMessage).length - turnCount,
+        ),
         turnCount,
         sectionTurnCount: input.historyWindowSectionTurnCount!,
         visibleSectionCount: input.historyWindowVisibleSectionCount!,

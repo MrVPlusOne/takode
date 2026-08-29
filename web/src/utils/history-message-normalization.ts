@@ -508,6 +508,7 @@ export function normalizeHistoryMessageToChatMessages(
   }
 
   if (histMsg.type === "result") {
+    const metadata = existingThreadMetadataFromMessage(histMsg);
     const result = histMsg.data as {
       is_error?: boolean;
       errors?: string[];
@@ -524,6 +525,7 @@ export function normalizeHistoryMessageToChatMessages(
           content: result.result,
           timestamp: fallbackTimestamp ?? Date.now(),
           historyIndex,
+          ...(metadata ? { metadata } : {}),
         },
       ];
     }
@@ -537,6 +539,7 @@ export function normalizeHistoryMessageToChatMessages(
         timestamp: fallbackTimestamp ?? Date.now(),
         historyIndex,
         variant: "error",
+        ...(metadata ? { metadata } : {}),
       },
     ];
   }

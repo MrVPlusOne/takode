@@ -35,6 +35,7 @@ import {
 } from "./thread-projection.js";
 import { composeSelectedFeedMessages } from "./thread-window-messages.js";
 import { sanitizeNotificationMessageTargets } from "./notification-targets.js";
+import { filterRootAgentFeedMessages } from "./root-agent-feed-message.js";
 
 export interface BuildFeedMessageModelInput {
   leaderSessionId: string;
@@ -56,6 +57,8 @@ export interface FeedMessageModel {
   normalizedThreadKey: string;
   messagesAvailableForDerivation: ChatMessage[];
   messagesAvailableForProjection: ChatMessage[];
+  /** True when authoritative native-child rows were omitted from the ordinary feed projection. */
+  hasFilteredNativeChildMessages: boolean;
   baseMessages: ChatMessage[];
   attentionRecords: SessionAttentionRecord[];
   attentionRecordsWithThreadMovement: SessionAttentionRecord[];
@@ -87,9 +90,16 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     sanitizedNotifications,
     input.threadKey,
   );
+  const rootMessagesAvailableForDerivation = filterRootAgentFeedMessages(messagesAvailableForDerivation);
+  const rootMessagesAvailableForProjection =
+    messagesAvailableForProjection === messagesAvailableForDerivation
+      ? rootMessagesAvailableForDerivation
+      : filterRootAgentFeedMessages(messagesAvailableForProjection);
+  const hasFilteredNativeChildMessages =
+    rootMessagesAvailableForDerivation.length !== messagesAvailableForDerivation.length;
   const baseMessages = input.projectThreadRoutes
-    ? filterProjectedMessagesForThread(messagesAvailableForProjection, input.threadKey, activeSelectedFeedWindow)
-    : messagesAvailableForDerivation;
+    ? filterProjectedMessagesForThread(rootMessagesAvailableForProjection, input.threadKey, activeSelectedFeedWindow)
+    : rootMessagesAvailableForDerivation;
   const records =
     input.additionalAttentionRecords && input.additionalAttentionRecords.length > 0
       ? [...(input.sessionAttentionRecords ?? []), ...input.additionalAttentionRecords]
@@ -100,11 +110,11 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     notifications: sanitizedNotifications,
     boardRows: input.sessionBoard,
     completedBoardRows: input.sessionCompletedBoard,
-    messages: messagesAvailableForDerivation,
+    messages: rootMessagesAvailableForDerivation,
   });
   const attentionRecordsWithThreadMovement = enrichThreadOpenedRecordsWithMovement(
     attentionRecords,
-    messagesAvailableForProjection,
+    rootMessagesAvailableForProjection,
   );
   const mergedThreadAttachmentKeys = collectMergedThreadAttachmentKeysForThread(
     attentionRecordsWithThreadMovement,
@@ -114,7 +124,9 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
   const baseMessageIds = new Set(visibleBaseMessages.map((message) => message.id));
   const isWindowedMainFeed = input.selectedFeedWindowEnabled && isMainThreadKey(normalizedThreadKey);
   const mainWindowTimestampRange =
-    isWindowedMainFeed && input.selectedFeedWindow ? messageTimestampRange(input.selectedFeedWindowMessages) : null;
+    isWindowedMainFeed && input.selectedFeedWindow
+      ? messageTimestampRange(filterRootAgentFeedMessages(input.selectedFeedWindowMessages))
+      : null;
   const attentionLedgerMessages = buildAttentionLedgerMessages(
     attentionRecordsWithThreadMovement,
     normalizedThreadKey,
@@ -135,6 +147,7 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     normalizedThreadKey,
     messagesAvailableForDerivation,
     messagesAvailableForProjection,
+    hasFilteredNativeChildMessages,
     baseMessages,
     attentionRecords,
     attentionRecordsWithThreadMovement,

@@ -10,6 +10,7 @@ import {
 import { useStore } from "../store.js";
 import type { ChatMessage } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
+import { isRootAgentFeedMessage } from "../utils/root-agent-feed-message.js";
 import { ToolBlock, ToolIcon, formatDuration, getPreview } from "./ToolBlock.js";
 
 const LIVE_ACTIVITY_RAIL_DWELL_MS = 5_000;
@@ -351,7 +352,7 @@ export function collectCodexTerminalEntries(
   const entries = new Map<string, CodexTerminalEntry>();
 
   for (const msg of messages) {
-    if (msg.role !== "assistant") continue;
+    if (msg.role !== "assistant" || !isRootAgentFeedMessage(msg)) continue;
     const blocks = msg.contentBlocks || [];
     for (const block of blocks) {
       if (block.type !== "tool_use" || block.name !== "Bash") continue;

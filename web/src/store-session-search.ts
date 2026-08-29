@@ -1,6 +1,7 @@
 import { normalizeForSearch } from "../shared/search-utils.js";
 import type { ChatMessage } from "./types.js";
 import { isInjectedEventMessage } from "./utils/injected-event-message.js";
+import { isRootAgentFeedMessage } from "./utils/root-agent-feed-message.js";
 
 export interface SearchMatch {
   messageId: string;
@@ -78,7 +79,7 @@ export function sessionSearchTextMatches(text: string, query: string, mode: "str
 }
 
 export function computeSessionSearchMatches(
-  messages: Pick<ChatMessage, "id" | "content" | "role" | "agentSource">[],
+  messages: Pick<ChatMessage, "id" | "content" | "role" | "agentSource" | "metadata">[],
   query: string,
   mode: "strict" | "fuzzy",
   category: SessionSearchCategory = "all",
@@ -89,6 +90,7 @@ export function computeSessionSearchMatches(
 
   const matches: SearchMatch[] = [];
   for (const msg of messages) {
+    if (!isRootAgentFeedMessage(msg)) continue;
     if (!sessionSearchMessageMatchesCategory(msg, category, leaderSessionId)) continue;
     if (!msg.content) continue;
     if (sessionSearchTextMatches(msg.content, trimmed, mode)) {

@@ -9,9 +9,11 @@ import type {
   FetchCodexNativeSubagentHistoryOptions,
 } from "../../api/codex-native-subagents.js";
 import { useStore } from "../../store.js";
+import { normalizeHistoryMessageToChatMessages } from "../../utils/history-message-normalization.js";
 import { CodexSubagentFeedControl } from "../CodexSubagentFeedControl.js";
 import type { CodexTerminalEntry } from "../MessageFeedLiveActivity.js";
 import { MessageFeedTopControls } from "../MessageFeedTopControls.js";
+import { MessageFeed } from "../MessageFeed.js";
 import { CodexSubagentInspector } from "../CodexSubagentInspector.js";
 import { CodexSubagentTranscript } from "../CodexSubagentTranscript.js";
 import { CodexSubagentTurnSegment } from "../CodexSubagentTurnSegment.js";
@@ -282,6 +284,137 @@ const transcriptMessages: ChatMessage[] = [
   },
 ];
 
+function playgroundCanonicalChildHistory(childId: string, rootTurnId: string): BrowserIncomingMessage[] {
+  const codexSubagent = { childId, rootTurnId };
+  const usage = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+  return [
+    {
+      type: "assistant",
+      message: {
+        id: `${childId}-answer`,
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6",
+        content: [{ type: "text", text: "Child-only answer stays in the inspector." }],
+        stop_reason: "end_turn",
+        usage,
+      },
+      parent_tool_use_id: null,
+      timestamp: Date.now() - 28_000,
+      codexSubagent,
+    },
+    {
+      type: "codex_reasoning_detail",
+      id: `${childId}-reasoning-1`,
+      text: "**Child-only reasoning**\nThis official summary belongs in the inspector.",
+      status: "complete",
+      timestamp: Date.now() - 26_000,
+      parent_tool_use_id: null,
+      reasoning_turn_id: `${childId}-reasoning-turn`,
+      summary_index: 0,
+      codexSubagent,
+    },
+    {
+      type: "codex_reasoning_detail",
+      id: `${childId}-reasoning-2`,
+      text: "**Checking child result**\nThe exact child-owned result remains bounded and readable.",
+      status: "complete",
+      timestamp: Date.now() - 25_000,
+      parent_tool_use_id: null,
+      reasoning_turn_id: `${childId}-reasoning-turn`,
+      summary_index: 1,
+      codexSubagent,
+    },
+    {
+      type: "assistant",
+      message: {
+        id: `${childId}-tool`,
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6",
+        content: [
+          {
+            type: "tool_use",
+            id: `${childId}-read`,
+            name: "Read",
+            input: { file_path: "src/child-only.ts" },
+          },
+          {
+            type: "tool_result",
+            tool_use_id: `${childId}-read`,
+            content: "child-only tool result",
+          },
+        ],
+        stop_reason: "end_turn",
+        usage,
+      },
+      parent_tool_use_id: null,
+      timestamp: Date.now() - 24_000,
+      codexSubagent,
+    },
+    {
+      type: "error",
+      id: `${childId}-error`,
+      message: "Child-only failure stays in the inspector.",
+      timestamp: Date.now() - 22_000,
+      codexSubagent,
+    },
+  ];
+}
+
+const PLAYGROUND_CANONICAL_CHILD_HISTORY = playgroundCanonicalChildHistory(
+  PLAYGROUND_OWNERSHIP.childId,
+  PLAYGROUND_OWNERSHIP.rootTurnId,
+);
+
+const rootOnlyFeedMessages: ChatMessage[] = [
+  {
+    id: ACTIVE_TURN,
+    role: "user",
+    content: "Show only the root agent's activity here.",
+    timestamp: Date.now() - 30_000,
+  },
+  ...PLAYGROUND_CANONICAL_CHILD_HISTORY.flatMap((message, index) =>
+    normalizeHistoryMessageToChatMessages(message, index + 1, { includeSuccessfulResult: true }),
+  ),
+  {
+    id: "playground-root-reasoning-1",
+    role: "assistant",
+    content: "**Reviewing root projection**\nOnly root-owned details can enter this group.",
+    timestamp: Date.now() - 20_000,
+    metadata: {
+      codexReasoningDetail: { status: "complete", reasoningTurnId: "playground-root-reasoning-turn" },
+    },
+  },
+  {
+    id: "playground-root-reasoning-2",
+    role: "assistant",
+    content: "**Confirming root-only activity**\nThe child transcript remains available separately.",
+    timestamp: Date.now() - 18_000,
+    metadata: {
+      codexReasoningDetail: { status: "complete", reasoningTurnId: "playground-root-reasoning-turn" },
+    },
+  },
+  {
+    id: "playground-root-settled-tool",
+    role: "assistant",
+    content: "",
+    contentBlocks: [
+      { type: "tool_use", id: "playground-root-settled", name: "Bash", input: { command: "git status --short" } },
+    ],
+    timestamp: Date.now() - 16_000,
+  },
+  {
+    id: "playground-root-live-tool",
+    role: "assistant",
+    content: "",
+    contentBlocks: [
+      { type: "tool_use", id: "playground-root-live", name: "Bash", input: { command: "tail -f root-agent.log" } },
+    ],
+    timestamp: Date.now() - 14_000,
+  },
+];
+
 function playgroundHistoryMessage(
   childId: string,
   rootTurnId: string,
@@ -307,6 +440,14 @@ async function loadPlaygroundHistory({
   const child = snapshot.children.find((candidate) => candidate.childId === childId) ?? snapshot.children[0]!;
   const rootTurnId = child.rootTurnId;
   const partial = child.transcriptAvailability !== "available";
+  if (childId === PLAYGROUND_OWNERSHIP.childId && cursor == null) {
+    return {
+      messages: PLAYGROUND_CANONICAL_CHILD_HISTORY,
+      nextCursor: null,
+      availability: "available",
+      coverage: "complete",
+    };
+  }
   if (cursor === PLAYGROUND_HISTORY_CURSOR) {
     return {
       messages: Array.from({ length: 12 }, (_, index) =>
@@ -385,7 +526,43 @@ export function PlaygroundCodexSubagentStates() {
       sessions.set(COMPLETE_ZERO_SESSION_ID, playgroundSession(COMPLETE_ZERO_SESSION_ID, emptySnapshot("complete")));
       sessions.set(PARTIAL_ZERO_SESSION_ID, playgroundSession(PARTIAL_ZERO_SESSION_ID, emptySnapshot("partial")));
       sessions.set(UNKNOWN_CHILD_SESSION_ID, playgroundSession(UNKNOWN_CHILD_SESSION_ID, unknownChildSnapshot));
-      return { sessions };
+      const messages = new Map(state.messages);
+      messages.set(SESSION_ID, rootOnlyFeedMessages);
+      const sessionStatus = new Map(state.sessionStatus);
+      sessionStatus.set(SESSION_ID, "running");
+      const toolResults = new Map(state.toolResults);
+      toolResults.set(
+        SESSION_ID,
+        new Map([
+          [
+            "playground-root-settled",
+            {
+              tool_use_id: "playground-root-settled",
+              content: "root command complete",
+              is_error: false,
+              total_size: 21,
+              is_truncated: false,
+              duration_seconds: 0.2,
+            },
+          ],
+        ]),
+      );
+      const toolProgress = new Map(state.toolProgress);
+      toolProgress.set(
+        SESSION_ID,
+        new Map([
+          ["playground-root-live", { toolName: "Bash", elapsedSeconds: 14, output: "following root-agent.log" }],
+        ]),
+      );
+      const toolStartTimestamps = new Map(state.toolStartTimestamps);
+      toolStartTimestamps.set(
+        SESSION_ID,
+        new Map([
+          ["playground-root-live", Date.now() - 14_000],
+          ["playground-root-settled", Date.now() - 16_000],
+        ]),
+      );
+      return { sessions, messages, sessionStatus, toolResults, toolProgress, toolStartTimestamps };
     });
     return () => {
       useStore.getState().closeCodexSubagentInspector();
@@ -396,7 +573,17 @@ export function PlaygroundCodexSubagentStates() {
         sessions.delete(COMPLETE_ZERO_SESSION_ID);
         sessions.delete(PARTIAL_ZERO_SESSION_ID);
         sessions.delete(UNKNOWN_CHILD_SESSION_ID);
-        return { sessions };
+        const messages = new Map(state.messages);
+        messages.delete(SESSION_ID);
+        const sessionStatus = new Map(state.sessionStatus);
+        sessionStatus.delete(SESSION_ID);
+        const toolResults = new Map(state.toolResults);
+        toolResults.delete(SESSION_ID);
+        const toolProgress = new Map(state.toolProgress);
+        toolProgress.delete(SESSION_ID);
+        const toolStartTimestamps = new Map(state.toolStartTimestamps);
+        toolStartTimestamps.delete(SESSION_ID);
+        return { sessions, messages, sessionStatus, toolResults, toolProgress, toolStartTimestamps };
       });
     };
   }, []);
@@ -481,6 +668,24 @@ export function PlaygroundCodexSubagentStates() {
         <Card label="Canonical child transcript surfaces">
           <div className="max-h-96 overflow-y-auto border-t border-cc-border bg-cc-bg p-4">
             <CodexSubagentTranscript sessionId={SESSION_ID} messages={transcriptMessages} />
+          </div>
+        </Card>
+      </div>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <Card label="Root-only main feed — child activity stays in inspector">
+          <div
+            className="flex h-[360px] min-h-0 flex-col overflow-hidden border-t border-cc-border bg-cc-bg"
+            data-testid="playground-codex-root-only-feed"
+          >
+            <MessageFeed sessionId={SESSION_ID} />
+          </div>
+        </Card>
+        <Card label="Projection contract">
+          <div className="space-y-2 border-t border-cc-border bg-cc-card p-4 text-xs leading-relaxed text-cc-muted">
+            <p>Only root-owned assistant, reasoning, tool, error, and live-command activity appears in the feed.</p>
+            <p>
+              Use the retained subagent controls to inspect exact child messages, summaries, tools, results, and errors.
+            </p>
           </div>
         </Card>
       </div>

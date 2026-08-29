@@ -445,10 +445,12 @@ function normalizeHistoryMessages(
       }
       chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp }));
     } else if (histMsg.type === "result") {
-      store.setTasks(sessionId, []);
-      store.setSessionTaskPreview(sessionId, null);
+      if (!histMsg.codexSubagent) {
+        store.setTasks(sessionId, []);
+        store.setSessionTaskPreview(sessionId, null);
+      }
       chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp }));
-      frozenCount = chatMessages.length;
+      if (!histMsg.codexSubagent) frozenCount = chatMessages.length;
     } else if (
       histMsg.type === "compact_marker" ||
       histMsg.type === "codex_auto_pause_recovery_summary" ||
@@ -1025,6 +1027,9 @@ function handleParsedMessage(
     }
 
     case "result": {
+      // Native-child completion is authoritative audit history, but it cannot
+      // settle or mutate the root session's browser lifecycle.
+      if (data.codexSubagent) break;
       const r = data.data;
       const sessionUpdates: Partial<{
         total_cost_usd: number;

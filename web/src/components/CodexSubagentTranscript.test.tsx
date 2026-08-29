@@ -3,11 +3,10 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { BrowserIncomingMessage, ChatMessage, ContentBlock, SessionState } from "../types.js";
 import { api } from "../api.js";
-import { groupMessages } from "../hooks/use-feed-model.js";
 import { useStore } from "../store.js";
 import { indexCodexSubagentToolResults } from "../utils/codex-subagent-tool-results.js";
 import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
-import { FeedEntries } from "./MessageFeedEntries.js";
+import { buildFeedMessageModel } from "../utils/feed-render-model.js";
 import { buildCodexSubagentTranscriptModel, CodexSubagentTranscript } from "./CodexSubagentTranscript.js";
 
 const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
@@ -338,26 +337,27 @@ describe("CodexSubagentTranscript", () => {
     expect(useStore.getState().toolResults.get("session-1")).toBeUndefined();
   });
 
-  it("keeps producer-shaped child audit rows in the main feed and matches them in the read-only inspector", () => {
+  it("keeps producer-shaped child history out of the root feed and canonical inside the inspector", () => {
+    // The same authoritative child rows remain available to the inspector even
+    // though the ordinary feed projection intentionally omits every owned row.
     const mainFeedMessages = normalizedMainFeedHistory();
     const inspectorMessages = normalizedInspectorHistory();
     const model = buildCodexSubagentTranscriptModel(inspectorMessages);
     const tasksBefore = useStore.getState().sessionTasks;
     const filesBefore = useStore.getState().changedFiles;
+    const rootProjection = buildFeedMessageModel({
+      leaderSessionId: "session-1",
+      threadKey: "main",
+      projectThreadRoutes: false,
+      allMessages: mainFeedMessages,
+      historyLoading: false,
+      selectedFeedWindowEnabled: false,
+      selectedFeedWindow: null,
+      selectedFeedWindowMessages: [],
+    });
 
-    const root = render(
-      <FeedEntries
-        entries={groupMessages(mainFeedMessages)}
-        sessionId="session-1"
-        isCodexSession
-        activeCodexTerminalIds={new Set()}
-        onOpenCodexTerminal={() => {}}
-      />,
-    );
-    const rootSignature = expectCanonicalProducerSurfaces(root.container);
-    expect(useStore.getState().sessionTasks).toBe(tasksBefore);
-    expect(useStore.getState().changedFiles).toBe(filesBefore);
-    root.unmount();
+    expect(rootProjection.messagesAvailableForDerivation).toHaveLength(mainFeedMessages.length);
+    expect(rootProjection.messages).toEqual([]);
 
     const conflictingRootResults = new Map(model.toolResults);
     conflictingRootResults.set("producer-read-tool", {
@@ -377,8 +377,7 @@ describe("CodexSubagentTranscript", () => {
     useStore.setState({ toolResults: new Map([["session-1", conflictingRootResults]]) });
 
     const child = render(<CodexSubagentTranscript sessionId="session-1" messages={inspectorMessages} />);
-    const childSignature = expectCanonicalProducerSurfaces(child.container);
-    expect(childSignature).toEqual(rootSignature);
+    expectCanonicalProducerSurfaces(child.container);
     expect(screen.queryByText("ROOT RESULT COLLISION")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Find Files.*src\/\*\*\/\*\.ts/i }));
     expect(screen.queryByText("ROOT UNOWNED RESULT COLLISION")).toBeNull();

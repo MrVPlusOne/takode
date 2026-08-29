@@ -1160,10 +1160,6 @@ function CollapsedTurnRows({
   onSelectThread?: (threadKey: string) => void;
   onExpand: () => void;
 }) {
-  const toolCountMayIncludeNestedCodexSubagents = useStore((state) => {
-    const aggregate = state.sessions.get(sessionId)?.codex_native_subagents?.turns[turn.id];
-    return !!aggregate && (aggregate.total > 0 || aggregate.coverage === "partial");
-  });
   const collapsedEntries = turn.collapsedEntries ?? [];
   const activityRowCount = collapsedEntries.filter((row) => row.kind === "activity").length;
   return (
@@ -1176,7 +1172,6 @@ function CollapsedTurnRows({
               stats={row.stats}
               durationMs={activityRowCount === 1 ? durationMs : null}
               leaderMode={leaderMode}
-              toolCountMayIncludeNestedCodexSubagents={toolCountMayIncludeNestedCodexSubagents}
               onClick={onExpand}
             />
           );
@@ -1240,21 +1235,11 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   onSelectThread?: (threadKey: string) => void;
 }) {
   const headerRef = useRef<HTMLButtonElement>(null);
-  const toolCountMayIncludeNestedCodexSubagents = useStore((state) => {
-    const aggregate = state.sessions.get(sessionId)?.codex_native_subagents?.turns[turn.id];
-    return !!aggregate && (aggregate.total > 0 || aggregate.coverage === "partial");
-  });
 
   return (
     <>
       {turn.agentEntries.length > 0 && (
-        <TurnCollapseBar
-          ref={headerRef}
-          stats={turn.stats}
-          durationMs={durationMs}
-          toolCountMayIncludeNestedCodexSubagents={toolCountMayIncludeNestedCodexSubagents}
-          onClick={onCollapse}
-        />
+        <TurnCollapseBar ref={headerRef} stats={turn.stats} durationMs={durationMs} onClick={onCollapse} />
       )}
       <FeedEntries
         entries={turnPresentationEntries(turn)}

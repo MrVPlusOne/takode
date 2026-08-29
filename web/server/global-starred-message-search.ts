@@ -8,6 +8,7 @@ import {
   type SearchRank,
 } from "../shared/search-utils.js";
 import { MAIN_THREAD_KEY, normalizeSelectedFeedThreadKey } from "../shared/thread-window.js";
+import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
 
 export interface GlobalStarredMessageSearchDocument {
   sessionId: string;
@@ -110,7 +111,15 @@ function collectStarredCandidates(doc: GlobalStarredMessageSearchDocument): Star
 
   for (const record of starredEntries) {
     if (!record.messageId || (record.role !== "user" && record.role !== "assistant")) continue;
-    const indexedText = textForStableStarRecord(history[record.historyIndex], record);
+    const indexedMessage = history[record.historyIndex];
+    if (
+      indexedMessage &&
+      rawMessageId(indexedMessage) === record.messageId &&
+      !isRootAgentHistoryMessage(indexedMessage)
+    ) {
+      continue;
+    }
+    const indexedText = textForStableStarRecord(indexedMessage, record);
     if (addCandidateIfText(candidates, doc, record, indexedText)) continue;
     unresolved.push(record);
   }
@@ -150,8 +159,10 @@ function resolveFromHistoryByStarIds(
     if (!id) continue;
     const matches = unresolvedById.get(id);
     if (!matches) continue;
-    for (const record of matches) {
-      addCandidateIfText(candidates, doc, record, textForStableStarRecord(message, record));
+    if (isRootAgentHistoryMessage(message)) {
+      for (const record of matches) {
+        addCandidateIfText(candidates, doc, record, textForStableStarRecord(message, record));
+      }
     }
     unresolvedById.delete(id);
   }
@@ -200,7 +211,7 @@ function textForStableStarRecord(
   message: BrowserIncomingMessage | undefined,
   record: StarredMessageRecord,
 ): string | null {
-  if (!message) return null;
+  if (!message || !isRootAgentHistoryMessage(message)) return null;
   if (message.type === "user_message") {
     return record.role === "user" && message.id === record.messageId ? message.content : null;
   }

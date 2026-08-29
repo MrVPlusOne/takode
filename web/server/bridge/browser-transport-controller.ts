@@ -27,11 +27,12 @@ import {
   normalizeSelectedFeedThreadKey,
 } from "../../shared/thread-window.js";
 import { deriveWindowAvailability } from "../../shared/window-availability.js";
-import { sessionTag } from "../session-tag.js";
 import { selectHistoryWindowRange } from "../history-window-selection.js";
+import { sessionTag } from "../session-tag.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { isHistoryBackedEvent, shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
+import { appendResolvedToolResultPreviewsForWindow } from "./history-window-tool-results.js";
 export { isHistoryBackedEvent } from "./replay-buffer-policy.js";
 import { codexReasoningSnapshotFields } from "./codex-reasoning-preview-state.js";
 import {
@@ -57,6 +58,7 @@ import {
 import { compactPendingCodexInputsForBrowser } from "../codex-pending-input-safety.js";
 import { isCodexAutoPauseRecoverySummaryFinal } from "../codex-auto-pause-types.js";
 import { routeFromHistoryEntry } from "../thread-routing-metadata.js";
+import { isRootAgentHistoryMessage } from "../root-agent-feed-message.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import {
   buildPausedDiagnostic,
@@ -94,7 +96,6 @@ import type {
   LeaderProjectionInternalSnapshot,
   InitialThreadWindowRequest,
   TakodeHerdBatchSnapshot,
-  ToolResultPreview,
   VsCodeOpenFileCommand,
   VsCodeSelectionState,
   VsCodeWindowState,
@@ -1197,7 +1198,7 @@ export function sendHistoryWindowSync(
       options.turnCount || getHistoryWindowTurnCount(normalizedVisibleSectionCount, normalizedSectionTurnCount),
     ),
   );
-  const turns = findTurnBoundaries(session.messageHistory);
+  const turns = findTurnBoundaries(session.messageHistory, isRootAgentHistoryMessage);
   const totalTurns = turns.length;
   let fromTurn = 0;
   let turnCount = 0;
@@ -1244,59 +1245,6 @@ export function sendHistoryWindowSync(
   sendFeedWindowSyncIfSupported(ws, options.feedWindowSyncVersion, buildHistoryFeedWindowSync({ messages, window }));
 }
 
-function appendResolvedToolResultPreviewsForWindow(
-  windowMessages: BrowserIncomingMessage[],
-  fullHistory: BrowserIncomingMessage[],
-): BrowserIncomingMessage[] {
-  const visibleToolUseIds: string[] = [];
-  const seenToolUseIds = new Set<string>();
-  const resolvedInWindow = new Set<string>();
-
-  for (const msg of windowMessages) {
-    if (msg.type === "assistant") {
-      const content = msg.message?.content;
-      if (!Array.isArray(content)) continue;
-      for (const block of content) {
-        if (block.type !== "tool_use" || !block.id || seenToolUseIds.has(block.id)) continue;
-        seenToolUseIds.add(block.id);
-        visibleToolUseIds.push(block.id);
-      }
-      continue;
-    }
-    if (msg.type === "tool_result_preview") {
-      for (const preview of msg.previews || []) {
-        if (typeof preview.tool_use_id === "string") resolvedInWindow.add(preview.tool_use_id);
-      }
-    }
-  }
-
-  if (visibleToolUseIds.length === 0) return windowMessages;
-
-  const latestPreviewByToolUseId = new Map<string, ToolResultPreview>();
-  for (const msg of fullHistory) {
-    if (msg.type !== "tool_result_preview") continue;
-    for (const preview of msg.previews || []) {
-      if (seenToolUseIds.has(preview.tool_use_id) && !resolvedInWindow.has(preview.tool_use_id)) {
-        latestPreviewByToolUseId.set(preview.tool_use_id, preview);
-      }
-    }
-  }
-
-  const supplementalPreviews = visibleToolUseIds
-    .filter((toolUseId) => !resolvedInWindow.has(toolUseId))
-    .map((toolUseId) => latestPreviewByToolUseId.get(toolUseId))
-    .filter((preview): preview is ToolResultPreview => preview != null);
-  if (supplementalPreviews.length === 0) return windowMessages;
-
-  return [
-    ...windowMessages,
-    {
-      type: "tool_result_preview",
-      previews: supplementalPreviews,
-    },
-  ];
-}
-
 export function sendThreadWindowSync(
   session: BrowserTransportSessionLike,
   ws: BrowserTransportSocketLike,
@@ -1327,6 +1275,7 @@ export function sendThreadWindowSync(
     visibleItemCount: normalizedVisibleItemCount,
     targetMessageId: options.targetMessageId,
     targetHistoryIndex: options.targetHistoryIndex,
+    includeMessage: isRootAgentHistoryMessage,
   });
   const windowHash = computeHistoryPayloadSyncHash({
     threadKey: sync.threadKey,

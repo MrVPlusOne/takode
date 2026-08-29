@@ -6,15 +6,9 @@ interface TurnSummaryStatsProps {
   stats: TurnStats;
   durationMs: number | null;
   separatorClass: string;
-  toolCountMayIncludeNestedCodexSubagents?: boolean;
 }
 
-export function TurnSummaryStats({
-  stats,
-  durationMs,
-  separatorClass,
-  toolCountMayIncludeNestedCodexSubagents = false,
-}: TurnSummaryStatsProps) {
+export function TurnSummaryStats({ stats, durationMs, separatorClass }: TurnSummaryStatsProps) {
   const hasMessages = stats.messageCount > 0;
   const hasTools = stats.toolCount > 0;
   const hasAgents = stats.subagentCount > 0;
@@ -33,9 +27,6 @@ export function TurnSummaryStats({
           {hasMessages && <span className={separatorClass}>·</span>}
           <span>
             {stats.toolCount} tool{stats.toolCount !== 1 ? "s" : ""}
-            {toolCountMayIncludeNestedCodexSubagents && (
-              <span className="sr-only">; tool count may include root and nested Codex subagent activity</span>
-            )}
           </span>
         </>
       )}
@@ -79,13 +70,11 @@ export const CollapsedActivityBar = memo(function CollapsedActivityBar({
   stats,
   durationMs,
   leaderMode,
-  toolCountMayIncludeNestedCodexSubagents = false,
   onClick,
 }: {
   stats: TurnStats;
   durationMs: number | null;
   leaderMode: boolean;
-  toolCountMayIncludeNestedCodexSubagents?: boolean;
   onClick: () => void;
 }) {
   const hasStats = hasTurnSummaryStats(stats, durationMs);
@@ -103,12 +92,7 @@ export const CollapsedActivityBar = memo(function CollapsedActivityBar({
           {hasStats && <span className="text-cc-muted/40">·</span>}
         </>
       )}
-      <TurnSummaryStats
-        stats={stats}
-        durationMs={durationMs}
-        separatorClass="text-cc-muted/40"
-        toolCountMayIncludeNestedCodexSubagents={toolCountMayIncludeNestedCodexSubagents}
-      />
+      <TurnSummaryStats stats={stats} durationMs={durationMs} separatorClass="text-cc-muted/40" />
     </button>
   );
 });
@@ -116,13 +100,11 @@ export const CollapsedActivityBar = memo(function CollapsedActivityBar({
 export function TurnCollapseBar({
   stats,
   durationMs,
-  toolCountMayIncludeNestedCodexSubagents = false,
   onClick,
   ref,
 }: {
   stats: TurnStats;
   durationMs: number | null;
-  toolCountMayIncludeNestedCodexSubagents?: boolean;
   onClick: () => void;
   ref?: Ref<HTMLButtonElement>;
 }) {
@@ -136,12 +118,7 @@ export function TurnCollapseBar({
       <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 transition-transform rotate-90">
         <path d="M6 4l4 4-4 4" />
       </svg>
-      <TurnSummaryStats
-        stats={stats}
-        durationMs={durationMs}
-        separatorClass="text-cc-muted/30"
-        toolCountMayIncludeNestedCodexSubagents={toolCountMayIncludeNestedCodexSubagents}
-      />
+      <TurnSummaryStats stats={stats} durationMs={durationMs} separatorClass="text-cc-muted/30" />
     </button>
   );
 }

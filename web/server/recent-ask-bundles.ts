@@ -7,6 +7,7 @@ import type {
 import { isActualHumanUserMessage } from "./user-message-classification.js";
 import { MAIN_THREAD_KEY, normalizeSelectedFeedThreadKey } from "../shared/thread-window.js";
 import { authoritativeMessageOwner, type AuthoritativeMessageOwner } from "./authoritative-message-owner.js";
+import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
 
 export const RECENT_ASK_BUNDLE_LIMIT = 50;
 const MEMBER_PREVIEW_LIMIT = 520;
@@ -349,7 +350,7 @@ function responseForNotification(
   if (bundled) return bundled;
   for (let index = document.messageHistory.length - 1; index >= 0; index -= 1) {
     const message = document.messageHistory[index]!;
-    if (visibleResponseMessageId(message) !== messageId) continue;
+    if (!isRootAgentHistoryMessage(message) || visibleResponseMessageId(message) !== messageId) continue;
     if (messageOwner(document, message).threadKey !== ownerThreadKey) return undefined;
     return visibleResponse(message, index) ?? undefined;
   }
@@ -387,6 +388,7 @@ function buildSessionBundles(document: RecentAskSessionDocument): MutableBundle[
   const startIndex = recentHistoryStartIndex(document, RECENT_ASK_BUNDLE_LIMIT);
   for (let index = startIndex; index < document.messageHistory.length; index += 1) {
     const message = document.messageHistory[index]!;
+    if (!isRootAgentHistoryMessage(message)) continue;
     if (isActualHumanUserMessage(message)) {
       const owner = messageOwner(document, message);
       const messageId = message.id;
@@ -503,6 +505,7 @@ function memberFromMessage(
 }
 
 function visibleResponse(message: BrowserIncomingMessage, historyIndex: number): RecentAskResponsePreview | null {
+  if (!isRootAgentHistoryMessage(message)) return null;
   if (message.type === "leader_user_message") {
     const text = collapseWhitespace(message.content || "");
     if (!text) return null;
@@ -652,7 +655,7 @@ function recentHistoryStartIndex(document: RecentAskSessionDocument, maxDestinat
   if (!document.isOrchestrator) {
     for (let index = document.messageHistory.length - 1; index >= 0; index -= 1) {
       const message = document.messageHistory[index]!;
-      if (isActualHumanUserMessage(message) && message.id) return index;
+      if (isRootAgentHistoryMessage(message) && isActualHumanUserMessage(message) && message.id) return index;
     }
     return document.messageHistory.length;
   }
@@ -660,7 +663,7 @@ function recentHistoryStartIndex(document: RecentAskSessionDocument, maxDestinat
   const recentDestinations = new Set<string>();
   for (let index = document.messageHistory.length - 1; index >= 0; index -= 1) {
     const message = document.messageHistory[index]!;
-    if (!isActualHumanUserMessage(message) || !message.id) continue;
+    if (!isRootAgentHistoryMessage(message) || !isActualHumanUserMessage(message) || !message.id) continue;
     const ownerThreadKey = messageOwner(document, message).threadKey;
     if (recentDestinations.has(ownerThreadKey)) continue;
     if (recentDestinations.size >= maxDestinations) return index + 1;

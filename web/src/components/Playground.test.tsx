@@ -59,6 +59,7 @@ vi.mock("remark-gfm", () => ({
 import { Playground } from "./Playground.js";
 import { PlaygroundSideChatStates } from "./playground/SideChatPlaygroundStates.js";
 import { PlaygroundReasoningDetailStates } from "./playground/ReasoningDetailStates.js";
+import { PlaygroundCodexSubagentStates } from "./playground/CodexSubagentPlaygroundStates.js";
 import { PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY } from "./playground/AutoPausePlaygroundStates.js";
 import { MOCK_SESSION_ID } from "./playground/fixtures.js";
 import { PlaygroundUniversalSearchStates } from "./playground/search-sidebar-states.js";
@@ -125,6 +126,44 @@ describe("Playground", () => {
         .getAllByTestId("codex-reasoning-expanded-title")
         .map((node) => node.textContent),
     ).toEqual(["Addressing review feedback", "Planning validation coverage", "Preparing the final handoff"]);
+  });
+
+  it("documents a root-only main feed with exact child activity retained in the inspector", async () => {
+    // This producer-shaped state exercises the real MessageFeed collector and
+    // the inspector's independent canonical history path in one Playground fixture.
+    useStore.getState().reset();
+    render(<PlaygroundCodexSubagentStates />);
+
+    const feed = within(screen.getByTestId("playground-codex-root-only-feed"));
+    expect(feed.getByText("Show only the root agent's activity here.")).toBeInTheDocument();
+    expect(feed.getByTestId("codex-reasoning-detail-group")).toHaveTextContent("Confirming root-only activity");
+    expect(feed.getByText("2 summaries")).toBeInTheDocument();
+    expect(feed.getAllByTestId("codex-live-terminal-chip")).toHaveLength(1);
+    expect(feed.getByTestId("codex-live-terminal-chip")).toHaveTextContent("tail");
+    expect(feed.queryByText("Child-only answer stays in the inspector.")).toBeNull();
+    expect(feed.queryByText("Child-only reasoning")).toBeNull();
+    expect(feed.queryByText("Checking child result")).toBeNull();
+    expect(feed.queryByText("src/child-only.ts")).toBeNull();
+    expect(feed.queryByText("child-only tool result")).toBeNull();
+    expect(feed.queryByText("Child-only failure stays in the inspector.")).toBeNull();
+
+    fireEvent.click(feed.getByTestId("feed-codex-subagents"));
+    const inspector = await screen.findByTestId("codex-subagent-inspector");
+    fireEvent.click(within(inspector).getByRole("button", { name: /schema_audit, Working, Transcript available/i }));
+
+    expect(await within(inspector).findByText("Child-only answer stays in the inspector.")).toBeInTheDocument();
+    const childReasoning = within(inspector).getByTestId("codex-reasoning-detail-group");
+    expect(childReasoning).toHaveTextContent("Checking child result");
+    expect(within(inspector).getByText("2 summaries")).toBeInTheDocument();
+    fireEvent.click(within(childReasoning).getByTestId("codex-reasoning-group-title"));
+    expect(within(childReasoning).getByText("This official summary belongs in the inspector.")).toBeInTheDocument();
+    expect(
+      within(childReasoning).getByText("The exact child-owned result remains bounded and readable."),
+    ).toBeInTheDocument();
+    expect(within(inspector).getByText("Child-only failure stays in the inspector.")).toHaveClass("text-cc-error");
+    fireEvent.click(within(inspector).getByRole("button", { name: /Show 1 tool call: Read file/i }));
+    fireEvent.click(within(inspector).getByRole("button", { name: /Read File.*src\/child-only\.ts/i }));
+    expect(within(inspector).getByText("child-only tool result")).toBeInTheDocument();
   });
 
   it("renders the real chat stack section with integrated chat components", () => {

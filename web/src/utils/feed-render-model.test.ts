@@ -185,6 +185,176 @@ function makeTurn(id: string): Turn {
 }
 
 describe("feed render model builders", () => {
+  it("keeps proven native child rows in derivation history but out of every ordinary feed projection", () => {
+    // Native-child history remains authoritative for the inspector, while Main,
+    // quest, All Threads, and unthreaded preview feeds expose root-owned rows only.
+    const questRef = { threadKey: "q-1975", questId: "q-1975", source: "explicit" as const };
+    const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
+    const rootMain = makeMessage({ id: "root-main", role: "assistant", content: "Root Main answer", timestamp: 10 });
+    const rootQuest = makeMessage({
+      id: "root-quest",
+      role: "assistant",
+      content: "Root quest answer",
+      timestamp: 20,
+      metadata: { threadKey: "q-1975", questId: "q-1975", threadRefs: [questRef] },
+    });
+    const childRows = [
+      makeMessage({
+        id: "child-answer",
+        role: "assistant",
+        content: "Child answer",
+        timestamp: 30,
+        metadata: { codexSubagent: ownership },
+      }),
+      makeMessage({
+        id: "child-reasoning",
+        role: "assistant",
+        content: "**Child reasoning**\nHidden from root feed",
+        timestamp: 31,
+        metadata: {
+          codexSubagent: ownership,
+          codexReasoningDetail: { status: "complete", reasoningTurnId: "child-reasoning-turn" },
+        },
+      }),
+      makeMessage({
+        id: "child-error",
+        role: "system",
+        content: "Child failure",
+        timestamp: 32,
+        variant: "error",
+        metadata: { codexSubagent: ownership, threadKey: "q-1975", questId: "q-1975", threadRefs: [questRef] },
+      }),
+    ];
+    const allMessages = [rootMain, rootQuest, ...childRows];
+
+    const main = buildMessageModel({
+      allMessages,
+      selectedFeedWindowEnabled: false,
+      sessionNotifications: [],
+      threadKey: "main",
+    });
+    const quest = buildMessageModel({
+      allMessages,
+      selectedFeedWindowEnabled: false,
+      sessionNotifications: [],
+      threadKey: "q-1975",
+    });
+    const all = buildMessageModel({
+      allMessages,
+      selectedFeedWindowEnabled: false,
+      sessionNotifications: [],
+      threadKey: "all",
+    });
+    const preview = buildMessageModel({
+      allMessages,
+      projectThreadRoutes: false,
+      selectedFeedWindowEnabled: false,
+      sessionNotifications: [],
+    });
+
+    expect(main.messagesAvailableForDerivation.map((message) => message.id)).toEqual(
+      allMessages.map((message) => message.id),
+    );
+    expect([main, quest, all, preview].every((model) => model.hasFilteredNativeChildMessages)).toBe(true);
+    expect(main.messages.map((message) => message.id)).toEqual(["root-main"]);
+    expect(quest.messages.map((message) => message.id)).toEqual(["root-quest"]);
+    expect(all.messages.map((message) => message.id)).toEqual(["root-main", "root-quest"]);
+    expect(preview.messages.map((message) => message.id)).toEqual(["root-main", "root-quest"]);
+    expect([main, quest, all, preview].flatMap((model) => model.messages)).not.toContainEqual(
+      expect.objectContaining({ metadata: expect.objectContaining({ codexSubagent: ownership }) }),
+    );
+  });
+
+  it("filters proven child rows from a selected feed window without deleting its authoritative source", () => {
+    // Selected-window caches intentionally retain child ownership for inspector
+    // and replay authority; only the ordinary rendered projection is root-only.
+    const ownership = { childId: "window-child", rootTurnId: "window-root-turn" };
+    const root = makeMessage({
+      id: "window-root",
+      role: "assistant",
+      content: "Visible root window row",
+      timestamp: 100,
+      historyIndex: 20,
+    });
+    const child = makeMessage({
+      id: "window-child",
+      role: "assistant",
+      content: "Hidden child window row",
+      timestamp: 101,
+      historyIndex: 21,
+      metadata: { codexSubagent: ownership },
+    });
+    const model = buildMessageModel({
+      allMessages: [root, child],
+      selectedFeedWindow: makeWindow({ from_item: 20, item_count: 2, source_history_length: 22 }),
+      selectedFeedWindowMessages: [root, child],
+      sessionNotifications: [],
+    });
+
+    expect(model.messagesAvailableForDerivation.map((message) => message.id)).toEqual(["window-root", "window-child"]);
+    expect(model.hasFilteredNativeChildMessages).toBe(true);
+    expect(model.messages.map((message) => message.id)).toEqual(["window-root"]);
+  });
+
+  it("does not derive root attention from a child-owned rework-shaped user message", () => {
+    // Message-derived attention is root UI state. Child transcript text must
+    // remain authoritative without creating a synthetic Main ledger row.
+    const childFeedback = makeMessage({
+      id: "child-rework-feedback",
+      role: "user",
+      content: "This needs rework; please ask the agent to fix it.",
+      timestamp: 100,
+      metadata: {
+        codexSubagent: { childId: "opaque-child", rootTurnId: "root-turn" },
+        threadKey: "q-1975",
+        questId: "q-1975",
+        threadRefs: [{ threadKey: "q-1975", questId: "q-1975", source: "explicit" }],
+      },
+    });
+
+    const model = buildMessageModel({
+      allMessages: [childFeedback],
+      selectedFeedWindowEnabled: false,
+      sessionNotifications: [],
+    });
+
+    expect(model.messagesAvailableForDerivation).toEqual([childFeedback]);
+    expect(model.attentionRecords).toEqual([]);
+    expect(model.attentionLedgerMessages).toEqual([]);
+    expect(model.messages).toEqual([]);
+  });
+
+  it("does not let child timestamps widen selected Main attention-ledger bounds", () => {
+    // Window bounds describe the visible root projection, not hidden child
+    // history that happened to share the producer-selected raw window.
+    const root = makeMessage({
+      id: "root-window-row",
+      role: "assistant",
+      content: "Visible root row",
+      timestamp: 100,
+      historyIndex: 0,
+    });
+    const child = makeMessage({
+      id: "late-child-window-row",
+      role: "assistant",
+      content: "Hidden late child row",
+      timestamp: 1_000,
+      historyIndex: 1,
+      metadata: { codexSubagent: { childId: "opaque-child", rootTurnId: "root-turn" } },
+    });
+
+    const model = buildMessageModel({
+      allMessages: [root, child],
+      selectedFeedWindow: makeWindow({ from_item: 0, item_count: 2, total_items: 2, source_history_length: 2 }),
+      selectedFeedWindowMessages: [root, child],
+      sessionNotifications: [],
+      sessionAttentionRecords: [makeAttentionRecord({ id: "outside-root-window", createdAt: 900, updatedAt: 900 })],
+    });
+
+    expect(model.messages.map((message) => message.id)).toEqual(["root-window-row"]);
+    expect(model.attentionLedgerMessages).toEqual([]);
+  });
+
   it("keeps an active Main notification source visible when the selected window would otherwise omit it", () => {
     const proposal = makeMessage({
       id: "a-proposal",

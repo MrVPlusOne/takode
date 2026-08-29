@@ -19,6 +19,7 @@ import { deriveAttachmentPaths } from "./attachment-paths.js";
 import { TAKODE_PEEK_CONTENT_LIMIT } from "../shared/takode-constants.js";
 import { isSystemSourceTag } from "./bridge/adapter-browser-routing-source-tags.js";
 import { isCompactionRecoveryPrompt } from "./compaction-recovery-prompts.js";
+import { findTurnBoundaries, type TurnBoundary } from "./turn-boundaries.js";
 import {
   collectToolContextSources,
   contextUsageAtTimestamp,
@@ -846,52 +847,7 @@ function toPeekType(type: string): "user" | "assistant" | "result" | "system" {
   return "system";
 }
 
-// ─── Turn Detection ───────────────────────────────────────────────────────────
-
-export interface TurnBoundary {
-  /** Index of the user_message that starts this turn */
-  startIdx: number;
-  /** Index of the result message that ends this turn, or -1 if still in progress */
-  endIdx: number;
-}
-
-function isSyntheticStopTail(msg: BrowserIncomingMessage): boolean {
-  if (msg.type !== "user_message") return false;
-  if (!msg.id?.startsWith("stop-")) return false;
-  if (!msg.agentSource?.sessionId) return false;
-  return msg.content.startsWith("Session stopped by leader #");
-}
-
-/**
- * Find turn boundaries by scanning messageHistory.
- * A turn starts with a top-level user_message and ends with a result message.
- */
-export function findTurnBoundaries(messages: BrowserIncomingMessage[]): TurnBoundary[] {
-  const turns: TurnBoundary[] = [];
-  let currentStart = -1;
-
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    if (msg.type === "user_message") {
-      if (isSyntheticStopTail(msg)) continue;
-      // If there's a previous turn without a result, close it
-      if (currentStart >= 0) {
-        turns.push({ startIdx: currentStart, endIdx: -1 });
-      }
-      currentStart = i;
-    } else if (msg.type === "result" && currentStart >= 0) {
-      turns.push({ startIdx: currentStart, endIdx: i });
-      currentStart = -1;
-    }
-  }
-
-  // Handle in-progress turn (no result yet)
-  if (currentStart >= 0) {
-    turns.push({ startIdx: currentStart, endIdx: -1 });
-  }
-
-  return turns;
-}
+export { findTurnBoundaries, type TurnBoundary } from "./turn-boundaries.js";
 
 /**
  * Find compact_marker messages within the given index range of the message history.

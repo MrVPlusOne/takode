@@ -228,7 +228,7 @@ export function MessageFeed({
       threadKey,
     ],
   );
-  const { messages, visibleToolUseIds } = feedMessageModel;
+  const { messages, visibleToolUseIds, hasFilteredNativeChildMessages } = feedMessageModel;
   const { pendingUserUploads, pendingCodexInputs } = useMessageFeedPending(sessionId, normalizedThreadKey);
   const frozenCount = useStore((s) => s.messageFrozenCounts.get(sessionId) ?? 0);
   const frozenRevision = useStore((s) => s.messageFrozenRevisions.get(sessionId) ?? 0);
@@ -313,7 +313,11 @@ export function MessageFeed({
   );
   const { turns } = useCodexSafeFeedModel({
     messages,
-    frozenCount,
+    // The canonical frozen count is indexed against the unfiltered store. Once
+    // native-child rows are removed, that prefix no longer aligns with the
+    // projected array and can split adjacent live root activity across cache
+    // boundaries. Rebuild the bounded root projection instead.
+    frozenCount: hasFilteredNativeChildMessages ? 0 : frozenCount,
     isCodexSession,
     leaderMode: collapseLeaderThreadActivity,
     frozenRevision,

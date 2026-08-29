@@ -63,7 +63,7 @@ function renderEntries(messages: ChatMessage[]) {
   );
 }
 
-describe("native Codex child main-feed presentation", () => {
+describe("canonical native Codex child rendering", () => {
   const rootResult: ToolResultPreview = {
     tool_use_id: "shared-tool",
     content: "ROOT RESULT COLLISION",
@@ -83,7 +83,7 @@ describe("native Codex child main-feed presentation", () => {
   beforeEach(() => installSession(rootResult));
   afterEach(() => useStore.getState().reset());
 
-  it("uses the child-owned override for tool-only rows without merging into the adjacent root group", () => {
+  it("keeps child-owned tool-only overrides isolated when the inspector reuses feed renderers", () => {
     const view = renderEntries([
       toolMessage("child-tool", "child command", childResult, true),
       toolMessage("root-tool", "root command", undefined, false),
@@ -100,7 +100,7 @@ describe("native Codex child main-feed presentation", () => {
     expect(view.container.querySelector('[data-testid="live-codex-terminal-stub"]')).toBeNull();
   });
 
-  it("uses message-local child overrides for mixed text-and-tool rows", () => {
+  it("uses message-local child overrides for mixed text-and-tool inspector rows", () => {
     renderEntries([toolMessage("child-mixed", "mixed child", childResult, true, true)]);
 
     const header = screen.getByText("mixed child").closest('[role="button"]') as HTMLElement;
@@ -109,7 +109,7 @@ describe("native Codex child main-feed presentation", () => {
     expect(screen.queryByText("ROOT RESULT COLLISION")).toBeNull();
   });
 
-  it("renders stable child errors through the canonical error surface", () => {
+  it("renders stable child errors through the inspector's canonical error surface", () => {
     renderEntries([
       {
         id: "child-error",

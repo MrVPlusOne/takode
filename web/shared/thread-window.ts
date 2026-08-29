@@ -6,6 +6,7 @@ import type {
   ThreadTransitionMarker,
 } from "../server/session-types.js";
 import { deriveWindowAvailability } from "./window-availability.js";
+import { toolRelationKey } from "./tool-relation-key.js";
 import {
   inferThreadTargetFromTextContent,
   isQuestThreadKey,
@@ -26,6 +27,7 @@ export interface BuildThreadWindowInput {
   visibleItemCount: number;
   targetMessageId?: string;
   targetHistoryIndex?: number;
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean;
 }
 
 interface FeedItem {
@@ -63,7 +65,7 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
     1,
     Math.floor(input.itemCount || getThreadWindowItemCount(visibleItemCount, sectionItemCount)),
   );
-  const items = buildThreadConversationItems(input.messageHistory, threadKey);
+  const items = buildThreadConversationItems(input.messageHistory, threadKey, input.includeMessage);
   const ranges = buildVisibleConversationRanges(items);
   const totalItems = ranges.length;
   const requestedFromItem = Math.floor(input.fromItem);
@@ -96,6 +98,7 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
     fromItem: initialFromItem,
     endItem,
     supportItemLimit: requestedItemCount,
+    includeMessage: input.includeMessage,
   });
   const availability = deriveThreadWindowAvailability({
     items,
@@ -138,9 +141,10 @@ function findConversationRangeIndexForTarget(
 export function buildProjectedThreadEntries(
   messageHistory: ReadonlyArray<BrowserIncomingMessage>,
   threadKey: string,
+  options?: { includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean },
 ): ThreadWindowEntry[] {
   const normalizedThreadKey = normalizeSelectedFeedThreadKey(threadKey);
-  const items = buildThreadConversationItems(messageHistory, normalizedThreadKey);
+  const items = buildThreadConversationItems(messageHistory, normalizedThreadKey, options?.includeMessage);
   const ranges = buildVisibleConversationRanges(items);
   return buildThreadWindowEntries({
     messageHistory,
@@ -150,6 +154,7 @@ export function buildProjectedThreadEntries(
     fromItem: 0,
     endItem: ranges.length,
     supportItemLimit: Math.max(1, items.length),
+    includeMessage: options?.includeMessage,
   });
 }
 
@@ -161,6 +166,7 @@ function buildThreadWindowEntries(input: {
   fromItem: number;
   endItem: number;
   supportItemLimit: number;
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean;
 }): ThreadWindowEntry[] {
   const selectedItems = selectConversationItems(input.items, input.ranges.slice(input.fromItem, input.endItem));
   const selectedOrFallbackItems =
@@ -169,12 +175,22 @@ function buildThreadWindowEntries(input: {
       : selectRecentStandalonePreviewItems(input.items, input.ranges, input.supportItemLimit);
   const sourceExpandedItems =
     input.threadKey === MAIN_THREAD_KEY
-      ? expandMainAttachmentSourceItems(input.messageHistory, input.items, selectedOrFallbackItems)
+      ? expandMainAttachmentSourceItems(
+          input.messageHistory,
+          input.items,
+          selectedOrFallbackItems,
+          input.includeMessage,
+        )
       : selectedOrFallbackItems;
   return dedupeEntries(
-    expandToolClosureItems(input.messageHistory, sourceExpandedItems, {
-      orphanPreviewFallback: selectedItems.length === 0,
-    }),
+    expandToolClosureItems(
+      input.messageHistory,
+      sourceExpandedItems,
+      {
+        orphanPreviewFallback: selectedItems.length === 0,
+      },
+      input.includeMessage,
+    ),
   );
 }
 
@@ -228,29 +244,50 @@ function deriveThreadWindowAvailability(input: {
   };
 }
 
-function buildThreadConversationItems(messages: ReadonlyArray<BrowserIncomingMessage>, threadKey: string): FeedItem[] {
-  const items = buildFeedItems(messages, threadKey);
+function buildThreadConversationItems(
+  messages: ReadonlyArray<BrowserIncomingMessage>,
+  threadKey: string,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
+): FeedItem[] {
+  const items = buildFeedItems(messages, threadKey, includeMessage);
   if (threadKey === ALL_THREADS_KEY) return items;
-  return dedupeFeedItems(addTurnClosingResults(items, messages));
+  return dedupeFeedItems(addTurnClosingResults(items, messages, includeMessage));
 }
 
-function buildFeedItems(messages: ReadonlyArray<BrowserIncomingMessage>, threadKey: string): FeedItem[] {
+function buildFeedItems(
+  messages: ReadonlyArray<BrowserIncomingMessage>,
+  threadKey: string,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
+): FeedItem[] {
   if (threadKey === ALL_THREADS_KEY) {
-    return messages.map((message, index) => ({ order: index, entry: { message, history_index: index } }));
+    return messages.flatMap((message, index) =>
+      includeMessage && !includeMessage(message, index)
+        ? []
+        : [{ order: index, entry: { message, history_index: index } }],
+    );
   }
-  if (threadKey === MAIN_THREAD_KEY) return buildMainFeedItems(messages);
-  return buildQuestThreadFeedItems(messages, threadKey);
+  if (threadKey === MAIN_THREAD_KEY) return buildMainFeedItems(messages, includeMessage);
+  return buildQuestThreadFeedItems(messages, threadKey, includeMessage);
 }
 
-function buildMainFeedItems(messages: ReadonlyArray<BrowserIncomingMessage>): FeedItem[] {
+function buildMainFeedItems(
+  messages: ReadonlyArray<BrowserIncomingMessage>,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
+): FeedItem[] {
   const items: FeedItem[] = [];
-  const toolUseRoutes = toolUseRoutesById(messages);
+  const toolUseRoutes = toolUseRoutesById(messages, includeMessage);
   let hiddenRun: Array<{ message: BrowserIncomingMessage; index: number }> = [];
   let hiddenRunRoute: RouteTarget | null = null;
 
   const flushHiddenRun = (throughIndex?: number) => {
     if (!hiddenRunRoute || hiddenRun.length === 0) return;
-    const attachAuditItem = buildMainThreadAttachAuditItem(hiddenRun, hiddenRunRoute, messages, throughIndex);
+    const attachAuditItem = buildMainThreadAttachAuditItem(
+      hiddenRun,
+      hiddenRunRoute,
+      messages,
+      throughIndex,
+      includeMessage,
+    );
     if (attachAuditItem) {
       items.push(attachAuditItem);
     } else if (!isQuestThreadKey(hiddenRunRoute.threadKey)) {
@@ -261,6 +298,7 @@ function buildMainFeedItems(messages: ReadonlyArray<BrowserIncomingMessage>): Fe
   };
 
   messages.forEach((message, index) => {
+    if (includeMessage && !includeMessage(message, index)) return;
     if (message.type === "tool_result_preview") {
       const visiblePreview = mainVisibleToolResultPreview(message, toolUseRoutes);
       if (!visiblePreview) return;
@@ -300,14 +338,18 @@ function buildMainFeedItems(messages: ReadonlyArray<BrowserIncomingMessage>): Fe
   return items;
 }
 
-function toolUseRoutesById(messages: ReadonlyArray<BrowserIncomingMessage>): Map<string, RouteTarget | null> {
+function toolUseRoutesById(
+  messages: ReadonlyArray<BrowserIncomingMessage>,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
+): Map<string, RouteTarget | null> {
   const routes = new Map<string, RouteTarget | null>();
-  for (const message of messages) {
-    if (message.type !== "assistant") continue;
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index]!;
+    if ((includeMessage && !includeMessage(message, index)) || message.type !== "assistant") continue;
     const route = explicitNonMainRoute(message);
     for (const block of message.message.content) {
       if (block.type !== "tool_use") continue;
-      routes.set(block.id, route);
+      routes.set(toolRelationKey(message, block.id), route);
     }
   }
   return routes;
@@ -318,7 +360,7 @@ function mainVisibleToolResultPreview(
   toolUseRoutes: ReadonlyMap<string, RouteTarget | null>,
 ): BrowserIncomingMessage | null {
   const previews = message.previews.filter((preview) => {
-    const route = toolUseRoutes.get(preview.tool_use_id);
+    const route = toolUseRoutes.get(toolRelationKey(message, preview.tool_use_id));
     return !route || !isQuestThreadKey(route.threadKey);
   });
   if (previews.length === 0) return null;
@@ -326,26 +368,36 @@ function mainVisibleToolResultPreview(
   return { ...message, previews };
 }
 
-function buildQuestThreadFeedItems(messages: ReadonlyArray<BrowserIncomingMessage>, threadKey: string): FeedItem[] {
-  const includedToolUseIds = new Set<string>();
-  messages.forEach((message) => {
+function buildQuestThreadFeedItems(
+  messages: ReadonlyArray<BrowserIncomingMessage>,
+  threadKey: string,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
+): FeedItem[] {
+  const includedToolRelations = new Set<string>();
+  messages.forEach((message, index) => {
+    if (includeMessage && !includeMessage(message, index)) return;
     if (
       !messageHasThreadRef(message, threadKey) &&
       !threadSystemMarkerVisibleInQuestThread(message, messages, threadKey)
     ) {
       return;
     }
-    for (const toolUseId of messageToolUseIds(message)) includedToolUseIds.add(toolUseId);
+    for (const relationKey of messageToolRelationKeys(message)) includedToolRelations.add(relationKey);
     if (message.type === "tool_result_preview") {
-      for (const preview of message.previews) includedToolUseIds.add(preview.tool_use_id);
+      for (const preview of message.previews) {
+        includedToolRelations.add(toolRelationKey(message, preview.tool_use_id));
+      }
     }
     if (typeof (message as { parent_tool_use_id?: unknown }).parent_tool_use_id === "string") {
-      includedToolUseIds.add((message as { parent_tool_use_id: string }).parent_tool_use_id);
+      includedToolRelations.add(
+        toolRelationKey(message, (message as { parent_tool_use_id: string }).parent_tool_use_id),
+      );
     }
   });
 
   const items: FeedItem[] = [];
   messages.forEach((message, index) => {
+    if (includeMessage && !includeMessage(message, index)) return;
     if (threadSystemMarkerVisibleInQuestThread(message, messages, threadKey)) {
       items.push({ order: index, entry: { message, history_index: index } });
       return;
@@ -355,25 +407,35 @@ function buildQuestThreadFeedItems(messages: ReadonlyArray<BrowserIncomingMessag
       return;
     }
     const parentToolUseId = (message as { parent_tool_use_id?: unknown }).parent_tool_use_id;
-    if (typeof parentToolUseId === "string" && includedToolUseIds.has(parentToolUseId)) {
+    if (typeof parentToolUseId === "string" && includedToolRelations.has(toolRelationKey(message, parentToolUseId))) {
       items.push({ order: index, entry: { message, history_index: index } });
       return;
     }
-    if (messageToolUseIds(message).some((toolUseId) => includedToolUseIds.has(toolUseId))) {
+    if (messageToolRelationKeys(message).some((relationKey) => includedToolRelations.has(relationKey))) {
       items.push({ order: index, entry: { message, history_index: index } });
     }
   });
   return items;
 }
 
-function addTurnClosingResults(items: FeedItem[], messages: ReadonlyArray<BrowserIncomingMessage>): FeedItem[] {
+function addTurnClosingResults(
+  items: FeedItem[],
+  messages: ReadonlyArray<BrowserIncomingMessage>,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
+): FeedItem[] {
   if (items.length === 0) return items;
 
   const includedIndexes = new Set(items.map((item) => item.order));
   const additions: FeedItem[] = [];
-  for (const range of buildMessageTurnRanges(messages)) {
+  for (const range of buildMessageTurnRanges(messages, includeMessage)) {
     const endMessage = messages[range.endIndex];
-    if (endMessage?.type !== "result") continue;
+    if (
+      !endMessage ||
+      (includeMessage && !includeMessage(endMessage, range.endIndex)) ||
+      endMessage.type !== "result"
+    ) {
+      continue;
+    }
     let hasIncludedTurnContent = false;
     for (let index = range.startIndex; index < range.endIndex; index++) {
       if (includedIndexes.has(index)) {
@@ -393,12 +455,14 @@ function addTurnClosingResults(items: FeedItem[], messages: ReadonlyArray<Browse
 
 function buildMessageTurnRanges(
   messages: ReadonlyArray<BrowserIncomingMessage>,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
 ): Array<{ startIndex: number; endIndex: number }> {
   const ranges: Array<{ startIndex: number; endIndex: number }> = [];
   let startIndex = messages.length > 0 ? 0 : -1;
 
   for (let index = 0; index < messages.length; index++) {
     const message = messages[index];
+    if (includeMessage && !includeMessage(message, index)) continue;
     if (message.type === "user_message") {
       if (startIndex >= 0 && index > startIndex) {
         ranges.push({ startIndex, endIndex: index - 1 });
@@ -465,10 +529,11 @@ function expandMainAttachmentSourceItems(
   messages: ReadonlyArray<BrowserIncomingMessage>,
   allItems: FeedItem[],
   selectedItems: FeedItem[],
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
 ): FeedItem[] {
   if (selectedItems.length === 0) return selectedItems;
 
-  const relevantMarkers = collectSelectedMainAttachmentMarkers(messages, allItems, selectedItems);
+  const relevantMarkers = collectSelectedMainAttachmentMarkers(messages, allItems, selectedItems, includeMessage);
   if (relevantMarkers.length === 0) return selectedItems;
 
   const sourceIds = new Set<string>();
@@ -479,6 +544,7 @@ function expandMainAttachmentSourceItems(
 
   const expanded = [...selectedItems];
   messages.forEach((message, index) => {
+    if (includeMessage && !includeMessage(message, index)) return;
     if (!sourceIds.has(rawMessageId(message, index))) return;
     if (!isMainAttachmentSourceMessage(message)) return;
     expanded.push({ order: index, entry: { message, history_index: index } });
@@ -490,6 +556,7 @@ function collectSelectedMainAttachmentMarkers(
   messages: ReadonlyArray<BrowserIncomingMessage>,
   allItems: FeedItem[],
   selectedItems: FeedItem[],
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
 ) {
   const selectedKeys = new Set(selectedItems.map((item) => entryKey(item.entry)));
   const selectedItemIndexes: number[] = [];
@@ -508,7 +575,9 @@ function collectSelectedMainAttachmentMarkers(
   }
 
   return messages.filter((message, index) => {
-    if (message.type !== "thread_attachment_marker") return false;
+    if ((includeMessage && !includeMessage(message, index)) || message.type !== "thread_attachment_marker") {
+      return false;
+    }
     const sourceKey = message.sourceThreadKey ?? message.sourceQuestId;
     if (sourceKey && normalizeSelectedFeedThreadKey(sourceKey) !== MAIN_THREAD_KEY) return false;
     return selectedSpans.some((span) => index > span.afterOrder && index <= span.throughOrder);
@@ -526,15 +595,16 @@ function expandToolClosureItems(
   messages: ReadonlyArray<BrowserIncomingMessage>,
   selectedItems: FeedItem[],
   options: { orphanPreviewFallback: boolean },
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
 ): FeedItem[] {
   if (selectedItems.length === 0) return selectedItems;
 
-  const allowedToolUseIds = new Set<string>();
+  const allowedToolRelations = new Set<string>();
   for (const item of selectedItems) {
     if (item.entry.message.type === "tool_result_preview") continue;
     if (!threadWindowEntryRendersChatRow(item.entry.message)) continue;
-    for (const toolUseId of relatedToolUseIds(item.entry.message)) {
-      allowedToolUseIds.add(toolUseId);
+    for (const relationKey of relatedToolRelationKeys(item.entry.message)) {
+      allowedToolRelations.add(relationKey);
     }
   }
 
@@ -555,30 +625,33 @@ function expandToolClosureItems(
     return threadWindowEntryRendersChatRow(message) || retainedSelectedSupportKeys.has(entryKey(item.entry));
   });
 
-  const previewRelationIds = options.orphanPreviewFallback
+  const previewRelations = options.orphanPreviewFallback
     ? new Set(
         selectedItems.flatMap((item) =>
           item.entry.message.type === "tool_result_preview"
-            ? item.entry.message.previews.map((preview) => preview.tool_use_id)
+            ? item.entry.message.previews.map((preview) => toolRelationKey(item.entry.message, preview.tool_use_id))
             : [],
         ),
       )
-    : allowedToolUseIds;
+    : allowedToolRelations;
+  const eligibleMessages = inputMessagesWithIndexes(messages).filter(
+    ({ message, index }) => !includeMessage || includeMessage(message, index),
+  );
   const mandatoryPreviewItems = options.orphanPreviewFallback
     ? []
-    : collectLatestPreviewItemsForToolIds(inputMessagesWithIndexes(messages), allowedToolUseIds);
-  const mandatoryPreviewToolUseIds = new Set(
+    : collectLatestPreviewItemsForToolRelations(eligibleMessages, allowedToolRelations);
+  const mandatoryPreviewRelations = new Set(
     mandatoryPreviewItems.flatMap((item) =>
       item.entry.message.type === "tool_result_preview"
-        ? item.entry.message.previews.map((preview) => preview.tool_use_id)
+        ? item.entry.message.previews.map((preview) => toolRelationKey(item.entry.message, preview.tool_use_id))
         : [],
     ),
   );
   const supportItems: FeedItem[] = [];
-  const previewToolUseIds = new Set<string>();
+  const previewRelationsAdded = new Set<string>();
   const previewCandidates = options.orphanPreviewFallback
     ? selectedItems.map((item) => ({ message: item.entry.message, index: item.order }))
-    : messages.map((message, index) => ({ message, index }));
+    : eligibleMessages;
   for (
     let candidateIndex = previewCandidates.length - 1;
     candidateIndex >= 0 && supportRecordCount < THREAD_WINDOW_SUPPORT_RECORD_LIMIT;
@@ -587,15 +660,17 @@ function expandToolClosureItems(
     const { message, index } = previewCandidates[candidateIndex]!;
     if (message.type === "tool_result_preview") {
       const previews = message.previews
-        .filter(
-          (preview) =>
-            previewRelationIds.has(preview.tool_use_id) &&
-            !mandatoryPreviewToolUseIds.has(preview.tool_use_id) &&
-            !previewToolUseIds.has(preview.tool_use_id),
-        )
+        .filter((preview) => {
+          const relationKey = toolRelationKey(message, preview.tool_use_id);
+          return (
+            previewRelations.has(relationKey) &&
+            !mandatoryPreviewRelations.has(relationKey) &&
+            !previewRelationsAdded.has(relationKey)
+          );
+        })
         .slice(0, THREAD_WINDOW_SUPPORT_RECORD_LIMIT - supportRecordCount);
       if (previews.length === 0) continue;
-      previews.forEach((preview) => previewToolUseIds.add(preview.tool_use_id));
+      previews.forEach((preview) => previewRelationsAdded.add(toolRelationKey(message, preview.tool_use_id)));
       supportRecordCount += previews.length;
       supportItems.push({
         order: index,
@@ -607,23 +682,23 @@ function expandToolClosureItems(
     }
   }
 
-  if (options.orphanPreviewFallback || allowedToolUseIds.size === 0) {
+  if (options.orphanPreviewFallback || allowedToolRelations.size === 0) {
     return [...retainedSelectedItems, ...supportItems];
   }
 
-  const closureToolUseIds = new Set<string>();
+  const closureRelations = new Set<string>();
   for (
     let index = messages.length - 1;
     index >= 0 && supportRecordCount < THREAD_WINDOW_SUPPORT_RECORD_LIMIT;
     index--
   ) {
     const message = messages[index]!;
-    if (message.type === "tool_result_preview") continue;
-    const relationIds = relatedToolUseIds(message).filter(
-      (toolUseId) => allowedToolUseIds.has(toolUseId) && !closureToolUseIds.has(toolUseId),
+    if ((includeMessage && !includeMessage(message, index)) || message.type === "tool_result_preview") continue;
+    const relationKeys = relatedToolRelationKeys(message).filter(
+      (relationKey) => allowedToolRelations.has(relationKey) && !closureRelations.has(relationKey),
     );
-    if (relationIds.length === 0) continue;
-    relationIds.forEach((toolUseId) => closureToolUseIds.add(toolUseId));
+    if (relationKeys.length === 0) continue;
+    relationKeys.forEach((relationKey) => closureRelations.add(relationKey));
     if (selectedEntryKeys.has(entryKey({ message, history_index: index }))) continue;
     supportRecordCount += 1;
     supportItems.push({ order: index, entry: { message, history_index: index } });
@@ -635,17 +710,17 @@ function inputMessagesWithIndexes(messages: ReadonlyArray<BrowserIncomingMessage
   return messages.map((message, index) => ({ message, index }));
 }
 
-function collectLatestPreviewItemsForToolIds(
+function collectLatestPreviewItemsForToolRelations(
   candidates: ReadonlyArray<{ message: BrowserIncomingMessage; index: number }>,
-  toolUseIds: ReadonlySet<string>,
+  toolRelations: ReadonlySet<string>,
 ): FeedItem[] {
-  if (toolUseIds.size === 0) return [];
+  if (toolRelations.size === 0) return [];
 
-  const remainingToolUseIds = new Set(toolUseIds);
+  const remainingToolRelations = new Set(toolRelations);
   const previewItems: FeedItem[] = [];
   for (
     let candidateIndex = candidates.length - 1;
-    candidateIndex >= 0 && remainingToolUseIds.size > 0;
+    candidateIndex >= 0 && remainingToolRelations.size > 0;
     candidateIndex--
   ) {
     const { message, index } = candidates[candidateIndex]!;
@@ -653,8 +728,9 @@ function collectLatestPreviewItemsForToolIds(
 
     const previews: ToolResultPreviewEntry[] = [];
     for (const preview of message.previews) {
-      if (!remainingToolUseIds.has(preview.tool_use_id)) continue;
-      remainingToolUseIds.delete(preview.tool_use_id);
+      const relationKey = toolRelationKey(message, preview.tool_use_id);
+      if (!remainingToolRelations.has(relationKey)) continue;
+      remainingToolRelations.delete(relationKey);
       previews.push(preview);
     }
     if (previews.length === 0) continue;
@@ -735,13 +811,20 @@ function buildMainThreadAttachAuditItem(
   route: RouteTarget,
   messages: ReadonlyArray<BrowserIncomingMessage>,
   throughIndex?: number,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
 ): FeedItem | null {
   if (!isQuestThreadKey(route.threadKey)) return null;
 
   const attachCommand = firstThreadAttachCommand(hiddenRun, route);
   if (!attachCommand) return null;
 
-  const marker = findMainSourceAttachmentMarker(messages, attachCommand.index, throughIndex, attachCommand.target);
+  const marker = findMainSourceAttachmentMarker(
+    messages,
+    attachCommand.index,
+    throughIndex,
+    attachCommand.target,
+    includeMessage,
+  );
   if (!marker) return null;
 
   const commandId = rawMessageId(attachCommand.message, attachCommand.index);
@@ -820,11 +903,13 @@ function findMainSourceAttachmentMarker(
   afterIndex: number,
   throughIndex: number | undefined,
   target: RouteTarget,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
 ): { message: Extract<BrowserIncomingMessage, { type: "thread_attachment_marker" }>; index: number } | null {
   const endIndex = throughIndex ?? messages.length - 1;
   for (let index = afterIndex + 1; index <= endIndex; index++) {
     const message = messages[index];
-    if (message?.type !== "thread_attachment_marker") continue;
+    if (!message || (includeMessage && !includeMessage(message, index))) continue;
+    if (message.type !== "thread_attachment_marker") continue;
     if (!sameRouteTarget({ threadKey: message.threadKey, questId: message.questId }, target)) continue;
     if (!attachmentMarkerHasMainSource(message)) continue;
     return { message, index };
@@ -971,14 +1056,18 @@ function messageToolUseIds(message: BrowserIncomingMessage): string[] {
     .filter((id): id is string => Boolean(id));
 }
 
-function relatedToolUseIds(message: BrowserIncomingMessage): string[] {
-  const ids = new Set(messageToolUseIds(message));
+function messageToolRelationKeys(message: BrowserIncomingMessage): string[] {
+  return messageToolUseIds(message).map((toolUseId) => toolRelationKey(message, toolUseId));
+}
+
+function relatedToolRelationKeys(message: BrowserIncomingMessage): string[] {
+  const relations = new Set(messageToolRelationKeys(message));
   if (message.type === "tool_result_preview") {
-    for (const preview of message.previews) ids.add(preview.tool_use_id);
+    for (const preview of message.previews) relations.add(toolRelationKey(message, preview.tool_use_id));
   }
   const parentToolUseId = (message as { parent_tool_use_id?: unknown }).parent_tool_use_id;
-  if (typeof parentToolUseId === "string") ids.add(parentToolUseId);
-  return [...ids];
+  if (typeof parentToolUseId === "string") relations.add(toolRelationKey(message, parentToolUseId));
+  return [...relations];
 }
 
 function contentBlocksForMessage(message: BrowserIncomingMessage): ContentBlock[] {

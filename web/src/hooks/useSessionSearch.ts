@@ -52,7 +52,7 @@ export function useSessionSearch(sessionId: string, enabled = true): void {
  * Returns one SearchMatch per matching message, in message order.
  */
 function computeMatches(
-  messages: Pick<ChatMessage, "id" | "content" | "role" | "agentSource">[],
+  messages: Pick<ChatMessage, "id" | "content" | "role" | "agentSource" | "metadata">[],
   query: string,
   mode: "strict" | "fuzzy",
   category: SessionSearchCategory = "all",
