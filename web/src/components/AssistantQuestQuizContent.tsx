@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { QuestQuizSection } from "./QuestQuizSection.js";
 
 const QUEST_QUIZ_DIRECTIVE_RE = /^\s*\{\[\(Quest Quiz:\s*(q-\d+)\)\]\}\s*$/i;
@@ -18,6 +19,7 @@ interface AssistantQuestQuizContentProps {
   sessionId?: string;
   searchHighlight?: { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
   enableChatSelectionMenu?: boolean;
+  questLinkSurface?: QuestLinkSurface;
 }
 
 export function stripQuestQuizMarkers(text: string): string {
@@ -167,6 +169,7 @@ export function AssistantQuestQuizContent({
   sessionId,
   searchHighlight,
   enableChatSelectionMenu = false,
+  questLinkSurface = "legacy",
 }: AssistantQuestQuizContentProps) {
   const segments = useMemo(() => parseQuestQuizContentSegments(text), [text]);
   const quests = useStore((state) => state.quests);
@@ -197,6 +200,7 @@ export function AssistantQuestQuizContent({
               sessionId={sessionId}
               searchHighlight={searchHighlight}
               enableChatSelectionMenu={enableChatSelectionMenu}
+              questLinkSurface={questLinkSurface}
             />
           );
         }
@@ -211,6 +215,7 @@ export function AssistantQuestQuizContent({
             questTitle={quest.title}
             variant="inline"
             sessionId={sessionId}
+            questLinkSurface={questLinkSurface}
           />
         );
       })}

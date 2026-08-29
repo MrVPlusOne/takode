@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Lightbox } from "./Lightbox.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
 import { CompactSessionLink } from "./CompactSessionLink.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
@@ -26,9 +27,11 @@ interface QuestClaimData {
 export function QuestClaimBlock({
   quest,
   variant = "claimed",
+  questLinkSurface = "legacy",
 }: {
   quest: QuestClaimData;
   variant?: "claimed" | "submitted";
+  questLinkSurface?: QuestLinkSurface;
 }) {
   const [open, setOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -52,7 +55,7 @@ export function QuestClaimBlock({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [detailsOpen, lightboxSrc]);
 
-  const questDetailsContent = (
+  const renderQuestDetailsContent = (contentSurface: QuestLinkSurface) => (
     <>
       <div className="flex items-center gap-2">
         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-cc-hover ${statusInfo.text}`}>
@@ -77,7 +80,9 @@ export function QuestClaimBlock({
         )}
       </div>
 
-      {(quest.tldr || quest.description) && <MarkdownContent text={quest.tldr || quest.description || ""} size="sm" />}
+      {(quest.tldr || quest.description) && (
+        <MarkdownContent text={quest.tldr || quest.description || ""} size="sm" questLinkSurface={contentSurface} />
+      )}
 
       {quest.verificationItems && quest.verificationItems.length > 0 && (
         <div>
@@ -154,7 +159,7 @@ export function QuestClaimBlock({
       {/* Expanded content */}
       {open && (
         <div className="px-3 pb-3 pt-0 border-t border-cc-border space-y-2.5">
-          <div className="mt-2 space-y-2.5">{questDetailsContent}</div>
+          <div className="mt-2 space-y-2.5">{renderQuestDetailsContent(questLinkSurface)}</div>
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -210,7 +215,7 @@ export function QuestClaimBlock({
               </button>
             </div>
             <div className="overflow-y-auto px-4 py-3 space-y-2.5">
-              {questDetailsContent}
+              {renderQuestDetailsContent("legacy")}
               <a
                 href={`#/questmaster?quest=${encodeURIComponent(quest.questId)}`}
                 className={`inline-flex items-center gap-1 text-[11px] ${accentColor} hover:underline`}

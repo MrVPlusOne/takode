@@ -12,6 +12,7 @@ import { buildThreadRoutingReminderViewModel } from "../utils/thread-routing-rem
 import { useStore } from "../store.js";
 import { HighlightedText } from "./HighlightedText.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 import {
   NeedsInputReminderView,
   NeedsInputResolutionNoticeView,
@@ -51,14 +52,16 @@ export function StandaloneReminderMessageView({
   sessionId,
   showTimestamp,
   searchHighlight,
+  questLinkSurface = "legacy",
 }: {
   message: ChatMessage;
   sessionId?: string;
   showTimestamp: boolean;
   searchHighlight?: SearchHighlightInfo;
+  questLinkSurface?: QuestLinkSurface;
 }) {
   const notifications = useStore((s) => (sessionId ? s.sessionNotifications.get(sessionId) : undefined));
-  const body = buildStandaloneReminderBody(message, notifications, searchHighlight, sessionId);
+  const body = buildStandaloneReminderBody(message, notifications, searchHighlight, sessionId, questLinkSurface);
   if (!body) return null;
 
   return (
@@ -78,6 +81,7 @@ function buildStandaloneReminderBody(
   notifications: ReadonlyArray<SessionNotification> | undefined,
   searchHighlight: SearchHighlightInfo | undefined,
   sessionId: string | undefined,
+  questLinkSurface: QuestLinkSurface,
 ) {
   const threadRoutingReminder = buildThreadRoutingReminderViewModel(message);
   if (threadRoutingReminder) return <ThreadRoutingReminderView reminder={threadRoutingReminder} />;
@@ -101,7 +105,14 @@ function buildStandaloneReminderBody(
 
   const systemReminder = buildSystemReminderViewModel(message);
   if (systemReminder) {
-    return <SystemReminderChip reminder={systemReminder} searchHighlight={searchHighlight} sessionId={sessionId} />;
+    return (
+      <SystemReminderChip
+        reminder={systemReminder}
+        searchHighlight={searchHighlight}
+        sessionId={sessionId}
+        questLinkSurface={questLinkSurface}
+      />
+    );
   }
   return null;
 }
@@ -110,10 +121,12 @@ function SystemReminderChip({
   reminder,
   searchHighlight,
   sessionId,
+  questLinkSurface,
 }: {
   reminder: SystemReminderViewModel;
   searchHighlight?: SearchHighlightInfo;
   sessionId?: string;
+  questLinkSurface: QuestLinkSurface;
 }) {
   const [expanded, setExpanded] = useState(false);
   const tone = systemReminderTone(reminder.kind);
@@ -174,6 +187,7 @@ function SystemReminderChip({
             variant="conservative"
             sessionId={sessionId}
             searchHighlight={searchHighlight}
+            questLinkSurface={questLinkSurface}
           />
         </div>
       )}

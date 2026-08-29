@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ToolItem, ToolMsgGroup } from "../hooks/use-feed-model.js";
 import type { ToolResultPreview } from "../types.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { CompactToolActivity } from "./CompactToolActivity.js";
 import { LiveCodexTerminalStub } from "./MessageFeedLiveActivity.js";
 import { getToolGroupFeedBlockId } from "./message-feed-utils.js";
@@ -25,6 +26,7 @@ interface ToolMessageGroupProps {
   interactionMode?: "default" | "read-only";
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope?: ToolResultScope;
+  questLinkSurface?: QuestLinkSurface;
 }
 
 export function ToolMessageGroup(props: ToolMessageGroupProps) {
@@ -50,6 +52,7 @@ export function ToolMessageGroupContent({
   interactionMode = "default",
   toolResultOverrides,
   toolResultScope = "session",
+  questLinkSurface = "legacy",
 }: ToolMessageGroupProps) {
   const [open, setOpen] = useState(true);
   const iconType = getToolIcon(group.toolName);
@@ -64,6 +67,7 @@ export function ToolMessageGroupContent({
     interactionMode,
     toolResultOverrides,
     toolResultScope,
+    questLinkSurface,
   };
 
   if (group.mixedToolNames) {
@@ -134,6 +138,7 @@ function ToolMessageItem({
   toolResultOverrides,
   toolResultScope = "session",
   hideLabel = false,
+  questLinkSurface = "legacy",
 }: Omit<ToolMessageGroupProps, "group"> & { item: ToolItem; hideLabel?: boolean }) {
   const ownedResultScope = item.codexSubagent ? "overrides-only" : toolResultScope;
   const resultOverride = item.resultOverride ?? toolResultOverrides?.get(item.id);
@@ -166,6 +171,7 @@ function ToolMessageItem({
       resultOverride={resultOverride}
       suppressStoredResult={ownedResultScope === "overrides-only"}
       readOnly={interactionMode === "read-only"}
+      questLinkSurface={questLinkSurface}
     />
   );
 }

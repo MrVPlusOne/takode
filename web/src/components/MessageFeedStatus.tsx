@@ -15,6 +15,7 @@ import { YarnBallDot } from "./CatIcons.js";
 import { ImagePreviewGroup } from "./ImagePreviewGroup.js";
 import { buildStoredImagePreviewItems } from "./image-preview-utils.js";
 import { MessageBubble } from "./MessageBubble.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { NotificationChip } from "./NotificationChip.js";
 import { TimerChip } from "./TimerWidget.js";
 import { formatElapsed, formatTokens, getFooterFeedBlockId, getPendingCodexFeedBlockId } from "./message-feed-utils.js";
@@ -622,7 +623,15 @@ export function PendingCodexInputList({ sessionId, inputs }: { sessionId: string
   );
 }
 
-export function PendingUserUploadList({ sessionId, uploads }: { sessionId: string; uploads: PendingUserUpload[] }) {
+export function PendingUserUploadList({
+  sessionId,
+  uploads,
+  questLinkSurface = "legacy",
+}: {
+  sessionId: string;
+  uploads: PendingUserUpload[];
+  questLinkSurface?: QuestLinkSurface;
+}) {
   if (uploads.length === 0) return null;
 
   const label = uploads.every((upload) => upload.stage === "failed") ? "Delivery failed" : "Pending delivery";
@@ -693,7 +702,12 @@ export function PendingUserUploadList({ sessionId, uploads }: { sessionId: strin
 
           return (
             <div key={upload.id} className="space-y-1.5">
-              <MessageBubble message={msg} sessionId={sessionId} showTimestamp={true} />
+              <MessageBubble
+                message={msg}
+                sessionId={sessionId}
+                showTimestamp={true}
+                questLinkSurface={questLinkSurface}
+              />
               <div className="flex justify-end gap-2 pr-10 text-xs">
                 {upload.stage === "failed" && (
                   <>

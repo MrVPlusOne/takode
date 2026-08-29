@@ -4,6 +4,7 @@ import type { ChatMessage } from "../types.js";
 import { parseCodexReasoningDetail } from "../utils/codex-reasoning-detail.js";
 import { getMessageFeedBlockId } from "./message-feed-utils.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 
 function ReasoningChevron({ grouped = false }: { grouped?: boolean }) {
   return (
@@ -37,7 +38,15 @@ function ReasoningStreamingDot() {
   return <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-cc-primary" aria-label="Streaming" />;
 }
 
-function ReasoningExpandedContent({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
+function ReasoningExpandedContent({
+  message,
+  sessionId,
+  questLinkSurface,
+}: {
+  message: ChatMessage;
+  sessionId?: string;
+  questLinkSurface: QuestLinkSurface;
+}) {
   const parsed = parseCodexReasoningDetail(message.content);
   const streaming = message.metadata?.codexReasoningDetail?.status === "streaming";
 
@@ -58,6 +67,7 @@ function ReasoningExpandedContent({ message, sessionId }: { message: ChatMessage
           wrapLongContent
           className="mt-1.5 text-cc-muted"
           data-testid="codex-reasoning-body"
+          questLinkSurface={questLinkSurface}
         />
       )}
     </div>
@@ -68,10 +78,12 @@ export function CodexReasoningDetail({
   message,
   defaultOpen = false,
   sessionId,
+  questLinkSurface = "legacy",
 }: {
   message: ChatMessage;
   defaultOpen?: boolean;
   sessionId?: string;
+  questLinkSurface?: QuestLinkSurface;
 }) {
   const parsed = parseCodexReasoningDetail(message.content);
   const streaming = message.metadata?.codexReasoningDetail?.status === "streaming";
@@ -99,7 +111,7 @@ export function CodexReasoningDetail({
       </summary>
       {open && (
         <div className="border-t border-cc-border/20">
-          <ReasoningExpandedContent message={message} sessionId={sessionId} />
+          <ReasoningExpandedContent message={message} sessionId={sessionId} questLinkSurface={questLinkSurface} />
         </div>
       )}
     </details>
@@ -110,10 +122,12 @@ export function CodexReasoningDetailGroup({
   messages,
   defaultOpen = false,
   sessionId,
+  questLinkSurface = "legacy",
 }: {
   messages: ChatMessage[];
   defaultOpen?: boolean;
   sessionId?: string;
+  questLinkSurface?: QuestLinkSurface;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const expandTargetId = useStore((state) => (sessionId ? state.expandAllInTurn.get(sessionId) : undefined));
@@ -175,7 +189,7 @@ export function CodexReasoningDetailGroup({
               data-message-variant={message.variant}
               data-feed-block-id={index === 0 ? undefined : getMessageFeedBlockId(message.id)}
             >
-              <ReasoningExpandedContent message={message} sessionId={sessionId} />
+              <ReasoningExpandedContent message={message} sessionId={sessionId} questLinkSurface={questLinkSurface} />
             </div>
           ))}
         </div>

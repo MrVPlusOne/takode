@@ -149,6 +149,7 @@ export function MessageLinkHoverCard({
                   sessionId={session.id}
                   showTimestamp={false}
                   backendType={session.backendType}
+                  questLinkSurface="legacy"
                 />
               </HidePawContext.Provider>
             </div>

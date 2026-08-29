@@ -209,6 +209,7 @@ export function QuestHoverCard({
               size="sm"
               variant="conservative"
               wrapLongContent
+              questLinkSurface="legacy"
               className="mt-1 text-[11px] leading-snug text-cc-muted [&_p]:mb-1.5 [&_p:last-child]:mb-0 [&_p]:text-cc-muted [&_li]:text-cc-muted [&_ul]:mb-1.5 [&_ol]:mb-1.5"
             />
           </div>
@@ -229,6 +230,7 @@ export function QuestHoverCard({
               size="sm"
               variant="conservative"
               wrapLongContent
+              questLinkSurface="legacy"
               className="mt-1 text-[11px] leading-snug text-cc-muted [&_p]:mb-1.5 [&_p:last-child]:mb-0 [&_p]:text-cc-muted [&_li]:text-cc-muted [&_ul]:mb-1.5 [&_ol]:mb-1.5"
             />
           </div>

@@ -25,6 +25,7 @@ import { CodexThinkingInline, HerdEventMessage, MessageBubble } from "./MessageB
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils/herd-event-parser.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon, type ToolResultScope } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
 import { LiveCodexTerminalStub, LiveDurationBadge } from "./MessageFeedLiveActivity.js";
 import {
@@ -63,6 +64,7 @@ import { canGroupCodexReasoningDetails, isCodexReasoningDetailMessage } from "..
 import { CodexReasoningDetailGroup } from "./CodexReasoningDetail.js";
 import { collectTimerMessageBatch, TimerMessageGroup } from "./TimerMessage.js";
 import { MinuteBoundaryTimestamp } from "./MinuteBoundaryTimestamp.js";
+import { SubagentSectionHeader } from "./SubagentSectionHeader.js";
 
 function useExpandForScrollTarget(
   sessionId: string,
@@ -145,6 +147,7 @@ function GroupedErrorMessages({
   interactionMode,
   toolResultOverrides,
   toolResultScope,
+  questLinkSurface,
 }: {
   messages: ChatMessage[];
   sessionId: string;
@@ -153,6 +156,7 @@ function GroupedErrorMessages({
   interactionMode?: "default" | "read-only";
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope?: ToolResultScope;
+  questLinkSurface: QuestLinkSurface;
 }) {
   const first = messages[0];
   if (!first) return null;
@@ -176,6 +180,7 @@ function GroupedErrorMessages({
         interactionMode={interactionMode}
         toolResultOverrides={toolResultOverrides}
         toolResultScope={toolResultScope}
+        questLinkSurface={questLinkSurface}
       />
       <div className="flex justify-start pl-8 sm:pl-9">
         <span className="inline-flex max-w-full items-center rounded-full border border-cc-error/20 bg-cc-error/8 px-2 py-0.5 text-[11px] font-medium text-cc-error">
@@ -779,6 +784,7 @@ export const FeedEntries = memo(function FeedEntries({
   interactionMode = "default",
   toolResultOverrides,
   toolResultScope = "session",
+  questLinkSurface = "legacy",
 }: {
   entries: FeedEntry[];
   sessionId: string;
@@ -792,6 +798,7 @@ export const FeedEntries = memo(function FeedEntries({
   interactionMode?: "default" | "read-only";
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope?: ToolResultScope;
+  questLinkSurface?: QuestLinkSurface;
 }) {
   const compactToolActivity = useStore((state) => state.compactToolActivity);
   const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));
@@ -832,6 +839,7 @@ export const FeedEntries = memo(function FeedEntries({
             messages={timerBatch.messages}
             sessionId={sessionId}
             dateLabel={minuteBoundaryLabels?.get(timerBatch.messages[0]?.id ?? "")}
+            questLinkSurface={questLinkSurface}
           />,
         );
         i = timerBatch.nextIndex;
@@ -889,6 +897,7 @@ export const FeedEntries = memo(function FeedEntries({
             interactionMode={interactionMode}
             toolResultOverrides={toolResultOverrides}
             toolResultScope={toolResultScope}
+            questLinkSurface={questLinkSurface}
           />,
         );
         i = j;
@@ -910,7 +919,7 @@ export const FeedEntries = memo(function FeedEntries({
           result.push(
             <div key={`reasoning-group:${entry.msg.id}`}>
               {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
-              <CodexReasoningDetailGroup messages={batch} sessionId={sessionId} />
+              <CodexReasoningDetailGroup messages={batch} sessionId={sessionId} questLinkSurface={questLinkSurface} />
             </div>,
           );
           i = j;
@@ -986,6 +995,7 @@ export const FeedEntries = memo(function FeedEntries({
               interactionMode={interactionMode}
               toolResultOverrides={toolResultOverrides}
               toolResultScope={toolResultScope}
+              questLinkSurface={questLinkSurface}
             />,
           );
           i = j;
@@ -1034,6 +1044,7 @@ export const FeedEntries = memo(function FeedEntries({
             interactionMode={interactionMode}
             toolResultOverrides={toolResultOverrides}
             toolResultScope={toolResultScope}
+            questLinkSurface={questLinkSurface}
           />,
         );
       } else if (entry.kind === "subagent") {
@@ -1048,6 +1059,7 @@ export const FeedEntries = memo(function FeedEntries({
             interactionMode={interactionMode}
             toolResultOverrides={toolResultOverrides}
             toolResultScope={toolResultScope}
+            questLinkSurface={questLinkSurface}
           />,
         );
       } else if (entry.kind === "subagent_batch") {
@@ -1062,6 +1074,7 @@ export const FeedEntries = memo(function FeedEntries({
             interactionMode={interactionMode}
             toolResultOverrides={toolResultOverrides}
             toolResultScope={toolResultScope}
+            questLinkSurface={questLinkSurface}
           />,
         );
       } else if (isTimedChatMessage(entry.msg)) {
@@ -1086,6 +1099,7 @@ export const FeedEntries = memo(function FeedEntries({
               backendType={isCodexSession ? "codex" : undefined}
               toolResultOverrides={entryToolResults}
               toolResultScope={entryToolResultScope}
+              questLinkSurface={questLinkSurface}
             />
           </div>,
         );
@@ -1107,6 +1121,7 @@ export const FeedEntries = memo(function FeedEntries({
               backendType={isCodexSession ? "codex" : undefined}
               toolResultOverrides={entryToolResults}
               toolResultScope={entryToolResultScope}
+              questLinkSurface={questLinkSurface}
             />
           </div>,
         );
@@ -1125,6 +1140,7 @@ export const FeedEntries = memo(function FeedEntries({
     onOpenCodexTerminal,
     onSelectThread,
     interactionMode,
+    questLinkSurface,
     sessionId,
     suppressThreadSystemMarkers,
     toolResultOverrides,
@@ -1147,6 +1163,7 @@ function CollapsedTurnRows({
   onOpenCodexTerminal,
   onSelectThread,
   onExpand,
+  questLinkSurface,
 }: {
   turn: Turn;
   sessionId: string;
@@ -1159,6 +1176,7 @@ function CollapsedTurnRows({
   onOpenCodexTerminal: (toolUseId: string) => void;
   onSelectThread?: (threadKey: string) => void;
   onExpand: () => void;
+  questLinkSurface: QuestLinkSurface;
 }) {
   const collapsedEntries = turn.collapsedEntries ?? [];
   const activityRowCount = collapsedEntries.filter((row) => row.kind === "activity").length;
@@ -1187,6 +1205,7 @@ function CollapsedTurnRows({
                   isCodexSession={isCodexSession}
                   activeCodexTerminalIds={activeCodexTerminalIds}
                   onOpenCodexTerminal={onOpenCodexTerminal}
+                  questLinkSurface={questLinkSurface}
                 />
               ) : (
                 <FeedEntries
@@ -1199,6 +1218,7 @@ function CollapsedTurnRows({
                   onOpenCodexTerminal={onOpenCodexTerminal}
                   onSelectThread={onSelectThread}
                   suppressThreadSystemMarkers
+                  questLinkSurface={questLinkSurface}
                 />
               )}
             </HidePawContext.Provider>
@@ -1221,6 +1241,7 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   activeCodexTerminalIds,
   onOpenCodexTerminal,
   onSelectThread,
+  questLinkSurface,
 }: {
   turn: Turn;
   sessionId: string;
@@ -1233,6 +1254,7 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   activeCodexTerminalIds: Set<string>;
   onOpenCodexTerminal: (toolUseId: string) => void;
   onSelectThread?: (threadKey: string) => void;
+  questLinkSurface: QuestLinkSurface;
 }) {
   const headerRef = useRef<HTMLButtonElement>(null);
 
@@ -1250,6 +1272,7 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
         activeCodexTerminalIds={activeCodexTerminalIds}
         onOpenCodexTerminal={onOpenCodexTerminal}
         onSelectThread={onSelectThread}
+        questLinkSurface={questLinkSurface}
       />
       {threadStatusFooter}
       {turn.agentEntries.length > 0 && <TurnCollapseFooter headerRef={headerRef} onCollapse={onCollapse} />}
@@ -1273,6 +1296,7 @@ function SubagentBatchContainer({
   interactionMode = "default",
   toolResultOverrides,
   toolResultScope = "session",
+  questLinkSurface = "legacy",
 }: {
   batch: SubagentBatch;
   sessionId: string;
@@ -1282,6 +1306,7 @@ function SubagentBatchContainer({
   interactionMode?: "default" | "read-only";
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope?: ToolResultScope;
+  questLinkSurface?: QuestLinkSurface;
 }) {
   return (
     <div
@@ -1302,41 +1327,13 @@ function SubagentBatchContainer({
               interactionMode={interactionMode}
               toolResultOverrides={toolResultOverrides}
               toolResultScope={toolResultScope}
+              questLinkSurface={questLinkSurface}
               inBatch
             />
           ))}
         </div>
       </div>
     </div>
-  );
-}
-
-function SubagentSectionHeader({
-  label,
-  open,
-  onToggle,
-  extra,
-}: {
-  label: string;
-  open: boolean;
-  onToggle: () => void;
-  extra?: ReactNode;
-}) {
-  return (
-    <button
-      onClick={onToggle}
-      className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-cc-hover/50 transition-colors cursor-pointer"
-    >
-      <svg
-        viewBox="0 0 16 16"
-        fill="currentColor"
-        className={`w-2.5 h-2.5 text-cc-muted transition-transform shrink-0 ${open ? "rotate-90" : ""}`}
-      >
-        <path d="M6 4l4 4-4 4" />
-      </svg>
-      <span className="text-[11px] font-medium text-cc-muted">{label}</span>
-      {extra && <span className="ml-auto shrink-0">{extra}</span>}
-    </button>
   );
 }
 
@@ -1350,6 +1347,7 @@ function SubagentContainer({
   interactionMode = "default",
   toolResultOverrides,
   toolResultScope = "session",
+  questLinkSurface = "legacy",
 }: {
   group: SubagentGroup;
   sessionId: string;
@@ -1360,6 +1358,7 @@ function SubagentContainer({
   interactionMode?: "default" | "read-only";
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope?: ToolResultScope;
+  questLinkSurface?: QuestLinkSurface;
 }) {
   const [open, setOpen] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
@@ -1576,9 +1575,12 @@ function SubagentContainer({
                       interactionMode={interactionMode}
                       toolResultOverrides={toolResultOverrides}
                       toolResultScope={group.codexSubagent ? "overrides-only" : toolResultScope}
+                      questLinkSurface={questLinkSurface}
                     />
                   )}
-                  {delegateTraceCount > 0 && <DelegateTrace trace={delegateTrace!} sessionId={sessionId} />}
+                  {delegateTraceCount > 0 && (
+                    <DelegateTrace trace={delegateTrace!} sessionId={sessionId} questLinkSurface={questLinkSurface} />
+                  )}
                   {delegateTraceError && delegateTraceCount === 0 && (
                     <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2 text-[11px] text-cc-muted">
                       Delegate trace unavailable: {delegateTraceError}
@@ -1593,7 +1595,11 @@ function SubagentContainer({
                     <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2">
                       {isCodexSession ? (
                         <div className="text-[13px] text-cc-fg">
-                          <MarkdownContent text={streamingText} sessionId={sessionId} />
+                          <MarkdownContent
+                            text={streamingText}
+                            sessionId={sessionId}
+                            questLinkSurface={questLinkSurface}
+                          />
                           <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle -translate-y-[2px] animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
                         </div>
                       ) : (
@@ -1660,6 +1666,7 @@ function SubagentContainer({
                   parsedText={parsedResultPreview}
                   sessionId={sessionId}
                   toolUseId={group.taskToolUseId}
+                  questLinkSurface={questLinkSurface}
                   delegate={{
                     isDelegate,
                     isLegacyCommand: isLegacyDelegateCommand,
@@ -1693,9 +1700,11 @@ function SubagentContainer({
 export const FeedFooter = memo(function FeedFooter({
   sessionId,
   visibleToolUseIds,
+  questLinkSurface = "legacy",
 }: {
   sessionId: string;
   visibleToolUseIds?: Set<string>;
+  questLinkSurface?: QuestLinkSurface;
 }) {
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
   const rawStreamingText = useStore((s) => s.streaming.get(sessionId));
@@ -1756,7 +1765,7 @@ export const FeedFooter = memo(function FeedFooter({
             <div className="flex-1 min-w-0">
               {isCodexSession ? (
                 <div>
-                  <MarkdownContent text={streamingText} sessionId={sessionId} />
+                  <MarkdownContent text={streamingText} sessionId={sessionId} questLinkSurface={questLinkSurface} />
                   <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle -translate-y-[2px] animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
                 </div>
               ) : (
@@ -1785,6 +1794,7 @@ export const TurnEntries = memo(function TurnEntries({
   turnStates,
   toggleTurn,
   userBoundarySourceSessionId,
+  questLinkSurface,
 }: {
   sections: FeedSection[];
   sessionId: string;
@@ -1797,6 +1807,7 @@ export const TurnEntries = memo(function TurnEntries({
   turnStates: Array<{ isActivityExpanded: boolean } | undefined>;
   toggleTurn: (turnId: string) => void;
   userBoundarySourceSessionId?: string | null;
+  questLinkSurface: QuestLinkSurface;
 }) {
   const turns = useMemo(() => sections.flatMap((section) => section.turns), [sections]);
   const currentThreadStatuses = useStore((s) => s.sessions.get(sessionId)?.leaderThreadStatuses);
@@ -1868,6 +1879,7 @@ export const TurnEntries = memo(function TurnEntries({
                         activeCodexTerminalIds={activeCodexTerminalIds}
                         onOpenCodexTerminal={onOpenCodexTerminal}
                         onSelectThread={onSelectThread}
+                        questLinkSurface={questLinkSurface}
                       />
                     )}
 
@@ -1886,6 +1898,7 @@ export const TurnEntries = memo(function TurnEntries({
                           onOpenCodexTerminal={onOpenCodexTerminal}
                           onSelectThread={onSelectThread}
                           onCollapse={() => toggleTurn(turn.id)}
+                          questLinkSurface={questLinkSurface}
                         />
                       )
                     ) : (
@@ -1901,6 +1914,7 @@ export const TurnEntries = memo(function TurnEntries({
                             onOpenCodexTerminal={onOpenCodexTerminal}
                             onSelectThread={onSelectThread}
                             suppressThreadSystemMarkers
+                            questLinkSurface={questLinkSurface}
                           />
                         )}
                         {((turn.collapsedEntries?.length ?? 0) > 0 || turn.subConclusions.length > 0) && (
@@ -1920,6 +1934,7 @@ export const TurnEntries = memo(function TurnEntries({
                                         activeCodexTerminalIds={activeCodexTerminalIds}
                                         onOpenCodexTerminal={onOpenCodexTerminal}
                                         onSelectThread={onSelectThread}
+                                        questLinkSurface={questLinkSurface}
                                       />
                                     ))}
                                   </HidePawContext.Provider>
@@ -1937,6 +1952,7 @@ export const TurnEntries = memo(function TurnEntries({
                                 onOpenCodexTerminal={onOpenCodexTerminal}
                                 onSelectThread={onSelectThread}
                                 onExpand={() => toggleTurn(turn.id)}
+                                questLinkSurface={questLinkSurface}
                               />
                             </div>
                           </div>

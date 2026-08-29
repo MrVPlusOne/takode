@@ -1881,6 +1881,7 @@ export function MessageFeed({
                   turnStates={turnStates}
                   toggleTurn={toggleTurn}
                   userBoundarySourceSessionId={herdingLeaderSessionId ?? null}
+                  questLinkSurface="chat-feed"
                 />
                 {hasNewerSections && (
                   <div className="flex justify-center pt-1" aria-live="polite">
@@ -1902,12 +1903,16 @@ export function MessageFeed({
                   </div>
                 )}
                 {pendingUserUploads.length > 0 && (
-                  <PendingUserUploadList sessionId={sessionId} uploads={pendingUserUploads} />
+                  <PendingUserUploadList
+                    sessionId={sessionId}
+                    uploads={pendingUserUploads}
+                    questLinkSurface="chat-feed"
+                  />
                 )}
                 {isCodexSession && pendingCodexInputs.length > 0 && (
                   <PendingCodexInputList sessionId={sessionId} inputs={pendingCodexInputs} />
                 )}
-                <FeedFooter sessionId={sessionId} visibleToolUseIds={visibleToolUseIds} />
+                <FeedFooter sessionId={sessionId} visibleToolUseIds={visibleToolUseIds} questLinkSurface="chat-feed" />
                 <div
                   aria-hidden="true"
                   className="pointer-events-none"

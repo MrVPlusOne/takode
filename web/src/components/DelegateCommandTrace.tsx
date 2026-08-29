@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type DelegateTraceEvent, type DelegateTraceResponse } from "../api.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { ToolIcon } from "./ToolBlock.js";
 
 export function extractDelegateId(text: string | null | undefined): string | null {
@@ -167,7 +168,15 @@ function DelegateBashTraceCard({
   );
 }
 
-export function DelegateTrace({ trace, sessionId }: { trace: DelegateTraceResponse; sessionId: string }) {
+export function DelegateTrace({
+  trace,
+  sessionId,
+  questLinkSurface = "legacy",
+}: {
+  trace: DelegateTraceResponse;
+  sessionId: string;
+  questLinkSurface?: QuestLinkSurface;
+}) {
   const rawLink =
     trace.rawOutputLink?.kind === "session"
       ? "Raw transcript: [" + trace.rawOutputLink.label + "](session:" + trace.rawOutputLink.sessionNum + ")"
@@ -204,7 +213,7 @@ export function DelegateTrace({ trace, sessionId }: { trace: DelegateTraceRespon
               Open raw delegate transcript: {trace.rawOutputLink.label}
             </a>
           ) : (
-            <MarkdownContent text={rawLink} sessionId={sessionId} />
+            <MarkdownContent text={rawLink} sessionId={sessionId} questLinkSurface={questLinkSurface} />
           )}
         </div>
       )}

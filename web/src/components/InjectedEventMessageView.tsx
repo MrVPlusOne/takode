@@ -3,6 +3,7 @@ import type { ChatMessage } from "../types.js";
 import { buildInjectedEventMessageViewModel } from "../utils/injected-event-message.js";
 import { HighlightedText } from "./HighlightedText.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 
 type SearchHighlightInfo = { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
 
@@ -39,12 +40,14 @@ export function InjectedEventMessageView({
   sessionId,
   showTimestamp,
   searchHighlight,
+  questLinkSurface = "legacy",
 }: {
   event: NonNullable<ReturnType<typeof buildInjectedEventMessageViewModel>>;
   message: ChatMessage;
   sessionId?: string;
   showTimestamp: boolean;
   searchHighlight?: SearchHighlightInfo;
+  questLinkSurface?: QuestLinkSurface;
 }) {
   const [expanded, setExpanded] = useState(false);
   const renderedTitle = searchHighlight?.query ? (
@@ -121,6 +124,7 @@ export function InjectedEventMessageView({
                   variant="conservative"
                   sessionId={sessionId}
                   searchHighlight={searchHighlight}
+                  questLinkSurface={questLinkSurface}
                 />
               </div>
             )}

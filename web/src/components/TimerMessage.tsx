@@ -5,6 +5,7 @@ import { useStore, getSessionSearchState } from "../store.js";
 import type { ChatMessage } from "../types.js";
 import { HighlightedText } from "./HighlightedText.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { MessageTimestamp, formatExactMessageTimestamp, formatMessageTimestamp } from "./MessageTimestamp.js";
 import { escapeSelectorValue, getMessageFeedBlockId } from "./message-feed-utils.js";
 import { MinuteBoundaryTimestamp } from "./MinuteBoundaryTimestamp.js";
@@ -134,11 +135,13 @@ export function TimerMessage({
   sessionId,
   showTimestamp,
   searchHighlight,
+  questLinkSurface = "legacy",
 }: {
   message: ChatMessage;
   sessionId?: string;
   showTimestamp: boolean;
   searchHighlight?: SearchHighlightInfo;
+  questLinkSurface?: QuestLinkSurface;
 }) {
   const { title, description, timerId, kind } = useMemo(
     () => parseTimerMessageContent(message.content),
@@ -232,6 +235,7 @@ export function TimerMessage({
                   variant="conservative"
                   sessionId={sessionId}
                   searchHighlight={searchHighlight}
+                  questLinkSurface={questLinkSurface}
                 />
               </div>
             )}
@@ -247,10 +251,12 @@ function TimerOccurrenceDetail({
   message,
   sessionId,
   occurrenceNumber,
+  questLinkSurface,
 }: {
   message: ChatMessage;
   sessionId: string;
   occurrenceNumber: number;
+  questLinkSurface: QuestLinkSurface;
 }) {
   const searchHighlight = useMessageSearchHighlight(sessionId, message);
   const timestamp = formatMessageTimestamp(message.timestamp);
@@ -278,6 +284,7 @@ function TimerOccurrenceDetail({
         variant="conservative"
         sessionId={sessionId}
         searchHighlight={searchHighlight}
+        questLinkSurface={questLinkSurface}
       />
     </li>
   );
@@ -287,10 +294,12 @@ export function TimerMessageGroup({
   messages,
   sessionId,
   dateLabel,
+  questLinkSurface = "legacy",
 }: {
   messages: ChatMessage[];
   sessionId: string;
   dateLabel?: string;
+  questLinkSurface?: QuestLinkSurface;
 }) {
   const first = messages[0];
   const groupRef = useRef<HTMLDivElement>(null);
@@ -327,7 +336,7 @@ export function TimerMessageGroup({
         data-feed-block-id={getMessageFeedBlockId(first.id)}
       >
         {dateLabel && <MinuteBoundaryTimestamp timestamp={first.timestamp} label={dateLabel} />}
-        <TimerMessage message={first} sessionId={sessionId} showTimestamp={false} />
+        <TimerMessage message={first} sessionId={sessionId} showTimestamp={false} questLinkSurface={questLinkSurface} />
       </div>
     );
   }
@@ -398,6 +407,7 @@ export function TimerMessageGroup({
                   message={message}
                   sessionId={sessionId}
                   occurrenceNumber={index + 1}
+                  questLinkSurface={questLinkSurface}
                 />
               ))}
             </ol>

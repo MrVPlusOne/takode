@@ -10,6 +10,7 @@ import {
   type ToolResultScope,
 } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { AssistantQuestQuizContent } from "./AssistantQuestQuizContent.js";
 import { HighlightedText } from "./HighlightedText.js";
 import { CollapseFooter } from "./CollapseFooter.js";
@@ -83,6 +84,7 @@ export const MessageBubble = memo(function MessageBubble({
   backendType,
   toolResultOverrides,
   toolResultScope = "session",
+  questLinkSurface = "legacy",
 }: {
   message: ChatMessage;
   sessionId?: string;
@@ -94,6 +96,7 @@ export const MessageBubble = memo(function MessageBubble({
   backendType?: "claude" | "codex" | "claude-sdk";
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope?: ToolResultScope;
+  questLinkSurface?: QuestLinkSurface;
 }) {
   // Search highlight state -- must be called unconditionally (hooks can't be after early returns)
   const searchHighlight = useMessageSearchHighlight(sessionId, message);
@@ -103,7 +106,7 @@ export const MessageBubble = memo(function MessageBubble({
   const isCodexSession = (backendType ?? storedBackendType) === "codex";
 
   if (isCodexReasoningDetailMessage(message)) {
-    return <CodexReasoningDetail message={message} sessionId={sessionId} />;
+    return <CodexReasoningDetail message={message} sessionId={sessionId} questLinkSurface={questLinkSurface} />;
   }
 
   if (message.role === "system") {
@@ -186,6 +189,7 @@ export const MessageBubble = memo(function MessageBubble({
           <QuestClaimBlock
             quest={message.metadata.quest}
             variant={message.variant === "quest_submitted" ? "submitted" : "claimed"}
+            questLinkSurface={questLinkSurface}
           />
         </div>
       );
@@ -202,7 +206,7 @@ export const MessageBubble = memo(function MessageBubble({
     }
     // Expandable compact marker
     if (message.id.startsWith("compact-boundary-")) {
-      return <CompactMarker message={message} sessionId={sessionId} />;
+      return <CompactMarker message={message} sessionId={sessionId} questLinkSurface={questLinkSurface} />;
     }
     return (
       <div className="flex items-center gap-3 py-1">
@@ -222,6 +226,7 @@ export const MessageBubble = memo(function MessageBubble({
         sessionId={sessionId}
         showTimestamp={showTimestamp}
         searchHighlight={searchHighlight}
+        questLinkSurface={questLinkSurface}
       />
     );
   }
@@ -239,6 +244,7 @@ export const MessageBubble = memo(function MessageBubble({
         sessionId={sessionId}
         showTimestamp={showTimestamp}
         searchHighlight={searchHighlight}
+        questLinkSurface={questLinkSurface}
       />
     );
   }
@@ -250,6 +256,7 @@ export const MessageBubble = memo(function MessageBubble({
         sessionId={sessionId}
         showTimestamp={showTimestamp}
         searchHighlight={searchHighlight}
+        questLinkSurface={questLinkSurface}
       />
     );
   }
@@ -262,6 +269,7 @@ export const MessageBubble = memo(function MessageBubble({
         sessionId={sessionId}
         showTimestamp={showTimestamp}
         searchHighlight={searchHighlight}
+        questLinkSurface={questLinkSurface}
       />
     );
   }
@@ -275,6 +283,7 @@ export const MessageBubble = memo(function MessageBubble({
         searchHighlight={searchHighlight}
         currentThreadKey={currentThreadKey}
         readOnly={interactionMode === "read-only"}
+        questLinkSurface={questLinkSurface}
       />
     );
   }
@@ -293,6 +302,7 @@ export const MessageBubble = memo(function MessageBubble({
       isCodexSession={isCodexSession}
       toolResultOverrides={toolResultOverrides}
       toolResultScope={toolResultScope}
+      questLinkSurface={questLinkSurface}
     />
   );
 });
@@ -713,11 +723,13 @@ function ThreadOutcomeReminderMessage({
   sessionId,
   showTimestamp,
   searchHighlight,
+  questLinkSurface,
 }: {
   message: ChatMessage;
   sessionId?: string;
   showTimestamp: boolean;
   searchHighlight?: SearchHighlightInfo;
+  questLinkSurface: QuestLinkSurface;
 }) {
   const [expanded, setExpanded] = useState(false);
   const notifications = useStore((s) => (sessionId ? s.sessionNotifications?.get(sessionId) : undefined));
@@ -779,6 +791,7 @@ function ThreadOutcomeReminderMessage({
                   variant="conservative"
                   sessionId={sessionId}
                   searchHighlight={searchHighlight}
+                  questLinkSurface={questLinkSurface}
                 />
               </div>
             )}
@@ -831,6 +844,7 @@ function UserMessage({
   searchHighlight,
   currentThreadKey,
   readOnly,
+  questLinkSurface,
 }: {
   message: ChatMessage;
   sessionId?: string;
@@ -838,6 +852,7 @@ function UserMessage({
   searchHighlight?: SearchHighlightInfo;
   currentThreadKey?: string;
   readOnly: boolean;
+  questLinkSurface: QuestLinkSurface;
 }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
@@ -924,6 +939,7 @@ function UserMessage({
             sessionId={sessionId}
             searchHighlight={searchHighlight}
             fileLinkMode={readOnly ? "text-only" : "interactive"}
+            questLinkSurface={questLinkSurface}
           />
         </CollapsibleContent>
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
@@ -1029,6 +1045,7 @@ function AssistantMessage({
   isCodexSession,
   toolResultOverrides,
   toolResultScope,
+  questLinkSurface,
 }: {
   message: ChatMessage;
   sessionId?: string;
@@ -1041,6 +1058,7 @@ function AssistantMessage({
   isCodexSession: boolean;
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope: ToolResultScope;
+  questLinkSurface: QuestLinkSurface;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
@@ -1114,6 +1132,7 @@ function AssistantMessage({
               sessionId={sessionId}
               searchHighlight={searchHighlight}
               fileLinkMode="text-only"
+              questLinkSurface={questLinkSurface}
             />
           ) : (
             <AssistantQuestQuizContent
@@ -1121,6 +1140,7 @@ function AssistantMessage({
               sessionId={sessionId}
               searchHighlight={searchHighlight}
               enableChatSelectionMenu
+              questLinkSurface={questLinkSurface}
             />
           )}
           <ImagePreviewGroup images={assistantImagePreviewItems} testId="assistant-image-preview-group" />
@@ -1171,6 +1191,7 @@ function AssistantMessage({
                 sessionId={sessionId}
                 searchHighlight={searchHighlight}
                 fileLinkMode="text-only"
+                questLinkSurface={questLinkSurface}
               />
             ) : (
               <AssistantQuestQuizContent
@@ -1178,6 +1199,7 @@ function AssistantMessage({
                 sessionId={sessionId}
                 searchHighlight={searchHighlight}
                 enableChatSelectionMenu
+                questLinkSurface={questLinkSurface}
               />
             )}
           </div>
@@ -1197,6 +1219,7 @@ function AssistantMessage({
                 readOnly={readOnly}
                 toolResultOverrides={toolResultOverrides}
                 toolResultScope={toolResultScope}
+                questLinkSurface={questLinkSurface}
               />
             );
             if (!projection.shouldRenderContentFallback && hasTextContent && i === firstContentGroupIndex) {
@@ -1237,6 +1260,7 @@ function AssistantMessage({
                     readOnly={readOnly}
                     toolResultOverrides={toolResultOverrides}
                     toolResultScope={toolResultScope}
+                    questLinkSurface={questLinkSurface}
                   />
                 ))}
               </CompactToolActivity>
@@ -1254,6 +1278,7 @@ function AssistantMessage({
               readOnly={readOnly}
               toolResultOverrides={toolResultOverrides}
               toolResultScope={toolResultScope}
+              questLinkSurface={questLinkSurface}
             />
           );
         })}
@@ -1295,6 +1320,7 @@ function DetailedToolGroup({
   readOnly,
   toolResultOverrides,
   toolResultScope,
+  questLinkSurface,
 }: {
   group: Extract<GroupedBlock, { kind: "tool_group" }>;
   sessionId?: string;
@@ -1305,6 +1331,7 @@ function DetailedToolGroup({
   readOnly: boolean;
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope: ToolResultScope;
+  questLinkSurface: QuestLinkSurface;
 }) {
   if (group.items.length === 1) {
     const item = group.items[0];
@@ -1322,6 +1349,7 @@ function DetailedToolGroup({
         resultOverride={toolResultOverrides?.get(item.id)}
         suppressStoredResult={toolResultScope === "overrides-only"}
         readOnly={readOnly}
+        questLinkSurface={questLinkSurface}
       />
     );
   }
@@ -1338,6 +1366,7 @@ function DetailedToolGroup({
       readOnly={readOnly}
       toolResultOverrides={toolResultOverrides}
       toolResultScope={toolResultScope}
+      questLinkSurface={questLinkSurface}
     />
   );
 }
@@ -1374,7 +1403,15 @@ function AutoApprovedChip({ content, reason }: { content: string; reason?: strin
   );
 }
 
-function CompactMarker({ message, sessionId }: { message: ChatMessage; sessionId?: string }) {
+function CompactMarker({
+  message,
+  sessionId,
+  questLinkSurface,
+}: {
+  message: ChatMessage;
+  sessionId?: string;
+  questLinkSurface: QuestLinkSurface;
+}) {
   const [expanded, setExpanded] = useState(false);
   const markerKind = message.metadata?.compactMarkerKind === "session_recycled" ? "session_recycled" : "compaction";
   const label = markerKind === "session_recycled" ? "Session recycled" : "Conversation compacted";
@@ -1414,7 +1451,12 @@ function CompactMarker({ message, sessionId }: { message: ChatMessage; sessionId
       </div>
       {expanded && hasSummary && (
         <div className="mt-2 mx-4 max-h-96 overflow-y-auto rounded-lg border border-cc-border bg-cc-card p-3">
-          <MarkdownContent text={message.content} sessionId={sessionId} enableChatSelectionMenu />
+          <MarkdownContent
+            text={message.content}
+            sessionId={sessionId}
+            enableChatSelectionMenu
+            questLinkSurface={questLinkSurface}
+          />
         </div>
       )}
     </div>
@@ -1432,6 +1474,7 @@ function ContentBlockRenderer({
   readOnly = false,
   toolResultOverrides,
   toolResultScope,
+  questLinkSurface,
 }: {
   block: ContentBlock;
   sessionId?: string;
@@ -1443,6 +1486,7 @@ function ContentBlockRenderer({
   readOnly?: boolean;
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope: ToolResultScope;
+  questLinkSurface: QuestLinkSurface;
 }) {
   const isCodex = useStore((s) => (sessionId ? s.sessions.get(sessionId)?.backend_type === "codex" : false));
 
@@ -1453,6 +1497,7 @@ function ContentBlockRenderer({
         sessionId={sessionId}
         searchHighlight={searchHighlight}
         fileLinkMode="text-only"
+        questLinkSurface={questLinkSurface}
       />
     ) : (
       <AssistantQuestQuizContent
@@ -1460,6 +1505,7 @@ function ContentBlockRenderer({
         sessionId={sessionId}
         searchHighlight={searchHighlight}
         enableChatSelectionMenu
+        questLinkSurface={questLinkSurface}
       />
     );
   }
@@ -1483,6 +1529,7 @@ function ContentBlockRenderer({
         resultOverride={toolResultOverrides?.get(block.id)}
         suppressStoredResult={toolResultScope === "overrides-only"}
         readOnly={readOnly}
+        questLinkSurface={questLinkSurface}
       />
     );
   }
@@ -1515,6 +1562,7 @@ function ToolGroupBlock({
   readOnly = false,
   toolResultOverrides,
   toolResultScope,
+  questLinkSurface,
 }: {
   name: string;
   items: ToolGroupItem[];
@@ -1526,6 +1574,7 @@ function ToolGroupBlock({
   readOnly?: boolean;
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope: ToolResultScope;
+  questLinkSurface: QuestLinkSurface;
 }) {
   const [open, setOpen] = useState(true);
   const headerRef = useRef<HTMLButtonElement>(null);
@@ -1552,6 +1601,7 @@ function ToolGroupBlock({
             resultOverride={toolResultOverrides?.get(item.id)}
             suppressStoredResult={toolResultScope === "overrides-only"}
             readOnly={readOnly}
+            questLinkSurface={questLinkSurface}
           />
         ))}
       </div>
@@ -1597,6 +1647,7 @@ function ToolGroupBlock({
               resultOverride={toolResultOverrides?.get(item.id)}
               suppressStoredResult={toolResultScope === "overrides-only"}
               readOnly={readOnly}
+              questLinkSurface={questLinkSurface}
             />
           ))}
           <CollapseFooter headerRef={headerRef} onCollapse={() => setOpen(false)} />

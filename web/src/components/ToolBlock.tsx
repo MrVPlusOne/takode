@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { isSubagentToolName } from "../types.js";
 import { DiffViewer, formatFileHeaderPath } from "./DiffViewer.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { NotificationMarker } from "./NotificationMarker.js";
 import { CodeCopyButton } from "./CodeCopyButton.js";
 import { Lightbox } from "./Lightbox.js";
@@ -279,6 +280,7 @@ interface ToolBlockProps {
   resultOverride?: ToolResultPreview;
   suppressStoredResult?: boolean;
   readOnly?: boolean;
+  questLinkSurface?: QuestLinkSurface;
 }
 
 /** Public ToolBlock: wraps the inner implementation in an error boundary so that
@@ -307,6 +309,7 @@ const ToolBlockInner = memo(function ToolBlockInner({
   resultOverride,
   suppressStoredResult = false,
   readOnly = false,
+  questLinkSurface = "legacy",
 }: ToolBlockProps) {
   const [open, setOpen] = useState(() => {
     if (defaultOpen !== undefined) return defaultOpen;
@@ -480,7 +483,13 @@ const ToolBlockInner = memo(function ToolBlockInner({
         <div className="px-3 pb-3 pt-0 border-t border-cc-border">
           <ToolBlockErrorBoundary toolName={name}>
             <div className="mt-2">
-              <ToolDetail name={name} input={input} sessionId={sessionId} readOnly={readOnly} />
+              <ToolDetail
+                name={name}
+                input={input}
+                sessionId={sessionId}
+                readOnly={readOnly}
+                questLinkSurface={questLinkSurface}
+              />
             </div>
             {sessionId && !isSubagentToolName(name) && (
               <ToolResultSection
@@ -1002,11 +1011,13 @@ function ToolDetail({
   input,
   sessionId,
   readOnly,
+  questLinkSurface,
 }: {
   name: string;
   input: Record<string, unknown>;
   sessionId?: string;
   readOnly?: boolean;
+  questLinkSurface: QuestLinkSurface;
 }) {
   switch (name) {
     case "Bash":
@@ -1036,7 +1047,7 @@ function ToolDetail({
     case "SendMessage":
       return <SendMessageDetail input={input} />;
     case "ExitPlanMode":
-      return <ExitPlanModeDetail input={input} />;
+      return <ExitPlanModeDetail input={input} questLinkSurface={questLinkSurface} />;
     case "EnterPlanMode":
       return <div className="text-xs text-cc-muted">Entering plan mode...</div>;
     case "AskUserQuestion":
@@ -1675,7 +1686,13 @@ function SendMessageDetail({ input }: { input: Record<string, unknown> }) {
   );
 }
 
-function ExitPlanModeDetail({ input }: { input: Record<string, unknown> }) {
+function ExitPlanModeDetail({
+  input,
+  questLinkSurface,
+}: {
+  input: Record<string, unknown>;
+  questLinkSurface: QuestLinkSurface;
+}) {
   const plan = typeof input.plan === "string" ? input.plan : "";
   const allowedPrompts = Array.isArray(input.allowedPrompts) ? input.allowedPrompts : [];
   const planContentRef = useRef<HTMLDivElement>(null);
@@ -1692,7 +1709,7 @@ function ExitPlanModeDetail({ input }: { input: Record<string, unknown> }) {
             />
           </div>
           <div ref={planContentRef} className="pr-7">
-            <MarkdownContent text={plan} size="sm" />
+            <MarkdownContent text={plan} size="sm" questLinkSurface={questLinkSurface} />
           </div>
         </div>
       )}

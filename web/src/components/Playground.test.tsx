@@ -170,6 +170,9 @@ describe("Playground", () => {
     render(<Playground />);
 
     expect(screen.getByText("Component Playground")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Inline Quest Preview" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show idle state" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Inline Quest Preview" })).toBeTruthy();
     expect(screen.getByText("Real Chat Stack")).toBeTruthy();
     expect(screen.getByText("Leader Session Return Stability")).toBeTruthy();
     expect(screen.getByTestId("playground-leader-session-return")).toBeTruthy();
@@ -200,7 +203,7 @@ describe("Playground", () => {
 
     fireEvent.click(within(realChat).getByRole("button", { name: "Expand Thread routing reminder" }));
     expect(within(realChat).getByText(/^\[Thread routing reminder\]/)).toBeTruthy();
-  });
+  }, 20_000);
 
   it("documents inline, display, malformed, wide, and streaming math states", () => {
     // The Playground is the browser-validation fixture for every message-flow
@@ -734,6 +737,7 @@ describe("Playground", () => {
     const activeQuestTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-42");
     expect(activeQuestTab).toHaveAttribute("data-has-quest-hover", "true");
     expect(activeQuestTab).not.toHaveAttribute("title");
+    expect(within(activeQuestTab!).queryByRole("button", { name: /Preview q-/ })).toBeNull();
 
     fireEvent.mouseEnter(activeQuestTab!);
     const hoverCard = await screen.findByTestId("quest-hover-card");

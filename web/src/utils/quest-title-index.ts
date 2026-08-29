@@ -51,6 +51,32 @@ function shouldReplaceTitle(current: QuestTitleCandidate | undefined, incoming: 
   return incoming.sourceRank >= current.sourceRank;
 }
 
+export function selectCanonicalQuestTitle({
+  questId,
+  listQuest,
+  detailQuest,
+  titlePreview,
+  titlePreviewKnown = false,
+}: {
+  questId: string;
+  listQuest?: QuestmasterTask | null;
+  detailQuest?: QuestmasterTask | null;
+  titlePreview?: QuestTitlePreview | null;
+  titlePreviewKnown?: boolean;
+}): string | null {
+  let candidate: QuestTitleCandidate | undefined;
+  const merge = (incoming: QuestTitleCandidate | null) => {
+    if (incoming && shouldReplaceTitle(candidate, incoming)) candidate = incoming;
+  };
+  if (listQuest) merge(taskCandidate(listQuest, 1));
+  if (detailQuest) merge(taskCandidate(detailQuest, 2));
+  if (titlePreviewKnown) {
+    if (!titlePreview) return null;
+    merge(previewCandidate(titlePreview));
+  }
+  return candidate?.title ?? null;
+}
+
 /**
  * Build one canonical quest-title index from progressively loaded Questmaster
  * bodies and the bounded title-only projection used by retained leader tabs.

@@ -6,6 +6,7 @@ import { openQuestOverlayRouteAware, withQuestFeedbackInHash, withQuestIdInHash 
 import { navigateTo } from "../utils/navigation.js";
 import { useHashLocation } from "../utils/hash-location.js";
 import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
+import { QuestFeedInlineLink } from "./QuestFeedInlineLink.js";
 
 const questIndexCache = new WeakMap<QuestmasterTask[], Map<string, QuestmasterTask>>();
 function findQuestById(quests: QuestmasterTask[], questId: string): QuestmasterTask | null {
@@ -25,12 +26,59 @@ export function QuestInlineLink({
   hoverCardZIndexClassName,
   onNavigate,
   feedbackIndex,
+  surface = "legacy",
 }: {
   questId: string;
   feedbackIndex?: number;
   children?: ReactNode;
   className?: string;
   stopPropagation?: boolean;
+  hoverCardZIndexClassName?: string;
+  onNavigate?: () => void;
+  surface?: "legacy" | "chat-feed";
+}) {
+  if (surface === "chat-feed") {
+    return (
+      <QuestFeedInlineLink
+        key={`${questId.toLowerCase()}:${Number.isSafeInteger(feedbackIndex) ? feedbackIndex : "quest"}`}
+        questId={questId}
+        feedbackIndex={feedbackIndex}
+        className={className}
+        stopPropagation={stopPropagation}
+        onNavigate={onNavigate}
+      >
+        {children}
+      </QuestFeedInlineLink>
+    );
+  }
+  return (
+    <LegacyQuestInlineLink
+      questId={questId}
+      feedbackIndex={feedbackIndex}
+      className={className}
+      stopPropagation={stopPropagation}
+      hoverCardZIndexClassName={hoverCardZIndexClassName}
+      onNavigate={onNavigate}
+    >
+      {children}
+    </LegacyQuestInlineLink>
+  );
+}
+
+function LegacyQuestInlineLink({
+  questId,
+  children,
+  className,
+  stopPropagation,
+  hoverCardZIndexClassName,
+  onNavigate,
+  feedbackIndex,
+}: {
+  questId: string;
+  feedbackIndex?: number;
+  children?: ReactNode;
+  className: string;
+  stopPropagation: boolean;
   hoverCardZIndexClassName?: string;
   onNavigate?: () => void;
 }) {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type DelegateTraceResponse } from "../api.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 
 export function parseSubagentResultText(raw: string): string {
   try {
@@ -30,11 +31,13 @@ export function SubagentResult({
   sessionId,
   toolUseId,
   delegate,
+  questLinkSurface = "legacy",
 }: {
   preview: { content: string; is_truncated: boolean; duration_seconds?: number };
   parsedText: string | null;
   sessionId: string;
   toolUseId: string;
+  questLinkSurface?: QuestLinkSurface;
   delegate?: {
     isDelegate: boolean;
     isLegacyCommand: boolean;
@@ -81,7 +84,7 @@ export function SubagentResult({
       )}
       <div className="max-h-96 overflow-y-auto">
         <div className="text-sm" data-testid={delegate?.isDelegate ? "delegate-result-summary" : undefined}>
-          <MarkdownContent text={summaryText} sessionId={sessionId} />
+          <MarkdownContent text={summaryText} sessionId={sessionId} questLinkSurface={questLinkSurface} />
         </div>
         {metadata.length > 0 && (
           <dl

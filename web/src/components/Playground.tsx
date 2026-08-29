@@ -4,6 +4,7 @@ import { navigateToMostRecentSession, navigateToSession } from "../utils/routing
 import { PLAYGROUND_NAV_GROUPS } from "./playground/navigation.js";
 import { PlaygroundInteractiveSections } from "./playground/sections-interactive.js";
 import { PlaygroundOverviewSections } from "./playground/sections-overview.js";
+import { PlaygroundInlineQuestPreviewSection } from "./playground/PlaygroundInlineQuestPreviewSection.js";
 import { PlaygroundStateSections } from "./playground/sections-states.js";
 import { usePlaygroundSeed } from "./playground/usePlaygroundSeed.js";
 
@@ -89,6 +90,7 @@ export function Playground() {
 
         <main className="space-y-12 min-w-0">
           <PlaygroundOverviewSections />
+          <PlaygroundInlineQuestPreviewSection />
           <PlaygroundInteractiveSections />
           <PlaygroundStateSections />
         </main>

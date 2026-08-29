@@ -1,6 +1,7 @@
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { QuestQuizItem } from "../types.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 
 interface QuestQuizSectionProps {
   items?: QuestQuizItem[];
@@ -10,6 +11,7 @@ interface QuestQuizSectionProps {
   questTitle?: string;
   collapsed?: boolean;
   onSessionNavigate?: () => void;
+  questLinkSurface?: QuestLinkSurface;
 }
 
 export function QuestQuizSection({
@@ -20,6 +22,7 @@ export function QuestQuizSection({
   questTitle,
   collapsed = false,
   onSessionNavigate,
+  questLinkSurface = "legacy",
 }: QuestQuizSectionProps) {
   const quizItems = items ?? [];
   if (quizItems.length === 0) return null;
@@ -38,6 +41,7 @@ export function QuestQuizSection({
           variant={variant}
           sessionId={sessionId}
           onSessionNavigate={onSessionNavigate}
+          questLinkSurface={questLinkSurface}
         />
       ))}
       {remaining > 0 && <div className="text-[10px] text-cc-muted/60">+{remaining} more in quest details</div>}
@@ -69,6 +73,7 @@ export function QuestQuizSection({
                 <QuestInlineLink
                   questId={questId}
                   className="shrink-0 font-mono-code text-cc-primary hover:underline"
+                  surface={questLinkSurface}
                 />
               )}
               {questTitle && <span className="min-w-0 truncate">{questTitle}</span>}
@@ -96,12 +101,14 @@ function QuestQuizItemRow({
   variant,
   sessionId,
   onSessionNavigate,
+  questLinkSurface,
 }: {
   item: QuestQuizItem;
   index: number;
   variant: "detail" | "compact" | "inline";
   sessionId?: string;
   onSessionNavigate?: () => void;
+  questLinkSurface: QuestLinkSurface;
 }) {
   return (
     <div
@@ -133,6 +140,7 @@ function QuestQuizItemRow({
                 sessionId={sessionId}
                 wrapLongContent
                 onSessionNavigate={onSessionNavigate}
+                questLinkSurface={questLinkSurface}
               />
               {item.source && <div className="mt-1 text-[10px] text-cc-muted/60">Source: {item.source}</div>}
             </div>

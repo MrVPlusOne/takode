@@ -20,6 +20,7 @@ import remarkMath from "remark-math";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { CodeCopyButton } from "./CodeCopyButton.js";
 import { highlightCode } from "../utils/syntax-highlighting.js";
 import { openFileWithEditorPreference, showEditorOpenError } from "../utils/vscode-bridge.js";
@@ -245,6 +246,7 @@ interface MarkdownContentProps {
   onSessionNavigate?: () => void;
   stopLinkPropagation?: boolean;
   fileLinkMode?: "interactive" | "text-only";
+  questLinkSurface?: QuestLinkSurface;
 }
 
 function isAbsoluteFilePath(path: string): boolean {
@@ -647,6 +649,7 @@ export const MarkdownContent = memo(function MarkdownContent({
   onSessionNavigate,
   stopLinkPropagation = false,
   fileLinkMode = "interactive",
+  questLinkSurface = "legacy",
 }: MarkdownContentProps) {
   const sizeClass =
     size === "sm"
@@ -766,6 +769,7 @@ export const MarkdownContent = memo(function MarkdownContent({
                   target={questTarget}
                   wrapLongContent={wrapLongContent}
                   stopPropagation={stopLinkPropagation}
+                  surface={questLinkSurface}
                 >
                   {children}
                 </QuestMarkdownLink>
@@ -900,6 +904,7 @@ function areMarkdownContentPropsEqual(prev: MarkdownContentProps, next: Markdown
     prev.onSessionNavigate === next.onSessionNavigate &&
     prev.stopLinkPropagation === next.stopLinkPropagation &&
     prev.fileLinkMode === next.fileLinkMode &&
+    prev.questLinkSurface === next.questLinkSurface &&
     searchHighlightEqual(prev.searchHighlight, next.searchHighlight)
   );
 }
@@ -918,11 +923,13 @@ function QuestMarkdownLink({
   children,
   wrapLongContent,
   stopPropagation,
+  surface,
 }: {
   target: QuestLinkTarget;
   children: ReactNode;
   wrapLongContent: boolean;
   stopPropagation: boolean;
+  surface: QuestLinkSurface;
 }) {
   const className = `cc-quest-link hover:underline ${wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""}`;
   return (
@@ -931,6 +938,7 @@ function QuestMarkdownLink({
       feedbackIndex={target.feedbackIndex}
       className={className}
       stopPropagation={stopPropagation}
+      surface={surface}
     >
       {children}
     </QuestInlineLink>

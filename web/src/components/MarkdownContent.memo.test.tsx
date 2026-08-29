@@ -50,4 +50,16 @@ describe("MarkdownContent memoization", () => {
 
     expect(mockMarkdownRenderCount.count).toBe(1);
   });
+  it("rerenders only when the explicit quest-link surface changes", () => {
+    const { rerender } = render(
+      <MarkdownContent text="Stable quest link surface" sessionId="s1" questLinkSurface="legacy" />,
+    );
+
+    expect(mockMarkdownRenderCount.count).toBe(1);
+    rerender(<MarkdownContent text="Stable quest link surface" sessionId="s1" questLinkSurface="legacy" />);
+    expect(mockMarkdownRenderCount.count).toBe(1);
+
+    rerender(<MarkdownContent text="Stable quest link surface" sessionId="s1" questLinkSurface="chat-feed" />);
+    expect(mockMarkdownRenderCount.count).toBe(2);
+  });
 });

@@ -8,6 +8,7 @@ import { ToolMessageGroupContent } from "./ToolMessageGroup.js";
 import { parseTakodeNotifyCommand } from "./ToolBlock.js";
 import { NotificationMarker } from "./NotificationMarker.js";
 import type { ToolResultScope } from "./ToolBlock.js";
+import type { QuestLinkSurface } from "./quest-link-surface.js";
 
 export type CompactFeedActivitySegment =
   | { kind: "tool"; groups: ToolMsgGroup[] }
@@ -22,6 +23,7 @@ export function CompactFeedActivity({
   interactionMode = "default",
   toolResultOverrides,
   toolResultScope = "session",
+  questLinkSurface = "legacy",
 }: {
   segments: CompactFeedActivitySegment[];
   sessionId: string;
@@ -31,6 +33,7 @@ export function CompactFeedActivity({
   interactionMode?: "default" | "read-only";
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope?: ToolResultScope;
+  questLinkSurface?: QuestLinkSurface;
 }) {
   const items = useMemo(
     () =>
@@ -75,6 +78,7 @@ export function CompactFeedActivity({
                 interactionMode={interactionMode}
                 toolResultOverrides={toolResultOverrides}
                 toolResultScope={toolResultScope}
+                questLinkSurface={questLinkSurface}
               />
             ))
           ) : (

@@ -53,6 +53,7 @@ describe("QuestRelationshipLinks", () => {
     expect(within(relationships).getByText("q-5").closest("a")?.getAttribute("href")).toContain("quest=q-5");
     expect(within(relationships).queryByText("References")).toBeNull();
     expect(within(relationships).queryByText("q-3")).toBeNull();
+    expect(within(relationships).queryByRole("button", { name: /Preview q-/ })).toBeNull();
   });
 
   it("hides forward detected references in inline Questmaster placements", () => {
