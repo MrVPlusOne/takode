@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useStore, countUserPermissions } from "../store.js";
 import { api } from "../api.js";
 import { navigateToSession, withoutQuestIdInHash } from "../utils/routing.js";
+import { markdownToPlainText } from "../utils/copy-utils.js";
 import { QUEST_STATUS_THEME } from "../utils/quest-status-theme.js";
 import {
   extractPastedImages,
@@ -40,8 +41,10 @@ import { buildQuestAssignDraft } from "./quest-assign.js";
 import { buildQuestReworkDraft } from "./quest-rework.js";
 import { useQuestDetailRecord } from "./useQuestDetailRecord.js";
 import { summarizeQuestPhaseDocumentation } from "../../shared/quest-phase-documentation-summary.js";
+import { isDeletedQuestFeedbackEntry } from "../../shared/quest-feedback.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import type { QuestmasterTask, QuestStatus, QuestVerificationItem, QuestImage, QuestHistoryView } from "../types.js";
+import type { QuestFeedbackTargetRequest } from "../utils/quest-link-target.js";
 
 type EditorTarget = "editTitle" | "editDescription";
 
@@ -63,6 +66,7 @@ export function QuestDetailPanel() {
   const cliDisconnectReason = useStore((s) => s.cliDisconnectReason);
   const pendingPermissions = useStore((s) => s.pendingPermissions);
   const askPermissionMap = useStore((s) => s.askPermission);
+  const feedbackNavigationTarget = useStore((s) => s.questOverlayFeedbackTarget);
 
   const { quest, setFetchedQuest, questLoading, questLoadError } = useQuestDetailRecord(questOverlayId);
   const journeyBoardRow = useMemo(() => {
@@ -108,6 +112,23 @@ export function QuestDetailPanel() {
   const [assignPickerForId, setAssignPickerForId] = useState<string | null>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [historyForId, setHistoryForId] = useState<string | null>(null);
+  const [highlightedFeedbackTarget, setHighlightedFeedbackTarget] = useState<QuestFeedbackTargetRequest | null>(null);
+  const feedbackHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleFeedbackTargetReady = useCallback(
+    (element: HTMLElement | null) => {
+      if (!element || !feedbackNavigationTarget || !questOverlayId) return;
+      if (Number(element.dataset.feedbackIndex) !== feedbackNavigationTarget.index) return;
+      if (feedbackHighlightTimerRef.current) clearTimeout(feedbackHighlightTimerRef.current);
+      setHighlightedFeedbackTarget(feedbackNavigationTarget);
+      element.focus({ preventScroll: true });
+      element.scrollIntoView?.({
+        behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "center",
+      });
+      feedbackHighlightTimerRef.current = setTimeout(() => setHighlightedFeedbackTarget(null), 2600);
+    },
+    [feedbackNavigationTarget, questOverlayId],
+  );
   const storedCommitEntries = useMemo(() => buildQuestCommitEntries(quest), [quest]);
   const commitDiffState = useQuestCommitDiffState({
     questId: quest?.questId,
@@ -128,10 +149,19 @@ export function QuestDetailPanel() {
     setAssignPickerForId(null);
     setLightboxSrc(null);
     setHistoryForId(null);
+    setHighlightedFeedbackTarget(null);
+    if (feedbackHighlightTimerRef.current) clearTimeout(feedbackHighlightTimerRef.current);
     setEditorHashtagQuery("");
     setEditorAutocompleteTarget(null);
     setEditorAutocompleteIndex(0);
   }, [questOverlayId]);
+
+  useEffect(
+    () => () => {
+      if (feedbackHighlightTimerRef.current) clearTimeout(feedbackHighlightTimerRef.current);
+    },
+    [],
+  );
 
   // Lock body scroll while open
   useEffect(() => {
@@ -147,7 +177,8 @@ export function QuestDetailPanel() {
     const currentHash = window.location.hash || "#/";
     const nextHash = withoutQuestIdInHash(currentHash);
     if (nextHash !== currentHash) {
-      window.location.hash = nextHash.startsWith("#") ? nextHash.slice(1) : nextHash;
+      window.history.replaceState(window.history.state, "", nextHash);
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
     }
     useStore.getState().closeQuestOverlay();
   }, []);
@@ -708,7 +739,19 @@ export function QuestDetailPanel() {
   const leaderSessionId = getQuestLeaderSessionId(quest);
   const isKnownSession = questSessionId ? sdkSessions.some((s) => s.sessionId === questSessionId) : false;
   const phaseDocumentationSummary = summarizeQuestPhaseDocumentation(quest);
-  const indexedFeedbackEntries = getQuestFeedback(quest).map((entry, index) => ({ ...entry, index }));
+  const indexedFeedbackEntries = getQuestFeedback(quest)
+    .map((entry, index) => ({ ...entry, index }))
+    .filter((entry) => !isDeletedQuestFeedbackEntry(entry));
+  const activeFeedbackTarget =
+    feedbackNavigationTarget &&
+    feedbackNavigationTarget.index >= 0 &&
+    indexedFeedbackEntries.some((entry) => entry.index === feedbackNavigationTarget.index)
+      ? feedbackNavigationTarget
+      : null;
+  const highlightedFeedbackIndex =
+    activeFeedbackTarget && activeFeedbackTarget.requestId === highlightedFeedbackTarget?.requestId
+      ? activeFeedbackTarget.index
+      : null;
   const feedbackEntries = phaseDocumentationSummary.hasPhaseDocumentation
     ? phaseDocumentationSummary.unscopedFeedback
     : indexedFeedbackEntries;
@@ -1027,6 +1070,9 @@ export function QuestDetailPanel() {
                 searchHighlight={searchHighlight}
                 sessionId={questMarkdownSessionId}
                 onSessionNavigate={closePanel}
+                feedbackTarget={activeFeedbackTarget}
+                highlightedFeedbackIndex={highlightedFeedbackIndex}
+                onFeedbackTargetReady={handleFeedbackTargetReady}
                 beforeSummary={
                   <QuestQuizSection
                     items={quest.quizItems}
@@ -1058,20 +1104,31 @@ export function QuestDetailPanel() {
                   <label className="block text-[11px] text-cc-muted mb-1">User review checks</label>
                   <div className="space-y-0.5">
                     {quest.verificationItems.map((item: QuestVerificationItem, i: number) => (
-                      <label
+                      <div
                         key={i}
-                        className="flex items-start gap-2 py-1 px-2 rounded-md hover:bg-cc-hover transition-colors cursor-pointer"
+                        className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1 transition-colors hover:bg-cc-hover"
+                        onClick={(event) => {
+                          const target = event.target;
+                          if (target instanceof Element && target.closest("a, button, input, select, textarea")) return;
+                          void handleCheckVerification(quest.questId, i, !item.checked);
+                        }}
                       >
                         <input
                           type="checkbox"
                           checked={item.checked}
                           onChange={(e) => handleCheckVerification(quest.questId, i, e.target.checked)}
                           className="mt-0.5 accent-cc-primary cursor-pointer"
+                          aria-label={markdownToPlainText(item.text) || "User review check"}
                         />
-                        <span className={`text-xs ${item.checked ? "text-cc-muted line-through" : "text-cc-fg"}`}>
-                          {item.text}
-                        </span>
-                      </label>
+                        <MarkdownContent
+                          text={item.text}
+                          size="sm"
+                          sessionId={questMarkdownSessionId}
+                          wrapLongContent
+                          stopLinkPropagation
+                          className={`min-w-0 flex-1 ${item.checked ? "text-cc-muted line-through" : "text-cc-fg"}`}
+                        />
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -1088,7 +1145,7 @@ export function QuestDetailPanel() {
                           {phaseDocumentationSummary.hasPhaseDocumentation ? "Unscoped Feedback" : "Feedback"}
                         </label>
                         <div className="space-y-2 mb-2">
-                          {feedbackEntries.map((entry, i) => {
+                          {feedbackEntries.map((entry) => {
                             const entryIndex = entry.index;
                             const isEntryEditing =
                               editingFeedback?.questId === quest.questId && editingFeedback?.index === entryIndex;
@@ -1100,16 +1157,26 @@ export function QuestDetailPanel() {
                             const feedbackAuthorLabel = isUserFeedback ? "user" : entry.author;
                             const feedbackAuthorSuffix =
                               isUserFeedback && feedbackSessionId ? "on behalf of user" : undefined;
+                            const isNavigationTarget = activeFeedbackTarget?.index === entryIndex;
+                            const isHighlighted = highlightedFeedbackIndex === entryIndex;
                             return (
                               <div
-                                key={entryIndex}
-                                className={`px-2.5 py-2 rounded-lg text-sm ${
-                                  entry.author === "human"
-                                    ? entry.addressed
-                                      ? "bg-amber-500/5 border border-amber-500/10 text-amber-300/50"
-                                      : "bg-amber-500/8 border border-amber-500/15 text-amber-300/90"
-                                    : "bg-cc-input-bg border border-cc-border text-cc-fg/80 ml-4"
+                                key={`${entryIndex}:${isNavigationTarget ? activeFeedbackTarget.requestId : 0}`}
+                                ref={isNavigationTarget ? handleFeedbackTargetReady : undefined}
+                                className={`px-2.5 py-2 rounded-lg text-sm transition-[background-color,box-shadow] duration-500 ${
+                                  entry.author === "human" ? "" : "ml-4"
+                                } ${
+                                  isHighlighted
+                                    ? "border border-cc-primary/60 bg-cc-primary/10 text-cc-fg ring-2 ring-cc-primary/40"
+                                    : entry.author === "human"
+                                      ? entry.addressed
+                                        ? "bg-amber-500/5 border border-amber-500/10 text-amber-300/50"
+                                        : "bg-amber-500/8 border border-amber-500/15 text-amber-300/90"
+                                      : "bg-cc-input-bg border border-cc-border text-cc-fg/80"
                                 } min-w-0 max-w-full overflow-hidden`}
+                                data-feedback-index={entryIndex}
+                                data-feedback-highlighted={isHighlighted ? "true" : "false"}
+                                tabIndex={-1}
                               >
                                 <div className="flex items-center gap-1.5 mb-0.5">
                                   {feedbackSessionId ? (
@@ -1134,6 +1201,7 @@ export function QuestDetailPanel() {
                                       {feedbackAuthorLabel}
                                     </span>
                                   )}
+                                  <span className="font-mono-code text-[10px] text-cc-muted/50">#{entryIndex}</span>
                                   <span className="text-[11px] text-cc-muted/40">{timeAgo(entry.ts)}</span>
                                   {entry.author === "human" && entry.addressed && (
                                     <span className="text-[11px] text-green-500/60 font-medium">addressed</span>
@@ -1168,7 +1236,7 @@ export function QuestDetailPanel() {
                                           }}
                                           className="text-cc-muted/30 hover:text-cc-muted/60 cursor-pointer transition-colors"
                                           title="Edit feedback"
-                                          aria-label={`Edit feedback ${entryIndex + 1}`}
+                                          aria-label={`Edit feedback #${entryIndex}`}
                                         >
                                           <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
                                             <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L3.463 11.098a.25.25 0 00-.064.108l-.386 1.35 1.35-.386a.25.25 0 00.108-.064l8.61-8.61a.25.25 0 000-.354L12.427 2.487z" />
@@ -1181,7 +1249,7 @@ export function QuestDetailPanel() {
                                           }}
                                           className="text-cc-muted/30 hover:text-red-400 cursor-pointer transition-colors"
                                           title={`Delete ${feedbackAuthorLabel} feedback`}
-                                          aria-label={`Delete ${feedbackAuthorLabel} feedback ${entryIndex + 1}`}
+                                          aria-label={`Delete ${feedbackAuthorLabel} feedback #${entryIndex}`}
                                         >
                                           <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
                                             <path d="M6.5 1.75A1.75 1.75 0 004.75 3.5v.25H2.5a.75.75 0 000 1.5h.568l.55 7.155A2 2 0 005.612 14.5h4.776a2 2 0 001.994-1.845l.55-7.155h.568a.75.75 0 000-1.5H11.25V3.5A1.75 1.75 0 009.5 1.75h-3zm3.25 2H6.25V3.5a.25.25 0 01.25-.25h3a.25.25 0 01.25.25v.25zm-4.63 1.5l.52 6.766a.5.5 0 00.498.484h4.724a.5.5 0 00.498-.484l.52-6.766H5.12zm2.13 1.25a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm-2 0a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm4 0a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4z" />
@@ -1260,14 +1328,14 @@ export function QuestDetailPanel() {
                                       onClick={() => handleDeleteFeedback(quest.questId, entryIndex)}
                                       disabled={feedbackSubmitting}
                                       className="text-xs px-2.5 py-1 rounded bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25 disabled:opacity-40 cursor-pointer"
-                                      aria-label={`Confirm delete ${feedbackAuthorLabel} feedback ${entryIndex + 1}`}
+                                      aria-label={`Confirm delete ${feedbackAuthorLabel} feedback #${entryIndex}`}
                                     >
                                       Confirm delete
                                     </button>
                                     <button
                                       onClick={() => setConfirmDeleteFeedback(null)}
                                       className="text-xs px-2.5 py-1 rounded text-cc-muted hover:text-cc-fg cursor-pointer"
-                                      aria-label={`Cancel delete ${feedbackAuthorLabel} feedback ${entryIndex + 1}`}
+                                      aria-label={`Cancel delete ${feedbackAuthorLabel} feedback #${entryIndex}`}
                                     >
                                       Cancel
                                     </button>
@@ -1285,7 +1353,10 @@ export function QuestDetailPanel() {
                                             onSessionNavigate={closePanel}
                                           />
                                         </div>
-                                        <details className="min-w-0 max-w-full overflow-hidden text-xs text-cc-muted">
+                                        <details
+                                          open={isNavigationTarget || undefined}
+                                          className="min-w-0 max-w-full overflow-hidden text-xs text-cc-muted"
+                                        >
                                           <summary className="cursor-pointer select-none">Full feedback</summary>
                                           <div className="mt-1 min-w-0 max-w-full overflow-hidden text-cc-fg">
                                             <MarkdownContent

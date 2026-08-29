@@ -1,6 +1,7 @@
 import { useStore } from "../store.js";
 import type { ChatMessage, SdkSessionInfo } from "../types.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
+import type { QuestLinkTarget } from "./quest-link-target.js";
 
 export type Route =
   | { page: "home" }
@@ -18,6 +19,8 @@ export type Route =
 const SESSION_PREFIX = "#/session/";
 const QUEST_ID_PATTERN = /^q-\d+$/i;
 const THREAD_QUERY_PARAM = "thread";
+const QUEST_QUERY_PARAM = "quest";
+const FEEDBACK_QUERY_PARAM = "feedback";
 
 function splitHash(hash: string): { path: string; params: URLSearchParams } {
   const normalized = hash ? (hash.startsWith("#") ? hash : `#${hash}`) : "#/";
@@ -84,31 +87,76 @@ export function parseHash(hash: string): Route {
 }
 
 /**
- * Read quest overlay ID from the hash query (if present).
+ * Read the coupled quest overlay target from hash query parameters.
+ * Invalid feedback indexes degrade to whole-quest navigation.
  */
-export function questIdFromHash(hash: string): string | null {
+export function questOverlayTargetFromHash(hash: string): QuestLinkTarget | null {
   const { params } = splitHash(hash);
-  return normalizeQuestId(params.get("quest"));
+  const questId = normalizeQuestId(params.get(QUEST_QUERY_PARAM));
+  if (!questId) return null;
+  const feedback = params.get(FEEDBACK_QUERY_PARAM);
+  if (feedback === null || !/^\d+$/.test(feedback)) return { questId };
+  const feedbackIndex = Number.parseInt(feedback, 10);
+  return Number.isSafeInteger(feedbackIndex) ? { questId, feedbackIndex } : { questId };
+}
+
+/** Read quest overlay ID from the hash query (if present). */
+export function questIdFromHash(hash: string): string | null {
+  return questOverlayTargetFromHash(hash)?.questId ?? null;
 }
 
 /**
- * Return a hash string with quest overlay query param set.
+ * Open a quest in local overlay state and, only when the current hash already
+ * owns a quest route, replace that routed target to match the new overlay.
+ * Store-only overlays stay store-only on hashes without quest parameters.
  */
+export function openQuestOverlayRouteAware(questId: string, searchHighlight?: string, feedbackIndex?: number): void {
+  const currentHash = window.location.hash || "#/";
+  const routedTarget = questOverlayTargetFromHash(currentHash);
+  const store = useStore.getState();
+  if (feedbackIndex !== undefined) store.openQuestOverlay(questId, searchHighlight, feedbackIndex);
+  else if (searchHighlight !== undefined) store.openQuestOverlay(questId, searchHighlight);
+  else store.openQuestOverlay(questId);
+  if (!routedTarget) return;
+
+  const nextHash =
+    feedbackIndex === undefined
+      ? withQuestIdInHash(currentHash, questId)
+      : withQuestFeedbackInHash(currentHash, questId, feedbackIndex);
+  if (nextHash === currentHash) return;
+  history.replaceState(history.state, "", nextHash);
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+}
+
+/** Return a hash string with a whole-quest overlay query param set. */
 export function withQuestIdInHash(hash: string, questId: string): string {
-  const normalized = normalizeQuestId(questId);
+  return withQuestTargetInHash(hash, { questId });
+}
+
+/** Return a hash string with an exact-feedback overlay query param set. */
+export function withQuestFeedbackInHash(hash: string, questId: string, feedbackIndex: number): string {
+  return withQuestTargetInHash(hash, { questId, feedbackIndex });
+}
+
+function withQuestTargetInHash(hash: string, target: QuestLinkTarget): string {
+  const normalized = normalizeQuestId(target.questId);
   const { path, params } = splitHash(hash);
   if (!normalized) return path;
-  params.set("quest", normalized);
+  params.set(QUEST_QUERY_PARAM, normalized);
+  if (Number.isSafeInteger(target.feedbackIndex) && target.feedbackIndex! >= 0) {
+    params.set(FEEDBACK_QUERY_PARAM, String(target.feedbackIndex));
+  } else {
+    params.delete(FEEDBACK_QUERY_PARAM);
+  }
   const query = params.toString();
   return query ? `${path}?${query}` : path;
 }
 
-/**
- * Return a hash string with quest overlay query param removed.
- */
+/** Return a hash string with coupled quest and feedback query params removed. */
 export function withoutQuestIdInHash(hash: string): string {
   const { path, params } = splitHash(hash);
-  params.delete("quest");
+  params.delete(QUEST_QUERY_PARAM);
+  params.delete(FEEDBACK_QUERY_PARAM);
   const query = params.toString();
   return query ? `${path}?${query}` : path;
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "./store.js";
 import { connectSession, disconnectSession, sendVsCodeSelectionUpdate } from "./ws.js";
@@ -6,6 +6,11 @@ import { api, checkHealth } from "./api.js";
 
 import {
   parseHash,
+  openQuestOverlayRouteAware,
+  questOverlayTargetFromHash,
+  withQuestFeedbackInHash,
+  withQuestIdInHash,
+  withoutQuestIdInHash,
   navigateToSession,
   navigateToSessionMessageId,
   messageIdFromHash,
@@ -16,6 +21,8 @@ import {
   scrollToMessageIndex,
 } from "./utils/routing.js";
 import { navigateTo } from "./utils/navigation.js";
+import type { QuestLinkTarget } from "./utils/quest-link-target.js";
+import { getHashLocationSnapshot, useHashLocation } from "./utils/hash-location.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { ChatView } from "./components/ChatView.js";
 import { CodexSubagentInspector } from "./components/CodexSubagentInspector.js";
@@ -77,14 +84,95 @@ type TakodeDebugWindow = Window &
 
 const EMPTY_MESSAGES: [] = [];
 
-function useHash() {
-  return useSyncExternalStore(
-    (cb) => {
-      window.addEventListener("hashchange", cb);
-      return () => window.removeEventListener("hashchange", cb);
-    },
-    () => window.location.hash,
-  );
+function feedbackIndexOf(target: QuestLinkTarget | null): number | null {
+  return target?.feedbackIndex ?? null;
+}
+
+function questOverlayMatchesTarget(
+  questOverlayId: string | null,
+  feedbackIndex: number | null,
+  target: QuestLinkTarget,
+): boolean {
+  return questOverlayId === target.questId && feedbackIndex === feedbackIndexOf(target);
+}
+
+function useQuestOverlayRouteSync(
+  hash: string,
+  questOverlayId: string | null,
+  questOverlayFeedbackIndex: number | null,
+) {
+  const observedHashRef = useRef<string | null>(null);
+  const routedTargetRef = useRef<QuestLinkTarget | null>(null);
+  const routedTargetAppliedRef = useRef(false);
+
+  useEffect(() => {
+    const target = questOverlayTargetFromHash(hash);
+    const hashChanged = observedHashRef.current !== hash;
+    const store = useStore.getState();
+    if (hashChanged) {
+      const previous = routedTargetRef.current;
+      observedHashRef.current = hash;
+      routedTargetRef.current = target;
+
+      if (target) {
+        const liveFeedbackIndex = store.questOverlayFeedbackTarget?.index ?? null;
+        if (!questOverlayMatchesTarget(store.questOverlayId, liveFeedbackIndex, target)) {
+          if (target.feedbackIndex === undefined) store.openQuestOverlay(target.questId);
+          else store.openQuestOverlay(target.questId, undefined, target.feedbackIndex);
+        }
+        const appliedStore = useStore.getState();
+        routedTargetAppliedRef.current = questOverlayMatchesTarget(
+          appliedStore.questOverlayId,
+          appliedStore.questOverlayFeedbackTarget?.index ?? null,
+          target,
+        );
+        return;
+      }
+
+      routedTargetAppliedRef.current = false;
+      if (previous) store.closeQuestOverlay();
+      return;
+    }
+
+    if (!target) return;
+    // A link assignment changes window.location.hash before the shared hash
+    // store publishes its next snapshot. Wait for that authoritative hash
+    // event instead of replacing a just-pushed browser-history entry.
+    if (getHashLocationSnapshot() !== hash) return;
+
+    const liveStore = useStore.getState();
+    const liveQuestOverlayId = liveStore.questOverlayId;
+    const liveFeedbackIndex = liveStore.questOverlayFeedbackTarget?.index ?? null;
+    if (questOverlayMatchesTarget(liveQuestOverlayId, liveFeedbackIndex, target)) {
+      routedTargetAppliedRef.current = true;
+      return;
+    }
+    // StrictMode and unrelated startup renders can replay effects before the
+    // Zustand subscription publishes the route-open state. Keep the hash
+    // authoritative until this route has been observed in the store once.
+    if (!routedTargetAppliedRef.current) {
+      if (target.feedbackIndex === undefined) liveStore.openQuestOverlay(target.questId);
+      else liveStore.openQuestOverlay(target.questId, undefined, target.feedbackIndex);
+      const appliedStore = useStore.getState();
+      routedTargetAppliedRef.current = questOverlayMatchesTarget(
+        appliedStore.questOverlayId,
+        appliedStore.questOverlayFeedbackTarget?.index ?? null,
+        target,
+      );
+      return;
+    }
+
+    if (!liveQuestOverlayId) {
+      navigateTo(withoutQuestIdInHash(hash), true);
+      return;
+    }
+
+    const nextHash =
+      liveFeedbackIndex === null
+        ? withQuestIdInHash(hash, liveQuestOverlayId)
+        : withQuestFeedbackInHash(hash, liveQuestOverlayId, liveFeedbackIndex);
+    navigateTo(nextHash, true);
+  }, [hash, questOverlayFeedbackIndex, questOverlayId]);
 }
 
 function buildSidebarOrderedShortcutSessions(state: ReturnType<typeof useStore.getState>) {
@@ -138,6 +226,8 @@ export default function App() {
     serverReachable,
     sdkSessions,
     codexSubagentInspector,
+    questOverlayId,
+    questOverlayFeedbackIndex,
   } = useStore(
     useShallow((s) => ({
       colorTheme: s.colorTheme,
@@ -154,9 +244,12 @@ export default function App() {
       serverReachable: s.serverReachable,
       sdkSessions: s.sdkSessions,
       codexSubagentInspector: s.codexSubagentInspector,
+      questOverlayId: s.questOverlayId,
+      questOverlayFeedbackIndex: s.questOverlayFeedbackTarget?.index ?? null,
     })),
   );
-  const hash = useHash();
+  const hash = useHashLocation();
+  useQuestOverlayRouteSync(hash, questOverlayId, questOverlayFeedbackIndex);
   const route = useMemo(() => parseHash(hash), [hash]);
   const threadRoute = useMemo(
     () => (route.page === "session" ? threadRouteFromHash(hash) : { hasThreadParam: false, threadKey: null }),
@@ -213,7 +306,7 @@ export default function App() {
   const universalSearchThreadKey = route.page === "session" ? (threadRoute.threadKey ?? "main") : null;
 
   const handleOpenUniversalQuest = useCallback((questId: string, query: string) => {
-    useStore.getState().openQuestOverlay(questId, query || undefined);
+    openQuestOverlayRouteAware(questId, query || undefined);
   }, []);
   const handleOpenUniversalMessage = useCallback((sessionId: string, messageId: string, threadKey?: string | null) => {
     navigateToSessionMessageId(sessionId, messageId, {

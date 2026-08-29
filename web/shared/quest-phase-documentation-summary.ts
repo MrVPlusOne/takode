@@ -5,6 +5,7 @@ import type {
   QuestmasterTask,
 } from "../server/quest-types.js";
 import { getQuestJourneyPhase, type QuestJourneyPhaseId } from "./quest-journey.js";
+import { indexedLiveQuestFeedbackEntries } from "./quest-feedback.js";
 
 export interface IndexedQuestFeedbackEntry extends QuestFeedbackEntry {
   index: number;
@@ -151,7 +152,7 @@ export function compactPhaseDocumentationGroups(
 
 function questFeedbackEntries(quest: QuestmasterTask): IndexedQuestFeedbackEntry[] {
   const feedback = "feedback" in quest ? (quest.feedback ?? []) : [];
-  return feedback.map((entry, index) => ({ ...entry, index }));
+  return indexedLiveQuestFeedbackEntries(feedback);
 }
 
 function sortedJourneyRuns(quest: QuestmasterTask): Array<{ run: QuestJourneyRun; runOrdinal: number }> {

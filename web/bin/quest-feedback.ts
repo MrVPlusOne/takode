@@ -1,4 +1,5 @@
 import type { QuestFeedbackEntry, QuestVerificationItem, QuestmasterTask } from "../server/quest-types.js";
+import { indexedLiveQuestFeedbackEntries } from "../shared/quest-feedback.js";
 
 export type FeedbackAuthorFilter = "human" | "agent" | "all";
 
@@ -42,7 +43,7 @@ const SELF_VERIFIABLE_RE = new RegExp(
 
 export function questFeedbackEntries(quest: QuestmasterTask): IndexedFeedbackEntry[] {
   const entries = "feedback" in quest ? (quest.feedback ?? []) : [];
-  return entries.map((entry, index) => ({ ...entry, index }));
+  return indexedLiveQuestFeedbackEntries(entries);
 }
 
 export function filterFeedbackEntries(

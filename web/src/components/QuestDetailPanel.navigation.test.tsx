@@ -273,6 +273,6 @@ describe("QuestDetailPanel navigation dismissal", () => {
     fireEvent.click(screen.getByRole("link", { name: "related quest" }));
 
     expect(useStore.getState().questOverlayId).toBe("q-77");
-    expect(window.location.hash).toBe("#/session/123?quest=q-42");
+    expect(window.location.hash).toBe("#/session/123?quest=q-77");
   });
 });

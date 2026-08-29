@@ -34,6 +34,74 @@ describe("QuestInlineLink", () => {
     window.location.hash = "#/session/s1";
   });
 
+  it("routes exact feedback links through the current SPA hash and overlay target", () => {
+    render(
+      <QuestInlineLink questId="q-12" feedbackIndex={5}>
+        Work feedback
+      </QuestInlineLink>,
+    );
+
+    const link = screen.getByRole("link", { name: "Work feedback" });
+    expect(link.getAttribute("href")).toBe("#/session/s1?quest=q-12&feedback=5");
+    expect(link.getAttribute("title")).toBe("Open q-12 feedback #5");
+
+    fireEvent.click(link);
+
+    expect(useStore.getState().questOverlayId).toBe("q-12");
+    expect(useStore.getState().questOverlayFeedbackTarget).toEqual({ index: 5, requestId: 1 });
+    expect(window.location.hash).toBe("#/session/s1?quest=q-12&feedback=5");
+  });
+
+  it("keeps exact-feedback hrefs current across message and thread route changes", async () => {
+    render(
+      <QuestInlineLink questId="q-12" feedbackIndex={5}>
+        Work feedback
+      </QuestInlineLink>,
+    );
+    const link = screen.getByRole("link", { name: "Work feedback" });
+
+    window.location.hash = "#/session/s1/msg/m-7?thread=q-9";
+
+    await waitFor(() =>
+      expect(link.getAttribute("href")).toBe("#/session/s1/msg/m-7?thread=q-9&quest=q-12&feedback=5"),
+    );
+    fireEvent.click(link);
+    expect(window.location.hash).toBe("#/session/s1/msg/m-7?thread=q-9&quest=q-12&feedback=5");
+  });
+
+  it("leaves modified feedback-link clicks on the current native anchor route", async () => {
+    render(
+      <QuestInlineLink questId="q-12" feedbackIndex={5}>
+        Work feedback
+      </QuestInlineLink>,
+    );
+    const link = screen.getByRole("link", { name: "Work feedback" });
+    window.location.hash = "#/session/s1/msg/m-7?thread=q-9";
+    await waitFor(() =>
+      expect(link.getAttribute("href")).toBe("#/session/s1/msg/m-7?thread=q-9&quest=q-12&feedback=5"),
+    );
+
+    fireEvent.click(link, { metaKey: true });
+
+    expect(useStore.getState().questOverlayId).toBeNull();
+    expect(useStore.getState().questOverlayFeedbackTarget).toBeNull();
+  });
+
+  it("clears a routed feedback target when opening a whole quest", () => {
+    window.location.hash = "#/session/s1?quest=q-12&feedback=5";
+    useStore.setState({
+      questOverlayId: "q-12",
+      questOverlayFeedbackTarget: { index: 5, requestId: 1 },
+    });
+    render(<QuestInlineLink questId="q-77">Related quest</QuestInlineLink>);
+
+    fireEvent.click(screen.getByRole("link", { name: "Related quest" }));
+
+    expect(useStore.getState().questOverlayId).toBe("q-77");
+    expect(useStore.getState().questOverlayFeedbackTarget).toBeNull();
+    expect(window.location.hash).toBe("#/session/s1?quest=q-77");
+  });
+
   it("uses the theme-readable quest link color by default", () => {
     // Quest links appear in light and dark chrome, so the default must be a
     // theme token instead of a hard-coded bright Tailwind blue.

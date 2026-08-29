@@ -197,6 +197,7 @@ export interface AppState {
   } | null;
   questOverlayId: string | null;
   questOverlaySearchHighlight: string | null;
+  questOverlayFeedbackTarget: import("./utils/quest-link-target.js").QuestFeedbackTargetRequest | null;
   questmasterSearchQuery: string;
   questmasterSelectedTags: string[];
   questmasterViewMode: import("./api.js").QuestmasterViewMode | null;
@@ -244,7 +245,7 @@ export interface AppState {
     newSessionDefaultsKey?: string;
   }) => void;
   closeNewSessionModal: () => void;
-  openQuestOverlay: (questId: string, searchHighlight?: string) => void;
+  openQuestOverlay: (questId: string, searchHighlight?: string, feedbackIndex?: number) => void;
   closeQuestOverlay: () => void;
   setVsCodeSelectionContext: (context: VsCodeSelectionState | null) => void;
   dismissVsCodeSelection: (key: string | null) => void;

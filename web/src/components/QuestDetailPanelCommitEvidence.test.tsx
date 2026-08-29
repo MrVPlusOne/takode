@@ -55,8 +55,11 @@ vi.mock("../utils/routing.js", () => ({
   sessionHash: (sessionId: string | number) => "#/session/" + sessionId,
   sessionThreadHash: (sessionId: string | number, threadKey?: string | null) =>
     threadKey ? "#/session/" + sessionId + "?thread=" + threadKey : "#/session/" + sessionId,
-  withoutQuestIdInHash: (hash: string) => hash.replace(/[?&]quest=[^&]+/, ""),
+  questOverlayTargetFromHash: () => null,
+  withoutQuestIdInHash: (hash: string) => hash.replace(/[?&](quest|feedback)=[^&]+/g, ""),
   withQuestIdInHash: (_hash: string, questId: string) => "#/?quest=" + questId,
+  withQuestFeedbackInHash: (_hash: string, questId: string, feedbackIndex: number) =>
+    `#/?quest=${questId}&feedback=${feedbackIndex}`,
 }));
 
 vi.mock("./quest-assign.js", () => ({

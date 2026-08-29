@@ -120,6 +120,10 @@ TLDR metadata is for human scanning, but it must not hide major parts of the ful
 - Worker live commentary should happen at meaningful milestones, not after every read, edit, command, next microstep, or poll. Tool rows already expose operations. Useful milestones include material findings or decisions, completed implementation batches, blockers/User Checkpoints, verification results, sync results, Work handoffs, and Memory closure. For genuinely long operations, a concise status is enough.
 - Keep the full content complete and agent-readable while making the TLDR human-scannable without being lossy.
 
+## Quest Link Guidance
+
+Use `[q-42](quest:q-42)` for a whole quest. When referring to one exact indexed feedback entry, use the canonical form `[q-42 feedback #3](quest:q-42:feedback:3)`. Feedback indices are stable and zero-based; read them from `quest feedback list/show` and never guess. When a phase handoff names its feedback index in rendered Markdown, make that pointer an exact canonical feedback link.
+
 ## File Link Guidance
 
 When quest feedback, comments, summaries, notes, or phase documentation refer to repository files, prefer Takode custom file-link syntax with a short label and repo-root-relative target, for example `[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)`. Custom `file:` links are preferred because they preserve richer location metadata such as line ranges. Standard Markdown file links to repo files may be opened best-effort by Questmaster when clicked, but they are only a fallback. Keep plain paths literal inside shell commands, code snippets, copied logs, or when the path is intentionally not a clickable repo-file reference.

@@ -138,6 +138,49 @@ describe("quest CLI feedback inspection", () => {
     }
   });
 
+  it("hides tombstones while preserving later stable feedback indices", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-feedback-tombstone-"));
+    seedQuest(tmp, {
+      id: "q-8-v2",
+      questId: "q-8",
+      version: 2,
+      title: "Deleted feedback slot",
+      createdAt: Date.now() - 60_000,
+      status: "in_progress",
+      description: "Preserve exact feedback indices.",
+      sessionId: "session-test",
+      claimedAt: Date.now() - 30_000,
+      feedback: [
+        { author: "human", text: "deleted content", ts: 10, deletedAt: 11 },
+        { author: "agent", text: "Live agent note", ts: 20 },
+        { author: "human", text: "Live human note", ts: 30, addressed: false },
+      ],
+    });
+
+    try {
+      const list = await runQuest(["feedback", "list", "q-8", "--json"], baseEnv(tmp), tmp);
+      const showQuest = await runQuest(["show", "q-8", "--full"], baseEnv(tmp), tmp);
+      const deleted = await runQuest(["feedback", "show", "q-8", "0"], baseEnv(tmp), tmp);
+      const live = await runQuest(["feedback", "show", "q-8", "1", "--json"], baseEnv(tmp), tmp);
+      const status = await runQuest(["status", "q-8", "--json"], baseEnv(tmp), tmp);
+
+      expect(list.status).toBe(0);
+      expect(JSON.parse(list.stdout).map((entry: { index: number }) => entry.index)).toEqual([1, 2]);
+      expect(showQuest.stdout).not.toContain("deleted content");
+      expect(showQuest.stdout).not.toContain("#0 [human");
+      expect(showQuest.stderr).not.toContain("unaddressed human feedback on q-8: #0");
+      expect(deleted.status).toBe(1);
+      expect(deleted.stderr).toContain("Feedback index 0 was deleted");
+      expect(JSON.parse(live.stdout)).toMatchObject({ index: 1, text: "Live agent note" });
+      expect(JSON.parse(status.stdout)).toMatchObject({
+        humanFeedbackCount: 1,
+        unaddressedHumanFeedbackIndices: [2],
+      });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("prints compact status JSON without mixing warnings into stdout", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-status-json-"));
     seedQuest(tmp, {

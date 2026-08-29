@@ -224,6 +224,7 @@ function feedbackEntriesEqual(a: QuestFeedbackEntry | undefined, b: QuestFeedbac
     a.authorSessionId === b.authorSessionId &&
     questInvocationProvenanceEqual(a.provenance, b.provenance) &&
     a.addressed === b.addressed &&
+    a.deletedAt === b.deletedAt &&
     a.entryId === b.entryId &&
     a.kind === b.kind &&
     a.journeyRunId === b.journeyRunId &&

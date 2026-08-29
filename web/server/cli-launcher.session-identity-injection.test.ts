@@ -395,6 +395,8 @@ describe("session identity injection", () => {
     const identityIdx = sysPrompt.indexOf("You are Takode session #");
     const linkSyntaxIdx = sysPrompt.indexOf("Link Syntax");
     expect(identityIdx).toBeLessThan(linkSyntaxIdx);
+    expect(sysPrompt).toContain("[q-42 feedback #3](quest:q-42:feedback:3)");
+    expect(sysPrompt).not.toContain("quest:q-42#feedback-3");
   });
 
   it("documents the title plus description timer flow in the system prompt", async () => {

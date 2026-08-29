@@ -18,8 +18,11 @@ import {
   navigateToSessionThread,
   navigateHome,
   navigateToMostRecentSession,
+  openQuestOverlayRouteAware,
   questIdFromHash,
+  questOverlayTargetFromHash,
   threadRouteFromHash,
+  withQuestFeedbackInHash,
   withQuestIdInHash,
   withThreadKeyInHash,
   withoutQuestIdInHash,
@@ -128,20 +131,54 @@ describe("parseHash", () => {
 });
 
 describe("quest hash helpers", () => {
-  it("extracts quest ID from any route query", () => {
-    expect(questIdFromHash("#/session/s1?quest=q-42")).toBe("q-42");
-    expect(questIdFromHash("#/questmaster?quest=q-8")).toBe("q-8");
-    expect(questIdFromHash("#/session/s1?quest=oops")).toBeNull();
+  beforeEach(() => {
+    useStore.getState().reset();
+    window.history.replaceState({}, "", "/#/session/s1");
   });
 
-  it("adds quest query while preserving existing route and params", () => {
+  it("extracts coupled whole-quest and exact-feedback targets from any route query", () => {
+    expect(questOverlayTargetFromHash("#/session/s1?quest=q-42&feedback=5")).toEqual({
+      questId: "q-42",
+      feedbackIndex: 5,
+    });
+    expect(questOverlayTargetFromHash("#/questmaster?quest=Q-8")).toEqual({ questId: "q-8" });
+    expect(questOverlayTargetFromHash("#/session/s1?quest=q-42&feedback=nope")).toEqual({ questId: "q-42" });
+    expect(questOverlayTargetFromHash("#/session/s1?quest=oops&feedback=5")).toBeNull();
+    expect(questIdFromHash("#/session/s1?quest=q-42&feedback=5")).toBe("q-42");
+  });
+
+  it("builds exact-feedback routes while preserving message, thread, and unrelated params", () => {
+    expect(withQuestFeedbackInHash("#/session/s1/msg/m-7?thread=q-9&foo=1", "q-12", 5)).toBe(
+      "#/session/s1/msg/m-7?thread=q-9&foo=1&quest=q-12&feedback=5",
+    );
+  });
+
+  it("adds whole-quest routes and clears stale feedback targets", () => {
     expect(withQuestIdInHash("#/session/s1", "q-12")).toBe("#/session/s1?quest=q-12");
-    expect(withQuestIdInHash("#/session/s1?foo=1", "q-12")).toBe("#/session/s1?foo=1&quest=q-12");
+    expect(withQuestIdInHash("#/session/s1?foo=1&quest=q-7&feedback=3", "q-12")).toBe("#/session/s1?foo=1&quest=q-12");
   });
 
-  it("removes quest query while preserving other params", () => {
-    expect(withoutQuestIdInHash("#/session/s1?foo=1&quest=q-12&bar=2")).toBe("#/session/s1?foo=1&bar=2");
-    expect(withoutQuestIdInHash("#/session/s1?quest=q-12")).toBe("#/session/s1");
+  it("removes coupled quest and feedback query params while preserving others", () => {
+    expect(withoutQuestIdInHash("#/session/s1?foo=1&quest=q-12&feedback=5&bar=2")).toBe("#/session/s1?foo=1&bar=2");
+    expect(withoutQuestIdInHash("#/session/s1?feedback=5&quest=q-12")).toBe("#/session/s1");
+  });
+
+  it("keeps whole-quest overlay opens store-only when the hash has no quest route", () => {
+    openQuestOverlayRouteAware("q-77", "needle");
+
+    expect(useStore.getState().questOverlayId).toBe("q-77");
+    expect(useStore.getState().questOverlaySearchHighlight).toBe("needle");
+    expect(window.location.hash).toBe("#/session/s1");
+  });
+
+  it("replaces an existing routed feedback target when another overlay opens", () => {
+    window.history.replaceState({}, "", "/#/session/s1/msg/m-7?thread=q-9&quest=q-12&feedback=5");
+
+    openQuestOverlayRouteAware("q-77");
+
+    expect(useStore.getState().questOverlayId).toBe("q-77");
+    expect(useStore.getState().questOverlayFeedbackTarget).toBeNull();
+    expect(window.location.hash).toBe("#/session/s1/msg/m-7?thread=q-9&quest=q-77");
   });
 });
 

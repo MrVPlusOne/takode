@@ -1,6 +1,7 @@
 import type { QuestDone, QuestFeedbackEntry, QuestmasterTask } from "./quest-types.js";
 import { normalizeTldr } from "./quest-tldr.js";
 import { questRelationshipSearchText } from "./quest-relationships.js";
+import { indexedLiveQuestFeedbackEntries } from "../shared/quest-feedback.js";
 
 export interface QuestGrepMatch {
   questId: string;
@@ -158,7 +159,7 @@ export function grepQuests(
       });
     }
 
-    const feedback = "feedback" in quest ? quest.feedback || [] : [];
+    const feedback = "feedback" in quest ? indexedLiveQuestFeedbackEntries(quest.feedback) : [];
     (quest.quizItems ?? []).forEach((item, index) => {
       pushMatch(
         {
@@ -193,7 +194,8 @@ export function grepQuests(
         );
       }
     });
-    feedback.forEach((entry, index) => {
+    feedback.forEach((entry) => {
+      const index = entry.index;
       if (!entry.text) return;
       pushContentMatch({
         re,

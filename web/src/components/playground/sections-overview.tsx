@@ -1060,7 +1060,7 @@ export function PlaygroundOverviewSections() {
           <Card label="Code block in markdown — hover to reveal copy button">
             <MarkdownContent
               text={
-                'Here is some code:\n\n```typescript\nconst greeting = "Hello, world!";\nconsole.log(greeting);\n```\n\nAnd a block without a language tag:\n\n```\nnpm install\nnpm run build\n```\n\nPlain quest/session refs: q-42 and #5\nQuest link example: [q-42](quest:q-42)\nSession link example: [#5](session:5)\nSession message link example: [#5 msg 42](session:5:42)\nRelative file link example: [TopBar.tsx:162](file:web/src/components/TopBar.tsx:162)'
+                'Here is some code:\n\n```typescript\nconst greeting = "Hello, world!";\nconsole.log(greeting);\n```\n\nAnd a block without a language tag:\n\n```\nnpm install\nnpm run build\n```\n\nPlain quest/session refs: q-42 and #5\nQuest link example: [q-42](quest:q-42)\nExact feedback link example: [q-42 feedback #3](quest:q-42:feedback:3)\nSession link example: [#5](session:5)\nSession message link example: [#5 msg 42](session:5:42)\nRelative file link example: [TopBar.tsx:162](file:web/src/components/TopBar.tsx:162)'
               }
             />
           </Card>

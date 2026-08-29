@@ -27,6 +27,7 @@ import { SessionRoleLabel } from "./SessionRoleLabel.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
+import { openQuestOverlayRouteAware } from "../utils/routing.js";
 
 interface QuestHoverCardProps {
   quest: QuestmasterTask | QuestListPreview;
@@ -48,7 +49,6 @@ export function QuestHoverCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const statusTheme = getQuestStatusTheme(quest.status);
   const zoomLevel = useStore((state) => state.zoomLevel ?? 1);
-  const openQuestOverlay = useStore((state) => state.openQuestOverlay);
   const owner = getQuestDisplayOwner(quest);
   const ownerSessionId = getQuestOwnerSessionId(quest);
   const leaderSessionId = useStore((state) => {
@@ -153,7 +153,7 @@ export function QuestHoverCard({
             className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-cc-border/70 bg-cc-hover/20 px-2 text-[11px] font-medium text-cc-muted transition-colors hover:border-cc-primary/45 hover:bg-cc-hover/55 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50 active:bg-cc-hover/70"
             aria-label={`Open ${quest.questId} quest details`}
             onClick={() => {
-              openQuestOverlay(quest.questId);
+              openQuestOverlayRouteAware(quest.questId);
               onOpenQuest?.();
               onMouseLeave();
             }}

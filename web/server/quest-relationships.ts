@@ -1,4 +1,5 @@
 import type { QuestRelatedQuest, QuestRelatedQuestKind, QuestRelationships, QuestmasterTask } from "./quest-types.js";
+import { liveQuestFeedbackEntries } from "../shared/quest-feedback.js";
 
 type MutableQuest = QuestmasterTask & {
   relatedQuests?: QuestRelatedQuest[];
@@ -94,7 +95,7 @@ function extractQuestReferencesFromQuest(quest: QuestmasterTask): string[] {
     quest.status === "done" ? quest.debrief : undefined,
     quest.status === "done" ? quest.debriefTldr : undefined,
     "notes" in quest ? quest.notes : undefined,
-    ...(quest.feedback ?? []).flatMap((entry) => [entry.text, entry.tldr]),
+    ...liveQuestFeedbackEntries(quest.feedback).flatMap((entry) => [entry.text, entry.tldr]),
   ];
   const references = textParts.flatMap((text) => extractQuestReferenceIds(text));
   return Array.from(new Set(references)).sort(compareQuestIds);

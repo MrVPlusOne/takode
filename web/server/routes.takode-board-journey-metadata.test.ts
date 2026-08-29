@@ -399,6 +399,49 @@ describe("Takode board Journey metadata route", () => {
     expect(session.board.get("q-9")?.status).toBe("MEMORY");
   });
 
+  it("does not accept a deleted Work feedback slot as transition evidence", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      title: "Quest",
+      worker: "worker-1",
+      workerNum: 5,
+      status: "WORKING",
+      journey: {
+        phaseIds: ["alignment", "work", "memory"],
+        activePhaseIndex: 1,
+        currentPhaseId: "work",
+      },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    vi.mocked(questStore.getQuest).mockResolvedValueOnce({
+      id: "q-9",
+      questId: "q-9",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          kind: "phase_summary",
+          phaseId: "work",
+          text: "Deleted Work evidence that must never authorize a transition even if stale content remains.",
+          ts: 10,
+          deletedAt: 11,
+        },
+      ],
+    } as any);
+
+    const res = await postWorkerMemory({ questId: "q-9", workFeedbackIndex: 0, noCode: true });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: expect.stringContaining("not the current Work phase note") });
+    expect(session.board.get("q-9")?.status).toBe("WORKING");
+  });
+
   it("does not treat a same-ID direct Codex owner as the assigned Takode worker", async () => {
     // The raw session ID alone is insufficient for Work -> Memory authority.
     session.board.set("q-9", {
@@ -517,6 +560,47 @@ describe("Takode board Journey metadata route", () => {
     expect(questStore.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
     expect(broadcastGlobal).not.toHaveBeenCalled();
     expect(session.board.get("q-9")?.status).toBe("WORKING");
+  });
+
+  it("ignores deleted human feedback when checking transition eligibility", async () => {
+    session.board.set("q-9", {
+      questId: "q-9",
+      worker: "worker-1",
+      status: "WORKING",
+      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    authCallerId = "worker-1";
+    authCaller = { sessionId: "worker-1", isOrchestrator: false };
+    const claimedQuest = {
+      id: "q-9",
+      questId: "q-9",
+      status: "in_progress",
+      sessionId: "worker-1",
+      feedback: [
+        {
+          author: "agent",
+          authorSessionId: "worker-1",
+          phaseId: "work",
+          text: "Current Work evidence remains eligible after an obsolete human feedback slot has been deleted.",
+          ts: 1,
+        },
+        {
+          author: "human",
+          text: "Obsolete human feedback that should no longer block the transition.",
+          addressed: false,
+          ts: 2,
+          deletedAt: 3,
+        },
+      ],
+    } as any;
+    vi.mocked(questStore.getQuest).mockResolvedValue(claimedQuest);
+
+    const res = await postWorkerMemory({ questId: "q-9", noCode: true });
+
+    expect(res.status).toBe(200);
+    expect(session.board.get("q-9")?.status).toBe("MEMORY");
   });
 
   it("leaves the board in Work when commit persistence fails", async () => {

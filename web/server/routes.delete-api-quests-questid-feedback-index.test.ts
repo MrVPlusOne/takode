@@ -535,8 +535,8 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
 }
 
 describe("DELETE /api/quests/:questId/feedback/:index", () => {
-  it("deletes an agent feedback entry by index", async () => {
-    // Deletion should remove only the targeted agent comment and leave human feedback intact.
+  it("tombstones an agent feedback entry without shifting later indices", async () => {
+    // Deletion must clear the targeted content while retaining its array slot so durable links keep their meaning.
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       id: "q-1-v3",
       questId: "q-1",
@@ -550,7 +550,15 @@ describe("DELETE /api/quests/:questId/feedback/:index", () => {
       verificationItems: [],
       feedback: [
         { author: "human", text: "Please verify spacing", ts: Date.now() - 1000, addressed: false },
-        { author: "agent", text: "Initial response", ts: Date.now(), authorSessionId: "session-1" },
+        {
+          author: "agent",
+          text: "Initial response",
+          tldr: "Private summary",
+          ts: Date.now(),
+          authorSessionId: "session-1",
+          images: [{ id: "img-1", filename: "proof.png", mimeType: "image/png", path: "/tmp/proof.png" }],
+        },
+        { author: "agent", text: "Later response", ts: Date.now() + 1, authorSessionId: "session-1" },
       ],
     } as any);
     const patchSpy = vi.spyOn(questStore, "patchQuest").mockResolvedValueOnce({
@@ -564,7 +572,11 @@ describe("DELETE /api/quests/:questId/feedback/:index", () => {
       sessionId: "session-1",
       claimedAt: Date.now(),
       verificationItems: [],
-      feedback: [{ author: "human", text: "Please verify spacing", ts: Date.now() - 1000, addressed: false }],
+      feedback: [
+        { author: "human", text: "Please verify spacing", ts: Date.now() - 1000, addressed: false },
+        { author: "agent", text: "", ts: Date.now(), deletedAt: Date.now() },
+        { author: "agent", text: "Later response", ts: Date.now() + 1, authorSessionId: "session-1" },
+      ],
     } as any);
 
     const res = await app.request("/api/quests/q-1/feedback/1", {
@@ -576,7 +588,11 @@ describe("DELETE /api/quests/:questId/feedback/:index", () => {
     expect(questId).toBe("q-1");
     expect(patchArg).toEqual(
       expect.objectContaining({
-        feedback: [expect.objectContaining({ author: "human", text: "Please verify spacing" })],
+        feedback: [
+          expect.objectContaining({ author: "human", text: "Please verify spacing" }),
+          expect.objectContaining({ author: "agent", text: "", deletedAt: expect.any(Number) }),
+          expect.objectContaining({ author: "agent", text: "Later response" }),
+        ],
       }),
     );
     expect(optionsArg).toEqual(
@@ -584,9 +600,14 @@ describe("DELETE /api/quests/:questId/feedback/:index", () => {
         current: expect.objectContaining({ questId: "q-1", id: "q-1-v3" }),
       }),
     );
+    const feedback = patchArg.feedback!;
+    expect(feedback[1]).not.toHaveProperty("tldr");
+    expect(feedback[1]).not.toHaveProperty("images");
+    expect(feedback[1]).not.toHaveProperty("authorSessionId");
+    expect(feedback[2]).toMatchObject({ text: "Later response" });
   });
 
-  it("deletes a human feedback entry by index", async () => {
+  it("tombstones human feedback without retargeting the following agent entry", async () => {
     // User feedback can be removed when it was added accidentally or as placeholder review text.
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       id: "q-1-v3",
@@ -615,7 +636,10 @@ describe("DELETE /api/quests/:questId/feedback/:index", () => {
       sessionId: "session-1",
       claimedAt: Date.now(),
       verificationItems: [],
-      feedback: [{ author: "agent", text: "Addressed", ts: Date.now(), authorSessionId: "session-1" }],
+      feedback: [
+        { author: "human", text: "", ts: Date.now(), deletedAt: Date.now() },
+        { author: "agent", text: "Addressed", ts: Date.now(), authorSessionId: "session-1" },
+      ],
     } as any);
 
     const res = await app.request("/api/quests/q-1/feedback/0", {
@@ -625,9 +649,37 @@ describe("DELETE /api/quests/:questId/feedback/:index", () => {
     expect(res.status).toBe(200);
     expect(patchSpy.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({
-        feedback: [expect.objectContaining({ author: "agent", text: "Addressed" })],
+        feedback: [
+          expect.objectContaining({ author: "human", text: "", deletedAt: expect.any(Number) }),
+          expect.objectContaining({ author: "agent", text: "Addressed" }),
+        ],
       }),
     );
+    const feedback = (patchSpy.mock.calls[0]?.[1] as { feedback: Array<{ text: string }> }).feedback;
+    expect(feedback[1]?.text).toBe("Addressed");
+  });
+
+  it("rejects deleting an already tombstoned feedback slot", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      version: 3,
+      title: "Quest",
+      createdAt: Date.now(),
+      status: "done",
+      description: "Needs verification",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      feedback: [{ author: "human", text: "", ts: 1, deletedAt: 2 }],
+    } as any);
+    const patchSpy = vi.spyOn(questStore, "patchQuest");
+
+    const res = await app.request("/api/quests/q-1/feedback/0", { method: "DELETE" });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "Feedback entry was already deleted" });
+    expect(patchSpy).not.toHaveBeenCalled();
   });
 
   it("returns 400 for an out-of-range delete index", async () => {

@@ -2,7 +2,9 @@ import { useState, useRef, useEffect, type MouseEvent, type ReactNode } from "re
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
-import { withQuestIdInHash } from "../utils/routing.js";
+import { openQuestOverlayRouteAware, withQuestFeedbackInHash, withQuestIdInHash } from "../utils/routing.js";
+import { navigateTo } from "../utils/navigation.js";
+import { useHashLocation } from "../utils/hash-location.js";
 import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
 
 const questIndexCache = new WeakMap<QuestmasterTask[], Map<string, QuestmasterTask>>();
@@ -22,8 +24,10 @@ export function QuestInlineLink({
   stopPropagation = false,
   hoverCardZIndexClassName,
   onNavigate,
+  feedbackIndex,
 }: {
   questId: string;
+  feedbackIndex?: number;
   children?: ReactNode;
   className?: string;
   stopPropagation?: boolean;
@@ -31,6 +35,7 @@ export function QuestInlineLink({
   onNavigate?: () => void;
 }) {
   const quest = useStore((s) => s.questDetails?.get(questId.toLowerCase()) ?? findQuestById(s.quests ?? [], questId));
+  const hash = useHashLocation();
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
   const [hoverFetchState, setHoverFetchState] = useState<"idle" | "loading" | "error">("idle");
   const hideHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -44,13 +49,20 @@ export function QuestInlineLink({
     };
   }, []);
 
-  const questHash = withQuestIdInHash(window.location.hash, questId);
+  const normalizedFeedbackIndex =
+    Number.isSafeInteger(feedbackIndex) && feedbackIndex! >= 0 ? feedbackIndex : undefined;
+  const questHash =
+    normalizedFeedbackIndex === undefined
+      ? withQuestIdInHash(hash, questId)
+      : withQuestFeedbackInHash(hash, questId, normalizedFeedbackIndex);
+  const targetLabel =
+    normalizedFeedbackIndex === undefined ? questId : `${questId} feedback #${normalizedFeedbackIndex}`;
   const title =
     hoverFetchState === "loading"
       ? `Loading ${questId} preview`
       : hoverFetchState === "error"
         ? `Preview unavailable for ${questId}`
-        : `Open ${questId}`;
+        : `Open ${targetLabel}`;
 
   function handleLinkMouseEnter(e: MouseEvent<HTMLAnchorElement>) {
     if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
@@ -83,9 +95,15 @@ export function QuestInlineLink({
       <a
         href={questHash}
         onClick={(e) => {
-          e.preventDefault();
           if (stopPropagation) e.stopPropagation();
-          useStore.getState().openQuestOverlay(questId);
+          if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+          e.preventDefault();
+          if (normalizedFeedbackIndex === undefined) {
+            openQuestOverlayRouteAware(questId);
+          } else {
+            useStore.getState().openQuestOverlay(questId, undefined, normalizedFeedbackIndex);
+            navigateTo(questHash);
+          }
           onNavigate?.();
         }}
         onMouseEnter={handleLinkMouseEnter}

@@ -1385,7 +1385,7 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
       const qc = evt.data.questChange;
       const questStr = qc ? ` | ${qc.questId}: ${qc.from} → ${qc.to}` : "";
       const questIdStr = !qc && evt.data.questId ? ` | ${evt.data.questId}` : "";
-      const phaseNoteStr = formatPhaseNoteSummary(evt.data.phaseNote);
+      const phaseNoteStr = formatPhaseNoteSummary(evt.data.phaseNote, qc?.questId ?? evt.data.questId);
 
       const statusLine = `${label} | turn_end | ${success} ${duration}${compacted}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${questIdStr}${phaseNoteStr}${resultPreview}${ageSuffix}`;
 
@@ -1409,7 +1409,7 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
       const qc = evt.data.questChange;
       const questStr = qc ? ` | ${qc.questId}: ${qc.from} → ${qc.to}` : "";
       const questIdStr = !qc && evt.data.questId ? ` | ${evt.data.questId}` : "";
-      const phaseNoteStr = formatPhaseNoteSummary(evt.data.phaseNote);
+      const phaseNoteStr = formatPhaseNoteSummary(evt.data.phaseNote, qc?.questId ?? evt.data.questId);
       const statusLine = `${label} | worker_stream | checkpoint ${duration}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${questIdStr}${phaseNoteStr}${resultPreview}${ageSuffix}`;
       const activity = buildActivityForEvent(evt, options);
       if (activity) {
@@ -1877,10 +1877,19 @@ function formatToolCounts(tools: Record<string, number> | undefined): string {
   return ` | tools: ${total}`;
 }
 
-function formatPhaseNoteSummary(note: { phaseId?: string; index?: number; tldr?: string } | undefined): string {
+function formatPhaseNoteSummary(
+  note: { phaseId?: string; index?: number; tldr?: string } | undefined,
+  questId?: string,
+): string {
   if (!note) return "";
   const phase = note.phaseId ? `${note.phaseId} ` : "";
-  const index = typeof note.index === "number" && Number.isInteger(note.index) ? `#${note.index}` : "note";
+  const hasIndex = typeof note.index === "number" && Number.isInteger(note.index) && note.index >= 0;
+  const index =
+    hasIndex && questId?.match(/^q-\d+$/i)
+      ? `[feedback #${note.index}](quest:${questId.toLowerCase()}:feedback:${note.index})`
+      : hasIndex
+        ? `feedback index ${note.index}`
+        : "note";
   const tldr = note.tldr?.trim() ? ` ${truncate(note.tldr.trim(), 160)}` : "";
   return ` | phase-note: ${phase}${index}${tldr}`;
 }

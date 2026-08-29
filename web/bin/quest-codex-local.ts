@@ -3,6 +3,7 @@ import { resolveQuestFeedbackDocumentation } from "../server/quest-phase-docs.js
 import type { QuestFeedbackEntry, QuestImage, QuestQuizItem, QuestmasterTask } from "../server/quest-types.js";
 import { normalizeTldr } from "../server/quest-tldr.js";
 import { getQuestDisplayOwner, sameQuestOwner } from "../shared/quest-owner.js";
+import { isDeletedQuestFeedbackEntry } from "../shared/quest-feedback.js";
 import { codexQuestOwner, codexQuestProvenance, type CodexQuestInvocationContext } from "./quest-codex-invocation.js";
 
 /** Append unscoped Codex feedback with provider-aware provenance. */
@@ -49,6 +50,7 @@ export async function editCodexQuestFeedback(
   assertCodexOwner(current, context, "edit feedback on");
   const feedback = [...(current.feedback ?? [])];
   if (index >= feedback.length) throw new Error("Index out of range");
+  if (isDeletedQuestFeedbackEntry(feedback[index])) throw new Error("Feedback entry was deleted");
   feedback[index] = {
     ...feedback[index]!,
     ...(patch.text !== undefined ? { text: patch.text } : {}),
@@ -71,6 +73,7 @@ export async function toggleCodexQuestFeedbackAddressed(
   assertCodexOwner(current, context, "address feedback on");
   const feedback = [...(current.feedback ?? [])];
   if (index >= feedback.length) throw new Error("Index out of range");
+  if (isDeletedQuestFeedbackEntry(feedback[index])) throw new Error("Feedback entry was deleted");
   feedback[index] = { ...feedback[index]!, addressed: !feedback[index]!.addressed };
   return patchQuestForOwner(questId, codexQuestOwner(context), {
     feedback,

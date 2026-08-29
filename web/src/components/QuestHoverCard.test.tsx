@@ -27,6 +27,29 @@ describe("QuestHoverCard", () => {
     window.history.replaceState({}, "", "/#/session/s1");
   });
 
+  it("replaces an existing routed feedback target when its Open quest action changes overlays", () => {
+    const quest: QuestmasterTask = {
+      id: "q-77-v1",
+      questId: "q-77",
+      version: 1,
+      title: "Related quest",
+      status: "idea",
+      createdAt: 1,
+    };
+    window.history.replaceState({}, "", "/#/session/s1?thread=q-9&quest=q-12&feedback=5");
+    useStore.setState({
+      questOverlayId: "q-12",
+      questOverlayFeedbackTarget: { index: 5, requestId: 1 },
+    });
+
+    render(<QuestHoverCard quest={quest} anchorRect={anchorRect()} onMouseEnter={() => {}} onMouseLeave={() => {}} />);
+    fireEvent.click(screen.getByTestId("quest-hover-open-button"));
+
+    expect(useStore.getState().questOverlayId).toBe("q-77");
+    expect(useStore.getState().questOverlayFeedbackTarget).toBeNull();
+    expect(window.location.hash).toBe("#/session/s1?thread=q-9&quest=q-77");
+  });
+
   it("renders a Codex quest owner as a copy control instead of a Takode session link", () => {
     const quest: QuestmasterTask = {
       id: "q-80",

@@ -29,6 +29,11 @@ import { broadcastQuestUpdate, buildQuestTitlePreview } from "./quest-helpers.js
 import type { OptionalAuthResult, RouteContext } from "./context.js";
 import { isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
 import { isLegacyQuestJourneyPhaseId, normalizeKnownQuestJourneyPhaseIds } from "../../shared/quest-journey.js";
+import {
+  isDeletedQuestFeedbackEntry,
+  liveQuestFeedbackEntries,
+  tombstoneQuestFeedbackEntry,
+} from "../../shared/quest-feedback.js";
 import type { BoardRow, SessionState } from "../session-types.js";
 import type { SdkSessionInfo } from "../session-info.js";
 import { normalizeTldr, QUEST_TLDR_WARNING_HEADER, tldrWarningForContent } from "../quest-tldr.js";
@@ -337,7 +342,7 @@ function findActiveV2BoardRowsForQuest(
 }
 
 function countFinalMemoryStatements(quest: QuestmasterTask, workerSessionId: string): number {
-  return (quest.feedback ?? [])
+  return liveQuestFeedbackEntries(quest.feedback)
     .filter(
       (entry) => entry.author === "agent" && entry.authorSessionId === workerSessionId && entry.phaseId === "memory",
     )
@@ -345,7 +350,7 @@ function countFinalMemoryStatements(quest: QuestmasterTask, workerSessionId: str
 }
 
 function hasCurrentWorkEvidence(quest: QuestmasterTask, workerSessionId: string): boolean {
-  return (quest.feedback ?? []).some(
+  return liveQuestFeedbackEntries(quest.feedback).some(
     (entry) =>
       entry.author === "agent" &&
       entry.authorSessionId === workerSessionId &&
@@ -356,7 +361,7 @@ function hasCurrentWorkEvidence(quest: QuestmasterTask, workerSessionId: string)
 }
 
 function hasUnaddressedHumanFeedback(quest: QuestmasterTask): boolean {
-  return (quest.feedback ?? []).some((entry) => entry.author === "human" && entry.addressed !== true);
+  return liveQuestFeedbackEntries(quest.feedback).some((entry) => entry.author === "human" && entry.addressed !== true);
 }
 
 function hasServerAuthorizedLocalCompletionTarget(
@@ -1746,6 +1751,7 @@ export function createQuestRoutes(ctx: RouteContext) {
           ? ((current as { feedback?: import("../quest-types.js").QuestFeedbackEntry[] }).feedback ?? [])
           : [];
       if (index >= existing.length) return c.json({ error: "Index out of range" }, 400);
+      if (isDeletedQuestFeedbackEntry(existing[index])) return c.json({ error: "Feedback entry was deleted" }, 400);
       const updated = [...existing];
       if (typeof body.text === "string" && body.text.trim())
         updated[index] = { ...updated[index], text: body.text.trim() };
@@ -1781,7 +1787,10 @@ export function createQuestRoutes(ctx: RouteContext) {
           ? ((current as { feedback?: import("../quest-types.js").QuestFeedbackEntry[] }).feedback ?? [])
           : [];
       if (index >= existing.length) return c.json({ error: "Index out of range" }, 400);
-      const updated = existing.filter((_, feedbackIndex) => feedbackIndex !== index);
+      const entry = existing[index];
+      if (isDeletedQuestFeedbackEntry(entry)) return c.json({ error: "Feedback entry was already deleted" }, 400);
+      const updated = [...existing];
+      updated[index] = tombstoneQuestFeedbackEntry(entry!, Date.now());
       const quest = await questStore.patchQuest(c.req.param("questId"), { feedback: updated }, { current });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
@@ -1803,6 +1812,7 @@ export function createQuestRoutes(ctx: RouteContext) {
           ? ((current as { feedback?: import("../quest-types.js").QuestFeedbackEntry[] }).feedback ?? [])
           : [];
       if (index >= existing.length) return c.json({ error: "Index out of range" }, 400);
+      if (isDeletedQuestFeedbackEntry(existing[index])) return c.json({ error: "Feedback entry was deleted" }, 400);
       const updated = [...existing];
       updated[index] = { ...updated[index], addressed: !updated[index].addressed };
       const quest = await questStore.patchQuest(c.req.param("questId"), { feedback: updated }, { current });

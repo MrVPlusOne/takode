@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { applyQuestListFilters, getQuestListPage, getQuestListPageAsync } from "./quest-list-filters.js";
+import {
+  applyQuestListFilters,
+  buildQuestListPreview,
+  getQuestListPage,
+  getQuestListPageAsync,
+} from "./quest-list-filters.js";
 import type { QuestDone, QuestmasterTask } from "./quest-types.js";
 
 function makeQuest(
@@ -417,6 +422,34 @@ describe("applyQuestListFilters", () => {
 
     expect(applyQuestListFilters([quest], { text: "scanline" }).map((q) => q.questId)).toEqual(["q-6"]);
     expect(applyQuestListFilters([quest], { text: "implementation" }).map((q) => q.questId)).toEqual(["q-6"]);
+  });
+
+  it("excludes feedback tombstones from previews, search, and feedback sorting", () => {
+    const quest = makeQuest({ questId: "q-66", title: "Stable feedback links", status: "done" });
+    quest.feedback = [
+      { author: "human", text: "deleted-secret-keyword", ts: 1, deletedAt: 2 },
+      { author: "agent", text: "Live implementation note", ts: 3 },
+      { author: "human", text: "Live review note", ts: 4, addressed: false },
+    ];
+
+    expect(buildQuestListPreview(quest).feedbackSummary).toEqual({
+      humanTotal: 1,
+      humanUnaddressed: 1,
+      humanAddressed: 0,
+    });
+    expect(applyQuestListFilters([quest], { text: "deleted-secret-keyword" })).toEqual([]);
+    expect(applyQuestListFilters([quest], { text: "implementation note" }).map((item) => item.questId)).toEqual([
+      "q-66",
+    ]);
+
+    const onlyDeleted = makeQuest({ questId: "q-67", title: "Deleted review only", status: "done" });
+    onlyDeleted.feedback = [{ author: "human", text: "", ts: 1, deletedAt: 2 }];
+    expect(buildQuestListPreview(onlyDeleted).feedbackSummary).toBeUndefined();
+    expect(
+      getQuestListPage([quest, onlyDeleted], { sortColumn: "feedback", sortDirection: "desc" }).quests.map(
+        (item) => item.questId,
+      ),
+    ).toEqual(["q-66", "q-67"]);
   });
 
   it("filters completed quests by final debrief text and debrief TLDR", () => {

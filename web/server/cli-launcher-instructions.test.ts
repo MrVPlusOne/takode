@@ -45,6 +45,14 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Takode session #42");
   });
 
+  it("injects one canonical exact-feedback link syntax", () => {
+    const result = buildCompanionInstructions({ sessionNum: 42, backend: "codex" });
+
+    expect(result).toContain("[q-42 feedback #3](quest:q-42:feedback:3)");
+    expect(result).toContain("stable zero-based index from `quest feedback list/show`");
+    expect(result).not.toContain("quest:q-42#feedback-3");
+  });
+
   it("includes Takode file-link guidance for quest comments and phase documentation", () => {
     const result = buildCompanionInstructions({ sessionNum: 42, backend: "codex" });
     expect(result).toContain("[app.ts:42](file:src/app.ts:42)");

@@ -71,6 +71,12 @@ describe("ensureQuestmasterIntegration", () => {
       expect.stringContaining("name: quest"),
       "utf-8",
     );
+    expect(writtenFile("/home/tester/.claude/skills/quest/SKILL.md")).toContain(
+      "[q-42 feedback #3](quest:q-42:feedback:3)",
+    );
+    expect(writtenFile("/home/tester/.agents/skills/quest/SKILL.md")).toContain(
+      "[q-42 feedback #3](quest:q-42:feedback:3)",
+    );
     expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
       "/home/tester/.claude/skills/quest/memory-completion.md",
       expect.stringContaining("Quest Memory and Completion Details"),

@@ -7,6 +7,7 @@ import type {
 } from "./session-types.js";
 import type { QuestmasterTask } from "./quest-types.js";
 import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "./quest-types.js";
+import { indexedLiveQuestFeedbackEntries } from "../shared/quest-feedback.js";
 import { findTurnBoundaries } from "./takode-messages.js";
 import {
   QUEST_JOURNEY_HINTS,
@@ -505,8 +506,10 @@ function getVerificationProgress(
 }
 
 function latestQuestSummaryPreview(quest: QuestmasterTask | null): string | undefined {
-  const feedback = quest?.feedback ?? [];
-  const indexedFeedback = feedback.map((entry, index) => ({ entry, index }));
+  const indexedFeedback = indexedLiveQuestFeedbackEntries(quest?.feedback).map(({ index, ...entry }) => ({
+    entry,
+    index,
+  }));
   const latestAgent = [...indexedFeedback]
     .reverse()
     .find(({ entry }) => entry.author === "agent" && entry.text.trim().length > 0);

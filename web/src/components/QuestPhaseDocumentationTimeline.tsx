@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { formatQuestJourneyDuration, getQuestJourneyPhase } from "../../shared/quest-journey.js";
 import {
   phaseDocumentationPreview,
@@ -9,12 +9,16 @@ import { getQuestPhaseAccentValue, getQuestPhaseBorderStyle } from "../utils/que
 import { CompactSessionLink } from "./CompactSessionLink.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestPhaseNoteImages } from "./QuestPhaseNoteImages.js";
+import type { QuestFeedbackTargetRequest } from "../utils/quest-link-target.js";
 
 interface QuestPhaseDocumentationTimelineProps {
   summary: QuestPhaseDocumentationSummary;
   searchHighlight?: string | null;
   sessionId?: string;
   onSessionNavigate?: () => void;
+  feedbackTarget?: QuestFeedbackTargetRequest | null;
+  highlightedFeedbackIndex?: number | null;
+  onFeedbackTargetReady?: (element: HTMLElement | null) => void;
 }
 
 type PhaseDocumentationGroup = QuestPhaseDocumentationSummary["groups"][number];
@@ -41,6 +45,9 @@ export function QuestPhaseDocumentationTimeline({
   searchHighlight,
   sessionId,
   onSessionNavigate,
+  feedbackTarget,
+  highlightedFeedbackIndex,
+  onFeedbackTargetReady,
 }: QuestPhaseDocumentationTimelineProps) {
   const groups = summary.groups.filter((group) => group.entries.length > 0 || group.phaseStatus !== "pending");
   const runGroups = buildDocumentationRunGroups(summary, groups);
@@ -48,6 +55,26 @@ export function QuestPhaseDocumentationTimeline({
   const hasSearchHighlight = Boolean(searchHighlight?.trim());
   const [runExpansionOverrides, setRunExpansionOverrides] = useState<Record<string, boolean>>({});
   const [windowExpansionOverrides, setWindowExpansionOverrides] = useState<Record<string, boolean>>({});
+  const targetGroup = feedbackTarget
+    ? groups.find((group) => group.entries.some((entry) => entry.index === feedbackTarget.index))
+    : undefined;
+  const targetRun = targetGroup
+    ? runGroups.find((run) => run.groups.some((group) => group.key === targetGroup.key))
+    : undefined;
+  const targetGroupKey = targetGroup?.key;
+  const targetRunKey = targetRun?.key;
+  const targetWindowDirection =
+    targetGroupKey && targetRun ? feedbackTargetWindowDirection(targetRun.groups, targetGroupKey) : null;
+  useEffect(() => {
+    if (!feedbackTarget || !targetGroupKey || !targetRunKey) return;
+    setRunExpansionOverrides((current) =>
+      current[targetRunKey] === true ? current : { ...current, [targetRunKey]: true },
+    );
+    if (targetWindowDirection) {
+      const key = windowExpansionKey(targetRunKey, targetWindowDirection);
+      setWindowExpansionOverrides((current) => (current[key] === true ? current : { ...current, [key]: true }));
+    }
+  }, [feedbackTarget?.requestId, targetGroupKey, targetRunKey, targetWindowDirection]);
   if (groups.length === 0) return null;
   const now = Date.now();
 
@@ -124,6 +151,9 @@ export function QuestPhaseDocumentationTimeline({
                       searchHighlight={searchHighlight}
                       sessionId={sessionId}
                       onSessionNavigate={onSessionNavigate}
+                      feedbackTarget={feedbackTarget}
+                      highlightedFeedbackIndex={highlightedFeedbackIndex}
+                      onFeedbackTargetReady={onFeedbackTargetReady}
                       isWindowExpanded={(direction) => windowExpanded(run.key, direction)}
                       onToggleWindow={(direction) => toggleWindow(run.key, direction)}
                     />
@@ -141,6 +171,9 @@ export function QuestPhaseDocumentationTimeline({
           searchHighlight={searchHighlight}
           sessionId={sessionId}
           onSessionNavigate={onSessionNavigate}
+          feedbackTarget={feedbackTarget}
+          highlightedFeedbackIndex={highlightedFeedbackIndex}
+          onFeedbackTargetReady={onFeedbackTargetReady}
           isWindowExpanded={(direction) => windowExpanded(runGroups[0]?.key ?? "all", direction)}
           onToggleWindow={(direction) => toggleWindow(runGroups[0]?.key ?? "all", direction)}
         />
@@ -156,6 +189,9 @@ function PhaseDocumentationGroupList({
   searchHighlight,
   sessionId,
   onSessionNavigate,
+  feedbackTarget,
+  highlightedFeedbackIndex,
+  onFeedbackTargetReady,
   isWindowExpanded,
   onToggleWindow,
 }: {
@@ -165,6 +201,9 @@ function PhaseDocumentationGroupList({
   searchHighlight?: string | null;
   sessionId?: string;
   onSessionNavigate?: () => void;
+  feedbackTarget?: QuestFeedbackTargetRequest | null;
+  highlightedFeedbackIndex?: number | null;
+  onFeedbackTargetReady?: (element: HTMLElement | null) => void;
   isWindowExpanded: (direction: OmittedPhaseDirection) => boolean;
   onToggleWindow: (direction: OmittedPhaseDirection) => void;
 }) {
@@ -226,6 +265,9 @@ function PhaseDocumentationGroupList({
             searchHighlight={searchHighlight}
             sessionId={sessionId}
             onSessionNavigate={onSessionNavigate}
+            feedbackTarget={feedbackTarget}
+            highlightedFeedbackIndex={highlightedFeedbackIndex}
+            onFeedbackTargetReady={onFeedbackTargetReady}
           />
         );
       })}
@@ -241,6 +283,9 @@ function PhaseDocumentationGroupRow({
   searchHighlight,
   sessionId,
   onSessionNavigate,
+  feedbackTarget,
+  highlightedFeedbackIndex,
+  onFeedbackTargetReady,
 }: {
   group: PhaseDocumentationGroup;
   groupIndex: number;
@@ -249,6 +294,9 @@ function PhaseDocumentationGroupRow({
   searchHighlight?: string | null;
   sessionId?: string;
   onSessionNavigate?: () => void;
+  feedbackTarget?: QuestFeedbackTargetRequest | null;
+  highlightedFeedbackIndex?: number | null;
+  onFeedbackTargetReady?: (element: HTMLElement | null) => void;
 }) {
   const phase = group.phaseId ? getQuestJourneyPhase(group.phaseId) : null;
   const durationLabel = phaseDocumentationDurationLabel(group, now);
@@ -294,12 +342,15 @@ function PhaseDocumentationGroupRow({
               const preview = entry.tldr?.trim() || compactText(phaseDocumentationPreview(entry));
               return (
                 <PhaseDocumentationEntry
-                  key={entry.index}
+                  key={`${entry.index}:${feedbackTarget?.index === entry.index ? feedbackTarget.requestId : 0}`}
                   entry={entry}
                   preview={preview}
                   searchHighlight={searchHighlight}
                   sessionId={sessionId}
                   onSessionNavigate={onSessionNavigate}
+                  feedbackTarget={feedbackTarget}
+                  highlightedFeedbackIndex={highlightedFeedbackIndex}
+                  onFeedbackTargetReady={onFeedbackTargetReady}
                 />
               );
             })}
@@ -333,19 +384,35 @@ function PhaseDocumentationEntry({
   searchHighlight,
   sessionId,
   onSessionNavigate,
+  feedbackTarget,
+  highlightedFeedbackIndex,
+  onFeedbackTargetReady,
 }: {
   entry: QuestPhaseDocumentationSummary["groups"][number]["entries"][number];
   preview: string;
   searchHighlight?: string | null;
   sessionId?: string;
   onSessionNavigate?: () => void;
+  feedbackTarget?: QuestFeedbackTargetRequest | null;
+  highlightedFeedbackIndex?: number | null;
+  onFeedbackTargetReady?: (element: HTMLElement | null) => void;
 }) {
   const highlight = searchHighlight ? { query: searchHighlight, mode: "fuzzy" as const, isCurrent: false } : null;
+  const isTarget = feedbackTarget?.index === entry.index;
+  const isHighlighted = highlightedFeedbackIndex === entry.index;
 
   return (
     <div
-      className="min-w-0 max-w-full overflow-hidden rounded-md border border-cc-border/70 bg-cc-input-bg/70 px-2 py-1.5"
+      ref={isTarget ? onFeedbackTargetReady : undefined}
+      className={`min-w-0 max-w-full overflow-hidden rounded-md border px-2 py-1.5 transition-[background-color,box-shadow] duration-500 ${
+        isHighlighted
+          ? "border-cc-primary/60 bg-cc-primary/10 ring-2 ring-cc-primary/40"
+          : "border-cc-border/70 bg-cc-input-bg/70"
+      }`}
       data-testid="quest-phase-documentation-entry"
+      data-feedback-index={entry.index}
+      data-feedback-highlighted={isHighlighted ? "true" : "false"}
+      tabIndex={-1}
     >
       <div className="mb-1 flex min-w-0 flex-wrap items-center gap-1.5">
         <span className="shrink-0 font-mono-code text-[10px] text-cc-muted">#{entry.index}</span>
@@ -372,7 +439,7 @@ function PhaseDocumentationEntry({
         />
       </div>
       <QuestPhaseNoteImages text={entry.text} sessionId={sessionId} />
-      <details className="mt-1 min-w-0 max-w-full overflow-hidden text-xs text-cc-muted">
+      <details open={isTarget || undefined} className="mt-1 min-w-0 max-w-full overflow-hidden text-xs text-cc-muted">
         <summary className="cursor-pointer select-none">Full phase detail</summary>
         <div className="mt-1 min-w-0 max-w-full overflow-hidden text-cc-fg">
           <MarkdownContent
@@ -431,6 +498,16 @@ function buildDocumentationRunGroups(
       groups: runGroups,
     };
   });
+}
+
+function feedbackTargetWindowDirection(
+  groups: PhaseDocumentationGroup[],
+  targetGroupKey: string,
+): OmittedPhaseDirection | null {
+  const window = getDocumentationGroupWindow(groups);
+  if (window.earlierGroups.some((group) => group.key === targetGroupKey)) return "earlier";
+  if (window.laterGroups.some((group) => group.key === targetGroupKey)) return "later";
+  return null;
 }
 
 function getDocumentationGroupWindow(groups: PhaseDocumentationGroup[]): {

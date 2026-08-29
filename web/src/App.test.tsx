@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { StrictMode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
@@ -80,7 +81,10 @@ interface MockStoreState {
   setActiveTab: ReturnType<typeof vi.fn>;
   openSessionSearch: ReturnType<typeof vi.fn>;
   closeSessionSearch: ReturnType<typeof vi.fn>;
+  questOverlayId: string | null;
+  questOverlayFeedbackTarget: { index: number; requestId: number } | null;
   openQuestOverlay: ReturnType<typeof vi.fn>;
+  closeQuestOverlay: ReturnType<typeof vi.fn>;
   openNewSessionModal: ReturnType<typeof vi.fn>;
   openTerminal: ReturnType<typeof vi.fn>;
   sessions: Map<string, { backend_type?: string; cwd?: string }>;
@@ -149,12 +153,30 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     setActiveTab: vi.fn(),
     openSessionSearch: vi.fn(),
     closeSessionSearch: vi.fn(),
-    openQuestOverlay: vi.fn(),
+    questOverlayId: null,
+    questOverlayFeedbackTarget: null,
+    openQuestOverlay: vi.fn((questId: string, _searchHighlight?: string, feedbackIndex?: number) => {
+      mockState.questOverlayId = questId;
+      mockState.questOverlayFeedbackTarget =
+        feedbackIndex === undefined
+          ? null
+          : { index: feedbackIndex, requestId: (mockState.questOverlayFeedbackTarget?.requestId ?? 0) + 1 };
+    }),
+    closeQuestOverlay: vi.fn(() => {
+      mockState.questOverlayId = null;
+      mockState.questOverlayFeedbackTarget = null;
+    }),
     openNewSessionModal: vi.fn(),
     openTerminal: vi.fn(),
     sessions: new Map([["s1", { backend_type: "claude" }]]),
     ...overrides,
   };
+}
+
+function setMockQuestOverlay(questId: string | null, feedbackIndex?: number) {
+  mockState.questOverlayId = questId;
+  mockState.questOverlayFeedbackTarget =
+    questId && feedbackIndex !== undefined ? { index: feedbackIndex, requestId: 1 } : null;
 }
 
 vi.mock("./store.js", () => {
@@ -362,6 +384,97 @@ beforeEach(() => {
   window.location.hash = "#/session/s1";
 });
 
+describe("App quest overlay routes", () => {
+  it("keeps an initial routed target authoritative across StrictMode effect replay", async () => {
+    window.location.hash = "#/questmaster?quest=q-1966&feedback=5";
+
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-1966", undefined, 5));
+    expect(window.location.hash).toBe("#/questmaster?quest=q-1966&feedback=5");
+    expect(mockState.closeQuestOverlay).not.toHaveBeenCalled();
+  });
+
+  it("opens exact feedback targets from session and full-page hashes", async () => {
+    window.location.hash = "#/session/s1?quest=q-1966&feedback=5";
+    const view = render(<App />);
+
+    await waitFor(() => expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-1966", undefined, 5));
+
+    view.unmount();
+    resetStore();
+    window.location.hash = "#/settings?quest=q-1966&feedback=5";
+    render(<App />);
+
+    await waitFor(() => expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-1966", undefined, 5));
+  });
+
+  it("closes and reopens only the route-owned exact target across browser history changes", async () => {
+    window.location.hash = "#/session/s1?quest=q-1966&feedback=5";
+    render(<App />);
+    await waitFor(() => expect(mockState.questOverlayFeedbackTarget?.index).toBe(5));
+
+    window.location.hash = "#/session/s1";
+    await waitFor(() => expect(mockState.closeQuestOverlay).toHaveBeenCalledTimes(1));
+
+    window.location.hash = "#/session/s1?quest=q-1966&feedback=5";
+    await waitFor(() => expect(mockState.openQuestOverlay).toHaveBeenCalledTimes(2));
+  });
+
+  it("normalizes direct overlay replacements and closes while a quest route owns the hash", async () => {
+    window.location.hash = "#/session/s1?thread=q-9&quest=q-1966&feedback=5";
+    const view = render(<App />);
+    await waitFor(() => expect(mockState.questOverlayFeedbackTarget?.index).toBe(5));
+
+    setMockQuestOverlay("q-77");
+    view.rerender(<App />);
+    await waitFor(() => expect(window.location.hash).toBe("#/session/s1?thread=q-9&quest=q-77"));
+
+    setMockQuestOverlay(null);
+    view.rerender(<App />);
+    await waitFor(() => expect(window.location.hash).toBe("#/session/s1?thread=q-9"));
+  });
+
+  it("keeps direct overlay opens store-only when the hash has no quest route", () => {
+    window.location.hash = "#/session/s1?thread=q-9";
+    const view = render(<App />);
+
+    setMockQuestOverlay("q-77");
+    view.rerender(<App />);
+
+    expect(mockState.questOverlayId).toBe("q-77");
+    expect(window.location.hash).toBe("#/session/s1?thread=q-9");
+  });
+
+  it("lets a newer browser hash win over an unsynchronized direct store replacement", async () => {
+    window.location.hash = "#/session/s1?quest=q-1966&feedback=5";
+    render(<App />);
+    await waitFor(() => expect(mockState.questOverlayFeedbackTarget?.index).toBe(5));
+
+    setMockQuestOverlay("q-77");
+    window.location.hash = "#/session/s1?quest=q-88&feedback=2";
+
+    await waitFor(() => expect(mockState.openQuestOverlay).toHaveBeenLastCalledWith("q-88", undefined, 2));
+    expect(window.location.hash).toBe("#/session/s1?quest=q-88&feedback=2");
+  });
+
+  it("lets browser Back close a route-owned overlay even after an unsynchronized store replacement", async () => {
+    window.location.hash = "#/session/s1?quest=q-1966&feedback=5";
+    render(<App />);
+    await waitFor(() => expect(mockState.questOverlayFeedbackTarget?.index).toBe(5));
+
+    setMockQuestOverlay("q-77");
+    window.location.hash = "#/session/s1";
+
+    await waitFor(() => expect(mockState.questOverlayId).toBeNull());
+    expect(mockState.closeQuestOverlay).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("App hidden panels", () => {
   it("does not mount the desktop sidebar while it is closed", () => {
     resetStore({ sidebarOpen: false, taskPanelOpen: false });
@@ -550,6 +663,21 @@ describe("App hidden panels", () => {
 
     expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-1272", "needle");
     expect(window.location.hash).toBe("#/session/s1");
+  });
+
+  it("replaces an existing feedback route when Universal Search opens another quest", async () => {
+    resetStore({
+      shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
+    });
+    window.location.hash = "#/session/s1?thread=q-9&quest=q-1966&feedback=5";
+
+    render(<App />);
+    await waitFor(() => expect(mockState.questOverlayFeedbackTarget?.index).toBe(5));
+    fireEvent.keyDown(document, { key: "f", ctrlKey: true, shiftKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Open quest result" }));
+
+    expect(mockState.openQuestOverlay).toHaveBeenLastCalledWith("q-1272", "needle");
+    await waitFor(() => expect(window.location.hash).toBe("#/session/s1?thread=q-9&quest=q-1272"));
   });
 
   it("mounts TodosAndTimersPage on the scheduled route", () => {

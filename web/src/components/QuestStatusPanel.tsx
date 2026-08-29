@@ -10,6 +10,7 @@ import { QuestJourneyCompactSummary } from "./QuestJourneyTimeline.js";
 import { QuestQuizSection } from "./QuestQuizSection.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
+import { liveQuestFeedbackEntries } from "../../shared/quest-feedback.js";
 
 type QuestStatusContextSource = "selected-session" | "board-attention" | "board-active" | "board-proposed";
 
@@ -35,7 +36,7 @@ interface QuestCounts {
 }
 
 function humanFeedback(quest?: QuestmasterTask): QuestFeedbackEntry[] {
-  return (quest?.feedback ?? []).filter((entry) => entry.author === "human");
+  return liveQuestFeedbackEntries(quest?.feedback).filter((entry) => entry.author === "human");
 }
 
 function verificationProgress(items?: QuestVerificationItem[]): QuestCounts["verification"] {

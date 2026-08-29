@@ -915,6 +915,19 @@ describe("takode leader-context-resume", () => {
         "q-924",
         makeVerificationQuest("q-924", "Render proposed and active Quest Journey UI from board data", {
           commitShas: ["22c891c3", "4fa5ec9b"],
+          feedback: [
+            {
+              author: "agent",
+              text: "Summary: Render proposed and active Quest Journey UI from board data landed and is ready for verification.",
+              ts: 1_500,
+            },
+            {
+              author: "agent",
+              text: "Deleted newer summary must not appear in recovery.",
+              ts: 1_600,
+              deletedAt: 1_700,
+            },
+          ],
         }),
       ],
     ]);
@@ -963,6 +976,7 @@ describe("takode leader-context-resume", () => {
     expect(rendered).toContain(
       "- latest summary: #0 Summary: Render proposed and active Quest Journey UI from board data landed",
     );
+    expect(rendered).not.toContain("Deleted newer summary");
     expect(rendered).toContain("- next leader action: human review inbox triage");
     expect(rendered).toContain("Active quests: 0");
   });

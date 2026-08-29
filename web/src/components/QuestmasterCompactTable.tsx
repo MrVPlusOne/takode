@@ -26,6 +26,7 @@ import { QuestHoverCard } from "./QuestHoverCard.js";
 import { SessionNumChip } from "./SessionNumChip.js";
 import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 import { getQuestPhaseDotStyle, getQuestPhaseTextStyle } from "../utils/quest-phase-theme.js";
+import { liveQuestFeedbackEntries } from "../../shared/quest-feedback.js";
 
 const STATUS_SORT_RANK: Record<QuestStatus, number> = {
   idea: 0,
@@ -87,7 +88,7 @@ function questFeedbackCounts(quest: QuestTableQuest): { unaddressed: number; tot
       addressed: quest.feedbackSummary.humanAddressed,
     };
   }
-  const entries = "feedback" in quest ? (quest.feedback ?? []) : [];
+  const entries = "feedback" in quest ? liveQuestFeedbackEntries(quest.feedback) : [];
   const humanEntries = entries.filter((entry) => entry.author === "human");
   const unaddressed = humanEntries.filter((entry) => !entry.addressed).length;
   return { unaddressed, total: humanEntries.length, addressed: humanEntries.length - unaddressed };

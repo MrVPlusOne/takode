@@ -2,6 +2,7 @@ import type { QuestListPreview, QuestmasterTask } from "./quest-types.js";
 import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "./quest-types.js";
 import { prepareSearchQuery, type PreparedSearchQuery, tokenizeSearchText } from "../shared/search-utils.js";
 import { questRelationshipSearchText } from "./quest-relationships.js";
+import { liveQuestFeedbackEntries } from "../shared/quest-feedback.js";
 import {
   compactPhaseDocumentationGroups,
   phaseDocumentationPreview,
@@ -182,7 +183,7 @@ function buildQuestListPage(
 }
 
 export function buildQuestListPreview(quest: QuestmasterTask): QuestListPreview {
-  const humanFeedback = (quest.feedback ?? []).filter((entry) => entry.author === "human");
+  const humanFeedback = liveQuestFeedbackEntries(quest.feedback).filter((entry) => entry.author === "human");
   const verificationItems = "verificationItems" in quest ? (quest.verificationItems ?? []) : [];
   const phasePreviewLines = compactPhaseDocumentationGroups(summarizeQuestPhaseDocumentation(quest), 2).flatMap(
     (group) => {
@@ -547,7 +548,9 @@ function getQuestBodySearchFields(quest: QuestmasterTask): Array<string | undefi
     quest.status === "done" && quest.cancelled !== true ? quest.debrief : undefined,
     ...questOwnerRefs(quest).flatMap((owner) => [`${owner.kind} ${owner.sessionId}`, questOwnerKey(owner)]),
     ...(quest.quizItems ?? []).flatMap((item) => [item.question, item.answer, item.source]),
-    ...("feedback" in quest ? (quest.feedback ?? []).flatMap((entry) => [entry.tldr, entry.text]) : []),
+    ...("feedback" in quest
+      ? liveQuestFeedbackEntries(quest.feedback).flatMap((entry) => [entry.tldr, entry.text])
+      : []),
   ];
 }
 
@@ -664,7 +667,8 @@ function verificationSortTuple(quest: QuestmasterTask): [number, number, number]
 }
 
 function feedbackSortTuple(quest: QuestmasterTask): [number, number] {
-  const feedback = "feedback" in quest ? (quest.feedback ?? []).filter((entry) => entry.author === "human") : [];
+  const feedback =
+    "feedback" in quest ? liveQuestFeedbackEntries(quest.feedback).filter((entry) => entry.author === "human") : [];
   const open = feedback.filter((entry) => !entry.addressed).length;
   return [open, feedback.length];
 }

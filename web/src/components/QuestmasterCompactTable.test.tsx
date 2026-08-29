@@ -115,6 +115,28 @@ describe("CompactQuestTable", () => {
     expect(onOpenQuest).toHaveBeenCalledTimes(2);
   });
 
+  it("does not count deleted human feedback in full-task fallback rows", () => {
+    const quest = buildQuest({
+      feedback: [{ author: "human", text: "", ts: 4, deletedAt: 5 }],
+    });
+
+    render(
+      <CompactQuestTable
+        quests={[quest]}
+        onOpenQuest={vi.fn()}
+        searchText=""
+        journeyContextByQuestId={new Map()}
+        sort={{ column: "updated", direction: "desc" }}
+        sortSaving={false}
+        onSortChange={vi.fn()}
+      />,
+    );
+
+    const row = screen.getByRole("button", { name: /q-100.*Relationship/ });
+    expect(within(row).getAllByRole("cell")[5]).toHaveTextContent("—");
+    expect(within(row).queryByText(/open|addressed/)).toBeNull();
+  });
+
   it("omits the User review checks column and normalizes stale saved verify sorts", () => {
     const quest = buildQuest();
 

@@ -89,6 +89,15 @@ describe("quest skill ownership docs", () => {
     expect(docs).toContain("Prefer targeted `--sections` reveals first.");
   });
 
+  it("documents the canonical exact-feedback link without teaching the legacy alias", () => {
+    const docs = readTemplate("quest-skill-docs.md");
+
+    expect(docs).toContain("[q-42 feedback #3](quest:q-42:feedback:3)");
+    expect(docs).toContain("Feedback indices are stable and zero-based");
+    expect(docs).toContain("read them from `quest feedback list/show` and never guess");
+    expect(docs).not.toContain("quest:q-42#feedback-3");
+  });
+
   it("documents compact phase handoffs without weakening durable phase notes", () => {
     const docs = readTemplate("quest-skill-docs.md");
 

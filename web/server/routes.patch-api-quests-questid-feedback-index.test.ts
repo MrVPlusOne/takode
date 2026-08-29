@@ -713,6 +713,33 @@ describe("PATCH /api/quests/:questId/feedback/:index", () => {
     );
   });
 
+  it("rejects editing a deleted feedback slot", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      version: 3,
+      title: "Quest",
+      createdAt: Date.now(),
+      status: "done",
+      description: "Needs verification",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      feedback: [{ author: "agent", text: "", ts: 1, deletedAt: 2 }],
+    } as any);
+    const patchSpy = vi.spyOn(questStore, "patchQuest");
+
+    const res = await app.request("/api/quests/q-1/feedback/0", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "Resurrected" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "Feedback entry was deleted" });
+    expect(patchSpy).not.toHaveBeenCalled();
+  });
+
   it("returns 400 for an out-of-range feedback index", async () => {
     // Invalid indexes should fail before the thread is rewritten.
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
@@ -737,6 +764,31 @@ describe("PATCH /api/quests/:questId/feedback/:index", () => {
     });
 
     expect(res.status).toBe(400);
+    expect(patchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/quests/:questId/feedback/:index/addressed", () => {
+  it("rejects addressing a deleted feedback slot", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      version: 3,
+      title: "Quest",
+      createdAt: Date.now(),
+      status: "done",
+      description: "Needs verification",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      feedback: [{ author: "human", text: "", ts: 1, deletedAt: 2 }],
+    } as any);
+    const patchSpy = vi.spyOn(questStore, "patchQuest");
+
+    const res = await app.request("/api/quests/q-1/feedback/0/addressed", { method: "POST" });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "Feedback entry was deleted" });
     expect(patchSpy).not.toHaveBeenCalled();
   });
 });

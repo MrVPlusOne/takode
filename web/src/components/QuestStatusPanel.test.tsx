@@ -104,6 +104,32 @@ describe("QuestStatusPanel", () => {
     expect(feedbackMetric?.className).not.toContain("amber");
   });
 
+  it("does not surface deleted human feedback as status attention", () => {
+    useStore.setState({
+      sessions: new Map([
+        [
+          "worker-deleted",
+          { claimedQuestId: "q-89", claimedQuestTitle: "Deleted review", claimedQuestStatus: "in_progress" } as any,
+        ],
+      ]),
+      quests: [
+        {
+          questId: "q-89",
+          title: "Deleted review",
+          status: "in_progress",
+          sessionId: "worker-deleted",
+          feedback: [{ author: "human", text: "", ts: 1, deletedAt: 2 }],
+          createdAt: 1,
+        } as any,
+      ],
+    });
+
+    render(<QuestStatusPanel sessionId="worker-deleted" />);
+
+    expect(screen.queryByText("Feedback")).toBeNull();
+    expect(screen.queryByText(/unaddressed human feedback/)).toBeNull();
+  });
+
   it("shows a compact quest quiz in the selected-session context", () => {
     // Verifies the chat/thread-adjacent quest context exposes quiz metadata with hidden answers.
     useStore.setState({

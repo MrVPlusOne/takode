@@ -479,7 +479,18 @@ describe("formatHerdEventBatch", () => {
     const result = formatHerdEventBatch(events);
 
     expect(result).toContain("q-12");
-    expect(result).toContain("phase-note: work #3 Synced and verified");
+    expect(result).toContain("phase-note: work [feedback #3](quest:q-12:feedback:3) Synced and verified");
+  });
+
+  it("formats worker_stream phase-note pointers with the same canonical feedback link", () => {
+    const result = formatHerdEventBatch([
+      makeEvent({
+        event: "worker_stream",
+        data: { duration_ms: 5000, questId: "q-12", phaseNote: { phaseId: "work", index: 3 } },
+      }),
+    ]);
+
+    expect(result).toContain("phase-note: work [feedback #3](quest:q-12:feedback:3)");
   });
 
   it("formats turn_end with single user message (no plural)", () => {

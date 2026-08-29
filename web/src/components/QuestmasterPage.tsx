@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
-import { questIdFromHash, withoutQuestIdInHash } from "../utils/routing.js";
+import { questOverlayTargetFromHash, withoutQuestIdInHash } from "../utils/routing.js";
 import { SessionNumChip } from "./SessionNumChip.js";
 import {
   loadQuestmasterViewState,
@@ -57,6 +57,7 @@ import {
   phaseDocumentationPreview,
   summarizeQuestPhaseDocumentation,
 } from "../../shared/quest-phase-documentation-summary.js";
+import { liveQuestFeedbackEntries } from "../../shared/quest-feedback.js";
 
 // ─── Status config ──────────────────────────────────────────────────────────
 
@@ -157,7 +158,7 @@ function mergeUniqueQuestPage(
 
 function questPreviewFromTask(quest: QuestmasterTask): QuestListPreview {
   const verificationItems = "verificationItems" in quest ? (quest.verificationItems ?? []) : [];
-  const humanFeedback = (quest.feedback ?? []).filter((entry) => entry.author === "human");
+  const humanFeedback = liveQuestFeedbackEntries(quest.feedback).filter((entry) => entry.author === "human");
   const phasePreviewLines = compactPhaseDocumentationGroups(summarizeQuestPhaseDocumentation(quest), 2).flatMap(
     (group) => {
       const latestEntry = group.entries.at(-1);
@@ -695,12 +696,20 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   }, [isActive, collapsedGroups, filter]);
   // Deep-link support: any hash with ?quest=q-123 should focus and expand that quest.
   useEffect(() => {
-    const targetQuestId = questIdFromHash(hash);
-    if (!targetQuestId) return;
+    const target = questOverlayTargetFromHash(hash);
+    if (!target) return;
+    const targetQuestId = target.questId;
     const targetQuest = pagedQuests.find((q) => q.questId === targetQuestId);
     setFilter(new Set(ALL_STATUSES));
     // Ensure deep-linked quests are visible in the list as well as the modal.
-    useStore.getState().openQuestOverlay(targetQuestId);
+    const store = useStore.getState();
+    if (
+      store.questOverlayId !== targetQuestId ||
+      (store.questOverlayFeedbackTarget?.index ?? null) !== (target.feedbackIndex ?? null)
+    ) {
+      if (target.feedbackIndex === undefined) store.openQuestOverlay(targetQuestId);
+      else store.openQuestOverlay(targetQuestId, undefined, target.feedbackIndex);
+    }
     setShowCreateForm(false);
 
     if (!targetQuest) {

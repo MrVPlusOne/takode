@@ -45,6 +45,7 @@ import type { QuestmasterTask } from "../quest-types.js";
 import { normalizeCommitShas } from "../quest-store-helpers.js";
 import { broadcastQuestUpdate } from "./quest-helpers.js";
 import { getQuestDisplayOwner, getTakodeQuestOwnerSessionId } from "../../shared/quest-owner.js";
+import { indexedLiveQuestFeedbackEntries } from "../../shared/quest-feedback.js";
 
 interface PhaseNoteEdit {
   index: number;
@@ -67,7 +68,9 @@ function isDirectCodexOwnedQuest(quest: QuestmasterTask): boolean {
 }
 
 function hasUnaddressedHumanFeedback(quest: QuestmasterTask): boolean {
-  return (quest.feedback ?? []).some((entry) => entry.author === "human" && entry.addressed !== true);
+  return indexedLiveQuestFeedbackEntries(quest.feedback).some(
+    (entry) => entry.author === "human" && entry.addressed !== true,
+  );
 }
 
 interface ActiveWorkPhaseContext {
@@ -163,37 +166,34 @@ function resolveCurrentWorkFeedback(args: {
   activeScope: Pick<ActiveWorkPhaseContext, "journeyRunId" | "phaseOccurrenceId">;
   requestedIndex?: number;
 }): { index: number } | { error: string } {
-  const feedback = args.quest.feedback ?? [];
   const hasCurrentRunSnapshot = (args.quest.journeyRuns ?? []).some(
     (run) => run.runId === args.activeScope.journeyRunId,
   );
-  const candidateEntries = feedback
-    .map((entry, index) => ({ entry, index }))
-    .filter(({ entry, index }) => {
-      if (args.requestedIndex !== undefined && index !== args.requestedIndex) return false;
-      const isEligibleWorkNote =
-        entry.author === "agent" &&
-        entry.authorSessionId === args.authorSessionId &&
-        entry.phaseId === "work" &&
-        (entry.kind === "phase_summary" || entry.kind === undefined) &&
-        entry.text.trim().length >= 80;
-      if (!isEligibleWorkNote) return false;
+  const candidateEntries = indexedLiveQuestFeedbackEntries(args.quest.feedback).filter(({ index, ...entry }) => {
+    if (args.requestedIndex !== undefined && index !== args.requestedIndex) return false;
+    const isEligibleWorkNote =
+      entry.author === "agent" &&
+      entry.authorSessionId === args.authorSessionId &&
+      entry.phaseId === "work" &&
+      (entry.kind === "phase_summary" || entry.kind === undefined) &&
+      entry.text.trim().length >= 80;
+    if (!isEligibleWorkNote) return false;
 
-      const matchesActiveScope =
-        entry.journeyRunId === args.activeScope.journeyRunId &&
-        entry.phaseOccurrenceId === args.activeScope.phaseOccurrenceId;
-      if (matchesActiveScope) return true;
-      if (hasCurrentRunSnapshot) return false;
+    const matchesActiveScope =
+      entry.journeyRunId === args.activeScope.journeyRunId &&
+      entry.phaseOccurrenceId === args.activeScope.phaseOccurrenceId;
+    if (matchesActiveScope) return true;
+    if (hasCurrentRunSnapshot) return false;
 
-      // Compatibility for phase notes created before board-backed run snapshots existed.
-      return (
-        entry.journeyRunId === undefined &&
-        entry.phaseOccurrenceId === undefined &&
-        entry.phaseIndex === undefined &&
-        entry.phasePosition === undefined &&
-        entry.phaseOccurrence === undefined
-      );
-    });
+    // Compatibility for phase notes created before board-backed run snapshots existed.
+    return (
+      entry.journeyRunId === undefined &&
+      entry.phaseOccurrenceId === undefined &&
+      entry.phaseIndex === undefined &&
+      entry.phasePosition === undefined &&
+      entry.phaseOccurrence === undefined
+    );
+  });
   const latest = candidateEntries.at(-1);
   if (latest) return { index: latest.index };
   if (args.requestedIndex !== undefined) {

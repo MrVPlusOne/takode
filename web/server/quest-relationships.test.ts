@@ -54,6 +54,25 @@ describe("quest relationship summaries", () => {
     expect(third.relatedQuests).toEqual([{ questId: "q-1", kind: "references", explicit: false }]);
   });
 
+  it("does not derive relationships from deleted feedback slots", () => {
+    const target = quest({ questId: "q-1", title: "Original" });
+    const source = quest({
+      questId: "q-2",
+      title: "Source",
+      feedback: [
+        { author: "agent", text: "Deleted reference to q-1", ts: 1, deletedAt: 2 },
+        { author: "agent", text: "Live reference to q-3", ts: 3 },
+      ],
+    });
+    const liveTarget = quest({ questId: "q-3", title: "Live target" });
+
+    const [first, second, third] = withQuestRelationshipSummaries([target, source, liveTarget]);
+
+    expect(first.relatedQuests).toBeUndefined();
+    expect(second.relatedQuests).toEqual([{ questId: "q-3", kind: "references", explicit: false }]);
+    expect(third.relatedQuests).toEqual([{ questId: "q-2", kind: "referenced_by", explicit: false }]);
+  });
+
   it("normalizes relationship IDs and drops self-links", () => {
     // Keeps storage canonical so CLI/user input like Q-001 does not create duplicate relationship IDs.
     expect(normalizeQuestRelationships({ followUpOf: ["Q-001", "q-1", "q-2", "bad"] }, "q-2")).toEqual({

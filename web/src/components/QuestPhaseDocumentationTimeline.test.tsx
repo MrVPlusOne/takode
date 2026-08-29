@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QuestDetailTextSections } from "./QuestDetailTextSections.js";
 import { QuestPhaseDocumentationTimeline } from "./QuestPhaseDocumentationTimeline.js";
@@ -80,12 +80,13 @@ function longSummary(): QuestPhaseDocumentationSummary {
       text: `Latest run phase ${index + 1} TLDR`,
     }),
   );
+  const groups = [...earlierRunGroups, ...latestRunGroups];
   return {
     hasJourneyRuns: true,
     hasPhaseDocumentation: true,
     primaryRun: run("run-2", 2, 20),
-    groups: [...earlierRunGroups, ...latestRunGroups],
-    scopedEntries: [],
+    groups,
+    scopedEntries: groups.flatMap((item) => item.entries),
     unscopedFeedback: [],
   };
 }
@@ -107,6 +108,55 @@ describe("QuestPhaseDocumentationTimeline", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Show 4 earlier phases" }));
     expect(document.body).toHaveTextContent("Latest run phase 1 TLDR");
+    expect(screen.getByRole("button", { name: "Hide 4 earlier phases" })).toBeInTheDocument();
+  });
+
+  it("reveals an exact target inside a collapsed older Journey run", async () => {
+    const onTargetReady = vi.fn();
+    render(
+      <QuestPhaseDocumentationTimeline
+        summary={longSummary()}
+        feedbackTarget={{ index: 101, requestId: 1 }}
+        highlightedFeedbackIndex={101}
+        onFeedbackTargetReady={onTargetReady}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Earlier Journey run 1/ })).toHaveAttribute("aria-expanded", "true"),
+    );
+    const target = document.querySelector<HTMLElement>('[data-feedback-index="101"]');
+    expect(target).toHaveAttribute("data-feedback-highlighted", "true");
+    expect(target?.querySelector("details")).toHaveAttribute("open");
+    expect(onTargetReady).toHaveBeenCalledWith(target);
+  });
+
+  it("expands an omitted phase window that contains the exact target", async () => {
+    render(<QuestPhaseDocumentationTimeline summary={longSummary()} feedbackTarget={{ index: 201, requestId: 1 }} />);
+
+    await waitFor(() => expect(document.body).toHaveTextContent("Latest run phase 1 TLDR"));
+    expect(screen.getByRole("button", { name: "Hide 4 earlier phases" })).toBeInTheDocument();
+    expect(document.querySelector('[data-feedback-index="201"]')).toBeInTheDocument();
+  });
+
+  it("recomputes target window expansion when full detail hydrates under the same run and group keys", async () => {
+    const hydrated = longSummary();
+    const previewGroups = hydrated.groups.filter(
+      (item) => item.journeyRunId !== "run-2" || (item.phasePosition ?? 0) <= 4,
+    );
+    const preview = {
+      ...hydrated,
+      primaryRun: run("run-2", 2, 4),
+      groups: previewGroups,
+      scopedEntries: previewGroups.flatMap((item) => item.entries),
+    };
+    const target = { index: 201, requestId: 1 };
+    const { rerender } = render(<QuestPhaseDocumentationTimeline summary={preview} feedbackTarget={target} />);
+    expect(document.querySelector('[data-feedback-index="201"]')).toBeInTheDocument();
+
+    rerender(<QuestPhaseDocumentationTimeline summary={hydrated} feedbackTarget={target} />);
+
+    await waitFor(() => expect(document.querySelector('[data-feedback-index="201"]')).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Hide 4 earlier phases" })).toBeInTheDocument();
   });
 
@@ -145,5 +195,22 @@ describe("QuestDetailTextSections Journey Details toggle", () => {
     const toggle = screen.getByTestId("quest-journey-details-toggle");
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(within(document.body).getByTestId("quest-phase-documentation-timeline")).toBeInTheDocument();
+  });
+
+  it("reopens Journey Details when a scoped feedback target arrives", async () => {
+    const summary = longSummary();
+    const { rerender } = render(<QuestDetailTextSections quest={quest} phaseDocumentationSummary={summary} />);
+    fireEvent.click(screen.getByTestId("quest-journey-details-toggle"));
+    expect(screen.queryByTestId("quest-phase-documentation-timeline")).toBeNull();
+
+    rerender(
+      <QuestDetailTextSections
+        quest={quest}
+        phaseDocumentationSummary={summary}
+        feedbackTarget={{ index: 101, requestId: 1 }}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("quest-phase-documentation-timeline")).toBeInTheDocument());
   });
 });

@@ -84,6 +84,8 @@ export interface QuestFeedbackEntry {
   images?: QuestImage[];
   /** Whether this feedback has been addressed (only meaningful for human entries) */
   addressed?: boolean;
+  /** Tombstone timestamp preserving this entry's stable zero-based index after deletion. */
+  deletedAt?: number;
   /** Stable Journey run this entry documents, when phase-scoped. */
   journeyRunId?: string;
   /** Stable phase occurrence this entry documents, when available. */

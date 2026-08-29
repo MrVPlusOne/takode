@@ -9,10 +9,11 @@ import { QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 import { QuestPhaseDocumentationTimeline } from "./QuestPhaseDocumentationTimeline.js";
 import { QuestTextImagePreviews } from "./QuestPhaseNoteImages.js";
 import { QuestRelationshipLinks } from "./QuestRelationshipLinks.js";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { QuestmasterTask } from "../types.js";
 import type { QuestPhaseDocumentationSummary } from "../../shared/quest-phase-documentation-summary.js";
 import type { QuestJourneyPlanState } from "../../shared/quest-journey.js";
+import type { QuestFeedbackTargetRequest } from "../utils/quest-link-target.js";
 
 interface QuestDetailTextSectionsProps {
   quest: QuestmasterTask;
@@ -22,6 +23,9 @@ interface QuestDetailTextSectionsProps {
   searchHighlight?: string | null;
   sessionId?: string;
   onSessionNavigate?: () => void;
+  feedbackTarget?: QuestFeedbackTargetRequest | null;
+  highlightedFeedbackIndex?: number | null;
+  onFeedbackTargetReady?: (element: HTMLElement | null) => void;
   beforeSummary?: ReactNode;
 }
 
@@ -33,6 +37,9 @@ export function QuestDetailTextSections({
   searchHighlight,
   sessionId,
   onSessionNavigate,
+  feedbackTarget,
+  highlightedFeedbackIndex,
+  onFeedbackTargetReady,
   beforeSummary,
 }: QuestDetailTextSectionsProps) {
   const description = getQuestDescription(quest);
@@ -41,6 +48,13 @@ export function QuestDetailTextSections({
   const questDebriefTldr = getQuestDebriefTldr(quest);
   const hasFinalDebrief = Boolean(questDebrief);
   const [journeyDetailsExpanded, setJourneyDetailsExpanded] = useState(true);
+  const targetIsScoped = Boolean(
+    feedbackTarget && phaseDocumentationSummary.scopedEntries.some((entry) => entry.index === feedbackTarget.index),
+  );
+  useEffect(() => setJourneyDetailsExpanded(true), [quest.questId]);
+  useEffect(() => {
+    if (targetIsScoped) setJourneyDetailsExpanded(true);
+  }, [feedbackTarget?.requestId, targetIsScoped]);
   const detailSearchHighlight = searchHighlight
     ? { query: searchHighlight, mode: "fuzzy" as const, isCurrent: false }
     : null;
@@ -181,10 +195,14 @@ export function QuestDetailTextSections({
           onToggle={() => setJourneyDetailsExpanded((expanded) => !expanded)}
         >
           <QuestPhaseDocumentationTimeline
+            key={quest.questId}
             summary={phaseDocumentationSummary}
             searchHighlight={searchHighlight}
             sessionId={sessionId}
             onSessionNavigate={onSessionNavigate}
+            feedbackTarget={feedbackTarget}
+            highlightedFeedbackIndex={highlightedFeedbackIndex}
+            onFeedbackTargetReady={onFeedbackTargetReady}
           />
         </QuestDetailToggleSection>
       )}

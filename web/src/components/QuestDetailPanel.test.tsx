@@ -56,8 +56,23 @@ vi.mock("../utils/routing.js", () => ({
   sessionHash: (sessionId: string | number) => `#/session/${sessionId}`,
   sessionThreadHash: (sessionId: string | number, threadKey?: string | null) =>
     threadKey ? `#/session/${sessionId}?thread=${threadKey}` : `#/session/${sessionId}`,
-  withoutQuestIdInHash: (hash: string) => hash.replace(/[?&]quest=[^&]+/, ""),
+  questOverlayTargetFromHash: (hash: string) => {
+    const params = new URLSearchParams(hash.split("?")[1] ?? "");
+    const questId = params.get("quest");
+    if (!questId) return null;
+    const feedback = params.get("feedback");
+    return feedback && /^\d+$/.test(feedback) ? { questId, feedbackIndex: Number.parseInt(feedback, 10) } : { questId };
+  },
+  withoutQuestIdInHash: (hash: string) => {
+    const [path, query = ""] = hash.split("?");
+    const params = new URLSearchParams(query);
+    params.delete("quest");
+    params.delete("feedback");
+    return params.size ? `${path}?${params}` : path;
+  },
   withQuestIdInHash: (_hash: string, questId: string) => `#/?quest=${questId}`,
+  withQuestFeedbackInHash: (_hash: string, questId: string, feedbackIndex: number) =>
+    `#/?quest=${questId}&feedback=${feedbackIndex}`,
 }));
 
 // Mock quest-assign and quest-rework
@@ -120,6 +135,74 @@ function makeDoneQuest(): QuestmasterTask {
     verificationItems: [{ text: "Dashboard loads under 2s", checked: true }],
     claimedAt: Date.now() - 86400000,
   } as QuestmasterTask;
+}
+
+function makeFeedbackNavigationQuest(): QuestmasterTask {
+  const phaseOccurrences = (runId: string) => [
+    {
+      occurrenceId: `${runId}:p1`,
+      phaseId: "alignment" as const,
+      phaseIndex: 0,
+      phasePosition: 1,
+      phaseOccurrence: 1,
+      status: "completed" as const,
+    },
+    {
+      occurrenceId: `${runId}:p2`,
+      phaseId: "work" as const,
+      phaseIndex: 1,
+      phasePosition: 2,
+      phaseOccurrence: 1,
+      status: "completed" as const,
+    },
+  ];
+  const scoped = (runId: string, phaseId: "alignment" | "work", text: string) => ({
+    author: "agent" as const,
+    kind: "phase_summary" as const,
+    text,
+    tldr: `${text} TLDR`,
+    ts: Date.now(),
+    journeyRunId: runId,
+    phaseOccurrenceId: `${runId}:p${phaseId === "alignment" ? 1 : 2}`,
+    phaseId,
+    phasePosition: phaseId === "alignment" ? 1 : 2,
+    phaseOccurrence: 1,
+  });
+  return makeVerificationQuest({
+    questId: "q-1966",
+    id: "q-1966-v1",
+    title: "Feedback navigation fixture",
+    journeyRuns: [
+      {
+        runId: "run-1",
+        source: "board",
+        phaseIds: ["alignment", "work"],
+        status: "completed",
+        createdAt: 1,
+        updatedAt: 2,
+        completedAt: 2,
+        phaseOccurrences: phaseOccurrences("run-1"),
+      },
+      {
+        runId: "run-2",
+        source: "board",
+        phaseIds: ["alignment", "work"],
+        status: "completed",
+        createdAt: 3,
+        updatedAt: 4,
+        completedAt: 4,
+        phaseOccurrences: phaseOccurrences("run-2"),
+      },
+    ],
+    feedback: [
+      { author: "human", text: "Unscoped prelude", ts: 1 },
+      scoped("run-1", "alignment", "Older alignment body"),
+      scoped("run-2", "alignment", "Latest alignment body"),
+      scoped("run-1", "work", "Older Work feedback body"),
+      { author: "agent", text: "Unscoped target body", tldr: "Unscoped target TLDR", ts: 5 },
+      scoped("run-2", "work", "Latest Work body"),
+    ],
+  });
 }
 
 function advanceQuestUpdate<T extends QuestmasterTask>(quest: T, deltaMs = 1): T {
@@ -869,6 +952,90 @@ describe("QuestDetailPanel", () => {
     expect(await screen.findByText("Full second implementation detail.")).toBeVisible();
   });
 
+  it("reveals, opens, focuses, and highlights an exact older-run feedback entry", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    const quest = makeFeedbackNavigationQuest();
+    useStore.setState({
+      quests: [quest],
+      questOverlayId: quest.questId,
+      questOverlayFeedbackTarget: { index: 3, requestId: 1 },
+    });
+
+    render(<QuestDetailPanel />);
+
+    const olderRun = screen.getByRole("button", { name: /Earlier Journey run 1/ });
+    await waitFor(() => expect(olderRun).toHaveAttribute("aria-expanded", "true"));
+    const target = document.querySelector<HTMLElement>('[data-feedback-index="3"]')!;
+    expect(target).toHaveAttribute("data-feedback-highlighted", "true");
+    expect(target.querySelector("details")).toHaveAttribute("open");
+    expect(target).toHaveFocus();
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
+    expect(screen.getByText("Older Work feedback body")).toBeVisible();
+  });
+
+  it("reveals an exact unscoped feedback entry by its global index", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    const quest = makeFeedbackNavigationQuest();
+    useStore.setState({
+      quests: [quest],
+      questOverlayId: quest.questId,
+      questOverlayFeedbackTarget: { index: 4, requestId: 1 },
+    });
+
+    render(<QuestDetailPanel />);
+
+    await waitFor(() => expect(document.querySelector('[data-feedback-index="4"]')).toBeInTheDocument());
+    const target = document.querySelector<HTMLElement>('[data-feedback-index="4"]')!;
+    expect(within(target).getByText("#4")).toBeInTheDocument();
+    expect(target.querySelector("details")).toHaveAttribute("open");
+    expect(screen.getByText("Unscoped target body")).toBeVisible();
+    expect(target).toHaveFocus();
+    expect(scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("keeps an out-of-range feedback target nonblocking", () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    const quest = makeFeedbackNavigationQuest();
+    useStore.setState({
+      quests: [quest],
+      questOverlayId: quest.questId,
+      questOverlayFeedbackTarget: { index: 99, requestId: 1 },
+    });
+
+    render(<QuestDetailPanel />);
+
+    expect(screen.getByTestId("quest-detail-panel")).toBeInTheDocument();
+    expect(document.querySelector('[data-feedback-highlighted="true"]')).toBeNull();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("renders exact feedback links inside User review checks", () => {
+    const quest = makeVerificationQuest({
+      questId: "q-1966",
+      id: "q-1966-v1",
+      verificationItems: [{ text: "Review [Work feedback #4](quest:q-1966:feedback:4)", checked: false }],
+    });
+    useStore.setState({ quests: [quest], questOverlayId: quest.questId });
+    mockCheckQuestVerification.mockResolvedValue({
+      ...quest,
+      verificationItems: [{ text: "Review [Work feedback #4](quest:q-1966:feedback:4)", checked: true }],
+    });
+
+    render(<QuestDetailPanel />);
+    const checkbox = screen.getByRole("checkbox", { name: "Review Work feedback #4" });
+    fireEvent.click(screen.getByRole("link", { name: "Work feedback #4" }));
+
+    expect(useStore.getState().questOverlayFeedbackTarget?.index).toBe(4);
+    expect(window.location.hash).toContain("quest=q-1966&feedback=4");
+    expect(mockCheckQuestVerification).not.toHaveBeenCalled();
+
+    fireEvent.click(checkbox.parentElement!);
+    expect(mockCheckQuestVerification).toHaveBeenCalledWith("q-1966", 0, true);
+  });
+
   it("shows phase-level image thumbnails while phase details are collapsed", () => {
     // Journey image previews are now the scan surface for phase evidence, so
     // collapsed phase entries still expose successfully resolved thumbnails.
@@ -1325,11 +1492,11 @@ describe("QuestDetailPanel", () => {
 
     expect(screen.getByText("user")).toBeTruthy();
     expect(screen.queryByText("human")).toBeNull();
-    expect(screen.getByLabelText("Edit feedback 1")).toBeTruthy();
-    expect(screen.getByLabelText("Delete user feedback 1")).toBeTruthy();
+    expect(screen.getByLabelText("Edit feedback #0")).toBeTruthy();
+    expect(screen.getByLabelText("Delete user feedback #0")).toBeTruthy();
 
-    expect(screen.getByLabelText("Edit feedback 2")).toBeTruthy();
-    expect(screen.getByLabelText("Delete agent feedback 2")).toBeTruthy();
+    expect(screen.getByLabelText("Edit feedback #1")).toBeTruthy();
+    expect(screen.getByLabelText("Delete agent feedback #1")).toBeTruthy();
   });
 
   it("shows session attribution for user feedback submitted on behalf of the user", () => {
@@ -1384,7 +1551,7 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByLabelText("Edit feedback 1"));
+    fireEvent.click(screen.getByLabelText("Edit feedback #0"));
     fireEvent.change(screen.getByDisplayValue("Check iPad mini too"), {
       target: { value: "Check iPad mini and Safari too" },
     });
@@ -1435,7 +1602,7 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByLabelText("Edit feedback 2"));
+    fireEvent.click(screen.getByLabelText("Edit feedback #1"));
     fireEvent.click(screen.getByLabelText("Remove feedback image attachment.png"));
     fireEvent.click(screen.getByText("Save"));
 
@@ -1457,17 +1624,17 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByLabelText("Delete user feedback 1"));
-    expect(screen.getByLabelText("Confirm delete user feedback 1")).toBeTruthy();
-    fireEvent.click(screen.getByLabelText("Cancel delete user feedback 1"));
+    fireEvent.click(screen.getByLabelText("Delete user feedback #0"));
+    expect(screen.getByLabelText("Confirm delete user feedback #0")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Cancel delete user feedback #0"));
 
-    fireEvent.click(screen.getByLabelText("Delete agent feedback 2"));
+    fireEvent.click(screen.getByLabelText("Delete agent feedback #1"));
 
     // Deletion stays two-step so the inline trash affordance is safe to expose.
-    expect(screen.getByLabelText("Confirm delete agent feedback 2")).toBeTruthy();
-    expect(screen.getByLabelText("Cancel delete agent feedback 2")).toBeTruthy();
+    expect(screen.getByLabelText("Confirm delete agent feedback #1")).toBeTruthy();
+    expect(screen.getByLabelText("Cancel delete agent feedback #1")).toBeTruthy();
 
-    fireEvent.click(screen.getByLabelText("Confirm delete agent feedback 2"));
+    fireEvent.click(screen.getByLabelText("Confirm delete agent feedback #1"));
 
     expect(mockDeleteQuestFeedback).toHaveBeenCalledWith("q-42", 1);
 
@@ -1486,7 +1653,7 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByLabelText("Edit feedback 2"));
+    fireEvent.click(screen.getByLabelText("Edit feedback #1"));
     expect(screen.getByText("Save")).toBeTruthy();
 
     fireEvent.keyDown(document, { key: "Escape" });
@@ -1502,10 +1669,10 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByLabelText("Delete user feedback 1"));
-    fireEvent.click(screen.getByLabelText("Cancel delete user feedback 1"));
+    fireEvent.click(screen.getByLabelText("Delete user feedback #0"));
+    fireEvent.click(screen.getByLabelText("Cancel delete user feedback #0"));
 
-    expect(screen.queryByLabelText("Confirm delete user feedback 1")).toBeNull();
+    expect(screen.queryByLabelText("Confirm delete user feedback #0")).toBeNull();
     expect(useStore.getState().questOverlayId).toBe("q-42");
   });
 

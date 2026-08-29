@@ -23,6 +23,7 @@ import { QuestInlineLink } from "./QuestInlineLink.js";
 import { CodeCopyButton } from "./CodeCopyButton.js";
 import { highlightCode } from "../utils/syntax-highlighting.js";
 import { openFileWithEditorPreference, showEditorOpenError } from "../utils/vscode-bridge.js";
+import { isReservedQuestLinkHref, parseQuestLinkTarget, type QuestLinkTarget } from "../utils/quest-link-target.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { HighlightedText, buildHighlightPattern } from "./HighlightedText.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
@@ -55,22 +56,6 @@ interface MarkdownAstNode {
   value?: string;
   url?: string;
   title?: string | null;
-}
-
-function parseQuestIdFromHref(href?: string): string | null {
-  if (!href) return null;
-  const trimmed = href.trim();
-
-  const directId = trimmed.match(/^(q-\d+)$/i);
-  if (directId) return directId[1].toLowerCase();
-
-  const questScheme = trimmed.match(/^quest:(q-\d+)$/i);
-  if (questScheme) return questScheme[1].toLowerCase();
-
-  const questUri = trimmed.match(/^quest:\/\/(q-\d+)$/i);
-  if (questUri) return questUri[1].toLowerCase();
-
-  return null;
 }
 
 interface SessionLinkTarget {
@@ -522,8 +507,8 @@ function hasUnsafePathTraversal(path: string): boolean {
 }
 
 function transformMarkdownUrl(url: string): string {
-  if (parseQuestIdFromHref(url) || parseSessionLinkFromHref(url) != null || parseFileLinkFromHref(url)) return url;
-  if (/^file:/i.test(url.trim())) return "";
+  if (parseQuestLinkTarget(url) || parseSessionLinkFromHref(url) != null || parseFileLinkFromHref(url)) return url;
+  if (isReservedQuestLinkHref(url) || /^file:/i.test(url.trim())) return "";
   // Block dangerous protocols while preserving normal links.
   const normalized = url.toLowerCase().replace(/[\u0000-\u001f\u007f\s]+/g, "");
   if (
@@ -774,17 +759,20 @@ export const MarkdownContent = memo(function MarkdownContent({
             </li>
           ),
           a: ({ href, children }) => {
-            const questId = parseQuestIdFromHref(href);
-            if (questId) {
+            const questTarget = parseQuestLinkTarget(href);
+            if (questTarget) {
               return (
                 <QuestMarkdownLink
-                  questId={questId}
+                  target={questTarget}
                   wrapLongContent={wrapLongContent}
                   stopPropagation={stopLinkPropagation}
                 >
                   {children}
                 </QuestMarkdownLink>
               );
+            }
+            if (!href) {
+              return <span>{children}</span>;
             }
             const sessionLink = parseSessionLinkFromHref(href);
             if (sessionLink != null) {
@@ -926,19 +914,24 @@ function searchHighlightEqual(
 }
 
 function QuestMarkdownLink({
-  questId,
+  target,
   children,
   wrapLongContent,
   stopPropagation,
 }: {
-  questId: string;
+  target: QuestLinkTarget;
   children: ReactNode;
   wrapLongContent: boolean;
   stopPropagation: boolean;
 }) {
   const className = `cc-quest-link hover:underline ${wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""}`;
   return (
-    <QuestInlineLink questId={questId} className={className} stopPropagation={stopPropagation}>
+    <QuestInlineLink
+      questId={target.questId}
+      feedbackIndex={target.feedbackIndex}
+      className={className}
+      stopPropagation={stopPropagation}
+    >
       {children}
     </QuestInlineLink>
   );

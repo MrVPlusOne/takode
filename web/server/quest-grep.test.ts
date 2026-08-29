@@ -61,6 +61,33 @@ describe("grepQuests", () => {
     expect(result.matches[2]).not.toHaveProperty("feedbackTs");
   });
 
+  it("ignores deleted feedback while preserving later raw feedback indices", () => {
+    const quest: QuestmasterTask = {
+      id: "q-8-v1",
+      questId: "q-8",
+      version: 1,
+      title: "Stable feedback grep",
+      createdAt: 1,
+      status: "refined",
+      description: "No matching body text.",
+      feedback: [
+        { author: "agent", text: "First live note", ts: 1 },
+        { author: "human", text: "deleted-beta-secret", ts: 2, deletedAt: 3 },
+        { author: "human", text: "Live beta review", ts: 4 },
+      ],
+    };
+
+    const result = grepQuests([quest], "beta");
+
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0]).toMatchObject({
+      matchedField: "feedback[2]",
+      feedbackIndex: 2,
+      feedbackAuthor: "human",
+      snippet: "Live beta review",
+    });
+  });
+
   it("fails fast when the regex pattern is invalid", () => {
     const quests: QuestmasterTask[] = [
       {

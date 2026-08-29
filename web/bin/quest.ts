@@ -75,6 +75,7 @@ import {
   formatFeedbackIndices,
   isAgentSummaryFeedback,
   latestFeedbackEntry,
+  questFeedbackEntries,
   unaddressedHumanFeedbackEntries,
   type FeedbackAuthorFilter,
   type IndexedFeedbackEntry,
@@ -99,6 +100,7 @@ import { COMPANION_MEMORY_SPACE_SLUG_ENV } from "../server/memory-session-space.
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { getQuestDisplayOwner, getQuestOwner, sameQuestOwner } from "../shared/quest-owner.js";
+import { isDeletedQuestFeedbackEntry } from "../shared/quest-feedback.js";
 import {
   codexQuestOwner,
   codexQuestProvenance,
@@ -1492,6 +1494,8 @@ async function cmdFeedbackShow(): Promise<void> {
   if (!Number.isInteger(index) || index < 0) die("Index must be a non-negative integer");
   const quest = await getQuest(id);
   if (!quest) die(`Quest ${id} not found`);
+  const rawEntry = quest.feedback?.[index];
+  if (isDeletedQuestFeedbackEntry(rawEntry)) die(`Feedback index ${index} was deleted`);
   const entry = filterFeedbackEntries(quest).find((candidate) => candidate.index === index);
   if (!entry) die(`Feedback index ${index} out of range`);
   if (jsonOutput) {
@@ -1588,7 +1592,7 @@ async function cmdFeedbackAdd(addOptions: { explicitAdd: boolean }): Promise<voi
       const tldrWarnings = tldrWarningsForWrite("feedback", text, normalizedTldr);
       if (jsonOutput) out(quest);
       else {
-        const entryCount = quest.feedback?.length ?? 0;
+        const entryCount = questFeedbackEntries(quest).length;
         const imageNote = uploadedImages.length ? `, ${uploadedImages.length} image(s)` : "";
         console.log(`Added feedback to ${quest.questId} (${entryCount} entries total${imageNote})`);
       }
@@ -1647,9 +1651,9 @@ async function cmdFeedbackAdd(addOptions: { explicitAdd: boolean }): Promise<voi
       out(quest);
       warnAll([...mutationWarnings, ...tldrWarnings, ...(phaseHeaderWarning ? [phaseHeaderWarning] : [])]);
     } else {
-      const entries = "feedback" in quest ? (quest as { feedback?: { author: string; text: string }[] }).feedback : [];
+      const entryCount = questFeedbackEntries(quest).length;
       const imageNote = uploadedImages?.length ? `, ${uploadedImages.length} image(s)` : "";
-      console.log(`Added feedback to ${quest.questId} (${entries?.length ?? 0} entries total${imageNote})`);
+      console.log(`Added feedback to ${quest.questId} (${entryCount} entries total${imageNote})`);
       warnAll([...mutationWarnings, ...tldrWarnings, ...(phaseHeaderWarning ? [phaseHeaderWarning] : [])]);
     }
   } catch (e) {
@@ -1706,8 +1710,9 @@ function printAddressedFeedbackResult(quest: QuestmasterTask, index: number): vo
   const unaddressed = unaddressedHumanFeedbackEntries(quest);
   if (jsonOutput) out(quest);
   else {
-    const entry = quest.feedback?.[index];
-    console.log(`Feedback #${index} on ${quest.questId}: ${entry?.addressed ? "addressed" : "unaddressed"}`);
+    const entry = questFeedbackEntries(quest).find((candidate) => candidate.index === index);
+    if (!entry) die(`Feedback index ${index} was deleted`);
+    console.log(`Feedback #${index} on ${quest.questId}: ${entry.addressed ? "addressed" : "unaddressed"}`);
   }
   if (unaddressed.length > 0) {
     warn(`remaining unaddressed human feedback: ${formatFeedbackIndices(unaddressed)}.`);

@@ -1435,6 +1435,37 @@ describe("POST /api/quests/:questId/complete", () => {
     expect(questStore.completeQuest).not.toHaveBeenCalled();
   });
 
+  it("allows v2 Memory completion when the only human feedback slot was deleted", async () => {
+    const auth = installV2MemoryFixture({
+      quest: {
+        feedback: [
+          { author: "human", text: "", ts: 0, deletedAt: 1 },
+          {
+            author: "agent",
+            authorSessionId: "worker-1",
+            phaseId: "work",
+            kind: "phase_summary",
+            text: "Accepted Work evidence with enough detail to satisfy the v2 completion guard before Memory closure.",
+            ts: 2,
+          },
+          {
+            author: "agent",
+            authorSessionId: "worker-1",
+            phaseId: "memory",
+            kind: "phase_summary",
+            text: "Final Memory closure.\n\nmemory update not needed: no durable cross-quest learning.",
+            ts: 3,
+          },
+        ],
+      },
+    });
+
+    const res = await postV2Complete({}, auth);
+
+    expect(res.status).toBe(200);
+    expect(questStore.completeQuest).toHaveBeenCalled();
+  });
+
   it("preserves zero-tracked-change v2 completion", async () => {
     const zeroAuth = installV2MemoryFixture();
     const zero = await postV2Complete({}, zeroAuth);

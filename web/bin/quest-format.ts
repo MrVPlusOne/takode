@@ -8,6 +8,7 @@ import {
   type IndexedQuestFeedbackEntry,
 } from "../shared/quest-phase-documentation-summary.js";
 import { formatQuestRelationships } from "./quest-relationship-format.js";
+import { indexedLiveQuestFeedbackEntries } from "../shared/quest-feedback.js";
 export type { SessionMetadata } from "./quest-session-metadata.js";
 
 type FormatSessionOptions = {
@@ -127,10 +128,7 @@ function formatAuthorLabel(
 }
 
 function indexedFeedbackEntries(q: QuestmasterTask): IndexedQuestFeedbackEntry[] {
-  return ((q as { feedback?: IndexedQuestFeedbackEntry[] }).feedback ?? []).map((entry, index) => ({
-    ...entry,
-    index,
-  }));
+  return indexedLiveQuestFeedbackEntries(q.feedback);
 }
 
 function formatFeedbackEntryPreview(
@@ -595,10 +593,7 @@ function formatQuestDetailFull(
     }
   }
   if ("feedback" in q) {
-    const rawEntries = ((q as { feedback?: IndexedQuestFeedbackEntry[] }).feedback ?? []).map((entry, index) => ({
-      ...entry,
-      index,
-    }));
+    const rawEntries = indexedFeedbackEntries(q);
     const entries = phaseDocumentation.hasPhaseDocumentation ? phaseDocumentation.unscopedFeedback : rawEntries;
     if (entries?.length) {
       lines.push(phaseDocumentation.hasPhaseDocumentation ? `Unscoped Feedback:` : `Feedback:`);

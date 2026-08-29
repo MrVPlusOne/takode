@@ -273,6 +273,7 @@ export const useStore = create<AppState>((set, get) => ({
   newSessionModalState: null,
   questOverlayId: null,
   questOverlaySearchHighlight: null,
+  questOverlayFeedbackTarget: null,
   questmasterSearchQuery: "",
   questmasterSelectedTags: [],
   questmasterViewMode: null,
@@ -455,9 +456,17 @@ export const useStore = create<AppState>((set, get) => ({
   setSearchPreviewSessionId: (sessionId) => set({ searchPreviewSessionId: sessionId }),
   openNewSessionModal: (opts) => set({ newSessionModalState: opts ?? {} }),
   closeNewSessionModal: () => set({ newSessionModalState: null }),
-  openQuestOverlay: (questId, searchHighlight) =>
-    set({ questOverlayId: questId, questOverlaySearchHighlight: searchHighlight ?? null }),
-  closeQuestOverlay: () => set({ questOverlayId: null, questOverlaySearchHighlight: null }),
+  openQuestOverlay: (questId, searchHighlight, feedbackIndex) =>
+    set((state) => ({
+      questOverlayId: questId,
+      questOverlaySearchHighlight: searchHighlight ?? null,
+      questOverlayFeedbackTarget:
+        feedbackIndex === undefined || !Number.isSafeInteger(feedbackIndex) || feedbackIndex < 0
+          ? null
+          : { index: feedbackIndex, requestId: (state.questOverlayFeedbackTarget?.requestId ?? 0) + 1 },
+    })),
+  closeQuestOverlay: () =>
+    set({ questOverlayId: null, questOverlaySearchHighlight: null, questOverlayFeedbackTarget: null }),
   setQuestmasterSearchQuery: (query) => set({ questmasterSearchQuery: query }),
   setQuestmasterSelectedTags: (tags) => set({ questmasterSelectedTags: tags }),
   setQuestmasterViewMode: (mode) => set({ questmasterViewMode: mode }),
@@ -479,7 +488,12 @@ export const useStore = create<AppState>((set, get) => ({
     } else if (!id) {
       scopedRemoveItem("cc-current-session");
     }
-    set({ currentSessionId: id, questOverlayId: null, questOverlaySearchHighlight: null });
+    set({
+      currentSessionId: id,
+      questOverlayId: null,
+      questOverlaySearchHighlight: null,
+      questOverlayFeedbackTarget: null,
+    });
   },
 
   addSession: (session) =>
@@ -1961,6 +1975,9 @@ export const useStore = create<AppState>((set, get) => ({
       questmasterViewMode: null,
       questmasterCompactSort: null,
       searchPreviewSessionId: null,
+      questOverlayId: null,
+      questOverlaySearchHighlight: null,
+      questOverlayFeedbackTarget: null,
       terminalOpen: false,
       terminalCwd: null,
       terminalSessionId: null,
@@ -1975,13 +1992,4 @@ export const hydrateChatDisplaySettingsFromServer = createChatDisplaySettingsHyd
   useStore.setState({ chatMessageLineHeight: lineHeight }),
 );
 
-/** Count permissions that need user attention (excludes those being LLM-evaluated, queued, or auto-approved). */
-export function countUserPermissions(perms: Map<string, unknown> | undefined): number {
-  if (!perms) return 0;
-  let count = 0;
-  for (const p of perms.values()) {
-    const perm = p as { evaluating?: string; autoApproved?: string };
-    if (!perm?.evaluating && !perm?.autoApproved) count++;
-  }
-  return count;
-}
+export { countUserPermissions } from "./store-permissions.js";

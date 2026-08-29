@@ -273,6 +273,38 @@ describe("MarkdownContent quest links", () => {
     expect(window.location.hash).toBe("#/session/s1");
   });
 
+  it.each([
+    ["canonical", "quest:q-42:feedback:5"],
+    ["legacy", "quest:q-42#feedback-5"],
+  ])("normalizes %s exact-feedback links into the same in-app target", (_label, href) => {
+    render(<MarkdownContent text={`[Work feedback](${href})`} />);
+
+    const link = screen.getByRole("link", { name: "Work feedback" });
+    expect(link.getAttribute("href")).toBe("#/session/s1?quest=q-42&feedback=5");
+    expect(link.getAttribute("target")).not.toBe("_blank");
+    fireEvent.click(link);
+
+    expect(useStore.getState().questOverlayId).toBe("q-42");
+    expect(useStore.getState().questOverlayFeedbackTarget).toEqual({ index: 5, requestId: 1 });
+    expect(window.location.hash).toBe("#/session/s1?quest=q-42&feedback=5");
+  });
+
+  it("renders malformed reserved quest-scheme targets as inert text", () => {
+    render(<MarkdownContent text="[broken feedback](quest:q-42:feedback:nope)" />);
+
+    expect(screen.queryByRole("link", { name: "broken feedback" })).toBeNull();
+    expect(screen.getByText("broken feedback").tagName).toBe("SPAN");
+    expect(useStore.getState().questOverlayId).toBeNull();
+  });
+
+  it("leaves unrelated custom schemes on the ordinary external-link path", () => {
+    render(<MarkdownContent text="[custom](custom:q-42:feedback:5)" />);
+
+    const link = screen.getByRole("link", { name: "custom" });
+    expect(link.getAttribute("href")).toBe("custom:q-42:feedback:5");
+    expect(link.getAttribute("target")).toBe("_blank");
+  });
+
   it("supports bare quest-id hrefs as a short schema", () => {
     render(<MarkdownContent text="[open](q-77)" />);
 
