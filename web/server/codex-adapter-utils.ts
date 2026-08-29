@@ -628,6 +628,7 @@ export function hasAnyPatchDiff(changes: ToolFileChange[]): boolean {
 export interface CodexAgentMessageItem extends CodexItem {
   type: "agentMessage";
   text?: string;
+  phase?: unknown;
 }
 
 export interface CodexCommandExecutionItem extends CodexItem {

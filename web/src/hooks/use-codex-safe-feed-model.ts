@@ -10,6 +10,7 @@ export function useCodexSafeFeedModel(params: {
   frozenRevision: number;
   isCodexSession: boolean;
   leaderMode: boolean;
+  leaderSessionMode: boolean;
   sessionNotifications: ReadonlyArray<SessionNotification> | undefined;
   userBoundarySourceSessionId: string | null;
   visibleAssistantChildMessageIds?: readonly string[];
@@ -28,6 +29,7 @@ export function useCodexSafeFeedModel(params: {
   );
   return useFeedModel(feedMessages.messages, {
     leaderMode: params.leaderMode,
+    leaderSessionMode: params.leaderSessionMode,
     frozenCount: feedMessages.frozenCount,
     frozenRevision: params.frozenRevision,
     anchoredNotificationMessageIds,

@@ -67,6 +67,7 @@ import type {
   SessionPauseState,
   TakodeHerdEventBrowserMetadata,
 } from "../server/session-types.js";
+import type { CodexMessagePhase } from "../shared/codex-message-phase.js";
 import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
 import { assertNever, isClaudeFamily } from "../server/session-types.js";
 import type { ImageRef } from "../server/image-store.js";
@@ -279,6 +280,8 @@ export interface ChatMessage {
     };
     attentionRecord?: SessionAttentionRecord;
     codexAutoPauseRecoverySummary?: CodexAutoPauseRecoverySummary;
+    /** Official Codex classification for an assistant item; absent means unknown. */
+    codexMessagePhase?: CodexMessagePhase;
     codexSubagent?: import("../shared/codex-native-subagent-types.js").CodexNativeSubagentOwnership;
     /** Child-owned tool results attached to the exact child message that declared each tool use. */
     codexSubagentToolResults?: Record<string, ToolResultPreview>;

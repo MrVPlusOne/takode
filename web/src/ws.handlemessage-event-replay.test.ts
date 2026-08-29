@@ -220,6 +220,36 @@ describe("handleMessage: event_replay", () => {
     expect(lastWs.send).toHaveBeenCalledWith(JSON.stringify({ type: "session_ack", last_seq: 1 }));
   });
 
+  it("preserves Codex assistant phases through event replay", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "event_replay",
+      events: [
+        {
+          seq: 1,
+          message: {
+            type: "assistant",
+            codexMessagePhase: "commentary",
+            message: {
+              id: "codex-agent-replay-phase",
+              type: "message",
+              role: "assistant",
+              model: "gpt-5.6-sol",
+              content: [{ type: "text", text: "Replayed progress" }],
+              stop_reason: "end_turn",
+              usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            },
+            parent_tool_use_id: null,
+          },
+        },
+      ],
+    });
+
+    expect(useStore.getState().messages.get("s1")?.[0]?.metadata?.codexMessagePhase).toBe("commentary");
+  });
+
   it("batches replay ack and storage writes using the latest replayed seq", async () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

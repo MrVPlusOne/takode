@@ -1,4 +1,5 @@
 import type { ReplyContext } from "../shared/reply-context.js";
+import type { CodexMessagePhase } from "../shared/codex-message-phase.js";
 import type {
   CodexPendingBatchInput,
   CodexPendingInputFailureReason,
@@ -66,6 +67,7 @@ export type {
 export type { HistoryWindowState, InitialThreadWindowRequest, ThreadWindowState } from "./window-protocol-types.js";
 export type { CodexAppReference, CodexSkillReference } from "./codex-reference-types.js";
 export type { ActiveCodexReasoningPreview, CodexReasoningDetailMessage } from "./codex-reasoning-types.js";
+export type { CodexMessagePhase } from "../shared/codex-message-phase.js";
 
 // Types for the WebSocket bridge between Claude Code CLI and the browser
 
@@ -861,6 +863,7 @@ export type BrowserIncomingMessageBase =
       type: "assistant";
       message: CLIAssistantMessage["message"];
       parent_tool_use_id: string | null;
+      codexMessagePhase?: CodexMessagePhase;
       timestamp?: number;
       uuid?: string;
       tool_start_times?: Record<string, number>;

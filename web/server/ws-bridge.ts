@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
 import { notifyCodexWorkerV2RolloutActivity } from "./codex-worker-v2-rollout-hooks.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
+import { normalizeCodexMessagePhase } from "../shared/codex-message-phase.js";
+import { sameCodexNativeSubagentOwnership } from "../shared/codex-native-subagent-types.js";
 import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
 import type { PushoverNotifier } from "./pushover.js";
 import type { TrafficStatsSnapshot } from "./traffic-stats.js";
@@ -47,6 +49,7 @@ import type {
 import { TOOL_RESULT_PREVIEW_LIMIT, assertNever, formatVsCodeSelectionPrompt } from "./session-types.js";
 import type { QuestJourneyState } from "./session-types.js";
 import { SessionStore } from "./session-store.js";
+import { routeFromHistoryEntry, sameThreadRoute } from "./thread-routing-metadata.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot, CodexSessionMeta } from "./codex-adapter.js";
 import type { ClaudeSdkSessionMeta } from "./claude-sdk-adapter.js";
 import type { RecorderManager } from "./recorder.js";
@@ -1118,10 +1121,15 @@ export class WsBridge {
       if (scannedAssistants > WsBridge.CODEX_ASSISTANT_REPLAY_SCAN_LIMIT) break;
 
       const existing = entry as Extract<BrowserIncomingMessage, { type: "assistant" }>;
-      if (incomingId && existing.message?.id === incomingId) {
+      const sameOwnership = sameCodexNativeSubagentOwnership(existing.codexSubagent, msg.codexSubagent);
+      if (incomingId && existing.message?.id === incomingId && sameOwnership) {
         return true;
       }
+      if (!sameOwnership) continue;
       if (existing.parent_tool_use_id !== incomingParentToolUseId) continue;
+      if (!sameThreadRoute(routeFromHistoryEntry(existing), routeFromHistoryEntry(msg))) continue;
+      if (normalizeCodexMessagePhase(existing.codexMessagePhase) !== normalizeCodexMessagePhase(msg.codexMessagePhase))
+        continue;
       if (incomingTimestamp == null) continue;
       if (typeof existing.timestamp !== "number") continue;
       if (Math.abs(existing.timestamp - incomingTimestamp) > WsBridge.CODEX_ASSISTANT_REPLAY_DEDUP_WINDOW_MS) continue;

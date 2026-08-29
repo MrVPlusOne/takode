@@ -13,6 +13,7 @@ import { THREAD_OUTCOME_REMINDER_SOURCE_ID } from "../../shared/thread-outcome-r
 import { THREAD_ROUTING_REMINDER_SOURCE_ID } from "../../shared/thread-routing-reminder.js";
 import { isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
 import { isAssistantMessageRenderable, isToolHiddenFromChat } from "../utils/assistant-message-renderability.js";
+import { normalizeCodexMessagePhase } from "../../shared/codex-message-phase.js";
 
 export interface ToolItem {
   id: string;
@@ -560,7 +561,8 @@ function extractSubConclusions(entries: FeedEntry[], excludedMessageIds: Set<str
       entry.kind === "message" &&
       entry.msg.role === "assistant" &&
       entry.msg.content?.trim() &&
-      !isCodexReasoningDetailMessage(entry.msg)
+      !isCodexReasoningDetailMessage(entry.msg) &&
+      !isExplicitCodexCommentary(entry.msg)
     ) {
       // Messages already promoted into another collapsed-visible slot (for
       // example notificationEntries or responseEntry) must not also become a
@@ -635,6 +637,35 @@ function messageText(msg: ChatMessage): string {
     .join("\n");
 }
 
+function codexMessagePhase(msg: ChatMessage): "commentary" | "final_answer" | null {
+  return normalizeCodexMessagePhase(msg.metadata?.codexMessagePhase) ?? null;
+}
+
+function isExplicitCodexCommentary(msg: ChatMessage): boolean {
+  return codexMessagePhase(msg) === "commentary";
+}
+
+function isExplicitCodexFinalAnswer(msg: ChatMessage): boolean {
+  return codexMessagePhase(msg) === "final_answer";
+}
+
+function isAssistantTextResponseEntry(entry: FeedEntry): entry is Extract<FeedEntry, { kind: "message" }> {
+  return (
+    entry.kind === "message" &&
+    entry.msg.role === "assistant" &&
+    !isCodexReasoningDetailMessage(entry.msg) &&
+    messageText(entry.msg).trim().length > 0
+  );
+}
+
+function findLastExplicitCodexFinalAnswer(entries: FeedEntry[]): FeedEntry | null {
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const entry = entries[index];
+    if (isAssistantTextResponseEntry(entry) && isExplicitCodexFinalAnswer(entry.msg)) return entry;
+  }
+  return null;
+}
+
 function toolInputHasNeedsInputNotify(input: Record<string, unknown>): boolean {
   for (const value of Object.values(input)) {
     if (typeof value !== "string") continue;
@@ -700,6 +731,7 @@ function isSubstantiveLeaderUserMessage(msg: ChatMessage): boolean {
     msg.role === "assistant" &&
     msg.metadata?.leaderUserMessage === true &&
     !isCodexReasoningDetailMessage(msg) &&
+    !isExplicitCodexCommentary(msg) &&
     messageText(msg).trim().length > 0
   );
 }
@@ -708,6 +740,7 @@ function isThreadStatusSummaryMessage(msg: ChatMessage): boolean {
   return (
     msg.role === "assistant" &&
     (msg.metadata?.threadStatusMarkers?.length ?? 0) > 0 &&
+    !isExplicitCodexCommentary(msg) &&
     messageText(msg).trim().length > 0
   );
 }
@@ -719,34 +752,52 @@ function isSubstantiveLeaderResponseEntry(entry: FeedEntry): boolean {
     !entry.msg.notification &&
     !entry.msg.metadata?.attentionRecord &&
     !isCodexReasoningDetailMessage(entry.msg) &&
+    codexMessagePhase(entry.msg) === null &&
     messageText(entry.msg).trim().length > 0
   );
 }
 
-function collectLeaderResponsesBeforeModelOnlyReminders(
+/** Select one explicit final answer per eligible leader segment. The q-1875
+ * compatibility fallback remains limited to anchored segments closed by a
+ * model-only reminder; reminder-owned segments never contribute a response. */
+function collectLeaderSegmentResponseRepresentatives(
   rawAgentEntries: FeedEntry[],
   hasUserBoundary: boolean,
+  allowOrdinaryLegacyFallback: boolean,
 ): Set<string> {
   const representativeKeys = new Set<string>();
-  let eligibleSegment = hasUserBoundary;
-  let lastSubstantiveEntry: FeedEntry | null = null;
+  let segmentKind: "eligible" | "model-only" | "unknown" = hasUserBoundary ? "eligible" : "unknown";
+  let lastExplicitFinalAnswer: FeedEntry | null = null;
+  let lastUnknownResponse: FeedEntry | null = null;
+
+  const finishSegment = (allowLegacyFallback: boolean) => {
+    if (segmentKind !== "eligible") return;
+    if (lastExplicitFinalAnswer) {
+      representativeKeys.add(getEntryId(lastExplicitFinalAnswer));
+    } else if (allowLegacyFallback && lastUnknownResponse) {
+      representativeKeys.add(getEntryId(lastUnknownResponse));
+    }
+  };
 
   for (const entry of rawAgentEntries) {
     if (entry.kind === "message" && entry.msg.role === "user" && entry.msg.agentSource?.sessionId) {
-      const isModelOnlyReminder = isModelOnlyReminderSource(entry.msg.agentSource.sessionId);
-      if (eligibleSegment && isModelOnlyReminder && lastSubstantiveEntry) {
-        representativeKeys.add(getEntryId(lastSubstantiveEntry));
-      }
-      eligibleSegment = !isModelOnlyReminder;
-      lastSubstantiveEntry = null;
+      const nextSegmentIsModelOnlyReminder = isModelOnlyReminderSource(entry.msg.agentSource.sessionId);
+      finishSegment(nextSegmentIsModelOnlyReminder || allowOrdinaryLegacyFallback);
+      segmentKind = nextSegmentIsModelOnlyReminder ? "model-only" : "eligible";
+      lastExplicitFinalAnswer = null;
+      lastUnknownResponse = null;
       continue;
     }
 
-    if (eligibleSegment && isSubstantiveLeaderResponseEntry(entry)) {
-      lastSubstantiveEntry = entry;
+    if (segmentKind !== "eligible" || !isAssistantTextResponseEntry(entry)) continue;
+    if (isExplicitCodexFinalAnswer(entry.msg)) {
+      lastExplicitFinalAnswer = entry;
+    } else if (codexMessagePhase(entry.msg) === null && isSubstantiveLeaderResponseEntry(entry)) {
+      lastUnknownResponse = entry;
     }
   }
 
+  finishSegment(allowOrdinaryLegacyFallback);
   return representativeKeys;
 }
 
@@ -754,7 +805,9 @@ function isPlainLeaderCollapsedSummaryEntry(entry: FeedEntry): boolean {
   return (
     entry.kind === "message" &&
     entry.msg.role === "assistant" &&
-    (isSubstantiveLeaderUserMessage(entry.msg) || isThreadStatusSummaryMessage(entry.msg)) &&
+    (isSubstantiveLeaderUserMessage(entry.msg) ||
+      isThreadStatusSummaryMessage(entry.msg) ||
+      isExplicitCodexFinalAnswer(entry.msg)) &&
     !entry.msg.notification &&
     !entry.msg.metadata?.attentionRecord
   );
@@ -790,7 +843,9 @@ function filterCollapsedVisibleEntriesForModelOnlyReminderSegments(
 
 function scoreNeedsInputPreviewCandidate(entry: FeedEntry): number {
   if (entry.kind !== "message" || entry.msg.role !== "assistant") return Number.NEGATIVE_INFINITY;
-  if (isCodexReasoningDetailMessage(entry.msg)) return Number.NEGATIVE_INFINITY;
+  if (isCodexReasoningDetailMessage(entry.msg) || isExplicitCodexCommentary(entry.msg)) {
+    return Number.NEGATIVE_INFINITY;
+  }
 
   const text = messageText(entry.msg);
   if (!text || isNeedsInputStatusText(text)) return Number.NEGATIVE_INFINITY;
@@ -984,6 +1039,7 @@ function makeTurn(
   entries: FeedEntry[],
   turnIndex: number,
   leaderMode = false,
+  leaderSessionMode = leaderMode,
   anchoredNotificationMessageIds?: ReadonlySet<string>,
   visibleAssistantChildMessageIds?: ReadonlySet<string>,
 ): Turn {
@@ -1011,18 +1067,18 @@ function makeTurn(
 
   const s = countEntryStats(presentationAgentEntries);
 
-  // Extract messages with notification chips -- always visible like systemEntries.
-  // When a direct user/herd response is immediately followed by a model-only
-  // reminder, retain the last substantive response from the preceding segment
-  // as the collapsed representative. Empty route/status rows and reminder
-  // acknowledgements remain activity.
-  const preReminderRepresentativeKeys = leaderMode
-    ? collectLeaderResponsesBeforeModelOnlyReminders(presentationAgentEntries, userEntry !== null)
-    : new Set<string>();
+  // Existing priority rows remain collapsed-visible. Official Codex final-answer
+  // metadata selects one response per eligible leader segment; final answers
+  // inside model-only reminder segments remain activity. The q-1875 structural
+  // fallback applies only to unannotated pre-reminder output.
+  const leaderSegmentRepresentativeKeys =
+    leaderMode || leaderSessionMode
+      ? collectLeaderSegmentResponseRepresentatives(presentationAgentEntries, userEntry !== null, !leaderMode)
+      : new Set<string>();
   const notificationEntryCandidates: FeedEntry[] = [];
   for (const e of presentationAgentEntries) {
     if (
-      preReminderRepresentativeKeys.has(getEntryId(e)) ||
+      (leaderMode && leaderSegmentRepresentativeKeys.has(getEntryId(e))) ||
       entryIsCollapsedVisible(e, leaderMode, anchoredNotificationMessageIds)
     ) {
       notificationEntryCandidates.push(e);
@@ -1039,25 +1095,36 @@ function makeTurn(
     leaderMode,
   );
 
-  // Extract the default-visible response entry (last assistant text message).
-  // Leader sessions publish user-visible text through `leader_user_message`;
-  // ordinary assistant text is private activity unless the turn is expanded.
-  // Deprecated @to(user)/@to(self) suffixes are treated as literal text and do
-  // not affect which message becomes the collapsed preview.
+  // Ordinary/Main/All turns prefer the last official Codex final answer. Only
+  // when no final answer exists do unannotated messages use the legacy last-text
+  // fallback; explicit commentary stays activity. Selected leader threads use
+  // the segment-aware representatives above instead.
   let responseEntry: FeedEntry | null = null;
   if (!leaderMode) {
     const notificationEntryKeys = new Set(notificationEntries.map(getEntryId));
-    for (let i = presentationAgentEntries.length - 1; i >= 0; i--) {
-      const e = presentationAgentEntries[i];
-      if (notificationEntryKeys.has(getEntryId(e))) continue;
-      if (
-        e.kind === "message" &&
-        e.msg.role === "assistant" &&
-        e.msg.content?.trim() &&
-        !isCodexReasoningDetailMessage(e.msg)
-      ) {
-        responseEntry = e;
-        break;
+    if (leaderSessionMode) {
+      for (let i = presentationAgentEntries.length - 1; i >= 0; i--) {
+        const entry = presentationAgentEntries[i];
+        if (notificationEntryKeys.has(getEntryId(entry))) continue;
+        if (leaderSegmentRepresentativeKeys.has(getEntryId(entry))) {
+          responseEntry = entry;
+          break;
+        }
+      }
+    } else {
+      const explicitFinalAnswerEntry = findLastExplicitCodexFinalAnswer(presentationAgentEntries);
+      if (explicitFinalAnswerEntry && !notificationEntryKeys.has(getEntryId(explicitFinalAnswerEntry))) {
+        responseEntry = explicitFinalAnswerEntry;
+      }
+    }
+    if (!responseEntry && !leaderSessionMode && !findLastExplicitCodexFinalAnswer(presentationAgentEntries)) {
+      for (let i = presentationAgentEntries.length - 1; i >= 0; i--) {
+        const entry = presentationAgentEntries[i];
+        if (notificationEntryKeys.has(getEntryId(entry))) continue;
+        if (isAssistantTextResponseEntry(entry) && !isExplicitCodexCommentary(entry.msg)) {
+          responseEntry = entry;
+          break;
+        }
       }
     }
   }
@@ -1128,6 +1195,7 @@ export function groupIntoTurns(
   anchoredNotificationMessageIds?: ReadonlySet<string>,
   userBoundarySourceSessionId?: string | null,
   visibleAssistantChildMessageIds?: ReadonlySet<string>,
+  leaderSessionMode = leaderMode,
 ): Turn[] {
   const turns: Turn[] = [];
   let currentUser: FeedEntry | null = null;
@@ -1146,6 +1214,7 @@ export function groupIntoTurns(
             currentEntries,
             startTurnIndex + turns.length,
             leaderMode,
+            leaderSessionMode,
             anchoredNotificationMessageIds,
             visibleAssistantChildMessageIds,
           ),
@@ -1166,6 +1235,7 @@ export function groupIntoTurns(
         currentEntries,
         startTurnIndex + turns.length,
         leaderMode,
+        leaderSessionMode,
         anchoredNotificationMessageIds,
         visibleAssistantChildMessageIds,
       ),
@@ -1182,6 +1252,7 @@ export function buildFeedModel(
   anchoredNotificationMessageIds?: ReadonlySet<string> | readonly string[],
   userBoundarySourceSessionId?: string | null,
   visibleAssistantChildMessageIds?: ReadonlySet<string> | readonly string[],
+  leaderSessionMode = leaderMode,
 ): FeedModel {
   const anchoredIds =
     anchoredNotificationMessageIds instanceof Set
@@ -1199,6 +1270,7 @@ export function buildFeedModel(
     anchoredIds,
     userBoundarySourceSessionId,
     visibleChildIds,
+    leaderSessionMode,
   );
   return { entries, turns };
 }
@@ -1215,6 +1287,7 @@ function concatFeedModels(
   anchoredNotificationMessageIds?: ReadonlySet<string> | readonly string[],
   userBoundarySourceSessionId?: string | null,
   visibleAssistantChildMessageIds?: ReadonlySet<string> | readonly string[],
+  leaderSessionMode = leaderMode,
 ): FeedModel {
   if (base.entries.length === 0) return next;
   if (next.entries.length === 0) return base;
@@ -1239,6 +1312,7 @@ function concatFeedModels(
       [...lastBase.allEntries, ...firstNext.allEntries],
       base.turns.length - 1,
       leaderMode,
+      leaderSessionMode,
       anchoredNotificationMessageIds instanceof Set
         ? anchoredNotificationMessageIds
         : new Set(anchoredNotificationMessageIds ?? []),
@@ -1269,6 +1343,7 @@ export function useFeedModel(
   messages: ChatMessage[],
   config?: {
     leaderMode?: boolean;
+    leaderSessionMode?: boolean;
     frozenCount?: number;
     frozenRevision?: number;
     anchoredNotificationMessageIds?: readonly string[];
@@ -1278,6 +1353,7 @@ export function useFeedModel(
   },
 ): FeedModel {
   const leaderMode = config?.leaderMode ?? false;
+  const leaderSessionMode = config?.leaderSessionMode ?? leaderMode;
   const frozenCount = Math.max(0, Math.min(config?.frozenCount ?? 0, messages.length));
   const frozenRevision = config?.frozenRevision ?? 0;
   const anchoredNotificationMessageIds = config?.anchoredNotificationMessageIds ?? [];
@@ -1289,6 +1365,7 @@ export function useFeedModel(
   const perfThreadKey = config?.perf?.threadKey;
   const cacheRef = useRef<{
     leaderMode: boolean;
+    leaderSessionMode: boolean;
     frozenCount: number;
     frozenRevision: number;
     anchoredNotificationSignature: string;
@@ -1307,6 +1384,7 @@ export function useFeedModel(
     if (
       cached &&
       cached.leaderMode === leaderMode &&
+      cached.leaderSessionMode === leaderSessionMode &&
       cached.frozenCount === frozenCount &&
       cached.frozenRevision === frozenRevision &&
       cached.anchoredNotificationSignature === anchoredNotificationSignature &&
@@ -1318,6 +1396,7 @@ export function useFeedModel(
     } else if (
       cached &&
       cached.leaderMode === leaderMode &&
+      cached.leaderSessionMode === leaderSessionMode &&
       cached.frozenRevision === frozenRevision &&
       cached.anchoredNotificationSignature === anchoredNotificationSignature &&
       cached.userBoundarySourceSessionId === userBoundarySourceSessionId &&
@@ -1333,6 +1412,7 @@ export function useFeedModel(
         anchoredNotificationMessageIds,
         userBoundarySourceSessionId,
         visibleAssistantChildMessageIds,
+        leaderSessionMode,
       );
       frozenModel = concatFeedModels(
         cached.frozenModel,
@@ -1341,6 +1421,7 @@ export function useFeedModel(
         anchoredNotificationMessageIds,
         userBoundarySourceSessionId,
         visibleAssistantChildMessageIds,
+        leaderSessionMode,
       );
     } else {
       frozenModel = buildFeedModel(
@@ -1350,11 +1431,13 @@ export function useFeedModel(
         anchoredNotificationMessageIds,
         userBoundarySourceSessionId,
         visibleAssistantChildMessageIds,
+        leaderSessionMode,
       );
     }
 
     cacheRef.current = {
       leaderMode,
+      leaderSessionMode,
       frozenCount,
       frozenRevision,
       anchoredNotificationSignature,
@@ -1371,6 +1454,7 @@ export function useFeedModel(
       anchoredNotificationMessageIds,
       userBoundarySourceSessionId,
       visibleAssistantChildMessageIds,
+      leaderSessionMode,
     );
     return concatFeedModels(
       frozenModel,
@@ -1379,10 +1463,12 @@ export function useFeedModel(
       anchoredNotificationMessageIds,
       userBoundarySourceSessionId,
       visibleAssistantChildMessageIds,
+      leaderSessionMode,
     );
   }, [
     messages,
     leaderMode,
+    leaderSessionMode,
     frozenCount,
     frozenRevision,
     anchoredNotificationMessageIds,

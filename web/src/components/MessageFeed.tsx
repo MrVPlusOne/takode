@@ -320,6 +320,7 @@ export function MessageFeed({
     frozenCount: hasFilteredNativeChildMessages ? 0 : frozenCount,
     isCodexSession,
     leaderMode: collapseLeaderThreadActivity,
+    leaderSessionMode: isLeaderSession && isCodexSession,
     frozenRevision,
     sessionNotifications,
     userBoundarySourceSessionId: herdingLeaderSessionId ?? null,

@@ -209,6 +209,28 @@ describe("handleMessage: assistant", () => {
     expect(state.sessionStatus.get("s1")).toBe("running");
   });
 
+  it("maps a live Codex assistant phase into structured chat metadata", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "assistant",
+      codexMessagePhase: "final_answer",
+      message: {
+        id: "codex-agent-live-phase",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6-sol",
+        content: [{ type: "text", text: "Visible answer" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+    });
+
+    expect(useStore.getState().messages.get("s1")?.[0]?.metadata?.codexMessagePhase).toBe("final_answer");
+  });
+
   it("strips root Codex thinking blocks from live mixed assistant messages", () => {
     // Root summary blocks can share one provider message with a durable tool call; only the sibling tool is stored.
     wsModule.connectSession("s1");

@@ -22,6 +22,7 @@ type ExistingThreadMetadataSource = {
   slackThreadId?: string;
   threadRoutingError?: NonNullable<ChatMessage["metadata"]>["threadRoutingError"];
   threadStatusMarkers?: NonNullable<ChatMessage["metadata"]>["threadStatusMarkers"];
+  codexMessagePhase?: NonNullable<ChatMessage["metadata"]>["codexMessagePhase"];
   codexSubagent?: NonNullable<ChatMessage["metadata"]>["codexSubagent"];
 };
 
@@ -136,6 +137,7 @@ function existingThreadMetadataFromMessage(msg: ExistingThreadMetadataSource): C
     !msg.questId &&
     !msg.threadRoutingError &&
     !msg.threadStatusMarkers &&
+    msg.codexMessagePhase === undefined &&
     !msg.codexSubagent
   ) {
     return undefined;
@@ -147,6 +149,7 @@ function existingThreadMetadataFromMessage(msg: ExistingThreadMetadataSource): C
     ...(msg.slackThreadId ? { slackThreadId: msg.slackThreadId } : {}),
     ...(msg.threadRoutingError ? { threadRoutingError: msg.threadRoutingError } : {}),
     ...(msg.threadStatusMarkers ? { threadStatusMarkers: msg.threadStatusMarkers } : {}),
+    ...(msg.codexMessagePhase !== undefined ? { codexMessagePhase: msg.codexMessagePhase } : {}),
     ...(msg.codexSubagent ? { codexSubagent: msg.codexSubagent } : {}),
   };
 }

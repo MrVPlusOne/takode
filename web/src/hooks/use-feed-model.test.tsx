@@ -98,6 +98,23 @@ function makeAssistantMessage(id: string, content: string, timestamp: number): C
   });
 }
 
+function makePhasedAssistant(
+  id: string,
+  content: string,
+  timestamp: number,
+  phase: "commentary" | "final_answer" | null,
+  metadata: ChatMessage["metadata"] = {},
+): ChatMessage {
+  return makeMessage({
+    id,
+    role: "assistant",
+    content,
+    timestamp,
+    contentBlocks: [{ type: "text", text: content }],
+    metadata: { ...metadata, ...(phase === null ? {} : { codexMessagePhase: phase }) },
+  });
+}
+
 function makeJourneyFinishedRecord(overrides: Partial<SessionAttentionRecord> = {}): SessionAttentionRecord {
   const createdAt = overrides.createdAt ?? 4;
   return {
@@ -928,6 +945,291 @@ describe("leader mode model-only reminder collapsed preview selection", () => {
     expect(collapsedEntryIds(turn)).toEqual(["activity", "a-checkpoint", "a-waiting"]);
     expect(entryIds(turn.notificationEntries)).toEqual(["a-checkpoint", "a-waiting"]);
     expect(entryIds(turn.agentEntries)).not.toContain("a-checkpoint");
+  });
+});
+
+describe("Codex message phase collapsed representative selection", () => {
+  it("chooses the last explicit final answer over later commentary in ordinary turns", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "summarize the result", timestamp: 1 }),
+      makePhasedAssistant("a-final-1", "First user-facing result", 2, "final_answer"),
+      makePhasedAssistant("a-final-2", "Updated user-facing result", 3, "final_answer"),
+      makeAssistantMessage("a-unknown-late", "Unannotated compatibility tail", 4),
+      makePhasedAssistant("a-commentary", "Checking one last internal detail", 5, "commentary"),
+    ];
+
+    const turn = buildFeedModel(messages).turns[0];
+
+    expect(turn.responseEntry).toMatchObject({ kind: "message", msg: { id: "a-final-2" } });
+    expect(collapsedEntryIds(turn)).toEqual(["activity", "a-final-2", "activity"]);
+    expect(entryIds(turn.agentEntries)).toEqual(["a-final-1", "a-unknown-late", "a-commentary"]);
+    expect(entryIds(turn.presentationEntries ?? [])).toEqual([
+      "a-final-1",
+      "a-final-2",
+      "a-unknown-late",
+      "a-commentary",
+    ]);
+  });
+
+  it("uses compatibility fallback only for unknown messages when no final answer exists", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "continue", timestamp: 1 }),
+      makePhasedAssistant("a-commentary", "Internal planning", 2, "commentary"),
+      makePhasedAssistant("a-unknown", "Legacy user-facing answer", 3, null),
+      makePhasedAssistant("a-later-commentary", "Internal cleanup", 4, "commentary"),
+    ];
+
+    const turn = buildFeedModel(messages).turns[0];
+
+    expect(turn.responseEntry).toMatchObject({ kind: "message", msg: { id: "a-unknown" } });
+    expect(collapsedEntryIds(turn)).toEqual(["activity", "a-unknown", "activity"]);
+  });
+
+  it("keeps commentary-only ordinary turns as collapsed activity with no response representative", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "inspect the state", timestamp: 1 }),
+      makePhasedAssistant("a-commentary-1", "Inspecting files", 2, "commentary"),
+      makePhasedAssistant("a-commentary-2", "Checking tests", 3, "commentary"),
+    ];
+
+    const turn = buildFeedModel(messages).turns[0];
+
+    expect(turn.responseEntry).toBeNull();
+    expect(collapsedEntryIds(turn)).toEqual(["activity"]);
+    expect(entryIds(turn.presentationEntries ?? [])).toEqual(["a-commentary-1", "a-commentary-2"]);
+  });
+
+  it("falls back to the prior renderable unknown row when a final answer projects empty", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "show the answer", timestamp: 1 }),
+      makeAssistantMessage("a-legacy", "Renderable compatibility answer", 2),
+      makePhasedAssistant("a-empty-final", " \n\t ", 3, "final_answer"),
+      makePhasedAssistant("a-commentary", "Internal follow-up", 4, "commentary"),
+    ];
+
+    const turn = buildFeedModel(messages).turns[0];
+
+    expect(turn.responseEntry).toMatchObject({ kind: "message", msg: { id: "a-legacy" } });
+    expect(entryIds(turn.presentationEntries ?? [])).not.toContain("a-empty-final");
+    expect(entryIds(turn.allEntries)).toContain("a-empty-final");
+  });
+
+  it("promotes exactly one final answer in a selected leader turn while preserving priority rows", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "coordinate the quest", timestamp: 1 }),
+      makeAssistantMessage("a-legacy", "Legacy progress before the final", 2),
+      makePhasedAssistant("a-final-1", "Earlier user-facing result", 3, "final_answer"),
+      makePhasedAssistant("a-final-2", "Latest user-facing result", 4, "final_answer"),
+      makePhasedAssistant("a-commentary", "Internal cleanup after the result", 5, "commentary"),
+      makeVisibleLeaderMessage("a-priority", "Published leader checkpoint", 6),
+    ];
+
+    const turn = buildFeedModel(messages, true).turns[0];
+
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-final-2", "a-priority"]);
+    expect(collapsedEntryIds(turn)).toEqual(["activity", "a-final-2", "activity", "a-priority"]);
+    expect(entryIds(turn.agentEntries)).toEqual(["a-legacy", "a-final-1", "a-commentary"]);
+  });
+
+  it("fails closed for selected leader finals when a bounded window omits the source boundary", () => {
+    const annotated = buildFeedModel(
+      [
+        makePhasedAssistant("a-final", "Windowed final answer", 1, "final_answer"),
+        makePhasedAssistant("a-commentary", "Windowed commentary", 2, "commentary"),
+      ],
+      true,
+    ).turns[0];
+    const legacy = buildFeedModel([makeAssistantMessage("a-legacy", "Unanchored legacy tail", 1)], true).turns[0];
+
+    expect(entryIds(annotated.notificationEntries)).toEqual([]);
+    expect(collapsedEntryIds(annotated)).toEqual(["activity"]);
+    expect(entryIds(legacy.notificationEntries)).toEqual([]);
+  });
+
+  it("keeps the human-facing final in leader Main and All when a reminder emits a later final", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "prepare the report", timestamp: 1 }),
+      makePhasedAssistant("a-user-final", "Authoritative report for the user", 2, "final_answer"),
+      makeInjectedUserMessage(
+        "u-reminder",
+        "[Thread outcome reminder] Mark the touched thread.",
+        3,
+        THREAD_OUTCOME_REMINDER_SOURCE_ID,
+        THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+      ),
+      makePhasedAssistant("a-reminder-final", "Acknowledged the reminder", 4, "final_answer"),
+    ];
+
+    const turn = buildFeedModel(messages, false, 0, undefined, undefined, undefined, true).turns[0];
+
+    expect(turn.responseEntry).toMatchObject({ kind: "message", msg: { id: "a-user-final" } });
+    expect(collapsedEntryIds(turn)).toEqual(["a-user-final", "activity"]);
+  });
+
+  it("keeps Main and All on one ordinary response across injected non-reminder segments", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "coordinate the report", timestamp: 1 }),
+      makeAssistantMessage("a-first", "First response", 2),
+      makeInjectedUserMessage("u-timer", "Check again.", 3, "timer:t1", "Timer t1"),
+      makeAssistantMessage("a-second", "Second response", 4),
+    ];
+
+    const claudeTurn = buildFeedModel(messages).turns[0];
+    const codexLeaderTurn = buildFeedModel(messages, false, 0, undefined, undefined, undefined, true).turns[0];
+
+    expect(claudeTurn.responseEntry).toMatchObject({ kind: "message", msg: { id: "a-second" } });
+    expect(codexLeaderTurn.responseEntry).toMatchObject({ kind: "message", msg: { id: "a-second" } });
+    expect(entryIds(claudeTurn.notificationEntries)).toEqual([]);
+    expect(entryIds(codexLeaderTurn.notificationEntries)).toEqual([]);
+    expect(collapsedEntryIds(claudeTurn)).toEqual(collapsedEntryIds(codexLeaderTurn));
+  });
+
+  it("does not double-count a notification-backed final in leader Main and All", () => {
+    const final = makePhasedAssistant("a-final", "Review is ready", 2, "final_answer");
+    final.notification = { category: "review", summary: "Review is ready", timestamp: 2 };
+    const turn = buildFeedModel(
+      [makeMessage({ id: "u1", role: "user", content: "prepare review", timestamp: 1 }), final],
+      false,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    ).turns[0];
+
+    expect(turn.responseEntry).toBeNull();
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-final"]);
+    expect(turn.stats.messageCount).toBe(0);
+  });
+
+  it("fails closed for unanchored leader Main and All finals", () => {
+    const turn = buildFeedModel(
+      [makePhasedAssistant("a-unanchored-final", "Unknown requester", 1, "final_answer")],
+      false,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    ).turns[0];
+
+    expect(turn.responseEntry).toBeNull();
+    expect(collapsedEntryIds(turn)).toEqual(["activity"]);
+  });
+
+  it("keeps final answers inside model-only reminder segments collapsed as activity", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "prepare the report", timestamp: 1 }),
+      makePhasedAssistant("a-user-final", "Authoritative report for the user", 2, "final_answer"),
+      makeInjectedUserMessage(
+        "u-reminder",
+        "[Thread outcome reminder] Mark the touched thread.",
+        3,
+        THREAD_OUTCOME_REMINDER_SOURCE_ID,
+        THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+      ),
+      makePhasedAssistant("a-reminder-final", "Acknowledged the reminder", 4, "final_answer"),
+    ];
+
+    const turn = buildFeedModel(messages, true).turns[0];
+
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-user-final"]);
+    expect(collapsedEntryIds(turn)).toEqual(["a-user-final", "activity"]);
+    expect(entryIds(turn.agentEntries)).toContain("a-reminder-final");
+  });
+
+  it("keeps a reminder-segment final visible only through an independent notification surface", () => {
+    const priorityFinal = makePhasedAssistant("a-priority-final", "Review is ready", 4, "final_answer");
+    priorityFinal.notification = { category: "review", summary: "Review is ready", timestamp: 4 };
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "prepare the report", timestamp: 1 }),
+      makePhasedAssistant("a-user-final", "Authoritative report for the user", 2, "final_answer"),
+      makeInjectedUserMessage(
+        "u-reminder",
+        "[Thread outcome reminder] Mark the touched thread.",
+        3,
+        THREAD_OUTCOME_REMINDER_SOURCE_ID,
+        THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+      ),
+      priorityFinal,
+    ];
+
+    const turn = buildFeedModel(messages, true).turns[0];
+
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-user-final", "a-priority-final"]);
+  });
+
+  it("selects the last final answer from each eligible leader segment", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "coordinate the report", timestamp: 1 }),
+      makePhasedAssistant("a-first-final", "Initial user-facing report", 2, "final_answer"),
+      makeInjectedUserMessage("u-timer", "Check the next report stage.", 3, "timer:t1", "Timer t1"),
+      makePhasedAssistant("a-second-final", "Updated user-facing report", 4, "final_answer"),
+      makeInjectedUserMessage(
+        "u-reminder",
+        "[Thread outcome reminder] Mark the touched thread.",
+        5,
+        THREAD_OUTCOME_REMINDER_SOURCE_ID,
+        THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+      ),
+      makePhasedAssistant("a-reminder-final", "Reminder acknowledgement", 6, "final_answer"),
+    ];
+
+    const turn = buildFeedModel(messages, true).turns[0];
+
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-first-final", "a-second-final"]);
+    expect(entryIds(turn.notificationEntries)).not.toContain("a-reminder-final");
+  });
+
+  it("keeps the pre-reminder fallback unknown-only and never promotes explicit commentary", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "prepare the report", timestamp: 1 }),
+      makeAssistantMessage("a-legacy", "Legacy report result", 2),
+      makePhasedAssistant("a-commentary", "Internal note before reminder", 3, "commentary"),
+      makeInjectedUserMessage(
+        "u-reminder",
+        "[Thread outcome reminder] Mark the touched thread.",
+        4,
+        THREAD_OUTCOME_REMINDER_SOURCE_ID,
+        THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+      ),
+      makePhasedAssistant("a-reminder-commentary", "Internal reminder acknowledgement", 5, "commentary"),
+    ];
+
+    const turn = buildFeedModel(messages, true).turns[0];
+
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-legacy"]);
+    expect(entryIds(turn.notificationEntries)).not.toContain("a-commentary");
+    expect(entryIds(turn.notificationEntries)).not.toContain("a-reminder-commentary");
+  });
+
+  it("does not promote explicit commentary as a sub-conclusion or needs-input segment preview", () => {
+    const commentary = makePhasedAssistant(
+      "a-commentary",
+      "Recommendation: approve the internal draft after review.",
+      2,
+      "commentary",
+    );
+    const normalTurn = buildFeedModel([
+      makeMessage({ id: "u1", role: "user", content: "run the worker", timestamp: 1 }),
+      commentary,
+      makeHerdEvent("h1", "#5 | turn_end | done", 3),
+      makePhasedAssistant("a-final", "Worker-facing result", 4, "final_answer"),
+    ]).turns[0];
+    const leaderTurn = buildFeedModel(
+      [
+        makeMessage({ id: "u2", role: "user", content: "open a decision", timestamp: 1 }),
+        commentary,
+        makeNotifyToolMessage("a-notify", 3),
+      ],
+      true,
+      0,
+      ["a-notify"],
+    ).turns[0];
+
+    expect(normalTurn.subConclusions).toEqual([]);
+    expect(collapsedEntryIds(leaderTurn)).toEqual(["activity", "a-notify"]);
+    expect(entryIds(leaderTurn.agentEntries)).toContain("a-commentary");
   });
 });
 

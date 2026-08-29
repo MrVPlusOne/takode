@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import type { BrowserIncomingMessage } from "./session-types.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -625,6 +626,42 @@ describe("Codex adapter result handling", () => {
     expect(assistantHistory).toHaveLength(1);
   });
 
+  it("keeps exact-ID legacy rows unannotated when a later replay adds phase metadata", () => {
+    // Stable persisted rows created before phase support remain on the explicit
+    // compatibility path. Reconnect must not append a duplicate or rewrite
+    // frozen history merely to enrich presentation metadata.
+    const browser = makeBrowserSocket("s1");
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    const message = {
+      type: "assistant" as const,
+      message: {
+        id: "codex-exact-legacy",
+        type: "message" as const,
+        role: "assistant" as const,
+        model: "gpt-5-codex",
+        content: [{ type: "text" as const, text: "Persisted legacy answer." }],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: 1700000000500,
+    };
+    adapter.emitBrowserMessage(message);
+    adapter.emitBrowserMessage({ ...message, codexMessagePhase: "final_answer" });
+
+    const assistantHistory = bridge
+      .getSession("s1")!
+      .messageHistory.filter(
+        (entry): entry is Extract<BrowserIncomingMessage, { type: "assistant" }> => entry.type === "assistant",
+      );
+    expect(assistantHistory).toHaveLength(1);
+    expect(assistantHistory[0].codexMessagePhase).toBeUndefined();
+  });
+
   it("deduplicates Codex assistant messages with different IDs but same content within 15s window", async () => {
     // When Codex reconnects and replays the same message with a different ID
     // but identical content within the 15-second window, it should be deduped.
@@ -673,6 +710,134 @@ describe("Codex adapter result handling", () => {
 
     const assistantHistory = bridge.getSession("s1")!.messageHistory.filter((m: any) => m.type === "assistant");
     expect(assistantHistory).toHaveLength(1);
+  });
+
+  it("does not deduplicate identical routed text owned by different leader threads", async () => {
+    const browser = makeBrowserSocket("s1");
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    const base = {
+      type: "assistant" as const,
+      message: {
+        id: "route-1",
+        type: "message" as const,
+        role: "assistant" as const,
+        model: "gpt-5-codex",
+        content: [{ type: "text" as const, text: "Shared routed answer." }],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: 1700000002000,
+      codexMessagePhase: "final_answer" as const,
+    };
+    adapter.emitBrowserMessage({ ...base, threadKey: "q-1979", questId: "q-1979" });
+    adapter.emitBrowserMessage({
+      ...base,
+      message: { ...base.message, id: "route-2" },
+      threadKey: "q-1980",
+      questId: "q-1980",
+    });
+    await flushAsync();
+
+    const assistantHistory = bridge.getSession("s1")!.messageHistory.filter((message) => message.type === "assistant");
+    expect(assistantHistory).toHaveLength(2);
+    expect(assistantHistory.map((message) => message.threadKey)).toEqual(["q-1979", "q-1980"]);
+  });
+
+  it("does not deduplicate identical text with different explicit Codex phases", async () => {
+    const browser = makeBrowserSocket("s1");
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    const base = {
+      type: "assistant" as const,
+      message: {
+        id: "phase-1",
+        type: "message" as const,
+        role: "assistant" as const,
+        model: "gpt-5-codex",
+        content: [{ type: "text" as const, text: "Same text, different intent." }],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: 1700000003000,
+      threadKey: "q-1979",
+      questId: "q-1979",
+    };
+    adapter.emitBrowserMessage({ ...base, codexMessagePhase: "commentary" });
+    adapter.emitBrowserMessage({
+      ...base,
+      message: { ...base.message, id: "phase-2" },
+      codexMessagePhase: "final_answer",
+    });
+    await flushAsync();
+
+    const assistantHistory = bridge.getSession("s1")!.messageHistory.filter((message) => message.type === "assistant");
+    expect(assistantHistory).toHaveLength(2);
+    expect(assistantHistory.map((message) => message.codexMessagePhase)).toEqual(["commentary", "final_answer"]);
+  });
+
+  it("keeps identical root and child messages isolated by exact ownership", async () => {
+    const browser = makeBrowserSocket("s1");
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+    bridge.getSession("s1")!.messageHistory.push({
+      type: "user_message",
+      id: "root-turn",
+      content: "Run children",
+      timestamp: 1700000003500,
+      threadKey: "q-1979",
+      questId: "q-1979",
+    });
+
+    const base = {
+      type: "assistant" as const,
+      message: {
+        id: "thread-local-shared-id",
+        type: "message" as const,
+        role: "assistant" as const,
+        model: "gpt-5-codex",
+        content: [{ type: "text" as const, text: "Identical owner-local answer." }],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: 1700000004000,
+      codexMessagePhase: "final_answer" as const,
+      threadKey: "q-1979",
+      questId: "q-1979",
+    };
+    adapter.emitBrowserMessage(base);
+    adapter.emitBrowserMessage({
+      ...base,
+      codexSubagent: { childId: "child-a", rootTurnId: "root-turn" },
+    });
+    adapter.emitBrowserMessage({
+      ...base,
+      codexSubagent: { childId: "child-b", parentChildId: "child-a", rootTurnId: "root-turn" },
+    });
+    await flushAsync();
+
+    const assistantHistory = bridge
+      .getSession("s1")!
+      .messageHistory.filter(
+        (message): message is Extract<BrowserIncomingMessage, { type: "assistant" }> => message.type === "assistant",
+      );
+    expect(assistantHistory).toHaveLength(3);
+    expect(assistantHistory.map((message) => message.codexSubagent?.childId ?? "root")).toEqual([
+      "root",
+      "child-a",
+      "child-b",
+    ]);
   });
 
   it("does not deduplicate legitimate repeated Codex text when timestamp exceeds 15s window", async () => {

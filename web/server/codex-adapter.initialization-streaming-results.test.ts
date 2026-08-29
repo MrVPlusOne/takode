@@ -208,6 +208,50 @@ describe("CodexAdapter", () => {
     expect(last.message.content[0].text).toBe("Hello world");
   });
 
+  it.each([
+    { startedPhase: undefined, completedPhase: "final_answer", expected: "final_answer" },
+    { startedPhase: "commentary", completedPhase: undefined, expected: "commentary" },
+    { startedPhase: "commentary", completedPhase: "final_answer", expected: "final_answer" },
+    { startedPhase: "user", completedPhase: null, expected: undefined },
+  ] as const)("emits only official Codex message phases ($startedPhase -> $completedPhase)", async ({
+    startedPhase,
+    completedPhase,
+    expected,
+  }) => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await tick();
+    await initializeAdapter(stdout);
+    stdout.push(
+      JSON.stringify({
+        method: "item/started",
+        params: { item: { type: "agentMessage", id: "phase-item", phase: startedPhase } },
+      }) + "\n",
+    );
+    stdout.push(
+      JSON.stringify({
+        method: "item/agentMessage/delta",
+        params: { itemId: "phase-item", delta: "Classified response" },
+      }) + "\n",
+    );
+    stdout.push(
+      JSON.stringify({
+        method: "item/completed",
+        params: {
+          item: { type: "agentMessage", id: "phase-item", text: "Classified response", phase: completedPhase },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const assistant = messages.findLast(
+      (message): message is Extract<BrowserIncomingMessage, { type: "assistant" }> => message.type === "assistant",
+    );
+    expect(assistant?.codexMessagePhase).toBe(expected);
+  });
+
   it("translates command approval request to permission_request", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });

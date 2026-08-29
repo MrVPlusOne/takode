@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { normalizeCodexMessagePhase, type CodexMessagePhase } from "../shared/codex-message-phase.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import {
   CodexAgentMessageItem,
@@ -51,6 +52,7 @@ type TerminalInteractionToolUse = {
 
 export class CodexItemEventManager {
   private streamingTextByItemId = new Map<string, string>();
+  private messagePhaseByItemId = new Map<string, CodexMessagePhase>();
 
   private commandStartTimes = new Map<string, number>();
   private commandOutputByItemId = new Map<string, string>();
@@ -83,6 +85,7 @@ export class CodexItemEventManager {
 
   dispose(): void {
     this.streamingTextByItemId.clear();
+    this.messagePhaseByItemId.clear();
     this.commandStartTimes.clear();
     this.commandOutputByItemId.clear();
     this.planSignatureByKey.clear();
@@ -110,6 +113,11 @@ export class CodexItemEventManager {
 
   markMessageFinished(timestamp: number): void {
     this.lastMessageFinishedAt = timestamp;
+  }
+
+  private rememberMessagePhase(itemId: string, value: unknown): void {
+    const phase = normalizeCodexMessagePhase(value);
+    if (phase) this.messagePhaseByItemId.set(itemId, phase);
   }
 
   cachePatchApplyChanges(params: Record<string, unknown>): void {
@@ -159,6 +167,7 @@ export class CodexItemEventManager {
     switch (item.type) {
       case "agentMessage":
         this.streamingTextByItemId.set(item.id, "");
+        this.rememberMessagePhase(item.id, (item as CodexAgentMessageItem).phase);
         this.emit({
           type: "stream_event",
           event: {
@@ -414,6 +423,8 @@ export class CodexItemEventManager {
       case "agentMessage": {
         const agentMsg = item as CodexAgentMessageItem;
         const text = agentMsg.text || this.streamingTextByItemId.get(item.id) || "";
+        const completedPhase = normalizeCodexMessagePhase(agentMsg.phase);
+        const codexMessagePhase = completedPhase ?? this.messagePhaseByItemId.get(item.id);
         const completedAt = Date.now();
 
         this.emit({
@@ -445,10 +456,12 @@ export class CodexItemEventManager {
             usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
           },
           parent_tool_use_id: parentToolUseId,
+          ...(codexMessagePhase ? { codexMessagePhase } : {}),
           timestamp: completedAt,
         });
         this.markMessageFinished(completedAt);
         this.streamingTextByItemId.delete(item.id);
+        this.messagePhaseByItemId.delete(item.id);
         break;
       }
 

@@ -681,7 +681,10 @@ export function PlaygroundOverviewSections() {
             </div>
           </Card>
           <Card label="Status Footer">
-            <div className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card">
+            <div
+              data-testid="playground-codex-phase-thread"
+              className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card"
+            >
               <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="q-963" />
             </div>
           </Card>

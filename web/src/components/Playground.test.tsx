@@ -552,6 +552,21 @@ describe("Playground", () => {
       ),
     ).toBeNull();
     expect(screen.getByLabelText("Thread Ready for thread:q-963: dispatch plan is ready")).toBeTruthy();
+    const phaseThread = screen.getByTestId("playground-codex-phase-thread");
+    const phaseFinal = within(phaseThread).getByText(
+      "The dispatch plan is ready with the requested worker assignment.",
+    );
+    expect(phaseFinal).toBeTruthy();
+    expect(
+      within(phaseThread).queryByText("Checking the internal worker queue after publishing the dispatch plan."),
+    ).toBeNull();
+    const phaseCard = phaseFinal.closest(".rounded-xl");
+    expect(phaseCard).toBeTruthy();
+    const phaseActivityButtons = within(phaseCard as HTMLElement).getAllByRole("button", { name: /Leader activity/ });
+    fireEvent.click(phaseActivityButtons.at(-1)!);
+    expect(
+      within(phaseThread).getByText("Checking the internal worker queue after publishing the dispatch plan."),
+    ).toBeTruthy();
     expect(document.querySelector('[data-message-id="playground-thread-status-batch"]')).toBeNull();
     expect(screen.getAllByText("The initial q-961 answer is complete and remains in history.").length).toBeGreaterThan(
       0,

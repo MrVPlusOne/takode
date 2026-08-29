@@ -186,6 +186,21 @@ function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role
   };
 }
 
+function makePhasedAssistant(
+  id: string,
+  content: string,
+  phase: "commentary" | "final_answer",
+  metadata: ChatMessage["metadata"] = {},
+): ChatMessage {
+  return makeMessage({
+    id,
+    role: "assistant",
+    content,
+    contentBlocks: [{ type: "text", text: content }],
+    metadata: { ...metadata, codexMessagePhase: phase },
+  });
+}
+
 function transitionMarker(
   overrides: Partial<ThreadTransitionMarker> & { id: string; sourceThreadKey: string; threadKey: string },
 ) {
@@ -1180,5 +1195,80 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.queryByText(/takode send 17/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Show 1 tool call/ }));
     expect(screen.getByText(/takode send 17/)).toBeTruthy();
+  });
+  it("uses Codex final-answer metadata for a collapsed worker turn and keeps commentary expanded", () => {
+    const sid = "test-codex-worker-message-phase-collapse";
+    mockStoreValues.sessions = new Map([[sid, { backend_type: "codex" }]]);
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Summarize the completed work." }),
+      makePhasedAssistant("a-final", "The implementation and tests are complete.", "final_answer"),
+      makePhasedAssistant("a-commentary", "Double-checking the local branch state.", "commentary"),
+    ]);
+    setStoreTurnOverrides(sid, [["u1", false]]);
+
+    const view = render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("The implementation and tests are complete.")).toBeTruthy();
+    expect(screen.queryByText("Double-checking the local branch state.")).toBeNull();
+
+    setStoreTurnOverrides(sid, [["u1", true]]);
+    view.rerender(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("The implementation and tests are complete.")).toBeTruthy();
+    expect(screen.getByText("Double-checking the local branch state.")).toBeTruthy();
+  });
+
+  it("uses Codex final-answer metadata for a Ready leader thread and keeps later commentary expanded", () => {
+    const sid = "test-codex-leader-message-phase-collapse";
+    const threadRef = { threadKey: "q-1979", questId: "q-1979", source: "explicit" as const };
+    const readyStatus = makeThreadStatus("a-ready", 4, {
+      questId: "q-1979",
+      summary: "phase-aware summary ready",
+      threadKey: "q-1979",
+    });
+    mockStoreValues.sessions = new Map([
+      [
+        sid,
+        {
+          backend_type: "codex",
+          isOrchestrator: true,
+          leaderThreadStatuses: { "q-1979": readyStatus },
+        },
+      ],
+    ]);
+    mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "u1",
+        role: "user",
+        content: "Investigate the collapsed response.",
+        metadata: { threadRefs: [threadRef] },
+      }),
+      makePhasedAssistant("a-final", "Codex metadata now selects the informative response.", "final_answer", {
+        threadRefs: [threadRef],
+      }),
+      makePhasedAssistant("a-commentary", "Checking one more internal detail after the response.", "commentary", {
+        threadRefs: [threadRef],
+      }),
+      makeMessage({
+        id: "a-ready",
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "text", text: "" }],
+        metadata: { threadRefs: [threadRef], threadStatusMarkers: [readyStatus] },
+      }),
+    ]);
+
+    const view = render(<MessageFeed sessionId={sid} threadKey="q-1979" />);
+
+    expect(screen.getByText("Codex metadata now selects the informative response.")).toBeTruthy();
+    expect(screen.queryByText("Checking one more internal detail after the response.")).toBeNull();
+    expect(screen.getByLabelText("Thread Ready for thread:q-1979: phase-aware summary ready")).toBeTruthy();
+
+    setStoreTurnOverrides(sid, [["u1", true]]);
+    view.rerender(<MessageFeed sessionId={sid} threadKey="q-1979" />);
+
+    expect(screen.getByText("Codex metadata now selects the informative response.")).toBeTruthy();
+    expect(screen.getByText("Checking one more internal detail after the response.")).toBeTruthy();
   });
 });

@@ -30,6 +30,17 @@ export interface CodexNativeSubagentOwnership {
   rootTurnId?: string;
 }
 
+export function sameCodexNativeSubagentOwnership(
+  left: CodexNativeSubagentOwnership | undefined,
+  right: CodexNativeSubagentOwnership | undefined,
+): boolean {
+  return (
+    left?.childId === right?.childId &&
+    left?.parentChildId === right?.parentChildId &&
+    left?.rootTurnId === right?.rootTurnId
+  );
+}
+
 /** Copies only fields allowed to cross the server-to-browser ownership boundary. */
 export function toPublicCodexNativeSubagentOwnership(
   ownership: CodexNativeSubagentOwnership,

@@ -103,6 +103,35 @@ function makeDeps(broadcasts: BrowserIncomingMessage[]): CodexAdapterBrowserMess
 }
 
 describe("Codex leader thread status activity invalidation", () => {
+  it("preserves an official message phase across leader route splitting and persistence", async () => {
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const routed = {
+      ...assistant(
+        [
+          {
+            type: "text" as const,
+            text: ["[thread:q-1979]", "First routed answer.", "---", "[thread:q-1980]Second routed answer."].join("\n"),
+          },
+        ],
+        "phase-routed-answer",
+      ),
+      codexMessagePhase: "final_answer" as const,
+    };
+
+    await handleCodexAdapterBrowserMessage(session as any, routed, makeDeps(broadcasts));
+
+    const broadcastAssistants = broadcasts.filter(
+      (message): message is Extract<BrowserIncomingMessage, { type: "assistant" }> => message.type === "assistant",
+    );
+    const persistedAssistants = session.messageHistory.filter(
+      (message): message is Extract<BrowserIncomingMessage, { type: "assistant" }> => message.type === "assistant",
+    );
+    expect(broadcastAssistants).toHaveLength(2);
+    expect(broadcastAssistants.map((message) => message.codexMessagePhase)).toEqual(["final_answer", "final_answer"]);
+    expect(persistedAssistants.map((message) => message.codexMessagePhase)).toEqual(["final_answer", "final_answer"]);
+  });
+
   it("clears Ready on fresh same-thread tool-only assistant activity", async () => {
     // Producer-shaped version of the live view_image regression: the tool has
     // no text route, so it inherits the latest authoritative quest route.

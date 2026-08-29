@@ -565,6 +565,33 @@ describe("handleMessage: message_history", () => {
     expect(useStore.getState().sessionTaskPreview.has("s1")).toBe(false);
   });
 
+  it("hydrates Codex assistant phases from authoritative message history", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "message_history",
+      messages: [
+        {
+          type: "assistant",
+          codexMessagePhase: "commentary",
+          message: {
+            id: "codex-agent-history-phase",
+            type: "message",
+            role: "assistant",
+            model: "gpt-5.6-sol",
+            content: [{ type: "text", text: "Internal progress" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 5, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+          parent_tool_use_id: null,
+        },
+      ],
+    });
+
+    expect(useStore.getState().messages.get("s1")?.[0]?.metadata?.codexMessagePhase).toBe("commentary");
+  });
+
   it("ignores deprecated leader_user_addressed metadata from history", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

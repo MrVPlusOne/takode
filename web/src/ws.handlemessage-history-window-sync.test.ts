@@ -614,6 +614,51 @@ describe("handleMessage: thread_window_sync", () => {
     expect(useStore.getState().cliEverConnected.get("s1")).toBe(true);
   });
 
+  it("hydrates Codex assistant phases in selected thread windows", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    fireMessage({
+      type: "thread_window_sync",
+      thread_key: "q-4242",
+      entries: [
+        {
+          history_index: 41,
+          message: {
+            type: "assistant",
+            codexMessagePhase: "final_answer",
+            timestamp: 2000,
+            threadKey: "q-4242",
+            questId: "q-4242",
+            parent_tool_use_id: null,
+            message: {
+              id: "codex-agent-window-phase",
+              type: "message",
+              role: "assistant",
+              model: "gpt-5.6-sol",
+              content: [{ type: "text", text: "Window answer" }],
+              stop_reason: "end_turn",
+              usage: { input_tokens: 5, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            },
+          },
+        },
+      ],
+      window: {
+        thread_key: "q-4242",
+        from_item: 0,
+        item_count: 1,
+        total_items: 1,
+        source_history_length: 42,
+        section_item_count: 10,
+        visible_item_count: 2,
+      },
+    });
+
+    expect(useStore.getState().threadWindowMessages.get("s1")?.get("q-4242")?.[0]?.metadata?.codexMessagePhase).toBe(
+      "final_answer",
+    );
+  });
+
   it("does not retain root thinking-only assistant entries in selected thread windows", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });

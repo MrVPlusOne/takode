@@ -1,3 +1,4 @@
+import { normalizeCodexMessagePhase } from "../../shared/codex-message-phase.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot } from "../codex-adapter.js";
 import type { TurnStartFailureInfo, TurnSteerFailureInfo } from "./adapter-interface.js";
@@ -402,6 +403,7 @@ export function hydrateCodexResumedHistory(
             },
           },
           parent_tool_use_id: null,
+          codexMessagePhase: normalizeCodexMessagePhase(item.phase),
           timestamp: ++syntheticTimestamp,
           ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
           ...(routed.questId ? { questId: routed.questId } : {}),
@@ -1791,6 +1793,7 @@ function recoverAgentMessagesFromResumedTurn(
           },
         },
         parent_tool_use_id: null,
+        codexMessagePhase: normalizeCodexMessagePhase(item.phase),
         timestamp: baseTs + i + 1 + segmentIndex / 1000,
         ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
         ...(routed.questId ? { questId: routed.questId } : {}),

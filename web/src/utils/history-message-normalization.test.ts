@@ -37,6 +37,32 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     expect(assistant.historyIndex).toBe(5);
   });
 
+  it("preserves official Codex assistant phases without inferring missing metadata", () => {
+    const base = {
+      type: "assistant" as const,
+      timestamp: 200,
+      parent_tool_use_id: null,
+      message: {
+        id: "codex-agent-phase",
+        type: "message" as const,
+        role: "assistant" as const,
+        model: "gpt-5.6-sol",
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        content: [{ type: "text" as const, text: "Answer" }],
+      },
+    };
+
+    const [finalAnswer] = normalizeHistoryMessageToChatMessages({ ...base, codexMessagePhase: "final_answer" }, 5);
+    const [unknown] = normalizeHistoryMessageToChatMessages(
+      { ...base, message: { ...base.message, id: "unknown" } },
+      6,
+    );
+
+    expect(finalAnswer.metadata?.codexMessagePhase).toBe("final_answer");
+    expect(unknown.metadata?.codexMessagePhase).toBeUndefined();
+  });
+
   it("preserves explicit reply metadata on user messages", () => {
     const user = normalizeHistoryMessageToChatMessages(
       {

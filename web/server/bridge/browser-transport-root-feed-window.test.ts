@@ -12,6 +12,7 @@ function rootTurn(): BrowserIncomingMessage[] {
     { type: "user_message", id: "root-user", content: "Visible root request", timestamp: 1 },
     {
       type: "assistant",
+      codexMessagePhase: "final_answer",
       message: {
         id: "root-answer",
         type: "message",
@@ -53,6 +54,7 @@ function childTurn(index: number): BrowserIncomingMessage[] {
     },
     {
       type: "assistant",
+      codexMessagePhase: "final_answer",
       message: {
         id: `child-answer-${index}`,
         type: "message",
@@ -107,6 +109,7 @@ describe("browser root-feed bounded windows", () => {
       undefined,
       undefined,
     ]);
+    expect(payload.messages[1].codexMessagePhase).toBe("final_answer");
   });
 
   it("spends the latest window budget on root conversations while preserving raw indexes", () => {
@@ -140,5 +143,9 @@ describe("browser root-feed bounded windows", () => {
     expect(
       payload.entries.every((entry: { message: BrowserIncomingMessage }) => entry.message.codexSubagent == null),
     ).toBe(true);
+    expect(
+      payload.entries.find((entry: { message: BrowserIncomingMessage }) => entry.message.type === "assistant")?.message
+        .codexMessagePhase,
+    ).toBe("final_answer");
   });
 });

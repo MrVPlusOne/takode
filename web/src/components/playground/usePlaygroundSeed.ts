@@ -538,7 +538,7 @@ export function usePlaygroundSeed() {
       threadKey: "q-963",
       questId: "q-963",
       summary: "dispatch plan is ready",
-      messageId: "playground-thread-status-batch",
+      messageId: "playground-thread-q963-phase-final",
       timestamp: threadStatusTimestamp,
       updatedAt: threadStatusTimestamp,
     };
@@ -827,6 +827,27 @@ export function usePlaygroundSeed() {
           "Approval plan for q-965: run the focused worker, then hold at Code Review for the thumbnail evidence.",
         timestamp: Date.now() - 20_000,
         historyIndex: 15,
+      }),
+      makePlaygroundMessage({
+        id: "playground-thread-q963-phase-final",
+        role: "assistant",
+        content: "The dispatch plan is ready with the requested worker assignment.",
+        timestamp: Date.now() - 10_000,
+        metadata: {
+          codexMessagePhase: "final_answer",
+          threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }],
+          threadStatusMarkers: [playgroundReadyStatus],
+        },
+      }),
+      makePlaygroundMessage({
+        id: "playground-thread-q963-phase-commentary",
+        role: "assistant",
+        content: "Checking the internal worker queue after publishing the dispatch plan.",
+        timestamp: Date.now() - 9_000,
+        metadata: {
+          codexMessagePhase: "commentary",
+          threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }],
+        },
       }),
     ]);
     const questProjectionMessages =
