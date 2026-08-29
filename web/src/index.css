@@ -93,29 +93,26 @@ html, body {
 
 .cc-feed-quest-preview-trigger {
   display: inline-flex;
-  min-width: 28px;
-  min-height: 28px;
-  margin-inline-start: 6px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  min-height: 26px;
+  margin-inline-start: 2px;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 2px 7px;
-  border: 1px solid var(--color-cc-border);
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--color-cc-card) 72%, transparent);
-  color: var(--color-cc-muted);
-  font-family: var(--font-sans-ui, ui-sans-serif, system-ui, sans-serif);
-  font-size: 10px;
-  font-weight: 600;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-cc-quest-link);
   line-height: 1;
-  vertical-align: baseline;
+  vertical-align: middle;
   cursor: pointer;
 }
 
 .cc-feed-quest-preview-trigger:hover {
-  border-color: color-mix(in srgb, var(--color-cc-primary) 45%, var(--color-cc-border));
-  background: var(--color-cc-hover);
-  color: var(--color-cc-fg);
+  background: color-mix(in srgb, var(--color-cc-quest-link) 12%, transparent);
+  color: var(--color-cc-quest-link-hover);
 }
 
 .cc-feed-quest-preview-trigger:focus-visible {
@@ -124,23 +121,25 @@ html, body {
 }
 
 .cc-feed-quest-preview-trigger > svg {
-  width: 12px;
-  height: 12px;
+  width: 15px;
+  height: 15px;
   flex: none;
 }
 
 @media (any-pointer: coarse) {
   .cc-feed-quest-preview-trigger {
+    width: 44px;
+    height: 44px;
     min-width: 44px;
     min-height: 44px;
-    padding-inline: 10px;
   }
 }
 
 .cc-feed-quest-preview-trigger-force-coarse {
+  width: 44px;
+  height: 44px;
   min-width: 44px;
   min-height: 44px;
-  padding-inline: 10px;
 }
 
 .cc-thread-link {

@@ -12,11 +12,11 @@ function domRect(x: number, y: number, width: number, height: number): DOMRect {
 function installDeterministicGeometry() {
   vi.spyOn(Element.prototype, "getClientRects").mockImplementation(function getClientRects(this: Element) {
     const element = this as HTMLElement;
-    if (element.dataset.testid === "playground-inline-quest-preview-geometry-exclusion") {
+    if (element.dataset.previewGeometryExclusion === "true") {
       return [domRect(0, 0, 1200, 800)] as unknown as DOMRectList;
     }
     if (element.dataset.testid === "quest-feed-preview-button") {
-      return [domRect(260, 200, 82, 28)] as unknown as DOMRectList;
+      return [domRect(260, 200, 28, 28)] as unknown as DOMRectList;
     }
     if (element.matches("a.cc-quest-link")) {
       return [domRect(100, 200, 150, 20)] as unknown as DOMRectList;
@@ -86,7 +86,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     vi.unstubAllGlobals();
   });
 
-  it("drives idle, title, no-fit, rich, error, and coarse states through the real component", async () => {
+  it("drives idle, link-title, eye-hover, keyboard, error, and touch states through the real component", async () => {
     render(<PlaygroundInlineQuestPreviewSection />);
 
     const section = screen.getByRole("heading", { name: "Inline Quest Preview" }).closest("section")!;
@@ -94,24 +94,27 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     const controls = within(section).getByRole("group", {
       name: "Inline quest preview fixture state",
     });
-    expect(within(controls).getAllByRole("button")).toHaveLength(6);
+    expect(within(controls).getAllByRole("button")).toHaveLength(7);
+    expect(within(section).getByText(/small adjacent eye/)).toBeInTheDocument();
 
     let live = await within(section).findByTestId("playground-inline-quest-preview-live");
     expect(live).toHaveAttribute("data-preview-fixture-state", "idle");
     expect(within(live).getByRole("link", { name: "q-9410 feedback #4" })).toBeInTheDocument();
-    expect(within(live).getByRole("button", { name: /Preview q-9410 feedback #4/ })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
+    const idleEye = within(live).getByRole("button", {
+      name: /Preview q-9410 feedback #4/,
+    });
+    expect(idleEye).toHaveAttribute("aria-expanded", "false");
+    expect(idleEye.querySelector("svg")).toBeInTheDocument();
+    expect(idleEye).not.toHaveTextContent("Preview");
     expect(screen.queryByRole("dialog")).toBeNull();
 
     fireEvent.click(
       within(controls).getByRole("button", {
-        name: "Show title micro-preview",
+        name: "Show link-focus title preview",
       }),
     );
     const titleLayer = await screen.findByTestId("quest-feed-title-preview");
-    expect(titleLayer).toHaveTextContent("Dock a pointer-inert title beside the stable Preview control");
+    expect(titleLayer).toHaveTextContent("Keep link focus limited to the title-only preview");
     expect(titleLayer).toHaveClass("pointer-events-none");
     expect(titleLayer).toHaveAttribute("aria-hidden", "true");
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -131,14 +134,29 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     expect(within(live).getByRole("button", { name: /Preview q-9412 feedback #4/ })).toBeEnabled();
     expect(within(live).getByRole("status")).toHaveTextContent("optional title layer is omitted");
 
-    fireEvent.click(within(controls).getByRole("button", { name: "Show rich preview" }));
+    const richControl = within(controls).getByRole("button", {
+      name: "Show fine-pointer eye-hover details",
+    });
+    richControl.focus();
+    fireEvent.click(richControl);
     let dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(dialog).toHaveAttribute("data-surface", "popover"));
-    expect(dialog).toHaveTextContent("Open rich quest context only after explicit Preview activation");
+    expect(dialog).toHaveTextContent("Reveal rich quest context from the integrated eye");
     expect(within(dialog).getByRole("link", { name: "Open feedback #4" })).toBeInTheDocument();
     expect(within(dialog).getByRole("link", { name: "Open quest" })).toBeInTheDocument();
+    live = within(section).getByTestId("playground-inline-quest-preview-live");
+    expect(within(live).getByRole("button", { name: /Preview q-9413 feedback #4/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(richControl).toHaveFocus();
+    expect(dialog).not.toHaveFocus();
 
-    fireEvent.click(within(controls).getByRole("button", { name: "Show rich error state" }));
+    fireEvent.click(
+      within(controls).getByRole("button", {
+        name: "Show eye-hover hydration error",
+      }),
+    );
     dialog = await screen.findByRole("dialog");
     await waitFor(() => {
       expect(within(dialog).getByTestId("quest-feed-rich-error")).toHaveTextContent(
@@ -150,7 +168,23 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
 
     fireEvent.click(
       within(controls).getByRole("button", {
-        name: "Show coarse-pointer sheet",
+        name: "Show keyboard-activated eye details",
+      }),
+    );
+    dialog = await screen.findByRole("dialog");
+    await waitFor(() => {
+      expect(dialog).toHaveAttribute("data-surface", "popover");
+      expect(dialog).toHaveFocus();
+    });
+    live = within(section).getByTestId("playground-inline-quest-preview-live");
+    expect(within(live).getByRole("button", { name: /Preview q-9415 feedback #4/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    fireEvent.click(
+      within(controls).getByRole("button", {
+        name: "Show first-touch modal sheet",
       }),
     );
     dialog = await screen.findByRole("dialog");
@@ -159,9 +193,23 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
       expect(dialog).toHaveAttribute("data-surface", "bottom-sheet");
     });
     live = within(section).getByTestId("playground-inline-quest-preview-live");
-    expect(within(live).getByRole("button", { name: /Preview q-9415 feedback #4/ })).toHaveClass(
+    expect(within(live).getByRole("button", { name: /Preview q-9416 feedback #4/ })).toHaveClass(
       "cc-feed-quest-preview-trigger-force-coarse",
     );
+  });
+
+  it("opens rich details from fine-pointer entry on the icon-only eye", async () => {
+    render(<PlaygroundInlineQuestPreviewSection />);
+    const live = await screen.findByTestId("playground-inline-quest-preview-live");
+    const eye = within(live).getByRole("button", { name: /Preview q-9410 feedback #4/ });
+
+    fireEvent.pointerEnter(eye, { pointerType: "mouse", clientX: 280, clientY: 210 });
+
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog).toHaveAttribute("data-surface", "popover"));
+    expect(dialog).toHaveTextContent("Keep exact chat links independently navigable");
+    expect(eye).toHaveAttribute("aria-expanded", "true");
+    expect(dialog).not.toHaveFocus();
   });
 
   it("keeps the real parsed Markdown opt-in explicit and preserves the adjacent non-feed legacy boundary", async () => {
@@ -171,7 +219,11 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     const feed = screen.getByTestId("playground-inline-quest-preview-feed-boundary");
     const legacy = screen.getByTestId("playground-inline-quest-preview-legacy-boundary");
     expect(within(feed).getByRole("link", { name: "q-9410 feedback #4" })).toBeInTheDocument();
-    expect(within(feed).getByRole("button", { name: /Preview q-9410 feedback #4/ })).toBeInTheDocument();
+    const feedEye = within(feed).getByRole("button", {
+      name: /Preview q-9410 feedback #4/,
+    });
+    expect(feedEye.querySelector("svg")).toBeInTheDocument();
+    expect(feedEye).not.toHaveTextContent("Preview");
     expect(within(legacy).getByRole("link", { name: "q-9410 feedback #4" })).toBeInTheDocument();
     expect(within(legacy).queryByRole("button", { name: /Preview q-/ })).toBeNull();
   });
@@ -182,7 +234,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
       name: "Inline quest preview fixture state",
     });
     const richControl = within(controls).getByRole("button", {
-      name: "Show rich preview",
+      name: "Show fine-pointer eye-hover details",
     });
 
     fireEvent.click(richControl);

@@ -41,7 +41,10 @@ function installGeometry() {
       return [DOMRect.fromRect({ x: 100, y: 100, width: 90, height: 20 })] as unknown as DOMRectList;
     }
     if (element.dataset.testid === "quest-feed-preview-button") {
-      return [DOMRect.fromRect({ x: 196, y: 96, width: 72, height: 28 })] as unknown as DOMRectList;
+      return [DOMRect.fromRect({ x: 192, y: 97, width: 26, height: 26 })] as unknown as DOMRectList;
+    }
+    if (element.dataset.producerNearbyControl === "cover") {
+      return [DOMRect.fromRect({ x: 0, y: 0, width: 1200, height: 800 })] as unknown as DOMRectList;
     }
     return [] as unknown as DOMRectList;
   });
@@ -155,5 +158,78 @@ describe("producer-shaped chat feed quest preview", () => {
     expect(within(markdown).getByRole("link", { name: "q-64" })).toBe(anchor);
     expect(removedMarkdownNodes).toEqual([]);
     observer.disconnect();
+  });
+
+  it("keeps producer-rendered eye hover usable around inert and hidden dense controls", async () => {
+    const cached = quest("q-65", "Dense producer detail");
+    useStore.setState({
+      questDetails: new Map([["q-65", cached]]),
+      questDetailEtags: new Map([["q-65", '"detail-v1"']]),
+    });
+    vi.spyOn(api, "getQuestValidated").mockResolvedValue({ status: "not-modified", etag: '"detail-v1"' });
+    render(
+      <>
+        <MessageBubble
+          message={assistantMessage("a3", "Review [q-65](quest:q-65) beside dense controls.")}
+          sessionId="s1"
+          questLinkSurface="chat-feed"
+        />
+        <button type="button" inert tabIndex={-1} data-producer-nearby-control="cover">
+          Inert dense overlay
+        </button>
+        <button
+          type="button"
+          tabIndex={-1}
+          data-producer-nearby-control="cover"
+          style={{ display: "none", opacity: 0, pointerEvents: "none" }}
+        >
+          Hidden dense overlay
+        </button>
+      </>,
+    );
+    const eye = screen.getByRole("button", { name: /Preview q-65/ });
+    expect(eye).toHaveTextContent("");
+    expect(eye.querySelector("svg[aria-hidden='true']")).toBeInTheDocument();
+
+    fireEvent.pointerEnter(eye, { pointerType: "mouse", clientX: 205, clientY: 110 });
+    await act(async () => Promise.resolve());
+
+    const dialog = screen.getByRole("dialog", { name: "Dense producer detail" });
+    expect(dialog).toHaveAttribute("data-open-mode", "hover");
+    expect(dialog).toHaveAttribute("data-surface", "popover");
+    expect(document.activeElement).not.toBe(dialog);
+  });
+
+  it("preserves a visible focusable producer control as a rich-placement exclusion", async () => {
+    const cached = quest("q-66", "Protected producer control");
+    useStore.setState({
+      questDetails: new Map([["q-66", cached]]),
+      questDetailEtags: new Map([["q-66", '"detail-v1"']]),
+    });
+    vi.spyOn(api, "getQuestValidated").mockResolvedValue({ status: "not-modified", etag: '"detail-v1"' });
+    render(
+      <>
+        <MessageBubble
+          message={assistantMessage("a4", "Review [q-66](quest:q-66) beside a focusable control.")}
+          sessionId="s1"
+          questLinkSurface="chat-feed"
+        />
+        <button
+          type="button"
+          aria-disabled="true"
+          data-producer-nearby-control="cover"
+          style={{ pointerEvents: "none" }}
+        >
+          Keyboard-focusable pagination
+        </button>
+      </>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Preview q-66/ }), { detail: 0 });
+    await act(async () => Promise.resolve());
+
+    const dialog = screen.getByRole("dialog", { name: "Protected producer control" });
+    expect(dialog).toHaveAttribute("data-surface", "bottom-sheet");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
   });
 });

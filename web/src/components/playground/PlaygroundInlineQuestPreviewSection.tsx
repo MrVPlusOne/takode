@@ -5,7 +5,7 @@ import { MarkdownContent } from "../MarkdownContent.js";
 import { QuestFeedInlineLink } from "../QuestFeedInlineLink.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
-type PreviewFixtureState = "idle" | "title" | "no-fit" | "rich" | "error" | "coarse";
+type PreviewFixtureState = "idle" | "title" | "no-fit" | "rich" | "error" | "keyboard" | "coarse";
 
 interface PreviewFixtureDefinition {
   id: PreviewFixtureState;
@@ -23,15 +23,16 @@ const PREVIEW_FIXTURES: readonly PreviewFixtureDefinition[] = [
     buttonLabel: "Show idle state",
     questId: "q-9410",
     title: "Keep exact chat links independently navigable",
-    description: "The exact anchor and its adjacent Preview control are both present before any interaction.",
+    description: "The exact anchor and its adjacent icon-only eye are both present before any interaction.",
   },
   {
     id: "title",
-    label: "Title micro-preview",
-    buttonLabel: "Show title micro-preview",
+    label: "Link focus / title",
+    buttonLabel: "Show link-focus title preview",
     questId: "q-9411",
-    title: "Dock a pointer-inert title beside the stable Preview control",
-    description: "Keyboard focus reveals the real title-only layer without opening rich content or moving focus.",
+    title: "Keep link focus limited to the title-only preview",
+    description:
+      "Keyboard focus on the native text link reveals only its pointer-inert title layer; the eye stays separate.",
   },
   {
     id: "no-fit",
@@ -39,33 +40,43 @@ const PREVIEW_FIXTURES: readonly PreviewFixtureDefinition[] = [
     buttonLabel: "Show wrapped no-fit state",
     questId: "q-9412",
     title: "Keep the wrapped exact link usable when no title placement is legal",
-    description: "A deterministic dense-control exclusion makes the real title layer report no-fit and stay hidden.",
+    description:
+      "Visible dense neighboring controls make the real wrapped-link title layer report no-fit and stay hidden.",
   },
   {
     id: "rich",
-    label: "Explicit rich preview",
-    buttonLabel: "Show rich preview",
+    label: "Eye hover / rich",
+    buttonLabel: "Show fine-pointer eye-hover details",
     questId: "q-9413",
-    title: "Open rich quest context only after explicit Preview activation",
-    description: "The real component hydrates a local by-ID fixture and opens its labelled nonmodal desktop surface.",
+    title: "Reveal rich quest context from the integrated eye",
+    description:
+      "Fine-pointer entry on the eye hydrates the local by-ID fixture and opens its labelled nonmodal surface.",
   },
   {
     id: "error",
-    label: "Rich hydration error",
-    buttonLabel: "Show rich error state",
+    label: "Eye hover / error",
+    buttonLabel: "Show eye-hover hydration error",
     questId: "q-9414",
-    title: "Retain exact navigation when rich preview hydration fails",
+    title: "Retain exact navigation when eye details fail to hydrate",
     description:
-      "The local loader rejects deterministically so Retry, direct navigation, and Close remain inspectable.",
+      "Eye hover drives a deterministic loader rejection so Retry, direct navigation, and Close remain inspectable.",
+  },
+  {
+    id: "keyboard",
+    label: "Eye keyboard action",
+    buttonLabel: "Show keyboard-activated eye details",
+    questId: "q-9415",
+    title: "Open rich quest context from an explicit eye keyboard action",
+    description: "The eye receives focus without opening a title layer, then Enter opens the labelled rich surface.",
   },
   {
     id: "coarse",
-    label: "Coarse pointer",
-    buttonLabel: "Show coarse-pointer sheet",
-    questId: "q-9415",
-    title: "Use a separate touch target and an explicitly activated bottom sheet",
+    label: "First touch / sheet",
+    buttonLabel: "Show first-touch modal sheet",
+    questId: "q-9416",
+    title: "Use a separate eye touch target and a modal bottom sheet",
     description:
-      "A synthetic touch activation opens the real modal sheet and forces the 44 px Playground target style.",
+      "A first-touch eye activation opens the real modal sheet and forces the 44 px Playground target style.",
   },
 ] as const;
 
@@ -153,6 +164,32 @@ function dispatchTouchActivation(button: HTMLButtonElement) {
   button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
 }
 
+function dispatchFinePointerEnter(button: HTMLButtonElement) {
+  // React synthesizes onPointerEnter from a bubbling pointerover event.
+  const pointerOver = new Event("pointerover", {
+    bubbles: true,
+    cancelable: true,
+  });
+  Object.defineProperties(pointerOver, {
+    pointerType: { configurable: true, value: "mouse" },
+    clientX: { configurable: true, value: 280 },
+    clientY: { configurable: true, value: 210 },
+  });
+  button.dispatchEvent(pointerOver);
+}
+
+function dispatchKeyboardActivation(button: HTMLButtonElement) {
+  button.focus({ preventScroll: true });
+  button.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Enter",
+    }),
+  );
+  button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 0 }));
+}
+
 function LivePreviewFixture({ state, revision }: { state: PreviewFixtureState; revision: number }) {
   const fixture = PREVIEW_FIXTURE_BY_ID.get(state)!;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -181,7 +218,11 @@ function LivePreviewFixture({ state, revision }: { state: PreviewFixtureState; r
         dispatchTouchActivation(preview);
         return;
       }
-      preview.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
+      if (state === "keyboard") {
+        dispatchKeyboardActivation(preview);
+        return;
+      }
+      dispatchFinePointerEnter(preview);
     });
     return () => {
       cancelled = true;
@@ -193,6 +234,31 @@ function LivePreviewFixture({ state, revision }: { state: PreviewFixtureState; r
     state === "no-fit"
       ? `${fixture.questId} feedback #4 with a deliberately long wrapped exact-target label`
       : `${fixture.questId} feedback #4`;
+  const exactTarget = (
+    <>
+      Review{" "}
+      <QuestFeedInlineLink
+        questId={fixture.questId}
+        feedbackIndex={4}
+        className="cc-quest-link break-words hover:underline"
+        stopPropagation={false}
+        loadQuest={loadQuest}
+      >
+        {wrappedLabel}
+      </QuestFeedInlineLink>
+      <span aria-hidden="true">, then continue with the adjacent prose.</span>
+    </>
+  );
+  const geometryControl = (position: "above" | "before" | "after" | "below") => (
+    <button
+      type="button"
+      tabIndex={-1}
+      data-preview-geometry-exclusion="true"
+      className="h-full w-full rounded border border-dashed border-cc-border bg-cc-bg/80 px-2 py-1 text-[10px] leading-tight text-cc-muted"
+    >
+      Dense neighbor {position}
+    </button>
+  );
 
   return (
     <div
@@ -206,38 +272,25 @@ function LivePreviewFixture({ state, revision }: { state: PreviewFixtureState; r
       <p className="mb-3 text-xs text-cc-muted" data-testid="playground-inline-quest-preview-description">
         {fixture.description}
       </p>
-      <div className={state === "no-fit" ? "max-w-[15rem]" : undefined}>
-        Review{" "}
-        <QuestFeedInlineLink
-          questId={fixture.questId}
-          feedbackIndex={4}
-          className="cc-quest-link break-words hover:underline"
-          stopPropagation={false}
-          loadQuest={loadQuest}
-        >
-          {wrappedLabel}
-        </QuestFeedInlineLink>
-        <span aria-hidden="true">, then continue with the adjacent prose.</span>
-      </div>
+      {state === "no-fit" ? (
+        <div className="grid max-w-[34rem] grid-cols-[5rem_minmax(0,15rem)_5rem] gap-1">
+          <div className="col-span-3">{geometryControl("above")}</div>
+          {geometryControl("before")}
+          <div>{exactTarget}</div>
+          {geometryControl("after")}
+          <div className="col-span-3">{geometryControl("below")}</div>
+        </div>
+      ) : (
+        <div>{exactTarget}</div>
+      )}
       {state === "no-fit" && (
         <div
           role="status"
           data-testid="playground-inline-quest-preview-no-fit-status"
           className="mt-3 rounded-md border border-dashed border-cc-border px-2.5 py-2 text-xs text-cc-muted"
         >
-          No legal title placement: the optional title layer is omitted while the exact anchor and Preview remain live.
+          No legal title placement: the optional title layer is omitted while the exact anchor and eye remain live.
         </div>
-      )}
-      {state === "no-fit" && (
-        <button
-          type="button"
-          inert
-          tabIndex={-1}
-          data-testid="playground-inline-quest-preview-geometry-exclusion"
-          className="pointer-events-none fixed inset-0 -z-10 h-screen w-screen opacity-0"
-        >
-          Deterministic geometry exclusion
-        </button>
       )}
     </div>
   );
@@ -282,7 +335,7 @@ export function PlaygroundInlineQuestPreviewSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Inline Quest Preview"
-        description="Chat-feed-only quest links keep native navigation, add a stable Preview control, and reserve rich content for explicit activation. Select any state to drive the real component deterministically."
+        description="Chat-feed-only quest links keep native navigation, show title-only link hover/focus, and put rich details behind a small adjacent eye. Select any state to drive the real component deterministically."
       >
         <div className="grid gap-4 xl:grid-cols-2">
           <Card label="Deterministic state controls">
@@ -334,7 +387,7 @@ export function PlaygroundInlineQuestPreviewSection() {
             <Card label="Scope boundary — real parsed Markdown">
               <ScopeBoundaryFixture />
               <p className="mt-3 text-xs text-cc-muted">
-                Only the explicit chat-feed producer adds Preview. The same shared Markdown link keeps legacy behavior
+                Only the explicit chat-feed producer adds the eye. The same shared Markdown link keeps legacy behavior
                 in the adjacent non-feed surface.
               </p>
             </Card>
