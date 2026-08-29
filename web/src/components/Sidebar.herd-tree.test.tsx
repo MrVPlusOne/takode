@@ -369,6 +369,54 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
     expect(screen.getByRole("button", { name: "Clear session search" })).toBeInTheDocument();
   });
 
+  it("keeps an unselected timer-backed unread session row consistent with its group and hover counts", async () => {
+    // The group summary and session row must consume the same canonical
+    // attention projection. Otherwise a scheduled timer can mask the row's
+    // blue unread marker until selecting the session hydrates more state.
+    const sessionId = "unread-timer-leader";
+    mockState = createMockState({
+      sessions: new Map([[sessionId, makeSession(sessionId, { model: "unread-timer-model" })]]),
+      sdkSessions: [
+        makeSdkSession(sessionId, {
+          isOrchestrator: true,
+          sessionNum: 2522,
+          cliConnected: true,
+          pendingTimerCount: 1,
+          notificationUrgency: "review",
+          activeNotificationCount: 3,
+          activeReviewNotificationCount: 3,
+          notificationStatusVersion: 12,
+          notificationStatusUpdatedAt: 12_000,
+          leaderOpenThreadTabs: {
+            version: 1,
+            orderedOpenThreadKeys: ["q-1964", "q-1969", "q-1977"],
+            closedThreadTombstones: [],
+            updatedAt: 12_000,
+          },
+        }),
+      ],
+      sessionNames: new Map([[sessionId, "Unread Timer Leader"]]),
+      // Model a fresh browser/reconnect that only has the compact server
+      // summary. The row must not wait for selection-specific hydration.
+      sessionAttention: new Map(),
+      sessionNotifications: new Map(),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map([[sessionId, "default"]]),
+    });
+
+    render(<Sidebar />);
+
+    expect(screen.getByTestId("status-count-unread")).toHaveTextContent("1");
+    const row = screen.getByText("Unread Timer Leader").closest("button")!;
+    expect(within(row).getByTestId("session-status-dot")).toHaveAttribute("data-status", "completed_unread");
+    expect(within(row).queryByTestId("session-status-timer-icon")).not.toBeInTheDocument();
+    fireEvent.mouseEnter(row);
+    await waitFor(() => {
+      expect(screen.getByTestId("session-hover-attention-status")).toHaveTextContent("3 unread conversations");
+    });
+    expect(mockConnectSession).not.toHaveBeenCalledWith(sessionId);
+  });
+
   it("places group sortables in the group context and updates group order on group drag", async () => {
     mockState = createMockState({
       sessions: new Map([

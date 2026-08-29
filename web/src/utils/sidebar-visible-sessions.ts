@@ -84,6 +84,13 @@ function hasOpenBlueThreadTab(
   });
 }
 
+function hasFreshActiveReviewSummary(session: SdkSessionInfo | undefined): boolean {
+  const hasFreshStatus =
+    session?.notificationStatusVersion !== undefined || session?.notificationStatusUpdatedAt !== undefined;
+  const activeReviewCount = session?.activeReviewNotificationCount ?? session?.activeNotificationCount ?? 0;
+  return hasFreshStatus && session?.notificationUrgency === "review" && activeReviewCount > 0;
+}
+
 export function deriveSessionSetAttention({
   sessionAttention,
   sdkSessions,
@@ -97,7 +104,11 @@ export function deriveSessionSetAttention({
 }): Map<string, SessionAttentionReason> {
   const sdkById = new Map(sdkSessions.map((session) => [session.sessionId, session]));
   const result = new Map<string, SessionAttentionReason>();
-  const sessionIds = new Set<string>([...sessionAttention.keys(), ...(sessionNotifications?.keys() ?? [])]);
+  const sessionIds = new Set<string>([
+    ...sdkById.keys(),
+    ...sessionAttention.keys(),
+    ...(sessionNotifications?.keys() ?? []),
+  ]);
   for (const sessionId of sessionIds) {
     const attention = sessionAttention.get(sessionId) ?? null;
     const sdkSession = sdkById.get(sessionId);
@@ -115,7 +126,14 @@ export function deriveSessionSetAttention({
     });
     const nextAttention =
       effectiveStatus?.urgency === "needs-input" ? "action" : effectiveStatus?.urgency === "review" ? "review" : null;
-    if (nextAttention === "review" && sdkSession?.isOrchestrator && !sessionNotifications?.has(sessionId)) {
+    if (
+      nextAttention === "review" &&
+      sdkSession?.isOrchestrator &&
+      !sessionNotifications?.has(sessionId) &&
+      !hasFreshActiveReviewSummary(sdkSession)
+    ) {
+      // Legacy raw attention has no discoverable-target proof until the inbox
+      // loads. A fresh active server summary is already filtered to open tabs.
       result.set(
         sessionId,
         hasOpenBlueThreadTab(sdkSession, sessionAttentionRecords?.get(sessionId) ?? []) ? "review" : null,

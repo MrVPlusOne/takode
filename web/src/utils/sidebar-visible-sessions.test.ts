@@ -141,6 +141,53 @@ describe("buildSidebarVisibleSessions", () => {
     expect(result.treeViewGroups[0]?.unreadCount).toBe(1);
   });
 
+  it("uses a fresh active session summary before attention or inbox hydration", () => {
+    // Reconnect and multi-browser session lists can deliver the canonical
+    // summary before this browser has raw attention or a per-session inbox.
+    const sessions = new Map<string, SessionState>([["leader", makeSessionState("leader")]]);
+    const sdkSessions: SdkSessionInfo[] = [
+      makeSdkSession("leader", {
+        isOrchestrator: true,
+        cliConnected: true,
+        notificationUrgency: "review",
+        activeNotificationCount: 3,
+        activeReviewNotificationCount: 3,
+        notificationStatusVersion: 12,
+        notificationStatusUpdatedAt: 12_000,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-1964", "q-1969", "q-1977"],
+          closedThreadTombstones: [],
+          updatedAt: 12_000,
+        },
+      }),
+    ];
+
+    const result = buildSidebarVisibleSessions({
+      sessions,
+      sdkSessions,
+      cliConnected: new Map(),
+      cliDisconnectReason: new Map(),
+      sessionStatus: new Map(),
+      pendingPermissions: new Map(),
+      askPermission: new Map(),
+      diffFileStats: new Map(),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map(),
+      treeNodeOrder: new Map(),
+      collapsedTreeGroups: new Set(),
+      expandedHerdNodes: new Set(),
+      sessionAttention: new Map(),
+      sessionNotifications: new Map(),
+      sessionAttentionRecords: new Map(),
+      sessionSortMode: "created",
+      countUserPermissions: () => 0,
+    });
+
+    expect(result.sessionSetAttention.get("leader")).toBe("review");
+    expect(result.treeViewGroups[0]?.unreadCount).toBe(1);
+  });
+
   it("treats directly closed unread thread tabs as read for the session blue dot", () => {
     const sessions = new Map<string, SessionState>([["leader", makeSessionState("leader")]]);
     const sdkSessions: SdkSessionInfo[] = [

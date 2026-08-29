@@ -1381,6 +1381,7 @@ export function Sidebar() {
                           overflowExpanded={expandedOverflowGroups.has(group.id)}
                           onToggleOverflow={toggleGroupOverflow}
                           onSetVisibleSessionLimit={setGroupVisibleLimit}
+                          sessionAttention={sessionSetAttention}
                           herdGroupBadgeThemes={herdGroupBadgeThemes}
                           bulkSelectionActive={bulkSelectionGroupId === group.id}
                           bulkSelectedSessionIds={bulkSelectedSessionIds}

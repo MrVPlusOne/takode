@@ -356,6 +356,7 @@ export function maybeBroadcastGlobalSessionActivityUpdate(
     msg.type !== "permissions_cleared" &&
     msg.type !== "board_updated" &&
     msg.type !== "status_change" &&
+    msg.type !== "notification_update" &&
     !(msg.type === "session_update" && ("attentionReason" in msg.session || "lastReadAt" in msg.session))
   ) {
     return;
