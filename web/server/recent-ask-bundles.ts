@@ -6,6 +6,7 @@ import type {
 } from "./session-types.js";
 import { isActualHumanUserMessage } from "./user-message-classification.js";
 import { MAIN_THREAD_KEY, normalizeSelectedFeedThreadKey } from "../shared/thread-window.js";
+import { authoritativeMessageOwner, type AuthoritativeMessageOwner } from "./authoritative-message-owner.js";
 
 export const RECENT_ASK_BUNDLE_LIMIT = 50;
 const MEMBER_PREVIEW_LIMIT = 520;
@@ -88,6 +89,7 @@ export interface RecentAskSessionDocument {
   userMessageIdsThisTurn?: ReadonlyArray<number>;
   queuedTurnUserMessageIds?: ReadonlyArray<ReadonlyArray<number>>;
   pendingCodexInputs?: ReadonlyArray<PendingCodexInput>;
+  isOrchestrator: boolean;
 }
 
 export interface BuildRecentAskBundlesInput {
@@ -161,32 +163,60 @@ interface MutableBundle extends RecentAskBundle {
   terminalStatus?: RecentAskBundleStatus;
 }
 
+interface RecentDestinationProjection {
+  bundle: RecentAskBundle;
+  statusFacets: Set<RecentAskBundleStatus>;
+}
+
+interface StatusEvidence {
+  status: RecentAskBundleStatus;
+  timestamp: number;
+  statusDetail?: string;
+  response?: RecentAskResponsePreview;
+}
+
+const STATUS_BADGE_PRIORITY: Record<RecentAskBundleStatus, number> = {
+  needs_input: 120,
+  thread_needs_input: 119,
+  response_unread: 110,
+  failed: 100,
+  interrupted: 90,
+  retrying: 80,
+  working: 70,
+  queued: 60,
+  awaiting_response: 50,
+  completed: 40,
+  responded: 30,
+  caught_up: 20,
+};
+
 export function buildRecentAskBundles(input: BuildRecentAskBundlesInput): RecentAskBundlesResponse {
   const startedAt = Date.now();
   const limit = clampInteger(input.limit, RECENT_ASK_BUNDLE_LIMIT, 1, RECENT_ASK_BUNDLE_LIMIT);
-  const query = (input.query ?? "").trim();
   const filter = normalizeFilter(input.filter);
-  const allGroups = input.documents
-    .flatMap((document) => buildSessionBundles(document))
-    .sort(compareBundleRecency)
-    .slice(0, limit)
-    .map((bundle) => enrichQuest(bundle, input.quests));
+  const recentDestinations = input.documents
+    .flatMap((document) => buildSessionDestinations(document))
+    .map((destination) => enrichDestination(destination, input.quests))
+    .sort((left, right) => compareBundleRecency(left.bundle, right.bundle))
+    .slice(0, limit);
+  const allGroups = recentDestinations.map((destination) => destination.bundle);
   const sessionSpaces = summarizeSessionSpaces(allGroups);
-  const filtered = allGroups.filter((group) => {
-    if (input.sessionSpaceId && group.sessionSpaceId !== input.sessionSpaceId) return false;
-    if (!matchesFilter(group.status, filter)) return false;
-    return matchesQuery(group, query);
-  });
+  const filtered = recentDestinations
+    .filter((destination) => {
+      if (input.sessionSpaceId && destination.bundle.sessionSpaceId !== input.sessionSpaceId) return false;
+      return matchesFilter(destination.statusFacets, filter);
+    })
+    .map((destination) => destination.bundle);
 
   return {
     groups: filtered,
     totalMatches: filtered.length,
     totalRecentGroups: allGroups.length,
     limit,
-    query,
+    query: "",
     filter,
     sessionSpaceId: input.sessionSpaceId || null,
-    attentionCount: allGroups.filter((group) => isAttentionStatus(group.status)).length,
+    attentionCount: recentDestinations.filter((destination) => hasAttentionFacet(destination.statusFacets)).length,
     sessionSpaces,
     ...(input.omittedSearchOnlySessions
       ? {
@@ -198,16 +228,167 @@ export function buildRecentAskBundles(input: BuildRecentAskBundlesInput): Recent
   };
 }
 
-function buildSessionBundles(document: RecentAskSessionDocument): RecentAskBundle[] {
+function buildSessionDestinations(document: RecentAskSessionDocument): RecentDestinationProjection[] {
+  const bundles = buildSessionBundles(document);
+  const byOwner = new Map<string, MutableBundle[]>();
+  for (const bundle of bundles) {
+    const existing = byOwner.get(bundle.ownerThreadKey) ?? [];
+    existing.push(bundle);
+    byOwner.set(bundle.ownerThreadKey, existing);
+  }
+
+  return [...byOwner.values()].map((ownerBundles) => collapseDestination(document, ownerBundles));
+}
+
+function collapseDestination(
+  document: RecentAskSessionDocument,
+  ownerBundles: MutableBundle[],
+): RecentDestinationProjection {
+  const latestBundle = ownerBundles.reduce((latest, candidate) =>
+    latestMember(candidate).historyIndex > latestMember(latest).historyIndex ? candidate : latest,
+  );
+  const newestMember = latestMember(latestBundle);
+  const evidence: StatusEvidence[] = [statusEvidenceFromBundle(latestBundle, document.notifications ?? [])];
+
+  appendNotificationEvidence(document, latestBundle.ownerThreadKey, newestMember.timestamp, ownerBundles, evidence);
+
+  const primary = evidence.reduce((current, candidate) =>
+    compareStatusEvidence(candidate, current) > 0 ? candidate : current,
+  );
+  const statusFacets = new Set(evidence.map((item) => item.status));
+  const bundle: RecentAskBundle = {
+    ...latestBundle,
+    id: `${document.sessionId}:${latestBundle.ownerThreadKey}`,
+    firstAskedAt: newestMember.timestamp,
+    lastAskedAt: newestMember.timestamp,
+    members: [newestMember],
+    status: primary.status,
+  };
+
+  if (primary.statusDetail) bundle.statusDetail = primary.statusDetail;
+  else delete bundle.statusDetail;
+  const primaryResponse = primary.response ?? (!isAttentionStatus(primary.status) ? latestBundle.response : undefined);
+  if (primaryResponse) bundle.response = primaryResponse;
+  else delete bundle.response;
+
+  return { bundle: stripMutableFields(bundle as MutableBundle), statusFacets };
+}
+
+function latestMember(bundle: RecentAskBundle): RecentAskMember {
+  return bundle.members.reduce((latest, candidate) =>
+    candidate.historyIndex > latest.historyIndex ? candidate : latest,
+  );
+}
+
+function statusEvidenceFromBundle(
+  bundle: RecentAskBundle,
+  notifications: ReadonlyArray<SessionNotification>,
+): StatusEvidence {
+  const status = hasResolvedReceipt(bundle, notifications) ? "caught_up" : bundle.status;
+  return {
+    status,
+    timestamp: bundle.lastAskedAt,
+    ...(bundle.statusDetail ? { statusDetail: bundle.statusDetail } : {}),
+    ...(bundle.response ? { response: bundle.response } : {}),
+  };
+}
+
+function hasResolvedReceipt(bundle: RecentAskBundle, notifications: ReadonlyArray<SessionNotification>): boolean {
+  if (bundle.status !== "responded" || !bundle.response) return false;
+  return notifications.some(
+    (notification) =>
+      notification.done &&
+      notification.messageId === bundle.response?.messageId &&
+      (notification.category === "review" || notification.category === "needs-input"),
+  );
+}
+
+function appendNotificationEvidence(
+  document: RecentAskSessionDocument,
+  ownerThreadKey: string,
+  newestMemberTimestamp: number,
+  ownerBundles: RecentAskBundle[],
+  evidence: StatusEvidence[],
+): void {
+  for (const notification of document.notifications ?? []) {
+    if (
+      notification.done ||
+      notification.muted ||
+      notificationOwner(document, notification).threadKey !== ownerThreadKey
+    ) {
+      continue;
+    }
+    const response = responseForNotification(document, ownerBundles, notification.messageId, ownerThreadKey);
+    if (notification.category === "needs-input") {
+      if (!response && safeTimestamp(notification.timestamp, 0) < newestMemberTimestamp) continue;
+      evidence.push({
+        status: response ? "needs_input" : "thread_needs_input",
+        timestamp: safeTimestamp(notification.timestamp, 0),
+        ...(notification.summary ? { statusDetail: notification.summary } : {}),
+        ...(response ? { response } : {}),
+      });
+    } else if (notification.category === "review" && response) {
+      evidence.push({
+        status: "response_unread",
+        timestamp: safeTimestamp(notification.timestamp, 0),
+        ...(notification.summary ? { statusDetail: notification.summary } : {}),
+        response,
+      });
+    }
+  }
+}
+
+function responseForNotification(
+  document: RecentAskSessionDocument,
+  ownerBundles: RecentAskBundle[],
+  messageId: string | null,
+  ownerThreadKey: string,
+): RecentAskResponsePreview | undefined {
+  if (!messageId) return undefined;
+  const bundled = ownerBundles.find((bundle) => bundle.response?.messageId === messageId)?.response;
+  if (bundled) return bundled;
+  for (let index = document.messageHistory.length - 1; index >= 0; index -= 1) {
+    const message = document.messageHistory[index]!;
+    if (visibleResponseMessageId(message) !== messageId) continue;
+    if (messageOwner(document, message).threadKey !== ownerThreadKey) return undefined;
+    return visibleResponse(message, index) ?? undefined;
+  }
+  return undefined;
+}
+
+function visibleResponseMessageId(message: BrowserIncomingMessage): string | undefined {
+  if (message.type === "leader_user_message") return message.id;
+  if (message.type === "assistant" && message.parent_tool_use_id == null) return message.message.id;
+  return undefined;
+}
+
+function compareStatusEvidence(left: StatusEvidence, right: StatusEvidence): number {
+  return (
+    STATUS_BADGE_PRIORITY[left.status] - STATUS_BADGE_PRIORITY[right.status] ||
+    left.timestamp - right.timestamp ||
+    left.status.localeCompare(right.status)
+  );
+}
+
+function enrichDestination(
+  destination: RecentDestinationProjection,
+  quests: ReadonlyMap<string, RecentAskQuestSummary> | undefined,
+): RecentDestinationProjection {
+  const bundle = enrichQuest(destination.bundle, quests);
+  destination.statusFacets.add(bundle.status);
+  return { bundle, statusFacets: destination.statusFacets };
+}
+
+function buildSessionBundles(document: RecentAskSessionDocument): MutableBundle[] {
   const groups: MutableBundle[] = [];
   const lastBundleByThread = new Map<string, MutableBundle>();
   let open: MutableBundle | null = null;
 
-  const startIndex = recentHistoryStartIndex(document.messageHistory, RECENT_ASK_BUNDLE_LIMIT);
+  const startIndex = recentHistoryStartIndex(document, RECENT_ASK_BUNDLE_LIMIT);
   for (let index = startIndex; index < document.messageHistory.length; index += 1) {
     const message = document.messageHistory[index]!;
     if (isActualHumanUserMessage(message)) {
-      const owner = ownerRoute(message);
+      const owner = messageOwner(document, message);
       const messageId = message.id;
       if (!messageId) continue;
       const humanMessage = { ...message, id: messageId };
@@ -226,7 +407,7 @@ function buildSessionBundles(document: RecentAskSessionDocument): RecentAskBundl
 
     const response = visibleResponse(message, index);
     if (response) {
-      const owner = ownerRoute(message);
+      const owner = messageOwner(document, message);
       const target: MutableBundle | undefined =
         open && open.ownerThreadKey === owner.threadKey ? open : lastBundleByThread.get(owner.threadKey);
       if (target) {
@@ -241,7 +422,8 @@ function buildSessionBundles(document: RecentAskSessionDocument): RecentAskBundl
     if (message.type !== "result") continue;
     const retryOwnerId = message.data.codex_provider_retry?.ownerId;
     const openBundle = open as MutableBundle | null;
-    const resultRoute = message.threadKey || message.questId ? ownerRoute(message) : null;
+    const resultRoute =
+      message.threadKey || message.questId || message.threadRefs?.length ? messageOwner(document, message) : null;
     const target: MutableBundle | null =
       (retryOwnerId
         ? (groups.findLast((group) => group.members.some((member) => member.messageId === retryOwnerId)) ?? null)
@@ -274,8 +456,7 @@ function buildSessionBundles(document: RecentAskSessionDocument): RecentAskBundl
   }
 
   applyLiveStatuses(groups, document);
-  applyNotificationStatuses(groups, document.notifications ?? []);
-  return groups.map(stripMutableFields);
+  return groups;
 }
 
 function createBundle(
@@ -310,7 +491,7 @@ function memberFromMessage(
   message: Extract<BrowserIncomingMessage, { type: "user_message" }> & { id: string },
   historyIndex: number,
 ): RecentAskMember {
-  const text = (message.content || "").trim();
+  const text = message.content || "";
   return {
     messageId: message.id,
     historyIndex,
@@ -357,7 +538,7 @@ function applyLiveStatuses(groups: MutableBundle[], document: RecentAskSessionDo
   const queuedIndexes = new Set((document.queuedTurnUserMessageIds ?? []).flatMap((indexes) => [...indexes]));
   const pendingIds = new Set((document.pendingCodexInputs ?? []).map((input) => input.id));
   const activeRoute = document.activeTurnRoute?.threadKey
-    ? normalizeSelectedFeedThreadKey(document.activeTurnRoute.threadKey)
+    ? messageOwner(document, document.activeTurnRoute).threadKey
     : null;
 
   for (const group of groups) {
@@ -377,68 +558,20 @@ function applyLiveStatuses(groups: MutableBundle[], document: RecentAskSessionDo
   }
 }
 
-function applyNotificationStatuses(groups: MutableBundle[], notifications: ReadonlyArray<SessionNotification>): void {
-  const notificationByMessageId = new Map<string, SessionNotification[]>();
-  for (const notification of notifications) {
-    if (!notification.messageId) continue;
-    const existing = notificationByMessageId.get(notification.messageId) ?? [];
-    existing.push(notification);
-    notificationByMessageId.set(notification.messageId, existing);
-  }
-
-  for (const group of groups) {
-    const responseId = group.response?.messageId;
-    const exact = responseId ? (notificationByMessageId.get(responseId) ?? []) : [];
-    const activeNeedsInput = exact.find(
-      (notification) => notification.category === "needs-input" && !notification.done,
-    );
-    if (activeNeedsInput) {
-      group.status = "needs_input";
-      group.statusDetail = activeNeedsInput.summary || undefined;
-      continue;
-    }
-    const unreadReview = exact.find((notification) => notification.category === "review" && !notification.done);
-    if (unreadReview && group.status !== "failed" && group.status !== "interrupted") {
-      group.status = "response_unread";
-      group.statusDetail = unreadReview.summary || undefined;
-      continue;
-    }
-    const resolvedReceipt = exact.find(
-      (notification) =>
-        (notification.category === "review" || notification.category === "needs-input") && notification.done,
-    );
-    if (resolvedReceipt && group.status === "responded") group.status = "caught_up";
-  }
-
-  const latestByThread = new Map<string, MutableBundle>();
-  for (const group of groups) {
-    const current = latestByThread.get(group.ownerThreadKey);
-    if (!current || group.lastAskedAt > current.lastAskedAt) latestByThread.set(group.ownerThreadKey, group);
-  }
-  const exactResponseIds = new Set(groups.flatMap((group) => (group.response ? [group.response.messageId] : [])));
-  for (const notification of notifications) {
-    if (notification.done || notification.category !== "needs-input") continue;
-    if (notification.messageId && exactResponseIds.has(notification.messageId)) continue;
-    const route = normalizeNotificationThread(notification);
-    const group = latestByThread.get(route);
-    if (!group || notification.timestamp < group.lastAskedAt || group.status === "needs_input") continue;
-    group.status = "thread_needs_input";
-    group.statusDetail = notification.summary || undefined;
-  }
+function messageOwner(
+  document: RecentAskSessionDocument,
+  message: Pick<BrowserIncomingMessage, "threadKey" | "questId" | "threadRefs">,
+): AuthoritativeMessageOwner {
+  if (!document.isOrchestrator) return { threadKey: MAIN_THREAD_KEY };
+  return authoritativeMessageOwner(message);
 }
 
-function ownerRoute(message: BrowserIncomingMessage): { threadKey: string; questId?: string } {
-  const attachedRef = [...(message.threadRefs ?? [])]
-    .filter((ref) => ref.source !== "backfill")
-    .sort((left, right) => (right.attachedAt ?? 0) - (left.attachedAt ?? 0))[0];
-  const rawThreadKey = attachedRef?.threadKey || message.threadKey || message.questId || MAIN_THREAD_KEY;
-  const threadKey = normalizeSelectedFeedThreadKey(rawThreadKey) || MAIN_THREAD_KEY;
-  const questId = attachedRef?.questId || message.questId || (threadKey.startsWith("q-") ? threadKey : undefined);
-  return { threadKey, ...(questId ? { questId } : {}) };
-}
-
-function normalizeNotificationThread(notification: SessionNotification): string {
-  return normalizeSelectedFeedThreadKey(notification.threadKey || notification.questId || MAIN_THREAD_KEY);
+function notificationOwner(
+  document: RecentAskSessionDocument,
+  notification: Pick<SessionNotification, "threadKey" | "questId" | "threadRefs">,
+): AuthoritativeMessageOwner {
+  if (!document.isOrchestrator) return { threadKey: MAIN_THREAD_KEY };
+  return authoritativeMessageOwner(notification);
 }
 
 function enrichQuest(
@@ -463,26 +596,13 @@ function stripMutableFields(bundle: MutableBundle): RecentAskBundle {
   return result;
 }
 
-function matchesQuery(bundle: RecentAskBundle, query: string): boolean {
-  if (!query) return true;
-  const normalized = query.toLocaleLowerCase();
-  return [
-    bundle.sessionName,
-    bundle.sessionSpaceName,
-    bundle.ownerThreadKey,
-    bundle.questId ?? "",
-    bundle.questTitle ?? "",
-    bundle.statusDetail ?? "",
-    ...bundle.members.map((member) => member.preview),
-    bundle.response?.preview ?? "",
-  ].some((value) => value.toLocaleLowerCase().includes(normalized));
-}
-
-function matchesFilter(status: RecentAskBundleStatus, filter: RecentAskFilter): boolean {
+function matchesFilter(statuses: ReadonlySet<RecentAskBundleStatus>, filter: RecentAskFilter): boolean {
   if (filter === "all") return true;
-  if (filter === "needs_me") return status === "needs_input" || status === "thread_needs_input";
-  if (filter === "new_response") return status === "response_unread";
-  return status === "awaiting_response" || status === "queued" || status === "working" || status === "retrying";
+  if (filter === "needs_me") return statuses.has("needs_input") || statuses.has("thread_needs_input");
+  if (filter === "new_response") return statuses.has("response_unread");
+  return ["awaiting_response", "queued", "working", "retrying"].some((status) =>
+    statuses.has(status as RecentAskBundleStatus),
+  );
 }
 
 function summarizeSessionSpaces(groups: RecentAskBundle[]): Array<{ id: string; name: string; count: number }> {
@@ -528,37 +648,29 @@ function isHigherPriorityThanCompleted(status: RecentAskBundleStatus): boolean {
   );
 }
 
-function recentHistoryStartIndex(history: ReadonlyArray<BrowserIncomingMessage>, maxGroups: number): number {
-  let groupCount = 0;
-  let newerHumanThread: string | null = null;
-  let terminalBoundaryBeforeNewerHuman = false;
-  const responseBoundaryThreads = new Set<string>();
+function recentHistoryStartIndex(document: RecentAskSessionDocument, maxDestinations: number): number {
+  if (!document.isOrchestrator) {
+    for (let index = document.messageHistory.length - 1; index >= 0; index -= 1) {
+      const message = document.messageHistory[index]!;
+      if (isActualHumanUserMessage(message) && message.id) return index;
+    }
+    return document.messageHistory.length;
+  }
 
-  for (let index = history.length - 1; index >= 0; index -= 1) {
-    const message = history[index]!;
-    if (isActualHumanUserMessage(message)) {
-      const threadKey = ownerRoute(message).threadKey;
-      if (
-        newerHumanThread === null ||
-        terminalBoundaryBeforeNewerHuman ||
-        responseBoundaryThreads.has(threadKey) ||
-        threadKey !== newerHumanThread
-      ) {
-        groupCount += 1;
-        if (groupCount > maxGroups) return index + 1;
-      }
-      newerHumanThread = threadKey;
-      terminalBoundaryBeforeNewerHuman = message.recentAskBoundaryBefore === "visible_response";
-      responseBoundaryThreads.delete(threadKey);
-      continue;
-    }
-    if (visibleResponse(message, index)) {
-      responseBoundaryThreads.add(ownerRoute(message).threadKey);
-      continue;
-    }
-    if (message.type === "result" && !message.data.codex_provider_retry) terminalBoundaryBeforeNewerHuman = true;
+  const recentDestinations = new Set<string>();
+  for (let index = document.messageHistory.length - 1; index >= 0; index -= 1) {
+    const message = document.messageHistory[index]!;
+    if (!isActualHumanUserMessage(message) || !message.id) continue;
+    const ownerThreadKey = messageOwner(document, message).threadKey;
+    if (recentDestinations.has(ownerThreadKey)) continue;
+    if (recentDestinations.size >= maxDestinations) return index + 1;
+    recentDestinations.add(ownerThreadKey);
   }
   return 0;
+}
+
+function hasAttentionFacet(statuses: ReadonlySet<RecentAskBundleStatus>): boolean {
+  return [...statuses].some(isAttentionStatus);
 }
 
 function safeTimestamp(value: unknown, fallback: number): number {

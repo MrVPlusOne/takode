@@ -6,7 +6,7 @@ import { RecentAskBundleResult } from "./RecentAskBundleResult.js";
 
 describe("RecentAskBundleResult", () => {
   it("keeps math delimiters literal in the intentional exact-preview surface", () => {
-    // Recent asks is a compact source preview, not a shared Markdown surface.
+    // A Recent destination is a compact source preview, not a shared Markdown surface.
     // Adding KaTeX to MarkdownContent must not silently change this boundary.
     const preview = "Compare $x_i$ with \\(y_i\\) and \\[z_i\\].";
     const bundle: RecentAskBundle = {
@@ -44,6 +44,8 @@ describe("RecentAskBundleResult", () => {
     );
 
     expect(screen.getByTestId("recent-ask-text").textContent).toBe(preview);
+    expect(screen.getByRole("button", { name: "Open newest message in #42 Math session Main" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Open ask/ })).toBeNull();
     expect(container.querySelector(".katex")).toBeNull();
   });
 });

@@ -230,14 +230,6 @@ function recentAskResponse(overrides: Partial<RecentAskBundlesResponse> = {}): R
         status: "working",
         members: [
           {
-            messageId: "u-recent-1",
-            historyIndex: 7,
-            timestamp: now - 20_000,
-            preview: "Build the Recent asks modal",
-            truncated: false,
-            imageCount: 0,
-          },
-          {
             messageId: "u-recent-2",
             historyIndex: 8,
             timestamp: now - 10_000,
@@ -514,33 +506,163 @@ describe("UniversalSearchOverlay", () => {
     expect(localStorage.getItem("server-a:cc-universal-search-query")).toBe("alpha updated");
   });
 
-  it("defaults to current-session message mode and lists recent user messages for an empty query", async () => {
+  it("defaults to query-free Recent browsing and announces mode changes politely", async () => {
     renderOverlay();
 
-    expect(await screen.findByText("Recent user request about universal search")).toBeInTheDocument();
-    expect(screen.getByText("Older user request about search controls")).toBeInTheDocument();
-    expect(screen.queryByText("Assistant note about the search overlay")).not.toBeInTheDocument();
-    await waitFor(() => expect(mockSearchSessionMessages).toHaveBeenCalled());
-    expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
-      "s-new",
-      expect.objectContaining({
-        query: "",
-        scope: "session",
-        threadKey: undefined,
-        filters: { user: true, assistant: false, event: false },
-        limit: 20,
-      }),
+    const recentButton = screen.getByRole("button", { name: "Recent" });
+    expect(recentButton).toHaveAttribute("aria-pressed", "true");
+    expect(recentButton).toHaveAttribute("title", "Browse recent conversations");
+    expect(screen.getByRole("searchbox")).toHaveAttribute(
+      "placeholder",
+      "Browse recent conversations or search this session's messages...",
     );
+    expect(await screen.findByText("Keep every correction independently navigable")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Search this session's messages" })).toBeInTheDocument();
+    expect(screen.getByText("Recent mode")).toHaveAttribute("aria-live", "polite");
+    await waitFor(() =>
+      expect(mockFetchRecentAskBundles).toHaveBeenLastCalledWith(
+        expect.objectContaining({ filter: "all", sessionSpaceId: null }),
+      ),
+    );
+    expect(mockFetchRecentAskBundles.mock.calls.at(-1)?.[0]).not.toHaveProperty("query");
+    expect(mockSearchSessionMessages).not.toHaveBeenCalled();
     expect(mockListQuestPage).not.toHaveBeenCalled();
   });
 
-  it("keeps Message mode disabled and falls back to Quest mode when there is no current session context", async () => {
+  it("keeps Messages selectable without a current session and explains the required context", async () => {
     renderOverlay({ currentSessionId: null, messages: [] });
 
-    expect(screen.getByRole("button", { name: "Sessions" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Messages" })).toBeDisabled();
+    expect(screen.getByRole("searchbox")).toHaveAttribute("placeholder", "Browse recent conversations...");
+    expect(await screen.findByRole("button", { name: "Open Messages" })).toBeInTheDocument();
+    const messagesButton = screen.getByRole("button", { name: "Messages" });
+    expect(messagesButton).toBeEnabled();
+    fireEvent.click(messagesButton);
+
+    expect(messagesButton).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Current session required")).toBeInTheDocument();
+    expect(screen.getByText(/Open a session to search its messages/)).toBeInTheDocument();
+    expect(mockSearchSessionMessages).not.toHaveBeenCalled();
+  });
+
+  it("switches a Recent-origin query to Messages immediately and restores the browse state when cleared", async () => {
+    // Recent filters and geometry belong to the browse flow, so a temporary message search must not erase or resize them.
+    renderOverlay();
+    await screen.findByTestId("recent-ask-bundle");
+    fireEvent.click(screen.getByRole("button", { name: "Needs me" }));
+    const sessionSpace = await screen.findByRole("combobox", {
+      name: "Filter recent conversations by Session Space",
+    });
+    fireEvent.change(sessionSpace, { target: { value: "research" } });
+    await waitFor(() =>
+      expect(mockFetchRecentAskBundles).toHaveBeenLastCalledWith(
+        expect.objectContaining({ filter: "needs_me", sessionSpaceId: "research" }),
+      ),
+    );
+    mockSearchSessionMessages.mockClear();
+
+    const input = screen.getByRole("searchbox");
+    input.focus();
+    fireEvent.change(input, { target: { value: "universal" } });
+
+    expect(screen.getByRole("button", { name: "Messages" })).toHaveAttribute("aria-pressed", "true");
+    expect(input).toHaveFocus();
+    expect(screen.getByRole("dialog", { name: "Universal Search" })).toHaveClass("max-w-5xl");
+    expect(screen.getByText("Messages mode")).toHaveAttribute("aria-live", "polite");
+    expect(screen.queryByTestId("recent-ask-bundle")).toBeNull();
+    expect(mockSearchSessionMessages).not.toHaveBeenCalled();
+    expect(localStorage.getItem("cc-universal-search-mode")).toBeNull();
+
+    await advanceSearchDebounce();
+    await waitFor(() =>
+      expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
+        "s-new",
+        expect.objectContaining({ query: "universal" }),
+      ),
+    );
+
+    fireEvent.change(input, { target: { value: "" } });
+
+    expect(screen.getByRole("button", { name: "Recent" })).toHaveAttribute("aria-pressed", "true");
+    expect(input).toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Needs me" })).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(screen.getByRole("combobox", { name: "Filter recent conversations by Session Space" })).toHaveValue(
+      "research",
+    );
+  });
+
+  it("cancels the Recent return path when another mode is clicked explicitly", () => {
+    // Clearing a query after an explicit entity-mode choice must not override that deliberate destination.
+    renderOverlay();
+    const input = screen.getByRole("searchbox");
+    fireEvent.change(input, { target: { value: "quest wording" } });
+    expect(screen.getByRole("button", { name: "Messages" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Quests" }));
+    fireEvent.change(input, { target: { value: "" } });
+
     expect(screen.getByRole("button", { name: "Quests" })).toHaveAttribute("aria-pressed", "true");
-    await waitFor(() => expect(mockListQuestPage).toHaveBeenCalled());
+    expect(localStorage.getItem("cc-universal-search-mode")).toBe("quests");
+  });
+
+  it("makes an auto-selected Messages mode explicit when its active tab is clicked", async () => {
+    // Clicking the already-active tab is intentional mode selection; clearing afterward must not jump back to Recent.
+    renderOverlay();
+    const input = screen.getByRole("searchbox");
+    fireEvent.change(input, { target: { value: "search term" } });
+    const messagesButton = screen.getByRole("button", { name: "Messages" });
+    expect(messagesButton).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(messagesButton);
+    expect(localStorage.getItem("cc-universal-search-mode")).toBe("messages");
+    fireEvent.change(input, { target: { value: "" } });
+
+    expect(messagesButton).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Enter a query to search messages.")).toBeInTheDocument();
+    expect(mockSearchSessionMessages).not.toHaveBeenCalled();
+  });
+
+  it("treats Tab cycling as explicit mode selection and clears the query when it reaches Recent", () => {
+    // All explicit mode paths share the same persistence and Recent-query clearing contract.
+    renderOverlay({ initialMode: "starred", initialQuery: "retained elsewhere" });
+    const dialog = screen.getByRole("dialog", { name: "Universal Search" });
+
+    fireEvent.keyDown(dialog, { key: "Tab" });
+
+    expect(screen.getByRole("button", { name: "Recent" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("searchbox")).toHaveValue("");
+    expect(localStorage.getItem("cc-universal-search-mode")).toBe("recent");
+    expect(localStorage.getItem("cc-universal-search-query")).toBe("");
+  });
+
+  it("normalizes persisted Recent plus a query into a transient Messages search on reopen", async () => {
+    // The stored explicit preference remains Recent even though its retained query resumes through Messages.
+    localStorage.setItem("cc-universal-search-mode", "recent");
+    localStorage.setItem("cc-universal-search-query", "persisted search");
+    renderOverlay();
+
+    expect(screen.getByRole("button", { name: "Messages" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("searchbox")).toHaveValue("persisted search");
+    expect(screen.getByRole("dialog", { name: "Universal Search" })).toHaveClass("max-w-5xl");
+    await waitFor(() =>
+      expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
+        "s-new",
+        expect.objectContaining({ query: "persisted search" }),
+      ),
+    );
+    expect(localStorage.getItem("cc-universal-search-mode")).toBe("recent");
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "" } });
+    expect(screen.getByRole("button", { name: "Recent" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("keeps explicit empty-query Messages idle instead of browsing recent messages", () => {
+    // Message retrieval is exhaustive and query-driven; an empty explicit mode must not issue the legacy browse request.
+    renderOverlay({ initialMode: "messages", initialQuery: "" });
+
+    expect(screen.getByRole("button", { name: "Messages" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Enter a query to search messages.")).toBeInTheDocument();
     expect(mockSearchSessionMessages).not.toHaveBeenCalled();
   });
 
@@ -568,7 +690,7 @@ describe("UniversalSearchOverlay", () => {
     expect(screen.getByText("branch feature/sidebar-overflow")).toBeInTheDocument();
     expect(screen.queryByText("Review thread")).not.toBeInTheDocument();
     expect(mockListQuestPage).not.toHaveBeenCalled();
-    expect(mockSearchSessionMessages).toHaveBeenCalledTimes(1);
+    expect(mockSearchSessionMessages).not.toHaveBeenCalled();
   });
 
   it("opens the selected Session mode result", async () => {
@@ -582,15 +704,66 @@ describe("UniversalSearchOverlay", () => {
     expect(callbacks.onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("searches whole-session Message mode for normal sessions without a thread route", async () => {
-    renderOverlay({ currentThreadKey: null });
+  it("searches whole-session Message mode for normal sessions only after a query", async () => {
+    renderOverlay({ currentThreadKey: null, initialMode: "messages", initialQuery: "request" });
 
     expect(screen.getByRole("button", { name: "Messages" })).toBeEnabled();
     await waitFor(() => expect(mockSearchSessionMessages).toHaveBeenCalled());
     expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
       "s-new",
-      expect.objectContaining({ scope: "session", threadKey: undefined }),
+      expect.objectContaining({ query: "request", scope: "session", threadKey: undefined }),
     );
+  });
+
+  it("preserves every exhaustive Message hit even when several share one destination", async () => {
+    // The server owns result completeness and identity; the browser must not deduplicate by session or thread route.
+    mockSearchSessionMessages.mockResolvedValue(
+      messageSearchResponse([
+        messageResult({
+          messageId: "same-tab-new",
+          snippet: "Needle in the newest matching message",
+          routeThreadKey: "main",
+        }),
+        messageResult({
+          messageId: "same-tab-old",
+          snippet: "Needle in an older matching message",
+          routeThreadKey: "main",
+          historyIndex: 4,
+        }),
+      ]),
+    );
+    renderOverlay({ initialMode: "messages", initialQuery: "needle" });
+
+    const options = await screen.findAllByRole("option");
+    expect(options).toHaveLength(2);
+    expect(options[0]).toHaveTextContent("Needle in the newest matching message");
+    expect(options[1]).toHaveTextContent("Needle in an older matching message");
+  });
+
+  it("maps a leader All Threads selection to across-tabs Message search", async () => {
+    // `all` is a feed projection, not a backend thread key, so it must never leak into current-thread requests.
+    mockSearchSessionMessages.mockResolvedValue(
+      messageSearchResponse([messageResult({ messageId: "all-tabs-result", snippet: "Match from any leader tab" })], {
+        scope: { kind: "leader_all_tabs", label: "Searching in #11 across tabs" },
+      }),
+    );
+    renderOverlay({
+      currentThreadKey: "all",
+      sessions: [{ ...sessions[0]!, isOrchestrator: true }, sessions[1]!],
+      initialMode: "messages",
+      initialQuery: "match",
+    });
+
+    expect(await screen.findByText("Searching in #11 across tabs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Across tabs" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Current tab" })).toBeDisabled();
+    await waitFor(() =>
+      expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
+        "s-new",
+        expect.objectContaining({ scope: "leader_all_tabs", threadKey: undefined }),
+      ),
+    );
+    expect(mockSearchSessionMessages.mock.calls.some(([, options]) => options?.threadKey === "all")).toBe(false);
   });
 
   it("uses backend Message search for thread scope and renders matched snippets with highlighting", async () => {
@@ -611,11 +784,11 @@ describe("UniversalSearchOverlay", () => {
       currentThreadKey: "q-1272",
       messages: threadScopedMessages,
       sessions: [{ ...sessions[0]!, isOrchestrator: true }, sessions[1]!],
+      initialMode: "messages",
+      initialQuery: "thread specific",
     });
 
     expect(await screen.findByText("Searching in #11 thread q-1272")).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "thread specific" } });
-    await advanceSearchDebounce();
 
     await waitFor(() =>
       expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
@@ -629,7 +802,7 @@ describe("UniversalSearchOverlay", () => {
 
   it("persists Message-mode filters and leader scope settings", async () => {
     const leaderSessions: SdkSessionInfo[] = [{ ...sessions[0]!, isOrchestrator: true }, sessions[1]!];
-    renderOverlay({ sessions: leaderSessions });
+    renderOverlay({ sessions: leaderSessions, initialMode: "messages", initialQuery: "search" });
 
     expect(await screen.findByText("Searching in #11 Main")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Across tabs" }));
@@ -656,7 +829,7 @@ describe("UniversalSearchOverlay", () => {
       "cc-universal-search-message-settings",
       JSON.stringify({ scope: "session", filters: { user: true, assistant: false, event: false, starredOnly: true } }),
     );
-    renderOverlay();
+    renderOverlay({ initialMode: "messages", initialQuery: "search" });
 
     await waitFor(() => expect(mockSearchSessionMessages).toHaveBeenCalled());
 
@@ -681,11 +854,10 @@ describe("UniversalSearchOverlay", () => {
 
     await waitFor(() =>
       expect(mockFetchRecentAskBundles).toHaveBeenLastCalledWith(
-        expect.objectContaining({ query: "", filter: "all", sessionSpaceId: null }),
+        expect.objectContaining({ filter: "all", sessionSpaceId: null }),
       ),
     );
     const bundle = await screen.findByTestId("recent-ask-bundle");
-    expect(within(bundle).getByText("Build the Recent asks modal")).toBeInTheDocument();
     expect(within(bundle).getByText("Keep every correction independently navigable")).toBeInTheDocument();
     expect(within(bundle).getByText("1 attachment")).toBeInTheDocument();
     expect(screen.getByText("Some archived sessions are available only through Search.")).toBeInTheDocument();
@@ -696,7 +868,9 @@ describe("UniversalSearchOverlay", () => {
     );
 
     fireEvent.click(
-      within(bundle).getByRole("button", { name: "Open ask 2 in #11 New session Build global Recent asks modal" }),
+      within(bundle).getByRole("button", {
+        name: "Open newest message in #11 New session Build global Recent asks modal",
+      }),
     );
     expect(callbacks.onOpenMessage).toHaveBeenCalledWith("s-new", "u-recent-2", "q-1931");
     expect(callbacks.onClose).toHaveBeenCalledTimes(1);
@@ -734,48 +908,65 @@ describe("UniversalSearchOverlay", () => {
   it("compacts whitespace visually while expanding exact original formatting", async () => {
     // Collapsed CSS may compress line breaks for density, but the text node and expanded state must preserve the exact producer-authored content.
     const response = recentAskResponse();
-    response.groups[0] = {
-      ...response.groups[0]!,
-      members: [
-        {
-          messageId: "u-formatted",
-          historyIndex: 7,
-          timestamp: now - 20_000,
-          preview: "Keep the exact wording.\n\n    Preserve the original indentation.",
-          truncated: false,
-          imageCount: 0,
-        },
-        {
-          messageId: "u-truncated",
-          historyIndex: 8,
-          timestamp: now - 10_000,
-          preview: "A longer exact request that continues…",
-          truncated: true,
-          imageCount: 0,
-        },
-      ],
-    };
+    const baseGroup = response.groups[0]!;
+    response.groups = [
+      {
+        ...baseGroup,
+        id: "s-new:q-1931",
+        members: [
+          {
+            messageId: "u-formatted",
+            historyIndex: 7,
+            timestamp: now - 20_000,
+            preview: "Keep the exact wording.\n\n    Preserve the original indentation.",
+            truncated: false,
+            imageCount: 0,
+          },
+        ],
+      },
+      {
+        ...baseGroup,
+        id: "s-old:main",
+        sessionId: "s-old",
+        sessionNum: 12,
+        sessionName: "Old session",
+        ownerThreadKey: "main",
+        questId: undefined,
+        questTitle: undefined,
+        questStatus: undefined,
+        members: [
+          {
+            messageId: "u-truncated",
+            historyIndex: 8,
+            timestamp: now - 10_000,
+            preview: "A longer exact request that continues…",
+            truncated: true,
+            imageCount: 0,
+          },
+        ],
+      },
+    ];
     mockFetchRecentAskBundles.mockResolvedValue(response);
     mockFetchMessagePreview.mockResolvedValue({
       content: "A longer exact request that continues\n\n- first preserved point\n- second preserved point",
     });
     renderOverlay({ initialMode: "recent" });
 
-    const bundle = await screen.findByTestId("recent-ask-bundle");
-    const texts = within(bundle).getAllByTestId("recent-ask-text");
-    expect(texts[0]?.textContent).toBe("Keep the exact wording.\n\n    Preserve the original indentation.");
-    expect(texts[0]).toHaveClass("whitespace-normal", "line-clamp-2");
+    const [formattedBundle, truncatedBundle] = await screen.findAllByTestId("recent-ask-bundle");
+    const formattedText = within(formattedBundle!).getByTestId("recent-ask-text");
+    expect(formattedText.textContent).toBe("Keep the exact wording.\n\n    Preserve the original indentation.");
+    expect(formattedText).toHaveClass("whitespace-normal", "line-clamp-2");
 
-    fireEvent.click(within(bundle).getByRole("button", { name: "Expand ask 1" }));
-    expect(texts[0]).toHaveClass("whitespace-pre-wrap");
+    fireEvent.click(within(formattedBundle!).getByRole("button", { name: "Expand newest message" }));
+    expect(formattedText).toHaveClass("whitespace-pre-wrap");
     expect(mockFetchMessagePreview).not.toHaveBeenCalled();
 
-    fireEvent.click(within(bundle).getByRole("button", { name: "Expand ask 2" }));
-    await waitFor(() => expect(mockFetchMessagePreview).toHaveBeenCalledWith("s-new", 8));
+    fireEvent.click(within(truncatedBundle!).getByRole("button", { name: "Expand newest message" }));
+    await waitFor(() => expect(mockFetchMessagePreview).toHaveBeenCalledWith("s-old", 8));
     await waitFor(() =>
-      expect(within(bundle).getAllByTestId("recent-ask-text")[1]?.textContent).toContain("first preserved point"),
+      expect(within(truncatedBundle!).getByTestId("recent-ask-text").textContent).toContain("first preserved point"),
     );
-    expect(within(bundle).getAllByTestId("recent-ask-text")[1]).toHaveClass("whitespace-pre-wrap");
+    expect(within(truncatedBundle!).getByTestId("recent-ask-text")).toHaveClass("whitespace-pre-wrap");
   });
 
   it("requests global Starred mode results and renders session/thread context", async () => {
@@ -807,7 +998,7 @@ describe("UniversalSearchOverlay", () => {
         }),
       ),
     );
-    expect(mockSearchSessionMessages).toHaveBeenCalledTimes(1);
+    expect(mockSearchSessionMessages).not.toHaveBeenCalled();
     const resultRow = await screen.findByText("Starred assistant note about the search overlay");
     expect(resultRow.closest('[role="option"]')?.querySelector("svg")).not.toBeNull();
     const option = resultRow.closest('[role="option"]') as HTMLElement;
@@ -842,9 +1033,14 @@ describe("UniversalSearchOverlay", () => {
       ),
     );
 
-    renderOverlay({ sessions: [{ ...sessions[0]!, isOrchestrator: true }, sessions[1]!] });
+    renderOverlay({
+      sessions: [{ ...sessions[0]!, isOrchestrator: true }, sessions[1]!],
+      initialMode: "messages",
+      initialQuery: "compact",
+    });
 
-    expect(await screen.findByText("compact injected-system payload")).toBeInTheDocument();
+    const [resultRow] = await screen.findAllByRole("option");
+    expect(resultRow).toHaveTextContent("compact injected-system payload");
     await waitFor(() =>
       expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
         "s-new",
@@ -854,10 +1050,9 @@ describe("UniversalSearchOverlay", () => {
         }),
       ),
     );
-    const resultRow = screen.getByText("compact injected-system payload").closest('[role="option"]');
-    expect(resultRow).not.toBeNull();
-    expect(within(resultRow as HTMLElement).getByText("event")).toBeInTheDocument();
-    expect(within(resultRow as HTMLElement).queryByText("user")).not.toBeInTheDocument();
+    expect(within(resultRow!).getByText("compact").tagName).toBe("MARK");
+    expect(within(resultRow!).getByText("event")).toBeInTheDocument();
+    expect(within(resultRow!).queryByText("user")).not.toBeInTheDocument();
   });
 
   it("runs only the selected mode adapter and uses newest-updated quest sorting for empty queries", async () => {
@@ -930,7 +1125,7 @@ describe("UniversalSearchOverlay", () => {
   });
 
   it("selects the top result for a new query after a lower result was selected", async () => {
-    const callbacks = renderOverlay();
+    const callbacks = renderOverlay({ initialMode: "messages", initialQuery: "zzzz" });
     const dialog = screen.getByRole("dialog", { name: "Universal Search" });
 
     await screen.findByText("Recent user request about universal search");
@@ -1192,11 +1387,36 @@ describe("UniversalSearchOverlay", () => {
     expect(callbacks.onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("hides settled Message rows while a changed query is still debouncing", async () => {
+    // Results for the previous query must disappear synchronously rather than looking like matches for the new text.
+    mockSearchSessionMessages
+      .mockResolvedValueOnce(
+        messageSearchResponse([messageResult({ messageId: "old-settled", snippet: "Settled old-query result" })], {
+          query: "old-query",
+        }),
+      )
+      .mockResolvedValueOnce(
+        messageSearchResponse([messageResult({ messageId: "new-settled", snippet: "Fresh new-query result" })], {
+          query: "new-query",
+        }),
+      );
+    renderOverlay({ initialMode: "messages", initialQuery: "old-query" });
+    await waitFor(() => expect(screen.getByRole("option")).toHaveTextContent("Settled old-query result"));
+    expect(mockSearchSessionMessages).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "new-query" } });
+
+    expect(screen.queryByRole("option")).toBeNull();
+    expect(screen.getByLabelText("Searching")).toBeInTheDocument();
+    expect(mockSearchSessionMessages).toHaveBeenCalledTimes(1);
+    await advanceSearchDebounce();
+    await waitFor(() => expect(screen.getByRole("option")).toHaveTextContent("Fresh new-query result"));
+  });
+
   it("ignores stale Message search responses after the query changes", async () => {
     let resolveOld!: (value: MessageSearchResponse) => void;
     let resolveNew!: (value: MessageSearchResponse) => void;
     mockSearchSessionMessages
-      .mockResolvedValueOnce(messageSearchResponse([]))
       .mockImplementationOnce(
         () =>
           new Promise<MessageSearchResponse>((resolve) => {
@@ -1210,12 +1430,10 @@ describe("UniversalSearchOverlay", () => {
           }),
       );
 
-    renderOverlay();
+    renderOverlay({ initialMode: "messages", initialQuery: "old" });
 
     await waitFor(() => expect(mockSearchSessionMessages).toHaveBeenCalledTimes(1));
     const input = screen.getByRole("searchbox");
-    fireEvent.change(input, { target: { value: "old" } });
-    await advanceSearchDebounce();
     fireEvent.change(input, { target: { value: "new" } });
     await advanceSearchDebounce();
 
@@ -1238,7 +1456,7 @@ describe("UniversalSearchOverlay", () => {
   });
 
   it("supports Tab mode cycling, arrow selection, Enter opening, and Escape closing", async () => {
-    const callbacks = renderOverlay();
+    const callbacks = renderOverlay({ initialMode: "messages", initialQuery: "zzzz" });
     const dialog = screen.getByRole("dialog", { name: "Universal Search" });
 
     await screen.findByText("Recent user request about universal search");
@@ -1256,7 +1474,7 @@ describe("UniversalSearchOverlay", () => {
   });
 
   it("ignores Enter while the search input is in IME composition", async () => {
-    const callbacks = renderOverlay();
+    const callbacks = renderOverlay({ initialMode: "messages", initialQuery: "zzzz" });
     const dialog = screen.getByRole("dialog", { name: "Universal Search" });
 
     await screen.findByText("Recent user request about universal search");

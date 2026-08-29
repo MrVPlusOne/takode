@@ -4,7 +4,7 @@
 
 ### Added
 
-- **Recent asks** -- Universal Search shows a bounded global view of exact human-request bundles with canonical quest links, stable message jumps, compact expandable text, and evidence-backed response status without rendering response bodies
+- **Universal Search** -- Recent browses one newest human message per navigable destination, while Messages search keeps every matching message within its selected current-session or tab scope, including multiple hits from the same conversation or tab; canonical links, stable jumps, compact exact text, and evidence-backed status remain intact
 
 ### Changed
 

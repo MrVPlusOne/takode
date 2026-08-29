@@ -73,7 +73,7 @@ describe("searchSessionMessages", () => {
       sessionNum: 123,
       isLeaderSession: false,
       messageHistory: [
-        user("old", "older persisted-only request about constellation search", 10),
+        user("old", "older persisted-only request about constellation search", 10, { threadKey: "q-legacy" }),
         user("new", "newer visible request", 20),
       ],
       query: "constellation",
@@ -88,6 +88,7 @@ describe("searchSessionMessages", () => {
       routeThreadKey: "main",
       starred: false,
     });
+    expect(response.results[0]?.questId).toBeUndefined();
   });
 
   it("uses Main thread projection for leader current-thread scope", () => {
@@ -152,6 +153,82 @@ describe("searchSessionMessages", () => {
     expect(response.scope).toEqual({ kind: "leader_all_tabs", label: "Searching in #456 across tabs" });
     expect(response.results.map((result) => result.messageId)).toEqual(["quest", "main"]);
     expect(response.results.map((result) => result.sourceLabel)).toEqual(["Thread q-1277", "Main"]);
+  });
+
+  it("normalizes legacy current-thread All scope to canonical leader across-tabs results", () => {
+    const response = searchSessionMessages({
+      sessionId: "leader-session",
+      sessionNum: 456,
+      isLeaderSession: true,
+      messageHistory: [
+        user("main", "main dragonfruit request", 10),
+        user("quest", "quest dragonfruit request", 20, { threadKey: "q-1277" }),
+      ],
+      query: "dragonfruit",
+      scope: "current_thread",
+      threadKey: "all",
+    });
+
+    expect(response.scope).toEqual({ kind: "leader_all_tabs", label: "Searching in #456 across tabs" });
+    expect(response.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          messageId: "quest",
+          sourceThreadKey: "q-1277",
+          routeThreadKey: "q-1277",
+          questId: "q-1277",
+        }),
+        expect.objectContaining({ messageId: "main", sourceThreadKey: "main", routeThreadKey: "main" }),
+      ]),
+    );
+    expect(response.results.some((result) => result.routeThreadKey === "all" || result.questId === "all")).toBe(false);
+  });
+
+  it("keeps every matching message when leader across-tabs hits share one destination", () => {
+    const response = searchSessionMessages({
+      sessionId: "leader-session",
+      sessionNum: 456,
+      isLeaderSession: true,
+      messageHistory: [
+        user("first", "shared destination dragonfruit one", 10, { threadKey: "q-1277" }),
+        user("second", "shared destination dragonfruit two", 20, { threadKey: "q-1277" }),
+      ],
+      query: "dragonfruit",
+      scope: "leader_all_tabs",
+    });
+
+    expect(response.results.map((result) => result.messageId)).toEqual(["second", "first"]);
+    expect(response.results.map((result) => result.routeThreadKey)).toEqual(["q-1277", "q-1277"]);
+    expect(response.totalMatches).toBe(2);
+  });
+
+  it("routes leader across-tabs matches by the newest non-backfill attachment", () => {
+    const moved = user("moved", "canonical attachment dragonfruit", 10, { threadKey: "q-1" });
+    moved.threadRefs = [
+      { threadKey: "q-1", questId: "q-1", source: "explicit", attachedAt: 10 },
+      { threadKey: "q-99", questId: "q-99", source: "backfill", attachedAt: 99 },
+      { threadKey: "q-2", questId: "q-2", source: "explicit", attachedAt: 20 },
+    ];
+    const aggregate = user("aggregate", "aggregate dragonfruit", 20, { threadKey: "all" });
+
+    const response = searchSessionMessages({
+      sessionId: "leader-session",
+      sessionNum: 456,
+      isLeaderSession: true,
+      messageHistory: [moved, aggregate],
+      query: "dragonfruit",
+      scope: "leader_all_tabs",
+    });
+
+    expect(response.results).toEqual([
+      expect.objectContaining({ messageId: "aggregate", sourceThreadKey: "main", routeThreadKey: "main" }),
+      expect.objectContaining({
+        messageId: "moved",
+        sourceThreadKey: "q-2",
+        routeThreadKey: "q-2",
+        questId: "q-2",
+      }),
+    ]);
   });
 
   it("applies message type filters and paginates newest recents", () => {

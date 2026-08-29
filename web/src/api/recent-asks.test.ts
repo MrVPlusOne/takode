@@ -12,7 +12,7 @@ describe("fetchRecentAskBundles", () => {
           totalMatches: 0,
           totalRecentGroups: 0,
           limit: 50,
-          query: "retry",
+          query: "",
           filter: "active",
           sessionSpaceId: "work",
           attentionCount: 0,
@@ -23,11 +23,11 @@ describe("fetchRecentAskBundles", () => {
       ),
     );
 
-    const response = await fetchRecentAskBundles({ query: "retry", filter: "active", sessionSpaceId: "work" });
+    const response = await fetchRecentAskBundles({ filter: "active", sessionSpaceId: "work" });
 
-    expect(response.limit).toBe(50);
+    expect(response).toMatchObject({ query: "", totalRecentGroups: 0, limit: 50 });
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/sessions/recent-asks?q=retry&filter=active&sessionSpaceId=work&limit=50",
+      "/api/sessions/recent-asks?filter=active&sessionSpaceId=work&limit=50",
       expect.objectContaining({ signal: undefined }),
     );
   });

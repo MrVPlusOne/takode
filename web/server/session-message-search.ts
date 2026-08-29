@@ -1,4 +1,5 @@
 import type { BrowserIncomingMessage, ContentBlock, StarredMessageRecord } from "./session-types.js";
+import { authoritativeMessageOwner } from "./authoritative-message-owner.js";
 import {
   ALL_THREADS_KEY,
   MAIN_THREAD_KEY,
@@ -164,10 +165,11 @@ function resolveMessageSearchScope(input: {
         typeof input.sessionNum === "number" ? `Searching in session ${sessionLabel}` : "Searching in current session",
     };
   }
-  if (input.requestedScope === "leader_all_tabs") {
+  const requestedThreadKey = normalizeSelectedFeedThreadKey(input.requestedThreadKey || MAIN_THREAD_KEY);
+  if (input.requestedScope === "leader_all_tabs" || requestedThreadKey === ALL_THREADS_KEY) {
     return { kind: "leader_all_tabs", label: `Searching in ${sessionLabel} across tabs` };
   }
-  const threadKey = normalizeSelectedFeedThreadKey(input.requestedThreadKey || MAIN_THREAD_KEY);
+  const threadKey = requestedThreadKey;
   return {
     kind: "current_thread",
     threadKey,
@@ -296,30 +298,25 @@ function inferResultRoute(
   routeThreadKey?: string;
   questId?: string;
 } {
-  const explicitThreadKey =
-    normalizeOptionalThreadKey(message.threadKey) ?? normalizeOptionalThreadKey(message.questId);
-  const explicitRef = (message.threadRefs ?? []).find((ref) => {
-    return normalizeSelectedFeedThreadKey(ref.threadKey) !== MAIN_THREAD_KEY;
-  });
-  const sourceThreadKey =
-    scope.kind === "current_thread"
-      ? scope.threadKey
-      : (explicitThreadKey ?? normalizeOptionalThreadKey(explicitRef?.threadKey) ?? MAIN_THREAD_KEY);
-  const questId =
-    message.questId ??
-    (scope.kind === "current_thread" && scope.threadKey !== MAIN_THREAD_KEY ? scope.threadKey : undefined) ??
-    explicitRef?.questId;
-  return {
-    sourceThreadKey,
-    routeThreadKey: sourceThreadKey,
-    ...(questId ? { questId } : {}),
-  };
-}
+  if (scope.kind === "current_thread") {
+    const questId = scope.threadKey !== MAIN_THREAD_KEY ? scope.threadKey : undefined;
+    return {
+      sourceThreadKey: scope.threadKey,
+      routeThreadKey: scope.threadKey,
+      ...(questId ? { questId } : {}),
+    };
+  }
 
-function normalizeOptionalThreadKey(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const normalized = normalizeSelectedFeedThreadKey(value);
-  return normalized || undefined;
+  if (scope.kind === "session") {
+    return { sourceThreadKey: MAIN_THREAD_KEY, routeThreadKey: MAIN_THREAD_KEY };
+  }
+
+  const owner = authoritativeMessageOwner(message);
+  return {
+    sourceThreadKey: owner.threadKey,
+    routeThreadKey: owner.threadKey,
+    ...(owner.questId ? { questId: owner.questId } : {}),
+  };
 }
 
 function formatSessionNumber(sessionNum: number | null): string {

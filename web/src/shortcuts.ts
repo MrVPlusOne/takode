@@ -133,7 +133,8 @@ export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
   {
     id: "search_session",
     label: "Universal Search",
-    description: "Open mode-scoped search for quests, sessions, and current-session messages.",
+    description:
+      "Browse recent conversations or search quests, sessions, current-session messages, and starred results.",
   },
   {
     id: "toggle_sidebar",

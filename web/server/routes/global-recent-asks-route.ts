@@ -64,6 +64,7 @@ export function registerGlobalRecentAsksRoute(api: Hono, deps: GlobalRecentAsksR
         userMessageIdsThisTurn: bridgeSession.userMessageIdsThisTurn,
         queuedTurnUserMessageIds: bridgeSession.queuedTurnUserMessageIds,
         pendingCodexInputs: bridgeSession.pendingCodexInputs,
+        isOrchestrator: session.isOrchestrator === true || state?.isOrchestrator === true,
       });
     }
 
@@ -75,7 +76,6 @@ export function registerGlobalRecentAsksRoute(api: Hono, deps: GlobalRecentAsksR
     const response = buildRecentAskBundles({
       documents,
       quests: questSummaries,
-      query: c.req.query("q") ?? "",
       filter: parseFilter(c.req.query("filter")),
       sessionSpaceId: c.req.query("sessionSpaceId") || undefined,
       limit: parseInteger(c.req.query("limit")),

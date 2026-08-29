@@ -61,6 +61,7 @@ import { PlaygroundSideChatStates } from "./playground/SideChatPlaygroundStates.
 import { PlaygroundReasoningDetailStates } from "./playground/ReasoningDetailStates.js";
 import { PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY } from "./playground/AutoPausePlaygroundStates.js";
 import { MOCK_SESSION_ID } from "./playground/fixtures.js";
+import { PlaygroundUniversalSearchStates } from "./playground/search-sidebar-states.js";
 import { PlaygroundOverviewSections } from "./playground/sections-overview.js";
 import {
   PlaygroundDelegateTaskPendingLiveActivityGroup,
@@ -76,6 +77,37 @@ function PlaygroundOverviewOnly() {
 }
 
 describe("Playground", () => {
+  it("contrasts one-message-per-destination Recent browsing with exhaustive scoped Messages hits", async () => {
+    // The paired fixture makes the product boundary inspectable without relying on live session history.
+    render(<PlaygroundUniversalSearchStates />);
+
+    const recentPreview = within(screen.getByTestId("playground-universal-recent-preview"));
+    expect(
+      recentPreview.getByText("Recent shows one newest human message for each navigable destination."),
+    ).toBeTruthy();
+    expect(await recentPreview.findAllByTestId("recent-ask-bundle")).toHaveLength(3);
+    expect(recentPreview.getAllByRole("button", { name: /Open newest message in/ })).toHaveLength(3);
+
+    const messagesPreview = within(screen.getByTestId("playground-universal-messages-preview"));
+    expect(
+      messagesPreview.getByText(
+        "Messages keeps every match in the selected scope, including multiple messages from the same destination.",
+      ),
+    ).toBeTruthy();
+    expect(messagesPreview.getByText("Searching in #1277 across tabs")).toBeTruthy();
+    expect(messagesPreview.getByRole("button", { name: "Current tab" })).toHaveAttribute("aria-pressed", "false");
+    expect(messagesPreview.getByRole("button", { name: "Current tab" })).toBeDisabled();
+    expect(messagesPreview.getByRole("button", { name: "Across tabs" })).toHaveAttribute("aria-pressed", "true");
+    const messageRows = await messagesPreview.findAllByRole("option");
+    expect(messageRows).toHaveLength(3);
+    expect(messageRows[0]).toHaveTextContent(
+      "Search should return every matching message in scope instead of one result per destination.",
+    );
+    expect(messageRows[1]).toHaveTextContent("When a search has two matching messages in this tab, keep both results.");
+    expect(messageRows.filter((row) => row.textContent?.includes("Thread q-1931"))).toHaveLength(2);
+    expect(messageRows[2]).toHaveTextContent("Thread q-1927");
+  });
+
   it("documents collapsed and expanded grouped reasoning-detail states", () => {
     useStore.getState().reset();
     render(<PlaygroundReasoningDetailStates />);

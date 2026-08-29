@@ -37,7 +37,7 @@ const PLAYGROUND_UNIVERSAL_SESSIONS: SdkSessionInfo[] = [
 const PLAYGROUND_RECENT_ASKS_RESPONSE: RecentAskBundlesResponse = {
   groups: [
     {
-      id: "playground-universal:ask-one",
+      id: "playground-universal:recent-q-1931",
       sessionId: "playground-universal",
       sessionNum: 1277,
       sessionName: "Universal search implementation",
@@ -47,33 +47,24 @@ const PLAYGROUND_RECENT_ASKS_RESPONSE: RecentAskBundlesResponse = {
       sessionSpaceName: "Takode",
       ownerThreadKey: "q-1931",
       questId: "q-1931",
-      questTitle: "Build global Recent asks modal",
+      questTitle: "Separate Recent browsing from message search",
       questStatus: "in_progress",
-      firstAskedAt: Date.now() - 8 * 60_000,
+      firstAskedAt: Date.now() - 6 * 60_000,
       lastAskedAt: Date.now() - 6 * 60_000,
       status: "working",
       members: [
         {
-          messageId: "ask-one",
-          historyIndex: 10,
-          timestamp: Date.now() - 8 * 60_000,
-          preview: "Make each exact human-authored ask the dominant content.",
-          truncated: false,
-          imageCount: 0,
-        },
-        {
-          messageId: "ask-two",
+          messageId: "recent-q-1931-latest",
           historyIndex: 11,
           timestamp: Date.now() - 6 * 60_000,
-          preview:
-            "Keep every correction visible.\n\n    Preserve the original wording while compacting presentation whitespace.",
+          preview: "Keep Recent browse-only: show the newest human message from each destination.",
           truncated: false,
           imageCount: 1,
         },
       ],
     },
     {
-      id: "playground-universal:ask-three",
+      id: "playground-universal:recent-q-1927",
       sessionId: "playground-universal",
       sessionNum: 1277,
       sessionName: "Universal search implementation",
@@ -91,7 +82,7 @@ const PLAYGROUND_RECENT_ASKS_RESPONSE: RecentAskBundlesResponse = {
       statusDetail: "The private data access choice still needs a human decision.",
       members: [
         {
-          messageId: "ask-three",
+          messageId: "recent-q-1927-latest",
           historyIndex: 7,
           timestamp: Date.now() - 18 * 60_000,
           preview: "Choose whether to continue with the private signed URL or pause the viewer build.",
@@ -101,7 +92,7 @@ const PLAYGROUND_RECENT_ASKS_RESPONSE: RecentAskBundlesResponse = {
       ],
     },
     {
-      id: "playground-review:ask-four",
+      id: "playground-review:recent-main",
       sessionId: "playground-review",
       sessionNum: 1278,
       sessionName: "Review search overlay states",
@@ -115,7 +106,7 @@ const PLAYGROUND_RECENT_ASKS_RESPONSE: RecentAskBundlesResponse = {
       status: "response_unread",
       members: [
         {
-          messageId: "ask-four",
+          messageId: "recent-review-main-latest",
           historyIndex: 4,
           timestamp: Date.now() - 45 * 60_000,
           preview: "Review the mobile spacing and keyboard behavior.",
@@ -143,7 +134,7 @@ const PLAYGROUND_RECENT_ASKS_RESPONSE: RecentAskBundlesResponse = {
     { id: "review", name: "Review", count: 1 },
     { id: "takode", name: "Takode", count: 2 },
   ],
-  coverageNotice: "Older and excerpt-only history remains available through Search.",
+  coverageNotice: "Recent shows one newest human message per destination. Use Messages to search every match in scope.",
   tookMs: 2,
 };
 
@@ -151,42 +142,60 @@ const PLAYGROUND_UNIVERSAL_MESSAGE_RESPONSE: MessageSearchResponse = {
   sessionId: "playground-universal",
   sessionNum: 1277,
   query: "search",
-  scope: { kind: "current_thread", threadKey: "main", label: "Searching in #1277 Main" },
+  scope: { kind: "leader_all_tabs", label: "Searching in #1277 across tabs" },
   filters: { user: true, assistant: false, event: false },
-  totalMatches: 2,
+  totalMatches: 3,
   nextOffset: null,
   hasMore: false,
   tookMs: 2,
   results: [
     {
-      id: "playground-universal:0:universal-user-new",
+      id: "playground-universal:11:search-new",
       sessionId: "playground-universal",
       sessionNum: 1277,
-      messageId: "universal-user-new",
-      historyIndex: 0,
+      messageId: "search-new",
+      historyIndex: 11,
       role: "user",
       category: "user",
       starred: true,
       timestamp: Date.now() - 2 * 60_000,
-      snippet: "Can you make the universal search overlay keyboard efficient and mode scoped?",
-      routeThreadKey: "main",
-      sourceThreadKey: "main",
-      sourceLabel: "Main",
+      snippet: "Search should return every matching message in scope instead of one result per destination.",
+      routeThreadKey: "q-1931",
+      sourceThreadKey: "q-1931",
+      sourceLabel: "Thread q-1931",
+      questId: "q-1931",
     },
     {
-      id: "playground-universal:3:universal-user-old",
+      id: "playground-universal:8:search-older-same-tab",
       sessionId: "playground-universal",
       sessionNum: 1277,
-      messageId: "universal-user-old",
-      historyIndex: 3,
+      messageId: "search-older-same-tab",
+      historyIndex: 8,
+      role: "user",
+      category: "user",
+      starred: false,
+      timestamp: Date.now() - 14 * 60_000,
+      snippet: "When a search has two matching messages in this tab, keep both results.",
+      routeThreadKey: "q-1931",
+      sourceThreadKey: "q-1931",
+      sourceLabel: "Thread q-1931",
+      questId: "q-1931",
+    },
+    {
+      id: "playground-universal:4:search-other-tab",
+      sessionId: "playground-universal",
+      sessionNum: 1277,
+      messageId: "search-other-tab",
+      historyIndex: 4,
       role: "user",
       category: "user",
       starred: false,
       timestamp: Date.now() - 30 * 60_000,
-      snippet: "Default message mode should show recent user messages when the query is empty.",
-      routeThreadKey: "main",
-      sourceThreadKey: "main",
-      sourceLabel: "Main",
+      snippet: "Search filters should remain available when inspecting another tab.",
+      routeThreadKey: "q-1927",
+      sourceThreadKey: "q-1927",
+      sourceLabel: "Thread q-1927",
+      questId: "q-1927",
     },
   ],
 };
@@ -242,21 +251,27 @@ const PLAYGROUND_STARRED_SEARCH_RESPONSE: GlobalStarredMessageSearchResponse = {
 
 const PLAYGROUND_UNIVERSAL_MESSAGES: ChatMessage[] = [
   {
-    id: "universal-user-new",
+    id: "search-new",
     role: "user",
-    content: "Can you make the universal search overlay keyboard efficient and mode scoped?",
+    content: "Search should return every matching message in scope instead of one result per destination.",
     timestamp: Date.now() - 2 * 60_000,
   },
   {
     id: "universal-assistant",
     role: "assistant",
-    content: "Implemented the overlay with quest, session, and message modes.",
+    content: "Separated query-free Recent browsing from exhaustive Messages search within the selected scope.",
     timestamp: Date.now() - 90_000,
   },
   {
-    id: "universal-user-old",
+    id: "search-older-same-tab",
     role: "user",
-    content: "Default message mode should show recent user messages when the query is empty.",
+    content: "When a search has two matching messages in this tab, keep both results.",
+    timestamp: Date.now() - 14 * 60_000,
+  },
+  {
+    id: "search-other-tab",
+    role: "user",
+    content: "Search filters should remain available when inspecting another tab.",
     timestamp: Date.now() - 30 * 60_000,
   },
 ];
@@ -370,39 +385,51 @@ export function PlaygroundUniversalSearchStates() {
   return (
     <Section
       title="Universal Search"
-      description="App-level command palette for bounded Recent ask bundles plus mode-scoped quest, session, message, and Starred search."
+      description="App-level command palette with browse-only Recent destinations, exhaustive Messages search within the selected scope, and explicit Quests, Sessions, and Starred modes."
     >
       <div className="space-y-4">
-        <Card label="Focused wide Recent asks bundles">
-          <UniversalSearchOverlay
-            open
-            presentation="inline"
-            initialMode="recent"
-            currentSessionId="playground-universal"
-            currentThreadKey="main"
-            sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
-            messages={PLAYGROUND_UNIVERSAL_MESSAGES}
-            leaderSessionId="playground-universal"
-            recentAskPreviewResponse={PLAYGROUND_RECENT_ASKS_RESPONSE}
-            onClose={() => {}}
-            onOpenQuest={() => {}}
-            onOpenMessage={() => {}}
-          />
-        </Card>
-        <Card label="Overlay with current-session message mode">
-          <UniversalSearchOverlay
-            open
-            presentation="inline"
-            currentSessionId="playground-universal"
-            currentThreadKey="main"
-            sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
-            messages={PLAYGROUND_UNIVERSAL_MESSAGES}
-            leaderSessionId="playground-universal"
-            messageSearchPreviewResponse={PLAYGROUND_UNIVERSAL_MESSAGE_RESPONSE}
-            onClose={() => {}}
-            onOpenQuest={() => {}}
-            onOpenMessage={() => {}}
-          />
+        <Card label="Recent browsing versus scoped Messages search">
+          <div className="space-y-4">
+            <div data-testid="playground-universal-recent-preview">
+              <p className="mb-2 text-xs text-cc-muted">
+                Recent shows one newest human message for each navigable destination.
+              </p>
+              <UniversalSearchOverlay
+                open
+                presentation="inline"
+                initialMode="recent"
+                currentSessionId="playground-universal"
+                currentThreadKey="main"
+                sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
+                messages={PLAYGROUND_UNIVERSAL_MESSAGES}
+                leaderSessionId="playground-universal"
+                recentAskPreviewResponse={PLAYGROUND_RECENT_ASKS_RESPONSE}
+                onClose={() => {}}
+                onOpenQuest={() => {}}
+                onOpenMessage={() => {}}
+              />
+            </div>
+            <div data-testid="playground-universal-messages-preview">
+              <p className="mb-2 text-xs text-cc-muted">
+                Messages keeps every match in the selected scope, including multiple messages from the same destination.
+              </p>
+              <UniversalSearchOverlay
+                open
+                presentation="inline"
+                initialMode="messages"
+                initialQuery="search"
+                currentSessionId="playground-universal"
+                currentThreadKey="all"
+                sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
+                messages={PLAYGROUND_UNIVERSAL_MESSAGES}
+                leaderSessionId="playground-universal"
+                messageSearchPreviewResponse={PLAYGROUND_UNIVERSAL_MESSAGE_RESPONSE}
+                onClose={() => {}}
+                onOpenQuest={() => {}}
+                onOpenMessage={() => {}}
+              />
+            </div>
+          </div>
         </Card>
         <Card label="Overlay with Session mode results">
           <UniversalSearchOverlay

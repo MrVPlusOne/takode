@@ -70,7 +70,6 @@ export interface RecentAskBundlesResponse {
 }
 
 export interface FetchRecentAskBundlesOptions {
-  query?: string;
   filter?: RecentAskFilter;
   sessionSpaceId?: string | null;
   signal?: AbortSignal;
@@ -80,7 +79,6 @@ export async function fetchRecentAskBundles(
   options: FetchRecentAskBundlesOptions = {},
 ): Promise<RecentAskBundlesResponse> {
   const params = new URLSearchParams();
-  if (options.query) params.set("q", options.query);
   if (options.filter && options.filter !== "all") params.set("filter", options.filter);
   if (options.sessionSpaceId) params.set("sessionSpaceId", options.sessionSpaceId);
   params.set("limit", "50");

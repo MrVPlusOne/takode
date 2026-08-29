@@ -94,6 +94,7 @@ function doc(
     sessionSpaceId: "default",
     sessionSpaceName: "Default",
     messageHistory: messages,
+    isOrchestrator: true,
     ...overrides,
   };
 }
@@ -133,7 +134,7 @@ describe("recent ask streamed response boundaries", () => {
 });
 
 describe("buildRecentAskBundles", () => {
-  it("groups exact same-thread human messages until the first visible response", () => {
+  it("collapses repeated same-destination asks to the newest direct-human message", () => {
     const response = buildRecentAskBundles({
       documents: [
         doc([
@@ -147,21 +148,25 @@ describe("buildRecentAskBundles", () => {
       ],
     });
 
-    expect(response.groups).toHaveLength(2);
+    expect(response.groups).toHaveLength(1);
+    expect(response.groups[0]).toMatchObject({
+      id: "s1:main",
+      ownerThreadKey: "main",
+      status: "awaiting_response",
+    });
     expect(response.groups[0]?.members.map((member) => member.messageId)).toEqual(["u3"]);
-    expect(response.groups[1]?.members.map((member) => member.messageId)).toEqual(["u1", "u2"]);
-    expect(response.groups[1]?.response?.messageId).toBe("a1");
-    expect(response.groups[1]?.status).toBe("responded");
+    expect(response.groups[0]?.response).toBeUndefined();
   });
 
-  it("splits a same-thread message when persisted stream evidence says visible response began", () => {
+  it("keeps persisted stream boundaries from changing destination identity", () => {
     const second = user("u2", "Correction after streamed text", 11) as Extract<
       BrowserIncomingMessage,
       { type: "user_message" }
     >;
     second.recentAskBoundaryBefore = "visible_response";
     const response = buildRecentAskBundles({ documents: [doc([user("u1", "Initial", 10), second])] });
-    expect(response.groups.map((group) => group.members.map((member) => member.messageId))).toEqual([["u2"], ["u1"]]);
+    expect(response.groups).toHaveLength(1);
+    expect(response.groups[0]).toMatchObject({ id: "s1:main", members: [{ messageId: "u2" }] });
   });
 
   it("does not let a response in another thread close the active bundle", () => {
@@ -176,15 +181,15 @@ describe("buildRecentAskBundles", () => {
       ],
     });
     expect(response.groups).toHaveLength(1);
-    expect(response.groups[0]?.members.map((member) => member.messageId)).toEqual(["u1", "u2"]);
+    expect(response.groups[0]?.members.map((member) => member.messageId)).toEqual(["u2"]);
     expect(response.groups[0]?.response?.messageId).toBe("a-quest");
   });
 
   it("preserves exact member whitespace and allows automatic retry to settle", () => {
     const response = buildRecentAskBundles({
-      documents: [doc([user("u1", "Line one\n\n  Line two", 10), result({ retry: true }), result()])],
+      documents: [doc([user("u1", "  Line one\n\n  Line two  ", 10), result({ retry: true }), result()])],
     });
-    expect(response.groups[0]?.members[0]?.preview).toBe("Line one\n\n  Line two");
+    expect(response.groups[0]?.members[0]?.preview).toBe("  Line one\n\n  Line two  ");
     expect(response.groups[0]?.status).toBe("responded");
   });
 
@@ -196,7 +201,8 @@ describe("buildRecentAskBundles", () => {
     });
 
     expect(response.groups.map((group) => group.ownerThreadKey)).toEqual(["main", "q-10"]);
-    expect(response.groups[1]?.members.map((member) => member.messageId)).toEqual(["u1", "u2"]);
+    expect(response.groups[1]).toMatchObject({ id: "s1:q-10", ownerThreadKey: "q-10" });
+    expect(response.groups[1]?.members.map((member) => member.messageId)).toEqual(["u2"]);
   });
 
   it("uses persisted result ownership instead of failing a queued bundle in another thread", () => {
@@ -220,7 +226,8 @@ describe("buildRecentAskBundles", () => {
     const interrupted = buildRecentAskBundles({
       documents: [doc([user("u1", "Try", 10), result({ interrupted: true }), user("u2", "Retry", 11)])],
     });
-    expect(interrupted.groups.map((group) => group.status)).toEqual(["awaiting_response", "interrupted"]);
+    expect(interrupted.groups).toHaveLength(1);
+    expect(interrupted.groups[0]).toMatchObject({ status: "awaiting_response", members: [{ messageId: "u2" }] });
   });
 
   it("derives active and queued status from exact member ownership", () => {
@@ -308,8 +315,9 @@ describe("buildRecentAskBundles", () => {
         return Reflect.get(target, property, receiver);
       },
     });
-    const response = buildRecentAskBundles({ documents: [doc(history)] });
-    expect(response.groups).toHaveLength(50);
+    const response = buildRecentAskBundles({ documents: [doc(history, { isOrchestrator: false })] });
+    expect(response.groups).toHaveLength(1);
+    expect(response.groups[0]?.members[0]?.messageId).toBe("u54");
     expect(indexedReads).toBeLessThan(1_000);
   });
 
@@ -334,22 +342,205 @@ describe("buildRecentAskBundles", () => {
     expect(unread.groups[0]?.status).toBe("response_unread");
   });
 
-  it("bounds globally, sorts by latest human input, filters within the recent window, and reports coverage", () => {
+  it("coerces every normal-session ask to one Main conversation", () => {
+    const response = buildRecentAskBundles({
+      documents: [
+        doc([user("u1", "Tagged legacy ask", 10, "q-1"), user("u2", "Newest normal ask", 20, "q-2")], {
+          isOrchestrator: false,
+        }),
+      ],
+    });
+
+    expect(response.groups).toEqual([
+      expect.objectContaining({
+        id: "s1:main",
+        ownerThreadKey: "main",
+        members: [expect.objectContaining({ messageId: "u2" })],
+      }),
+    ]);
+    expect(response.groups[0]?.questId).toBeUndefined();
+  });
+
+  it("keeps the same quest tab in different leader sessions as distinct destinations", () => {
+    const response = buildRecentAskBundles({
+      documents: [
+        doc([user("leader-one", "First leader", 10, "q-7")], { sessionId: "leader-1" }),
+        doc([user("leader-two", "Second leader", 20, "q-7")], { sessionId: "leader-2" }),
+      ],
+    });
+
+    expect(response.groups.map((group) => group.id)).toEqual(["leader-2:q-7", "leader-1:q-7"]);
+    expect(response.groups.every((group) => group.ownerThreadKey === "q-7")).toBe(true);
+  });
+
+  it("uses the newest authoritative attachment and never emits All Threads as an owner", () => {
+    const attached = user("attached", "Moved ask", 10, "q-1");
+    attached.threadRefs = [
+      { threadKey: "q-1", questId: "q-1", source: "explicit", attachedAt: 10 },
+      { threadKey: "q-99", questId: "q-99", source: "backfill", attachedAt: 99 },
+      { threadKey: "q-2", questId: "q-2", source: "explicit", attachedAt: 20 },
+      { threadKey: "all", source: "explicit", attachedAt: 30 },
+    ];
+    const aggregate = user("aggregate", "Legacy aggregate ask", 20, "all");
+    aggregate.threadRefs = [{ threadKey: "all", source: "explicit", attachedAt: 40 }];
+
+    const response = buildRecentAskBundles({ documents: [doc([attached, aggregate])] });
+
+    expect(response.groups.map((group) => group.ownerThreadKey)).toEqual(["main", "q-2"]);
+    expect(response.groups.find((group) => group.ownerThreadKey === "q-2")).toMatchObject({
+      id: "s1:q-2",
+      questId: "q-2",
+      members: [{ messageId: "attached" }],
+    });
+    expect(response.groups.some((group) => group.ownerThreadKey === "all")).toBe(false);
+  });
+
+  it("collapses duplicate destinations before applying the requested limit", () => {
+    const repeated = Array.from({ length: 60 }, (_, index) => [
+      user(`repeat-${index}`, `Repeated ${index}`, 100 + index * 2, "q-2"),
+      assistant(`repeat-response-${index}`, "Done", 101 + index * 2, "q-2"),
+    ]).flat();
+    const response = buildRecentAskBundles({
+      documents: [doc([user("older-destination", "Older destination", 10, "q-1"), ...repeated])],
+      limit: 2,
+    });
+
+    expect(response.groups).toHaveLength(2);
+    expect(response.groups.map((group) => group.ownerThreadKey)).toEqual(["q-2", "q-1"]);
+    expect(response.groups[0]?.members).toEqual([expect.objectContaining({ messageId: "repeat-59" })]);
+  });
+
+  it("keeps attention and activity filters as independent destination facets", () => {
+    const document = doc(
+      [
+        user("old", "Older ask", 10, "q-7"),
+        assistant("old-response", "Answer", 11, "q-7"),
+        user("new", "Newest ask", 20, "q-7"),
+      ],
+      {
+        notifications: [
+          {
+            id: "needs",
+            category: "needs-input",
+            summary: "Choose one",
+            timestamp: 12,
+            messageId: "old-response",
+            done: false,
+            threadKey: "q-7",
+          },
+          {
+            id: "review",
+            category: "review",
+            summary: "New answer",
+            timestamp: 13,
+            messageId: "old-response",
+            done: false,
+            threadKey: "q-7",
+          },
+        ],
+      },
+    );
+
+    const all = buildRecentAskBundles({ documents: [document] });
+    expect(all.groups[0]).toMatchObject({
+      status: "needs_input",
+      statusDetail: "Choose one",
+      members: [{ messageId: "new" }],
+      response: { messageId: "old-response" },
+    });
+    expect(buildRecentAskBundles({ documents: [document], filter: "needs_me" }).groups).toHaveLength(1);
+    expect(buildRecentAskBundles({ documents: [document], filter: "new_response" }).groups).toHaveLength(1);
+    expect(buildRecentAskBundles({ documents: [document], filter: "active" }).groups).toHaveLength(1);
+  });
+
+  it("ignores stale unanchored needs-input after a newer ask", () => {
+    const document = doc([user("newest", "Newest ask", 20, "q-7")], {
+      notifications: [
+        {
+          id: "stale-thread-needs-input",
+          category: "needs-input",
+          summary: "Old prompt",
+          timestamp: 10,
+          messageId: null,
+          done: false,
+          threadKey: "q-7",
+        },
+      ],
+    });
+
+    const all = buildRecentAskBundles({ documents: [document] });
+    expect(all.attentionCount).toBe(0);
+    expect(all.groups[0]?.status).toBe("awaiting_response");
+    expect(buildRecentAskBundles({ documents: [document], filter: "needs_me" }).groups).toHaveLength(0);
+  });
+
+  it("excludes muted unresolved needs-input prompts from Recent attention", () => {
+    const document = doc([user("ask", "Completed ask", 10), assistant("response", "Answer", 11)], {
+      notifications: [
+        {
+          id: "muted-needs-input",
+          category: "needs-input",
+          summary: "Muted backlog",
+          timestamp: 12,
+          messageId: "response",
+          done: false,
+          muted: true,
+          mutedAt: 13,
+          threadKey: "main",
+        },
+      ],
+    });
+
+    const all = buildRecentAskBundles({ documents: [document] });
+    expect(all.attentionCount).toBe(0);
+    expect(all.groups[0]?.status).toBe("responded");
+    expect(all.groups[0]?.statusDetail).toBeUndefined();
+    expect(buildRecentAskBundles({ documents: [document], filter: "needs_me" }).groups).toHaveLength(0);
+  });
+
+  it("requires an exact same-destination response before exposing a review facet", () => {
+    const document = doc(
+      [
+        user("quest-one", "Quest one", 10, "q-1"),
+        user("quest-two", "Quest two", 20, "q-2"),
+        assistant("quest-two-response", "Answer", 21, "q-2"),
+      ],
+      {
+        notifications: [
+          {
+            id: "wrong-owner-review",
+            category: "review",
+            timestamp: 22,
+            messageId: "quest-two-response",
+            done: false,
+            threadKey: "q-1",
+          },
+        ],
+      },
+    );
+
+    const response = buildRecentAskBundles({ documents: [document], filter: "new_response" });
+    expect(response.groups).toHaveLength(0);
+  });
+
+  it("bounds globally after destination collapse, sorts by latest human input, and ignores query text", () => {
     const response = buildRecentAskBundles({
       documents: [
         doc(
           Array.from({ length: 60 }, (_, index) => [
-            user(`u${index}`, `Ask ${index}`, index * 2),
-            assistant(`a${index}`, `Reply ${index}`, index * 2 + 1),
+            user(`u${index}`, `Ask ${index}`, index * 2, `q-${index + 1}`),
+            assistant(`a${index}`, `Reply ${index}`, index * 2 + 1, `q-${index + 1}`),
           ]).flat(),
         ),
       ],
-      query: "Ask 59",
+      query: "does not match any ask",
       omittedSearchOnlySessions: 2,
     });
+    expect(response.query).toBe("");
     expect(response.totalRecentGroups).toBe(50);
-    expect(response.groups).toHaveLength(1);
+    expect(response.groups).toHaveLength(50);
     expect(response.groups[0]?.members[0]?.messageId).toBe("u59");
+    expect(response.groups.at(-1)?.members[0]?.messageId).toBe("u10");
     expect(response.coverageNotice).toContain("archived sessions");
   });
 });

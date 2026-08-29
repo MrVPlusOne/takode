@@ -81,7 +81,7 @@ export function RecentAskBundleResult({
           setExpandedText((current) => ({ ...current, [member.messageId]: message.content }));
         }
       } catch (error) {
-        console.warn("[recent-asks] exact message expansion failed:", error);
+        console.warn("[recent-conversations] exact message expansion failed:", error);
       } finally {
         setLoadingId(null);
       }
@@ -169,7 +169,7 @@ export function RecentAskBundleResult({
                 type="button"
                 className="flex min-h-11 min-w-0 flex-1 items-start gap-2 py-1.5 text-left outline-none hover:text-cc-primary focus-visible:text-cc-primary sm:min-h-0 sm:py-1"
                 onClick={() => onOpenMember(member)}
-                aria-label={`Open ask ${index + 1} in ${sessionLabel} ${threadLabel}`}
+                aria-label={`Open newest message in ${sessionLabel} ${threadLabel}`}
               >
                 <time
                   className="mt-px w-11 shrink-0 text-[10px] tabular-nums text-cc-muted"
@@ -205,7 +205,7 @@ export function RecentAskBundleResult({
                   disabled={loadingId === member.messageId}
                   onClick={() => void toggleMemberFormatting(member)}
                   className="flex min-h-11 shrink-0 items-center rounded px-1.5 text-[10px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg disabled:opacity-50 sm:min-h-0 sm:py-1"
-                  aria-label={`${fullText == null ? "Expand" : "Collapse"} ask ${index + 1}`}
+                  aria-label={`${fullText == null ? "Expand" : "Collapse"} newest message`}
                   title={fullText == null ? "Show original formatting" : "Use compact formatting"}
                 >
                   {loadingId === member.messageId ? "Loading…" : fullText == null ? "Expand" : "Collapse"}

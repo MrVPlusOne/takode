@@ -29,7 +29,7 @@ describe("GET /sessions/recent-asks", () => {
   it("returns bounded server-authored groups with session-space and quest orientation", async () => {
     const api = new Hono();
     const sessions = [
-      { sessionId: "s1", sessionNum: 1, name: "Leader", state: "connected", treeGroupId: "work" },
+      { sessionId: "s1", sessionNum: 1, name: "Leader", state: "connected", treeGroupId: "work", isOrchestrator: true },
       { sessionId: "archived", sessionNum: 2, name: "Archived", state: "exited", archived: true },
     ];
     const bridge = new Map([
@@ -65,9 +65,10 @@ describe("GET /sessions/recent-asks", () => {
       ]) as never,
     });
 
-    const response = await api.request("/sessions/recent-asks?filter=all&limit=50");
+    const response = await api.request("/sessions/recent-asks?filter=all&limit=50&q=does-not-match");
     expect(response.status).toBe(200);
     const body = await response.json();
+    expect(body.query).toBe("");
     expect(body.groups).toHaveLength(1);
     expect(body.groups[0]).toMatchObject({
       sessionId: "s1",

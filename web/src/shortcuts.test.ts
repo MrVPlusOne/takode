@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_SHORTCUT_SETTINGS,
+  SHORTCUT_ACTIONS,
   createShortcutGestureRecorder,
   formatShortcut,
   getMatchingShortcutAction,
@@ -16,6 +17,12 @@ import {
 } from "./shortcuts.js";
 
 describe("shortcuts", () => {
+  it("describes both Recent browsing and the searchable Universal Search modes", () => {
+    expect(SHORTCUT_ACTIONS.find((action) => action.id === "search_session")?.description).toBe(
+      "Browse recent conversations or search quests, sessions, current-session messages, and starred results.",
+    );
+  });
+
   it("stays disabled by default", () => {
     expect(
       getMatchingShortcutAction(DEFAULT_SHORTCUT_SETTINGS, {
