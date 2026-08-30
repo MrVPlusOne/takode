@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
+import { SESSION_NAVIGATION_PROJECTION } from "../../shared/session-navigation-projection.js";
+import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import { useStore } from "../store.js";
+import { createSessionNavigationProjectionValue } from "../test-fixtures/session-navigation-projection.js";
 import { QuestStatusPanel } from "./QuestStatusPanel.js";
 
 describe("QuestStatusPanel", () => {
@@ -58,6 +61,83 @@ describe("QuestStatusPanel", () => {
     expect(leaderLink).toHaveAttribute("href", "#/session/7?thread=q-42");
     expect(leaderLink).toHaveClass("text-cc-info");
     expect(ownerLink).toHaveClass("text-cc-attention");
+  });
+
+  it("uses the projected claimed quest ahead of stale selected-session state", () => {
+    const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, "worker-projected");
+    useStore.setState({
+      sessions: new Map([
+        [
+          "worker-projected",
+          {
+            claimedQuestId: "q-old",
+            claimedQuestTitle: "Stale claimed quest",
+            claimedQuestStatus: "done",
+          } as any,
+        ],
+      ]),
+      quests: [
+        {
+          questId: "q-old",
+          title: "Stale claimed quest",
+          status: "done",
+          sessionId: "worker-projected",
+          createdAt: 1,
+        } as any,
+      ],
+      syncedProjectionKeys: new Set([entryId]),
+      syncedProjectionValues: new Map([
+        [
+          entryId,
+          createSessionNavigationProjectionValue({
+            quest: {
+              claimedQuestId: "q-new",
+              claimedQuestTitle: "Projected claimed quest",
+              claimedQuestStatus: "refined",
+            },
+          }),
+        ],
+      ]),
+    });
+
+    render(<QuestStatusPanel sessionId="worker-projected" />);
+
+    expect(screen.getByText("q-new")).toBeInTheDocument();
+    expect(screen.getByText("Projected claimed quest")).toBeInTheDocument();
+    expect(screen.getByText("Refined")).toBeInTheDocument();
+    expect(screen.queryByText("q-old")).toBeNull();
+    expect(screen.queryByText("Stale claimed quest")).toBeNull();
+  });
+
+  it("does not resurrect a stale bridge claim after the projection clears it", () => {
+    const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, "worker-cleared");
+    useStore.setState({
+      sessions: new Map([
+        [
+          "worker-cleared",
+          {
+            claimedQuestId: "q-old",
+            claimedQuestTitle: "Stale claimed quest",
+            claimedQuestStatus: "in_progress",
+          } as any,
+        ],
+      ]),
+      quests: [
+        {
+          questId: "q-old",
+          title: "Stale claimed quest",
+          status: "in_progress",
+          sessionId: "worker-cleared",
+          createdAt: 1,
+        } as any,
+      ],
+      syncedProjectionKeys: new Set([entryId]),
+      syncedProjectionValues: new Map([[entryId, createSessionNavigationProjectionValue()]]),
+    });
+
+    const { container } = render(<QuestStatusPanel sessionId="worker-cleared" />);
+
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("uses semantic attention tokens for status metrics and callouts", () => {

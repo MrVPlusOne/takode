@@ -24,6 +24,7 @@ const mockStore = vi.hoisted(() => ({
       archived: false,
     },
   ],
+  sessions: new Map(),
   sessionNames: new Map<string, string>(),
 }));
 

@@ -13,6 +13,13 @@ import {
   sessionAttentionProjectionEqual,
   type SessionAttentionProjectionValue,
 } from "../shared/session-attention-projection.js";
+import {
+  SESSION_NAVIGATION_PROJECTION,
+  isSessionNavigationProjectionValue,
+  reconcileSessionNavigationProjectionValue,
+  sessionNavigationProjectionEqual,
+  type SessionNavigationProjectionValue,
+} from "../shared/session-navigation-projection.js";
 import type { AppState } from "./store-types.js";
 import type { LeaderProjectionSnapshot } from "./types.js";
 
@@ -41,11 +48,20 @@ export interface SyncedProjectionUpdateApplyOptions {
   activeRequestSequence?: number;
 }
 
+export interface SyncedProjectionAuthorityReconcileOptions {
+  /** Active-list request sequence visible when the complete subscription decision arrived. */
+  activeRequestSequence?: number;
+  /** Requested identities rejected or omitted by the authoritative subscription response. */
+  revokedSubscriptions?: readonly import("../shared/synced-projection.js").SyncedProjectionSubscriptionIdentity[];
+}
+
 export interface SyncedProjectionOrderingState {
   /** Newest active-list request whose valid envelope was observed for this key. */
   latestRestRequestSequence?: number;
   /** Requests at or below this sequence predate selected-carrier authority. */
   liveRequestSequenceBarrier?: number;
+  /** Complete subscription settlement rejected this key; REST cannot restore authority. */
+  subscriptionRejected?: boolean;
 }
 
 export interface SyncedProjectionCacheState {
@@ -66,6 +82,7 @@ export interface SyncedProjectionCacheApplication {
 type ProjectionDescriptor = {
   isValue: (value: unknown) => boolean;
   equal: (left: unknown, right: unknown) => boolean;
+  reconcile?: (previous: unknown, next: unknown) => unknown;
 };
 
 const INVALID_RESULT: SyncedProjectionApplyResult = {
@@ -90,15 +107,32 @@ const RESYNC_RESULT: SyncedProjectionApplyResult = {
 };
 
 function descriptorForProjection(projection: string): ProjectionDescriptor | null {
-  if (projection !== SESSION_ATTENTION_PROJECTION) return null;
-  return {
-    isValue: isSessionAttentionProjectionValue,
-    equal: (left, right) =>
-      sessionAttentionProjectionEqual(
-        left as SessionAttentionProjectionValue,
-        right as SessionAttentionProjectionValue,
-      ),
-  };
+  if (projection === SESSION_ATTENTION_PROJECTION) {
+    return {
+      isValue: isSessionAttentionProjectionValue,
+      equal: (left, right) =>
+        sessionAttentionProjectionEqual(
+          left as SessionAttentionProjectionValue,
+          right as SessionAttentionProjectionValue,
+        ),
+    };
+  }
+  if (projection === SESSION_NAVIGATION_PROJECTION) {
+    return {
+      isValue: isSessionNavigationProjectionValue,
+      equal: (left, right) =>
+        sessionNavigationProjectionEqual(
+          left as SessionNavigationProjectionValue,
+          right as SessionNavigationProjectionValue,
+        ),
+      reconcile: (previous, next) =>
+        reconcileSessionNavigationProjectionValue(
+          previous as SessionNavigationProjectionValue,
+          next as SessionNavigationProjectionValue,
+        ),
+    };
+  }
+  return null;
 }
 
 function parseKnownEnvelope(input: unknown): {
@@ -156,12 +190,15 @@ function applyOrderingMetadata(
   if (options.source === "live") {
     const liveRequestSequenceBarrier = requestSequence ?? 0;
     if (
+      current?.subscriptionRejected ||
       current?.liveRequestSequenceBarrier === undefined ||
       liveRequestSequenceBarrier > current.liveRequestSequenceBarrier
     ) {
       next = { ...current, liveRequestSequenceBarrier };
+      delete next.subscriptionRejected;
     }
   } else if (options.source === "rest") {
+    if (current?.subscriptionRejected) return { state, rejectSnapshot: true };
     if (
       requestSequence !== undefined &&
       current?.latestRestRequestSequence !== undefined &&
@@ -174,12 +211,11 @@ function applyOrderingMetadata(
     }
 
     const currentVersion = state.syncedProjectionVersions.get(entryId);
+    const hasAuthority = state.syncedProjectionKeys.has(entryId);
     if (
-      state.syncedProjectionKeys.has(entryId) &&
-      currentVersion &&
-      currentVersion.generation !== envelope.generation &&
       current?.liveRequestSequenceBarrier !== undefined &&
-      (requestSequence === undefined || requestSequence <= current.liveRequestSequenceBarrier)
+      (requestSequence === undefined || requestSequence <= current.liveRequestSequenceBarrier) &&
+      (!hasAuthority || !currentVersion || currentVersion.generation !== envelope.generation)
     ) {
       rejectSnapshot = true;
     }
@@ -218,13 +254,17 @@ function commitEnvelope(
   const entryId = syncedProjectionEntryId(envelope.projection, envelope.key);
   const hadAuthority = state.syncedProjectionKeys.has(entryId);
   const currentValue = state.syncedProjectionValues.get(entryId);
+  const nextValue =
+    hadAuthority && state.syncedProjectionValues.has(entryId) && descriptor.reconcile
+      ? descriptor.reconcile(currentValue, envelope.value)
+      : envelope.value;
   const valueEqual =
-    hadAuthority && state.syncedProjectionValues.has(entryId) && descriptor.equal(currentValue, envelope.value);
+    hadAuthority && state.syncedProjectionValues.has(entryId) && descriptor.equal(currentValue, nextValue);
 
   let syncedProjectionValues = state.syncedProjectionValues;
   if (!valueEqual) {
     syncedProjectionValues = new Map(syncedProjectionValues);
-    syncedProjectionValues.set(entryId, envelope.value);
+    syncedProjectionValues.set(entryId, nextValue);
   }
 
   let syncedProjectionVersions = state.syncedProjectionVersions;
@@ -387,6 +427,20 @@ export function hasSessionAttentionProjection(
   return hasSyncedProjectionValue(state, SESSION_ATTENTION_PROJECTION, sessionId);
 }
 
+export function getSessionNavigationProjection(
+  state: Pick<AppState, "syncedProjectionValues" | "syncedProjectionKeys">,
+  sessionId: string,
+): SessionNavigationProjectionValue | undefined {
+  return getSyncedProjectionValue<SessionNavigationProjectionValue>(state, SESSION_NAVIGATION_PROJECTION, sessionId);
+}
+
+export function hasSessionNavigationProjection(
+  state: Pick<AppState, "syncedProjectionKeys">,
+  sessionId: string,
+): boolean {
+  return hasSyncedProjectionValue(state, SESSION_NAVIGATION_PROJECTION, sessionId);
+}
+
 type StoreSet = Parameters<StateCreator<AppState>>[0];
 type SyncedProjectionStoreSlice = Pick<
   AppState,
@@ -397,10 +451,76 @@ type SyncedProjectionStoreSlice = Pick<
   | "syncedProjectionKeys"
   | "syncedProjectionOrderings"
   | "applySyncedProjectionSnapshot"
+  | "applySyncedProjectionSnapshots"
   | "applySyncedProjectionUpdate"
   | "clearSyncedProjectionKey"
+  | "clearSyncedProjectionsForKey"
   | "reconcileSyncedProjectionAuthority"
 >;
+
+function splitSyncedProjectionEntryId(entryId: string): { projection: string; key: string } | null {
+  const separator = entryId.indexOf("\u0000");
+  if (separator < 0) return null;
+  return {
+    projection: entryId.slice(0, separator),
+    key: entryId.slice(separator + 1),
+  };
+}
+
+interface RemoveSyncedProjectionEntriesOptions {
+  liveRequestSequenceBarrier?: number;
+  retainOrderingEntryIds?: ReadonlySet<string>;
+}
+
+function removeSyncedProjectionEntries(
+  state: SyncedProjectionCacheState,
+  entryIds: Iterable<string>,
+  options: RemoveSyncedProjectionEntriesOptions = {},
+): SyncedProjectionCacheState {
+  const orderingBarrier = normalizeActiveRequestSequence(options.liveRequestSequenceBarrier);
+  const removable = [...new Set(entryIds)].filter(
+    (entryId) =>
+      state.syncedProjectionValues.has(entryId) ||
+      state.syncedProjectionVersions.has(entryId) ||
+      state.syncedProjectionKeys.has(entryId) ||
+      state.syncedProjectionOrderings.has(entryId) ||
+      (orderingBarrier !== undefined && options.retainOrderingEntryIds?.has(entryId)),
+  );
+  if (removable.length === 0) return state;
+
+  const syncedProjectionValues = new Map(state.syncedProjectionValues);
+  const syncedProjectionVersions = new Map(state.syncedProjectionVersions);
+  const syncedProjectionKeys = new Set(state.syncedProjectionKeys);
+  const syncedProjectionOrderings = new Map(state.syncedProjectionOrderings);
+  let sessionAttention = state.sessionAttention;
+  for (const entryId of removable) {
+    syncedProjectionValues.delete(entryId);
+    syncedProjectionVersions.delete(entryId);
+    syncedProjectionKeys.delete(entryId);
+    const currentOrdering = syncedProjectionOrderings.get(entryId);
+    syncedProjectionOrderings.delete(entryId);
+    if (orderingBarrier !== undefined && options.retainOrderingEntryIds?.has(entryId)) {
+      syncedProjectionOrderings.set(entryId, {
+        ...currentOrdering,
+        liveRequestSequenceBarrier: Math.max(currentOrdering?.liveRequestSequenceBarrier ?? 0, orderingBarrier),
+        subscriptionRejected: true,
+      });
+    }
+    const identity = splitSyncedProjectionEntryId(entryId);
+    if (identity?.projection === SESSION_ATTENTION_PROJECTION && sessionAttention.has(identity.key)) {
+      if (sessionAttention === state.sessionAttention) sessionAttention = new Map(sessionAttention);
+      sessionAttention.delete(identity.key);
+    }
+  }
+  return {
+    ...state,
+    syncedProjectionValues,
+    syncedProjectionVersions,
+    syncedProjectionKeys,
+    syncedProjectionOrderings,
+    sessionAttention,
+  };
+}
 
 export function createSyncedProjectionStoreSlice(set: StoreSet): SyncedProjectionStoreSlice {
   const apply = (
@@ -432,69 +552,53 @@ export function createSyncedProjectionStoreSlice(set: StoreSet): SyncedProjectio
     syncedProjectionOrderings: new Map(),
     applySyncedProjectionSnapshot: (snapshot, options) =>
       apply((state) => applySyncedProjectionSnapshotToCache(state, snapshot, options)),
+    applySyncedProjectionSnapshots: (snapshots, options) =>
+      set((state) => {
+        let next: SyncedProjectionCacheState = state;
+        for (const snapshot of snapshots) {
+          next = applySyncedProjectionSnapshotToCache(next, snapshot, options).state;
+        }
+        return next === state ? state : next;
+      }),
     applySyncedProjectionUpdate: (update, options) =>
       apply((state) => applySyncedProjectionUpdateToCache(state, update, options)),
     clearSyncedProjectionKey: (projection, key) =>
+      set((state) => removeSyncedProjectionEntries(state, [syncedProjectionEntryId(projection, key)])),
+    clearSyncedProjectionsForKey: (key) =>
       set((state) => {
-        const entryId = syncedProjectionEntryId(projection, key);
-        if (!state.syncedProjectionKeys.has(entryId) && !state.syncedProjectionOrderings.has(entryId)) return state;
-        const syncedProjectionValues = new Map(state.syncedProjectionValues);
-        const syncedProjectionVersions = new Map(state.syncedProjectionVersions);
-        const syncedProjectionKeys = new Set(state.syncedProjectionKeys);
-        const syncedProjectionOrderings = new Map(state.syncedProjectionOrderings);
-        syncedProjectionValues.delete(entryId);
-        syncedProjectionVersions.delete(entryId);
-        syncedProjectionKeys.delete(entryId);
-        syncedProjectionOrderings.delete(entryId);
-
-        let sessionAttention = state.sessionAttention;
-        if (projection === SESSION_ATTENTION_PROJECTION && sessionAttention.has(key)) {
-          sessionAttention = new Map(sessionAttention);
-          sessionAttention.delete(key);
-        }
-        return {
-          syncedProjectionValues,
-          syncedProjectionVersions,
-          syncedProjectionKeys,
-          syncedProjectionOrderings,
-          sessionAttention,
-        };
+        const entryIds = [
+          ...new Set([
+            ...state.syncedProjectionValues.keys(),
+            ...state.syncedProjectionVersions.keys(),
+            ...state.syncedProjectionKeys,
+            ...state.syncedProjectionOrderings.keys(),
+          ]),
+        ].filter((entryId) => splitSyncedProjectionEntryId(entryId)?.key === key);
+        return removeSyncedProjectionEntries(state, entryIds);
       }),
-    reconcileSyncedProjectionAuthority: (subscriptions) =>
+    reconcileSyncedProjectionAuthority: (subscriptions, options) =>
       set((state) => {
         const acceptedIds = new Set(
           subscriptions.map(({ projection, key }) => syncedProjectionEntryId(projection, key)),
         );
+        const explicitlyRevokedIds = new Set(
+          (options?.revokedSubscriptions ?? [])
+            .map(({ projection, key }) => syncedProjectionEntryId(projection, key))
+            .filter((entryId) => !acceptedIds.has(entryId)),
+        );
         const revokedIds = [
-          ...new Set([...state.syncedProjectionKeys, ...state.syncedProjectionOrderings.keys()]),
+          ...new Set([
+            ...state.syncedProjectionValues.keys(),
+            ...state.syncedProjectionVersions.keys(),
+            ...state.syncedProjectionKeys,
+            ...state.syncedProjectionOrderings.keys(),
+            ...explicitlyRevokedIds,
+          ]),
         ].filter((entryId) => !acceptedIds.has(entryId));
-        if (revokedIds.length === 0) return state;
-
-        const syncedProjectionValues = new Map(state.syncedProjectionValues);
-        const syncedProjectionVersions = new Map(state.syncedProjectionVersions);
-        const syncedProjectionKeys = new Set(state.syncedProjectionKeys);
-        const syncedProjectionOrderings = new Map(state.syncedProjectionOrderings);
-        let sessionAttention = state.sessionAttention;
-        for (const entryId of revokedIds) {
-          syncedProjectionValues.delete(entryId);
-          syncedProjectionVersions.delete(entryId);
-          syncedProjectionKeys.delete(entryId);
-          syncedProjectionOrderings.delete(entryId);
-          const separator = entryId.indexOf("\u0000");
-          const projection = entryId.slice(0, separator);
-          const key = entryId.slice(separator + 1);
-          if (projection === SESSION_ATTENTION_PROJECTION && sessionAttention.has(key)) {
-            if (sessionAttention === state.sessionAttention) sessionAttention = new Map(sessionAttention);
-            sessionAttention.delete(key);
-          }
-        }
-        return {
-          syncedProjectionValues,
-          syncedProjectionVersions,
-          syncedProjectionKeys,
-          syncedProjectionOrderings,
-          sessionAttention,
-        };
+        return removeSyncedProjectionEntries(state, revokedIds, {
+          liveRequestSequenceBarrier: options?.activeRequestSequence,
+          retainOrderingEntryIds: explicitlyRevokedIds,
+        });
       }),
   };
 }

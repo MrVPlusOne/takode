@@ -242,6 +242,7 @@ wsBridge.pushoverNotifier = pushoverNotifier;
 wsBridge.launcher = launcher;
 const bridgeAny = wsBridge as any;
 wsBridge.sessionNameGetter = (sessionId) => sessionNames.getName(sessionId) || sessionId.slice(0, 8);
+wsBridge.sessionStoredNameGetter = (sessionId) => sessionNames.getName(sessionId);
 wsBridge.resolveQuestTitle = async (questId) => (await getQuest(questId))?.title ?? null;
 wsBridge.resolveQuestStatus = async (questId) => (await getQuest(questId))?.status ?? null;
 launcher.setStore(sessionStore);

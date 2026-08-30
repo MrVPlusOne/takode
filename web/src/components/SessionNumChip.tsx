@@ -8,6 +8,8 @@ import { useState, useRef, useCallback, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
 import { navigateToSession, navigateToSessionThread } from "../utils/routing.js";
+import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
+import type { SidebarSessionItem } from "../utils/sidebar-session-item.js";
 
 interface SessionNumChipProps {
   sessionId: string;
@@ -17,14 +19,15 @@ interface SessionNumChipProps {
 }
 
 export function SessionNumChip({ sessionId, threadKey, className }: SessionNumChipProps) {
-  const sdkSession = useStore((s) => s.sdkSessions.find((x) => x.sessionId === sessionId));
-  const sessionName = useStore((s) => s.sessionNames.get(sessionId));
+  const resolvedNavigation = useStore((s) => resolveSessionNavigation(s, sessionId));
+  const session = resolvedNavigation?.sidebarItem;
+  const sessionName = resolvedNavigation?.name;
   const [hovered, setHovered] = useState(false);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
   const chipRef = useRef<HTMLButtonElement>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const num = sdkSession?.sessionNum;
+  const num = session?.sessionNum;
   const label = num != null ? `#${num}` : "#?";
 
   const handleMouseEnter = useCallback(() => {
@@ -75,7 +78,7 @@ export function SessionNumChip({ sessionId, threadKey, className }: SessionNumCh
       {hovered && tooltipPos && (
         <SessionChipTooltip
           sessionId={sessionId}
-          sdkSession={sdkSession}
+          session={session}
           sessionName={sessionName}
           pos={tooltipPos}
           onMouseEnter={() => setHovered(true)}
@@ -90,26 +93,14 @@ export function SessionNumChip({ sessionId, threadKey, className }: SessionNumCh
 
 function SessionChipTooltip({
   sessionId,
-  sdkSession,
+  session,
   sessionName,
   pos,
   onMouseEnter,
   onMouseLeave,
 }: {
   sessionId: string;
-  sdkSession:
-    | {
-        sessionNum?: number | null;
-        state: string;
-        model?: string;
-        backendType?: string;
-        cliConnected?: boolean;
-        isOrchestrator?: boolean;
-        herdedBy?: string;
-        gitBranch?: string;
-        cwd: string;
-      }
-    | undefined;
+  session: SidebarSessionItem | undefined;
   sessionName: string | undefined;
   pos: { x: number; y: number };
   onMouseEnter: () => void;
@@ -131,16 +122,17 @@ function SessionChipTooltip({
   }, [pos]);
 
   const name = sessionName || "(unnamed)";
-  const num = sdkSession?.sessionNum != null ? `#${sdkSession.sessionNum}` : "#?";
-  const model = sdkSession?.model?.replace(/-\d{8}$/, "") || "";
-  const backend = sdkSession?.backendType === "codex" ? "Codex" : "Claude";
-  const isConnected = sdkSession?.cliConnected;
+  const num = session?.sessionNum != null ? `#${session.sessionNum}` : "#?";
+  const model = session?.model?.replace(/-\d{8}$/, "") || "";
+  const backend =
+    session?.backendType === "codex" ? "Codex" : session?.backendType === "claude-sdk" ? "Claude SDK" : "Claude";
+  const isConnected = session?.isConnected;
   const statusColor = !isConnected
     ? "bg-cc-muted/40"
-    : sdkSession?.state === "running"
+    : session?.status === "running" || session?.sdkState === "running"
       ? "bg-cc-success"
       : "bg-cc-muted/60";
-  const branch = sdkSession?.gitBranch || "";
+  const branch = session?.gitBranch || "";
 
   return createPortal(
     <div
@@ -164,7 +156,7 @@ function SessionChipTooltip({
             {backend}
           </span>
           {model && <span className="text-[9px] text-cc-muted truncate">{model}</span>}
-          {sdkSession?.isOrchestrator && (
+          {session?.isOrchestrator && (
             <span className="text-[9px] font-medium px-1 rounded-full leading-[14px] text-amber-500 bg-amber-500/10">
               leader
             </span>

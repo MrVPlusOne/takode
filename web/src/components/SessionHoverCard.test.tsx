@@ -10,6 +10,8 @@ import {
   type SessionAttentionProjectionValue,
 } from "../../shared/session-attention-projection.js";
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
+import { SESSION_NAVIGATION_PROJECTION } from "../../shared/session-navigation-projection.js";
+import { createSessionNavigationProjectionValue } from "../test-fixtures/session-navigation-projection.js";
 
 if (typeof globalThis.DOMRect === "undefined") {
   globalThis.DOMRect = class DOMRect {
@@ -41,6 +43,14 @@ if (typeof globalThis.DOMRect === "undefined") {
 
 const mockStoreState = {
   zoomLevel: 1,
+  sessions: new Map<string, SessionState>(),
+  cliConnected: new Map<string, boolean>(),
+  cliDisconnectReason: new Map<string, "idle_limit" | "broken" | "recovery_suppressed" | null>(),
+  sessionStatus: new Map<string, "idle" | "running" | "compacting" | "reverting" | null>(),
+  pendingPermissions: new Map<string, Map<string, unknown>>(),
+  askPermission: new Map<string, boolean>(),
+  diffFileStats: new Map<string, Map<string, { additions: number; deletions: number }>>(),
+  sessionPreviews: new Map<string, string>(),
   sdkSessions: [] as Array<{
     sessionId: string;
     sessionNum?: number;
@@ -88,6 +98,7 @@ const mockStoreState = {
 
 vi.mock("../store.js", () => ({
   useStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState),
+  countUserPermissions: (permissions: Map<string, unknown> | undefined) => permissions?.size ?? 0,
 }));
 
 import { SessionHoverCard } from "./SessionHoverCard.js";
@@ -115,6 +126,12 @@ function makeSession(overrides: Partial<SessionItemType> = {}): SessionItemType 
   };
 }
 
+function setSessionNavigationProjection(sessionId: string, value = createSessionNavigationProjectionValue()) {
+  const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, sessionId);
+  mockStoreState.syncedProjectionKeys.add(entryId);
+  mockStoreState.syncedProjectionValues.set(entryId, value);
+}
+
 function setSessionAttentionProjection(sessionId: string, value: SessionAttentionProjectionValue) {
   const entryId = syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, sessionId);
   mockStoreState.syncedProjectionKeys.add(entryId);
@@ -123,6 +140,14 @@ function setSessionAttentionProjection(sessionId: string, value: SessionAttentio
 
 describe("SessionHoverCard", () => {
   beforeEach(() => {
+    mockStoreState.sessions = new Map();
+    mockStoreState.cliConnected = new Map();
+    mockStoreState.cliDisconnectReason = new Map();
+    mockStoreState.sessionStatus = new Map();
+    mockStoreState.pendingPermissions = new Map();
+    mockStoreState.askPermission = new Map();
+    mockStoreState.diffFileStats = new Map();
+    mockStoreState.sessionPreviews = new Map();
     mockStoreState.sdkSessions = [];
     mockStoreState.sessionNames = new Map();
     mockStoreState.quests = undefined;
@@ -156,6 +181,91 @@ describe("SessionHoverCard", () => {
     expect(screen.getByText("Safe Hover")).toBeInTheDocument();
     expect(screen.getByText("Preview text")).toBeInTheDocument();
     expect(screen.queryByTestId("session-hover-active-quest")).toBeNull();
+  });
+
+  it("renders projected name, preview, status, git, and detail ahead of stale props", () => {
+    setSessionNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        identity: { name: "Projected hover", model: "projected-model" },
+        lifecycle: { status: "running", pendingPermissionCount: 0 },
+        git: { branch: "projected-branch", ahead: 2 },
+        detail: { lastMessagePreview: "Projected preview", userTurnCount: 6, contextUsedPercent: 44 },
+      }),
+    );
+
+    render(
+      <SessionHoverCard
+        session={makeSession({ model: "stale-model", gitBranch: "stale-branch", status: "idle" })}
+        sessionName="Stale hover"
+        sessionPreview="Stale preview"
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Projected hover")).toBeInTheDocument();
+    expect(screen.getByText("Projected preview")).toBeInTheDocument();
+    expect(screen.getByText("projected-model")).toBeInTheDocument();
+    expect(screen.getByText("projected-branch")).toBeInTheDocument();
+    expect(screen.getByText("running")).toBeInTheDocument();
+    expect(screen.getByText("6 turns")).toBeInTheDocument();
+    expect(screen.getByText("44% context")).toBeInTheDocument();
+    expect(screen.queryByText("Stale preview")).toBeNull();
+  });
+
+  it("does not resurrect a cleared projected quest claim from the global quest cache", () => {
+    mockStoreState.quests = [
+      { questId: "q-42", title: "Stale active quest", status: "in_progress", sessionId: "s1", createdAt: 1 },
+    ] as QuestmasterTask[];
+    setSessionNavigationProjection("s1");
+
+    render(
+      <SessionHoverCard
+        session={makeSession()}
+        sessionName="Projected no-quest worker"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.queryByTestId("session-hover-active-quest")).toBeNull();
+    expect(screen.queryByText("Stale active quest")).toBeNull();
+  });
+
+  it("uses projected timer count for the selected-session hover status", () => {
+    mockStoreState.currentSessionId = "s1";
+    mockStoreState.sessionTimers.set("s1", [{ id: "stale-live-timer" }]);
+    setSessionNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({ lifecycle: { status: "idle", pendingTimerCount: 0 } }),
+    );
+
+    render(
+      <SessionHoverCard
+        session={makeSession()}
+        sessionName="Projected timer"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("idle")).toBeInTheDocument();
+    expect(screen.queryByText(/scheduled timer/)).toBeNull();
   });
 
   it("shows timer status instead of plain idle when an idle session has active timers", () => {
@@ -720,6 +830,39 @@ describe("SessionHoverCard", () => {
     );
 
     expect(screen.queryByTestId("session-hover-attention-status")).toBeNull();
+  });
+
+  it("keeps projected Codex leader hover context on the backend model window", () => {
+    setSessionNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        topology: { isOrchestrator: true },
+        detail: {
+          contextUsedPercent: 6,
+          contextTokensUsed: 57_000,
+          modelContextWindow: 950_000,
+          effectiveContextWindow: 260_000,
+        },
+      }),
+    );
+
+    render(
+      <SessionHoverCard
+        session={makeSession({ isOrchestrator: true })}
+        sessionName="Leader context"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("6% context")).toBeInTheDocument();
+    expect(screen.getByText(/950 K tokens/)).toBeInTheDocument();
+    expect(screen.queryByText(/260 K tokens/)).toBeNull();
   });
 
   it("shows the max context window rounded to whole K tokens", () => {

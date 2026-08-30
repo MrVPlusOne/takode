@@ -161,7 +161,6 @@ function renderGroup(props: Partial<ComponentProps<typeof TreeViewGroup>> = {}) 
     currentSessionId: null,
     sessionNames: new Map(),
     sessionPreviews: new Map(),
-    pendingPermissions: new Map(),
     recentlyRenamed: new Set(),
     onSelect: vi.fn(),
     onStartRename: vi.fn(),

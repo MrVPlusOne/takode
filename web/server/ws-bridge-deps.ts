@@ -343,6 +343,14 @@ function readLauncherSession(host: any, sessionId: string) {
   return typeof host.launcher?.getSession === "function" ? host.launcher.getSession(sessionId) : undefined;
 }
 
+function touchSessionActivity(host: any, sessionId: string): void {
+  if (typeof host.touchSessionActivity === "function") {
+    host.touchSessionActivity(sessionId);
+    return;
+  }
+  host.launcher?.touchActivity(sessionId);
+}
+
 export function maybeBroadcastGlobalSessionActivityUpdate(
   host: any,
   session: Session,
@@ -861,7 +869,7 @@ export function getBrowserTransportDeps(host: any) {
       host.broadcastToBrowsers(targetSession as Session, browserMsg),
     setAttentionAction: (targetSession: unknown) =>
       setAttentionController(targetSession as Session, "action", host.getSessionNotificationDeps()),
-    touchActivity: (sessionId: string) => host.launcher?.touchActivity(sessionId),
+    touchActivity: (sessionId: string) => touchSessionActivity(host, sessionId),
     notifyImageSendFailure: (targetSession: unknown, err?: unknown) =>
       host.notifyImageSendFailure(targetSession as Session, err),
     broadcastError: (targetSession: unknown, message: string) =>
@@ -942,7 +950,7 @@ export function getClaudeCliTransportDeps(host: any) {
     routeCLIMessage: (targetSession: unknown, msg: CLIMessage) => {
       const session = targetSession as Session;
       if (msg.type !== "keep_alive") {
-        host.launcher?.touchActivity(session.id);
+        touchSessionActivity(host, session.id);
         session.lastCliMessageAt = Date.now();
         clearOptimisticRunningTimerLifecycle(session);
       } else {
@@ -1000,7 +1008,7 @@ export function getClaudeSdkAdapterLifecycleDeps(host: any) {
     getOrCreateSession: (sessionId: string, backendType: "claude-sdk") =>
       host.getOrCreateSession(sessionId, backendType),
     onOrchestratorTurnEnd: (sessionId: string) => host.herdEventDispatcher?.onOrchestratorTurnEnd(sessionId),
-    touchActivity: (sessionId: string) => host.launcher?.touchActivity(sessionId),
+    touchActivity: (sessionId: string) => touchSessionActivity(host, sessionId),
     clearOptimisticRunningTimer: (targetSession: unknown, reason: string) =>
       clearOptimisticRunningTimerLifecycle(targetSession as Session),
     hasPendingForceCompact: (targetSession: unknown) => host.hasPendingForceCompact(targetSession as Session),
@@ -1060,7 +1068,7 @@ export function getCodexAdapterBrowserMessageDeps(host: any) {
   return {
     ...runtime,
     getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
-    touchActivity: (sessionId: string) => host.launcher?.touchActivity(sessionId),
+    touchActivity: (sessionId: string) => touchSessionActivity(host, sessionId),
     clearOptimisticRunningTimer: (targetSession: unknown, reason: string) =>
       clearOptimisticRunningTimerLifecycle(targetSession as Session),
     setCodexImageSendStage: (targetSession: unknown, stage: string, options?: { persist?: boolean }) =>

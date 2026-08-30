@@ -30,6 +30,11 @@ export interface SessionViewModel {
   contextTokensUsed?: number;
   messageHistoryBytes?: number;
   codexRetainedPayloadBytes?: number;
+  /** Provider-reported window before Takode effective-window selection. */
+  backendReportedContextWindow?: number;
+  codexReasoningEffort?: string | null;
+  codexEffectiveReasoningEffort?: string | null;
+  codexEffectiveReasoningEffortReported?: boolean;
   state?: SdkSessionInfo["state"];
   createdAt?: number;
   lastActivityAt?: number;
@@ -38,7 +43,10 @@ export interface SessionViewModel {
   name?: string;
   isOrchestrator?: boolean;
   herdedBy?: string;
+  claimedQuestId?: string;
+  claimedQuestTitle?: string;
   claimedQuestStatus?: string;
+  claimedQuestLeaderSessionId?: string;
   claimedQuestVerificationInboxUnread?: boolean;
   askPermission?: boolean;
   pause?: SessionPauseState | null;
@@ -92,8 +100,24 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
       contextTokensUsed: session.codex_token_details?.contextTokensUsed,
       messageHistoryBytes: session.message_history_bytes,
       codexRetainedPayloadBytes: session.codex_retained_payload_bytes,
+      backendReportedContextWindow:
+        session.backend_type === "codex"
+          ? session.codex_token_details?.modelContextWindow
+          : session.claude_token_details?.modelContextWindow,
+      codexReasoningEffort: hasOwn(session, "codex_reasoning_effort")
+        ? (session.codex_reasoning_effort ?? null)
+        : undefined,
+      codexEffectiveReasoningEffort: hasOwn(session, "codex_effective_reasoning_effort")
+        ? (session.codex_effective_reasoning_effort ?? null)
+        : undefined,
+      codexEffectiveReasoningEffortReported: hasOwn(session, "codex_effective_reasoning_effort_reported")
+        ? session.codex_effective_reasoning_effort_reported === true
+        : undefined,
+      claimedQuestId: session.claimedQuestId,
+      claimedQuestTitle: session.claimedQuestTitle,
       claimedQuestStatus: session.claimedQuestStatus,
       claimedQuestVerificationInboxUnread: session.claimedQuestVerificationInboxUnread,
+      claimedQuestLeaderSessionId: session.claimedQuestLeaderSessionId,
       askPermission: session.askPermission,
       isOrchestrator: session.isOrchestrator,
       pause: session.pause ?? null,
@@ -134,6 +158,13 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
     contextTokensUsed: session.codexTokenDetails?.contextTokensUsed,
     messageHistoryBytes: session.messageHistoryBytes,
     codexRetainedPayloadBytes: session.codexRetainedPayloadBytes,
+    backendReportedContextWindow:
+      session.backendType === "codex"
+        ? session.codexTokenDetails?.modelContextWindow
+        : session.claudeTokenDetails?.modelContextWindow,
+    codexReasoningEffort: session.codexReasoningEffort ?? undefined,
+    codexEffectiveReasoningEffort: session.codexEffectiveReasoningEffort ?? undefined,
+    codexEffectiveReasoningEffortReported: session.codexEffectiveReasoningEffortReported,
     state: session.state,
     createdAt: session.createdAt,
     lastActivityAt: session.lastActivityAt,
@@ -142,8 +173,11 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
     name: session.name,
     isOrchestrator: session.isOrchestrator,
     herdedBy: session.herdedBy,
+    claimedQuestId: session.claimedQuestId ?? undefined,
+    claimedQuestTitle: session.claimedQuestTitle ?? undefined,
     claimedQuestStatus: session.claimedQuestStatus ?? undefined,
     claimedQuestVerificationInboxUnread: session.claimedQuestVerificationInboxUnread,
+    claimedQuestLeaderSessionId: session.claimedQuestLeaderSessionId ?? undefined,
     askPermission: undefined,
     pause: session.pause ?? null,
     pausedInputQueueCount: session.pausedInputQueueCount ?? session.pause?.queuedMessages.length ?? 0,

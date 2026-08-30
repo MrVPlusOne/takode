@@ -291,4 +291,23 @@ describe("Sidebar session context menu", () => {
     expect(dialog.parentElement).toBe(document.body);
     expect(screen.getByText(/Codex session settings for #1533/)).toBeInTheDocument();
   });
+
+  it("keeps archive safety on raw server authority when a supplied projection is malformed", () => {
+    const session = makeSession("s1", { is_worktree: true });
+    const sdk = makeSdkSession("s1", { sessionNavigationProjection: { revision: 0 } as never });
+    mockState = createMockState({
+      sessions: new Map([["s1", session]]),
+      sdkSessions: [sdk],
+      currentSessionId: "s1",
+    });
+
+    render(<Sidebar />);
+    const sessionButton = document.querySelector<HTMLButtonElement>('[data-session-id="s1"]');
+    expect(sessionButton).not.toBeNull();
+    fireEvent.contextMenu(sessionButton!, { clientX: 100, clientY: 120 });
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+
+    expect(mockApi.archiveSession).not.toHaveBeenCalled();
+    expect(screen.getByText(/delete the worktree/i)).toBeInTheDocument();
+  });
 });

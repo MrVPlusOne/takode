@@ -9,6 +9,8 @@ import {
 import { questOwnsSessionName } from "./utils/quest-helpers.js";
 import { sessionTaskHistoryEqual, stringArrayEqual } from "./store-equality.js";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
+import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
+import { syncedProjectionEntryId, type SyncedProjectionSubscriptionIdentity } from "../shared/synced-projection.js";
 import { hasSessionAttentionProjection } from "./store-synced-projections.js";
 
 export const ACTIVE_SESSION_METADATA_STALE_REFRESH_MS = 3 * 60_000;
@@ -43,17 +45,65 @@ export function getCurrentActiveSessionListRequestSequence(): number {
 
 export function applyAuthoritativeSessionArchive(sessionId: string, archivedAt?: number): void {
   authoritativeArchiveRequestFences.set(sessionId, activeSessionListRequestSequence);
-  const updates: Partial<SdkSessionInfo> = { archived: true };
-  if (typeof archivedAt === "number") updates.archivedAt = archivedAt;
-  const store = useStore.getState();
-  store.updateSdkSession(sessionId, updates);
-  store.clearSyncedProjectionKey(SESSION_ATTENTION_PROJECTION, sessionId);
+  useStore.setState((state) => {
+    const index = state.sdkSessions.findIndex((session) => session.sessionId === sessionId);
+    if (index === -1) return state;
+    const sdkSessions = state.sdkSessions.slice();
+    sdkSessions[index] = {
+      ...stripStoredProjectionSnapshots(sdkSessions[index]!),
+      archived: true,
+      ...(typeof archivedAt === "number" ? { archivedAt } : {}),
+    };
+    return { sdkSessions };
+  });
+  useStore.getState().clearSyncedProjectionsForKey(sessionId);
+}
+
+/** Reconcile transport-only REST envelopes to the projection identities accepted by the server. */
+export function reconcileStoredSyncedProjectionSnapshots(
+  acceptedSubscriptions: readonly SyncedProjectionSubscriptionIdentity[],
+): SyncedProjectionSubscriptionIdentity[] {
+  const acceptedIds = new Set(
+    acceptedSubscriptions.map(({ projection, key }) => syncedProjectionEntryId(projection, key)),
+  );
+  const state = useStore.getState();
+  const rejectedSubscriptions: SyncedProjectionSubscriptionIdentity[] = [];
+  const seenSessionIds = new Set<string>();
+  for (const session of state.sdkSessions) {
+    if (session.archived || seenSessionIds.has(session.sessionId)) continue;
+    seenSessionIds.add(session.sessionId);
+    for (const projection of [SESSION_ATTENTION_PROJECTION, SESSION_NAVIGATION_PROJECTION]) {
+      if (!acceptedIds.has(syncedProjectionEntryId(projection, session.sessionId))) {
+        rejectedSubscriptions.push({ projection, key: session.sessionId });
+      }
+    }
+  }
+
+  useStore.setState((current) => {
+    let changed = false;
+    const sdkSessions = current.sdkSessions.map((session) => {
+      const removeAttention =
+        Object.prototype.hasOwnProperty.call(session, "sessionAttentionProjection") &&
+        !acceptedIds.has(syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, session.sessionId));
+      const removeNavigation =
+        Object.prototype.hasOwnProperty.call(session, "sessionNavigationProjection") &&
+        !acceptedIds.has(syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, session.sessionId));
+      if (!removeAttention && !removeNavigation) return session;
+      changed = true;
+      const next = { ...session };
+      if (removeAttention) delete next.sessionAttentionProjection;
+      if (removeNavigation) delete next.sessionNavigationProjection;
+      return next;
+    });
+    return changed ? { sdkSessions } : current;
+  });
+  return rejectedSubscriptions;
 }
 
 export function hydrateSessionList(list: SdkSessionInfo[], options: HydrateSessionListOptions = {}): void {
   const store = useStore.getState();
   const strippedList = list.map(stripSearchMetadata);
-  const nextSdkSessions = options.preserveMissingSessions
+  let nextSdkSessions = options.preserveMissingSessions
     ? mergePartialSnapshotWithExistingSessions(strippedList, store.sdkSessions)
     : options.preserveMissingArchived
       ? mergeActiveSnapshotWithExistingArchived(strippedList, store.sdkSessions, options.activeSnapshotRequestSequence)
@@ -61,30 +111,37 @@ export function hydrateSessionList(list: SdkSessionInfo[], options: HydrateSessi
   const effectiveActiveSessionIds = new Set(
     nextSdkSessions.filter((session) => !session.archived).map((session) => session.sessionId),
   );
+
+  // Projection snapshots are one-way cache hydration. Apply the response as
+  // one store transaction before publishing or deriving legacy session-list
+  // fields, so mixed responses cannot transiently replace newer authority or
+  // notify navigation subscribers once per session.
+  const projectionSnapshots = list.flatMap((session) =>
+    effectiveActiveSessionIds.has(session.sessionId) ? sessionProjectionSnapshotsFromSession(session) : [],
+  );
+  if (projectionSnapshots.length > 0) {
+    store.applySyncedProjectionSnapshots(projectionSnapshots, {
+      source: "rest",
+      activeRequestSequence: options.activeSnapshotRequestSequence,
+    });
+  }
+  const projectionState = useStore.getState();
+  nextSdkSessions = nextSdkSessions.map((session) =>
+    stripRestFencedProjectionSnapshots(session, projectionState, options.activeSnapshotRequestSequence),
+  );
+
   setSdkSessionsWithNotificationFreshness(nextSdkSessions);
 
   for (const session of list) {
     hydrateSessionDerivedMetadata(store, session);
   }
 
-  // Projection snapshots are one-way cache hydration. Apply every supplied
-  // snapshot before considering legacy attentionReason fields so a mixed list
-  // cannot overwrite a projection accepted earlier in the same response.
-  for (const session of list) {
-    if (!effectiveActiveSessionIds.has(session.sessionId)) continue;
-    const projection = sessionAttentionProjectionFromSession(session);
-    if (projection.present) {
-      useStore.getState().applySyncedProjectionSnapshot(projection.value, {
-        source: "rest",
-        activeRequestSequence: options.activeSnapshotRequestSequence,
-      });
-    }
-  }
-
   const attentionStore = useStore.getState();
+  const effectiveSessionsById = new Map(nextSdkSessions.map((session) => [session.sessionId, session]));
   let batchedAttention: Map<string, "action" | "error" | "review" | null> | null = null;
-  for (const session of list) {
-    if (!effectiveActiveSessionIds.has(session.sessionId)) continue;
+  for (const listedSession of list) {
+    if (!effectiveActiveSessionIds.has(listedSession.sessionId)) continue;
+    const session = effectiveSessionsById.get(listedSession.sessionId) ?? listedSession;
     if (sessionAttentionProjectionFromSession(session).present) continue;
     batchedAttention = collectAttentionUpdate(attentionStore, session, batchedAttention);
   }
@@ -162,12 +219,67 @@ export function _resetActiveSessionMetadataRefreshForTest(): void {
   authoritativeArchiveRequestFences.clear();
 }
 
+function hasStoredProjectionSnapshot(session: SdkSessionInfo): boolean {
+  return (
+    Object.prototype.hasOwnProperty.call(session, "sessionAttentionProjection") ||
+    Object.prototype.hasOwnProperty.call(session, "sessionNavigationProjection")
+  );
+}
+
+function stripStoredProjectionSnapshots(session: SdkSessionInfo): SdkSessionInfo {
+  const {
+    sessionAttentionProjection: _sessionAttentionProjection,
+    sessionNavigationProjection: _sessionNavigationProjection,
+    ...rest
+  } = session;
+  return rest;
+}
+
+function stripRestFencedProjectionSnapshots(
+  session: SdkSessionInfo,
+  state: Pick<ReturnType<typeof useStore.getState>, "syncedProjectionKeys" | "syncedProjectionOrderings">,
+  activeRequestSequence?: number,
+): SdkSessionInfo {
+  const requestSequence =
+    typeof activeRequestSequence === "number" &&
+    Number.isSafeInteger(activeRequestSequence) &&
+    activeRequestSequence >= 0
+      ? activeRequestSequence
+      : undefined;
+  const isFenced = (projection: string) => {
+    const entryId = syncedProjectionEntryId(projection, session.sessionId);
+    if (state.syncedProjectionKeys.has(entryId)) return false;
+    const ordering = state.syncedProjectionOrderings.get(entryId);
+    if (ordering?.subscriptionRejected) return true;
+    const barrier = ordering?.liveRequestSequenceBarrier;
+    return barrier !== undefined && (requestSequence === undefined || requestSequence <= barrier);
+  };
+  const removeAttention =
+    Object.prototype.hasOwnProperty.call(session, "sessionAttentionProjection") &&
+    isFenced(SESSION_ATTENTION_PROJECTION);
+  const removeNavigation =
+    Object.prototype.hasOwnProperty.call(session, "sessionNavigationProjection") &&
+    isFenced(SESSION_NAVIGATION_PROJECTION);
+  if (!removeAttention && !removeNavigation) return session;
+  const next = { ...session };
+  if (removeAttention) delete next.sessionAttentionProjection;
+  if (removeNavigation) delete next.sessionNavigationProjection;
+  return next;
+}
+
 function sessionAttentionProjectionFromSession(session: SdkSessionInfo): { present: boolean; value?: unknown } {
   if (!("sessionAttentionProjection" in session)) return { present: false };
   return {
     present: true,
     value: session.sessionAttentionProjection,
   };
+}
+
+function sessionProjectionSnapshotsFromSession(session: SdkSessionInfo): unknown[] {
+  const snapshots: unknown[] = [];
+  if ("sessionAttentionProjection" in session) snapshots.push(session.sessionAttentionProjection);
+  if ("sessionNavigationProjection" in session) snapshots.push(session.sessionNavigationProjection);
+  return snapshots;
 }
 
 function stripSearchMetadata(session: SdkSessionInfo): SdkSessionInfo {

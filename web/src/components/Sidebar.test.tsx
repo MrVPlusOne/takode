@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { SessionNotification, SessionState, SdkSessionInfo } from "../types.js";
 import { setTouchDeviceForTest } from "./test-match-media.js";
@@ -155,8 +155,9 @@ interface MockStoreState {
   markRecentlyRenamed: ReturnType<typeof vi.fn>;
   clearRecentlyRenamed: ReturnType<typeof vi.fn>;
   setSdkSessions: ReturnType<typeof vi.fn>;
+  applySyncedProjectionSnapshots: ReturnType<typeof vi.fn>;
+  clearSyncedProjectionsForKey: ReturnType<typeof vi.fn>;
   updateSession: ReturnType<typeof vi.fn>;
-  updateSdkSession: ReturnType<typeof vi.fn>;
   closeTerminal: ReturnType<typeof vi.fn>;
   openNewSessionModal: ReturnType<typeof vi.fn>;
   closeNewSessionModal: ReturnType<typeof vi.fn>;
@@ -262,9 +263,12 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     setSessionKeywords: vi.fn(),
     markRecentlyRenamed: vi.fn(),
     clearRecentlyRenamed: vi.fn(),
-    setSdkSessions: vi.fn(),
+    setSdkSessions: vi.fn((sessions: SdkSessionInfo[]) => {
+      mockState.sdkSessions = sessions;
+    }),
+    applySyncedProjectionSnapshots: vi.fn(),
+    clearSyncedProjectionsForKey: vi.fn(),
     updateSession: vi.fn(),
-    updateSdkSession: vi.fn(),
     closeTerminal: vi.fn(),
     openNewSessionModal: vi.fn(),
     closeNewSessionModal: vi.fn(),
@@ -286,8 +290,9 @@ vi.mock("../store.js", () => {
   };
   // Also support useStore.getState() which Sidebar uses directly
   useStoreFn.getState = () => mockState;
-  useStoreFn.setState = (patch: Partial<MockStoreState>) => {
-    mockState = { ...mockState, ...patch };
+  useStoreFn.setState = (patch: Partial<MockStoreState> | ((state: MockStoreState) => Partial<MockStoreState>)) => {
+    const next = typeof patch === "function" ? patch(mockState) : patch;
+    mockState = { ...mockState, ...next };
   };
 
   /** countUserPermissions: count permissions excluding evaluating/auto-approved ones */
@@ -343,16 +348,20 @@ function expectDocumentOrder(nodes: HTMLElement[]) {
 
 describe("Sidebar", { timeout: 10000 }, () => {
   it("polling refreshes sdk sessions without calling connectAllSessions", async () => {
+    vi.useFakeTimers();
     const listed = [makeSdkSession("s1")];
     mockApi.listSessions.mockResolvedValueOnce(listed);
-
-    render(<Sidebar />);
-
-    await waitFor(() => {
+    try {
+      render(<Sidebar />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
       expect(mockApi.listSessions).toHaveBeenCalledWith({ includeArchived: false });
       expect(mockState.setSdkSessions).toHaveBeenCalledWith(listed);
-    });
-    expect(mockConnectAllSessions).not.toHaveBeenCalled();
+      expect(mockConnectAllSessions).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("hydrates notification markers from the session-list snapshot without per-session sockets", async () => {
@@ -418,18 +427,19 @@ describe("Sidebar", { timeout: 10000 }, () => {
   });
 
   it("focus refresh is stale-gated to avoid extra foreground churn", async () => {
-    const dateNow = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(200_000);
     mockApi.listSessions.mockResolvedValue([makeSdkSession("s1")]);
 
     try {
       render(<Sidebar />);
+      window.dispatchEvent(new Event("focus"));
 
       await waitFor(() => expect(mockState.setSdkSessions).toHaveBeenCalledTimes(1));
       window.dispatchEvent(new Event("focus"));
       await Promise.resolve();
       expect(mockApi.listSessions).toHaveBeenCalledTimes(1);
 
-      dateNow.mockReturnValue(1_000 + 3 * 60_000 + 1);
+      dateNow.mockReturnValue(200_000 + 3 * 60_000 + 1);
       window.dispatchEvent(new Event("focus"));
 
       await waitFor(() => expect(mockApi.listSessions).toHaveBeenCalledTimes(2));
@@ -439,7 +449,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
   });
 
   it("dedupes stale focus and pageshow refreshes while a session-list request is in flight", async () => {
-    const dateNow = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(200_000);
     mockApi.listSessions.mockResolvedValueOnce([makeSdkSession("s1")]);
     let resolveSecond: (sessions: SdkSessionInfo[]) => void = () => {};
     const secondRequest = new Promise<SdkSessionInfo[]>((resolve) => {
@@ -448,14 +458,15 @@ describe("Sidebar", { timeout: 10000 }, () => {
 
     try {
       render(<Sidebar />);
+      window.dispatchEvent(new Event("focus"));
 
       await waitFor(() => expect(mockState.setSdkSessions).toHaveBeenCalledTimes(1));
       mockApi.listSessions.mockReturnValueOnce(secondRequest);
-      dateNow.mockReturnValue(1_000 + 3 * 60_000 + 1);
+      dateNow.mockReturnValue(200_000 + 3 * 60_000 + 1);
       window.dispatchEvent(new Event("focus"));
       await waitFor(() => expect(mockApi.listSessions).toHaveBeenCalledTimes(2));
 
-      dateNow.mockReturnValue(1_000 + 6 * 60_000 + 2);
+      dateNow.mockReturnValue(200_000 + 6 * 60_000 + 2);
       window.dispatchEvent(new Event("pageshow"));
       await Promise.resolve();
       expect(mockApi.listSessions).toHaveBeenCalledTimes(2);
@@ -484,6 +495,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     mockApi.listSessions.mockResolvedValueOnce(listed);
 
     render(<Sidebar />);
+    window.dispatchEvent(new Event("focus"));
 
     await waitFor(() => {
       expect(mockApi.listSessions).toHaveBeenCalled();
@@ -513,6 +525,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     mockApi.listSessions.mockResolvedValue(listed);
 
     render(<Sidebar />);
+    window.dispatchEvent(new Event("focus"));
 
     await waitFor(() => {
       expect(mockState.setSdkSessions).toHaveBeenCalledWith([
@@ -1013,7 +1026,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     await waitFor(() => {
       expect(mockApi.archiveSession).toHaveBeenCalledWith("s1", undefined);
     });
-    expect(mockState.updateSdkSession).toHaveBeenCalledWith("s1", { archived: true, archivedAt: 1234 });
+    expect(mockState.sdkSessions[0]).toMatchObject({ sessionId: "s1", archived: true, archivedAt: 1234 });
     expect(mockState.clearSessionAttention).toHaveBeenCalledWith("s1");
     expect(screen.queryByText(/detach 1 active worker session/i)).not.toBeInTheDocument();
   });
@@ -1022,7 +1035,11 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const leader = makeSession("leader-1", { model: "leader-session" });
     const worker = makeSession("worker-1", { model: "worker-session" });
     const leaderSdk = makeSdkSession("leader-1", { model: "leader-session", isOrchestrator: true, createdAt: 2_000 });
-    const workerSdk = makeSdkSession("worker-1", { model: "worker-session", herdedBy: "leader-1", createdAt: 1_000 });
+    const workerSdk = makeSdkSession("worker-1", {
+      model: "worker-session",
+      herdedBy: "leader-1",
+      createdAt: 1_000,
+    });
     mockState = createMockState({
       sessions: new Map([
         ["leader-1", leader],
@@ -1054,7 +1071,11 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const leader = makeSession("leader-1", { model: "leader-session" });
     const worker = makeSession("worker-1", { model: "worker-session" });
     const leaderSdk = makeSdkSession("leader-1", { model: "leader-session", isOrchestrator: true, createdAt: 2_000 });
-    const workerSdk = makeSdkSession("worker-1", { model: "worker-session", herdedBy: "leader-1", createdAt: 1_000 });
+    const workerSdk = makeSdkSession("worker-1", {
+      model: "worker-session",
+      herdedBy: "leader-1",
+      createdAt: 1_000,
+    });
     mockState = createMockState({
       sessions: new Map([
         ["leader-1", leader],
@@ -1150,7 +1171,11 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const leader = makeSession("leader-1", { model: "leader-session" });
     const worker = makeSession("worker-1", { model: "worker-session" });
     const leaderSdk = makeSdkSession("leader-1", { model: "leader-session", isOrchestrator: true, createdAt: 2_000 });
-    const workerSdk = makeSdkSession("worker-1", { model: "worker-session", herdedBy: "leader-1", createdAt: 1_000 });
+    const workerSdk = makeSdkSession("worker-1", {
+      model: "worker-session",
+      herdedBy: "leader-1",
+      createdAt: 1_000,
+    });
     mockState = createMockState({
       sessions: new Map([
         ["leader-1", leader],
@@ -1174,7 +1199,11 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const leader = makeSession("leader-1", { model: "leader-session" });
     const worker = makeSession("worker-1", { model: "worker-session" });
     const leaderSdk = makeSdkSession("leader-1", { model: "leader-session", isOrchestrator: true, createdAt: 2_000 });
-    const workerSdk = makeSdkSession("worker-1", { model: "worker-session", herdedBy: "leader-1", createdAt: 1_000 });
+    const workerSdk = makeSdkSession("worker-1", {
+      model: "worker-session",
+      herdedBy: "leader-1",
+      createdAt: 1_000,
+    });
     mockState = createMockState({
       sessions: new Map([
         ["leader-1", leader],
@@ -1200,7 +1229,11 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const leader = makeSession("leader-1", { model: "leader-session" });
     const worker = makeSession("worker-1", { model: "worker-session" });
     const leaderSdk = makeSdkSession("leader-1", { model: "leader-session", isOrchestrator: true, createdAt: 2_000 });
-    const workerSdk = makeSdkSession("worker-1", { model: "worker-session", herdedBy: "leader-1", createdAt: 1_000 });
+    const workerSdk = makeSdkSession("worker-1", {
+      model: "worker-session",
+      herdedBy: "leader-1",
+      createdAt: 1_000,
+    });
     mockState = createMockState({
       sessions: new Map([
         ["leader-1", leader],

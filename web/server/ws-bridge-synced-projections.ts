@@ -3,6 +3,11 @@ import {
   SESSION_ATTENTION_PROJECTION,
   type SessionAttentionProjectionValue,
 } from "../shared/session-attention-projection.js";
+import {
+  SESSION_NAVIGATION_PROJECTION,
+  type SessionNavigationProjectionValue,
+  type SessionNavigationStatus,
+} from "../shared/session-navigation-projection.js";
 import type {
   SyncedProjectionEnvelope,
   SyncedProjectionSnapshotMessage,
@@ -13,19 +18,21 @@ import type {
 import { sendToBrowser, type BrowserTransportSocketLike } from "./bridge/browser-transport-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
 import { createSessionAttentionProjectionDefinition } from "./session-attention-projection.js";
+import { createSessionNavigationProjectionDefinition } from "./session-navigation-projection.js";
+import type { SdkSessionInfo } from "./session-info.js";
 import { SyncedProjectionRuntime, type SyncedProjectionRuntimeMetrics } from "./synced-projection-runtime.js";
 
 export interface WsBridgeSyncedProjectionDeps {
   getSession: (sessionId: string) => Session | undefined;
   listSessions: () => Iterable<Session>;
-  getLauncherSessionInfo: (sessionId: string) =>
-    | {
-        hidden?: boolean;
-        archived?: boolean;
-        herdedBy?: string;
-      }
-    | null
-    | undefined;
+  getLauncherSessionInfo: (sessionId: string) => SdkSessionInfo | null | undefined;
+  getSessionName: (sessionId: string) => string | undefined;
+  getPendingTimerCount: (sessionId: string) => number;
+  getBackendConnected: (sessionId: string) => boolean;
+  getSessionStatus: (sessionId: string) => SessionNavigationStatus;
+  getLastActivityAt: (sessionId: string) => number | undefined;
+  getLastUserMessageAt: (sessionId: string) => number | undefined;
+  getLastMessagePreviewAt: (sessionId: string) => number | undefined;
 }
 
 export class WsBridgeSyncedProjectionController {
@@ -38,25 +45,47 @@ export class WsBridgeSyncedProjectionController {
         console.warn(`[synced-projection] ${context.phase} failed for ${context.projection}/${context.key}:`, error);
       },
     });
+    const authorizeSubscription = (_socket: BrowserTransportSocketLike, session: Session) => {
+      const launcherInfo = deps.getLauncherSessionInfo(session.id);
+      return (
+        launcherInfo?.hidden !== true &&
+        launcherInfo?.archived !== true &&
+        session.state.hidden !== true &&
+        session.searchDataOnly !== true
+      );
+    };
     this.runtime.register(
       createSessionAttentionProjectionDefinition({
         getSession: deps.getSession,
         isHerdedWorkerSession: (session) => !!deps.getLauncherSessionInfo(session.id)?.herdedBy,
-        authorizeSubscription: (_socket, session) => {
-          const launcherInfo = deps.getLauncherSessionInfo(session.id);
-          return (
-            launcherInfo?.hidden !== true &&
-            launcherInfo?.archived !== true &&
-            session.state.hidden !== true &&
-            session.searchDataOnly !== true
-          );
-        },
+        authorizeSubscription,
+      }),
+    );
+    this.runtime.register(
+      createSessionNavigationProjectionDefinition({
+        getSession: deps.getSession,
+        getLauncherSessionInfo: deps.getLauncherSessionInfo,
+        getSessionName: deps.getSessionName,
+        getPendingTimerCount: deps.getPendingTimerCount,
+        getBackendConnected: deps.getBackendConnected,
+        getSessionStatus: deps.getSessionStatus,
+        getLastActivityAt: deps.getLastActivityAt,
+        getLastUserMessageAt: deps.getLastUserMessageAt,
+        getLastMessagePreviewAt: deps.getLastMessagePreviewAt,
+        authorizeSubscription,
       }),
     );
   }
 
   invalidateSession(session: Session): void {
-    this.runtime.invalidate(SESSION_ATTENTION_PROJECTION, session.id);
+    this.runtime.transaction(() => {
+      this.runtime.invalidate(SESSION_ATTENTION_PROJECTION, session.id);
+      this.runtime.invalidate(SESSION_NAVIGATION_PROJECTION, session.id);
+    });
+  }
+
+  invalidateSessionNavigation(session: Session): void {
+    this.runtime.invalidate(SESSION_NAVIGATION_PROJECTION, session.id);
   }
 
   invalidateAllSessions(): void {
@@ -67,6 +96,10 @@ export class WsBridgeSyncedProjectionController {
 
   getSessionAttentionSnapshot(sessionId: string): SyncedProjectionEnvelope<SessionAttentionProjectionValue> | null {
     return this.runtime.getSnapshot(SESSION_ATTENTION_PROJECTION, sessionId);
+  }
+
+  getSessionNavigationSnapshot(sessionId: string): SyncedProjectionEnvelope<SessionNavigationProjectionValue> | null {
+    return this.runtime.getSnapshot(SESSION_NAVIGATION_PROJECTION, sessionId);
   }
 
   replaceSubscriptions(
@@ -99,8 +132,17 @@ export class WsBridgeSyncedProjectionController {
     this.runtime.removeSubscriber(socket);
   }
 
+  hasSubscription(socket: BrowserTransportSocketLike, projection: string, key: string): boolean {
+    return this.runtime.hasSubscription(socket, projection, key);
+  }
+
+  hasSessionNavigationSubscription(socket: BrowserTransportSocketLike, sessionId: string): boolean {
+    return this.hasSubscription(socket, SESSION_NAVIGATION_PROJECTION, sessionId);
+  }
+
   removeSession(sessionId: string): void {
     this.runtime.removeKey(SESSION_ATTENTION_PROJECTION, sessionId);
+    this.runtime.removeKey(SESSION_NAVIGATION_PROJECTION, sessionId);
   }
 
   getMetrics(): Readonly<SyncedProjectionRuntimeMetrics> {

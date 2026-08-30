@@ -12,7 +12,7 @@ import {
 } from "../utils/routing.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
-import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
+import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { MessageLinkHoverCard } from "./MessageLinkHoverCard.js";
 import type { ChatMessage } from "../types.js";
 import { useHoverCardsSuppressed } from "./hover-card-suppression-context.js";
@@ -67,6 +67,9 @@ export function SessionInlineLink({
   const sessionStatus = useStore((s) => s.sessionStatus);
   const askPermission = useStore((s) => s.askPermission);
   const cliDisconnectReason = useStore((s) => s.cliDisconnectReason);
+  const diffFileStats = useStore((s) => s.diffFileStats);
+  const syncedProjectionValues = useStore((s) => s.syncedProjectionValues);
+  const syncedProjectionKeys = useStore((s) => s.syncedProjectionKeys);
 
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
   const hideHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,63 +91,46 @@ export function SessionInlineLink({
     return null;
   }, [sdkSessions, sessionId, sessionNum]);
   const resolvedSessionId = sessionId ?? sdkInfo?.sessionId ?? null;
-  const resolvedSessionNum = sdkInfo?.sessionNum ?? sessionNum ?? null;
-
-  const sessionItem = useMemo<SessionItemType | null>(() => {
-    if (!resolvedSessionId) return null;
-
-    const bridgeState = sessions.get(resolvedSessionId);
-    const sdkGitAhead = sdkInfo?.gitAhead ?? 0;
-    const sdkGitBehind = sdkInfo?.gitBehind ?? 0;
-    const gitAhead =
-      bridgeState?.git_ahead === 0 && sdkGitAhead > 0 ? sdkGitAhead : (bridgeState?.git_ahead ?? sdkGitAhead);
-    const gitBehind =
-      bridgeState?.git_behind === 0 && sdkGitBehind > 0 ? sdkGitBehind : (bridgeState?.git_behind ?? sdkGitBehind);
-
-    return {
-      id: resolvedSessionId,
-      model: bridgeState?.model || sdkInfo?.model || "",
-      cwd: bridgeState?.cwd || sdkInfo?.cwd || "",
-      gitBranch: bridgeState?.git_branch || sdkInfo?.gitBranch || "",
-      isContainerized: bridgeState?.is_containerized || !!sdkInfo?.containerId || false,
-      gitAhead,
-      gitBehind,
-      linesAdded: bridgeState?.total_lines_added ?? sdkInfo?.totalLinesAdded ?? 0,
-      linesRemoved: bridgeState?.total_lines_removed ?? sdkInfo?.totalLinesRemoved ?? 0,
-      isConnected: cliConnected.get(resolvedSessionId) ?? sdkInfo?.cliConnected ?? false,
-      status: sessionStatus.get(resolvedSessionId) ?? null,
-      sdkState: sdkInfo?.state ?? null,
-      createdAt: sdkInfo?.createdAt ?? 0,
-      archived: sdkInfo?.archived ?? false,
-      archivedAt: sdkInfo?.archivedAt,
-      backendType: bridgeState?.backend_type || sdkInfo?.backendType || "claude",
-      repoRoot: bridgeState?.repo_root || sdkInfo?.repoRoot || "",
-      permCount: countUserPermissions(pendingPermissions.get(resolvedSessionId)),
-      cronJobId: bridgeState?.cronJobId || sdkInfo?.cronJobId,
-      cronJobName: bridgeState?.cronJobName || sdkInfo?.cronJobName,
-      isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,
-      worktreeExists: sdkInfo?.worktreeExists,
-      worktreeDirty: sdkInfo?.worktreeDirty,
-      worktreeCleanupStatus: sdkInfo?.worktreeCleanupStatus,
-      worktreeCleanupError: sdkInfo?.worktreeCleanupError,
-      askPermission: askPermission.get(resolvedSessionId),
-      idleKilled: cliDisconnectReason.get(resolvedSessionId) === "idle_limit",
-      lastActivityAt: sdkInfo?.lastActivityAt,
-      isOrchestrator: sdkInfo?.isOrchestrator || false,
-      herdedBy: sdkInfo?.herdedBy,
-      sessionNum: sdkInfo?.sessionNum ?? resolvedSessionNum,
-    };
-  }, [
-    askPermission,
-    cliConnected,
-    cliDisconnectReason,
-    pendingPermissions,
-    resolvedSessionId,
-    resolvedSessionNum,
-    sdkInfo,
-    sessionStatus,
-    sessions,
-  ]);
+  const resolvedNavigation = useMemo(
+    () =>
+      resolvedSessionId
+        ? resolveSessionNavigation(
+            {
+              sessions,
+              sdkSessions,
+              syncedProjectionValues,
+              syncedProjectionKeys,
+              cliConnected,
+              cliDisconnectReason,
+              sessionStatus,
+              pendingPermissions,
+              askPermission,
+              diffFileStats,
+              sessionNames,
+              sessionPreviews,
+              countUserPermissions,
+            },
+            resolvedSessionId,
+          )
+        : null,
+    [
+      askPermission,
+      cliConnected,
+      cliDisconnectReason,
+      diffFileStats,
+      pendingPermissions,
+      resolvedSessionId,
+      sdkSessions,
+      sessionNames,
+      sessionPreviews,
+      sessionStatus,
+      sessions,
+      syncedProjectionKeys,
+      syncedProjectionValues,
+    ],
+  );
+  const sessionItem = resolvedNavigation?.sidebarItem ?? null;
+  const resolvedSessionNum = sessionItem?.sessionNum ?? sdkInfo?.sessionNum ?? sessionNum ?? null;
 
   function handleLinkMouseEnter(e: MouseEvent<HTMLAnchorElement>) {
     if (!sessionItem) return;
@@ -235,7 +221,7 @@ export function SessionInlineLink({
         (messageIndex != null ? (
           <MessageLinkHoverCard
             session={sessionItem}
-            sessionName={sessionNames.get(resolvedSessionId)}
+            sessionName={resolvedNavigation?.name}
             anchorRect={hoverRect}
             messageIndex={messageIndex}
             onMouseEnter={handleHoverCardEnter}
@@ -244,8 +230,8 @@ export function SessionInlineLink({
         ) : (
           <SessionHoverCard
             session={sessionItem}
-            sessionName={sessionNames.get(resolvedSessionId)}
-            sessionPreview={sessionPreviews.get(resolvedSessionId)}
+            sessionName={resolvedNavigation?.name}
+            sessionPreview={resolvedNavigation?.preview}
             taskHistory={sessionTaskHistory.get(resolvedSessionId)}
             sessionState={sessions.get(resolvedSessionId)}
             cliSessionId={sdkInfo?.cliSessionId}

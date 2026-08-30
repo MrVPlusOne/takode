@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
+import { SESSION_NAVIGATION_PROJECTION } from "../../shared/session-navigation-projection.js";
+import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
+import { createSessionNavigationProjectionValue } from "../test-fixtures/session-navigation-projection.js";
 
 const { mockApi } = vi.hoisted(() => ({
   mockApi: {
@@ -57,6 +60,7 @@ interface MockStoreState {
     {
       backend_type?: string;
       cwd?: string;
+      repo_root?: string;
       git_branch?: string;
       codex_token_details?: CodexTokenDetails;
       claude_token_details?: Omit<CodexTokenDetails, "reasoningOutputTokens">;
@@ -92,6 +96,8 @@ interface MockStoreState {
   sessionBoards: Map<string, Array<any>>;
   sessionNames: Map<string, string>;
   sessionPreviews: Map<string, string>;
+  syncedProjectionValues: Map<string, unknown>;
+  syncedProjectionKeys: Set<string>;
   sessionKeywords: Map<string, string[]>;
   sessionNotifications: Map<string, any[]>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
@@ -128,6 +134,8 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionBoards: new Map(),
     sessionNames: new Map(),
     sessionPreviews: new Map(),
+    syncedProjectionValues: new Map(),
+    syncedProjectionKeys: new Set(),
     sessionKeywords: new Map(),
     sessionNotifications: new Map(),
     sessionAttention: new Map(),
@@ -205,6 +213,58 @@ describe("TaskPanel", () => {
     expect(screen.getByText("Add regression tests")).toBeInTheDocument();
   });
 
+  it("uses projected backend, paths, branch, and leader role for the selected-session panel", async () => {
+    // Navigation projections own summary fields even while the selected bridge
+    // and session-list snapshots still carry older values.
+    resetStore({
+      sessions: new Map([
+        [
+          "s1",
+          {
+            backend_type: "claude",
+            cwd: "/stale/cwd",
+            repo_root: "/stale/root",
+            git_branch: "stale-branch",
+          },
+        ],
+      ]),
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          sessionNum: 1,
+          state: "connected",
+          createdAt: 1,
+          backendType: "claude",
+          cwd: "/stale/cwd",
+          repoRoot: "/stale/root",
+          gitBranch: "stale-branch",
+          isOrchestrator: false,
+        },
+      ],
+    });
+    const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, "s1");
+    mockState.syncedProjectionKeys.add(entryId);
+    mockState.syncedProjectionValues.set(
+      entryId,
+      createSessionNavigationProjectionValue({
+        identity: { backendType: "codex", cwd: "/projected/cwd" },
+        topology: { repoRoot: "/projected/root", isOrchestrator: true },
+        git: { branch: "projected-branch" },
+      }),
+    );
+
+    render(<TaskPanel sessionId="s1" />);
+
+    expect(screen.getByRole("button", { name: "Herded Sessions" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Herd Diagnostics" })).toBeInTheDocument();
+    expect(mockApi.getSessionUsageLimits).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(mockApi.getPRStatus).toHaveBeenCalledWith("/projected/cwd", "projected-branch");
+      expect(mockApi.getClaudeMdFiles).toHaveBeenCalledWith("/projected/cwd");
+      expect(mockApi.getAutoApprovalConfigForPath).toHaveBeenCalledWith("/projected/cwd", "/projected/root");
+    });
+  });
+
   it("lets a leader confirm a Codex permission profile change for a herded worker", async () => {
     // This covers the leader-side worker control: selecting a new profile must
     // pause for restart confirmation before the server relaunch path is called.
@@ -250,6 +310,55 @@ describe("TaskPanel", () => {
         leaderSessionId: "s1",
       }),
     );
+  });
+
+  it("uses projected worker topology, identity, lifecycle, and permission mode", () => {
+    resetStore({
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          sessionNum: 1,
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          backendType: "codex",
+          isOrchestrator: true,
+        },
+        {
+          sessionId: "worker-1",
+          sessionNum: 2,
+          state: "exited",
+          cwd: "/legacy",
+          createdAt: 2,
+          backendType: "claude",
+          herdedBy: "stale-leader",
+          permissionMode: "bypassPermissions",
+          name: "Stale worker",
+        },
+      ],
+    });
+    const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, "worker-1");
+    mockState.syncedProjectionKeys.add(entryId);
+    mockState.syncedProjectionValues.set(
+      entryId,
+      createSessionNavigationProjectionValue({
+        identity: {
+          name: "Projected worker",
+          sessionNum: 9,
+          backendType: "codex",
+          permissionMode: "codex-auto-review",
+        },
+        topology: { herdedBy: "s1" },
+        lifecycle: { sdkState: "running", status: "running", cliConnected: true },
+      }),
+    );
+
+    render(<TaskPanel sessionId="s1" />);
+
+    expect(screen.getByText("Projected worker")).toBeInTheDocument();
+    expect(screen.getByText("#9")).toBeInTheDocument();
+    expect(screen.getByLabelText("Codex permissions for Projected worker")).toHaveValue("auto-review");
+    expect(screen.queryByText("Stale worker")).toBeNull();
   });
 
   it("preserves already-loaded archived rows after active-only herded-session refreshes", async () => {

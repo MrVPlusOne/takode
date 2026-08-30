@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
 import { SYNCED_PROJECTION_SCHEMA_VERSION } from "../shared/synced-projection.js";
+import { createSessionNavigationProjectionEnvelope } from "./test-fixtures/session-navigation-projection.js";
 
 const apiMocks = vi.hoisted(() => ({
   markSessionRead: vi.fn().mockResolvedValue({ ok: true }),
@@ -98,6 +99,36 @@ describe("projection-owned attention rejects legacy WebSocket hydration", () => 
     expect(sdk.pendingPermissionSummary).toBe("pending plan");
     expect(useStore.getState().sessionAttention.get("worker")).toBe("review");
     expect(apiMocks.markSessionRead).not.toHaveBeenCalled();
+  });
+
+  it("keeps navigation-owned activity fields while retaining non-navigation board and summary updates", () => {
+    useStore.getState().applySyncedProjectionSnapshot(
+      createSessionNavigationProjectionEnvelope({
+        key: "worker",
+        overrides: { lifecycle: { status: "running", pendingPermissionCount: 2 } },
+      }),
+    );
+    useStore.getState().setSessionStatus("worker", "running");
+    useStore.getState().updateSdkSession("worker", { pendingPermissionCount: 2 });
+
+    handleMessage("carrier", {
+      type: "session_activity_update",
+      session_id: "worker",
+      session: {
+        status: "idle",
+        pendingPermissionCount: 9,
+        pendingPermissionSummary: "pending plan",
+        leaderActivePhaseSummary: [],
+        leaderActiveBoardRows: [],
+      },
+    } as never);
+
+    const state = useStore.getState();
+    expect(state.sessionStatus.get("worker")).toBe("running");
+    expect(state.sdkSessions[0]?.pendingPermissionCount).toBe(2);
+    expect(state.sdkSessions[0]?.pendingPermissionSummary).toBe("pending plan");
+    expect(state.sdkSessions[0]?.leaderActivePhaseSummary).toEqual([]);
+    expect(state.sessionBoards.get("worker")).toEqual([]);
   });
 
   it("ignores state_snapshot attention and does not feed back markSessionRead", () => {

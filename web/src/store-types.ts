@@ -73,13 +73,19 @@ export interface AppState {
     snapshot: unknown,
     options?: import("./store-synced-projections.js").SyncedProjectionSnapshotApplyOptions,
   ) => import("./store-synced-projections.js").SyncedProjectionApplyResult;
+  applySyncedProjectionSnapshots: (
+    snapshots: readonly unknown[],
+    options?: import("./store-synced-projections.js").SyncedProjectionSnapshotApplyOptions,
+  ) => void;
   applySyncedProjectionUpdate: (
     update: unknown,
     options?: import("./store-synced-projections.js").SyncedProjectionUpdateApplyOptions,
   ) => import("./store-synced-projections.js").SyncedProjectionApplyResult;
   clearSyncedProjectionKey: (projection: string, key: string) => void;
+  clearSyncedProjectionsForKey: (key: string) => void;
   reconcileSyncedProjectionAuthority: (
     subscriptions: readonly import("../shared/synced-projection.js").SyncedProjectionSubscription[],
+    options?: import("./store-synced-projections.js").SyncedProjectionAuthorityReconcileOptions,
   ) => void;
   streaming: Map<string, string>;
   streamingByParentToolUseId: Map<string, Map<string, string>>;

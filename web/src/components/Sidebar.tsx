@@ -45,6 +45,7 @@ import {
 } from "../session-list-hydration.js";
 
 import { buildSidebarVisibleSessions } from "../utils/sidebar-visible-sessions.js";
+import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { buildReviewerByParent } from "../utils/reviewer-by-parent.js";
 import { isDesktopShellLayout } from "../utils/layout.js";
 import { isTouchDevice } from "../utils/mobile.js";
@@ -103,6 +104,7 @@ export function Sidebar() {
   const sessionTaskHistory = useStore((s) => s.sessionTaskHistory);
   const pendingPermissions = useStore((s) => s.pendingPermissions);
   const sessionAttention = useStore((s) => s.sessionAttention);
+  const syncedProjectionValues = useStore((s) => s.syncedProjectionValues);
   const syncedProjectionKeys = useStore((s) => s.syncedProjectionKeys);
   const sessionAttentionRecords = useStore((s) => s.sessionAttentionRecords);
   const sessionNotifications = useStore((s) => s.sessionNotifications);
@@ -217,7 +219,6 @@ export function Sidebar() {
       refreshSessionList(false);
     }
 
-    refreshSessionList(true);
     const interval = setInterval(() => refreshSessionList(true), SIDEBAR_SESSION_POLL_INTERVAL_MS);
     window.addEventListener("focus", refreshIfVisibleAndStale);
     window.addEventListener("pageshow", refreshIfVisibleAndStale);
@@ -542,35 +543,33 @@ export function Sidebar() {
     [removeSession],
   );
 
-  const handleArchiveSession = useCallback(
-    (e: React.MouseEvent, sessionId: string) => {
-      e.stopPropagation();
-      const sdkInfo = sdkSessions.find((s) => s.sessionId === sessionId);
-      const bridgeState = sessions.get(sessionId);
-      const isContainerized = bridgeState?.is_containerized || !!sdkInfo?.containerId || false;
-      const isWorktree = bridgeState?.is_worktree || sdkInfo?.isWorktree || false;
-      const activeWorkerCount =
-        sdkInfo?.isOrchestrator === true
-          ? sdkSessions.filter((s) => s.herdedBy === sessionId && !s.archived).length
-          : 0;
-      if (isWorktree || isContainerized || activeWorkerCount > 0) {
-        setArchiveConfirmation({
-          sessionId,
-          kind: activeWorkerCount > 0 ? "leader" : isWorktree ? "worktree" : "container",
-          activeWorkerCount: activeWorkerCount > 0 ? activeWorkerCount : undefined,
-          leaderArchiveDestructiveTarget:
-            activeWorkerCount > 0 && isWorktree
-              ? "worktree"
-              : activeWorkerCount > 0 && isContainerized
-                ? "container"
-                : undefined,
-        });
-        return;
-      }
-      doArchive(sessionId);
-    },
-    [sdkSessions, sessions],
-  );
+  function handleArchiveSession(e: React.MouseEvent, sessionId: string) {
+    e.stopPropagation();
+    const state = useStore.getState();
+    const sdk = state.sdkSessions.find((candidate) => candidate.sessionId === sessionId);
+    const bridge = state.sessions.get(sessionId);
+    const isContainerized = bridge?.is_containerized === true || typeof sdk?.containerId === "string";
+    const isWorktree = bridge?.is_worktree === true || sdk?.isWorktree === true;
+    const isOrchestrator = bridge?.isOrchestrator === true || sdk?.isOrchestrator === true;
+    const activeWorkerCount = isOrchestrator
+      ? state.sdkSessions.filter((worker) => worker.herdedBy === sessionId && !worker.archived).length
+      : 0;
+    if (isWorktree || isContainerized || activeWorkerCount > 0) {
+      setArchiveConfirmation({
+        sessionId,
+        kind: activeWorkerCount > 0 ? "leader" : isWorktree ? "worktree" : "container",
+        activeWorkerCount: activeWorkerCount > 0 ? activeWorkerCount : undefined,
+        leaderArchiveDestructiveTarget:
+          activeWorkerCount > 0 && isWorktree
+            ? "worktree"
+            : activeWorkerCount > 0 && isContainerized
+              ? "container"
+              : undefined,
+      });
+      return;
+    }
+    doArchive(sessionId);
+  }
 
   async function doArchive(sessionId: string, force?: boolean) {
     try {
@@ -600,7 +599,10 @@ export function Sidebar() {
 
   const doArchiveGroup = useCallback(
     async (leaderId: string) => {
-      const workers = sdkSessions.filter((s) => s.herdedBy === leaderId && !s.archived);
+      const state = useStore.getState();
+      const workers = state.sdkSessions
+        .filter((worker) => worker.herdedBy === leaderId && !worker.archived)
+        .map((worker) => ({ sessionId: worker.sessionId }));
       const navigationExcludedIds = archiveGroupNavigationExcludedIds(leaderId, workers);
       let archivedIds = new Set<string>();
       try {
@@ -629,7 +631,7 @@ export function Sidebar() {
       }
       void refreshSessionListNow(showArchived || archivedSessionPage.loaded);
     },
-    [archivedSessionPage.loaded, refreshSessionListNow, sdkSessions, showArchived],
+    [archivedSessionPage.loaded, refreshSessionListNow, showArchived],
   );
 
   const confirmArchiveHerdMembers = useCallback(() => {
@@ -701,6 +703,8 @@ export function Sidebar() {
     orderedVisibleSessionIds,
     treeViewGroups,
     sessionSetAttention,
+    resolvedSessionNames,
+    resolvedSessionPreviews,
   } = useMemo(
     () =>
       buildSidebarVisibleSessions({
@@ -718,9 +722,12 @@ export function Sidebar() {
         collapsedTreeGroups,
         expandedHerdNodes,
         sessionAttention,
+        syncedProjectionValues,
         syncedProjectionKeys,
         sessionNotifications,
         sessionAttentionRecords,
+        sessionNames,
+        sessionPreviews,
         sessionSortMode,
         countUserPermissions,
       }),
@@ -737,9 +744,12 @@ export function Sidebar() {
       treeAssignments,
       treeNodeOrder,
       sessionAttention,
+      syncedProjectionValues,
       syncedProjectionKeys,
       sessionNotifications,
       sessionAttentionRecords,
+      sessionNames,
+      sessionPreviews,
       collapsedTreeGroups,
       expandedHerdNodes,
       sessionSortMode,
@@ -1305,9 +1315,9 @@ export function Sidebar() {
                   isActive={currentSessionId === s.id}
                   isSearchSelected={filteredSessions[activeSearchResultIndex]?.session.id === s.id}
                   isArchived={s.archived}
-                  sessionName={sessionName ?? sessionNames.get(s.id)}
-                  sessionPreview={sessionPreview ?? sessionPreviews.get(s.id)}
-                  permCount={countUserPermissions(pendingPermissions.get(s.id))}
+                  sessionName={sessionName ?? resolvedSessionNames.get(s.id)}
+                  sessionPreview={sessionPreview ?? resolvedSessionPreviews.get(s.id)}
+                  permCount={s.permCount}
                   attention={sessionSetAttention.get(s.id) ?? null}
                   hasUnread={!!sessionSetAttention.get(s.id)}
                   isRecentlyRenamed={recentlyRenamed.has(s.id)}
@@ -1367,9 +1377,8 @@ export function Sidebar() {
                           onToggleNodeCollapse={toggleTreeNodeCollapse}
                           onCreateSession={handleCreateSessionInTreeGroup}
                           currentSessionId={currentSessionId}
-                          sessionNames={sessionNames}
-                          sessionPreviews={sessionPreviews}
-                          pendingPermissions={pendingPermissions}
+                          sessionNames={resolvedSessionNames}
+                          sessionPreviews={resolvedSessionPreviews}
                           recentlyRenamed={recentlyRenamed}
                           isFirst={i === 0}
                           groupDragging={isDragging}
@@ -1442,8 +1451,8 @@ export function Sidebar() {
                         key={s.id}
                         session={s}
                         isActive={currentSessionId === s.id}
-                        sessionName={sessionNames.get(s.id)}
-                        permCount={countUserPermissions(pendingPermissions.get(s.id))}
+                        sessionName={resolvedSessionNames.get(s.id)}
+                        permCount={s.permCount}
                         attention={sessionSetAttention.get(s.id) ?? null}
                         hasUnread={!!sessionSetAttention.get(s.id)}
                         isRecentlyRenamed={recentlyRenamed.has(s.id)}
@@ -1471,15 +1480,13 @@ export function Sidebar() {
               autoLoadUnsupported={archivedAutoLoadUnsupported}
               loadMoreSentinelRef={archivedLoadMoreSentinelRef}
               currentSessionId={currentSessionId}
-              sessionNames={sessionNames}
-              sessionPreviews={sessionPreviews}
-              pendingPermissions={pendingPermissions}
+              sessionNames={resolvedSessionNames}
+              sessionPreviews={resolvedSessionPreviews}
               recentlyRenamed={recentlyRenamed}
               herdGroupBadgeThemes={herdGroupBadgeThemes}
               herdHoverHighlights={herdHoverHighlights}
               reviewerByParent={reviewerByParent}
               sessionItemProps={sessionItemProps}
-              countUserPermissions={countUserPermissions}
               onToggle={toggleArchivedSessions}
               onLoadMore={() => void loadArchivedSessionsPage()}
             />
@@ -1660,32 +1667,36 @@ export function Sidebar() {
       {contextMenu &&
         (() => {
           const sdk = sdkSessions.find((s) => s.sessionId === contextMenu.sessionId);
+          const bridge = sessions.get(contextMenu.sessionId);
           const sessionInfo = allSessionList.find((s) => s.id === contextMenu.sessionId);
+          if (!sdk && !bridge) return null;
           const cliId = sdk?.cliSessionId || "";
-          const isArchived = sdk?.archived ?? sessionInfo?.archived ?? false;
+          const isArchived = sdk?.archived === true;
           const isExited = sdk?.state === "exited";
-          const isPaused = !!(sessionInfo?.pause?.pausedAt || sdk?.pause?.pausedAt);
+          const isPaused = !!(bridge?.pause ?? sdk?.pause);
           const attention = sessionAttention.get(contextMenu.sessionId);
-          const backendType = sessionInfo?.backendType || sdk?.backendType || "claude";
-          const currentLeader = currentSessionId
-            ? sdkSessions.find((s) => s.sessionId === currentSessionId)
-            : undefined;
+          const backendType = bridge?.backend_type ?? sdk?.backendType ?? "claude";
+          const currentLeaderSdk = sdkSessions.find((s) => s.sessionId === currentSessionId);
+          const currentLeaderBridge = currentSessionId ? sessions.get(currentSessionId) : undefined;
+          const isCurrentLeader =
+            currentLeaderBridge?.isOrchestrator === true || currentLeaderSdk?.isOrchestrator === true;
+          const isTargetLeader = bridge?.isOrchestrator === true || sdk?.isOrchestrator === true;
           const canHerdToCurrentSession =
             !isArchived &&
             !isExited &&
             !!currentSessionId &&
             currentSessionId !== contextMenu.sessionId &&
-            currentLeader?.isOrchestrator === true &&
-            sdk?.isOrchestrator !== true;
+            isCurrentLeader &&
+            !isTargetLeader;
           const needsForceHerd = canHerdToCurrentSession && !!sdk?.herdedBy && sdk.herdedBy !== currentSessionId;
 
           // Count non-archived herded workers for the leader+herd archive option.
           const herdedWorkers =
-            !isArchived && sdk?.isOrchestrator
-              ? sdkSessions.filter((s) => s.herdedBy === contextMenu.sessionId && !s.archived)
+            !isArchived && isTargetLeader
+              ? sdkSessions.filter((worker) => worker.herdedBy === contextMenu.sessionId && !worker.archived)
               : [];
 
-          const sessionNum = sdk?.sessionNum;
+          const sessionNum = sessionInfo?.sessionNum ?? sdk?.sessionNum;
           const items: ContextMenuItem[] = [
             ...(sessionNum != null
               ? [
@@ -1717,7 +1728,7 @@ export function Sidebar() {
             {
               label: "Rename",
               onClick: () => {
-                const name = sessionNames.get(contextMenu.sessionId) || "";
+                const name = resolvedSessionNames.get(contextMenu.sessionId) || "";
                 handleStartRename(contextMenu.sessionId, name);
               },
             },
@@ -1876,8 +1887,8 @@ export function Sidebar() {
           return (
             <SessionHoverCard
               session={s}
-              sessionName={sessionNames.get(hoveredSession.sessionId)}
-              sessionPreview={sessionPreviews.get(hoveredSession.sessionId)}
+              sessionName={resolvedSessionNames.get(hoveredSession.sessionId)}
+              sessionPreview={resolvedSessionPreviews.get(hoveredSession.sessionId)}
               taskHistory={sessionTaskHistory.get(hoveredSession.sessionId)}
               sessionState={sessions.get(hoveredSession.sessionId)}
               cliSessionId={sdkSessions.find((sdk) => sdk.sessionId === hoveredSession.sessionId)?.cliSessionId}

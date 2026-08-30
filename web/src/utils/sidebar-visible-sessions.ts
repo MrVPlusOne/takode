@@ -1,4 +1,5 @@
 import type { SidebarSessionItem } from "./sidebar-session-item.js";
+import { resolveSessionNavigation } from "./session-navigation-resolver.js";
 import { buildTreeViewGroups } from "./tree-grouping.js";
 import { isAttentionRecordActive } from "./attention-records.js";
 import { deriveEffectiveSessionAttentionStatus } from "./session-attention-status.js";
@@ -17,16 +18,6 @@ import type {
 
 type SessionAttentionReason = "action" | "error" | "review" | null;
 
-function sumDiffFileStats(fileStats: Map<string, { additions: number; deletions: number }> | undefined) {
-  let additions = 0;
-  let deletions = 0;
-  for (const stats of fileStats?.values() ?? []) {
-    additions += stats.additions;
-    deletions += stats.deletions;
-  }
-  return { additions, deletions };
-}
-
 export interface SidebarVisibleSessionsInput {
   sessions: Map<string, SessionState>;
   sdkSessions: SdkSessionInfo[];
@@ -42,9 +33,12 @@ export interface SidebarVisibleSessionsInput {
   collapsedTreeGroups: Set<string>;
   expandedHerdNodes: Set<string>;
   sessionAttention: Map<string, SessionAttentionReason>;
-  syncedProjectionKeys?: ReadonlySet<string>;
+  syncedProjectionValues?: Map<string, unknown>;
+  syncedProjectionKeys?: Set<string>;
   sessionNotifications?: Map<string, SessionNotification[]>;
   sessionAttentionRecords?: Map<string, SessionAttentionRecord[]>;
+  sessionNames?: Map<string, string>;
+  sessionPreviews?: Map<string, string>;
   sessionSortMode: "created" | "activity";
   countUserPermissions: (perms: Map<string, unknown> | undefined) => number;
 }
@@ -58,6 +52,8 @@ export interface SidebarVisibleSessionsResult {
   orderedVisibleSessionIds: string[];
   treeViewGroups: ReturnType<typeof buildTreeViewGroups>;
   sessionSetAttention: Map<string, SessionAttentionReason>;
+  resolvedSessionNames: Map<string, string>;
+  resolvedSessionPreviews: Map<string, string>;
 }
 
 function isBlueNotificationAttention(record: SessionAttentionRecord): boolean {
@@ -102,7 +98,8 @@ export function deriveSessionSetAttention({
   sessionAttentionRecords,
 }: {
   sessionAttention: Map<string, SessionAttentionReason>;
-  syncedProjectionKeys?: ReadonlySet<string>;
+  syncedProjectionValues?: Map<string, unknown>;
+  syncedProjectionKeys?: Set<string>;
   sdkSessions: SdkSessionInfo[];
   sessionNotifications?: Map<string, SessionNotification[]>;
   sessionAttentionRecords?: Map<string, SessionAttentionRecord[]>;
@@ -170,9 +167,12 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
     collapsedTreeGroups,
     expandedHerdNodes,
     sessionAttention,
+    syncedProjectionValues,
     syncedProjectionKeys,
     sessionNotifications,
     sessionAttentionRecords,
+    sessionNames,
+    sessionPreviews,
     sessionSortMode,
     countUserPermissions,
   } = input;
@@ -208,93 +208,34 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
     if (!isHiddenSession(session.sessionId)) allSessionIds.add(session.sessionId);
   }
 
+  const resolvedSessionNames = new Map(sessionNames ?? []);
+  const resolvedSessionPreviews = new Map(sessionPreviews ?? []);
   const allSessionList: SidebarSessionItem[] = Array.from(allSessionIds)
-    .map((id) => {
-      const bridgeState = sessions.get(id);
-      const sdkInfo = sdkSessions.find((session) => session.sessionId === id);
-      const sdkGitAhead = sdkInfo?.gitAhead ?? 0;
-      const sdkGitBehind = sdkInfo?.gitBehind ?? 0;
-      const gitAhead =
-        bridgeState?.git_ahead === 0 && sdkGitAhead > 0 ? sdkGitAhead : (bridgeState?.git_ahead ?? sdkGitAhead);
-      const gitBehind =
-        bridgeState?.git_behind === 0 && sdkGitBehind > 0 ? sdkGitBehind : (bridgeState?.git_behind ?? sdkGitBehind);
-      const serverLinesAdded = bridgeState?.total_lines_added ?? sdkInfo?.totalLinesAdded ?? 0;
-      const serverLinesRemoved = bridgeState?.total_lines_removed ?? sdkInfo?.totalLinesRemoved ?? 0;
-      const gitStatusRefreshedAt = bridgeState?.git_status_refreshed_at ?? sdkInfo?.gitStatusRefreshedAt;
-      const gitStatusRefreshError = bridgeState?.git_status_refresh_error ?? sdkInfo?.gitStatusRefreshError ?? null;
-      const diffStatsSkippedReason = bridgeState?.diff_stats_skipped_reason ?? sdkInfo?.diffStatsSkippedReason ?? null;
-      const localLineStats = sumDiffFileStats(diffFileStats.get(id));
-      const linesAdded =
-        serverLinesAdded === 0 &&
-        serverLinesRemoved === 0 &&
-        (localLineStats.additions > 0 || localLineStats.deletions > 0)
-          ? localLineStats.additions
-          : serverLinesAdded;
-      const linesRemoved =
-        serverLinesAdded === 0 &&
-        serverLinesRemoved === 0 &&
-        (localLineStats.additions > 0 || localLineStats.deletions > 0)
-          ? localLineStats.deletions
-          : serverLinesRemoved;
-      return {
+    .flatMap((id) => {
+      const resolved = resolveSessionNavigation(
+        {
+          sessions,
+          sdkSessions,
+          syncedProjectionValues,
+          syncedProjectionKeys,
+          cliConnected,
+          cliDisconnectReason,
+          sessionStatus,
+          pendingPermissions,
+          askPermission,
+          diffFileStats,
+          sessionNames,
+          sessionPreviews,
+          countUserPermissions,
+        },
         id,
-        claimedQuestStatus: bridgeState?.claimedQuestStatus ?? sdkInfo?.claimedQuestStatus ?? undefined,
-        claimedQuestVerificationInboxUnread:
-          bridgeState?.claimedQuestVerificationInboxUnread ?? sdkInfo?.claimedQuestVerificationInboxUnread,
-        model: bridgeState?.model || sdkInfo?.model || "",
-        cwd: bridgeState?.cwd || sdkInfo?.cwd || "",
-        gitBranch: bridgeState?.git_branch || sdkInfo?.gitBranch || "",
-        isContainerized: bridgeState?.is_containerized || !!sdkInfo?.containerId || false,
-        gitAhead,
-        gitBehind,
-        linesAdded,
-        linesRemoved,
-        diffStatsSkippedReason,
-        gitStatusRefreshedAt,
-        gitStatusRefreshError,
-        isConnected: cliConnected.get(id) ?? sdkInfo?.cliConnected ?? false,
-        status: sessionStatus.get(id) ?? null,
-        sdkState: sdkInfo?.state ?? null,
-        createdAt: sdkInfo?.createdAt ?? 0,
-        archived: sdkInfo?.archived ?? false,
-        archivedAt: sdkInfo?.archivedAt,
-        backendType: bridgeState?.backend_type || sdkInfo?.backendType || "claude",
-        treeGroupId: bridgeState?.treeGroupId ?? sdkInfo?.treeGroupId ?? null,
-        memorySessionSpaceSlug: bridgeState?.memorySessionSpaceSlug ?? sdkInfo?.memorySessionSpaceSlug ?? null,
-        repoRoot: bridgeState?.repo_root || sdkInfo?.repoRoot || "",
-        permCount: countUserPermissions(pendingPermissions.get(id)),
-        pendingTimerCount: sdkInfo?.pendingTimerCount ?? 0,
-        notificationUrgency: sdkInfo?.notificationUrgency ?? null,
-        activeNotificationCount: sdkInfo?.activeNotificationCount ?? 0,
-        mutedNeedsInputNotificationCount: sdkInfo?.mutedNeedsInputNotificationCount ?? 0,
-        notificationStatusVersion: sdkInfo?.notificationStatusVersion,
-        notificationStatusUpdatedAt: sdkInfo?.notificationStatusUpdatedAt,
-        pause: bridgeState?.pause ?? sdkInfo?.pause ?? null,
-        pausedInputQueueCount:
-          bridgeState?.pause?.queuedMessages.length ??
-          sdkInfo?.pausedInputQueueCount ??
-          sdkInfo?.pause?.queuedMessages.length ??
-          0,
-        cronJobId: bridgeState?.cronJobId || sdkInfo?.cronJobId,
-        cronJobName: bridgeState?.cronJobName || sdkInfo?.cronJobName,
-        isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,
-        worktreeExists: sdkInfo?.worktreeExists,
-        worktreeDirty: sdkInfo?.worktreeDirty,
-        worktreeCleanupStatus: sdkInfo?.worktreeCleanupStatus,
-        worktreeCleanupError: sdkInfo?.worktreeCleanupError,
-        askPermission: askPermission.get(id),
-        idleKilled: cliDisconnectReason.get(id) === "idle_limit",
-        lastActivityAt: sdkInfo?.lastActivityAt,
-        lastUserMessageAt: sdkInfo?.lastUserMessageAt,
-        isOrchestrator: sdkInfo?.isOrchestrator || false,
-        leaderProfilePortraitId: sdkInfo?.leaderProfilePortraitId ?? null,
-        leaderProfilePortrait: sdkInfo?.leaderProfilePortrait,
-        leaderActivePhaseSummary: sdkInfo?.leaderActivePhaseSummary,
-        leaderActiveBoardRows: sdkInfo?.leaderActiveBoardRows,
-        herdedBy: sdkInfo?.herdedBy,
-        sessionNum: sdkInfo?.sessionNum ?? null,
-        reviewerOf: sdkInfo?.reviewerOf,
-      };
+      );
+      if (!resolved) return [];
+      if (resolved.name) resolvedSessionNames.set(id, resolved.name);
+      else if (resolved.projectionState !== "legacy") resolvedSessionNames.delete(id);
+      if (resolved.preview) resolvedSessionPreviews.set(id, resolved.preview);
+      else if (resolved.projectionState !== "legacy") resolvedSessionPreviews.delete(id);
+      return [resolved.sidebarItem];
     })
     .sort((a, b) => b.createdAt - a.createdAt);
 
@@ -337,5 +278,7 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
     orderedVisibleSessionIds,
     treeViewGroups,
     sessionSetAttention,
+    resolvedSessionNames,
+    resolvedSessionPreviews,
   };
 }

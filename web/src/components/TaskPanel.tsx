@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback, useSyncExternalStore } from "react";
+import { useEffect, useState, useCallback, useMemo, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { createPortal } from "react-dom";
-import { useStore } from "../store.js";
+import { countUserPermissions, useStore } from "../store.js";
 import { api, type GitHubPRInfo } from "../api.js";
 import type { TaskItem, SessionTaskEntry, SdkSessionInfo } from "../types.js";
 import { McpSection } from "./McpPanel.js";
@@ -20,7 +20,7 @@ import {
   resolveCodexPermissionCliMode,
   type CodexPermissionMode,
 } from "../utils/backends.js";
-import { coalesceSessionViewModel } from "../utils/session-view-model.js";
+import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { navigateToSession } from "../utils/navigation.js";
 import { beginActiveSessionListRequest, hydrateSessionList } from "../session-list-hydration.js";
 
@@ -490,13 +490,16 @@ export function GitHubPRDisplay({ pr }: { pr: GitHubPRInfo }) {
 }
 
 export function GitHubPRSection({ sessionId }: { sessionId: string }) {
-  const session = useStore((s) => s.sessions.get(sessionId));
-  const sdk = useStore((s) => s.sdkSessions.find((x) => x.sessionId === sessionId));
-  const prStatus = useStore((s) => s.prStatus.get(sessionId));
-  const sessionVm = coalesceSessionViewModel(session, sdk);
-
-  const cwd = sessionVm?.cwd;
-  const branch = sessionVm?.gitBranch ?? undefined;
+  const { cwd, branch, prStatus } = useStore(
+    useShallow((s) => {
+      const sessionVm = resolveSessionNavigation({ ...s, countUserPermissions }, sessionId)?.viewModel;
+      return {
+        cwd: sessionVm?.cwd,
+        branch: sessionVm?.gitBranch ?? undefined,
+        prStatus: s.prStatus.get(sessionId),
+      };
+    }),
+  );
 
   // One-time REST fallback on mount if no pushed data yet
   useEffect(() => {
@@ -797,10 +800,55 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
     workerId: string;
     mode: CodexPermissionMode;
   } | null>(null);
+  const sessions = useStore((s) => s.sessions);
   const sdkSessions = useStore((s) => s.sdkSessions);
+  const syncedProjectionValues = useStore((s) => s.syncedProjectionValues);
+  const syncedProjectionKeys = useStore((s) => s.syncedProjectionKeys);
+  const cliConnected = useStore((s) => s.cliConnected);
+  const cliDisconnectReason = useStore((s) => s.cliDisconnectReason);
+  const sessionStatus = useStore((s) => s.sessionStatus);
+  const pendingPermissions = useStore((s) => s.pendingPermissions);
+  const askPermission = useStore((s) => s.askPermission);
   const sessionNames = useStore((s) => s.sessionNames);
+  const sessionPreviews = useStore((s) => s.sessionPreviews);
 
-  const herded = sdkSessions.filter((s: SdkSessionInfo) => s.herdedBy === sessionId);
+  const herded = useMemo(
+    () =>
+      sdkSessions.flatMap((sdk) => {
+        const resolved = resolveSessionNavigation(
+          {
+            sessions,
+            sdkSessions,
+            syncedProjectionValues,
+            syncedProjectionKeys,
+            cliConnected,
+            cliDisconnectReason,
+            sessionStatus,
+            pendingPermissions,
+            askPermission,
+            sessionNames,
+            sessionPreviews,
+            countUserPermissions,
+          },
+          sdk.sessionId,
+        );
+        return resolved?.sidebarItem.herdedBy === sessionId && !resolved.sidebarItem.archived ? [resolved] : [];
+      }),
+    [
+      askPermission,
+      cliConnected,
+      cliDisconnectReason,
+      pendingPermissions,
+      sdkSessions,
+      sessionId,
+      sessionNames,
+      sessionPreviews,
+      sessionStatus,
+      sessions,
+      syncedProjectionKeys,
+      syncedProjectionValues,
+    ],
+  );
 
   const handleUnherd = useCallback(
     async (workerId: string) => {
@@ -868,27 +916,28 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
           {herded.length === 0 ? (
             <p className="text-[11px] text-cc-muted italic">No herded sessions.</p>
           ) : (
-            herded.map((s: SdkSessionInfo) => {
-              const name = sessionNames.get(s.sessionId) || s.name || "(unnamed)";
-              const isRunning = s.state === "running" || s.state === "connected";
+            herded.map((resolved) => {
+              const s = resolved.sidebarItem;
+              const name = resolved.name || "(unnamed)";
+              const isRunning = s.status === "running" || s.sdkState === "running" || s.sdkState === "connected";
               const isCodexWorker = s.backendType === "codex";
-              const codexPermissionMode = deriveCodexPermissionMode(s.permissionMode);
+              const codexPermissionMode = deriveCodexPermissionMode(resolved.viewModel.permissionMode);
               const selectedCodexPermission =
                 CODEX_PERMISSION_MODES.find((option) => option.value === codexPermissionMode) ??
                 CODEX_PERMISSION_MODES[0];
               const pendingForThisWorker =
-                pendingModeChange?.workerId === s.sessionId
+                pendingModeChange && pendingModeChange.workerId === s.id
                   ? CODEX_PERMISSION_MODES.find((option) => option.value === pendingModeChange.mode)
                   : null;
               const dotColor =
-                s.state === "exited" ? "text-cc-muted/40" : isRunning ? "text-cc-success" : "text-cc-muted/60";
+                s.sdkState === "exited" ? "text-cc-muted/40" : isRunning ? "text-cc-success" : "text-cc-muted/60";
               return (
-                <div key={s.sessionId} className="group/herd rounded-md py-1">
+                <div key={s.id} className="group/herd rounded-md py-1">
                   <div className="flex items-center gap-2">
                     <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${dotColor} bg-current`} />
                     <button
                       className="min-w-0 flex-1 cursor-pointer truncate text-left text-[11px] text-cc-fg hover:underline"
-                      onClick={() => navigateToSession(s.sessionId)}
+                      onClick={() => navigateToSession(s.id)}
                       title={name}
                     >
                       {s.sessionNum != null && <span className="mr-1 font-mono text-cc-muted">#{s.sessionNum}</span>}
@@ -902,7 +951,7 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
                         title={selectedCodexPermission.description}
                         onChange={(event) =>
                           setPendingModeChange({
-                            workerId: s.sessionId,
+                            workerId: s.id,
                             mode: event.target.value as CodexPermissionMode,
                           })
                         }
@@ -917,7 +966,7 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
                     <button
                       className="cursor-pointer p-0.5 text-cc-muted opacity-0 transition-all hover:text-cc-error group-hover/herd:opacity-100"
                       title="Unherd this session"
-                      onClick={() => handleUnherd(s.sessionId)}
+                      onClick={() => handleUnherd(s.id)}
                     >
                       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
                         <path d="M4 4l8 8M12 4l-8 8" />
@@ -1080,16 +1129,15 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
   const { tasks, taskPanelOpen, setTaskPanelOpen, backendType, cwd, repoRoot, isLeaderSession, hasSession } = useStore(
     useShallow((s) => {
       const session = s.sessions.get(sessionId);
-      const sdkSession = s.sdkSessions.find((x) => x.sessionId === sessionId);
-      const sessionVm = coalesceSessionViewModel(session, sdkSession);
+      const resolved = resolveSessionNavigation({ ...s, countUserPermissions }, sessionId);
       return {
         tasks: s.sessionTasks.get(sessionId) || EMPTY_TASKS,
         taskPanelOpen: s.taskPanelOpen,
         setTaskPanelOpen: s.setTaskPanelOpen,
-        backendType: sessionVm?.backendType ?? null,
-        cwd: sessionVm?.cwd ?? null,
-        repoRoot: sessionVm?.repoRoot,
-        isLeaderSession: sdkSession?.isOrchestrator === true,
+        backendType: resolved?.viewModel.backendType ?? null,
+        cwd: resolved?.viewModel.cwd ?? null,
+        repoRoot: resolved?.viewModel.repoRoot,
+        isLeaderSession: resolved?.sidebarItem.isOrchestrator === true,
         hasSession: !!session,
       };
     }),

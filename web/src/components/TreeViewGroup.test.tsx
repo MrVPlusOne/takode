@@ -89,7 +89,6 @@ function renderTreeViewGroup(group: TreeViewGroupData, overrides: Partial<Compon
       currentSessionId={null}
       sessionNames={new Map()}
       sessionPreviews={new Map()}
-      pendingPermissions={new Map()}
       recentlyRenamed={new Set()}
       onSelect={vi.fn()}
       onStartRename={vi.fn()}
@@ -187,6 +186,54 @@ describe("TreeViewGroup leader herd summary", () => {
       (el) => el.textContent?.trim() === "1" && el.querySelector(".bg-cc-muted\\/30"),
     );
     expect(idleIndicator).toBeTruthy();
+  });
+
+  it("uses row-owned permission and pause authority in the herd summary", () => {
+    const leader = makeSession("leader-1", { isOrchestrator: true, sessionNum: 10 });
+    const permissionWorker = makeSession("permission-worker", { herdedBy: "leader-1", permCount: 2 });
+    const pausedTimerWorker = makeSession("paused-worker", {
+      herdedBy: "leader-1",
+      pendingTimerCount: 1,
+      paused: true,
+    });
+    const group: TreeViewGroupData = {
+      id: "team-alpha",
+      name: "Takode",
+      nodes: [{ leader, workers: [permissionWorker, pausedTimerWorker], reviewers: [] }],
+      runningCount: 0,
+      permCount: 2,
+      unreadCount: 0,
+    };
+
+    renderTreeViewGroup(group);
+
+    const summary = screen.getByTestId("herd-summary-leader-1");
+    expect(within(summary).getByTestId("status-count-permission")).toHaveTextContent("1");
+    expect(within(summary).queryByTestId("status-count-waiting")).toBeNull();
+  });
+
+  it("keeps projected timer count authoritative for the selected child", () => {
+    mockStoreState.currentSessionId = "worker-1";
+    mockStoreState.sessionTimers.set("worker-1", [{ id: "stale-live-timer" }]);
+    const leader = makeSession("leader-1", { isOrchestrator: true, sessionNum: 10 });
+    const worker = makeSession("worker-1", {
+      herdedBy: "leader-1",
+      sessionNum: 11,
+      navigationProjectionOwned: true,
+      pendingTimerCount: 0,
+    });
+    const group: TreeViewGroupData = {
+      id: "team-alpha",
+      name: "Takode",
+      nodes: [{ leader, workers: [worker], reviewers: [] }],
+      runningCount: 0,
+      permCount: 0,
+      unreadCount: 0,
+    };
+
+    renderTreeViewGroup(group, { currentSessionId: "worker-1" });
+
+    expect(within(screen.getByTestId("herd-summary-leader-1")).queryByTestId("status-count-waiting")).toBeNull();
   });
 
   it("uses live timer state for the selected child session in the herd summary", () => {

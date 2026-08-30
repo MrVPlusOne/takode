@@ -1,7 +1,10 @@
 import type { AppState } from "./store-types.js";
-import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
-import { syncedProjectionEntryId } from "../shared/synced-projection.js";
 import { scopedRemoveItem, scopedSetItem } from "./utils/scoped-storage.js";
+
+function syncedProjectionEntryBelongsToKey(entryId: string, key: string): boolean {
+  const separator = entryId.indexOf("\u0000");
+  return separator >= 0 && entryId.slice(separator + 1) === key;
+}
 
 export function removeSessionState(s: AppState, sessionId: string): Partial<AppState> {
   const sessions = new Map(s.sessions);
@@ -36,15 +39,23 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
   threadFeedWindowSyncs.delete(sessionId);
   const leaderProjections = new Map(s.leaderProjections);
   leaderProjections.delete(sessionId);
-  const projectionEntryId = syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, sessionId);
   const syncedProjectionValues = new Map(s.syncedProjectionValues);
-  syncedProjectionValues.delete(projectionEntryId);
   const syncedProjectionVersions = new Map(s.syncedProjectionVersions);
-  syncedProjectionVersions.delete(projectionEntryId);
   const syncedProjectionKeys = new Set(s.syncedProjectionKeys);
-  syncedProjectionKeys.delete(projectionEntryId);
   const syncedProjectionOrderings = new Map(s.syncedProjectionOrderings);
-  syncedProjectionOrderings.delete(projectionEntryId);
+  const projectionEntryIds = new Set([
+    ...syncedProjectionValues.keys(),
+    ...syncedProjectionVersions.keys(),
+    ...syncedProjectionKeys,
+    ...syncedProjectionOrderings.keys(),
+  ]);
+  for (const entryId of projectionEntryIds) {
+    if (!syncedProjectionEntryBelongsToKey(entryId, sessionId)) continue;
+    syncedProjectionValues.delete(entryId);
+    syncedProjectionVersions.delete(entryId);
+    syncedProjectionKeys.delete(entryId);
+    syncedProjectionOrderings.delete(entryId);
+  }
   const streaming = new Map(s.streaming);
   streaming.delete(sessionId);
   const streamingByParentToolUseId = new Map(s.streamingByParentToolUseId);

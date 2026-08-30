@@ -32,13 +32,11 @@ export interface ArchivedSessionSectionProps {
   currentSessionId: string | null;
   sessionNames: Map<string, string>;
   sessionPreviews: Map<string, string>;
-  pendingPermissions: Map<string, Map<string, unknown>>;
   recentlyRenamed: Set<string>;
   herdGroupBadgeThemes: Map<string, HerdGroupBadgeTheme>;
   herdHoverHighlights: Map<string, "leader" | "worker">;
   reviewerByParent: Map<number, SidebarSessionItem>;
   sessionItemProps: CommonSessionItemProps;
-  countUserPermissions: (perms: Map<string, unknown> | undefined) => number;
   onToggle: () => void;
   onLoadMore: () => void;
   editInputRef?: RefObject<HTMLInputElement | null>;
@@ -58,13 +56,11 @@ export function ArchivedSessionSection({
   currentSessionId,
   sessionNames,
   sessionPreviews,
-  pendingPermissions,
   recentlyRenamed,
   herdGroupBadgeThemes,
   herdHoverHighlights,
   reviewerByParent,
   sessionItemProps,
-  countUserPermissions,
   onToggle,
   onLoadMore,
 }: ArchivedSessionSectionProps) {
@@ -103,7 +99,7 @@ export function ArchivedSessionSection({
                 isArchived
                 sessionName={sessionNames.get(session.id)}
                 sessionPreview={sessionPreviews.get(session.id)}
-                permCount={countUserPermissions(pendingPermissions.get(session.id))}
+                permCount={session.permCount}
                 isRecentlyRenamed={recentlyRenamed.has(session.id)}
                 herdGroupBadgeTheme={herdGroupBadgeThemes.get(session.id)}
                 herdHoverHighlight={herdHoverHighlights.get(session.id)}

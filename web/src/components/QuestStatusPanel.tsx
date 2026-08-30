@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useStore } from "../store.js";
+import { countUserPermissions, useStore } from "../store.js";
 import type { QuestFeedbackEntry, QuestmasterTask, QuestVerificationItem } from "../types.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import { isQuestUnderReview, isVerificationInboxUnread } from "../utils/quest-editor-helpers.js";
@@ -11,6 +11,7 @@ import { QuestQuizSection } from "./QuestQuizSection.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { CodexQuestOwnerChip } from "./CodexQuestOwnerChip.js";
 import { liveQuestFeedbackEntries } from "../../shared/quest-feedback.js";
+import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 
 type QuestStatusContextSource = "selected-session" | "board-attention" | "board-active" | "board-proposed";
 
@@ -249,7 +250,9 @@ function MetricPill({ label, value, tone = "muted" }: { label: string; value: st
 }
 
 export function QuestStatusPanel({ sessionId }: { sessionId: string }) {
-  const session = useStore((state) => state.sessions.get(sessionId));
+  const session = useStore(
+    (state) => resolveSessionNavigation({ ...state, countUserPermissions }, sessionId)?.viewModel,
+  );
   const board = useStore((state) => state.sessionBoards.get(sessionId));
   const quests = useStore((state) => state.quests);
   const openQuestOverlay = useStore((state) => state.openQuestOverlay);

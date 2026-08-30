@@ -41,6 +41,10 @@ import { LeaderWorkboardControlButton, SummarySegments } from "./leader-workboar
 import type { LeaderWorkboardView } from "../store-types.js";
 import { buildCanonicalQuestTitleIndex, isQuestIdOnlyTitle } from "../utils/quest-title-index.js";
 import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
+import {
+  resolveSessionNavigation,
+  type SessionNavigationResolverSource,
+} from "../utils/session-navigation-resolver.js";
 
 export interface WorkBoardThreadNavigationRow {
   threadKey: string;
@@ -1518,6 +1522,17 @@ function ProjectionToggle({
   );
 }
 
+export function resolveWorkBoardIsOrchestrator(source: SessionNavigationResolverSource, sessionId: string): boolean {
+  const navigation = resolveSessionNavigation(source, sessionId);
+  if (navigation && navigation.projectionState !== "legacy") {
+    return navigation.viewModel.isOrchestrator === true;
+  }
+  return (
+    source.sessions.get(sessionId)?.isOrchestrator === true ||
+    source.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator === true)
+  );
+}
+
 export function WorkBoardBar({
   sessionId,
   currentThreadKey = "main",
@@ -1543,11 +1558,7 @@ export function WorkBoardBar({
   const board = useStore((s) => s.sessionBoards.get(sessionId));
   const rowSessionStatuses = useStore((s) => s.sessionBoardRowStatuses.get(sessionId));
   const completedBoard = useStore((s) => s.sessionCompletedBoards.get(sessionId));
-  const isOrchestrator = useStore(
-    (s) =>
-      s.sessions.get(sessionId)?.isOrchestrator === true ||
-      s.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator === true),
-  );
+  const isOrchestrator = useStore((s) => resolveWorkBoardIsOrchestrator(s, sessionId));
   const activeView = useStore((s) => s.leaderWorkboardViews?.get(sessionId) ?? null);
   const setLeaderWorkboardView = useStore((s) => s.setLeaderWorkboardView ?? (() => {}));
 

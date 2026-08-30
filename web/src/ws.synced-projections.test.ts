@@ -2,7 +2,9 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
+import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
 import { SYNCED_PROJECTION_SCHEMA_VERSION } from "../shared/synced-projection.js";
+import { createSessionNavigationProjectionEnvelope } from "./test-fixtures/session-navigation-projection.js";
 
 const apiMocks = vi.hoisted(() => ({
   getDiffStats: vi.fn().mockResolvedValue({ stats: {} }),
@@ -94,7 +96,7 @@ afterEach(() => {
 });
 
 describe("synced projection WebSocket carrier", () => {
-  it("adds all active attention keys and known versions only to the selected carrier subscribe", () => {
+  it("adds all active attention and navigation keys with deterministic known versions only to the selected carrier", () => {
     useStore.setState({
       sdkSessions: [
         { sessionId: "worker", archived: false } as never,
@@ -104,6 +106,9 @@ describe("synced projection WebSocket carrier", () => {
     });
     useStore.getState().setCurrentSession("carrier");
     useStore.getState().applySyncedProjectionSnapshot(attentionEnvelope({ key: "worker", revision: 4 }));
+    useStore
+      .getState()
+      .applySyncedProjectionSnapshot(createSessionNavigationProjectionEnvelope({ key: "worker", revision: 2 }));
 
     wsModule.connectSession("carrier");
     const carrier = MockWebSocket.instances.at(-1)!;
@@ -117,6 +122,13 @@ describe("synced projection WebSocket carrier", () => {
           key: "worker",
           generation: "generation-a",
           revision: 4,
+        },
+        { projection: SESSION_NAVIGATION_PROJECTION, key: "carrier" },
+        {
+          projection: SESSION_NAVIGATION_PROJECTION,
+          key: "worker",
+          generation: "navigation-generation-a",
+          revision: 2,
         },
       ],
     });
@@ -148,6 +160,8 @@ describe("synced projection WebSocket carrier", () => {
         subscriptions: [
           { projection: SESSION_ATTENTION_PROJECTION, key: "carrier" },
           { projection: SESSION_ATTENTION_PROJECTION, key: "worker" },
+          { projection: SESSION_NAVIGATION_PROJECTION, key: "carrier" },
+          { projection: SESSION_NAVIGATION_PROJECTION, key: "worker" },
         ],
       },
     ]);
@@ -170,6 +184,9 @@ describe("synced projection WebSocket carrier", () => {
       ],
     });
     useStore.getState().applySyncedProjectionSnapshot(attentionEnvelope({ key: "worker", revision: 7 }));
+    useStore
+      .getState()
+      .applySyncedProjectionSnapshot(createSessionNavigationProjectionEnvelope({ key: "worker", revision: 5 }));
     first.onclose?.();
     vi.advanceTimersByTime(2_000);
 
@@ -185,6 +202,13 @@ describe("synced projection WebSocket carrier", () => {
           key: "worker",
           generation: "generation-a",
           revision: 7,
+        },
+        { projection: SESSION_NAVIGATION_PROJECTION, key: "carrier" },
+        {
+          projection: SESSION_NAVIGATION_PROJECTION,
+          key: "worker",
+          generation: "navigation-generation-a",
+          revision: 5,
         },
       ],
     });
@@ -284,6 +308,78 @@ describe("synced projection WebSocket carrier", () => {
     expect(useStore.getState().syncedProjectionKeys.has(`${SESSION_ATTENTION_PROJECTION}\u0000worker`)).toBe(true);
     expect(useStore.getState().syncedProjectionKeys.has(`${SESSION_ATTENTION_PROJECTION}\u0000rejected`)).toBe(false);
     expect(useStore.getState().sessionAttention.has("rejected")).toBe(false);
+  });
+
+  it("selectively drops navigation REST markers when a rolling backend accepts attention only", () => {
+    const workerAttention = attentionEnvelope({ key: "worker", revision: 1 });
+    const carrierAttention = attentionEnvelope({ key: "carrier", revision: 1 });
+    const workerNavigation = createSessionNavigationProjectionEnvelope({ key: "worker" });
+    const carrierNavigation = createSessionNavigationProjectionEnvelope({ key: "carrier" });
+    useStore.setState({
+      sdkSessions: [
+        {
+          sessionId: "carrier",
+          archived: false,
+          sessionAttentionProjection: carrierAttention,
+          sessionNavigationProjection: carrierNavigation,
+        } as never,
+        {
+          sessionId: "worker",
+          archived: false,
+          sessionAttentionProjection: workerAttention,
+          sessionNavigationProjection: workerNavigation,
+        } as never,
+      ],
+    });
+    useStore.getState().setCurrentSession("carrier");
+    useStore
+      .getState()
+      .applySyncedProjectionSnapshots([workerAttention, carrierAttention, workerNavigation, carrierNavigation]);
+    useStore.getState().setSessionStatus("worker", "running");
+    useStore.getState().updateSdkSession("worker", { pendingPermissionCount: 2 });
+    wsModule.connectSession("carrier");
+    const carrier = MockWebSocket.instances.at(-1)!;
+    open(carrier);
+
+    fire(carrier, workerAttention);
+    fire(carrier, carrierAttention);
+    fire(carrier, {
+      type: "synced_projection_subscriptions_ack",
+      subscriptions: [
+        { projection: SESSION_ATTENTION_PROJECTION, key: "carrier" },
+        { projection: SESSION_ATTENTION_PROJECTION, key: "worker" },
+      ],
+      complete: true,
+    });
+
+    expect(useStore.getState().syncedProjectionKeys.has(`${SESSION_ATTENTION_PROJECTION}\u0000worker`)).toBe(true);
+    expect(useStore.getState().syncedProjectionKeys.has(`${SESSION_NAVIGATION_PROJECTION}\u0000worker`)).toBe(false);
+    for (const session of useStore.getState().sdkSessions) {
+      expect(Object.prototype.hasOwnProperty.call(session, "sessionAttentionProjection")).toBe(true);
+      expect(Object.prototype.hasOwnProperty.call(session, "sessionNavigationProjection")).toBe(false);
+    }
+    expect(
+      useStore.getState().applySyncedProjectionSnapshot(
+        createSessionNavigationProjectionEnvelope({
+          key: "worker",
+          generation: "navigation-generation-rest-only",
+          revision: 99,
+        }),
+        { source: "rest", activeRequestSequence: 999 },
+      ),
+    ).toMatchObject({ accepted: false });
+    expect(useStore.getState().syncedProjectionKeys.has(`${SESSION_NAVIGATION_PROJECTION}\u0000worker`)).toBe(false);
+
+    fire(carrier, {
+      type: "session_activity_update",
+      session_id: "worker",
+      session: { attentionReason: "action", pendingPermissionCount: 9, status: "idle" },
+    });
+    expect(useStore.getState().sessionAttention.get("worker")).toBe("review");
+    expect(
+      useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")?.pendingPermissionCount,
+    ).toBe(9);
+    expect(useStore.getState().sessionStatus.get("worker")).toBe("idle");
   });
 
   it("keeps a newer same-generation REST snapshot when the subscription snapshot arrives stale", () => {
@@ -417,15 +513,35 @@ describe("synced projection WebSocket carrier", () => {
   });
 
   it("uses state_snapshot as an unsupported-protocol boundary and restores legacy fallback", () => {
+    const workerAttention = attentionEnvelope({ key: "worker", revision: 1 });
+    const carrierAttention = attentionEnvelope({ key: "carrier", revision: 1 });
+    const workerNavigation = createSessionNavigationProjectionEnvelope({
+      key: "worker",
+      overrides: { lifecycle: { status: "running", pendingPermissionCount: 2 } },
+    });
+    const carrierNavigation = createSessionNavigationProjectionEnvelope({ key: "carrier" });
     useStore.setState({
       sdkSessions: [
-        { sessionId: "carrier", archived: false } as never,
-        { sessionId: "worker", archived: false } as never,
+        {
+          sessionId: "carrier",
+          archived: false,
+          sessionAttentionProjection: carrierAttention,
+          sessionNavigationProjection: carrierNavigation,
+        } as never,
+        {
+          sessionId: "worker",
+          archived: false,
+          sessionAttentionProjection: workerAttention,
+          sessionNavigationProjection: workerNavigation,
+        } as never,
       ],
     });
     useStore.getState().setCurrentSession("carrier");
-    useStore.getState().applySyncedProjectionSnapshot(attentionEnvelope({ key: "worker", revision: 1 }));
-    useStore.getState().applySyncedProjectionSnapshot(attentionEnvelope({ key: "carrier", revision: 1 }));
+    useStore
+      .getState()
+      .applySyncedProjectionSnapshots([workerAttention, carrierAttention, workerNavigation, carrierNavigation]);
+    useStore.getState().setSessionStatus("worker", "running");
+    useStore.getState().updateSdkSession("worker", { pendingPermissionCount: 2 });
     wsModule.connectSession("carrier");
     const carrier = MockWebSocket.instances.at(-1)!;
     open(carrier);
@@ -445,13 +561,21 @@ describe("synced projection WebSocket carrier", () => {
     });
     expect(useStore.getState().syncedProjectionKeys.size).toBe(0);
     expect(useStore.getState().sessionAttention.get("carrier")).toBeNull();
+    for (const session of useStore.getState().sdkSessions) {
+      expect(Object.prototype.hasOwnProperty.call(session, "sessionAttentionProjection")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(session, "sessionNavigationProjection")).toBe(false);
+    }
 
     fire(carrier, {
       type: "session_activity_update",
       session_id: "worker",
-      session: { attentionReason: "action", pendingPermissionCount: 1 },
+      session: { attentionReason: "action", pendingPermissionCount: 1, status: "idle" },
     });
     expect(useStore.getState().sessionAttention.get("worker")).toBe("action");
+    expect(
+      useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")?.pendingPermissionCount,
+    ).toBe(1);
+    expect(useStore.getState().sessionStatus.get("worker")).toBe("idle");
   });
 
   it("requests one resync for a same-revision conflict without replacing the accepted value", () => {

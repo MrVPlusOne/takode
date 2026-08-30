@@ -334,7 +334,6 @@ const PLAYGROUND_OVERFLOW_GROUP: TreeViewGroupData = {
 };
 
 const EMPTY_STRING_MAP = new Map<string, string>();
-const EMPTY_PERMISSION_MAP = new Map<string, Map<string, unknown>>();
 const EMPTY_STRING_SET = new Set<string>();
 
 function PlaygroundSidebarOverflowGroup({ expanded }: { expanded: boolean }) {
@@ -356,7 +355,6 @@ function PlaygroundSidebarOverflowGroup({ expanded }: { expanded: boolean }) {
           currentSessionId="overflow-implement"
           sessionNames={PLAYGROUND_OVERFLOW_NAMES}
           sessionPreviews={EMPTY_STRING_MAP}
-          pendingPermissions={EMPTY_PERMISSION_MAP}
           recentlyRenamed={EMPTY_STRING_SET}
           onSelect={noop}
           onStartRename={noop}

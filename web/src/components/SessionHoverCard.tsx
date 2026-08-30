@@ -3,7 +3,7 @@ import type { SessionState, SessionTaskEntry } from "../../server/session-types.
 import type { BoardRowData } from "./BoardTable.js";
 import { useRef, useLayoutEffect, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useStore } from "../store.js";
+import { countUserPermissions, useStore } from "../store.js";
 import { SessionNumChip } from "./SessionNumChip.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
 import { SessionContextStats, SessionPayloadStats } from "./SessionPayloadStats.js";
@@ -22,7 +22,8 @@ import {
 } from "../../shared/quest-journey.js";
 import { orderLeaderActivePhaseRows } from "../../shared/leader-active-phase-summary.js";
 import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
-import { resolveEffectiveModelContextWindow } from "../utils/session-view-model.js";
+import { coalesceSessionViewModel, type SessionViewModel } from "../utils/session-view-model.js";
+import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { formatContextWindowLabel } from "../utils/token-format.js";
 import {
   deriveEffectiveSessionAttentionStatus,
@@ -53,26 +54,10 @@ function formatModel(model: string): string {
   return model.replace(/-\d{8}$/, "");
 }
 
-function preferHistoryCount(live: number | undefined, fallback: number | undefined): number {
-  if (live === 0 && typeof fallback === "number" && fallback > 0) return fallback;
-  return live ?? fallback ?? 0;
-}
-
-function hasOwn(source: object | undefined, key: string): boolean {
-  return !!source && Object.prototype.hasOwnProperty.call(source, key);
-}
-
-function getConfiguredMaxContextLength(
-  backendType: string | undefined,
-  sessionState: SessionState | undefined,
-  sdkSessionMeta: { codexMaxContextLength?: number | null; claudeMaxContextLength?: number | null } | undefined,
-): number | undefined {
-  if (backendType === "codex") {
-    if (hasOwn(sessionState, "codex_max_context_length")) return sessionState?.codex_max_context_length ?? undefined;
-    return sdkSessionMeta?.codexMaxContextLength ?? undefined;
-  }
-  if (hasOwn(sessionState, "claude_max_context_length")) return sessionState?.claude_max_context_length ?? undefined;
-  return sdkSessionMeta?.claudeMaxContextLength ?? undefined;
+function getConfiguredMaxContextLength(sessionVm: SessionViewModel | null): number | undefined {
+  return sessionVm?.backendType === "codex"
+    ? (sessionVm.codexMaxContextLength ?? undefined)
+    : (sessionVm?.claudeMaxContextLength ?? undefined);
 }
 
 function normalizeQuestId(questId: string): string {
@@ -142,7 +127,7 @@ function getSessionHoverAttentionStatus(
 }
 
 export function SessionHoverCard({
-  session: s,
+  session: suppliedSession,
   sessionName,
   sessionPreview,
   taskHistory,
@@ -155,6 +140,17 @@ export function SessionHoverCard({
 }: SessionHoverCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const taskHistoryScrollRef = useRef<HTMLDivElement>(null);
+  const resolvedNavigation = useStore((st) => {
+    const sessions = sessionState ? new Map(st.sessions).set(suppliedSession.id, sessionState) : st.sessions;
+    return resolveSessionNavigation({ ...st, sessions, countUserPermissions }, suppliedSession.id);
+  });
+  const projectionOwned =
+    resolvedNavigation?.projectionState !== undefined && resolvedNavigation.projectionState !== "legacy";
+  const s = projectionOwned ? resolvedNavigation.sidebarItem : suppliedSession;
+  const resolvedSessionName = projectionOwned ? resolvedNavigation?.name : (resolvedNavigation?.name ?? sessionName);
+  const resolvedSessionPreview = projectionOwned
+    ? resolvedNavigation?.preview
+    : (resolvedNavigation?.preview ?? sessionPreview);
   const zoomLevel = useStore((st) => st.zoomLevel ?? 1);
   const quests = useStore((st) => st.quests) ?? [];
   const activeLeaderBoardRows =
@@ -174,7 +170,8 @@ export function SessionHoverCard({
   const sessionAttention = useStore((st) =>
     hasSessionAttentionProjection(st, s.id) ? null : (st.sessionAttention?.get(s.id) ?? null),
   );
-  const effectiveBackendType = sessionState?.backend_type ?? sdkSessionMeta?.backendType ?? s.backendType;
+  const sessionVm = resolvedNavigation?.viewModel ?? coalesceSessionViewModel(sessionState, sdkSessionMeta);
+  const effectiveBackendType = sessionVm?.backendType ?? suppliedSession.backendType ?? s.backendType;
   const leaderSession = useMemo(() => {
     if (s.isOrchestrator || !s.herdedBy) return null;
     const leader = sdkSessions.find((sdk) => sdk.sessionId === s.herdedBy && !sdk.archived);
@@ -182,7 +179,11 @@ export function SessionHoverCard({
   }, [s.isOrchestrator, s.herdedBy, sdkSessions]);
 
   // Status info
-  const timerCount = s.id === currentSessionId ? liveTimerCount : (s.pendingTimerCount ?? 0);
+  const timerCount = s.navigationProjectionOwned
+    ? (s.pendingTimerCount ?? 0)
+    : s.id === currentSessionId
+      ? liveTimerCount
+      : (s.pendingTimerCount ?? 0);
   const activeTimerCount = attentionProjection
     ? attentionProjection.status?.urgency === "needs-input"
       ? 0
@@ -221,8 +222,8 @@ export function SessionHoverCard({
       );
 
   const shortId = s.id.slice(0, 8);
-  const label = sessionName || s.model || shortId;
-  const model = sessionState?.model || s.model || "";
+  const label = resolvedSessionName || s.model || shortId;
+  const model = sessionVm?.model || s.model || "";
   const backendType = effectiveBackendType ?? "claude";
   const backendLabel = backendType === "codex" ? "Codex" : backendType === "claude-sdk" ? "Claude SDK" : "Claude";
   const backendToneClass = backendType === "codex" ? "text-blue-500" : "text-[#D97757]";
@@ -250,39 +251,49 @@ export function SessionHoverCard({
       };
     });
   }, [activeLeaderBoardRows, questTitlesById, s.isOrchestrator]);
-  const activeQuest = useMemo(
-    () =>
-      s.isOrchestrator
-        ? null
-        : (quests.find((quest) => {
-            if (quest.status !== "in_progress") return false;
-            const owner = getQuestOwner(quest);
-            return owner?.kind === "takode" && owner.sessionId === s.id;
-          }) ?? null),
-    [quests, s.id, s.isOrchestrator],
-  );
+  const activeQuest = useMemo(() => {
+    if (s.isOrchestrator) return null;
+    if (sessionVm?.claimedQuestId && sessionVm.claimedQuestStatus === "in_progress") {
+      const hydrated = quests.find(
+        (quest) => normalizeQuestId(quest.questId) === normalizeQuestId(sessionVm.claimedQuestId!),
+      );
+      return (
+        hydrated ?? {
+          questId: sessionVm.claimedQuestId,
+          title: sessionVm.claimedQuestTitle ?? sessionVm.claimedQuestId,
+        }
+      );
+    }
+    if (projectionOwned) return null;
+    return (
+      quests.find((quest) => {
+        if (quest.status !== "in_progress") return false;
+        const owner = getQuestOwner(quest);
+        return owner?.kind === "takode" && owner.sessionId === s.id;
+      }) ?? null
+    );
+  }, [
+    quests,
+    s.id,
+    s.isOrchestrator,
+    sessionVm?.claimedQuestId,
+    sessionVm?.claimedQuestStatus,
+    sessionVm?.claimedQuestTitle,
+    projectionOwned,
+  ]);
   const showTaskHistory = !s.isOrchestrator && taskEntries.length > 0;
 
-  // Stats from sessionState
-  const turns = preferHistoryCount(
-    sessionState?.user_turn_count ?? sessionState?.num_turns,
-    sdkSessionMeta?.userTurnCount ?? sdkSessionMeta?.numTurns,
-  );
-  const contextPercent = sessionState?.context_used_percent ?? sdkSessionMeta?.contextUsedPercent ?? 0;
-  const configuredMaxContextLength = getConfiguredMaxContextLength(backendType, sessionState, sdkSessionMeta);
+  // Projection-backed stats stay fresh for unselected sessions while the
+  // legacy coalesced model preserves unsupported-server compatibility.
+  const turns = sessionVm?.numTurns ?? 0;
+  const contextPercent = sessionVm?.contextUsedPercent ?? 0;
+  const configuredMaxContextLength = getConfiguredMaxContextLength(sessionVm);
   const backendReportedContextWindow =
-    backendType === "codex"
-      ? (sessionState?.codex_token_details?.modelContextWindow ?? sdkSessionMeta?.codexTokenDetails?.modelContextWindow)
-      : (sessionState?.claude_token_details?.modelContextWindow ??
-        sdkSessionMeta?.claudeTokenDetails?.modelContextWindow);
-  const contextWindow =
-    resolveEffectiveModelContextWindow({
-      backendType,
-      codexMaxContextLength: backendType === "codex" ? (configuredMaxContextLength ?? undefined) : undefined,
-      claudeMaxContextLength: backendType !== "codex" ? (configuredMaxContextLength ?? undefined) : undefined,
-      codexTokenDetailsModelContextWindow: backendType === "codex" ? backendReportedContextWindow : undefined,
-      claudeTokenDetailsModelContextWindow: backendType !== "codex" ? backendReportedContextWindow : undefined,
-    }) ?? 0;
+    sessionVm?.backendReportedContextWindow ??
+    (backendType === "codex"
+      ? sdkSessionMeta?.codexTokenDetails?.modelContextWindow
+      : sdkSessionMeta?.claudeTokenDetails?.modelContextWindow);
+  const contextWindow = sessionVm?.modelContextWindow ?? 0;
   const contextWindowTitle =
     configuredMaxContextLength &&
     backendReportedContextWindow &&
@@ -297,9 +308,9 @@ export function SessionHoverCard({
           : "Configured max context window."
         : undefined;
   const isCodexSession = effectiveBackendType === "codex";
-  const messageHistoryBytes = sessionState?.message_history_bytes ?? sdkSessionMeta?.messageHistoryBytes ?? 0;
-  const codexRetainedPayloadBytes =
-    sessionState?.codex_retained_payload_bytes ?? sdkSessionMeta?.codexRetainedPayloadBytes ?? 0;
+  const messageHistoryBytes = sessionVm?.messageHistoryBytes ?? 0;
+  const codexRetainedPayloadBytes = sessionVm?.codexRetainedPayloadBytes ?? 0;
+
   const hasBranchDivergence = s.gitAhead > 0 || s.gitBehind > 0;
   const hasLineDiff = s.linesAdded > 0 || s.linesRemoved > 0;
   const hasSkippedDiffStats = !!s.diffStatsSkippedReason;
@@ -489,16 +500,16 @@ export function SessionHoverCard({
                 </div>
               ))}
             </div>
-            {sessionPreview && (
+            {resolvedSessionPreview && (
               <div className="pt-1 border-t border-cc-border/30">
                 <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Last message</span>
                 <p className="text-[11px] text-cc-muted leading-relaxed line-clamp-2 italic mt-0.5">
-                  {sessionPreview.length >= 80 ? `${sessionPreview}...` : sessionPreview}
+                  {resolvedSessionPreview.length >= 80 ? `${resolvedSessionPreview}...` : resolvedSessionPreview}
                 </p>
               </div>
             )}
           </div>
-        ) : sessionPreview ? (
+        ) : resolvedSessionPreview ? (
           <div className="px-4 py-2 border-t border-cc-border/50">
             {s.isOrchestrator && (
               <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Last message</span>
@@ -508,7 +519,7 @@ export function SessionHoverCard({
                 s.isOrchestrator ? "mt-0.5" : ""
               }`}
             >
-              {sessionPreview.length >= 80 ? `${sessionPreview}...` : sessionPreview}
+              {resolvedSessionPreview.length >= 80 ? `${resolvedSessionPreview}...` : resolvedSessionPreview}
             </p>
           </div>
         ) : null}

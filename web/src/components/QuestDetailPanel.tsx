@@ -42,7 +42,7 @@ import { buildQuestReworkDraft } from "./quest-rework.js";
 import { useQuestDetailRecord } from "./useQuestDetailRecord.js";
 import { summarizeQuestPhaseDocumentation } from "../../shared/quest-phase-documentation-summary.js";
 import { isDeletedQuestFeedbackEntry } from "../../shared/quest-feedback.js";
-import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
+import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import type { QuestmasterTask, QuestStatus, QuestVerificationItem, QuestImage, QuestHistoryView } from "../types.js";
 import type { QuestFeedbackTargetRequest } from "../utils/quest-link-target.js";
 
@@ -66,6 +66,9 @@ export function QuestDetailPanel() {
   const cliDisconnectReason = useStore((s) => s.cliDisconnectReason);
   const pendingPermissions = useStore((s) => s.pendingPermissions);
   const askPermissionMap = useStore((s) => s.askPermission);
+  const diffFileStats = useStore((s) => s.diffFileStats);
+  const syncedProjectionValues = useStore((s) => s.syncedProjectionValues);
+  const syncedProjectionKeys = useStore((s) => s.syncedProjectionKeys);
   const feedbackNavigationTarget = useStore((s) => s.questOverlayFeedbackTarget);
 
   const { quest, setFetchedQuest, questLoading, questLoadError } = useQuestDetailRecord(questOverlayId);
@@ -640,52 +643,51 @@ export function QuestDetailPanel() {
     closePanel();
   }
 
-  // Active sessions for assign picker
-  const pickerSessions = useMemo(() => {
-    return sdkSessions
-      .filter((s) => s.state !== "exited" && !s.archived)
-      .map((sdkInfo): SessionItemType => {
-        const bridgeState = sessions.get(sdkInfo.sessionId);
-        const sdkGitAhead = sdkInfo.gitAhead ?? 0;
-        const sdkGitBehind = sdkInfo.gitBehind ?? 0;
-        const gitAhead =
-          bridgeState?.git_ahead === 0 && sdkGitAhead > 0 ? sdkGitAhead : (bridgeState?.git_ahead ?? sdkGitAhead);
-        const gitBehind =
-          bridgeState?.git_behind === 0 && sdkGitBehind > 0 ? sdkGitBehind : (bridgeState?.git_behind ?? sdkGitBehind);
-        return {
-          id: sdkInfo.sessionId,
-          model: bridgeState?.model || sdkInfo.model || "",
-          cwd: bridgeState?.cwd || sdkInfo.cwd || "",
-          gitBranch: bridgeState?.git_branch || sdkInfo.gitBranch || "",
-          isContainerized: bridgeState?.is_containerized || !!sdkInfo.containerId || false,
-          gitAhead,
-          gitBehind,
-          linesAdded: bridgeState?.total_lines_added ?? sdkInfo.totalLinesAdded ?? 0,
-          linesRemoved: bridgeState?.total_lines_removed ?? sdkInfo.totalLinesRemoved ?? 0,
-          isConnected: cliConnected.get(sdkInfo.sessionId) ?? sdkInfo.cliConnected ?? false,
-          status: sessionStatus.get(sdkInfo.sessionId) ?? null,
-          sdkState: sdkInfo.state ?? null,
-          createdAt: sdkInfo.createdAt ?? 0,
-          archived: sdkInfo.archived ?? false,
-          backendType: bridgeState?.backend_type || sdkInfo.backendType || "claude",
-          repoRoot: bridgeState?.repo_root || sdkInfo.repoRoot || "",
-          permCount: countUserPermissions(pendingPermissions.get(sdkInfo.sessionId)),
-          cronJobId: bridgeState?.cronJobId || sdkInfo.cronJobId,
-          cronJobName: bridgeState?.cronJobName || sdkInfo.cronJobName,
-          isWorktree: bridgeState?.is_worktree || sdkInfo.isWorktree || false,
-          worktreeExists: sdkInfo.worktreeExists,
-          worktreeDirty: sdkInfo.worktreeDirty,
-          worktreeCleanupStatus: sdkInfo.worktreeCleanupStatus,
-          worktreeCleanupError: sdkInfo.worktreeCleanupError,
-          askPermission: askPermissionMap?.get(sdkInfo.sessionId),
-          idleKilled: cliDisconnectReason.get(sdkInfo.sessionId) === "idle_limit",
-          isOrchestrator: sdkInfo.isOrchestrator || false,
-          herdedBy: sdkInfo.herdedBy,
-          sessionNum: sdkInfo.sessionNum ?? null,
-        };
-      })
-      .sort((a, b) => b.createdAt - a.createdAt);
-  }, [sdkSessions, sessions, cliConnected, sessionStatus, pendingPermissions, cliDisconnectReason, askPermissionMap]);
+  // Active sessions for assign picker. Projection authority keeps restored,
+  // unselected rows aligned with the sidebar while legacy servers retain the
+  // existing bridge/SDK merger.
+  const pickerSessions = useMemo(
+    () =>
+      sdkSessions
+        .flatMap((session) => {
+          const resolved = resolveSessionNavigation(
+            {
+              sessions,
+              sdkSessions,
+              syncedProjectionValues,
+              syncedProjectionKeys,
+              cliConnected,
+              cliDisconnectReason,
+              sessionStatus,
+              pendingPermissions,
+              askPermission: askPermissionMap,
+              diffFileStats,
+              sessionNames,
+              sessionPreviews,
+              countUserPermissions,
+            },
+            session.sessionId,
+          );
+          return resolved && resolved.sidebarItem.sdkState !== "exited" && !resolved.sidebarItem.archived
+            ? [resolved]
+            : [];
+        })
+        .sort((left, right) => right.sidebarItem.createdAt - left.sidebarItem.createdAt),
+    [
+      askPermissionMap,
+      cliConnected,
+      cliDisconnectReason,
+      diffFileStats,
+      pendingPermissions,
+      sdkSessions,
+      sessionNames,
+      sessionPreviews,
+      sessionStatus,
+      sessions,
+      syncedProjectionKeys,
+      syncedProjectionValues,
+    ],
+  );
 
   if (!questOverlayId) return null;
   if (!quest) {
@@ -1662,13 +1664,13 @@ export function QuestDetailPanel() {
                   <div className="px-4 py-8 text-xs text-cc-muted text-center">No active sessions</div>
                 ) : (
                   <div className="overflow-y-auto p-2 space-y-0.5">
-                    {pickerSessions.map((s) => (
+                    {pickerSessions.map((resolved) => (
                       <PickerSessionChip
-                        key={s.id}
-                        session={s}
-                        sessionName={sessionNames.get(s.id)}
-                        sessionPreview={sessionPreviews.get(s.id)}
-                        onClick={() => handleAssignToSession(assignQuest, s.id)}
+                        key={resolved.sidebarItem.id}
+                        session={resolved.sidebarItem}
+                        sessionName={resolved.name}
+                        sessionPreview={resolved.preview}
+                        onClick={() => handleAssignToSession(assignQuest, resolved.sidebarItem.id)}
                       />
                     ))}
                   </div>

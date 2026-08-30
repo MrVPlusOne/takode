@@ -2,6 +2,9 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { LeaderWorkboardView } from "../store-types.js";
+import { SESSION_NAVIGATION_PROJECTION } from "../../shared/session-navigation-projection.js";
+import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
+import { createSessionNavigationProjectionValue } from "../test-fixtures/session-navigation-projection.js";
 
 const mockNavigateTo = vi.fn();
 const mockNavigateToSession = vi.fn();
@@ -143,6 +146,8 @@ interface MockStoreState {
   refreshQuestSummary: ReturnType<typeof vi.fn>;
   questNamedSessions: Set<string>;
   sessionPreviews: Map<string, string>;
+  syncedProjectionValues: Map<string, unknown>;
+  syncedProjectionKeys: Set<string>;
   sessionTaskHistory: Map<string, unknown[]>;
   askPermission: Map<string, boolean>;
   activeTurnRoutes: Map<string, unknown>;
@@ -198,6 +203,8 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     refreshQuestSummary: vi.fn().mockResolvedValue(undefined),
     questNamedSessions: new Set(),
     sessionPreviews: new Map(),
+    syncedProjectionValues: new Map(),
+    syncedProjectionKeys: new Set(),
     sessionTaskHistory: new Map(),
     askPermission: new Map(),
     activeTurnRoutes: new Map(),
@@ -243,7 +250,7 @@ vi.mock("../store.js", () => {
   };
 });
 
-import { TopBar } from "./TopBar.js";
+import { getCurrentTopBarSessionState, TopBar } from "./TopBar.js";
 import { WorkBoardBar } from "./WorkBoardBar.js";
 import { getGlobalNeedsInputEntries } from "./GlobalNeedsInputMenu.js";
 import { api } from "../api.js";
@@ -337,6 +344,40 @@ describe("TopBar", () => {
     render(<TopBar />);
 
     expect(screen.queryByTitle("Pause session")).not.toBeInTheDocument();
+  });
+
+  it("uses projected current-session status, permission, name, and timer authority", () => {
+    resetStore({
+      currentSessionId: "s1",
+      sessionNames: new Map([["s1", "Stale name"]]),
+      sessionStatus: new Map([["s1", "running"]]),
+      sessionTimers: new Map([["s1", [{ id: "stale-timer" }]]]),
+      pendingPermissions: new Map([["s1", new Map([["stale-permission", {}]])]]),
+      questNamedSessions: new Set(["s1"]),
+      sdkSessions: [{ sessionId: "s1", createdAt: 1, state: "running", name: "Stale name" }],
+    });
+    storeState.sdkSessions[0]!.isOrchestrator = true;
+    storeState.sdkSessions[0]!.leaderProfilePortrait = {} as never;
+    const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, "s1");
+    storeState.syncedProjectionKeys.add(entryId);
+    storeState.syncedProjectionValues.set(
+      entryId,
+      createSessionNavigationProjectionValue({
+        identity: { name: "Projected name" },
+        lifecycle: { status: null, pendingPermissionCount: 0, pendingTimerCount: 0 },
+      }),
+    );
+
+    const current = getCurrentTopBarSessionState(storeState as never);
+
+    expect(current).toMatchObject({
+      sessionName: "Projected name",
+      status: null,
+      currentPermCount: 0,
+      activeTimerCount: 0,
+      isQuestNamed: false,
+      leaderProfilePortrait: undefined,
+    });
   });
 
   it("shows the timer status icon for an otherwise idle current session with active timers", () => {

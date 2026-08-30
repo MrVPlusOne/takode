@@ -28,8 +28,6 @@ type LoadState<T> =
 
 type MemoryPreferenceState = Pick<AppState, "currentSessionId" | "sessions" | "treeAssignments" | "treeGroups">;
 
-type MemorySelectionMode = "auto" | "manual";
-
 const MEMORY_KINDS: MemoryKind[] = ["current", "knowledge", "procedures", "decisions", "references", "artifacts"];
 const INITIAL_RECENT_LIMIT = 20;
 const RECENT_INCREMENT = 20;
@@ -887,7 +885,7 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [sidePanelTab, setSidePanelTab] = useState<MemorySidePanelTab>("records");
   const [recentLimit, setRecentLimit] = useState(INITIAL_RECENT_LIMIT);
-  const selectionModeRef = useRef<MemorySelectionMode>("auto");
+  const manualRootRef = useRef<string | null>(null);
   const preferredSessionSpaceSlug = useStore(preferredMemorySessionSpaceSlug);
 
   useEffect(() => {
@@ -918,9 +916,10 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
     const data = spacesState.data;
     setSelectedRoot((current) => {
       const currentStillAvailable = Boolean(current && data.spaces.some((space) => space.root === current));
-      if (selectionModeRef.current === "manual") {
-        if (currentStillAvailable) return current;
-        selectionModeRef.current = "auto";
+      const manualRoot = manualRootRef.current;
+      if (manualRoot) {
+        if (data.spaces.some((space) => space.root === manualRoot)) return manualRoot;
+        manualRootRef.current = null;
       }
 
       const preferredRoot = preferredRootForSessionSpace(data, preferredSessionSpaceSlug);
@@ -1043,7 +1042,7 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
   );
 
   function selectRoot(root: string): void {
-    selectionModeRef.current = root ? "manual" : "auto";
+    manualRootRef.current = root || null;
     setSelectedRoot(root || null);
     setSelectedPath(null);
     setSelectedUpdateSha(null);

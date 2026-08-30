@@ -200,9 +200,20 @@ export function reconcileQuestList(prev: QuestmasterTask[], next: QuestmasterTas
   return changed ? reconciled : prev;
 }
 
+function hasOwnSessionProjectionField(
+  session: SdkSessionInfo,
+  field: "sessionAttentionProjection" | "sessionNavigationProjection",
+): boolean {
+  return Object.prototype.hasOwnProperty.call(session, field);
+}
+
 function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
   return (
     a.sessionId === b.sessionId &&
+    hasOwnSessionProjectionField(a, "sessionAttentionProjection") ===
+      hasOwnSessionProjectionField(b, "sessionAttentionProjection") &&
+    hasOwnSessionProjectionField(a, "sessionNavigationProjection") ===
+      hasOwnSessionProjectionField(b, "sessionNavigationProjection") &&
     a.pid === b.pid &&
     a.state === b.state &&
     a.exitCode === b.exitCode &&

@@ -12,6 +12,7 @@ import { messageIdFromHash, parseHash, resolveSessionIdFromRoute, threadRouteFro
 import { ALL_THREADS_KEY } from "./utils/thread-projection.js";
 import { readLeaderViewportPosition, requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
+import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
 import { syncedProjectionEntryId, type SyncedProjectionSubscription } from "../shared/synced-projection.js";
 
 let handleIncomingMessage:
@@ -90,15 +91,19 @@ function getSyncedProjectionSubscriptions(sessionId: string): SyncedProjectionSu
   for (const sdkSession of store.sdkSessions) {
     if (sdkSession.archived || seen.has(sdkSession.sessionId)) continue;
     seen.add(sdkSession.sessionId);
-    const entryId = syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, sdkSession.sessionId);
-    const version = store.syncedProjectionKeys.has(entryId) ? store.syncedProjectionVersions.get(entryId) : undefined;
-    subscriptions.push({
-      projection: SESSION_ATTENTION_PROJECTION,
-      key: sdkSession.sessionId,
-      ...(version ? { generation: version.generation, revision: version.revision } : {}),
-    });
+    for (const projection of [SESSION_ATTENTION_PROJECTION, SESSION_NAVIGATION_PROJECTION]) {
+      const entryId = syncedProjectionEntryId(projection, sdkSession.sessionId);
+      const version = store.syncedProjectionKeys.has(entryId) ? store.syncedProjectionVersions.get(entryId) : undefined;
+      subscriptions.push({
+        projection,
+        key: sdkSession.sessionId,
+        ...(version ? { generation: version.generation, revision: version.revision } : {}),
+      });
+    }
   }
-  subscriptions.sort((left, right) => left.key.localeCompare(right.key));
+  subscriptions.sort(
+    (left, right) => left.projection.localeCompare(right.projection) || left.key.localeCompare(right.key),
+  );
   return subscriptions;
 }
 

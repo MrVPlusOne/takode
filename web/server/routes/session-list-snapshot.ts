@@ -126,10 +126,9 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
         const { codexLeaderRecycleThresholdTokens: _hiddenControlThreshold, ...safeSession } =
           stripInternalLauncherSessionState(s);
         const bridgeSession = wsBridge.getSession(s.sessionId);
-        const sessionAttentionProjection =
-          bridgeSession && !safeSession.archived
-            ? wsBridge.getSyncedProjectionController?.().getSessionAttentionSnapshot(s.sessionId)
-            : null;
+        const projectionController =
+          bridgeSession && !safeSession.archived ? wsBridge.getSyncedProjectionController?.() : undefined;
+        const sessionAttentionProjection = projectionController?.getSessionAttentionSnapshot?.(s.sessionId) ?? null;
         // Herded worker notifications route through the leader/board flow and
         // should not create direct user-facing sidebar markers for the worker.
         notificationSummary =
@@ -143,10 +142,21 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
           ? computeSessionTurnMetrics(currentBridgeSession.messageHistory)
           : null;
         if (bridge && turnMetrics) {
+          const turnMetricsChanged =
+            bridge.user_turn_count !== turnMetrics.userTurnCount ||
+            bridge.agent_turn_count !== turnMetrics.agentTurnCount ||
+            bridge.num_turns !== turnMetrics.userTurnCount;
           bridge.user_turn_count = turnMetrics.userTurnCount;
           bridge.agent_turn_count = turnMetrics.agentTurnCount;
           bridge.num_turns = turnMetrics.userTurnCount;
+          if (turnMetricsChanged && currentBridgeSession) {
+            projectionController?.invalidateSessionNavigation?.(currentBridgeSession);
+          }
         }
+        // Navigation snapshots consume the repaired history-backed turn metrics.
+        // When repair changed authority, invalidation above makes getSnapshot
+        // publish the new revision to established subscribers before returning it.
+        const sessionNavigationProjection = projectionController?.getSessionNavigationSnapshot?.(s.sessionId) ?? null;
         const lastUserMessageAt = currentBridgeSession
           ? getLastActualHumanUserMessageTimestamp(currentBridgeSession.messageHistory)
           : safeSession.lastUserMessageAt;
@@ -243,6 +253,7 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
             ) ?? 0,
           ...notificationSummary,
           ...(sessionAttentionProjection ? { sessionAttentionProjection } : {}),
+          ...(sessionNavigationProjection ? { sessionNavigationProjection } : {}),
           ...(attention ?? {}),
           ...(s.isWorktree && s.archived ? { worktreeExists: await archivedWorktreeExists(s.cwd) } : {}),
         };

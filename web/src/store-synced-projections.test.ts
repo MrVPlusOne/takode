@@ -2,11 +2,15 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
+import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
 import { SYNCED_PROJECTION_SCHEMA_VERSION, syncedProjectionEntryId } from "../shared/synced-projection.js";
+import { createSessionNavigationProjectionEnvelope } from "./test-fixtures/session-navigation-projection.js";
 import {
   getSessionAttentionProjection,
+  getSessionNavigationProjection,
   getSyncedProjectionValue,
   hasSessionAttentionProjection,
+  hasSessionNavigationProjection,
   hasSyncedProjectionValue,
 } from "./store-synced-projections.js";
 
@@ -71,6 +75,69 @@ describe("synced projection store", () => {
     );
     expect(hasSyncedProjectionValue(state, SESSION_ATTENTION_PROJECTION, "s1")).toBe(true);
     expect(state.sessionAttention.get("s1")).toBe("review");
+  });
+
+  it("installs mixed REST projection batches in one store notification", () => {
+    const listener = vi.fn();
+    const unsubscribe = useStore.subscribe(listener);
+
+    useStore
+      .getState()
+      .applySyncedProjectionSnapshots([
+        attentionEnvelope({ key: "s1", revision: 1 }),
+        createSessionNavigationProjectionEnvelope({ key: "s1", revision: 1 }),
+        attentionEnvelope({ key: "s2", revision: 1 }),
+        createSessionNavigationProjectionEnvelope({ key: "s2", revision: 1 }),
+      ]);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(hasSessionAttentionProjection(useStore.getState(), "s1")).toBe(true);
+    expect(hasSessionNavigationProjection(useStore.getState(), "s1")).toBe(true);
+    expect(hasSessionAttentionProjection(useStore.getState(), "s2")).toBe(true);
+    expect(hasSessionNavigationProjection(useStore.getState(), "s2")).toBe(true);
+
+    listener.mockClear();
+    useStore
+      .getState()
+      .applySyncedProjectionSnapshots([
+        attentionEnvelope({ key: "s1", revision: 1 }),
+        createSessionNavigationProjectionEnvelope({ key: "s1", revision: 1 }),
+      ]);
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
+  it("validates navigation snapshots and preserves equal nested slice identities", () => {
+    const initial = createSessionNavigationProjectionEnvelope({ key: "s1", revision: 1 });
+    expect(useStore.getState().applySyncedProjectionSnapshot(initial)).toEqual({
+      applied: true,
+      accepted: true,
+      requestResync: false,
+    });
+    const before = getSessionNavigationProjection(useStore.getState(), "s1")!;
+    expect(hasSessionNavigationProjection(useStore.getState(), "s1")).toBe(true);
+
+    const changed = createSessionNavigationProjectionEnvelope({
+      type: "synced_projection_update",
+      key: "s1",
+      revision: 2,
+      overrides: { lifecycle: { pendingPermissionCount: 2, status: "running" } },
+    });
+    expect(useStore.getState().applySyncedProjectionUpdate(changed)).toEqual({
+      applied: true,
+      accepted: true,
+      requestResync: false,
+    });
+
+    const after = getSessionNavigationProjection(useStore.getState(), "s1")!;
+    expect(after).not.toBe(before);
+    expect(after.lifecycle).not.toBe(before.lifecycle);
+    expect(after.lifecycle).toMatchObject({ pendingPermissionCount: 2, status: "running" });
+    expect(after.identity).toBe(before.identity);
+    expect(after.topology).toBe(before.topology);
+    expect(after.quest).toBe(before.quest);
+    expect(after.git).toBe(before.git);
+    expect(after.detail).toBe(before.detail);
   });
 
   it("keeps duplicate and stale same-generation snapshots identity-preserving", () => {
@@ -245,11 +312,18 @@ describe("synced projection store", () => {
   it("reconciles projection authority to the acknowledged complete subscription set", () => {
     useStore.getState().applySyncedProjectionSnapshot(attentionEnvelope({ key: "s1" }));
     useStore.getState().applySyncedProjectionSnapshot(attentionEnvelope({ key: "s2" }));
+    useStore.getState().applySyncedProjectionSnapshot(createSessionNavigationProjectionEnvelope({ key: "s1" }));
+    useStore.getState().applySyncedProjectionSnapshot(createSessionNavigationProjectionEnvelope({ key: "s2" }));
 
-    useStore.getState().reconcileSyncedProjectionAuthority([{ projection: SESSION_ATTENTION_PROJECTION, key: "s1" }]);
+    useStore.getState().reconcileSyncedProjectionAuthority([
+      { projection: SESSION_ATTENTION_PROJECTION, key: "s1" },
+      { projection: SESSION_NAVIGATION_PROJECTION, key: "s1" },
+    ]);
 
     expect(hasSessionAttentionProjection(useStore.getState(), "s1")).toBe(true);
+    expect(hasSessionNavigationProjection(useStore.getState(), "s1")).toBe(true);
     expect(hasSessionAttentionProjection(useStore.getState(), "s2")).toBe(false);
+    expect(hasSessionNavigationProjection(useStore.getState(), "s2")).toBe(false);
     expect(useStore.getState().sessionAttention.has("s2")).toBe(false);
   });
 
@@ -268,6 +342,17 @@ describe("synced projection store", () => {
         projection: "unknown-projection",
       }),
     ).toEqual({ applied: false, accepted: false, requestResync: false });
+
+    const malformedNavigation = createSessionNavigationProjectionEnvelope({}) as Record<string, unknown>;
+    malformedNavigation.value = {
+      ...(malformedNavigation.value as Record<string, unknown>),
+      lifecycle: { status: "running" },
+    };
+    expect(useStore.getState().applySyncedProjectionSnapshot(malformedNavigation)).toEqual({
+      applied: false,
+      accepted: false,
+      requestResync: false,
+    });
     expect(useStore.getState().syncedProjectionKeys.size).toBe(0);
   });
 
@@ -298,12 +383,33 @@ describe("synced projection store", () => {
     expect(useStore.getState().sessionAttention.get("s1")).toBe("review");
   });
 
+  it("clears every projection for one key without disturbing another session", () => {
+    useStore
+      .getState()
+      .applySyncedProjectionSnapshots([
+        attentionEnvelope({ key: "s1" }),
+        createSessionNavigationProjectionEnvelope({ key: "s1" }),
+        attentionEnvelope({ key: "s2" }),
+        createSessionNavigationProjectionEnvelope({ key: "s2" }),
+      ]);
+
+    useStore.getState().clearSyncedProjectionsForKey("s1");
+
+    expect(hasSessionAttentionProjection(useStore.getState(), "s1")).toBe(false);
+    expect(hasSessionNavigationProjection(useStore.getState(), "s1")).toBe(false);
+    expect(useStore.getState().sessionAttention.has("s1")).toBe(false);
+    expect(hasSessionAttentionProjection(useStore.getState(), "s2")).toBe(true);
+    expect(hasSessionNavigationProjection(useStore.getState(), "s2")).toBe(true);
+  });
+
   it("cleans projection maps when a session is removed or the store resets", () => {
     useStore.setState({ sdkSessions: [{ sessionId: "s1" } as never] });
     useStore.getState().applySyncedProjectionSnapshot(attentionEnvelope({}));
+    useStore.getState().applySyncedProjectionSnapshot(createSessionNavigationProjectionEnvelope({ key: "s1" }));
     useStore.getState().removeSession("s1");
 
     expect(hasSessionAttentionProjection(useStore.getState(), "s1")).toBe(false);
+    expect(hasSessionNavigationProjection(useStore.getState(), "s1")).toBe(false);
     expect(useStore.getState().syncedProjectionVersions.size).toBe(0);
     expect(useStore.getState().sessionAttention.has("s1")).toBe(false);
 

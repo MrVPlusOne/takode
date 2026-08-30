@@ -6,7 +6,10 @@ import type {
 } from "../shared/synced-projection.js";
 import type { AppState } from "./store-types.js";
 import { cacheCoversSyncedProjectionSnapshot } from "./store-synced-projections.js";
-import { getCurrentActiveSessionListRequestSequence } from "./session-list-hydration.js";
+import {
+  reconcileStoredSyncedProjectionSnapshots,
+  getCurrentActiveSessionListRequestSequence,
+} from "./session-list-hydration.js";
 import type { BrowserIncomingMessage } from "./types.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
 
@@ -81,7 +84,13 @@ export function handleSyncedProjectionMessage(
     const ack = data as SyncedProjectionSubscriptionsAckMessage;
     if (ack.complete !== true || !Array.isArray(ack.subscriptions)) return true;
     const accepted = deps.consumeSyncedProjectionSubscriptionsAck?.(sessionId, ack.subscriptions);
-    if (accepted) store.reconcileSyncedProjectionAuthority(accepted);
+    if (accepted) {
+      const revokedSubscriptions = reconcileStoredSyncedProjectionSnapshots(accepted);
+      store.reconcileSyncedProjectionAuthority(accepted, {
+        activeRequestSequence: getCurrentActiveSessionListRequestSequence(),
+        revokedSubscriptions,
+      });
+    }
     return true;
   }
 
@@ -95,5 +104,10 @@ export function settleSyncedProjectionSubscribeBoundary(
   deps: SyncedProjectionMessageHandlerDeps,
 ): void {
   const accepted = deps.settleUnsupportedSyncedProjectionSubscriptions?.(sessionId);
-  if (accepted) store.reconcileSyncedProjectionAuthority(accepted);
+  if (!accepted) return;
+  const revokedSubscriptions = reconcileStoredSyncedProjectionSnapshots(accepted);
+  store.reconcileSyncedProjectionAuthority(accepted, {
+    activeRequestSequence: getCurrentActiveSessionListRequestSequence(),
+    revokedSubscriptions,
+  });
 }

@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { api } from "../api.js";
+import { SESSION_NAVIGATION_PROJECTION } from "../../shared/session-navigation-projection.js";
+import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
+import { createSessionNavigationProjectionValue } from "../test-fixtures/session-navigation-projection.js";
 
 interface MockStoreState {
   sessions: Map<
@@ -120,6 +123,8 @@ interface MockStoreState {
   sessionStatus: Map<string, string | null>;
   pendingPermissions: Map<string, unknown>;
   askPermission: Map<string, unknown>;
+  syncedProjectionValues: Map<string, unknown>;
+  syncedProjectionKeys: Set<string>;
   serverReachable: boolean;
   updateSdkSession: ReturnType<typeof vi.fn>;
 }
@@ -160,9 +165,20 @@ function resetStore(taskHistory: Array<{ title: string; source?: "quest"; questI
     sessionStatus: new Map(),
     pendingPermissions: new Map(),
     askPermission: new Map(),
+    syncedProjectionValues: new Map(),
+    syncedProjectionKeys: new Set(),
     serverReachable: true,
     updateSdkSession: vi.fn(),
   };
+}
+
+function setNavigationProjection(
+  sessionId: string,
+  value = createSessionNavigationProjectionValue({ identity: { sessionNum: null } }),
+) {
+  const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, sessionId);
+  storeState.syncedProjectionKeys.add(entryId);
+  storeState.syncedProjectionValues.set(entryId, value);
 }
 
 vi.mock("../store.js", () => ({
@@ -485,6 +501,29 @@ describe("SessionInfoPopover", () => {
     }
   });
 
+  it("uses projected model, git, and detail stats ahead of stale selected-session fields", () => {
+    resetStore([]);
+    const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, "s1");
+    storeState.syncedProjectionKeys.add(entryId);
+    storeState.syncedProjectionValues.set(
+      entryId,
+      createSessionNavigationProjectionValue({
+        identity: { model: "gpt-5.6" },
+        git: { branch: "projected-branch", ahead: 3, linesAdded: 12 },
+        detail: { userTurnCount: 8, contextUsedPercent: 37, messageHistoryBytes: 1_048_576 },
+      }),
+    );
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByText("gpt-5.6")).toBeInTheDocument();
+    expect(screen.getByText("projected-branch")).toBeInTheDocument();
+    expect(screen.getByText("8 turns")).toBeInTheDocument();
+    expect(screen.getByText("37% context")).toBeInTheDocument();
+    expect(screen.getByText("1.0 MB replay")).toBeInTheDocument();
+    expect(screen.queryByText("jiayi")).toBeNull();
+  });
+
   it("renders git branch and diff stats near the top below the path", () => {
     resetStore([{ title: "Task one" }]);
     const session = storeState.sessions.get("s1");
@@ -641,27 +680,39 @@ describe("SessionInfoPopover", () => {
         cwd: "/repo",
         backendType: "codex",
         sessionNum: 11,
-        isOrchestrator: true,
+        isOrchestrator: false,
       },
       {
         sessionId: "worker-1",
         cwd: "/repo/worktree-1",
         backendType: "codex",
         sessionNum: 21,
-        herdedBy: "s1",
+        herdedBy: "stale-leader",
       },
       {
         sessionId: "worker-2",
         cwd: "/repo/worktree-2",
         backendType: "claude",
         sessionNum: 22,
-        herdedBy: "s1",
+        herdedBy: "stale-leader",
       },
     ];
     storeState.sessionNames = new Map([
       ["worker-1", "Fix notification links"],
       ["worker-2", "Improve hover chips"],
     ]);
+    setNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({ identity: { sessionNum: 11 }, topology: { isOrchestrator: true } }),
+    );
+    setNavigationProjection(
+      "worker-1",
+      createSessionNavigationProjectionValue({ identity: { sessionNum: 21 }, topology: { herdedBy: "s1" } }),
+    );
+    setNavigationProjection(
+      "worker-2",
+      createSessionNavigationProjectionValue({ identity: { sessionNum: 22 }, topology: { herdedBy: "s1" } }),
+    );
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -752,6 +803,62 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByText(/260 K tokens/)).toBeInTheDocument();
     expect(screen.queryByText("6% context")).toBeNull();
     expect(screen.queryByText("950 K tokens")).toBeNull();
+  });
+
+  it("uses projected effective context as the Codex leader recycle threshold", () => {
+    resetStore([]);
+    setNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        topology: { isOrchestrator: true },
+        detail: {
+          contextUsedPercent: 6,
+          contextTokensUsed: 57_000,
+          modelContextWindow: 950_000,
+          effectiveContextWindow: 260_000,
+        },
+      }),
+    );
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByText("22% context")).toBeInTheDocument();
+    expect(screen.getByText(/260 K tokens/)).toBeInTheDocument();
+    expect(screen.queryByText("6% context")).toBeNull();
+    expect(screen.queryByText(/950 K tokens/)).toBeNull();
+  });
+
+  it("honors a projected recycle-threshold clear over stale SDK metadata", () => {
+    resetStore([]);
+    storeState.sdkSessions = [
+      {
+        sessionId: "s1",
+        cwd: "/repo",
+        backendType: "codex",
+        isOrchestrator: true,
+        codexLeaderRecycleThresholdTokens: 260_000,
+        codexTokenDetails: { contextTokensUsed: 57_000, modelContextWindow: 950_000 },
+      },
+    ];
+    setNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        topology: { isOrchestrator: true },
+        detail: {
+          contextUsedPercent: 6,
+          contextTokensUsed: 57_000,
+          modelContextWindow: 950_000,
+          effectiveContextWindow: 950_000,
+        },
+      }),
+    );
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByText("6% context")).toBeInTheDocument();
+    expect(screen.getByText(/950 K tokens/)).toBeInTheDocument();
+    expect(screen.queryByText("22% context")).toBeNull();
+    expect(screen.queryByText(/260 K tokens/)).toBeNull();
   });
 
   it("keeps non-leader Codex sessions on provider context metrics", () => {

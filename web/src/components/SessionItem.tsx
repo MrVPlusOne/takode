@@ -329,10 +329,15 @@ export function SessionItem({
   const storeQuestNamed = useStore((st) => st.questNamedSessions.has(s.id));
   const bridgeQuestStatus = useStore((st) => st.sessions.get(s.id)?.claimedQuestStatus);
   const bridgeQuestReviewInboxUnread = useStore((st) => st.sessions.get(s.id)?.claimedQuestVerificationInboxUnread);
-  const questStatus = s.claimedQuestStatus ?? bridgeQuestStatus;
-  const questReviewInboxUnread = s.claimedQuestVerificationInboxUnread ?? bridgeQuestReviewInboxUnread;
+  const questStatus = s.navigationProjectionOwned ? s.claimedQuestStatus : (s.claimedQuestStatus ?? bridgeQuestStatus);
+  const questReviewInboxUnread = s.navigationProjectionOwned
+    ? s.claimedQuestVerificationInboxUnread
+    : (s.claimedQuestVerificationInboxUnread ?? bridgeQuestReviewInboxUnread);
   const isQuestNamed =
-    !s.isOrchestrator && (storeQuestNamed || questOwnsSessionName(questStatus, questReviewInboxUnread));
+    !s.isOrchestrator &&
+    (s.navigationProjectionOwned
+      ? questOwnsSessionName(questStatus, questReviewInboxUnread)
+      : storeQuestNamed || questOwnsSessionName(questStatus, questReviewInboxUnread));
   const hasAssignedQuestContext = useStore((st) =>
     s.isOrchestrator
       ? false
@@ -543,8 +548,12 @@ export function SessionItem({
     hasUnread: effectiveHasUnread,
     idleKilled: s.idleKilled,
   });
-  const timerCount = s.id === currentSessionId ? liveTimerCount : (s.pendingTimerCount ?? 0);
-  const isPaused = !!s.pause?.pausedAt;
+  const timerCount = s.navigationProjectionOwned
+    ? (s.pendingTimerCount ?? 0)
+    : s.id === currentSessionId
+      ? liveTimerCount
+      : (s.pendingTimerCount ?? 0);
+  const isPaused = s.paused ?? !!s.pause?.pausedAt;
   const pausedHeldCount = s.pausedInputQueueCount ?? s.pause?.queuedMessages.length ?? 0;
   const showScheduledTimerIcon =
     !isPaused &&
@@ -827,6 +836,7 @@ export function SessionItem({
                   <SessionPreviewRow
                     sessionId={s.id}
                     userPreview={sessionPreview}
+                    userUpdatedAt={s.navigationProjectionOwned ? (s.lastMessagePreviewAt ?? 0) : undefined}
                     toneClassName={sidebarMetadataClassName}
                     className={usesExpandedLeaderPortrait ? "col-span-2 row-start-3" : undefined}
                     data-testid={usesExpandedLeaderPortrait ? "session-preview-row" : undefined}
@@ -1326,20 +1336,23 @@ function LeaderActivePhaseSegments({ segments }: { segments: BoardSummarySegment
 function SessionPreviewRow({
   sessionId,
   userPreview,
+  userUpdatedAt,
   toneClassName = "text-cc-muted",
   className = "",
   "data-testid": testId,
 }: {
   sessionId: string;
   userPreview?: string;
+  userUpdatedAt?: number;
   toneClassName?: string;
   className?: string;
   "data-testid"?: string;
 }) {
   const taskPreview = useStore((s) => s.sessionTaskPreview.get(sessionId));
-  const userUpdatedAt = useStore((s) => s.sessionPreviewUpdatedAt.get(sessionId) ?? 0);
+  const storedUserUpdatedAt = useStore((s) => s.sessionPreviewUpdatedAt.get(sessionId) ?? 0);
+  const effectiveUserUpdatedAt = userUpdatedAt ?? storedUserUpdatedAt;
 
-  const showTask = taskPreview && taskPreview.updatedAt > userUpdatedAt;
+  const showTask = taskPreview && taskPreview.updatedAt > effectiveUserUpdatedAt;
 
   if (showTask) {
     return (

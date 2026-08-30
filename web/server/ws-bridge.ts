@@ -38,7 +38,6 @@ import type {
   TakodeEventDataByType,
   TakodeEventType,
   TakodePermissionRequestEventData,
-  TakodeTurnEndEventData,
   TakodeWorkerStreamEventData,
   BoardRow,
   SessionNotification,
@@ -101,8 +100,11 @@ import {
   type ProgrammaticUserMessageOptions,
   isHistoryBackedEvent as isHistoryBackedEventController,
   sameAgentSource as sameAgentSourceBrowserTransportController,
-  sendToBrowser as sendToBrowserController,
 } from "./bridge/browser-transport-controller.js";
+import {
+  SessionNavigationProjectionSourceController,
+  broadcastSessionActivityUpdateWithProjectionSuppression,
+} from "./bridge/session-navigation-projection-controller.js";
 import { isSessionPaused } from "./session-pause.js";
 import type { BrowserTransportStateLike } from "./bridge/browser-transport-controller.js";
 import { deliverProgrammaticUserMessage } from "./bridge/programmatic-user-message-delivery.js";
@@ -287,6 +289,7 @@ import {
   trackUserMessageForTurn as trackUserMessageForTurnLifecycle,
 } from "./bridge/generation-lifecycle.js";
 import { runWsBridgeStuckSessionWatchdogSweep } from "./bridge/stuck-session-watchdog-controller.js";
+import { buildTurnToolSummary as buildTurnToolSummaryController } from "./bridge/turn-tool-summary.js";
 import {
   computeDiffStatsAsync as computeDiffStatsAsyncController,
   makeDefaultState,
@@ -365,10 +368,29 @@ export class WsBridge {
   private static readonly USER_MESSAGE_RUNNING_TIMEOUT_MS = 30_000;
   private static readonly PROCESSED_CLIENT_MSG_ID_LIMIT = 1000;
   private sessions = new Map<string, Session>();
+  private readonly sessionNavigationProjectionSources = new SessionNavigationProjectionSourceController({
+    getSession: (sessionId) => this.sessions.get(sessionId),
+    getLauncherSessionInfo: (sessionId) =>
+      typeof this.launcher?.getSession === "function" ? this.launcher.getSession(sessionId) : undefined,
+    getStoredSessionName: (sessionId) => this.sessionStoredNameGetter?.(sessionId),
+    getPendingTimerCount: (sessionId) => this.timerManager?.listTimers(sessionId).length ?? 0,
+    getBackendConnected: (session) => backendConnectedController(session),
+    deriveSessionStatus: (session) =>
+      deriveSessionStatusController(session, {
+        backendConnected: (targetSession) => backendConnectedController(targetSession as Session),
+      }) as "running" | "compacting" | "reverting" | "idle" | null,
+  });
   private readonly syncedProjections = new WsBridgeSyncedProjectionController({
     getSession: (sessionId) => this.sessions.get(sessionId),
     listSessions: () => this.sessions.values(),
-    getLauncherSessionInfo: (sessionId) => this.launcher?.getSession(sessionId),
+    getLauncherSessionInfo: (sessionId) => this.sessionNavigationProjectionSources.getLauncherSessionInfo(sessionId),
+    getSessionName: (sessionId) => this.sessionNavigationProjectionSources.getSessionName(sessionId),
+    getPendingTimerCount: (sessionId) => this.sessionNavigationProjectionSources.getPendingTimerCount(sessionId),
+    getBackendConnected: (sessionId) => this.sessionNavigationProjectionSources.getBackendConnected(sessionId),
+    getSessionStatus: (sessionId) => this.sessionNavigationProjectionSources.getSessionStatus(sessionId),
+    getLastActivityAt: (sessionId) => this.sessionNavigationProjectionSources.getLastActivityAt(sessionId),
+    getLastUserMessageAt: (sessionId) => this.sessionNavigationProjectionSources.getLastUserMessageAt(sessionId),
+    getLastMessagePreviewAt: (sessionId) => this.sessionNavigationProjectionSources.getLastMessagePreviewAt(sessionId),
   });
   private sideChatBridgeDeps: SideChatBridgeDeps = {
     sessions: this.sessions,
@@ -454,6 +476,8 @@ export class WsBridge {
   private static readonly VSCODE_WINDOW_STALE_MS = 30_000;
   private static readonly VSCODE_OPEN_FILE_TIMEOUT_MS = 8_000;
   sessionNameGetter: ((sessionId: string) => string) | null = null;
+  /** Raw persisted name lookup for source-of-truth projections; unlike sessionNameGetter, it has no display fallback. */
+  sessionStoredNameGetter: ((sessionId: string) => string | undefined) | null = null;
   onGitInfoReady: ((sessionId: string, cwd: string, branch: string) => void) | null = null;
 
   // ── Cross-session branch invalidation ──────────────────────────────────
@@ -617,17 +641,22 @@ export class WsBridge {
 
   /** Push a message to all connected browsers across ALL sessions. */
   broadcastGlobal(msg: BrowserIncomingMessage): void {
+    if (msg.type === "session_activity_update") {
+      this.broadcastSessionActivityUpdateGlobally(msg);
+      return;
+    }
     broadcastGlobalAndScheduleBoardParticipantRefresh(this, msg);
   }
 
   private broadcastSessionActivityUpdateGlobally(
     msg: Extract<BrowserIncomingMessage, { type: "session_activity_update" }>,
   ): void {
-    for (const session of this.sessions.values()) {
-      for (const ws of session.browserSockets) {
-        sendToBrowserController(ws as any, msg);
-      }
-    }
+    broadcastSessionActivityUpdateWithProjectionSuppression({
+      sessions: this.sessions.values(),
+      msg,
+      hasNavigationSubscription: (socket, sessionId) =>
+        this.syncedProjections.hasSessionNavigationSubscription(socket, sessionId),
+    });
   }
 
   /** Re-check group-idle state for any leader affected by this session's activity change. */
@@ -913,8 +942,21 @@ export class WsBridge {
     return this.syncedProjections;
   }
 
-  invalidateAllSessionAttentionProjections(): void {
+  touchSessionActivity(sessionId: string): void {
+    this.launcher?.touchActivity(sessionId);
+    const session = this.sessions.get(sessionId);
+    if (session && this.sessionNavigationProjectionSources.captureLauncherActivity(sessionId)) {
+      this.syncedProjections.invalidateSessionNavigation(session);
+    }
+  }
+
+  invalidateAllSessionProjections(): void {
     this.syncedProjections.invalidateAllSessions();
+  }
+
+  /** @deprecated Use invalidateAllSessionProjections. */
+  invalidateAllSessionAttentionProjections(): void {
+    this.invalidateAllSessionProjections();
   }
 
   syncSideChatRecord(rootSessionId: string, threadId: string): boolean {
@@ -1421,6 +1463,7 @@ export class WsBridge {
   }
 
   removeSession(sessionId: string) {
+    this.sessionNavigationProjectionSources.removeSession(sessionId);
     removeSessionController(this.sessions, sessionId, this.getSessionCleanupDeps());
   }
 
@@ -1428,6 +1471,7 @@ export class WsBridge {
    * Close all sockets (CLI + browsers) for a session and remove it.
    */
   closeSession(sessionId: string) {
+    this.sessionNavigationProjectionSources.removeSession(sessionId);
     closeSessionController(this.sessions, sessionId, this.getSessionCleanupDeps());
   }
 
@@ -1910,63 +1954,8 @@ export class WsBridge {
     return getGenerationLifecycleDepsController(this);
   }
 
-  private buildTurnToolSummary(
-    session: Session,
-  ): Pick<TakodeTurnEndEventData, "tools" | "resultPreview" | "msgRange" | "questChange" | "userMsgs"> {
-    const toolCounts: Record<string, number> = {};
-    let resultPreview: string | undefined;
-    const history = session.messageHistory;
-
-    for (let i = history.length - 1; i >= 0; i--) {
-      const msg = history[i];
-      // Stop at the last user message or result (previous turn boundary)
-      if (msg.type === "user_message" || msg.type === "result") {
-        if (msg.type === "result") {
-          const data = (msg as { data?: { result?: string } }).data;
-          resultPreview = data?.result?.slice(0, 200);
-        }
-        break;
-      }
-      // Count tool_use blocks from assistant messages
-      if (msg.type === "assistant") {
-        const content = (msg as { message?: { content?: ContentBlock[] } }).message?.content;
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === "tool_use") {
-              toolCounts[block.name] = (toolCounts[block.name] || 0) + 1;
-            }
-          }
-        }
-      }
-    }
-
-    const msgFrom = session.messageCountAtTurnStart;
-    const msgTo = history.length > 0 ? history.length - 1 : 0;
-    const msgRange = msgFrom < msgTo ? { from: msgFrom, to: msgTo } : undefined;
-
-    const currentQuestStatus = session.state.claimedQuestStatus ?? null;
-    const prevQuestStatus = session.questStatusAtTurnStart;
-    const questChange =
-      prevQuestStatus !== currentQuestStatus && session.state.claimedQuestId
-        ? {
-            questId: session.state.claimedQuestId,
-            from: prevQuestStatus || "none",
-            to: currentQuestStatus || "none",
-          }
-        : undefined;
-
-    const userMsgs =
-      session.userMessageIdsThisTurn.length > 0
-        ? { count: session.userMessageIdsThisTurn.length, ids: [...session.userMessageIdsThisTurn] }
-        : undefined;
-
-    return {
-      ...(Object.keys(toolCounts).length > 0 ? { tools: toolCounts } : {}),
-      ...(resultPreview ? { resultPreview } : {}),
-      ...(msgRange ? { msgRange } : {}),
-      ...(questChange ? { questChange } : {}),
-      ...(userMsgs ? { userMsgs } : {}),
-    };
+  private buildTurnToolSummary(session: Session) {
+    return buildTurnToolSummaryController(session);
   }
 
   private isHistoryBackedEvent(msg: ReplayableBrowserIncomingMessage): boolean {
@@ -1978,7 +1967,14 @@ export class WsBridge {
     msg: BrowserIncomingMessage,
     options?: { skipBuffer?: boolean; skipGlobalActivity?: boolean },
   ) {
+    this.captureSessionNavigationSourceMessage(session, msg);
     if (!options?.skipGlobalActivity) maybeBroadcastGlobalSessionActivityUpdate(this, session, msg);
     broadcastToBrowsersController(session, msg, this.getBrowserTransportDeps(), options);
+  }
+
+  private captureSessionNavigationSourceMessage(session: Session, msg: BrowserIncomingMessage): void {
+    if (this.sessionNavigationProjectionSources.captureSourceMessage(session, msg)) {
+      this.syncedProjections.invalidateSessionNavigation(session);
+    }
   }
 }

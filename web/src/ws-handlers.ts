@@ -62,7 +62,7 @@ import { convertLegacyParentedCodexThinkingMessage } from "./utils/codex-reasoni
 import { TODO_STATE_UPDATED_EVENT } from "./todo-events.js";
 import { indexCodexSubagentToolResults } from "./utils/codex-subagent-tool-results.js";
 import { handleQuestListUpdated, handleSessionQuestClaimed } from "./ws-quest-handlers.js";
-import { hasSessionAttentionProjection } from "./store-synced-projections.js";
+import { hasSessionAttentionProjection, hasSessionNavigationProjection } from "./store-synced-projections.js";
 import {
   handleSyncedProjectionMessage,
   settleSyncedProjectionSubscribeBoundary,
@@ -778,6 +778,7 @@ function handleParsedMessage(
       if (!targetSessionId) break;
       const update = data.session ?? {};
       const projectionOwnsAttention = hasSessionAttentionProjection(store, targetSessionId);
+      const projectionOwnsNavigation = hasSessionNavigationProjection(store, targetSessionId);
       const shouldApplyAttention =
         update.attentionReason === undefined
           ? true
@@ -788,7 +789,7 @@ function handleParsedMessage(
           ? { attentionReason: update.attentionReason }
           : {}),
         ...(update.lastReadAt !== undefined ? { lastReadAt: update.lastReadAt } : {}),
-        ...(update.pendingPermissionCount !== undefined
+        ...(!projectionOwnsNavigation && update.pendingPermissionCount !== undefined
           ? { pendingPermissionCount: update.pendingPermissionCount }
           : {}),
         ...(update.pendingPermissionSummary !== undefined
@@ -803,7 +804,7 @@ function handleParsedMessage(
         store.setSessionBoard(targetSessionId, update.leaderActiveBoardRows);
       }
       applyNotificationStatusUpdate(targetSessionId, update);
-      if (update.status !== undefined) {
+      if (!projectionOwnsNavigation && update.status !== undefined) {
         store.setSessionStatus(targetSessionId, update.status === "compacting" ? "compacting" : update.status);
       }
       if (update.attentionReason !== undefined && shouldApplyAttention) {

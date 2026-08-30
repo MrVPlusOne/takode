@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo, useState, type CSSProperties } from "react";
-import { useStore } from "../store.js";
+import { countUserPermissions, useStore } from "../store.js";
 import {
   GitHubPRSection,
   McpCollapsible,
@@ -18,13 +18,14 @@ import {
 } from "../utils/backends.js";
 import { buildCodexReasoningAuthorityDisplay } from "../utils/codex-reasoning-display.js";
 import { coalesceSessionViewModel, type SessionViewModel } from "../utils/session-view-model.js";
+import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { navigateTo } from "../utils/navigation.js";
 import { sendToSession } from "../ws.js";
 import { CompactSessionLink } from "./CompactSessionLink.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
 import { SessionContextStats, SessionPayloadStats } from "./SessionPayloadStats.js";
 import { api, type SessionDirectoryOpenTarget } from "../api.js";
-import type { SdkSessionInfo, SessionLifecycleEvent, SessionState } from "../types.js";
+import type { SdkSessionInfo, SessionLifecycleEvent } from "../types.js";
 import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
 import { getRecoverableSessionConnectionPresentation } from "../utils/recoverable-session-connection.js";
 import { formatContextWindowLabel } from "../utils/token-format.js";
@@ -58,11 +59,15 @@ export function SessionInfoPopover({
   anchorElement?: HTMLElement | null;
   onConfigure?: (sessionId: string) => void;
 }) {
-  const session = useStore((s) => s.sessions.get(sessionId));
+  const sessions = useStore((s) => s.sessions);
+  const session = sessions.get(sessionId);
   const sdkSession = useStore((s) => s.sdkSessions.find((x) => x.sessionId === sessionId));
   const sdkSessions = useStore((s) => s.sdkSessions);
+  const syncedProjectionValues = useStore((s) => s.syncedProjectionValues);
+  const syncedProjectionKeys = useStore((s) => s.syncedProjectionKeys);
   const taskHistory = useStore((s) => s.sessionTaskHistory.get(sessionId));
-  const sessionVm = coalesceSessionViewModel(session, sdkSession);
+  const resolvedNavigation = useStore((s) => resolveSessionNavigation({ ...s, countUserPermissions }, sessionId));
+  const sessionVm = resolvedNavigation?.viewModel ?? coalesceSessionViewModel(session, sdkSession);
   const cwd = sessionVm?.cwd ?? null;
   const model = sessionVm?.model ?? "";
   const backendType = sessionVm?.backendType ?? "claude";
@@ -126,21 +131,14 @@ export function SessionInfoPopover({
 
   const browserConnectionStatus = useStore((s) => s.connectionStatus.get(sessionId) ?? "disconnected");
   const isConnected = browserConnectionStatus === "connected";
-  const cliConnected = useStore((s) => s.cliConnected.get(sessionId) ?? false);
+  const legacyCliConnected = useStore((s) => s.cliConnected.get(sessionId) ?? false);
+  const cliConnected = resolvedNavigation?.sidebarItem.isConnected ?? legacyCliConnected;
   const cliEverConnected = useStore((s) => s.cliEverConnected.get(sessionId) ?? false);
   const cliDisconnectReason = useStore((s) => s.cliDisconnectReason.get(sessionId) ?? null);
   const serverReachable = useStore((s) => s.serverReachable);
-  const hasLiveRequestedEffort = !!session && Object.hasOwn(session, "codex_reasoning_effort");
-  const hasLiveEffectiveEffort = !!session && Object.hasOwn(session, "codex_effective_reasoning_effort");
-  const codexReasoningEffort = hasLiveRequestedEffort
-    ? session?.codex_reasoning_effort || ""
-    : sdkSession?.codexReasoningEffort || "";
-  const codexEffectiveReasoningEffort = hasLiveEffectiveEffort
-    ? (session?.codex_effective_reasoning_effort ?? null)
-    : (sdkSession?.codexEffectiveReasoningEffort ?? null);
-  const codexEffectiveReasoningEffortReported = hasLiveEffectiveEffort
-    ? session?.codex_effective_reasoning_effort_reported === true
-    : sdkSession?.codexEffectiveReasoningEffortReported === true;
+  const codexReasoningEffort = sessionVm?.codexReasoningEffort || "";
+  const codexEffectiveReasoningEffort = sessionVm?.codexEffectiveReasoningEffort ?? null;
+  const codexEffectiveReasoningEffortReported = sessionVm?.codexEffectiveReasoningEffortReported === true;
   const modelTitle = !isConnected
     ? "Reconnect to Takode to change model"
     : cliConnected
@@ -244,11 +242,15 @@ export function SessionInfoPopover({
   const hasGit = gitBranch || gitAhead > 0 || gitBehind > 0 || linesAdded > 0 || linesRemoved > 0;
   const effectiveSdkSessions = sdkSessions.length > 0 ? sdkSessions : (sdkSessionsFallback ?? []);
   const effectiveSdkSession = sdkSession ?? effectiveSdkSessions.find((x) => x.sessionId === sessionId);
-  const contextStats = getSessionInfoContextStats(sessionVm, effectiveSdkSession);
+  const contextStats = getSessionInfoContextStats(
+    sessionVm,
+    effectiveSdkSession,
+    resolvedNavigation?.projectionState === "accepted",
+  );
   const contextPercent = contextStats.contextPercent;
   const contextWindow = contextStats.contextWindow;
-  const configuredContextWindow = getConfiguredMaxContextLength(session, effectiveSdkSession);
-  const contextWindowTitle = getContextWindowTitle(session, effectiveSdkSession, contextWindow);
+  const configuredContextWindow = getConfiguredMaxContextLength(sessionVm);
+  const contextWindowTitle = getContextWindowTitle(sessionVm, contextWindow);
   const hasStats =
     turns > 0 || contextPercent > 0 || contextWindow > 0 || historyBytes > 0 || codexRetainedPayloadBytes > 0;
   const codexLeaderRecycleLineage = effectiveSdkSession?.codexLeaderRecycleLineage;
@@ -269,17 +271,36 @@ export function SessionInfoPopover({
     ...task,
     title: task.title.trim(),
   }));
+  const isOrchestrator = resolvedNavigation?.sidebarItem.isOrchestrator ?? effectiveSdkSession?.isOrchestrator ?? false;
+  const herdedBy = resolvedNavigation?.sidebarItem.herdedBy ?? effectiveSdkSession?.herdedBy;
   const herdedSessions = useMemo(() => {
-    if (!effectiveSdkSession?.isOrchestrator) return [];
-    return effectiveSdkSessions
-      .filter((sdk) => sdk.herdedBy === sessionId && !sdk.archived)
-      .map((sdk) => sdk.sessionId);
-  }, [effectiveSdkSession?.isOrchestrator, effectiveSdkSessions, sessionId]);
+    if (!isOrchestrator) return [];
+    if (sdkSessions.length === 0) {
+      return effectiveSdkSessions
+        .filter((sdk) => sdk.herdedBy === sessionId && !sdk.archived)
+        .map((sdk) => sdk.sessionId);
+    }
+    return sdkSessions.flatMap((sdk) => {
+      const resolved = resolveSessionNavigation(
+        { sessions, sdkSessions, syncedProjectionValues, syncedProjectionKeys },
+        sdk.sessionId,
+      );
+      return resolved?.sidebarItem.herdedBy === sessionId && !resolved.sidebarItem.archived ? [sdk.sessionId] : [];
+    });
+  }, [
+    effectiveSdkSessions,
+    isOrchestrator,
+    sdkSessions,
+    sessionId,
+    sessions,
+    syncedProjectionKeys,
+    syncedProjectionValues,
+  ]);
   const leaderSession = useMemo(() => {
-    if (effectiveSdkSession?.isOrchestrator || !effectiveSdkSession?.herdedBy) return null;
-    const leader = effectiveSdkSessions.find((sdk) => sdk.sessionId === effectiveSdkSession.herdedBy && !sdk.archived);
-    return leader?.sessionId ?? effectiveSdkSession.herdedBy;
-  }, [effectiveSdkSession?.isOrchestrator, effectiveSdkSession?.herdedBy, effectiveSdkSessions]);
+    if (isOrchestrator || !herdedBy) return null;
+    const leader = effectiveSdkSessions.find((sdk) => sdk.sessionId === herdedBy && !sdk.archived);
+    return leader?.sessionId ?? herdedBy;
+  }, [effectiveSdkSessions, herdedBy, isOrchestrator]);
   const directoryDisabledReason = !cwd ? "No working directory is available for this session." : "";
   const canOpenWorkingDirectory = !!cwd;
   const canOpenPathRows = Boolean(sessionVm?.isWorktree && sessionVm.repoRoot && sessionVm.repoRoot !== cwd);
@@ -289,10 +310,10 @@ export function SessionInfoPopover({
     browserConnectionStatus,
     cliConnected,
     cliEverConnected,
-    idlePaused: cliDisconnectReason === "idle_limit",
+    idlePaused: resolvedNavigation?.sidebarItem.idleKilled ?? cliDisconnectReason === "idle_limit",
     serverReachable,
   });
-  const leaderProfilePortrait = effectiveSdkSession?.isOrchestrator ? effectiveSdkSession.leaderProfilePortrait : null;
+  const leaderProfilePortrait = isOrchestrator ? effectiveSdkSession?.leaderProfilePortrait : null;
   const popoverStyle = useMemo(() => {
     if (typeof window === "undefined") return undefined;
     const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
@@ -752,7 +773,7 @@ export function SessionInfoPopover({
         )}
 
         {/* Herd diagnostics — only for leader sessions */}
-        {sdkSession?.isOrchestrator && (
+        {isOrchestrator && (
           <div className="border-t border-cc-border/50">
             <HerdDiagnosticsSection sessionId={sessionId} />
           </div>
@@ -771,6 +792,7 @@ export function SessionInfoPopover({
 function getSessionInfoContextStats(
   sessionVm: SessionViewModel | null,
   effectiveSdkSession: SdkSessionInfo | undefined,
+  navigationProjectionOwned = false,
 ): { contextPercent: number; contextWindow: number } {
   const defaultStats = {
     contextPercent: sessionVm?.contextUsedPercent ?? 0,
@@ -778,16 +800,17 @@ function getSessionInfoContextStats(
   };
   const thresholdTokens =
     positiveNumber(sessionVm?.codexLeaderRecycleThresholdTokens) ??
-    positiveNumber(effectiveSdkSession?.codexLeaderRecycleThresholdTokens);
+    (navigationProjectionOwned ? undefined : positiveNumber(effectiveSdkSession?.codexLeaderRecycleThresholdTokens));
   if (!thresholdTokens) return defaultStats;
   const isCodexLeader =
     sessionVm?.backendType === "codex" &&
-    (sessionVm?.isOrchestrator === true || effectiveSdkSession?.isOrchestrator === true);
+    (sessionVm?.isOrchestrator === true ||
+      (!navigationProjectionOwned && effectiveSdkSession?.isOrchestrator === true));
   if (!isCodexLeader) return defaultStats;
 
   const contextTokensUsed =
     positiveNumber(sessionVm?.contextTokensUsed) ??
-    positiveNumber(effectiveSdkSession?.codexTokenDetails?.contextTokensUsed);
+    (navigationProjectionOwned ? undefined : positiveNumber(effectiveSdkSession?.codexTokenDetails?.contextTokensUsed));
   return {
     contextPercent: contextTokensUsed ? (contextTokensUsed / thresholdTokens) * 100 : defaultStats.contextPercent,
     contextWindow: thresholdTokens,
@@ -798,37 +821,18 @@ function positiveNumber(value: number | undefined): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
-function hasOwn(source: object | undefined, key: string): boolean {
-  return !!source && Object.prototype.hasOwnProperty.call(source, key);
+function getConfiguredMaxContextLength(sessionVm: SessionViewModel | null): number | undefined {
+  return sessionVm?.backendType === "codex"
+    ? (sessionVm.codexMaxContextLength ?? undefined)
+    : (sessionVm?.claudeMaxContextLength ?? undefined);
 }
 
-function getConfiguredMaxContextLength(
-  session: SessionState | undefined,
-  sdkSession: SdkSessionInfo | undefined,
-): number | undefined {
-  const backendType = session?.backend_type ?? sdkSession?.backendType;
-  return backendType === "codex"
-    ? hasOwn(session, "codex_max_context_length")
-      ? (session?.codex_max_context_length ?? undefined)
-      : (sdkSession?.codexMaxContextLength ?? undefined)
-    : hasOwn(session, "claude_max_context_length")
-      ? (session?.claude_max_context_length ?? undefined)
-      : (sdkSession?.claudeMaxContextLength ?? undefined);
-}
-
-function getContextWindowTitle(
-  session: SessionState | undefined,
-  sdkSession: SdkSessionInfo | undefined,
-  contextWindow: number,
-): string | undefined {
-  const configuredMaxContextLength = getConfiguredMaxContextLength(session, sdkSession);
+function getContextWindowTitle(sessionVm: SessionViewModel | null, contextWindow: number): string | undefined {
+  const configuredMaxContextLength = getConfiguredMaxContextLength(sessionVm);
   if (!configuredMaxContextLength) return undefined;
-  const backendReportedContextWindow =
-    (session?.backend_type ?? sdkSession?.backendType) === "codex"
-      ? (session?.codex_token_details?.modelContextWindow ?? sdkSession?.codexTokenDetails?.modelContextWindow)
-      : (session?.claude_token_details?.modelContextWindow ?? sdkSession?.claudeTokenDetails?.modelContextWindow);
+  const backendReportedContextWindow = sessionVm?.backendReportedContextWindow;
   if (contextWindow !== configuredMaxContextLength && backendReportedContextWindow === contextWindow) {
-    return (session?.backend_type ?? sdkSession?.backendType) === "codex"
+    return sessionVm?.backendType === "codex"
       ? `Backend reported usable context window. Configured usable target is ${formatContextWindowLabel(
           configuredMaxContextLength,
         )}.`
@@ -840,9 +844,7 @@ function getContextWindowTitle(
   if (backendReportedContextWindow && backendReportedContextWindow < configuredMaxContextLength) {
     return `Configured max context window. Backend token metadata currently reports ${formatContextWindowLabel(backendReportedContextWindow)}.`;
   }
-  return (session?.backend_type ?? sdkSession?.backendType) === "codex"
-    ? "Configured usable context target."
-    : "Configured max context window.";
+  return sessionVm?.backendType === "codex" ? "Configured usable context target." : "Configured max context window.";
 }
 
 function LifecycleEventRow({ event }: { event: SessionLifecycleEvent }) {

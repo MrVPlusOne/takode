@@ -7,9 +7,10 @@ import { parseHash, threadRouteFromHash } from "../utils/routing.js";
 import { navigateTo } from "../utils/navigation.js";
 import { SessionInfoPopover } from "./SessionInfoPopover.js";
 import { ConfigureSessionModal } from "./ConfigureSessionModal.js";
-import { coalesceSessionViewModel, type SessionViewModel } from "../utils/session-view-model.js";
+import type { SessionViewModel } from "../utils/session-view-model.js";
+import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { resolveDiffTarget } from "../utils/diff-target.js";
-import { questLabel } from "../utils/quest-helpers.js";
+import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import { getShortcutTitle } from "../shortcuts.js";
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
 import { activeBoardSummarySegments } from "./leader-board-summary.js";
@@ -69,32 +70,46 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
       changedFilesCount: 0,
       leaderProfilePortrait: undefined,
       pause: null,
+      paused: false,
     };
   }
 
-  const currentSession = state.sessions.get(currentSessionId) ?? null;
+  const resolved = resolveSessionNavigation({ ...state, countUserPermissions }, currentSessionId);
+  const currentSessionVm = resolved?.viewModel ?? null;
   const currentSdkSession = state.sdkSessions.find((sdk) => sdk.sessionId === currentSessionId) ?? null;
-  const currentSessionVm = coalesceSessionViewModel(currentSession, currentSdkSession);
+  const currentItem = resolved?.sidebarItem;
+  const projectionOwned = resolved?.projectionState !== undefined && resolved.projectionState !== "legacy";
+  const questStatus = currentSessionVm?.claimedQuestStatus;
+  const questReviewInboxUnread = currentSessionVm?.claimedQuestVerificationInboxUnread;
+  const sessionName = resolved?.name || `Session ${currentSessionId.slice(0, 8)}`;
 
   return {
     currentSessionId,
-    isConnected: state.cliConnected.get(currentSessionId) ?? false,
-    status: state.sessionStatus.get(currentSessionId) ?? null,
-    currentPermCount: countUserPermissions(state.pendingPermissions.get(currentSessionId)),
-    currentSdkState: currentSessionVm?.state ?? null,
-    isArchived: currentSdkSession?.archived === true,
+    isConnected: currentItem?.isConnected ?? state.cliConnected.get(currentSessionId) ?? false,
+    status: currentItem ? currentItem.status : (state.sessionStatus.get(currentSessionId) ?? null),
+    currentPermCount: currentItem?.permCount ?? countUserPermissions(state.pendingPermissions.get(currentSessionId)),
+    currentSdkState: currentItem?.sdkState ?? currentSessionVm?.state ?? null,
+    isArchived: currentItem?.archived ?? currentSdkSession?.archived === true,
     currentHasUnread: !!state.sessionAttention.get(currentSessionId),
-    sessionName:
-      state.sessionNames.get(currentSessionId) || currentSessionVm?.name || `Session ${currentSessionId.slice(0, 8)}`,
+    sessionName,
     sessionNum: currentSessionVm?.sessionNum ?? null,
-    isQuestNamed: state.questNamedSessions.has(currentSessionId),
-    questStatus: currentSessionVm?.claimedQuestStatus,
-    questReviewInboxUnread: currentSessionVm?.claimedQuestVerificationInboxUnread,
-    idleKilled: state.cliDisconnectReason.get(currentSessionId) === "idle_limit",
-    activeTimerCount: state.sessionTimers?.get(currentSessionId)?.length ?? currentSdkSession?.pendingTimerCount ?? 0,
+    isQuestNamed:
+      currentSessionVm?.isOrchestrator !== true &&
+      (projectionOwned
+        ? questOwnsSessionName(questStatus, questReviewInboxUnread)
+        : state.questNamedSessions.has(currentSessionId) || questOwnsSessionName(questStatus, questReviewInboxUnread)),
+    questStatus,
+    questReviewInboxUnread,
+    idleKilled: currentItem?.idleKilled ?? state.cliDisconnectReason.get(currentSessionId) === "idle_limit",
+    activeTimerCount: currentItem?.navigationProjectionOwned
+      ? (currentItem.pendingTimerCount ?? 0)
+      : state.sessionTimers?.has(currentSessionId)
+        ? (state.sessionTimers.get(currentSessionId)?.length ?? 0)
+        : (currentItem?.pendingTimerCount ?? 0),
     changedFilesCount: countScopedChangedFiles(state, currentSessionId, currentSessionVm),
-    leaderProfilePortrait: currentSdkSession?.isOrchestrator ? currentSdkSession.leaderProfilePortrait : undefined,
+    leaderProfilePortrait: currentItem?.isOrchestrator ? currentSdkSession?.leaderProfilePortrait : undefined,
     pause: currentSessionVm?.pause ?? null,
+    paused: resolved?.paused ?? !!currentSessionVm?.pause?.pausedAt,
   };
 }
 
@@ -178,18 +193,15 @@ export function TopBar({
     idleKilled,
     activeTimerCount,
     leaderProfilePortrait,
-    pause,
+    paused,
   } = useStore(useShallow(getCurrentTopBarSessionState));
   const diffChrome = useStore(
     useShallow((s) => {
       const target = resolveDiffTarget(s, s.currentSessionId, threadRoute.threadKey);
       const targetSessionId = target?.kind === "session" ? target.sessionId : null;
-      const targetSession = targetSessionId != null ? (s.sessions.get(targetSessionId) ?? null) : null;
-      const targetSdkSession =
-        targetSessionId != null
-          ? (s.sdkSessions.find((session) => session.sessionId === targetSessionId) ?? null)
-          : null;
-      const targetSessionVm = coalesceSessionViewModel(targetSession, targetSdkSession);
+      const targetSessionVm = targetSessionId
+        ? (resolveSessionNavigation({ ...s, countUserPermissions }, targetSessionId)?.viewModel ?? null)
+        : null;
       return {
         diffTargetKind: target?.kind ?? null,
         diffTargetQuestId: target?.kind === "quest-commits" ? target.questId : null,
@@ -208,7 +220,7 @@ export function TopBar({
   const [configureSessionId, setConfigureSessionId] = useState<string | null>(null);
   const sessionInfoAnchorRef = useRef<HTMLDivElement | null>(null);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
-  const isPaused = !!pause?.pausedAt;
+  const isPaused = paused;
   const currentLeaderActiveSummarySegments = useMemo(
     () => activeBoardSummarySegments(currentLeaderBoard),
     [currentLeaderBoard],

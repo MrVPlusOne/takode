@@ -16,6 +16,7 @@ import {
   recordThreadReadyUnreadNotifications,
 } from "./bridge/session-registry-controller.js";
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
+import { buildEnrichedSessionsSnapshot } from "./routes/session-list-snapshot.js";
 import { trafficStats } from "./traffic-stats.js";
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 
@@ -561,5 +562,320 @@ describe("WsBridge synchronized projections", () => {
     bridge.persistSessionById(target.id);
     await bridge.getSyncedProjectionController().flushForTest();
     expect(socket.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("publishes name, timer, herd, and status changes through the bounded navigation projection", async () => {
+    const bridge = new WsBridge();
+    let sessionName = "Before";
+    let timers: unknown[] = [];
+    const launcherSessions = new Map<string, any>([
+      [
+        "worker",
+        {
+          sessionId: "worker",
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          sessionNum: 2,
+          backendType: "codex",
+          archived: false,
+        },
+      ],
+      [
+        "leader",
+        {
+          sessionId: "leader",
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          sessionNum: 1,
+          backendType: "codex",
+          isOrchestrator: true,
+        },
+      ],
+    ]);
+    bridge.launcher = {
+      getSession: (sessionId: string) => launcherSessions.get(sessionId),
+      getSessionNum: (sessionId: string) => launcherSessions.get(sessionId)?.sessionNum,
+    } as any;
+    bridge.sessionNameGetter = () => sessionName;
+    bridge.sessionStoredNameGetter = () => sessionName;
+    bridge.timerManager = { listTimers: () => timers } as any;
+    const worker = bridge.getOrCreateSession("worker", "codex");
+    worker.state.model = "gpt-5.6";
+    worker.state.cwd = "/repo";
+    worker.state.repo_root = "/repo";
+    const socket = browserSocket("leader");
+
+    const initial = bridge
+      .getSyncedProjectionController()
+      .replaceSubscriptions(socket, [{ projection: "session-navigation", key: "worker" }])
+      .find((message) => message.type === "synced_projection_snapshot");
+    expect(initial).toMatchObject({
+      projection: "session-navigation",
+      key: "worker",
+      value: {
+        identity: { name: "Before" },
+        topology: { herdedBy: null },
+        lifecycle: { pendingTimerCount: 0, status: null },
+      },
+    });
+
+    sessionName = "After";
+    bridge.broadcastToSession("worker", { type: "session_name_update", name: sessionName });
+    await bridge.getSyncedProjectionController().flushForTest();
+    expect(messages(socket).at(-1)).toMatchObject({
+      type: "synced_projection_update",
+      projection: "session-navigation",
+      value: { identity: { name: "After" } },
+    });
+
+    timers = [{ id: "t1" }];
+    bridge.broadcastToSession("worker", { type: "timer_update", timers: timers as any });
+    await bridge.getSyncedProjectionController().flushForTest();
+    expect(messages(socket).at(-1)).toMatchObject({
+      type: "synced_projection_update",
+      value: { lifecycle: { pendingTimerCount: 1 } },
+    });
+
+    const handleHerdChange = createLauncherHerdChangeHandler({
+      dispatcher: { onHerdChanged: vi.fn() },
+      wsBridge: bridge,
+      launcher: bridge.launcher!,
+      getSessionName: () => undefined,
+    });
+    launcherSessions.get("worker").herdedBy = "leader";
+    handleHerdChange({ type: "membership_changed", leaderId: "leader" });
+    await bridge.getSyncedProjectionController().flushForTest();
+    expect(messages(socket).at(-1)).toMatchObject({
+      type: "synced_projection_update",
+      value: { topology: { herdedBy: "leader" } },
+    });
+
+    bridge.broadcastToSession("worker", { type: "status_change", status: "running" });
+    await bridge.getSyncedProjectionController().flushForTest();
+    expect(messages(socket).at(-1)).toMatchObject({
+      type: "synced_projection_update",
+      value: { lifecycle: { status: "running" } },
+    });
+
+    const metrics = bridge.getSyncedProjectionController().getMetrics().projections["session-navigation"];
+    expect(metrics).toMatchObject({ updates: 4, deliveries: 4 });
+    expect(metrics.valueBytes).toBeGreaterThan(0);
+    expect(metrics.snapshotValueBytes).toBeGreaterThan(0);
+    expect(metrics.updateValueBytes).toBeGreaterThan(0);
+    expect(metrics.deliveredValueBytes).toBeGreaterThan(0);
+  });
+
+  it("falls back to a launcher-stored name instead of a generic display label", () => {
+    const bridge = new WsBridge();
+    const launcherSession = {
+      sessionId: "legacy-worker",
+      state: "exited",
+      cwd: "/repo",
+      createdAt: 1,
+      sessionNum: 9,
+      backendType: "claude",
+      archived: false,
+      name: "Recovered launcher name",
+    };
+    bridge.launcher = {
+      getSession: (sessionId: string) => (sessionId === launcherSession.sessionId ? launcherSession : undefined),
+      getSessionNum: () => launcherSession.sessionNum,
+    } as any;
+    bridge.sessionNameGetter = (sessionId) => sessionId.slice(0, 8);
+    bridge.sessionStoredNameGetter = () => undefined;
+    const worker = bridge.getOrCreateSession(launcherSession.sessionId);
+    worker.state.cwd = launcherSession.cwd;
+
+    const snapshot = bridge
+      .getSyncedProjectionController()
+      .replaceSubscriptions(browserSocket("carrier"), [
+        { projection: "session-navigation", key: launcherSession.sessionId },
+      ])
+      .find((message) => message.type === "synced_projection_snapshot");
+
+    expect(snapshot).toMatchObject({
+      value: { identity: { name: "Recovered launcher name" } },
+    });
+  });
+
+  it("publishes REST turn-metric repairs to every established navigation subscriber", async () => {
+    const bridge = new WsBridge();
+    const launcherSession = {
+      sessionId: "worker",
+      state: "connected",
+      cwd: "/repo",
+      createdAt: 1,
+      backendType: "claude",
+      archived: false,
+      isWorktree: false,
+    };
+    const launcher = {
+      listSessions: () => [launcherSession],
+      getSession: (sessionId: string) => (sessionId === "worker" ? launcherSession : undefined),
+      getSessionNum: () => 1,
+      setWorktreeCleanupState: vi.fn(),
+      setLeaderProfilePortraitId: vi.fn(),
+    } as any;
+    bridge.launcher = launcher;
+    const worker = bridge.getOrCreateSession("worker");
+    worker.state.cwd = "/repo";
+    const first = browserSocket("carrier-1");
+    const second = browserSocket("carrier-2");
+    bridge
+      .getSyncedProjectionController()
+      .replaceSubscriptions(first, [{ projection: "session-navigation", key: "worker" }]);
+    bridge
+      .getSyncedProjectionController()
+      .replaceSubscriptions(second, [{ projection: "session-navigation", key: "worker" }]);
+    first.send.mockClear();
+    second.send.mockClear();
+
+    // Simulate restored history whose exact turn metrics have not yet been
+    // repaired into SessionState. The REST snapshot must publish that repair,
+    // not silently advance only the runtime cache.
+    worker.messageHistory.push(
+      { type: "user_message", content: "work", timestamp: 1, id: "u-1" },
+      {
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: {
+          id: "a-1",
+          type: "message",
+          role: "assistant",
+          model: "test",
+          content: [],
+          stop_reason: null,
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+      },
+      { type: "result", data: {} } as any,
+    );
+
+    const snapshot = await buildEnrichedSessionsSnapshot({
+      launcher,
+      wsBridge: bridge,
+      pendingWorktreeCleanups: new Map(),
+    });
+
+    expect(snapshot[0]?.sessionNavigationProjection).toMatchObject({
+      revision: 2,
+      value: { detail: { userTurnCount: 1, agentTurnCount: 1 } },
+    });
+    for (const socket of [first, second]) {
+      expect(messages(socket)).toEqual([
+        expect.objectContaining({
+          type: "synced_projection_update",
+          projection: "session-navigation",
+          key: "worker",
+          revision: 2,
+          value: expect.objectContaining({
+            detail: expect.objectContaining({ userTurnCount: 1, agentTurnCount: 1 }),
+          }),
+        }),
+      ]);
+    }
+  });
+
+  it("publishes bounded launcher activity changes without snapshot-only revision advances", async () => {
+    const bridge = new WsBridge();
+    const launcherSession = {
+      sessionId: "worker",
+      state: "connected",
+      cwd: "/repo",
+      createdAt: 1,
+      backendType: "claude",
+      archived: false,
+      lastActivityAt: 10,
+    };
+    bridge.launcher = {
+      getSession: (sessionId: string) => (sessionId === "worker" ? launcherSession : undefined),
+      getSessionNum: () => 1,
+      touchActivity: () => {
+        launcherSession.lastActivityAt = 1_020;
+      },
+    } as any;
+    bridge.getOrCreateSession("worker").state.cwd = "/repo";
+    const socket = browserSocket("carrier");
+    const initial = bridge
+      .getSyncedProjectionController()
+      .replaceSubscriptions(socket, [{ projection: "session-navigation", key: "worker" }])
+      .find((message) => message.type === "synced_projection_snapshot");
+    expect(initial).toMatchObject({ revision: 1, value: { lifecycle: { lastActivityAt: 10 } } });
+    socket.send.mockClear();
+
+    launcherSession.lastActivityAt = 20;
+    expect(bridge.getSyncedProjectionController().getSessionNavigationSnapshot("worker")).toMatchObject({
+      revision: 1,
+      value: { lifecycle: { lastActivityAt: 10 } },
+    });
+    expect(socket.send).not.toHaveBeenCalled();
+
+    bridge.touchSessionActivity("worker");
+    await bridge.getSyncedProjectionController().flushForTest();
+    expect(messages(socket)).toEqual([
+      expect.objectContaining({
+        type: "synced_projection_update",
+        revision: 2,
+        value: expect.objectContaining({ lifecycle: expect.objectContaining({ lastActivityAt: 1_020 }) }),
+      }),
+    ]);
+  });
+
+  it("suppresses duplicate activity fields only for sockets subscribed to the matching navigation key", () => {
+    const bridge = new WsBridge();
+    bridge.getOrCreateSession("target");
+    bridge.getOrCreateSession("other-target");
+    const subscribedCarrier = bridge.getOrCreateSession("subscribed-carrier");
+    const otherCarrier = bridge.getOrCreateSession("other-carrier");
+    const subscribed = browserSocket("subscribed-carrier");
+    const otherSubscription = browserSocket("other-carrier");
+    subscribedCarrier.browserSockets.add(subscribed);
+    otherCarrier.browserSockets.add(otherSubscription);
+    bridge
+      .getSyncedProjectionController()
+      .replaceSubscriptions(subscribed, [{ projection: "session-navigation", key: "target" }]);
+    bridge
+      .getSyncedProjectionController()
+      .replaceSubscriptions(otherSubscription, [{ projection: "session-navigation", key: "other-target" }]);
+    subscribed.send.mockClear();
+    otherSubscription.send.mockClear();
+
+    bridge.broadcastGlobal({
+      type: "session_activity_update",
+      session_id: "target",
+      session: { status: "running", pendingPermissionCount: 1, attentionReason: "review" },
+    });
+
+    expect(messages(subscribed)).toEqual([
+      {
+        type: "session_activity_update",
+        session_id: "target",
+        session: { attentionReason: "review" },
+      },
+    ]);
+    expect(messages(otherSubscription)).toEqual([
+      {
+        type: "session_activity_update",
+        session_id: "target",
+        session: { status: "running", pendingPermissionCount: 1, attentionReason: "review" },
+      },
+    ]);
+
+    subscribed.send.mockClear();
+    otherSubscription.send.mockClear();
+    bridge.broadcastGlobal({
+      type: "session_activity_update",
+      session_id: "target",
+      session: { status: "idle", pendingPermissionCount: 0 },
+    });
+    expect(subscribed.send).not.toHaveBeenCalled();
+    expect(messages(otherSubscription)).toHaveLength(1);
   });
 });

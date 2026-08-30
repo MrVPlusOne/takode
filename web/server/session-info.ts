@@ -12,6 +12,7 @@ import type { CodexMultiAgentVersion } from "../shared/codex-multi-agent-version
 import type { CodexWorkerV2CutoverState } from "./codex-worker-v2-cutover-state.js";
 import type { SyncedProjectionEnvelope } from "../shared/synced-projection.js";
 import type { SessionAttentionProjectionValue } from "../shared/session-attention-projection.js";
+import type { SessionNavigationProjectionValue } from "../shared/session-navigation-projection.js";
 
 export interface SdkSessionInfo {
   sessionId: string;
@@ -133,6 +134,8 @@ export interface SdkSessionInfo {
   activeNotificationCount?: number;
   /** Canonical bounded server projection for row, hover, and aggregate attention. */
   sessionAttentionProjection?: SyncedProjectionEnvelope<SessionAttentionProjectionValue>;
+  /** Canonical bounded server projection for session navigation summaries. */
+  sessionNavigationProjection?: SyncedProjectionEnvelope<SessionNavigationProjectionValue>;
   /** Number of muted unresolved needs-input notifications for sidebar snapshots. */
   mutedNeedsInputNotificationCount?: number;
   /** Set by idle manager before killing, lets the UI show a less alarming indicator */

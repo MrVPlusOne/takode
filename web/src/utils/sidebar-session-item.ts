@@ -4,6 +4,8 @@ import type { BoardRow } from "../types.js";
 
 export interface SidebarSessionItem {
   id: string;
+  /** Accepted synchronized navigation authority owns migrated row fields. */
+  navigationProjectionOwned?: boolean;
   claimedQuestStatus?: string;
   claimedQuestVerificationInboxUnread?: boolean;
   model: string;
@@ -37,6 +39,8 @@ export interface SidebarSessionItem {
   notificationStatusVersion?: number;
   notificationStatusUpdatedAt?: number;
   pause?: import("../types.js").SessionPauseState | null;
+  /** Projection-owned pause flag when full queued-message detail is intentionally absent. */
+  paused?: boolean;
   pausedInputQueueCount?: number;
   cronJobId?: string;
   cronJobName?: string;
@@ -49,6 +53,8 @@ export interface SidebarSessionItem {
   idleKilled?: boolean;
   lastActivityAt?: number;
   lastUserMessageAt?: number;
+  /** Timestamp paired with the latest preview, including injected user_message inputs. */
+  lastMessagePreviewAt?: number;
   isOrchestrator?: boolean;
   leaderProfilePortraitId?: string | null;
   leaderProfilePortrait?: LeaderProfilePortrait;

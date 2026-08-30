@@ -58,7 +58,10 @@ function makeDeps(launcherSession: ReturnType<typeof makeLauncherSession>, bridg
       getSession: vi.fn(() => bridgeSession),
       isBackendConnected: vi.fn(() => false),
       refreshWorktreeGitStateForSnapshot: vi.fn(),
-      getSyncedProjectionController: vi.fn(() => ({ getSessionAttentionSnapshot: vi.fn(() => null) })),
+      getSyncedProjectionController: vi.fn(() => ({
+        getSessionAttentionSnapshot: vi.fn(() => null),
+        getSessionNavigationSnapshot: vi.fn(() => null),
+      })),
     },
     pendingWorktreeCleanups: new Map(),
   } as never;
@@ -466,6 +469,47 @@ describe("buildEnrichedSessionsSnapshot", () => {
     expect(snapshot[0].sessionAttentionProjection).toEqual(projection);
   });
 
+  it("includes the active navigation envelope after repairing history-derived turn metrics", async () => {
+    const launcherSession = makeLauncherSession();
+    const bridgeSession = makeBridgeSession([
+      { type: "user_message", content: "human", timestamp: 100, id: "u-1" },
+      { type: "assistant", message: { content: [{ type: "text", text: "done" }] } },
+      { type: "result", data: {} },
+    ]);
+    const deps = makeDeps(launcherSession, bridgeSession);
+    const invalidateSessionNavigation = vi.fn();
+    const getSessionNavigationSnapshot = vi.fn(() => ({
+      schemaVersion: 1,
+      projection: "session-navigation",
+      key: "s1",
+      generation: "generation-a",
+      revision: 3,
+      value: {
+        detail: {
+          userTurnCount: (bridgeSession.state as any).user_turn_count,
+          agentTurnCount: (bridgeSession.state as any).agent_turn_count,
+        },
+      },
+    }));
+    (deps as any).wsBridge.getSyncedProjectionController.mockReturnValue({
+      getSessionAttentionSnapshot: vi.fn(() => null),
+      invalidateSessionNavigation,
+      getSessionNavigationSnapshot,
+    });
+
+    const snapshot = await buildEnrichedSessionsSnapshot(deps);
+
+    expect(invalidateSessionNavigation).toHaveBeenCalledWith(bridgeSession);
+    expect(invalidateSessionNavigation.mock.invocationCallOrder[0]).toBeLessThan(
+      getSessionNavigationSnapshot.mock.invocationCallOrder[0]!,
+    );
+    expect(getSessionNavigationSnapshot).toHaveBeenCalledWith("s1");
+    expect(snapshot[0].sessionNavigationProjection).toMatchObject({
+      projection: "session-navigation",
+      value: { detail: { userTurnCount: 1, agentTurnCount: 1 } },
+    });
+  });
+
   it("omits active attention projections from archived session pages", async () => {
     const launcherSession = makeLauncherSession({ archived: true });
     const bridgeSession = makeBridgeSession([]);
@@ -479,11 +523,20 @@ describe("buildEnrichedSessionsSnapshot", () => {
         revision: 2,
         value: { attentionReason: "review", status: { urgency: "review", count: 1 } },
       })),
+      getSessionNavigationSnapshot: vi.fn(() => ({
+        schemaVersion: 1,
+        projection: "session-navigation",
+        key: "s1",
+        generation: "generation-a",
+        revision: 2,
+        value: {},
+      })),
     });
 
     const snapshot = await buildEnrichedSessionsSnapshot(deps);
 
     expect(snapshot[0]).not.toHaveProperty("sessionAttentionProjection");
+    expect(snapshot[0]).not.toHaveProperty("sessionNavigationProjection");
     expect((deps as any).wsBridge.getSyncedProjectionController).not.toHaveBeenCalled();
   });
 

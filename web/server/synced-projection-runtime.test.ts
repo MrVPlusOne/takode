@@ -64,12 +64,25 @@ describe("SyncedProjectionRuntime", () => {
     await runtime.flushForTest();
     expect(subscriber.updates).toHaveLength(1);
     expect(runtime.getSnapshot("example", "a")).toMatchObject({ revision: 2, value: { parity: 0 } });
-    expect(runtime.getMetrics()).toMatchObject({
+    const metrics = runtime.getMetrics();
+    expect(metrics).toMatchObject({
       batches: 3,
       dependencyEqualSuppressions: 2,
       equalValueSuppressions: 1,
       updates: 1,
+      deliveries: 1,
     });
+    expect(metrics.valueBytes).toBeGreaterThan(0);
+    expect(metrics.snapshotValueBytes).toBeGreaterThan(0);
+    expect(metrics.updateValueBytes).toBeGreaterThan(0);
+    expect(metrics.deliveredValueBytes).toBeGreaterThan(0);
+    expect(metrics.projections.example).toMatchObject({
+      invalidations: 4,
+      batches: 3,
+      updates: 1,
+      deliveries: 1,
+    });
+    expect(metrics.projections.example?.cachedValueBytes).toBeGreaterThan(0);
   });
 
   it("authorizes and scopes subscriptions by projection key", async () => {
@@ -83,6 +96,8 @@ describe("SyncedProjectionRuntime", () => {
     const onlyB = { allowedKeys: new Set(["b"]), updates: [] as unknown[] };
 
     expect(subscribe(runtime, onlyA, ["a", "b"])).toHaveLength(1);
+    expect(runtime.hasSubscription(onlyA, "example", "a")).toBe(true);
+    expect(runtime.hasSubscription(onlyA, "example", "b")).toBe(false);
     expect(subscribe(runtime, onlyB, ["b"])).toHaveLength(1);
     sources.get("a")!.dependency = 2;
     runtime.invalidate("example", "a");
@@ -139,7 +154,10 @@ describe("SyncedProjectionRuntime", () => {
     const subscriber = { allowedKeys: new Set(["a"]), updates: [] as unknown[] };
     subscribe(runtime, subscriber, ["a"]);
 
+    expect(runtime.getMetrics().projections.example?.cachedValueBytes).toBeGreaterThan(0);
     expect(runtime.removeKey("example", "a")).toBe(true);
+    expect(runtime.getMetrics().projections.example?.cachedValueBytes).toBe(0);
+    expect(runtime.hasSubscription(subscriber, "example", "a")).toBe(false);
     sources.get("a")!.dependency = 2;
     runtime.invalidate("example", "a");
     await runtime.flushForTest();

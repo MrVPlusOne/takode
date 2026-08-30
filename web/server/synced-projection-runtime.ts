@@ -19,7 +19,7 @@ export interface SyncedProjectionDefinition<TSource, TDependencies, TValue, TSub
   maxValueBytes?: number;
 }
 
-export interface SyncedProjectionRuntimeMetrics {
+export interface SyncedProjectionRuntimeProjectionMetrics {
   invalidations: number;
   batches: number;
   dependencySelections: number;
@@ -33,6 +33,22 @@ export interface SyncedProjectionRuntimeMetrics {
   oversizeValuesRejected: number;
   derivationErrors: number;
   deliveryErrors: number;
+  /** Cumulative bytes of distinct values accepted into the cache. */
+  valueBytes: number;
+  /** Current serialized value bytes retained for this projection. */
+  cachedValueBytes: number;
+  /** Cumulative serialized value bytes returned through snapshot reads. */
+  snapshotValueBytes: number;
+  /** Cumulative serialized value bytes for logical update publications. */
+  updateValueBytes: number;
+  /** Successful individual subscriber deliveries. */
+  deliveries: number;
+  /** Cumulative serialized value bytes across successful deliveries. */
+  deliveredValueBytes: number;
+}
+
+export interface SyncedProjectionRuntimeMetrics extends SyncedProjectionRuntimeProjectionMetrics {
+  projections: Record<string, SyncedProjectionRuntimeProjectionMetrics>;
 }
 
 export interface SyncedProjectionRuntimeOptions {
@@ -85,7 +101,7 @@ function utf8ByteLength(value: string): number {
   return bytes;
 }
 
-function createMetrics(): SyncedProjectionRuntimeMetrics {
+function createProjectionMetrics(): SyncedProjectionRuntimeProjectionMetrics {
   return {
     invalidations: 0,
     batches: 0,
@@ -100,7 +116,17 @@ function createMetrics(): SyncedProjectionRuntimeMetrics {
     oversizeValuesRejected: 0,
     derivationErrors: 0,
     deliveryErrors: 0,
+    valueBytes: 0,
+    cachedValueBytes: 0,
+    snapshotValueBytes: 0,
+    updateValueBytes: 0,
+    deliveries: 0,
+    deliveredValueBytes: 0,
   };
+}
+
+function createMetrics(): SyncedProjectionRuntimeMetrics {
+  return { ...createProjectionMetrics(), projections: {} };
 }
 
 /**
@@ -151,12 +177,14 @@ export class SyncedProjectionRuntime<TSubscriber> {
       throw new Error(`Synced projection ${definition.projection} must declare bounded dependency identities`);
     }
     this.definitions.set(definition.projection, definition as AnyDefinition<TSubscriber>);
+    this.metrics.projections[definition.projection] = createProjectionMetrics();
   }
 
   invalidate(projection: string, key: string): boolean {
     if (!this.definitions.has(projection) || !isValidSyncedProjectionIdentity(key)) return false;
     this.pending.add(syncedProjectionEntryId(projection, key));
     this.metrics.invalidations += 1;
+    this.projectionMetrics(projection).invalidations += 1;
     this.scheduleFlush();
     return true;
   }
@@ -178,6 +206,10 @@ export class SyncedProjectionRuntime<TSubscriber> {
     const entry = this.recompute(entryId, publish);
     if (!entry) return null;
     this.metrics.snapshots += 1;
+    this.metrics.snapshotValueBytes += entry.valueBytes;
+    const projectionMetrics = this.projectionMetrics(projection);
+    projectionMetrics.snapshots += 1;
+    projectionMetrics.snapshotValueBytes += entry.valueBytes;
     return this.envelope<TValue>(projection, key, entry);
   }
 
@@ -198,6 +230,7 @@ export class SyncedProjectionRuntime<TSubscriber> {
       const definition = this.definitions.get(request.projection);
       if (!definition || !isValidSyncedProjectionIdentity(request.key)) {
         this.metrics.subscriptionsRejected += 1;
+        if (definition) this.projectionMetrics(request.projection).subscriptionsRejected += 1;
         continue;
       }
       const id = syncedProjectionEntryId(request.projection, request.key);
@@ -205,6 +238,7 @@ export class SyncedProjectionRuntime<TSubscriber> {
       const source = definition.resolveSource(request.key);
       if (source === undefined || !definition.authorizeSubscription(subscriber, request.key, source)) {
         this.metrics.subscriptionsRejected += 1;
+        this.projectionMetrics(request.projection).subscriptionsRejected += 1;
         continue;
       }
       seen.add(id);
@@ -221,9 +255,11 @@ export class SyncedProjectionRuntime<TSubscriber> {
       const snapshot = this.getSnapshot(projection, key);
       if (!snapshot) {
         this.metrics.subscriptionsRejected += 1;
+        this.projectionMetrics(projection).subscriptionsRejected += 1;
         return [];
       }
       this.metrics.subscriptionsAccepted += 1;
+      this.projectionMetrics(projection).subscriptionsAccepted += 1;
       return [{ projection, key, id, snapshot }];
     });
     this.subscribers.set(subscriber, {
@@ -261,11 +297,21 @@ export class SyncedProjectionRuntime<TSubscriber> {
     this.subscribers.delete(subscriber);
   }
 
+  hasSubscription(subscriber: TSubscriber, projection: string, key: string): boolean {
+    if (!isValidSyncedProjectionIdentity(projection) || !isValidSyncedProjectionIdentity(key)) return false;
+    return this.subscribers.get(subscriber)?.ids.has(syncedProjectionEntryId(projection, key)) ?? false;
+  }
+
   removeKey(projection: string, key: string): boolean {
     if (!isValidSyncedProjectionIdentity(projection) || !isValidSyncedProjectionIdentity(key)) return false;
     const entryId = syncedProjectionEntryId(projection, key);
     const removedPending = this.pending.delete(entryId);
+    const prior = this.cache.get(entryId);
     const removedCache = this.cache.delete(entryId);
+    if (prior) {
+      this.metrics.cachedValueBytes -= prior.valueBytes;
+      this.projectionMetrics(projection).cachedValueBytes -= prior.valueBytes;
+    }
     for (const state of this.subscribers.values()) state.ids.delete(entryId);
     return removedPending || removedCache;
   }
@@ -277,6 +323,8 @@ export class SyncedProjectionRuntime<TSubscriber> {
     const batch = [...this.pending];
     this.pending.clear();
     this.metrics.batches += 1;
+    const batchProjections = new Set(batch.map((entryId) => entryId.slice(0, entryId.indexOf("\u0000"))));
+    for (const projection of batchProjections) this.projectionMetrics(projection).batches += 1;
     try {
       for (const entryId of batch) this.recompute(entryId, true);
     } finally {
@@ -295,7 +343,16 @@ export class SyncedProjectionRuntime<TSubscriber> {
   }
 
   getMetrics(): Readonly<SyncedProjectionRuntimeMetrics> {
-    return { ...this.metrics };
+    return {
+      ...this.metrics,
+      projections: Object.fromEntries(
+        Object.entries(this.metrics.projections).map(([projection, metrics]) => [projection, { ...metrics }]),
+      ),
+    };
+  }
+
+  private projectionMetrics(projection: string): SyncedProjectionRuntimeProjectionMetrics {
+    return (this.metrics.projections[projection] ??= createProjectionMetrics());
   }
 
   private scheduleFlush(): void {
@@ -312,24 +369,34 @@ export class SyncedProjectionRuntime<TSubscriber> {
     if (!definition) return null;
     const source = definition.resolveSource(key);
     if (source === undefined) {
+      const prior = this.cache.get(entryId);
       this.cache.delete(entryId);
+      if (prior) {
+        this.metrics.cachedValueBytes -= prior.valueBytes;
+        this.projectionMetrics(projection).cachedValueBytes -= prior.valueBytes;
+      }
       return null;
     }
 
     try {
       const dependencies = definition.selectDependencies(source, key);
       this.metrics.dependencySelections += 1;
+      const projectionMetrics = this.projectionMetrics(projection);
+      projectionMetrics.dependencySelections += 1;
       const prior = this.cache.get(entryId);
       if (prior && definition.dependenciesEqual(prior.dependencies, dependencies)) {
         this.metrics.dependencyEqualSuppressions += 1;
+        projectionMetrics.dependencyEqualSuppressions += 1;
         return prior;
       }
 
       const value = definition.derive(source, key, dependencies);
       this.metrics.derivations += 1;
+      projectionMetrics.derivations += 1;
       if (prior && definition.valueEqual(prior.value, value)) {
         prior.dependencies = dependencies;
         this.metrics.equalValueSuppressions += 1;
+        projectionMetrics.equalValueSuppressions += 1;
         return prior;
       }
 
@@ -339,6 +406,7 @@ export class SyncedProjectionRuntime<TSubscriber> {
       const maxValueBytes = Math.min(definition.maxValueBytes ?? this.maxValueBytes, this.maxValueBytes);
       if (valueBytes > maxValueBytes) {
         this.metrics.oversizeValuesRejected += 1;
+        projectionMetrics.oversizeValuesRejected += 1;
         throw new Error(
           `Synced projection ${projection}/${key} value is ${valueBytes} bytes; maximum is ${maxValueBytes}`,
         );
@@ -351,10 +419,15 @@ export class SyncedProjectionRuntime<TSubscriber> {
         valueBytes,
       };
       this.cache.set(entryId, entry);
+      this.metrics.valueBytes += valueBytes;
+      this.metrics.cachedValueBytes += valueBytes - (prior?.valueBytes ?? 0);
+      projectionMetrics.valueBytes += valueBytes;
+      projectionMetrics.cachedValueBytes += valueBytes - (prior?.valueBytes ?? 0);
       if (publish) this.publish(projection, key, entryId, entry);
       return entry;
     } catch (error) {
       this.metrics.derivationErrors += 1;
+      this.projectionMetrics(projection).derivationErrors += 1;
       this.onError?.(error, { projection, key, phase: "derive" });
       return this.cache.get(entryId) ?? null;
     }
@@ -374,13 +447,25 @@ export class SyncedProjectionRuntime<TSubscriber> {
       try {
         state.deliver(subscriber, envelope);
         delivered += 1;
+        this.metrics.deliveries += 1;
+        this.metrics.deliveredValueBytes += entry.valueBytes;
+        const projectionMetrics = this.projectionMetrics(projection);
+        projectionMetrics.deliveries += 1;
+        projectionMetrics.deliveredValueBytes += entry.valueBytes;
       } catch (error) {
         this.metrics.deliveryErrors += 1;
+        this.projectionMetrics(projection).deliveryErrors += 1;
         this.onError?.(error, { projection, key, phase: "deliver" });
         this.subscribers.delete(subscriber);
       }
     }
-    if (delivered > 0) this.metrics.updates += 1;
+    if (delivered > 0) {
+      this.metrics.updates += 1;
+      this.metrics.updateValueBytes += entry.valueBytes;
+      const projectionMetrics = this.projectionMetrics(projection);
+      projectionMetrics.updates += 1;
+      projectionMetrics.updateValueBytes += entry.valueBytes;
+    }
   }
 
   private envelope<TValue = unknown>(

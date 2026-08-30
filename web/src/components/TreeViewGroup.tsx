@@ -6,7 +6,7 @@ import type { TreeViewGroupData, TreeNode } from "../utils/tree-grouping.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { SessionItem, StatusCountDots, type ArchiveConfirmationState, type StatusCounts } from "./SessionItem.js";
 import { deriveSessionStatus } from "./SessionStatusDot.js";
-import { useStore, countUserPermissions } from "../store.js";
+import { useStore } from "../store.js";
 import { isTouchDevice } from "../utils/mobile.js";
 import { api } from "../api.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
@@ -28,7 +28,6 @@ interface TreeViewGroupProps {
   currentSessionId: string | null;
   sessionNames: Map<string, string>;
   sessionPreviews: Map<string, string>;
-  pendingPermissions: Map<string, Map<string, unknown>>;
   recentlyRenamed: Set<string>;
   onSelect: (id: string) => void;
   onStartRename: (id: string, currentName: string) => void;
@@ -143,7 +142,6 @@ export function TreeViewGroup({
   currentSessionId,
   sessionNames,
   sessionPreviews,
-  pendingPermissions,
   recentlyRenamed,
   onSelect,
   onStartRename,
@@ -294,18 +292,14 @@ export function TreeViewGroup({
     isDraggable,
     onMobileReorderHandleActiveChange,
   };
-  const getTreePermissionCount = (session: SessionItemType) => {
-    const livePermissions = pendingPermissions.get(session.id);
-    if (livePermissions) return countUserPermissions(livePermissions);
-    return session.permCount;
-  };
   const getTreeTimerCount = (session: SessionItemType) => {
+    if (session.navigationProjectionOwned) return session.pendingTimerCount ?? 0;
     if (session.id === currentSessionId) return sessionTimers?.get(session.id)?.length ?? 0;
     return session.pendingTimerCount ?? 0;
   };
 
   function renderSessionItem(s: SessionItemType, opts?: { compact?: boolean; reviewerSession?: SessionItemType }) {
-    const permCount = getTreePermissionCount(s);
+    const permCount = s.permCount;
     const attention = sessionAttention?.get(s.id) ?? null;
     return (
       <SessionItem
@@ -334,7 +328,7 @@ export function TreeViewGroup({
     let unread = 0;
     let waiting = 0;
     const countSession = (s: SessionItemType) => {
-      const sPermCount = getTreePermissionCount(s);
+      const sPermCount = s.permCount;
       const sAttention = sessionAttention?.get(s.id) ?? null;
       const timerCount = getTreeTimerCount(s);
       const status = deriveSessionStatus({
@@ -347,7 +341,7 @@ export function TreeViewGroup({
         idleKilled: s.idleKilled,
       });
       const showsTimerWaitingStatus =
-        !s.pause?.pausedAt && status === "idle" && !sAttention && sPermCount === 0 && timerCount > 0;
+        !(s.paused ?? !!s.pause?.pausedAt) && status === "idle" && !sAttention && sPermCount === 0 && timerCount > 0;
       if (showsTimerWaitingStatus) waiting++;
       else if (status === "running" || status === "compacting") running++;
       else if (status === "permission") permission++;

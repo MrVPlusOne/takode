@@ -70,6 +70,10 @@ const SHMI_PORTRAIT = LEADER_PROFILE_PORTRAITS.find((portrait) => portrait.poolI
 beforeEach(() => {
   mockStoreState.updateSdkSession.mockClear();
   vi.mocked(api.updateLeaderProfilePortrait).mockClear();
+  mockStoreState.questNamedSessions.clear();
+  mockStoreState.sessions.clear();
+  mockStoreState.sessionTaskPreview.clear();
+  mockStoreState.sessionPreviewUpdatedAt.clear();
   mockStoreState.sessionBoards.clear();
   mockStoreState.sessionCompletedBoards.clear();
   mockStoreState.sessionBoardRowStatuses.clear();
@@ -595,6 +599,34 @@ describe("SessionItem leader profiles", () => {
     expect(screen.queryByTestId("session-leader-portrait-layout")).not.toBeInTheDocument();
   });
 
+  it("uses projected preview time instead of human activity time when choosing the latest preview", () => {
+    mockStoreState.sessionTaskPreview.set("s1", { text: "Newer task", updatedAt: 150 });
+    mockStoreState.sessionPreviewUpdatedAt.set("s1", 300);
+
+    renderSessionItem({
+      session: makeSession({
+        navigationProjectionOwned: true,
+        lastUserMessageAt: 100,
+        lastMessagePreviewAt: 200,
+      }),
+      sessionPreview: "Projected injected preview",
+    });
+
+    expect(screen.getByText("Projected injected preview")).toBeInTheDocument();
+    expect(screen.queryByText("Newer task")).toBeNull();
+  });
+
+  it("does not revive stale local preview timing after the projection clears it", () => {
+    mockStoreState.sessionTaskPreview.set("s1", { text: "Current task", updatedAt: 150 });
+    mockStoreState.sessionPreviewUpdatedAt.set("s1", 300);
+
+    renderSessionItem({
+      session: makeSession({ navigationProjectionOwned: true }),
+    });
+
+    expect(screen.getByText("Current task")).toBeInTheDocument();
+  });
+
   it("keeps non-leader rows in the compact preview-before-metadata order", () => {
     renderSessionItem({
       session: makeSession({ sessionNum: 42 }),
@@ -854,6 +886,18 @@ describe("SessionItem status dot", () => {
 
     const timerIcon = screen.getByTestId("session-status-timer-icon");
     expect(timerIcon).toHaveAttribute("title", "1 scheduled timer");
+  });
+
+  it("uses projected timer authority for the current session", () => {
+    mockStoreState.currentSessionId = "s1";
+    setSessionTimers("s1", ["stale-live"]);
+
+    const { container } = renderSessionItem({
+      session: makeSession({ navigationProjectionOwned: true, pendingTimerCount: 0 }),
+      permCount: 0,
+    });
+
+    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
   });
 
   it("prefers the live current-session timer state over a stale snapshot count", () => {
@@ -1706,6 +1750,22 @@ describe("SessionItem quest title label", () => {
     });
 
     expect(screen.getByText("☑ Fix auth bug")).toBeInTheDocument();
+  });
+
+  it("does not resurrect cleared projected quest metadata from stale bridge state", () => {
+    mockStoreState.questNamedSessions.add("s1");
+    mockStoreState.sessions.set("s1", {
+      claimedQuestStatus: "done",
+      claimedQuestVerificationInboxUnread: true,
+    });
+
+    renderSessionItem({
+      session: makeSession({ navigationProjectionOwned: true }),
+      sessionName: "Projected plain session",
+    });
+
+    expect(screen.getByText("Projected plain session")).toBeInTheDocument();
+    expect(screen.queryByText("☑ Projected plain session")).toBeNull();
   });
 
   it("does not derive a quest checkbox prefix for orchestrator rows", () => {

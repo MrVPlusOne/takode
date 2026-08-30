@@ -96,6 +96,11 @@ import {
   getRecoverableSessionConnectionPresentation,
 } from "../utils/recoverable-session-connection.js";
 import { findSessionQuestContextCandidate } from "../utils/session-quest-context.js";
+import {
+  resolveSessionNavigation,
+  type ResolvedSessionNavigation,
+  type SessionNavigationResolverSource,
+} from "../utils/session-navigation-resolver.js";
 import type {
   BoardRowSessionStatus,
   ChatMessage,
@@ -458,16 +463,27 @@ function QuestBannerParticipantChip({
 }) {
   const candidateSessionId = participant?.sessionId ?? explicitSessionId ?? fallbackSessionId ?? null;
   const candidateSessionNum = participant?.sessionNum ?? fallbackSessionNum ?? undefined;
-  const resolvedSession = useStore((s) =>
-    candidateSessionId
-      ? s.sdkSessions.find((session) => session.sessionId === candidateSessionId)
-      : candidateSessionNum != null
-        ? s.sdkSessions.find((session) => session.sessionNum === candidateSessionNum)
-        : undefined,
+  const resolvedNavigation = useStore((s) => {
+    if (candidateSessionId) return resolveSessionNavigation(s, candidateSessionId);
+    if (candidateSessionNum == null) return null;
+    for (const sdkSession of s.sdkSessions) {
+      const candidate = resolveSessionNavigation(s, sdkSession.sessionId);
+      if (participantNavigationMatchesSessionNum(candidate, sdkSession.sessionNum, candidateSessionNum)) {
+        return candidate;
+      }
+    }
+    for (const id of s.sessions.keys()) {
+      const candidate = resolveSessionNavigation(s, id);
+      if (candidate?.viewModel.sessionNum === candidateSessionNum) return candidate;
+    }
+    return null;
+  });
+  const sessionId = candidateSessionId ?? resolvedNavigation?.viewModel.sessionId ?? null;
+  const { sessionNum, displayName } = resolveQuestBannerParticipantIdentity(
+    resolvedNavigation,
+    candidateSessionNum,
+    participant?.name,
   );
-  const sessionId = candidateSessionId ?? resolvedSession?.sessionId ?? null;
-  const sessionNum = candidateSessionNum ?? resolvedSession?.sessionNum ?? undefined;
-  const displayName = participant?.name ?? resolvedSession?.name ?? undefined;
   const dotProps = useParticipantSessionStatusDotProps(sessionId, participant?.status);
   if (currentSessionId && sessionId === currentSessionId) return null;
   if (!sessionId && sessionNum == null) return null;
@@ -494,6 +510,30 @@ function QuestBannerParticipantChip({
       {content}
     </SessionInlineLink>
   );
+}
+
+export function participantNavigationMatchesSessionNum(
+  navigation: ResolvedSessionNavigation | null,
+  sdkSessionNum: number | null | undefined,
+  targetSessionNum: number,
+): boolean {
+  return navigation && navigation.projectionState !== "legacy"
+    ? navigation.viewModel.sessionNum === targetSessionNum
+    : sdkSessionNum === targetSessionNum;
+}
+
+export function resolveQuestBannerParticipantIdentity(
+  navigation: ResolvedSessionNavigation | null,
+  fallbackSessionNum?: number,
+  fallbackName?: string,
+): { sessionNum?: number; displayName?: string } {
+  if (navigation && navigation.projectionState !== "legacy") {
+    return { sessionNum: navigation.viewModel.sessionNum ?? undefined, displayName: navigation.name };
+  }
+  return {
+    sessionNum: fallbackSessionNum ?? navigation?.viewModel.sessionNum ?? undefined,
+    displayName: fallbackName ?? navigation?.name,
+  };
 }
 
 function boardWorkerParticipantForRow(row?: QuestThreadBannerRow): BoardRowSessionStatus["worker"] | undefined {
@@ -1048,6 +1088,34 @@ function shouldRepairRouteThreadOrder({
   return !localSelectionRoute && lastProcessedRouteThreadKey !== normalizeThreadKey(threadKey);
 }
 
+export function resolveChatSessionNavigationSummary(source: SessionNavigationResolverSource, sessionId: string) {
+  const sessionState = source.sessions.get(sessionId);
+  const sdkSession = source.sdkSessions.find((sdk) => sdk.sessionId === sessionId);
+  const navigation = resolveSessionNavigation(source, sessionId);
+  if (navigation && navigation.projectionState !== "legacy") {
+    const viewModel = navigation.viewModel;
+    return {
+      isLeaderSession: viewModel.isOrchestrator === true,
+      sessionNum: viewModel.sessionNum ?? null,
+      claimedQuestId: viewModel.claimedQuestId ?? null,
+      claimedQuestTitle: viewModel.claimedQuestTitle ?? null,
+      claimedQuestStatus: viewModel.claimedQuestStatus ?? null,
+      claimedQuestLeaderSessionId: viewModel.claimedQuestLeaderSessionId ?? null,
+      herdedBy: viewModel.herdedBy ?? null,
+    };
+  }
+  return {
+    isLeaderSession: sessionState?.isOrchestrator === true || sdkSession?.isOrchestrator === true,
+    sessionNum: sdkSession?.sessionNum ?? null,
+    claimedQuestId: sessionState?.claimedQuestId ?? sdkSession?.claimedQuestId ?? null,
+    claimedQuestTitle: sessionState?.claimedQuestTitle ?? sdkSession?.claimedQuestTitle ?? null,
+    claimedQuestStatus: sessionState?.claimedQuestStatus ?? sdkSession?.claimedQuestStatus ?? null,
+    claimedQuestLeaderSessionId:
+      sessionState?.claimedQuestLeaderSessionId ?? sdkSession?.claimedQuestLeaderSessionId ?? null,
+    herdedBy: sdkSession?.herdedBy ?? null,
+  };
+}
+
 export function ChatView({
   sessionId,
   preview = false,
@@ -1089,6 +1157,7 @@ export function ChatView({
     useShallow((s) => {
       const sessionState = s.sessions.get(sessionId);
       const sdkSession = s.sdkSessions.find((sdk) => sdk.sessionId === sessionId);
+      const navigationSummary = resolveChatSessionNavigationSummary(s, sessionId);
       return {
         sessionPerms: s.pendingPermissions.get(sessionId),
         connStatus: s.connectionStatus.get(sessionId) ?? "disconnected",
@@ -1101,7 +1170,7 @@ export function ChatView({
         launcherState: sdkSession?.state,
         isArchived: sdkSession?.archived ?? false,
         serverReachable: s.serverReachable,
-        isLeaderSession: sessionState?.isOrchestrator === true || sdkSession?.isOrchestrator === true,
+        isLeaderSession: navigationSummary.isLeaderSession,
         sessionMetadataKnown: Boolean(sessionState || sdkSession),
         historyLoading: s.historyLoading.get(sessionId) ?? false,
         hasKnownThreadSources:
@@ -1109,13 +1178,12 @@ export function ChatView({
           s.leaderProjections.has(sessionId) ||
           s.sessionBoards.has(sessionId) ||
           s.sessionCompletedBoards.has(sessionId),
-        claimedQuestId: sessionState?.claimedQuestId ?? sdkSession?.claimedQuestId,
-        sessionNum: sdkSession?.sessionNum ?? null,
-        claimedQuestTitle: sessionState?.claimedQuestTitle ?? sdkSession?.claimedQuestTitle,
-        claimedQuestStatus: sessionState?.claimedQuestStatus ?? sdkSession?.claimedQuestStatus,
-        claimedQuestLeaderSessionId:
-          sessionState?.claimedQuestLeaderSessionId ?? sdkSession?.claimedQuestLeaderSessionId,
-        herdedBy: sdkSession?.herdedBy,
+        claimedQuestId: navigationSummary.claimedQuestId,
+        sessionNum: navigationSummary.sessionNum,
+        claimedQuestTitle: navigationSummary.claimedQuestTitle,
+        claimedQuestStatus: navigationSummary.claimedQuestStatus,
+        claimedQuestLeaderSessionId: navigationSummary.claimedQuestLeaderSessionId,
+        herdedBy: navigationSummary.herdedBy,
         modelProvenanceMigration: sessionState?.modelProvenanceMigration ?? sdkSession?.modelProvenanceMigration,
         leaderOpenThreadTabs: sessionState?.leaderOpenThreadTabs ?? sdkSession?.leaderOpenThreadTabs,
         slackThreads: sessionState?.slackThreads ?? EMPTY_SIDE_CHATS,
