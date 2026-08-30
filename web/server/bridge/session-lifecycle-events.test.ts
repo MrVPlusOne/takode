@@ -71,10 +71,10 @@ describe("session lifecycle compaction events", () => {
     ]);
   });
 
-  it("records pressure at the resolved total-scope auto-compact boundary instead of the smaller provider prompt input", () => {
-    // Codex may report a 61% prompt input while its total-scope compaction
-    // counter has already crossed the configured 90% limit. The lifecycle row
-    // must preserve both values and use the actual runtime window denominator.
+  it("keeps a producer-reported pressure cause separate from observed provider totals", () => {
+    // Even when a future producer can identify context pressure, app-server
+    // usage still does not expose Codex's active-context counter. Preserve the
+    // observed last total and keep launch configuration as separate provenance.
     const session = makeSession(configuredCodexState());
 
     recordCompactionStarted(session, {
@@ -82,61 +82,64 @@ describe("session lifecycle compaction events", () => {
       timestamp: 1000,
       trigger: "auto",
       cause: "context_pressure",
+      causeSource: "producer",
     });
 
     expect(session.state.lifecycle_events?.[0]).toEqual(
       expect.objectContaining({
         trigger: "auto",
         cause: "context_pressure",
+        causeSource: "producer",
         contextWindowDiagnostics: expect.objectContaining({
           displayContextWindow: 770_000,
           autoCompactTokenLimit: 684_000,
           autoCompactTokenLimitScope: "total",
         }),
         before: {
-          contextTokensUsed: 684_000,
+          contextTokensUsed: 470_000,
           providerReportedInputTokens: 464_542,
           providerReportedTotalTokens: 470_000,
-          contextUsedPercent: 90,
+          contextUsedPercent: 62,
           modelContextWindow: 760_000,
           autoCompactTokenLimit: 684_000,
           autoCompactTokenLimitScope: "total",
-          source: "codex_auto_compact_limit",
+          source: "codex_token_details",
           capturedAt: 1000,
         },
       }),
     );
   });
 
-  it("caps a diagnostic pressure lower bound at the actual runtime context window", () => {
-    // A stale or arbitrary configured auto-compact limit must not make a
-    // lifecycle snapshot claim more charged context than the provider window.
+  it("does not promote a configured auto-compact setting into observed usage", () => {
+    // A launch/config value is not a trigger-time active-context measurement,
+    // even when it exceeds the reported runtime window.
     const state = configuredCodexState();
     state.codex_context_window_diagnostics.autoCompactTokenLimit = 900_000;
     const session = makeSession(state);
 
     recordCompactionStarted(session, {
-      id: "compact-clamped",
+      id: "compact-unclassified",
       timestamp: 1000,
       trigger: "auto",
-      cause: "context_pressure",
+      cause: "unknown",
     });
 
     expect(session.state.lifecycle_events?.[0]).toMatchObject({
+      cause: "unknown",
       before: {
-        contextTokensUsed: 760_000,
-        contextUsedPercent: 100,
+        contextTokensUsed: 470_000,
+        contextUsedPercent: 62,
         modelContextWindow: 760_000,
         autoCompactTokenLimit: 900_000,
-        source: "codex_auto_compact_limit",
+        source: "codex_token_details",
       },
     });
   });
 
-  it("uses the hidden provider-effective window for an unexpected recycle-mode provider compaction", () => {
-    // Recycle leaders rewrite ordinary runtime stats to the Takode display
-    // budget. A provider compaction belongs to the hidden provider envelope,
-    // so diagnostics must not clamp its lower bound to the display budget.
+  it("uses the hidden provider-effective window without inventing recycle-mode charge", () => {
+    // Recycle leaders rewrite ordinary stats to the Takode display budget. A
+    // provider compaction snapshot can use the hidden provider denominator,
+    // but the configured guard must not be substituted for observed usage.
     const session = makeSession({
       context_used_percent: 95,
       codex_token_details: {
@@ -165,26 +168,26 @@ describe("session lifecycle compaction events", () => {
       id: "compact-recycle-provider",
       timestamp: 1000,
       trigger: "auto",
-      cause: "context_pressure",
+      cause: "unknown",
     });
 
     expect(session.state.lifecycle_events?.[0]).toMatchObject({
       before: {
-        contextTokensUsed: 2_725_000,
+        contextTokensUsed: 525_000,
         providerReportedInputTokens: 518_000,
+        providerReportedTotalTokens: 525_000,
         modelContextWindow: 2_876_389,
-        contextUsedPercent: 95,
-        source: "codex_auto_compact_limit",
+        contextUsedPercent: 18,
+        source: "codex_token_details",
       },
     });
   });
 
   it.each([
-    ["manual", "manual"],
-    ["model_switch_migration", "auto"],
-  ] as const)("keeps %s snapshots on provider-input accounting without a pressure lower bound", (cause, trigger) => {
-    // Manual and migration compactions are not evidence that the provider's
-    // pressure threshold fired, even when the launch diagnostics include one.
+    ["manual", "manual", "takode_manual_request"],
+    ["model_switch_migration", "auto", "takode_model_switch_guard"],
+    ["unknown", "auto", undefined],
+  ] as const)("keeps %s snapshots on observed provider accounting", (cause, trigger, causeSource) => {
     const session = makeSession(configuredCodexState());
 
     recordCompactionStarted(session, {
@@ -192,16 +195,18 @@ describe("session lifecycle compaction events", () => {
       timestamp: 1000,
       trigger,
       cause: cause as CodexCompactionCause,
+      ...(causeSource ? { causeSource } : {}),
     });
 
     expect(session.state.lifecycle_events?.[0]).toMatchObject({
       trigger,
       cause,
+      ...(causeSource ? { causeSource } : {}),
       before: {
-        contextTokensUsed: 464_542,
+        contextTokensUsed: 470_000,
         providerReportedInputTokens: 464_542,
         providerReportedTotalTokens: 470_000,
-        contextUsedPercent: 61,
+        contextUsedPercent: 62,
         modelContextWindow: 760_000,
         source: "codex_token_details",
       },
@@ -234,7 +239,7 @@ describe("session lifecycle compaction events", () => {
     recordCompactionFinished(session, 2000);
 
     expect(session.state.lifecycle_events?.[0]).toMatchObject({
-      before: { contextTokensUsed: 270_000, providerReportedTotalTokens: 275_000 },
+      before: { contextTokensUsed: 275_000, providerReportedTotalTokens: 275_000 },
       finishedAt: 2000,
     });
     expect(session.state.lifecycle_events?.[0]).not.toHaveProperty("after");
@@ -253,7 +258,7 @@ describe("session lifecycle compaction events", () => {
     recordCompactionFinished(session, 4000);
 
     expect(session.state.lifecycle_events?.[1]).toMatchObject({
-      before: { contextTokensUsed: 95_000, providerReportedTotalTokens: 100_000 },
+      before: { contextTokensUsed: 100_000, providerReportedTotalTokens: 100_000 },
       after: {
         contextTokensUsed: 25_000,
         providerReportedInputTokens: 20_000,

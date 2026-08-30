@@ -40,6 +40,8 @@ function codexTokenDetailsEqual(
   if (!a || !b) return !a && !b;
   return (
     a.contextTokensUsed === b.contextTokensUsed &&
+    a.displayContextTokensUsed === b.displayContextTokensUsed &&
+    a.providerReportedTotalTokens === b.providerReportedTotalTokens &&
     a.inputTokens === b.inputTokens &&
     a.outputTokens === b.outputTokens &&
     a.cachedInputTokens === b.cachedInputTokens &&
@@ -108,7 +110,10 @@ function sessionLifecycleEventsEqual(
       left.timestamp !== right.timestamp ||
       left.backendType !== right.backendType ||
       left.trigger !== right.trigger ||
+      left.cause !== right.cause ||
+      left.causeSource !== right.causeSource ||
       left.finishedAt !== right.finishedAt ||
+      !codexContextWindowDiagnosticsEqual(left.contextWindowDiagnostics, right.contextWindowDiagnostics) ||
       !contextSnapshotEqual(left.before, right.before) ||
       !contextSnapshotEqual(left.after, right.after)
     ) {
@@ -171,10 +176,35 @@ function contextSnapshotEqual(
   if (!a || !b) return !a && !b;
   return (
     a.contextTokensUsed === b.contextTokensUsed &&
+    a.providerReportedInputTokens === b.providerReportedInputTokens &&
+    a.providerReportedTotalTokens === b.providerReportedTotalTokens &&
     a.contextUsedPercent === b.contextUsedPercent &&
     a.modelContextWindow === b.modelContextWindow &&
+    a.autoCompactTokenLimit === b.autoCompactTokenLimit &&
+    a.autoCompactTokenLimitScope === b.autoCompactTokenLimitScope &&
     a.source === b.source &&
     a.capturedAt === b.capturedAt
+  );
+}
+
+function codexContextWindowDiagnosticsEqual(
+  a: SdkSessionInfo["codexContextWindowDiagnostics"] | undefined,
+  b: SdkSessionInfo["codexContextWindowDiagnostics"] | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return !a && !b;
+  return (
+    a.role === b.role &&
+    a.leaderMode === b.leaderMode &&
+    a.capacitySource === b.capacitySource &&
+    a.configuredUsableContextWindow === b.configuredUsableContextWindow &&
+    a.displayContextWindow === b.displayContextWindow &&
+    a.providerRawContextWindow === b.providerRawContextWindow &&
+    a.catalogEffectiveContextWindowPercent === b.catalogEffectiveContextWindowPercent &&
+    a.providerEffectiveContextWindow === b.providerEffectiveContextWindow &&
+    a.autoCompactTokenLimit === b.autoCompactTokenLimit &&
+    a.autoCompactTokenLimitScope === b.autoCompactTokenLimitScope &&
+    a.autoCompactTokenLimitScopeSource === b.autoCompactTokenLimitScopeSource
   );
 }
 
@@ -302,6 +332,7 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.reviewerOf === b.reviewerOf &&
     codexLeaderRecycleLineageEqual(a.codexLeaderRecycleLineage, b.codexLeaderRecycleLineage) &&
     codexTokenDetailsEqual(a.codexTokenDetails, b.codexTokenDetails) &&
+    codexContextWindowDiagnosticsEqual(a.codexContextWindowDiagnostics, b.codexContextWindowDiagnostics) &&
     claudeTokenDetailsEqual(a.claudeTokenDetails, b.claudeTokenDetails) &&
     sessionLifecycleEventsEqual(a.sessionLifecycleEvents, b.sessionLifecycleEvents)
   );

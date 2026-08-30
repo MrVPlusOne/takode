@@ -1,6 +1,7 @@
 import type {
   BackendType,
   CodexCompactionCause,
+  CodexCompactionCauseSource,
   CodexContextWindowDiagnostics,
   SessionContextLengthSnapshot,
   SessionLifecycleEvent,
@@ -24,6 +25,7 @@ export function recordCompactionStarted(
     timestamp: number;
     trigger?: "auto" | "manual";
     cause?: CodexCompactionCause;
+    causeSource?: CodexCompactionCauseSource;
     before?: SessionContextLengthSnapshot;
   },
 ): void {
@@ -32,13 +34,9 @@ export function recordCompactionStarted(
     backendType: session.backendType,
     trigger: options.trigger,
     cause: options.cause,
+    causeSource: options.causeSource,
     contextWindowDiagnostics: cloneContextWindowDiagnostics(session.state.codex_context_window_diagnostics),
-    before:
-      options.before ??
-      snapshotCodexContextLength(session.state, options.timestamp, {
-        cause: options.cause,
-        stage: "before",
-      }),
+    before: options.before ?? snapshotCodexContextLength(session.state, options.timestamp),
   });
 }
 
@@ -66,7 +64,7 @@ export function recordCompactionFinished(session: LifecycleEventSessionLike, fin
   if (!event) return;
   event.finishedAt = finishedAt;
 
-  const snapshot = snapshotCodexContextLength(session.state, finishedAt, { stage: "after" });
+  const snapshot = snapshotCodexContextLength(session.state, finishedAt);
   if (!snapshot) return;
 
   const beforeProviderTotal = event.before?.providerReportedTotalTokens;
@@ -85,7 +83,6 @@ export function recordCompactionFinished(session: LifecycleEventSessionLike, fin
 export function snapshotCodexContextLength(
   state: Pick<SessionState, "codex_token_details" | "codex_context_window_diagnostics" | "context_used_percent">,
   capturedAt = Date.now(),
-  options: { cause?: CodexCompactionCause; stage?: "before" | "after" } = {},
 ): SessionContextLengthSnapshot | undefined {
   const details = state.codex_token_details;
   const providerReportedInputTokens = finiteNumber(details?.contextTokensUsed);
@@ -95,22 +92,7 @@ export function snapshotCodexContextLength(
   const diagnostics = state.codex_context_window_diagnostics;
   const modelContextWindow = resolveCompactionContextWindow(details?.modelContextWindow, diagnostics);
   const autoCompactTokenLimit = positiveFiniteNumber(diagnostics?.autoCompactTokenLimit);
-  const isPressureBoundary = options.stage !== "after" && options.cause === "context_pressure";
-
-  let contextTokensUsed: number;
-  let source: SessionContextLengthSnapshot["source"];
-  if (options.stage === "after") {
-    contextTokensUsed = providerReportedTotalTokens ?? providerReportedInputTokens!;
-    source = "codex_token_details";
-  } else if (isPressureBoundary && autoCompactTokenLimit !== undefined) {
-    const pressureLowerBound =
-      modelContextWindow !== undefined ? Math.min(autoCompactTokenLimit, modelContextWindow) : autoCompactTokenLimit;
-    contextTokensUsed = Math.max(providerReportedTotalTokens ?? providerReportedInputTokens ?? 0, pressureLowerBound);
-    source = "codex_auto_compact_limit";
-  } else {
-    contextTokensUsed = providerReportedInputTokens ?? providerReportedTotalTokens!;
-    source = "codex_token_details";
-  }
+  const contextTokensUsed = providerReportedTotalTokens ?? providerReportedInputTokens!;
 
   const recomputedPercent =
     modelContextWindow !== undefined
@@ -132,7 +114,7 @@ export function snapshotCodexContextLength(
     ...(diagnostics?.autoCompactTokenLimitScope
       ? { autoCompactTokenLimitScope: diagnostics.autoCompactTokenLimitScope }
       : {}),
-    source,
+    source: "codex_token_details",
     capturedAt,
   };
 }
@@ -148,6 +130,7 @@ function upsertCompactionEvent(
     if (patch.backendType) existing.backendType = patch.backendType;
     if (patch.trigger) existing.trigger = patch.trigger;
     if (patch.cause) existing.cause = patch.cause;
+    if (patch.causeSource) existing.causeSource = patch.causeSource;
     if (patch.contextWindowDiagnostics) existing.contextWindowDiagnostics = patch.contextWindowDiagnostics;
     if (patch.before) existing.before = patch.before;
     if (patch.after) existing.after = patch.after;
@@ -162,6 +145,7 @@ function upsertCompactionEvent(
     ...(patch.backendType ? { backendType: patch.backendType } : {}),
     ...(patch.trigger ? { trigger: patch.trigger } : {}),
     ...(patch.cause ? { cause: patch.cause } : {}),
+    ...(patch.causeSource ? { causeSource: patch.causeSource } : {}),
     ...(patch.contextWindowDiagnostics ? { contextWindowDiagnostics: patch.contextWindowDiagnostics } : {}),
     ...(patch.before ? { before: patch.before } : {}),
     ...(patch.after ? { after: patch.after } : {}),

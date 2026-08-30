@@ -888,7 +888,6 @@ function LifecycleEventRow({ event }: { event: SessionLifecycleEvent }) {
   if (event.type !== "compaction") return null;
   const title = formatCompactionTitle(event);
   const codexEvent = event.backendType === "codex";
-  const chargedContextLowerBound = formatChargedContextLowerBound(event);
   return (
     <div className="rounded-lg bg-cc-hover/40 px-2 py-1.5">
       <div className="text-[11px] text-cc-fg">{title}</div>
@@ -896,7 +895,8 @@ function LifecycleEventRow({ event }: { event: SessionLifecycleEvent }) {
       {codexEvent ? (
         <div className="mt-1 space-y-0.5 text-[10px] text-cc-muted">
           <div>Provider input {formatProviderInputSnapshot(event.before)}</div>
-          {chargedContextLowerBound && <div>{chargedContextLowerBound}</div>}
+          <div>Provider last total {formatProviderTotalSnapshot(event.before)}</div>
+          <div>{formatCodexCompactionUnavailability(event)}</div>
           <div>{formatCodexAfterSnapshot(event.after)}</div>
         </div>
       ) : (
@@ -946,10 +946,13 @@ function CodexContextDiagnosticsPanel({
         )}
         {positiveNumber(diagnostics.autoCompactTokenLimit) && (
           <>
-            <span>Auto-compact limit</span>
+            <span>Configured auto-compact</span>
             <span className="text-right tabular-nums text-cc-fg/90">
               {formatLifecycleTokenCount(diagnostics.autoCompactTokenLimit!)} ·{" "}
-              {formatAutoCompactScope(diagnostics.autoCompactTokenLimitScope)}
+              {formatAutoCompactScope(
+                diagnostics.autoCompactTokenLimitScope,
+                diagnostics.autoCompactTokenLimitScopeSource,
+              )}
             </span>
           </>
         )}
@@ -964,6 +967,9 @@ function CodexContextDiagnosticsPanel({
             </span>
           </>
         )}
+      </div>
+      <div className="mt-1 text-[9px] text-cc-muted/70">
+        Launch/config provenance; not an event-time active-context measurement.
       </div>
     </div>
   );
@@ -989,9 +995,13 @@ function formatContextCapacityPolicy(diagnostics: CodexContextWindowDiagnostics)
 
 function formatCompactionTitle(event: Extract<SessionLifecycleEvent, { type: "compaction" }>): string {
   const backend = formatLifecycleBackend(event.backendType);
-  if (event.cause === "context_pressure") return `${backend} compaction · context pressure`;
-  if (event.cause === "manual") return `${backend} compaction · manual`;
-  if (event.cause === "model_switch_migration") return `${backend} compaction · model switch migration`;
+  if (event.cause === "context_pressure" && event.causeSource === "producer") {
+    return `${backend} compaction · context pressure`;
+  }
+  if (event.cause === "manual") return `${backend} compaction · manual request`;
+  if (event.cause === "model_switch_migration")
+    return `${backend} compaction · model switch migration (Takode inferred)`;
+  if (event.backendType === "codex") return `${backend} compaction · automatic cause unknown`;
   return `${backend} compaction${event.trigger ? ` · ${event.trigger}` : ""}`;
 }
 
@@ -1008,11 +1018,19 @@ function formatProviderInputSnapshot(
   return `${formatLifecycleTokenCount(tokens)} / ${formatLifecycleTokenCount(window)} (${Math.round((tokens / window) * 100)}%)`;
 }
 
+function formatProviderTotalSnapshot(
+  snapshot: Extract<SessionLifecycleEvent, { type: "compaction" }>["before"],
+): string {
+  const tokens = snapshot?.providerReportedTotalTokens;
+  if (typeof tokens !== "number") return "unknown";
+  return formatSnapshotTokens(tokens, snapshot?.modelContextWindow);
+}
+
 function formatCodexAfterSnapshot(snapshot: Extract<SessionLifecycleEvent, { type: "compaction" }>["after"]): string {
   if (!snapshot) return "After unknown";
   const providerTotal = snapshot.providerReportedTotalTokens;
   if (typeof providerTotal === "number") {
-    return `After provider total ${formatSnapshotTokens(providerTotal, snapshot.modelContextWindow)}`;
+    return `After provider last total ${formatSnapshotTokens(providerTotal, snapshot.modelContextWindow)}`;
   }
   const providerInput = snapshot.providerReportedInputTokens ?? snapshot.contextTokensUsed;
   if (typeof providerInput !== "number") return "After unknown";
@@ -1024,24 +1042,22 @@ function formatSnapshotTokens(tokens: number, window: number | undefined): strin
   return `${formatLifecycleTokenCount(tokens)} / ${formatLifecycleTokenCount(window)} (${Math.round((tokens / window) * 100)}%)`;
 }
 
-function formatAutoCompactScope(scope: string | undefined): string {
-  if (scope === "body_after_prefix") return "body after prefix";
-  if (scope === "total") return "total";
+function formatAutoCompactScope(scope: string | undefined, source: string | undefined): string {
+  const sourceLabel = source === "configured" ? "configured" : source === "codex_default" ? "Codex default" : null;
+  const scopeLabel = scope === "body_after_prefix" ? "body after prefix" : scope === "total" ? "total" : null;
+  if (scopeLabel && sourceLabel) return `${scopeLabel} (${sourceLabel})`;
+  if (scopeLabel) return scopeLabel;
   return "scope unknown/default";
 }
 
-function formatChargedContextLowerBound(event: Extract<SessionLifecycleEvent, { type: "compaction" }>): string | null {
-  if (event.cause !== "context_pressure") return null;
-  const before = event.before;
-  if (!before) return null;
-  const lowerBound =
-    before.source === "codex_auto_compact_limit" ? before.contextTokensUsed : before.autoCompactTokenLimit;
-  if (typeof lowerBound !== "number") return null;
-  const window = before.modelContextWindow;
-  if (typeof window !== "number" || window <= 0) {
-    return `Charged context ≥${formatLifecycleTokenCount(lowerBound)} at trigger`;
-  }
-  return `Charged context ≥${formatLifecycleTokenCount(lowerBound)} / ${formatLifecycleTokenCount(window)} (≥${Math.round((lowerBound / window) * 100)}%) at trigger`;
+function formatCodexCompactionUnavailability(event: Extract<SessionLifecycleEvent, { type: "compaction" }>): string {
+  const causeIsKnown =
+    event.cause === "manual" ||
+    event.cause === "model_switch_migration" ||
+    (event.cause === "context_pressure" && event.causeSource === "producer");
+  return causeIsKnown
+    ? "Exact active context unavailable from Codex app-server"
+    : "Exact active context and trigger cause unavailable from Codex app-server";
 }
 
 function formatRecycleTimestamp(timestamp: number): string {

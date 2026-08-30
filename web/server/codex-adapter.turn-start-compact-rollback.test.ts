@@ -197,6 +197,33 @@ describe("CodexAdapter", () => {
       type: "status_change",
       status: "compacting",
       codexCompactionCause: "manual",
+      codexCompactionCauseSource: "takode_manual_request",
+    });
+  });
+
+  it("leaves an unmarked automatic compaction cause unknown", async () => {
+    // app-server's contextCompaction item carries only an id. Do not convert
+    // that absence into a context-pressure claim.
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((message) => messages.push(message));
+
+    await initializeAdapter(stdout);
+    stdout.push(
+      JSON.stringify({
+        method: "item/started",
+        params: {
+          threadId: "thr_123",
+          item: { id: "compact-auto", type: "contextCompaction" },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    expect(messages).toContainEqual({
+      type: "status_change",
+      status: "compacting",
+      codexCompactionCause: "unknown",
     });
   });
 

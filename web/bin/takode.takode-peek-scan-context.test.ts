@@ -51,6 +51,8 @@ describe("takode scan/peek context diagnostics", () => {
         source: "codex_token_usage",
         contextUsedPercent: 42,
         contextTokensUsed: 230_000,
+        displayContextTokensUsed: 231_000,
+        providerReportedTotalTokens: 231_000,
         modelContextWindow: 545_000,
       },
       messageBytes: 2_048,
@@ -238,17 +240,21 @@ describe("takode scan/peek context diagnostics", () => {
       expect(compactScan.stdout).not.toContain("reported usage");
       expect(contextScan.stderr).toBe("");
       expect(contextScan.status).toBe(0);
-      expect(contextScan.stdout).toContain("context: reported usage 42% 230,000/545,000 tokens codex_token_usage");
+      expect(contextScan.stdout).toContain(
+        "context: reported usage 42% 231,000/545,000 tokens provider input 230,000 codex_token_usage",
+      );
       expect(contextScan.stdout).toContain("message JSON 2.0 KiB; tool results 28.7 KiB");
       expect(contextScan.stdout).toContain("top quest show 28.8 KiB");
       expect(contextPeek.status).toBe(0);
       expect(contextPeek.stderr).toBe("");
-      expect(contextPeek.stdout).toContain("ctx 42% 230,000/545,000 tokens codex_token_usage");
+      expect(contextPeek.stdout).toContain("ctx 42% 231,000/545,000 tokens provider input 230,000 codex_token_usage");
       expect(contextPeek.stdout).toContain("ctx unavailable");
       expect(contextPeek.stdout).toContain("Bash ✓ Show quest q-1452 [quest show, result 28.7 KiB");
       expect(containingPeek.status).toBe(0);
       expect(containingPeek.stderr).toBe("");
-      expect(containingPeek.stdout).toContain("ctx 42% 230,000/545,000 tokens codex_token_usage");
+      expect(containingPeek.stdout).toContain(
+        "ctx 42% 231,000/545,000 tokens provider input 230,000 codex_token_usage",
+      );
       expect(containingPeek.stdout).toContain("ctx unavailable");
       expect(requests).toContain("GET /api/sessions/153/messages?scan=turns&fromTurn=0&turnCount=1");
       expect(requests).toContain("GET /api/sessions/153/messages?scan=turns&fromTurn=0&turnCount=1&context=true");

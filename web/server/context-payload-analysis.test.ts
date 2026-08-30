@@ -29,6 +29,8 @@ describe("contextUsageAtTimestamp", () => {
         source: "codex_token_usage" as const,
         contextUsedPercent: 34,
         contextTokensUsed: 230_000,
+        displayContextTokensUsed: 235_000,
+        providerReportedTotalTokens: 235_000,
         modelContextWindow: 545_000,
       },
       { timestamp: 300, source: "codex_token_usage" as const, contextUsedPercent: 56 },
@@ -39,6 +41,8 @@ describe("contextUsageAtTimestamp", () => {
       source: "codex_token_usage",
       contextUsedPercent: 34,
       contextTokensUsed: 230_000,
+      displayContextTokensUsed: 235_000,
+      providerReportedTotalTokens: 235_000,
       modelContextWindow: 545_000,
     });
     expect(contextUsageAtTimestamp(history, 99)).toBeNull();

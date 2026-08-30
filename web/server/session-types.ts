@@ -49,6 +49,7 @@ import type { QuestTitlePreview } from "./quest-types.js";
 import type { HistoryWindowState, InitialThreadWindowRequest, ThreadWindowState } from "./window-protocol-types.js";
 import type {
   CodexCompactionCause,
+  CodexCompactionCauseSource,
   CodexContextWindowDiagnostics,
   CodexLeaderRecycleContinuation,
   CodexLeaderRecycleTrigger,
@@ -91,7 +92,9 @@ export type { ActiveCodexReasoningPreview, CodexReasoningDetailMessage } from ".
 export type { CodexMessagePhase } from "../shared/codex-message-phase.js";
 export type {
   CodexAutoCompactTokenLimitScope,
+  CodexAutoCompactTokenLimitScopeSource,
   CodexCompactionCause,
+  CodexCompactionCauseSource,
   CodexContextCapacitySource,
   CodexContextWindowDiagnostics,
   CodexLeaderRecycleContinuation,
@@ -786,6 +789,9 @@ export interface ContextUsageHistoryEntry {
   source: ContextUsageHistorySource;
   contextUsedPercent?: number;
   contextTokensUsed?: number;
+  /** Numerator used for the reported percentage after role-specific display policy. */
+  displayContextTokensUsed?: number;
+  providerReportedTotalTokens?: number;
   inputTokens?: number;
   outputTokens?: number;
   cachedInputTokens?: number;
@@ -982,6 +988,7 @@ export type BrowserIncomingMessageBase =
       type: "status_change";
       status: "compacting" | "reverting" | "idle" | "running" | null;
       codexCompactionCause?: CodexCompactionCause;
+      codexCompactionCauseSource?: CodexCompactionCauseSource;
       activeTurnRoute?: ActiveTurnRoute | null;
       activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
       codexReasoningPreviews?: ActiveCodexReasoningPreview[];
@@ -1430,9 +1437,11 @@ export interface SessionState {
   git_status_refresh_error?: string | null;
   // Codex-specific token details (forwarded from thread/tokenUsage/updated)
   codex_token_details?: {
-    /** Provider-reported last input charge; retained as the leader recycle trigger input. */
+    /** Provider-reported last input; retained as the leader recycle trigger input. */
     contextTokensUsed?: number;
-    /** Provider-reported last total charge, separate from hidden retained-reasoning pressure. */
+    /** Numerator used for the ordinary context percentage after role-specific policy. */
+    displayContextTokensUsed?: number;
+    /** Provider-reported latest response total and normal Codex display numerator. */
     providerReportedTotalTokens?: number;
     inputTokens: number;
     outputTokens: number;

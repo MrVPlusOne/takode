@@ -1,6 +1,7 @@
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 
 export type CodexAutoCompactTokenLimitScope = "total" | "body_after_prefix";
+export type CodexAutoCompactTokenLimitScopeSource = "configured" | "codex_default";
 
 export type CodexContextCapacitySource =
   | "leader_recycle_guard"
@@ -22,13 +23,17 @@ export interface CodexContextWindowDiagnostics {
   catalogEffectiveContextWindowPercent?: number;
   /** Effective provider window derived from the selected catalog, before any recycle display rewrite. */
   providerEffectiveContextWindow?: number;
-  /** Provider charge at which Codex is configured to compact. */
+  /** Launch/config auto-compact setting; not a trigger-time measurement. */
   autoCompactTokenLimit?: number;
-  /** Charge scope used by the provider threshold, when known. */
+  /** Configured or documented-default accounting scope for that setting. */
   autoCompactTokenLimitScope?: CodexAutoCompactTokenLimitScope;
+  /** Whether the scope came from explicit config or Codex's documented default. */
+  autoCompactTokenLimitScopeSource?: CodexAutoCompactTokenLimitScopeSource;
 }
 
-export type CodexCompactionCause = "context_pressure" | "manual" | "model_switch_migration";
+export type CodexCompactionCause = "unknown" | "context_pressure" | "manual" | "model_switch_migration";
+
+export type CodexCompactionCauseSource = "producer" | "takode_manual_request" | "takode_model_switch_guard";
 
 export type CodexLeaderRecycleTrigger = "threshold" | "manual_compact" | "context_window_exhausted";
 
@@ -50,7 +55,7 @@ export interface CodexModelSwitchCompactionGuard {
 }
 
 export interface SessionContextLengthSnapshot {
-  /** Best known context charge. Auto-compaction snapshots can be a documented lower bound. */
+  /** Best available current usage observation, never a hidden active-context estimate. */
   contextTokensUsed?: number;
   /** Provider-reported current prompt input, which can omit retained encrypted reasoning. */
   providerReportedInputTokens?: number;
@@ -71,6 +76,8 @@ export interface SessionCompactionLifecycleEvent {
   backendType?: "claude" | "codex" | "claude-sdk";
   trigger?: "auto" | "manual";
   cause?: CodexCompactionCause;
+  /** Evidence source for a classified cause. Missing means unavailable or legacy-unverified. */
+  causeSource?: CodexCompactionCauseSource;
   /** Launch-resolved policy captured at event time so later relaunches cannot rewrite history. */
   contextWindowDiagnostics?: CodexContextWindowDiagnostics;
   before?: SessionContextLengthSnapshot;

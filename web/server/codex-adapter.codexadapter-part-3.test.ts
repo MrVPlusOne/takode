@@ -1422,10 +1422,10 @@ describe("CodexAdapter", () => {
     await tick();
   });
 
-  it("computes context_used_percent from last turn, not cumulative total", async () => {
+  it("computes context_used_percent from provider last total, not cumulative usage", async () => {
     // Regression: cumulative total.inputTokens can far exceed contextWindow
-    // (e.g. 1.2M input on a 258k window). The context bar should use
-    // last.inputTokens + last.outputTokens which reflects current turn usage.
+    // (e.g. 1.2M input on a 258k window). Use the provider-reported latest
+    // total while retaining input separately for leader recycle policy.
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
     adapter.onBrowserMessage((msg) => messages.push(msg));
@@ -1475,12 +1475,11 @@ describe("CodexAdapter", () => {
 
     const lastUpdate = sessionUpdates[sessionUpdates.length - 1];
 
-    // context_used_percent should use last turn's input only (output tokens excluded,
-    // they are generated, not context occupants). cachedInputTokens (80k) fits within
-    // inputTokens (85k), so OpenAI semantics applies: use inputTokens directly.
-    // 85000 / 258400 ≈ 33%
-    expect(lastUpdate.session.context_used_percent).toBe(33);
+    // 90000 / 258400 ≈ 35%. The input/cache interpretation remains available
+    // for the accepted leader recycle trigger rather than being relabeled.
+    expect(lastUpdate.session.context_used_percent).toBe(35);
     expect(lastUpdate.session.codex_token_details?.contextTokensUsed).toBe(85_000);
+    expect(lastUpdate.session.codex_token_details?.displayContextTokensUsed).toBe(90_000);
     expect(lastUpdate.session.codex_token_details?.providerReportedTotalTokens).toBe(90_000);
 
     // codex_token_details should still show cumulative totals
@@ -1537,5 +1536,48 @@ describe("CodexAdapter", () => {
     // Anthropic semantics: cachedInputTokens (40k) > inputTokens (10k),
     // so fields are additive: 10000 + 40000 = 50000 / 200000 = 25%
     expect(lastUpdate.session.context_used_percent).toBe(25);
+  });
+
+  it("preserves zero provider input beside a nonzero provider last total", async () => {
+    // Codex can recompute a compacted summary as totalTokens > 0 while the
+    // breakdown reports zero input/output. Keep zero as real input evidence so
+    // leader recycle policy can replace the normal total-based display cleanly.
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+
+    stdout.push(
+      JSON.stringify({
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thr_123",
+          turnId: "turn_1",
+          tokenUsage: {
+            total: { totalTokens: 42_176, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 },
+            last: { totalTokens: 42_176, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 },
+            modelContextWindow: 258_400,
+          },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const sessionUpdates = messages.filter((m) => m.type === "session_update") as Array<{
+      type: "session_update";
+      session: { context_used_percent?: number; codex_token_details?: Record<string, number> };
+    }>;
+    const lastUpdate = sessionUpdates.at(-1)!;
+    expect(lastUpdate.session.context_used_percent).toBe(16);
+    expect(lastUpdate.session.codex_token_details).toMatchObject({
+      contextTokensUsed: 0,
+      displayContextTokensUsed: 42_176,
+      providerReportedTotalTokens: 42_176,
+    });
   });
 });

@@ -36,6 +36,8 @@ export type ReportedContextUsage = Pick<
   | "source"
   | "contextUsedPercent"
   | "contextTokensUsed"
+  | "displayContextTokensUsed"
+  | "providerReportedTotalTokens"
   | "modelContextWindow"
   | "leaderRecycleThresholdTokens"
 >;
@@ -64,6 +66,12 @@ export function contextUsageAtTimestamp(
     source: best.source,
     ...(typeof best.contextUsedPercent === "number" ? { contextUsedPercent: best.contextUsedPercent } : {}),
     ...(typeof best.contextTokensUsed === "number" ? { contextTokensUsed: best.contextTokensUsed } : {}),
+    ...(typeof best.displayContextTokensUsed === "number"
+      ? { displayContextTokensUsed: best.displayContextTokensUsed }
+      : {}),
+    ...(typeof best.providerReportedTotalTokens === "number"
+      ? { providerReportedTotalTokens: best.providerReportedTotalTokens }
+      : {}),
     ...(typeof best.modelContextWindow === "number" ? { modelContextWindow: best.modelContextWindow } : {}),
     ...(typeof best.leaderRecycleThresholdTokens === "number"
       ? { leaderRecycleThresholdTokens: best.leaderRecycleThresholdTokens }

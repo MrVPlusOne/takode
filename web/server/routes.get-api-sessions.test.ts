@@ -952,9 +952,9 @@ describe("GET /api/sessions", () => {
     const json = await res.json();
     expect(json[0].sessionLifecycleEvents[0]).toMatchObject({
       id: "compact-1",
-      cause: "context_pressure",
-      before: { contextTokensUsed: 2_725_000 },
+      cause: "unknown",
     });
+    expect(json[0].sessionLifecycleEvents[0]).not.toHaveProperty("before");
     expect(json[0].sessionLifecycleEvents[0]).not.toHaveProperty("contextWindowDiagnostics");
   });
 

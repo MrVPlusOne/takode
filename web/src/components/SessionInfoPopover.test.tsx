@@ -18,6 +18,7 @@ type MockContextWindowDiagnostics = {
   providerEffectiveContextWindow?: number;
   autoCompactTokenLimit?: number;
   autoCompactTokenLimitScope?: "total" | "body_after_prefix";
+  autoCompactTokenLimitScopeSource?: "configured" | "codex_default";
 };
 
 type MockLifecycleSnapshot = {
@@ -38,7 +39,8 @@ type MockLifecycleEvent = {
   timestamp: number;
   backendType?: "claude" | "codex" | "claude-sdk";
   trigger?: "auto" | "manual";
-  cause?: "context_pressure" | "manual" | "model_switch_migration";
+  cause?: "unknown" | "context_pressure" | "manual" | "model_switch_migration";
+  causeSource?: "producer" | "takode_manual_request" | "takode_model_switch_guard";
   contextWindowDiagnostics?: MockContextWindowDiagnostics;
   before?: MockLifecycleSnapshot;
   after?: MockLifecycleSnapshot;
@@ -1058,6 +1060,8 @@ describe("SessionInfoPopover", () => {
         catalogEffectiveContextWindowPercent: 95,
         providerEffectiveContextWindow: 770_000,
         autoCompactTokenLimit: 693_000,
+        autoCompactTokenLimitScope: "total",
+        autoCompactTokenLimitScopeSource: "codex_default",
       },
     });
 
@@ -1074,8 +1078,9 @@ describe("SessionInfoPopover", () => {
     expect(within(diagnostics).getByText("Provider effective window")).toBeInTheDocument();
     expect(within(diagnostics).getByText("Displayed denominator")).toBeInTheDocument();
     expect(within(diagnostics).getByText("Provider launch window")).toBeInTheDocument();
-    expect(within(diagnostics).getByText("693K · scope unknown/default")).toBeInTheDocument();
+    expect(within(diagnostics).getByText("693K · total (Codex default)")).toBeInTheDocument();
     expect(diagnostics).toHaveTextContent("95% · reserve 5%");
+    expect(diagnostics).toHaveTextContent("Launch/config provenance; not an event-time active-context measurement.");
     expect(api.listSessions).not.toHaveBeenCalled();
   });
 
@@ -1164,7 +1169,7 @@ describe("SessionInfoPopover", () => {
     expect(within(section).getByText(/180K context/)).toBeInTheDocument();
   });
 
-  it("renders legacy compaction lifecycle events without inventing pressure accounting", () => {
+  it("renders legacy Codex compactions as cause-unknown without inventing active context", () => {
     resetStore([]);
     const session = storeState.sessions.get("s1");
     if (!session) throw new Error("missing session fixture");
@@ -1207,21 +1212,25 @@ describe("SessionInfoPopover", () => {
 
     expect(within(section).getByText("Claude compaction · auto")).toBeInTheDocument();
     expect(within(section).getByText("Before 180K context (90%)")).toBeInTheDocument();
-    expect(within(section).getByText("After unknown")).toBeInTheDocument();
-    expect(within(section).getByText("Codex compaction")).toBeInTheDocument();
+    expect(within(section).getAllByText("After unknown")).toHaveLength(1);
+    expect(within(section).getByText("Codex compaction · automatic cause unknown")).toBeInTheDocument();
     expect(within(section).getByText("Provider input 270K")).toBeInTheDocument();
+    expect(within(section).getByText("Provider last total unknown")).toBeInTheDocument();
+    expect(
+      within(section).getByText("Exact active context and trigger cause unavailable from Codex app-server"),
+    ).toBeInTheDocument();
     expect(within(section).getByText("After provider input 95K")).toBeInTheDocument();
     expect(within(section).queryByText(/Charged context/)).toBeNull();
   });
 
-  it("separates provider prompt input from the charged pressure lower bound", () => {
+  it("does not repeat a legacy configured-limit lower bound as measured charge", () => {
     resetStore([]);
     const session = storeState.sessions.get("s1");
     if (!session) throw new Error("missing session fixture");
     session.lifecycle_events = [
       {
         type: "compaction",
-        id: "compact-pressure",
+        id: "compact-pressure-legacy",
         timestamp: 1_777_500_000_000,
         backendType: "codex",
         trigger: "auto",
@@ -1254,16 +1263,62 @@ describe("SessionInfoPopover", () => {
     const section = screen.getByTestId("session-lifecycle-debug");
     fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
 
-    expect(within(section).getByText("Codex compaction · context pressure")).toBeInTheDocument();
+    expect(within(section).getByText("Codex compaction · automatic cause unknown")).toBeInTheDocument();
     expect(within(section).getByText("Provider input 424K / 770K (55%)")).toBeInTheDocument();
-    expect(within(section).getByText("Charged context ≥693K / 770K (≥90%) at trigger")).toBeInTheDocument();
-    expect(within(section).getByText("After provider total 55K / 770K (7%)")).toBeInTheDocument();
+    expect(within(section).getByText("Provider last total 430K / 770K (56%)")).toBeInTheDocument();
+    expect(
+      within(section).getByText("Exact active context and trigger cause unavailable from Codex app-server"),
+    ).toBeInTheDocument();
+    expect(within(section).getByText("After provider last total 55K / 770K (7%)")).toBeInTheDocument();
+    expect(within(section).queryByText(/Charged context/)).toBeNull();
+  });
+
+  it("shows a producer-proven pressure cause without inventing its active token count", () => {
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.lifecycle_events = [
+      {
+        type: "compaction",
+        id: "compact-pressure-proven",
+        timestamp: 1_777_500_000_000,
+        backendType: "codex",
+        trigger: "auto",
+        cause: "context_pressure",
+        causeSource: "producer",
+        before: {
+          contextTokensUsed: 430_000,
+          providerReportedInputTokens: 423_969,
+          providerReportedTotalTokens: 430_000,
+          contextUsedPercent: 56,
+          modelContextWindow: 770_000,
+          autoCompactTokenLimit: 693_000,
+          autoCompactTokenLimitScope: "total",
+          source: "codex_token_details",
+          capturedAt: 1_777_500_000_000,
+        },
+      },
+    ];
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    const section = screen.getByTestId("session-lifecycle-debug");
+    fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
+
+    expect(within(section).getByText("Codex compaction · context pressure")).toBeInTheDocument();
+    expect(within(section).getByText("Provider last total 430K / 770K (56%)")).toBeInTheDocument();
+    expect(within(section).getByText("Exact active context unavailable from Codex app-server")).toBeInTheDocument();
+    expect(within(section).queryByText(/Charged context/)).toBeNull();
   });
 
   it.each([
-    ["manual", "Codex compaction · manual"],
-    ["model_switch_migration", "Codex compaction · model switch migration"],
-  ] as const)("does not claim a charged pressure lower bound for %s compaction", (cause, title) => {
+    ["manual", "takode_manual_request", "Codex compaction · manual request"],
+    [
+      "model_switch_migration",
+      "takode_model_switch_guard",
+      "Codex compaction · model switch migration (Takode inferred)",
+    ],
+  ] as const)("keeps %s classification separate from active-context accounting", (cause, causeSource, title) => {
     resetStore([]);
     const session = storeState.sessions.get("s1");
     if (!session) throw new Error("missing session fixture");
@@ -1275,8 +1330,9 @@ describe("SessionInfoPopover", () => {
         backendType: "codex",
         trigger: cause === "manual" ? "manual" : "auto",
         cause,
+        causeSource,
         before: {
-          contextTokensUsed: 14_000,
+          contextTokensUsed: 15_000,
           providerReportedInputTokens: 14_000,
           providerReportedTotalTokens: 15_000,
           contextUsedPercent: 2,
@@ -1295,40 +1351,9 @@ describe("SessionInfoPopover", () => {
 
     expect(within(section).getByText(title)).toBeInTheDocument();
     expect(within(section).getByText("Provider input 14K / 650K (2%)")).toBeInTheDocument();
+    expect(within(section).getByText("Provider last total 15K / 650K (2%)")).toBeInTheDocument();
+    expect(within(section).getByText("Exact active context unavailable from Codex app-server")).toBeInTheDocument();
     expect(within(section).queryByText(/Charged context/)).toBeNull();
-  });
-
-  it("does not mislabel a pressure lower bound as provider input when provider input is unknown", () => {
-    resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.lifecycle_events = [
-      {
-        type: "compaction",
-        id: "compact-pressure-unknown-input",
-        timestamp: 1_777_500_000_000,
-        backendType: "codex",
-        trigger: "auto",
-        cause: "context_pressure",
-        before: {
-          contextTokensUsed: 693_000,
-          contextUsedPercent: 90,
-          modelContextWindow: 770_000,
-          autoCompactTokenLimit: 700_000,
-          source: "codex_auto_compact_limit",
-          capturedAt: 1_777_500_000_000,
-        },
-      },
-    ];
-
-    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
-
-    const section = screen.getByTestId("session-lifecycle-debug");
-    fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
-
-    expect(within(section).getByText("Provider input unknown")).toBeInTheDocument();
-    expect(within(section).getByText("Charged context ≥693K / 770K (≥90%) at trigger")).toBeInTheDocument();
-    expect(within(section).queryByText(/Provider input 693K/)).toBeNull();
   });
 
   it("shows turns, context, and context window for Claude SDK sessions (no cost)", () => {

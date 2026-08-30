@@ -5,6 +5,7 @@ import type {
   BrowserOutgoingMessage,
   CLIResultMessage,
   CodexCompactionCause,
+  CodexCompactionCauseSource,
   CodexContextWindowDiagnostics,
   CodexLeaderRecycleTrigger,
   CodexOutboundTurn,
@@ -90,6 +91,7 @@ function logCodexCompactionStarted(
   session: CodexBrowserMessageSessionLike,
   eventId: string,
   cause: CodexCompactionCause,
+  causeSource: CodexCompactionCauseSource | undefined,
   trigger: "auto" | "manual",
 ): void {
   const event = session.state.lifecycle_events?.find(
@@ -100,6 +102,7 @@ function logCodexCompactionStarted(
   codexContextLog.info("Codex compaction started", {
     sessionId: session.id,
     cause,
+    causeSource,
     trigger,
     role: diagnostics?.role,
     leaderMode: diagnostics?.leaderMode,
@@ -110,9 +113,10 @@ function logCodexCompactionStarted(
     providerRawContextWindow: diagnostics?.providerRawContextWindow,
     autoCompactTokenLimit: diagnostics?.autoCompactTokenLimit,
     autoCompactTokenLimitScope: diagnostics?.autoCompactTokenLimitScope,
+    autoCompactTokenLimitScopeSource: diagnostics?.autoCompactTokenLimitScopeSource,
     providerReportedInputTokens: before?.providerReportedInputTokens,
     providerReportedTotalTokens: before?.providerReportedTotalTokens,
-    chargedContextLowerBound: before?.source === "codex_auto_compact_limit" ? before.contextTokensUsed : undefined,
+    exactActiveContextAvailable: false,
     runtimeContextWindow: before?.modelContextWindow,
   });
 }
@@ -501,6 +505,10 @@ function positiveInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 1 ? Math.floor(value) : undefined;
 }
 
+function nonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : undefined;
+}
+
 function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
@@ -540,12 +548,13 @@ function withCodexLeaderDisplayBudget(
   const tokenDetails = next.codex_token_details;
   if (tokenDetails && typeof tokenDetails === "object") {
     const details = tokenDetails as Record<string, unknown>;
-    const contextTokensUsed = positiveInteger(details.contextTokensUsed);
+    const contextTokensUsed = nonNegativeInteger(details.contextTokensUsed);
     next.codex_token_details = {
       ...details,
       modelContextWindow: thresholdTokens,
+      ...(contextTokensUsed !== undefined ? { displayContextTokensUsed: contextTokensUsed } : {}),
     };
-    if (contextTokensUsed) {
+    if (contextTokensUsed !== undefined) {
       next.context_used_percent = clampPercent(Math.round((contextTokensUsed / thresholdTokens) * 100));
     }
   }
@@ -1019,14 +1028,24 @@ export async function handleCodexAdapterBrowserMessage(
     const wasCompacting = session.state.is_compacting;
     session.state.is_compacting = msg.status === "compacting";
     if (msg.status === "compacting" && !wasCompacting) {
-      const reportedCause = msg.codexCompactionCause ?? "context_pressure";
+      const rawReportedCause = msg.codexCompactionCause ?? "unknown";
+      const rawReportedCauseSource = msg.codexCompactionCauseSource;
+      const reportedCause =
+        rawReportedCause === "context_pressure" && rawReportedCauseSource !== "producer" ? "unknown" : rawReportedCause;
       if (reportedCause === "manual") {
         discardCodexModelSwitchCompactionGuard(session);
       }
       const suppressModelSwitchMigration =
         reportedCause === "model_switch_migration" ||
-        (reportedCause === "context_pressure" && shouldSuppressCodexModelSwitchCompaction(session));
+        (reportedCause === "unknown" && shouldSuppressCodexModelSwitchCompaction(session));
       const cause = suppressModelSwitchMigration ? "model_switch_migration" : reportedCause;
+      const causeSource: CodexCompactionCauseSource | undefined = suppressModelSwitchMigration
+        ? "takode_model_switch_guard"
+        : cause === "manual"
+          ? (rawReportedCauseSource ?? "takode_manual_request")
+          : cause === "context_pressure" && rawReportedCauseSource === "producer"
+            ? "producer"
+            : undefined;
       const ts = Date.now();
       const markerId = `compact-boundary-${ts}`;
       recordCompactionStarted(session, {
@@ -1034,8 +1053,9 @@ export async function handleCodexAdapterBrowserMessage(
         timestamp: ts,
         trigger: cause === "manual" ? "manual" : "auto",
         cause,
+        causeSource,
       });
-      logCodexCompactionStarted(session, markerId, cause, cause === "manual" ? "manual" : "auto");
+      logCodexCompactionStarted(session, markerId, cause, causeSource, cause === "manual" ? "manual" : "auto");
       deps.broadcastToBrowsers(session, {
         type: "session_update",
         session: { lifecycle_events: session.state.lifecycle_events },

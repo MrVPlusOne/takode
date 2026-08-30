@@ -71,8 +71,8 @@ function makeDeps(broadcasts: BrowserIncomingMessage[]): CodexAdapterBrowserMess
 
 describe("codex-adapter-browser-message-controller compaction", () => {
   it("records and broadcasts Codex compaction lifecycle events from status changes", async () => {
-    // Codex surfaces compaction through item lifecycle status changes; the
-    // bridge should persist explicit pressure telemetry without relying on chat history.
+    // Preserve producer evidence when a future adapter can supply it, while
+    // keeping the observed provider usage separate from configured limits.
     const session = makeSession();
     session.state = {
       backend_type: "codex",
@@ -92,7 +92,12 @@ describe("codex-adapter-browser-message-controller compaction", () => {
 
     await handleCodexAdapterBrowserMessage(
       session,
-      { type: "status_change", status: "compacting", codexCompactionCause: "context_pressure" },
+      {
+        type: "status_change",
+        status: "compacting",
+        codexCompactionCause: "context_pressure",
+        codexCompactionCauseSource: "producer",
+      },
       deps,
     );
 
@@ -101,11 +106,12 @@ describe("codex-adapter-browser-message-controller compaction", () => {
         type: "compaction",
         trigger: "auto",
         cause: "context_pressure",
+        causeSource: "producer",
         before: expect.objectContaining({
-          contextTokensUsed: 270_000,
+          contextTokensUsed: 275_000,
           providerReportedInputTokens: 270_000,
           providerReportedTotalTokens: 275_000,
-          contextUsedPercent: 90,
+          contextUsedPercent: 92,
           source: "codex_token_details",
         }),
       }),
@@ -134,6 +140,52 @@ describe("codex-adapter-browser-message-controller compaction", () => {
         source: "codex_token_details",
       },
     });
+  });
+
+  it("downgrades an unproven pressure label to automatic cause unknown", async () => {
+    // A cause string without producer provenance must not revive the old
+    // configured-limit-as-measurement inference.
+    const session = makeSession();
+    session.state = {
+      backend_type: "codex",
+      context_used_percent: 55,
+      codex_token_details: {
+        contextTokensUsed: 423_969,
+        providerReportedTotalTokens: 424_464,
+        inputTokens: 423_969,
+        outputTokens: 495,
+        cachedInputTokens: 423_424,
+        reasoningOutputTokens: 167,
+        modelContextWindow: 770_000,
+      },
+      codex_context_window_diagnostics: {
+        role: "leader",
+        leaderMode: "compact",
+        capacitySource: "configured_usable_capacity",
+        autoCompactTokenLimit: 693_000,
+        autoCompactTokenLimitScope: "total",
+      },
+    };
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      { type: "status_change", status: "compacting", codexCompactionCause: "context_pressure" },
+      makeDeps(broadcasts),
+    );
+
+    expect(session.state.lifecycle_events?.[0]).toMatchObject({
+      trigger: "auto",
+      cause: "unknown",
+      before: {
+        contextTokensUsed: 424_464,
+        providerReportedInputTokens: 423_969,
+        providerReportedTotalTokens: 424_464,
+        contextUsedPercent: 55,
+        source: "codex_token_details",
+      },
+    });
+    expect(session.state.lifecycle_events?.[0]).not.toHaveProperty("causeSource");
   });
 
   it("suppresses only the immediate no-activity Codex model-switch migration compaction", async () => {
@@ -181,11 +233,12 @@ describe("codex-adapter-browser-message-controller compaction", () => {
     expect(session.state.lifecycle_events?.[0]).toMatchObject({
       trigger: "auto",
       cause: "model_switch_migration",
+      causeSource: "takode_model_switch_guard",
       before: {
-        contextTokensUsed: 399_423,
+        contextTokensUsed: 405_000,
         providerReportedInputTokens: 399_423,
         providerReportedTotalTokens: 405_000,
-        contextUsedPercent: 61,
+        contextUsedPercent: 62,
         source: "codex_token_details",
       },
       finishedAt: expect.any(Number),
@@ -206,9 +259,9 @@ describe("codex-adapter-browser-message-controller compaction", () => {
     expect(broadcasts).not.toContainEqual(expect.objectContaining({ type: "status_change", status: "compacting" }));
   });
 
-  it("keeps normal pressure recovery at 61% provider input after substantive post-switch activity", async () => {
-    // A real model response consumes the migration guard. A later compaction is
-    // pressure even when prompt-input accounting alone still reads only 61%.
+  it("keeps normal recovery for an unclassified auto compaction after post-switch activity", async () => {
+    // A real model response consumes the migration guard. A later compaction
+    // still gets normal recovery, but app-server does not reveal its cause.
     const session = makeSession();
     session.state = {
       backend_type: "codex",
@@ -256,13 +309,13 @@ describe("codex-adapter-browser-message-controller compaction", () => {
     expect(session.messageHistory.some((entry: BrowserIncomingMessage) => entry.type === "compact_marker")).toBe(true);
     expect(session.state.lifecycle_events?.[0]).toMatchObject({
       trigger: "auto",
-      cause: "context_pressure",
+      cause: "unknown",
       before: {
-        contextTokensUsed: 684_000,
+        contextTokensUsed: 470_000,
         providerReportedInputTokens: 464_542,
         providerReportedTotalTokens: 470_000,
-        contextUsedPercent: 90,
-        source: "codex_auto_compact_limit",
+        contextUsedPercent: 62,
+        source: "codex_token_details",
       },
     });
     expect(deps.injectCompactionRecovery).toHaveBeenCalledWith(session);
@@ -272,7 +325,7 @@ describe("codex-adapter-browser-message-controller compaction", () => {
 
   it("keeps explicit manual compaction out of both pressure accounting and a stale model-switch guard", async () => {
     // `/compact` is an operator action. It consumes no migration suppression and
-    // must retain provider-input accounting even when an auto limit is known.
+    // must retain observed provider accounting even when an auto limit is known.
     const session = makeSession();
     session.state = {
       backend_type: "codex",
@@ -320,15 +373,60 @@ describe("codex-adapter-browser-message-controller compaction", () => {
     expect(session.state.lifecycle_events?.[0]).toMatchObject({
       trigger: "manual",
       cause: "manual",
+      causeSource: "takode_manual_request",
       before: {
-        contextTokensUsed: 464_542,
+        contextTokensUsed: 470_000,
         providerReportedInputTokens: 464_542,
         providerReportedTotalTokens: 470_000,
-        contextUsedPercent: 61,
+        contextUsedPercent: 62,
         source: "codex_token_details",
       },
     });
     expect(deps.injectCompactionRecovery).toHaveBeenCalledWith(session);
     expect(broadcasts).toContainEqual(expect.objectContaining({ type: "compact_boundary" }));
+  });
+  it("keeps a zero-input leader recycle snapshot internally consistent", async () => {
+    // Post-compaction usage can retain a nonzero provider last total while
+    // input is exactly zero. Recycle mode must still rewrite numerator,
+    // percentage, and denominator as one role-specific display policy.
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = {
+      ...makeDeps(broadcasts),
+      getLauncherSessionInfo: vi.fn(() => ({
+        isOrchestrator: true,
+        codexLeaderRecycleThresholdTokens: 545_000,
+      })),
+    };
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "session_update",
+        session: {
+          context_used_percent: 16,
+          codex_token_details: {
+            contextTokensUsed: 0,
+            displayContextTokensUsed: 42_176,
+            providerReportedTotalTokens: 42_176,
+            inputTokens: 0,
+            outputTokens: 0,
+            cachedInputTokens: 0,
+            reasoningOutputTokens: 0,
+            modelContextWindow: 258_400,
+          },
+        },
+      },
+      deps,
+    );
+
+    expect(session.state.context_used_percent).toBe(0);
+    expect(session.state.codex_token_details).toMatchObject({
+      contextTokensUsed: 0,
+      displayContextTokensUsed: 0,
+      providerReportedTotalTokens: 42_176,
+      modelContextWindow: 545_000,
+    });
+    expect(deps.requestCodexLeaderRecycle).not.toHaveBeenCalled();
   });
 });

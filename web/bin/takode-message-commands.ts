@@ -247,6 +247,8 @@ type ReportedContextUsage = {
   source: string;
   contextUsedPercent?: number;
   contextTokensUsed?: number;
+  displayContextTokensUsed?: number;
+  providerReportedTotalTokens?: number;
   modelContextWindow?: number;
   leaderRecycleThresholdTokens?: number;
 };
@@ -307,12 +309,17 @@ function formatReportedContextUsage(usage: ReportedContextUsage | null | undefin
   if (!usage) return "unavailable";
   const parts: string[] = [];
   if (typeof usage.contextUsedPercent === "number") parts.push(`${usage.contextUsedPercent}%`);
-  if (typeof usage.contextTokensUsed === "number" && typeof usage.modelContextWindow === "number") {
-    parts.push(
-      `${formatNumberCompact(usage.contextTokensUsed)}/${formatNumberCompact(usage.modelContextWindow)} tokens`,
-    );
-  } else if (typeof usage.contextTokensUsed === "number") {
-    parts.push(`${formatNumberCompact(usage.contextTokensUsed)} tokens`);
+  const displayTokens = usage.displayContextTokensUsed ?? usage.contextTokensUsed;
+  if (typeof displayTokens === "number" && typeof usage.modelContextWindow === "number") {
+    parts.push(`${formatNumberCompact(displayTokens)}/${formatNumberCompact(usage.modelContextWindow)} tokens`);
+  } else if (typeof displayTokens === "number") {
+    parts.push(`${formatNumberCompact(displayTokens)} tokens`);
+  }
+  if (typeof usage.contextTokensUsed === "number" && usage.contextTokensUsed !== displayTokens) {
+    parts.push(`provider input ${formatNumberCompact(usage.contextTokensUsed)}`);
+  }
+  if (typeof usage.providerReportedTotalTokens === "number" && usage.providerReportedTotalTokens !== displayTokens) {
+    parts.push(`provider last total ${formatNumberCompact(usage.providerReportedTotalTokens)}`);
   }
   if (parts.length === 0) parts.push("recorded");
   parts.push(`${formatInlineText(usage.source)} ${formatTimestampCompact(usage.timestamp)}`);

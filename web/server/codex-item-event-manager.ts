@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { normalizeCodexMessagePhase, type CodexMessagePhase } from "../shared/codex-message-phase.js";
-import type { BrowserIncomingMessage, CodexCompactionCause } from "./session-types.js";
+import type { BrowserIncomingMessage, CodexCompactionCause, CodexCompactionCauseSource } from "./session-types.js";
 import {
   CodexAgentMessageItem,
   CodexCollabAgentToolCallItem,
@@ -37,6 +37,7 @@ type ToolEmitOptions = {
 };
 
 type RouterFailureToolName = "write_stdin";
+type CompactionCauseAttribution = { cause: CodexCompactionCause; source?: CodexCompactionCauseSource };
 
 const RAW_EXEC_CALL_CACHE_LIMIT = 50;
 const RAW_EXEC_OUTPUT_COMMAND_CACHE_LIMIT = 50;
@@ -78,8 +79,8 @@ export class CodexItemEventManager {
   private parentToolUseIdByThreadId = new Map<string, string>();
   private parentToolUseIdByItemId = new Map<string, string | null>();
   private pendingSubagentToolUsesByCallId = new Map<string, PendingSubagentToolUse>();
-  private nextCompactionCause: { cause: CodexCompactionCause; expiresAt: number } | null = null;
-  private compactionCauseByItemId = new Map<string, CodexCompactionCause>();
+  private nextCompactionCause: (CompactionCauseAttribution & { expiresAt: number }) | null = null;
+  private compactionCauseByItemId = new Map<string, CompactionCauseAttribution>();
 
   constructor(
     private readonly emit: EmitFn,
@@ -120,9 +121,14 @@ export class CodexItemEventManager {
     this.lastMessageFinishedAt = timestamp;
   }
 
-  markNextCompactionCause(cause: CodexCompactionCause, now = Date.now()): void {
+  markNextCompactionCause(
+    cause: CodexCompactionCause,
+    now = Date.now(),
+    source: CodexCompactionCauseSource | undefined = cause === "manual" ? "takode_manual_request" : undefined,
+  ): void {
     this.nextCompactionCause = {
       cause,
+      ...(source ? { source } : {}),
       expiresAt: now + NEXT_COMPACTION_CAUSE_TTL_MS,
     };
   }
@@ -132,11 +138,11 @@ export class CodexItemEventManager {
     this.nextCompactionCause = null;
   }
 
-  private consumeNextCompactionCause(now = Date.now()): CodexCompactionCause {
+  private consumeNextCompactionCause(now = Date.now()): CompactionCauseAttribution {
     const pending = this.nextCompactionCause;
     this.nextCompactionCause = null;
-    if (!pending || pending.expiresAt < now) return "context_pressure";
-    return pending.cause;
+    if (!pending || pending.expiresAt < now) return { cause: "unknown" };
+    return { cause: pending.cause, ...(pending.source ? { source: pending.source } : {}) };
   }
 
   private rememberMessagePhase(itemId: string, value: unknown): void {
@@ -288,9 +294,14 @@ export class CodexItemEventManager {
       }
 
       case "contextCompaction": {
-        const cause = this.consumeNextCompactionCause();
-        this.compactionCauseByItemId.set(item.id, cause);
-        this.emit({ type: "status_change", status: "compacting", codexCompactionCause: cause });
+        const attribution = this.consumeNextCompactionCause();
+        this.compactionCauseByItemId.set(item.id, attribution);
+        this.emit({
+          type: "status_change",
+          status: "compacting",
+          codexCompactionCause: attribution.cause,
+          ...(attribution.source ? { codexCompactionCauseSource: attribution.source } : {}),
+        });
         break;
       }
 
@@ -648,9 +659,14 @@ export class CodexItemEventManager {
       }
 
       case "contextCompaction": {
-        const cause = this.compactionCauseByItemId.get(item.id) ?? "context_pressure";
+        const attribution = this.compactionCauseByItemId.get(item.id) ?? { cause: "unknown" as const };
         this.compactionCauseByItemId.delete(item.id);
-        this.emit({ type: "status_change", status: null, codexCompactionCause: cause });
+        this.emit({
+          type: "status_change",
+          status: null,
+          codexCompactionCause: attribution.cause,
+          ...(attribution.source ? { codexCompactionCauseSource: attribution.source } : {}),
+        });
         break;
       }
 

@@ -858,9 +858,11 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       {
         type: "session_update",
         session: {
-          context_used_percent: 18,
+          context_used_percent: 96,
           codex_token_details: {
             contextTokensUsed: 518_366,
+            displayContextTokensUsed: 525_000,
+            providerReportedTotalTokens: 525_000,
             inputTokens: 10,
             outputTokens: 20,
             cachedInputTokens: 30,
@@ -875,6 +877,8 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(session.state.context_used_percent).toBe(95);
     expect(session.state.codex_token_details).toMatchObject({
       contextTokensUsed: 518_366,
+      displayContextTokensUsed: 518_366,
+      providerReportedTotalTokens: 525_000,
       inputTokens: 10,
       outputTokens: 20,
       cachedInputTokens: 30,
@@ -959,9 +963,11 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       {
         type: "session_update",
         session: {
-          context_used_percent: 18,
+          context_used_percent: 96,
           codex_token_details: {
             contextTokensUsed: 518_366,
+            displayContextTokensUsed: 525_000,
+            providerReportedTotalTokens: 525_000,
             inputTokens: 10,
             outputTokens: 20,
             cachedInputTokens: 30,
@@ -973,9 +979,11 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       deps,
     );
 
-    expect(session.state.context_used_percent).toBe(18);
+    expect(session.state.context_used_percent).toBe(96);
     expect(session.state.codex_token_details).toMatchObject({
       contextTokensUsed: 518_366,
+      displayContextTokensUsed: 525_000,
+      providerReportedTotalTokens: 525_000,
       modelContextWindow: 3_027_778,
     });
     expect(deps.requestCodexLeaderRecycle).not.toHaveBeenCalled();

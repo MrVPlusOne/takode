@@ -78,7 +78,7 @@ describe("Codex launch-resolved context diagnostics", () => {
     return { spawn, sessionHome, launchLine };
   }
 
-  it("reports the exact configured 760K worker launch values", async () => {
+  it("records the configured 760K worker launch request", async () => {
     const { spawn, sessionHome, launchLine } = await prepare({
       sessionId: "configured-worker",
       usableCapacity: 760_000,
@@ -95,6 +95,7 @@ describe("Codex launch-resolved context diagnostics", () => {
       providerEffectiveContextWindow: 760_000,
       autoCompactTokenLimit: 684_000,
       autoCompactTokenLimitScope: "total",
+      autoCompactTokenLimitScopeSource: "codex_default",
     });
     expect(launchLine).toContain("model_context_window=800000");
     expect(launchLine).toContain("model_auto_compact_token_limit=684000");
@@ -104,7 +105,7 @@ describe("Codex launch-resolved context diagnostics", () => {
     );
   });
 
-  it("reports the exact configured 770K compact-mode leader values", async () => {
+  it("records the configured 770K compact-mode leader launch request", async () => {
     const { spawn, launchLine } = await prepare({
       sessionId: "compact-leader",
       leader: true,
@@ -124,6 +125,7 @@ describe("Codex launch-resolved context diagnostics", () => {
       providerEffectiveContextWindow: 770_000,
       autoCompactTokenLimit: 693_000,
       autoCompactTokenLimitScope: "total",
+      autoCompactTokenLimitScopeSource: "codex_default",
     });
     expect(launchLine).toContain("/root/.codex/takode-model-catalog.json");
     expect(launchLine).not.toContain("takode-leader-model-catalog.json");
@@ -151,6 +153,7 @@ describe("Codex launch-resolved context diagnostics", () => {
       providerEffectiveContextWindow: 4_063_889,
       autoCompactTokenLimit: 3_850_000,
       autoCompactTokenLimitScope: "total",
+      autoCompactTokenLimitScopeSource: "codex_default",
     });
     expect(spawn.codexLeaderRecycleThresholdTokens).toBe(770_000);
     expect(launchLine).toContain("/root/.codex/takode-leader-model-catalog.json");
@@ -180,13 +183,14 @@ describe("Codex launch-resolved context diagnostics", () => {
     expect(launchLine).toContain("model_context_window=4277778");
   });
 
-  it("leaves unconfigured worker values unknown while reporting the proven Codex scope default", async () => {
+  it("leaves unconfigured worker values unknown while labeling the documented Codex scope default", async () => {
     const { spawn, launchLine } = await prepare({ sessionId: "default-worker" });
 
     expect(spawn.contextWindowDiagnostics).toEqual({
       role: "non_leader",
       capacitySource: "codex_default",
       autoCompactTokenLimitScope: "total",
+      autoCompactTokenLimitScopeSource: "codex_default",
     });
     expect(launchLine).not.toContain("model_context_window=");
     expect(launchLine).not.toContain("model_auto_compact_token_limit=");
@@ -201,13 +205,14 @@ describe("Codex launch-resolved context diagnostics", () => {
     });
 
     expect(spawn.contextWindowDiagnostics.autoCompactTokenLimitScope).toBe("body_after_prefix");
+    expect(spawn.contextWindowDiagnostics.autoCompactTokenLimitScopeSource).toBe("configured");
     expect(launchLine).not.toContain("model_auto_compact_token_limit_scope");
     expect(await readFile(join(sessionHome, "config.toml"), "utf-8")).toContain(
       'model_auto_compact_token_limit_scope = "body_after_prefix"',
     );
   });
 
-  it("reports only values proven by an unowned Codex config/catalog", async () => {
+  it("reports values derived from an unowned Codex config/catalog", async () => {
     const codexHome = await makeRoot("takode-codex-config-diagnostics-");
     const catalogPath = join(codexHome, "custom-models.json");
     await writeFile(
@@ -248,10 +253,11 @@ describe("Codex launch-resolved context diagnostics", () => {
       providerEffectiveContextWindow: 480_000,
       autoCompactTokenLimit: 510_000,
       autoCompactTokenLimitScope: "body_after_prefix",
+      autoCompactTokenLimitScopeSource: "configured",
     });
   });
 
-  it("reports the provider's 90% clamp for total-scope Codex config", async () => {
+  it("reports the expected 90% clamp for total-scope Codex config", async () => {
     const codexHome = await makeRoot("takode-codex-total-scope-diagnostics-");
     const catalogPath = join(codexHome, "custom-models.json");
     await writeFile(
@@ -285,5 +291,6 @@ describe("Codex launch-resolved context diagnostics", () => {
 
     expect(diagnostics.autoCompactTokenLimit).toBe(432_000);
     expect(diagnostics.autoCompactTokenLimitScope).toBe("total");
+    expect(diagnostics.autoCompactTokenLimitScopeSource).toBe("configured");
   });
 });

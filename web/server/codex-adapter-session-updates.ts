@@ -1,5 +1,5 @@
 import type { SessionState } from "./session-types.js";
-import { computeContextTokensUsed, computeContextUsedPercent, type TokenUsage } from "./bridge/context-usage.js";
+import { computeContextTokensUsed, type TokenUsage } from "./bridge/context-usage.js";
 import {
   codexEffectiveReasoningEffortPatch,
   readCodexReasoningEffortReport,
@@ -89,9 +89,13 @@ export function buildCodexTokenUsagePatch(params: Record<string, unknown>): Part
       input_tokens: last.inputTokens || 0,
       cache_read_input_tokens: last.cachedInputTokens || 0,
     };
-    const contextTokensUsed = computeContextTokensUsed(usage);
-    const pct = computeContextUsedPercent(usage, contextWindow);
-    if (typeof contextTokensUsed === "number") {
+    const contextTokensUsed =
+      computeContextTokensUsed(usage) ??
+      (typeof last.inputTokens === "number" && last.inputTokens === 0 && (last.cachedInputTokens || 0) === 0
+        ? 0
+        : undefined);
+    const displayContextTokens = providerReportedTotalTokens ?? contextTokensUsed;
+    if (typeof contextTokensUsed === "number" || typeof providerReportedTotalTokens === "number") {
       updates.codex_token_details = {
         ...(updates.codex_token_details ?? {
           inputTokens: total?.inputTokens || 0,
@@ -100,16 +104,23 @@ export function buildCodexTokenUsagePatch(params: Record<string, unknown>): Part
           reasoningOutputTokens: total?.reasoningOutputTokens || 0,
           modelContextWindow: contextWindow || 0,
         }),
-        contextTokensUsed,
+        ...(typeof contextTokensUsed === "number" ? { contextTokensUsed } : {}),
+        ...(typeof displayContextTokens === "number" ? { displayContextTokensUsed: displayContextTokens } : {}),
         ...(providerReportedTotalTokens !== undefined ? { providerReportedTotalTokens } : {}),
       };
     }
-    if (typeof pct === "number") updates.context_used_percent = pct;
+    if (typeof displayContextTokens === "number") {
+      updates.context_used_percent = Math.max(
+        0,
+        Math.min(100, Math.round((Math.min(displayContextTokens, contextWindow) / contextWindow) * 100)),
+      );
+    }
   }
 
   if (total) {
     updates.codex_token_details = {
       contextTokensUsed: updates.codex_token_details?.contextTokensUsed,
+      displayContextTokensUsed: updates.codex_token_details?.displayContextTokensUsed,
       ...(providerReportedTotalTokens !== undefined ? { providerReportedTotalTokens } : {}),
       inputTokens: total.inputTokens || 0,
       outputTokens: total.outputTokens || 0,

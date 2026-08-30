@@ -120,6 +120,8 @@ describe("context-usage helpers", () => {
           codex_leader_recycle_threshold_tokens: 545_000,
           codex_token_details: {
             contextTokensUsed: 230_000,
+            displayContextTokensUsed: 230_000,
+            providerReportedTotalTokens: 235_000,
             inputTokens: 1_000_000,
             outputTokens: 10_000,
             cachedInputTokens: 700_000,
@@ -135,6 +137,8 @@ describe("context-usage helpers", () => {
       source: "codex_token_usage",
       contextUsedPercent: 42,
       contextTokensUsed: 230_000,
+      displayContextTokensUsed: 230_000,
+      providerReportedTotalTokens: 235_000,
       inputTokens: 1_000_000,
       outputTokens: 10_000,
       cachedInputTokens: 700_000,

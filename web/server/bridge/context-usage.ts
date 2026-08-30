@@ -151,6 +151,12 @@ export function buildContextUsageHistoryEntry(
   if (codex && source === "codex_token_usage") {
     Object.assign(entry, {
       ...(typeof codex.contextTokensUsed === "number" ? { contextTokensUsed: codex.contextTokensUsed } : {}),
+      ...(typeof codex.displayContextTokensUsed === "number"
+        ? { displayContextTokensUsed: codex.displayContextTokensUsed }
+        : {}),
+      ...(typeof codex.providerReportedTotalTokens === "number"
+        ? { providerReportedTotalTokens: codex.providerReportedTotalTokens }
+        : {}),
       inputTokens: codex.inputTokens,
       outputTokens: codex.outputTokens,
       cachedInputTokens: codex.cachedInputTokens,

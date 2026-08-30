@@ -127,11 +127,13 @@ export async function resolveCodexContextWindowDiagnostics(options: {
   launchConfig?: CodexResolvedContextLaunchConfig;
   leaderRecycleGuard?: boolean;
 }): Promise<CodexContextWindowDiagnostics> {
-  const autoCompactTokenLimitScope = readAutoCompactScope(options.configToml);
+  const autoCompactScope = readAutoCompactScope(options.configToml);
+  const autoCompactTokenLimitScope = autoCompactScope.scope;
   const base = {
     role: options.role,
     ...(options.leaderMode ? { leaderMode: options.leaderMode } : {}),
     autoCompactTokenLimitScope,
+    autoCompactTokenLimitScopeSource: autoCompactScope.source,
   };
   if (options.launchConfig) {
     return {
@@ -205,10 +207,15 @@ export async function resolveCodexContextWindowDiagnostics(options: {
   };
 }
 
-function readAutoCompactScope(configToml: string): CodexAutoCompactTokenLimitScope {
-  return readTopLevelStringSetting(configToml, "model_auto_compact_token_limit_scope") === "body_after_prefix"
-    ? "body_after_prefix"
-    : CODEX_DEFAULT_AUTO_COMPACT_TOKEN_LIMIT_SCOPE;
+function readAutoCompactScope(configToml: string): {
+  scope: CodexAutoCompactTokenLimitScope;
+  source: "configured" | "codex_default";
+} {
+  const configured = readTopLevelStringSetting(configToml, "model_auto_compact_token_limit_scope");
+  if (configured === "body_after_prefix" || configured === "total") {
+    return { scope: configured, source: "configured" };
+  }
+  return { scope: CODEX_DEFAULT_AUTO_COMPACT_TOKEN_LIMIT_SCOPE, source: "codex_default" };
 }
 
 export function logCodexContextWindowDiagnostics(
