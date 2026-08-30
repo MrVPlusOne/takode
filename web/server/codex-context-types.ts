@@ -36,6 +36,7 @@ export interface CodexLeaderRecycleContinuation {
   trigger: CodexLeaderRecycleTrigger;
   requestedAt: number;
   content: string;
+  recoveryId?: string;
   threadKey?: string;
   questId?: string;
 }

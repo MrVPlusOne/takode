@@ -102,6 +102,40 @@ function makeDeps(broadcasts: BrowserIncomingMessage[]): CodexAdapterBrowserMess
   };
 }
 
+describe("Codex result interruption ownership", () => {
+  it.each([
+    "explicit",
+    "session",
+  ] as const)("passes canonical %s interruption state into exact-owner result settlement", async (source) => {
+    const session = makeSession();
+    if (source === "session") (session as any).interruptedDuringTurn = true;
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+    const outgoing = {
+      type: "result",
+      ...(source === "explicit" ? { interrupted: true } : {}),
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "success-shaped raced result",
+        duration_ms: 1,
+        duration_api_ms: 1,
+        num_turns: 1,
+        total_cost_usd: 0,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        session_id: session.id,
+        uuid: `result-${source}`,
+        stop_reason: "end_turn",
+      },
+    } as any;
+
+    await handleCodexAdapterBrowserMessage(session as any, outgoing, deps);
+
+    expect(deps.completeCodexTurnsForResult).toHaveBeenCalledWith(session, outgoing.data, expect.any(Number), true);
+  });
+});
+
 describe("Codex leader thread status activity invalidation", () => {
   it("preserves an official message phase across leader route splitting and persistence", async () => {
     const session = makeSession();

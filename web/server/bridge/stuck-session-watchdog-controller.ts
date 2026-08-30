@@ -6,6 +6,11 @@ import {
   getCurrentTurnTriggerSource as getCurrentTurnTriggerSourceController,
 } from "./session-registry-controller.js";
 import type { Session } from "./ws-bridge-session.js";
+import { getCodexTurnInRecovery } from "./codex-turn-queue.js";
+import {
+  markCodexTurnRecoveryActionRequired,
+  markCodexTurnRecoveryOnDisconnect,
+} from "./codex-interrupted-turn-recovery.js";
 
 const STUCK_GENERATION_THRESHOLD_MS = 120_000; // 2 minutes
 const STUCK_PENDING_DELIVERY_MS = 60_000;
@@ -32,6 +37,8 @@ export interface StuckSessionWatchdogBridgeDeps {
   herdEventDispatcher?: { forceFlushPendingEvents?: (sessionId: string) => number } | null;
   requestCodexAutoRecovery: (session: Session, reason: string) => boolean;
   broadcastToBrowsers: (session: Session, message: BrowserIncomingMessage) => void;
+  persistSession: (session: Session) => void;
+  setAttentionError: (session: Session) => void;
   markTurnInterrupted: (session: Session, source: InterruptSource) => void;
   setGenerating: (session: Session, generating: boolean, reason: string) => void;
   emitTakodeTurnEnd: (sessionId: string, data: TakodeTurnEndEventData) => void;
@@ -64,11 +71,35 @@ export function runWsBridgeStuckSessionWatchdogSweep(deps: StuckSessionWatchdogB
       }),
     getRecoverableActiveCodexTurnId: getRecoverableActiveCodexTurnId,
     pokeStaleCodexPendingDelivery: deps.pokeStaleCodexPendingDelivery,
+    recoverStuckOrchestratorCodexTurn: (session) => {
+      const pending = getCodexTurnInRecovery(session);
+      if (!pending) return false;
+      const recoveryDeps = {
+        broadcastToBrowsers: deps.broadcastToBrowsers,
+        persistSession: deps.persistSession,
+        setAttentionError: deps.setAttentionError,
+      };
+      markCodexTurnRecoveryOnDisconnect(session, pending, recoveryDeps);
+      if (session.state.codex_turn_recovery?.status !== "recovering") return false;
+      if (deps.requestCodexAutoRecovery(session, "stuck_auto_recovery")) return true;
+      markCodexTurnRecoveryActionRequired(session, "recovery_failed", recoveryDeps);
+      return false;
+    },
   });
 }
 
 function getRecoverableActiveCodexTurnId(session: Session): string | null {
   if (session.backendType !== "codex") return null;
   if (session.codexAdapter?.isConnected?.() !== true) return null;
-  return session.codexAdapter.getCurrentTurnId();
+  const activeTurnId = session.codexAdapter.getCurrentTurnId();
+  if (activeTurnId) return activeTurnId;
+
+  // Codex can publish thread/status/changed=idle before a terminal turn result.
+  // The adapter correctly clears its stale currentTurnId in that shape, but the
+  // exact backend-acknowledged queue owner still preserves the provider turn id
+  // needed to classify activity-bearing leader work without blind replay.
+  if (session.state.isOrchestrator !== true) return null;
+  const pending = getCodexTurnInRecovery(session);
+  if (pending?.status !== "backend_acknowledged") return null;
+  return pending.turnId ?? null;
 }

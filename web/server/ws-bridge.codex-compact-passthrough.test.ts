@@ -679,6 +679,57 @@ describe("Codex /compact passthrough", () => {
     expect((userMsgs[0] as any).content).toBe("/compact");
   });
 
+  it("fails an exact interrupted-turn recycle closed when relaunch fails", async () => {
+    const sid = "leader-recovery-relaunch-failure";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    const launcher = {
+      getSession: vi.fn(() => ({
+        sessionId: sid,
+        backendType: "codex",
+        isOrchestrator: true,
+        cliSessionId: "thread-recovery-failure",
+        codexLeaderRecyclePending: null,
+      })),
+      prepareCodexLeaderRecycle: vi.fn(() => ({ ok: true })),
+      relaunch: vi.fn(async () => ({ ok: false, error: "spawn failed" })),
+      completeCodexLeaderRecycle: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+    };
+    bridge.setLauncher(launcher as any);
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-recovery-failure" });
+    bridge.handleBrowserOpen(browser, sid);
+    const session = bridge.getSession(sid)!;
+    session.state.isOrchestrator = true;
+    session.state.codex_turn_recovery = {
+      recoveryId: "original-owner",
+      originalOwnerId: "original-owner",
+      originalProviderTurnId: "turn-original",
+      originalHistoryIndex: 0,
+      continuationOwnerId: "continuation-owner",
+      threadKey: "q-9010",
+      questId: "q-9010",
+      status: "continuation_active",
+      reason: "interrupted_after_activity",
+      attempt: 1,
+      maxAttempts: 1,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "/compact" }));
+
+    expect(launcher.completeCodexLeaderRecycle).toHaveBeenCalledWith(sid);
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      status: "action_required",
+      reason: "recovery_failed",
+    });
+    expect(session.codexLeaderRecycleContinuation).toBeNull();
+    expect(session.attentionReason).toBe("error");
+  });
+
   it("forwards /compact to Codex for leaders in compaction mode", async () => {
     const browser = makeBrowserSocket("leader-compact-mode");
     const adapter = makeCodexAdapterMock();

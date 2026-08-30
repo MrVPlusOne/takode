@@ -13,13 +13,13 @@ import { LeaderSessionReturnPlaygroundState } from "./LeaderSessionReturnPlaygro
 import { PlaygroundMarkdownMathSection } from "./PlaygroundMarkdownMathSection.js";
 import { PlaygroundFileLinkSection } from "./PlaygroundFileLinkSection.js";
 import { PlaygroundPendingImagePreviews } from "./PlaygroundPendingImagePreviews.js";
+import { PlaygroundChatViewRecoveryStates } from "./ChatViewRecoveryPlaygroundStates.js";
 import { AttentionLedgerRow } from "../AttentionLedgerRow.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { ToolBlock } from "../ToolBlock.js";
 import { GitHubPRDisplay } from "../TaskPanel.js";
 import { SessionStatusDot } from "../SessionStatusDot.js";
 import { SessionItem } from "../SessionItem.js";
-import { ModelProvenanceMigrationBanner } from "../ModelProvenanceMigrationBanner.js";
 import { YarnBallDot } from "../CatIcons.js";
 import { getShortcutTitle } from "../../shortcuts.js";
 import { useStore } from "../../store.js";
@@ -82,21 +82,15 @@ import {
   PERM_QUEUED_BASH,
   PERM_READ,
   PERM_WRITE,
-  PLAYGROUND_BROKEN_SESSION_ID,
   PLAYGROUND_CODEX_PENDING_SESSION_ID,
   PLAYGROUND_CODEX_TERMINAL_SESSION_ID,
-  PLAYGROUND_DISCONNECTED_SESSION_ID,
   PLAYGROUND_HERD_GROUP_THEMES,
   PLAYGROUND_LOADING_SESSION_ID,
-  PLAYGROUND_RECOVERING_SESSION_ID,
   PLAYGROUND_REPEATED_ERROR_SESSION_ID,
-  PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID,
-  PLAYGROUND_RESUMING_SESSION_ID,
   PLAYGROUND_REVIEWER_MAP,
   PLAYGROUND_SECTIONED_SESSION_ID,
   PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID,
   PLAYGROUND_SESSION_ROWS,
-  PLAYGROUND_STARTING_SESSION_ID,
   PLAYGROUND_THREAD_PANEL_SESSION_ID,
 } from "./fixtures.js";
 import {
@@ -125,29 +119,7 @@ import {
   PlaygroundSectionGroup,
   TaskRow,
 } from "./shared.js";
-import type { ModelProvenanceMigration, SessionAttentionRecord } from "../../types.js";
-
-const PLAYGROUND_MODEL_PROVENANCE_MIGRATION: ModelProvenanceMigration = {
-  eventId: "model-provenance-migration:playground",
-  code: "model_provenance_unavailable",
-  source: "legacy_relaunch",
-  selectedModel: "gpt-5.6-sol",
-  authority: {
-    model: "gpt-5.6-sol",
-    source: "session_default",
-    policyVersion: "playground",
-    overrideTrace: [
-      {
-        model: "gpt-5.6-sol",
-        source: "session_default",
-        precedence: 300,
-        status: "selected",
-      },
-    ],
-  },
-  migratedAt: 0,
-  warning: "Original model provenance was unavailable. Takode selected gpt-5.6-sol and persisted this exact choice.",
-};
+import type { SessionAttentionRecord } from "../../types.js";
 
 function PlaygroundAssistantQuestQuizMessage() {
   useEffect(() => {
@@ -809,64 +781,7 @@ export function PlaygroundOverviewSections() {
         </div>
       </Section>
 
-      <Section
-        title="ChatView Recovery States"
-        description="Recoverable disconnects use the lower-left feed chip, while blocking recovery failures keep the prominent chat-surface banner."
-      >
-        <div className="space-y-4">
-          <Card label="Fresh session starting">
-            <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
-              <ChatView sessionId={PLAYGROUND_STARTING_SESSION_ID} />
-            </div>
-          </Card>
-          <Card label="Safe request retry + reconnecting chips">
-            <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
-              <ChatView sessionId={PLAYGROUND_RECOVERING_SESSION_ID} />
-            </div>
-          </Card>
-          <Card label="Recoverable resuming chip">
-            <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
-              <ChatView sessionId={PLAYGROUND_RESUMING_SESSION_ID} />
-            </div>
-          </Card>
-          <Card label="Recoverable disconnected chip">
-            <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
-              <ChatView sessionId={PLAYGROUND_DISCONNECTED_SESSION_ID} />
-            </div>
-          </Card>
-          <Card label="Broken session relaunch banner">
-            <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
-              <ChatView sessionId={PLAYGROUND_BROKEN_SESSION_ID} />
-            </div>
-          </Card>
-          <Card label="Automatic recovery suppressed">
-            <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
-              <ChatView sessionId={PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID} />
-            </div>
-          </Card>
-          <Card label="Compact migration notice">
-            <ModelProvenanceMigrationBanner
-              migration={PLAYGROUND_MODEL_PROVENANCE_MIGRATION}
-              onAcknowledge={async () => {}}
-            />
-          </Card>
-          <Card label="Expanded migration details">
-            <ModelProvenanceMigrationBanner
-              migration={PLAYGROUND_MODEL_PROVENANCE_MIGRATION}
-              defaultDetailsOpen
-              onAcknowledge={async () => {}}
-            />
-          </Card>
-          <Card label="Acknowledged migration hidden">
-            <div data-testid="playground-acknowledged-migration-hidden" className="min-h-8">
-              <ModelProvenanceMigrationBanner
-                migration={{ ...PLAYGROUND_MODEL_PROVENANCE_MIGRATION, acknowledgedAt: 1 }}
-                onAcknowledge={async () => {}}
-              />
-            </div>
-          </Card>
-        </div>
-      </Section>
+      <PlaygroundChatViewRecoveryStates />
 
       {/* ─── ExitPlanMode — Full-window overlay ──────────────── */}
       <Section

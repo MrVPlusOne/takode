@@ -695,6 +695,7 @@ export interface CodexAdapterBrowserMessageDeps {
     session: CodexBrowserMessageSessionLike,
     msg: CLIResultMessage,
     updatedAt?: number,
+    interrupted?: boolean,
   ) => boolean;
   clearCodexFreshTurnRequirement: (
     session: CodexBrowserMessageSessionLike,
@@ -1345,8 +1346,12 @@ export async function handleCodexAdapterBrowserMessage(
       outgoing.data as CLIResultMessage,
       completedTurn,
     );
-    const retainTurnForRetry = providerRecovery.kind === "recover" && providerRecovery.retryTurn && !!completedTurn;
-    if (!retainTurnForRetry && !deps.completeCodexTurnsForResult(session, outgoing.data, Date.now())) {
+    const retainTurnForRetry =
+      !resultInterrupted && providerRecovery.kind === "recover" && providerRecovery.retryTurn && !!completedTurn;
+    if (
+      !retainTurnForRetry &&
+      !deps.completeCodexTurnsForResult(session, outgoing.data, Date.now(), resultInterrupted)
+    ) {
       deps.syncSideChatParent?.(session);
       return;
     }
@@ -1397,7 +1402,7 @@ export async function handleCodexAdapterBrowserMessage(
       }
       if (!recoveryRequested && retainTurnForRetry && completedTurn) {
         completedTurn.turnId = originalTurnId;
-        deps.completeCodexTurnsForResult(session, outgoing.data, Date.now());
+        deps.completeCodexTurnsForResult(session, outgoing.data, Date.now(), resultInterrupted);
       }
       deps.persistSession(session);
     } else {

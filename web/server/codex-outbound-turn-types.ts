@@ -17,6 +17,33 @@ export type CodexResultErrorFamily =
 export type CodexProviderFailureContextFamily = "copilot_auth_refresh_invalidated";
 export type CodexProviderRecoveryFamily = "model_backend_stream_error" | CodexProviderFailureContextFamily;
 
+export type CodexTurnRecoveryStatus = "recovering" | "continuation_pending" | "continuation_active" | "action_required";
+export type CodexTurnRecoveryReason =
+  | "adapter_disconnect"
+  | "interrupted_after_activity"
+  | "continuation_dispatch_failed"
+  | "continuation_interrupted"
+  | "continuation_failed"
+  | "recovery_timeout"
+  | "recovery_failed";
+
+export interface CodexTurnRecoveryState {
+  recoveryId: string;
+  originalOwnerId: string;
+  originalProviderTurnId: string | null;
+  originalHistoryIndex: number;
+  continuationOwnerId: string | null;
+  threadKey: string;
+  questId?: string;
+  status: CodexTurnRecoveryStatus;
+  reason: CodexTurnRecoveryReason;
+  raisedAttention?: boolean;
+  attempt: number;
+  maxAttempts: 1;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface BackendReconnectProgress {
   /** One-based process launch attempt currently in flight or most recently exhausted. */
   attempt: number;

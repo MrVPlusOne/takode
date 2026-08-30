@@ -76,6 +76,7 @@ function makeDeps(): CodexRecoveryOrchestratorDeps {
     broadcastStatusChange: vi.fn(),
     markRunningFromUserDispatch: vi.fn(() => "current" as const),
     isCodexWorkerV2DeliveryFrozen: vi.fn(() => false),
+    injectUserMessage: vi.fn(() => "sent" as const),
   } as unknown as CodexRecoveryOrchestratorDeps;
 }
 
@@ -901,22 +902,33 @@ describe("reconcileCodexResumedTurn", () => {
     ]);
     session.state.isOrchestrator = true;
     session.isGenerating = true;
-    session.messageHistory.push({
-      type: "assistant",
-      message: {
-        id: "original-main",
-        type: "message",
-        role: "assistant",
-        model: "gpt-5.4",
-        content: [{ type: "text", text: "Approved with the Mental Simulation." }],
-        stop_reason: null,
-        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    session.messageHistory.push(
+      {
+        type: "user_message",
+        id: "user-1",
+        content: "continue",
+        timestamp: 800,
+        threadKey: "main",
       },
-      parent_tool_use_id: null,
-      timestamp: 900,
-      threadKey: "main",
-    });
+      {
+        type: "assistant",
+        message: {
+          id: "original-main",
+          type: "message",
+          role: "assistant",
+          model: "gpt-5.4",
+          content: [{ type: "text", text: "Approved with the Mental Simulation." }],
+          stop_reason: null,
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: 900,
+        threadKey: "main",
+      },
+    );
+    session.pendingCodexInputs = [];
     const pending = makePendingTurn();
+    pending.historyIndex = 0;
     pending.disconnectedAt = 2_000;
     session.pendingCodexTurns = [pending];
     const deps = makeRecoveryDeps({
@@ -954,7 +966,7 @@ describe("reconcileCodexResumedTurn", () => {
     expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(session, expect.objectContaining({ type: "assistant" }));
   });
 
-  it("surfaces a diagnostic when resumed assistant text is followed by tool output without a final response", () => {
+  it("queues a separate leader continuation when resumed assistant text is followed by tool output", () => {
     // This matches the lost /confirm shape: a partial assistant sentence was
     // already visible, a later tool finished, and resume had no final answer.
     const request = "confirm the navigation work";
@@ -1020,18 +1032,23 @@ describe("reconcileCodexResumedTurn", () => {
       deps,
     );
 
-    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_resume_incomplete_recovered_messages");
-    expect(deps.setGenerating).not.toHaveBeenCalledWith(session, false, "codex_resume_recovered_messages");
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
-      session,
-      expect.objectContaining({
-        type: "error",
-        message: expect.stringContaining("no final response was recovered"),
-      }),
+    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_interrupted_turn_continuation");
+    expect(deps.injectUserMessage).toHaveBeenCalledWith(
+      session.id,
+      expect.stringContaining("continuing an interrupted leader turn"),
+      expect.objectContaining({ sessionId: expect.stringMatching(/^system:codex-turn-recovery:/) }),
+      { threadKey: "main" },
+      expect.objectContaining({ deliveryContent: expect.stringContaining("must not be replayed") }),
     );
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      status: "continuation_pending",
+      originalProviderTurnId: "turn-confirm",
+      threadKey: "main",
+    });
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(session, expect.objectContaining({ type: "error" }));
   });
 
-  it("suppresses replay when an interrupted idle resume already contains assistant text", () => {
+  it("continues separately when an interrupted idle resume already contains assistant text", () => {
     // Exact-once delivery: partial assistant output proves the user payload reached
     // the model, so recovery must not inject the same payload as a fresh turn.
     const request = "prepare cartoon portrait icon variants from my reference images";
@@ -1073,14 +1090,16 @@ describe("reconcileCodexResumedTurn", () => {
     );
 
     expect(deps.dispatchQueuedCodexTurns).not.toHaveBeenCalledWith(session, "codex_retry_pending_turn");
-    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_resume_incomplete_recovered_messages");
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
-      session,
-      expect.objectContaining({ type: "error", message: expect.stringContaining("Automatic retry was skipped") }),
-    );
+    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_interrupted_turn_continuation");
+    expect(deps.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      originalOwnerId: "user-1",
+      status: "continuation_pending",
+      attempt: 1,
+    });
   });
 
-  it("persists a routed leader diagnostic when assistant-only replay is suppressed", () => {
+  it("preserves the routed leader thread on automatic continuation", () => {
     const request = "prepare cartoon portrait icon variants from my reference images";
     const partial = "[thread:main] I read all three references and will frame this as a separate quest.";
     const session = makeSession([
@@ -1126,24 +1145,15 @@ describe("reconcileCodexResumedTurn", () => {
       deps,
     );
 
-    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_resume_incomplete_recovered_messages");
-    const diagnostic = session.messageHistory.at(-1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
-    expect(diagnostic.type).toBe("user_message");
-    expect(diagnostic.threadKey).toBe("main");
-    expect(diagnostic.agentSource).toEqual({
-      sessionId: "system:codex-leader-recovery-diagnostic",
-      sessionLabel: "Codex Recovery Diagnostic",
-    });
-    expect(diagnostic.content).toContain("automatic replay stopped");
-    expect(diagnostic.content).toContain("No automatic replay will run");
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, diagnostic);
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
-      session,
-      expect.objectContaining({
-        type: "error",
-        message: expect.stringContaining("no final response was recovered"),
-      }),
+    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_interrupted_turn_continuation");
+    expect(deps.injectUserMessage).toHaveBeenCalledWith(
+      session.id,
+      expect.stringContaining("continuing an interrupted leader turn"),
+      expect.objectContaining({ sessionId: expect.stringMatching(/^system:codex-turn-recovery:/) }),
+      { threadKey: "main" },
+      expect.objectContaining({ deliveryContent: expect.stringContaining("takode") }),
     );
+    expect(session.state.codex_turn_recovery).toMatchObject({ threadKey: "main", status: "continuation_pending" });
   });
 
   it("does not persist the leader diagnostic for non-orchestrator replay suppression", () => {
@@ -1926,6 +1936,7 @@ describe("handleCodexAdapterInitError", () => {
     const session = makeSession([]);
     session.codexAdapter = adapter as any;
     (session as any).codexAutoRecoveryReason = "queued_user_message_adapter_missing";
+    session.state.codex_turn_recovery = {} as any;
     const deps = makeRecoveryDeps();
 
     const result = handleCodexAdapterInitError(
@@ -1938,6 +1949,7 @@ describe("handleCodexAdapterInitError", () => {
 
     expect(result).toBe("broken");
     expect(session.state.backend_state).toBe("broken");
+    expect(session.state.codex_turn_recovery).toMatchObject({ status: "action_required", reason: "recovery_failed" });
     expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
     expect(deps.emitTakodeEvent).toHaveBeenCalledWith(session.id, "session_error", {
       error: "Codex initialization failed: no rollout found",

@@ -32,6 +32,7 @@ import type {
   CodexProviderFailureContext,
   CodexProviderRetryState,
   CodexResultErrorFamily,
+  CodexTurnRecoveryState,
 } from "./codex-outbound-turn-types.js";
 import type { LeaderProjectionSnapshot } from "./leader-projection-types.js";
 import type { SessionLifecycleBrowserMessage } from "./session-lifecycle-message.js";
@@ -74,6 +75,9 @@ export type {
   CodexProviderRecoveryFamily,
   CodexProviderRetryState,
   CodexResultErrorFamily,
+  CodexTurnRecoveryReason,
+  CodexTurnRecoveryState,
+  CodexTurnRecoveryStatus,
 } from "./codex-outbound-turn-types.js";
 export type {
   LeaderProjectionInternalSnapshot,
@@ -724,6 +728,7 @@ export type BrowserOutgoingMessage =
   | { type: "interrupt"; client_msg_id?: string; interruptSource?: "user" | "leader" | "system" }
   | { type: "cancel_pending_codex_input"; id: string; client_msg_id?: string }
   | { type: "retry_pending_codex_input"; id: string; client_msg_id?: string }
+  | { type: "resolve_codex_turn_recovery"; recoveryId: string; client_msg_id?: string }
   | { type: "set_model"; model: string; client_msg_id?: string }
   | { type: "set_codex_reasoning_effort"; effort: string; client_msg_id?: string }
   | { type: "set_codex_service_tier"; serviceTier: string | null; client_msg_id?: string }
@@ -735,7 +740,6 @@ export type BrowserOutgoingMessage =
   | { type: "mcp_set_servers"; servers: Record<string, McpServerConfig>; client_msg_id?: string }
   | { type: "set_ask_permission"; askPermission: boolean; client_msg_id?: string }
   | { type: "permission_user_viewing"; request_id: string };
-
 export type PausedInboundSource = "browser" | "programmatic";
 
 export interface PausedInboundMessage {
@@ -1157,6 +1161,7 @@ export type BrowserIncomingMessageBase =
       backendError?: string | null;
       backendReconnect?: BackendReconnectProgress | null;
       codexProviderRetry?: CodexProviderRetryState | null;
+      codexTurnRecovery?: CodexTurnRecoveryState | null;
       uiMode: string | null;
       askPermission: boolean;
       lastReadAt?: number;
@@ -1478,6 +1483,8 @@ export interface SessionState {
   pause?: SessionPauseState | null;
   /** Codex-only auto-pause state for repeated classified terminal result errors. */
   codex_result_error_auto_pause?: CodexResultErrorAutoPauseState | null;
+  /** Exact-owner state for an interrupted Codex turn that has not reached a final response. */
+  codex_turn_recovery?: CodexTurnRecoveryState | null;
   /** Ephemeral server-authored browser projection; never persisted as recovery state. */
   codex_result_error_auto_pause_recovery_testing?: boolean;
   codex_result_error_auto_pause_recovery_progress?: CodexAutoPauseRecoveryProgress | null;

@@ -146,6 +146,7 @@ import {
 } from "./bridge/board-watchdog-controller.js";
 import {
   buildCodexLeaderRecycleTokenUsage,
+  failCodexLeaderRecycleRecovery,
   prepareCodexLeaderRecycleSession,
 } from "./bridge/codex-leader-recycle-controller.js";
 import {
@@ -184,6 +185,7 @@ import {
   closeSession as closeSessionController,
 } from "./bridge/session-registry-controller.js";
 import { isDuplicateCodexAssistantReplay as isDuplicateCodexAssistantReplayController } from "./bridge/codex-assistant-replay-dedup.js";
+import { markCodexTurnRecoveryActionRequired } from "./bridge/codex-interrupted-turn-recovery.js";
 import { codexReasoningSnapshotFields } from "./bridge/codex-reasoning-preview-state.js";
 import {
   createClaudeMessageHandlers as createClaudeMessageHandlersController,
@@ -229,10 +231,8 @@ import {
   markCodexIntentionalRelaunch as markCodexIntentionalRelaunchController,
   maybeFlushQueuedCodexMessages as maybeFlushQueuedCodexMessagesController,
   pokeStaleCodexPendingDelivery as pokeStaleCodexPendingDeliveryController,
-  rearmRecoveredQueuedHeadTurn as rearmRecoveredQueuedHeadTurnController,
   rebuildQueuedCodexPendingStartBatch as rebuildQueuedCodexPendingStartBatchController,
   reconcileCodexResumedTurn as reconcileCodexResumedTurnController,
-  reconcileRecoveredQueuedTurnLifecycle as reconcileRecoveredQueuedTurnLifecycleController,
   recordSteeredCodexTurn as recordSteeredCodexTurnController,
   removePendingCodexInput as removePendingCodexInputController,
   retryPendingCodexTurn as retryPendingCodexTurnController,
@@ -241,6 +241,10 @@ import {
   setPendingCodexInputsCancelable as setPendingCodexInputsCancelableController,
   trySteerPendingCodexInputs as trySteerPendingCodexInputsController,
 } from "./bridge/codex-recovery-orchestrator.js";
+import {
+  rearmRecoveredQueuedHeadTurn as rearmRecoveredQueuedHeadTurnController,
+  reconcileRecoveredQueuedTurnLifecycle as reconcileRecoveredQueuedTurnLifecycleController,
+} from "./bridge/codex-queued-turn-lifecycle.js";
 import { retireCodexAutoPauseRecoveryTesting } from "./bridge/codex-auto-pause-recovery-testing.js";
 import {
   buildToolResultPreviews as buildToolResultPreviewsController,
@@ -615,6 +619,8 @@ export class WsBridge {
         herdEventDispatcher: this.herdEventDispatcher,
         requestCodexAutoRecovery: (session, reason) => this.requestCodexAutoRecovery(session, reason),
         broadcastToBrowsers: (session, message) => this.broadcastToBrowsers(session, message),
+        persistSession: (session) => this.persistSession(session),
+        setAttentionError: (session) => setAttentionController(session, "error", this.getSessionRegistryDeps()),
         markTurnInterrupted: (session, source) => this.markTurnInterrupted(session, source),
         setGenerating: (session, generating, reason) =>
           setGeneratingLifecycle(this.getGenerationLifecycleDeps(), session, generating, reason),
@@ -1371,12 +1377,22 @@ export class WsBridge {
 
   private finalizeCodexRecoveringTurn(session: Session, reason: "recovery_timeout" | "recovery_failed"): void {
     this.clearCodexDisconnectGraceTimer(session, `codex_${reason}`);
-    if (session.codexAdapter || !session.isGenerating) return;
-    if (!getCodexTurnInRecoveryState(session)) return;
+    if (session.codexAdapter) return;
+    if (!getCodexTurnInRecoveryState(session) && !session.state.codex_turn_recovery) return;
     retireCodexAutoPauseRecoveryTesting(session, {
       broadcastToBrowsers: (targetSession, message) => this.broadcastToBrowsers(targetSession, message),
       persistSession: (targetSession) => this.persistSession(targetSession),
     });
+    markCodexTurnRecoveryActionRequired(session, reason, {
+      broadcastToBrowsers: (targetSession, message) => this.broadcastToBrowsers(targetSession as Session, message),
+      persistSession: (targetSession) => this.persistSession(targetSession as Session),
+      setAttentionError: (targetSession) =>
+        setAttentionController(targetSession as Session, "error", this.getSessionRegistryDeps()),
+    });
+    if (!session.isGenerating) {
+      this.persistSession(session);
+      return;
+    }
     this.markTurnInterrupted(session, "system");
     setGeneratingLifecycle(this.getGenerationLifecycleDeps(), session, false, "codex_disconnect");
     this.broadcastToBrowsers(session, {
@@ -1852,6 +1868,7 @@ export class WsBridge {
       this.launcher.completeCodexLeaderRecycle(sessionId);
       clearCodexIntentionalRelaunchController(session);
       session.relaunchPending = false;
+      failCodexLeaderRecycleRecovery(session, this.getCodexRecoveryOrchestratorDeps());
       this.persistSession(session);
       return { ok: false, error: relaunch.error || "Failed to relaunch Codex leader session" };
     }

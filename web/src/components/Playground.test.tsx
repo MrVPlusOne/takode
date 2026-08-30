@@ -60,6 +60,7 @@ import { Playground } from "./Playground.js";
 import { PlaygroundSideChatStates } from "./playground/SideChatPlaygroundStates.js";
 import { PlaygroundReasoningDetailStates } from "./playground/ReasoningDetailStates.js";
 import { PlaygroundCodexSubagentStates } from "./playground/CodexSubagentPlaygroundStates.js";
+import { PlaygroundChatViewRecoveryStates } from "./playground/ChatViewRecoveryPlaygroundStates.js";
 import { PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY } from "./playground/AutoPausePlaygroundStates.js";
 import { MOCK_SESSION_ID } from "./playground/fixtures.js";
 import { PlaygroundUniversalSearchStates } from "./playground/search-sidebar-states.js";
@@ -75,6 +76,11 @@ import { useStore } from "../store.js";
 function PlaygroundOverviewOnly() {
   usePlaygroundSeed();
   return <PlaygroundOverviewSections />;
+}
+
+function PlaygroundRecoveryStatesOnly() {
+  usePlaygroundSeed();
+  return <PlaygroundChatViewRecoveryStates />;
 }
 
 describe("Playground", () => {
@@ -411,6 +417,50 @@ describe("Playground", () => {
     expect(realChat.getByRole("region", { name: "Automatic input recovery summary" })).toBeTruthy();
     expect(realChat.getByText("Herd Events · turn_end")).toBeTruthy();
     expect(realChat.getByText("Herd Events · board_stalled")).toBeTruthy();
+  });
+
+  it("documents every exact-owner Codex interrupted-turn recovery state", () => {
+    // These producer-shaped states keep the exact-once boundary visible: reconnect first,
+    // one separately owned continuation, then durable attention instead of recursive replay.
+    render(<PlaygroundRecoveryStatesOnly />);
+
+    const states = [
+      {
+        testId: "playground-codex-turn-recovery-recovering",
+        label: "Recovering interrupted work",
+        detail: "retaining the exact interrupted request owner and route",
+      },
+      {
+        testId: "playground-codex-turn-recovery-continuation-pending",
+        label: "Interrupted work queued",
+        detail: "The original user payload will not be replayed",
+      },
+      {
+        testId: "playground-codex-turn-recovery-continuation-active",
+        label: "Continuing interrupted work",
+        detail: "The original user payload will not be replayed",
+      },
+      {
+        testId: "playground-codex-turn-recovery-action-required",
+        label: "Interrupted work needs attention",
+        detail: "mark this recovery resolved",
+      },
+    ];
+
+    for (const state of states) {
+      const preview = within(screen.getByTestId(state.testId));
+      const chip = preview.getByTestId("codex-turn-recovery-chip");
+      expect(chip).toHaveTextContent(state.label);
+      fireEvent.click(chip);
+      const detailId = chip.getAttribute("aria-controls");
+      const detail = detailId ? document.getElementById(detailId) : null;
+      expect(detail).toHaveTextContent(state.detail);
+      expect(detail).toHaveTextContent("Affected thread: q-9010");
+      fireEvent.click(chip);
+    }
+
+    const actionRequired = within(screen.getByTestId("playground-codex-turn-recovery-action-required"));
+    expect(actionRequired.getByTestId("codex-turn-recovery-chip")).toHaveClass("border-cc-attention/55");
   });
 
   it("renders real ChatView and MessageFeed recovery fixtures without a socket", () => {

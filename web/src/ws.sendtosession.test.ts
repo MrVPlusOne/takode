@@ -214,14 +214,18 @@ describe("sendToSession", () => {
     wsModule.connectSession("s1");
     wsModule.sendToSession("s1", { type: "retry_pending_codex_input", id: "pending-1" });
     wsModule.sendToSession("s1", { type: "cancel_pending_codex_input", id: "pending-2" });
+    wsModule.sendToSession("s1", { type: "resolve_codex_turn_recovery", recoveryId: "recovery-1" });
 
     const retry = JSON.parse(lastWs.send.mock.calls[0][0]);
     const cancel = JSON.parse(lastWs.send.mock.calls[1][0]);
+    const resolve = JSON.parse(lastWs.send.mock.calls[2][0]);
     expect(retry).toMatchObject({ type: "retry_pending_codex_input", id: "pending-1" });
     expect(cancel).toMatchObject({ type: "cancel_pending_codex_input", id: "pending-2" });
     expect(typeof retry.client_msg_id).toBe("string");
     expect(typeof cancel.client_msg_id).toBe("string");
-    expect(cancel.client_msg_id).not.toBe(retry.client_msg_id);
+    expect(resolve).toMatchObject({ type: "resolve_codex_turn_recovery", recoveryId: "recovery-1" });
+    expect(typeof resolve.client_msg_id).toBe("string");
+    expect(new Set([retry.client_msg_id, cancel.client_msg_id, resolve.client_msg_id]).size).toBe(3);
   });
 
   it("adds client_msg_id for leader thread tab updates", () => {

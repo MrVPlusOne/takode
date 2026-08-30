@@ -140,6 +140,9 @@ function makeCodexAdapterMock() {
       currentTurnId = turnId;
       onTurnStartedCb?.(turnId);
     },
+    clearCurrentTurnForIdleStatus: () => {
+      currentTurnId = null;
+    },
     emitTurnSteered: (turnId: string, pendingInputIds: string[]) => {
       onTurnSteeredCb?.(turnId, pendingInputIds);
     },
@@ -997,6 +1000,115 @@ describe("stuck session watchdog", () => {
     // Should auto-recover even with CLI disconnected (q-307)
     expect(session.isGenerating).toBe(false);
 
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it("relaunches an activity-bearing stuck Codex leader without a false terminal idle boundary", async () => {
+    vi.useFakeTimers();
+    const sid = "s-stuck-codex-leader-recovery";
+    const relaunch = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunch);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ isOrchestrator: true, state: "running", cliSessionId: "thread-stuck" })),
+    } as any);
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-stuck" });
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "finish the leader task", threadKey: "q-9011" }),
+    );
+    adapter.emitTurnStarted("turn-stuck-leader");
+    adapter.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "stuck-tool",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6-sol",
+        content: [{ type: "tool_use", id: "tool-stuck", name: "Bash", input: { command: "echo done" } }],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: Date.now(),
+    });
+    // Mirrors Codex's producer ordering: thread/status/changed=idle clears the
+    // adapter's current id before any terminal result reaches the bridge.
+    adapter.clearCurrentTurnForIdleStatus();
+    const session = bridge.getSession(sid)!;
+    session.state.isOrchestrator = true;
+    const threeMinAgo = Date.now() - 180_000;
+    session.generationStartedAt = threeMinAgo;
+    session.lastCliMessageAt = threeMinAgo;
+    session.lastCliPingAt = threeMinAgo;
+    session.lastToolProgressAt = 0;
+    session.toolStartTimes.clear();
+    session.stuckNotifiedAt = null;
+    const eventSpy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    bridge.startStuckSessionWatchdog();
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    expect(relaunch).toHaveBeenCalledWith(sid);
+    expect(session.isGenerating).toBe(true);
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      originalProviderTurnId: "turn-stuck-leader",
+      status: "recovering",
+      threadKey: "q-9011",
+    });
+    expect(eventSpy.mock.calls.filter(([, type]) => type === "turn_end")).toHaveLength(0);
+
+    adapter.emitDisconnect("turn-stuck-leader");
+    expect(session.state.codex_turn_recovery?.status).toBe("recovering");
+    expect(eventSpy.mock.calls.filter(([, type]) => type === "turn_end")).toHaveLength(0);
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it("does not recover an idle-status Codex leader without model or tool activity", async () => {
+    vi.useFakeTimers();
+    const sid = "s-stuck-codex-leader-idle-no-activity";
+    const relaunch = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunch);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ isOrchestrator: true, state: "running", cliSessionId: "thread-idle" })),
+    } as any);
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-idle" });
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "start the leader task", threadKey: "q-9012" }),
+    );
+    adapter.emitTurnStarted("turn-idle-no-activity");
+    adapter.clearCurrentTurnForIdleStatus();
+
+    const session = bridge.getSession(sid)!;
+    session.state.isOrchestrator = true;
+    const threeMinAgo = Date.now() - 180_000;
+    session.generationStartedAt = threeMinAgo;
+    session.lastCliMessageAt = threeMinAgo;
+    session.lastCliPingAt = threeMinAgo;
+    session.lastToolProgressAt = 0;
+    session.toolStartTimes.clear();
+    session.stuckNotifiedAt = null;
+
+    bridge.startStuckSessionWatchdog();
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    expect(relaunch).not.toHaveBeenCalled();
+    expect(session.isGenerating).toBe(false);
+    expect(session.state.codex_turn_recovery).toBeFalsy();
     vi.clearAllTimers();
     vi.useRealTimers();
   });

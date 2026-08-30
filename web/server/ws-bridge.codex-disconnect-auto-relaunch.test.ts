@@ -865,6 +865,60 @@ describe("Codex disconnect auto-relaunch", () => {
     expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected", reason: "idle_limit" }));
   });
 
+  it("fails activity-bearing leader recovery closed after adapter retry exhaustion", async () => {
+    vi.useFakeTimers();
+    const sid = "s-leader-recovery-exhausted";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    try {
+      const adapter = makeCodexAdapterMock();
+      bridge.attachCodexAdapter(sid, adapter as any);
+      emitCodexSessionReady(adapter, { cliSessionId: "thread-leader-recovery-exhausted" });
+      const browser = makeBrowserSocket(sid);
+      bridge.handleBrowserOpen(browser, sid);
+      await bridge.handleBrowserMessage(
+        browser,
+        JSON.stringify({ type: "user_message", content: "finish the leader work", threadKey: "main" }),
+      );
+      adapter.emitTurnStarted("turn-leader-recovery-exhausted");
+      const session = bridge.getSession(sid)!;
+      session.state.isOrchestrator = true;
+      adapter.emitBrowserMessage({
+        type: "assistant",
+        message: {
+          id: "leader-recovery-tool",
+          type: "message",
+          role: "assistant",
+          model: "gpt-5.6-sol",
+          content: [{ type: "tool_use", id: "leader-tool", name: "Bash", input: { command: "echo done" } }],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: Date.now(),
+      });
+      session.consecutiveAdapterFailures = 5;
+      session.lastAdapterFailureAt = Date.now();
+      relaunchCb.mockClear();
+
+      adapter.emitDisconnect("turn-leader-recovery-exhausted");
+
+      expect(relaunchCb).not.toHaveBeenCalled();
+      expect(session.state.codex_turn_recovery).toMatchObject({ status: "recovering" });
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(session.state.codex_turn_recovery).toMatchObject({
+        status: "action_required",
+        reason: "recovery_failed",
+      });
+      expect(session.pendingCodexTurns).toHaveLength(0);
+      expect(session.pendingCodexInputs).toHaveLength(0);
+      expect(session.attentionReason).toBe("error");
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it("pauses adapter-disconnect auto-relaunch after repeated disconnects even across session_init", () => {
     const sid = "s1";
     const relaunchCb = vi.fn();

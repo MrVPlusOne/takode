@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prepareCodexLeaderRecycleSession } from "./codex-leader-recycle-controller.js";
 import { injectCompactionRecovery } from "./compaction-recovery.js";
-import type { BrowserIncomingMessage } from "../session-types.js";
+import {
+  isRecoveryContinuationTurn,
+  markCodexTurnRecoveryContinuationActive,
+  settleCodexTurnRecoveryFromResult,
+} from "./codex-interrupted-turn-recovery.js";
+import type { BrowserIncomingMessage, CLIResultMessage } from "../session-types.js";
 
 const { mockGetKnownSessionNum } = vi.hoisted(() => ({
   mockGetKnownSessionNum: vi.fn<(sessionId: string) => number | undefined>(),
@@ -120,6 +125,22 @@ describe("Codex leader recycle continuation", () => {
       },
     ];
     const session = makeLeaderSession(history);
+    session.state.codex_turn_recovery = {
+      recoveryId: "original-owner",
+      originalOwnerId: "original-owner",
+      originalProviderTurnId: "turn-original",
+      originalHistoryIndex: 2,
+      continuationOwnerId: "old-turn",
+      threadKey: "q-1489",
+      questId: "q-1489",
+      status: "continuation_active",
+      reason: "interrupted_after_activity",
+      attempt: 1,
+      maxAttempts: 1,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    session.activeTurnRoute = null;
     const deps = makeDeps();
 
     prepareCodexLeaderRecycleSession(session, "manual_compact", 15_000, deps);
@@ -127,6 +148,12 @@ describe("Codex leader recycle continuation", () => {
     expect(session.pendingMessages).toEqual([]);
     expect(session.pendingCodexTurns).toEqual([]);
     expect(session.pendingCodexInputs).toEqual([]);
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      status: "continuation_pending",
+      continuationOwnerId: null,
+      attempt: 1,
+    });
+    expect(session.codexLeaderRecycleContinuation).toMatchObject({ recoveryId: "original-owner" });
     expect(session.interruptedDuringTurn).toBe(true);
     const recycleMarker = session.messageHistory.at(-1)!;
     expect(recycleMarker).toMatchObject({
@@ -245,7 +272,7 @@ describe("Codex leader recycle continuation", () => {
     );
     injectCompactionRecovery(session, {
       isLeaderSession: () => true,
-      isSystemSourceTag: (agentSource) => agentSource?.sessionId === "system:compaction-recovery",
+      isSystemSourceTag: (agentSource) => agentSource?.sessionId?.startsWith("system:") === true,
       injectUserMessage,
       buildMemoryCatalogInjectionBundle: async () => ({
         content: [
@@ -261,10 +288,11 @@ describe("Codex leader recycle continuation", () => {
       }),
     });
 
-    expect(session.codexLeaderRecycleContinuation).toBeNull();
+    expect(session.codexLeaderRecycleContinuation).not.toBeNull();
     return vi
       .waitFor(() => expect(injectUserMessage).toHaveBeenCalledTimes(1))
       .then(() => {
+        expect(session.codexLeaderRecycleContinuation).toBeNull();
         const [, content, source, threadRoute, options] = injectUserMessage.mock.calls[0]!;
         expect(threadRoute).toEqual({ threadKey: "q-1489", questId: "q-1489" });
         expect(content).toContain(
@@ -316,8 +344,8 @@ describe("Codex leader recycle continuation", () => {
         expect(content).not.toContain("Follow quest-journey.md");
         expect(content).not.toContain("Never implement non-trivial changes yourself");
         expect(source).toEqual({
-          sessionId: "system:compaction-recovery",
-          sessionLabel: "Compaction Recovery",
+          sessionId: "system:codex-turn-recovery:original-owner",
+          sessionLabel: "Interrupted Turn Recovery",
         });
         expect(options).toEqual(
           expect.objectContaining({
@@ -341,6 +369,49 @@ describe("Codex leader recycle continuation", () => {
           threadKey: "q-1489",
           questId: "q-1489",
         });
+        const transferredTurn = {
+          adapterMsg: { type: "codex_start_pending", pendingInputIds: ["recycle-continuation"], inputs: [] },
+          userMessageId: "recycle-continuation",
+          pendingInputIds: ["recycle-continuation"],
+          userContent: content,
+          historyIndex: continuationIndex,
+          status: "backend_acknowledged",
+          dispatchCount: 1,
+          createdAt: 10,
+          updatedAt: 11,
+          acknowledgedAt: 11,
+          turnTarget: "current",
+          lastError: null,
+          turnId: "turn-recycle-continuation",
+          disconnectedAt: null,
+          resumeConfirmedAt: null,
+        } as any;
+        session.pendingCodexTurns = [transferredTurn];
+        expect(isRecoveryContinuationTurn(session, transferredTurn)).toBe(true);
+        markCodexTurnRecoveryContinuationActive(session, transferredTurn, deps);
+        expect(session.state.codex_turn_recovery).toMatchObject({
+          continuationOwnerId: "recycle-continuation",
+          status: "continuation_active",
+        });
+        settleCodexTurnRecoveryFromResult(
+          session,
+          [transferredTurn],
+          {
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            duration_ms: 1,
+            duration_api_ms: 1,
+            num_turns: 1,
+            total_cost_usd: 0,
+            usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            session_id: "leader-session",
+            uuid: "recycle-result",
+            stop_reason: "completed",
+          } as CLIResultMessage,
+          deps,
+        );
+        expect(session.state.codex_turn_recovery).toBeNull();
         const memoryCatalogIndex = session.messageHistory.findIndex(
           (entry: { id?: string }) => entry.id === "recycle-continuation-followup",
         );
@@ -348,11 +419,38 @@ describe("Codex leader recycle continuation", () => {
 
         injectCompactionRecovery(session, {
           isLeaderSession: () => true,
-          isSystemSourceTag: (agentSource) => agentSource?.sessionId === "system:compaction-recovery",
+          isSystemSourceTag: (agentSource) => agentSource?.sessionId?.startsWith("system:") === true,
           injectUserMessage,
         });
         expect(injectUserMessage).toHaveBeenCalledTimes(1);
       });
+  });
+
+  it("does not arm an unrelated recycle as the owner of action-required interrupted work", () => {
+    const session = makeLeaderSession([]);
+    session.state.codex_turn_recovery = {
+      recoveryId: "abandoned-owner",
+      originalOwnerId: "abandoned-owner",
+      originalProviderTurnId: "turn-abandoned",
+      originalHistoryIndex: 0,
+      continuationOwnerId: "failed-continuation",
+      threadKey: "main",
+      status: "action_required",
+      reason: "continuation_failed",
+      attempt: 1,
+      maxAttempts: 1,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const deps = makeDeps();
+
+    prepareCodexLeaderRecycleSession(session, "manual_compact", 15_000, deps);
+
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      status: "action_required",
+      recoveryId: "abandoned-owner",
+    });
+    expect(session.codexLeaderRecycleContinuation?.recoveryId).toBeUndefined();
   });
 
   it("uses the known session number when recycle session state lacks sessionNum", () => {

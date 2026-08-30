@@ -12,8 +12,10 @@ import {
   type LeaderSkillPreloadBundle,
 } from "../leader-skill-preload.js";
 import {
+  CODEX_TURN_RECOVERY_SOURCE_LABEL,
   COMPACTION_RECOVERY_SOURCE_ID,
   COMPACTION_RECOVERY_SOURCE_LABEL,
+  codexTurnRecoverySourceId,
 } from "../../shared/injected-event-message.js";
 import {
   buildMemoryCatalogDeliveryContent,
@@ -63,6 +65,14 @@ type MemoryCatalogBuilder = (
   session: CompactionRecoverySessionLike,
 ) => MemoryCatalogInjectionBundle | null | undefined | Promise<MemoryCatalogInjectionBundle | null | undefined>;
 
+type ExactRecoveryInjectionRunner = (
+  session: CompactionRecoverySessionLike,
+  recoveryId: string,
+  requestedAt: number,
+  inject: () => void,
+  settle: () => void,
+) => void | Promise<void>;
+
 export function hasCompactionRecoveryAfterLatestMarker(
   session: CompactionRecoverySessionLike,
   deps: { isSystemSourceTag: (agentSource: { sessionId: string; sessionLabel?: string } | undefined) => boolean },
@@ -111,17 +121,38 @@ export function injectCompactionRecovery(
     ) => void;
     buildLeaderSkillPreloadBundles?: () => LeaderSkillPreloadBundle[] | Promise<LeaderSkillPreloadBundle[]>;
     buildMemoryCatalogInjectionBundle?: MemoryCatalogBuilder;
+    runExactRecoveryInjection?: ExactRecoveryInjectionRunner;
+    finalizeExactRecoveryInjection?: (
+      session: CompactionRecoverySessionLike,
+      recoveryId: string,
+      requestedAt: number,
+    ) => void;
   },
 ): void {
   const recycleContinuation = session.codexLeaderRecycleContinuation;
   if (recycleContinuation?.content) {
-    session.codexLeaderRecycleContinuation = null;
+    const recoveryId = recycleContinuation.recoveryId;
+    if (!recoveryId) session.codexLeaderRecycleContinuation = null;
     console.log(`[ws-bridge] Injecting leader recycle continuation for session ${sessionTag(session.id)}`);
     injectWithOptionalLeaderSkillPreloads(
       session,
       recycleContinuation.content,
       buildRecycleContinuationThreadRoute(recycleContinuation),
       deps,
+      recoveryId
+        ? {
+            sessionId: codexTurnRecoverySourceId(recoveryId),
+            sessionLabel: CODEX_TURN_RECOVERY_SOURCE_LABEL,
+          }
+        : undefined,
+      recoveryId ? { recoveryId, requestedAt: recycleContinuation.requestedAt } : undefined,
+      () => {
+        if (recoveryId && deps.finalizeExactRecoveryInjection) {
+          deps.finalizeExactRecoveryInjection(session, recoveryId, recycleContinuation.requestedAt);
+        } else {
+          session.codexLeaderRecycleContinuation = null;
+        }
+      },
     );
     return;
   }
@@ -159,21 +190,64 @@ function injectWithOptionalLeaderSkillPreloads(
     ) => void;
     buildLeaderSkillPreloadBundles?: () => LeaderSkillPreloadBundle[] | Promise<LeaderSkillPreloadBundle[]>;
     buildMemoryCatalogInjectionBundle?: MemoryCatalogBuilder;
+    runExactRecoveryInjection?: ExactRecoveryInjectionRunner;
   },
+  injectedSource?: { sessionId: string; sessionLabel?: string },
+  exactRecovery?: { recoveryId: string; requestedAt: number },
+  afterInject?: () => void,
 ): void {
-  const source = {
+  const source = injectedSource ?? {
     sessionId: COMPACTION_RECOVERY_SOURCE_ID,
     sessionLabel: COMPACTION_RECOVERY_SOURCE_LABEL,
   };
   const inject = (bundles: LeaderSkillPreloadBundle[], memoryCatalog?: MemoryCatalogInjectionBundle | null) => {
     const deliveryWithLeaderPreloads = buildLeaderPreloadDeliveryContent(content, bundles);
-    deps.injectUserMessage(session.id, content, source, threadRoute, {
-      deliveryContent: buildMemoryCatalogDeliveryContent(deliveryWithLeaderPreloads, memoryCatalog),
-      historyFollowUps: [
-        ...buildLeaderSkillPreloadHistoryFollowUps(bundles),
-        ...buildMemoryCatalogHistoryFollowUp(memoryCatalog),
-      ],
-    });
+    const performInjection = () => {
+      deps.injectUserMessage(session.id, content, source, threadRoute, {
+        deliveryContent: buildMemoryCatalogDeliveryContent(deliveryWithLeaderPreloads, memoryCatalog),
+        historyFollowUps: [
+          ...buildLeaderSkillPreloadHistoryFollowUps(bundles),
+          ...buildMemoryCatalogHistoryFollowUp(memoryCatalog),
+        ],
+      });
+    };
+    if (exactRecovery && deps.runExactRecoveryInjection) {
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        afterInject?.();
+      };
+      try {
+        const completion = deps.runExactRecoveryInjection(
+          session,
+          exactRecovery.recoveryId,
+          exactRecovery.requestedAt,
+          performInjection,
+          settle,
+        );
+        if (isThenable(completion)) {
+          void Promise.resolve(completion)
+            .then(settle)
+            .catch((err) => {
+              console.error(`[ws-bridge] Failed exact leader recovery injection transaction:`, err);
+              settle();
+            });
+        } else {
+          settle();
+        }
+      } catch (err) {
+        console.error(`[ws-bridge] Failed exact leader recovery injection transaction:`, err);
+        settle();
+      }
+      return;
+    }
+    try {
+      performInjection();
+    } catch (err) {
+      console.error(`[ws-bridge] Failed to inject leader recovery context:`, err);
+    }
+    afterInject?.();
   };
   try {
     const leaderBundles = deps.buildLeaderSkillPreloadBundles?.() ?? [];

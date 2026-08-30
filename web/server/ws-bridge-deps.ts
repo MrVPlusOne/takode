@@ -216,11 +216,9 @@ import {
   maybeFlushQueuedCodexMessages as maybeFlushQueuedCodexMessagesController,
   pokeStaleCodexPendingDelivery as pokeStaleCodexPendingDeliveryController,
   queueCodexPendingStartBatch as queueCodexPendingStartBatchController,
-  rearmRecoveredQueuedHeadTurn as rearmRecoveredQueuedHeadTurnController,
   registerCodexAdapterRecoveryLifecycle,
   rebuildQueuedCodexPendingStartBatch as rebuildQueuedCodexPendingStartBatchController,
   reconcileCodexResumedTurn as reconcileCodexResumedTurnController,
-  reconcileRecoveredQueuedTurnLifecycle as reconcileRecoveredQueuedTurnLifecycleController,
   recordSteeredCodexTurn as recordSteeredCodexTurnController,
   removePendingCodexInput as removePendingCodexInputController,
   retryNonDrainableCodexHeadTurn as retryNonDrainableCodexHeadTurnController,
@@ -230,6 +228,16 @@ import {
   setPendingCodexInputsCancelable as setPendingCodexInputsCancelableController,
   trySteerPendingCodexInputs as trySteerPendingCodexInputsController,
 } from "./bridge/codex-recovery-orchestrator.js";
+import {
+  finalizeCodexLeaderRecycleRecoveryInjection,
+  isRecoveryContinuationTurn,
+  markCodexTurnRecoveryActionRequired,
+  prepareCodexLeaderRecycleRecoveryInjection,
+} from "./bridge/codex-interrupted-turn-recovery.js";
+import {
+  rearmRecoveredQueuedHeadTurn as rearmRecoveredQueuedHeadTurnController,
+  reconcileRecoveredQueuedTurnLifecycle as reconcileRecoveredQueuedTurnLifecycleController,
+} from "./bridge/codex-queued-turn-lifecycle.js";
 import {
   buildToolResultPreviews as buildToolResultPreviewsController,
   clearAllCodexToolResultWatchdogs as clearAllCodexToolResultWatchdogsController,
@@ -310,6 +318,7 @@ const WS_BRIDGE_IDEMPOTENT_BROWSER_MESSAGE_TYPES = new Set<string>([
   "interrupt",
   "cancel_pending_codex_input",
   "retry_pending_codex_input",
+  "resolve_codex_turn_recovery",
   "set_model",
   "set_codex_reasoning_effort",
   "set_codex_service_tier",
@@ -339,8 +348,100 @@ const WS_BRIDGE_PROCESSED_CLIENT_MSG_ID_LIMIT = 1000;
 const WS_BRIDGE_USER_MESSAGE_RUNNING_TIMEOUT_MS = 30_000;
 const WS_BRIDGE_VSCODE_OPEN_FILE_TIMEOUT_MS = 8_000;
 const WS_BRIDGE_VSCODE_WINDOW_STALE_MS = 30_000;
+const exactCodexRecoveryInjectionChainsByHost = new WeakMap<object, Map<string, Promise<void>>>();
 function readLauncherSession(host: any, sessionId: string) {
   return typeof host.launcher?.getSession === "function" ? host.launcher.getSession(sessionId) : undefined;
+}
+
+async function waitForSessionRoutesIdle(host: any, sessionId: string): Promise<void> {
+  const routeChains = host.sessionRouteChains as Map<string, Promise<void>> | undefined;
+  if (!routeChains) return;
+  while (true) {
+    const pending = routeChains.get(sessionId);
+    if (!pending) return;
+    await pending.catch(() => {});
+  }
+}
+
+function getExactCodexRecoveryInjectionChains(host: object): Map<string, Promise<void>> {
+  let chains = exactCodexRecoveryInjectionChainsByHost.get(host);
+  if (!chains) {
+    chains = new Map();
+    exactCodexRecoveryInjectionChainsByHost.set(host, chains);
+  }
+  return chains;
+}
+
+async function executeExactCodexRecoveryInjection(
+  host: any,
+  session: Session,
+  recoveryId: string,
+  requestedAt: number,
+  inject: () => void,
+  settle: () => void,
+): Promise<void> {
+  await waitForSessionRoutesIdle(host, session.id);
+  const routeChains = host.sessionRouteChains as Map<string, Promise<void>> | undefined;
+  if (!routeChains) {
+    if (prepareCodexLeaderRecycleRecoveryInjection(session, recoveryId, requestedAt)) inject();
+    settle();
+    return;
+  }
+
+  let releaseReservation!: () => void;
+  const reservation = new Promise<void>((resolve) => {
+    releaseReservation = resolve;
+  });
+  routeChains.set(session.id, reservation);
+  let barrier: Promise<void> | null = null;
+  try {
+    if (!prepareCodexLeaderRecycleRecoveryInjection(session, recoveryId, requestedAt)) {
+      settle();
+      return;
+    }
+    inject();
+    const exactRoute = routeChains.get(session.id);
+    if (!exactRoute || exactRoute === reservation) {
+      settle();
+      return;
+    }
+    barrier = exactRoute.catch(() => {}).then(settle);
+    routeChains.set(session.id, barrier);
+    releaseReservation();
+    await barrier;
+  } finally {
+    releaseReservation();
+    const ownedBarrier = barrier ?? reservation;
+    if (routeChains.get(session.id) === ownedBarrier) routeChains.delete(session.id);
+  }
+}
+
+async function runExactCodexRecoveryInjection(
+  host: any,
+  session: Session,
+  recoveryId: string,
+  requestedAt: number,
+  inject: () => void,
+  settle: () => void,
+): Promise<void> {
+  const chains = getExactCodexRecoveryInjectionChains(host);
+  const prior = chains.get(session.id);
+  const queued = (prior ?? Promise.resolve())
+    .catch(() => {})
+    .then(async () => {
+      try {
+        await executeExactCodexRecoveryInjection(host, session, recoveryId, requestedAt, inject, settle);
+      } catch (error) {
+        settle();
+        throw error;
+      }
+    });
+  chains.set(session.id, queued);
+  try {
+    await queued;
+  } finally {
+    if (chains.get(session.id) === queued) chains.delete(session.id);
+  }
 }
 
 function touchSessionActivity(host: any, sessionId: string): void {
@@ -593,6 +694,26 @@ export function getCompactionRecoveryRuntimeDeps(host: any) {
       options?: { deliveryContent?: string; historyFollowUps?: ProgrammaticHistoryFollowUp[] },
     ) => host.injectUserMessage(sessionId, content, agentSource, undefined, threadRoute, options),
     buildLeaderSkillPreloadBundles,
+    runExactRecoveryInjection: (
+      session: Session,
+      recoveryId: string,
+      requestedAt: number,
+      inject: () => void,
+      settle: () => void,
+    ) => runExactCodexRecoveryInjection(host, session, recoveryId, requestedAt, inject, settle),
+    finalizeExactRecoveryInjection: (session: Session, recoveryId: string, requestedAt: number) => {
+      const activeContinuation = session.codexLeaderRecycleContinuation;
+      const ownsLauncherMarker =
+        !activeContinuation ||
+        (activeContinuation.recoveryId === recoveryId && activeContinuation.requestedAt === requestedAt);
+      finalizeCodexLeaderRecycleRecoveryInjection(
+        session,
+        recoveryId,
+        requestedAt,
+        host.getCodexRecoveryOrchestratorDeps(),
+      );
+      if (ownsLauncherMarker) host.launcher?.completeCodexLeaderRecycle(session.id);
+    },
     buildMemoryCatalogInjectionBundle: async (session: Session) => {
       const { buildMemoryCatalogInjectionBundle } = await import("./memory-catalog-injection.js");
       return buildMemoryCatalogInjectionBundle({
@@ -1536,8 +1657,13 @@ export function getCodexRecoveryOrchestratorDeps(host: any) {
       }
       return completed;
     },
-    completeCodexTurnsForResult: (targetSession: unknown, msg: CLIResultMessage, updatedAt?: number) =>
-      completeCodexTurnsForResultController(targetSession as Session, msg, codexRecoveryDeps, updatedAt),
+    completeCodexTurnsForResult: (
+      targetSession: unknown,
+      msg: CLIResultMessage,
+      updatedAt?: number,
+      interrupted?: boolean,
+    ) =>
+      completeCodexTurnsForResultController(targetSession as Session, msg, codexRecoveryDeps, updatedAt, interrupted),
     clearCodexFreshTurnRequirement: (
       targetSession: unknown,
       reason: string,
@@ -1630,8 +1756,10 @@ export function getCodexRecoveryOrchestratorDeps(host: any) {
     injectUserMessage: (
       sessionId: string,
       content: string,
-      agentSource?: { sessionId: string; sessionLabel?: string },
-    ) => host.injectUserMessage(sessionId, content, agentSource),
+      agentSource: { sessionId: string; sessionLabel?: string },
+      threadRoute: import("./thread-routing-metadata.js").ThreadRouteMetadata,
+      options: { deliveryContent: string },
+    ) => host.injectUserMessage(sessionId, content, agentSource, undefined, threadRoute, options),
   };
   return codexRecoveryDeps;
 }
@@ -1664,6 +1792,15 @@ export function getGenerationLifecycleDeps(host: any) {
     persistSession: (session: Session) => host.persistSession(session),
     onNonResultTurnTerminal: (session: Session, reason: string) => {
       if (session.backendType !== "codex") return;
+      const awaitingAck = getCodexTurnAwaitingAckState(session);
+      if (reason === "user_message_timeout" && awaitingAck && isRecoveryContinuationTurn(session, awaitingAck)) {
+        markCodexTurnRecoveryActionRequired(session, "continuation_dispatch_failed", {
+          broadcastToBrowsers: (targetSession, message) => host.broadcastToBrowsers(targetSession, message),
+          persistSession: (targetSession) => host.persistSession(targetSession),
+          setAttentionError: (targetSession) =>
+            setAttentionController(targetSession, "error", host.getSessionRegistryDeps()),
+        });
+      }
       retireCodexAutoPauseRecoveryTesting(session, {
         broadcastToBrowsers: (targetSession, message) => host.broadcastToBrowsers(targetSession, message),
         persistSession: (targetSession) => host.persistSession(targetSession),

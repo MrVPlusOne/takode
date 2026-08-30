@@ -1,5 +1,6 @@
 import type { ChatMessage } from "../types.js";
 import {
+  CODEX_TURN_RECOVERY_SOURCE_LABEL,
   COMPACTION_RECOVERY_SOURCE_ID,
   COMPACTION_RECOVERY_SOURCE_LABEL,
   LEADER_KICKOFF_SOURCE_ID,
@@ -7,6 +8,7 @@ import {
   LEADER_SKILL_PRELOAD_SOURCE_LABEL_PREFIX,
   MEMORY_CATALOG_SOURCE_LABEL,
   MEMORY_CATALOG_TITLE,
+  isCodexTurnRecoverySourceId,
   isCompactionRecoveryPrompt,
   isLeaderKickoffPrompt,
   isLeaderSkillPreloadSourceId,
@@ -40,6 +42,13 @@ function withRawContent(
 export function buildInjectedEventMessageViewModel(message: EventCandidate): InjectedEventMessageViewModel | null {
   if (!message.content.trim()) return null;
   const sourceId = message.agentSource?.sessionId;
+
+  if (isCodexTurnRecoverySourceId(sourceId)) {
+    return withRawContent(message, {
+      title: CODEX_TURN_RECOVERY_SOURCE_LABEL,
+      description: "System-injected one-shot continuation after an interrupted leader turn.",
+    });
+  }
 
   if (
     sourceId === COMPACTION_RECOVERY_SOURCE_ID ||

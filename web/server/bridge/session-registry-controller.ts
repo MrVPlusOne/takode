@@ -4,6 +4,10 @@ import {
   CODEX_PROVIDER_RESULT_RECONNECT_TIMEOUT_MS,
 } from "../codex-process-reconnect.js";
 import { isCodexProviderResultRecoveryReason } from "./codex-provider-result-recovery.js";
+import {
+  normalizeCodexTurnRecoveryState,
+  repairRestoredCodexTurnRecoveryState,
+} from "./codex-interrupted-turn-recovery.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { PersistedSession } from "../session-store.js";
 import type {
@@ -531,6 +535,7 @@ function normalizePersistedCodexLeaderRecycleContinuation(value: unknown): Codex
     trigger,
     requestedAt: typeof record.requestedAt === "number" ? record.requestedAt : Date.now(),
     content: record.content,
+    ...(typeof record.recoveryId === "string" && record.recoveryId.trim() ? { recoveryId: record.recoveryId } : {}),
     ...(typeof record.threadKey === "string" && record.threadKey.trim() ? { threadKey: record.threadKey } : {}),
     ...(typeof record.questId === "string" && record.questId.trim() ? { questId: record.questId } : {}),
   };
@@ -620,6 +625,7 @@ export async function restorePersistedSessions(
       session.state.backend_type = session.backendType;
       session.state.backend_state = session.state.backend_state ?? "disconnected";
       session.state.backend_error = session.state.backend_error ?? null;
+      session.state.codex_turn_recovery = normalizeCodexTurnRecoveryState(session.state.codex_turn_recovery);
       markRestoredCodexNativeSubagentsUnknown(session.codexNativeSubagents);
       session.state.codex_native_subagents = deriveCodexNativeSubagentSnapshot(session.codexNativeSubagents);
       session.searchDataOnly = true;
@@ -707,6 +713,7 @@ export async function restorePersistedSessions(
     session.state.backend_type = session.backendType;
     session.state.backend_state = session.state.backend_state ?? "disconnected";
     session.state.backend_error = session.state.backend_error ?? null;
+    session.state.codex_turn_recovery = repairRestoredCodexTurnRecoveryState(session);
     markRestoredCodexNativeSubagentsUnknown(session.codexNativeSubagents);
     session.state.codex_native_subagents = deriveCodexNativeSubagentSnapshot(session.codexNativeSubagents);
 

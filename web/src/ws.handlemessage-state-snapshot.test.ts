@@ -349,6 +349,50 @@ describe("handleMessage: state_snapshot", () => {
     });
   });
 
+  it("replaces interrupted-turn recovery state from the authoritative snapshot", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    const recovery = {
+      recoveryId: "original-owner",
+      originalOwnerId: "original-owner",
+      originalProviderTurnId: "turn-original",
+      originalHistoryIndex: 7,
+      continuationOwnerId: "continuation-owner",
+      threadKey: "q-1987",
+      questId: "q-1987",
+      status: "continuation_pending" as const,
+      reason: "interrupted_after_activity" as const,
+      attempt: 1 as const,
+      maxAttempts: 1 as const,
+      createdAt: 100,
+      updatedAt: 110,
+    };
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "running",
+      permissionMode: "default",
+      backendConnected: true,
+      backendState: "connected",
+      codexTurnRecovery: recovery,
+      uiMode: null,
+      askPermission: true,
+    });
+    expect(useStore.getState().sessions.get("s1")?.codex_turn_recovery).toEqual(recovery);
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "idle",
+      permissionMode: "default",
+      backendConnected: true,
+      backendState: "connected",
+      codexTurnRecovery: null,
+      uiMode: null,
+      askPermission: true,
+    });
+    expect(useStore.getState().sessions.get("s1")?.codex_turn_recovery).toBeNull();
+  });
+
   it("sets backendConnected to false and sessionStatus to null when CLI is disconnected", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

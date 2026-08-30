@@ -687,6 +687,68 @@ describe("Codex recovery timeout (q-385)", () => {
     vi.useRealTimers();
   });
 
+  it("turns a restored non-generating interrupted owner into durable action required on timeout", async () => {
+    vi.useFakeTimers();
+    const sid = "s-restored-recovery-timeout";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({ getSession: vi.fn(() => ({ state: "exited", cliSessionId: "thread-restored" })) } as any);
+    const session = bridge.getOrCreateSession(sid, "codex");
+    session.state.backend_state = "disconnected";
+    session.state.isOrchestrator = true;
+    session.state.codex_turn_recovery = {
+      recoveryId: "original-owner",
+      originalOwnerId: "original-owner",
+      originalProviderTurnId: "turn-original",
+      originalHistoryIndex: 0,
+      continuationOwnerId: null,
+      threadKey: "main",
+      status: "recovering",
+      reason: "adapter_disconnect",
+      attempt: 0,
+      maxAttempts: 1,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    session.messageHistory.push({
+      type: "user_message",
+      id: "original-owner",
+      content: "finish the work",
+      timestamp: 1,
+    });
+    session.pendingCodexTurns.push({
+      adapterMsg: { type: "codex_start_pending", pendingInputIds: ["original-owner"], inputs: [] },
+      userMessageId: "original-owner",
+      pendingInputIds: ["original-owner"],
+      userContent: "finish the work",
+      historyIndex: 0,
+      status: "backend_acknowledged",
+      dispatchCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      acknowledgedAt: 2,
+      turnTarget: "current",
+      lastError: null,
+      turnId: "turn-original",
+      disconnectedAt: 3,
+      resumeConfirmedAt: null,
+    });
+    const eventSpy = vi.spyOn(bridge, "emitTakodeEvent");
+
+    (bridge as any).requestCodexAutoRecovery(session, "adapter_disconnect");
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      status: "action_required",
+      reason: "recovery_timeout",
+    });
+    expect(session.pendingCodexTurns).toHaveLength(0);
+    expect(session.isGenerating).toBe(false);
+    expect(session.attentionReason).toBe("error");
+    expect(eventSpy.mock.calls.filter(([, event]) => event === "turn_end")).toHaveLength(0);
+    vi.useRealTimers();
+  });
+
   it("does not reset if adapter attaches within timeout", async () => {
     // The timeout should be a no-op if the adapter reconnects in time.
     vi.useFakeTimers();

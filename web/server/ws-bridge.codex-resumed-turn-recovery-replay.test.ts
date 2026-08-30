@@ -792,6 +792,7 @@ describe("Codex resumed-turn recovery", () => {
         content: "keep going after compaction",
       }),
     );
+    adapter1.emitTurnStarted("turn-compaction");
 
     const session = bridge.getSession(sid)!;
     session.pendingCodexTurns.push({
@@ -850,7 +851,6 @@ describe("Codex resumed-turn recovery", () => {
       timestamp: Date.now() + 1,
     });
 
-    adapter1.emitTurnStarted("turn-compaction");
     adapter1.emitDisconnect("turn-compaction");
 
     const adapter2 = makeCodexAdapterMock();
@@ -1053,130 +1053,395 @@ describe("Codex resumed-turn recovery", () => {
     expect(resumedSession.pendingCodexInputs).toHaveLength(0);
   });
 
-  it("surfaces an interrupted leader turn when a locally started tool is omitted from resume", async () => {
-    // Producer-shaped regression for the August 27, 2026 reconnect incident:
-    // Codex recovered several assistant/reasoning items, but omitted a locally
-    // observed side-effecting Bash call and its result. Takode must settle the
-    // exact owner without replay, preserve the fallback evidence, and expose an
-    // actionable interrupted result instead of calling it ordinary completion.
-    const sid = "s-resume-omitted-side-effecting-tool";
+  it("continues the retained eight-tool leader shape once without replaying completed work", async () => {
+    // Producer-shaped regression for #2489 turn 412: five tool calls completed,
+    // three more were omitted from an interrupted resume, and no final answer
+    // existed. Recovery must preserve all tool evidence, settle the original
+    // owner, and create one separately owned routed continuation.
+    const sid = "s-resume-eight-tool-leader";
     const eventSpy = vi.spyOn(bridge, "emitTakodeEvent");
     const adapter1 = makeCodexAdapterMock();
     bridge.attachCodexAdapter(sid, adapter1 as any);
-    emitCodexSessionReady(adapter1, { cliSessionId: "thread-omitted-tool" });
+    emitCodexSessionReady(adapter1, { cliSessionId: "thread-eight-tool" });
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
     browser.send.mockClear();
 
+    const request = "investigate the recovery bug and create the promised quest";
     await bridge.handleBrowserMessage(
       browser,
-      JSON.stringify({ type: "user_message", content: "create a durable quest record" }),
+      JSON.stringify({ type: "user_message", content: request, threadKey: "q-1987", questId: "q-1987" }),
     );
-    adapter1.emitTurnStarted("turn-omitted-tool");
+    adapter1.emitTurnStarted("turn-eight-tool");
     await Promise.resolve();
 
     const session = bridge.getSession(sid)!;
     session.state.isOrchestrator = true;
-    const toolUseId = "exec-omitted-quest-create";
-    const toolStartedAt = Date.now() - 1_000;
-    session.toolStartTimes.set(toolUseId, toolStartedAt);
-    session.messageHistory.push({
-      type: "assistant",
-      message: {
-        id: "assistant-omitted-tool",
-        type: "message",
-        role: "assistant",
-        model: "gpt-5.6-sol",
-        content: [
-          {
-            type: "tool_use",
-            id: toolUseId,
-            name: "Bash",
-            input: { command: "quest create --title 'durable side effect'" },
+    for (let index = 1; index <= 8; index += 1) {
+      const toolUseId = `exec-eight-tool-${index}`;
+      const timestamp = Date.now() - 2_000 + index;
+      adapter1.emitBrowserMessage({
+        type: "assistant",
+        message: {
+          id: `assistant-eight-tool-${index}`,
+          type: "message",
+          role: "assistant",
+          model: "gpt-5.6-sol",
+          content: [{ type: "tool_use", id: toolUseId, name: "Bash", input: { command: `echo ${index}` } }],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp,
+      });
+      if (index <= 5) {
+        adapter1.emitBrowserMessage({
+          type: "assistant",
+          message: {
+            id: `assistant-eight-tool-result-${index}`,
+            type: "message",
+            role: "assistant",
+            model: "gpt-5.6-sol",
+            content: [{ type: "tool_result", tool_use_id: toolUseId, content: `completed ${index}`, is_error: false }],
+            stop_reason: null,
+            usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
           },
-        ],
-        stop_reason: null,
-        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-      },
-      parent_tool_use_id: null,
-      timestamp: toolStartedAt,
-      threadKey: "main",
-      tool_start_times: { [toolUseId]: toolStartedAt },
-    });
+          parent_tool_use_id: null,
+          timestamp: timestamp + 0.5,
+        });
+      }
+    }
+    await flushAsync();
+    expect(session.toolStartTimes.size).toBe(3);
 
-    adapter1.emitDisconnect("turn-omitted-tool");
+    adapter1.emitDisconnect("turn-eight-tool");
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      originalProviderTurnId: "turn-eight-tool",
+      status: "recovering",
+      threadKey: "q-1987",
+    });
+    expect(session.attentionReason).not.toBe("error");
+
     const adapter2 = makeCodexAdapterMock();
     bridge.attachCodexAdapter(sid, adapter2 as any);
     browser.send.mockClear();
     adapter2.sendBrowserMessage.mockClear();
-
+    const interruptedSnapshot = {
+      threadId: "thread-eight-tool",
+      threadStatus: "idle",
+      turnCount: 1,
+      lastTurn: {
+        id: "turn-eight-tool",
+        status: "interrupted",
+        error: null,
+        items: [
+          { type: "userMessage", content: [{ type: "text", text: request }] },
+          { type: "reasoning", summary: ["Inspecting the recovery path."] },
+        ],
+      },
+    };
     adapter2.emitSessionMeta({
-      cliSessionId: "thread-omitted-tool",
+      cliSessionId: "thread-eight-tool",
       model: "gpt-5.6-sol",
       cwd: "/repo",
-      resumeSnapshot: {
-        threadId: "thread-omitted-tool",
-        threadStatus: "idle",
-        turnCount: 1,
-        lastTurn: {
-          id: "turn-omitted-tool",
-          status: "interrupted",
-          error: null,
-          items: [
-            { type: "userMessage", content: [{ type: "text", text: "create a durable quest record" }] },
-            { type: "agentMessage", id: "omitted-a1", text: "[thread:main] I am checking prior work." },
-            { type: "reasoning", summary: ["Avoiding duplicate quest creation."] },
-            { type: "agentMessage", id: "omitted-a2", text: "[thread:main] I will create the quest now." },
-            { type: "reasoning", summary: ["Preparing the command."] },
-            { type: "agentMessage", id: "omitted-a3", text: "[thread:main] Creating the focused quest." },
-            { type: "agentMessage", id: "omitted-a4", text: "[thread:main] The command started." },
-          ],
-        },
-      },
+      resumeSnapshot: interruptedSnapshot,
     });
+    await flushAsync();
 
-    await vi.waitFor(() => {
-      expect(session.isGenerating).toBe(false);
-      expect(session.pendingCodexTurns).toHaveLength(0);
-    });
-
-    const outboundStarts = adapter2.sendBrowserMessage.mock.calls
-      .map((args: any[]) => args[0])
-      .filter((message: any) => message?.type === "codex_start_pending");
-    expect(outboundStarts).toHaveLength(0);
-
-    const fallback = session.messageHistory.find(
+    const fallbackRows = session.messageHistory.filter(
       (message: any) =>
         message.type === "tool_result_preview" &&
         message.previews?.some((preview: any) => preview.synthetic_reason === "resume_snapshot_fallback"),
     );
-    expect(fallback).toBeTruthy();
+    expect(fallbackRows).toHaveLength(3);
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      originalOwnerId: expect.any(String),
+      continuationOwnerId: expect.any(String),
+      status: "continuation_pending",
+      attempt: 1,
+      maxAttempts: 1,
+      threadKey: "q-1987",
+      questId: "q-1987",
+    });
+    expect(session.isGenerating).toBe(true);
 
-    const diagnostic = session.messageHistory.find(
-      (message: any) =>
-        message.type === "user_message" && message.agentSource?.sessionId === "system:codex-leader-recovery-diagnostic",
-    );
-    expect(diagnostic).toMatchObject({ threadKey: "main" });
-    expect((diagnostic as any)?.content).toContain("No automatic replay will run");
-
-    const browserMessages = browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
-    expect(browserMessages).toContainEqual(
+    const outboundStarts = adapter2.sendBrowserMessage.mock.calls
+      .map((args: any[]) => args[0])
+      .filter((message: any) => message?.type === "codex_start_pending");
+    expect(outboundStarts).toHaveLength(1);
+    const continuationContent = getCodexStartPendingInputs(outboundStarts[0])[0]?.content ?? "";
+    expect(continuationContent).toContain("original user payload was already delivered");
+    expect(continuationContent).toContain("must not be replayed");
+    expect(continuationContent).not.toBe(request);
+    expect(adapter2.sendBrowserMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "error",
-        message: expect.stringContaining("no final response was recovered"),
+        type: "codex_start_pending",
+        inputs: expect.arrayContaining([expect.objectContaining({ content: request })]),
       }),
     );
 
     const turnEnds = eventSpy.mock.calls.filter(
       ([eventSid, eventType]) => eventSid === sid && eventType === "turn_end",
     );
-    expect(turnEnds).toHaveLength(1);
-    expect(turnEnds[0]?.[2]).toMatchObject({
-      reason: "codex_resume_incomplete_recovered_messages",
-      interrupted: true,
-      interrupt_source: "system",
+    expect(turnEnds).toHaveLength(0);
+    const browserMessages = browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+    expect(browserMessages).not.toContainEqual(expect.objectContaining({ type: "error" }));
+
+    adapter2.emitTurnStarted("turn-recovery-continuation");
+    await flushAsync();
+    expect(session.state.codex_turn_recovery?.status).toBe("continuation_active");
+    expect(
+      session.messageHistory.filter(
+        (message: any) =>
+          message.type === "user_message" && message.agentSource?.sessionId?.startsWith("system:codex-turn-recovery:"),
+      ),
+    ).toHaveLength(1);
+
+    adapter2.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "Finished the missing orchestration work",
+        duration_ms: 100,
+        duration_api_ms: 100,
+        num_turns: 1,
+        total_cost_usd: 0,
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        uuid: "result-recovery-continuation",
+        session_id: sid,
+        codex_turn_id: "turn-recovery-continuation",
+        stop_reason: "completed",
+      },
+    } as any);
+    await flushAsync();
+    expect(session.state.codex_turn_recovery).toBeNull();
+    expect(session.pendingCodexTurns).toHaveLength(0);
+    expect(session.isGenerating).toBe(false);
+
+    adapter2.sendBrowserMessage.mockClear();
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-eight-tool",
+      model: "gpt-5.6-sol",
+      cwd: "/repo",
+      resumeSnapshot: interruptedSnapshot,
     });
+    await flushAsync();
+    expect(adapter2.sendBrowserMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "codex_start_pending" }),
+    );
+  });
+
+  it("fails a terminal second continuation closed and preserves action-required state", async () => {
+    const sid = "s-resume-continuation-action-required";
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+    emitCodexSessionReady(adapter1, { cliSessionId: "thread-continuation-action" });
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    const request = "finish the interrupted leader task";
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: request, threadKey: "main" }),
+    );
+    adapter1.emitTurnStarted("turn-original-action");
+    await Promise.resolve();
+    const session = bridge.getSession(sid)!;
+    session.state.isOrchestrator = true;
+    const toolUseId = "exec-original-action";
+    const toolStartedAt = Date.now() - 1_000;
+    adapter1.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "assistant-original-action",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6-sol",
+        content: [{ type: "tool_use", id: toolUseId, name: "Bash", input: { command: "echo work" } }],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: toolStartedAt,
+    });
+    adapter1.emitDisconnect("turn-original-action");
+
+    const adapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    adapter2.sendBrowserMessage.mockClear();
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-continuation-action",
+      model: "gpt-5.6-sol",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-continuation-action",
+        threadStatus: "idle",
+        turnCount: 1,
+        lastTurn: {
+          id: "turn-original-action",
+          status: "interrupted",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: request }] },
+            { type: "reasoning", summary: ["work started"] },
+          ],
+        },
+      },
+    });
+    await flushAsync();
+    expect(session.state.codex_turn_recovery?.status).toBe("continuation_pending");
+    const recoveryOwner = session.state.codex_turn_recovery?.continuationOwnerId;
+    expect(recoveryOwner).toEqual(expect.any(String));
+
+    adapter2.emitTurnStarted("turn-continuation-action");
+    adapter2.emitBrowserMessage({
+      type: "codex_reasoning_detail",
+      id: "continuation-reasoning",
+      text: "Inspecting prior tool side effects",
+      status: "complete",
+      timestamp: Date.now(),
+      parent_tool_use_id: null,
+      reasoning_turn_id: "turn-continuation-action",
+      reasoning_item_ordinal: 0,
+      provider_item_id: "continuation-reasoning-provider",
+    } as any);
+    await flushAsync();
+    adapter2.emitDisconnect("turn-continuation-action");
+
+    const adapter3 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter3 as any);
+    adapter3.sendBrowserMessage.mockClear();
+    browser.send.mockClear();
+    adapter3.emitSessionMeta({
+      cliSessionId: "thread-continuation-action",
+      model: "gpt-5.6-sol",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-continuation-action",
+        threadStatus: "idle",
+        turnCount: 2,
+        lastTurn: {
+          id: "turn-continuation-action",
+          status: "failed",
+          error: "backend ended before canonical success",
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: "recovery continuation" }] },
+            { type: "functionCall", id: "continuation-tool", status: "completed", name: "exec_command" },
+            { type: "agentMessage", id: "continuation-final-looking", text: "I inspected the prior side effects." },
+          ],
+        },
+      },
+    });
+    await flushAsync();
+
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      continuationOwnerId: recoveryOwner,
+      status: "action_required",
+      reason: "continuation_failed",
+      attempt: 1,
+      maxAttempts: 1,
+    });
+    expect(adapter3.sendBrowserMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "codex_start_pending" }),
+    );
+    expect(
+      session.messageHistory.filter(
+        (message: any) =>
+          message.type === "user_message" && message.agentSource?.sessionId?.startsWith("system:codex-turn-recovery:"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      session.messageHistory.some(
+        (message: any) =>
+          message.type === "user_message" &&
+          message.agentSource?.sessionId === "system:codex-leader-recovery-diagnostic",
+      ),
+    ).toBe(true);
+    const terminalMessages = browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+    expect(terminalMessages).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("without a successful final turn"),
+      }),
+    );
+
+    adapter3.emitSessionMeta({
+      cliSessionId: "thread-continuation-action",
+      model: "gpt-5.6-sol",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-continuation-action",
+        threadStatus: "idle",
+        turnCount: 3,
+        lastTurn: {
+          id: "turn-original-action",
+          status: "completed",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: request }] },
+            { type: "functionCall", id: "original-tool-only", status: "completed", name: "exec_command" },
+          ],
+        },
+      },
+    });
+    await flushAsync();
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      status: "action_required",
+      reason: "continuation_failed",
+    });
+
+    const reconnectBrowser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(reconnectBrowser, sid);
+    const init = reconnectBrowser.send.mock.calls
+      .map(([raw]: [string]) => JSON.parse(raw))
+      .find((msg: any) => msg.type === "session_init");
+    expect(init?.session.codex_turn_recovery).toMatchObject({ status: "action_required", threadKey: "main" });
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "unrelated follow-up",
+        threadKey: "q-other",
+        questId: "q-other",
+      }),
+    );
+    await flushAsync();
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      continuationOwnerId: recoveryOwner,
+      status: "action_required",
+      threadKey: "main",
+    });
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "resolve_codex_turn_recovery", recoveryId: "stale-recovery" }),
+    );
+    expect(session.state.codex_turn_recovery).not.toBeNull();
+    browser.send.mockClear();
+    reconnectBrowser.send.mockClear();
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "resolve_codex_turn_recovery",
+        recoveryId: session.state.codex_turn_recovery?.recoveryId,
+      }),
+    );
+    expect(session.state.codex_turn_recovery).toBeNull();
+    expect(session.attentionReason).toBe("error");
+    for (const socket of [browser, reconnectBrowser]) {
+      const updates = socket.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+      expect(updates).toContainEqual(
+        expect.objectContaining({ type: "session_update", session: { codex_turn_recovery: null } }),
+      );
+      expect(updates).not.toContainEqual(
+        expect.objectContaining({ type: "session_update", session: { attentionReason: null } }),
+      );
+    }
   });
 
   it("re-arms resumed in-progress queued follow-up turns after disconnect", async () => {

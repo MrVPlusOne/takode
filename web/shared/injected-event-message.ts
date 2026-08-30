@@ -5,6 +5,8 @@ export const LEADER_KICKOFF_SOURCE_LABEL = "Leader Kickoff";
 export const LEADER_SKILL_PRELOAD_SOURCE_ID_PREFIX = "system:leader-skill-preload:";
 export const LEADER_SKILL_PRELOAD_SOURCE_LABEL_PREFIX = "Required leader skill preloaded";
 export const MEMORY_CATALOG_SOURCE_ID = "system:memory-catalog";
+export const CODEX_TURN_RECOVERY_SOURCE_ID_PREFIX = "system:codex-turn-recovery:";
+export const CODEX_TURN_RECOVERY_SOURCE_LABEL = "Interrupted Turn Recovery";
 export const MEMORY_CATALOG_SOURCE_LABEL = "Memory Catalog";
 export const MEMORY_CATALOG_TITLE = "Memory catalog preloaded";
 export const MEMORY_CATALOG_TRUNCATED_PREFIX = "⚠ Memory catalog truncated:";
@@ -70,6 +72,14 @@ export function getOmittedHerdContextSource(
     return { sourceLabel };
   }
   return null;
+}
+
+export function codexTurnRecoverySourceId(recoveryId: string): string {
+  return CODEX_TURN_RECOVERY_SOURCE_ID_PREFIX + recoveryId;
+}
+
+export function isCodexTurnRecoverySourceId(sourceId: string | undefined): boolean {
+  return sourceId?.startsWith(CODEX_TURN_RECOVERY_SOURCE_ID_PREFIX) === true;
 }
 
 export function isSystemSourceId(sourceId: string | undefined): boolean {

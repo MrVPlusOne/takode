@@ -2,6 +2,7 @@ import type { BrowserOutgoingMessage } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
 import type { TurnStartFailureInfo } from "./adapter-interface.js";
 import { markCodexAutoPauseRecoveryFailed } from "./codex-auto-pause-recovery-summary.js";
+import { isRecoveryContinuationTurn, markCodexTurnRecoveryActionRequired } from "./codex-interrupted-turn-recovery.js";
 import type {
   CodexAdapterRecoveryLifecycleDeps,
   CodexRecoveryOrchestratorSessionLike,
@@ -30,6 +31,7 @@ export function handleTerminalTurnStartFailure(
         turn.status !== "completed",
     );
 
+  const recoveryContinuation = pending ? isRecoveryContinuationTurn(session, pending) : false;
   const pendingInputIds = pending?.pendingInputIds ?? (pending?.userMessageId ? [pending.userMessageId] : []);
   const recoveryLinks = pendingInputIds.flatMap(
     (id) => session.pendingCodexInputs.find((input) => input.id === id)?.autoPauseRecoveries ?? [],
@@ -50,6 +52,9 @@ export function handleTerminalTurnStartFailure(
   if (pending) {
     pending.lastError = message;
     deps.completeCodexTurn(session, pending);
+  }
+  if (recoveryContinuation) {
+    markCodexTurnRecoveryActionRequired(session, "continuation_dispatch_failed", deps);
   }
 
   deps.setGenerating(session, false, "codex_turn_start_terminal_failure");

@@ -27,6 +27,7 @@ export const SUPPRESSED_TAKODE_TURN_END_REASONS = new Set([
   "codex_steer_no_active_turn",
   "codex_init_error",
   "codex_recovery_suppressed",
+  "codex_interrupted_turn_continuation",
 ]);
 
 export type InterruptSource = "user" | "leader" | "system";
@@ -125,6 +126,7 @@ export interface StuckWatchdogDeps<S extends StuckWatchdogSession> {
   getCurrentTurnTriggerSource?: (session: S) => "user" | "leader" | "system" | "unknown";
   getRecoverableActiveCodexTurnId?: (session: S) => string | null;
   pokeStaleCodexPendingDelivery?: (session: S, reason: string) => boolean;
+  recoverStuckOrchestratorCodexTurn?: (session: S) => boolean;
 }
 
 export type UserDispatchTurnTarget = "current" | "queued";
@@ -589,6 +591,20 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
     if (elapsed < recoverThreshold || (!cliConnected && elapsed < deps.autoRecoverMs)) continue;
 
     const recoverableCodexTurnId = deps.getRecoverableActiveCodexTurnId?.(session) ?? null;
+    if (
+      isOrchestrator &&
+      session.backendType === "codex" &&
+      cliConnected &&
+      recoverableCodexTurnId &&
+      deps.recoverStuckOrchestratorCodexTurn?.(session)
+    ) {
+      deps.recordServerEvent?.(session, "stuck_orchestrator_recovery_requested", {
+        elapsed,
+        sinceLastActivity,
+        activeTurnId: recoverableCodexTurnId,
+      });
+      continue;
+    }
     const canDeferTerminalInterrupt =
       !isOrchestrator && session.backendType === "codex" && cliConnected && recoverableCodexTurnId;
     if (canDeferTerminalInterrupt) {

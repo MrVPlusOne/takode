@@ -9,6 +9,7 @@ import type {
   BrowserOutgoingMessage,
   CodexModelSwitchCompactionGuard,
   CodexOutboundTurn,
+  CodexTurnRecoveryReason,
   PendingCodexInput,
   SessionNotification,
   SessionState,
@@ -43,14 +44,11 @@ import {
 import { requestCodexAutoRecovery as requestCodexAutoRecoveryController } from "./session-registry-controller.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import { isSessionPaused } from "../session-pause.js";
-import {
-  appendCodexLeaderRecoveryDiagnostic,
-  leaderRouteFromRecoveredAssistant,
-} from "./codex-leader-recovery-diagnostic.js";
+import { appendCodexLeaderRecoveryDiagnostic } from "./codex-leader-recovery-diagnostic.js";
 import {
   buildCodexRecoveredAssistantRouteSegments,
   codexRecoveredAssistantModel,
-  hasMatchingRecoveredCodexAssistantReplay,
+  recoverAgentMessagesFromResumedTurn,
 } from "./codex-recovered-assistant-routing.js";
 import { consumeCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 import { handleTerminalTurnStartFailure } from "./codex-terminal-turn-start-failure.js";
@@ -84,14 +82,29 @@ import {
 import { clearOrphanedCodexProviderRetryState } from "./codex-provider-retry-state.js";
 import {
   clearRecoveredCodexGenerationIfIdle,
-  getQueuedTurnLifecycleEntries,
-  replaceQueuedTurnLifecycleEntries,
+  rearmRecoveredQueuedHeadTurn,
+  reconcileRecoveredQueuedTurnLifecycle,
 } from "./codex-queued-turn-lifecycle.js";
 import { runCodexSessionMetaBarrier } from "./codex-session-meta-barrier.js";
 import { registerCodexNativeSubagentLifecycle } from "./codex-native-subagent-lifecycle.js";
 import { recordCodexAcceptedDispatchActivity } from "./codex-model-switch-dispatch-activity.js";
 import { retireProvenInactiveCodexTurnAfterSteerFailure } from "./codex-steer-failure-recovery.js";
 import { recoverNonDrainableCodexHeadTurn } from "./codex-nondrainable-turn-recovery.js";
+import {
+  beginCodexTurnRecoveryContinuation,
+  clearCodexTurnRecoveryForOwner,
+  hasFinalCodexOutcomeEvidence,
+  hasIncompleteCodexActivityWithoutTerminalEvidence,
+  isCodexLeaderRecycleRecoveryInjectionPending,
+  isRecoveryContinuationTurn,
+  markCodexTurnRecoveryActionRequired,
+  markCodexTurnRecoveryContinuationActive,
+  markCodexTurnRecoveryOnDisconnect,
+  resolveCodexTurnRecoveryRoute,
+  selectCodexTurnRecoveryOwner,
+  settleCodexTurnRecoveryFromResult,
+  type CodexTurnRecoveryDeliveryStatus,
+} from "./codex-interrupted-turn-recovery.js";
 export { extractUserTextFromResumedTurn, normalizeResumedUserText };
 export { clearCodexIntentionalRelaunch, markCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 export { maybeFlushQueuedCodexMessages } from "./codex-queued-message-flush.js";
@@ -111,6 +124,7 @@ export interface CodexRecoveryOrchestratorSessionLike {
     | "isOrchestrator"
     | "codex_result_error_auto_pause"
     | "codex_provider_retry"
+    | "codex_turn_recovery"
   >;
   messageHistory: BrowserIncomingMessage[];
   _frozenCount?: number;
@@ -118,6 +132,7 @@ export interface CodexRecoveryOrchestratorSessionLike {
   pendingMessages: string[];
   pendingCodexInputs: PendingCodexInput[];
   pendingCodexTurns: CodexOutboundTurn[];
+  codexLeaderRecycleContinuation?: import("../session-types.js").CodexLeaderRecycleContinuation | null;
   codexFreshTurnRequiredUntilTurnId: string | null;
   codexModelSwitchCompactionGuard?: CodexModelSwitchCompactionGuard | null;
   codexPendingDeliveryProofSignals?: import("../session-types.js").CodexPendingDeliveryProofSignal[];
@@ -161,6 +176,7 @@ export interface CodexRecoveryOrchestratorDeps {
     session: CodexRecoveryOrchestratorSessionLike,
     msg: CLIResultMessage,
     updatedAt?: number,
+    interrupted?: boolean,
   ) => boolean;
   clearCodexFreshTurnRequirement: (
     session: CodexRecoveryOrchestratorSessionLike,
@@ -193,6 +209,14 @@ export interface CodexRecoveryOrchestratorDeps {
   ) => UserDispatchTurnTarget;
   promoteNextQueuedTurn: (session: CodexRecoveryOrchestratorSessionLike) => boolean;
   isCodexWorkerV2DeliveryFrozen: (sessionId: string) => boolean;
+  injectUserMessage: (
+    sessionId: string,
+    content: string,
+    agentSource: { sessionId: string; sessionLabel?: string },
+    threadRoute: ThreadRouteMetadata,
+    options: { deliveryContent: string },
+  ) => CodexTurnRecoveryDeliveryStatus;
+  setAttentionError?: (session: CodexRecoveryOrchestratorSessionLike) => void;
 }
 
 export interface CodexAdapterRecoveryLifecycleDeps extends CodexRecoveryOrchestratorDeps {
@@ -243,11 +267,6 @@ export interface CodexAdapterRecoveryLifecycleDeps extends CodexRecoveryOrchestr
   adapterFailureResetWindowMs: number;
   maxAdapterRelaunchFailures: number;
   hasCliRelaunchCallback: boolean;
-  injectUserMessage: (
-    sessionId: string,
-    content: string,
-    agentSource?: { sessionId: string; sessionLabel?: string },
-  ) => void;
 }
 
 export interface CodexAttachLifecycleDeps
@@ -432,14 +451,23 @@ export function hydrateCodexResumedHistory(
 export function completeCodexTurnsForResult(
   session: CodexRecoveryOrchestratorSessionLike,
   msg: CLIResultMessage,
-  deps: Pick<CodexRecoveryOrchestratorDeps, "getCodexHeadTurn">,
+  deps: Pick<
+    CodexRecoveryOrchestratorDeps,
+    "getCodexHeadTurn" | "broadcastToBrowsers" | "persistSession" | "setAttentionError"
+  >,
   updatedAt = Date.now(),
+  interrupted = false,
 ): boolean {
+  const resultTurnId = typeof msg.codex_turn_id === "string" ? msg.codex_turn_id : null;
+  const completedTurns = resultTurnId
+    ? session.pendingCodexTurns.filter((turn) => turn.turnId === resultTurnId)
+    : [deps.getCodexHeadTurn(session)].filter((turn): turn is CodexOutboundTurn => turn !== null);
   const outcome = completeCodexTurnsForResultState(session, msg, updatedAt);
   if (outcome.codexTurnId) {
     if (outcome.matched) {
       recordCodexTurnResultProof(session, outcome.codexTurnId);
       reconcileRecoveredQueuedTurnLifecycle(session, "codex_result_turn_id_completed", deps);
+      settleCodexTurnRecoveryFromResult(session, completedTurns, msg, deps, interrupted);
       return true;
     }
     console.warn(
@@ -447,6 +475,7 @@ export function completeCodexTurnsForResult(
     );
     return false;
   }
+  if (outcome.matched) settleCodexTurnRecoveryFromResult(session, completedTurns, msg, deps, interrupted);
   return outcome.matched;
 }
 
@@ -494,7 +523,12 @@ export function dispatchQueuedCodexTurns(
     | "isCodexWorkerV2DeliveryFrozen"
   >,
 ): void {
-  if (isSessionPaused(session as any) || deps.isCodexWorkerV2DeliveryFrozen(session.id)) return;
+  if (
+    isSessionPaused(session as any) ||
+    deps.isCodexWorkerV2DeliveryFrozen(session.id) ||
+    isCodexLeaderRecycleRecoveryInjectionPending(session)
+  )
+    return;
   holdCodexAutoPausedQueuedBacklog(session as any, deps);
   const outcome = dispatchQueuedCodexTurnsState(session, reason, {
     pruneStalePendingCodexHerdInputs: (dispatchReason) =>
@@ -815,7 +849,8 @@ export function pokeStaleCodexPendingDelivery(
 ): boolean {
   const adapter = session.codexAdapter;
   if (session.backendType !== "codex") return false;
-  if (deps.isCodexWorkerV2DeliveryFrozen(session.id)) return false;
+  if (deps.isCodexWorkerV2DeliveryFrozen(session.id) || isCodexLeaderRecycleRecoveryInjectionPending(session))
+    return false;
   if (session.pendingCodexInputs.length === 0) return false;
   if (session.isGenerating) return false;
   if (!adapter || session.state.backend_state !== "connected" || !adapter.isConnected()) return false;
@@ -865,7 +900,8 @@ export function trySteerPendingCodexInputs(
   reason: string,
   deps: CodexRecoveryOrchestratorDeps,
 ): boolean {
-  if (deps.isCodexWorkerV2DeliveryFrozen(session.id)) return false;
+  if (deps.isCodexWorkerV2DeliveryFrozen(session.id) || isCodexLeaderRecycleRecoveryInjectionPending(session))
+    return false;
   const adapter = session.codexAdapter;
   const expectedTurnId = adapter?.getCurrentTurnId() ?? null;
   if (!adapter || !expectedTurnId || session.state.backend_state !== "connected" || !adapter.isConnected()) {
@@ -966,6 +1002,7 @@ export function handleCodexAdapterInitError(
     }
     deps.rebuildQueuedCodexPendingStartBatch(session);
     const diagnostic = `Codex automatic recovery is paused after ${failures} failed attempts. Use Reconnect to start a fresh cycle.`;
+    markCodexTurnRecoveryActionRequired(session, "recovery_failed", deps);
     deps.setBackendState(session, "recovery_suppressed", diagnostic);
     retireCodexAutoPauseRecoveryTesting(session, deps);
     deps.emitTakodeEvent(session.id, "session_error", { error: diagnostic });
@@ -995,6 +1032,7 @@ export function handleCodexAdapterInitError(
     pending.updatedAt = Date.now();
     deps.setPendingCodexInputsCancelable(session, pending.pendingInputIds ?? [pending.userMessageId], true);
   }
+  markCodexTurnRecoveryActionRequired(session, "recovery_failed", deps);
   deps.setBackendState(session, "broken", error);
   deps.setAttentionError(session);
   deps.emitTakodeEvent(session.id, "session_error", { error });
@@ -1071,8 +1109,9 @@ export function registerCodexAdapterRecoveryLifecycle(
       if (meta.cwd) session.state.cwd = meta.cwd;
       (session.state as any).backend_type = "codex";
       if (recyclePending) {
+        const exactRecoveryPending = isCodexLeaderRecycleRecoveryInjectionPending(session);
         deps.injectCompactionRecovery(session);
-        deps.completeCodexLeaderRecycle(session.id);
+        if (!exactRecoveryPending) deps.completeCodexLeaderRecycle(session.id);
       }
       if (pendingRollback) {
         (session as any).pendingCodexRollbackError = null;
@@ -1164,6 +1203,7 @@ export function registerCodexAdapterRecoveryLifecycle(
     pending.status = "backend_acknowledged";
     pending.acknowledgedAt = Date.now();
     pending.updatedAt = pending.acknowledgedAt;
+    markCodexTurnRecoveryContinuationActive(session, pending, deps);
     if (pending.turnTarget === "queued" && !session.isGenerating) {
       rearmRecoveredQueuedHeadTurn(session, pending, "codex_turn_started_recovered", deps);
     }
@@ -1233,7 +1273,7 @@ export function registerCodexAdapterRecoveryLifecycle(
     }
     const pending = deps.getCodexTurnInRecovery(session);
     if (pending) {
-      pending.turnId = disconnectedTurnId;
+      if (disconnectedTurnId) pending.turnId = disconnectedTurnId;
       pending.disconnectedAt = Date.now();
       pending.resumeConfirmedAt = null;
       pending.updatedAt = pending.disconnectedAt;
@@ -1241,6 +1281,9 @@ export function registerCodexAdapterRecoveryLifecycle(
     const now = Date.now();
     const intentionalReason = consumeCodexIntentionalRelaunch(session, adapter, now);
     const intentionalRelaunch = intentionalReason !== null;
+    if (pending && !intentionalRelaunch) {
+      markCodexTurnRecoveryOnDisconnect(session, pending, deps);
+    }
     for (const [reqId] of (session as any).pendingPermissions) {
       deps.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: reqId });
     }
@@ -1279,6 +1322,9 @@ export function registerCodexAdapterRecoveryLifecycle(
           broadcastCodexAutoPauseRecoveryTesting(session, deps);
           deps.persistSession(session);
           return;
+        }
+        if (session.state.codex_turn_recovery?.status === "recovering") {
+          markCodexTurnRecoveryActionRequired(session, "recovery_failed", deps);
         }
         retireCodexAutoPauseRecoveryTesting(session, deps);
         deps.markTurnInterrupted(session, "system");
@@ -1327,7 +1373,12 @@ export function registerCodexAdapterRecoveryLifecycle(
       type: "backend_disconnected",
       ...(idleKilled ? { reason: "idle_limit" } : {}),
     });
-    if (wasGenerating && !idleKilled && !intentionalRelaunch) {
+    if (
+      wasGenerating &&
+      !idleKilled &&
+      !intentionalRelaunch &&
+      session.state.codex_turn_recovery?.status !== "recovering"
+    ) {
       deps.setAttentionError(session);
     }
 
@@ -1503,6 +1554,19 @@ export function reconcileCodexResumedTurn(
   const pending = deps.getCodexTurnInRecovery(session);
   const lastTurn = snapshot.lastTurn;
   if (!pending) {
+    const recovery = session.state.codex_turn_recovery ?? null;
+    if (
+      recovery &&
+      recovery.status !== "action_required" &&
+      lastTurn &&
+      lastTurn.id === recovery.originalProviderTurnId
+    ) {
+      if (lastTurn.status === "completed" && lastTurn.error == null && hasFinalCodexOutcomeEvidence(lastTurn)) {
+        clearCodexTurnRecoveryForOwner(session, recovery.originalOwnerId, deps);
+      } else {
+        markCodexTurnRecoveryActionRequired(session, "recovery_failed", deps);
+      }
+    }
     if (lastTurn && lastTurn.status !== "completed") {
       console.warn(
         `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} ` +
@@ -1554,6 +1618,8 @@ export function reconcileCodexResumedTurn(
     );
     return;
   }
+  if (!pending.turnId && matchesText) pending.turnId = lastTurn.id;
+  const recoveryOwner = selectCodexTurnRecoveryOwner(session, pending);
   const completedHistoryIndexes = commitPendingCodexInputs(
     session,
     pending.pendingInputIds ?? [pending.userMessageId],
@@ -1571,13 +1637,22 @@ export function reconcileCodexResumedTurn(
     retryPendingCodexTurn(session, pending, deps, { diagnoseDispatchFailure: true });
     return;
   }
-  const recoveredAgentMessages = recoverAgentMessagesFromResumedTurn(session, lastTurn, pending, deps);
+  const localActivity = summarizeLocalCodexDeliveryActivity(session, recoveryOwner);
+  const recoveredAgentMessages = recoverAgentMessagesFromResumedTurn(session, lastTurn, recoveryOwner, deps);
   const recoveredAgents = recoveredAgentMessages.count;
   const synthesizedToolResults = deps.synthesizeCodexToolResultsFromResumedTurn(session, lastTurn, pending);
   const synthesizedResults = synthesizedToolResults.count;
   const observedActivity = mergeCodexDeliveryActivity(
-    summarizeLocalCodexDeliveryActivity(session, pending),
+    localActivity,
     summarizeCodexResumeDeliveryActivity(nonUserItems),
+  );
+  const recoveryContinuation = isRecoveryContinuationTurn(session, pending);
+  const interruptedActivityWithoutTerminal = hasIncompleteCodexActivityWithoutTerminalEvidence(
+    lastTurn,
+    snapshot.threadStatus,
+    recoveryContinuation ? observedActivity : localActivity,
+    synthesizedToolResults.omittedFromResumeSnapshotCount,
+    recoveryContinuation,
   );
   if (lastTurn.status === "inProgress" && snapshot.threadStatus === "idle") {
     if (observedActivity.count > 0) {
@@ -1614,12 +1689,13 @@ export function reconcileCodexResumedTurn(
     return;
   }
   if (
-    recoveredAgents > 0 &&
-    hasIncompleteRecoveredMessagesWithoutTerminalEvidence(
-      lastTurn,
-      snapshot.threadStatus,
-      synthesizedToolResults.omittedFromResumeSnapshotCount,
-    )
+    (recoveredAgents > 0 &&
+      hasIncompleteRecoveredMessagesWithoutTerminalEvidence(
+        lastTurn,
+        snapshot.threadStatus,
+        synthesizedToolResults.omittedFromResumeSnapshotCount,
+      )) ||
+    interruptedActivityWithoutTerminal
   ) {
     session.consecutiveAdapterFailures = 0;
     session.lastAdapterFailureAt = null;
@@ -1628,9 +1704,10 @@ export function reconcileCodexResumedTurn(
       snapshot.threadStatus,
       synthesizedToolResults.omittedFromResumeSnapshotCount,
     );
-    const leaderRecoveryDiagnosticRoute = isInterruptedAssistantRecovery
-      ? recoveredAgentMessages.latestLeaderRoute
-      : null;
+    const leaderRecoveryDiagnosticRoute =
+      session.state.isOrchestrator === true
+        ? resolveCodexTurnRecoveryRoute(session, recoveryOwner, recoveredAgentMessages.latestLeaderRoute)
+        : null;
     completeRecoveredCodexTurnWithDiagnostic(
       session,
       pending,
@@ -1639,7 +1716,10 @@ export function reconcileCodexResumedTurn(
       deps,
       {
         leaderDiagnosticRoute: leaderRecoveryDiagnosticRoute,
-        interruptSource: isInterruptedAssistantRecovery ? "system" : undefined,
+        leaderContinuationRoute: recoveryContinuation ? null : leaderRecoveryDiagnosticRoute,
+        recoveryOwner,
+        turnRecoveryActionRequired: recoveryContinuation ? "continuation_interrupted" : undefined,
+        interruptSource: isInterruptedAssistantRecovery || interruptedActivityWithoutTerminal ? "system" : undefined,
       },
     );
     return;
@@ -1648,8 +1728,35 @@ export function reconcileCodexResumedTurn(
     session.consecutiveAdapterFailures = 0;
     session.lastAdapterFailureAt = null;
     const reason = recoveredAgents > 0 ? "codex_resume_recovered_messages" : "codex_resume_synthesized_results";
+    if (session.state.isOrchestrator === true && (lastTurn.status !== "completed" || lastTurn.error != null)) {
+      const leaderRoute = resolveCodexTurnRecoveryRoute(
+        session,
+        recoveryOwner,
+        recoveredAgentMessages.latestLeaderRoute,
+      );
+      completeRecoveredCodexTurnWithDiagnostic(
+        session,
+        pending,
+        reason,
+        "Codex recovery ended without a successful final turn. Completed work was preserved, but the request still needs continuation or review.",
+        deps,
+        {
+          leaderDiagnosticRoute: leaderRoute,
+          leaderContinuationRoute: recoveryContinuation ? null : leaderRoute,
+          recoveryOwner,
+          turnRecoveryActionRequired: recoveryContinuation
+            ? lastTurn.status === "interrupted"
+              ? "continuation_interrupted"
+              : "continuation_failed"
+            : undefined,
+          interruptSource: "system",
+        },
+      );
+      return;
+    }
     deps.completeCodexTurn(session, pending);
     if (lastTurn.status === "completed" && lastTurn.error == null) {
+      clearCodexTurnRecoveryForOwner(session, recoveryOwner.userMessageId, deps);
       const maybeRecovery = deps.handleRecoveredCodexAutoPauseSuccess(session, pending);
       if (maybeRecovery instanceof Promise) {
         void maybeRecovery.catch((error) => {
@@ -1679,12 +1786,20 @@ export function reconcileCodexResumedTurn(
   console.warn(
     `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} has non-user items but no recoverable agentMessage text; skipping auto-retry to avoid duplicate side effects`,
   );
+  const leaderRoute =
+    session.state.isOrchestrator === true ? resolveCodexTurnRecoveryRoute(session, recoveryOwner) : null;
   completeRecoveredCodexTurnWithDiagnostic(
     session,
     pending,
     "codex_resume_non_retryable",
     "Codex disconnected mid-turn and resumed with non-text tool activity. Automatic retry was skipped to avoid duplicate side effects.",
     deps,
+    {
+      leaderDiagnosticRoute: leaderRoute,
+      recoveryOwner,
+      turnRecoveryActionRequired: session.state.codex_turn_recovery ? "recovery_failed" : undefined,
+      interruptSource: "system",
+    },
   );
 }
 function suppressCodexReplayWhenDeliveryWasObserved(
@@ -1693,7 +1808,8 @@ function suppressCodexReplayWhenDeliveryWasObserved(
   replayCause: string,
   deps: CodexRecoveryOrchestratorDeps,
 ): boolean {
-  const activity = summarizeLocalCodexDeliveryActivity(session, pending);
+  const recoveryOwner = selectCodexTurnRecoveryOwner(session, pending);
+  const activity = summarizeLocalCodexDeliveryActivity(session, recoveryOwner);
   if (activity.count === 0) return false;
   suppressCodexReplayForObservedActivity(session, pending, replayCause, activity, deps);
   return true;
@@ -1706,17 +1822,31 @@ function suppressCodexReplayForObservedActivity(
   activity: CodexLocalDeliveryActivitySummary,
   deps: CodexRecoveryOrchestratorDeps,
 ): void {
-  recordCodexReplaySuppressedProof(session, pending, replayCause, activity);
+  const recoveryOwner = selectCodexTurnRecoveryOwner(session, pending);
+  recordCodexReplaySuppressedProof(session, recoveryOwner, replayCause, activity);
   console.warn(
     `[ws-bridge] Suppressed Codex user-delivery replay for session ${sessionTag(session.id)} ` +
-      `(owner=${pending.userMessageId}, cause=${replayCause}, activity=${activity.kinds.join(",") || "unknown"}, count=${activity.count})`,
+      `(owner=${recoveryOwner.userMessageId}, cause=${replayCause}, activity=${activity.kinds.join(",") || "unknown"}, count=${activity.count})`,
   );
+  const leaderRoute =
+    session.state.isOrchestrator === true ? resolveCodexTurnRecoveryRoute(session, recoveryOwner) : null;
   completeRecoveredCodexTurnWithDiagnostic(
     session,
     pending,
     "codex_resume_replay_suppressed",
     "Codex disconnected after Takode had already observed model activity for this user delivery. The old user payload was not replayed; send a new instruction only if you want to continue the interrupted work.",
     deps,
+    {
+      leaderDiagnosticRoute: leaderRoute,
+      leaderContinuationRoute: session.state.codex_turn_recovery ? null : leaderRoute,
+      recoveryOwner,
+      turnRecoveryActionRequired: session.state.codex_turn_recovery
+        ? isRecoveryContinuationTurn(session, pending)
+          ? "continuation_interrupted"
+          : "recovery_failed"
+        : undefined,
+      interruptSource: "system",
+    },
   );
 }
 
@@ -1728,176 +1858,40 @@ function completeRecoveredCodexTurnWithDiagnostic(
   deps: CodexRecoveryOrchestratorDeps,
   options: {
     leaderDiagnosticRoute?: ThreadRouteMetadata | null;
+    leaderContinuationRoute?: ThreadRouteMetadata | null;
+    recoveryOwner?: CodexOutboundTurn;
+    turnRecoveryActionRequired?: CodexTurnRecoveryReason;
     interruptSource?: "user" | "leader" | "system";
   } = {},
 ): void {
   deps.completeCodexTurn(session, pending);
   if (options.interruptSource) deps.markTurnInterrupted(session, options.interruptSource);
-  clearRecoveredCodexGenerationIfIdle(session, reason, deps);
+  const generationReason = options.leaderContinuationRoute ? "codex_interrupted_turn_continuation" : reason;
+  deps.setGenerating(session, false, generationReason);
+  const successor = deps.getCodexHeadTurn(session);
+  if (successor) rearmRecoveredQueuedHeadTurn(session, successor, `${reason}_successor`, deps);
   reconcileRecoveredQueuedTurnLifecycle(session, reason, deps);
-  if (options.leaderDiagnosticRoute) appendCodexLeaderRecoveryDiagnostic(session, options.leaderDiagnosticRoute, deps);
+  let continuationQueued = false;
+  if (options.turnRecoveryActionRequired) {
+    markCodexTurnRecoveryActionRequired(session, options.turnRecoveryActionRequired, deps);
+  } else if (options.leaderContinuationRoute) {
+    continuationQueued = beginCodexTurnRecoveryContinuation(
+      session,
+      options.recoveryOwner ?? pending,
+      options.leaderContinuationRoute,
+      deps,
+    );
+  }
+  if (!continuationQueued && options.leaderDiagnosticRoute) {
+    appendCodexLeaderRecoveryDiagnostic(session, options.leaderDiagnosticRoute, deps);
+  }
   deps.dispatchQueuedCodexTurns(session, reason);
   reconcileRecoveredQueuedTurnLifecycle(session, `${reason}_dispatched`, deps);
   deps.maybeFlushQueuedCodexMessages(session, reason);
-  deps.broadcastToBrowsers(session, { type: "error", message });
+  if (!continuationQueued) deps.broadcastToBrowsers(session, { type: "error", message });
   deps.persistSession(session);
 }
 
-function recoverAgentMessagesFromResumedTurn(
-  session: CodexRecoveryOrchestratorSessionLike,
-  turn: CodexResumeTurnSnapshot,
-  pending: CodexOutboundTurn,
-  deps: CodexRecoveryOrchestratorDeps,
-): { count: number; latestLeaderRoute: ThreadRouteMetadata | null } {
-  let matchedOrRecovered = 0;
-  let latestLeaderRoute: ThreadRouteMetadata | null = null;
-  const isLeaderSession = session.state.isOrchestrator === true;
-  const baseTs = pending.disconnectedAt ?? Date.now();
-  for (let i = 0; i < turn.items.length; i++) {
-    const item = turn.items[i];
-    if (item.type !== "agentMessage") continue;
-    const text = typeof item.text === "string" ? item.text : "";
-    if (!text.trim()) continue;
-    const itemId = typeof item.id === "string" ? item.id : `${turn.id}-${i}`;
-    const assistantId = `codex-agent-${itemId}`;
-    const alreadyExists = session.messageHistory.find((m) => m.type === "assistant" && m.message?.id === assistantId);
-    if (alreadyExists) {
-      latestLeaderRoute = leaderRouteFromRecoveredAssistant(isLeaderSession, alreadyExists) ?? latestLeaderRoute;
-      matchedOrRecovered++;
-      continue;
-    }
-    if (
-      /^item-\d+$/.test(itemId) &&
-      hasMatchingRecoveredCodexAssistantReplay(session, text, deps.codexAssistantReplayScanLimit)
-    ) {
-      matchedOrRecovered++;
-      continue;
-    }
-    for (const [segmentIndex, routed] of buildCodexRecoveredAssistantRouteSegments(session, text).entries()) {
-      const segmentAssistantId = segmentIndex === 0 ? assistantId : `${assistantId}:route-${segmentIndex}`;
-      const assistant: BrowserIncomingMessage = {
-        type: "assistant",
-        message: {
-          id: segmentAssistantId,
-          type: "message",
-          role: "assistant",
-          model: codexRecoveredAssistantModel(session),
-          content: routed.content,
-          stop_reason: null,
-          usage: {
-            input_tokens: 0,
-            output_tokens: 0,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 0,
-          },
-        },
-        parent_tool_use_id: null,
-        codexMessagePhase: normalizeCodexMessagePhase(item.phase),
-        timestamp: baseTs + i + 1 + segmentIndex / 1000,
-        ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
-        ...(routed.questId ? { questId: routed.questId } : {}),
-        ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
-        ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
-      };
-      session.messageHistory.push(assistant);
-      deps.broadcastToBrowsers(session, assistant);
-      latestLeaderRoute = leaderRouteFromRecoveredAssistant(isLeaderSession, assistant) ?? latestLeaderRoute;
-      matchedOrRecovered++;
-    }
-  }
-  return { count: matchedOrRecovered, latestLeaderRoute };
-}
-export function reconcileRecoveredQueuedTurnLifecycle(
-  session: CodexRecoveryOrchestratorSessionLike,
-  reason: string,
-  deps: Pick<CodexRecoveryOrchestratorDeps, "getCodexHeadTurn">,
-  options: { releasedHeadQueuedTurn?: boolean } = {},
-): boolean {
-  const previousEntries = getQueuedTurnLifecycleEntries(session);
-  const nextEntries = previousEntries.map((entry) => ({
-    reason: entry.reason,
-    userMessageIds: [...entry.userMessageIds],
-    interruptSource: entry.interruptSource,
-    activeTurnRoute: entry.activeTurnRoute,
-  }));
-  let clearedQueuedHead = false;
-  if (options.releasedHeadQueuedTurn && nextEntries.length > 0) {
-    nextEntries.shift();
-  }
-  const liveTurns = session.pendingCodexTurns.filter((turn) => turn.status !== "completed");
-  if (!session.isGenerating && liveTurns[0]?.turnTarget === "queued") {
-    liveTurns[0].turnTarget = null;
-    clearedQueuedHead = true;
-    if (nextEntries.length > 0) {
-      nextEntries.shift();
-    }
-  }
-  const rebuiltEntries: Array<{
-    reason: string;
-    userMessageIds: number[];
-    interruptSource: InterruptSource | null;
-    activeTurnRoute: ActiveTurnRoute | null;
-  }> = [];
-  let nextEntryIdx = 0;
-  for (const turn of liveTurns) {
-    const isExplicitQueuedTurn = turn.turnTarget === "queued";
-    const isQueuedPendingBatchWithoutTarget =
-      turn.status !== "dispatched" &&
-      turn.status !== "backend_acknowledged" &&
-      turn.turnTarget == null &&
-      turn.adapterMsg.type === "codex_start_pending" &&
-      turn.turnId == null;
-    if (!isExplicitQueuedTurn && !(isQueuedPendingBatchWithoutTarget && nextEntryIdx < nextEntries.length)) {
-      continue;
-    }
-    rebuiltEntries.push({
-      reason: nextEntries[nextEntryIdx]?.reason ?? "queued_user_message",
-      userMessageIds: nextEntries[nextEntryIdx]?.userMessageIds ?? (turn.historyIndex >= 0 ? [turn.historyIndex] : []),
-      interruptSource: nextEntries[nextEntryIdx]?.interruptSource ?? null,
-      activeTurnRoute: nextEntries[nextEntryIdx]?.activeTurnRoute ?? null,
-    });
-    nextEntryIdx += 1;
-  }
-  const lifecycleChanged =
-    JSON.stringify(previousEntries) !== JSON.stringify(rebuiltEntries) ||
-    clearedQueuedHead ||
-    options.releasedHeadQueuedTurn === true;
-  if (!lifecycleChanged) return false;
-  replaceQueuedTurnLifecycleEntries(session, rebuiltEntries);
-  console.log(
-    `[ws-bridge] Reconciled queued-turn lifecycle for session ${sessionTag(session.id)} ` +
-      `(${reason}, queued=${rebuiltEntries.length}${clearedQueuedHead ? ", cleared_head" : ""})`,
-  );
-  return true;
-}
-export function rearmRecoveredQueuedHeadTurn(
-  session: CodexRecoveryOrchestratorSessionLike,
-  pending: CodexOutboundTurn,
-  reason: string,
-  deps: Pick<
-    CodexRecoveryOrchestratorDeps,
-    "markRunningFromUserDispatch" | "promoteNextQueuedTurn" | "trackUserMessageForTurn"
-  >,
-): void {
-  if (pending.turnTarget !== "queued" || session.isGenerating) return;
-  if (deps.promoteNextQueuedTurn(session)) {
-    pending.turnTarget = "current";
-    console.log(
-      `[ws-bridge] Re-armed recovered queued Codex turn for session ${sessionTag(session.id)} ` +
-        `(${reason}, via_lifecycle_promotion)`,
-    );
-    return;
-  }
-  const target = deps.markRunningFromUserDispatch(session, reason);
-  pending.turnTarget = target;
-  if (pending.historyIndex >= 0) {
-    deps.trackUserMessageForTurn(session, pending.historyIndex, target);
-  }
-  console.log(
-    `[ws-bridge] Re-armed recovered queued Codex turn for session ${sessionTag(session.id)} ` +
-      `(${reason}, via_running_guard)`,
-  );
-}
 export function retryPendingCodexTurn(
   session: CodexRecoveryOrchestratorSessionLike,
   pending: CodexOutboundTurn,

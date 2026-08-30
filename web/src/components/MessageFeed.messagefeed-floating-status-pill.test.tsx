@@ -666,6 +666,210 @@ describe("MessageFeed - floating status pill", () => {
     );
   });
 
+  it("shows exact-owner interrupted work recovery separately from backend reconnect", () => {
+    const sid = "test-feed-turn-recovery";
+    setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Partial tool work" })]);
+    setStoreSessionState(sid, {
+      backend_state: "recovering",
+      backend_reconnect: { attempt: 1, maxAttempts: 5, cycleStartedAt: 100 },
+      codex_turn_recovery: {
+        recoveryId: "original-owner",
+        originalOwnerId: "original-owner",
+        originalProviderTurnId: "turn-original",
+        originalHistoryIndex: 7,
+        continuationOwnerId: null,
+        threadKey: "main",
+        status: "recovering",
+        reason: "adapter_disconnect",
+        attempt: 0,
+        maxAttempts: 1,
+        createdAt: 100,
+        updatedAt: 110,
+      },
+    });
+    setStoreConnectionState(sid);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByTestId("codex-turn-recovery-chip")).toHaveTextContent("Recovering interrupted work");
+    expect(screen.getByTestId("recoverable-connection-chip")).toHaveTextContent("Reconnecting (1/5)");
+  });
+
+  it("explains that a separate queued continuation will not replay the original request", () => {
+    const sid = "test-feed-turn-continuation";
+    setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Partial tool work" })]);
+    setStoreSessionState(sid, {
+      backend_state: "connected",
+      codex_turn_recovery: {
+        recoveryId: "original-owner",
+        originalOwnerId: "original-owner",
+        originalProviderTurnId: "turn-original",
+        originalHistoryIndex: 7,
+        continuationOwnerId: "continuation-owner",
+        threadKey: "q-1987",
+        questId: "q-1987",
+        status: "continuation_pending",
+        reason: "interrupted_after_activity",
+        attempt: 1,
+        maxAttempts: 1,
+        createdAt: 100,
+        updatedAt: 110,
+      },
+    });
+    setStoreConnectionState(sid, { cliConnected: true });
+    const onSelectThread = vi.fn();
+
+    render(<MessageFeed sessionId={sid} threadKey="main" onSelectThread={onSelectThread} />);
+    fireEvent.click(screen.getByTestId("codex-turn-recovery-chip"));
+
+    expect(screen.getByTestId("codex-turn-recovery-detail")).toHaveTextContent(
+      "The original user payload will not be replayed",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open affected thread" }));
+    expect(onSelectThread).toHaveBeenCalledWith("q-1987");
+  });
+
+  it("keeps a terminal interrupted-work action visible after automatic continuation stops", () => {
+    const sid = "test-feed-turn-action-required";
+    setStoreMessages(sid, [makeMessage({ role: "user", content: "Later unrelated input" })]);
+    setStoreSessionState(sid, {
+      backend_state: "connected",
+      codex_turn_recovery: {
+        recoveryId: "original-owner",
+        originalOwnerId: "original-owner",
+        originalProviderTurnId: "turn-original",
+        originalHistoryIndex: 7,
+        continuationOwnerId: "continuation-owner",
+        threadKey: "main",
+        status: "action_required",
+        reason: "continuation_interrupted",
+        attempt: 1,
+        maxAttempts: 1,
+        createdAt: 100,
+        updatedAt: 110,
+      },
+    });
+    setStoreConnectionState(sid, { cliConnected: true });
+
+    render(<MessageFeed sessionId={sid} />);
+    const chip = screen.getByTestId("codex-turn-recovery-chip");
+    expect(chip).toHaveTextContent("Interrupted work needs attention");
+    fireEvent.click(chip);
+    expect(screen.getByTestId("codex-turn-recovery-detail")).toHaveTextContent("mark this recovery resolved");
+    fireEvent.click(screen.getByRole("button", { name: "Mark resolved" }));
+    expect(mockSendToSession).toHaveBeenCalledWith(sid, {
+      type: "resolve_codex_turn_recovery",
+      recoveryId: "original-owner",
+    });
+  });
+
+  it("keeps the interrupted-work detail inside a short viewport", () => {
+    const originalInnerWidth = window.innerWidth;
+    const originalInnerHeight = window.innerHeight;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 240 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 140 });
+
+    try {
+      const sid = "test-feed-turn-recovery-short-viewport";
+      setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Partial tool work" })]);
+      setStoreSessionState(sid, {
+        backend_state: "connected",
+        codex_turn_recovery: {
+          recoveryId: "original-owner",
+          originalOwnerId: "original-owner",
+          originalProviderTurnId: "turn-original",
+          originalHistoryIndex: 7,
+          continuationOwnerId: "continuation-owner",
+          threadKey: "main",
+          status: "action_required",
+          reason: "continuation_interrupted",
+          attempt: 1,
+          maxAttempts: 1,
+          createdAt: 100,
+          updatedAt: 110,
+        },
+      });
+      setStoreConnectionState(sid, { cliConnected: true });
+
+      render(<MessageFeed sessionId={sid} />);
+      const chip = screen.getByTestId("codex-turn-recovery-chip");
+      vi.spyOn(chip, "getBoundingClientRect").mockReturnValue({
+        x: 220,
+        y: 4,
+        top: 4,
+        left: 220,
+        bottom: 32,
+        right: 260,
+        width: 40,
+        height: 28,
+        toJSON: () => ({}),
+      } as DOMRect);
+      fireEvent.click(chip);
+
+      const detail = screen.getByTestId("codex-turn-recovery-detail");
+      expect(detail.parentElement).toBe(document.body);
+      expect(detail).toHaveClass("fixed", "overflow-y-auto");
+      expect(detail).toHaveStyle({
+        left: "8px",
+        top: "8px",
+        width: "224px",
+        maxHeight: "124px",
+        visibility: "visible",
+      });
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalInnerWidth });
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalInnerHeight });
+    }
+  });
+
+  it("announces an action-required transition without requiring the detail to be opened", () => {
+    const sid = "test-feed-turn-recovery-live-announcement";
+    const continuationRecovery = {
+      recoveryId: "original-owner",
+      originalOwnerId: "original-owner",
+      originalProviderTurnId: "turn-original",
+      originalHistoryIndex: 7,
+      continuationOwnerId: "continuation-owner",
+      threadKey: "main",
+      status: "continuation_active",
+      reason: "interrupted_after_activity",
+      attempt: 1,
+      maxAttempts: 1,
+      createdAt: 100,
+      updatedAt: 110,
+    };
+    setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Partial tool work" })]);
+    setStoreSessionState(sid, {
+      backend_state: "connected",
+      codex_turn_recovery: continuationRecovery,
+    });
+    setStoreConnectionState(sid, { cliConnected: true });
+
+    const { rerender } = render(<MessageFeed sessionId={sid} />);
+    const announcement = screen.getByTestId("codex-turn-recovery-announcement");
+    expect(announcement).toHaveAttribute("role", "status");
+    expect(announcement).toHaveAttribute("aria-live", "assertive");
+    expect(announcement).toHaveAttribute("aria-atomic", "true");
+    expect(announcement).toBeEmptyDOMElement();
+
+    setStoreSessionState(sid, {
+      backend_state: "connected",
+      codex_turn_recovery: {
+        ...continuationRecovery,
+        status: "action_required",
+        reason: "continuation_interrupted",
+        updatedAt: 120,
+      },
+    });
+    rerender(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByTestId("codex-turn-recovery-announcement")).toBe(announcement);
+    expect(announcement).toHaveTextContent(
+      "Interrupted work needs attention. Automatic continuation stopped to avoid repeating completed tools",
+    );
+    expect(screen.queryByTestId("codex-turn-recovery-detail")).toBeNull();
+  });
+
   it("shows proof-gated request retry separately from process reconnect progress", () => {
     const sid = "test-feed-provider-retry-chip";
     setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Retrying safely" })]);

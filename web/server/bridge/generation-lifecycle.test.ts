@@ -397,6 +397,7 @@ describe("setGenerating(false) — queued turn handling", () => {
     ["codex_steer_no_active_turn", "provider-confirmed inactive turn handoff"],
     ["codex_init_error", "transient init failure cleanup"],
     ["codex_recovery_suppressed", "exhausted init recovery cleanup"],
+    ["codex_interrupted_turn_continuation", "separately owned interrupted-turn continuation"],
   ])("suppresses external turn_end for %s while preserving local teardown", (reason, _label) => {
     const onGenerationStopped = vi.fn();
     const onOrchestratorTurnEnd = vi.fn();

@@ -233,6 +233,165 @@ export function formatActiveReasoningStatusText(text: string): string {
   return collapsePreviewWhitespace(trimmed);
 }
 
+export function CodexTurnRecoveryChip({
+  sessionId,
+  currentThreadKey = "main",
+  onSelectThread,
+}: {
+  sessionId: string;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailPosition, setDetailPosition] = useState<{ left: number; top: number; width: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
+  const recovery = useStore((s) => s.sessions?.get(sessionId)?.codex_turn_recovery ?? null);
+
+  const destination = normalizeThreadKey(recovery?.threadKey || "main");
+  const current = normalizeThreadKey(currentThreadKey || "main");
+  const canNavigate = !!recovery && !!onSelectThread && destination !== current;
+  const label = recovery
+    ? recovery.status === "recovering"
+      ? "Recovering interrupted work"
+      : recovery.status === "continuation_active"
+        ? "Continuing interrupted work"
+        : recovery.status === "continuation_pending"
+          ? "Interrupted work queued"
+          : "Interrupted work needs attention"
+    : "";
+  const detail = recovery
+    ? recovery.status === "action_required"
+      ? "Automatic continuation stopped to avoid repeating completed tools or other side effects. Review the affected thread, finish any missing work with a fresh instruction, then mark this recovery resolved."
+      : recovery.status === "recovering"
+        ? "Takode is reconnecting the backend while retaining the exact interrupted request owner and route."
+        : "Takode preserved completed tool work and created one separately owned continuation. The original user payload will not be replayed."
+    : "";
+  const warning = recovery?.status === "action_required";
+  const detailVisible = !!recovery && detailOpen;
+
+  useLayoutEffect(() => {
+    if (!detailVisible) {
+      setDetailPosition(null);
+      return;
+    }
+    const updatePosition = () => {
+      const button = buttonRef.current;
+      if (!button) return;
+      const buttonRect = button.getBoundingClientRect();
+      const width = Math.min(336, Math.max(0, window.innerWidth - 16));
+      const maxHeight = Math.max(0, window.innerHeight - 16);
+      const height = Math.min(detailRef.current?.offsetHeight || 176, maxHeight);
+      const left = Math.max(8, Math.min(buttonRect.left, window.innerWidth - width - 8));
+      const maxTop = Math.max(8, window.innerHeight - height - 8);
+      const aboveTop = buttonRect.top - height - 8;
+      const top = aboveTop >= 8 ? Math.min(aboveTop, maxTop) : Math.max(8, Math.min(buttonRect.bottom + 8, maxTop));
+      setDetailPosition({ left, top, width });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [detailVisible, detail]);
+
+  const liveAnnouncement = warning ? `${label}. ${detail}` : "";
+
+  return (
+    <>
+      <span
+        className="sr-only"
+        role="status"
+        aria-live="assertive"
+        aria-atomic="true"
+        data-testid="codex-turn-recovery-announcement"
+      >
+        {liveAnnouncement}
+      </span>
+      {recovery && (
+        <div className="pointer-events-auto relative">
+          <button
+            ref={buttonRef}
+            type="button"
+            className={`${FLOATING_FEED_CHIP_CLASS} cursor-pointer text-left transition-colors hover:border-white/14 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-1 ${
+              warning
+                ? "border-cc-attention/55 text-cc-attention focus-visible:ring-cc-attention/70"
+                : "focus-visible:ring-cc-primary/70"
+            }`}
+            aria-expanded={detailOpen}
+            aria-controls={`codex-turn-recovery-detail-${sessionId}`}
+            title={detail}
+            data-testid="codex-turn-recovery-chip"
+            onClick={() => setDetailOpen((open) => !open)}
+          >
+            <span
+              className={`relative h-2 w-2 shrink-0 rounded-full ${
+                warning ? "bg-cc-attention" : "bg-cc-primary animate-pulse"
+              }`}
+              aria-hidden="true"
+            />
+            <span className="relative truncate text-cc-fg/90">{label}</span>
+          </button>
+          {detailVisible &&
+            typeof document !== "undefined" &&
+            createPortal(
+              <div
+                ref={detailRef}
+                id={`codex-turn-recovery-detail-${sessionId}`}
+                data-testid="codex-turn-recovery-detail"
+                className={`fixed z-[100] overflow-y-auto rounded-lg border bg-cc-card p-3 text-left shadow-xl ${
+                  warning ? "border-cc-attention/45" : "border-cc-border"
+                }`}
+                style={{
+                  left: detailPosition?.left ?? 8,
+                  top: detailPosition?.top ?? 8,
+                  width: detailPosition?.width ?? Math.min(336, Math.max(0, window.innerWidth - 16)),
+                  maxHeight: Math.max(0, window.innerHeight - 16),
+                  visibility: detailPosition ? "visible" : "hidden",
+                }}
+                role="status"
+              >
+                <div className="text-[11px] font-medium text-cc-fg">{label}</div>
+                <div className="mt-1 text-[11px] leading-snug text-cc-muted">{detail}</div>
+                <div className="mt-1.5 text-[10px] text-cc-muted/70">
+                  Affected thread: {recovery.questId ?? recovery.threadKey}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {canNavigate && onSelectThread && (
+                    <button
+                      type="button"
+                      className="rounded-full border border-cc-primary/30 px-2.5 py-1 text-[11px] text-cc-primary transition-colors hover:bg-cc-hover"
+                      onClick={() => onSelectThread(destination)}
+                    >
+                      Open affected thread
+                    </button>
+                  )}
+                  {warning && (
+                    <button
+                      type="button"
+                      className="rounded-full border border-cc-attention/35 px-2.5 py-1 text-[11px] text-cc-attention transition-colors hover:bg-cc-hover"
+                      onClick={() =>
+                        sendToSession(sessionId, {
+                          type: "resolve_codex_turn_recovery",
+                          recoveryId: recovery.recoveryId,
+                        })
+                      }
+                    >
+                      Mark resolved
+                    </button>
+                  )}
+                </div>
+              </div>,
+              document.body,
+            )}
+        </div>
+      )}
+    </>
+  );
+}
+
 export function CodexProviderRetryChip({ sessionId }: { sessionId: string }) {
   const [hoverOpen, setHoverOpen] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
@@ -432,6 +591,11 @@ export function FeedStatusPill({
         data-testid="feed-status-pill-left"
         className="pointer-events-none absolute bottom-2 left-2 z-10 flex max-w-[calc(100vw-1rem)] flex-col items-start gap-1.5 sm:bottom-3 sm:left-3"
       >
+        <CodexTurnRecoveryChip
+          sessionId={sessionId}
+          currentThreadKey={currentThreadKey}
+          onSelectThread={onSelectThread}
+        />
         <CodexProviderRetryChip sessionId={sessionId} />
         <RecoverableConnectionChip sessionId={sessionId} />
         <ElapsedTimer

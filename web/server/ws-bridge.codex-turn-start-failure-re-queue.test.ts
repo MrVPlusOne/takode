@@ -791,6 +791,129 @@ describe("Codex turn-start failure re-queue", () => {
     ).toHaveLength(1);
   });
 
+  it("stops a rejected interrupted-turn continuation as durable action-required work", async () => {
+    const sid = "s-recovery-continuation-start-failure";
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    const delivery = bridge.injectUserMessage(
+      sid,
+      "Takode is continuing interrupted work.",
+      { sessionId: "system:codex-turn-recovery:original-owner", sessionLabel: "Interrupted Turn Recovery" },
+      undefined,
+      { threadKey: "main" },
+      { deliveryContent: "Inspect existing side effects and continue only missing work." },
+    );
+    expect(delivery).toBe("sent");
+    const session = bridge.getSession(sid)!;
+    const continuationOwnerId = session.pendingCodexInputs[0]?.id;
+    expect(continuationOwnerId).toBeTruthy();
+    session.state.codex_turn_recovery = {
+      recoveryId: "original-owner",
+      originalOwnerId: "original-owner",
+      originalProviderTurnId: "turn-original",
+      originalHistoryIndex: 0,
+      continuationOwnerId: continuationOwnerId!,
+      threadKey: "main",
+      status: "continuation_pending",
+      reason: "interrupted_after_activity",
+      attempt: 1,
+      maxAttempts: 1,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const outbound = adapter.sendBrowserMessage.mock.calls.at(-1)?.[0];
+
+    adapter.emitTurnStartFailed(outbound, { recoverable: false, message: "input_too_large" });
+    await Promise.resolve();
+
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      status: "action_required",
+      reason: "continuation_dispatch_failed",
+    });
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(session.pendingCodexTurns).toHaveLength(0);
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
+    expect(session.attentionReason).toBe("error");
+
+    await store.flushAll();
+    const restored = attachBoardFacade(new WsBridge());
+    restored.setStore(store);
+    await restored.restoreFromDisk();
+    expect(restored.getSession(sid)?.state.codex_turn_recovery).toMatchObject({
+      status: "action_required",
+      reason: "continuation_dispatch_failed",
+    });
+    expect(restored.getSession(sid)?.pendingCodexInputs).toHaveLength(0);
+    expect(restored.getSession(sid)?.pendingCodexTurns).toHaveLength(0);
+  });
+
+  it("fails an unacknowledged interrupted-turn continuation closed after its optimistic timeout", async () => {
+    const sid = "s-recovery-continuation-ack-timeout";
+    vi.useFakeTimers();
+    try {
+      const adapter = makeCodexAdapterMock();
+      bridge.attachCodexAdapter(sid, adapter as any);
+      emitCodexSessionReady(adapter);
+      const browser = makeBrowserSocket(sid);
+      bridge.handleBrowserOpen(browser, sid);
+      const delivery = bridge.injectUserMessage(
+        sid,
+        "Takode is continuing interrupted work.",
+        { sessionId: "system:codex-turn-recovery:original-owner", sessionLabel: "Interrupted Turn Recovery" },
+        undefined,
+        { threadKey: "main" },
+        { deliveryContent: "Inspect existing side effects and continue only missing work." },
+      );
+      expect(delivery).toBe("sent");
+      const session = bridge.getSession(sid)!;
+      const continuationOwnerId = session.pendingCodexInputs[0]?.id;
+      expect(continuationOwnerId).toBeTruthy();
+      session.state.codex_turn_recovery = {
+        recoveryId: "original-owner",
+        originalOwnerId: "original-owner",
+        originalProviderTurnId: "turn-original",
+        originalHistoryIndex: 0,
+        continuationOwnerId: continuationOwnerId!,
+        threadKey: "main",
+        status: "continuation_pending",
+        reason: "interrupted_after_activity",
+        attempt: 1,
+        maxAttempts: 1,
+        createdAt: 1,
+        updatedAt: 2,
+      };
+      expect(getPendingCodexTurn(session)).toMatchObject({ status: "dispatched", turnId: null });
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(session.state.codex_turn_recovery).toMatchObject({
+        status: "action_required",
+        reason: "continuation_dispatch_failed",
+      });
+      expect(session.pendingCodexInputs).toHaveLength(0);
+      expect(session.pendingCodexTurns).toHaveLength(0);
+      expect(session.isGenerating).toBe(false);
+      expect(session.attentionReason).toBe("error");
+      expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
+      await store.flushAll();
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const restored = attachBoardFacade(new WsBridge());
+    restored.setStore(store);
+    await restored.restoreFromDisk();
+    expect(restored.getSession(sid)?.state.codex_turn_recovery).toMatchObject({
+      status: "action_required",
+      reason: "continuation_dispatch_failed",
+    });
+    expect(restored.getSession(sid)?.pendingCodexInputs).toHaveLength(0);
+    expect(restored.getSession(sid)?.pendingCodexTurns).toHaveLength(0);
+  });
+
   it("dispatches a later queued owner after an earlier owner fails terminally", async () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);

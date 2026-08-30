@@ -160,6 +160,20 @@ describe("Codex transient provider retry presentation", () => {
     expect(deps.requestCodexProviderRecovery).toHaveBeenCalledTimes(2);
   });
 
+  it("does not replay a classified provider failure after canonical interruption", async () => {
+    const turn = makeTurn();
+    const session = makeSession(turn);
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(session, broadcasts);
+    const interrupted = { ...makeResult("turn-1", "interrupted-provider-result"), interrupted: true };
+
+    await handleCodexAdapterBrowserMessage(session, interrupted, deps);
+
+    expect(deps.completeCodexTurnsForResult).toHaveBeenCalledWith(session, interrupted.data, expect.any(Number), true);
+    expect(turn.providerRecoveryAttempts).toBeUndefined();
+    expect(deps.requestCodexProviderRecovery).toHaveBeenCalledTimes(1);
+  });
+
   it("clears active retry state when the replayed request succeeds", async () => {
     const turn = makeTurn();
     const session = makeSession(turn);

@@ -1,5 +1,9 @@
 import { getDefaultModelForBackend } from "../../shared/backend-defaults.js";
-import type { BrowserIncomingMessage, ContentBlock, SessionState } from "../session-types.js";
+import { normalizeCodexMessagePhase } from "../../shared/codex-message-phase.js";
+import type { CodexResumeTurnSnapshot } from "../codex-adapter.js";
+import type { BrowserIncomingMessage, CodexOutboundTurn, ContentBlock, SessionState } from "../session-types.js";
+import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
+import { leaderRouteFromRecoveredAssistant } from "./codex-leader-recovery-diagnostic.js";
 import {
   normalizeLeaderAssistantRouting,
   splitLeaderAssistantContentAtThreadRouteBoundaries,
@@ -15,6 +19,7 @@ export type CodexRecoveredAssistantRouteFields = Pick<
 export interface CodexRecoveredAssistantRoutingSessionLike {
   state: Pick<SessionState, "isOrchestrator" | "model">;
   messageHistory: BrowserIncomingMessage[];
+  _frozenCount?: number;
 }
 
 function isLeaderSessionForRecoveredAssistantRouting(session: CodexRecoveredAssistantRoutingSessionLike): boolean {
@@ -94,16 +99,19 @@ function canonicalExistingRecoveredAssistant(
   return canonicalRecoveredAssistant(session, textBlocks[0].text || "", existing);
 }
 
-export function hasMatchingRecoveredCodexAssistantReplay(
+export function findMatchingRecoveredCodexAssistantReplay(
   session: CodexRecoveredAssistantRoutingSessionLike,
   text: string,
   limit: number,
-): boolean {
+  afterHistoryIndex = -1,
+): AssistantHistoryEntry[] | null {
   const incoming = canonicalRecoveredAssistantSegments(session, text);
-  if (!incoming?.length) return false;
+  if (!incoming?.length) return null;
 
   const recentAssistants: AssistantHistoryEntry[] = [];
   for (let i = session.messageHistory.length - 1; i >= 0 && recentAssistants.length < limit; i--) {
+    const absoluteHistoryIndex = (session._frozenCount ?? 0) + i;
+    if (absoluteHistoryIndex <= afterHistoryIndex) break;
     const entry = session.messageHistory[i];
     if (entry.type === "assistant" && entry.parent_tool_use_id === null) {
       recentAssistants.push(entry);
@@ -120,8 +128,87 @@ export function hasMatchingRecoveredCodexAssistantReplay(
         break;
       }
     }
-    if (matches) return true;
+    if (matches) return recentAssistants.slice(start, start + incoming.length);
   }
 
-  return false;
+  return null;
+}
+
+export function recoverAgentMessagesFromResumedTurn<S extends CodexRecoveredAssistantRoutingSessionLike>(
+  session: S,
+  turn: CodexResumeTurnSnapshot,
+  pending: Pick<CodexOutboundTurn, "disconnectedAt" | "historyIndex">,
+  deps: {
+    codexAssistantReplayScanLimit: number;
+    broadcastToBrowsers: (session: S, message: BrowserIncomingMessage) => void;
+  },
+): { count: number; latestLeaderRoute: ThreadRouteMetadata | null } {
+  let matchedOrRecovered = 0;
+  let latestLeaderRoute: ThreadRouteMetadata | null = null;
+  const isLeaderSession = session.state.isOrchestrator === true;
+  const baseTs = pending.disconnectedAt ?? Date.now();
+  for (let i = 0; i < turn.items.length; i++) {
+    const item = turn.items[i];
+    if (item.type !== "agentMessage") continue;
+    const text = typeof item.text === "string" ? item.text : "";
+    if (!text.trim()) continue;
+    const itemId = typeof item.id === "string" ? item.id : `${turn.id}-${i}`;
+    const isGenericItemId = /^item-\d+$/.test(itemId);
+    const replayMatches = isGenericItemId
+      ? findMatchingRecoveredCodexAssistantReplay(
+          session,
+          text,
+          deps.codexAssistantReplayScanLimit,
+          pending.historyIndex,
+        )
+      : null;
+    if (replayMatches) {
+      for (const replayMatch of replayMatches) {
+        latestLeaderRoute = leaderRouteFromRecoveredAssistant(isLeaderSession, replayMatch) ?? latestLeaderRoute;
+      }
+      matchedOrRecovered++;
+      continue;
+    }
+    const assistantId = isGenericItemId ? `codex-agent-${turn.id}-${itemId}` : `codex-agent-${itemId}`;
+    const alreadyExists = session.messageHistory.find((message) => {
+      return message.type === "assistant" && message.message?.id === assistantId;
+    });
+    if (alreadyExists?.type === "assistant") {
+      latestLeaderRoute = leaderRouteFromRecoveredAssistant(isLeaderSession, alreadyExists) ?? latestLeaderRoute;
+      matchedOrRecovered++;
+      continue;
+    }
+    for (const [segmentIndex, routed] of buildCodexRecoveredAssistantRouteSegments(session, text).entries()) {
+      const segmentAssistantId = segmentIndex === 0 ? assistantId : `${assistantId}:route-${segmentIndex}`;
+      const assistant: BrowserIncomingMessage = {
+        type: "assistant",
+        message: {
+          id: segmentAssistantId,
+          type: "message",
+          role: "assistant",
+          model: codexRecoveredAssistantModel(session),
+          content: routed.content,
+          stop_reason: null,
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+        parent_tool_use_id: null,
+        codexMessagePhase: normalizeCodexMessagePhase(item.phase),
+        timestamp: baseTs + i + 1 + segmentIndex / 1000,
+        ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
+        ...(routed.questId ? { questId: routed.questId } : {}),
+        ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
+        ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
+      };
+      session.messageHistory.push(assistant);
+      deps.broadcastToBrowsers(session, assistant);
+      latestLeaderRoute = leaderRouteFromRecoveredAssistant(isLeaderSession, assistant) ?? latestLeaderRoute;
+      matchedOrRecovered++;
+    }
+  }
+  return { count: matchedOrRecovered, latestLeaderRoute };
 }

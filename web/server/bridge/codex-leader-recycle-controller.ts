@@ -6,6 +6,10 @@ import type {
 import { getKnownSessionNum } from "../cli-launcher.js";
 import { getLeaderRecycleRecoveryInstructions } from "../compaction-recovery-prompts.js";
 import type { Session } from "./ws-bridge-session.js";
+import {
+  markCodexTurnRecoveryActionRequired,
+  type CodexInterruptedTurnRecoveryDeps,
+} from "./codex-interrupted-turn-recovery.js";
 
 export interface CodexLeaderRecycleSessionDeps {
   clearAllCodexToolResultWatchdogs: (session: Session) => void;
@@ -14,6 +18,13 @@ export interface CodexLeaderRecycleSessionDeps {
   persistSession: (session: Session) => void;
   replaceQueuedTurnLifecycleEntries: (session: Session) => void;
   setGenerating: (session: Session, generating: boolean, reason: string) => void;
+}
+
+export function failCodexLeaderRecycleRecovery(
+  session: Session,
+  deps: Pick<CodexInterruptedTurnRecoveryDeps, "broadcastToBrowsers" | "persistSession" | "setAttentionError">,
+): void {
+  markCodexTurnRecoveryActionRequired(session, "recovery_failed", deps);
 }
 
 export function buildCodexLeaderRecycleTokenUsage(session: Session) {
@@ -52,6 +63,21 @@ export function prepareCodexLeaderRecycleSession(
   session.lastOutboundUserNdjson = null;
   session.state.is_compacting = false;
   session.codexLeaderRecycleContinuation = continuation;
+  const recovery = session.state.codex_turn_recovery ?? null;
+  if (continuation.recoveryId && recovery?.recoveryId === continuation.recoveryId) {
+    session.state.codex_turn_recovery = {
+      ...recovery,
+      continuationOwnerId: null,
+      status: "continuation_pending",
+      reason: "interrupted_after_activity",
+      attempt: 1,
+      updatedAt: continuation.requestedAt,
+    };
+    deps.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { codex_turn_recovery: session.state.codex_turn_recovery },
+    });
+  }
   session.messageHistory.push(marker);
   deps.broadcastToBrowsers(session, marker);
   deps.replaceQueuedTurnLifecycleEntries(session);
@@ -78,7 +104,11 @@ function buildCodexLeaderRecycleContinuation(
   trigger: CodexLeaderRecycleTrigger,
 ): CodexLeaderRecycleContinuation {
   const requestedAt = Date.now();
-  const route = session.activeTurnRoute ?? null;
+  const recovery = session.state.codex_turn_recovery ?? null;
+  const route =
+    recovery && recovery.status !== "action_required"
+      ? { threadKey: recovery.threadKey, ...(recovery.questId ? { questId: recovery.questId } : {}) }
+      : (session.activeTurnRoute ?? null);
   const sessionRef = String(
     getKnownSessionNum(session.id) ?? (session as { sessionNum?: number | null }).sessionNum ?? session.id,
   );
@@ -93,6 +123,7 @@ function buildCodexLeaderRecycleContinuation(
     trigger,
     requestedAt,
     content,
+    ...(recovery && recovery.status !== "action_required" ? { recoveryId: recovery.recoveryId } : {}),
     ...(route?.threadKey ? { threadKey: route.threadKey } : {}),
     ...(route?.questId ? { questId: route.questId } : {}),
   };

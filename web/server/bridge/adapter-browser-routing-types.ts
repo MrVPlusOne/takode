@@ -56,6 +56,7 @@ export interface AdapterBrowserRoutingSessionLike {
     | "codex_service_tier"
     | "codex_token_details"
     | "codex_result_error_auto_pause"
+    | "codex_turn_recovery"
     | "context_used_percent"
     | "cwd"
     | "is_compacting"
@@ -63,12 +64,14 @@ export interface AdapterBrowserRoutingSessionLike {
     | "model"
     | "num_turns"
     | "permissionMode"
+    | "pause"
     | "session_id"
     | "slash_commands"
     | "total_cost_usd"
     | "uiMode"
   >;
   messageHistory: BrowserIncomingMessage[];
+  attentionReason?: "action" | "error" | "review" | null;
   notifications?: SessionNotification[];
   pendingPermissions: Map<string, PermissionRequest>;
   evaluatingAborts: Map<string, AbortController>;

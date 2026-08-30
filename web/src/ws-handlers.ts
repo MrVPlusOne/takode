@@ -1527,6 +1527,7 @@ function handleParsedMessage(
           ...(data.backendError !== undefined ? { backend_error: data.backendError } : {}),
           ...(data.backendReconnect !== undefined ? { backend_reconnect: data.backendReconnect } : {}),
           ...(data.codexProviderRetry !== undefined ? { codex_provider_retry: data.codexProviderRetry } : {}),
+          ...(data.codexTurnRecovery !== undefined ? { codex_turn_recovery: data.codexTurnRecovery } : {}),
         });
       }
       if (data.backendConnected) store.setCliEverConnected(sessionId);

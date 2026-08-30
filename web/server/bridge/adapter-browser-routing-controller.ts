@@ -52,10 +52,7 @@ import type {
 import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
 import { getCodexPendingInputSizeLimit } from "../codex-pending-input-safety.js";
 import { getTakodeHerdEventBrowserMetadata } from "../herd-event-browser-metadata.js";
-import {
-  markCodexAutoPauseRecoveryDiscarded,
-  markCodexAutoPauseRecoveryFailed,
-} from "./codex-auto-pause-recovery-summary.js";
+import { markCodexAutoPauseRecoveryFailed } from "./codex-auto-pause-recovery-summary.js";
 import { sessionTag } from "../session-tag.js";
 import type { BrowserTransportSessionLike, BrowserTransportSocketLike } from "./browser-transport-controller.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
@@ -82,7 +79,7 @@ import {
 } from "../memory-catalog-injection-utils.js";
 import { isCodexLeaderRecycleMode } from "../../shared/codex-leader-compaction-mode.js";
 import { rejectOversizedCodexPendingInput } from "./codex-pending-input-rejection.js";
-import { retryFailedCodexPendingInput } from "./codex-pending-input-retry.js";
+import { handleCodexPendingInputAction } from "./codex-pending-input-actions.js";
 import type {
   BrowserUserMessage,
   ControlResponseHandler,
@@ -1687,44 +1684,7 @@ export function routeAdapterBrowserMessage(
     if (msg.type === "permission_response" && session.backendType === "codex") {
       handleCodexPermissionResponse(session, msg, deps);
     }
-    if (session.backendType === "codex" && msg.type === "retry_pending_codex_input") {
-      retryFailedCodexPendingInput(session, msg.id, deps);
-      return true;
-    }
-    if (session.backendType === "codex" && msg.type === "cancel_pending_codex_input") {
-      const pendingInput = session.pendingCodexInputs.find((input) => input.id === msg.id);
-      if (!pendingInput?.cancelable) return true;
-      if (pendingInput.deliveryState === "failed") {
-        const removed = deps.removePendingCodexInput(session, msg.id);
-        if (removed && ws) deps.sendToBrowser(ws, { type: "codex_pending_input_cancelled", input: removed });
-        deps.persistSession(session);
-        return true;
-      }
-      const cancelableHeadId = deps.getCancelablePendingCodexInputs(session)[0]?.id ?? null;
-      const cancelledHeadPendingInput = cancelableHeadId === msg.id;
-      markCodexAutoPauseRecoveryDiscarded(session, pendingInput.autoPauseRecoveries, Date.now(), deps);
-      const activeTurnId = session.codexAdapter?.getCurrentTurnId() ?? null;
-      session.pendingCodexTurns = activeTurnId
-        ? session.pendingCodexTurns.filter((turn) => turn.turnId === activeTurnId)
-        : session.pendingCodexTurns.filter((turn) => turn.status === "queued" && turn.turnId == null).slice(0, 1);
-      deps.clearQueuedTurnLifecycleEntries(session);
-      const removed = deps.removePendingCodexInput(session, msg.id);
-      const remainingCancelableInputs = deps.getCancelablePendingCodexInputs(session);
-      if (!activeTurnId && remainingCancelableInputs.length === 0) {
-        session.pendingCodexTurns = [];
-      } else if (remainingCancelableInputs.length > 0) {
-        if (!activeTurnId && cancelledHeadPendingInput) {
-          deps.queueCodexPendingStartBatch(session, "cancel_pending_codex_input");
-        } else {
-          deps.rebuildQueuedCodexPendingStartBatch(session);
-        }
-      }
-      if (removed && ws) {
-        deps.sendToBrowser(ws, { type: "codex_pending_input_cancelled", input: removed });
-      }
-      deps.persistSession(session);
-      return true;
-    }
+    if (handleCodexPendingInputAction(session, msg, ws, deps)) return true;
     if (msg.type === "set_model") {
       if (session.backendType === "claude-sdk") {
         deps.handleSetModel(session, msg.model);
