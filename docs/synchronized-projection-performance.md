@@ -1,6 +1,6 @@
 # Synchronized Projection Performance Baseline
 
-Measured on August 30, 2026 against synchronized runtime target `b5482152edc4ba2c440d0771ddce0ce4d65e19ea`.
+Measured on August 30, 2026 against synchronized runtime target `b54821520f863c00af50d38db93edce439d048a3`.
 
 This document fixes the comparison boundary for the session-navigation and leader-thread-tab projection migrations. It compares equivalent bounded feature work, not whole-server behavior or unrelated commits.
 
@@ -29,7 +29,7 @@ Use each feature commit against its own direct parent. Do not use one cumulative
 | Frontend state and components | +1,696 |
 | **Total non-test footprint** | **+4,991** |
 
-The later `90af5d6686c5930aac768c7288455c409433fb86` recovery commit and `b5482152edc4ba2c440d0771ddce0ce4d65e19ea` scheduled-tab priority follow-up are excluded from the original migration footprint. The latter adds one bounded activation-history boolean per projected tab, so the leader-tab wire figures below were remeasured on that synchronized target.
+The later `90af5d6686c5930aac768c7288455c409433fb86` recovery commit and `b54821520f863c00af50d38db93edce439d048a3` scheduled-tab priority follow-up are excluded from the original migration footprint. The latter adds one bounded activation-history boolean per projected tab, so the leader-tab wire figures below were remeasured on that synchronized target.
 
 The reusable synchronized-projection foundation is excluded in full: `0e5c6eb2e1f49856d48e57556de260b5984f8d2f..a17da8a10e3fc19385c30467126e3b6fe659fe2c`. Later feature-specific definitions, registrations, invalidations, subscriptions, wire integration, stores, resolvers, compatibility arbitration, and UI consumption remain included even when they modify generic framework files.
 
