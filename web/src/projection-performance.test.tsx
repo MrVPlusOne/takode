@@ -11,7 +11,6 @@ import type {
 } from "../shared/leader-thread-tabs-projection.js";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
 import type { SessionNavigationProjectionValue } from "../shared/session-navigation-projection.js";
-import { SYNCED_PROJECTION_SCHEMA_VERSION } from "../shared/synced-projection.js";
 import type { BrowserIncomingMessage, SessionState } from "./types.js";
 import { SessionItem } from "./components/SessionItem.js";
 import { WorkBoardBar } from "./components/WorkBoardBar.js";
@@ -67,7 +66,6 @@ const handleMessage = createWsMessageHandler({
   resolveSyncedProjectionResync: NOOP,
   noteAcceptedSyncedProjectionSnapshot: NOOP,
   consumeSyncedProjectionSubscriptionsAck: (_carrierSessionId, subscriptions) => [...subscriptions],
-  settleUnsupportedSyncedProjectionSubscriptions: () => null,
 });
 
 type BenchmarkMode = "legacy" | "projection";
@@ -626,7 +624,6 @@ function installLeaderState(mode: BenchmarkMode): void {
   );
   useStore.getState().applySyncedProjectionSnapshot({
     type: "synced_projection_snapshot",
-    schemaVersion: SYNCED_PROJECTION_SCHEMA_VERSION,
     projection: SESSION_ATTENTION_PROJECTION,
     key: LEADER_ID,
     generation: "leader-attention-generation",

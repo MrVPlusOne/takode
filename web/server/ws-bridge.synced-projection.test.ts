@@ -18,6 +18,8 @@ import {
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
 import { buildEnrichedSessionsSnapshot } from "./routes/session-list-snapshot.js";
 import { trafficStats } from "./traffic-stats.js";
+import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
+import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 
 function browserSocket(sessionId: string) {
@@ -156,14 +158,7 @@ describe("WsBridge synchronized projections", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
-        synced_projection_subscriptions: [
-          {
-            projection: "session-attention",
-            key: "worker",
-            generation: firstSnapshot.generation,
-            revision: 3,
-          },
-        ],
+        synced_projection_subscriptions: [{ projection: "session-attention", key: "worker" }],
       }),
     );
     expect(messages(reconnected).find((message: any) => message.type === "synced_projection_snapshot")).toMatchObject({
@@ -237,7 +232,7 @@ describe("WsBridge synchronized projections", () => {
   it("uses a new generation after restart and rejects hidden-session subscriptions", () => {
     const first = new WsBridge();
     first.getOrCreateSession("public");
-    const firstSnapshot = first.getSyncedProjectionController().getSessionAttentionSnapshot("public");
+    const firstSnapshot = first.getSyncedProjectionController().getSnapshot(SESSION_ATTENTION_PROJECTION, "public");
 
     const second = new WsBridge();
     const hidden = second.getOrCreateSession("public");
@@ -250,7 +245,7 @@ describe("WsBridge synchronized projections", () => {
     ).toEqual([{ type: "synced_projection_subscriptions_ack", subscriptions: [], complete: true }]);
 
     hidden.state.hidden = false;
-    const secondSnapshot = second.getSyncedProjectionController().getSessionAttentionSnapshot("public");
+    const secondSnapshot = second.getSyncedProjectionController().getSnapshot(SESSION_ATTENTION_PROJECTION, "public");
     expect(firstSnapshot?.generation).not.toBe(secondSnapshot?.generation);
     expect(firstSnapshot?.revision).toBe(1);
     expect(secondSnapshot?.revision).toBe(1);
@@ -865,7 +860,7 @@ describe("WsBridge synchronized projections", () => {
     socket.send.mockClear();
 
     launcherSession.lastActivityAt = 20;
-    expect(bridge.getSyncedProjectionController().getSessionNavigationSnapshot("worker")).toMatchObject({
+    expect(bridge.getSyncedProjectionController().getSnapshot(SESSION_NAVIGATION_PROJECTION, "worker")).toMatchObject({
       revision: 1,
       value: { lifecycle: { lastActivityAt: 10 } },
     });

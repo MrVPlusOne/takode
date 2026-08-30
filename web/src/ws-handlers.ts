@@ -62,14 +62,15 @@ import { convertLegacyParentedCodexThinkingMessage } from "./utils/codex-reasoni
 import { TODO_STATE_UPDATED_EVENT } from "./todo-events.js";
 import { indexCodexSubagentToolResults } from "./utils/codex-subagent-tool-results.js";
 import { handleQuestListUpdated, handleSessionQuestClaimed } from "./ws-quest-handlers.js";
-import { hasSessionAttentionProjection, hasSessionNavigationProjection } from "./store-synced-projections.js";
+import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
+import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
+import { hasSyncedProjectionValue } from "./store-synced-projections.js";
 import {
   hasLeaderThreadTabsVisualAuthority,
   stripLegacyLeaderThreadTabsState,
 } from "./utils/leader-thread-tabs-resolver.js";
 import {
   handleSyncedProjectionMessage,
-  settleSyncedProjectionSubscribeBoundary,
   type SyncedProjectionMessageHandlerDeps,
 } from "./ws-synced-projection-handler.js";
 
@@ -766,7 +767,10 @@ function handleParsedMessage(
         store.setSessionName(sessionId, (data.session as Record<string, unknown>).name as string);
       }
       // Sync server-authoritative attention state
-      if (data.session.attentionReason !== undefined && !hasSessionAttentionProjection(store, sessionId)) {
+      if (
+        data.session.attentionReason !== undefined &&
+        !hasSyncedProjectionValue(store, SESSION_ATTENTION_PROJECTION, sessionId)
+      ) {
         const isViewing = useStore.getState().currentSessionId === sessionId;
         if (isViewing && data.session.attentionReason) {
           // User is viewing this session — suppress badge, tell server we've read it
@@ -784,8 +788,8 @@ function handleParsedMessage(
       const targetSessionId = data.session_id;
       if (!targetSessionId) break;
       const update = data.session ?? {};
-      const projectionOwnsAttention = hasSessionAttentionProjection(store, targetSessionId);
-      const projectionOwnsNavigation = hasSessionNavigationProjection(store, targetSessionId);
+      const projectionOwnsAttention = hasSyncedProjectionValue(store, SESSION_ATTENTION_PROJECTION, targetSessionId);
+      const projectionOwnsNavigation = hasSyncedProjectionValue(store, SESSION_NAVIGATION_PROJECTION, targetSessionId);
       const projectionOwnsLeaderTabs = hasLeaderThreadTabsVisualAuthority(store, targetSessionId);
       const shouldApplyAttention =
         update.attentionReason === undefined
@@ -1495,7 +1499,6 @@ function handleParsedMessage(
     }
 
     case "state_snapshot": {
-      settleSyncedProjectionSubscribeBoundary(sessionId, store, deps);
       const projectionOwnsLeaderTabs = hasLeaderThreadTabsVisualAuthority(useStore.getState(), sessionId);
       // Authoritative state from server — overrides any stale transient state
       const authoritativeNotificationStatus = {
@@ -1547,7 +1550,10 @@ function handleParsedMessage(
         store.setStreamingStats(sessionId, { startedAt: data.generationStartedAt });
       }
       // Sync server-authoritative attention state
-      if (data.attentionReason !== undefined && !hasSessionAttentionProjection(useStore.getState(), sessionId)) {
+      if (
+        data.attentionReason !== undefined &&
+        !hasSyncedProjectionValue(useStore.getState(), SESSION_ATTENTION_PROJECTION, sessionId)
+      ) {
         const snapshotNotificationStatus = data.notifications
           ? summarizeNotificationStatus(data.notifications, authoritativeNotificationStatus, {
               authoritativeStatus: true,

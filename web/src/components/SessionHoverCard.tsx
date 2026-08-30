@@ -30,7 +30,8 @@ import {
   type EffectiveSessionAttentionStatus,
 } from "../utils/session-attention-status.js";
 import { getQuestOwner } from "../../shared/quest-owner.js";
-import { getSessionAttentionProjection, hasSessionAttentionProjection } from "../store-synced-projections.js";
+import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
+import { getSyncedProjectionValue, hasSyncedProjectionValue } from "../store-synced-projections.js";
 
 interface SessionHoverCardProps {
   session: SessionItemType;
@@ -163,12 +164,12 @@ export function SessionHoverCard({
   const sdkSessionMeta = useMemo(() => sdkSessions.find((sdk) => sdk.sessionId === s.id), [sdkSessions, s.id]);
   const currentSessionId = useStore((st) => st.currentSessionId);
   const liveTimerCount = useStore((st) => st.sessionTimers?.get(s.id)?.length ?? 0);
-  const attentionProjection = useStore((st) => getSessionAttentionProjection(st, s.id));
+  const attentionProjection = useStore((st) => getSyncedProjectionValue(st, SESSION_ATTENTION_PROJECTION, s.id));
   const sessionNotifications = useStore((st) =>
-    hasSessionAttentionProjection(st, s.id) ? undefined : st.sessionNotifications?.get(s.id),
+    hasSyncedProjectionValue(st, SESSION_ATTENTION_PROJECTION, s.id) ? undefined : st.sessionNotifications?.get(s.id),
   );
   const sessionAttention = useStore((st) =>
-    hasSessionAttentionProjection(st, s.id) ? null : (st.sessionAttention?.get(s.id) ?? null),
+    hasSyncedProjectionValue(st, SESSION_ATTENTION_PROJECTION, s.id) ? null : (st.sessionAttention?.get(s.id) ?? null),
   );
   const sessionVm = resolvedNavigation?.viewModel ?? coalesceSessionViewModel(sessionState, sdkSessionMeta);
   const effectiveBackendType = sessionVm?.backendType ?? suppliedSession.backendType ?? s.backendType;

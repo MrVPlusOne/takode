@@ -15,6 +15,13 @@ import { getLeaderProfilePortraitForSession } from "../leader-profile-assignment
 import { buildLeaderActivePhaseSummary } from "../../shared/leader-active-phase-summary.js";
 import { getBoard as getBoardController } from "../bridge/board-watchdog-controller.js";
 import { projectSessionLifecycleEvents } from "../session-lifecycle-projection.js";
+import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
+import { SESSION_NAVIGATION_PROJECTION } from "../../shared/session-navigation-projection.js";
+import { LEADER_THREAD_TABS_PROJECTION } from "../../shared/leader-thread-tabs-projection.js";
+import {
+  SYNCED_PROJECTION_DESCRIPTORS,
+  type SyncedProjectionRestEnvelopeFields,
+} from "../../shared/synced-projection-registry.js";
 
 type SessionListEntry = ReturnType<CliLauncher["listSessions"]>[number];
 const scheduledWorktreeGitStateRefreshes = new Map<string, ReturnType<typeof setTimeout>>();
@@ -129,7 +136,13 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
         const bridgeSession = wsBridge.getSession(s.sessionId);
         const projectionController =
           bridgeSession && !safeSession.archived ? wsBridge.getSyncedProjectionController?.() : undefined;
-        const sessionAttentionProjection = projectionController?.getSessionAttentionSnapshot?.(s.sessionId) ?? null;
+        const projectionFields: SyncedProjectionRestEnvelopeFields = {};
+        const sessionAttentionProjection =
+          projectionController?.getSnapshot?.(SESSION_ATTENTION_PROJECTION, s.sessionId) ?? null;
+        if (sessionAttentionProjection) {
+          projectionFields[SYNCED_PROJECTION_DESCRIPTORS[SESSION_ATTENTION_PROJECTION].restField] =
+            sessionAttentionProjection;
+        }
         // Herded worker notifications route through the leader/board flow and
         // should not create direct user-facing sidebar markers for the worker.
         notificationSummary =
@@ -141,8 +154,12 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
         const bridge = currentBridgeSession?.state;
         const leaderThreadTabsProjection =
           safeSession.isOrchestrator === true || bridge?.isOrchestrator === true
-            ? (projectionController?.getLeaderThreadTabsSnapshot?.(s.sessionId) ?? null)
+            ? (projectionController?.getSnapshot?.(LEADER_THREAD_TABS_PROJECTION, s.sessionId) ?? null)
             : null;
+        if (leaderThreadTabsProjection) {
+          projectionFields[SYNCED_PROJECTION_DESCRIPTORS[LEADER_THREAD_TABS_PROJECTION].restField] =
+            leaderThreadTabsProjection;
+        }
         const turnMetrics = currentBridgeSession
           ? computeSessionTurnMetrics(currentBridgeSession.messageHistory)
           : null;
@@ -161,7 +178,12 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
         // Navigation snapshots consume the repaired history-backed turn metrics.
         // When repair changed authority, invalidation above makes getSnapshot
         // publish the new revision to established subscribers before returning it.
-        const sessionNavigationProjection = projectionController?.getSessionNavigationSnapshot?.(s.sessionId) ?? null;
+        const sessionNavigationProjection =
+          projectionController?.getSnapshot?.(SESSION_NAVIGATION_PROJECTION, s.sessionId) ?? null;
+        if (sessionNavigationProjection) {
+          projectionFields[SYNCED_PROJECTION_DESCRIPTORS[SESSION_NAVIGATION_PROJECTION].restField] =
+            sessionNavigationProjection;
+        }
         const lastUserMessageAt = currentBridgeSession
           ? getLastActualHumanUserMessageTimestamp(currentBridgeSession.messageHistory)
           : safeSession.lastUserMessageAt;
@@ -257,9 +279,7 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
               0,
             ) ?? 0,
           ...notificationSummary,
-          ...(sessionAttentionProjection ? { sessionAttentionProjection } : {}),
-          ...(sessionNavigationProjection ? { sessionNavigationProjection } : {}),
-          ...(leaderThreadTabsProjection ? { leaderThreadTabsProjection } : {}),
+          ...projectionFields,
           ...(attention ?? {}),
           ...(s.isWorktree && s.archived ? { worktreeExists: await archivedWorktreeExists(s.cwd) } : {}),
         };

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SyncedProjectionDefinition } from "./synced-projection-runtime.js";
-import { SyncedProjectionRuntime } from "./synced-projection-runtime.js";
+import { createDirectSyncedProjectionDefinition, SyncedProjectionRuntime } from "./synced-projection-runtime.js";
 
 type Source = { dependency: number; unrelated: number; text?: string };
 type Subscriber = { allowedKeys: Set<string>; updates: unknown[] };
@@ -31,6 +31,28 @@ function subscribe(runtime: SyncedProjectionRuntime<Subscriber>, subscriber: Sub
 }
 
 describe("SyncedProjectionRuntime", () => {
+  it("defines direct-value projections without duplicated equality or identity plumbing", () => {
+    const equal = vi.fn((left: { parity: number }, right: { parity: number }) => left.parity === right.parity);
+    const selectValue = vi.fn((source: Source) => ({ parity: source.dependency % 2 }));
+    const direct = createDirectSyncedProjectionDefinition<Source, { parity: number }, Subscriber>({
+      descriptor: { projection: "direct", equal, maxValueBytes: 128 },
+      dependencies: ["dependency"],
+      resolveSource: () => ({ dependency: 1, unrelated: 0 }),
+      selectValue,
+      authorizeSubscription: () => true,
+    });
+    const source = { dependency: 2, unrelated: 0 };
+    const value = direct.selectDependencies(source, "a");
+
+    expect(value).toEqual({ parity: 0 });
+    expect(direct.derive(source, "a", value)).toBe(value);
+    expect(direct.dependenciesEqual(value, { parity: 0 })).toBe(true);
+    expect(direct.valueEqual(value, { parity: 1 })).toBe(false);
+    expect(direct.maxValueBytes).toBe(128);
+    expect(selectValue).toHaveBeenCalledOnce();
+    expect(equal).toHaveBeenCalledTimes(2);
+  });
+
   it("batches invalidations, filters equal dependencies, and advances revisions only for semantic changes", async () => {
     const sources = new Map<string, Source>([["a", { dependency: 1, unrelated: 0 }]]);
     const runtime = new SyncedProjectionRuntime<Subscriber>({ generation: "generation-a" });
@@ -67,7 +89,7 @@ describe("SyncedProjectionRuntime", () => {
     const metrics = runtime.getMetrics();
     expect(metrics).toMatchObject({
       batches: 3,
-      dependencyEqualSuppressions: 2,
+      dependencyEqualSuppressions: 1,
       equalValueSuppressions: 1,
       updates: 1,
       deliveries: 1,
@@ -83,6 +105,70 @@ describe("SyncedProjectionRuntime", () => {
       deliveries: 1,
     });
     expect(metrics.projections.example?.cachedValueBytes).toBeGreaterThan(0);
+  });
+
+  it("keeps no-subscriber invalidations dirty until a snapshot requests the value", async () => {
+    const sources = new Map<string, Source>([["a", { dependency: 1, unrelated: 0 }]]);
+    const runtime = new SyncedProjectionRuntime<Subscriber>({ generation: "generation-a" });
+    const selectDependencies = vi.fn((source: Source) => source.dependency);
+    const derive = vi.fn((_source: Source, _key: string, dependency: number) => ({ parity: dependency % 2 }));
+    runtime.register(definition(sources, { selectDependencies, derive }));
+
+    runtime.invalidate("example", "a");
+    await runtime.flushForTest();
+
+    expect(selectDependencies).not.toHaveBeenCalled();
+    expect(derive).not.toHaveBeenCalled();
+    expect(runtime.getMetrics()).toMatchObject({
+      invalidations: 1,
+      batches: 0,
+      dependencySelections: 0,
+      derivations: 0,
+      valueBytes: 0,
+      cachedValueBytes: 0,
+    });
+
+    expect(runtime.getSnapshot("example", "a")).toMatchObject({ revision: 1, value: { parity: 1 } });
+    expect(selectDependencies).toHaveBeenCalledTimes(1);
+    expect(derive).toHaveBeenCalledTimes(1);
+
+    sources.get("a")!.dependency = 2;
+    runtime.invalidate("example", "a");
+    await runtime.flushForTest();
+    expect(selectDependencies).toHaveBeenCalledTimes(1);
+    expect(derive).toHaveBeenCalledTimes(1);
+
+    expect(runtime.getSnapshot("example", "a")).toMatchObject({ revision: 2, value: { parity: 0 } });
+    expect(selectDependencies).toHaveBeenCalledTimes(2);
+    expect(derive).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses a clean cached value for later subscribers and reconnect snapshots", () => {
+    const sources = new Map<string, Source>([["a", { dependency: 1, unrelated: 0 }]]);
+    const runtime = new SyncedProjectionRuntime<Subscriber>({ generation: "generation-a" });
+    const selectDependencies = vi.fn((source: Source) => source.dependency);
+    const derive = vi.fn((_source: Source, _key: string, dependency: number) => ({ parity: dependency % 2 }));
+    const authorizeSubscription = vi.fn((subscriber: Subscriber, key: string) => subscriber.allowedKeys.has(key));
+    runtime.register(definition(sources, { selectDependencies, derive, authorizeSubscription }));
+    const first = { allowedKeys: new Set(["a"]), updates: [] as unknown[] };
+    const second = { allowedKeys: new Set(["a"]), updates: [] as unknown[] };
+    const reconnect = { allowedKeys: new Set(["a"]), updates: [] as unknown[] };
+
+    expect(subscribe(runtime, first, ["a"])[0]).toMatchObject({ revision: 1, value: { parity: 1 } });
+    expect(subscribe(runtime, second, ["a"])[0]).toMatchObject({ revision: 1, value: { parity: 1 } });
+    runtime.removeSubscriber(first);
+    runtime.removeSubscriber(second);
+    expect(subscribe(runtime, reconnect, ["a"])[0]).toMatchObject({ revision: 1, value: { parity: 1 } });
+
+    expect(authorizeSubscription).toHaveBeenCalledTimes(3);
+    expect(selectDependencies).toHaveBeenCalledTimes(1);
+    expect(derive).toHaveBeenCalledTimes(1);
+    expect(runtime.getMetrics()).toMatchObject({
+      dependencySelections: 1,
+      derivations: 1,
+      snapshots: 3,
+      subscriptionsAccepted: 3,
+    });
   });
 
   it("authorizes and scopes subscriptions by projection key", async () => {
@@ -151,6 +237,29 @@ describe("SyncedProjectionRuntime", () => {
 
     expect(snapshot).toMatchObject({ revision: 2, value: { parity: 0 } });
     expect(subscriber.updates).toEqual([expect.objectContaining({ revision: 2, value: { parity: 0 } })]);
+  });
+
+  it("delivers a dirty same-subscriber replacement only through its authoritative snapshot", async () => {
+    const sources = new Map<string, Source>([["a", { dependency: 1, unrelated: 0 }]]);
+    const runtime = new SyncedProjectionRuntime<Subscriber>({ generation: "generation-a" });
+    runtime.register(definition(sources));
+    const replacing = { allowedKeys: new Set(["a"]), updates: [] as unknown[] };
+    const established = { allowedKeys: new Set(["a"]), updates: [] as unknown[] };
+    subscribe(runtime, replacing, ["a"]);
+    subscribe(runtime, established, ["a"]);
+
+    sources.get("a")!.dependency = 2;
+    runtime.invalidate("example", "a");
+    const replacement = runtime.replaceSubscriptions(
+      replacing,
+      [{ projection: "example", key: "a" }],
+      (target, envelope) => target.updates.push(envelope),
+    );
+    await runtime.flushForTest();
+
+    expect(replacement.snapshots).toEqual([expect.objectContaining({ revision: 2, value: { parity: 0 } })]);
+    expect(replacing.updates).toEqual([]);
+    expect(established.updates).toEqual([expect.objectContaining({ revision: 2, value: { parity: 0 } })]);
   });
 
   it("removes cached keys and detaches them from every subscriber", async () => {

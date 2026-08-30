@@ -4,7 +4,6 @@ import { act, render } from "@testing-library/react";
 import { Profiler, type ComponentProps, type ProfilerOnRenderCallback } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
-import { SYNCED_PROJECTION_SCHEMA_VERSION } from "../../shared/synced-projection.js";
 import { useStore } from "../store.js";
 import type { SidebarSessionItem } from "../utils/sidebar-session-item.js";
 import { SessionItem } from "./SessionItem.js";
@@ -61,7 +60,6 @@ function envelope(options: {
 }) {
   return {
     type: options.type ?? "synced_projection_snapshot",
-    schemaVersion: SYNCED_PROJECTION_SCHEMA_VERSION,
     projection: SESSION_ATTENTION_PROJECTION,
     key: options.sessionId,
     generation: "render-generation",

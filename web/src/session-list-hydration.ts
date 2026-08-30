@@ -9,10 +9,14 @@ import {
 import { questOwnsSessionName } from "./utils/quest-helpers.js";
 import { sessionTaskHistoryEqual, stringArrayEqual } from "./store-equality.js";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
-import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
-import { LEADER_THREAD_TABS_PROJECTION } from "../shared/leader-thread-tabs-projection.js";
+import {
+  SYNCED_PROJECTION_DESCRIPTORS,
+  SYNCED_PROJECTION_DESCRIPTOR_LIST,
+  isSyncedProjectionEligibleForSession,
+  type AnySyncedProjectionDescriptor,
+} from "../shared/synced-projection-registry.js";
 import { syncedProjectionEntryId, type SyncedProjectionSubscriptionIdentity } from "../shared/synced-projection.js";
-import { hasSessionAttentionProjection } from "./store-synced-projections.js";
+import { hasSyncedProjectionValue } from "./store-synced-projections.js";
 
 export const ACTIVE_SESSION_METADATA_STALE_REFRESH_MS = 3 * 60_000;
 export const SIDEBAR_SESSION_POLL_INTERVAL_MS = 5_000;
@@ -73,18 +77,10 @@ export function reconcileStoredSyncedProjectionSnapshots(
   for (const session of state.sdkSessions) {
     if (session.archived || seenSessionIds.has(session.sessionId)) continue;
     seenSessionIds.add(session.sessionId);
-    const projectionNames: string[] = [SESSION_ATTENTION_PROJECTION, SESSION_NAVIGATION_PROJECTION];
-    if (
-      session.isOrchestrator === true ||
-      state.sessions.get(session.sessionId)?.isOrchestrator === true ||
-      state.syncedProjectionKeys.has(syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, session.sessionId)) ||
-      Object.prototype.hasOwnProperty.call(session, "leaderThreadTabsProjection")
-    ) {
-      projectionNames.push(LEADER_THREAD_TABS_PROJECTION);
-    }
-    for (const projection of projectionNames) {
-      if (!acceptedIds.has(syncedProjectionEntryId(projection, session.sessionId))) {
-        rejectedSubscriptions.push({ projection, key: session.sessionId });
+    for (const descriptor of SYNCED_PROJECTION_DESCRIPTOR_LIST) {
+      if (!projectionEligibleForStoredSession(descriptor, session, state)) continue;
+      if (!acceptedIds.has(syncedProjectionEntryId(descriptor.projection, session.sessionId))) {
+        rejectedSubscriptions.push({ projection: descriptor.projection, key: session.sessionId });
       }
     }
   }
@@ -92,21 +88,18 @@ export function reconcileStoredSyncedProjectionSnapshots(
   useStore.setState((current) => {
     let changed = false;
     const sdkSessions = current.sdkSessions.map((session) => {
-      const removeAttention =
-        Object.prototype.hasOwnProperty.call(session, "sessionAttentionProjection") &&
-        !acceptedIds.has(syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, session.sessionId));
-      const removeNavigation =
-        Object.prototype.hasOwnProperty.call(session, "sessionNavigationProjection") &&
-        !acceptedIds.has(syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, session.sessionId));
-      const removeLeaderThreadTabs =
-        Object.prototype.hasOwnProperty.call(session, "leaderThreadTabsProjection") &&
-        !acceptedIds.has(syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, session.sessionId));
-      if (!removeAttention && !removeNavigation && !removeLeaderThreadTabs) return session;
-      changed = true;
-      const next = { ...session };
-      if (removeAttention) delete next.sessionAttentionProjection;
-      if (removeNavigation) delete next.sessionNavigationProjection;
-      if (removeLeaderThreadTabs) delete next.leaderThreadTabsProjection;
+      let next = session;
+      for (const descriptor of SYNCED_PROJECTION_DESCRIPTOR_LIST) {
+        if (
+          !hasOwnProjectionEnvelope(session, descriptor) ||
+          acceptedIds.has(syncedProjectionEntryId(descriptor.projection, session.sessionId))
+        ) {
+          continue;
+        }
+        if (next === session) next = { ...session };
+        deleteProjectionEnvelope(next, descriptor);
+        changed = true;
+      }
       return next;
     });
     return changed ? { sdkSessions } : current;
@@ -156,7 +149,7 @@ export function hydrateSessionList(list: SdkSessionInfo[], options: HydrateSessi
   for (const listedSession of list) {
     if (!effectiveActiveSessionIds.has(listedSession.sessionId)) continue;
     const session = effectiveSessionsById.get(listedSession.sessionId) ?? listedSession;
-    if (sessionAttentionProjectionFromSession(session).present) continue;
+    if (hasOwnProjectionEnvelope(session, SYNCED_PROJECTION_DESCRIPTORS[SESSION_ATTENTION_PROJECTION])) continue;
     batchedAttention = collectAttentionUpdate(attentionStore, session, batchedAttention);
   }
   if (batchedAttention) useStore.setState({ sessionAttention: batchedAttention });
@@ -233,22 +226,39 @@ export function _resetActiveSessionMetadataRefreshForTest(): void {
   authoritativeArchiveRequestFences.clear();
 }
 
-function hasStoredProjectionSnapshot(session: SdkSessionInfo): boolean {
-  return (
-    Object.prototype.hasOwnProperty.call(session, "sessionAttentionProjection") ||
-    Object.prototype.hasOwnProperty.call(session, "sessionNavigationProjection") ||
-    Object.prototype.hasOwnProperty.call(session, "leaderThreadTabsProjection")
-  );
+function hasOwnProjectionEnvelope(session: SdkSessionInfo, descriptor: AnySyncedProjectionDescriptor): boolean {
+  return Object.prototype.hasOwnProperty.call(session, descriptor.restField);
+}
+
+function projectionEnvelopeFromSession(session: SdkSessionInfo, descriptor: AnySyncedProjectionDescriptor): unknown {
+  return session[descriptor.restField];
+}
+
+function deleteProjectionEnvelope(session: SdkSessionInfo, descriptor: AnySyncedProjectionDescriptor): void {
+  delete session[descriptor.restField];
+}
+
+function projectionEligibleForStoredSession(
+  descriptor: AnySyncedProjectionDescriptor,
+  session: SdkSessionInfo,
+  state: Pick<ReturnType<typeof useStore.getState>, "sessions" | "syncedProjectionKeys">,
+): boolean {
+  const isOrchestrator =
+    session.isOrchestrator === true || state.sessions.get(session.sessionId)?.isOrchestrator === true;
+  if (isSyncedProjectionEligibleForSession(descriptor, { isOrchestrator })) return true;
+
+  // Preserve an already-observed leader projection until the exact replacement
+  // ACK decides its authority, even if a partial REST row omitted role metadata.
+  const entryId = syncedProjectionEntryId(descriptor.projection, session.sessionId);
+  return state.syncedProjectionKeys.has(entryId) || hasOwnProjectionEnvelope(session, descriptor);
 }
 
 function stripStoredProjectionSnapshots(session: SdkSessionInfo): SdkSessionInfo {
-  const {
-    sessionAttentionProjection: _sessionAttentionProjection,
-    sessionNavigationProjection: _sessionNavigationProjection,
-    leaderThreadTabsProjection: _leaderThreadTabsProjection,
-    ...rest
-  } = session;
-  return rest;
+  const next = { ...session };
+  for (const descriptor of SYNCED_PROJECTION_DESCRIPTOR_LIST) {
+    deleteProjectionEnvelope(next, descriptor);
+  }
+  return next;
 }
 
 function stripRestFencedProjectionSnapshots(
@@ -262,44 +272,31 @@ function stripRestFencedProjectionSnapshots(
     activeRequestSequence >= 0
       ? activeRequestSequence
       : undefined;
-  const isFenced = (projection: string) => {
-    const entryId = syncedProjectionEntryId(projection, session.sessionId);
+  const isFenced = (descriptor: AnySyncedProjectionDescriptor) => {
+    const entryId = syncedProjectionEntryId(descriptor.projection, session.sessionId);
     if (state.syncedProjectionKeys.has(entryId)) return false;
     const ordering = state.syncedProjectionOrderings.get(entryId);
     if (ordering?.subscriptionRejected) return true;
     const barrier = ordering?.liveRequestSequenceBarrier;
     return barrier !== undefined && (requestSequence === undefined || requestSequence <= barrier);
   };
-  const removeAttention =
-    Object.prototype.hasOwnProperty.call(session, "sessionAttentionProjection") &&
-    isFenced(SESSION_ATTENTION_PROJECTION);
-  const removeNavigation =
-    Object.prototype.hasOwnProperty.call(session, "sessionNavigationProjection") &&
-    isFenced(SESSION_NAVIGATION_PROJECTION);
-  const removeLeaderThreadTabs =
-    Object.prototype.hasOwnProperty.call(session, "leaderThreadTabsProjection") &&
-    isFenced(LEADER_THREAD_TABS_PROJECTION);
-  if (!removeAttention && !removeNavigation && !removeLeaderThreadTabs) return session;
-  const next = { ...session };
-  if (removeAttention) delete next.sessionAttentionProjection;
-  if (removeNavigation) delete next.sessionNavigationProjection;
-  if (removeLeaderThreadTabs) delete next.leaderThreadTabsProjection;
-  return next;
-}
 
-function sessionAttentionProjectionFromSession(session: SdkSessionInfo): { present: boolean; value?: unknown } {
-  if (!("sessionAttentionProjection" in session)) return { present: false };
-  return {
-    present: true,
-    value: session.sessionAttentionProjection,
-  };
+  let next = session;
+  for (const descriptor of SYNCED_PROJECTION_DESCRIPTOR_LIST) {
+    if (!hasOwnProjectionEnvelope(session, descriptor) || !isFenced(descriptor)) continue;
+    if (next === session) next = { ...session };
+    deleteProjectionEnvelope(next, descriptor);
+  }
+  return next;
 }
 
 function sessionProjectionSnapshotsFromSession(session: SdkSessionInfo): unknown[] {
   const snapshots: unknown[] = [];
-  if ("sessionAttentionProjection" in session) snapshots.push(session.sessionAttentionProjection);
-  if ("sessionNavigationProjection" in session) snapshots.push(session.sessionNavigationProjection);
-  if ("leaderThreadTabsProjection" in session) snapshots.push(session.leaderThreadTabsProjection);
+  for (const descriptor of SYNCED_PROJECTION_DESCRIPTOR_LIST) {
+    if (hasOwnProjectionEnvelope(session, descriptor)) {
+      snapshots.push(projectionEnvelopeFromSession(session, descriptor));
+    }
+  }
   return snapshots;
 }
 
@@ -422,7 +419,10 @@ function collectAttentionUpdate(
   session: SdkSessionInfo,
   batchedAttention: Map<string, "action" | "error" | "review" | null> | null,
 ): Map<string, "action" | "error" | "review" | null> | null {
-  if (hasSessionAttentionProjection(store, session.sessionId) || session.attentionReason === undefined) {
+  if (
+    hasSyncedProjectionValue(store, SESSION_ATTENTION_PROJECTION, session.sessionId) ||
+    session.attentionReason === undefined
+  ) {
     return batchedAttention;
   }
   const shouldApplyAttention = shouldApplyAttentionReasonWithNotificationFreshness(

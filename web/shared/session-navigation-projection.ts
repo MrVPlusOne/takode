@@ -1,5 +1,16 @@
+import {
+  isBoundedNullableString,
+  isBoundedString,
+  isNonNegativeInteger,
+  isNonNegativeNullableNumber,
+  isNonNegativeNumber,
+  isPositiveNullableInteger,
+} from "./synced-projection-codec.js";
+import { reuseIfEqual } from "./stable-reconciliation.js";
+
 /** Compact server-owned summary used by session navigation surfaces. */
 export const SESSION_NAVIGATION_PROJECTION = "session-navigation" as const;
+export const SESSION_NAVIGATION_PROJECTION_MAX_VALUE_BYTES = 16 * 1024;
 
 export const SESSION_NAVIGATION_ID_MAX_LENGTH = 160;
 export const SESSION_NAVIGATION_TEXT_MAX_LENGTH = 1_024;
@@ -96,42 +107,18 @@ export interface SessionNavigationProjectionValue {
   detail: SessionNavigationDetailSlice;
 }
 
-function boundedString(value: unknown, maxLength = SESSION_NAVIGATION_TEXT_MAX_LENGTH): value is string {
-  return typeof value === "string" && value.length <= maxLength;
-}
-
-function boundedNullableString(value: unknown, maxLength = SESSION_NAVIGATION_TEXT_MAX_LENGTH): value is string | null {
-  return value === null || boundedString(value, maxLength);
-}
-
-function nonNegativeNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
-}
-
-function nonNegativeInteger(value: unknown): value is number {
-  return Number.isSafeInteger(value) && (value as number) >= 0;
-}
-
-function positiveNullableInteger(value: unknown): value is number | null {
-  return value === null || (Number.isSafeInteger(value) && (value as number) >= 1);
-}
-
-function nonNegativeNullableNumber(value: unknown): value is number | null {
-  return value === null || nonNegativeNumber(value);
-}
-
 function isIdentitySlice(value: unknown): value is SessionNavigationIdentitySlice {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<SessionNavigationIdentitySlice>;
   return (
-    boundedNullableString(candidate.name) &&
-    boundedString(candidate.model) &&
-    boundedString(candidate.cwd, SESSION_NAVIGATION_PATH_MAX_LENGTH) &&
+    isBoundedNullableString(candidate.name, SESSION_NAVIGATION_TEXT_MAX_LENGTH) &&
+    isBoundedString(candidate.model, SESSION_NAVIGATION_TEXT_MAX_LENGTH) &&
+    isBoundedString(candidate.cwd, SESSION_NAVIGATION_PATH_MAX_LENGTH) &&
     ["claude", "codex", "claude-sdk"].includes(candidate.backendType as SessionNavigationBackendType) &&
-    boundedString(candidate.permissionMode) &&
+    isBoundedString(candidate.permissionMode, SESSION_NAVIGATION_TEXT_MAX_LENGTH) &&
     typeof candidate.askPermission === "boolean" &&
-    positiveNullableInteger(candidate.sessionNum) &&
-    nonNegativeNumber(candidate.createdAt)
+    isPositiveNullableInteger(candidate.sessionNum) &&
+    isNonNegativeNumber(candidate.createdAt)
   );
 }
 
@@ -139,17 +126,17 @@ function isTopologySlice(value: unknown): value is SessionNavigationTopologySlic
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<SessionNavigationTopologySlice>;
   return (
-    boundedNullableString(candidate.treeGroupId, SESSION_NAVIGATION_ID_MAX_LENGTH) &&
-    boundedNullableString(candidate.memorySessionSpaceSlug) &&
-    boundedString(candidate.repoRoot, SESSION_NAVIGATION_PATH_MAX_LENGTH) &&
+    isBoundedNullableString(candidate.treeGroupId, SESSION_NAVIGATION_ID_MAX_LENGTH) &&
+    isBoundedNullableString(candidate.memorySessionSpaceSlug, SESSION_NAVIGATION_TEXT_MAX_LENGTH) &&
+    isBoundedString(candidate.repoRoot, SESSION_NAVIGATION_PATH_MAX_LENGTH) &&
     typeof candidate.isWorktree === "boolean" &&
     typeof candidate.isContainerized === "boolean" &&
     typeof candidate.isAssistant === "boolean" &&
     typeof candidate.isOrchestrator === "boolean" &&
-    boundedNullableString(candidate.herdedBy, SESSION_NAVIGATION_ID_MAX_LENGTH) &&
-    positiveNullableInteger(candidate.reviewerOf) &&
-    boundedNullableString(candidate.cronJobId, SESSION_NAVIGATION_ID_MAX_LENGTH) &&
-    boundedNullableString(candidate.cronJobName)
+    isBoundedNullableString(candidate.herdedBy, SESSION_NAVIGATION_ID_MAX_LENGTH) &&
+    isPositiveNullableInteger(candidate.reviewerOf) &&
+    isBoundedNullableString(candidate.cronJobId, SESSION_NAVIGATION_ID_MAX_LENGTH) &&
+    isBoundedNullableString(candidate.cronJobName, SESSION_NAVIGATION_TEXT_MAX_LENGTH)
   );
 }
 
@@ -161,13 +148,13 @@ function isLifecycleSlice(value: unknown): value is SessionNavigationLifecycleSl
     [null, "running", "compacting", "reverting", "idle"].includes(candidate.status as SessionNavigationStatus) &&
     typeof candidate.cliConnected === "boolean" &&
     typeof candidate.idleKilled === "boolean" &&
-    nonNegativeInteger(candidate.pendingPermissionCount) &&
-    nonNegativeInteger(candidate.pendingTimerCount) &&
+    isNonNegativeInteger(candidate.pendingPermissionCount) &&
+    isNonNegativeInteger(candidate.pendingTimerCount) &&
     typeof candidate.paused === "boolean" &&
-    nonNegativeInteger(candidate.pausedInputQueueCount) &&
-    nonNegativeNullableNumber(candidate.lastActivityAt) &&
-    nonNegativeNullableNumber(candidate.lastUserMessageAt) &&
-    nonNegativeNullableNumber(candidate.lastMessagePreviewAt)
+    isNonNegativeInteger(candidate.pausedInputQueueCount) &&
+    isNonNegativeNullableNumber(candidate.lastActivityAt) &&
+    isNonNegativeNullableNumber(candidate.lastUserMessageAt) &&
+    isNonNegativeNullableNumber(candidate.lastMessagePreviewAt)
   );
 }
 
@@ -175,12 +162,12 @@ function isQuestSlice(value: unknown): value is SessionNavigationQuestSlice {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<SessionNavigationQuestSlice>;
   return (
-    boundedNullableString(candidate.claimedQuestId, SESSION_NAVIGATION_ID_MAX_LENGTH) &&
-    boundedNullableString(candidate.claimedQuestTitle) &&
-    boundedNullableString(candidate.claimedQuestStatus) &&
+    isBoundedNullableString(candidate.claimedQuestId, SESSION_NAVIGATION_ID_MAX_LENGTH) &&
+    isBoundedNullableString(candidate.claimedQuestTitle, SESSION_NAVIGATION_TEXT_MAX_LENGTH) &&
+    isBoundedNullableString(candidate.claimedQuestStatus, SESSION_NAVIGATION_TEXT_MAX_LENGTH) &&
     (candidate.claimedQuestVerificationInboxUnread === null ||
       typeof candidate.claimedQuestVerificationInboxUnread === "boolean") &&
-    boundedNullableString(candidate.claimedQuestLeaderSessionId, SESSION_NAVIGATION_ID_MAX_LENGTH)
+    isBoundedNullableString(candidate.claimedQuestLeaderSessionId, SESSION_NAVIGATION_ID_MAX_LENGTH)
   );
 }
 
@@ -188,16 +175,16 @@ function isGitSlice(value: unknown): value is SessionNavigationGitSlice {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<SessionNavigationGitSlice>;
   return (
-    boundedString(candidate.branch) &&
-    boundedString(candidate.defaultBranch) &&
-    boundedString(candidate.diffBaseBranch) &&
-    nonNegativeInteger(candidate.ahead) &&
-    nonNegativeInteger(candidate.behind) &&
-    nonNegativeInteger(candidate.linesAdded) &&
-    nonNegativeInteger(candidate.linesRemoved) &&
-    boundedNullableString(candidate.diffStatsSkippedReason) &&
-    nonNegativeNullableNumber(candidate.statusRefreshedAt) &&
-    boundedNullableString(candidate.statusRefreshError)
+    isBoundedString(candidate.branch, SESSION_NAVIGATION_TEXT_MAX_LENGTH) &&
+    isBoundedString(candidate.defaultBranch, SESSION_NAVIGATION_TEXT_MAX_LENGTH) &&
+    isBoundedString(candidate.diffBaseBranch, SESSION_NAVIGATION_TEXT_MAX_LENGTH) &&
+    isNonNegativeInteger(candidate.ahead) &&
+    isNonNegativeInteger(candidate.behind) &&
+    isNonNegativeInteger(candidate.linesAdded) &&
+    isNonNegativeInteger(candidate.linesRemoved) &&
+    isBoundedNullableString(candidate.diffStatsSkippedReason, SESSION_NAVIGATION_TEXT_MAX_LENGTH) &&
+    isNonNegativeNullableNumber(candidate.statusRefreshedAt) &&
+    isBoundedNullableString(candidate.statusRefreshError, SESSION_NAVIGATION_TEXT_MAX_LENGTH)
   );
 }
 
@@ -205,18 +192,18 @@ function isDetailSlice(value: unknown): value is SessionNavigationDetailSlice {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<SessionNavigationDetailSlice>;
   return (
-    boundedString(candidate.lastMessagePreview, SESSION_NAVIGATION_PREVIEW_MAX_LENGTH) &&
-    nonNegativeInteger(candidate.userTurnCount) &&
-    nonNegativeInteger(candidate.agentTurnCount) &&
-    nonNegativeNumber(candidate.contextUsedPercent) &&
-    nonNegativeNullableNumber(candidate.contextTokensUsed) &&
-    nonNegativeNullableNumber(candidate.modelContextWindow) &&
-    nonNegativeNullableNumber(candidate.configuredContextWindow) &&
-    nonNegativeNullableNumber(candidate.effectiveContextWindow) &&
-    nonNegativeInteger(candidate.messageHistoryBytes) &&
-    nonNegativeInteger(candidate.codexRetainedPayloadBytes) &&
-    boundedNullableString(candidate.codexReasoningEffort) &&
-    boundedNullableString(candidate.codexEffectiveReasoningEffort) &&
+    isBoundedString(candidate.lastMessagePreview, SESSION_NAVIGATION_PREVIEW_MAX_LENGTH) &&
+    isNonNegativeInteger(candidate.userTurnCount) &&
+    isNonNegativeInteger(candidate.agentTurnCount) &&
+    isNonNegativeNumber(candidate.contextUsedPercent) &&
+    isNonNegativeNullableNumber(candidate.contextTokensUsed) &&
+    isNonNegativeNullableNumber(candidate.modelContextWindow) &&
+    isNonNegativeNullableNumber(candidate.configuredContextWindow) &&
+    isNonNegativeNullableNumber(candidate.effectiveContextWindow) &&
+    isNonNegativeInteger(candidate.messageHistoryBytes) &&
+    isNonNegativeInteger(candidate.codexRetainedPayloadBytes) &&
+    isBoundedNullableString(candidate.codexReasoningEffort, SESSION_NAVIGATION_TEXT_MAX_LENGTH) &&
+    isBoundedNullableString(candidate.codexEffectiveReasoningEffort, SESSION_NAVIGATION_TEXT_MAX_LENGTH) &&
     typeof candidate.codexEffectiveReasoningEffortReported === "boolean"
   );
 }
@@ -357,14 +344,12 @@ export function reconcileSessionNavigationProjectionValue(
   next: SessionNavigationProjectionValue,
 ): SessionNavigationProjectionValue {
   if (!previous) return next;
-  const identity = sessionNavigationIdentityEqual(previous.identity, next.identity) ? previous.identity : next.identity;
-  const topology = sessionNavigationTopologyEqual(previous.topology, next.topology) ? previous.topology : next.topology;
-  const lifecycle = sessionNavigationLifecycleEqual(previous.lifecycle, next.lifecycle)
-    ? previous.lifecycle
-    : next.lifecycle;
-  const quest = sessionNavigationQuestEqual(previous.quest, next.quest) ? previous.quest : next.quest;
-  const git = sessionNavigationGitEqual(previous.git, next.git) ? previous.git : next.git;
-  const detail = sessionNavigationDetailEqual(previous.detail, next.detail) ? previous.detail : next.detail;
+  const identity = reuseIfEqual(previous.identity, next.identity, sessionNavigationIdentityEqual);
+  const topology = reuseIfEqual(previous.topology, next.topology, sessionNavigationTopologyEqual);
+  const lifecycle = reuseIfEqual(previous.lifecycle, next.lifecycle, sessionNavigationLifecycleEqual);
+  const quest = reuseIfEqual(previous.quest, next.quest, sessionNavigationQuestEqual);
+  const git = reuseIfEqual(previous.git, next.git, sessionNavigationGitEqual);
+  const detail = reuseIfEqual(previous.detail, next.detail, sessionNavigationDetailEqual);
   if (
     identity === previous.identity &&
     topology === previous.topology &&

@@ -1,6 +1,7 @@
 import type { StateCreator } from "zustand";
 import { api } from "./api.js";
-import { hasSessionAttentionProjection } from "./store-synced-projections.js";
+import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
+import { hasSyncedProjectionValue } from "./store-synced-projections.js";
 import type { AppState } from "./store-types.js";
 
 type StoreSet = Parameters<StateCreator<AppState>>[0];
@@ -14,7 +15,10 @@ export function createSessionAttentionStoreSlice(set: StoreSet): SessionAttentio
   return {
     markSessionViewed: (sessionId) =>
       set((state) => {
-        if (hasSessionAttentionProjection(state, sessionId) || state.sessionAttention.get(sessionId) === null) {
+        if (
+          hasSyncedProjectionValue(state, SESSION_ATTENTION_PROJECTION, sessionId) ||
+          state.sessionAttention.get(sessionId) === null
+        ) {
           return state;
         }
         const sessionAttention = new Map(state.sessionAttention);
@@ -24,7 +28,10 @@ export function createSessionAttentionStoreSlice(set: StoreSet): SessionAttentio
     markSessionUnread: (sessionId) => {
       api.markSessionUnread(sessionId).catch(() => {});
       set((state) => {
-        if (hasSessionAttentionProjection(state, sessionId) || state.sessionAttention.get(sessionId) === "review") {
+        if (
+          hasSyncedProjectionValue(state, SESSION_ATTENTION_PROJECTION, sessionId) ||
+          state.sessionAttention.get(sessionId) === "review"
+        ) {
           return state;
         }
         const sessionAttention = new Map(state.sessionAttention);
@@ -38,7 +45,7 @@ export function createSessionAttentionStoreSlice(set: StoreSet): SessionAttentio
         let sessionAttention: Map<string, "action" | "error" | "review" | null> | null = null;
         for (const sdk of state.sdkSessions) {
           if (
-            hasSessionAttentionProjection(state, sdk.sessionId) ||
+            hasSyncedProjectionValue(state, SESSION_ATTENTION_PROJECTION, sdk.sessionId) ||
             state.sessionAttention.get(sdk.sessionId) === null
           ) {
             continue;
@@ -51,7 +58,10 @@ export function createSessionAttentionStoreSlice(set: StoreSet): SessionAttentio
     },
     clearSessionAttention: (sessionId) =>
       set((state) => {
-        if (hasSessionAttentionProjection(state, sessionId) || state.sessionAttention.get(sessionId) === null) {
+        if (
+          hasSyncedProjectionValue(state, SESSION_ATTENTION_PROJECTION, sessionId) ||
+          state.sessionAttention.get(sessionId) === null
+        ) {
           return state;
         }
         const sessionAttention = new Map(state.sessionAttention);

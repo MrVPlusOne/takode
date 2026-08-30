@@ -1,12 +1,10 @@
-/** Wire contract for small server-owned UI projections. */
-export const SYNCED_PROJECTION_SCHEMA_VERSION = 1 as const;
-
+/** Wire contract for small server-owned UI projections in one compatible build. */
 export interface SyncedProjectionVersion {
   generation: string;
   revision: number;
 }
 
-export interface SyncedProjectionSubscription extends Partial<SyncedProjectionVersion> {
+export interface SyncedProjectionSubscription {
   projection: string;
   key: string;
 }
@@ -14,7 +12,6 @@ export interface SyncedProjectionSubscription extends Partial<SyncedProjectionVe
 export type SyncedProjectionSubscriptionIdentity = Pick<SyncedProjectionSubscription, "projection" | "key">;
 
 export interface SyncedProjectionEnvelope<T = unknown> extends SyncedProjectionVersion {
-  schemaVersion: typeof SYNCED_PROJECTION_SCHEMA_VERSION;
   projection: string;
   key: string;
   value: T;

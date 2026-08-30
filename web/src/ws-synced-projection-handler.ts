@@ -22,9 +22,6 @@ export interface SyncedProjectionMessageHandlerDeps {
     carrierSessionId: string,
     subscriptions: readonly SyncedProjectionSubscriptionIdentity[],
   ) => SyncedProjectionSubscriptionIdentity[] | null;
-  settleUnsupportedSyncedProjectionSubscriptions?: (
-    carrierSessionId: string,
-  ) => SyncedProjectionSubscriptionIdentity[] | null;
 }
 
 type SyncedProjectionStore = Pick<
@@ -95,19 +92,4 @@ export function handleSyncedProjectionMessage(
   }
 
   return false;
-}
-
-/** A normal state snapshot closes initial subscribe. Missing ack means this carrier lacks projection support. */
-export function settleSyncedProjectionSubscribeBoundary(
-  sessionId: string,
-  store: SyncedProjectionStore,
-  deps: SyncedProjectionMessageHandlerDeps,
-): void {
-  const accepted = deps.settleUnsupportedSyncedProjectionSubscriptions?.(sessionId);
-  if (!accepted) return;
-  const revokedSubscriptions = reconcileStoredSyncedProjectionSnapshots(accepted);
-  store.reconcileSyncedProjectionAuthority(accepted, {
-    activeRequestSequence: getCurrentActiveSessionListRequestSequence(),
-    revokedSubscriptions,
-  });
 }

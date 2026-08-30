@@ -74,7 +74,8 @@ import { persistSidePanelStringSet, withMapEntry, withOptionalMapEntry } from ".
 import { createQuestStoreSlice, resetQuestRefreshStateForTests } from "./store-quests.js";
 import { indexCodexReasoningPreviews } from "./utils/codex-reasoning-previews.js";
 import { attachCodexSubagentToolResultsAcrossSources, updateMessageAcrossSources } from "./store-message-updates.js";
-import { createSyncedProjectionStoreSlice, hasSessionAttentionProjection } from "./store-synced-projections.js";
+import { createSyncedProjectionStoreSlice, hasSyncedProjectionValue } from "./store-synced-projections.js";
+import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
 import { createSessionAttentionStoreSlice } from "./store-session-attention.js";
 
 // ─── Color Themes ───────────────────────────────────────────────────────────
@@ -1005,7 +1006,10 @@ export const useStore = create<AppState>((set, get) => ({
           // Clear "action" attention when all permissions are resolved — the user
           // no longer needs to act on this session for permission approvals.
           const result: Record<string, unknown> = { pendingPermissions };
-          if (s.sessionAttention.get(sessionId) === "action" && !hasSessionAttentionProjection(s, sessionId)) {
+          if (
+            s.sessionAttention.get(sessionId) === "action" &&
+            !hasSyncedProjectionValue(s, SESSION_ATTENTION_PROJECTION, sessionId)
+          ) {
             const sessionAttention = new Map(s.sessionAttention);
             sessionAttention.set(sessionId, null);
             result.sessionAttention = sessionAttention;
@@ -1080,7 +1084,10 @@ export const useStore = create<AppState>((set, get) => ({
       pendingPermissions.delete(sessionId);
       const result: Record<string, unknown> = { pendingPermissions };
       // Clear "action" attention when all permissions are cleared
-      if (s.sessionAttention.get(sessionId) === "action" && !hasSessionAttentionProjection(s, sessionId)) {
+      if (
+        s.sessionAttention.get(sessionId) === "action" &&
+        !hasSyncedProjectionValue(s, SESSION_ATTENTION_PROJECTION, sessionId)
+      ) {
         const sessionAttention = new Map(s.sessionAttention);
         sessionAttention.set(sessionId, null);
         result.sessionAttention = sessionAttention;

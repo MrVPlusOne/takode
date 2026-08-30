@@ -11,12 +11,9 @@ import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compactio
 import type { CodexMultiAgentVersion } from "../shared/codex-multi-agent-version.js";
 import type { CodexContextWindowDiagnostics } from "./codex-context-types.js";
 import type { CodexWorkerV2CutoverState } from "./codex-worker-v2-cutover-state.js";
-import type { SyncedProjectionEnvelope } from "../shared/synced-projection.js";
-import type { SessionAttentionProjectionValue } from "../shared/session-attention-projection.js";
-import type { SessionNavigationProjectionValue } from "../shared/session-navigation-projection.js";
-import type { LeaderThreadTabsProjectionValue } from "../shared/leader-thread-tabs-projection.js";
+import type { SyncedProjectionRestEnvelopeFields } from "../shared/synced-projection-registry.js";
 
-export interface SdkSessionInfo {
+export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
   sessionId: string;
   /** Monotonic public integer ID. Delegate children can intentionally omit this. */
   sessionNum?: number;
@@ -136,12 +133,6 @@ export interface SdkSessionInfo {
   notificationUrgency?: "needs-input" | "review" | null;
   /** Number of unresolved Takode notifications for sidebar snapshots. */
   activeNotificationCount?: number;
-  /** Canonical bounded server projection for row, hover, and aggregate attention. */
-  sessionAttentionProjection?: SyncedProjectionEnvelope<SessionAttentionProjectionValue>;
-  /** Canonical bounded server projection for session navigation summaries. */
-  sessionNavigationProjection?: SyncedProjectionEnvelope<SessionNavigationProjectionValue>;
-  /** Canonical bounded server projection for leader thread-tab visual state. */
-  leaderThreadTabsProjection?: SyncedProjectionEnvelope<LeaderThreadTabsProjectionValue>;
   /** Number of muted unresolved needs-input notifications for sidebar snapshots. */
   mutedNeedsInputNotificationCount?: number;
   /** Set by idle manager before killing, lets the UI show a less alarming indicator */

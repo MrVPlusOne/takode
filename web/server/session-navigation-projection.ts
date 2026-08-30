@@ -4,7 +4,6 @@ import {
   SESSION_NAVIGATION_PREVIEW_MAX_LENGTH,
   SESSION_NAVIGATION_PROJECTION,
   SESSION_NAVIGATION_TEXT_MAX_LENGTH,
-  sessionNavigationProjectionEqual,
   type SessionNavigationBackendType,
   type SessionNavigationProjectionValue,
   type SessionNavigationSdkState,
@@ -15,7 +14,11 @@ import { isCodexLeaderRecycleMode } from "../shared/codex-leader-compaction-mode
 import { countPendingUserPermissions } from "./bridge/session-registry-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
 import type { SdkSessionInfo } from "./session-info.js";
-import type { SyncedProjectionDefinition } from "./synced-projection-runtime.js";
+import { SYNCED_PROJECTION_DESCRIPTORS } from "../shared/synced-projection-registry.js";
+import {
+  createDirectSyncedProjectionDefinition,
+  type SyncedProjectionDefinition,
+} from "./synced-projection-runtime.js";
 
 export interface SessionNavigationProjectionDefinitionDeps<TSubscriber> {
   getSession: (sessionId: string) => Session | undefined;
@@ -235,8 +238,8 @@ export function createSessionNavigationProjectionDefinition<TSubscriber>(
   SessionNavigationProjectionValue,
   TSubscriber
 > {
-  return {
-    projection: SESSION_NAVIGATION_PROJECTION,
+  return createDirectSyncedProjectionDefinition({
+    descriptor: SYNCED_PROJECTION_DESCRIPTORS[SESSION_NAVIGATION_PROJECTION],
     dependencies: [
       "identity",
       "topology",
@@ -250,11 +253,7 @@ export function createSessionNavigationProjectionDefinition<TSubscriber>(
       "transient-status",
     ],
     resolveSource: deps.getSession,
-    selectDependencies: (session) => buildSessionNavigationProjectionValue(session, deps),
-    dependenciesEqual: sessionNavigationProjectionEqual,
-    derive: (_session, _key, dependencies) => dependencies,
-    valueEqual: sessionNavigationProjectionEqual,
+    selectValue: (session) => buildSessionNavigationProjectionValue(session, deps),
     authorizeSubscription: (subscriber, _key, session) => deps.authorizeSubscription(subscriber, session),
-    maxValueBytes: 16 * 1024,
-  };
+  });
 }

@@ -9,7 +9,7 @@ import {
   createLeaderThreadTabsProjectionEnvelope,
   createLeaderThreadTabsProjectionValue,
 } from "./test-fixtures/leader-thread-tabs-projection.js";
-import { getLeaderThreadTabsProjection, hasLeaderThreadTabsProjection } from "./store-synced-projections.js";
+import { getSyncedProjectionValue, hasSyncedProjectionValue } from "./store-synced-projections.js";
 
 vi.mock("./api.js", () => ({
   api: {
@@ -32,7 +32,7 @@ describe("leader thread tabs synchronized projection store", () => {
       accepted: true,
       requestResync: false,
     });
-    const before = getLeaderThreadTabsProjection(useStore.getState(), "s1")!;
+    const before = getSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "s1")!;
     const next = createLeaderThreadTabsProjectionValue();
     next.tabs[1] = {
       ...next.tabs[1]!,
@@ -58,7 +58,7 @@ describe("leader thread tabs synchronized projection store", () => {
         ),
     ).toEqual({ applied: true, accepted: true, requestResync: false });
 
-    const after = getLeaderThreadTabsProjection(useStore.getState(), "s1")!;
+    const after = getSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "s1")!;
     expect(after).not.toBe(before);
     expect(after.tabState).toBe(before.tabState);
     expect(after.tabs).not.toBe(before.tabs);
@@ -69,7 +69,7 @@ describe("leader thread tabs synchronized projection store", () => {
     expect(after.threadStatuses.main).toBe(before.threadStatuses.main);
     expect(after.threadStatuses["q-2"]).not.toBe(before.threadStatuses["q-2"]);
     expect(after.activePhaseSummary).toBe(before.activePhaseSummary);
-    expect(hasLeaderThreadTabsProjection(useStore.getState(), "s1")).toBe(true);
+    expect(hasSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "s1")).toBe(true);
   });
 
   it("accepts an explicit authoritative clear and rejects malformed order without reviving prior state", () => {
@@ -89,7 +89,7 @@ describe("leader thread tabs synchronized projection store", () => {
           createLeaderThreadTabsProjectionEnvelope({ type: "synced_projection_update", revision: 2, value: cleared }),
         ),
     ).toEqual({ applied: true, accepted: true, requestResync: false });
-    expect(getLeaderThreadTabsProjection(useStore.getState(), "s1")).toEqual(cleared);
+    expect(getSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "s1")).toEqual(cleared);
 
     const malformed = createLeaderThreadTabsProjectionValue();
     malformed.tabState!.orderedOpenThreadKeys = ["q-2", "q-1"];
@@ -100,7 +100,7 @@ describe("leader thread tabs synchronized projection store", () => {
         .applySyncedProjectionSnapshot(createLeaderThreadTabsProjectionEnvelope({ revision: 3, value: malformed })),
     ).toEqual({ applied: false, accepted: false, requestResync: false });
     expect(useStore.getState()).toBe(stateBeforeMalformed);
-    expect(getLeaderThreadTabsProjection(useStore.getState(), "s1")).toEqual(cleared);
+    expect(getSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "s1")).toEqual(cleared);
   });
 
   it("does not rerender an unchanged tab when another projected tab changes", () => {
@@ -112,7 +112,9 @@ describe("leader thread tabs synchronized projection store", () => {
 
     function TabProbe({ threadKey }: { threadKey: string }) {
       const tab = useStore((state) =>
-        getLeaderThreadTabsProjection(state, "s1")?.tabs.find((candidate) => candidate.threadKey === threadKey),
+        getSyncedProjectionValue(state, LEADER_THREAD_TABS_PROJECTION, "s1")?.tabs.find(
+          (candidate) => candidate.threadKey === threadKey,
+        ),
       );
       return <span>{tab?.attention.reviewUnread ? `${threadKey}:unread` : `${threadKey}:clear`}</span>;
     }
@@ -163,7 +165,7 @@ describe("leader thread tabs synchronized projection store", () => {
       useStore.getState().applySyncedProjectionSnapshot(
         createLeaderThreadTabsProjectionEnvelope({
           revision: 3,
-          value: getLeaderThreadTabsProjection(useStore.getState(), "s1")!,
+          value: getSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "s1")!,
         }),
       );
     });

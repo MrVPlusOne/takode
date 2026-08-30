@@ -5,7 +5,6 @@ import {
   type LeaderThreadTabsProjectionTabState,
   type LeaderThreadTabsProjectionValue,
 } from "../../shared/leader-thread-tabs-projection.js";
-import { SYNCED_PROJECTION_SCHEMA_VERSION } from "../../shared/synced-projection.js";
 
 function attention(overrides: Partial<LeaderThreadTabsProjectionAttention> = {}): LeaderThreadTabsProjectionAttention {
   return {
@@ -138,7 +137,6 @@ export interface LeaderThreadTabsProjectionEnvelopeOptions {
 export function createLeaderThreadTabsProjectionEnvelope(options: LeaderThreadTabsProjectionEnvelopeOptions = {}) {
   return {
     type: options.type ?? "synced_projection_snapshot",
-    schemaVersion: SYNCED_PROJECTION_SCHEMA_VERSION,
     projection: LEADER_THREAD_TABS_PROJECTION,
     key: options.key ?? "s1",
     generation: options.generation ?? "leader-tabs-generation-a",

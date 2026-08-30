@@ -3,8 +3,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
-import { SYNCED_PROJECTION_SCHEMA_VERSION } from "../shared/synced-projection.js";
-import { getSessionAttentionProjection } from "./store-synced-projections.js";
+import { getSyncedProjectionValue } from "./store-synced-projections.js";
 
 vi.mock("./api.js", () => ({
   api: {
@@ -18,7 +17,6 @@ import { useStore } from "./store.js";
 function envelope(revision: number, count = 1) {
   return {
     type: "synced_projection_snapshot",
-    schemaVersion: SYNCED_PROJECTION_SCHEMA_VERSION,
     projection: SESSION_ATTENTION_PROJECTION,
     key: "s1",
     generation: "generation-a",
@@ -31,7 +29,7 @@ function envelope(revision: number, count = 1) {
 }
 
 function ProjectionProbe({ onRender }: { onRender: () => void }) {
-  const projection = useStore((state) => getSessionAttentionProjection(state, "s1"));
+  const projection = useStore((state) => getSyncedProjectionValue(state, SESSION_ATTENTION_PROJECTION, "s1"));
   onRender();
   return <div>{projection?.status?.count ?? "missing"}</div>;
 }

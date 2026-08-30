@@ -7,6 +7,8 @@ import {
   buildEnrichedSessionsSnapshot,
 } from "./session-list-snapshot.js";
 import { _resetForTest, updateSettings } from "../settings-manager.js";
+import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
+import { SESSION_NAVIGATION_PROJECTION } from "../../shared/session-navigation-projection.js";
 
 function makeLauncherSession(overrides: Record<string, unknown> = {}): any {
   return {
@@ -59,8 +61,7 @@ function makeDeps(launcherSession: ReturnType<typeof makeLauncherSession>, bridg
       isBackendConnected: vi.fn(() => false),
       refreshWorktreeGitStateForSnapshot: vi.fn(),
       getSyncedProjectionController: vi.fn(() => ({
-        getSessionAttentionSnapshot: vi.fn(() => null),
-        getSessionNavigationSnapshot: vi.fn(() => null),
+        getSnapshot: vi.fn(() => null),
       })),
     },
     pendingWorktreeCleanups: new Map(),
@@ -453,7 +454,6 @@ describe("buildEnrichedSessionsSnapshot", () => {
     const bridgeSession = makeBridgeSession([]);
     const deps = makeDeps(launcherSession, bridgeSession);
     const projection = {
-      schemaVersion: 1,
       projection: "session-attention",
       key: "s1",
       generation: "generation-a",
@@ -461,7 +461,7 @@ describe("buildEnrichedSessionsSnapshot", () => {
       value: { attentionReason: "review", status: { urgency: "review", count: 2 } },
     };
     (deps as any).wsBridge.getSyncedProjectionController.mockReturnValue({
-      getSessionAttentionSnapshot: vi.fn(() => projection),
+      getSnapshot: vi.fn((projectionId: string) => (projectionId === SESSION_ATTENTION_PROJECTION ? projection : null)),
     });
 
     const snapshot = await buildEnrichedSessionsSnapshot(deps);
@@ -479,7 +479,6 @@ describe("buildEnrichedSessionsSnapshot", () => {
     const deps = makeDeps(launcherSession, bridgeSession);
     const invalidateSessionNavigation = vi.fn();
     const getSessionNavigationSnapshot = vi.fn(() => ({
-      schemaVersion: 1,
       projection: "session-navigation",
       key: "s1",
       generation: "generation-a",
@@ -491,10 +490,12 @@ describe("buildEnrichedSessionsSnapshot", () => {
         },
       },
     }));
+    const getSnapshot = vi.fn((projectionId: string) =>
+      projectionId === SESSION_NAVIGATION_PROJECTION ? getSessionNavigationSnapshot() : null,
+    );
     (deps as any).wsBridge.getSyncedProjectionController.mockReturnValue({
-      getSessionAttentionSnapshot: vi.fn(() => null),
+      getSnapshot,
       invalidateSessionNavigation,
-      getSessionNavigationSnapshot,
     });
 
     const snapshot = await buildEnrichedSessionsSnapshot(deps);
@@ -503,7 +504,7 @@ describe("buildEnrichedSessionsSnapshot", () => {
     expect(invalidateSessionNavigation.mock.invocationCallOrder[0]).toBeLessThan(
       getSessionNavigationSnapshot.mock.invocationCallOrder[0]!,
     );
-    expect(getSessionNavigationSnapshot).toHaveBeenCalledWith("s1");
+    expect(getSnapshot).toHaveBeenCalledWith(SESSION_NAVIGATION_PROJECTION, "s1");
     expect(snapshot[0].sessionNavigationProjection).toMatchObject({
       projection: "session-navigation",
       value: { detail: { userTurnCount: 1, agentTurnCount: 1 } },
@@ -515,22 +516,25 @@ describe("buildEnrichedSessionsSnapshot", () => {
     const bridgeSession = makeBridgeSession([]);
     const deps = makeDeps(launcherSession, bridgeSession);
     (deps as any).wsBridge.getSyncedProjectionController.mockReturnValue({
-      getSessionAttentionSnapshot: vi.fn(() => ({
-        schemaVersion: 1,
-        projection: "session-attention",
-        key: "s1",
-        generation: "generation-a",
-        revision: 2,
-        value: { attentionReason: "review", status: { urgency: "review", count: 1 } },
-      })),
-      getSessionNavigationSnapshot: vi.fn(() => ({
-        schemaVersion: 1,
-        projection: "session-navigation",
-        key: "s1",
-        generation: "generation-a",
-        revision: 2,
-        value: {},
-      })),
+      getSnapshot: vi.fn((projectionId: string) =>
+        projectionId === SESSION_ATTENTION_PROJECTION
+          ? {
+              projection: SESSION_ATTENTION_PROJECTION,
+              key: "s1",
+              generation: "generation-a",
+              revision: 2,
+              value: { attentionReason: "review", status: { urgency: "review", count: 1 } },
+            }
+          : projectionId === SESSION_NAVIGATION_PROJECTION
+            ? {
+                projection: SESSION_NAVIGATION_PROJECTION,
+                key: "s1",
+                generation: "generation-a",
+                revision: 2,
+                value: {},
+              }
+            : null,
+      ),
     });
 
     const snapshot = await buildEnrichedSessionsSnapshot(deps);

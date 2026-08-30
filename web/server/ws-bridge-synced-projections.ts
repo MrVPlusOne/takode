@@ -1,20 +1,20 @@
 import { randomUUID } from "node:crypto";
-import {
-  SESSION_ATTENTION_PROJECTION,
-  type SessionAttentionProjectionValue,
-} from "../shared/session-attention-projection.js";
+import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
 import {
   SESSION_NAVIGATION_PROJECTION,
-  type SessionNavigationProjectionValue,
   type SessionNavigationStatus,
 } from "../shared/session-navigation-projection.js";
 import {
   LEADER_THREAD_TABS_PROJECTION,
   LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES,
-  type LeaderThreadTabsProjectionValue,
 } from "../shared/leader-thread-tabs-projection.js";
+import {
+  SYNCED_PROJECTION_DESCRIPTOR_LIST,
+  type SyncedProjectionEnvelopeFor,
+  type SyncedProjectionId,
+  type SyncedProjectionValueById,
+} from "../shared/synced-projection-registry.js";
 import type {
-  SyncedProjectionEnvelope,
   SyncedProjectionSnapshotMessage,
   SyncedProjectionSubscription,
   SyncedProjectionSubscriptionsAckMessage,
@@ -159,9 +159,9 @@ export class WsBridgeSyncedProjectionController {
 
   invalidateSession(session: Session): void {
     this.runtime.transaction(() => {
-      this.runtime.invalidate(SESSION_ATTENTION_PROJECTION, session.id);
-      this.runtime.invalidate(SESSION_NAVIGATION_PROJECTION, session.id);
-      this.runtime.invalidate(LEADER_THREAD_TABS_PROJECTION, session.id);
+      for (const descriptor of SYNCED_PROJECTION_DESCRIPTOR_LIST) {
+        this.runtime.invalidate(descriptor.projection, session.id);
+      }
     });
   }
 
@@ -279,16 +279,11 @@ export class WsBridgeSyncedProjectionController {
     });
   }
 
-  getSessionAttentionSnapshot(sessionId: string): SyncedProjectionEnvelope<SessionAttentionProjectionValue> | null {
-    return this.runtime.getSnapshot(SESSION_ATTENTION_PROJECTION, sessionId);
-  }
-
-  getSessionNavigationSnapshot(sessionId: string): SyncedProjectionEnvelope<SessionNavigationProjectionValue> | null {
-    return this.runtime.getSnapshot(SESSION_NAVIGATION_PROJECTION, sessionId);
-  }
-
-  getLeaderThreadTabsSnapshot(sessionId: string): SyncedProjectionEnvelope<LeaderThreadTabsProjectionValue> | null {
-    return this.runtime.getSnapshot(LEADER_THREAD_TABS_PROJECTION, sessionId);
+  getSnapshot<K extends SyncedProjectionId>(projection: K, sessionId: string): SyncedProjectionEnvelopeFor<K> | null {
+    return this.runtime.getSnapshot<SyncedProjectionValueById[K]>(
+      projection,
+      sessionId,
+    ) as SyncedProjectionEnvelopeFor<K> | null;
   }
 
   replaceSubscriptions(
@@ -330,9 +325,9 @@ export class WsBridgeSyncedProjectionController {
   }
 
   removeSession(sessionId: string): void {
-    this.runtime.removeKey(SESSION_ATTENTION_PROJECTION, sessionId);
-    this.runtime.removeKey(SESSION_NAVIGATION_PROJECTION, sessionId);
-    this.runtime.removeKey(LEADER_THREAD_TABS_PROJECTION, sessionId);
+    for (const descriptor of SYNCED_PROJECTION_DESCRIPTOR_LIST) {
+      this.runtime.removeKey(descriptor.projection, sessionId);
+    }
   }
 
   getMetrics(): Readonly<SyncedProjectionRuntimeMetrics> {

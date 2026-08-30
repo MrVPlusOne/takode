@@ -9,7 +9,6 @@ import {
   LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH,
   LEADER_THREAD_TABS_PROJECTION_MAX_TOMBSTONES,
   LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES,
-  leaderThreadTabsProjectionEqual,
   type LeaderThreadTabsProjectionAttention,
   type LeaderThreadTabsProjectionJourney,
   type LeaderThreadTabsProjectionTab,
@@ -37,7 +36,12 @@ import { buildProjectionAttentionRecords, collectMessageAttentionRecords } from 
 import { getUserVisibleSessionNotifications } from "./bridge/session-notification-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
 import type { BoardRow, SessionAttentionRecord } from "./session-types.js";
-import type { SyncedProjectionDefinition } from "./synced-projection-runtime.js";
+import { SYNCED_PROJECTION_DESCRIPTORS } from "../shared/synced-projection-registry.js";
+import { jsonUtf8ByteLength } from "../shared/synced-projection-codec.js";
+import {
+  createDirectSyncedProjectionDefinition,
+  type SyncedProjectionDefinition,
+} from "./synced-projection-runtime.js";
 
 const ACTIVE_ATTENTION_STATES = new Set<SessionAttentionRecord["state"]>(["unresolved", "seen", "reopened"]);
 const COMPLETED_STATUSES = new Set(["done", "completed", "needs_verification"]);
@@ -693,7 +697,7 @@ function compactActivePhaseSummary(activeBoard: ReadonlyArray<BoardRow>) {
 }
 
 function serializedValueBytes(value: LeaderThreadTabsProjectionValue): number {
-  return Buffer.byteLength(JSON.stringify(value), "utf8");
+  return jsonUtf8ByteLength(value) ?? Number.POSITIVE_INFINITY;
 }
 
 function minimalStatusIdentity(status: LeaderThreadStatus): LeaderThreadStatus {
@@ -935,8 +939,8 @@ export function buildLeaderThreadTabsProjectionValue(
 export function createLeaderThreadTabsProjectionDefinition<TSubscriber>(
   deps: LeaderThreadTabsProjectionDefinitionDeps<TSubscriber>,
 ): SyncedProjectionDefinition<Session, LeaderThreadTabsProjectionValue, LeaderThreadTabsProjectionValue, TSubscriber> {
-  return {
-    projection: LEADER_THREAD_TABS_PROJECTION,
+  return createDirectSyncedProjectionDefinition({
+    descriptor: SYNCED_PROJECTION_DESCRIPTORS[LEADER_THREAD_TABS_PROJECTION],
     dependencies: [
       "leader-open-thread-tabs",
       "leader-board",
@@ -950,17 +954,13 @@ export function createLeaderThreadTabsProjectionDefinition<TSubscriber>(
       const session = deps.getSession(key);
       return session && deps.isLeaderSession(session) ? session : undefined;
     },
-    selectDependencies: (session) =>
+    selectValue: (session) =>
       buildLeaderThreadTabsProjectionValue(session, {
         sessions: deps.listSessions?.(),
         isCurrentQuestSourceSession: deps.isCurrentQuestSourceSession,
         isCurrentQuestLeaderSession: deps.isLeaderSession,
       }),
-    dependenciesEqual: leaderThreadTabsProjectionEqual,
-    derive: (_session, _key, dependencies) => dependencies,
-    valueEqual: leaderThreadTabsProjectionEqual,
     authorizeSubscription: (subscriber, _key, session) =>
       deps.isLeaderSession(session) && deps.authorizeSubscription(subscriber, session),
-    maxValueBytes: LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES,
-  };
+  });
 }

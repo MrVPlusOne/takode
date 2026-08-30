@@ -2,7 +2,6 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
-import { SYNCED_PROJECTION_SCHEMA_VERSION } from "../shared/synced-projection.js";
 import { createSessionNavigationProjectionEnvelope } from "./test-fixtures/session-navigation-projection.js";
 
 const apiMocks = vi.hoisted(() => ({
@@ -21,7 +20,6 @@ import { createWsMessageHandler } from "./ws-handlers.js";
 function installProjection(): void {
   useStore.getState().applySyncedProjectionSnapshot({
     type: "synced_projection_snapshot",
-    schemaVersion: SYNCED_PROJECTION_SCHEMA_VERSION,
     projection: SESSION_ATTENTION_PROJECTION,
     key: "worker",
     generation: "generation-a",
@@ -55,7 +53,6 @@ describe("projection-owned attention rejects legacy WebSocket hydration", () => 
       "worker",
       {
         type: "synced_projection_update",
-        schemaVersion: SYNCED_PROJECTION_SCHEMA_VERSION,
         projection: SESSION_ATTENTION_PROJECTION,
         key: "worker",
         generation: "generation-a",

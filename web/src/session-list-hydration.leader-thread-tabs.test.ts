@@ -10,7 +10,7 @@ import {
   reconcileStoredSyncedProjectionSnapshots,
 } from "./session-list-hydration.js";
 import { useStore } from "./store.js";
-import { hasLeaderThreadTabsProjection } from "./store-synced-projections.js";
+import { hasSyncedProjectionValue } from "./store-synced-projections.js";
 import {
   createLeaderThreadTabsProjectionEnvelope,
   createLeaderThreadTabsProjectionValue,
@@ -53,7 +53,7 @@ describe("session-list leader thread tabs projection hydration", () => {
     let projectionOwnedWhenPublished: boolean | undefined;
     const unsubscribe = useStore.subscribe((state) => {
       if (state.sdkSessions.some((session) => session.sessionId === "leader")) {
-        projectionOwnedWhenPublished = hasLeaderThreadTabsProjection(state, "leader");
+        projectionOwnedWhenPublished = hasSyncedProjectionValue(state, LEADER_THREAD_TABS_PROJECTION, "leader");
       }
     });
 
@@ -159,7 +159,7 @@ describe("session-list leader thread tabs projection hydration", () => {
       preserveMissingArchived: true,
       activeSnapshotRequestSequence: requestSequence,
     });
-    expect(hasLeaderThreadTabsProjection(useStore.getState(), "leader")).toBe(true);
+    expect(hasSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "leader")).toBe(true);
 
     const rejected = reconcileStoredSyncedProjectionSnapshots([]);
     useStore.getState().reconcileSyncedProjectionAuthority([], {
@@ -167,7 +167,7 @@ describe("session-list leader thread tabs projection hydration", () => {
       revokedSubscriptions: rejected,
     });
     expect(rejected).toContainEqual({ projection: LEADER_THREAD_TABS_PROJECTION, key: "leader" });
-    expect(hasLeaderThreadTabsProjection(useStore.getState(), "leader")).toBe(false);
+    expect(hasSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "leader")).toBe(false);
     expect(
       Object.prototype.hasOwnProperty.call(useStore.getState().sdkSessions[0]!, "leaderThreadTabsProjection"),
     ).toBe(false);
@@ -176,7 +176,7 @@ describe("session-list leader thread tabs projection hydration", () => {
       preserveMissingArchived: true,
       activeSnapshotRequestSequence: requestSequence,
     });
-    expect(hasLeaderThreadTabsProjection(useStore.getState(), "leader")).toBe(false);
+    expect(hasSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "leader")).toBe(false);
     expect(
       Object.prototype.hasOwnProperty.call(useStore.getState().sdkSessions[0]!, "leaderThreadTabsProjection"),
     ).toBe(false);
@@ -204,7 +204,7 @@ describe("session-list leader thread tabs projection hydration", () => {
       preserveMissingArchived: true,
       activeSnapshotRequestSequence: postAcceptanceSequence,
     });
-    expect(hasLeaderThreadTabsProjection(useStore.getState(), "leader")).toBe(true);
+    expect(hasSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "leader")).toBe(true);
     expect(
       Object.prototype.hasOwnProperty.call(useStore.getState().sdkSessions[0]!, "leaderThreadTabsProjection"),
     ).toBe(true);
@@ -219,7 +219,7 @@ describe("session-list leader thread tabs projection hydration", () => {
     hydrateSessionList([
       sdkSession({ leaderThreadTabsProjection: createLeaderThreadTabsProjectionEnvelope({ key: "leader" }) }),
     ]);
-    expect(hasLeaderThreadTabsProjection(useStore.getState(), "leader")).toBe(true);
+    expect(hasSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "leader")).toBe(true);
 
     applyAuthoritativeSessionArchive("leader", 1234);
 
@@ -227,6 +227,6 @@ describe("session-list leader thread tabs projection hydration", () => {
     expect(
       Object.prototype.hasOwnProperty.call(useStore.getState().sdkSessions[0]!, "leaderThreadTabsProjection"),
     ).toBe(false);
-    expect(hasLeaderThreadTabsProjection(useStore.getState(), "leader")).toBe(false);
+    expect(hasSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "leader")).toBe(false);
   });
 });

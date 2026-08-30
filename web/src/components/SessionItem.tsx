@@ -16,7 +16,8 @@ import {
 } from "./leader-board-summary.js";
 import { findSessionQuestContextCandidate } from "../utils/session-quest-context.js";
 import { deriveEffectiveSessionAttentionStatus } from "../utils/session-attention-status.js";
-import { getSessionAttentionProjection, hasSessionAttentionProjection } from "../store-synced-projections.js";
+import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
+import { getSyncedProjectionValue, hasSyncedProjectionValue } from "../store-synced-projections.js";
 
 const EMPTY_LEADER_BOARD_ROWS: never[] = [];
 
@@ -157,7 +158,7 @@ function timeAgo(epochMs: number): string {
  *  Falls back to the lightweight /api/sessions summary before a session WebSocket is opened. */
 function useNotificationUrgency(sessionId: string, fallbackUrgency: NotificationUrgency = null) {
   return useStore((s) => {
-    const projection = getSessionAttentionProjection(s, sessionId);
+    const projection = getSyncedProjectionValue(s, SESSION_ATTENTION_PROJECTION, sessionId);
     if (projection) return projection.status?.urgency ?? null;
     const notifications = s.sessionNotifications?.get(sessionId);
     const snapshot = s.sdkSessions?.find((session) => session.sessionId === sessionId);
@@ -355,14 +356,18 @@ export function SessionItem({
     reviewerSession ? st.sessionAttention.get(reviewerSession.id) : undefined,
   );
   const reviewerHasAttentionProjection = useStore((st) =>
-    reviewerSession ? hasSessionAttentionProjection(st, reviewerSession.id) : false,
+    reviewerSession ? hasSyncedProjectionValue(st, SESSION_ATTENTION_PROJECTION, reviewerSession.id) : false,
   );
   const reviewerProjectedAttention = useStore((st) =>
-    reviewerSession ? getSessionAttentionProjection(st, reviewerSession.id)?.attentionReason : undefined,
+    reviewerSession
+      ? getSyncedProjectionValue(st, SESSION_ATTENTION_PROJECTION, reviewerSession.id)?.attentionReason
+      : undefined,
   );
   const reviewerAttention = reviewerHasAttentionProjection ? reviewerProjectedAttention : reviewerLegacyAttention;
-  const hasAttentionProjection = useStore((st) => hasSessionAttentionProjection(st, s.id));
-  const projectedAttention = useStore((st) => getSessionAttentionProjection(st, s.id)?.attentionReason);
+  const hasAttentionProjection = useStore((st) => hasSyncedProjectionValue(st, SESSION_ATTENTION_PROJECTION, s.id));
+  const projectedAttention = useStore(
+    (st) => getSyncedProjectionValue(st, SESSION_ATTENTION_PROJECTION, s.id)?.attentionReason,
+  );
   const inboxUrgency = useNotificationUrgency(s.id, s.notificationUrgency ?? null);
   const currentSessionId = useStore((st) => st.currentSessionId);
   const liveTimerCount = useStore((st) => st.sessionTimers?.get(s.id)?.length ?? 0);

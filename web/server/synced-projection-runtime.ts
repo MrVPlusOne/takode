@@ -1,11 +1,11 @@
 import {
-  SYNCED_PROJECTION_SCHEMA_VERSION,
   isValidSyncedProjectionIdentity,
   syncedProjectionEntryId,
   type SyncedProjectionEnvelope,
   type SyncedProjectionSubscription,
   type SyncedProjectionSubscriptionIdentity,
 } from "../shared/synced-projection.js";
+import { jsonUtf8ByteLength } from "../shared/synced-projection-codec.js";
 
 export interface SyncedProjectionDefinition<TSource, TDependencies, TValue, TSubscriber> {
   projection: string;
@@ -17,6 +17,35 @@ export interface SyncedProjectionDefinition<TSource, TDependencies, TValue, TSub
   valueEqual: (left: TValue, right: TValue) => boolean;
   authorizeSubscription: (subscriber: TSubscriber, key: string, source: TSource) => boolean;
   maxValueBytes?: number;
+}
+
+export interface DirectSyncedProjectionDefinitionOptions<TSource, TValue, TSubscriber> {
+  descriptor: {
+    projection: string;
+    equal: (left: TValue, right: TValue) => boolean;
+    maxValueBytes: number;
+  };
+  dependencies: readonly string[];
+  resolveSource: (key: string) => TSource | undefined;
+  selectValue: (source: TSource, key: string) => TValue;
+  authorizeSubscription: (subscriber: TSubscriber, key: string, source: TSource) => boolean;
+}
+
+/** Define a projection whose selected dependency value is already its final wire value. */
+export function createDirectSyncedProjectionDefinition<TSource, TValue, TSubscriber>(
+  options: DirectSyncedProjectionDefinitionOptions<TSource, TValue, TSubscriber>,
+): SyncedProjectionDefinition<TSource, TValue, TValue, TSubscriber> {
+  return {
+    projection: options.descriptor.projection,
+    dependencies: options.dependencies,
+    resolveSource: options.resolveSource,
+    selectDependencies: options.selectValue,
+    dependenciesEqual: options.descriptor.equal,
+    derive: (_source, _key, value) => value,
+    valueEqual: options.descriptor.equal,
+    authorizeSubscription: options.authorizeSubscription,
+    maxValueBytes: options.descriptor.maxValueBytes,
+  };
 }
 
 export interface SyncedProjectionRuntimeProjectionMetrics {
@@ -80,27 +109,6 @@ type SubscriberState<TSubscriber> = {
 const DEFAULT_MAX_VALUE_BYTES = 32 * 1024;
 const DEFAULT_MAX_SUBSCRIPTIONS = 2_000;
 
-function utf8ByteLength(value: string): number {
-  let bytes = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code < 0x80) bytes += 1;
-    else if (code < 0x800) bytes += 2;
-    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
-      const next = value.charCodeAt(index + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        bytes += 4;
-        index += 1;
-      } else {
-        bytes += 3;
-      }
-    } else {
-      bytes += 3;
-    }
-  }
-  return bytes;
-}
-
 function createProjectionMetrics(): SyncedProjectionRuntimeProjectionMetrics {
   return {
     invalidations: 0,
@@ -144,6 +152,9 @@ export class SyncedProjectionRuntime<TSubscriber> {
   private readonly onError?: SyncedProjectionRuntimeOptions["onError"];
   private readonly definitions = new Map<string, AnyDefinition<TSubscriber>>();
   private readonly cache = new Map<string, CacheEntry>();
+  /** Keys whose source changed and must be recomputed before the next snapshot or publication. */
+  private readonly dirty = new Set<string>();
+  /** Dirty keys queued for publication because at least one subscriber currently exists. */
   private readonly pending = new Set<string>();
   private readonly subscribers = new Map<TSubscriber, SubscriberState<TSubscriber>>();
   private readonly metrics = createMetrics();
@@ -182,7 +193,9 @@ export class SyncedProjectionRuntime<TSubscriber> {
 
   invalidate(projection: string, key: string): boolean {
     if (!this.definitions.has(projection) || !isValidSyncedProjectionIdentity(key)) return false;
-    this.pending.add(syncedProjectionEntryId(projection, key));
+    const entryId = syncedProjectionEntryId(projection, key);
+    this.dirty.add(entryId);
+    if (this.hasSubscribersForEntryId(entryId)) this.pending.add(entryId);
     this.metrics.invalidations += 1;
     this.projectionMetrics(projection).invalidations += 1;
     this.scheduleFlush();
@@ -202,8 +215,9 @@ export class SyncedProjectionRuntime<TSubscriber> {
   getSnapshot<TValue = unknown>(projection: string, key: string): SyncedProjectionEnvelope<TValue> | null {
     if (!isValidSyncedProjectionIdentity(projection) || !isValidSyncedProjectionIdentity(key)) return null;
     const entryId = syncedProjectionEntryId(projection, key);
-    const publish = this.pending.delete(entryId);
-    const entry = this.recompute(entryId, publish);
+    const shouldRecompute = this.dirty.has(entryId) || !this.cache.has(entryId);
+    const publish = shouldRecompute && (this.pending.delete(entryId) || this.hasSubscribersForEntryId(entryId));
+    const entry = shouldRecompute ? this.recompute(entryId, publish) : this.cache.get(entryId);
     if (!entry) return null;
     this.metrics.snapshots += 1;
     this.metrics.snapshotValueBytes += entry.valueBytes;
@@ -248,9 +262,11 @@ export class SyncedProjectionRuntime<TSubscriber> {
       this.metrics.subscriptionsRejected += requested.length - this.maxSubscriptionsPerSubscriber;
     }
 
-    // Snapshot before installing the new subscriber set: recomputation may
-    // publish to established subscribers, while this subscriber gets exactly
-    // one authoritative snapshot per accepted key below.
+    // Detach this subscriber before resolving snapshots so a dirty
+    // recomputation can still publish to other established subscribers while
+    // the replacing subscriber receives each accepted revision exactly once
+    // through the returned snapshot set below.
+    this.subscribers.delete(subscriber);
     const resolved = accepted.flatMap(({ projection, key, id }) => {
       const snapshot = this.getSnapshot(projection, key);
       if (!snapshot) {
@@ -304,16 +320,13 @@ export class SyncedProjectionRuntime<TSubscriber> {
 
   hasSubscribers(projection: string, key: string): boolean {
     if (!isValidSyncedProjectionIdentity(projection) || !isValidSyncedProjectionIdentity(key)) return false;
-    const entryId = syncedProjectionEntryId(projection, key);
-    for (const state of this.subscribers.values()) {
-      if (state.ids.has(entryId)) return true;
-    }
-    return false;
+    return this.hasSubscribersForEntryId(syncedProjectionEntryId(projection, key));
   }
 
   removeKey(projection: string, key: string): boolean {
     if (!isValidSyncedProjectionIdentity(projection) || !isValidSyncedProjectionIdentity(key)) return false;
     const entryId = syncedProjectionEntryId(projection, key);
+    const removedDirty = this.dirty.delete(entryId);
     const removedPending = this.pending.delete(entryId);
     const prior = this.cache.get(entryId);
     const removedCache = this.cache.delete(entryId);
@@ -322,15 +335,16 @@ export class SyncedProjectionRuntime<TSubscriber> {
       this.projectionMetrics(projection).cachedValueBytes -= prior.valueBytes;
     }
     for (const state of this.subscribers.values()) state.ids.delete(entryId);
-    return removedPending || removedCache;
+    return removedDirty || removedPending || removedCache;
   }
 
   flush(): void {
     this.flushScheduled = false;
     if (this.flushing || this.transactionDepth > 0 || this.pending.size === 0) return;
-    this.flushing = true;
-    const batch = [...this.pending];
+    const batch = [...this.pending].filter((entryId) => this.hasSubscribersForEntryId(entryId));
     this.pending.clear();
+    if (batch.length === 0) return;
+    this.flushing = true;
     this.metrics.batches += 1;
     const batchProjections = new Set(batch.map((entryId) => entryId.slice(0, entryId.indexOf("\u0000"))));
     for (const projection of batchProjections) this.projectionMetrics(projection).batches += 1;
@@ -370,12 +384,20 @@ export class SyncedProjectionRuntime<TSubscriber> {
     queueMicrotask(() => this.flush());
   }
 
+  private hasSubscribersForEntryId(entryId: string): boolean {
+    for (const state of this.subscribers.values()) {
+      if (state.ids.has(entryId)) return true;
+    }
+    return false;
+  }
+
   private recompute(entryId: string, publish: boolean): CacheEntry | null {
     const separator = entryId.indexOf("\u0000");
     const projection = entryId.slice(0, separator);
     const key = entryId.slice(separator + 1);
     const definition = this.definitions.get(projection);
     if (!definition) return null;
+    const wasDirty = this.dirty.delete(entryId);
     const source = definition.resolveSource(key);
     if (source === undefined) {
       const prior = this.cache.get(entryId);
@@ -409,9 +431,8 @@ export class SyncedProjectionRuntime<TSubscriber> {
         return prior;
       }
 
-      const serialized = JSON.stringify(value);
-      if (serialized === undefined) throw new Error("Synced projection value is not JSON serializable");
-      const valueBytes = utf8ByteLength(serialized);
+      const valueBytes = jsonUtf8ByteLength(value);
+      if (valueBytes === null) throw new Error("Synced projection value is not JSON serializable");
       const maxValueBytes = Math.min(definition.maxValueBytes ?? this.maxValueBytes, this.maxValueBytes);
       if (valueBytes > maxValueBytes) {
         this.metrics.oversizeValuesRejected += 1;
@@ -435,6 +456,7 @@ export class SyncedProjectionRuntime<TSubscriber> {
       if (publish) this.publish(projection, key, entryId, entry);
       return entry;
     } catch (error) {
+      if (wasDirty) this.dirty.add(entryId);
       this.metrics.derivationErrors += 1;
       this.projectionMetrics(projection).derivationErrors += 1;
       this.onError?.(error, { projection, key, phase: "derive" });
@@ -483,7 +505,6 @@ export class SyncedProjectionRuntime<TSubscriber> {
     entry: CacheEntry,
   ): SyncedProjectionEnvelope<TValue> {
     return {
-      schemaVersion: SYNCED_PROJECTION_SCHEMA_VERSION,
       projection,
       key,
       generation: this.generation,

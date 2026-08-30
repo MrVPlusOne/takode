@@ -11,9 +11,10 @@ import { getCachedThreadWindowHash } from "./utils/history-window-cache.js";
 import { messageIdFromHash, parseHash, resolveSessionIdFromRoute, threadRouteFromHash } from "./utils/routing.js";
 import { ALL_THREADS_KEY } from "./utils/thread-projection.js";
 import { readLeaderViewportPosition, requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
-import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
-import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
-import { LEADER_THREAD_TABS_PROJECTION } from "../shared/leader-thread-tabs-projection.js";
+import {
+  SYNCED_PROJECTION_DESCRIPTOR_LIST,
+  isSyncedProjectionEligibleForSession,
+} from "../shared/synced-projection-registry.js";
 import { syncedProjectionEntryId, type SyncedProjectionSubscription } from "../shared/synced-projection.js";
 import {
   projectedLeaderOpenThreadTabs,
@@ -101,23 +102,14 @@ function getSyncedProjectionSubscriptions(sessionId: string): SyncedProjectionSu
   for (const sdkSession of store.sdkSessions) {
     if (sdkSession.archived || seen.has(sdkSession.sessionId)) continue;
     seen.add(sdkSession.sessionId);
-    const projections: string[] = [SESSION_ATTENTION_PROJECTION, SESSION_NAVIGATION_PROJECTION];
-    const leaderTabsProjection = resolveLeaderThreadTabsProjection(store, sdkSession.sessionId);
-    if (
-      leaderTabsProjection.projectionState !== "legacy" ||
-      sdkSession.isOrchestrator === true ||
-      store.sessions.get(sdkSession.sessionId)?.isOrchestrator === true
-    ) {
-      projections.push(LEADER_THREAD_TABS_PROJECTION);
-    }
-    for (const projection of projections) {
-      const entryId = syncedProjectionEntryId(projection, sdkSession.sessionId);
-      const version = store.syncedProjectionKeys.has(entryId) ? store.syncedProjectionVersions.get(entryId) : undefined;
-      subscriptions.push({
-        projection,
-        key: sdkSession.sessionId,
-        ...(version ? { generation: version.generation, revision: version.revision } : {}),
-      });
+    const isOrchestrator =
+      sdkSession.isOrchestrator === true || store.sessions.get(sdkSession.sessionId)?.isOrchestrator === true;
+    for (const descriptor of SYNCED_PROJECTION_DESCRIPTOR_LIST) {
+      const entryId = syncedProjectionEntryId(descriptor.projection, sdkSession.sessionId);
+      const hasObservedProjection =
+        store.syncedProjectionKeys.has(entryId) || Object.hasOwn(sdkSession, descriptor.restField);
+      if (!isSyncedProjectionEligibleForSession(descriptor, { isOrchestrator }) && !hasObservedProjection) continue;
+      subscriptions.push({ projection: descriptor.projection, key: sdkSession.sessionId });
     }
   }
   subscriptions.sort(
@@ -220,8 +212,6 @@ handleIncomingMessage = createWsMessageHandler({
     transport.noteAcceptedSyncedProjectionSnapshot(carrierSessionId, projection, key),
   consumeSyncedProjectionSubscriptionsAck: (carrierSessionId, subscriptions) =>
     transport.consumeSyncedProjectionSubscriptionsAck(carrierSessionId, subscriptions),
-  settleUnsupportedSyncedProjectionSubscriptions: (carrierSessionId) =>
-    transport.settleUnsupportedSyncedProjectionSubscriptions(carrierSessionId),
 });
 
 export { resolveSessionFilePath };

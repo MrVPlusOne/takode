@@ -1,11 +1,11 @@
 import {
   SESSION_ATTENTION_PROJECTION,
-  sessionAttentionProjectionEqual,
   type SessionAttentionProjectionValue,
   type SessionAttentionReason,
 } from "../shared/session-attention-projection.js";
 import { countPendingUserPermissions, getNotificationStatusSnapshot } from "./bridge/session-registry-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
+import { SYNCED_PROJECTION_DESCRIPTORS } from "../shared/synced-projection-registry.js";
 import type { SyncedProjectionDefinition } from "./synced-projection-runtime.js";
 
 type SessionAttentionDependencies = {
@@ -99,8 +99,9 @@ function deriveValue(session: Session, dependencies: SessionAttentionDependencie
 export function createSessionAttentionProjectionDefinition<TSubscriber>(
   deps: SessionAttentionProjectionDefinitionDeps<TSubscriber>,
 ): SyncedProjectionDefinition<Session, SessionAttentionDependencies, SessionAttentionProjectionValue, TSubscriber> {
+  const descriptor = SYNCED_PROJECTION_DESCRIPTORS[SESSION_ATTENTION_PROJECTION];
   return {
-    projection: SESSION_ATTENTION_PROJECTION,
+    projection: descriptor.projection,
     dependencies: [
       "attention-reason",
       "pending-permissions",
@@ -125,8 +126,8 @@ export function createSessionAttentionProjectionDefinition<TSubscriber>(
     }),
     dependenciesEqual,
     derive: (session, _key, dependencies) => deriveValue(session, dependencies),
-    valueEqual: sessionAttentionProjectionEqual,
+    valueEqual: descriptor.equal,
     authorizeSubscription: (subscriber, _key, session) => deps.authorizeSubscription(subscriber, session),
-    maxValueBytes: 512,
+    maxValueBytes: descriptor.maxValueBytes,
   };
 }

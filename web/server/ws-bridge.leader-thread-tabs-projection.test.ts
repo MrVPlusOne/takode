@@ -64,24 +64,13 @@ function notificationDeps(bridge: WsBridge) {
   };
 }
 
-async function subscribe(
-  bridge: WsBridge,
-  socket: ReturnType<typeof browserSocket>,
-  key: string,
-  version?: { generation: string; revision: number },
-) {
+async function subscribe(bridge: WsBridge, socket: ReturnType<typeof browserSocket>, key: string) {
   await bridge.handleBrowserMessage(
     socket,
     JSON.stringify({
       type: "session_subscribe",
       last_seq: 0,
-      synced_projection_subscriptions: [
-        {
-          projection: LEADER_THREAD_TABS_PROJECTION,
-          key,
-          ...(version ?? {}),
-        },
-      ],
+      synced_projection_subscriptions: [{ projection: LEADER_THREAD_TABS_PROJECTION, key }],
     }),
   );
 }
@@ -290,7 +279,7 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     bridge.handleBrowserClose(first);
     const reconnected = browserSocket("carrier-1");
     firstCarrier.browserSockets.add(reconnected);
-    await subscribe(bridge, reconnected, leader.id, { generation, revision: 8 });
+    await subscribe(bridge, reconnected, leader.id);
     expect(projectionMessages(reconnected, "synced_projection_snapshot")).toEqual([
       expect.objectContaining({
         generation,
@@ -540,7 +529,7 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     bridge.handleBrowserClose(first);
     const reconnected = browserSocket(firstCarrier.id);
     firstCarrier.browserSockets.add(reconnected);
-    await subscribe(bridge, reconnected, historicalLeader.id, { generation, revision: 3 });
+    await subscribe(bridge, reconnected, historicalLeader.id);
     expect(projectionMessages(reconnected, "synced_projection_snapshot")).toEqual([
       expect.objectContaining({
         generation,
@@ -724,7 +713,7 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     bridge.handleBrowserClose(first);
     const reconnected = browserSocket(firstCarrier.id);
     firstCarrier.browserSockets.add(reconnected);
-    await subscribe(bridge, reconnected, historicalLeader.id, { generation, revision: finalRevision });
+    await subscribe(bridge, reconnected, historicalLeader.id);
     expect(projectionMessages(reconnected, "synced_projection_snapshot")).toEqual([
       expect.objectContaining({
         generation,

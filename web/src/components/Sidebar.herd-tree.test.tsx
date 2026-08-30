@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, within, act } from "@testing-librar
 import "@testing-library/jest-dom";
 import type { ReactNode } from "react";
 import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
-import { SYNCED_PROJECTION_SCHEMA_VERSION, syncedProjectionEntryId } from "../../shared/synced-projection.js";
+import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import type { SessionState, SdkSessionInfo } from "../types.js";
 
 const mockConnectSession = vi.fn();
@@ -457,7 +457,6 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
     };
     const projectionEnvelope = {
       type: "synced_projection_snapshot" as const,
-      schemaVersion: SYNCED_PROJECTION_SCHEMA_VERSION,
       projection: SESSION_ATTENTION_PROJECTION,
       key: sessionId,
       generation: "sidebar-regression-generation",

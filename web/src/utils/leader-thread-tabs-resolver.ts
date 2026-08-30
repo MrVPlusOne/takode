@@ -1,11 +1,14 @@
-import type { LeaderThreadTabsProjectionValue } from "../../shared/leader-thread-tabs-projection.js";
+import {
+  LEADER_THREAD_TABS_PROJECTION,
+  type LeaderThreadTabsProjectionValue,
+} from "../../shared/leader-thread-tabs-projection.js";
 import type { LeaderActivePhaseSummarySegment } from "../../shared/leader-active-phase-summary.js";
 import {
   LEADER_OPEN_THREAD_TABS_VERSION,
   type LeaderOpenThreadTabsState,
 } from "../../shared/leader-open-thread-tabs.js";
 import type { AppState } from "../store-types.js";
-import { getLeaderThreadTabsProjection, hasLeaderThreadTabsProjection } from "../store-synced-projections.js";
+import { getSyncedProjectionValue, hasSyncedProjectionValue } from "../store-synced-projections.js";
 import type { SdkSessionInfo } from "../types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { SessionState } from "../types.js";
@@ -46,8 +49,8 @@ export function resolveLeaderThreadTabsProjection(
   sessionId: string,
 ): ResolvedLeaderThreadTabsProjection {
   const cacheState = projectionCacheState(source);
-  if (hasLeaderThreadTabsProjection(cacheState, sessionId)) {
-    const value = getLeaderThreadTabsProjection(cacheState, sessionId);
+  if (hasSyncedProjectionValue(cacheState, LEADER_THREAD_TABS_PROJECTION, sessionId)) {
+    const value = getSyncedProjectionValue(cacheState, LEADER_THREAD_TABS_PROJECTION, sessionId);
     if (value) return { projectionState: "accepted", value };
   }
 

@@ -1,4 +1,7 @@
+import { isPositiveInteger } from "./synced-projection-codec.js";
+
 export const SESSION_ATTENTION_PROJECTION = "session-attention" as const;
+export const SESSION_ATTENTION_PROJECTION_MAX_VALUE_BYTES = 512;
 
 export type SessionAttentionReason = "action" | "error" | "review" | null;
 export type SessionAttentionUrgency = "needs-input" | "review" | "muted-needs-input";
@@ -29,5 +32,5 @@ export function isSessionAttentionProjectionValue(value: unknown): value is Sess
   if (candidate.status === null) return true;
   if (!candidate.status || typeof candidate.status !== "object") return false;
   if (!["needs-input", "review", "muted-needs-input"].includes(candidate.status.urgency)) return false;
-  return Number.isSafeInteger(candidate.status.count) && candidate.status.count > 0;
+  return isPositiveInteger(candidate.status.count);
 }

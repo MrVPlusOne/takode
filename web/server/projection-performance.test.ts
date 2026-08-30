@@ -1036,8 +1036,6 @@ function changedMetrics(options: {
 function reconnectMetrics(valueBytes: number): MetricSample {
   return {
     ...zeroMetrics(),
-    dependencySelections: 1,
-    dependencyEqualSuppressions: 1,
     snapshots: 1,
     subscriptionsAccepted: 1,
     snapshotValueBytes: valueBytes,
@@ -1047,8 +1045,7 @@ function reconnectMetrics(valueBytes: number): MetricSample {
 function initialSubscriptionMetrics(valueBytes: number): MetricSample {
   return {
     ...zeroMetrics(),
-    dependencySelections: 2,
-    dependencyEqualSuppressions: 1,
+    dependencySelections: 1,
     derivations: 1,
     snapshots: 2,
     subscriptionsAccepted: 2,
@@ -1160,12 +1157,12 @@ describe("synchronized projection performance controls", () => {
     expect(navigation.bytes).toEqual({
       historicalLegacyStatusActivity: 412,
       retainedParallelActivityResidual: 366,
-      requiredProjectionStatusUpdate: 1_689,
-      matchedCompatiblePairStatusChange: 2_055,
+      requiredProjectionStatusUpdate: 1_671,
+      matchedCompatiblePairStatusChange: 2_037,
     });
-    expect(navigation.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(1_819);
+    expect(navigation.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(1_801);
     expect(navigation.initialProjectionSubscriptionMetrics).toEqual(initialSubscriptionMetrics(1_506));
-    expect(navigation.reconnect.projectionSubscriptionResponseBytes).toBe(1_819);
+    expect(navigation.reconnect.projectionSubscriptionResponseBytes).toBe(1_801);
 
     // The executable historical controls have no subscription work and emit one
     // full activity payload for every producer frame, including semantic no-ops.
@@ -1184,13 +1181,13 @@ describe("synchronized projection performance controls", () => {
       singleStatusChange: expectedMatchedPair({
         producerFrames: 1,
         parallelBytesByTypePerFrame: { session_activity_update: 366 },
-        projectionBytesPerBrowser: 1_689,
+        projectionBytesPerBrowser: 1_671,
         runtimeMetrics: changedMetrics({ invalidations: 2, valueBytes: 1_511, cachedValueBytes: 5 }),
       }),
       burstStatusChange: expectedMatchedPair({
         producerFrames: 25,
         parallelBytesByTypePerFrame: { session_activity_update: 366 },
-        projectionBytesPerBrowser: 1_689,
+        projectionBytesPerBrowser: 1_671,
         runtimeMetrics: changedMetrics({ invalidations: 50, valueBytes: 1_511, cachedValueBytes: 5 }),
       }),
     });
@@ -1198,10 +1195,10 @@ describe("synchronized projection performance controls", () => {
     expect(navigation.matchedCompatiblePairSequences.burstStatusChange.combined).toMatchObject({
       logicalSends: 26,
       deliveries: 52,
-      bytesPerBrowser: 10_839,
-      totalBytes: 21_678,
+      bytesPerBrowser: 10_821,
+      totalBytes: 21_642,
     });
-    expect(navigation.noSubscriber).toEqual(changedMetrics({ invalidations: 1, valueBytes: 1_506, browserCount: 0 }));
+    expect(navigation.noSubscriber).toEqual({ ...zeroMetrics(), invalidations: 1 });
   });
 
   /**
@@ -1257,15 +1254,15 @@ describe("synchronized projection performance controls", () => {
     expect(leaderTabs.bytes).toEqual({
       subscribedParallelBoardActivityResidual: 3_317,
       parallelBoardDetailLegacyPayload: 3_785,
-      requiredProjectionPhaseChange: 7_750,
-      matchedCompatiblePairPhaseChange: 14_852,
+      requiredProjectionPhaseChange: 7_732,
+      matchedCompatiblePairPhaseChange: 14_834,
       confirmedRemovableLegacyThreadStatusPayload: 236,
-      requiredProjectionStatusUpdate: 7_659,
-      matchedCompatiblePairStatusChange: 7_895,
+      requiredProjectionStatusUpdate: 7_641,
+      matchedCompatiblePairStatusChange: 7_877,
     });
-    expect(leaderTabs.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(7_799);
+    expect(leaderTabs.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(7_781);
     expect(leaderTabs.initialProjectionSubscriptionMetrics).toEqual(initialSubscriptionMetrics(7_490));
-    expect(leaderTabs.reconnect.projectionSubscriptionResponseBytes).toBe(7_799);
+    expect(leaderTabs.reconnect.projectionSubscriptionResponseBytes).toBe(7_781);
 
     // Each board producer emits companion global activity before board detail.
     // Per-sequence subscription work is zero because the q-1983-parent and current
@@ -1296,13 +1293,13 @@ describe("synchronized projection performance controls", () => {
       singlePhaseChange: expectedMatchedPair({
         producerFrames: 1,
         parallelBytesByTypePerFrame: { session_activity_update: 3_317, board_updated: 3_785 },
-        projectionBytesPerBrowser: 7_750,
+        projectionBytesPerBrowser: 7_732,
         runtimeMetrics: changedMetrics({ invalidations: 1, valueBytes: 7_574, cachedValueBytes: 84 }),
       }),
       burstPhaseChange: expectedMatchedPair({
         producerFrames: 25,
         parallelBytesByTypePerFrame: { session_activity_update: 3_317, board_updated: 3_785 },
-        projectionBytesPerBrowser: 7_750,
+        projectionBytesPerBrowser: 7_732,
         runtimeMetrics: changedMetrics({ invalidations: 25, valueBytes: 7_574, cachedValueBytes: 84 }),
       }),
     });
@@ -1315,17 +1312,15 @@ describe("synchronized projection performance controls", () => {
     expect(leaderTabs.matchedCompatiblePairSequences.burstPhaseChange.combined).toMatchObject({
       logicalSends: 51,
       deliveries: 102,
-      bytesPerBrowser: 185_300,
-      totalBytes: 370_600,
+      bytesPerBrowser: 185_282,
+      totalBytes: 370_564,
     });
 
-    // Targeted cross-leader invalidation is demand-gated, but generic session
-    // persistence still derives and caches a full tab value without a viewer.
+    // Both targeted cross-leader invalidation and generic persistence avoid
+    // projection selection and value construction until a subscriber requests it.
     expect(leaderTabs.noSubscriber.targetedQuestInvalidations).toBe(0);
     expect(leaderTabs.noSubscriber.targetedQuestMetrics).toEqual(zeroMetrics());
-    expect(leaderTabs.noSubscriber.genericPersistenceMetrics).toEqual(
-      changedMetrics({ invalidations: 1, valueBytes: 7_490, browserCount: 0 }),
-    );
+    expect(leaderTabs.noSubscriber.genericPersistenceMetrics).toEqual({ ...zeroMetrics(), invalidations: 1 });
   });
 
   /**

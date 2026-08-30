@@ -8,6 +8,7 @@ import {
 import { compactPendingCodexInputsForBrowser } from "./codex-pending-input-safety.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
+import { LEADER_THREAD_TABS_PROJECTION } from "../shared/leader-thread-tabs-projection.js";
 import { isSystemSourceTag } from "./bridge/adapter-browser-routing-source-tags.js";
 import { buildLeaderSkillPreloadBundles } from "./leader-skill-preload.js";
 import type { PushoverNotifier } from "./pushover.js";
@@ -1040,7 +1041,7 @@ export function getBrowserTransportDeps(host: any) {
     removeSyncedProjectionSubscriber: (socket: unknown) =>
       host.getSyncedProjectionController().removeSubscriber(socket),
     getLeaderThreadTabsProjectionValue: (sessionId: string) =>
-      host.getSyncedProjectionController().getLeaderThreadTabsSnapshot(sessionId)?.value ?? null,
+      host.getSyncedProjectionController().getSnapshot(LEADER_THREAD_TABS_PROJECTION, sessionId)?.value ?? null,
     getLeaderThreadTabMutationPolicy: (sessionId: string, threadKey: string) =>
       host.getSyncedProjectionController().getLeaderThreadTabMutationPolicy(sessionId, threadKey),
     lazyLoadFullHistory: async (targetSession: unknown) => {

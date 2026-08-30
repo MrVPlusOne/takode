@@ -1,3 +1,4 @@
+import { SYNCED_PROJECTION_DESCRIPTOR_LIST } from "../shared/synced-projection-registry.js";
 import type { QuestmasterTask, SdkSessionInfo, SessionTaskEntry } from "./types.js";
 
 export function stringArrayEqual(a: string[] | undefined, b: string[] | undefined): boolean {
@@ -200,22 +201,12 @@ export function reconcileQuestList(prev: QuestmasterTask[], next: QuestmasterTas
   return changed ? reconciled : prev;
 }
 
-function hasOwnSessionProjectionField(
-  session: SdkSessionInfo,
-  field: "sessionAttentionProjection" | "sessionNavigationProjection" | "leaderThreadTabsProjection",
-): boolean {
-  return Object.prototype.hasOwnProperty.call(session, field);
-}
-
 function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
   return (
     a.sessionId === b.sessionId &&
-    hasOwnSessionProjectionField(a, "sessionAttentionProjection") ===
-      hasOwnSessionProjectionField(b, "sessionAttentionProjection") &&
-    hasOwnSessionProjectionField(a, "sessionNavigationProjection") ===
-      hasOwnSessionProjectionField(b, "sessionNavigationProjection") &&
-    hasOwnSessionProjectionField(a, "leaderThreadTabsProjection") ===
-      hasOwnSessionProjectionField(b, "leaderThreadTabsProjection") &&
+    SYNCED_PROJECTION_DESCRIPTOR_LIST.every(
+      ({ restField }) => Object.hasOwn(a, restField) === Object.hasOwn(b, restField),
+    ) &&
     a.pid === b.pid &&
     a.state === b.state &&
     a.exitCode === b.exitCode &&

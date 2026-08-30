@@ -1,10 +1,11 @@
-import type {
-  SessionNavigationIdentitySlice,
-  SessionNavigationProjectionValue,
+import {
+  SESSION_NAVIGATION_PROJECTION,
+  type SessionNavigationIdentitySlice,
+  type SessionNavigationProjectionValue,
 } from "../../shared/session-navigation-projection.js";
 import type { AppState } from "../store-types.js";
 import type { SdkSessionInfo, SessionState } from "../types.js";
-import { getSessionNavigationProjection, hasSessionNavigationProjection } from "../store-synced-projections.js";
+import { getSyncedProjectionValue, hasSyncedProjectionValue } from "../store-synced-projections.js";
 import { coalesceSessionViewModel, type SessionViewModel } from "./session-view-model.js";
 import type { SidebarSessionItem } from "./sidebar-session-item.js";
 import { selectLeaderActivePhaseSummary } from "./leader-thread-tabs-resolver.js";
@@ -537,8 +538,8 @@ export function resolveSessionNavigation<TPermission>(
   const bridgeState = source.sessions.get(sessionId);
   const leaderActivePhaseSummary = selectLeaderActivePhaseSummary(source, sessionId);
   const cacheState = projectionCacheState(source as SessionNavigationResolverSource<unknown>);
-  if (hasSessionNavigationProjection(cacheState, sessionId)) {
-    const projection = getSessionNavigationProjection(cacheState, sessionId);
+  if (hasSyncedProjectionValue(cacheState, SESSION_NAVIGATION_PROJECTION, sessionId)) {
+    const projection = getSyncedProjectionValue(cacheState, SESSION_NAVIGATION_PROJECTION, sessionId);
     if (projection) {
       return resolveProjectedSession(
         source as SessionNavigationResolverSource<unknown>,

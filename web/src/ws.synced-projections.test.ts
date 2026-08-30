@@ -3,7 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
 import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
-import { SYNCED_PROJECTION_SCHEMA_VERSION } from "../shared/synced-projection.js";
+import { LEADER_THREAD_TABS_PROJECTION } from "../shared/leader-thread-tabs-projection.js";
+import { createLeaderThreadTabsProjectionEnvelope } from "./test-fixtures/leader-thread-tabs-projection.js";
 import { createSessionNavigationProjectionEnvelope } from "./test-fixtures/session-navigation-projection.js";
 
 const apiMocks = vi.hoisted(() => ({
@@ -54,7 +55,6 @@ function attentionEnvelope(options: {
 }) {
   return {
     type: options.type ?? "synced_projection_snapshot",
-    schemaVersion: SYNCED_PROJECTION_SCHEMA_VERSION,
     projection: SESSION_ATTENTION_PROJECTION,
     key: options.key ?? "worker",
     generation: options.generation ?? "generation-a",
@@ -96,7 +96,7 @@ afterEach(() => {
 });
 
 describe("synced projection WebSocket carrier", () => {
-  it("adds all active attention and navigation keys with deterministic known versions only to the selected carrier", () => {
+  it("adds all active attention and navigation identities only to the selected carrier", () => {
     useStore.setState({
       sdkSessions: [
         { sessionId: "worker", archived: false } as never,
@@ -117,19 +117,9 @@ describe("synced projection WebSocket carrier", () => {
       type: "session_subscribe",
       synced_projection_subscriptions: [
         { projection: SESSION_ATTENTION_PROJECTION, key: "carrier" },
-        {
-          projection: SESSION_ATTENTION_PROJECTION,
-          key: "worker",
-          generation: "generation-a",
-          revision: 4,
-        },
+        { projection: SESSION_ATTENTION_PROJECTION, key: "worker" },
         { projection: SESSION_NAVIGATION_PROJECTION, key: "carrier" },
-        {
-          projection: SESSION_NAVIGATION_PROJECTION,
-          key: "worker",
-          generation: "navigation-generation-a",
-          revision: 2,
-        },
+        { projection: SESSION_NAVIGATION_PROJECTION, key: "worker" },
       ],
     });
 
@@ -137,6 +127,41 @@ describe("synced projection WebSocket carrier", () => {
     const preview = MockWebSocket.instances.at(-1)!;
     open(preview);
     expect(messages(preview)[0]?.synced_projection_subscriptions).toBeUndefined();
+  });
+
+  it("retains leader subscriptions across partial role metadata until the complete ack settles authority", () => {
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "carrier", archived: false } as never,
+        { sessionId: "accepted-leader", archived: false } as never,
+        {
+          sessionId: "supplied-leader",
+          archived: false,
+          leaderThreadTabsProjection: { malformed: true },
+        } as never,
+      ],
+    });
+    useStore
+      .getState()
+      .applySyncedProjectionSnapshot(createLeaderThreadTabsProjectionEnvelope({ key: "accepted-leader" }));
+    useStore.getState().setCurrentSession("carrier");
+
+    wsModule.connectSession("carrier");
+    const carrier = MockWebSocket.instances.at(-1)!;
+    open(carrier);
+    const subscriptions = messages(carrier)[0]?.synced_projection_subscriptions as Array<{
+      projection: string;
+      key: string;
+    }>;
+
+    expect(subscriptions).toContainEqual({
+      projection: LEADER_THREAD_TABS_PROJECTION,
+      key: "accepted-leader",
+    });
+    expect(subscriptions).toContainEqual({
+      projection: LEADER_THREAD_TABS_PROJECTION,
+      key: "supplied-leader",
+    });
   });
 
   it("refreshes changed selected-carrier inventory once and suppresses duplicate refreshes", () => {
@@ -170,7 +195,7 @@ describe("synced projection WebSocket carrier", () => {
     expect(carrier.send).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the latest inventory and versions on reconnect", () => {
+  it("uses the latest identity-only inventory on reconnect", () => {
     useStore.setState({ sdkSessions: [{ sessionId: "carrier", archived: false } as never] });
     useStore.getState().setCurrentSession("carrier");
     wsModule.connectSession("carrier");
@@ -197,19 +222,9 @@ describe("synced projection WebSocket carrier", () => {
       type: "session_subscribe",
       synced_projection_subscriptions: [
         { projection: SESSION_ATTENTION_PROJECTION, key: "carrier" },
-        {
-          projection: SESSION_ATTENTION_PROJECTION,
-          key: "worker",
-          generation: "generation-a",
-          revision: 7,
-        },
+        { projection: SESSION_ATTENTION_PROJECTION, key: "worker" },
         { projection: SESSION_NAVIGATION_PROJECTION, key: "carrier" },
-        {
-          projection: SESSION_NAVIGATION_PROJECTION,
-          key: "worker",
-          generation: "navigation-generation-a",
-          revision: 5,
-        },
+        { projection: SESSION_NAVIGATION_PROJECTION, key: "worker" },
       ],
     });
   });
@@ -310,7 +325,7 @@ describe("synced projection WebSocket carrier", () => {
     expect(useStore.getState().sessionAttention.has("rejected")).toBe(false);
   });
 
-  it("selectively drops navigation REST markers when a rolling backend accepts attention only", () => {
+  it("selectively fences identities omitted by a complete partial ack", () => {
     const workerAttention = attentionEnvelope({ key: "worker", revision: 1 });
     const carrierAttention = attentionEnvelope({ key: "carrier", revision: 1 });
     const workerNavigation = createSessionNavigationProjectionEnvelope({ key: "worker" });
@@ -512,7 +527,7 @@ describe("synced projection WebSocket carrier", () => {
     ]);
   });
 
-  it("uses state_snapshot as an unsupported-protocol boundary and restores legacy fallback", () => {
+  it("keeps projection authority while the current-build subscribe ack is delayed past state_snapshot", () => {
     const workerAttention = attentionEnvelope({ key: "worker", revision: 1 });
     const carrierAttention = attentionEnvelope({ key: "carrier", revision: 1 });
     const workerNavigation = createSessionNavigationProjectionEnvelope({
@@ -559,23 +574,40 @@ describe("synced projection WebSocket carrier", () => {
       generationStartedAt: null,
       notifications: [],
     });
-    expect(useStore.getState().syncedProjectionKeys.size).toBe(0);
-    expect(useStore.getState().sessionAttention.get("carrier")).toBeNull();
-    for (const session of useStore.getState().sdkSessions) {
-      expect(Object.prototype.hasOwnProperty.call(session, "sessionAttentionProjection")).toBe(false);
-      expect(Object.prototype.hasOwnProperty.call(session, "sessionNavigationProjection")).toBe(false);
-    }
+    expect(useStore.getState().syncedProjectionKeys.size).toBe(4);
+    expect(useStore.getState().sessionAttention.get("carrier")).toBe("review");
 
     fire(carrier, {
       type: "session_activity_update",
       session_id: "worker",
       session: { attentionReason: "action", pendingPermissionCount: 1, status: "idle" },
     });
-    expect(useStore.getState().sessionAttention.get("worker")).toBe("action");
+    expect(useStore.getState().sessionAttention.get("worker")).toBe("review");
     expect(
       useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")?.pendingPermissionCount,
-    ).toBe(1);
-    expect(useStore.getState().sessionStatus.get("worker")).toBe("idle");
+    ).toBe(2);
+    expect(useStore.getState().sessionStatus.get("worker")).toBe("running");
+
+    fire(carrier, workerAttention);
+    fire(carrier, carrierAttention);
+    fire(carrier, workerNavigation);
+    fire(carrier, carrierNavigation);
+    fire(carrier, {
+      type: "synced_projection_subscriptions_ack",
+      subscriptions: [
+        { projection: SESSION_ATTENTION_PROJECTION, key: "carrier" },
+        { projection: SESSION_ATTENTION_PROJECTION, key: "worker" },
+        { projection: SESSION_NAVIGATION_PROJECTION, key: "carrier" },
+        { projection: SESSION_NAVIGATION_PROJECTION, key: "worker" },
+      ],
+      complete: true,
+    });
+
+    expect(useStore.getState().syncedProjectionKeys.size).toBe(4);
+    for (const session of useStore.getState().sdkSessions) {
+      expect(Object.prototype.hasOwnProperty.call(session, "sessionAttentionProjection")).toBe(true);
+      expect(Object.prototype.hasOwnProperty.call(session, "sessionNavigationProjection")).toBe(true);
+    }
   });
 
   it("requests one resync for a same-revision conflict without replacing the accepted value", () => {

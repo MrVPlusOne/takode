@@ -105,9 +105,6 @@ export interface WsTransport {
     carrierSessionId: string,
     subscriptions: readonly SyncedProjectionSubscriptionIdentity[],
   ) => SyncedProjectionSubscriptionIdentity[] | null;
-  settleUnsupportedSyncedProjectionSubscriptions: (
-    carrierSessionId: string,
-  ) => SyncedProjectionSubscriptionIdentity[] | null;
   hasSocket: (sessionId: string) => boolean;
   getSocketState: (sessionId: string) => number | null;
   closeAllForUnload: () => void;
@@ -129,7 +126,6 @@ function syncedProjectionSubscriptionInventorySignature(
 }
 
 interface PendingSyncedProjectionSubscriptionAck {
-  kind: "session_subscribe" | "refresh";
   signature: string;
   expected: Map<string, SyncedProjectionSubscriptionIdentity>;
   acceptedSnapshots: Set<string>;
@@ -305,7 +301,6 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
   function enqueueSyncedProjectionSubscriptionAck(
     sessionId: string,
     subscriptions: readonly SyncedProjectionSubscription[],
-    kind: PendingSyncedProjectionSubscriptionAck["kind"],
   ): void {
     const expected = new Map<string, SyncedProjectionSubscriptionIdentity>();
     for (const subscription of subscriptions) {
@@ -320,7 +315,6 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     }
     const pending = pendingSyncedProjectionSubscriptionAcks.get(sessionId);
     const entry: PendingSyncedProjectionSubscriptionAck = {
-      kind,
       signature: syncedProjectionSubscriptionInventorySignature(subscriptions),
       expected,
       acceptedSnapshots: new Set(),
@@ -367,15 +361,6 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
       .map((entryId) => pending.expected.get(entryId)!);
   }
 
-  function settleUnsupportedSyncedProjectionSubscriptions(
-    carrierSessionId: string,
-  ): SyncedProjectionSubscriptionIdentity[] | null {
-    const queue = pendingSyncedProjectionSubscriptionAcks.get(carrierSessionId);
-    if (!queue?.some((pending) => pending.kind === "session_subscribe")) return null;
-    pendingSyncedProjectionSubscriptionAcks.delete(carrierSessionId);
-    return [];
-  }
-
   function sendSessionSubscribe(sessionId: string, forceFullHistory = false): boolean {
     const ws = sockets.get(sessionId);
     if (!isSocketSendable(ws)) return false;
@@ -415,7 +400,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
         sessionId,
         syncedProjectionSubscriptionInventorySignature(syncedProjectionSubscriptions),
       );
-      enqueueSyncedProjectionSubscriptionAck(sessionId, syncedProjectionSubscriptions, "session_subscribe");
+      enqueueSyncedProjectionSubscriptionAck(sessionId, syncedProjectionSubscriptions);
     } else {
       syncedProjectionSubscriptionSignatures.delete(sessionId);
       pendingSyncedProjectionSubscriptionAcks.delete(sessionId);
@@ -752,7 +737,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     if (!isSocketSendable(ws)) return false;
     ws.send(JSON.stringify({ type: "synced_projection_subscribe", subscriptions }));
     syncedProjectionSubscriptionSignatures.set(sessionId, signature);
-    enqueueSyncedProjectionSubscriptionAck(sessionId, subscriptions, "refresh");
+    enqueueSyncedProjectionSubscriptionAck(sessionId, subscriptions);
 
     const activeEntries = new Set(
       subscriptions.map((subscription) => syncedProjectionEntryId(subscription.projection, subscription.key)),
@@ -911,7 +896,6 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     resolveSyncedProjectionResync,
     noteAcceptedSyncedProjectionSnapshot,
     consumeSyncedProjectionSubscriptionsAck,
-    settleUnsupportedSyncedProjectionSubscriptions,
     hasSocket,
     getSocketState,
     closeAllForUnload,

@@ -129,7 +129,7 @@ afterEach(() => {
 });
 
 describe("leader thread tabs projection WebSocket carrier", () => {
-  it("subscribes only active leaders and carries the known projection version", () => {
+  it("subscribes only active leaders with identity-only projection requests", () => {
     useStore.setState({
       sdkSessions: [
         { sessionId: "carrier", archived: false } as never,
@@ -151,14 +151,10 @@ describe("leader thread tabs projection WebSocket carrier", () => {
     const subscriptions = subscribe.synced_projection_subscriptions as Array<{
       projection: string;
       key: string;
-      generation?: string;
-      revision?: number;
     }>;
     expect(subscriptions).toContainEqual({
       projection: LEADER_THREAD_TABS_PROJECTION,
       key: "leader",
-      generation: "leader-tabs-generation-a",
-      revision: 4,
     });
     expect(subscriptions).not.toContainEqual(
       expect.objectContaining({ projection: LEADER_THREAD_TABS_PROJECTION, key: "carrier" }),

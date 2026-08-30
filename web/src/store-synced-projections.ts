@@ -1,6 +1,5 @@
 import type { StateCreator } from "zustand";
 import {
-  SYNCED_PROJECTION_SCHEMA_VERSION,
   isValidSyncedProjectionIdentity,
   isValidSyncedProjectionRevision,
   syncedProjectionEntryId,
@@ -9,24 +8,16 @@ import {
 } from "../shared/synced-projection.js";
 import {
   SESSION_ATTENTION_PROJECTION,
-  isSessionAttentionProjectionValue,
-  sessionAttentionProjectionEqual,
   type SessionAttentionProjectionValue,
 } from "../shared/session-attention-projection.js";
 import {
-  SESSION_NAVIGATION_PROJECTION,
-  isSessionNavigationProjectionValue,
-  reconcileSessionNavigationProjectionValue,
-  sessionNavigationProjectionEqual,
-  type SessionNavigationProjectionValue,
-} from "../shared/session-navigation-projection.js";
-import {
-  LEADER_THREAD_TABS_PROJECTION,
-  isLeaderThreadTabsProjectionValue,
-  leaderThreadTabsProjectionEqual,
-  reconcileLeaderThreadTabsProjectionValue,
-  type LeaderThreadTabsProjectionValue,
-} from "../shared/leader-thread-tabs-projection.js";
+  getSyncedProjectionDescriptor,
+  type AnySyncedProjectionDescriptor,
+  type AnySyncedProjectionEnvelope,
+  type SyncedProjectionId,
+  type SyncedProjectionValueById,
+} from "../shared/synced-projection-registry.js";
+import { jsonUtf8ByteLength } from "../shared/synced-projection-codec.js";
 import type { AppState } from "./store-types.js";
 import type { LeaderProjectionSnapshot } from "./types.js";
 
@@ -86,12 +77,6 @@ export interface SyncedProjectionCacheApplication {
   key?: string;
 }
 
-type ProjectionDescriptor = {
-  isValue: (value: unknown) => boolean;
-  equal: (left: unknown, right: unknown) => boolean;
-  reconcile?: (previous: unknown, next: unknown) => unknown;
-};
-
 const INVALID_RESULT: SyncedProjectionApplyResult = {
   applied: false,
   accepted: false,
@@ -113,66 +98,23 @@ const RESYNC_RESULT: SyncedProjectionApplyResult = {
   requestResync: true,
 };
 
-function descriptorForProjection(projection: string): ProjectionDescriptor | null {
-  if (projection === SESSION_ATTENTION_PROJECTION) {
-    return {
-      isValue: isSessionAttentionProjectionValue,
-      equal: (left, right) =>
-        sessionAttentionProjectionEqual(
-          left as SessionAttentionProjectionValue,
-          right as SessionAttentionProjectionValue,
-        ),
-    };
-  }
-  if (projection === SESSION_NAVIGATION_PROJECTION) {
-    return {
-      isValue: isSessionNavigationProjectionValue,
-      equal: (left, right) =>
-        sessionNavigationProjectionEqual(
-          left as SessionNavigationProjectionValue,
-          right as SessionNavigationProjectionValue,
-        ),
-      reconcile: (previous, next) =>
-        reconcileSessionNavigationProjectionValue(
-          previous as SessionNavigationProjectionValue,
-          next as SessionNavigationProjectionValue,
-        ),
-    };
-  }
-  if (projection === LEADER_THREAD_TABS_PROJECTION) {
-    return {
-      isValue: isLeaderThreadTabsProjectionValue,
-      equal: (left, right) =>
-        leaderThreadTabsProjectionEqual(
-          left as LeaderThreadTabsProjectionValue,
-          right as LeaderThreadTabsProjectionValue,
-        ),
-      reconcile: (previous, next) =>
-        reconcileLeaderThreadTabsProjectionValue(
-          previous as LeaderThreadTabsProjectionValue,
-          next as LeaderThreadTabsProjectionValue,
-        ),
-    };
-  }
-  return null;
-}
-
 function parseKnownEnvelope(input: unknown): {
-  envelope: SyncedProjectionEnvelope<unknown>;
-  descriptor: ProjectionDescriptor;
+  envelope: AnySyncedProjectionEnvelope;
+  descriptor: AnySyncedProjectionDescriptor;
 } | null {
   if (!input || typeof input !== "object") return null;
   const candidate = input as Partial<SyncedProjectionEnvelope<unknown>>;
-  if (candidate.schemaVersion !== SYNCED_PROJECTION_SCHEMA_VERSION) return null;
   if (!isValidSyncedProjectionIdentity(candidate.projection)) return null;
   if (!isValidSyncedProjectionIdentity(candidate.key)) return null;
   if (!isValidSyncedProjectionIdentity(candidate.generation)) return null;
   if (!isValidSyncedProjectionRevision(candidate.revision)) return null;
   if (!("value" in candidate)) return null;
-  const descriptor = descriptorForProjection(candidate.projection);
+  const descriptor = getSyncedProjectionDescriptor(candidate.projection);
   if (!descriptor || !descriptor.isValue(candidate.value)) return null;
+  const valueBytes = jsonUtf8ByteLength(candidate.value);
+  if (valueBytes === null || valueBytes > descriptor.maxValueBytes) return null;
   return {
-    envelope: candidate as SyncedProjectionEnvelope<unknown>,
+    envelope: candidate as AnySyncedProjectionEnvelope,
     descriptor,
   };
 }
@@ -270,7 +212,7 @@ function applicationWithResult(
 function commitEnvelope(
   state: SyncedProjectionCacheState,
   envelope: SyncedProjectionEnvelope<unknown>,
-  descriptor: ProjectionDescriptor,
+  descriptor: AnySyncedProjectionDescriptor,
   options: { requestResync: boolean },
 ): SyncedProjectionCacheApplication {
   const entryId = syncedProjectionEntryId(envelope.projection, envelope.key);
@@ -417,64 +359,22 @@ export function applySyncedProjectionUpdateToCache(
   return commitEnvelope(orderedState, envelope, descriptor, { requestResync: !isContiguous });
 }
 
-export function getSyncedProjectionValue<T = unknown>(
+export function getSyncedProjectionValue<K extends SyncedProjectionId>(
   state: Pick<AppState, "syncedProjectionValues" | "syncedProjectionKeys">,
-  projection: string,
+  projection: K,
   key: string,
-): T | undefined {
+): SyncedProjectionValueById[K] | undefined {
   const entryId = syncedProjectionEntryId(projection, key);
   if (!state.syncedProjectionKeys?.has(entryId)) return undefined;
-  return state.syncedProjectionValues?.get(entryId) as T | undefined;
+  return state.syncedProjectionValues?.get(entryId) as SyncedProjectionValueById[K] | undefined;
 }
 
-export function hasSyncedProjectionValue(
+export function hasSyncedProjectionValue<K extends SyncedProjectionId>(
   state: Pick<AppState, "syncedProjectionKeys">,
-  projection: string,
+  projection: K,
   key: string,
 ): boolean {
   return state.syncedProjectionKeys?.has(syncedProjectionEntryId(projection, key)) ?? false;
-}
-
-export function getSessionAttentionProjection(
-  state: Pick<AppState, "syncedProjectionValues" | "syncedProjectionKeys">,
-  sessionId: string,
-): SessionAttentionProjectionValue | undefined {
-  return getSyncedProjectionValue<SessionAttentionProjectionValue>(state, SESSION_ATTENTION_PROJECTION, sessionId);
-}
-
-export function hasSessionAttentionProjection(
-  state: Pick<AppState, "syncedProjectionKeys">,
-  sessionId: string,
-): boolean {
-  return hasSyncedProjectionValue(state, SESSION_ATTENTION_PROJECTION, sessionId);
-}
-
-export function getSessionNavigationProjection(
-  state: Pick<AppState, "syncedProjectionValues" | "syncedProjectionKeys">,
-  sessionId: string,
-): SessionNavigationProjectionValue | undefined {
-  return getSyncedProjectionValue<SessionNavigationProjectionValue>(state, SESSION_NAVIGATION_PROJECTION, sessionId);
-}
-
-export function hasSessionNavigationProjection(
-  state: Pick<AppState, "syncedProjectionKeys">,
-  sessionId: string,
-): boolean {
-  return hasSyncedProjectionValue(state, SESSION_NAVIGATION_PROJECTION, sessionId);
-}
-
-export function getLeaderThreadTabsProjection(
-  state: Pick<AppState, "syncedProjectionValues" | "syncedProjectionKeys">,
-  sessionId: string,
-): LeaderThreadTabsProjectionValue | undefined {
-  return getSyncedProjectionValue<LeaderThreadTabsProjectionValue>(state, LEADER_THREAD_TABS_PROJECTION, sessionId);
-}
-
-export function hasLeaderThreadTabsProjection(
-  state: Pick<AppState, "syncedProjectionKeys">,
-  sessionId: string,
-): boolean {
-  return hasSyncedProjectionValue(state, LEADER_THREAD_TABS_PROJECTION, sessionId);
 }
 
 type StoreSet = Parameters<StateCreator<AppState>>[0];

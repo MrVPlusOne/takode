@@ -47,7 +47,6 @@ import { buildPlaygroundAutoPauseRecoveryMessage } from "./AutoPausePlaygroundSt
 import { createSyntheticLargeLeaderFeedFixture } from "../../test-fixtures/large-leader-feed-fixture.js";
 import { buildLeaderActivePhaseSummary } from "../../../shared/leader-active-phase-summary.js";
 import { LEADER_THREAD_TABS_PROJECTION } from "../../../shared/leader-thread-tabs-projection.js";
-import { SYNCED_PROJECTION_SCHEMA_VERSION } from "../../../shared/synced-projection.js";
 import { buildPlaygroundActionRequiredRecoveryMessages } from "./CodexRecoveryPlaygroundMessages.js";
 
 export function usePlaygroundSeed() {
@@ -1149,7 +1148,6 @@ export function usePlaygroundSeed() {
     );
     store.applySyncedProjectionSnapshot({
       type: "synced_projection_snapshot",
-      schemaVersion: SYNCED_PROJECTION_SCHEMA_VERSION,
       projection: LEADER_THREAD_TABS_PROJECTION,
       key: PLAYGROUND_THREAD_PANEL_SESSION_ID,
       generation: "playground-leader-tabs",

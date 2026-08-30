@@ -2,6 +2,20 @@ import type { LeaderActivePhaseSummarySegment } from "./leader-active-phase-summ
 import { LEADER_OPEN_THREAD_TABS_VERSION } from "./leader-open-thread-tabs.js";
 import type { QuestJourneyLifecycleMode, QuestJourneyPhaseId } from "./quest-journey.js";
 import { THREAD_STATUS_MESSAGE_ID_HASH_LENGTH, type LeaderThreadStatus } from "./thread-status-marker.js";
+import {
+  isBoundedNullableString,
+  isBoundedString,
+  isNonNegativeInteger,
+  isNonNegativeNumber,
+  jsonUtf8ByteLength,
+} from "./synced-projection-codec.js";
+import {
+  arraysEqual,
+  reconcileArray,
+  reconcileKeyedArray,
+  reconcileRecord,
+  reuseIfEqual,
+} from "./stable-reconciliation.js";
 
 export const LEADER_THREAD_TABS_PROJECTION = "leader-thread-tabs" as const;
 export const LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES = 64 * 1024;
@@ -76,25 +90,9 @@ export interface LeaderThreadTabsProjectionValue {
   activePhaseSummary: LeaderActivePhaseSummarySegment[];
 }
 
-function boundedString(value: unknown, maxLength: number): value is string {
-  return typeof value === "string" && value.length <= maxLength;
-}
-
-function boundedNullableString(value: unknown, maxLength: number): value is string | null {
-  return value === null || boundedString(value, maxLength);
-}
-
-function nonNegativeNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
-}
-
-function nonNegativeInteger(value: unknown): value is number {
-  return Number.isSafeInteger(value) && (value as number) >= 0;
-}
-
 function normalizedThreadKey(value: unknown): value is string {
   return (
-    boundedString(value, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) &&
+    isBoundedString(value, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) &&
     value.length > 0 &&
     value === value.trim().toLowerCase() &&
     value !== "main" &&
@@ -109,7 +107,7 @@ function isAttention(value: unknown): value is LeaderThreadTabsProjectionAttenti
     typeof candidate.needsInput === "boolean" &&
     typeof candidate.mutedNeedsInput === "boolean" &&
     typeof candidate.reviewUnread === "boolean" &&
-    nonNegativeNumber(candidate.updatedAt)
+    isNonNegativeNumber(candidate.updatedAt)
   );
 }
 
@@ -123,13 +121,13 @@ function isJourney(
   const validPhaseIds =
     Array.isArray(phaseIds) &&
     phaseIds.length <= 100 &&
-    phaseIds.every((phaseId) => boundedString(phaseId, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH));
+    phaseIds.every((phaseId) => isBoundedString(phaseId, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH));
   if (requireCurrentQuestStateFields ? !validPhaseIds : phaseIds !== undefined && !validPhaseIds) return false;
   return (
     (candidate.mode === null || candidate.mode === "active" || candidate.mode === "proposed") &&
-    boundedNullableString(candidate.currentPhaseId, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH) &&
-    (candidate.activePhaseIndex === null || nonNegativeInteger(candidate.activePhaseIndex)) &&
-    nonNegativeInteger(candidate.phaseCount) &&
+    isBoundedNullableString(candidate.currentPhaseId, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH) &&
+    (candidate.activePhaseIndex === null || isNonNegativeInteger(candidate.activePhaseIndex)) &&
+    isNonNegativeInteger(candidate.phaseCount) &&
     candidate.phaseCount <= 100 &&
     (phaseIds === undefined || phaseIds.length === candidate.phaseCount) &&
     (candidate.activePhaseIndex === null || candidate.activePhaseIndex < candidate.phaseCount)
@@ -144,11 +142,14 @@ function isTabState(value: unknown): value is LeaderThreadTabsProjectionTabState
   if (candidate.orderedOpenThreadKeys.length > LEADER_THREAD_TABS_PROJECTION_MAX_TABS) return false;
   if (!Array.isArray(candidate.closedThreadTombstones)) return false;
   if (candidate.closedThreadTombstones.length > LEADER_THREAD_TABS_PROJECTION_MAX_TOMBSTONES) return false;
-  if (!nonNegativeNumber(candidate.updatedAt)) return false;
-  if (candidate.migratedFromLocalStorageAt !== undefined && !nonNegativeNumber(candidate.migratedFromLocalStorageAt)) {
+  if (!isNonNegativeNumber(candidate.updatedAt)) return false;
+  if (
+    candidate.migratedFromLocalStorageAt !== undefined &&
+    !isNonNegativeNumber(candidate.migratedFromLocalStorageAt)
+  ) {
     return false;
   }
-  if (candidate.explicitOrderUpdatedAt !== undefined && !nonNegativeNumber(candidate.explicitOrderUpdatedAt)) {
+  if (candidate.explicitOrderUpdatedAt !== undefined && !isNonNegativeNumber(candidate.explicitOrderUpdatedAt)) {
     return false;
   }
 
@@ -161,7 +162,7 @@ function isTabState(value: unknown): value is LeaderThreadTabsProjectionTabState
   for (const tombstone of candidate.closedThreadTombstones) {
     if (!tombstone || typeof tombstone !== "object") return false;
     if (!normalizedThreadKey(tombstone.threadKey) || tombstoneKeys.has(tombstone.threadKey)) return false;
-    if (!nonNegativeNumber(tombstone.closedAt)) return false;
+    if (!isNonNegativeNumber(tombstone.closedAt)) return false;
     tombstoneKeys.add(tombstone.threadKey);
   }
   return true;
@@ -173,26 +174,29 @@ function isTab(value: unknown, requireCurrentQuestStateFields: boolean): value i
   const hasOwn = (key: keyof LeaderThreadTabsProjectionTab): boolean => Object.hasOwn(candidate, key);
   return (
     normalizedThreadKey(candidate.threadKey) &&
-    boundedNullableString(candidate.questId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) &&
-    boundedNullableString(candidate.title, LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH) &&
-    boundedNullableString(candidate.boardStatus, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH) &&
+    isBoundedNullableString(candidate.questId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) &&
+    isBoundedNullableString(candidate.title, LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH) &&
+    isBoundedNullableString(candidate.boardStatus, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH) &&
     (candidate.journey === null || isJourney(candidate.journey, requireCurrentQuestStateFields)) &&
     (!requireCurrentQuestStateFields || hasOwn("sourceLeaderSessionId")) &&
     (candidate.sourceLeaderSessionId === undefined
       ? !requireCurrentQuestStateFields
-      : boundedNullableString(candidate.sourceLeaderSessionId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH)) &&
+      : isBoundedNullableString(
+          candidate.sourceLeaderSessionId,
+          LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH,
+        )) &&
     (!requireCurrentQuestStateFields || hasOwn("sourceRowCreatedAt")) &&
     (candidate.sourceRowCreatedAt === undefined
       ? !requireCurrentQuestStateFields
-      : candidate.sourceRowCreatedAt === null || nonNegativeNumber(candidate.sourceRowCreatedAt)) &&
+      : candidate.sourceRowCreatedAt === null || isNonNegativeNumber(candidate.sourceRowCreatedAt)) &&
     (!requireCurrentQuestStateFields || hasOwn("workerSessionId")) &&
     (candidate.workerSessionId === undefined
       ? !requireCurrentQuestStateFields
-      : boundedNullableString(candidate.workerSessionId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH)) &&
+      : isBoundedNullableString(candidate.workerSessionId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH)) &&
     (!requireCurrentQuestStateFields || hasOwn("workerSessionNum")) &&
     (candidate.workerSessionNum === undefined
       ? !requireCurrentQuestStateFields
-      : candidate.workerSessionNum === null || nonNegativeInteger(candidate.workerSessionNum)) &&
+      : candidate.workerSessionNum === null || isNonNegativeInteger(candidate.workerSessionNum)) &&
     typeof candidate.active === "boolean" &&
     typeof candidate.queued === "boolean" &&
     typeof candidate.proposed === "boolean" &&
@@ -202,7 +206,7 @@ function isTab(value: unknown, requireCurrentQuestStateFields: boolean): value i
       1 &&
     typeof candidate.canClose === "boolean" &&
     isAttention(candidate.attention) &&
-    nonNegativeNumber(candidate.updatedAt)
+    isNonNegativeNumber(candidate.updatedAt)
   );
 }
 
@@ -213,17 +217,17 @@ function isThreadStatus(value: unknown, key: string): value is LeaderThreadStatu
     (candidate.kind === "waiting" || candidate.kind === "ready") &&
     candidate.label === (candidate.kind === "waiting" ? "Thread Waiting" : "Thread Ready") &&
     candidate.threadKey === key &&
-    boundedString(candidate.threadKey, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) &&
+    isBoundedString(candidate.threadKey, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) &&
     (candidate.questId === undefined ||
-      boundedString(candidate.questId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH)) &&
-    boundedString(candidate.summary, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_SUMMARY_LENGTH) &&
-    boundedString(candidate.messageId, LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH) &&
+      isBoundedString(candidate.questId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH)) &&
+    isBoundedString(candidate.summary, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_SUMMARY_LENGTH) &&
+    isBoundedString(candidate.messageId, LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH) &&
     (candidate.messageIdHash === undefined ||
-      (boundedString(candidate.messageIdHash, THREAD_STATUS_MESSAGE_ID_HASH_LENGTH) &&
+      (isBoundedString(candidate.messageIdHash, THREAD_STATUS_MESSAGE_ID_HASH_LENGTH) &&
         candidate.messageIdHash.length === THREAD_STATUS_MESSAGE_ID_HASH_LENGTH &&
         /^[0-9a-f]+$/.test(candidate.messageIdHash))) &&
-    nonNegativeNumber(candidate.timestamp) &&
-    nonNegativeNumber(candidate.updatedAt)
+    isNonNegativeNumber(candidate.timestamp) &&
+    isNonNegativeNumber(candidate.updatedAt)
   );
 }
 
@@ -233,35 +237,16 @@ function isActivePhaseSummary(value: unknown): value is LeaderActivePhaseSummary
     if (!segment || typeof segment !== "object") return false;
     const candidate = segment as Partial<LeaderActivePhaseSummarySegment>;
     return (
-      boundedString(candidate.label, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH) &&
-      nonNegativeInteger(candidate.count) &&
+      isBoundedString(candidate.label, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH) &&
+      isNonNegativeInteger(candidate.count) &&
       candidate.count > 0 &&
       (candidate.tone === "phase" || candidate.tone === "status" || candidate.tone === "unknown") &&
       (candidate.color === undefined ||
-        boundedString(candidate.color, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH)) &&
+        isBoundedString(candidate.color, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH)) &&
       (candidate.colorName === undefined ||
-        boundedString(candidate.colorName, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH))
+        isBoundedString(candidate.colorName, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH))
     );
   });
-}
-
-function utf8ByteLength(value: string): number {
-  let bytes = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code < 0x80) bytes += 1;
-    else if (code < 0x800) bytes += 2;
-    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
-      const next = value.charCodeAt(index + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        bytes += 4;
-        index += 1;
-      } else {
-        bytes += 3;
-      }
-    } else bytes += 3;
-  }
-  return bytes;
 }
 
 export function isLeaderThreadTabsProjectionValue(value: unknown): value is LeaderThreadTabsProjectionValue {
@@ -279,7 +264,7 @@ export function isLeaderThreadTabsProjectionValue(value: unknown): value is Lead
   if (
     statusEntries.some(
       ([key, status]) =>
-        !boundedString(key, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) ||
+        !isBoundedString(key, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) ||
         key !== key.trim().toLowerCase() ||
         (key !== "main" && !/^q-\d+$/.test(key)) ||
         !isThreadStatus(status, key),
@@ -296,8 +281,8 @@ export function isLeaderThreadTabsProjectionValue(value: unknown): value is Lead
     if (candidate.tabs.length !== ordered.length) return false;
     if (candidate.tabs.some((tab, index) => tab.threadKey !== ordered[index])) return false;
   }
-  const serialized = JSON.stringify(candidate);
-  return utf8ByteLength(serialized) <= LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES;
+  const serializedBytes = jsonUtf8ByteLength(candidate);
+  return serializedBytes !== null && serializedBytes <= LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES;
 }
 
 export function leaderThreadTabsProjectionAttentionEqual(
@@ -357,17 +342,19 @@ export function reconcileLeaderThreadTabsProjectionValue(
   next: LeaderThreadTabsProjectionValue,
 ): LeaderThreadTabsProjectionValue {
   if (!previous) return next;
-  const tabState = tabStateEqual(previous.tabState, next.tabState) ? previous.tabState : next.tabState;
+  const tabState = reuseIfEqual(previous.tabState, next.tabState, tabStateEqual);
   const tabs = reconcileKeyedArray(
     previous.tabs,
     next.tabs,
     (tab) => tab.threadKey,
     leaderThreadTabsProjectionTabEqual,
   );
-  const mainAttention = leaderThreadTabsProjectionAttentionEqual(previous.mainAttention, next.mainAttention)
-    ? previous.mainAttention
-    : next.mainAttention;
-  const threadStatuses = reconcileStatusMap(previous.threadStatuses, next.threadStatuses);
+  const mainAttention = reuseIfEqual(
+    previous.mainAttention,
+    next.mainAttention,
+    leaderThreadTabsProjectionAttentionEqual,
+  );
+  const threadStatuses = reconcileRecord(previous.threadStatuses, next.threadStatuses, statusEqual);
   const activePhaseSummary = reconcileArray(
     previous.activePhaseSummary,
     next.activePhaseSummary,
@@ -472,44 +459,4 @@ function activePhaseSegmentEqual(
     left.color === right.color &&
     left.colorName === right.colorName
   );
-}
-
-function arraysEqual<T>(left: ReadonlyArray<T>, right: ReadonlyArray<T>, equal: (a: T, b: T) => boolean): boolean {
-  return left.length === right.length && left.every((value, index) => equal(value, right[index]!));
-}
-
-function reconcileArray<T>(previous: T[], next: T[], equal: (a: T, b: T) => boolean): T[] {
-  if (arraysEqual(previous, next, equal)) return previous;
-  return next.map((value, index) => (previous[index] && equal(previous[index]!, value) ? previous[index]! : value));
-}
-
-function reconcileKeyedArray<T>(
-  previous: T[],
-  next: T[],
-  keyFor: (value: T) => string,
-  equal: (a: T, b: T) => boolean,
-): T[] {
-  const previousByKey = new Map(previous.map((value) => [keyFor(value), value]));
-  const reconciled = next.map((value) => {
-    const prior = previousByKey.get(keyFor(value));
-    return prior && equal(prior, value) ? prior : value;
-  });
-  return arraysEqual(previous, reconciled, (a, b) => a === b) ? previous : reconciled;
-}
-
-function reconcileStatusMap(
-  previous: Record<string, LeaderThreadStatus>,
-  next: Record<string, LeaderThreadStatus>,
-): Record<string, LeaderThreadStatus> {
-  const previousKeys = Object.keys(previous);
-  const nextKeys = Object.keys(next);
-  let allSame = arraysEqual(previousKeys, nextKeys, (a, b) => a === b);
-  const reconciled: Record<string, LeaderThreadStatus> = {};
-  for (const key of nextKeys) {
-    const prior = previous[key];
-    const value = next[key]!;
-    reconciled[key] = prior && statusEqual(prior, value) ? prior : value;
-    if (reconciled[key] !== prior) allSame = false;
-  }
-  return allSame ? previous : reconciled;
 }
