@@ -137,6 +137,27 @@ describe("bounded browser conversation delivery", () => {
     expect(shouldDeliverBrowserEventToSocket({ messageHistory: [] }, message, threadSocket("main"))).toBe(false);
   });
 
+  it("routes persisted Codex recovery guidance to its owning selected thread", () => {
+    const diagnostic = {
+      type: "user_message",
+      content: "Automatic replay stopped; inspect the partial response before continuing.",
+      timestamp: 1,
+      threadKey: "q-1986",
+      questId: "q-1986",
+      agentSource: {
+        sessionId: "system:codex-leader-recovery-diagnostic",
+        sessionLabel: "Codex Recovery Diagnostic",
+      },
+    } as BrowserIncomingMessage;
+
+    expect(
+      shouldDeliverBrowserEventToSocket({ messageHistory: [diagnostic] }, diagnostic, threadSocket("q-1986")),
+    ).toBe(true);
+    expect(shouldDeliverBrowserEventToSocket({ messageHistory: [diagnostic] }, diagnostic, threadSocket("q-1"))).toBe(
+      false,
+    );
+  });
+
   it("uses the active turn route for streaming and tool progress", () => {
     const session = { messageHistory: [], activeTurnRoute: { threadKey: "q-1", questId: "q-1" } };
     const stream = { type: "stream_event", event: {}, parent_tool_use_id: null } as BrowserIncomingMessage;

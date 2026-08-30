@@ -1,5 +1,7 @@
 export const COMPACTION_RECOVERY_SOURCE_ID = "system:compaction-recovery";
 export const COMPACTION_RECOVERY_SOURCE_LABEL = "Compaction Recovery";
+export const CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID = "system:codex-leader-recovery-diagnostic";
+export const CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL = "Codex Recovery Diagnostic";
 export const LEADER_KICKOFF_SOURCE_ID = "system:leader-kickoff";
 export const LEADER_KICKOFF_SOURCE_LABEL = "Leader Kickoff";
 export const LEADER_SKILL_PRELOAD_SOURCE_ID_PREFIX = "system:leader-skill-preload:";
@@ -84,6 +86,10 @@ export function isCodexTurnRecoverySourceId(sourceId: string | undefined): boole
 
 export function isSystemSourceId(sourceId: string | undefined): boolean {
   return sourceId === "system" || sourceId?.startsWith("system:") === true;
+}
+
+export function isCodexLeaderRecoveryDiagnosticSourceId(sourceId: string | undefined): boolean {
+  return sourceId === CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID;
 }
 
 export function isLeaderSkillPreloadSourceId(sourceId: string | undefined): boolean {

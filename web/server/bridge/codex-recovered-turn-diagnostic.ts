@@ -1,0 +1,107 @@
+import type { BrowserIncomingMessage, CodexOutboundTurn, CodexTurnRecoveryReason } from "../session-types.js";
+import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
+import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
+import { appendCodexLeaderRecoveryDiagnostic } from "./codex-leader-recovery-diagnostic.js";
+import {
+  beginCodexTurnRecoveryContinuation,
+  markCodexTurnRecoveryActionRequired,
+  type CodexInterruptedTurnRecoveryDeps,
+  type CodexInterruptedTurnRecoverySessionLike,
+} from "./codex-interrupted-turn-recovery.js";
+import {
+  rearmRecoveredQueuedHeadTurn,
+  reconcileRecoveredQueuedTurnLifecycle,
+  type RecoveredQueuedTurnSessionLike,
+} from "./codex-queued-turn-lifecycle.js";
+import {
+  logCodexRecoveryDiagnostic,
+  type CodexRecoveryDiagnosticLogContext,
+  type CodexRecoveryDiagnosticOutcome,
+  type CodexRecoveryDiagnosticPresentation,
+} from "./codex-recovery-diagnostic-log.js";
+
+export type CodexRecoveredTurnDiagnosticSessionLike = Omit<CodexInterruptedTurnRecoverySessionLike, "isGenerating"> &
+  RecoveredQueuedTurnSessionLike;
+
+export interface CodexRecoveredTurnDiagnosticDeps<
+  Session extends CodexRecoveredTurnDiagnosticSessionLike = CodexRecoveredTurnDiagnosticSessionLike,
+> extends Pick<
+    CodexInterruptedTurnRecoveryDeps,
+    "broadcastToBrowsers" | "persistSession" | "injectUserMessage" | "setAttentionError"
+  > {
+  completeCodexTurn: (session: Session, turn: CodexOutboundTurn | null) => boolean;
+  markTurnInterrupted: (session: Session, source: "user" | "leader" | "system") => void;
+  setGenerating: (session: Session, generating: boolean, reason: string) => void;
+  getCodexHeadTurn: (session: Session) => CodexOutboundTurn | null;
+  dispatchQueuedCodexTurns: (session: Session, reason: string) => void;
+  maybeFlushQueuedCodexMessages: (session: Session, reason: string) => void;
+  markRunningFromUserDispatch: (session: Session, reason: string) => UserDispatchTurnTarget;
+  promoteNextQueuedTurn: (session: Session) => boolean;
+  trackUserMessageForTurn: (session: Session, historyIndex: number, target: UserDispatchTurnTarget) => void;
+}
+
+export interface CompleteRecoveredCodexTurnOptions {
+  leaderDiagnosticRoute?: ThreadRouteMetadata | null;
+  leaderContinuationRoute?: ThreadRouteMetadata | null;
+  recoveryOwner?: CodexOutboundTurn;
+  turnRecoveryActionRequired?: CodexTurnRecoveryReason;
+  interruptSource?: "user" | "leader" | "system";
+  diagnosticLog?: CodexRecoveryDiagnosticLogContext;
+}
+
+function diagnosticPresentation(
+  session: CodexRecoveredTurnDiagnosticSessionLike,
+  outcome: CodexRecoveryDiagnosticOutcome,
+): CodexRecoveryDiagnosticPresentation {
+  if (outcome.continuationQueued) return "continuation_queued";
+  if (session.state.codex_turn_recovery?.status === "action_required") return "action_required";
+  return outcome.diagnosticAppended ? "routed_fallback" : "browser_error";
+}
+
+export function completeRecoveredCodexTurnWithDiagnostic<Session extends CodexRecoveredTurnDiagnosticSessionLike>(
+  session: Session,
+  pending: CodexOutboundTurn,
+  reason: string,
+  message: string,
+  deps: CodexRecoveredTurnDiagnosticDeps<Session>,
+  options: CompleteRecoveredCodexTurnOptions = {},
+): CodexRecoveryDiagnosticOutcome {
+  deps.completeCodexTurn(session, pending);
+  if (options.interruptSource) deps.markTurnInterrupted(session, options.interruptSource);
+  const generationReason = options.leaderContinuationRoute ? "codex_interrupted_turn_continuation" : reason;
+  deps.setGenerating(session, false, generationReason);
+  const successor = deps.getCodexHeadTurn(session);
+  if (successor) rearmRecoveredQueuedHeadTurn(session, successor, `${reason}_successor`, deps);
+  reconcileRecoveredQueuedTurnLifecycle(session, reason, deps);
+
+  let continuationQueued = false;
+  if (options.turnRecoveryActionRequired) {
+    markCodexTurnRecoveryActionRequired(session, options.turnRecoveryActionRequired, deps);
+  } else if (options.leaderContinuationRoute) {
+    continuationQueued = beginCodexTurnRecoveryContinuation(
+      session,
+      options.recoveryOwner ?? pending,
+      options.leaderContinuationRoute,
+      deps,
+    );
+  }
+
+  const diagnosticAppended = !continuationQueued && !!options.leaderDiagnosticRoute;
+  if (diagnosticAppended) appendCodexLeaderRecoveryDiagnostic(session, options.leaderDiagnosticRoute!, deps);
+  deps.dispatchQueuedCodexTurns(session, reason);
+  reconcileRecoveredQueuedTurnLifecycle(session, `${reason}_dispatched`, deps);
+  deps.maybeFlushQueuedCodexMessages(session, reason);
+
+  const browserErrorBroadcast = !continuationQueued;
+  if (browserErrorBroadcast) deps.broadcastToBrowsers(session, { type: "error", message } as BrowserIncomingMessage);
+  const outcome = { continuationQueued, diagnosticAppended, browserErrorBroadcast };
+  if (options.diagnosticLog) {
+    logCodexRecoveryDiagnostic({
+      ...options.diagnosticLog,
+      ...outcome,
+      presentation: diagnosticPresentation(session, outcome),
+    });
+  }
+  deps.persistSession(session);
+  return outcome;
+}

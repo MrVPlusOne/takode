@@ -1,8 +1,9 @@
 import type { BrowserIncomingMessage } from "../session-types.js";
 import { routeFromHistoryEntry, type ThreadRouteMetadata } from "../thread-routing-metadata.js";
-
-const CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID = "system:codex-leader-recovery-diagnostic";
-const CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL = "Codex Recovery Diagnostic";
+import {
+  CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID,
+  CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL,
+} from "../../shared/injected-event-message.js";
 
 type CodexLeaderRecoveryDiagnosticSession = {
   messageHistory: BrowserIncomingMessage[];

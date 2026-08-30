@@ -461,6 +461,13 @@ describe("Playground", () => {
 
     const actionRequired = within(screen.getByTestId("playground-codex-turn-recovery-action-required"));
     expect(actionRequired.getByTestId("codex-turn-recovery-chip")).toHaveClass("border-cc-attention/55");
+
+    const diagnostic = within(screen.getByTestId("playground-codex-recovery-diagnostic"));
+    const diagnosticChip = diagnostic.getByRole("button", { name: "Expand Codex Recovery Diagnostic" });
+    expect(diagnosticChip).not.toHaveClass("border-cc-attention/55");
+    expect(diagnostic.queryByText(/send a new continuation instruction/)).toBeNull();
+    fireEvent.click(diagnosticChip);
+    expect(diagnostic.getByText(/send a new continuation instruction/)).toBeInTheDocument();
   });
 
   it("renders real ChatView and MessageFeed recovery fixtures without a socket", () => {

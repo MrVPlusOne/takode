@@ -4,6 +4,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import {
   COMPACTION_RECOVERY_SOURCE_ID,
   COMPACTION_RECOVERY_SOURCE_LABEL,
+  CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID,
+  CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL,
   MEMORY_CATALOG_SOURCE_ID,
   MEMORY_CATALOG_SOURCE_LABEL,
   MEMORY_CATALOG_TITLE,
@@ -133,6 +135,33 @@ describe("MessageBubble injected event search highlighting", () => {
     } finally {
       useStore.setState({ sessionSearch: prevSessionSearch });
     }
+  });
+
+  it("renders routed Codex recovery guidance as an unobtrusive collapsed event", () => {
+    const msg = makeMessage({
+      role: "user",
+      content: [
+        "Codex recovery diagnostic: automatic replay stopped after the partial leader response above.",
+        "Review the partial response and send a new continuation only if the intended outcome is still missing.",
+      ].join("\n"),
+      agentSource: {
+        sessionId: CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID,
+        sessionLabel: CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL,
+      },
+    });
+
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    const chip = screen.getByRole("button", { name: `Expand ${CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL}` });
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    expect(chip.textContent).toContain(CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL);
+    expect(chip.className).not.toContain("red-");
+    expect(screen.queryByText(/send a new continuation/)).toBeNull();
+
+    fireEvent.click(chip);
+
+    expect(screen.getByText(/send a new continuation/)).toBeTruthy();
+    expect(screen.getByText(/protect exact-once delivery/)).toBeTruthy();
   });
 
   it("renders leader skill preload injections as collapsed event chips by default", () => {

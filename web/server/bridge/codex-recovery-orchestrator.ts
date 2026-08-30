@@ -44,13 +44,14 @@ import {
 import { requestCodexAutoRecovery as requestCodexAutoRecoveryController } from "./session-registry-controller.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import { isSessionPaused } from "../session-pause.js";
-import { appendCodexLeaderRecoveryDiagnostic } from "./codex-leader-recovery-diagnostic.js";
 import {
   buildCodexRecoveredAssistantRouteSegments,
   codexRecoveredAssistantModel,
   recoverAgentMessagesFromResumedTurn,
 } from "./codex-recovered-assistant-routing.js";
 import { consumeCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
+import { buildCodexRecoveryDiagnosticLogContext } from "./codex-recovery-diagnostic-log.js";
+import { completeRecoveredCodexTurnWithDiagnostic } from "./codex-recovered-turn-diagnostic.js";
 import { handleTerminalTurnStartFailure } from "./codex-terminal-turn-start-failure.js";
 import { clearCodexInitRecoveryRuntimeState, codexInitRecoveryRetryDelayMs } from "./codex-provider-result-recovery.js";
 import {
@@ -91,7 +92,6 @@ import { recordCodexAcceptedDispatchActivity } from "./codex-model-switch-dispat
 import { retireProvenInactiveCodexTurnAfterSteerFailure } from "./codex-steer-failure-recovery.js";
 import { recoverNonDrainableCodexHeadTurn } from "./codex-nondrainable-turn-recovery.js";
 import {
-  beginCodexTurnRecoveryContinuation,
   clearCodexTurnRecoveryForOwner,
   hasFinalCodexOutcomeEvidence,
   hasIncompleteCodexActivityWithoutTerminalEvidence,
@@ -1708,11 +1708,32 @@ export function reconcileCodexResumedTurn(
       session.state.isOrchestrator === true
         ? resolveCodexTurnRecoveryRoute(session, recoveryOwner, recoveredAgentMessages.latestLeaderRoute)
         : null;
+    const diagnosticLog = buildCodexRecoveryDiagnosticLogContext({
+      session,
+      owner: recoveryOwner,
+      lastTurn,
+      threadStatus: snapshot.threadStatus,
+      reason: "codex_resume_incomplete_recovered_messages",
+      evidenceClass: isInterruptedAssistantRecovery
+        ? "interrupted_assistant"
+        : recoveredAgents > 0
+          ? "assistant_tool_tail"
+          : observedActivity.kinds.some((kind) => kind === "tool_use" || kind === "tool_result") ||
+              synthesizedResults > 0 ||
+              synthesizedToolResults.omittedFromResumeSnapshotCount > 0
+            ? "tool_tail"
+            : "interrupted_activity",
+      recoveredAssistantCount: recoveredAgents,
+      synthesizedToolResultCount: synthesizedResults,
+      omittedToolResultCount: synthesizedToolResults.omittedFromResumeSnapshotCount,
+      activity: observedActivity,
+      route: leaderRecoveryDiagnosticRoute,
+    });
     completeRecoveredCodexTurnWithDiagnostic(
       session,
       pending,
       "codex_resume_incomplete_recovered_messages",
-      "Codex disconnected mid-turn and recovered partial assistant/tool activity, but no final response was recovered. Automatic retry was skipped to avoid duplicate side effects.",
+      "Codex disconnected mid-turn and recovered partial assistant/tool activity, but no final response was recovered. Automatic retry was skipped to avoid duplicate side effects. Send a new instruction if the intended outcome is still missing.",
       deps,
       {
         leaderDiagnosticRoute: leaderRecoveryDiagnosticRoute,
@@ -1720,6 +1741,7 @@ export function reconcileCodexResumedTurn(
         recoveryOwner,
         turnRecoveryActionRequired: recoveryContinuation ? "continuation_interrupted" : undefined,
         interruptSource: isInterruptedAssistantRecovery || interruptedActivityWithoutTerminal ? "system" : undefined,
+        diagnosticLog,
       },
     );
     return;
@@ -1792,7 +1814,7 @@ export function reconcileCodexResumedTurn(
     session,
     pending,
     "codex_resume_non_retryable",
-    "Codex disconnected mid-turn and resumed with non-text tool activity. Automatic retry was skipped to avoid duplicate side effects.",
+    "Codex disconnected mid-turn and resumed with non-text tool activity. Automatic retry was skipped to avoid duplicate side effects. Send a new instruction if the intended outcome is still missing.",
     deps,
     {
       leaderDiagnosticRoute: leaderRoute,
@@ -1848,48 +1870,6 @@ function suppressCodexReplayForObservedActivity(
       interruptSource: "system",
     },
   );
-}
-
-function completeRecoveredCodexTurnWithDiagnostic(
-  session: CodexRecoveryOrchestratorSessionLike,
-  pending: CodexOutboundTurn,
-  reason: string,
-  message: string,
-  deps: CodexRecoveryOrchestratorDeps,
-  options: {
-    leaderDiagnosticRoute?: ThreadRouteMetadata | null;
-    leaderContinuationRoute?: ThreadRouteMetadata | null;
-    recoveryOwner?: CodexOutboundTurn;
-    turnRecoveryActionRequired?: CodexTurnRecoveryReason;
-    interruptSource?: "user" | "leader" | "system";
-  } = {},
-): void {
-  deps.completeCodexTurn(session, pending);
-  if (options.interruptSource) deps.markTurnInterrupted(session, options.interruptSource);
-  const generationReason = options.leaderContinuationRoute ? "codex_interrupted_turn_continuation" : reason;
-  deps.setGenerating(session, false, generationReason);
-  const successor = deps.getCodexHeadTurn(session);
-  if (successor) rearmRecoveredQueuedHeadTurn(session, successor, `${reason}_successor`, deps);
-  reconcileRecoveredQueuedTurnLifecycle(session, reason, deps);
-  let continuationQueued = false;
-  if (options.turnRecoveryActionRequired) {
-    markCodexTurnRecoveryActionRequired(session, options.turnRecoveryActionRequired, deps);
-  } else if (options.leaderContinuationRoute) {
-    continuationQueued = beginCodexTurnRecoveryContinuation(
-      session,
-      options.recoveryOwner ?? pending,
-      options.leaderContinuationRoute,
-      deps,
-    );
-  }
-  if (!continuationQueued && options.leaderDiagnosticRoute) {
-    appendCodexLeaderRecoveryDiagnostic(session, options.leaderDiagnosticRoute, deps);
-  }
-  deps.dispatchQueuedCodexTurns(session, reason);
-  reconcileRecoveredQueuedTurnLifecycle(session, `${reason}_dispatched`, deps);
-  deps.maybeFlushQueuedCodexMessages(session, reason);
-  if (!continuationQueued) deps.broadcastToBrowsers(session, { type: "error", message });
-  deps.persistSession(session);
 }
 
 export function retryPendingCodexTurn(

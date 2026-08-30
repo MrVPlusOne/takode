@@ -6,6 +6,7 @@ import type {
   ThreadTransitionMarker,
 } from "../server/session-types.js";
 import { deriveWindowAvailability } from "./window-availability.js";
+import { isCodexLeaderRecoveryDiagnosticSourceId } from "./injected-event-message.js";
 import { toolRelationKey } from "./tool-relation-key.js";
 import {
   inferThreadTargetFromTextContent,
@@ -38,6 +39,10 @@ interface FeedItem {
 interface ConversationRange {
   startItem: number;
   endItem: number;
+}
+
+function isConversationStartingUserMessage(message: BrowserIncomingMessage | undefined): boolean {
+  return message?.type === "user_message" && !isCodexLeaderRecoveryDiagnosticSourceId(message.agentSource?.sessionId);
 }
 
 type RouteTarget = { threadKey: string; questId?: string };
@@ -463,7 +468,7 @@ function buildMessageTurnRanges(
   for (let index = 0; index < messages.length; index++) {
     const message = messages[index];
     if (includeMessage && !includeMessage(message, index)) continue;
-    if (message.type === "user_message") {
+    if (isConversationStartingUserMessage(message)) {
       if (startIndex >= 0 && index > startIndex) {
         ranges.push({ startIndex, endIndex: index - 1 });
       }
@@ -489,7 +494,7 @@ function buildConversationRanges(items: FeedItem[]): ConversationRange[] {
   let startItem = 0;
   for (let index = 0; index < items.length; index++) {
     const message = items[index]?.entry.message;
-    if (message?.type === "user_message" && index > startItem) {
+    if (isConversationStartingUserMessage(message) && index > startItem) {
       ranges.push({ startItem, endItem: index });
       startItem = index;
       continue;

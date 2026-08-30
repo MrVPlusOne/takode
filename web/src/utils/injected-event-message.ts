@@ -3,6 +3,8 @@ import {
   CODEX_TURN_RECOVERY_SOURCE_LABEL,
   COMPACTION_RECOVERY_SOURCE_ID,
   COMPACTION_RECOVERY_SOURCE_LABEL,
+  CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID,
+  CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL,
   LEADER_KICKOFF_SOURCE_ID,
   LEADER_KICKOFF_SOURCE_LABEL,
   LEADER_SKILL_PRELOAD_SOURCE_LABEL_PREFIX,
@@ -57,6 +59,13 @@ export function buildInjectedEventMessageViewModel(message: EventCandidate): Inj
     return withRawContent(message, {
       title: COMPACTION_RECOVERY_SOURCE_LABEL,
       description: "System-injected recovery instructions after context compaction.",
+    });
+  }
+
+  if (sourceId === CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID) {
+    return withRawContent(message, {
+      title: CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL,
+      description: "Automatic replay was skipped to protect exact-once delivery. Expand for continuation guidance.",
     });
   }
 
