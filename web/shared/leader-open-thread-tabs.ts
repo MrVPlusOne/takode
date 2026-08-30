@@ -15,6 +15,8 @@ export interface LeaderOpenThreadTabsState {
   closedThreadTombstones: LeaderClosedThreadTombstone[];
   updatedAt: number;
   migratedFromLocalStorageAt?: number;
+  /** Latest explicit browser ordering action; newer server candidates may still surface ahead of it. */
+  explicitOrderUpdatedAt?: number;
 }
 
 export type LeaderThreadTabUpdate =
@@ -82,12 +84,17 @@ export function normalizeLeaderOpenThreadTabsState(candidate: unknown): LeaderOp
     typeof record.migratedFromLocalStorageAt === "number" && Number.isFinite(record.migratedFromLocalStorageAt)
       ? Math.max(0, record.migratedFromLocalStorageAt)
       : undefined;
+  const explicitOrderUpdatedAt =
+    typeof record.explicitOrderUpdatedAt === "number" && Number.isFinite(record.explicitOrderUpdatedAt)
+      ? Math.max(0, record.explicitOrderUpdatedAt)
+      : undefined;
   return {
     version: LEADER_OPEN_THREAD_TABS_VERSION,
     orderedOpenThreadKeys: normalizeLeaderOpenThreadKeys(record.orderedOpenThreadKeys ?? []),
     closedThreadTombstones: normalizeClosedThreadTombstones(record.closedThreadTombstones ?? []),
     updatedAt,
     ...(migratedFromLocalStorageAt !== undefined ? { migratedFromLocalStorageAt } : {}),
+    ...(explicitOrderUpdatedAt !== undefined ? { explicitOrderUpdatedAt } : {}),
   };
 }
 
@@ -163,7 +170,8 @@ export function applyLeaderThreadTabUpdate(
       const state = existingState ?? createLeaderOpenThreadTabsState(now);
       const threadKey = normalizeLeaderThreadKey(record.threadKey);
       if (!shouldPersistLeaderThreadTab(threadKey)) return state;
-      const source = record.source === "server_candidate" ? "server_candidate" : "user";
+      const source =
+        record.source === "server_candidate" ? "server_candidate" : record.source === "route" ? "route" : "user";
       const eventAt = validTimestamp(record.eventAt);
       if (source === "server_candidate" && !canServerCandidateOpenThread(state, threadKey, eventAt)) {
         return state;
@@ -182,6 +190,7 @@ export function applyLeaderThreadTabUpdate(
         orderedOpenThreadKeys,
         closedThreadTombstones,
         updatedAt: now,
+        ...(source === "server_candidate" ? {} : { explicitOrderUpdatedAt: now }),
       };
     }
     case "close": {
@@ -195,6 +204,7 @@ export function applyLeaderThreadTabUpdate(
         orderedOpenThreadKeys: state.orderedOpenThreadKeys.filter((key) => key !== threadKey),
         closedThreadTombstones: upsertClosedThreadTombstone(state.closedThreadTombstones, { threadKey, closedAt }),
         updatedAt: closedAt,
+        explicitOrderUpdatedAt: closedAt,
       };
     }
     case "reorder": {
@@ -203,11 +213,17 @@ export function applyLeaderThreadTabUpdate(
         existingState.orderedOpenThreadKeys,
         record.orderedOpenThreadKeys,
       );
-      if (arraysEqual(existingState.orderedOpenThreadKeys, orderedOpenThreadKeys)) return existingState;
+      if (
+        arraysEqual(existingState.orderedOpenThreadKeys, orderedOpenThreadKeys) &&
+        existingState.explicitOrderUpdatedAt === now
+      ) {
+        return existingState;
+      }
       return {
         ...existingState,
         orderedOpenThreadKeys,
         updatedAt: now,
+        explicitOrderUpdatedAt: now,
       };
     }
     case "auto_close":

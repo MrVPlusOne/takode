@@ -10,6 +10,7 @@ import { questOwnsSessionName } from "./utils/quest-helpers.js";
 import { sessionTaskHistoryEqual, stringArrayEqual } from "./store-equality.js";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
 import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
+import { LEADER_THREAD_TABS_PROJECTION } from "../shared/leader-thread-tabs-projection.js";
 import { syncedProjectionEntryId, type SyncedProjectionSubscriptionIdentity } from "../shared/synced-projection.js";
 import { hasSessionAttentionProjection } from "./store-synced-projections.js";
 
@@ -72,7 +73,16 @@ export function reconcileStoredSyncedProjectionSnapshots(
   for (const session of state.sdkSessions) {
     if (session.archived || seenSessionIds.has(session.sessionId)) continue;
     seenSessionIds.add(session.sessionId);
-    for (const projection of [SESSION_ATTENTION_PROJECTION, SESSION_NAVIGATION_PROJECTION]) {
+    const projectionNames: string[] = [SESSION_ATTENTION_PROJECTION, SESSION_NAVIGATION_PROJECTION];
+    if (
+      session.isOrchestrator === true ||
+      state.sessions.get(session.sessionId)?.isOrchestrator === true ||
+      state.syncedProjectionKeys.has(syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, session.sessionId)) ||
+      Object.prototype.hasOwnProperty.call(session, "leaderThreadTabsProjection")
+    ) {
+      projectionNames.push(LEADER_THREAD_TABS_PROJECTION);
+    }
+    for (const projection of projectionNames) {
       if (!acceptedIds.has(syncedProjectionEntryId(projection, session.sessionId))) {
         rejectedSubscriptions.push({ projection, key: session.sessionId });
       }
@@ -88,11 +98,15 @@ export function reconcileStoredSyncedProjectionSnapshots(
       const removeNavigation =
         Object.prototype.hasOwnProperty.call(session, "sessionNavigationProjection") &&
         !acceptedIds.has(syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, session.sessionId));
-      if (!removeAttention && !removeNavigation) return session;
+      const removeLeaderThreadTabs =
+        Object.prototype.hasOwnProperty.call(session, "leaderThreadTabsProjection") &&
+        !acceptedIds.has(syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, session.sessionId));
+      if (!removeAttention && !removeNavigation && !removeLeaderThreadTabs) return session;
       changed = true;
       const next = { ...session };
       if (removeAttention) delete next.sessionAttentionProjection;
       if (removeNavigation) delete next.sessionNavigationProjection;
+      if (removeLeaderThreadTabs) delete next.leaderThreadTabsProjection;
       return next;
     });
     return changed ? { sdkSessions } : current;
@@ -222,7 +236,8 @@ export function _resetActiveSessionMetadataRefreshForTest(): void {
 function hasStoredProjectionSnapshot(session: SdkSessionInfo): boolean {
   return (
     Object.prototype.hasOwnProperty.call(session, "sessionAttentionProjection") ||
-    Object.prototype.hasOwnProperty.call(session, "sessionNavigationProjection")
+    Object.prototype.hasOwnProperty.call(session, "sessionNavigationProjection") ||
+    Object.prototype.hasOwnProperty.call(session, "leaderThreadTabsProjection")
   );
 }
 
@@ -230,6 +245,7 @@ function stripStoredProjectionSnapshots(session: SdkSessionInfo): SdkSessionInfo
   const {
     sessionAttentionProjection: _sessionAttentionProjection,
     sessionNavigationProjection: _sessionNavigationProjection,
+    leaderThreadTabsProjection: _leaderThreadTabsProjection,
     ...rest
   } = session;
   return rest;
@@ -260,10 +276,14 @@ function stripRestFencedProjectionSnapshots(
   const removeNavigation =
     Object.prototype.hasOwnProperty.call(session, "sessionNavigationProjection") &&
     isFenced(SESSION_NAVIGATION_PROJECTION);
-  if (!removeAttention && !removeNavigation) return session;
+  const removeLeaderThreadTabs =
+    Object.prototype.hasOwnProperty.call(session, "leaderThreadTabsProjection") &&
+    isFenced(LEADER_THREAD_TABS_PROJECTION);
+  if (!removeAttention && !removeNavigation && !removeLeaderThreadTabs) return session;
   const next = { ...session };
   if (removeAttention) delete next.sessionAttentionProjection;
   if (removeNavigation) delete next.sessionNavigationProjection;
+  if (removeLeaderThreadTabs) delete next.leaderThreadTabsProjection;
   return next;
 }
 
@@ -279,6 +299,7 @@ function sessionProjectionSnapshotsFromSession(session: SdkSessionInfo): unknown
   const snapshots: unknown[] = [];
   if ("sessionAttentionProjection" in session) snapshots.push(session.sessionAttentionProjection);
   if ("sessionNavigationProjection" in session) snapshots.push(session.sessionNavigationProjection);
+  if ("leaderThreadTabsProjection" in session) snapshots.push(session.leaderThreadTabsProjection);
   return snapshots;
 }
 

@@ -8,6 +8,11 @@ import {
   type SessionNavigationProjectionValue,
   type SessionNavigationStatus,
 } from "../shared/session-navigation-projection.js";
+import {
+  LEADER_THREAD_TABS_PROJECTION,
+  LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES,
+  type LeaderThreadTabsProjectionValue,
+} from "../shared/leader-thread-tabs-projection.js";
 import type {
   SyncedProjectionEnvelope,
   SyncedProjectionSnapshotMessage,
@@ -18,6 +23,7 @@ import type {
 import { sendToBrowser, type BrowserTransportSocketLike } from "./bridge/browser-transport-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
 import { createSessionAttentionProjectionDefinition } from "./session-attention-projection.js";
+import { createLeaderThreadTabsProjectionDefinition } from "./leader-thread-tabs-projection.js";
 import { createSessionNavigationProjectionDefinition } from "./session-navigation-projection.js";
 import type { SdkSessionInfo } from "./session-info.js";
 import { SyncedProjectionRuntime, type SyncedProjectionRuntimeMetrics } from "./synced-projection-runtime.js";
@@ -41,6 +47,7 @@ export class WsBridgeSyncedProjectionController {
   constructor(private readonly deps: WsBridgeSyncedProjectionDeps) {
     this.runtime = new SyncedProjectionRuntime({
       generation: randomUUID(),
+      maxValueBytes: LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES,
       onError: (error, context) => {
         console.warn(`[synced-projection] ${context.phase} failed for ${context.projection}/${context.key}:`, error);
       },
@@ -75,12 +82,21 @@ export class WsBridgeSyncedProjectionController {
         authorizeSubscription,
       }),
     );
+    this.runtime.register(
+      createLeaderThreadTabsProjectionDefinition({
+        getSession: deps.getSession,
+        isLeaderSession: (session) =>
+          session.state.isOrchestrator === true || deps.getLauncherSessionInfo(session.id)?.isOrchestrator === true,
+        authorizeSubscription,
+      }),
+    );
   }
 
   invalidateSession(session: Session): void {
     this.runtime.transaction(() => {
       this.runtime.invalidate(SESSION_ATTENTION_PROJECTION, session.id);
       this.runtime.invalidate(SESSION_NAVIGATION_PROJECTION, session.id);
+      this.runtime.invalidate(LEADER_THREAD_TABS_PROJECTION, session.id);
     });
   }
 
@@ -100,6 +116,10 @@ export class WsBridgeSyncedProjectionController {
 
   getSessionNavigationSnapshot(sessionId: string): SyncedProjectionEnvelope<SessionNavigationProjectionValue> | null {
     return this.runtime.getSnapshot(SESSION_NAVIGATION_PROJECTION, sessionId);
+  }
+
+  getLeaderThreadTabsSnapshot(sessionId: string): SyncedProjectionEnvelope<LeaderThreadTabsProjectionValue> | null {
+    return this.runtime.getSnapshot(LEADER_THREAD_TABS_PROJECTION, sessionId);
   }
 
   replaceSubscriptions(
@@ -143,6 +163,7 @@ export class WsBridgeSyncedProjectionController {
   removeSession(sessionId: string): void {
     this.runtime.removeKey(SESSION_ATTENTION_PROJECTION, sessionId);
     this.runtime.removeKey(SESSION_NAVIGATION_PROJECTION, sessionId);
+    this.runtime.removeKey(LEADER_THREAD_TABS_PROJECTION, sessionId);
   }
 
   getMetrics(): Readonly<SyncedProjectionRuntimeMetrics> {

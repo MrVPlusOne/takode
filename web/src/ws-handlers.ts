@@ -64,6 +64,10 @@ import { indexCodexSubagentToolResults } from "./utils/codex-subagent-tool-resul
 import { handleQuestListUpdated, handleSessionQuestClaimed } from "./ws-quest-handlers.js";
 import { hasSessionAttentionProjection, hasSessionNavigationProjection } from "./store-synced-projections.js";
 import {
+  hasLeaderThreadTabsVisualAuthority,
+  stripLegacyLeaderThreadTabsState,
+} from "./utils/leader-thread-tabs-resolver.js";
+import {
   handleSyncedProjectionMessage,
   settleSyncedProjectionSubscribeBoundary,
   type SyncedProjectionMessageHandlerDeps,
@@ -707,7 +711,7 @@ function handleParsedMessage(
   switch (data.type) {
     case "session_init": {
       const existingSession = store.sessions.get(sessionId);
-      store.addSession(data.session);
+      store.addSession(stripLegacyLeaderThreadTabsState(store, sessionId, data.session));
       // Do NOT set cliConnected here — session_init is just a state snapshot.
       // Connection status comes from explicit backend_connected/backend_disconnected messages.
       if (!existingSession) {
@@ -746,7 +750,10 @@ function handleParsedMessage(
     }
 
     case "session_update": {
-      store.updateSession(sessionId, normalizeAutoPauseRecoverySessionUpdate(data.session));
+      store.updateSession(
+        sessionId,
+        stripLegacyLeaderThreadTabsState(store, sessionId, normalizeAutoPauseRecoverySessionUpdate(data.session)),
+      );
       if (data.session.backend_state === "connected") {
         clearRecoverableCodexInitErrors(sessionId);
       }
@@ -779,6 +786,7 @@ function handleParsedMessage(
       const update = data.session ?? {};
       const projectionOwnsAttention = hasSessionAttentionProjection(store, targetSessionId);
       const projectionOwnsNavigation = hasSessionNavigationProjection(store, targetSessionId);
+      const projectionOwnsLeaderTabs = hasLeaderThreadTabsVisualAuthority(store, targetSessionId);
       const shouldApplyAttention =
         update.attentionReason === undefined
           ? true
@@ -795,7 +803,7 @@ function handleParsedMessage(
         ...(update.pendingPermissionSummary !== undefined
           ? { pendingPermissionSummary: update.pendingPermissionSummary }
           : {}),
-        ...(update.leaderActivePhaseSummary !== undefined
+        ...(!projectionOwnsLeaderTabs && update.leaderActivePhaseSummary !== undefined
           ? { leaderActivePhaseSummary: update.leaderActivePhaseSummary }
           : {}),
         ...(update.modelProvenanceMigration ? { modelProvenanceMigration: update.modelProvenanceMigration } : {}),
@@ -1452,10 +1460,11 @@ function handleParsedMessage(
       // and any future live-updating inline boards stay current.
       store.setSessionBoard(sessionId, data.board ?? []);
       store.setSessionCompletedBoard(sessionId, data.completedBoard ?? []);
-      if (data.leaderOpenThreadTabs) {
+      const projectionOwnsLeaderTabs = hasLeaderThreadTabsVisualAuthority(store, sessionId);
+      if (!projectionOwnsLeaderTabs && data.leaderOpenThreadTabs) {
         store.updateSession(sessionId, { leaderOpenThreadTabs: data.leaderOpenThreadTabs });
       }
-      if (data.leaderActivePhaseSummary !== undefined) {
+      if (!projectionOwnsLeaderTabs && data.leaderActivePhaseSummary !== undefined) {
         store.updateSdkSession(sessionId, { leaderActivePhaseSummary: data.leaderActivePhaseSummary });
       }
       if (data.rowSessionStatuses) {
@@ -1487,6 +1496,7 @@ function handleParsedMessage(
 
     case "state_snapshot": {
       settleSyncedProjectionSubscribeBoundary(sessionId, store, deps);
+      const projectionOwnsLeaderTabs = hasLeaderThreadTabsVisualAuthority(useStore.getState(), sessionId);
       // Authoritative state from server — overrides any stale transient state
       const authoritativeNotificationStatus = {
         notificationUrgency: data.notificationUrgency,
@@ -1565,7 +1575,7 @@ function handleParsedMessage(
       if (data.completedBoard) {
         store.setSessionCompletedBoard(sessionId, data.completedBoard);
       }
-      if (data.leaderActivePhaseSummary !== undefined) {
+      if (!projectionOwnsLeaderTabs && data.leaderActivePhaseSummary !== undefined) {
         store.updateSdkSession(sessionId, { leaderActivePhaseSummary: data.leaderActivePhaseSummary });
       }
       if (data.rowSessionStatuses) {
@@ -1578,7 +1588,9 @@ function handleParsedMessage(
         });
       }
       store.setSessionAttentionRecords(sessionId, data.attentionRecords ?? []);
-      store.updateSession(sessionId, { leaderThreadStatuses: data.leaderThreadStatuses ?? {} });
+      if (!projectionOwnsLeaderTabs) {
+        store.updateSession(sessionId, { leaderThreadStatuses: data.leaderThreadStatuses ?? {} });
+      }
       break;
     }
 

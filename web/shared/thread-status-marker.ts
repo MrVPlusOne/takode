@@ -18,8 +18,25 @@ export interface LeaderThreadStatus {
   questId?: string;
   summary: string;
   messageId: string;
+  /** Stable full-ID correlation retained when bounded projections shorten messageId. */
+  messageIdHash?: string;
   timestamp: number;
   updatedAt: number;
+}
+
+export const THREAD_STATUS_MESSAGE_ID_HASH_LENGTH = 32;
+
+/** Deterministic 128-bit non-cryptographic fingerprint for bounded message identity correlation. */
+export function threadStatusMessageIdHash(value: string): string {
+  const hashes = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35];
+  const primes = [0x01000193, 0x27d4eb2d, 0x165667b1, 0x9e3779b1];
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    for (let lane = 0; lane < hashes.length; lane += 1) {
+      hashes[lane] = Math.imul((hashes[lane]! ^ code ^ (index + lane)) >>> 0, primes[lane]!);
+    }
+  }
+  return hashes.map((hash) => (hash >>> 0).toString(16).padStart(8, "0")).join("");
 }
 
 const THREAD_STATUS_MARKER_RE = /^\{\[\(Thread (Waiting|Ready): (main|q-\d+) \| ([^\r\n]{1,200})\)\]\}$/;

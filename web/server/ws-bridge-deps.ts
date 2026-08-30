@@ -908,6 +908,8 @@ export function getBrowserTransportDeps(host: any) {
       host.getSyncedProjectionController().resync(socket, projection, key),
     removeSyncedProjectionSubscriber: (socket: unknown) =>
       host.getSyncedProjectionController().removeSubscriber(socket),
+    getLeaderThreadTabsProjectionValue: (sessionId: string) =>
+      host.getSyncedProjectionController().getLeaderThreadTabsSnapshot(sessionId)?.value ?? null,
     lazyLoadFullHistory: async (targetSession: unknown) => {
       const session = targetSession as Session;
       if (!session.searchDataOnly || !host.store) return;

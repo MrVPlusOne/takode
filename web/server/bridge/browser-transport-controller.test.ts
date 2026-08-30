@@ -723,6 +723,67 @@ describe("leader_thread_tabs_update", () => {
     });
   });
 
+  it("materializes projection-only visible tabs before applying a browser reorder", () => {
+    const session = makeSession({
+      state: {
+        permissionMode: "default",
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-raw"],
+          closedThreadTombstones: [],
+          updatedAt: 1,
+        },
+      } as any,
+    });
+    const projectionKeys = ["q-projected", "q-raw"];
+    const getLeaderThreadTabsProjectionValue = vi.fn(() => ({
+      tabState: {
+        version: 1,
+        orderedOpenThreadKeys: projectionKeys,
+        closedThreadTombstones: [],
+        updatedAt: 10,
+      },
+      tabs: projectionKeys.map((threadKey) => ({
+        threadKey,
+        questId: threadKey,
+        title: threadKey,
+        boardStatus: null,
+        journey: null,
+        active: threadKey === "q-projected",
+        queued: false,
+        proposed: false,
+        completed: false,
+        canClose: threadKey !== "q-projected",
+        attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+        updatedAt: 10,
+      })),
+      mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+      threadStatuses: {},
+      activePhaseSummary: [],
+    }));
+    const deps = makeInjectDeps({ getLeaderThreadTabsProjectionValue });
+
+    const handled = handleBrowserProtocolMessage(
+      session,
+      {
+        type: "leader_thread_tabs_update",
+        operation: { type: "reorder", orderedOpenThreadKeys: ["q-raw", "q-projected"] },
+        client_msg_id: "tabs-reorder-projected",
+      },
+      undefined,
+      deps,
+    );
+
+    expect(handled).toBe(true);
+    expect(getLeaderThreadTabsProjectionValue).toHaveBeenCalled();
+    expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-raw", "q-projected"]);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "session_update",
+      session: { leaderOpenThreadTabs: session.state.leaderOpenThreadTabs },
+    });
+  });
+
   it("ignores stale or unsupported tab operations without mutating server state", () => {
     const serverState = {
       version: 1 as const,

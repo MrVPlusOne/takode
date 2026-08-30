@@ -8,8 +8,10 @@ import {
 } from "../../shared/feed-window-sync.js";
 import {
   applyLeaderThreadTabUpdate,
+  LEADER_OPEN_THREAD_TABS_VERSION,
   normalizeLeaderOpenThreadTabsState,
 } from "../../shared/leader-open-thread-tabs.js";
+import type { LeaderThreadTabsProjectionValue } from "../../shared/leader-thread-tabs-projection.js";
 import {
   computeHistoryMessagesSyncHash,
   computeHistoryPayloadSyncHash,
@@ -257,6 +259,7 @@ export interface BrowserTransportDeps {
     key: string,
   ) => BrowserIncomingMessage | null;
   removeSyncedProjectionSubscriber?: (socket: BrowserTransportSocketLike) => void;
+  getLeaderThreadTabsProjectionValue?: (sessionId: string) => LeaderThreadTabsProjectionValue | null;
 }
 
 const BROWSER_ACTIVITY_TYPES: ReadonlySet<string> = new Set([
@@ -707,7 +710,12 @@ function handleLeaderThreadTabsUpdate(
   const existingState = normalizeLeaderOpenThreadTabsState(session.state.leaderOpenThreadTabs);
   if (operation.type === "migrate" && existingState) return;
 
-  const nextState = applyLeaderThreadTabUpdate(existingState, operation);
+  const projectedState =
+    operation.type === "migrate"
+      ? undefined
+      : leaderThreadTabsCommandStateFromProjection(deps.getLeaderThreadTabsProjectionValue?.(session.id) ?? null);
+  const commandBaseState = mergeLeaderThreadTabsCommandBase(existingState, projectedState);
+  const nextState = applyLeaderThreadTabUpdate(commandBaseState, operation);
   if (statesEqual(existingState, nextState)) return;
 
   session.state.leaderOpenThreadTabs = nextState;
@@ -725,6 +733,39 @@ function isObsoleteLeaderThreadTabOperation(
   return operation.type === "auto_close" || !["migrate", "open", "close", "reorder"].includes(String(operation.type));
 }
 
+function leaderThreadTabsCommandStateFromProjection(
+  projection: LeaderThreadTabsProjectionValue | null,
+): ReturnType<typeof normalizeLeaderOpenThreadTabsState> {
+  if (!projection) return undefined;
+  if (projection.tabState) return normalizeLeaderOpenThreadTabsState(projection.tabState);
+  if (projection.tabs.length === 0) return undefined;
+  return normalizeLeaderOpenThreadTabsState({
+    version: LEADER_OPEN_THREAD_TABS_VERSION,
+    orderedOpenThreadKeys: projection.tabs.map((tab) => tab.threadKey),
+    closedThreadTombstones: [],
+    updatedAt: Math.max(...projection.tabs.map((tab) => tab.updatedAt), 0),
+  });
+}
+
+function mergeLeaderThreadTabsCommandBase(
+  existingState: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
+  projectedState: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
+): ReturnType<typeof normalizeLeaderOpenThreadTabsState> {
+  if (!projectedState) return existingState;
+  if (!existingState) return projectedState;
+  return normalizeLeaderOpenThreadTabsState({
+    ...projectedState,
+    closedThreadTombstones: [...existingState.closedThreadTombstones, ...projectedState.closedThreadTombstones],
+    updatedAt: Math.max(existingState.updatedAt, projectedState.updatedAt),
+    ...(existingState.migratedFromLocalStorageAt !== undefined
+      ? { migratedFromLocalStorageAt: existingState.migratedFromLocalStorageAt }
+      : {}),
+    ...(existingState.explicitOrderUpdatedAt !== undefined
+      ? { explicitOrderUpdatedAt: existingState.explicitOrderUpdatedAt }
+      : {}),
+  });
+}
+
 function statesEqual(
   left: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
   right: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
@@ -733,6 +774,7 @@ function statesEqual(
   return (
     left.updatedAt === right.updatedAt &&
     left.migratedFromLocalStorageAt === right.migratedFromLocalStorageAt &&
+    left.explicitOrderUpdatedAt === right.explicitOrderUpdatedAt &&
     arraysEqual(left.orderedOpenThreadKeys, right.orderedOpenThreadKeys) &&
     left.closedThreadTombstones.length === right.closedThreadTombstones.length &&
     left.closedThreadTombstones.every(

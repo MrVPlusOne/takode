@@ -8,6 +8,7 @@
  */
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useMemo, useState, useEffect, useLayoutEffect, useRef } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   DndContext,
   PointerSensor,
@@ -36,7 +37,12 @@ import { isAttentionRecordActive, type AttentionRecord } from "../utils/attentio
 import { getQuestPhaseThreadTabTitleColorValue } from "../utils/quest-phase-theme.js";
 import type { QuestmasterTask } from "../types.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
-import { activeBoardSummarySegments, boardSummary, type BoardSummarySegment } from "./leader-board-summary.js";
+import {
+  activeBoardSummarySegments,
+  boardSummary,
+  boardSummarySegmentsFromActivePhaseSummary,
+  type BoardSummarySegment,
+} from "./leader-board-summary.js";
 import { LeaderWorkboardControlButton, SummarySegments } from "./leader-workboard-controls.js";
 import type { LeaderWorkboardView } from "../store-types.js";
 import { buildCanonicalQuestTitleIndex, isQuestIdOnlyTitle } from "../utils/quest-title-index.js";
@@ -45,6 +51,12 @@ import {
   resolveSessionNavigation,
   type SessionNavigationResolverSource,
 } from "../utils/session-navigation-resolver.js";
+import { resolveLeaderThreadTabsProjection } from "../utils/leader-thread-tabs-resolver.js";
+import { mergeProjectedTabsWithRestoredOrder } from "../utils/leader-thread-tabs-navigation.js";
+import type {
+  LeaderThreadTabsProjectionTab,
+  LeaderThreadTabsProjectionValue,
+} from "../../shared/leader-thread-tabs-projection.js";
 
 export interface WorkBoardThreadNavigationRow {
   threadKey: string;
@@ -524,6 +536,54 @@ function doneThreadDetail(row?: WorkBoardThreadNavigationRow): string {
   return threadRowDetail(row);
 }
 
+function projectedThreadTabTitleColor(tab: LeaderThreadTabsProjectionTab, completed: boolean): string | undefined {
+  if (completed) return DONE_THREAD_TITLE_COLOR;
+  if (tab.queued) return QUEUED_THREAD_TITLE_COLOR;
+  const phase = tab.journey?.currentPhaseId ? getQuestJourneyPhase(tab.journey.currentPhaseId) : null;
+  const fallbackPhase = phase ?? getQuestJourneyPhaseForState(tab.boardStatus ?? undefined);
+  return fallbackPhase ? getQuestPhaseThreadTabTitleColorValue(fallbackPhase.color) : undefined;
+}
+
+function projectedThreadTabDetail(tab: LeaderThreadTabsProjectionTab, completed: boolean): string | undefined {
+  if (tab.attention.needsInput) return "Needs input";
+  if (completed) return "Done";
+  if (tab.queued) return "Queued";
+  const phase = tab.journey?.currentPhaseId ? getQuestJourneyPhase(tab.journey.currentPhaseId) : null;
+  return (
+    phase?.label ?? getQuestJourneyPresentation(tab.boardStatus ?? undefined)?.label ?? tab.boardStatus ?? undefined
+  );
+}
+
+function buildProjectedThreadTabs(
+  projection: LeaderThreadTabsProjectionValue | null,
+  questTitleById: ReadonlyMap<string, string>,
+  questById: ReadonlyMap<string, QuestmasterTask>,
+  threadRows: WorkBoardThreadNavigationRow[],
+): PrimaryThreadChip[] {
+  const rowByKey = new Map(threadRows.map((row) => [normalizeThreadKey(row.threadKey), row]));
+  return (projection?.tabs ?? []).map((tab) => {
+    const questId = tab.questId ?? tab.threadKey;
+    const normalizedQuestId = normalizeThreadKey(questId);
+    const title = questTitleById.get(normalizedQuestId) ?? tab.title ?? questId;
+    const completed =
+      tab.completed ||
+      isFinishedThreadRow(rowByKey.get(normalizeThreadKey(tab.threadKey))) ||
+      isCompletedJourneyPresentationStatus(questById.get(normalizedQuestId)?.status);
+    return {
+      threadKey: tab.threadKey,
+      questId,
+      title,
+      detail: projectedThreadTabDetail(tab, completed),
+      needsInput: tab.attention.needsInput,
+      mutedNeedsInput: tab.attention.mutedNeedsInput,
+      blueNudge: tab.attention.reviewUnread,
+      titleColor: projectedThreadTabTitleColor(tab, completed),
+      canClose: completed || tab.canClose,
+      updatedAt: tab.updatedAt,
+    };
+  });
+}
+
 function mergePrimaryThreadChip(chips: Map<string, PrimaryThreadChip>, chip: PrimaryThreadChip) {
   const existing = chips.get(chip.threadKey);
   if (!existing) {
@@ -765,6 +825,7 @@ function ThreadTabRail({
   onCloseThreadTab,
   onReorderThreadTabs,
   newTabKeys,
+  threadStatuses,
 }: {
   mainState?: PrimaryThreadChip;
   tabs: PrimaryThreadChip[];
@@ -775,6 +836,7 @@ function ThreadTabRail({
   onCloseThreadTab?: (threadKey: string) => void;
   onReorderThreadTabs?: (orderedThreadKeys: string[]) => void;
   newTabKeys?: ReadonlySet<string>;
+  threadStatuses?: Readonly<Record<string, LeaderThreadStatus>>;
 }) {
   function NeedsInputBell({ activeOutput }: { activeOutput: boolean }) {
     return (
@@ -888,7 +950,6 @@ function ThreadTabRail({
   const showMainMutedNeedsInput = mainMutedNeedsInput && !mainNeedsInput && !mainBlueNudge;
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const activeTurnRoute = useStore((s) => s.activeTurnRoutes.get(sessionId));
-  const threadStatuses = useStore((s) => s.sessions.get(sessionId)?.leaderThreadStatuses);
   const quests = useStore((s) => s.quests);
   const questDetails = useStore((s) => s.questDetails ?? new Map<string, QuestmasterTask>());
   const questById = useMemo(() => {
@@ -1523,6 +1584,7 @@ function ProjectionToggle({
 }
 
 export function resolveWorkBoardIsOrchestrator(source: SessionNavigationResolverSource, sessionId: string): boolean {
+  if (resolveLeaderThreadTabsProjection(source, sessionId).projectionState === "accepted") return true;
   const navigation = resolveSessionNavigation(source, sessionId);
   if (navigation && navigation.projectionState !== "legacy") {
     return navigation.viewModel.isOrchestrator === true;
@@ -1559,6 +1621,13 @@ export function WorkBoardBar({
   const rowSessionStatuses = useStore((s) => s.sessionBoardRowStatuses.get(sessionId));
   const completedBoard = useStore((s) => s.sessionCompletedBoards.get(sessionId));
   const isOrchestrator = useStore((s) => resolveWorkBoardIsOrchestrator(s, sessionId));
+  const leaderTabsResolution = useStore(useShallow((s) => resolveLeaderThreadTabsProjection(s, sessionId)));
+  const leaderTabsProjection = leaderTabsResolution.projectionState === "accepted" ? leaderTabsResolution.value : null;
+  const leaderTabsProjectionOwned = leaderTabsResolution.projectionState !== "legacy";
+  const legacyThreadStatuses = useStore((s) => s.sessions.get(sessionId)?.leaderThreadStatuses);
+  const threadStatuses = leaderTabsProjectionOwned
+    ? (leaderTabsProjection?.threadStatuses ?? {})
+    : legacyThreadStatuses;
   const activeView = useStore((s) => s.leaderWorkboardViews?.get(sessionId) ?? null);
   const setLeaderWorkboardView = useStore((s) => s.setLeaderWorkboardView ?? (() => {}));
 
@@ -1594,8 +1663,8 @@ export function WorkBoardBar({
     () => buildPrimaryThreadChips({ activeBoardRows, threadRows, attentionRecords }),
     [activeBoardRows, attentionRecords, threadRows],
   );
-  const openThreadTabs = useMemo(
-    () =>
+  const openThreadTabs = useMemo(() => {
+    const buildLegacyTabs = () =>
       buildOpenThreadTabs({
         openThreadKeys,
         threadRows,
@@ -1604,9 +1673,23 @@ export function WorkBoardBar({
         completedBoardRows,
         questById,
         questTitleById,
-      }),
-    [activeBoardRows, activeThreadChips, completedBoardRows, openThreadKeys, questById, questTitleById, threadRows],
-  );
+      });
+    if (!leaderTabsProjectionOwned) return buildLegacyTabs();
+    const projectedTabs = buildProjectedThreadTabs(leaderTabsProjection, questTitleById, questById, threadRows);
+    return leaderTabsProjection?.tabState === null
+      ? mergeProjectedTabsWithRestoredOrder(projectedTabs, buildLegacyTabs())
+      : projectedTabs;
+  }, [
+    activeBoardRows,
+    activeThreadChips,
+    completedBoardRows,
+    leaderTabsProjection,
+    leaderTabsProjectionOwned,
+    openThreadKeys,
+    questById,
+    questTitleById,
+    threadRows,
+  ]);
   const previousOpenThreadTabKeysRef = useRef<string[] | null>(null);
   const newThreadTabTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [newThreadTabKeys, setNewThreadTabKeys] = useState<Set<string>>(() => new Set());
@@ -1667,10 +1750,20 @@ export function WorkBoardBar({
     },
     [],
   );
-  const mainThreadState = useMemo(
-    () => activeThreadChips.find((chip) => chip.threadKey === MAIN_THREAD_KEY),
-    [activeThreadChips],
-  );
+  const mainThreadState = useMemo(() => {
+    if (!leaderTabsProjectionOwned) return activeThreadChips.find((chip) => chip.threadKey === MAIN_THREAD_KEY);
+    const attention = leaderTabsProjection?.mainAttention;
+    if (!attention) return undefined;
+    return {
+      threadKey: MAIN_THREAD_KEY,
+      title: "Main Thread",
+      needsInput: attention.needsInput,
+      mutedNeedsInput: attention.mutedNeedsInput,
+      blueNudge: attention.reviewUnread,
+      canClose: false,
+      updatedAt: attention.updatedAt,
+    } satisfies PrimaryThreadChip;
+  }, [activeThreadChips, leaderTabsProjection, leaderTabsProjectionOwned]);
   const openThreadTabKeys = useMemo(() => new Set(openThreadTabs.map((tab) => tab.threadKey)), [openThreadTabs]);
   const activeBoardThreadKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -1723,8 +1816,11 @@ export function WorkBoardBar({
     leadingPendingThreadKeysRef.current = new Set(leadingPendingThreadKeys);
   }, [closedActiveBoardThreadKeys, leadingPendingThreadKeys, sessionId]);
   const unifiedThreadTabs = useMemo(
-    () => buildUnifiedThreadTabs({ openThreadTabs, closedActiveThreadChips, leadingPendingThreadKeys }),
-    [closedActiveThreadChips, leadingPendingThreadKeys, openThreadTabs],
+    () =>
+      leaderTabsProjectionOwned
+        ? openThreadTabs
+        : buildUnifiedThreadTabs({ openThreadTabs, closedActiveThreadChips, leadingPendingThreadKeys }),
+    [closedActiveThreadChips, leaderTabsProjectionOwned, leadingPendingThreadKeys, openThreadTabs],
   );
   const handleCloseThreadTab = (threadKey: string) => {
     const normalized = normalizeThreadKey(threadKey);
@@ -1750,7 +1846,13 @@ export function WorkBoardBar({
         .sort((a, b) => a.threadKey.localeCompare(b.threadKey)),
     [boardThreadKeys, threadRows],
   );
-  const activeSummarySegments = useMemo(() => activeBoardSummarySegments(activeBoardRows), [activeBoardRows]);
+  const activeSummarySegments = useMemo(
+    () =>
+      leaderTabsProjectionOwned
+        ? boardSummarySegmentsFromActivePhaseSummary(leaderTabsProjection?.activePhaseSummary ?? [])
+        : activeBoardSummarySegments(activeBoardRows),
+    [activeBoardRows, leaderTabsProjection, leaderTabsProjectionOwned],
+  );
   const handleSelectView = (view: LeaderWorkboardView) => {
     setLeaderWorkboardView(sessionId, activeView === view ? null : view);
   };
@@ -1779,6 +1881,7 @@ export function WorkBoardBar({
         onCloseThreadTab={onCloseThreadTab ? handleCloseThreadTab : undefined}
         onReorderThreadTabs={onReorderThreadTabs}
         newTabKeys={newThreadTabKeys}
+        threadStatuses={threadStatuses}
       />
 
       {showMainBanner && (

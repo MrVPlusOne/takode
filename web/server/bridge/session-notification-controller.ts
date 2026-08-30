@@ -5,7 +5,13 @@ import type {
   SessionNotification,
 } from "../session-types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
-import { normalizeLeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
+import {
+  applyLeaderThreadTabUpdate,
+  canServerCandidateOpenThread,
+  normalizeLeaderOpenThreadTabsState,
+  normalizeLeaderThreadKey,
+  shouldPersistLeaderThreadTab,
+} from "../../shared/leader-open-thread-tabs.js";
 import {
   type ThreadRouteMetadata,
   normalizeThreadRoute,
@@ -182,7 +188,20 @@ function openLeaderReviewThreadKeys(session: SessionLike): Set<string> | null {
   if (session.state?.isOrchestrator !== true) return null;
   const openTabs = normalizeLeaderOpenThreadTabsState(session.state?.leaderOpenThreadTabs);
   if (!openTabs) return null;
-  return new Set(["main", ...openTabs.orderedOpenThreadKeys]);
+  const keys = new Set(["main", ...openTabs.orderedOpenThreadKeys]);
+
+  // Active board rows are server-owned visual tab candidates even for restored
+  // sessions whose durable open-tab state predates server-side surfacing. Keep
+  // their review notifications discoverable while still honoring a newer close.
+  const board = session.board;
+  const rows: Iterable<BoardRow> = board instanceof Map ? board.values() : Array.isArray(board) ? board : [];
+  for (const row of rows) {
+    if (!row || row.completedAt !== undefined || !shouldPersistLeaderThreadTab(row.questId)) continue;
+    const eventAt = row.threadTabActivatedAt ?? row.createdAt;
+    if (!canServerCandidateOpenThread(openTabs, row.questId, eventAt)) continue;
+    keys.add(normalizeLeaderThreadKey(row.questId));
+  }
+  return keys;
 }
 
 function isDiscoverableLeaderReviewNotification(
@@ -377,6 +396,7 @@ export function notifyUser(
   );
   session.notifications.push(notif);
   if (notif.category === "needs-input") {
+    surfaceCreatedNeedsInputThreadTab(session, threadRoute, timestamp, deps);
     markSatisfiedThreadOutcomeReminders(session, notif, anchorIndex);
   }
   touchNotificationStatus(session);
@@ -502,6 +522,25 @@ export function recordThreadReadyUnreadNotifications(
   setAttention(session, "review", deps);
   deps.persistSession(session);
   return true;
+}
+
+function surfaceCreatedNeedsInputThreadTab(
+  session: SessionLike,
+  route: ThreadRouteMetadata,
+  eventAt: number,
+  deps: Pick<NotifyUserDeps, "getLauncherSessionInfo">,
+): void {
+  const isLeader =
+    session.state?.isOrchestrator === true || deps.getLauncherSessionInfo?.(session.id)?.isOrchestrator === true;
+  if (!isLeader || !shouldPersistLeaderThreadTab(route.threadKey)) return;
+  const existingState = normalizeLeaderOpenThreadTabsState(session.state?.leaderOpenThreadTabs);
+  const nextState = applyLeaderThreadTabUpdate(
+    existingState,
+    { type: "open", threadKey: route.threadKey, placement: "first", source: "server_candidate", eventAt },
+    eventAt,
+  );
+  if (!nextState || nextState === existingState) return;
+  session.state = { ...(session.state ?? {}), leaderOpenThreadTabs: nextState };
 }
 
 function activeNotificationThreadRoute(session: SessionLike): ThreadRouteMetadata | null {

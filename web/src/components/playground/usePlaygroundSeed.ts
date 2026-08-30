@@ -41,6 +41,9 @@ import {
 } from "./fixtures.js";
 import { buildPlaygroundAutoPauseRecoveryMessage } from "./AutoPausePlaygroundStates.js";
 import { createSyntheticLargeLeaderFeedFixture } from "../../test-fixtures/large-leader-feed-fixture.js";
+import { buildLeaderActivePhaseSummary } from "../../../shared/leader-active-phase-summary.js";
+import { LEADER_THREAD_TABS_PROJECTION } from "../../../shared/leader-thread-tabs-projection.js";
+import { SYNCED_PROJECTION_SCHEMA_VERSION } from "../../../shared/synced-projection.js";
 
 export function usePlaygroundSeed() {
   useEffect(() => {
@@ -514,8 +517,8 @@ export function usePlaygroundSeed() {
     const playgroundClearedReadyStatus: LeaderThreadStatus = {
       kind: "ready",
       label: "Thread Ready",
-      threadKey: "q-961",
-      questId: "q-961",
+      threadKey: "q-9001",
+      questId: "q-9001",
       summary: "initial implementation answer complete",
       messageId: "playground-thread-q961-ready",
       timestamp: threadStatusTimestamp - 60_000,
@@ -524,10 +527,10 @@ export function usePlaygroundSeed() {
     const playgroundWaitingStatus: LeaderThreadStatus = {
       kind: "waiting",
       label: "Thread Waiting",
-      threadKey: "q-962",
-      questId: "q-962",
+      threadKey: "q-9002",
+      questId: "q-9002",
       summary:
-        "waiting for q-961 to finish before mobile status chip wrapping can be visually checked on the narrow add-to-home-screen layout",
+        "waiting for q-9001 to finish before mobile status chip wrapping can be visually checked on the narrow add-to-home-screen layout",
       messageId: "playground-thread-status-batch",
       timestamp: threadStatusTimestamp,
       updatedAt: threadStatusTimestamp,
@@ -535,10 +538,20 @@ export function usePlaygroundSeed() {
     const playgroundReadyStatus: LeaderThreadStatus = {
       kind: "ready",
       label: "Thread Ready",
-      threadKey: "q-963",
-      questId: "q-963",
+      threadKey: "q-9003",
+      questId: "q-9003",
       summary: "dispatch plan is ready",
       messageId: "playground-thread-q963-phase-final",
+      timestamp: threadStatusTimestamp,
+      updatedAt: threadStatusTimestamp,
+    };
+    const playgroundCompletedWaitingStatus: LeaderThreadStatus = {
+      kind: "waiting",
+      label: "Thread Waiting",
+      threadKey: "q-9004",
+      questId: "q-9004",
+      summary: "waiting for final user review after completion",
+      messageId: "playground-thread-q964-waiting",
       timestamp: threadStatusTimestamp,
       updatedAt: threadStatusTimestamp,
     };
@@ -551,15 +564,15 @@ export function usePlaygroundSeed() {
       is_containerized: false,
       isOrchestrator: true,
       leaderThreadStatuses: {
-        "q-962": playgroundWaitingStatus,
-        "q-963": playgroundReadyStatus,
+        "q-9002": playgroundWaitingStatus,
+        "q-9003": playgroundReadyStatus,
       },
     };
     store.addSession(threadPanelSession);
     store.setConnectionStatus(PLAYGROUND_THREAD_PANEL_SESSION_ID, "connected");
     store.setCliConnected(PLAYGROUND_THREAD_PANEL_SESSION_ID, true);
     store.setSessionStatus(PLAYGROUND_THREAD_PANEL_SESSION_ID, "running");
-    store.setActiveTurnRoute(PLAYGROUND_THREAD_PANEL_SESSION_ID, { threadKey: "q-961", questId: "q-961" });
+    store.setActiveTurnRoute(PLAYGROUND_THREAD_PANEL_SESSION_ID, { threadKey: "q-9001", questId: "q-9001" });
     store.setStreamingStats(PLAYGROUND_THREAD_PANEL_SESSION_ID, { startedAt: Date.now() - 42_000, outputTokens: 1280 });
     const leaderReturnFixture = createSyntheticLargeLeaderFeedFixture({
       historyMessageCount: 131,
@@ -642,12 +655,12 @@ export function usePlaygroundSeed() {
         content: "Earlier context attached to the implementation quest.",
         timestamp: Date.now() - 150_000,
         historyIndex: 1,
-        metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "backfill" }] },
+        metadata: { threadRefs: [{ threadKey: "q-9001", questId: "q-9001", source: "backfill" }] },
       }),
       makePlaygroundMessage({
         id: "playground-thread-attachment-marker",
         role: "system",
-        content: "1 message moved to q-961",
+        content: "1 message moved to q-9001",
         timestamp: Date.now() - 149_000,
         historyIndex: 2,
         variant: "info",
@@ -656,9 +669,9 @@ export function usePlaygroundSeed() {
             type: "thread_attachment_marker",
             id: "playground-thread-attachment-marker",
             timestamp: Date.now() - 149_000,
-            markerKey: "thread-attachment:q-961:playground-thread-attached-history",
-            threadKey: "q-961",
-            questId: "q-961",
+            markerKey: "thread-attachment:q-9001:playground-thread-attached-history",
+            threadKey: "q-9001",
+            questId: "q-9001",
             attachedAt: Date.now() - 149_000,
             attachedBy: "playground",
             messageIds: ["playground-thread-attached-history"],
@@ -673,7 +686,7 @@ export function usePlaygroundSeed() {
       makePlaygroundMessage({
         id: "playground-thread-transition-marker",
         role: "system",
-        content: "Work continued from Main to thread:q-962",
+        content: "Work continued from Main to thread:q-9002",
         timestamp: Date.now() - 145_000,
         historyIndex: 3,
         variant: "info",
@@ -682,10 +695,10 @@ export function usePlaygroundSeed() {
             type: "thread_transition_marker",
             id: "playground-thread-transition-marker",
             timestamp: Date.now() - 145_000,
-            markerKey: "thread-transition:main->q-962:0",
+            markerKey: "thread-transition:main->q-9002:0",
             sourceThreadKey: "main",
-            threadKey: "q-962",
-            questId: "q-962",
+            threadKey: "q-9002",
+            questId: "q-9002",
             transitionedAt: Date.now() - 145_000,
             reason: "route_switch",
             sourceMessageIndex: 0,
@@ -695,7 +708,7 @@ export function usePlaygroundSeed() {
       makePlaygroundMessage({
         id: "playground-thread-outbound-transition",
         role: "system",
-        content: "Work continued from thread:q-961 to thread:q-962",
+        content: "Work continued from thread:q-9001 to thread:q-9002",
         timestamp: Date.now() - 140_000,
         historyIndex: 4,
         variant: "info",
@@ -704,11 +717,11 @@ export function usePlaygroundSeed() {
             type: "thread_transition_marker",
             id: "playground-thread-outbound-transition",
             timestamp: Date.now() - 140_000,
-            markerKey: "thread-transition:q-961->q-962:1",
-            sourceThreadKey: "q-961",
-            sourceQuestId: "q-961",
-            threadKey: "q-962",
-            questId: "q-962",
+            markerKey: "thread-transition:q-9001->q-9002:1",
+            sourceThreadKey: "q-9001",
+            sourceQuestId: "q-9001",
+            threadKey: "q-9002",
+            questId: "q-9002",
             transitionedAt: Date.now() - 140_000,
             reason: "route_switch",
           },
@@ -717,7 +730,7 @@ export function usePlaygroundSeed() {
       makePlaygroundMessage({
         id: "playground-thread-inbound-transition",
         role: "system",
-        content: "Work continued from thread:q-962 to thread:q-961",
+        content: "Work continued from thread:q-9002 to thread:q-9001",
         timestamp: Date.now() - 135_000,
         historyIndex: 5,
         variant: "info",
@@ -726,11 +739,11 @@ export function usePlaygroundSeed() {
             type: "thread_transition_marker",
             id: "playground-thread-inbound-transition",
             timestamp: Date.now() - 135_000,
-            markerKey: "thread-transition:q-962->q-961:2",
-            sourceThreadKey: "q-962",
-            sourceQuestId: "q-962",
-            threadKey: "q-961",
-            questId: "q-961",
+            markerKey: "thread-transition:q-9002->q-9001:2",
+            sourceThreadKey: "q-9002",
+            sourceQuestId: "q-9002",
+            threadKey: "q-9001",
+            questId: "q-9001",
             transitionedAt: Date.now() - 135_000,
             reason: "route_switch",
           },
@@ -739,29 +752,29 @@ export function usePlaygroundSeed() {
       makePlaygroundMessage({
         id: "playground-thread-q961-ready",
         role: "assistant",
-        content: "The initial q-961 answer is complete and remains in history.",
+        content: "The initial q-9001 answer is complete and remains in history.",
         timestamp: Date.now() - 130_000,
         historyIndex: 6,
         metadata: {
-          threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }],
+          threadRefs: [{ threadKey: "q-9001", questId: "q-9001", source: "explicit" }],
           threadStatusMarkers: [playgroundClearedReadyStatus],
         },
       }),
       makePlaygroundMessage({
         id: "playground-thread-q961",
         role: "assistant",
-        content: "Fresh routed leader activity has started, so the old q-961 Ready footer is cleared.",
+        content: "Fresh routed leader activity has started, so the old q-9001 Ready footer is cleared.",
         timestamp: Date.now() - 120_000,
         historyIndex: 7,
-        metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
+        metadata: { threadRefs: [{ threadKey: "q-9001", questId: "q-9001", source: "explicit" }] },
       }),
       makePlaygroundMessage({
         id: "playground-thread-q961-assistant",
         role: "assistant",
-        content: "Tool calls and implementation notes are continuing in q-961.",
+        content: "Tool calls and implementation notes are continuing in q-9001.",
         timestamp: Date.now() - 110_000,
         historyIndex: 8,
-        metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
+        metadata: { threadRefs: [{ threadKey: "q-9001", questId: "q-9001", source: "explicit" }] },
       }),
       makePlaygroundMessage({
         id: "playground-thread-q962",
@@ -769,7 +782,7 @@ export function usePlaygroundSeed() {
         content: "Queued until the dependency finishes.",
         timestamp: Date.now() - 90_000,
         historyIndex: 9,
-        metadata: { threadRefs: [{ threadKey: "q-962", questId: "q-962", source: "explicit" }] },
+        metadata: { threadRefs: [{ threadKey: "q-9002", questId: "q-9002", source: "explicit" }] },
       }),
       makePlaygroundMessage({
         id: "playground-thread-q963",
@@ -777,7 +790,7 @@ export function usePlaygroundSeed() {
         content: "Waiting for a free worker before dispatch.",
         timestamp: Date.now() - 60_000,
         historyIndex: 10,
-        metadata: { threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }] },
+        metadata: { threadRefs: [{ threadKey: "q-9003", questId: "q-9003", source: "explicit" }] },
       }),
       makePlaygroundMessage({
         id: "playground-thread-status-batch",
@@ -789,8 +802,8 @@ export function usePlaygroundSeed() {
         historyIndex: 11,
         metadata: {
           threadRefs: [
-            { threadKey: "q-962", questId: "q-962", source: "explicit" },
-            { threadKey: "q-963", questId: "q-963", source: "explicit" },
+            { threadKey: "q-9002", questId: "q-9002", source: "explicit" },
+            { threadKey: "q-9003", questId: "q-9003", source: "explicit" },
           ],
           threadStatusMarkers: [playgroundWaitingStatus, playgroundReadyStatus],
         },
@@ -801,7 +814,7 @@ export function usePlaygroundSeed() {
         content: "The scope confirmation was answered and should keep its resolved needs-input marker visible.",
         timestamp: Date.now() - 52_000,
         historyIndex: 12,
-        metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
+        metadata: { threadRefs: [{ threadKey: "q-9001", questId: "q-9001", source: "explicit" }] },
       }),
       makePlaygroundMessage({
         id: "playground-thread-q963-stale-ready",
@@ -810,7 +823,7 @@ export function usePlaygroundSeed() {
           "Older Thread Ready output remains in history, but its resolved notification marker should not render as a crossed-out stale chip.",
         timestamp: Date.now() - 44_000,
         historyIndex: 13,
-        metadata: { threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }] },
+        metadata: { threadRefs: [{ threadKey: "q-9003", questId: "q-9003", source: "explicit" }] },
       }),
       makePlaygroundMessage({
         id: "playground-thread-q964",
@@ -818,13 +831,13 @@ export function usePlaygroundSeed() {
         content: "Completed Journey is ready for review without active phase cues.",
         timestamp: Date.now() - 30_000,
         historyIndex: 14,
-        metadata: { threadRefs: [{ threadKey: "q-964", questId: "q-964", source: "explicit" }] },
+        metadata: { threadRefs: [{ threadKey: "q-9004", questId: "q-9004", source: "explicit" }] },
       }),
       makePlaygroundMessage({
         id: "playground-thread-q965-recovered-source",
         role: "assistant",
         content:
-          "Approval plan for q-965: run the focused worker, then hold at Code Review for the thumbnail evidence.",
+          "Approval plan for q-9005: run the focused worker, then hold at Code Review for the thumbnail evidence.",
         timestamp: Date.now() - 20_000,
         historyIndex: 15,
       }),
@@ -835,7 +848,7 @@ export function usePlaygroundSeed() {
         timestamp: Date.now() - 10_000,
         metadata: {
           codexMessagePhase: "final_answer",
-          threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }],
+          threadRefs: [{ threadKey: "q-9003", questId: "q-9003", source: "explicit" }],
           threadStatusMarkers: [playgroundReadyStatus],
         },
       }),
@@ -846,7 +859,7 @@ export function usePlaygroundSeed() {
         timestamp: Date.now() - 9_000,
         metadata: {
           codexMessagePhase: "commentary",
-          threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }],
+          threadRefs: [{ threadKey: "q-9003", questId: "q-9003", source: "explicit" }],
         },
       }),
     ]);
@@ -863,9 +876,9 @@ export function usePlaygroundSeed() {
         ) ?? [];
     store.setThreadWindow(
       PLAYGROUND_THREAD_PANEL_SESSION_ID,
-      "q-961",
+      "q-9001",
       {
-        thread_key: "q-961",
+        thread_key: "q-9001",
         from_item: 2,
         item_count: questProjectionMessages.length,
         total_items: questProjectionMessages.length + 2,
@@ -911,31 +924,31 @@ export function usePlaygroundSeed() {
       {
         id: "playground-attention-input",
         category: "needs-input",
-        summary: "Choose whether q-961 should proceed to review",
+        summary: "Choose whether q-9001 should proceed to review",
         timestamp: Date.now() - 104_000,
         messageId: "playground-thread-q961-assistant",
-        threadKey: "q-961",
-        questId: "q-961",
+        threadKey: "q-9001",
+        questId: "q-9001",
         done: false,
       },
       {
         id: "playground-missing-user-decision",
         category: "needs-input",
-        summary: "Approve dispatching the q-963 follow-up worker",
+        summary: "Approve dispatching the q-9003 follow-up worker",
         timestamp: Date.now() - 64_000,
         messageId: null,
-        threadKey: "q-963",
-        questId: "q-963",
+        threadKey: "q-9003",
+        questId: "q-9003",
         done: false,
       },
       {
         id: "playground-routed-source-decision",
         category: "needs-input",
-        summary: "Approve the q-965 plan/description",
+        summary: "Approve the q-9005 plan/description",
         timestamp: Date.now() - 24_000,
         messageId: "playground-thread-q965-recovered-source",
-        threadKey: "q-965",
-        questId: "q-965",
+        threadKey: "q-9005",
+        questId: "q-9005",
         done: false,
       },
       {
@@ -944,34 +957,34 @@ export function usePlaygroundSeed() {
         summary: "Scope confirmation answered",
         timestamp: Date.now() - 52_000,
         messageId: "playground-thread-q961-resolved-input",
-        threadKey: "q-961",
-        questId: "q-961",
+        threadKey: "q-9001",
+        questId: "q-9001",
         done: true,
       },
       {
         id: "playground-stale-thread-ready",
         category: "review",
-        summary: "Thread ready: q-963 | older dispatch pass complete",
+        summary: "Thread ready: q-9003 | older dispatch pass complete",
         timestamp: Date.now() - 44_000,
         messageId: "playground-thread-q963-stale-ready",
-        threadKey: "q-963",
-        questId: "q-963",
+        threadKey: "q-9003",
+        questId: "q-9003",
         done: true,
       },
       {
         id: "playground-attention-reviewed",
         category: "review",
-        summary: "q-962 review already handled",
+        summary: "q-9002 review already handled",
         timestamp: Date.now() - 84_000,
         messageId: null,
-        threadKey: "q-962",
-        questId: "q-962",
+        threadKey: "q-9002",
+        questId: "q-9002",
         done: true,
       },
     ]);
     store.setSessionBoard(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
       {
-        questId: "q-961",
+        questId: "q-9001",
         title: "Finish data-flow cleanup",
         worker: "playground-thread-worker",
         workerNum: 1321,
@@ -990,16 +1003,16 @@ export function usePlaygroundSeed() {
         },
       },
       {
-        questId: "q-962",
+        questId: "q-9002",
         title: "Add queued thread wait chip",
         status: "QUEUED",
-        waitFor: ["q-961"],
+        waitFor: ["q-9001"],
         updatedAt: Date.now() - 90_000,
         createdAt: Date.now() - 210_000,
         journey: { mode: "active", phaseIds: ["alignment", "work", "memory"] },
       },
       {
-        questId: "q-963",
+        questId: "q-9003",
         title: "Dispatch follow-up worker",
         status: "QUEUED",
         waitForInput: ["playground-missing-user-decision"],
@@ -1008,7 +1021,7 @@ export function usePlaygroundSeed() {
         journey: { mode: "active", phaseIds: ["alignment", "work", "memory"] },
       },
       {
-        questId: "q-965",
+        questId: "q-9005",
         title: "Recover approval source message",
         status: "QUEUED",
         waitForInput: ["playground-routed-source-decision"],
@@ -1018,22 +1031,22 @@ export function usePlaygroundSeed() {
       },
     ]);
     store.setSessionBoardRowStatuses(PLAYGROUND_THREAD_PANEL_SESSION_ID, {
-      "q-961": {
+      "q-9001": {
         worker: { sessionId: "playground-thread-worker", sessionNum: 1321, name: "Clear Mesa", status: "running" },
         reviewer: null,
       },
-      "q-962": {
+      "q-9002": {
         worker: { sessionId: "playground-thread-worker-queued", sessionNum: 1320, status: "idle" },
         reviewer: null,
       },
-      "q-963": {
+      "q-9003": {
         worker: { sessionId: "playground-thread-worker-dispatch", sessionNum: 1305, status: "disconnected" },
         reviewer: null,
       },
     });
     store.setSessionCompletedBoard(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
       {
-        questId: "q-964",
+        questId: "q-9004",
         title: "Finish completed Journey display",
         status: "MEMORY",
         updatedAt: Date.now() - 30_000,
@@ -1056,17 +1069,17 @@ export function usePlaygroundSeed() {
         id: "playground-chip-needs-input",
         leaderSessionId: PLAYGROUND_THREAD_PANEL_SESSION_ID,
         type: "needs_input",
-        source: { kind: "notification", id: "playground-chip-needs-input", questId: "q-961" },
-        questId: "q-961",
-        threadKey: "q-961",
-        title: "Answer q-961 worker",
+        source: { kind: "notification", id: "playground-chip-needs-input", questId: "q-9001" },
+        questId: "q-9001",
+        threadKey: "q-9001",
+        title: "Answer q-9001 worker",
         summary: "Implementation is waiting for a concrete user answer in the quest thread.",
         actionLabel: "Answer",
         priority: "needs_input",
         state: "unresolved",
         createdAt: Date.now() - 100_000,
         updatedAt: Date.now() - 80_000,
-        route: { threadKey: "q-961", questId: "q-961", messageId: "playground-thread-q961-assistant" },
+        route: { threadKey: "q-9001", questId: "q-9001", messageId: "playground-thread-q961-assistant" },
         chipEligible: true,
         ledgerEligible: true,
         dedupeKey: "playground-chip-needs-input",
@@ -1075,9 +1088,9 @@ export function usePlaygroundSeed() {
         id: "playground-chip-seen",
         leaderSessionId: PLAYGROUND_THREAD_PANEL_SESSION_ID,
         type: "blocked_user_resolvable",
-        source: { kind: "manual", id: "playground-chip-seen", questId: "q-963" },
-        questId: "q-963",
-        threadKey: "q-963",
+        source: { kind: "manual", id: "playground-chip-seen", questId: "q-9003" },
+        questId: "q-9003",
+        threadKey: "q-9003",
         title: "Unblock dispatch",
         summary: "This item has been seen but still needs a user-resolvable action.",
         actionLabel: "Unblock",
@@ -1085,12 +1098,86 @@ export function usePlaygroundSeed() {
         state: "seen",
         createdAt: Date.now() - 70_000,
         updatedAt: Date.now() - 50_000,
-        route: { threadKey: "q-963", questId: "q-963" },
+        route: { threadKey: "q-9003", questId: "q-9003" },
         chipEligible: true,
         ledgerEligible: true,
         dedupeKey: "playground-chip-seen",
       },
     ]);
+    const projectedTabKeys = ["q-9001", "q-9004", "q-9003", "q-9005", "q-9002"];
+    const projectedAttention = (
+      overrides: Partial<{
+        needsInput: boolean;
+        mutedNeedsInput: boolean;
+        reviewUnread: boolean;
+        updatedAt: number;
+      }> = {},
+    ) => ({ needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, ...overrides });
+    const projectedBoardRows = new Map(
+      [
+        ...(useStore.getState().sessionBoards.get(PLAYGROUND_THREAD_PANEL_SESSION_ID) ?? []),
+        ...(useStore.getState().sessionCompletedBoards.get(PLAYGROUND_THREAD_PANEL_SESSION_ID) ?? []),
+      ].map((row) => [row.questId, row]),
+    );
+    store.applySyncedProjectionSnapshot({
+      type: "synced_projection_snapshot",
+      schemaVersion: SYNCED_PROJECTION_SCHEMA_VERSION,
+      projection: LEADER_THREAD_TABS_PROJECTION,
+      key: PLAYGROUND_THREAD_PANEL_SESSION_ID,
+      generation: "playground-leader-tabs",
+      revision: 1,
+      value: {
+        tabState: {
+          version: 1,
+          orderedOpenThreadKeys: projectedTabKeys,
+          closedThreadTombstones: [],
+          updatedAt: threadStatusTimestamp,
+        },
+        tabs: projectedTabKeys.map((threadKey) => {
+          const boardRow = projectedBoardRows.get(threadKey)!;
+          const completed = boardRow.completedAt !== undefined;
+          const queued = !completed && boardRow.status === "QUEUED";
+          const attention =
+            threadKey === "q-9001"
+              ? projectedAttention({ needsInput: true, reviewUnread: true, updatedAt: boardRow.updatedAt })
+              : threadKey === "q-9003"
+                ? projectedAttention({ reviewUnread: true, updatedAt: boardRow.updatedAt })
+                : threadKey === "q-9005"
+                  ? projectedAttention({ mutedNeedsInput: true, updatedAt: boardRow.updatedAt })
+                  : projectedAttention({ updatedAt: boardRow.updatedAt });
+          return {
+            threadKey,
+            questId: threadKey,
+            title: boardRow.title ?? threadKey,
+            boardStatus: boardRow.status ?? null,
+            journey: boardRow.journey
+              ? {
+                  mode: boardRow.journey.mode ?? null,
+                  currentPhaseId: boardRow.journey.currentPhaseId ?? null,
+                  activePhaseIndex: boardRow.journey.activePhaseIndex ?? null,
+                  phaseCount: boardRow.journey.phaseIds.length,
+                }
+              : null,
+            active: !queued && !completed,
+            queued,
+            proposed: false,
+            completed,
+            canClose: completed,
+            attention,
+            updatedAt: boardRow.updatedAt,
+          };
+        }),
+        mainAttention: projectedAttention(),
+        threadStatuses: {
+          "q-9002": playgroundWaitingStatus,
+          "q-9003": playgroundReadyStatus,
+          "q-9004": playgroundCompletedWaitingStatus,
+        },
+        activePhaseSummary: buildLeaderActivePhaseSummary(
+          useStore.getState().sessionBoards.get(PLAYGROUND_THREAD_PANEL_SESSION_ID) ?? [],
+        ),
+      },
+    });
 
     const codexTerminalSession: SessionState = {
       ...session,
@@ -1603,6 +1690,7 @@ export function usePlaygroundSeed() {
     ]);
 
     return () => {
+      useStore.getState().clearSyncedProjectionsForKey(PLAYGROUND_THREAD_PANEL_SESSION_ID);
       useStore.setState((s) => {
         const sessions = new Map(s.sessions);
         const messages = new Map(s.messages);

@@ -20,6 +20,13 @@ import {
   sessionNavigationProjectionEqual,
   type SessionNavigationProjectionValue,
 } from "../shared/session-navigation-projection.js";
+import {
+  LEADER_THREAD_TABS_PROJECTION,
+  isLeaderThreadTabsProjectionValue,
+  leaderThreadTabsProjectionEqual,
+  reconcileLeaderThreadTabsProjectionValue,
+  type LeaderThreadTabsProjectionValue,
+} from "../shared/leader-thread-tabs-projection.js";
 import type { AppState } from "./store-types.js";
 import type { LeaderProjectionSnapshot } from "./types.js";
 
@@ -129,6 +136,21 @@ function descriptorForProjection(projection: string): ProjectionDescriptor | nul
         reconcileSessionNavigationProjectionValue(
           previous as SessionNavigationProjectionValue,
           next as SessionNavigationProjectionValue,
+        ),
+    };
+  }
+  if (projection === LEADER_THREAD_TABS_PROJECTION) {
+    return {
+      isValue: isLeaderThreadTabsProjectionValue,
+      equal: (left, right) =>
+        leaderThreadTabsProjectionEqual(
+          left as LeaderThreadTabsProjectionValue,
+          right as LeaderThreadTabsProjectionValue,
+        ),
+      reconcile: (previous, next) =>
+        reconcileLeaderThreadTabsProjectionValue(
+          previous as LeaderThreadTabsProjectionValue,
+          next as LeaderThreadTabsProjectionValue,
         ),
     };
   }
@@ -439,6 +461,20 @@ export function hasSessionNavigationProjection(
   sessionId: string,
 ): boolean {
   return hasSyncedProjectionValue(state, SESSION_NAVIGATION_PROJECTION, sessionId);
+}
+
+export function getLeaderThreadTabsProjection(
+  state: Pick<AppState, "syncedProjectionValues" | "syncedProjectionKeys">,
+  sessionId: string,
+): LeaderThreadTabsProjectionValue | undefined {
+  return getSyncedProjectionValue<LeaderThreadTabsProjectionValue>(state, LEADER_THREAD_TABS_PROJECTION, sessionId);
+}
+
+export function hasLeaderThreadTabsProjection(
+  state: Pick<AppState, "syncedProjectionKeys">,
+  sessionId: string,
+): boolean {
+  return hasSyncedProjectionValue(state, LEADER_THREAD_TABS_PROJECTION, sessionId);
 }
 
 type StoreSet = Parameters<StateCreator<AppState>>[0];

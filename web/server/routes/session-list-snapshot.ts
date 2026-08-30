@@ -138,6 +138,10 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
         }
         const currentBridgeSession = wsBridge.getSession(s.sessionId) ?? bridgeSession;
         const bridge = currentBridgeSession?.state;
+        const leaderThreadTabsProjection =
+          safeSession.isOrchestrator === true || bridge?.isOrchestrator === true
+            ? (projectionController?.getLeaderThreadTabsSnapshot?.(s.sessionId) ?? null)
+            : null;
         const turnMetrics = currentBridgeSession
           ? computeSessionTurnMetrics(currentBridgeSession.messageHistory)
           : null;
@@ -254,6 +258,7 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
           ...notificationSummary,
           ...(sessionAttentionProjection ? { sessionAttentionProjection } : {}),
           ...(sessionNavigationProjection ? { sessionNavigationProjection } : {}),
+          ...(leaderThreadTabsProjection ? { leaderThreadTabsProjection } : {}),
           ...(attention ?? {}),
           ...(s.isWorktree && s.archived ? { worktreeExists: await archivedWorktreeExists(s.cwd) } : {}),
         };

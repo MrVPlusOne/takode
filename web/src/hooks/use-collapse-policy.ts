@@ -1,7 +1,8 @@
 import { useCallback, useMemo } from "react";
-import { threadStatusKey } from "../../shared/thread-status-marker.js";
+import { threadStatusKey, threadStatusMessageIdHash } from "../../shared/thread-status-marker.js";
 import { useStore } from "../store.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
+import { selectLeaderThreadStatuses } from "../utils/leader-thread-tabs-resolver.js";
 import type { Turn } from "./use-feed-model.js";
 
 export interface TurnCollapseState {
@@ -10,18 +11,31 @@ export interface TurnCollapseState {
   isActivityExpanded: boolean;
 }
 
-function turnHasReadyStatusMarker(turn: Turn, threadKey: string | null, readyMessageIds: ReadonlySet<string>): boolean {
-  if (!threadKey || readyMessageIds.size === 0) return false;
+interface ReadyMessageIdentities {
+  exact: ReadonlySet<string>;
+  hashes: ReadonlySet<string>;
+}
+
+function matchesReadyMessageId(messageId: string, identities: ReadyMessageIdentities): boolean {
+  return identities.exact.has(messageId) || identities.hashes.has(threadStatusMessageIdHash(messageId));
+}
+
+function turnHasReadyStatusMarker(
+  turn: Turn,
+  threadKey: string | null,
+  readyMessageIds: ReadyMessageIdentities,
+): boolean {
+  if (!threadKey || (readyMessageIds.exact.size === 0 && readyMessageIds.hashes.size === 0)) return false;
   const normalizedThreadKey = normalizeThreadKey(threadKey);
   for (const entry of turn.allEntries) {
     if (entry.kind !== "message") continue;
-    if (readyMessageIds.has(entry.msg.id)) return true;
+    if (matchesReadyMessageId(entry.msg.id, readyMessageIds)) return true;
     if (
       (entry.msg.metadata?.threadStatusMarkers ?? []).some(
         (marker) =>
           marker.kind === "ready" &&
           threadStatusKey(marker.threadKey) === normalizedThreadKey &&
-          readyMessageIds.has(marker.messageId),
+          matchesReadyMessageId(marker.messageId, readyMessageIds),
       )
     ) {
       return true;
@@ -43,16 +57,20 @@ export function useCollapsePolicy({
   toggleTurn: (turnId: string) => void;
 } {
   const overrides = useStore((s) => s.turnActivityOverrides.get(sessionId));
-  const currentThreadStatuses = useStore((s) => s.sessions?.get(sessionId)?.leaderThreadStatuses);
+  const currentThreadStatuses = useStore((s) => selectLeaderThreadStatuses(s, sessionId));
   const toggleTurnActivity = useStore((s) => s.toggleTurnActivity);
-  const readyMessageIds = useMemo(() => {
-    if (!autoCollapseReadyThreadKey || !currentThreadStatuses) return new Set<string>();
+  const readyMessageIds = useMemo<ReadyMessageIdentities>(() => {
+    if (!autoCollapseReadyThreadKey || !currentThreadStatuses) {
+      return { exact: new Set<string>(), hashes: new Set<string>() };
+    }
     const normalizedThreadKey = normalizeThreadKey(autoCollapseReadyThreadKey);
-    return new Set(
-      Object.values(currentThreadStatuses)
-        .filter((status) => status.kind === "ready" && threadStatusKey(status.threadKey) === normalizedThreadKey)
-        .map((status) => status.messageId),
+    const statuses = Object.values(currentThreadStatuses).filter(
+      (status) => status.kind === "ready" && threadStatusKey(status.threadKey) === normalizedThreadKey,
     );
+    return {
+      exact: new Set(statuses.map((status) => status.messageId).filter(Boolean)),
+      hashes: new Set(statuses.map((status) => status.messageIdHash).filter((hash): hash is string => !!hash)),
+    };
   }, [autoCollapseReadyThreadKey, currentThreadStatuses]);
 
   const turnStates = useMemo(() => {

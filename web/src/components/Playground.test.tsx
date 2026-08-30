@@ -529,6 +529,42 @@ describe("Playground", () => {
     expect(screen.queryByText(/@to\(user\)/)).toBeNull();
   });
 
+  it("documents projected tab attention and completed-Waiting parity on desktop and mobile", () => {
+    setMeasuredRailWidth(430);
+    render(<PlaygroundOverviewOnly />);
+
+    const desktop = within(screen.getByTestId("playground-projected-thread-tabs-desktop"));
+    const mobile = within(screen.getByTestId("playground-projected-thread-tabs-mobile"));
+    for (const scope of [desktop, mobile]) {
+      const rail = scope.getByTestId("thread-tab-rail");
+      expect(rail).toHaveAttribute("data-overflow", "more-tabs-list");
+      expect(rail).toHaveAttribute("data-hidden-tab-count", "2");
+      const visibleTabs = scope.getAllByTestId("thread-tab");
+      const needsInput = visibleTabs.find((tab) => tab.getAttribute("data-thread-key") === "q-9001")!;
+      const completedWaiting = visibleTabs.find((tab) => tab.getAttribute("data-thread-key") === "q-9004")!;
+      const reviewUnread = visibleTabs.find((tab) => tab.getAttribute("data-thread-key") === "q-9003")!;
+      expect(needsInput).toHaveAttribute("data-needs-input", "true");
+      expect(needsInput).toHaveAttribute("data-blue-notification", "true");
+      expect(within(needsInput).getByTestId("thread-tab-needs-input-bell")).toBeTruthy();
+      expect(within(needsInput).queryByTestId("thread-tab-blue-notification-bell")).toBeNull();
+      expect(completedWaiting).toHaveAttribute("data-closable", "true");
+      expect(within(completedWaiting).getByTestId("thread-tab-title")).toHaveAttribute(
+        "data-title-color",
+        "var(--color-cc-fg)",
+      );
+      expect(reviewUnread).toHaveAttribute("data-blue-notification", "true");
+      expect(within(reviewUnread).getByTestId("thread-tab-blue-notification-bell")).toBeTruthy();
+      expect(scope.getByTestId("thread-tabs-more-button")).toHaveAttribute("data-has-muted-needs-input", "true");
+    }
+
+    fireEvent.click(mobile.getByTestId("thread-tabs-more-button"));
+    const mutedRow = mobile
+      .getAllByTestId("thread-tabs-more-row")
+      .find((row) => row.getAttribute("data-thread-key") === "q-9005")!;
+    expect(mutedRow).toHaveAttribute("data-muted-needs-input", "true");
+    expect(within(mutedRow).getByTestId("thread-tab-muted-needs-input-bell")).toBeTruthy();
+  });
+
   it("documents additive source projection without source attachment markers", () => {
     render(<PlaygroundOverviewOnly />);
 
@@ -542,19 +578,19 @@ describe("Playground", () => {
     expect(screen.getAllByText("Earlier context attached to the implementation quest.").length).toBeGreaterThan(0);
 
     const marker = screen.getAllByTestId("thread-system-marker-cluster")[0];
-    expect(marker).toHaveTextContent("Work continued from Main to thread:q-962");
+    expect(marker).toHaveTextContent("Work continued from Main to thread:q-9002");
     expect(marker).not.toHaveTextContent("activities in thread:");
     expect(within(marker).queryByText("Jump")).toBeNull();
     expect(within(marker).getByRole("button", { name: "Main" })).toBeTruthy();
-    expect(within(marker).getAllByRole("button", { name: "thread:q-962" }).length).toBeGreaterThan(0);
+    expect(within(marker).getAllByRole("button", { name: "thread:q-9002" }).length).toBeGreaterThan(0);
     fireEvent.click(within(marker).getByRole("button", { name: "Details" }));
-    expect(marker).toHaveTextContent("1 message moved to thread:q-961");
+    expect(marker).toHaveTextContent("1 message moved to thread:q-9001");
     expect(
       screen.queryByLabelText(
-        "Thread Waiting for thread:q-962: waiting for q-961 to finish before mobile status chip wrapping can be visually checked on the narrow add-to-home-screen layout",
+        "Thread Waiting for thread:q-9002: waiting for q-9001 to finish before mobile status chip wrapping can be visually checked on the narrow add-to-home-screen layout",
       ),
     ).toBeNull();
-    expect(screen.getByLabelText("Thread Ready for thread:q-963: dispatch plan is ready")).toBeTruthy();
+    expect(screen.getByLabelText("Thread Ready for thread:q-9003: dispatch plan is ready")).toBeTruthy();
     const phaseThread = screen.getByTestId("playground-codex-phase-thread");
     const phaseFinal = within(phaseThread).getByText(
       "The dispatch plan is ready with the requested worker assignment.",
@@ -571,22 +607,24 @@ describe("Playground", () => {
       within(phaseThread).getByText("Checking the internal worker queue after publishing the dispatch plan."),
     ).toBeTruthy();
     expect(document.querySelector('[data-message-id="playground-thread-status-batch"]')).toBeNull();
-    expect(screen.getAllByText("The initial q-961 answer is complete and remains in history.").length).toBeGreaterThan(
+    expect(screen.getAllByText("The initial q-9001 answer is complete and remains in history.").length).toBeGreaterThan(
       0,
     );
-    expect(screen.queryByLabelText("Thread Ready for thread:q-961: initial implementation answer complete")).toBeNull();
+    expect(
+      screen.queryByLabelText("Thread Ready for thread:q-9001: initial implementation answer complete"),
+    ).toBeNull();
 
     const questProjection = screen.getByTestId("playground-quest-thread-projection");
-    expect(questProjection).toHaveTextContent("Work continued from thread:q-961 to thread:q-962");
-    expect(questProjection).not.toHaveTextContent("Work continued from thread:q-962 to thread:q-961");
+    expect(questProjection).toHaveTextContent("Work continued from thread:q-9001 to thread:q-9002");
+    expect(questProjection).not.toHaveTextContent("Work continued from thread:q-9002 to thread:q-9001");
 
     const allProjection = screen.getByTestId("playground-all-thread-projection");
-    expect(allProjection).toHaveTextContent("Work continued from thread:q-961 to thread:q-962");
-    expect(allProjection).toHaveTextContent("Work continued from thread:q-962 to thread:q-961");
+    expect(allProjection).toHaveTextContent("Work continued from thread:q-9001 to thread:q-9002");
+    expect(allProjection).toHaveTextContent("Work continued from thread:q-9002 to thread:q-9001");
 
     const mainProjection = screen.getByTestId("playground-main-thread-projection");
-    expect(mainProjection).toHaveTextContent("Work continued from Main to thread:q-962");
-    expect(mainProjection).not.toHaveTextContent("Work continued from thread:q-961 to thread:q-962");
+    expect(mainProjection).toHaveTextContent("Work continued from Main to thread:q-9002");
+    expect(mainProjection).not.toHaveTextContent("Work continued from thread:q-9001 to thread:q-9002");
   });
 
   it("documents waiting counts in the lightweight herd summary mock", () => {

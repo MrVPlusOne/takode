@@ -188,8 +188,8 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     leaderSessionId: MOCK_SESSION_ID,
     type: "needs_input",
     source: { kind: "notification", id: "playground-attention-unresolved" },
-    questId: "q-961",
-    threadKey: "q-961",
+    questId: "q-9001",
+    threadKey: "q-9001",
     title: "Approve the implementation direction",
     summary: "Worker is waiting for a concrete user decision before continuing.",
     actionLabel: "Answer",
@@ -197,7 +197,7 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     state: "unresolved",
     createdAt: 100,
     updatedAt: 100,
-    route: { threadKey: "q-961", questId: "q-961", messageId: "playground-thread-q961-assistant" },
+    route: { threadKey: "q-9001", questId: "q-9001", messageId: "playground-thread-q961-assistant" },
     chipEligible: true,
     ledgerEligible: true,
     dedupeKey: "playground-attention-unresolved",
@@ -206,9 +206,9 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     id: "playground-attention-started",
     leaderSessionId: MOCK_SESSION_ID,
     type: "quest_journey_started",
-    source: { kind: "board", id: "q-962", questId: "q-962", signature: "started:180" },
-    questId: "q-962",
-    threadKey: "q-962",
+    source: { kind: "board", id: "q-9002", questId: "q-9002", signature: "started:180" },
+    questId: "q-9002",
+    threadKey: "q-9002",
     title: "Journey started",
     summary: "Show compact start and finish chips",
     questTldr: "Start chips now foreground the quest title and include the quest TLDR when available.",
@@ -218,7 +218,7 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     createdAt: 180,
     updatedAt: 180,
     resolvedAt: 180,
-    route: { threadKey: "q-962", questId: "q-962" },
+    route: { threadKey: "q-9002", questId: "q-9002" },
     chipEligible: false,
     ledgerEligible: true,
     dedupeKey: "playground-attention-started",
@@ -227,9 +227,9 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     id: "playground-attention-completed-start",
     leaderSessionId: MOCK_SESSION_ID,
     type: "quest_journey_started",
-    source: { kind: "board", id: "q-965", questId: "q-965", signature: "started:200" },
-    questId: "q-965",
-    threadKey: "q-965",
+    source: { kind: "board", id: "q-9005", questId: "q-9005", signature: "started:200" },
+    questId: "q-9005",
+    threadKey: "q-9005",
     title: "Journey started",
     summary: "Completed Journey start is quiet",
     questTldr: "Completed start rows keep the same title/TLDR structure while the lifecycle shell stays quiet.",
@@ -240,7 +240,7 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     createdAt: 200,
     updatedAt: 200,
     resolvedAt: 200,
-    route: { threadKey: "q-965", questId: "q-965" },
+    route: { threadKey: "q-9005", questId: "q-9005" },
     chipEligible: false,
     ledgerEligible: true,
     dedupeKey: "playground-attention-completed-start",
@@ -249,9 +249,9 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     id: "playground-attention-finished",
     leaderSessionId: MOCK_SESSION_ID,
     type: "quest_completed_recent",
-    source: { kind: "board", id: "q-965", questId: "q-965", signature: "finished:220" },
-    questId: "q-965",
-    threadKey: "q-965",
+    source: { kind: "board", id: "q-9005", questId: "q-9005", signature: "finished:220" },
+    questId: "q-9005",
+    threadKey: "q-9005",
     title: "Journey finished",
     summary: "Compact notification cards",
     actionLabel: "Open",
@@ -260,7 +260,7 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     journeyLifecycleStatus: "completed",
     createdAt: 220,
     updatedAt: 220,
-    route: { threadKey: "q-965", questId: "q-965" },
+    route: { threadKey: "q-9005", questId: "q-9005" },
     chipEligible: false,
     ledgerEligible: true,
     dedupeKey: "playground-attention-finished",
@@ -270,8 +270,8 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     leaderSessionId: MOCK_SESSION_ID,
     type: "blocked_user_resolvable",
     source: { kind: "manual", id: "playground-attention-dismissed" },
-    questId: "q-963",
-    threadKey: "q-963",
+    questId: "q-9003",
+    threadKey: "q-9003",
     title: "External unblock dismissed",
     summary: "Dismissal hides active attention without claiming the blocker is solved.",
     actionLabel: "Unblock",
@@ -280,7 +280,7 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     createdAt: 300,
     updatedAt: 330,
     dismissedAt: 330,
-    route: { threadKey: "q-963", questId: "q-963" },
+    route: { threadKey: "q-9003", questId: "q-9003" },
     chipEligible: true,
     ledgerEligible: true,
     dedupeKey: "playground-attention-dismissed",
@@ -289,10 +289,10 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     id: "playground-attention-reopened",
     leaderSessionId: MOCK_SESSION_ID,
     type: "quest_reopened_or_rework",
-    source: { kind: "quest", id: "q-964", questId: "q-964" },
-    questId: "q-964",
-    threadKey: "q-964",
-    title: "Fresh feedback reopened q-964",
+    source: { kind: "quest", id: "q-9004", questId: "q-9004" },
+    questId: "q-9004",
+    threadKey: "q-9004",
+    title: "Fresh feedback reopened q-9004",
     summary: "A previously handled thread is attention-worthy again after new feedback.",
     actionLabel: "Open",
     priority: "milestone",
@@ -300,7 +300,7 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     createdAt: 400,
     updatedAt: 430,
     reopenedAt: 430,
-    route: { threadKey: "q-964", questId: "q-964" },
+    route: { threadKey: "q-9004", questId: "q-9004" },
     chipEligible: true,
     ledgerEligible: true,
     dedupeKey: "playground-attention-reopened",
@@ -312,10 +312,10 @@ export function PlaygroundOverviewSections() {
   const compactQuestThreadBannerRows: Array<{ label: string; threadKey: string; row: QuestThreadBannerRow }> = [
     {
       label: "Active Work phase",
-      threadKey: "q-961",
+      threadKey: "q-9001",
       row: {
-        threadKey: "q-961",
-        questId: "q-961",
+        threadKey: "q-9001",
+        questId: "q-9001",
         title: "Finish data-flow cleanup",
         boardStatus: "WORKING",
         commitShas: ["abc1234def5678", "def5678abc1234"],
@@ -330,7 +330,7 @@ export function PlaygroundOverviewSections() {
           worker: { sessionId: "playground-thread-worker", sessionNum: 1321, name: "Clear Mesa", status: "running" },
         },
         boardRow: {
-          questId: "q-961",
+          questId: "q-9001",
           title: "Finish data-flow cleanup",
           worker: "playground-thread-worker",
           workerNum: 1321,
@@ -391,10 +391,10 @@ export function PlaygroundOverviewSections() {
     },
     {
       label: "Completed Journey",
-      threadKey: "q-964",
+      threadKey: "q-9004",
       row: {
-        threadKey: "q-964",
-        questId: "q-964",
+        threadKey: "q-9004",
+        questId: "q-9004",
         title: "Finish completed Journey display",
         boardStatus: "DONE",
         section: "done" as const,
@@ -404,7 +404,7 @@ export function PlaygroundOverviewSections() {
           currentPhaseId: "memory",
           phaseNotes: { "1": "Work completed with verification evidence.", "2": "Memory closed durable state." },
         },
-        boardRow: { questId: "q-964", title: "Finish completed Journey display", worker: "worker-964", updatedAt: 1 },
+        boardRow: { questId: "q-9004", title: "Finish completed Journey display", worker: "worker-964", updatedAt: 1 },
         rowStatus: {
           worker: { sessionId: "playground-thread-worker-done", sessionNum: 1321, status: "idle" },
           reviewer: { sessionId: "playground-thread-reviewer-done", sessionNum: 1323, status: "idle" },
@@ -520,7 +520,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Leader Workboard Thread Navigation"
-        description="Leader ChatView with top workboard-owned Main / All Threads / quest navigation, quest-thread banner context, and composer access below the feed."
+        description="Projection-backed leader tabs cover active needs-input priority, review unread, muted needs-input, completed plus Waiting, and the same More behavior at desktop and 430px mobile widths."
       >
         <div className="grid max-w-5xl gap-3 lg:grid-cols-2">
           {compactQuestThreadBannerRows.map(({ label, row, threadKey }) => (
@@ -555,12 +555,28 @@ export function PlaygroundOverviewSections() {
             currentSessionId="playground-worker-banner"
           />
         </div>
-        <div className="grid max-w-5xl gap-4 lg:grid-cols-2">
-          <div className="overflow-hidden rounded-xl border border-cc-border bg-cc-card h-[460px]">
-            <ChatView sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} />
+        <div className="grid max-w-5xl grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-2">
+          <div
+            data-testid="playground-projected-thread-tabs-desktop"
+            className="w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-cc-border bg-cc-card"
+          >
+            <div className="border-b border-cc-border/70 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">
+              Projected desktop + More
+            </div>
+            <div className="h-[430px]">
+              <ChatView sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} />
+            </div>
           </div>
-          <div className="overflow-hidden rounded-xl border border-cc-border bg-cc-card h-[460px]">
-            <ChatView sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} />
+          <div
+            data-testid="playground-projected-thread-tabs-mobile"
+            className="w-[430px] max-w-full overflow-hidden rounded-xl border border-cc-border bg-cc-card"
+          >
+            <div className="border-b border-cc-border/70 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">
+              Projected mobile 430px
+            </div>
+            <div className="h-[430px]">
+              <ChatView sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} />
+            </div>
           </div>
         </div>
       </Section>
@@ -677,7 +693,7 @@ export function PlaygroundOverviewSections() {
               data-testid="playground-quest-thread-projection"
               className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card"
             >
-              <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="q-961" />
+              <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="q-9001" />
             </div>
           </Card>
           <Card label="Status Footer">
@@ -685,7 +701,7 @@ export function PlaygroundOverviewSections() {
               data-testid="playground-codex-phase-thread"
               className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card"
             >
-              <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="q-963" />
+              <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="q-9003" />
             </div>
           </Card>
         </div>

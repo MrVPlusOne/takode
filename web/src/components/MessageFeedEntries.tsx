@@ -11,6 +11,7 @@ import type {
   ToolResultPreview,
 } from "../types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import { selectLeaderThreadStatuses } from "../utils/leader-thread-tabs-resolver.js";
 import { threadStatusKey } from "../../shared/thread-status-marker.js";
 import { isSubagentToolName } from "../types.js";
 import {
@@ -1810,7 +1811,7 @@ export const TurnEntries = memo(function TurnEntries({
   questLinkSurface: QuestLinkSurface;
 }) {
   const turns = useMemo(() => sections.flatMap((section) => section.turns), [sections]);
-  const currentThreadStatuses = useStore((s) => s.sessions.get(sessionId)?.leaderThreadStatuses);
+  const currentThreadStatuses = useStore((s) => selectLeaderThreadStatuses(s, sessionId));
   const visibleThreadStatuses = useMemo(
     () => visibleCurrentThreadStatuses(currentThreadStatuses, currentThreadKey),
     [currentThreadKey, currentThreadStatuses],

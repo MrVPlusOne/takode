@@ -13,6 +13,7 @@ import type { CodexWorkerV2CutoverState } from "./codex-worker-v2-cutover-state.
 import type { SyncedProjectionEnvelope } from "../shared/synced-projection.js";
 import type { SessionAttentionProjectionValue } from "../shared/session-attention-projection.js";
 import type { SessionNavigationProjectionValue } from "../shared/session-navigation-projection.js";
+import type { LeaderThreadTabsProjectionValue } from "../shared/leader-thread-tabs-projection.js";
 
 export interface SdkSessionInfo {
   sessionId: string;
@@ -136,6 +137,8 @@ export interface SdkSessionInfo {
   sessionAttentionProjection?: SyncedProjectionEnvelope<SessionAttentionProjectionValue>;
   /** Canonical bounded server projection for session navigation summaries. */
   sessionNavigationProjection?: SyncedProjectionEnvelope<SessionNavigationProjectionValue>;
+  /** Canonical bounded server projection for leader thread-tab visual state. */
+  leaderThreadTabsProjection?: SyncedProjectionEnvelope<LeaderThreadTabsProjectionValue>;
   /** Number of muted unresolved needs-input notifications for sidebar snapshots. */
   mutedNeedsInputNotificationCount?: number;
   /** Set by idle manager before killing, lets the UI show a less alarming indicator */

@@ -112,6 +112,53 @@ describe("leader open thread tab state", () => {
     expect(reopened.closedThreadTombstones).toEqual([]);
   });
 
+  it("records explicit ordering timestamps only for browser-owned tab actions", () => {
+    const migrated = applyLeaderThreadTabUpdate(
+      undefined,
+      { type: "migrate", orderedOpenThreadKeys: ["q-local"], migratedAt: 10 },
+      10,
+    );
+    expect(migrated).toMatchObject({ migratedFromLocalStorageAt: 10 });
+    expect(migrated?.explicitOrderUpdatedAt).toBeUndefined();
+
+    const serverCandidate = applyLeaderThreadTabUpdate(
+      createLeaderOpenThreadTabsState(1),
+      { type: "open", threadKey: "q-server", source: "server_candidate", eventAt: 20 },
+      20,
+    );
+    expect(serverCandidate?.orderedOpenThreadKeys).toEqual(["q-server"]);
+    expect(serverCandidate?.explicitOrderUpdatedAt).toBeUndefined();
+
+    const userOpen = applyLeaderThreadTabUpdate(
+      createLeaderOpenThreadTabsState(1),
+      { type: "open", threadKey: "q-user", source: "user" },
+      30,
+    );
+    expect(userOpen?.explicitOrderUpdatedAt).toBe(30);
+
+    const routeOpen = applyLeaderThreadTabUpdate(
+      { ...createLeaderOpenThreadTabsState(1), orderedOpenThreadKeys: ["q-old", "q-route"] },
+      { type: "open", threadKey: "q-route", placement: "first", source: "route" },
+      40,
+    );
+    expect(routeOpen?.orderedOpenThreadKeys).toEqual(["q-route", "q-old"]);
+    expect(routeOpen?.explicitOrderUpdatedAt).toBe(40);
+
+    const reordered = applyLeaderThreadTabUpdate(
+      { ...createLeaderOpenThreadTabsState(1), orderedOpenThreadKeys: ["q-1", "q-2"] },
+      { type: "reorder", orderedOpenThreadKeys: ["q-2", "q-1"] },
+      50,
+    );
+    expect(reordered?.explicitOrderUpdatedAt).toBe(50);
+
+    const closed = applyLeaderThreadTabUpdate(
+      { ...createLeaderOpenThreadTabsState(1), orderedOpenThreadKeys: ["q-1"] },
+      { type: "close", threadKey: "q-1", closedAt: 60 },
+      60,
+    );
+    expect(closed?.explicitOrderUpdatedAt).toBe(60);
+  });
+
   it("allows fresh server-created candidates to reopen only when newer than the close tombstone", () => {
     const closed = {
       ...createLeaderOpenThreadTabsState(1),

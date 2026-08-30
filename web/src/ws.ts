@@ -13,7 +13,12 @@ import { ALL_THREADS_KEY } from "./utils/thread-projection.js";
 import { readLeaderViewportPosition, requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
 import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
+import { LEADER_THREAD_TABS_PROJECTION } from "../shared/leader-thread-tabs-projection.js";
 import { syncedProjectionEntryId, type SyncedProjectionSubscription } from "../shared/synced-projection.js";
+import {
+  projectedLeaderOpenThreadTabs,
+  resolveLeaderThreadTabsProjection,
+} from "./utils/leader-thread-tabs-resolver.js";
 
 let handleIncomingMessage:
   | ((sessionId: string, data: BrowserIncomingMessage, context: WsIncomingMessageContext) => void)
@@ -26,7 +31,11 @@ function getInitialLeaderThreadWindow(
   const store = useStore.getState();
   const sdkSession = store.sdkSessions.find((session) => session.sessionId === sessionId);
   const bridgeSession = store.sessions.get(sessionId);
-  const isLeaderSession = bridgeSession?.isOrchestrator === true || sdkSession?.isOrchestrator === true;
+  const leaderTabsProjection = resolveLeaderThreadTabsProjection(store, sessionId);
+  const isLeaderSession =
+    leaderTabsProjection.projectionState === "accepted" ||
+    bridgeSession?.isOrchestrator === true ||
+    sdkSession?.isOrchestrator === true;
   if (!isLeaderSession) return undefined;
 
   const route = typeof window === "undefined" ? null : parseHash(window.location.hash);
@@ -41,9 +50,10 @@ function getInitialLeaderThreadWindow(
     isLeaderSession,
     hasThreadRoute: threadRoute.hasThreadParam,
     routeThreadKey: threadRoute.threadKey,
-    leaderOpenThreadTabs: normalizeLeaderOpenThreadTabsState(
-      bridgeSession?.leaderOpenThreadTabs ?? sdkSession?.leaderOpenThreadTabs,
-    ),
+    leaderOpenThreadTabs:
+      leaderTabsProjection.projectionState === "legacy"
+        ? normalizeLeaderOpenThreadTabsState(bridgeSession?.leaderOpenThreadTabs ?? sdkSession?.leaderOpenThreadTabs)
+        : projectedLeaderOpenThreadTabs(leaderTabsProjection),
   });
   if (threadKey === ALL_THREADS_KEY) return undefined;
 
@@ -91,7 +101,16 @@ function getSyncedProjectionSubscriptions(sessionId: string): SyncedProjectionSu
   for (const sdkSession of store.sdkSessions) {
     if (sdkSession.archived || seen.has(sdkSession.sessionId)) continue;
     seen.add(sdkSession.sessionId);
-    for (const projection of [SESSION_ATTENTION_PROJECTION, SESSION_NAVIGATION_PROJECTION]) {
+    const projections: string[] = [SESSION_ATTENTION_PROJECTION, SESSION_NAVIGATION_PROJECTION];
+    const leaderTabsProjection = resolveLeaderThreadTabsProjection(store, sdkSession.sessionId);
+    if (
+      leaderTabsProjection.projectionState !== "legacy" ||
+      sdkSession.isOrchestrator === true ||
+      store.sessions.get(sdkSession.sessionId)?.isOrchestrator === true
+    ) {
+      projections.push(LEADER_THREAD_TABS_PROJECTION);
+    }
+    for (const projection of projections) {
       const entryId = syncedProjectionEntryId(projection, sdkSession.sessionId);
       const version = store.syncedProjectionKeys.has(entryId) ? store.syncedProjectionVersions.get(entryId) : undefined;
       subscriptions.push({

@@ -7,6 +7,7 @@ import type { SdkSessionInfo, SessionState } from "../types.js";
 import { getSessionNavigationProjection, hasSessionNavigationProjection } from "../store-synced-projections.js";
 import { coalesceSessionViewModel, type SessionViewModel } from "./session-view-model.js";
 import type { SidebarSessionItem } from "./sidebar-session-item.js";
+import { selectLeaderActivePhaseSummary } from "./leader-thread-tabs-resolver.js";
 
 export interface SessionNavigationResolverSource<TPermission = unknown> {
   sessions: Map<string, SessionState>;
@@ -76,12 +77,14 @@ interface LegacyResolutionCacheEntry {
   localLinesRemoved: number;
   name: string | undefined;
   preview: string | undefined;
+  leaderActivePhaseSummary: SdkSessionInfo["leaderActivePhaseSummary"];
   result: ResolvedSessionNavigation;
 }
 
 interface ProjectedResolutionCacheEntry {
   sdkInfo: SdkSessionInfo | undefined;
   bridgeState: SessionState | undefined;
+  leaderActivePhaseSummary: SdkSessionInfo["leaderActivePhaseSummary"];
   result: ResolvedSessionNavigation;
 }
 
@@ -177,6 +180,7 @@ function projectedSidebarLegacyFields(
   projection: SessionNavigationProjectionValue,
   sdkInfo: SdkSessionInfo | undefined,
   bridgeState: SessionState | undefined,
+  leaderActivePhaseSummary: SdkSessionInfo["leaderActivePhaseSummary"],
 ): ProjectedSidebarLegacyFields {
   return {
     archived: sdkInfo?.archived ?? false,
@@ -195,7 +199,7 @@ function projectedSidebarLegacyFields(
     worktreeCleanupError: sdkInfo?.worktreeCleanupError,
     leaderProfilePortraitId: sdkInfo?.leaderProfilePortraitId ?? null,
     leaderProfilePortrait: sdkInfo?.leaderProfilePortrait,
-    leaderActivePhaseSummary: sdkInfo?.leaderActivePhaseSummary,
+    leaderActivePhaseSummary,
     leaderActiveBoardRows: sdkInfo?.leaderActiveBoardRows,
   };
 }
@@ -231,9 +235,10 @@ function resolveProjectedSidebarItem(
   projection: SessionNavigationProjectionValue,
   sdkInfo: SdkSessionInfo | undefined,
   bridgeState: SessionState | undefined,
+  leaderActivePhaseSummary: SdkSessionInfo["leaderActivePhaseSummary"],
 ): SidebarSessionItem {
   const { identity, topology, lifecycle, quest, git } = projection;
-  const legacy = projectedSidebarLegacyFields(projection, sdkInfo, bridgeState);
+  const legacy = projectedSidebarLegacyFields(projection, sdkInfo, bridgeState, leaderActivePhaseSummary);
   const cached = projectedSidebarItemCache.get(identity);
   if (
     cached &&
@@ -316,19 +321,27 @@ function resolveProjectedSession(
   projection: SessionNavigationProjectionValue,
   sdkInfo: SdkSessionInfo | undefined,
   bridgeState: SessionState | undefined,
+  leaderActivePhaseSummary: SdkSessionInfo["leaderActivePhaseSummary"],
 ): ResolvedSessionNavigation {
   const cached = projectedResolutionCache.get(projection);
-  if (cached && cached.sdkInfo === sdkInfo && cached.bridgeState === bridgeState) return cached.result;
+  if (
+    cached &&
+    cached.sdkInfo === sdkInfo &&
+    cached.bridgeState === bridgeState &&
+    cached.leaderActivePhaseSummary === leaderActivePhaseSummary
+  ) {
+    return cached.result;
+  }
 
   const result: ResolvedSessionNavigation = {
-    sidebarItem: resolveProjectedSidebarItem(sessionId, projection, sdkInfo, bridgeState),
+    sidebarItem: resolveProjectedSidebarItem(sessionId, projection, sdkInfo, bridgeState, leaderActivePhaseSummary),
     name: projection.identity.name ?? undefined,
     preview: projection.detail.lastMessagePreview || undefined,
     viewModel: projectionToViewModel(sessionId, projection, coalesceSessionViewModel(bridgeState, sdkInfo)),
     paused: projection.lifecycle.paused,
     projectionState: "accepted",
   };
-  projectedResolutionCache.set(projection, { sdkInfo, bridgeState, result });
+  projectedResolutionCache.set(projection, { sdkInfo, bridgeState, leaderActivePhaseSummary, result });
   return result;
 }
 
@@ -377,6 +390,7 @@ function resolveLegacySession<TPermission>(
   sessionId: string,
   sdkInfo: SdkSessionInfo | undefined,
   bridgeState: SessionState | undefined,
+  leaderActivePhaseSummary: SdkSessionInfo["leaderActivePhaseSummary"],
 ): ResolvedSessionNavigation | null {
   if (!sdkInfo && !bridgeState) return null;
   const sdkGitAhead = sdkInfo?.gitAhead ?? 0;
@@ -420,7 +434,8 @@ function resolveLegacySession<TPermission>(
     cached.localLinesAdded === localLineStats.additions &&
     cached.localLinesRemoved === localLineStats.deletions &&
     cached.name === name &&
-    cached.preview === preview
+    cached.preview === preview &&
+    cached.leaderActivePhaseSummary === leaderActivePhaseSummary
   ) {
     return cached.result;
   }
@@ -482,7 +497,7 @@ function resolveLegacySession<TPermission>(
       isOrchestrator: sdkInfo?.isOrchestrator || false,
       leaderProfilePortraitId: sdkInfo?.leaderProfilePortraitId ?? null,
       leaderProfilePortrait: sdkInfo?.leaderProfilePortrait,
-      leaderActivePhaseSummary: sdkInfo?.leaderActivePhaseSummary,
+      leaderActivePhaseSummary,
       leaderActiveBoardRows: sdkInfo?.leaderActiveBoardRows,
       herdedBy: sdkInfo?.herdedBy,
       sessionNum: sdkInfo?.sessionNum ?? null,
@@ -507,6 +522,7 @@ function resolveLegacySession<TPermission>(
       localLinesRemoved: localLineStats.deletions,
       name,
       preview,
+      leaderActivePhaseSummary,
       result,
     });
   }
@@ -519,6 +535,7 @@ export function resolveSessionNavigation<TPermission>(
 ): ResolvedSessionNavigation | null {
   const sdkInfo = source.sdkSessions.find((session) => session.sessionId === sessionId);
   const bridgeState = source.sessions.get(sessionId);
+  const leaderActivePhaseSummary = selectLeaderActivePhaseSummary(source, sessionId);
   const cacheState = projectionCacheState(source as SessionNavigationResolverSource<unknown>);
   if (hasSessionNavigationProjection(cacheState, sessionId)) {
     const projection = getSessionNavigationProjection(cacheState, sessionId);
@@ -529,9 +546,10 @@ export function resolveSessionNavigation<TPermission>(
         projection,
         sdkInfo,
         bridgeState,
+        leaderActivePhaseSummary,
       );
     }
   }
   if (hasSuppliedNavigationEnvelope(sdkInfo)) return resolveInvalidSuppliedSession(sessionId, sdkInfo!);
-  return resolveLegacySession(source, sessionId, sdkInfo, bridgeState);
+  return resolveLegacySession(source, sessionId, sdkInfo, bridgeState, leaderActivePhaseSummary);
 }

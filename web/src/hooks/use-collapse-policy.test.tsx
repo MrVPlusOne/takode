@@ -2,6 +2,7 @@
 
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { threadStatusMessageIdHash } from "../../shared/thread-status-marker.js";
 import type { ChatMessage } from "../types.js";
 import { buildFeedModel } from "./use-feed-model.js";
 import { useCollapsePolicy } from "./use-collapse-policy.js";
@@ -143,6 +144,39 @@ describe("useCollapsePolicy", () => {
           metadata: {
             threadRefs: [{ threadKey: "q-1636", questId: "q-1636", source: "explicit" }],
             threadStatusMarkers: [readyStatus],
+          },
+        }),
+      ],
+      "q-1636",
+    );
+
+    expect(states).toEqual([{ turnId: "u1", defaultExpanded: false, isActivityExpanded: false }]);
+  });
+  it("correlates a compacted Ready status through its full message ID hash", () => {
+    const fullMessageId = `ready-${"m".repeat(190)}`;
+    const projectedStatus = {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: "q-1636",
+      questId: "q-1636",
+      summary: "",
+      messageId: "",
+      messageIdHash: threadStatusMessageIdHash(fullMessageId),
+      timestamp: 3,
+      updatedAt: 3,
+    } as const;
+    storeMocks.sessions.set("leader-session", { leaderThreadStatuses: { "q-1636": projectedStatus } });
+
+    const states = getLeaderCollapseStates(
+      [
+        makeMessage({ id: "u1", role: "user", content: "close q-1636", timestamp: 1 }),
+        makeMessage({
+          id: fullMessageId,
+          role: "assistant",
+          content: "q-1636 is complete.",
+          timestamp: 3,
+          metadata: {
+            threadRefs: [{ threadKey: "q-1636", questId: "q-1636", source: "explicit" }],
           },
         }),
       ],
