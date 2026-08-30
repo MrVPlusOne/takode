@@ -144,6 +144,7 @@ type SessionRuntimeOptions = {
   notificationStatusUpdatedAt?: number;
   lastReadAt?: number;
   attentionReason?: "action" | "error" | "review" | null;
+  manualUnread?: boolean;
 };
 
 function createSessionRuntime(
@@ -230,6 +231,7 @@ function createSessionRuntime(
     lastReadAt: options.lastReadAt ?? 0,
     lastUserMessageDateTag: "",
     attentionReason: options.attentionReason ?? null,
+    manualUnread: options.manualUnread === true,
     codexDisconnectGraceTimer: null,
     disconnectGraceTimer: null,
     disconnectWasGenerating: false,
@@ -564,6 +566,10 @@ export async function restorePersistedSessions(
   let count = 0;
   for (const p of persisted) {
     if (sessions.has(p.id)) continue;
+    // Pre-discriminator `attentionReason: "review"` is ambiguous with stale or
+    // closed notification-derived review state. Preserve those safeguards by
+    // recognizing manual unread only when the explicit persisted bit exists.
+    const restoredManualUnread = p.manualUnread === true;
 
     // Archived sessions loaded with search-data-only: skip heavyweight restore
     if (p._searchDataOnly) {
@@ -588,6 +594,7 @@ export async function restorePersistedSessions(
         contextUsageHistory: Array.isArray(p.contextUsageHistory) ? p.contextUsageHistory : [],
         lastReadAt: typeof p.lastReadAt === "number" ? p.lastReadAt : 0,
         attentionReason: p.attentionReason ?? null,
+        manualUnread: restoredManualUnread,
         taskHistory: Array.isArray(p.taskHistory) ? p.taskHistory : [],
         keywords: Array.isArray(p.keywords) ? p.keywords : [],
         board: new Map(Array.isArray(p.board) ? p.board.map((row: any) => [row.questId, row]) : []),
@@ -670,6 +677,7 @@ export async function restorePersistedSessions(
       toolResults: new Map(Array.isArray(p.toolResults) ? p.toolResults : []),
       lastReadAt: typeof p.lastReadAt === "number" ? p.lastReadAt : 0,
       attentionReason: p.attentionReason ?? null,
+      manualUnread: restoredManualUnread,
       taskHistory: Array.isArray(p.taskHistory) ? p.taskHistory : [],
       keywords: Array.isArray(p.keywords) ? p.keywords : [],
       board: new Map(Array.isArray(p.board) ? p.board.map((row: any) => [row.questId, row]) : []),
@@ -734,13 +742,17 @@ export function removeSession(
     cleanupBranchState: (sessionId: string) => void;
     removeStoredSession?: (sessionId: string) => void;
     removeImages?: (sessionId: string) => void;
+    removeSyncedProjectionSubscriber?: (socket: unknown) => void;
+    removeSessionAttentionProjection?: (sessionId: string) => void;
   },
 ): void {
   const session = sessions.get(sessionId);
   if (session) {
     deps.clearOptimisticRunningTimer(session, "remove_session");
     deps.clearAllCodexToolResultWatchdogs(session, "remove_session");
+    for (const socket of session.browserSockets) deps.removeSyncedProjectionSubscriber?.(socket);
   }
+  deps.removeSessionAttentionProjection?.(sessionId);
   sessions.delete(sessionId);
   deps.cleanupBranchState(sessionId);
   deps.removeStoredSession?.(sessionId);
@@ -756,6 +768,8 @@ export function closeSession(
     cleanupBranchState: (sessionId: string) => void;
     removeStoredSession?: (sessionId: string) => void;
     removeImages?: (sessionId: string) => void;
+    removeSyncedProjectionSubscriber?: (socket: unknown) => void;
+    removeSessionAttentionProjection?: (sessionId: string) => void;
   },
 ): void {
   const session = sessions.get(sessionId);
@@ -774,12 +788,14 @@ export function closeSession(
     session.codexAdapter = null;
   }
   for (const ws of session.browserSockets) {
+    deps.removeSyncedProjectionSubscriber?.(ws);
     try {
       ws.close();
     } catch {}
   }
   session.browserSockets.clear();
 
+  deps.removeSessionAttentionProjection?.(sessionId);
   sessions.delete(sessionId);
   deps.cleanupBranchState(sessionId);
   deps.removeStoredSession?.(sessionId);
@@ -812,6 +828,7 @@ export function buildPersistedSessionPayload(session: SessionLike): PersistedSes
     toolResults: Array.from(session.toolResults.entries()),
     lastReadAt: session.lastReadAt,
     attentionReason: session.attentionReason,
+    ...(session.manualUnread === true ? { manualUnread: true } : {}),
     taskHistory: session.taskHistory,
     keywords: session.keywords,
     board: Array.from(session.board.values()),
@@ -1207,6 +1224,7 @@ export function markSessionUnread(
   deps: Pick<SessionRegistryDeps, "isHerdedWorkerSession" | "broadcastToBrowsers" | "persistSession">,
 ): boolean {
   if (deps.isHerdedWorkerSession?.(session)) return true;
+  session.manualUnread = true;
   session.attentionReason = "review";
   deps.broadcastToBrowsers?.(session, {
     type: "session_update",
@@ -1656,7 +1674,9 @@ export function updateLeaderGroupIdleState(
     idleState.notifiedWhileIdle = false;
     if (idleState.leaderUnreadSetByGroupIdle) {
       const leaderSession = state.sessions.get(leaderId);
-      if (leaderSession?.attentionReason === "review") deps.clearAttentionAndMarkRead(leaderSession);
+      if (leaderSession?.attentionReason === "review" && leaderSession.manualUnread !== true) {
+        deps.clearAttentionAndMarkRead(leaderSession);
+      }
       idleState.leaderUnreadSetByGroupIdle = false;
     }
     return;

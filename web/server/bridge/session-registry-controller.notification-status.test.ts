@@ -10,6 +10,7 @@ import {
   recordThreadReadyUnreadNotifications,
   restorePersistedSessions,
   setNotificationMuted,
+  updateLeaderGroupIdleState,
 } from "./session-registry-controller.js";
 import { replaceAttentionRecords } from "./attention-record-controller.js";
 import { validateLeaderThreadOutcomes } from "./leader-thread-outcome-validator.js";
@@ -396,6 +397,58 @@ describe("session notification status metadata", () => {
         session: expect.objectContaining({ attentionReason: null, lastReadAt: session.lastReadAt }),
       }),
     );
+  });
+
+  it("clears explicit manual unread authority on an authoritative read", () => {
+    const session = makeSession({ attentionReason: "review", manualUnread: true, notificationStatusVersion: 4 });
+    const deps = makeDeps();
+
+    clearAttentionAndMarkRead(session, deps);
+
+    expect(session.manualUnread).toBe(false);
+    expect(session.attentionReason).toBeNull();
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
+  });
+
+  it("does not clear explicit manual unread during group-idle bookkeeping", () => {
+    const leader = makeSession({ id: "leader", attentionReason: "review", manualUnread: true, isGenerating: false });
+    const worker = makeSession({ id: "worker", isGenerating: true });
+    const idleState = {
+      timer: null,
+      idleSince: 100,
+      notifiedWhileIdle: true,
+      leaderUnreadSetByGroupIdle: true,
+    };
+    const clearAttentionAndMarkRead = vi.fn();
+
+    updateLeaderGroupIdleState(
+      {
+        sessions: new Map([
+          [leader.id, leader],
+          [worker.id, worker],
+        ]),
+        leaderGroupIdleStates: new Map([[leader.id, idleState]]),
+      },
+      leader.id,
+      "worker_active",
+      {
+        getLauncherSessionInfo: () => ({ isOrchestrator: true }),
+        getHerdedSessionIds: () => [worker.id],
+        getSessionNum: () => 1,
+        getSessionName: () => "Leader",
+        deriveSessionStatus: (session) => (session.isGenerating ? "running" : "idle"),
+        clearAttentionAndMarkRead,
+        setAttentionReview: vi.fn(),
+        scheduleCompletedNotification: vi.fn(),
+        broadcastLeaderGroupIdle: vi.fn(),
+        recordServerEvent: vi.fn(),
+        delayMs: 1000,
+      },
+    );
+
+    expect(clearAttentionAndMarkRead).not.toHaveBeenCalled();
+    expect(leader).toMatchObject({ attentionReason: "review", manualUnread: true });
+    expect(idleState.leaderUnreadSetByGroupIdle).toBe(false);
   });
 
   it("keeps thread-scoped Thread Ready unread when an automatic session-view read fires from Main", () => {

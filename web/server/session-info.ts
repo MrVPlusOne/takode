@@ -10,6 +10,8 @@ import type { ModelAuthorityDecision, ModelProvenanceMigration } from "./model-i
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 import type { CodexMultiAgentVersion } from "../shared/codex-multi-agent-version.js";
 import type { CodexWorkerV2CutoverState } from "./codex-worker-v2-cutover-state.js";
+import type { SyncedProjectionEnvelope } from "../shared/synced-projection.js";
+import type { SessionAttentionProjectionValue } from "../shared/session-attention-projection.js";
 
 export interface SdkSessionInfo {
   sessionId: string;
@@ -129,6 +131,8 @@ export interface SdkSessionInfo {
   notificationUrgency?: "needs-input" | "review" | null;
   /** Number of unresolved Takode notifications for sidebar snapshots. */
   activeNotificationCount?: number;
+  /** Canonical bounded server projection for row, hover, and aggregate attention. */
+  sessionAttentionProjection?: SyncedProjectionEnvelope<SessionAttentionProjectionValue>;
   /** Number of muted unresolved needs-input notifications for sidebar snapshots. */
   mutedNeedsInputNotificationCount?: number;
   /** Set by idle manager before killing, lets the UI show a less alarming indicator */

@@ -99,7 +99,7 @@ describe("notification status fanout", () => {
     expect(globalStatus.session.notifications).toBeUndefined();
   });
 
-  it("fans later Thread Ready count changes to browsers subscribed elsewhere", () => {
+  it("fans later Thread Ready count changes through compact summary and scoped projection", async () => {
     const bridge = new WsBridge();
     bridge.store = new SessionStore(mkdtempSync(join(tmpdir(), "thread-ready-status-")));
 
@@ -111,6 +111,14 @@ describe("notification status fanout", () => {
     bridge.handleCLIOpen(leaderCli, "leader");
     bridge.handleBrowserOpen(workerBrowser, "worker");
     bridge.handleBrowserOpen(leaderBrowser, "leader");
+    await bridge.handleBrowserMessage(
+      leaderBrowser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        synced_projection_subscriptions: [{ projection: "session-attention", key: "worker" }],
+      }),
+    );
 
     const session = bridge.getSession("worker")!;
     session.state.isOrchestrator = true;
@@ -127,12 +135,14 @@ describe("notification status fanout", () => {
     });
 
     expect(recordThreadReadyUnreadNotifications(session, [ready("q-1977", 11_000)], deps)).toBe(true);
+    await bridge.getSyncedProjectionController().flushForTest();
     workerBrowser.send.mockClear();
     leaderBrowser.send.mockClear();
 
     // attentionReason is already "review", so only the notification-status
     // change can carry the second unread count to the other browser socket.
     expect(recordThreadReadyUnreadNotifications(session, [ready("q-1978", 12_000)], deps)).toBe(true);
+    await bridge.getSyncedProjectionController().flushForTest();
 
     const workerMessages = sentMessages(workerBrowser);
     const leaderMessages = sentMessages(leaderBrowser);
@@ -147,6 +157,11 @@ describe("notification status fanout", () => {
         activeReviewNotificationCount: 2,
         notificationStatusVersion: 2,
       },
+    });
+    expect(leaderMessages.find((msg) => msg.type === "synced_projection_update")).toMatchObject({
+      projection: "session-attention",
+      key: "worker",
+      value: { attentionReason: "review", status: { urgency: "review", count: 2 } },
     });
   });
 });

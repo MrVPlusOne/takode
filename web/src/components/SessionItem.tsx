@@ -16,6 +16,7 @@ import {
 } from "./leader-board-summary.js";
 import { findSessionQuestContextCandidate } from "../utils/session-quest-context.js";
 import { deriveEffectiveSessionAttentionStatus } from "../utils/session-attention-status.js";
+import { getSessionAttentionProjection, hasSessionAttentionProjection } from "../store-synced-projections.js";
 
 const EMPTY_LEADER_BOARD_ROWS: never[] = [];
 
@@ -156,6 +157,8 @@ function timeAgo(epochMs: number): string {
  *  Falls back to the lightweight /api/sessions summary before a session WebSocket is opened. */
 function useNotificationUrgency(sessionId: string, fallbackUrgency: NotificationUrgency = null) {
   return useStore((s) => {
+    const projection = getSessionAttentionProjection(s, sessionId);
+    if (projection) return projection.status?.urgency ?? null;
     const notifications = s.sessionNotifications?.get(sessionId);
     const snapshot = s.sdkSessions?.find((session) => session.sessionId === sessionId);
     return deriveEffectiveSessionAttentionStatus({
@@ -168,15 +171,7 @@ function useNotificationUrgency(sessionId: string, fallbackUrgency: Notification
   });
 }
 
-function NotificationMarker({
-  sessionId,
-  fallbackUrgency,
-}: {
-  sessionId: string;
-  fallbackUrgency?: NotificationUrgency;
-}) {
-  const urgency = useNotificationUrgency(sessionId, fallbackUrgency);
-
+function NotificationMarker({ urgency }: { urgency: ReturnType<typeof useNotificationUrgency> }) {
   if (urgency === "needs-input") {
     return (
       <span
@@ -351,20 +346,38 @@ export function SessionItem({
         }),
   );
   const hasQuestWorkContext = isQuestNamed || hasAssignedQuestContext;
-  const reviewerAttention = useStore((st) =>
+  const reviewerLegacyAttention = useStore((st) =>
     reviewerSession ? st.sessionAttention.get(reviewerSession.id) : undefined,
   );
+  const reviewerHasAttentionProjection = useStore((st) =>
+    reviewerSession ? hasSessionAttentionProjection(st, reviewerSession.id) : false,
+  );
+  const reviewerProjectedAttention = useStore((st) =>
+    reviewerSession ? getSessionAttentionProjection(st, reviewerSession.id)?.attentionReason : undefined,
+  );
+  const reviewerAttention = reviewerHasAttentionProjection ? reviewerProjectedAttention : reviewerLegacyAttention;
+  const hasAttentionProjection = useStore((st) => hasSessionAttentionProjection(st, s.id));
+  const projectedAttention = useStore((st) => getSessionAttentionProjection(st, s.id)?.attentionReason);
   const inboxUrgency = useNotificationUrgency(s.id, s.notificationUrgency ?? null);
   const currentSessionId = useStore((st) => st.currentSessionId);
   const liveTimerCount = useStore((st) => st.sessionTimers?.get(s.id)?.length ?? 0);
   const canSwipeToArchive = !archived && !reorderMode;
   const suppressStaleActionAttention =
+    !hasAttentionProjection &&
     attention === "action" &&
     permCount === 0 &&
     s.notificationStatusVersion !== undefined &&
     s.activeNotificationCount === 0;
-  const effectiveAttention = suppressStaleActionAttention ? null : attention;
-  const effectiveHasUnread = suppressStaleActionAttention ? false : hasUnread;
+  const effectiveAttention = hasAttentionProjection
+    ? (projectedAttention ?? null)
+    : suppressStaleActionAttention
+      ? null
+      : attention;
+  const effectiveHasUnread = hasAttentionProjection
+    ? !!projectedAttention
+    : suppressStaleActionAttention
+      ? false
+      : hasUnread;
 
   // Long-press to open context menu on touch devices
   const handleTouchStart = useCallback(
@@ -1189,18 +1202,26 @@ export function SessionItem({
 
       {/* Action attention badge (needs-input via takode notify, no pending permissions) */}
       {!archived && effectiveAttention === "action" && permCount === 0 && (
-        <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[8px] h-[8px] rounded-full bg-amber-400 transition-opacity pointer-events-none" />
+        <span
+          data-testid="session-attention-marker"
+          data-attention="action"
+          className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[8px] h-[8px] rounded-full bg-amber-400 transition-opacity pointer-events-none"
+        />
       )}
 
       {/* Review attention badge (shown when session needs review and no higher-priority badge) */}
       {!archived && effectiveAttention === "review" && permCount === 0 && (
-        <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full bg-blue-500 transition-opacity pointer-events-none" />
+        <span
+          data-testid="session-attention-marker"
+          data-attention="review"
+          className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full bg-blue-500 transition-opacity pointer-events-none"
+        />
       )}
 
       {/* Notification inbox markers (shown when no server attention, permission, or timer-status icon is active).
           Uses the live inbox when loaded, otherwise the lightweight /api/sessions snapshot for restored sessions. */}
       {!archived && !effectiveAttention && permCount === 0 && !showScheduledTimerIcon && (
-        <NotificationMarker sessionId={s.id} fallbackUrgency={s.notificationUrgency ?? null} />
+        <NotificationMarker urgency={inboxUrgency} />
       )}
 
       {/* Action buttons */}

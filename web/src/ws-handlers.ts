@@ -62,6 +62,12 @@ import { convertLegacyParentedCodexThinkingMessage } from "./utils/codex-reasoni
 import { TODO_STATE_UPDATED_EVENT } from "./todo-events.js";
 import { indexCodexSubagentToolResults } from "./utils/codex-subagent-tool-results.js";
 import { handleQuestListUpdated, handleSessionQuestClaimed } from "./ws-quest-handlers.js";
+import { hasSessionAttentionProjection } from "./store-synced-projections.js";
+import {
+  handleSyncedProjectionMessage,
+  settleSyncedProjectionSubscribeBoundary,
+  type SyncedProjectionMessageHandlerDeps,
+} from "./ws-synced-projection-handler.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -86,7 +92,7 @@ function perfNow(): number {
   return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
 }
 
-export interface WsMessageHandlerDeps {
+export interface WsMessageHandlerDeps extends SyncedProjectionMessageHandlerDeps {
   disconnectSession: (sessionId: string) => void;
   sendToSession: (sessionId: string, msg: BrowserOutgoingMessage) => boolean;
 }
@@ -696,6 +702,7 @@ function handleParsedMessage(
   context: WsIncomingMessageContext = { source: "live" },
 ) {
   const store = useStore.getState();
+  if (handleSyncedProjectionMessage(sessionId, data, store, deps, context)) return;
 
   switch (data.type) {
     case "session_init": {
@@ -752,7 +759,7 @@ function handleParsedMessage(
         store.setSessionName(sessionId, (data.session as Record<string, unknown>).name as string);
       }
       // Sync server-authoritative attention state
-      if (data.session.attentionReason !== undefined) {
+      if (data.session.attentionReason !== undefined && !hasSessionAttentionProjection(store, sessionId)) {
         const isViewing = useStore.getState().currentSessionId === sessionId;
         if (isViewing && data.session.attentionReason) {
           // User is viewing this session — suppress badge, tell server we've read it
@@ -770,10 +777,12 @@ function handleParsedMessage(
       const targetSessionId = data.session_id;
       if (!targetSessionId) break;
       const update = data.session ?? {};
+      const projectionOwnsAttention = hasSessionAttentionProjection(store, targetSessionId);
       const shouldApplyAttention =
         update.attentionReason === undefined
           ? true
-          : shouldApplyAttentionReasonWithNotificationFreshness(targetSessionId, update.attentionReason, update);
+          : !projectionOwnsAttention &&
+            shouldApplyAttentionReasonWithNotificationFreshness(targetSessionId, update.attentionReason, update);
       store.updateSdkSession(targetSessionId, {
         ...(shouldApplyAttention && update.attentionReason !== undefined
           ? { attentionReason: update.attentionReason }
@@ -1476,6 +1485,7 @@ function handleParsedMessage(
     }
 
     case "state_snapshot": {
+      settleSyncedProjectionSubscribeBoundary(sessionId, store, deps);
       // Authoritative state from server — overrides any stale transient state
       const authoritativeNotificationStatus = {
         notificationUrgency: data.notificationUrgency,
@@ -1525,7 +1535,7 @@ function handleParsedMessage(
         store.setStreamingStats(sessionId, { startedAt: data.generationStartedAt });
       }
       // Sync server-authoritative attention state
-      if (data.attentionReason !== undefined) {
+      if (data.attentionReason !== undefined && !hasSessionAttentionProjection(useStore.getState(), sessionId)) {
         const snapshotNotificationStatus = data.notifications
           ? summarizeNotificationStatus(data.notifications, authoritativeNotificationStatus, {
               authoritativeStatus: true,

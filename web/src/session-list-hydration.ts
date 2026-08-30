@@ -8,6 +8,8 @@ import {
 } from "./notification-status.js";
 import { questOwnsSessionName } from "./utils/quest-helpers.js";
 import { sessionTaskHistoryEqual, stringArrayEqual } from "./store-equality.js";
+import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
+import { hasSessionAttentionProjection } from "./store-synced-projections.js";
 
 export const ACTIVE_SESSION_METADATA_STALE_REFRESH_MS = 3 * 60_000;
 export const SIDEBAR_SESSION_POLL_INTERVAL_MS = 5_000;
@@ -35,13 +37,17 @@ export function beginActiveSessionListRequest(): number {
   return ++activeSessionListRequestSequence;
 }
 
+export function getCurrentActiveSessionListRequestSequence(): number {
+  return activeSessionListRequestSequence;
+}
+
 export function applyAuthoritativeSessionArchive(sessionId: string, archivedAt?: number): void {
   authoritativeArchiveRequestFences.set(sessionId, activeSessionListRequestSequence);
   const updates: Partial<SdkSessionInfo> = { archived: true };
   if (typeof archivedAt === "number") updates.archivedAt = archivedAt;
   const store = useStore.getState();
   store.updateSdkSession(sessionId, updates);
-  store.clearSessionAttention(sessionId);
+  store.clearSyncedProjectionKey(SESSION_ATTENTION_PROJECTION, sessionId);
 }
 
 export function hydrateSessionList(list: SdkSessionInfo[], options: HydrateSessionListOptions = {}): void {
@@ -52,16 +58,37 @@ export function hydrateSessionList(list: SdkSessionInfo[], options: HydrateSessi
     : options.preserveMissingArchived
       ? mergeActiveSnapshotWithExistingArchived(strippedList, store.sdkSessions, options.activeSnapshotRequestSequence)
       : strippedList;
+  const effectiveActiveSessionIds = new Set(
+    nextSdkSessions.filter((session) => !session.archived).map((session) => session.sessionId),
+  );
   setSdkSessionsWithNotificationFreshness(nextSdkSessions);
 
-  let batchedAttention: Map<string, "action" | "error" | "review" | null> | null = null;
   for (const session of list) {
     hydrateSessionDerivedMetadata(store, session);
-    batchedAttention = collectAttentionUpdate(store, session, batchedAttention);
   }
-  if (batchedAttention) {
-    useStore.setState({ sessionAttention: batchedAttention });
+
+  // Projection snapshots are one-way cache hydration. Apply every supplied
+  // snapshot before considering legacy attentionReason fields so a mixed list
+  // cannot overwrite a projection accepted earlier in the same response.
+  for (const session of list) {
+    if (!effectiveActiveSessionIds.has(session.sessionId)) continue;
+    const projection = sessionAttentionProjectionFromSession(session);
+    if (projection.present) {
+      useStore.getState().applySyncedProjectionSnapshot(projection.value, {
+        source: "rest",
+        activeRequestSequence: options.activeSnapshotRequestSequence,
+      });
+    }
   }
+
+  const attentionStore = useStore.getState();
+  let batchedAttention: Map<string, "action" | "error" | "review" | null> | null = null;
+  for (const session of list) {
+    if (!effectiveActiveSessionIds.has(session.sessionId)) continue;
+    if (sessionAttentionProjectionFromSession(session).present) continue;
+    batchedAttention = collectAttentionUpdate(attentionStore, session, batchedAttention);
+  }
+  if (batchedAttention) useStore.setState({ sessionAttention: batchedAttention });
 }
 
 export async function refreshTreeGroups(): Promise<void> {
@@ -133,6 +160,14 @@ export function _resetActiveSessionMetadataRefreshForTest(): void {
   lastActiveSessionMetadataRefreshStartedAt = 0;
   activeSessionListRequestSequence = 0;
   authoritativeArchiveRequestFences.clear();
+}
+
+function sessionAttentionProjectionFromSession(session: SdkSessionInfo): { present: boolean; value?: unknown } {
+  if (!("sessionAttentionProjection" in session)) return { present: false };
+  return {
+    present: true,
+    value: session.sessionAttentionProjection,
+  };
 }
 
 function stripSearchMetadata(session: SdkSessionInfo): SdkSessionInfo {
@@ -254,7 +289,9 @@ function collectAttentionUpdate(
   session: SdkSessionInfo,
   batchedAttention: Map<string, "action" | "error" | "review" | null> | null,
 ): Map<string, "action" | "error" | "review" | null> | null {
-  if (session.attentionReason === undefined) return batchedAttention;
+  if (hasSessionAttentionProjection(store, session.sessionId) || session.attentionReason === undefined) {
+    return batchedAttention;
+  }
   const shouldApplyAttention = shouldApplyAttentionReasonWithNotificationFreshness(
     session.sessionId,
     session.attentionReason,

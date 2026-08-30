@@ -121,7 +121,9 @@ export function clearAttentionAndMarkRead(
     options.mode === "session-view" && unreadReviewNotifications.some(isThreadScopedReviewNotification);
   const shouldAdvanceReadTimestamp = !hasThreadScopedReviewNotifications;
   const hadUnreadReviewNotifications = shouldAdvanceReadTimestamp && unreadReviewNotifications.length > 0;
-  if (session.attentionReason === null && !hadUnreadReviewNotifications) return;
+  const hadManualUnread = session.manualUnread === true;
+  if (session.attentionReason === null && !hadUnreadReviewNotifications && !hadManualUnread) return;
+  session.manualUnread = false;
   session.attentionReason = null;
   if (shouldAdvanceReadTimestamp) {
     session.lastReadAt = Date.now();

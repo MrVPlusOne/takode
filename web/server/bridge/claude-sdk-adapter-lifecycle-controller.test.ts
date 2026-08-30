@@ -214,5 +214,6 @@ describe("claude-sdk-adapter-lifecycle-controller", () => {
       type: "permission_cancelled",
       request_id: "req-stale",
     });
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
   });
 });

@@ -64,6 +64,23 @@ export interface AppState {
   threadFeedWindowSyncs: Map<string, Map<string, FeedWindowSync>>;
   leaderProjections: Map<string, LeaderProjectionSnapshot>;
   setLeaderProjection: (sessionId: string, projection: LeaderProjectionSnapshot | null) => void;
+  syncedProjectionValues: Map<string, unknown>;
+  syncedProjectionVersions: Map<string, import("../shared/synced-projection.js").SyncedProjectionVersion>;
+  /** Entry IDs with accepted projection authority, including values that may be nullish. */
+  syncedProjectionKeys: Set<string>;
+  syncedProjectionOrderings: Map<string, import("./store-synced-projections.js").SyncedProjectionOrderingState>;
+  applySyncedProjectionSnapshot: (
+    snapshot: unknown,
+    options?: import("./store-synced-projections.js").SyncedProjectionSnapshotApplyOptions,
+  ) => import("./store-synced-projections.js").SyncedProjectionApplyResult;
+  applySyncedProjectionUpdate: (
+    update: unknown,
+    options?: import("./store-synced-projections.js").SyncedProjectionUpdateApplyOptions,
+  ) => import("./store-synced-projections.js").SyncedProjectionApplyResult;
+  clearSyncedProjectionKey: (projection: string, key: string) => void;
+  reconcileSyncedProjectionAuthority: (
+    subscriptions: readonly import("../shared/synced-projection.js").SyncedProjectionSubscription[],
+  ) => void;
   streaming: Map<string, string>;
   streamingByParentToolUseId: Map<string, Map<string, string>>;
   streamingThinking: Map<string, string>;

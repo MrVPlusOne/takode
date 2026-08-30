@@ -6,6 +6,7 @@ interface HerdDispatcherHandle {
 }
 
 interface HerdBridgeHandle {
+  invalidateAllSessionAttentionProjections?: () => void;
   emitTakodeEvent(
     sessionId: string,
     event: "herd_reassigned",
@@ -37,6 +38,7 @@ export function createLauncherHerdChangeHandler(params: {
 }): (event: HerdChangeEvent) => void {
   const { dispatcher, wsBridge, launcher, getSessionName } = params;
   return (event: HerdChangeEvent) => {
+    wsBridge.invalidateAllSessionAttentionProjections?.();
     if (event.type === "membership_changed") {
       dispatcher.onHerdChanged(event.leaderId);
       return;

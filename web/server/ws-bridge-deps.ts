@@ -476,6 +476,10 @@ export function getSessionCleanupDeps(host: any) {
       }),
     removeStoredSession: (sessionId: string) => host.store?.remove(sessionId),
     removeImages: (sessionId: string) => host.imageStore?.removeSession(sessionId),
+    removeSyncedProjectionSubscriber: (socket: unknown) =>
+      host.getSyncedProjectionController().removeSubscriber(socket),
+    removeSessionAttentionProjection: (sessionId: string) =>
+      host.getSyncedProjectionController().removeSession(sessionId),
   };
 }
 
@@ -890,6 +894,12 @@ export function getBrowserTransportDeps(host: any) {
     getSessions: () => host.sessions.values(),
     windowStaleMs: WS_BRIDGE_VSCODE_WINDOW_STALE_MS,
     openFileTimeoutMs: WS_BRIDGE_VSCODE_OPEN_FILE_TIMEOUT_MS,
+    replaceSyncedProjectionSubscriptions: (socket: unknown, subscriptions: any[]) =>
+      host.getSyncedProjectionController().replaceSubscriptions(socket, subscriptions),
+    resyncSyncedProjection: (socket: unknown, projection: string, key: string) =>
+      host.getSyncedProjectionController().resync(socket, projection, key),
+    removeSyncedProjectionSubscriber: (socket: unknown) =>
+      host.getSyncedProjectionController().removeSubscriber(socket),
     lazyLoadFullHistory: async (targetSession: unknown) => {
       const session = targetSession as Session;
       if (!session.searchDataOnly || !host.store) return;

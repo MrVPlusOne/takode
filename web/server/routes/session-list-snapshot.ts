@@ -126,6 +126,10 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
         const { codexLeaderRecycleThresholdTokens: _hiddenControlThreshold, ...safeSession } =
           stripInternalLauncherSessionState(s);
         const bridgeSession = wsBridge.getSession(s.sessionId);
+        const sessionAttentionProjection =
+          bridgeSession && !safeSession.archived
+            ? wsBridge.getSyncedProjectionController?.().getSessionAttentionSnapshot(s.sessionId)
+            : null;
         // Herded worker notifications route through the leader/board flow and
         // should not create direct user-facing sidebar markers for the worker.
         notificationSummary =
@@ -238,6 +242,7 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
               0,
             ) ?? 0,
           ...notificationSummary,
+          ...(sessionAttentionProjection ? { sessionAttentionProjection } : {}),
           ...(attention ?? {}),
           ...(s.isWorktree && s.archived ? { worktreeExists: await archivedWorktreeExists(s.cwd) } : {}),
         };

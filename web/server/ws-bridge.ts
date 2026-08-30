@@ -2,6 +2,7 @@ import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
 import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
 import { notifyCodexWorkerV2RolloutActivity } from "./codex-worker-v2-rollout-hooks.js";
+import { WsBridgeSyncedProjectionController } from "./ws-bridge-synced-projections.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { normalizeCodexMessagePhase } from "../shared/codex-message-phase.js";
 import { sameCodexNativeSubagentOwnership } from "../shared/codex-native-subagent-types.js";
@@ -364,6 +365,11 @@ export class WsBridge {
   private static readonly USER_MESSAGE_RUNNING_TIMEOUT_MS = 30_000;
   private static readonly PROCESSED_CLIENT_MSG_ID_LIMIT = 1000;
   private sessions = new Map<string, Session>();
+  private readonly syncedProjections = new WsBridgeSyncedProjectionController({
+    getSession: (sessionId) => this.sessions.get(sessionId),
+    listSessions: () => this.sessions.values(),
+    getLauncherSessionInfo: (sessionId) => this.launcher?.getSession(sessionId),
+  });
   private sideChatBridgeDeps: SideChatBridgeDeps = {
     sessions: this.sessions,
     getBrowserRoutingDeps: () => this.getBrowserRoutingDeps(),
@@ -628,6 +634,7 @@ export class WsBridge {
   private onSessionActivityStateChanged(sessionId: string, reason: string): void {
     const session = this.sessions.get(sessionId);
     if (session) {
+      this.syncedProjections.invalidateSession(session);
       this.broadcastSessionActivityUpdateGlobally({
         type: "session_activity_update",
         session_id: sessionId,
@@ -775,6 +782,7 @@ export class WsBridge {
 
   /** Persist a session to disk (debounced). */
   private persistSession(session: Session): void {
+    this.syncedProjections.invalidateSession(session);
     if (!this.store) return;
     clampFrozenCountController(session);
     this.store.save(buildPersistedSessionPayloadController(session));
@@ -783,7 +791,9 @@ export class WsBridge {
   /** Persist a session to disk immediately (bypass debounce). */
   persistSessionSync(sessionId: string): void {
     const session = this.sessions.get(sessionId);
-    if (!session || !this.store) return;
+    if (!session) return;
+    this.syncedProjections.invalidateSession(session);
+    if (!this.store) return;
     clampFrozenCountController(session);
     this.store.saveSync(buildPersistedSessionPayloadController(session));
   }
@@ -897,6 +907,14 @@ export class WsBridge {
 
   getSession(sessionId: string): Session | undefined {
     return this.sessions.get(sessionId);
+  }
+
+  getSyncedProjectionController(): WsBridgeSyncedProjectionController {
+    return this.syncedProjections;
+  }
+
+  invalidateAllSessionAttentionProjections(): void {
+    this.syncedProjections.invalidateAllSessions();
   }
 
   syncSideChatRecord(rootSessionId: string, threadId: string): boolean {
@@ -1573,14 +1591,11 @@ export class WsBridge {
   handleBrowserClose(ws: ServerWebSocket<SocketData>, code?: number, reason?: string) {
     const sessionId = (ws.data as BrowserSocketData).sessionId;
     const session = this.sessions.get(sessionId);
-    if (!session) return;
-    handleBrowserCloseController(
-      session,
-      ws,
-      { backendConnected: (targetSession: unknown) => backendConnectedController(targetSession as Session) } as any,
-      code,
-      reason,
-    );
+    if (!session) {
+      this.syncedProjections.removeSubscriber(ws);
+      return;
+    }
+    handleBrowserCloseController(session, ws, this.getBrowserTransportDeps(), code, reason);
   }
 
   private static isSensitiveConfigPath(filePath: string): boolean {

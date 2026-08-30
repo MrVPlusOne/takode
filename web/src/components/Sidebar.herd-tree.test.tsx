@@ -2,6 +2,8 @@
 import { render, screen, fireEvent, waitFor, within, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { ReactNode } from "react";
+import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
+import { SYNCED_PROJECTION_SCHEMA_VERSION, syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import type { SessionState, SdkSessionInfo } from "../types.js";
 
 const mockConnectSession = vi.fn();
@@ -140,6 +142,9 @@ interface MockStoreState {
   questNamedSessions: Set<string>;
   pendingPermissions: Map<string, Map<string, unknown>>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
+  syncedProjectionValues: Map<string, unknown>;
+  syncedProjectionVersions: Map<string, { generation: string; revision: number }>;
+  syncedProjectionKeys: Set<string>;
   diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
   shortcutSettings: {
     enabled: boolean;
@@ -246,6 +251,9 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     questNamedSessions: new Set(),
     pendingPermissions: new Map(),
     sessionAttention: new Map(),
+    syncedProjectionValues: new Map(),
+    syncedProjectionVersions: new Map(),
+    syncedProjectionKeys: new Set(),
     diffFileStats: new Map(),
     shortcutSettings: { enabled: false, preset: "standard", overrides: {} },
     searchPreviewSessionId: null,
@@ -369,11 +377,93 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
     expect(screen.getByRole("button", { name: "Clear session search" })).toBeInTheDocument();
   });
 
-  it("keeps an unselected timer-backed unread session row consistent with its group and hover counts", async () => {
-    // The group summary and session row must consume the same canonical
-    // attention projection. Otherwise a scheduled timer can mask the row's
-    // blue unread marker until selecting the session hydrates more state.
+  it("keeps legacy search-result attention ahead of a scheduled timer", async () => {
+    const sessionId = "legacy-search-attention";
+    mockState = createMockState({
+      sessions: new Map([[sessionId, makeSession(sessionId, { model: "search-attention-model" })]]),
+      sdkSessions: [
+        makeSdkSession(sessionId, { sessionNum: 92, createdAt: 100, cliConnected: true, pendingTimerCount: 1 }),
+      ],
+      sessionNames: new Map([[sessionId, "Legacy Search Attention"]]),
+      sessionAttention: new Map([[sessionId, "error"]]),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map([[sessionId, "default"]]),
+    });
+
+    mockApi.searchSessions.mockResolvedValueOnce({
+      query: "Legacy Search",
+      tookMs: 1,
+      totalMatches: 1,
+      results: [
+        {
+          sessionId,
+          score: 100,
+          matchedField: "name",
+          matchContext: "name: Legacy Search Attention",
+          matchedAt: 100,
+        },
+      ],
+    });
+
+    render(<Sidebar />);
+    fireEvent.change(screen.getByTitle("Search sessions"), { target: { value: "Legacy Search" } });
+
+    const row = (await screen.findAllByText("Legacy Search Attention"))[0]!.closest("button")!;
+    expect(within(row).getByTestId("session-status-stripe")).toHaveAttribute("data-status", "completed_unread");
+    expect(within(row).queryByTestId("session-status-timer-icon")).not.toBeInTheDocument();
+  });
+
+  it("keeps legacy cron-row attention ahead of a scheduled timer", async () => {
+    const sessionId = "legacy-cron-attention";
+    mockState = createMockState({
+      sessions: new Map([[sessionId, makeSession(sessionId, { model: "cron-attention-model" })]]),
+      sdkSessions: [
+        makeSdkSession(sessionId, {
+          sessionNum: 93,
+          createdAt: 100,
+          cliConnected: true,
+          cronJobId: "cron-job-1",
+          cronJobName: "Attention cron",
+          pendingTimerCount: 1,
+        }),
+      ],
+      sessionNames: new Map([[sessionId, "Legacy Cron Attention"]]),
+      sessionAttention: new Map([[sessionId, "review"]]),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map([[sessionId, "default"]]),
+    });
+
+    render(<Sidebar />);
+    if (!screen.queryByText("Legacy Cron Attention")) {
+      fireEvent.click(screen.getByRole("button", { name: /Scheduled Runs \(1\)/ }));
+    }
+
+    const row = (await screen.findByText("Legacy Cron Attention")).closest("button")!;
+    expect(within(row).getByTestId("session-status-stripe")).toHaveAttribute("data-status", "completed_unread");
+    expect(within(row).queryByTestId("session-status-timer-icon")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "review");
+  });
+
+  it("keeps a projected timer-backed unread session row consistent with its group and hover counts", async () => {
+    // Model the post-session-list state: the synchronized projection owns the
+    // row, group, and hover while conflicting legacy summary/inbox inputs are
+    // retained only as fallback. This catches a dropped Sidebar-to-tree
+    // authority handoff, the exact failure class behind q-1978.
     const sessionId = "unread-timer-leader";
+    const projectionEntryId = syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, sessionId);
+    const projectionValue = {
+      attentionReason: "review" as const,
+      status: { urgency: "review" as const, count: 3 },
+    };
+    const projectionEnvelope = {
+      type: "synced_projection_snapshot" as const,
+      schemaVersion: SYNCED_PROJECTION_SCHEMA_VERSION,
+      projection: SESSION_ATTENTION_PROJECTION,
+      key: sessionId,
+      generation: "sidebar-regression-generation",
+      revision: 7,
+      value: projectionValue,
+    };
     mockState = createMockState({
       sessions: new Map([[sessionId, makeSession(sessionId, { model: "unread-timer-model" })]]),
       sdkSessions: [
@@ -382,11 +472,14 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
           sessionNum: 2522,
           cliConnected: true,
           pendingTimerCount: 1,
-          notificationUrgency: "review",
-          activeNotificationCount: 3,
-          activeReviewNotificationCount: 3,
+          // A fresh legacy clear plus stale full-inbox input must not override
+          // the installed projection authority.
+          notificationUrgency: null,
+          activeNotificationCount: 0,
+          activeReviewNotificationCount: 0,
           notificationStatusVersion: 12,
           notificationStatusUpdatedAt: 12_000,
+          sessionAttentionProjection: projectionEnvelope,
           leaderOpenThreadTabs: {
             version: 1,
             orderedOpenThreadKeys: ["q-1964", "q-1969", "q-1977"],
@@ -396,10 +489,27 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
         }),
       ],
       sessionNames: new Map([[sessionId, "Unread Timer Leader"]]),
-      // Model a fresh browser/reconnect that only has the compact server
-      // summary. The row must not wait for selection-specific hydration.
-      sessionAttention: new Map(),
-      sessionNotifications: new Map(),
+      sessionAttention: new Map([[sessionId, "review"]]),
+      syncedProjectionValues: new Map([[projectionEntryId, projectionValue]]),
+      syncedProjectionVersions: new Map([
+        [projectionEntryId, { generation: projectionEnvelope.generation, revision: projectionEnvelope.revision }],
+      ]),
+      syncedProjectionKeys: new Set([projectionEntryId]),
+      sessionNotifications: new Map([
+        [
+          sessionId,
+          [
+            {
+              id: "stale-legacy-input",
+              category: "needs-input",
+              summary: "Stale legacy input",
+              timestamp: 1,
+              done: false,
+              messageId: null,
+            },
+          ],
+        ],
+      ]),
       treeGroups: [{ id: "default", name: "Default" }],
       treeAssignments: new Map([[sessionId, "default"]]),
     });
@@ -409,7 +519,9 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
     expect(screen.getByTestId("status-count-unread")).toHaveTextContent("1");
     const row = screen.getByText("Unread Timer Leader").closest("button")!;
     expect(within(row).getByTestId("session-status-dot")).toHaveAttribute("data-status", "completed_unread");
+    expect(screen.getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "review");
     expect(within(row).queryByTestId("session-status-timer-icon")).not.toBeInTheDocument();
+    expect(within(row).queryByTestId("session-notification-marker")).not.toBeInTheDocument();
     fireEvent.mouseEnter(row);
     await waitFor(() => {
       expect(screen.getByTestId("session-hover-attention-status")).toHaveTextContent("3 unread conversations");

@@ -4,6 +4,11 @@ import "@testing-library/jest-dom";
 import { useState, type ComponentProps } from "react";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
+import {
+  SESSION_ATTENTION_PROJECTION,
+  type SessionAttentionProjectionValue,
+} from "../../shared/session-attention-projection.js";
+import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 
 const mockStoreState = {
   questNamedSessions: new Set<string>(),
@@ -11,6 +16,9 @@ const mockStoreState = {
   sessionTaskPreview: new Map<string, { text: string; updatedAt: number }>(),
   sessionPreviewUpdatedAt: new Map<string, number>(),
   sessionAttention: new Map<string, "action" | "error" | "review" | null>(),
+  syncedProjectionValues: new Map<string, unknown>(),
+  syncedProjectionVersions: new Map(),
+  syncedProjectionKeys: new Set<string>(),
   sessionNotifications: new Map<string, Array<any>>(),
   sessionTimers: new Map<string, Array<{ id: string }>>(),
   sessionBoards: new Map<string, Array<any>>(),
@@ -66,6 +74,9 @@ beforeEach(() => {
   mockStoreState.sessionCompletedBoards.clear();
   mockStoreState.sessionBoardRowStatuses.clear();
   mockStoreState.quests = [];
+  mockStoreState.syncedProjectionValues.clear();
+  mockStoreState.syncedProjectionVersions.clear();
+  mockStoreState.syncedProjectionKeys.clear();
 });
 
 function makeSession(overrides: Partial<SessionItemType> = {}): SessionItemType {
@@ -181,6 +192,12 @@ function setSessionTimers(sessionId: string, timerIds: string[]) {
     sessionId,
     timerIds.map((id) => ({ id })),
   );
+}
+
+function setSessionAttentionProjection(sessionId: string, value: SessionAttentionProjectionValue) {
+  const entryId = syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, sessionId);
+  mockStoreState.syncedProjectionKeys.add(entryId);
+  mockStoreState.syncedProjectionValues.set(entryId, value);
 }
 
 const SAGE_THEME: HerdGroupBadgeTheme = {
@@ -907,6 +924,7 @@ describe("SessionItem notification marker", () => {
     mockStoreState.sessionNotifications.clear();
     mockStoreState.sessionTimers.clear();
     mockStoreState.sdkSessions = [];
+    mockStoreState.currentSessionId = "s1";
   });
 
   it("shows a blue notification marker when review is the highest active inbox urgency", () => {
@@ -1282,6 +1300,99 @@ describe("SessionItem notification marker", () => {
     expect(marker).toHaveAttribute("data-urgency", "needs-input");
     expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
   });
+
+  it("uses a projected review as the sole search-row marker authority ahead of a timer", () => {
+    mockStoreState.currentSessionId = "other-session";
+    setSessionAttentionProjection("s1", {
+      attentionReason: "review",
+      status: { urgency: "review", count: 2 },
+    });
+    setSessionNotifications("s1", [
+      { id: "legacy-input", category: "needs-input", summary: "Stale", timestamp: 1, done: false },
+    ]);
+
+    const { container } = renderSessionItem({
+      session: makeSession({ pendingTimerCount: 1 }),
+      attention: null,
+      hasUnread: false,
+      useStatusBar: true,
+      matchContext: "message: projected result",
+      matchedField: "user_message",
+      matchQuery: "projected",
+    });
+
+    expect(screen.getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "review");
+    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
+    expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
+  });
+
+  it("uses projected needs-input and ignores conflicting legacy review state", () => {
+    setSessionAttentionProjection("s1", {
+      attentionReason: "action",
+      status: { urgency: "needs-input", count: 1 },
+    });
+    setSessionNotifications("s1", [
+      { id: "legacy-review", category: "review", summary: "Stale", timestamp: 1, done: false },
+    ]);
+
+    renderSessionItem({ attention: "review", hasUnread: true });
+
+    expect(screen.getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "action");
+    expect(screen.queryByTestId("session-notification-marker")).toBeNull();
+  });
+
+  it("uses projected muted-only status ahead of a timer without reviving legacy attention", () => {
+    setSessionTimers("s1", ["t1"]);
+    setSessionAttentionProjection("s1", {
+      attentionReason: null,
+      status: { urgency: "muted-needs-input", count: 3 },
+    });
+
+    const { container } = renderSessionItem({ attention: "review", hasUnread: true });
+
+    expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "muted-needs-input");
+    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
+    expect(screen.queryByTestId("session-attention-marker")).toBeNull();
+  });
+
+  it("lets a projected clear reveal the ordinary timer and suppress stale legacy markers", () => {
+    setSessionTimers("s1", ["t1"]);
+    setSessionAttentionProjection("s1", { attentionReason: null, status: null });
+    setSessionNotifications("s1", [
+      { id: "legacy-input", category: "needs-input", summary: "Stale", timestamp: 1, done: false },
+    ]);
+
+    renderSessionItem({ attention: "review", hasUnread: true });
+
+    expect(screen.getByTestId("session-status-timer-icon")).toBeInTheDocument();
+    expect(screen.queryByTestId("session-attention-marker")).toBeNull();
+    expect(screen.queryByTestId("session-notification-marker")).toBeNull();
+  });
+
+  it("keeps permission precedence over projected attention", () => {
+    setSessionAttentionProjection("s1", {
+      attentionReason: "action",
+      status: { urgency: "needs-input", count: 2 },
+    });
+
+    renderSessionItem({ permCount: 2 });
+
+    expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "permission");
+    expect(screen.queryByTestId("session-attention-marker")).toBeNull();
+    expect(screen.queryByTestId("session-notification-marker")).toBeNull();
+  });
+
+  it("preserves projected error as unread without inventing notification urgency", () => {
+    setSessionTimers("s1", ["t1"]);
+    setSessionAttentionProjection("s1", { attentionReason: "error", status: null });
+
+    const { container } = renderSessionItem();
+
+    expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "completed_unread");
+    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
+    expect(screen.queryByTestId("session-attention-marker")).toBeNull();
+    expect(screen.queryByTestId("session-notification-marker")).toBeNull();
+  });
 });
 
 describe("SessionItem reviewer badge", () => {
@@ -1497,6 +1608,22 @@ describe("SessionItem reviewer badge", () => {
     const badge = screen.getByTestId("session-reviewer-badge");
     expect(badge).toHaveAttribute("data-reviewer-status", "idle");
     expect(badge).not.toHaveStyle({ animation: "reviewer-badge-glow 2s ease-in-out infinite" });
+  });
+
+  it("uses projected reviewer attention instead of the legacy compatibility value", () => {
+    const reviewer = makeSession({ id: "reviewer-1", reviewerOf: 8, status: "idle" });
+    mockStoreState.sessionAttention.set("reviewer-1", null);
+    setSessionAttentionProjection("reviewer-1", {
+      attentionReason: "review",
+      status: { urgency: "review", count: 4 },
+    });
+
+    renderSessionItem({
+      session: makeSession({ sessionNum: 8 }),
+      reviewerSession: reviewer,
+    });
+
+    expect(screen.getByTestId("session-reviewer-badge")).toHaveAttribute("data-reviewer-status", "completed_unread");
   });
 
   it("shows no glow animation when reviewer is disconnected", () => {

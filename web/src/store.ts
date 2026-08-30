@@ -9,7 +9,6 @@ import type {
   ToolResultPreview,
   SessionTaskEntry,
   HistoryWindowState,
-  LeaderProjectionSnapshot,
   ThreadWindowState,
   PendingCodexInput,
   PendingUserUpload,
@@ -75,6 +74,8 @@ import { persistSidePanelStringSet, withMapEntry, withOptionalMapEntry } from ".
 import { createQuestStoreSlice, resetQuestRefreshStateForTests } from "./store-quests.js";
 import { indexCodexReasoningPreviews } from "./utils/codex-reasoning-previews.js";
 import { attachCodexSubagentToolResultsAcrossSources, updateMessageAcrossSources } from "./store-message-updates.js";
+import { createSyncedProjectionStoreSlice, hasSessionAttentionProjection } from "./store-synced-projections.js";
+import { createSessionAttentionStoreSlice } from "./store-session-attention.js";
 
 // ─── Color Themes ───────────────────────────────────────────────────────────
 
@@ -146,14 +147,8 @@ export const useStore = create<AppState>((set, get) => ({
   pendingThreadWindowRequests: new Map(),
   feedWindowSyncs: new Map(),
   threadFeedWindowSyncs: new Map(),
-  leaderProjections: new Map(),
-  setLeaderProjection: (sessionId: string, projection: LeaderProjectionSnapshot | null) =>
-    set((s) => {
-      const next = new Map(s.leaderProjections);
-      if (projection) next.set(sessionId, projection);
-      else next.delete(sessionId);
-      return { leaderProjections: next };
-    }),
+  ...createSyncedProjectionStoreSlice(set),
+  ...createSessionAttentionStoreSlice(set),
   streaming: new Map(),
   streamingByParentToolUseId: new Map(),
   streamingThinking: new Map(),
@@ -1010,7 +1005,7 @@ export const useStore = create<AppState>((set, get) => ({
           // Clear "action" attention when all permissions are resolved — the user
           // no longer needs to act on this session for permission approvals.
           const result: Record<string, unknown> = { pendingPermissions };
-          if (s.sessionAttention.get(sessionId) === "action") {
+          if (s.sessionAttention.get(sessionId) === "action" && !hasSessionAttentionProjection(s, sessionId)) {
             const sessionAttention = new Map(s.sessionAttention);
             sessionAttention.set(sessionId, null);
             result.sessionAttention = sessionAttention;
@@ -1085,7 +1080,7 @@ export const useStore = create<AppState>((set, get) => ({
       pendingPermissions.delete(sessionId);
       const result: Record<string, unknown> = { pendingPermissions };
       // Clear "action" attention when all permissions are cleared
-      if (s.sessionAttention.get(sessionId) === "action") {
+      if (s.sessionAttention.get(sessionId) === "action" && !hasSessionAttentionProjection(s, sessionId)) {
         const sessionAttention = new Map(s.sessionAttention);
         sessionAttention.set(sessionId, null);
         result.sessionAttention = sessionAttention;
@@ -1514,38 +1509,6 @@ export const useStore = create<AppState>((set, get) => ({
       return { toolStartTimestamps };
     }),
 
-  markSessionViewed: (sessionId) =>
-    set((s) => {
-      const sessionAttention = new Map(s.sessionAttention);
-      sessionAttention.set(sessionId, null);
-      return { sessionAttention };
-    }),
-
-  markSessionUnread: (sessionId) =>
-    set((s) => {
-      const sessionAttention = new Map(s.sessionAttention);
-      sessionAttention.set(sessionId, "review");
-      api.markSessionUnread(sessionId).catch(() => {});
-      return { sessionAttention };
-    }),
-
-  markAllSessionsViewed: () =>
-    set((s) => {
-      const sessionAttention = new Map(s.sessionAttention);
-      for (const sdk of s.sdkSessions) {
-        sessionAttention.set(sdk.sessionId, null);
-      }
-      api.markAllSessionsRead().catch(() => {});
-      return { sessionAttention };
-    }),
-
-  clearSessionAttention: (sessionId) =>
-    set((s) => {
-      const sessionAttention = new Map(s.sessionAttention);
-      sessionAttention.set(sessionId, null);
-      return { sessionAttention };
-    }),
-
   setTreeGroups: (groups, assignments, nodeOrder) =>
     set(() => ({
       treeGroups: groups,
@@ -1889,6 +1852,11 @@ export const useStore = create<AppState>((set, get) => ({
       pendingThreadWindowRequests: new Map(),
       feedWindowSyncs: new Map(),
       threadFeedWindowSyncs: new Map(),
+      leaderProjections: new Map(),
+      syncedProjectionValues: new Map(),
+      syncedProjectionVersions: new Map(),
+      syncedProjectionKeys: new Set(),
+      syncedProjectionOrderings: new Map(),
       streaming: new Map(),
       streamingByParentToolUseId: new Map(),
       streamingThinking: new Map(),

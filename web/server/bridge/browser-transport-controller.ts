@@ -125,7 +125,7 @@ export interface ProgrammaticUserMessageOptions {
 
 export interface BrowserTransportSocketLike {
   data?: unknown;
-  send(data: string): void;
+  send(data: string): unknown;
 }
 
 export interface BrowserTransportSessionLike {
@@ -247,6 +247,16 @@ export interface BrowserTransportDeps {
   windowStaleMs: number;
   openFileTimeoutMs: number;
   lazyLoadFullHistory?: (session: BrowserTransportSessionLike) => Promise<void>;
+  replaceSyncedProjectionSubscriptions?: (
+    socket: BrowserTransportSocketLike,
+    subscriptions: Extract<BrowserOutgoingMessage, { type: "synced_projection_subscribe" }>["subscriptions"],
+  ) => BrowserIncomingMessage[];
+  resyncSyncedProjection?: (
+    socket: BrowserTransportSocketLike,
+    projection: string,
+    key: string,
+  ) => BrowserIncomingMessage | null;
+  removeSyncedProjectionSubscriber?: (socket: BrowserTransportSocketLike) => void;
 }
 
 const BROWSER_ACTIVITY_TYPES: ReadonlySet<string> = new Set([
@@ -277,6 +287,8 @@ function isArchivedReadOnlyBrowserMessage(msg: BrowserOutgoingMessage): boolean 
     msg.type === "conversation_view_update" ||
     msg.type === "session_ack" ||
     msg.type === "history_sync_mismatch" ||
+    msg.type === "synced_projection_subscribe" ||
+    msg.type === "synced_projection_resync" ||
     (msg as { type: string }).type === "ping"
   );
 }
@@ -379,11 +391,12 @@ export function handleBrowserOpen(
 export function handleBrowserClose(
   session: BrowserTransportSessionLike,
   ws: BrowserTransportSocketLike,
-  deps: Pick<BrowserTransportDeps, "backendConnected">,
+  deps: Pick<BrowserTransportDeps, "backendConnected" | "removeSyncedProjectionSubscriber">,
   code?: number,
   reason?: string,
 ): void {
   session.browserSockets.delete(ws);
+  deps.removeSyncedProjectionSubscriber?.(ws);
   const hasBackend = deps.backendConnected(session);
   console.log(
     `[ws-bridge] Browser disconnected for session ${sessionTag(session.id)} (${session.browserSockets.size} remaining, backend=${hasBackend ? "alive" : "dead"}) | code=${code ?? "?"} reason=${JSON.stringify(reason || "")}`,
@@ -518,6 +531,18 @@ export function handleBrowserMessage(
   };
 }
 
+function sendSyncedProjectionReplacement(
+  ws: BrowserTransportSocketLike,
+  subscriptions: Extract<BrowserOutgoingMessage, { type: "synced_projection_subscribe" }>["subscriptions"],
+  deps: Pick<BrowserTransportDeps, "replaceSyncedProjectionSubscriptions" | "removeSyncedProjectionSubscriber">,
+): void {
+  for (const snapshot of deps.replaceSyncedProjectionSubscriptions?.(ws, subscriptions) ?? []) {
+    if (sendToBrowser(ws, snapshot)) continue;
+    deps.removeSyncedProjectionSubscriber?.(ws);
+    break;
+  }
+}
+
 export function handleBrowserProtocolMessage(
   session: BrowserTransportSessionLike,
   msg: BrowserOutgoingMessage,
@@ -539,7 +564,21 @@ export function handleBrowserProtocolMessage(
       msg.history_window_target_message_id,
       msg.history_window_target_index,
       msg.full_history_sync,
+      msg.synced_projection_subscriptions,
     ).then(() => true);
+  }
+
+  if (msg.type === "synced_projection_subscribe") {
+    if (ws) sendSyncedProjectionReplacement(ws, msg.subscriptions, deps);
+    return true;
+  }
+
+  if (msg.type === "synced_projection_resync") {
+    if (ws) {
+      const snapshot = deps.resyncSyncedProjection?.(ws, msg.projection, msg.key);
+      if (snapshot && !sendToBrowser(ws, snapshot)) deps.removeSyncedProjectionSubscriber?.(ws);
+    }
+    return true;
   }
 
   if (msg.type === "history_window_request") {
@@ -1356,12 +1395,20 @@ export async function handleSessionSubscribe(
   historyWindowTargetMessageId?: string,
   historyWindowTargetIndex?: number,
   explicitFullHistorySync?: boolean,
+  syncedProjectionSubscriptions?: Extract<
+    BrowserOutgoingMessage,
+    { type: "synced_projection_subscribe" }
+  >["subscriptions"],
 ): Promise<void> {
   if (!ws) return;
   const data = (ws.data ??= {}) as BrowserTransportSocketData;
   data.subscribed = true;
   const lastAckSeq = Number.isFinite(lastSeq) ? Math.max(0, Math.floor(lastSeq)) : 0;
   data.lastAckSeq = lastAckSeq;
+  const replaceBeforeLazyLoad = (session as unknown as { searchDataOnly?: boolean }).searchDataOnly === true;
+  if (replaceBeforeLazyLoad && syncedProjectionSubscriptions) {
+    sendSyncedProjectionReplacement(ws, syncedProjectionSubscriptions, deps);
+  }
 
   // Lazy-load full history for search-data-only archived sessions
   if ((session as unknown as Record<string, unknown>).searchDataOnly && deps.lazyLoadFullHistory) {
@@ -1396,6 +1443,14 @@ export async function handleSessionSubscribe(
     cleanedStale = true;
   }
   if (cleanedStale) deps.persistSession(session);
+
+  // Install the projection replacement after synchronous reconnect cleanup
+  // but before the first active-session history await. WebSocket callbacks can
+  // overlap while a large snapshot is prepared; this preserves wire order
+  // without publishing permissions the same subscribe already proved stale.
+  if (!replaceBeforeLazyLoad && syncedProjectionSubscriptions) {
+    sendSyncedProjectionReplacement(ws, syncedProjectionSubscriptions, deps);
+  }
 
   const normalizedInitialThreadWindow = normalizeInitialThreadWindowRequest(
     initialThreadWindow,
@@ -1471,7 +1526,6 @@ export async function handleSessionSubscribe(
   if (boundedView) {
     sendToBrowser(ws, { type: "conversation_sync_complete", through_seq: syncThroughSeq });
   }
-
   deps.recomputeAndBroadcastHistoryBytes(session);
   sendStateSnapshot(session, ws, deps);
 }
@@ -1546,32 +1600,38 @@ export function broadcastToBrowsers(
   deferBrowserTrafficStats(json, session.id, msg.type, successfulFanout);
 }
 
-export function sendToBrowser(ws: BrowserTransportSocketLike, msg: BrowserIncomingMessage): void {
+export function sendToBrowser(ws: BrowserTransportSocketLike, msg: BrowserIncomingMessage): boolean {
   try {
     const json = JSON.stringify(msg);
-    ws.send(json);
+    const result = ws.send(json);
+    if (result === 0) return false;
     deferBrowserTrafficStats(
       json,
       (ws.data as { sessionId?: string } | undefined)?.sessionId ?? "unknown",
       msg.type,
       1,
     );
+    return true;
   } catch {
     // socket cleanup handled elsewhere
+    return false;
   }
 }
 
-export function sendToBrowserRaw(ws: BrowserTransportSocketLike, json: string, messageType: string): void {
+export function sendToBrowserRaw(ws: BrowserTransportSocketLike, json: string, messageType: string): boolean {
   try {
-    ws.send(json);
+    const result = ws.send(json);
+    if (result === 0) return false;
     deferBrowserTrafficStats(
       json,
       (ws.data as { sessionId?: string } | undefined)?.sessionId ?? "unknown",
       messageType,
       1,
     );
+    return true;
   } catch {
     // socket cleanup handled elsewhere
+    return false;
   }
 }
 

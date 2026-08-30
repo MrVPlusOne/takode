@@ -69,6 +69,8 @@ import type {
 } from "../server/session-types.js";
 import type { CodexMessagePhase } from "../shared/codex-message-phase.js";
 import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
+import type { SessionAttentionProjectionValue } from "../shared/session-attention-projection.js";
+import type { SyncedProjectionEnvelope } from "../shared/synced-projection.js";
 import { assertNever, isClaudeFamily } from "../server/session-types.js";
 import type { ImageRef } from "../server/image-store.js";
 import type { SessionTimer } from "../server/timer-types.js";
@@ -492,6 +494,8 @@ export interface SdkSessionInfo {
   herdedBy?: string;
   /** Short integer session ID (e.g. #5), stable across restarts */
   sessionNum?: number | null;
+  /** Canonical bounded server projection for row, hover, and aggregate attention. */
+  sessionAttentionProjection?: SyncedProjectionEnvelope<SessionAttentionProjectionValue>;
   /** Server-authoritative attention state */
   attentionReason?: "action" | "error" | "review" | null;
   /** Epoch ms when user last viewed this session */

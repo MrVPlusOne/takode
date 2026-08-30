@@ -293,6 +293,12 @@ export interface Session {
   attentionRecords: SessionAttentionRecord[];
   /** Monotonic counter for notification IDs (survives deletion without collisions). */
   notificationCounter: number;
+  /** Monotonic legacy notification-summary version; projection revisions are independent. */
+  notificationStatusVersion?: number;
+  /** Epoch ms of the latest notification-summary authority change. */
+  notificationStatusUpdatedAt?: number;
+  /** Explicit user-owned unread marker, cleared only by an authoritative read action. */
+  manualUnread: boolean;
   /** Whether agent activity has occurred since the last diff computation */
   diffStatsDirty: boolean;
   /** True when this archived session was loaded with only search-relevant data.

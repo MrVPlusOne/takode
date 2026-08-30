@@ -14,6 +14,9 @@ const NON_REPLAYABLE_BROWSER_EVENT_TYPES = new Set<string>([
   "session_name_update",
   "tree_groups_update",
   "leader_projection_snapshot",
+  "synced_projection_snapshot",
+  "synced_projection_update",
+  "synced_projection_subscriptions_ack",
   "codex_pending_inputs",
 ]);
 

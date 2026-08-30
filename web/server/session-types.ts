@@ -36,6 +36,14 @@ import type {
 import type { LeaderProjectionSnapshot } from "./leader-projection-types.js";
 import type { SessionLifecycleBrowserMessage } from "./session-lifecycle-message.js";
 import type { SessionDefaultsSettings } from "../shared/session-defaults.js";
+import type {
+  SyncedProjectionResyncMessage,
+  SyncedProjectionSnapshotMessage,
+  SyncedProjectionSubscribeMessage,
+  SyncedProjectionSubscription,
+  SyncedProjectionSubscriptionsAckMessage,
+  SyncedProjectionUpdateMessage,
+} from "../shared/synced-projection.js";
 import type { QuestTitlePreview } from "./quest-types.js";
 import type { HistoryWindowState, InitialThreadWindowRequest, ThreadWindowState } from "./window-protocol-types.js";
 export type {
@@ -636,7 +644,10 @@ export type BrowserOutgoingMessage =
       feed_window_sync_version?: number;
       initial_thread_window?: InitialThreadWindowRequest;
       full_history_sync?: boolean;
+      synced_projection_subscriptions?: SyncedProjectionSubscription[];
     }
+  | SyncedProjectionSubscribeMessage
+  | SyncedProjectionResyncMessage
   | {
       type: "history_window_request";
       from_turn: number;
@@ -1015,6 +1026,9 @@ export type BrowserIncomingMessageBase =
       cache_hit?: boolean;
     }
   | { type: "leader_projection_snapshot"; projection: LeaderProjectionSnapshot }
+  | SyncedProjectionSnapshotMessage
+  | SyncedProjectionSubscriptionsAckMessage
+  | SyncedProjectionUpdateMessage
   | {
       type: "history_sync";
       frozen_base_count: number;
@@ -1238,7 +1252,16 @@ type BrowserIncomingMessageMetadata = {
 
 export type BrowserIncomingMessage = BrowserIncomingMessageBase & BrowserIncomingMessageMetadata;
 
-export type ReplayableBrowserIncomingMessage = Exclude<BrowserIncomingMessageBase, { type: "event_replay" }> &
+export type ReplayableBrowserIncomingMessage = Exclude<
+  BrowserIncomingMessageBase,
+  {
+    type:
+      | "event_replay"
+      | "synced_projection_snapshot"
+      | "synced_projection_update"
+      | "synced_projection_subscriptions_ack";
+  }
+> &
   BrowserIncomingMessageMetadata;
 
 export interface BufferedBrowserEvent {

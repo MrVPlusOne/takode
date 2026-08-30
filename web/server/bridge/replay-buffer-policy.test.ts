@@ -41,4 +41,33 @@ describe("replay buffer policy", () => {
       ),
     ).toBe(true);
   });
+
+  it.each([
+    {
+      type: "synced_projection_snapshot",
+      schemaVersion: 1,
+      projection: "session-attention",
+      key: "s1",
+      generation: "generation-a",
+      revision: 1,
+      value: { attentionReason: null, status: null },
+    },
+    {
+      type: "synced_projection_update",
+      schemaVersion: 1,
+      projection: "session-attention",
+      key: "s1",
+      generation: "generation-a",
+      revision: 2,
+      value: { attentionReason: "review", status: { urgency: "review", count: 1 } },
+    },
+    {
+      type: "synced_projection_subscriptions_ack",
+      subscriptions: [{ projection: "session-attention", key: "s1" }],
+      complete: true,
+    },
+  ] as const)("never replay-buffers direct projection protocol message $type", (message) => {
+    expect(shouldBufferForReplayWithContext(message as BrowserIncomingMessage)).toBe(false);
+    expect(isReplayableBufferedEvent({ seq: 1, message })).toBe(false);
+  });
 });

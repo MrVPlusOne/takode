@@ -116,6 +116,9 @@ interface MockStoreState {
   questNamedSessions: Set<string>;
   pendingPermissions: Map<string, Map<string, unknown>>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
+  syncedProjectionValues: Map<string, unknown>;
+  syncedProjectionVersions: Map<string, unknown>;
+  syncedProjectionKeys: Set<string>;
   diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
   shortcutSettings: {
     enabled: boolean;
@@ -225,6 +228,9 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     questNamedSessions: new Set(),
     pendingPermissions: new Map(),
     sessionAttention: new Map(),
+    syncedProjectionValues: new Map(),
+    syncedProjectionVersions: new Map(),
+    syncedProjectionKeys: new Set(),
     diffFileStats: new Map(),
     shortcutSettings: { enabled: false, preset: "standard", overrides: {} },
     searchPreviewSessionId: null,

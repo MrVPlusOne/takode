@@ -16,6 +16,12 @@ import {
   recordFrontendPerfEntry,
 } from "./utils/frontend-perf-recorder.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
+import {
+  isValidSyncedProjectionIdentity,
+  syncedProjectionEntryId,
+  type SyncedProjectionSubscription,
+  type SyncedProjectionSubscriptionIdentity,
+} from "../shared/synced-projection.js";
 
 /** Heartbeat interval — send a ping every 30s to keep the connection alive */
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -70,6 +76,8 @@ export interface WsTransportCallbacks {
     | null
     | undefined;
   getInitialThreadWindow?: (sessionId: string) => InitialThreadWindowRequest | null | undefined;
+  /** Undefined means this socket is not the selected projection carrier. */
+  getSyncedProjectionSubscriptions?: (sessionId: string) => SyncedProjectionSubscription[] | undefined;
   onMessage: (sessionId: string, data: BrowserIncomingMessage, context: WsIncomingMessageContext) => void;
   onConnecting?: (sessionId: string) => void;
   onConnected?: (sessionId: string) => void;
@@ -87,6 +95,18 @@ export interface WsTransport {
   sendToSession: (sessionId: string, msg: BrowserOutgoingMessage) => boolean;
   sendGlobalMessage: (msg: BrowserOutgoingMessage, preferredSessionId?: string | null) => boolean;
   requestFullHistorySync: (sessionId: string) => boolean;
+  refreshSyncedProjectionSubscriptions: (sessionId: string) => boolean;
+  requestSyncedProjectionResync: (carrierSessionId: string, projection: string, key: string) => boolean;
+  hasPendingSyncedProjectionResync: (carrierSessionId: string, projection: string, key: string) => boolean;
+  resolveSyncedProjectionResync: (carrierSessionId: string, projection: string, key: string) => void;
+  noteAcceptedSyncedProjectionSnapshot: (carrierSessionId: string, projection: string, key: string) => void;
+  consumeSyncedProjectionSubscriptionsAck: (
+    carrierSessionId: string,
+    subscriptions: readonly SyncedProjectionSubscriptionIdentity[],
+  ) => SyncedProjectionSubscriptionIdentity[] | null;
+  settleUnsupportedSyncedProjectionSubscriptions: (
+    carrierSessionId: string,
+  ) => SyncedProjectionSubscriptionIdentity[] | null;
   hasSocket: (sessionId: string) => boolean;
   getSocketState: (sessionId: string) => number | null;
   closeAllForUnload: () => void;
@@ -99,6 +119,19 @@ function getWsUrl(sessionId: string): string {
 
 function getLastSeqStorageKey(sessionId: string): string {
   return `companion:last-seq:${sessionId}`;
+}
+
+function syncedProjectionSubscriptionInventorySignature(
+  subscriptions: readonly SyncedProjectionSubscription[],
+): string {
+  return JSON.stringify(subscriptions.map(({ projection, key }) => [projection, key]));
+}
+
+interface PendingSyncedProjectionSubscriptionAck {
+  kind: "session_subscribe" | "refresh";
+  signature: string;
+  expected: Map<string, SyncedProjectionSubscriptionIdentity>;
+  acceptedSnapshots: Set<string>;
 }
 
 export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport {
@@ -114,6 +147,9 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
   const coldSubscribeReceivedHistory = new Set<string>();
   const coldSubscribeBufferedReplay = new Map<string, BrowserIncomingMessage[]>();
   const intentionalCloseSockets = new WeakSet<WebSocket>();
+  const syncedProjectionSubscriptionSignatures = new Map<string, string>();
+  const pendingSyncedProjectionResyncs = new Map<string, Set<string>>();
+  const pendingSyncedProjectionSubscriptionAcks = new Map<string, PendingSyncedProjectionSubscriptionAck[]>();
 
   let clientMsgCounter = 0;
   let receiveCounter = 0;
@@ -265,6 +301,80 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     coldSubscribeBufferedReplay.delete(sessionId);
   }
 
+  function enqueueSyncedProjectionSubscriptionAck(
+    sessionId: string,
+    subscriptions: readonly SyncedProjectionSubscription[],
+    kind: PendingSyncedProjectionSubscriptionAck["kind"],
+  ): void {
+    const expected = new Map<string, SyncedProjectionSubscriptionIdentity>();
+    for (const subscription of subscriptions) {
+      if (
+        !isValidSyncedProjectionIdentity(subscription.projection) ||
+        !isValidSyncedProjectionIdentity(subscription.key)
+      ) {
+        continue;
+      }
+      const identity = { projection: subscription.projection, key: subscription.key };
+      expected.set(syncedProjectionEntryId(identity.projection, identity.key), identity);
+    }
+    const pending = pendingSyncedProjectionSubscriptionAcks.get(sessionId);
+    const entry: PendingSyncedProjectionSubscriptionAck = {
+      kind,
+      signature: syncedProjectionSubscriptionInventorySignature(subscriptions),
+      expected,
+      acceptedSnapshots: new Set(),
+    };
+    if (pending) pending.push(entry);
+    else pendingSyncedProjectionSubscriptionAcks.set(sessionId, [entry]);
+  }
+
+  function noteAcceptedSyncedProjectionSnapshot(carrierSessionId: string, projection: string, key: string): void {
+    const pending = pendingSyncedProjectionSubscriptionAcks.get(carrierSessionId)?.[0];
+    if (!pending) return;
+    const entryId = syncedProjectionEntryId(projection, key);
+    if (pending.expected.has(entryId)) pending.acceptedSnapshots.add(entryId);
+  }
+
+  function consumeSyncedProjectionSubscriptionsAck(
+    carrierSessionId: string,
+    subscriptions: readonly SyncedProjectionSubscriptionIdentity[],
+  ): SyncedProjectionSubscriptionIdentity[] | null {
+    const queue = pendingSyncedProjectionSubscriptionAcks.get(carrierSessionId);
+    const pending = queue?.shift();
+    if (!queue || !pending) return null;
+
+    const acknowledged = new Set<string>();
+    for (const subscription of subscriptions) {
+      if (
+        !isValidSyncedProjectionIdentity(subscription?.projection) ||
+        !isValidSyncedProjectionIdentity(subscription?.key)
+      ) {
+        continue;
+      }
+      const entryId = syncedProjectionEntryId(subscription.projection, subscription.key);
+      if (pending.expected.has(entryId)) acknowledged.add(entryId);
+    }
+
+    if (queue.length > 0) return null;
+    pendingSyncedProjectionSubscriptionAcks.delete(carrierSessionId);
+    const desired = callbacks.getSyncedProjectionSubscriptions?.(carrierSessionId);
+    if (desired === undefined || syncedProjectionSubscriptionInventorySignature(desired) !== pending.signature) {
+      return null;
+    }
+    return [...acknowledged]
+      .filter((entryId) => pending.acceptedSnapshots.has(entryId))
+      .map((entryId) => pending.expected.get(entryId)!);
+  }
+
+  function settleUnsupportedSyncedProjectionSubscriptions(
+    carrierSessionId: string,
+  ): SyncedProjectionSubscriptionIdentity[] | null {
+    const queue = pendingSyncedProjectionSubscriptionAcks.get(carrierSessionId);
+    if (!queue?.some((pending) => pending.kind === "session_subscribe")) return null;
+    pendingSyncedProjectionSubscriptionAcks.delete(carrierSessionId);
+    return [];
+  }
+
   function sendSessionSubscribe(sessionId: string, forceFullHistory = false): boolean {
     const ws = sockets.get(sessionId);
     if (!isSocketSendable(ws)) return false;
@@ -274,6 +384,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     const knownFrozenHash = hasLocalMessages ? callbacks.getKnownFrozenHash(sessionId) : undefined;
     const freshWindow = callbacks.getFreshHistoryWindow?.(sessionId) ?? null;
     const initialThreadWindow = callbacks.getInitialThreadWindow?.(sessionId) ?? null;
+    const syncedProjectionSubscriptions = callbacks.getSyncedProjectionSubscriptions?.(sessionId);
     ws.send(
       JSON.stringify({
         type: "session_subscribe",
@@ -281,6 +392,9 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
         known_frozen_count: Math.max(0, Math.floor(knownFrozenCount)),
         ...(knownFrozenHash ? { known_frozen_hash: knownFrozenHash } : {}),
         ...(forceFullHistory ? { full_history_sync: true } : {}),
+        ...(syncedProjectionSubscriptions !== undefined
+          ? { synced_projection_subscriptions: syncedProjectionSubscriptions }
+          : {}),
         ...(freshWindow
           ? {
               history_window_section_turn_count: Math.max(1, Math.floor(freshWindow.sectionTurnCount)),
@@ -295,6 +409,16 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
           : {}),
       }),
     );
+    if (syncedProjectionSubscriptions !== undefined) {
+      syncedProjectionSubscriptionSignatures.set(
+        sessionId,
+        syncedProjectionSubscriptionInventorySignature(syncedProjectionSubscriptions),
+      );
+      enqueueSyncedProjectionSubscriptionAck(sessionId, syncedProjectionSubscriptions, "session_subscribe");
+    } else {
+      syncedProjectionSubscriptionSignatures.delete(sessionId);
+      pendingSyncedProjectionSubscriptionAcks.delete(sessionId);
+    }
     recordConnectionCycle(sessionId, "subscribe", {
       lastSeq,
       forceFullHistory,
@@ -467,6 +591,9 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     }
     if (!targetWs || currentWs === ws) {
       clearColdSubscribeState(sessionId);
+      syncedProjectionSubscriptionSignatures.delete(sessionId);
+      pendingSyncedProjectionResyncs.delete(sessionId);
+      pendingSyncedProjectionSubscriptionAcks.delete(sessionId);
     }
     return ws;
   }
@@ -491,6 +618,11 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     sockets.set(sessionId, ws);
 
     ws.onopen = () => {
+      if (sockets.get(sessionId) !== ws) {
+        intentionalCloseSockets.add(ws);
+        ws.close();
+        return;
+      }
       callbacks.onConnected?.(sessionId);
       reconnectAttempts.delete(sessionId);
       recordConnectionCycle(sessionId, "open");
@@ -504,7 +636,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
       }
 
       const hb = setInterval(() => {
-        if (isSocketSendable(ws)) {
+        if (sockets.get(sessionId) === ws && isSocketSendable(ws)) {
           ws.send(JSON.stringify({ type: "ping" }));
         }
       }, HEARTBEAT_INTERVAL_MS);
@@ -513,6 +645,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     };
 
     ws.onmessage = (event) => {
+      if (sockets.get(sessionId) !== ws) return;
       const receivedAt = perfNow();
       const receiveId = `ws-receive-${++receiveCounter}`;
       try {
@@ -607,6 +740,57 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
 
   function requestFullHistorySync(sessionId: string): boolean {
     return sendSessionSubscribe(sessionId, true);
+  }
+
+  function refreshSyncedProjectionSubscriptions(sessionId: string): boolean {
+    const subscriptions = callbacks.getSyncedProjectionSubscriptions?.(sessionId);
+    if (subscriptions === undefined) return false;
+    const signature = syncedProjectionSubscriptionInventorySignature(subscriptions);
+    if (syncedProjectionSubscriptionSignatures.get(sessionId) === signature) return true;
+    const ws = sockets.get(sessionId);
+    if (!isSocketSendable(ws)) return false;
+    ws.send(JSON.stringify({ type: "synced_projection_subscribe", subscriptions }));
+    syncedProjectionSubscriptionSignatures.set(sessionId, signature);
+    enqueueSyncedProjectionSubscriptionAck(sessionId, subscriptions, "refresh");
+
+    const activeEntries = new Set(
+      subscriptions.map((subscription) => syncedProjectionEntryId(subscription.projection, subscription.key)),
+    );
+    const pending = pendingSyncedProjectionResyncs.get(sessionId);
+    if (pending) {
+      for (const entryId of pending) {
+        if (!activeEntries.has(entryId)) pending.delete(entryId);
+      }
+      if (pending.size === 0) pendingSyncedProjectionResyncs.delete(sessionId);
+    }
+    return true;
+  }
+
+  function requestSyncedProjectionResync(carrierSessionId: string, projection: string, key: string): boolean {
+    if (!isValidSyncedProjectionIdentity(projection) || !isValidSyncedProjectionIdentity(key)) return false;
+    // Fail closed if an unexpected preview/non-selected socket receives a
+    // projection message. Only the selected carrier owns projection traffic.
+    if (callbacks.getSyncedProjectionSubscriptions?.(carrierSessionId) === undefined) return false;
+    const entryId = syncedProjectionEntryId(projection, key);
+    const pending = pendingSyncedProjectionResyncs.get(carrierSessionId);
+    if (pending?.has(entryId)) return true;
+    const ws = sockets.get(carrierSessionId);
+    if (!isSocketSendable(ws)) return false;
+    ws.send(JSON.stringify({ type: "synced_projection_resync", projection, key }));
+    if (pending) pending.add(entryId);
+    else pendingSyncedProjectionResyncs.set(carrierSessionId, new Set([entryId]));
+    return true;
+  }
+
+  function hasPendingSyncedProjectionResync(carrierSessionId: string, projection: string, key: string): boolean {
+    return pendingSyncedProjectionResyncs.get(carrierSessionId)?.has(syncedProjectionEntryId(projection, key)) ?? false;
+  }
+
+  function resolveSyncedProjectionResync(carrierSessionId: string, projection: string, key: string): void {
+    const pending = pendingSyncedProjectionResyncs.get(carrierSessionId);
+    if (!pending) return;
+    pending.delete(syncedProjectionEntryId(projection, key));
+    if (pending.size === 0) pendingSyncedProjectionResyncs.delete(carrierSessionId);
   }
 
   function waitForConnection(sessionId: string): Promise<void> {
@@ -719,6 +903,13 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     sendToSession,
     sendGlobalMessage,
     requestFullHistorySync,
+    refreshSyncedProjectionSubscriptions,
+    requestSyncedProjectionResync,
+    hasPendingSyncedProjectionResync,
+    resolveSyncedProjectionResync,
+    noteAcceptedSyncedProjectionSnapshot,
+    consumeSyncedProjectionSubscriptionsAck,
+    settleUnsupportedSyncedProjectionSubscriptions,
     hasSocket,
     getSocketState,
     closeAllForUnload,

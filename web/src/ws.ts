@@ -11,6 +11,8 @@ import { getCachedThreadWindowHash } from "./utils/history-window-cache.js";
 import { messageIdFromHash, parseHash, resolveSessionIdFromRoute, threadRouteFromHash } from "./utils/routing.js";
 import { ALL_THREADS_KEY } from "./utils/thread-projection.js";
 import { readLeaderViewportPosition, requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
+import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
+import { syncedProjectionEntryId, type SyncedProjectionSubscription } from "../shared/synced-projection.js";
 
 let handleIncomingMessage:
   | ((sessionId: string, data: BrowserIncomingMessage, context: WsIncomingMessageContext) => void)
@@ -79,6 +81,27 @@ function getInitialLeaderThreadWindow(
   };
 }
 
+function getSyncedProjectionSubscriptions(sessionId: string): SyncedProjectionSubscription[] | undefined {
+  const store = useStore.getState();
+  if (store.currentSessionId !== sessionId) return undefined;
+
+  const subscriptions: SyncedProjectionSubscription[] = [];
+  const seen = new Set<string>();
+  for (const sdkSession of store.sdkSessions) {
+    if (sdkSession.archived || seen.has(sdkSession.sessionId)) continue;
+    seen.add(sdkSession.sessionId);
+    const entryId = syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, sdkSession.sessionId);
+    const version = store.syncedProjectionKeys.has(entryId) ? store.syncedProjectionVersions.get(entryId) : undefined;
+    subscriptions.push({
+      projection: SESSION_ATTENTION_PROJECTION,
+      key: sdkSession.sessionId,
+      ...(version ? { generation: version.generation, revision: version.revision } : {}),
+    });
+  }
+  subscriptions.sort((left, right) => left.key.localeCompare(right.key));
+  return subscriptions;
+}
+
 function getInitialHistoryWindowTarget(sessionId: string): {
   targetMessageId?: string;
   targetHistoryIndex?: number;
@@ -121,6 +144,7 @@ const transport = createWsTransport({
     };
   },
   getInitialThreadWindow: getInitialLeaderThreadWindow,
+  getSyncedProjectionSubscriptions,
   onConnecting: (sessionId) => {
     const store = useStore.getState();
     const initialThreadWindow = getInitialLeaderThreadWindow(sessionId);
@@ -162,6 +186,18 @@ handleIncomingMessage = createWsMessageHandler({
     transport.disconnectSession(sessionId);
   },
   sendToSession: (sessionId, msg) => transport.sendToSession(sessionId, msg),
+  requestSyncedProjectionResync: (carrierSessionId, projection, key) =>
+    transport.requestSyncedProjectionResync(carrierSessionId, projection, key),
+  hasPendingSyncedProjectionResync: (carrierSessionId, projection, key) =>
+    transport.hasPendingSyncedProjectionResync(carrierSessionId, projection, key),
+  resolveSyncedProjectionResync: (carrierSessionId, projection, key) =>
+    transport.resolveSyncedProjectionResync(carrierSessionId, projection, key),
+  noteAcceptedSyncedProjectionSnapshot: (carrierSessionId, projection, key) =>
+    transport.noteAcceptedSyncedProjectionSnapshot(carrierSessionId, projection, key),
+  consumeSyncedProjectionSubscriptionsAck: (carrierSessionId, subscriptions) =>
+    transport.consumeSyncedProjectionSubscriptionsAck(carrierSessionId, subscriptions),
+  settleUnsupportedSyncedProjectionSubscriptions: (carrierSessionId) =>
+    transport.settleUnsupportedSyncedProjectionSubscriptions(carrierSessionId),
 });
 
 export { resolveSessionFilePath };
@@ -197,6 +233,12 @@ export function sendToSession(sessionId: string, msg: BrowserOutgoingMessage): b
 
 export function requestFullHistorySync(sessionId: string): boolean {
   return transport.requestFullHistorySync(sessionId);
+}
+
+export function refreshSyncedProjectionSubscriptions(sessionId?: string | null): boolean {
+  const carrierSessionId = sessionId ?? useStore.getState().currentSessionId;
+  if (!carrierSessionId) return false;
+  return transport.refreshSyncedProjectionSubscriptions(carrierSessionId);
 }
 
 export function sendVsCodeSelectionUpdate(

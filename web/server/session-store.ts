@@ -123,6 +123,8 @@ export interface PersistedSession {
   lastReadAt?: number;
   /** Current attention reason: why this session needs the user's attention */
   attentionReason?: "action" | "error" | "review" | null;
+  /** Explicit user-owned unread marker, distinct from notification-derived review attention. */
+  manualUnread?: boolean;
   /** High-level task history recognized by the session auto-namer */
   taskHistory?: SessionTaskEntry[];
   /** Accumulated search keywords from the session auto-namer */
@@ -398,6 +400,7 @@ export class SessionStore {
       ...(typeof archivedAt === "number" ? { archivedAt } : {}),
       lastReadAt: hot.lastReadAt,
       attentionReason: hot.attentionReason,
+      ...(hot.manualUnread === true ? { manualUnread: true } : {}),
       taskHistory: hot.taskHistory,
       keywords: hot.keywords,
       board: hot.board,

@@ -5,6 +5,11 @@ import type { SessionState } from "../types.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import type { BoardRowData } from "./BoardTable.js";
 import type { QuestmasterTask } from "../types.js";
+import {
+  SESSION_ATTENTION_PROJECTION,
+  type SessionAttentionProjectionValue,
+} from "../../shared/session-attention-projection.js";
+import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 
 if (typeof globalThis.DOMRect === "undefined") {
   globalThis.DOMRect = class DOMRect {
@@ -76,6 +81,9 @@ const mockStoreState = {
   sessionTimers: new Map<string, Array<{ id: string }>>(),
   sessionNotifications: new Map<string, Array<any>>(),
   sessionAttention: new Map<string, "action" | "error" | "review" | null>(),
+  syncedProjectionValues: new Map<string, unknown>(),
+  syncedProjectionVersions: new Map(),
+  syncedProjectionKeys: new Set<string>(),
 };
 
 vi.mock("../store.js", () => ({
@@ -107,6 +115,12 @@ function makeSession(overrides: Partial<SessionItemType> = {}): SessionItemType 
   };
 }
 
+function setSessionAttentionProjection(sessionId: string, value: SessionAttentionProjectionValue) {
+  const entryId = syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, sessionId);
+  mockStoreState.syncedProjectionKeys.add(entryId);
+  mockStoreState.syncedProjectionValues.set(entryId, value);
+}
+
 describe("SessionHoverCard", () => {
   beforeEach(() => {
     mockStoreState.sdkSessions = [];
@@ -117,6 +131,9 @@ describe("SessionHoverCard", () => {
     mockStoreState.sessionTimers = new Map();
     mockStoreState.sessionNotifications = new Map();
     mockStoreState.sessionAttention = new Map();
+    mockStoreState.syncedProjectionValues = new Map();
+    mockStoreState.syncedProjectionVersions = new Map();
+    mockStoreState.syncedProjectionKeys = new Set();
   });
 
   it("renders safely when the mocked store omits quests", () => {
@@ -509,6 +526,200 @@ describe("SessionHoverCard", () => {
     expect(status).toHaveTextContent("1 muted needs-input notification");
     expect(status).not.toHaveTextContent("unread conversation");
     expect(within(status).getByTestId("session-hover-attention-status-dot")).toHaveClass("bg-cc-muted/45");
+  });
+
+  it("uses the projected repeated-review count instead of legacy inbox and summary counts", () => {
+    setSessionAttentionProjection("s1", {
+      attentionReason: "review",
+      status: { urgency: "review", count: 7 },
+    });
+    mockStoreState.sessionNotifications.set("s1", [
+      { id: "legacy-input", category: "needs-input", summary: "Stale input", timestamp: 1, done: false },
+    ]);
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+        activeNeedsInputNotificationCount: 1,
+        notificationStatusVersion: 3,
+      },
+    ];
+
+    render(
+      <SessionHoverCard
+        session={makeSession({ notificationUrgency: "needs-input", activeNotificationCount: 1 })}
+        sessionName="Projected Review Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    const status = screen.getByTestId("session-hover-attention-status");
+    expect(status).toHaveTextContent("7 unread conversations");
+    expect(status).not.toHaveTextContent("needs-input");
+    expect(within(status).getByTestId("session-hover-attention-status-dot")).toHaveClass("bg-blue-500");
+  });
+
+  it("uses projected needs-input urgency and count ahead of legacy review", () => {
+    setSessionAttentionProjection("s1", {
+      attentionReason: "action",
+      status: { urgency: "needs-input", count: 2 },
+    });
+    mockStoreState.sessionAttention.set("s1", "review");
+
+    render(
+      <SessionHoverCard
+        session={makeSession({ notificationUrgency: "review", activeNotificationCount: 9 })}
+        sessionName="Projected Input Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    const status = screen.getByTestId("session-hover-attention-status");
+    expect(status).toHaveTextContent("2 needs-input notifications");
+    expect(status).not.toHaveTextContent("unread conversation");
+  });
+
+  it("uses projected muted-only status and projected clear without legacy resurrection", () => {
+    setSessionAttentionProjection("s1", {
+      attentionReason: null,
+      status: { urgency: "muted-needs-input", count: 4 },
+    });
+    mockStoreState.sessionNotifications.set("s1", [
+      { id: "legacy-review", category: "review", summary: "Stale review", timestamp: 1, done: false },
+    ]);
+
+    const view = render(
+      <SessionHoverCard
+        session={makeSession({ notificationUrgency: "review", activeNotificationCount: 1 })}
+        sessionName="Projected Muted Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("session-hover-attention-status")).toHaveTextContent("4 muted needs-input notifications");
+    view.unmount();
+
+    setSessionAttentionProjection("s1", { attentionReason: null, status: null });
+    render(
+      <SessionHoverCard
+        session={makeSession({ notificationUrgency: "review", activeNotificationCount: 1 })}
+        sessionName="Projected Clear Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.queryByTestId("session-hover-attention-status")).toBeNull();
+  });
+
+  it("does not show active attention for an archived session with stale projected or legacy state", () => {
+    setSessionAttentionProjection("s1", {
+      attentionReason: "review",
+      status: { urgency: "review", count: 7 },
+    });
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        archived: true,
+        notificationUrgency: "review",
+        activeNotificationCount: 7,
+        activeReviewNotificationCount: 7,
+        notificationStatusVersion: 4,
+      },
+    ];
+
+    render(
+      <SessionHoverCard
+        session={makeSession({
+          archived: true,
+          notificationUrgency: "review",
+          activeNotificationCount: 7,
+          activeReviewNotificationCount: 7,
+        })}
+        sessionName="Archived Attention Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("archived")).toBeInTheDocument();
+    expect(screen.queryByTestId("session-hover-attention-status")).toBeNull();
+  });
+
+  it("keeps permission precedence over a projected attention status", () => {
+    setSessionAttentionProjection("s1", {
+      attentionReason: "action",
+      status: { urgency: "needs-input", count: 2 },
+    });
+
+    render(
+      <SessionHoverCard
+        session={makeSession({ permCount: 1 })}
+        sessionName="Permission Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "permission");
+    expect(screen.queryByTestId("session-hover-attention-status")).toBeNull();
+  });
+
+  it("preserves projected error semantics without inventing hover urgency", () => {
+    setSessionAttentionProjection("s1", { attentionReason: "error", status: null });
+    mockStoreState.sessionNotifications.set("s1", [
+      { id: "legacy-input", category: "needs-input", summary: "Stale input", timestamp: 1, done: false },
+    ]);
+
+    render(
+      <SessionHoverCard
+        session={makeSession({ notificationUrgency: "needs-input", activeNotificationCount: 1 })}
+        sessionName="Error Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.queryByTestId("session-hover-attention-status")).toBeNull();
   });
 
   it("shows the max context window rounded to whole K tokens", () => {

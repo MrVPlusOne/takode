@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildSidebarVisibleSessions } from "./sidebar-visible-sessions.js";
+import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
+import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
+import { buildSidebarVisibleSessions, deriveSessionSetAttention } from "./sidebar-visible-sessions.js";
 import type { SessionAttentionRecord, SessionState, SdkSessionInfo, TreeGroup } from "../types.js";
 
 function makeSessionState(id: string, overrides: Partial<SessionState> = {}): SessionState {
@@ -64,6 +66,10 @@ function attentionRecord(overrides: Partial<SessionAttentionRecord> = {}): Sessi
     dedupeKey: "attention:q-1",
     ...overrides,
   };
+}
+
+function projectedSessionKeys(...sessionIds: string[]): Set<string> {
+  return new Set(sessionIds.map((sessionId) => syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, sessionId)));
 }
 
 describe("buildSidebarVisibleSessions", () => {
@@ -352,6 +358,122 @@ describe("buildSidebarVisibleSessions", () => {
     expect(result.sessionSetAttention.get("needs-input")).toBe("action");
     expect(result.sessionSetAttention.get("muted")).toBeNull();
     expect(result.treeViewGroups[0]?.unreadCount).toBe(1);
+  });
+
+  it("uses projection authority before selection even when legacy inputs and a timer disagree", () => {
+    const sessions = new Map<string, SessionState>([["leader", makeSessionState("leader")]]);
+    const sdkSessions: SdkSessionInfo[] = [
+      makeSdkSession("leader", {
+        isOrchestrator: true,
+        cliConnected: true,
+        pendingTimerCount: 1,
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        notificationStatusVersion: 8,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: [],
+          closedThreadTombstones: [{ threadKey: "q-closed", closedAt: 8000 }],
+          updatedAt: 8000,
+        },
+      }),
+    ];
+
+    const result = buildSidebarVisibleSessions({
+      sessions,
+      sdkSessions,
+      cliConnected: new Map(),
+      cliDisconnectReason: new Map(),
+      sessionStatus: new Map(),
+      pendingPermissions: new Map(),
+      askPermission: new Map(),
+      diffFileStats: new Map(),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map(),
+      treeNodeOrder: new Map(),
+      collapsedTreeGroups: new Set(),
+      expandedHerdNodes: new Set(),
+      sessionAttention: new Map([["leader", "review"]]),
+      syncedProjectionKeys: projectedSessionKeys("leader"),
+      sessionNotifications: new Map(),
+      sessionAttentionRecords: new Map([["leader", [attentionRecord({ threadKey: "q-closed", questId: "q-closed" })]]]),
+      sessionSortMode: "created",
+      countUserPermissions: () => 0,
+    });
+
+    expect(result.sessionSetAttention.get("leader")).toBe("review");
+    expect(result.treeViewGroups[0]?.unreadCount).toBe(1);
+    expect(result.allSessionList[0]?.pendingTimerCount).toBe(1);
+  });
+
+  it("bypasses every legacy attention derivation for projected needs-input, muted-only, and clear keys", () => {
+    const sdkSessions = [
+      makeSdkSession("needs-input", {
+        notificationUrgency: "review",
+        activeNotificationCount: 4,
+        notificationStatusVersion: 4,
+      }),
+      makeSdkSession("muted", {
+        notificationUrgency: "review",
+        activeNotificationCount: 2,
+        notificationStatusVersion: 2,
+      }),
+      makeSdkSession("clear", {
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+        notificationStatusVersion: 1,
+      }),
+    ];
+
+    const result = deriveSessionSetAttention({
+      sessionAttention: new Map([
+        ["needs-input", "action"],
+        ["muted", null],
+        ["clear", null],
+      ]),
+      syncedProjectionKeys: projectedSessionKeys("needs-input", "muted", "clear"),
+      sdkSessions,
+      sessionNotifications: new Map([
+        [
+          "needs-input",
+          [{ id: "legacy-review", category: "review", summary: "Review", timestamp: 1, done: false, messageId: null }],
+        ],
+        [
+          "muted",
+          [
+            {
+              id: "legacy-review-2",
+              category: "review",
+              summary: "Review",
+              timestamp: 1,
+              done: false,
+              messageId: null,
+            },
+          ],
+        ],
+        [
+          "clear",
+          [
+            {
+              id: "legacy-input",
+              category: "needs-input",
+              summary: "Input",
+              timestamp: 1,
+              done: false,
+              messageId: null,
+            },
+          ],
+        ],
+      ]),
+    });
+
+    expect(result).toEqual(
+      new Map([
+        ["needs-input", "action"],
+        ["muted", null],
+        ["clear", null],
+      ]),
+    );
   });
 
   it("filters hidden Side Chat child sessions that only exist in frontend store state", () => {

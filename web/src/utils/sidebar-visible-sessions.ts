@@ -4,6 +4,8 @@ import { isAttentionRecordActive } from "./attention-records.js";
 import { deriveEffectiveSessionAttentionStatus } from "./session-attention-status.js";
 import { MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
 import { normalizeLeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
+import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
+import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import type {
   TreeGroup,
   SessionTaskEntry,
@@ -40,6 +42,7 @@ export interface SidebarVisibleSessionsInput {
   collapsedTreeGroups: Set<string>;
   expandedHerdNodes: Set<string>;
   sessionAttention: Map<string, SessionAttentionReason>;
+  syncedProjectionKeys?: ReadonlySet<string>;
   sessionNotifications?: Map<string, SessionNotification[]>;
   sessionAttentionRecords?: Map<string, SessionAttentionRecord[]>;
   sessionSortMode: "created" | "activity";
@@ -93,11 +96,13 @@ function hasFreshActiveReviewSummary(session: SdkSessionInfo | undefined): boole
 
 export function deriveSessionSetAttention({
   sessionAttention,
+  syncedProjectionKeys,
   sdkSessions,
   sessionNotifications,
   sessionAttentionRecords,
 }: {
   sessionAttention: Map<string, SessionAttentionReason>;
+  syncedProjectionKeys?: ReadonlySet<string>;
   sdkSessions: SdkSessionInfo[];
   sessionNotifications?: Map<string, SessionNotification[]>;
   sessionAttentionRecords?: Map<string, SessionAttentionRecord[]>;
@@ -112,6 +117,10 @@ export function deriveSessionSetAttention({
   for (const sessionId of sessionIds) {
     const attention = sessionAttention.get(sessionId) ?? null;
     const sdkSession = sdkById.get(sessionId);
+    if (syncedProjectionKeys?.has(syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, sessionId))) {
+      result.set(sessionId, attention);
+      continue;
+    }
     if (attention === "error") {
       result.set(sessionId, "error");
       continue;
@@ -161,6 +170,7 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
     collapsedTreeGroups,
     expandedHerdNodes,
     sessionAttention,
+    syncedProjectionKeys,
     sessionNotifications,
     sessionAttentionRecords,
     sessionSortMode,
@@ -168,6 +178,7 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
   } = input;
   const sessionSetAttention = deriveSessionSetAttention({
     sessionAttention,
+    syncedProjectionKeys,
     sdkSessions,
     sessionNotifications,
     sessionAttentionRecords,

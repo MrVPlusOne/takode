@@ -214,6 +214,7 @@ vi.mock("./api.js", () => ({
 vi.mock("./ws.js", () => ({
   connectSession: (...args: unknown[]) => mockConnectSession(...args),
   disconnectSession: (...args: unknown[]) => mockDisconnectSession(...args),
+  refreshSyncedProjectionSubscriptions: vi.fn(() => true),
   sendVsCodeSelectionUpdate: vi.fn(),
 }));
 

@@ -219,7 +219,10 @@ export function attachClaudeSdkAdapterLifecycle(
     for (const [reqId] of session.pendingPermissions) {
       deps.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: reqId });
     }
-    session.pendingPermissions.clear();
+    if (session.pendingPermissions.size > 0) {
+      session.pendingPermissions.clear();
+      deps.persistSession(session);
+    }
 
     if (
       !idleKilled &&

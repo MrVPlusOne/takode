@@ -15,6 +15,9 @@ const mockStoreState = {
   sessionTaskPreview: new Map<string, { text: string; updatedAt: number }>(),
   sessionPreviewUpdatedAt: new Map<string, number>(),
   sessionAttention: new Map<string, "action" | "error" | "review" | null>(),
+  syncedProjectionValues: new Map<string, unknown>(),
+  syncedProjectionVersions: new Map(),
+  syncedProjectionKeys: new Set<string>(),
   sessionNotifications: new Map<string, Array<unknown>>(),
   sessionTimers: new Map<string, Array<{ id: string }>>(),
   sessionBoards: new Map<string, Array<unknown>>(),
@@ -111,6 +114,9 @@ describe("TreeViewGroup leader herd summary", () => {
   beforeEach(() => {
     mockStoreState.expandedHerdNodes.clear();
     mockStoreState.sessionAttention.clear();
+    mockStoreState.syncedProjectionValues.clear();
+    mockStoreState.syncedProjectionVersions.clear();
+    mockStoreState.syncedProjectionKeys.clear();
     mockStoreState.sessionTimers.clear();
     mockStoreState.sessionBoards.clear();
     mockStoreState.sessionCompletedBoards.clear();

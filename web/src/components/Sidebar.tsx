@@ -103,6 +103,7 @@ export function Sidebar() {
   const sessionTaskHistory = useStore((s) => s.sessionTaskHistory);
   const pendingPermissions = useStore((s) => s.pendingPermissions);
   const sessionAttention = useStore((s) => s.sessionAttention);
+  const syncedProjectionKeys = useStore((s) => s.syncedProjectionKeys);
   const sessionAttentionRecords = useStore((s) => s.sessionAttentionRecords);
   const sessionNotifications = useStore((s) => s.sessionNotifications);
   const askPermissionMap = useStore((s) => s.askPermission);
@@ -717,6 +718,7 @@ export function Sidebar() {
         collapsedTreeGroups,
         expandedHerdNodes,
         sessionAttention,
+        syncedProjectionKeys,
         sessionNotifications,
         sessionAttentionRecords,
         sessionSortMode,
@@ -735,6 +737,7 @@ export function Sidebar() {
       treeAssignments,
       treeNodeOrder,
       sessionAttention,
+      syncedProjectionKeys,
       sessionNotifications,
       sessionAttentionRecords,
       collapsedTreeGroups,
@@ -1305,6 +1308,8 @@ export function Sidebar() {
                   sessionName={sessionName ?? sessionNames.get(s.id)}
                   sessionPreview={sessionPreview ?? sessionPreviews.get(s.id)}
                   permCount={countUserPermissions(pendingPermissions.get(s.id))}
+                  attention={sessionSetAttention.get(s.id) ?? null}
+                  hasUnread={!!sessionSetAttention.get(s.id)}
                   isRecentlyRenamed={recentlyRenamed.has(s.id)}
                   herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
                   herdHoverHighlight={herdHoverHighlights.get(s.id)}
@@ -1439,6 +1444,8 @@ export function Sidebar() {
                         isActive={currentSessionId === s.id}
                         sessionName={sessionNames.get(s.id)}
                         permCount={countUserPermissions(pendingPermissions.get(s.id))}
+                        attention={sessionSetAttention.get(s.id) ?? null}
+                        hasUnread={!!sessionSetAttention.get(s.id)}
                         isRecentlyRenamed={recentlyRenamed.has(s.id)}
                         herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
                         herdHoverHighlight={herdHoverHighlights.get(s.id)}

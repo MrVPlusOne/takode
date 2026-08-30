@@ -29,6 +29,7 @@ import {
   type EffectiveSessionAttentionStatus,
 } from "../utils/session-attention-status.js";
 import { getQuestOwner } from "../../shared/quest-owner.js";
+import { getSessionAttentionProjection, hasSessionAttentionProjection } from "../store-synced-projections.js";
 
 interface SessionHoverCardProps {
   session: SessionItemType;
@@ -166,8 +167,13 @@ export function SessionHoverCard({
   const sdkSessionMeta = useMemo(() => sdkSessions.find((sdk) => sdk.sessionId === s.id), [sdkSessions, s.id]);
   const currentSessionId = useStore((st) => st.currentSessionId);
   const liveTimerCount = useStore((st) => st.sessionTimers?.get(s.id)?.length ?? 0);
-  const sessionNotifications = useStore((st) => st.sessionNotifications?.get(s.id));
-  const sessionAttention = useStore((st) => st.sessionAttention?.get(s.id) ?? null);
+  const attentionProjection = useStore((st) => getSessionAttentionProjection(st, s.id));
+  const sessionNotifications = useStore((st) =>
+    hasSessionAttentionProjection(st, s.id) ? undefined : st.sessionNotifications?.get(s.id),
+  );
+  const sessionAttention = useStore((st) =>
+    hasSessionAttentionProjection(st, s.id) ? null : (st.sessionAttention?.get(s.id) ?? null),
+  );
   const effectiveBackendType = sessionState?.backend_type ?? sdkSessionMeta?.backendType ?? s.backendType;
   const leaderSession = useMemo(() => {
     if (s.isOrchestrator || !s.herdedBy) return null;
@@ -177,8 +183,13 @@ export function SessionHoverCard({
 
   // Status info
   const timerCount = s.id === currentSessionId ? liveTimerCount : (s.pendingTimerCount ?? 0);
-  const activeTimerCount =
-    s.notificationUrgency === "needs-input" || (s.activeNeedsInputNotificationCount ?? 0) > 0 ? 0 : timerCount;
+  const activeTimerCount = attentionProjection
+    ? attentionProjection.status?.urgency === "needs-input"
+      ? 0
+      : timerCount
+    : s.notificationUrgency === "needs-input" || (s.activeNeedsInputNotificationCount ?? 0) > 0
+      ? 0
+      : timerCount;
   const statusDotProps: SessionStatusDotProps = {
     archived: s.archived,
     permCount: s.permCount,
@@ -190,18 +201,24 @@ export function SessionHoverCard({
   };
   const visualStatus = deriveSessionStatus(statusDotProps);
   const statusLabel = sessionHoverStatusLabel(visualStatus, activeTimerCount);
-  const attentionStatus = getSessionHoverAttentionStatus(
-    deriveEffectiveSessionAttentionStatus({
-      sessionId: s.id,
-      currentSessionId,
-      notifications: sessionNotifications,
-      summary: sdkSessionMeta,
-      fallbackSummary: s,
-      fallbackUrgency: s.notificationUrgency ?? null,
-      attention: sessionAttention,
-      permCount: s.permCount,
-    }),
-  );
+  const attentionStatus = s.archived
+    ? null
+    : getSessionHoverAttentionStatus(
+        attentionProjection
+          ? s.permCount > 0
+            ? null
+            : attentionProjection.status
+          : deriveEffectiveSessionAttentionStatus({
+              sessionId: s.id,
+              currentSessionId,
+              notifications: sessionNotifications,
+              summary: sdkSessionMeta,
+              fallbackSummary: s,
+              fallbackUrgency: s.notificationUrgency ?? null,
+              attention: sessionAttention,
+              permCount: s.permCount,
+            }),
+      );
 
   const shortId = s.id.slice(0, 8);
   const label = sessionName || s.model || shortId;

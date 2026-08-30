@@ -626,6 +626,7 @@ describe("Persistence", () => {
       ],
       pendingPermissions: [],
       processedClientMessageIds: ["restored-client-1"],
+      manualUnread: true,
     } as any);
 
     await store.flushAll(); // ensure fire-and-forget writeFile completes before reading back
@@ -653,6 +654,7 @@ describe("Persistence", () => {
       lastError: null,
     });
     expect(session!.processedClientMessageIdSet.has("restored-client-1")).toBe(true);
+    expect(session!.manualUnread).toBe(true);
   });
 
   it("restoreFromDisk: loads persisted pending Codex rollback state", async () => {

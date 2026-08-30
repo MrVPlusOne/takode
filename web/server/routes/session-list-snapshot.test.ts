@@ -58,6 +58,7 @@ function makeDeps(launcherSession: ReturnType<typeof makeLauncherSession>, bridg
       getSession: vi.fn(() => bridgeSession),
       isBackendConnected: vi.fn(() => false),
       refreshWorktreeGitStateForSnapshot: vi.fn(),
+      getSyncedProjectionController: vi.fn(() => ({ getSessionAttentionSnapshot: vi.fn(() => null) })),
     },
     pendingWorktreeCleanups: new Map(),
   } as never;
@@ -442,6 +443,48 @@ describe("buildEnrichedSessionsSnapshot", () => {
         { label: "Queued", count: 1, tone: "status" },
       ],
     });
+  });
+
+  it("includes the canonical attention projection envelope in compact rows", async () => {
+    const launcherSession = makeLauncherSession();
+    const bridgeSession = makeBridgeSession([]);
+    const deps = makeDeps(launcherSession, bridgeSession);
+    const projection = {
+      schemaVersion: 1,
+      projection: "session-attention",
+      key: "s1",
+      generation: "generation-a",
+      revision: 4,
+      value: { attentionReason: "review", status: { urgency: "review", count: 2 } },
+    };
+    (deps as any).wsBridge.getSyncedProjectionController.mockReturnValue({
+      getSessionAttentionSnapshot: vi.fn(() => projection),
+    });
+
+    const snapshot = await buildEnrichedSessionsSnapshot(deps);
+
+    expect(snapshot[0].sessionAttentionProjection).toEqual(projection);
+  });
+
+  it("omits active attention projections from archived session pages", async () => {
+    const launcherSession = makeLauncherSession({ archived: true });
+    const bridgeSession = makeBridgeSession([]);
+    const deps = makeDeps(launcherSession, bridgeSession);
+    (deps as any).wsBridge.getSyncedProjectionController.mockReturnValue({
+      getSessionAttentionSnapshot: vi.fn(() => ({
+        schemaVersion: 1,
+        projection: "session-attention",
+        key: "s1",
+        generation: "generation-a",
+        revision: 2,
+        value: { attentionReason: "review", status: { urgency: "review", count: 1 } },
+      })),
+    });
+
+    const snapshot = await buildEnrichedSessionsSnapshot(deps);
+
+    expect(snapshot[0]).not.toHaveProperty("sessionAttentionProjection");
+    expect((deps as any).wsBridge.getSyncedProjectionController).not.toHaveBeenCalled();
   });
 
   it("returns an empty leader phase summary when active board rows clear", async () => {

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "./store.js";
-import { connectSession, disconnectSession, sendVsCodeSelectionUpdate } from "./ws.js";
+import {
+  connectSession,
+  disconnectSession,
+  refreshSyncedProjectionSubscriptions,
+  sendVsCodeSelectionUpdate,
+} from "./ws.js";
 import { api, checkHealth } from "./api.js";
 
 import {
@@ -709,6 +714,11 @@ export default function App() {
       }
     }
   }, [hash, route, sdkSessions]);
+
+  useEffect(() => {
+    if (!currentSessionId || isPendingId(currentSessionId)) return;
+    refreshSyncedProjectionSubscriptions(currentSessionId);
+  }, [currentSessionId, sdkSessions]);
 
   useEffect(() => {
     const previewSessionId =
