@@ -54,22 +54,32 @@ describe("structured chat-feed quest-link producers", () => {
     cleanup();
 
     render(
-      <QuestQuizSection
-        variant="inline"
-        questId="q-202"
-        questTitle="Structured quiz"
-        questLinkSurface="chat-feed"
-        items={[
-          {
-            id: "structured-answer",
-            question: "Where is the related work?",
-            answer: "See [q-203](quest:q-203).",
-          },
-        ]}
-      />,
+      <>
+        <style>{`.text-cc-primary { color: rgb(234, 88, 12); }`}</style>
+        <QuestQuizSection
+          variant="inline"
+          questId="q-202"
+          questTitle="Structured quiz"
+          questLinkSurface="chat-feed"
+          items={[
+            {
+              id: "structured-answer",
+              question: "Where is the related work?",
+              answer: "See [q-203](quest:q-203).",
+            },
+          ]}
+        />
+      </>,
     );
 
     expectPreview("q-202");
+    const quizQuestLink = screen.getByRole("link", { name: "q-202" });
+    const quizQuestEye = screen.getByRole("button", { name: /Preview q-202/ });
+    // The actual inline-quiz producer uses its orange primary link color, so
+    // the adjacent eye must derive that rendered value rather than quest blue.
+    expect(quizQuestEye.style.getPropertyValue("--cc-feed-preview-link-color")).toBe(
+      getComputedStyle(quizQuestLink).color,
+    );
     fireEvent.click(screen.getByText("Show answer"));
     expectPreview("q-203");
   });

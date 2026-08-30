@@ -15,6 +15,7 @@ import { SessionHoverCard } from "./SessionHoverCard.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { MessageLinkHoverCard } from "./MessageLinkHoverCard.js";
 import type { ChatMessage } from "../types.js";
+import { useHoverCardsSuppressed } from "./hover-card-suppression-context.js";
 
 function threadKeyForMessageLinkTarget(message: ChatMessage | null): string | undefined {
   const metadata = message?.metadata;
@@ -55,6 +56,7 @@ export function SessionInlineLink({
   hoverCardZIndexClassName?: string;
   onNavigate?: () => void;
 }) {
+  const hoverCardsSuppressed = useHoverCardsSuppressed();
   const sessions = useStore((s) => s.sessions);
   const sdkSessions = useStore((s) => s.sdkSessions);
   const sessionNames = useStore((s) => s.sessionNames);
@@ -215,8 +217,8 @@ export function SessionInlineLink({
           }
           onNavigate?.();
         }}
-        onMouseEnter={handleLinkMouseEnter}
-        onMouseLeave={handleLinkMouseLeave}
+        onMouseEnter={hoverCardsSuppressed ? undefined : handleLinkMouseEnter}
+        onMouseLeave={hoverCardsSuppressed ? undefined : handleLinkMouseLeave}
         className={
           resolvedSessionId ? (className ?? "text-cc-primary hover:underline") : (missingClassName ?? "text-cc-muted")
         }
@@ -226,7 +228,8 @@ export function SessionInlineLink({
       >
         {children}
       </a>
-      {resolvedSessionId &&
+      {!hoverCardsSuppressed &&
+        resolvedSessionId &&
         sessionItem &&
         hoverRect &&
         (messageIndex != null ? (

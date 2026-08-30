@@ -7,6 +7,7 @@ import { navigateTo } from "../utils/navigation.js";
 import { useHashLocation } from "../utils/hash-location.js";
 import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
 import { QuestFeedInlineLink } from "./QuestFeedInlineLink.js";
+import { useHoverCardsSuppressed } from "./hover-card-suppression-context.js";
 
 const questIndexCache = new WeakMap<QuestmasterTask[], Map<string, QuestmasterTask>>();
 function findQuestById(quests: QuestmasterTask[], questId: string): QuestmasterTask | null {
@@ -82,6 +83,7 @@ function LegacyQuestInlineLink({
   hoverCardZIndexClassName?: string;
   onNavigate?: () => void;
 }) {
+  const hoverCardsSuppressed = useHoverCardsSuppressed();
   const quest = useStore((s) => s.questDetails?.get(questId.toLowerCase()) ?? findQuestById(s.quests ?? [], questId));
   const hash = useHashLocation();
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
@@ -154,14 +156,14 @@ function LegacyQuestInlineLink({
           }
           onNavigate?.();
         }}
-        onMouseEnter={handleLinkMouseEnter}
-        onMouseLeave={handleLinkMouseLeave}
+        onMouseEnter={hoverCardsSuppressed ? undefined : handleLinkMouseEnter}
+        onMouseLeave={hoverCardsSuppressed ? undefined : handleLinkMouseLeave}
         className={className}
         title={title}
       >
         {children ?? questId}
       </a>
-      {quest && hoverRect && hoverFetchState === "idle" && (
+      {!hoverCardsSuppressed && quest && hoverRect && hoverFetchState === "idle" && (
         <QuestHoverCard
           quest={quest}
           anchorRect={hoverRect}

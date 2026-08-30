@@ -81,6 +81,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
 
   afterEach(() => {
     cleanup();
+    document.getElementById("playground-preview-link-colors")?.remove();
     useStore.getState().reset();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -142,6 +143,12 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     let dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(dialog).toHaveAttribute("data-surface", "popover"));
     expect(dialog).toHaveTextContent("Reveal rich quest context from the integrated eye");
+    expect(within(dialog).getByTestId("quest-hover-status-row")).toHaveTextContent("Completed");
+    expect(within(dialog).getByTestId("quest-hover-tldr")).toHaveTextContent(
+      "A deterministic Playground fixture for the accepted chat-feed inline quest preview contract.",
+    );
+    expect(within(dialog).getByTestId("quest-hover-progress-tldr")).toHaveTextContent("Final Debrief");
+    expect(within(dialog).getByTestId("quest-hover-journey")).toHaveTextContent("Completed Journey");
     expect(within(dialog).getByRole("link", { name: "Open feedback #4" })).toBeInTheDocument();
     expect(within(dialog).getByRole("link", { name: "Open quest" })).toBeInTheDocument();
     live = within(section).getByTestId("playground-inline-quest-preview-live");
@@ -226,6 +233,33 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     expect(feedEye).not.toHaveTextContent("Preview");
     expect(within(legacy).getByRole("link", { name: "q-9410 feedback #4" })).toBeInTheDocument();
     expect(within(legacy).queryByRole("button", { name: /Preview q-/ })).toBeNull();
+  });
+
+  it("shows standard-blue and inline-quiz-orange eyes matching their own adjacent links", async () => {
+    // Uses both real Playground producer shapes so visual checks cannot pass
+    // with one generic quest-link token applied to every eye.
+    const style = document.createElement("style");
+    style.id = "playground-preview-link-colors";
+    style.textContent = `
+      .cc-quest-link { color: rgb(37, 99, 235); }
+      .text-cc-primary { color: rgb(234, 88, 12); }
+    `;
+    document.head.append(style);
+    render(<PlaygroundInlineQuestPreviewSection />);
+    await screen.findByTestId("playground-inline-quest-preview-live");
+
+    const bluePair = screen.getByTestId("playground-inline-quest-preview-blue-color");
+    const orangePair = screen.getByTestId("playground-inline-quest-preview-orange-color");
+    const blueLink = within(bluePair).getByRole("link", { name: "q-9410" });
+    const blueEye = within(bluePair).getByRole("button", { name: /Preview q-9410/ });
+    const orangeLink = within(orangePair).getByRole("link", { name: "q-9410" });
+    const orangeEye = within(orangePair).getByRole("button", { name: /Preview q-9410/ });
+
+    expect(blueEye.style.getPropertyValue("--cc-feed-preview-link-color")).toBe(getComputedStyle(blueLink).color);
+    expect(orangeEye.style.getPropertyValue("--cc-feed-preview-link-color")).toBe(getComputedStyle(orangeLink).color);
+    expect(blueEye.style.getPropertyValue("--cc-feed-preview-link-color")).not.toBe(
+      orangeEye.style.getPropertyValue("--cc-feed-preview-link-color"),
+    );
   });
 
   it("reselects a state as a fresh repeatable instance", async () => {

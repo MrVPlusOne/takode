@@ -3,6 +3,7 @@ import type { QuestmasterTask, QuestTitlePreview } from "../../types.js";
 import { useStore } from "../../store.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { QuestFeedInlineLink } from "../QuestFeedInlineLink.js";
+import { QuestQuizSection } from "../QuestQuizSection.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 type PreviewFixtureState = "idle" | "title" | "no-fit" | "rich" | "error" | "keyboard" | "coarse";
@@ -83,6 +84,8 @@ const PREVIEW_FIXTURES: readonly PreviewFixtureDefinition[] = [
 const PREVIEW_FIXTURE_BY_ID = new Map(PREVIEW_FIXTURES.map((fixture) => [fixture.id, fixture] as const));
 const PREVIEW_QUEST_BY_ID = new Map(
   PREVIEW_FIXTURES.map((fixture, fixtureIndex) => {
+    const showsFullEstablishedPreview = fixture.id === "rich";
+    const completedAt = 1_787_990_520_000 + fixtureIndex;
     const feedback = Array.from({ length: 5 }, (_, feedbackIndex) => ({
       author: (feedbackIndex === 4 ? "human" : "agent") as "human" | "agent",
       text:
@@ -95,7 +98,7 @@ const PREVIEW_QUEST_BY_ID = new Map(
       id: `${fixture.questId}-v3`,
       questId: fixture.questId,
       version: 3,
-      status: "refined",
+      status: showsFullEstablishedPreview ? "done" : "refined",
       title: fixture.title,
       description: fixture.description,
       tldr: "A deterministic Playground fixture for the accepted chat-feed inline quest preview contract.",
@@ -103,6 +106,53 @@ const PREVIEW_QUEST_BY_ID = new Map(
       feedback,
       createdAt: 1_787_990_400_000,
       updatedAt: 1_787_990_460_000 + fixtureIndex,
+      ...(showsFullEstablishedPreview
+        ? {
+            completedAt,
+            verificationItems: [],
+            verificationInboxUnread: false,
+            debrief: "The eye now presents the established full quest preview without replacing native link behavior.",
+            debriefTldr:
+              "The established full preview stays available from the eye while native links, exact feedback, and non-blocking geometry remain intact.",
+            journeyRuns: [
+              {
+                runId: "playground-completed-run",
+                source: "board",
+                phaseIds: ["alignment", "work", "memory"],
+                status: "completed",
+                createdAt: completedAt - 60_000,
+                updatedAt: completedAt,
+                completedAt,
+                phaseOccurrences: [
+                  {
+                    occurrenceId: "playground-completed-run:p1",
+                    phaseId: "alignment",
+                    phaseIndex: 0,
+                    phasePosition: 1,
+                    phaseOccurrence: 1,
+                    status: "completed",
+                  },
+                  {
+                    occurrenceId: "playground-completed-run:p2",
+                    phaseId: "work",
+                    phaseIndex: 1,
+                    phasePosition: 2,
+                    phaseOccurrence: 1,
+                    status: "completed",
+                  },
+                  {
+                    occurrenceId: "playground-completed-run:p3",
+                    phaseId: "memory",
+                    phaseIndex: 2,
+                    phasePosition: 3,
+                    phaseOccurrence: 1,
+                    status: "completed",
+                  },
+                ],
+              },
+            ],
+          }
+        : {}),
     } as QuestmasterTask;
     return [fixture.questId, quest] as const;
   }),
@@ -320,6 +370,36 @@ function ScopeBoundaryFixture() {
   );
 }
 
+function ColorParityFixture() {
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      <div
+        className="message-feed-scroll-surface rounded-lg border border-cc-border/70 bg-cc-bg p-3 text-sm"
+        data-message-id="playground-blue-quest-link"
+        data-testid="playground-inline-quest-preview-blue-color"
+      >
+        <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-cc-muted/70">Standard feed link</div>
+        <MarkdownContent text="[q-9410](quest:q-9410)" questLinkSurface="chat-feed" />
+      </div>
+      <div data-testid="playground-inline-quest-preview-orange-color">
+        <QuestQuizSection
+          variant="inline"
+          questId="q-9410"
+          questTitle="Inline quiz link"
+          questLinkSurface="chat-feed"
+          items={[
+            {
+              id: "playground-color-parity",
+              question: "What should the adjacent eye match?",
+              answer: "The exact rendered color of this orange quest link.",
+            },
+          ]}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function PlaygroundInlineQuestPreviewSection() {
   const seeded = useSeedPreviewFixtures();
   const [selection, setSelection] = useState<{
@@ -389,6 +469,16 @@ export function PlaygroundInlineQuestPreviewSection() {
               <p className="mt-3 text-xs text-cc-muted">
                 Only the explicit chat-feed producer adds the eye. The same shared Markdown link keeps legacy behavior
                 in the adjacent non-feed surface.
+              </p>
+            </Card>
+          </div>
+
+          <div className="xl:col-span-2">
+            <Card label="Adjacent link-color parity">
+              <ColorParityFixture />
+              <p className="mt-3 text-xs text-cc-muted">
+                Each eye derives the exact rendered color of its own adjacent anchor: standard feed links stay blue,
+                while the inline quiz link and eye stay orange.
               </p>
             </Card>
           </div>

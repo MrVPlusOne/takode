@@ -19,10 +19,10 @@ import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { navigateTo } from "../utils/navigation.js";
 import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
-import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 import { useHashLocation } from "../utils/hash-location.js";
 import { openQuestOverlayRouteAware, withQuestFeedbackInHash, withQuestIdInHash } from "../utils/routing.js";
+import { QuestPreviewCardContent, QuestPreviewHeaderAction } from "./QuestPreviewCardContent.js";
 import {
   chooseQuestBlockSheetPlacement,
   chooseQuestRichPopoverPlacement,
@@ -185,6 +185,15 @@ function describeLoadError(error: unknown): string {
   return "Quest preview could not be loaded.";
 }
 
+function previewFocusableControls(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_CONTROL_SELECTOR)).filter((control) => {
+    if (control.hidden || control.getAttribute("aria-hidden") === "true" || control.closest("[inert]")) return false;
+    if (control.tabIndex < 0) return false;
+    const style = getComputedStyle(control);
+    return style.display !== "none" && style.visibility !== "hidden" && style.visibility !== "collapse";
+  });
+}
+
 export function QuestFeedInlineLink({
   questId,
   children,
@@ -219,6 +228,7 @@ export function QuestFeedInlineLink({
     });
   });
   const zoomLevel = useStore((state) => state.zoomLevel ?? 1);
+  const colorTheme = useStore((state) => state.colorTheme);
   const hash = useHashLocation();
   const ownerId = useId();
   const dialogId = `${ownerId.replace(/:/g, "")}-quest-preview`;
@@ -265,6 +275,23 @@ export function QuestFeedInlineLink({
   const pointerGeometryFrameRef = useRef<number | null>(null);
   const closeAllRef = useRef<(returnFocus?: boolean, dismissalModality?: string) => void>(() => {});
   const initialHashRef = useRef(hash);
+
+  const syncPreviewColor = useCallback(() => {
+    const link = linkRef.current;
+    const preview = previewRef.current;
+    if (!link || !preview) return;
+    const color = getComputedStyle(link).color.trim();
+    if (color) preview.style.setProperty("--cc-feed-preview-link-color", color);
+    else preview.style.removeProperty("--cc-feed-preview-link-color");
+  }, []);
+
+  const schedulePreviewColorSync = useCallback(() => {
+    requestAnimationFrame(syncPreviewColor);
+  }, [syncPreviewColor]);
+
+  useLayoutEffect(() => {
+    syncPreviewColor();
+  }, [className, colorTheme, syncPreviewColor]);
 
   const setPhase = useCallback((next: PreviewPhase) => {
     phaseRef.current = next;
@@ -941,12 +968,24 @@ export function QuestFeedInlineLink({
         ref={linkRef}
         href={questHash}
         onClick={handleLinkClick}
-        onPointerEnter={(event) => handlePointerEnter("link", event)}
-        onPointerLeave={(event) => handlePointerLeave("link", event)}
+        onPointerEnter={(event) => {
+          syncPreviewColor();
+          handlePointerEnter("link", event);
+        }}
+        onPointerLeave={(event) => {
+          handlePointerLeave("link", event);
+          schedulePreviewColorSync();
+        }}
         onPointerMove={handlePointerMove}
         onPointerDown={(event) => handlePointerDown("link", event)}
-        onFocus={() => handleFocus("link")}
-        onBlur={(event) => handleBlur("link", event)}
+        onFocus={() => {
+          syncPreviewColor();
+          handleFocus("link");
+        }}
+        onBlur={(event) => {
+          handleBlur("link", event);
+          schedulePreviewColorSync();
+        }}
         onKeyDown={(event) => {
           if (event.key === "Escape" && dismissTransientWithEscape()) event.preventDefault();
         }}
@@ -964,14 +1003,23 @@ export function QuestFeedInlineLink({
         aria-controls={dialogId}
         data-testid="quest-feed-preview-button"
         data-quest-id={normalizedQuestId}
-        onPointerEnter={(event) => handlePointerEnter("preview", event)}
+        onPointerEnter={(event) => {
+          syncPreviewColor();
+          handlePointerEnter("preview", event);
+        }}
         onPointerLeave={(event) => handlePointerLeave("preview", event)}
         onPointerMove={handlePointerMove}
-        onPointerDown={(event) => handlePointerDown("preview", event)}
+        onPointerDown={(event) => {
+          syncPreviewColor();
+          handlePointerDown("preview", event);
+        }}
         onPointerCancel={() => {
           pendingPreviewPointerTypeRef.current = null;
         }}
-        onFocus={() => handleFocus("preview")}
+        onFocus={() => {
+          syncPreviewColor();
+          handleFocus("preview");
+        }}
         onBlur={(event) => handleBlur("preview", event)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") pendingPreviewPointerTypeRef.current = null;
@@ -1092,10 +1140,10 @@ const QuestFeedRichPreview = forwardRef<
   ref,
 ) {
   const isModal = placement?.kind === "bottom-sheet";
-  const statusTheme = quest ? getQuestStatusTheme(quest.status) : null;
   const feedback = feedbackIndex === undefined ? undefined : quest?.feedback?.[feedbackIndex];
   const feedbackUnavailable = feedbackIndex !== undefined && (!feedback || isDeletedQuestFeedbackEntry(feedback));
   const title = displayTitle?.trim() || quest?.title?.trim() || `${questId} preview`;
+  const primaryActionLabel = feedbackIndex === undefined ? "Open quest" : `Open feedback #${feedbackIndex}`;
   const initialWidth =
     placement?.kind === "bottom-sheet" || placement?.kind === "side-sheet" ? placement.width : RICH_LOGICAL_WIDTH_PX;
   const maxHeight =
@@ -1124,9 +1172,7 @@ const QuestFeedRichPreview = forwardRef<
     }
     if (event.key !== "Tab") return;
     const container = event.currentTarget;
-    const controls = Array.from(container.querySelectorAll<HTMLElement>("[data-preview-focusable='true']")).filter(
-      (control) => !control.hasAttribute("disabled"),
-    );
+    const controls = previewFocusableControls(container);
     const first = controls[0];
     const last = controls.at(-1);
     if (!first || !last) return;
@@ -1169,6 +1215,16 @@ const QuestFeedRichPreview = forwardRef<
     transform: `scale(${zoomLevel})`,
     transformOrigin: "top left",
   };
+  const primaryAction = (
+    <QuestPreviewHeaderAction
+      label={primaryActionLabel}
+      ariaLabel={primaryActionLabel}
+      href={questHash}
+      testId="quest-feed-primary-action"
+      previewFocusable
+      onActivate={onNavigate}
+    />
+  );
 
   const card = (
     <div
@@ -1183,7 +1239,7 @@ const QuestFeedRichPreview = forwardRef<
       data-surface={placement?.kind ?? "measuring"}
       data-open-mode={openMode}
       data-edge={placement?.kind === "side-sheet" ? placement.edge : undefined}
-      className={`fixed z-[82] overflow-y-auto rounded-xl border border-cc-border bg-cc-card p-3 text-left shadow-2xl focus:outline-none ${
+      className={`fixed z-[82] overflow-y-auto rounded-xl border border-cc-border bg-cc-card px-3 py-2.5 text-left shadow-xl focus:outline-none ${
         placement?.kind === "side-sheet"
           ? placement.edge === "right"
             ? "rounded-r-none"
@@ -1199,29 +1255,6 @@ const QuestFeedRichPreview = forwardRef<
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
     >
-      <div className="flex min-w-0 items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-medium uppercase tracking-wide text-cc-muted/70">{targetLabel}</div>
-          <h2
-            id={headingId}
-            data-testid="quest-feed-rich-title"
-            className="mt-0.5 text-base font-semibold leading-snug text-cc-fg"
-          >
-            {title}
-          </h2>
-        </div>
-        {phase === "rich-loading" && (
-          <span
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-            className="shrink-0 rounded-full border border-cc-border bg-cc-hover/40 px-2 py-1 text-[10px] text-cc-muted"
-          >
-            Refreshing…
-          </span>
-        )}
-      </div>
-
       {phase === "rich-ready" && (
         <div
           role="status"
@@ -1234,19 +1267,40 @@ const QuestFeedRichPreview = forwardRef<
         </div>
       )}
 
-      {phase === "rich-ready" && quest && statusTheme && (
-        <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="quest-feed-rich-status">
-          <span
-            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] ${statusTheme.bg} ${statusTheme.text} ${statusTheme.border}`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${statusTheme.dot}`} />
-            {statusTheme.label}
-          </span>
-          {quest.tags?.slice(0, 4).map((tag) => (
-            <span key={tag} className="rounded-full border border-cc-border px-2 py-0.5 text-[10px] text-cc-muted">
-              {tag}
-            </span>
-          ))}
+      {phase === "rich-ready" && quest ? (
+        <QuestPreviewCardContent
+          quest={quest}
+          eyebrowLabel={targetLabel}
+          title={title}
+          headingId={headingId}
+          headerAction={primaryAction}
+          suppressNestedHoverCards
+        />
+      ) : (
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] text-cc-muted">{targetLabel}</div>
+            <h2
+              id={headingId}
+              data-testid="quest-feed-rich-title"
+              className="mt-0.5 text-sm font-semibold leading-snug text-cc-fg break-words"
+            >
+              {title}
+            </h2>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {phase === "rich-loading" && (
+              <span
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                className="shrink-0 rounded-full border border-cc-border bg-cc-hover/40 px-2 py-1 text-[10px] text-cc-muted"
+              >
+                Refreshing…
+              </span>
+            )}
+            {primaryAction}
+          </div>
         </div>
       )}
 
@@ -1264,7 +1318,7 @@ const QuestFeedRichPreview = forwardRef<
       )}
 
       {phase === "rich-ready" && feedbackIndex !== undefined && (
-        <div className="mt-3 rounded-lg border border-cc-border/70 bg-cc-bg/50 px-3 py-2.5">
+        <div data-testid="quest-feed-feedback-context" className="mt-2 border-t border-cc-border/50 pt-2">
           {feedbackUnavailable ? (
             <div data-testid="quest-feed-feedback-unavailable" className="text-xs text-cc-muted">
               Feedback #{feedbackIndex} is unavailable at this stable index. The exact link remains unchanged.
@@ -1274,7 +1328,7 @@ const QuestFeedRichPreview = forwardRef<
               <div className="text-[10px] font-medium uppercase tracking-wide text-cc-muted/70">
                 Feedback #{feedbackIndex} · {feedback?.author === "human" ? "Human" : "Agent"}
               </div>
-              <div className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-cc-fg">
+              <div className="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-[11px] leading-snug text-cc-muted">
                 {feedback?.text}
               </div>
             </>
@@ -1282,22 +1336,7 @@ const QuestFeedRichPreview = forwardRef<
         </div>
       )}
 
-      {phase === "rich-ready" && feedbackIndex === undefined && (quest?.tldr || quest?.description) && (
-        <div className="mt-3 max-h-52 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-cc-border/70 bg-cc-bg/50 px-3 py-2.5 text-xs leading-relaxed text-cc-fg">
-          {quest.tldr || quest.description}
-        </div>
-      )}
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <a
-          href={questHash}
-          data-preview-focusable="true"
-          data-testid="quest-feed-primary-action"
-          className="cc-quest-link inline-flex min-h-8 items-center rounded-md border border-cc-border bg-cc-hover/25 px-2.5 py-1 text-xs font-medium hover:bg-cc-hover/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50"
-          onClick={onNavigate}
-        >
-          {feedbackIndex === undefined ? "Open quest" : `Open feedback #${feedbackIndex}`}
-        </a>
+      <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-cc-border/50 pt-2">
         {feedbackIndex !== undefined && (
           <a
             href={parentQuestHash}

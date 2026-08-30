@@ -188,6 +188,48 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
   });
 
+  it("copies each adjacent anchor's rendered color without changing the protected sibling structure", () => {
+    // Covers both ordinary and context-specific link colors while preserving
+    // the separate native anchor and 26/44 px eye hit targets.
+    mockGetQuestValidated.mockResolvedValue({ status: "not-modified", etag: '"color-check"' });
+    render(
+      <>
+        <style>{`
+          .preview-blue-link { color: rgb(37, 99, 235); }
+          .preview-orange-link { color: rgb(234, 88, 12); }
+        `}</style>
+        <div data-message-id="link-color-pairs">
+          <QuestFeedInlineLink questId="q-420" className="preview-blue-link" stopPropagation={false} />
+          <QuestFeedInlineLink questId="q-421" className="preview-orange-link" stopPropagation={false} />
+        </div>
+      </>,
+    );
+
+    const links = screen.getAllByRole("link");
+    const eyes = screen.getAllByRole("button", { name: /Preview q-42/ });
+    expect(links).toHaveLength(2);
+    expect(eyes).toHaveLength(2);
+    expect(links[0]!.nextElementSibling).toBe(eyes[0]);
+    expect(links[1]!.nextElementSibling).toBe(eyes[1]);
+    expect(eyes[0]!.style.getPropertyValue("--cc-feed-preview-link-color")).toBe(getComputedStyle(links[0]!).color);
+    expect(eyes[1]!.style.getPropertyValue("--cc-feed-preview-link-color")).toBe(getComputedStyle(links[1]!).color);
+    expect(eyes[0]!.style.getPropertyValue("--cc-feed-preview-link-color")).not.toBe(
+      eyes[1]!.style.getPropertyValue("--cc-feed-preview-link-color"),
+    );
+
+    const baseColors = links.map((link) => getComputedStyle(link).color);
+    const hoverColors = ["rgb(96, 165, 250)", "rgb(251, 146, 60)"];
+    for (const [index, link] of links.entries()) {
+      link.style.color = hoverColors[index]!;
+      fireEvent.pointerEnter(link, { pointerType: "mouse", clientX: 120, clientY: 110 });
+      expect(eyes[index]!.style.getPropertyValue("--cc-feed-preview-link-color")).toBe(hoverColors[index]);
+
+      link.style.color = baseColors[index]!;
+      fireEvent.pointerLeave(link, { pointerType: "mouse" });
+      expect(eyes[index]!.style.getPropertyValue("--cc-feed-preview-link-color")).toBe(baseColors[index]);
+    }
+  });
+
   it("keeps text-link hover title-only after 250 ms and closes it after the bounded leave grace", async () => {
     renderFeedLink("q-43", { title: "Pass-through hover title" });
     const link = screen.getByRole("link", { name: "q-43" });
@@ -537,9 +579,103 @@ describe("QuestInlineLink chat-feed preview", () => {
     await act(async () => request.resolve({ status: "not-modified", etag: '"detail-v1"' }));
     expect(dialog).toHaveAttribute("aria-busy", "false");
     expect(within(dialog).getByTestId("quest-feed-rich-ready-announcement")).toHaveTextContent("Quest preview ready.");
-    expect(within(dialog).getByTestId("quest-feed-rich-status")).toHaveTextContent("Refined");
+    expect(within(dialog).getByTestId("quest-hover-status-row")).toHaveTextContent("Refined");
     expect(dialog).toHaveTextContent("Validated summary");
     expect(mockGetQuestValidated).toHaveBeenCalledWith("q-48", '"detail-v1"');
+  });
+
+  it("reuses the established full quest preview content inside the eye-owned dialog", async () => {
+    // Feedback #16 requires the eye surface to share the established hover-card
+    // sections rather than retaining the reduced summary-only duplicate.
+    const completedAt = Date.now() - 10 * 60 * 1000;
+    const completed = quest({
+      questId: "q-480",
+      title: "Completed full preview",
+      status: "done",
+      tldr: "Full Summary from the established quest preview. See [q-481](quest:q-481).",
+      tags: ["ui", "bugfix"],
+      completedAt,
+      verificationItems: [],
+      verificationInboxUnread: false,
+      debrief: "Full final debrief body.",
+      debriefTldr: "Final Debrief from the established quest preview.",
+      journeyRuns: [
+        {
+          runId: "run-complete",
+          source: "board",
+          phaseIds: ["alignment", "work", "memory"],
+          status: "completed",
+          createdAt: completedAt - 30_000,
+          updatedAt: completedAt,
+          completedAt,
+          phaseOccurrences: [
+            {
+              occurrenceId: "run-complete:p1",
+              phaseId: "alignment",
+              phaseIndex: 0,
+              phasePosition: 1,
+              phaseOccurrence: 1,
+              status: "completed",
+            },
+            {
+              occurrenceId: "run-complete:p2",
+              phaseId: "work",
+              phaseIndex: 1,
+              phasePosition: 2,
+              phaseOccurrence: 1,
+              status: "completed",
+            },
+            {
+              occurrenceId: "run-complete:p3",
+              phaseId: "memory",
+              phaseIndex: 2,
+              phasePosition: 3,
+              phaseOccurrence: 1,
+              status: "completed",
+            },
+          ],
+        },
+      ],
+    });
+    useStore.setState({
+      questDetails: new Map([["q-480", completed]]),
+      questDetailEtags: new Map([["q-480", '"complete"']]),
+    });
+    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"complete"' });
+    renderFeedLink("q-480");
+
+    fireEvent.pointerEnter(screen.getByRole("button", { name: /Preview q-480/ }), {
+      pointerType: "mouse",
+      clientX: 198,
+      clientY: 110,
+    });
+    await act(async () => Promise.resolve());
+
+    const dialog = screen.getByRole("dialog", { name: "Completed full preview" });
+    expect(dialog).toHaveAttribute("data-open-mode", "hover");
+    expect(dialog).toHaveClass("overflow-y-auto");
+    expect(within(dialog).getByTestId("quest-hover-status-row")).toHaveTextContent("Completed");
+    expect(within(dialog).getByTestId("quest-hover-completed-at")).toHaveTextContent("Finished");
+    expect(within(dialog).getByText("ui")).toBeInTheDocument();
+    expect(within(dialog).getByText("bugfix")).toBeInTheDocument();
+    expect(within(dialog).getByTestId("quest-hover-tldr")).toHaveTextContent(
+      "Full Summary from the established quest preview.",
+    );
+    expect(within(dialog).getByTestId("quest-hover-progress-tldr")).toHaveTextContent(
+      "Final Debrief from the established quest preview.",
+    );
+    expect(within(dialog).getByTestId("quest-hover-journey")).toHaveTextContent("Completed Journey");
+    expect(within(dialog).getByRole("link", { name: "Open quest" })).toHaveAttribute(
+      "href",
+      "#/session/s1?quest=q-480",
+    );
+    const nestedQuestLink = within(dialog).getByRole("link", { name: "q-481" });
+    expect(nestedQuestLink).toHaveAttribute("href", "#/session/s1?quest=q-481");
+    fireEvent.mouseEnter(nestedQuestLink);
+    await act(async () => Promise.resolve());
+    expect(screen.queryByTestId("quest-hover-card")).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Completed full preview" })).toBe(dialog);
+    expect(mockGetQuestValidated).toHaveBeenCalledTimes(1);
   });
 
   it("keeps exact feedback primary, parent secondary, and tombstones on the same exact route", async () => {

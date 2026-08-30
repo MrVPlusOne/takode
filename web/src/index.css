@@ -104,19 +104,24 @@ html, body {
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: var(--color-cc-quest-link);
+  color: var(--cc-feed-preview-link-color, var(--color-cc-quest-link));
   line-height: 1;
   vertical-align: middle;
   cursor: pointer;
 }
 
 .cc-feed-quest-preview-trigger:hover {
-  background: color-mix(in srgb, var(--color-cc-quest-link) 12%, transparent);
-  color: var(--color-cc-quest-link-hover);
+  background: color-mix(
+    in srgb,
+    var(--cc-feed-preview-link-color, var(--color-cc-quest-link)) 12%,
+    transparent
+  );
+  color: var(--cc-feed-preview-link-color, var(--color-cc-quest-link));
 }
 
 .cc-feed-quest-preview-trigger:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-cc-primary) 55%, transparent);
+  outline: 2px solid
+    color-mix(in srgb, var(--cc-feed-preview-link-color, var(--color-cc-quest-link)) 55%, transparent);
   outline-offset: 2px;
 }
 
