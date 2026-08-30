@@ -95,10 +95,13 @@ describe("SyncedProjectionRuntime", () => {
     const onlyA = { allowedKeys: new Set(["a"]), updates: [] as unknown[] };
     const onlyB = { allowedKeys: new Set(["b"]), updates: [] as unknown[] };
 
+    expect(runtime.hasSubscribers("example", "a")).toBe(false);
     expect(subscribe(runtime, onlyA, ["a", "b"])).toHaveLength(1);
     expect(runtime.hasSubscription(onlyA, "example", "a")).toBe(true);
     expect(runtime.hasSubscription(onlyA, "example", "b")).toBe(false);
     expect(subscribe(runtime, onlyB, ["b"])).toHaveLength(1);
+    expect(runtime.hasSubscribers("example", "a")).toBe(true);
+    expect(runtime.hasSubscribers("example", "b")).toBe(true);
     sources.get("a")!.dependency = 2;
     runtime.invalidate("example", "a");
     await runtime.flushForTest();
@@ -107,6 +110,9 @@ describe("SyncedProjectionRuntime", () => {
     expect(onlyB.updates).toHaveLength(0);
     expect(runtime.resync(onlyB, "example", "a")).toBeNull();
     expect(runtime.getMetrics().subscriptionsRejected).toBe(2);
+    runtime.removeSubscriber(onlyA);
+    expect(runtime.hasSubscribers("example", "a")).toBe(false);
+    expect(runtime.hasSubscribers("example", "b")).toBe(true);
   });
 
   it("rejects oversized values without caching or publishing them", async () => {

@@ -38,8 +38,6 @@ import {
   type BrowserIncomingMessage,
   type BrowserOutgoingMessage,
   type NeedsInputNotificationQuestion,
-  type ThreadAttachmentUpdate,
-  type ThreadAttachmentUpdateEntry,
   type ThreadRef,
 } from "../session-types.js";
 import {
@@ -67,152 +65,15 @@ import {
   scheduleWorktreeGitStateRefreshForSnapshot,
 } from "./session-list-snapshot.js";
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
-import { normalizeAffectedThreadKey, normalizeNotifyThreadRoute } from "./takode-route-thread-helpers.js";
+import { normalizeNotifyThreadRoute } from "./takode-route-thread-helpers.js";
 import { registerTakodeReconnectRoute } from "./takode-reconnect.js";
 import { buildTakodeCodexPendingDeliveryFields, buildTakodeInfoSafeSession } from "./session-detail-response.js";
-
-const THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS = 100;
-const THREAD_ATTACHMENT_UPDATE_VERSION = 1;
-const THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT = 300;
-const THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES = 100;
-const pendingThreadAttachmentHistoryBroadcasts = new Map<string, ReturnType<typeof setTimeout>>();
-const pendingThreadAttachmentUpdates = new Map<
-  string,
-  { timer: ReturnType<typeof setTimeout>; changedCount: number; updates: ThreadAttachmentUpdateEntry[] }
->();
-
-function scheduleThreadAttachmentHistoryBroadcast(wsBridge: RouteContext["wsBridge"], sessionId: string): void {
-  const existing = pendingThreadAttachmentHistoryBroadcasts.get(sessionId);
-  if (existing) clearTimeout(existing);
-
-  const timer = setTimeout(() => {
-    pendingThreadAttachmentHistoryBroadcasts.delete(sessionId);
-    const session = wsBridge.getSession(sessionId);
-    if (!session) return;
-    wsBridge.broadcastToSession(sessionId, { type: "message_history", messages: session.messageHistory });
-  }, THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS);
-  pendingThreadAttachmentHistoryBroadcasts.set(sessionId, timer);
-}
-
-function pendingThreadAttachmentChangedCount(sessionId: string): number {
-  return pendingThreadAttachmentUpdates.get(sessionId)?.changedCount ?? 0;
-}
-
-function threadAttachmentEntryAttachedAt(update: ThreadAttachmentUpdateEntry): number | undefined {
-  const markerAttachedAt = update.markers[0]?.attachedAt;
-  if (typeof markerAttachedAt === "number") return markerAttachedAt;
-  for (const message of update.changedMessages) {
-    const refAttachedAt = message.threadRefs.find((ref) => typeof ref.attachedAt === "number")?.attachedAt;
-    if (typeof refAttachedAt === "number") return refAttachedAt;
-  }
-  return undefined;
-}
-
-function threadAttachmentEntryAttachedBy(update: ThreadAttachmentUpdateEntry): string | undefined {
-  const markerAttachedBy = update.markers[0]?.attachedBy;
-  if (markerAttachedBy) return markerAttachedBy;
-  for (const message of update.changedMessages) {
-    const refAttachedBy = message.threadRefs.find((ref) => ref.attachedBy)?.attachedBy;
-    if (refAttachedBy) return refAttachedBy;
-  }
-  return undefined;
-}
-
-function buildThreadAttachmentBoundError(input: {
-  questId: string;
-  historyLength: number;
-  selectedIndices: number[];
-  changedCount: number;
-  pendingChangedCount: number;
-}): Record<string, unknown> | null {
-  const minAllowedIndex = Math.max(0, input.historyLength - THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT);
-  const validSelectedIndices = input.selectedIndices.filter((index) => index >= 0 && index < input.historyLength);
-  const minSelectedIndex = validSelectedIndices[0];
-  const maxSelectedIndex = validSelectedIndices[validSelectedIndices.length - 1];
-  if (typeof minSelectedIndex === "number" && minSelectedIndex < minAllowedIndex) {
-    return {
-      error: "Thread attach range is outside the recent bounded update window",
-      code: "THREAD_ATTACH_OUTSIDE_RECENT_WINDOW",
-      questId: input.questId,
-      historyLength: input.historyLength,
-      minSelectedIndex,
-      maxSelectedIndex,
-      minAllowedIndex,
-      maxDistanceFromTail: THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
-      maxChangedMessages: THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
-      suggestion: "Attach recent messages only.",
-    };
-  }
-  if (input.pendingChangedCount + input.changedCount > THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES) {
-    return {
-      error: "Thread attach selection exceeds the bounded update message limit",
-      code: "THREAD_ATTACH_TOO_MANY_MESSAGES",
-      questId: input.questId,
-      changedMessages: input.changedCount,
-      pendingChangedMessages: input.pendingChangedCount,
-      maxChangedMessages: THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
-      maxDistanceFromTail: THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
-      suggestion: "Attach fewer messages in this recent burst.",
-    };
-  }
-  return null;
-}
-
-function scheduleThreadAttachmentUpdateBroadcast(
-  wsBridge: RouteContext["wsBridge"],
-  sessionId: string,
-  update: ThreadAttachmentUpdateEntry,
-): void {
-  const existing = pendingThreadAttachmentUpdates.get(sessionId);
-  if (existing) clearTimeout(existing.timer);
-
-  const updates = [...(existing?.updates ?? []), update];
-  const changedCount = (existing?.changedCount ?? 0) + update.changedMessages.length;
-  const timer = setTimeout(() => {
-    pendingThreadAttachmentUpdates.delete(sessionId);
-    const session = wsBridge.getSession(sessionId);
-    if (!session) return;
-    const timestamp = Date.now();
-    const affectedThreadKeys = new Set<string>(["main"]);
-    for (const item of updates) {
-      const target = normalizeAffectedThreadKey(item.target.threadKey);
-      const targetQuest = normalizeAffectedThreadKey(item.target.questId);
-      const source = normalizeAffectedThreadKey(item.source?.threadKey);
-      const sourceQuest = normalizeAffectedThreadKey(item.source?.questId);
-      if (target) affectedThreadKeys.add(target);
-      if (targetQuest) affectedThreadKeys.add(targetQuest);
-      if (source) affectedThreadKeys.add(source);
-      if (sourceQuest) affectedThreadKeys.add(sourceQuest);
-    }
-    const markerIds = updates.flatMap((item) => item.markers.map((marker) => marker.id));
-    const event: ThreadAttachmentUpdate = {
-      type: "thread_attachment_update",
-      version: THREAD_ATTACHMENT_UPDATE_VERSION,
-      updateId: `thread-attachment-update:${timestamp}:${markerIds.join(",") || changedCount}`,
-      timestamp,
-      attachedAt: threadAttachmentEntryAttachedAt(updates[0]!) ?? timestamp,
-      attachedBy: threadAttachmentEntryAttachedBy(updates[0]!) ?? "",
-      historyLength: session.messageHistory.length,
-      affectedThreadKeys: [...affectedThreadKeys],
-      maxDistanceFromTail: THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
-      maxChangedMessages: THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
-      updates,
-    };
-    wsBridge.broadcastToSession(sessionId, event);
-  }, THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS);
-  pendingThreadAttachmentUpdates.set(sessionId, { timer, changedCount, updates });
-}
-
-export function _resetThreadAttachmentHistoryBroadcastsForTest(): void {
-  for (const timer of pendingThreadAttachmentHistoryBroadcasts.values()) {
-    clearTimeout(timer);
-  }
-  pendingThreadAttachmentHistoryBroadcasts.clear();
-  for (const pending of pendingThreadAttachmentUpdates.values()) {
-    clearTimeout(pending.timer);
-  }
-  pendingThreadAttachmentUpdates.clear();
-}
+import {
+  buildThreadAttachmentBoundError,
+  pendingThreadAttachmentChangedCount,
+  scheduleThreadAttachmentUpdateBroadcast,
+} from "./takode-thread-attachment-broadcast.js";
+export { _resetThreadAttachmentHistoryBroadcastsForTest } from "./takode-thread-attachment-broadcast.js";
 
 export function createTakodeRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -353,6 +214,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
     getBoardDispatchableSignature: (session: BridgeSession, questId: string) =>
       wsBridge.getBoardDispatchableSignature(session.id, questId),
     markNotificationDone: boardWatchdogDeps.markNotificationDone,
+    invalidateLeaderThreadTabsForQuestIds: wsBridge.invalidateLeaderThreadTabsForQuestIds?.bind(wsBridge),
+    promoteLeaderThreadTabForQuest: wsBridge.promoteLeaderThreadTabForQuest?.bind(wsBridge),
     broadcastBoard: (
       session: BridgeSession,
       board: import("../session-types.js").BoardRow[],
@@ -367,9 +230,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
         attentionRecords,
       } as any),
     persistSession: (session: BridgeSession) => wsBridge.persistSessionById(session.id),
-    notifyReview: (sessionId: string, summary: string) => {
+    notifyReview: (sessionId: string, summary: string, options?: { suppressThreadTabPromotion?: boolean }) => {
       const session = wsBridge.getSession(sessionId);
-      if (session) notifyUserController(session, "review", summary, notificationRouteDeps);
+      if (session) notifyUserController(session, "review", summary, notificationRouteDeps, options);
     },
   };
   const getSessionGitDeps = () => bridgeAny.getSessionGitStateDeps?.();

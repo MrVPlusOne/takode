@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyLeaderServerCandidateThreadTabEvent,
   applyLeaderThreadTabUpdate,
   canServerCandidateOpenThread,
   createLeaderOpenThreadTabsState,
@@ -7,6 +8,7 @@ import {
   MAX_LEADER_OPEN_THREAD_TABS,
   normalizeLeaderOpenThreadKeys,
   normalizeLeaderOpenThreadTabsState,
+  placeLeaderOpenThreadTabBeforeKeys,
   reorderLeaderOpenThreadKeys,
 } from "./leader-open-thread-tabs.js";
 
@@ -31,6 +33,22 @@ describe("leader open thread tab state", () => {
     expect(next.orderedOpenThreadKeys).toHaveLength(MAX_LEADER_OPEN_THREAD_TABS);
     expect(next.orderedOpenThreadKeys[0]).toBe("q-1000");
     expect(next.orderedOpenThreadKeys).not.toContain("q-50");
+  });
+
+  it("does not evict a higher-position tab for a fenced last-position candidate at the cap", () => {
+    const baseline = Array.from({ length: MAX_LEADER_OPEN_THREAD_TABS }, (_, index) => `q-${index + 1}`);
+    const state = {
+      ...createLeaderOpenThreadTabsState(300),
+      orderedOpenThreadKeys: baseline,
+      explicitOrderUpdatedAt: 300,
+    };
+
+    const next = applyLeaderServerCandidateThreadTabEvent(state, "q-1000", 250);
+
+    expect(next?.orderedOpenThreadKeys).toEqual(baseline);
+    expect(next?.orderedOpenThreadKeys[0]).toBe("q-1");
+    expect(next?.orderedOpenThreadKeys).not.toContain("q-1000");
+    expect(next?.serverCandidatePromotedAt).toMatchObject({ "q-1000": 250 });
   });
 
   it("ignores obsolete or unsupported update operations without replacing state", () => {
@@ -157,6 +175,96 @@ describe("leader open thread tab state", () => {
       60,
     );
     expect(closed?.explicitOrderUpdatedAt).toBe(60);
+  });
+
+  it("places review candidates before deferred keys without disturbing peer order", () => {
+    expect(placeLeaderOpenThreadTabBeforeKeys(["q-1", "q-2", "q-3", "q-4"], "q-4", new Set(["q-3"]))).toEqual([
+      "q-1",
+      "q-2",
+      "q-4",
+      "q-3",
+    ]);
+
+    const state = {
+      ...createLeaderOpenThreadTabsState(100),
+      orderedOpenThreadKeys: ["q-1", "q-4", "q-3"],
+    };
+    const promoted = applyLeaderServerCandidateThreadTabEvent(state, "q-4", 200, {
+      repositionExisting: true,
+      placement: "before",
+      beforeThreadKeys: new Set(["q-3"]),
+    });
+    expect(promoted?.orderedOpenThreadKeys).toEqual(["q-1", "q-4", "q-3"]);
+
+    expect(placeLeaderOpenThreadTabBeforeKeys(["q-1", "q-42", "q-2"], "q-42", new Set(["q-42"]))).toEqual([
+      "q-1",
+      "q-42",
+      "q-2",
+    ]);
+  });
+
+  it("applies server-candidate positioning only on fresh edges", () => {
+    const durable = {
+      ...createLeaderOpenThreadTabsState(100),
+      orderedOpenThreadKeys: ["q-a", "q-target", "q-b"],
+      serverCandidatePromotedAt: { "q-target": 100 },
+    };
+
+    expect(applyLeaderServerCandidateThreadTabEvent(durable, "q-target", 100, { repositionExisting: true })).toBe(
+      durable,
+    );
+    const promoted = applyLeaderServerCandidateThreadTabEvent(durable, "q-target", 200, {
+      repositionExisting: true,
+    });
+    expect(promoted?.orderedOpenThreadKeys).toEqual(["q-target", "q-a", "q-b"]);
+    expect(promoted?.updatedAt).toBe(200);
+
+    const manuallyOrdered = {
+      ...durable,
+      updatedAt: 300,
+      explicitOrderUpdatedAt: 300,
+    };
+    expect(
+      applyLeaderServerCandidateThreadTabEvent(manuallyOrdered, "q-target", 250, { repositionExisting: true }),
+    ).toBe(manuallyOrdered);
+    expect(applyLeaderServerCandidateThreadTabEvent(manuallyOrdered, "q-new", 250)?.orderedOpenThreadKeys).toEqual([
+      "q-a",
+      "q-target",
+      "q-b",
+      "q-new",
+    ]);
+  });
+
+  it("uses legacy updatedAt as the conservative fence before freshness metadata exists", () => {
+    const legacy = {
+      ...createLeaderOpenThreadTabsState(300),
+      orderedOpenThreadKeys: ["q-a", "q-target", "q-b"],
+    };
+
+    expect(applyLeaderServerCandidateThreadTabEvent(legacy, "q-target", 250, { repositionExisting: true })).toBe(
+      legacy,
+    );
+  });
+
+  it("accepts distinct same-timestamp tab edges while deduping each thread independently", () => {
+    const initial = {
+      ...createLeaderOpenThreadTabsState(100),
+      orderedOpenThreadKeys: ["q-1", "q-2", "q-3"],
+    };
+    const first = applyLeaderServerCandidateThreadTabEvent(initial, "q-2", 200, {
+      repositionExisting: true,
+    })!;
+    const second = applyLeaderServerCandidateThreadTabEvent(first, "q-3", 200, {
+      repositionExisting: true,
+    })!;
+    const duplicateFirst = applyLeaderServerCandidateThreadTabEvent(second, "q-2", 200, {
+      repositionExisting: true,
+    });
+
+    expect(first.orderedOpenThreadKeys).toEqual(["q-2", "q-1", "q-3"]);
+    expect(second.orderedOpenThreadKeys).toEqual(["q-3", "q-2", "q-1"]);
+    expect(second.serverCandidatePromotedAt).toMatchObject({ "q-2": 200, "q-3": 200 });
+    expect(duplicateFirst).toBe(second);
   });
 
   it("allows fresh server-created candidates to reopen only when newer than the close tombstone", () => {

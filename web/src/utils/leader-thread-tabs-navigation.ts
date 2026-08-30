@@ -1,5 +1,5 @@
 import type { LeaderThreadTabsProjectionValue } from "../../shared/leader-thread-tabs-projection.js";
-import type { QuestJourneyPlanState } from "../../shared/quest-journey.js";
+import { getQuestJourneyPhase, type QuestJourneyPlanState } from "../../shared/quest-journey.js";
 
 export interface LeaderThreadNavigationRowBase {
   threadKey: string;
@@ -12,6 +12,29 @@ export interface LeaderThreadNavigationRowBase {
   createdAt: number;
 }
 
+interface ProjectableBoardRow {
+  questId?: string;
+  title?: string;
+  status?: string;
+  completedAt?: number;
+  waitFor?: string[];
+  waitForInput?: string[];
+  worker?: string;
+  workerNum?: number;
+  journey?: QuestJourneyPlanState;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+interface ProjectableThreadRowDetail {
+  boardRow?: ProjectableBoardRow;
+  journey?: QuestJourneyPlanState;
+  leaderSessionId?: string | null;
+  rowStatus?: unknown;
+}
+
+type ProjectedTab = LeaderThreadTabsProjectionValue["tabs"][number];
+
 function isCompletedStatus(status: string | undefined): boolean {
   const normalized = (status ?? "").trim().toLowerCase();
   return normalized === "done" || normalized === "completed" || normalized === "needs_verification";
@@ -23,13 +46,71 @@ function hasCompletedRowEvidence(row: LeaderThreadNavigationRowBase | undefined)
   return row.section === "done" && row.status === undefined && row.boardStatus === undefined;
 }
 
-/** Overlay authoritative projected tab semantics while retaining richer legacy row detail where available. */
+function stringArraysEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function projectedIdentityMatchesLegacy(tab: ProjectedTab, existing: ProjectableThreadRowDetail): boolean {
+  const existingBoardRow = existing.boardRow;
+  const suppliedIdentity =
+    tab.sourceLeaderSessionId !== undefined ||
+    tab.workerSessionId !== undefined ||
+    tab.workerSessionNum !== undefined ||
+    tab.sourceRowCreatedAt !== undefined;
+  if (!suppliedIdentity) return true;
+
+  const matches = <T>(projected: T | null | undefined, legacy: T | null | undefined) =>
+    projected === undefined || projected === (legacy ?? null);
+  return (
+    matches(tab.sourceLeaderSessionId, existing.leaderSessionId) &&
+    matches(tab.workerSessionId, existingBoardRow?.worker) &&
+    matches(tab.workerSessionNum, existingBoardRow?.workerNum) &&
+    matches(tab.sourceRowCreatedAt, existingBoardRow?.createdAt)
+  );
+}
+
+function projectedJourneyForTab(
+  tab: ProjectedTab,
+  existingDetail: ProjectableThreadRowDetail | undefined,
+): QuestJourneyPlanState | undefined {
+  const projected = tab.journey;
+  if (!projected) return undefined;
+
+  const existing = existingDetail?.journey;
+  const phaseIds =
+    projected.phaseIds ?? (existing?.phaseIds.length === projected.phaseCount ? existing.phaseIds : undefined);
+  if (!phaseIds) return undefined;
+
+  const preserveExistingDetail =
+    !!existing &&
+    stringArraysEqual(existing.phaseIds, phaseIds) &&
+    !!existingDetail &&
+    projectedIdentityMatchesLegacy(tab, existingDetail);
+  const activePhaseIndex = projected.activePhaseIndex ?? undefined;
+  const currentPhaseId =
+    getQuestJourneyPhase(projected.currentPhaseId)?.id ??
+    (activePhaseIndex !== undefined ? phaseIds[activePhaseIndex] : undefined);
+  return {
+    ...(preserveExistingDetail ? existing : {}),
+    phaseIds: [...phaseIds],
+    mode: projected.mode ?? undefined,
+    currentPhaseId,
+    activePhaseIndex,
+  };
+}
+
+function projectedNullableField<T>(projected: T | null | undefined, legacy: T | undefined): T | undefined {
+  return projected === undefined ? legacy : (projected ?? undefined);
+}
+
+/** Overlay authoritative projected tab semantics while retaining non-authoritative legacy detail where useful. */
 export function mergeProjectedLeaderThreadRows<T extends LeaderThreadNavigationRowBase>(
   legacyRows: ReadonlyArray<T>,
   projection: LeaderThreadTabsProjectionValue,
   canonicalQuestTitles: ReadonlyMap<string, string>,
 ): Array<T | LeaderThreadNavigationRowBase> {
   const legacyByKey = new Map(legacyRows.map((row) => [row.threadKey.toLowerCase(), row]));
+  const currentStateAuthoritative = projection.currentQuestStateVersion === 1;
   const projectedKeys = new Set<string>();
   const projectedRows = projection.tabs.map((tab) => {
     const threadKey = tab.threadKey.toLowerCase();
@@ -37,49 +118,74 @@ export function mergeProjectedLeaderThreadRows<T extends LeaderThreadNavigationR
     const existing = legacyByKey.get(threadKey);
     const questId = tab.questId ?? threadKey;
     const title = canonicalQuestTitles.get(questId.toLowerCase()) ?? tab.title ?? questId;
-    const existingDetail = existing as
-      | (T & {
-          boardRow?: { status?: string; completedAt?: number; waitFor?: string[]; waitForInput?: string[] };
-          journey?: QuestJourneyPlanState;
-        })
-      | undefined;
-    const completed = tab.completed || hasCompletedRowEvidence(existing);
+    const existingDetail = existing as (T & ProjectableThreadRowDetail) | undefined;
+    const existingBoardRow = existingDetail?.boardRow;
+    const completed = tab.completed || (!currentStateAuthoritative && hasCompletedRowEvidence(existing));
     const existingCompletedStatus =
       existing?.status && isCompletedStatus(existing.status) ? existing.status : undefined;
     const existingCompletedBoardStatus =
       existing?.boardStatus && isCompletedStatus(existing.boardStatus) ? existing.boardStatus : undefined;
-    const projectedJourney =
-      tab.journey && existingDetail?.journey?.phaseIds.length === tab.journey.phaseCount
-        ? {
-            ...existingDetail.journey,
-            mode: tab.journey.mode ?? undefined,
-            currentPhaseId: tab.journey.currentPhaseId ?? undefined,
-            activePhaseIndex: tab.journey.activePhaseIndex ?? undefined,
-          }
-        : undefined;
-    const projectedBoardRow = existingDetail?.boardRow
+    const projectedJourney = projectedJourneyForTab(tab, existingDetail);
+    const worker = projectedNullableField(tab.workerSessionId, existingBoardRow?.worker);
+    const workerNum = projectedNullableField(tab.workerSessionNum, existingBoardRow?.workerNum);
+    const sourceLeaderSessionId = projectedNullableField(
+      tab.sourceLeaderSessionId,
+      existingDetail?.leaderSessionId ?? undefined,
+    );
+    const shouldProjectBoardRow = currentStateAuthoritative
+      ? !!existingBoardRow ||
+        tab.boardStatus !== null ||
+        !!projectedJourney ||
+        tab.workerSessionId !== undefined ||
+        tab.workerSessionNum !== undefined
+      : !!existingBoardRow;
+    const sourceRowCreatedAt = projectedNullableField(
+      tab.sourceRowCreatedAt,
+      existingBoardRow?.createdAt ?? existing?.createdAt,
+    );
+    const retainLegacyRowStatus =
+      !currentStateAuthoritative || !existingDetail || projectedIdentityMatchesLegacy(tab, existingDetail);
+    const projectedBoardRow = shouldProjectBoardRow
       ? {
-          ...existingDetail.boardRow,
+          ...(existingBoardRow ?? {}),
+          questId,
+          title,
           status:
-            completed && isCompletedStatus(existingDetail.boardRow.status)
-              ? existingDetail.boardRow.status
+            !currentStateAuthoritative && completed && isCompletedStatus(existingBoardRow?.status)
+              ? existingBoardRow?.status
               : (tab.boardStatus ?? undefined),
-          completedAt: completed ? (existingDetail.boardRow.completedAt ?? tab.updatedAt) : undefined,
-          waitFor: tab.queued ? existingDetail.boardRow.waitFor : undefined,
-          waitForInput: tab.attention.needsInput ? existingDetail.boardRow.waitForInput : undefined,
+          journey: projectedJourney,
+          worker,
+          workerNum,
+          completedAt: completed
+            ? currentStateAuthoritative
+              ? tab.updatedAt
+              : (existingBoardRow?.completedAt ?? tab.updatedAt)
+            : undefined,
+          waitFor: tab.queued ? existingBoardRow?.waitFor : undefined,
+          waitForInput: tab.attention.needsInput ? existingBoardRow?.waitForInput : undefined,
+          createdAt: sourceRowCreatedAt ?? tab.updatedAt,
+          updatedAt: tab.updatedAt,
         }
       : undefined;
     return {
       ...existing,
+      rowStatus: retainLegacyRowStatus ? existingDetail?.rowStatus : undefined,
       threadKey,
       questId,
       title,
-      status: completed ? (existingCompletedStatus ?? "done") : (tab.boardStatus ?? undefined),
-      boardStatus: completed
-        ? (existingCompletedBoardStatus ?? tab.boardStatus ?? undefined)
+      status: completed
+        ? currentStateAuthoritative
+          ? "done"
+          : (existingCompletedStatus ?? "done")
         : (tab.boardStatus ?? undefined),
+      boardStatus:
+        !currentStateAuthoritative && completed
+          ? (existingCompletedBoardStatus ?? tab.boardStatus ?? undefined)
+          : (tab.boardStatus ?? undefined),
       journey: projectedJourney,
       boardRow: projectedBoardRow,
+      leaderSessionId: sourceLeaderSessionId,
       section: completed ? "done" : "active",
       messageCount: existing?.messageCount ?? 0,
       createdAt: existing?.createdAt ?? tab.updatedAt,

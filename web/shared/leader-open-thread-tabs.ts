@@ -3,6 +3,7 @@ import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeSelectedFeedThreadKey } from
 export const LEADER_OPEN_THREAD_TABS_VERSION = 1;
 export const MAX_LEADER_OPEN_THREAD_TABS = 50;
 export const MAX_LEADER_CLOSED_THREAD_TOMBSTONES = 200;
+export const MAX_LEADER_SERVER_CANDIDATE_PROMOTIONS = 200;
 
 export interface LeaderClosedThreadTombstone {
   threadKey: string;
@@ -17,6 +18,10 @@ export interface LeaderOpenThreadTabsState {
   migratedFromLocalStorageAt?: number;
   /** Latest explicit browser ordering action; newer server candidates may still surface ahead of it. */
   explicitOrderUpdatedAt?: number;
+  /** Latest accepted server-candidate event across the rail, independent of visual mutation time. */
+  latestServerCandidateEventAt?: number;
+  /** Bounded per-thread freshness fence for edge-triggered server promotions. */
+  serverCandidatePromotedAt?: Record<string, number>;
 }
 
 export type LeaderThreadTabUpdate =
@@ -88,6 +93,8 @@ export function normalizeLeaderOpenThreadTabsState(candidate: unknown): LeaderOp
     typeof record.explicitOrderUpdatedAt === "number" && Number.isFinite(record.explicitOrderUpdatedAt)
       ? Math.max(0, record.explicitOrderUpdatedAt)
       : undefined;
+  const latestServerCandidateEventAt = validTimestamp(record.latestServerCandidateEventAt);
+  const serverCandidatePromotedAt = normalizeServerCandidatePromotedAt(record.serverCandidatePromotedAt);
   return {
     version: LEADER_OPEN_THREAD_TABS_VERSION,
     orderedOpenThreadKeys: normalizeLeaderOpenThreadKeys(record.orderedOpenThreadKeys ?? []),
@@ -95,6 +102,8 @@ export function normalizeLeaderOpenThreadTabsState(candidate: unknown): LeaderOp
     updatedAt,
     ...(migratedFromLocalStorageAt !== undefined ? { migratedFromLocalStorageAt } : {}),
     ...(explicitOrderUpdatedAt !== undefined ? { explicitOrderUpdatedAt } : {}),
+    ...(latestServerCandidateEventAt !== undefined ? { latestServerCandidateEventAt } : {}),
+    ...(Object.keys(serverCandidatePromotedAt).length > 0 ? { serverCandidatePromotedAt } : {}),
   };
 }
 
@@ -114,11 +123,35 @@ export function placeLeaderOpenThreadTabKey(
 ): string[] {
   const normalized = normalizeLeaderThreadKey(threadKey);
   if (!shouldPersistLeaderThreadTab(normalized)) return normalizeLeaderOpenThreadKeys(existingThreadKeys);
-  const withoutTarget = normalizeLeaderOpenThreadKeys(existingThreadKeys).filter((key) => key !== normalized);
+  const normalizedExisting = normalizeLeaderOpenThreadKeys(existingThreadKeys);
+  const alreadyOpen = normalizedExisting.includes(normalized);
+  if (placement === "last" && !alreadyOpen && normalizedExisting.length >= MAX_LEADER_OPEN_THREAD_TABS) {
+    return normalizedExisting;
+  }
+  const withoutTarget = normalizedExisting.filter((key) => key !== normalized);
   const nextKeys = placement === "first" ? [normalized, ...withoutTarget] : [...withoutTarget, normalized];
-  return placement === "first"
-    ? normalizeLeaderOpenThreadKeys(nextKeys)
-    : normalizeLeaderOpenThreadKeys(nextKeys.slice(-MAX_LEADER_OPEN_THREAD_TABS));
+  return normalizeLeaderOpenThreadKeys(nextKeys);
+}
+
+export function placeLeaderOpenThreadTabBeforeKeys(
+  existingThreadKeys: ReadonlyArray<string>,
+  threadKey: string,
+  beforeThreadKeys: ReadonlySet<string>,
+): string[] {
+  const normalized = normalizeLeaderThreadKey(threadKey);
+  if (!shouldPersistLeaderThreadTab(normalized)) return normalizeLeaderOpenThreadKeys(existingThreadKeys);
+  const normalizedExisting = normalizeLeaderOpenThreadKeys(existingThreadKeys);
+  const originalIndex = normalizedExisting.indexOf(normalized);
+  const withoutTarget = normalizedExisting.filter((key) => key !== normalized);
+  const boundaryIndex = withoutTarget.findIndex((key) => beforeThreadKeys.has(key));
+  const insertionIndex =
+    originalIndex >= 0
+      ? Math.min(originalIndex, boundaryIndex < 0 ? originalIndex : boundaryIndex)
+      : boundaryIndex < 0
+        ? withoutTarget.length
+        : boundaryIndex;
+  const nextKeys = [...withoutTarget.slice(0, insertionIndex), normalized, ...withoutTarget.slice(insertionIndex)];
+  return normalizeLeaderOpenThreadKeys(nextKeys.slice(0, MAX_LEADER_OPEN_THREAD_TABS));
 }
 
 export function reorderLeaderOpenThreadKeys(
@@ -142,6 +175,63 @@ export function canServerCandidateOpenThread(
   const tombstone = state?.closedThreadTombstones.find((entry) => entry.threadKey === normalized);
   if (!tombstone) return true;
   return typeof eventAt === "number" && Number.isFinite(eventAt) && eventAt > tombstone.closedAt;
+}
+
+export function applyLeaderServerCandidateThreadTabEvent(
+  currentState: LeaderOpenThreadTabsState | undefined,
+  threadKey: string,
+  eventAt: number,
+  options: {
+    repositionExisting?: boolean;
+    placement?: "first" | "last" | "before";
+    beforeThreadKeys?: ReadonlySet<string>;
+  } = {},
+): LeaderOpenThreadTabsState | undefined {
+  const state = normalizeLeaderOpenThreadTabsState(currentState);
+  const normalizedThreadKey = normalizeLeaderThreadKey(threadKey);
+  if (!shouldPersistLeaderThreadTab(normalizedThreadKey)) return currentState ?? state;
+  const alreadyOpen = state?.orderedOpenThreadKeys.includes(normalizedThreadKey) === true;
+  const lastPromotionAt = state?.serverCandidatePromotedAt?.[normalizedThreadKey] ?? -1;
+  if (eventAt <= lastPromotionAt) return currentState ?? state;
+  if (alreadyOpen) {
+    if (!options.repositionExisting) return currentState ?? state;
+    const latestServerCandidateEventAt = state?.latestServerCandidateEventAt ?? state?.updatedAt ?? -1;
+    if (eventAt < latestServerCandidateEventAt || eventAt <= (state?.explicitOrderUpdatedAt ?? -1)) {
+      return currentState ?? state;
+    }
+  }
+  if (!canServerCandidateOpenThread(state, normalizedThreadKey, eventAt)) return currentState ?? state;
+
+  const effectivePlacement =
+    !alreadyOpen && state?.explicitOrderUpdatedAt !== undefined && eventAt <= state.explicitOrderUpdatedAt
+      ? "last"
+      : (options.placement ?? "first");
+  const baseState = state ?? createLeaderOpenThreadTabsState(eventAt);
+  const orderedOpenThreadKeys =
+    effectivePlacement === "before"
+      ? placeLeaderOpenThreadTabBeforeKeys(
+          baseState.orderedOpenThreadKeys,
+          normalizedThreadKey,
+          options.beforeThreadKeys ?? new Set<string>(),
+        )
+      : placeLeaderOpenThreadTabKey(baseState.orderedOpenThreadKeys, normalizedThreadKey, effectivePlacement);
+  const closedThreadTombstones = baseState.closedThreadTombstones.filter(
+    (entry) => entry.threadKey !== normalizedThreadKey,
+  );
+  const visualChanged =
+    !arraysEqual(baseState.orderedOpenThreadKeys, orderedOpenThreadKeys) ||
+    !closedThreadTombstonesEqual(baseState.closedThreadTombstones, closedThreadTombstones);
+  return {
+    ...baseState,
+    orderedOpenThreadKeys,
+    closedThreadTombstones,
+    updatedAt: visualChanged ? Math.max(baseState.updatedAt, eventAt) : baseState.updatedAt,
+    latestServerCandidateEventAt: Math.max(baseState.latestServerCandidateEventAt ?? 0, eventAt),
+    serverCandidatePromotedAt: normalizeServerCandidatePromotedAt({
+      ...(baseState.serverCandidatePromotedAt ?? {}),
+      [normalizedThreadKey]: eventAt,
+    }),
+  };
 }
 
 export function applyLeaderThreadTabUpdate(
@@ -230,6 +320,31 @@ export function applyLeaderThreadTabUpdate(
     default:
       return existingState;
   }
+}
+
+function normalizeServerCandidatePromotedAt(candidate: unknown): Record<string, number> {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return {};
+  const entries: Array<[string, number]> = [];
+  for (const [rawKey, rawTimestamp] of Object.entries(candidate)) {
+    const threadKey = normalizeLeaderThreadKey(rawKey);
+    const timestamp = validTimestamp(rawTimestamp);
+    if (!shouldPersistLeaderThreadTab(threadKey) || timestamp === undefined) continue;
+    entries.push([threadKey, timestamp]);
+  }
+  entries.sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+  return Object.fromEntries(entries.slice(0, MAX_LEADER_SERVER_CANDIDATE_PROMOTIONS));
+}
+
+function closedThreadTombstonesEqual(
+  left: ReadonlyArray<LeaderClosedThreadTombstone>,
+  right: ReadonlyArray<LeaderClosedThreadTombstone>,
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (value, index) => value.threadKey === right[index]?.threadKey && value.closedAt === right[index]?.closedAt,
+    )
+  );
 }
 
 function arraysEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {

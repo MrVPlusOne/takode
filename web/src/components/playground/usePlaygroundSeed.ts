@@ -524,6 +524,16 @@ export function usePlaygroundSeed() {
       timestamp: threadStatusTimestamp - 60_000,
       updatedAt: threadStatusTimestamp - 60_000,
     };
+    const playgroundActiveWorkWaitingStatus: LeaderThreadStatus = {
+      kind: "waiting",
+      label: "Thread Waiting",
+      threadKey: "q-9001",
+      questId: "q-9001",
+      summary: "waiting while the current Work phase remains active",
+      messageId: "playground-thread-q9001-work-waiting",
+      timestamp: threadStatusTimestamp,
+      updatedAt: threadStatusTimestamp,
+    };
     const playgroundWaitingStatus: LeaderThreadStatus = {
       kind: "waiting",
       label: "Thread Waiting",
@@ -564,6 +574,7 @@ export function usePlaygroundSeed() {
       is_containerized: false,
       isOrchestrator: true,
       leaderThreadStatuses: {
+        "q-9001": playgroundActiveWorkWaitingStatus,
         "q-9002": playgroundWaitingStatus,
         "q-9003": playgroundReadyStatus,
       },
@@ -1127,6 +1138,7 @@ export function usePlaygroundSeed() {
       generation: "playground-leader-tabs",
       revision: 1,
       value: {
+        currentQuestStateVersion: 1,
         tabState: {
           version: 1,
           orderedOpenThreadKeys: projectedTabKeys,
@@ -1153,11 +1165,16 @@ export function usePlaygroundSeed() {
             journey: boardRow.journey
               ? {
                   mode: boardRow.journey.mode ?? null,
+                  phaseIds: boardRow.journey.phaseIds,
                   currentPhaseId: boardRow.journey.currentPhaseId ?? null,
                   activePhaseIndex: boardRow.journey.activePhaseIndex ?? null,
                   phaseCount: boardRow.journey.phaseIds.length,
                 }
               : null,
+            sourceLeaderSessionId: PLAYGROUND_THREAD_PANEL_SESSION_ID,
+            sourceRowCreatedAt: boardRow.createdAt,
+            workerSessionId: boardRow.worker ?? null,
+            workerSessionNum: boardRow.workerNum ?? null,
             active: !queued && !completed,
             queued,
             proposed: false,
@@ -1169,6 +1186,7 @@ export function usePlaygroundSeed() {
         }),
         mainAttention: projectedAttention(),
         threadStatuses: {
+          "q-9001": playgroundActiveWorkWaitingStatus,
           "q-9002": playgroundWaitingStatus,
           "q-9003": playgroundReadyStatus,
           "q-9004": playgroundCompletedWaitingStatus,

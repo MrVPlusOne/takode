@@ -4,6 +4,7 @@ import type { BoardRow, SessionAttentionRecord } from "../session-types.js";
 import {
   advanceBoardRow,
   completeDoneBoardRowsForQuestInAllSessions,
+  completeQueuedBoardRowsForQuestInAllSessions,
   getBoard,
   getCompletedBoard,
   getBoardStallSignature,
@@ -40,6 +41,7 @@ function createDeps(): WorkBoardStateDeps {
   return {
     getBoardDispatchableSignature: () => null,
     markNotificationDone: () => true,
+    invalidateLeaderThreadTabsForQuestIds: vi.fn(),
     broadcastBoard: vi.fn(),
     broadcastAttentionRecords: vi.fn(),
     persistSession: vi.fn(),
@@ -270,6 +272,8 @@ describe("Work Board leader thread tabs", () => {
       orderedOpenThreadKeys: ["q-9"],
       closedThreadTombstones: [],
       updatedAt: 300,
+      latestServerCandidateEventAt: 300,
+      serverCandidatePromotedAt: { "q-9": 300 },
     });
 
     session.state.leaderOpenThreadTabs = {
@@ -315,6 +319,85 @@ describe("Work Board leader thread tabs", () => {
     expect(session.board.get("q-9")?.threadTabActivatedAt).toBeGreaterThan(closedAt);
     expect((session.state.leaderOpenThreadTabs as any)?.orderedOpenThreadKeys).toEqual(["q-9"]);
     expect((session.state.leaderOpenThreadTabs as any)?.closedThreadTombstones).toEqual([]);
+  });
+
+  it("promotes an existing scheduled tab once on an upward edge and never demotes it later", () => {
+    const session = createSession();
+    const deps = createDeps();
+    const promoteLeaderThreadTabForQuest = vi.fn();
+    deps.promoteLeaderThreadTabForQuest = promoteLeaderThreadTabForQuest;
+    session.state.leaderOpenThreadTabs = {
+      version: 1,
+      orderedOpenThreadKeys: ["q-a", "q-target", "q-b"],
+      closedThreadTombstones: [],
+      updatedAt: 100,
+    };
+
+    upsertBoardRow(session, { questId: "q-target", status: "QUEUED", updatedAt: 150 }, deps);
+    expect((session.state.leaderOpenThreadTabs as any).orderedOpenThreadKeys).toEqual(["q-a", "q-target", "q-b"]);
+
+    upsertBoardRow(session, { questId: "q-target", status: "WORKING", updatedAt: 200 }, deps);
+    expect((session.state.leaderOpenThreadTabs as any).orderedOpenThreadKeys).toEqual(["q-target", "q-a", "q-b"]);
+    expect(promoteLeaderThreadTabForQuest).toHaveBeenCalledTimes(1);
+    expect(promoteLeaderThreadTabForQuest).toHaveBeenCalledWith("q-target", 200, session.id);
+
+    upsertBoardRow(session, { questId: "q-target", status: "MEMORY", updatedAt: 250 }, deps);
+    upsertBoardRow(session, { questId: "q-target", status: "QUEUED", updatedAt: 300 }, deps);
+    expect((session.state.leaderOpenThreadTabs as any).orderedOpenThreadKeys).toEqual(["q-target", "q-a", "q-b"]);
+    expect(promoteLeaderThreadTabForQuest).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a stale activation after a newer manual order but accepts a later fresh reactivation", () => {
+    const session = createSession();
+    const deps = createDeps();
+    session.board.set("q-target", {
+      questId: "q-target",
+      status: "QUEUED",
+      createdAt: 100,
+      updatedAt: 100,
+    });
+    session.state.leaderOpenThreadTabs = {
+      version: 1,
+      orderedOpenThreadKeys: ["q-a", "q-target", "q-b"],
+      closedThreadTombstones: [],
+      updatedAt: 300,
+      explicitOrderUpdatedAt: 300,
+    };
+
+    upsertBoardRow(session, { questId: "q-target", status: "WORKING", updatedAt: 200 }, deps);
+    expect((session.state.leaderOpenThreadTabs as any).orderedOpenThreadKeys).toEqual(["q-a", "q-target", "q-b"]);
+
+    upsertBoardRow(session, { questId: "q-target", status: "QUEUED", updatedAt: 350 }, deps);
+    upsertBoardRow(session, { questId: "q-target", status: "WORKING", updatedAt: 400 }, deps);
+    expect((session.state.leaderOpenThreadTabs as any).orderedOpenThreadKeys).toEqual(["q-target", "q-a", "q-b"]);
+  });
+
+  it("promotes a reopened completed tab without moving peers relative to each other", () => {
+    const session = createSession();
+    const deps = createDeps();
+    session.completedBoard.set("q-target", {
+      questId: "q-target",
+      status: "MEMORY",
+      createdAt: 100,
+      updatedAt: 150,
+      completedAt: 150,
+    });
+    session.state.leaderOpenThreadTabs = {
+      version: 1,
+      orderedOpenThreadKeys: ["q-a", "q-target", "q-b", "q-c"],
+      closedThreadTombstones: [],
+      updatedAt: 150,
+    };
+
+    upsertBoardRow(session, { questId: "q-target", status: "PLANNING", updatedAt: 200 }, deps);
+
+    expect((session.state.leaderOpenThreadTabs as any).orderedOpenThreadKeys).toEqual([
+      "q-target",
+      "q-a",
+      "q-b",
+      "q-c",
+    ]);
+    expect(session.board.get("q-target")?.threadTabActivatedAt).toBe(200);
   });
 
   it("does not revive a completed leader thread tab after an explicit close tombstone", () => {
@@ -811,6 +894,7 @@ describe("Quest Journey board phase timing", () => {
     expect(deps.notifyReview).toHaveBeenCalledWith(
       "leader-1",
       "q-1036 ready for review: Finish compact lifecycle cards",
+      { suppressThreadTabPromotion: true },
     );
   });
 });
@@ -870,8 +954,185 @@ describe("done quest board reconciliation", () => {
       [expect.objectContaining({ questId: "q-1431" })],
       [expect.objectContaining({ questId: "q-1430" })],
     );
+    expect(deps.invalidateLeaderThreadTabsForQuestIds).toHaveBeenCalledWith(["q-1430"]);
     expect(deps.persistSession).toHaveBeenCalledWith(session);
     expect(deps.notifyReview).not.toHaveBeenCalled();
+  });
+
+  it("replaces an older completed Journey when a newer active run is finally completed", () => {
+    // Rework can leave the prior completed row beside a newly active row for the same quest.
+    // Final completion must retain the new run; historical runs remain in Questmaster Journey history.
+    const session = createSession();
+    const deps = createDeps();
+    const priorCompletedRow: BoardRow = {
+      questId: "q-1432",
+      title: "Earlier completed run",
+      status: "MEMORY",
+      createdAt: 100,
+      // Legacy completed rows may lack completedAt; later metadata writes must not become run identity.
+      updatedAt: 900,
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
+        activePhaseIndex: 4,
+        currentPhaseId: "memory",
+      },
+    };
+    const currentMemoryRow: BoardRow = {
+      questId: "q-1432",
+      title: "Current rework run",
+      status: "MEMORY",
+      createdAt: 300,
+      updatedAt: 400,
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "work", "memory"],
+        activePhaseIndex: 2,
+        currentPhaseId: "memory",
+        phaseTimings: { "2": { startedAt: 400 } },
+      },
+    };
+    session.completedBoard.set(priorCompletedRow.questId, priorCompletedRow);
+    session.board.set(currentMemoryRow.questId, currentMemoryRow);
+
+    const touched = completeDoneBoardRowsForQuestInAllSessions(new Map([[session.id, session]]), "q-1432", deps);
+
+    expect(touched).toEqual(["leader-1"]);
+    expect(getBoard(session)).toEqual([]);
+    const [completed] = getCompletedBoard(session);
+    expect(completed).toBe(currentMemoryRow);
+    expect(completed).toMatchObject({
+      questId: "q-1432",
+      title: "Current rework run",
+      status: "MEMORY",
+      completedAt: expect.any(Number),
+      journey: {
+        phaseIds: ["alignment", "work", "memory"],
+        activePhaseIndex: 2,
+        currentPhaseId: "memory",
+        phaseTimings: { "2": expect.objectContaining({ endedAt: expect.any(Number) }) },
+      },
+    });
+    expect(completed).not.toBe(priorCompletedRow);
+    expect(deps.broadcastBoard).toHaveBeenCalledWith(session, [], [completed]);
+    expect(deps.invalidateLeaderThreadTabsForQuestIds).toHaveBeenCalledWith(["q-1432"]);
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
+  });
+
+  it("does not replace completed history when activation identity only equals prior completion", () => {
+    const session = createSession();
+    const deps = createDeps();
+    const completedRow: BoardRow = {
+      questId: "q-1435",
+      title: "Completed Journey",
+      status: "MEMORY",
+      createdAt: 100,
+      updatedAt: 200,
+      completedAt: 200,
+    };
+    session.completedBoard.set(completedRow.questId, completedRow);
+    session.board.set(completedRow.questId, {
+      questId: completedRow.questId,
+      title: "Equal-identity duplicate",
+      status: "MEMORY",
+      createdAt: 150,
+      threadTabActivatedAt: 200,
+      updatedAt: 400,
+    });
+
+    completeDoneBoardRowsForQuestInAllSessions(new Map([[session.id, session]]), completedRow.questId, deps);
+
+    expect(session.completedBoard.get(completedRow.questId)).toBe(completedRow);
+  });
+
+  it("does not replace completed history with an older non-queued duplicate", () => {
+    // A late write to an old active row is not a new Journey run. Run activation time,
+    // rather than ordinary updatedAt churn, decides whether completed history is superseded.
+    const session = createSession();
+    const deps = createDeps();
+    const completedRow: BoardRow = {
+      questId: "q-1434",
+      title: "Completed Journey",
+      status: "MEMORY",
+      createdAt: 100,
+      updatedAt: 180,
+      completedAt: 200,
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "work", "memory"],
+        activePhaseIndex: 2,
+        currentPhaseId: "memory",
+      },
+    };
+    session.completedBoard.set(completedRow.questId, completedRow);
+    session.board.set(completedRow.questId, {
+      questId: completedRow.questId,
+      title: "Older active duplicate",
+      status: "MEMORY",
+      createdAt: 100,
+      updatedAt: 400,
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "work", "memory"],
+        activePhaseIndex: 2,
+        currentPhaseId: "memory",
+      },
+    });
+
+    const touched = completeDoneBoardRowsForQuestInAllSessions(
+      new Map([[session.id, session]]),
+      completedRow.questId,
+      deps,
+    );
+
+    expect(touched).toEqual(["leader-1"]);
+    expect(getBoard(session)).toEqual([]);
+    expect(getCompletedBoard(session)).toEqual([completedRow]);
+    expect(session.completedBoard.get(completedRow.questId)).toBe(completedRow);
+  });
+
+  it("preserves completed history when removing a stale queued duplicate", () => {
+    // Queue reconciliation is not a new Journey completion. It must remove only the stale
+    // active duplicate instead of replacing the already completed run with queued metadata.
+    const session = createSession();
+    const deps = createDeps();
+    const completedRow: BoardRow = {
+      questId: "q-1433",
+      title: "Completed Journey",
+      status: "MEMORY",
+      createdAt: 100,
+      updatedAt: 180,
+      completedAt: 200,
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "work", "memory"],
+        activePhaseIndex: 2,
+        currentPhaseId: "memory",
+      },
+    };
+    session.completedBoard.set(completedRow.questId, completedRow);
+    session.board.set(completedRow.questId, {
+      questId: completedRow.questId,
+      title: "Stale queued duplicate",
+      status: "QUEUED",
+      waitFor: ["free-worker"],
+      createdAt: 300,
+      updatedAt: 400,
+    });
+
+    const touched = completeQueuedBoardRowsForQuestInAllSessions(
+      new Map([[session.id, session]]),
+      completedRow.questId,
+      deps,
+    );
+
+    expect(touched).toEqual(["leader-1"]);
+    expect(getBoard(session)).toEqual([]);
+    expect(getCompletedBoard(session)).toEqual([completedRow]);
+    expect(session.completedBoard.get(completedRow.questId)).toBe(completedRow);
+    expect(deps.broadcastBoard).toHaveBeenCalledWith(session, [], [completedRow]);
+    expect(deps.invalidateLeaderThreadTabsForQuestIds).toHaveBeenCalledWith(["q-1433"]);
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
   });
 
   it("preserves active Memory rows that have not been reconciled as done", () => {

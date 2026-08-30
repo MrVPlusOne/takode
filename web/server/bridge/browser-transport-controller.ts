@@ -7,17 +7,12 @@ import {
   type FeedWindowSync,
 } from "../../shared/feed-window-sync.js";
 import {
-  applyLeaderThreadTabUpdate,
-  LEADER_OPEN_THREAD_TABS_VERSION,
-  normalizeLeaderOpenThreadTabsState,
-} from "../../shared/leader-open-thread-tabs.js";
-import type { LeaderThreadTabsProjectionValue } from "../../shared/leader-thread-tabs-projection.js";
-import {
   computeHistoryMessagesSyncHash,
   computeHistoryPayloadSyncHash,
   computeHistoryPrefixSyncHash,
 } from "../../shared/history-sync-hash.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
+import type { LeaderThreadTabsProjectionValue } from "../../shared/leader-thread-tabs-projection.js";
 import { buildLeaderProjectionSnapshot, toLeaderProjectionWireSnapshot } from "../../shared/leader-projection.js";
 import { buildLeaderActivePhaseSummary } from "../../shared/leader-active-phase-summary.js";
 import { buildBackendStateSnapshot } from "./backend-state-snapshot.js";
@@ -35,6 +30,15 @@ import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { isHistoryBackedEvent, shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
 import { appendResolvedToolResultPreviewsForWindow } from "./history-window-tool-results.js";
+import {
+  completeSyncedProjectionSessionSubscribe,
+  handleLeaderThreadTabsUpdate,
+  handleSyncedProjectionProtocolMessage,
+  isObsoleteLeaderThreadTabOperation,
+  prepareSyncedProjectionSessionSubscribe,
+  type SyncedProjectionSocketData,
+  type SyncedProjectionSubscriptions,
+} from "./browser-synced-projection-coordinator.js";
 export { isHistoryBackedEvent } from "./replay-buffer-policy.js";
 import { codexReasoningSnapshotFields } from "./codex-reasoning-preview-state.js";
 import {
@@ -106,12 +110,13 @@ import type {
 type AgentSource = { sessionId: string; sessionLabel?: string };
 type ProgrammaticUserMessage = Extract<BrowserOutgoingMessage, { type: "user_message" }>;
 
-type BrowserTransportSocketData = BrowserConversationWindowSocketData & {
-  sessionId?: string;
-  subscribed?: boolean;
-  lastAckSeq?: number;
-  initialTreeGroupState?: Promise<BrowserTransportTreeGroupState | null>;
-};
+type BrowserTransportSocketData = BrowserConversationWindowSocketData &
+  SyncedProjectionSocketData & {
+    sessionId?: string;
+    subscribed?: boolean;
+    lastAckSeq?: number;
+    initialTreeGroupState?: Promise<BrowserTransportTreeGroupState | null>;
+  };
 
 export interface ProgrammaticUserMessageOptions {
   deliveryContent?: ProgrammaticUserMessage["deliveryContent"];
@@ -132,6 +137,7 @@ export interface BrowserTransportSocketLike {
 
 export interface BrowserTransportSessionLike {
   id: string;
+  searchDataOnly?: boolean;
   backendType: "claude" | "codex" | "claude-sdk";
   browserSockets: Set<unknown>;
   messageHistory: BrowserIncomingMessage[];
@@ -251,7 +257,7 @@ export interface BrowserTransportDeps {
   lazyLoadFullHistory?: (session: BrowserTransportSessionLike) => Promise<void>;
   replaceSyncedProjectionSubscriptions?: (
     socket: BrowserTransportSocketLike,
-    subscriptions: Extract<BrowserOutgoingMessage, { type: "synced_projection_subscribe" }>["subscriptions"],
+    subscriptions: SyncedProjectionSubscriptions,
   ) => BrowserIncomingMessage[];
   resyncSyncedProjection?: (
     socket: BrowserTransportSocketLike,
@@ -534,18 +540,6 @@ export function handleBrowserMessage(
   };
 }
 
-function sendSyncedProjectionReplacement(
-  ws: BrowserTransportSocketLike,
-  subscriptions: Extract<BrowserOutgoingMessage, { type: "synced_projection_subscribe" }>["subscriptions"],
-  deps: Pick<BrowserTransportDeps, "replaceSyncedProjectionSubscriptions" | "removeSyncedProjectionSubscriber">,
-): void {
-  for (const snapshot of deps.replaceSyncedProjectionSubscriptions?.(ws, subscriptions) ?? []) {
-    if (sendToBrowser(ws, snapshot)) continue;
-    deps.removeSyncedProjectionSubscriber?.(ws);
-    break;
-  }
-}
-
 export function handleBrowserProtocolMessage(
   session: BrowserTransportSessionLike,
   msg: BrowserOutgoingMessage,
@@ -571,18 +565,7 @@ export function handleBrowserProtocolMessage(
     ).then(() => true);
   }
 
-  if (msg.type === "synced_projection_subscribe") {
-    if (ws) sendSyncedProjectionReplacement(ws, msg.subscriptions, deps);
-    return true;
-  }
-
-  if (msg.type === "synced_projection_resync") {
-    if (ws) {
-      const snapshot = deps.resyncSyncedProjection?.(ws, msg.projection, msg.key);
-      if (snapshot && !sendToBrowser(ws, snapshot)) deps.removeSyncedProjectionSubscriber?.(ws);
-    }
-    return true;
-  }
+  if (handleSyncedProjectionProtocolMessage(session, msg, ws, deps, sendToBrowser)) return true;
 
   if (msg.type === "history_window_request") {
     if (!ws) return true;
@@ -700,93 +683,6 @@ export function handleBrowserProtocolMessage(
   }
 
   return false;
-}
-
-function handleLeaderThreadTabsUpdate(
-  session: BrowserTransportSessionLike,
-  operation: Extract<BrowserOutgoingMessage, { type: "leader_thread_tabs_update" }>["operation"],
-  deps: BrowserTransportDeps,
-): void {
-  const existingState = normalizeLeaderOpenThreadTabsState(session.state.leaderOpenThreadTabs);
-  if (operation.type === "migrate" && existingState) return;
-
-  const projectedState =
-    operation.type === "migrate"
-      ? undefined
-      : leaderThreadTabsCommandStateFromProjection(deps.getLeaderThreadTabsProjectionValue?.(session.id) ?? null);
-  const commandBaseState = mergeLeaderThreadTabsCommandBase(existingState, projectedState);
-  const nextState = applyLeaderThreadTabUpdate(commandBaseState, operation);
-  if (statesEqual(existingState, nextState)) return;
-
-  session.state.leaderOpenThreadTabs = nextState;
-  deps.persistSession(session);
-  deps.broadcastToBrowsers(session, {
-    type: "session_update",
-    session: { leaderOpenThreadTabs: nextState },
-  });
-}
-
-function isObsoleteLeaderThreadTabOperation(
-  operation: Extract<BrowserOutgoingMessage, { type: "leader_thread_tabs_update" }>["operation"] | { type?: unknown },
-): boolean {
-  if (!operation || typeof operation !== "object") return true;
-  return operation.type === "auto_close" || !["migrate", "open", "close", "reorder"].includes(String(operation.type));
-}
-
-function leaderThreadTabsCommandStateFromProjection(
-  projection: LeaderThreadTabsProjectionValue | null,
-): ReturnType<typeof normalizeLeaderOpenThreadTabsState> {
-  if (!projection) return undefined;
-  if (projection.tabState) return normalizeLeaderOpenThreadTabsState(projection.tabState);
-  if (projection.tabs.length === 0) return undefined;
-  return normalizeLeaderOpenThreadTabsState({
-    version: LEADER_OPEN_THREAD_TABS_VERSION,
-    orderedOpenThreadKeys: projection.tabs.map((tab) => tab.threadKey),
-    closedThreadTombstones: [],
-    updatedAt: Math.max(...projection.tabs.map((tab) => tab.updatedAt), 0),
-  });
-}
-
-function mergeLeaderThreadTabsCommandBase(
-  existingState: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
-  projectedState: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
-): ReturnType<typeof normalizeLeaderOpenThreadTabsState> {
-  if (!projectedState) return existingState;
-  if (!existingState) return projectedState;
-  return normalizeLeaderOpenThreadTabsState({
-    ...projectedState,
-    closedThreadTombstones: [...existingState.closedThreadTombstones, ...projectedState.closedThreadTombstones],
-    updatedAt: Math.max(existingState.updatedAt, projectedState.updatedAt),
-    ...(existingState.migratedFromLocalStorageAt !== undefined
-      ? { migratedFromLocalStorageAt: existingState.migratedFromLocalStorageAt }
-      : {}),
-    ...(existingState.explicitOrderUpdatedAt !== undefined
-      ? { explicitOrderUpdatedAt: existingState.explicitOrderUpdatedAt }
-      : {}),
-  });
-}
-
-function statesEqual(
-  left: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
-  right: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
-): boolean {
-  if (!left || !right) return left === right;
-  return (
-    left.updatedAt === right.updatedAt &&
-    left.migratedFromLocalStorageAt === right.migratedFromLocalStorageAt &&
-    left.explicitOrderUpdatedAt === right.explicitOrderUpdatedAt &&
-    arraysEqual(left.orderedOpenThreadKeys, right.orderedOpenThreadKeys) &&
-    left.closedThreadTombstones.length === right.closedThreadTombstones.length &&
-    left.closedThreadTombstones.every(
-      (entry, index) =>
-        entry.threadKey === right.closedThreadTombstones[index]?.threadKey &&
-        entry.closedAt === right.closedThreadTombstones[index]?.closedAt,
-    )
-  );
-}
-
-function arraysEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function isIdempotentBrowserMessage(type: BrowserOutgoingMessage["type"], deps: BrowserTransportDeps): boolean {
@@ -1437,27 +1333,24 @@ export async function handleSessionSubscribe(
   historyWindowTargetMessageId?: string,
   historyWindowTargetIndex?: number,
   explicitFullHistorySync?: boolean,
-  syncedProjectionSubscriptions?: Extract<
-    BrowserOutgoingMessage,
-    { type: "synced_projection_subscribe" }
-  >["subscriptions"],
+  syncedProjectionSubscriptions?: SyncedProjectionSubscriptions,
 ): Promise<void> {
   if (!ws) return;
   const data = (ws.data ??= {}) as BrowserTransportSocketData;
   data.subscribed = true;
   const lastAckSeq = Number.isFinite(lastSeq) ? Math.max(0, Math.floor(lastSeq)) : 0;
   data.lastAckSeq = lastAckSeq;
-  const replaceBeforeLazyLoad = (session as unknown as { searchDataOnly?: boolean }).searchDataOnly === true;
-  if (replaceBeforeLazyLoad && syncedProjectionSubscriptions) {
-    sendSyncedProjectionReplacement(ws, syncedProjectionSubscriptions, deps);
-  }
+  const projectionSubscribePreparation = prepareSyncedProjectionSessionSubscribe(
+    session,
+    ws,
+    syncedProjectionSubscriptions,
+    deps,
+    sendToBrowser,
+  );
+  if (projectionSubscribePreparation.lazyLoad) await projectionSubscribePreparation.lazyLoad;
 
-  // Lazy-load full history for search-data-only archived sessions
-  if ((session as unknown as Record<string, unknown>).searchDataOnly && deps.lazyLoadFullHistory) {
-    await deps.lazyLoadFullHistory(session);
-  }
-
-  if (!isArchivedReadOnlySession(session, deps)) {
+  const archivedReadOnly = isArchivedReadOnlySession(session, deps);
+  if (!archivedReadOnly) {
     deps.recoverToolStartTimesFromHistory(session);
     deps.finalizeRecoveredDisconnectedTerminalTools(session, "session_subscribe");
     deps.scheduleCodexToolResultWatchdogs(session, "session_subscribe");
@@ -1486,13 +1379,15 @@ export async function handleSessionSubscribe(
   }
   if (cleanedStale) deps.persistSession(session);
 
-  // Install the projection replacement after synchronous reconnect cleanup
-  // but before the first active-session history await. WebSocket callbacks can
-  // overlap while a large snapshot is prepared; this preserves wire order
-  // without publishing permissions the same subscribe already proved stale.
-  if (!replaceBeforeLazyLoad && syncedProjectionSubscriptions) {
-    sendSyncedProjectionReplacement(ws, syncedProjectionSubscriptions, deps);
-  }
+  completeSyncedProjectionSessionSubscribe(
+    session,
+    ws,
+    syncedProjectionSubscriptions,
+    projectionSubscribePreparation.replacedBeforeLazyLoad,
+    archivedReadOnly,
+    deps,
+    sendToBrowser,
+  );
 
   const normalizedInitialThreadWindow = normalizeInitialThreadWindowRequest(
     initialThreadWindow,

@@ -302,6 +302,15 @@ export class SyncedProjectionRuntime<TSubscriber> {
     return this.subscribers.get(subscriber)?.ids.has(syncedProjectionEntryId(projection, key)) ?? false;
   }
 
+  hasSubscribers(projection: string, key: string): boolean {
+    if (!isValidSyncedProjectionIdentity(projection) || !isValidSyncedProjectionIdentity(key)) return false;
+    const entryId = syncedProjectionEntryId(projection, key);
+    for (const state of this.subscribers.values()) {
+      if (state.ids.has(entryId)) return true;
+    }
+    return false;
+  }
+
   removeKey(projection: string, key: string): boolean {
     if (!isValidSyncedProjectionIdentity(projection) || !isValidSyncedProjectionIdentity(key)) return false;
     const entryId = syncedProjectionEntryId(projection, key);

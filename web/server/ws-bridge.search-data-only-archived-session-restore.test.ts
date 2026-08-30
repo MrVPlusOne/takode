@@ -753,6 +753,224 @@ describe("search-data-only archived session restore", () => {
     expect(calls.some((c: any) => c.type === "state_snapshot")).toBe(true);
   });
 
+  it("refreshes leader-tab current quest state when restored leader and worker sessions finish lazy loading", async () => {
+    // Restored archived sessions retain board and claim metadata while search-only. The two quests below
+    // verify that leader rows and exact worker claims each become projection-authoritative after lazy load.
+    const restoredLeaderId = "archived-current-leader";
+    const restoredWorkerId = "archived-current-worker";
+    const baseState = {
+      model: "claude-sonnet-4-5-20250929",
+      cwd: "/test",
+      tools: [],
+      permissionMode: "default",
+      claude_code_version: "1.0",
+      mcp_servers: [],
+      agents: [],
+      slash_commands: [],
+      skills: [],
+      total_cost_usd: 0,
+      num_turns: 1,
+      context_used_percent: 5,
+      is_compacting: false,
+      git_branch: "main",
+      is_worktree: false,
+      is_containerized: false,
+      repo_root: "/test",
+      git_ahead: 0,
+      git_behind: 0,
+      total_lines_added: 0,
+      total_lines_removed: 0,
+    };
+
+    store.saveSync({
+      id: restoredLeaderId,
+      state: {
+        ...baseState,
+        session_id: restoredLeaderId,
+        isOrchestrator: true,
+      },
+      messageHistory: [{ type: "user_message", content: "restored leader", timestamp: 1000, id: "leader-m1" }],
+      pendingMessages: [],
+      pendingPermissions: [],
+      board: [
+        {
+          questId: "q-7001",
+          title: "Restored leader-only run",
+          status: "WORKING",
+          createdAt: 100,
+          updatedAt: 100,
+        },
+        {
+          questId: "q-7002",
+          title: "Older exact-claim run",
+          status: "WORKING",
+          worker: restoredWorkerId,
+          workerNum: 2583,
+          createdAt: 100,
+          updatedAt: 100,
+        },
+      ],
+      archived: true,
+      archivedAt: Date.now(),
+      _searchExcerpts: [{ type: "user_message", content: "restored leader", timestamp: 1000, id: "leader-m1" }],
+    } as any);
+    store.saveSync({
+      id: restoredWorkerId,
+      state: {
+        ...baseState,
+        session_id: restoredWorkerId,
+        claimedQuestId: "q-7002",
+        claimedQuestStatus: "in_progress",
+        claimedQuestLeaderSessionId: restoredLeaderId,
+      },
+      messageHistory: [{ type: "user_message", content: "restored worker", timestamp: 1000, id: "worker-m1" }],
+      pendingMessages: [],
+      pendingPermissions: [],
+      archived: true,
+      archivedAt: Date.now(),
+      _searchExcerpts: [{ type: "user_message", content: "restored worker", timestamp: 1000, id: "worker-m1" }],
+    } as any);
+    await store.flushAll();
+
+    const restored = attachBoardFacade(new WsBridge());
+    restored.setStore(store);
+    await restored.restoreFromDisk();
+
+    const restoredLeader = restored.getSession(restoredLeaderId)!;
+    const restoredWorker = restored.getSession(restoredWorkerId)!;
+    expect(restoredLeader.searchDataOnly).toBe(true);
+    expect(restoredWorker.searchDataOnly).toBe(true);
+
+    const observer = restored.getOrCreateSession("leader-observer");
+    observer.state.isOrchestrator = true;
+    observer.state.leaderOpenThreadTabs = {
+      version: 1,
+      orderedOpenThreadKeys: ["q-7001", "q-7002"],
+      closedThreadTombstones: [],
+      updatedAt: 10,
+    };
+    const competingLeader = restored.getOrCreateSession("leader-competing");
+    competingLeader.state.isOrchestrator = true;
+    competingLeader.board.set("q-7002", {
+      questId: "q-7002",
+      title: "Newer unclaimed run",
+      status: "WORKING",
+      worker: "other-worker",
+      workerNum: 999,
+      createdAt: 300,
+      updatedAt: 300,
+    });
+
+    const observerBrowser = makeBrowserSocket(observer.id);
+    restored.handleBrowserOpen(observerBrowser, observer.id);
+    observerBrowser.send.mockClear();
+    await restored.handleBrowserMessage(
+      observerBrowser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        synced_projection_subscriptions: [{ projection: "leader-thread-tabs", key: observer.id }],
+      }),
+    );
+
+    const projectionMessages = (type = "synced_projection_update") =>
+      observerBrowser.send.mock.calls
+        .map(([arg]: [string]) => JSON.parse(arg))
+        .filter((message: any) => message.type === type && message.projection === "leader-thread-tabs");
+    expect(projectionMessages("synced_projection_snapshot")).toEqual([
+      expect.objectContaining({
+        value: expect.objectContaining({
+          tabs: [
+            expect.objectContaining({ threadKey: "q-7001", sourceLeaderSessionId: null }),
+            expect.objectContaining({
+              threadKey: "q-7002",
+              sourceLeaderSessionId: competingLeader.id,
+              workerSessionId: "other-worker",
+            }),
+          ],
+        }),
+      }),
+    ]);
+    observerBrowser.send.mockClear();
+
+    const projectionController = restored.getSyncedProjectionController();
+    const invalidateSession = vi.spyOn(projectionController, "invalidateSession");
+    const restoredLeaderBrowser = makeBrowserSocket(restoredLeaderId);
+    restored.handleBrowserOpen(restoredLeaderBrowser, restoredLeaderId);
+    invalidateSession.mockClear();
+    await restored.handleBrowserMessage(
+      restoredLeaderBrowser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        synced_projection_subscriptions: [{ projection: "leader-thread-tabs", key: restoredLeaderId }],
+      }),
+    );
+    await projectionController.flushForTest();
+
+    const restoredLeaderMessages = restoredLeaderBrowser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(
+      restoredLeaderMessages.filter((message: any) => message.type === "synced_projection_subscriptions_ack").at(-1),
+    ).toMatchObject({
+      subscriptions: [{ projection: "leader-thread-tabs", key: restoredLeaderId }],
+      complete: true,
+    });
+    expect(restoredLeaderMessages).toContainEqual(
+      expect.objectContaining({
+        type: "synced_projection_snapshot",
+        projection: "leader-thread-tabs",
+        key: restoredLeaderId,
+      }),
+    );
+    expect(invalidateSession).toHaveBeenCalledWith(restoredLeader);
+    expect(projectionMessages()).toEqual([
+      expect.objectContaining({
+        value: expect.objectContaining({
+          tabs: [
+            expect.objectContaining({
+              threadKey: "q-7001",
+              sourceLeaderSessionId: restoredLeaderId,
+              title: "Restored leader-only run",
+            }),
+            expect.objectContaining({
+              threadKey: "q-7002",
+              sourceLeaderSessionId: competingLeader.id,
+              workerSessionId: "other-worker",
+            }),
+          ],
+        }),
+      }),
+    ]);
+    observerBrowser.send.mockClear();
+
+    const restoredWorkerBrowser = makeBrowserSocket(restoredWorkerId);
+    restored.handleBrowserOpen(restoredWorkerBrowser, restoredWorkerId);
+    invalidateSession.mockClear();
+    await restored.handleBrowserMessage(
+      restoredWorkerBrowser,
+      JSON.stringify({ type: "session_subscribe", last_seq: 0 }),
+    );
+    await projectionController.flushForTest();
+
+    expect(invalidateSession).toHaveBeenCalledWith(restoredWorker);
+    expect(projectionMessages()).toEqual([
+      expect.objectContaining({
+        value: expect.objectContaining({
+          tabs: [
+            expect.objectContaining({ threadKey: "q-7001", sourceLeaderSessionId: restoredLeaderId }),
+            expect.objectContaining({
+              threadKey: "q-7002",
+              sourceLeaderSessionId: restoredLeaderId,
+              workerSessionId: restoredWorkerId,
+              workerSessionNum: 2583,
+              title: "Older exact-claim run",
+            }),
+          ],
+        }),
+      }),
+    ]);
+  });
+
   it("search docs use searchExcerpts from restored search-data-only sessions", async () => {
     // Verify that the bridge session has the right shape for search doc assembly
     const sid = "archived-search-1";

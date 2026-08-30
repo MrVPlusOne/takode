@@ -111,6 +111,10 @@ export interface AdapterBrowserRoutingDeps {
   broadcastToBrowsers: (session: AdapterBrowserRoutingSessionLike, msg: BrowserIncomingMessage) => void;
   emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>, actorSessionId?: string) => void;
   persistSession: (session: AdapterBrowserRoutingSessionLike) => void;
+  promoteLeaderThreadTabForMessageAttention?: (
+    sessionId: string,
+    message: Extract<BrowserIncomingMessage, { type: "user_message" }>,
+  ) => boolean;
   sessionNotificationDeps: SessionNotificationDeps;
   onAgentPaused?: (sessionId: string, history: AdapterBrowserRoutingSessionLike["messageHistory"], cwd: string) => void;
   getCurrentTurnTriggerSource: (session: AdapterBrowserRoutingSessionLike) => "user" | "leader" | "system" | "unknown";

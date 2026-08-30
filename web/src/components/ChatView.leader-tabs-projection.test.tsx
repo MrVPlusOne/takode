@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LeaderThreadTabsProjectionTab } from "../../shared/leader-thread-tabs-projection.js";
 import { SAVE_THREAD_VIEWPORT_EVENT, readLeaderSelectedThreadKey } from "../utils/thread-viewport.js";
@@ -81,7 +81,17 @@ function projectedTab(title: string, updatedAt: number): LeaderThreadTabsProject
     questId: "q-1",
     title,
     boardStatus: "WORKING",
-    journey: { mode: "active", currentPhaseId: "work", activePhaseIndex: 1, phaseCount: 3 },
+    journey: {
+      mode: "active",
+      phaseIds: ["alignment", "work", "memory"],
+      currentPhaseId: "work",
+      activePhaseIndex: 1,
+      phaseCount: 3,
+    },
+    sourceLeaderSessionId: null,
+    sourceRowCreatedAt: null,
+    workerSessionId: null,
+    workerSessionNum: null,
     active: true,
     queued: false,
     proposed: false,
@@ -323,6 +333,187 @@ describe("ChatView leader thread tabs projection", () => {
         },
       }),
     );
+  });
+
+  it("replaces a historical completed banner with projected current Work without feeding it back", async () => {
+    useStore.getState().reset();
+    window.location.hash = "#/session/leader?thread=q-1974";
+    useStore.setState({
+      sdkSessions: [
+        {
+          sessionId: "leader",
+          archived: false,
+          isOrchestrator: true,
+          sessionNum: 2489,
+        } as never,
+        {
+          sessionId: "leader-current",
+          archived: false,
+          isOrchestrator: true,
+          sessionNum: 2220,
+        } as never,
+        {
+          sessionId: "worker-historical",
+          archived: false,
+          sessionNum: 2569,
+        } as never,
+        {
+          sessionId: "worker-current",
+          archived: false,
+          sessionNum: 2580,
+        } as never,
+        {
+          sessionId: "reviewer-historical",
+          archived: false,
+          sessionNum: 2570,
+        } as never,
+      ],
+      sessions: new Map([
+        [
+          "leader",
+          {
+            session_id: "leader",
+            model: "test",
+            cwd: "/repo",
+            permissionMode: "default",
+            backend_state: "connected",
+            backend_error: null,
+            isOrchestrator: true,
+          } as never,
+        ],
+      ]),
+      sessionCompletedBoards: new Map([
+        [
+          "leader",
+          [
+            {
+              questId: "q-1974",
+              title: "Implement non-blocking chat link previews",
+              worker: "worker-historical",
+              workerNum: 2569,
+              status: "WORKING",
+              journey: {
+                mode: "active",
+                phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
+                currentPhaseId: "work",
+                activePhaseIndex: 3,
+              },
+              createdAt: 10,
+              updatedAt: 20,
+              completedAt: 30,
+            },
+          ],
+        ],
+      ]),
+      sessionBoardRowStatuses: new Map([
+        [
+          "leader",
+          {
+            "q-1974": {
+              worker: {
+                sessionId: "worker-historical",
+                sessionNum: 2569,
+                status: "idle",
+              },
+              reviewer: {
+                sessionId: "reviewer-historical",
+                sessionNum: 2570,
+                status: "idle",
+              },
+            },
+          },
+        ],
+      ]),
+      quests: [
+        {
+          id: "q-1974",
+          questId: "q-1974",
+          version: 16,
+          title: "Implement non-blocking chat link previews",
+          status: "in_progress",
+          description: "",
+          tags: [],
+          createdAt: 1,
+          updatedAt: 200,
+          statusChangedAt: 200,
+          sessionId: "worker-current",
+          claimedAt: 200,
+          leaderSessionId: "leader-current",
+          commitShas: [],
+        } as never,
+      ],
+      messages: new Map([["leader", []]]),
+    });
+
+    const projectedCurrentTab: LeaderThreadTabsProjectionTab = {
+      threadKey: "q-1974",
+      questId: "q-1974",
+      title: "Implement non-blocking chat link previews",
+      boardStatus: "WORKING",
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "work", "memory"],
+        currentPhaseId: "work",
+        activePhaseIndex: 1,
+        phaseCount: 3,
+      },
+      sourceLeaderSessionId: "leader-current",
+      sourceRowCreatedAt: 200,
+      workerSessionId: "worker-current",
+      workerSessionNum: 2580,
+      active: true,
+      queued: false,
+      proposed: false,
+      completed: false,
+      canClose: false,
+      attention: {
+        needsInput: false,
+        mutedNeedsInput: false,
+        reviewUnread: false,
+        updatedAt: 0,
+      },
+      updatedAt: 200,
+    };
+    useStore.getState().applySyncedProjectionSnapshot(
+      createLeaderThreadTabsProjectionEnvelope({
+        key: "leader",
+        value: createLeaderThreadTabsProjectionValue({
+          tabState: {
+            version: 1,
+            orderedOpenThreadKeys: ["q-1974"],
+            closedThreadTombstones: [],
+            updatedAt: 200,
+          },
+          tabs: [projectedCurrentTab],
+          mainAttention: {
+            needsInput: false,
+            mutedNeedsInput: false,
+            reviewUnread: false,
+            updatedAt: 0,
+          },
+          threadStatuses: {},
+          activePhaseSummary: [],
+        }),
+      }),
+    );
+    mockSendToSession.mockClear();
+
+    render(<ChatView sessionId="leader" hasThreadRoute routeThreadKey="q-1974" />);
+
+    const banner = await screen.findByTestId("quest-thread-banner");
+    const journey = within(banner).getByTestId("quest-journey-compact-summary");
+    expect(journey).toHaveTextContent("Work");
+    expect(journey).toHaveTextContent("2/3");
+    expect(journey).not.toHaveTextContent("Completed");
+    expect(within(banner).getByLabelText("Worker #2580")).toBeTruthy();
+    expect(within(banner).queryByLabelText("Worker #2569")).toBeNull();
+    expect(within(banner).queryByLabelText("Reviewer #2570")).toBeNull();
+    expect(window.location.hash).toBe("#/session/leader?thread=q-1974");
+    expect(
+      (mockSendToSession.mock.calls as unknown as Array<[string, { type?: string }]>).filter(
+        ([, message]) => message.type === "leader_thread_tabs_update",
+      ),
+    ).toEqual([]);
   });
 
   it("does not treat a malformed supplied projection as leader-role authority", () => {

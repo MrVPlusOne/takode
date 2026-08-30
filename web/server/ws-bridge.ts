@@ -4,8 +4,6 @@ import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
 import { notifyCodexWorkerV2RolloutActivity } from "./codex-worker-v2-rollout-hooks.js";
 import { WsBridgeSyncedProjectionController } from "./ws-bridge-synced-projections.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
-import { normalizeCodexMessagePhase } from "../shared/codex-message-phase.js";
-import { sameCodexNativeSubagentOwnership } from "../shared/codex-native-subagent-types.js";
 import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
 import type { PushoverNotifier } from "./pushover.js";
 import type { TrafficStatsSnapshot } from "./traffic-stats.js";
@@ -49,7 +47,6 @@ import type {
 import { TOOL_RESULT_PREVIEW_LIMIT, assertNever, formatVsCodeSelectionPrompt } from "./session-types.js";
 import type { QuestJourneyState } from "./session-types.js";
 import { SessionStore } from "./session-store.js";
-import { routeFromHistoryEntry, sameThreadRoute } from "./thread-routing-metadata.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot, CodexSessionMeta } from "./codex-adapter.js";
 import type { ClaudeSdkSessionMeta } from "./claude-sdk-adapter.js";
 import type { RecorderManager } from "./recorder.js";
@@ -186,6 +183,7 @@ import {
   trackCodexQuestCommands as trackCodexQuestCommandsController,
   closeSession as closeSessionController,
 } from "./bridge/session-registry-controller.js";
+import { isDuplicateCodexAssistantReplay as isDuplicateCodexAssistantReplayController } from "./bridge/codex-assistant-replay-dedup.js";
 import { codexReasoningSnapshotFields } from "./bridge/codex-reasoning-preview-state.js";
 import {
   createClaudeMessageHandlers as createClaudeMessageHandlersController,
@@ -362,8 +360,6 @@ const CODEX_RECOVERY_TIMEOUT_MS = 30_000;
 
 export class WsBridge {
   private static readonly EVENT_BUFFER_LIMIT = 600;
-  private static readonly CODEX_ASSISTANT_REPLAY_DEDUP_WINDOW_MS = 15_000;
-  private static readonly CODEX_ASSISTANT_REPLAY_SCAN_LIMIT = 200;
   private static readonly LEADER_GROUP_IDLE_NOTIFY_DELAY_MS = 10_000;
   private static readonly USER_MESSAGE_RUNNING_TIMEOUT_MS = 30_000;
   private static readonly PROCESSED_CLIENT_MSG_ID_LIMIT = 1000;
@@ -391,6 +387,7 @@ export class WsBridge {
     getLastActivityAt: (sessionId) => this.sessionNavigationProjectionSources.getLastActivityAt(sessionId),
     getLastUserMessageAt: (sessionId) => this.sessionNavigationProjectionSources.getLastUserMessageAt(sessionId),
     getLastMessagePreviewAt: (sessionId) => this.sessionNavigationProjectionSources.getLastMessagePreviewAt(sessionId),
+    persistSession: (session) => this.persistSession(session),
   });
   private sideChatBridgeDeps: SideChatBridgeDeps = {
     sessions: this.sessions,
@@ -644,6 +641,9 @@ export class WsBridge {
     if (msg.type === "session_activity_update") {
       this.broadcastSessionActivityUpdateGlobally(msg);
       return;
+    }
+    if (msg.type === "session_archived" || msg.type === "session_deleted") {
+      this.invalidateLeaderThreadTabsForSessionQuestState(msg.session_id);
     }
     broadcastGlobalAndScheduleBoardParticipantRefresh(this, msg);
   }
@@ -942,6 +942,34 @@ export class WsBridge {
     return this.syncedProjections;
   }
 
+  invalidateLeaderThreadTabsForQuestIds(questIds: readonly string[]): number {
+    return this.syncedProjections.invalidateLeaderThreadTabsForQuestIds(questIds);
+  }
+
+  promoteLeaderThreadTabForQuest(questId: string, eventAt: number, sourceSessionId: string): number {
+    return this.syncedProjections.promoteLeaderThreadTabForQuest(questId, eventAt, sourceSessionId);
+  }
+
+  promoteLeaderThreadTabForAttention(
+    sessionId: string,
+    threadKey: string,
+    eventAt: number,
+    kind: "primary" | "review",
+  ): boolean {
+    return this.syncedProjections.promoteLeaderThreadTabForAttention(sessionId, threadKey, eventAt, kind);
+  }
+
+  promoteLeaderThreadTabForMessageAttention(
+    sessionId: string,
+    message: Extract<BrowserIncomingMessage, { type: "user_message" }>,
+  ): boolean {
+    return this.syncedProjections.promoteLeaderThreadTabForMessageAttention(sessionId, message);
+  }
+
+  invalidateLeaderThreadTabsForSessionQuestState(sessionId: string): number {
+    return this.syncedProjections.invalidateLeaderThreadTabsForSessionQuestState(sessionId);
+  }
+
   touchSessionActivity(sessionId: string): void {
     this.launcher?.touchActivity(sessionId);
     const session = this.sessions.get(sessionId);
@@ -1156,51 +1184,11 @@ export class WsBridge {
     return hasCompactBoundaryReplayController(session, cliUuid, meta);
   }
 
-  /**
-   * Codex can replay prior assistant messages after reconnect. Deduplicate only
-   * when the canonical assistant ID matches, or when timestamp + content +
-   * parent tool context all match a recent assistant. This keeps the fallback
-   * filter narrow so legitimate repeated text still appears.
-   */
   private isDuplicateCodexAssistantReplay(
     session: Session,
     msg: Extract<BrowserIncomingMessage, { type: "assistant" }>,
   ): boolean {
-    const incomingId = typeof msg.message?.id === "string" ? msg.message.id : null;
-    if (!incomingId && typeof msg.timestamp !== "number") return false;
-
-    const incomingTimestamp = typeof msg.timestamp === "number" ? msg.timestamp : null;
-    const incomingParentToolUseId = msg.parent_tool_use_id;
-    const incomingContentKey = JSON.stringify(msg.message.content);
-
-    let scannedAssistants = 0;
-    for (let i = session.messageHistory.length - 1; i >= 0; i--) {
-      const entry = session.messageHistory[i];
-      if (entry.type !== "assistant") continue;
-      scannedAssistants += 1;
-      if (scannedAssistants > WsBridge.CODEX_ASSISTANT_REPLAY_SCAN_LIMIT) break;
-
-      const existing = entry as Extract<BrowserIncomingMessage, { type: "assistant" }>;
-      const sameOwnership = sameCodexNativeSubagentOwnership(existing.codexSubagent, msg.codexSubagent);
-      if (incomingId && existing.message?.id === incomingId && sameOwnership) {
-        return true;
-      }
-      if (!sameOwnership) continue;
-      if (existing.parent_tool_use_id !== incomingParentToolUseId) continue;
-      if (!sameThreadRoute(routeFromHistoryEntry(existing), routeFromHistoryEntry(msg))) continue;
-      if (normalizeCodexMessagePhase(existing.codexMessagePhase) !== normalizeCodexMessagePhase(msg.codexMessagePhase))
-        continue;
-      if (incomingTimestamp == null) continue;
-      if (typeof existing.timestamp !== "number") continue;
-      if (Math.abs(existing.timestamp - incomingTimestamp) > WsBridge.CODEX_ASSISTANT_REPLAY_DEDUP_WINDOW_MS) continue;
-
-      const existingContentKey = JSON.stringify(existing.message.content);
-      if (existingContentKey !== incomingContentKey) continue;
-
-      return true;
-    }
-
-    return false;
+    return isDuplicateCodexAssistantReplayController(session, msg);
   }
 
   private isHerdedWorkerSession(session: Session): boolean {
@@ -1243,6 +1231,7 @@ export class WsBridge {
           rowSessionStatuses: this.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
         }),
       persistSession: (targetSession) => this.persistSession(targetSession as Session),
+      invalidateLeaderThreadTabsForQuestIds: (questIds) => this.invalidateLeaderThreadTabsForQuestIds(questIds),
       markNotificationDone: (sessionId, notifId, done) =>
         markNotificationDoneBySessionIdController(this.sessions, sessionId, notifId, done, {
           broadcastToBrowsers: (targetSession, msg) => this.broadcastToBrowsers(targetSession as Session, msg),
@@ -1283,6 +1272,7 @@ export class WsBridge {
           rowSessionStatuses: this.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
         }),
       persistSession: (targetSession) => this.persistSession(targetSession as Session),
+      invalidateLeaderThreadTabsForQuestIds: (questIds) => this.invalidateLeaderThreadTabsForQuestIds(questIds),
       markNotificationDone: (sessionId, notifId, done) =>
         markNotificationDoneBySessionIdController(this.sessions, sessionId, notifId, done, {
           broadcastToBrowsers: (targetSession, msg) => this.broadcastToBrowsers(targetSession as Session, msg),

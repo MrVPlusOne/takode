@@ -21,6 +21,7 @@ import {
   LEADER_OPEN_THREAD_TABS_VERSION,
   canServerCandidateOpenThread,
   normalizeLeaderOpenThreadTabsState,
+  placeLeaderOpenThreadTabBeforeKeys,
   placeLeaderOpenThreadTabKey,
   shouldPersistLeaderThreadTab,
 } from "../shared/leader-open-thread-tabs.js";
@@ -81,6 +82,8 @@ function messageAttentionRecords(session: Session): SessionAttentionRecord[] {
 
 export interface LeaderThreadTabsProjectionDefinitionDeps<TSubscriber> {
   getSession: (sessionId: string) => Session | undefined;
+  listSessions?: () => Iterable<Session>;
+  isCurrentQuestSourceSession?: (session: Session) => boolean;
   isLeaderSession: (session: Session) => boolean;
   authorizeSubscription: (subscriber: TSubscriber, session: Session) => boolean;
 }
@@ -168,6 +171,107 @@ function boardRowsByKey(rows: ReadonlyArray<BoardRow>): Map<string, BoardRow> {
   return result;
 }
 
+interface CurrentQuestRow {
+  row: BoardRow;
+  sourceLeaderSessionId: string;
+  completed: boolean;
+  claimRank: number;
+}
+
+interface CurrentQuestClaim {
+  workerSessionId: string;
+  leaderSessionId?: string;
+  active: boolean;
+}
+
+function currentQuestRowRunAt(candidate: CurrentQuestRow): number {
+  return candidate.completed
+    ? nonNegativeNumber(candidate.row.completedAt ?? candidate.row.createdAt)
+    : nonNegativeNumber(candidate.row.threadTabActivatedAt ?? candidate.row.createdAt);
+}
+
+function currentQuestRowOutranks(left: CurrentQuestRow, right: CurrentQuestRow): boolean {
+  const leftHasActiveClaim = left.claimRank >= 3;
+  const rightHasActiveClaim = right.claimRank >= 3;
+  if (leftHasActiveClaim !== rightHasActiveClaim) return leftHasActiveClaim;
+  if (leftHasActiveClaim && left.claimRank !== right.claimRank) return left.claimRank > right.claimRank;
+  const runAt = currentQuestRowRunAt(left) - currentQuestRowRunAt(right);
+  if (runAt !== 0) return runAt > 0;
+  const createdAt = nonNegativeNumber(left.row.createdAt) - nonNegativeNumber(right.row.createdAt);
+  if (createdAt !== 0) return createdAt > 0;
+  if (left.completed !== right.completed) return !left.completed;
+  if (left.claimRank !== right.claimRank) return left.claimRank > right.claimRank;
+  return left.sourceLeaderSessionId.localeCompare(right.sourceLeaderSessionId) < 0;
+}
+
+function currentQuestRowsByKey(
+  sessions: ReadonlyArray<Session>,
+  relevantThreadKeys: ReadonlySet<string>,
+  isLeaderSession: (session: Session) => boolean,
+): Map<string, CurrentQuestRow> {
+  const claimsByQuest = new Map<string, CurrentQuestClaim[]>();
+  for (const session of sessions) {
+    const questId = normalizeProjectionThreadKey(session.state.claimedQuestId);
+    if (!questId || !relevantThreadKeys.has(questId)) continue;
+    const leaderSessionId = boundedNullableText(
+      session.state.claimedQuestLeaderSessionId,
+      LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH,
+    );
+    const claims = claimsByQuest.get(questId) ?? [];
+    claims.push({
+      workerSessionId: session.id,
+      ...(leaderSessionId ? { leaderSessionId } : {}),
+      active: normalizedStatus(session.state.claimedQuestStatus) === "in_progress",
+    });
+    claimsByQuest.set(questId, claims);
+  }
+
+  const result = new Map<string, CurrentQuestRow>();
+  const consider = (session: Session, row: BoardRow, completedBoard: boolean) => {
+    const questId = normalizeProjectionThreadKey(row.questId);
+    if (!questId || !relevantThreadKeys.has(questId)) return;
+    const claims = claimsByQuest.get(questId) ?? [];
+    const matchingClaims = claims.filter((claim) => row.worker === claim.workerSessionId);
+    const exactClaims = matchingClaims.filter((claim) => claim.leaderSessionId === session.id);
+    const legacyClaims = matchingClaims.filter((claim) => !claim.leaderSessionId);
+    const completed = completedBoard || isCompletedRow(row);
+    const claimRank = !completed
+      ? exactClaims.some((claim) => claim.active)
+        ? 4
+        : legacyClaims.some((claim) => claim.active)
+          ? 3
+          : exactClaims.length > 0
+            ? 2
+            : legacyClaims.length > 0
+              ? 1
+              : 0
+      : exactClaims.length > 0
+        ? 2
+        : legacyClaims.length > 0
+          ? 1
+          : 0;
+    const candidate: CurrentQuestRow = {
+      row,
+      sourceLeaderSessionId: session.id,
+      completed,
+      claimRank,
+    };
+    const current = result.get(questId);
+    if (!current || currentQuestRowOutranks(candidate, current)) result.set(questId, candidate);
+  };
+
+  for (const session of sessions) {
+    // Worker sessions provide claim evidence, but only visible leader-owned rows
+    // may author the current quest/Journey visual projection. A source leader's
+    // local tab close does not erase its current quest completion for another
+    // leader that still retains the quest.
+    if (!isLeaderSession(session)) continue;
+    for (const row of session.board.values()) consider(session, row, false);
+    for (const row of session.completedBoard.values()) consider(session, row, true);
+  }
+  return result;
+}
+
 type ProjectionTabCandidateKind = "needs-input" | "primary" | "review";
 
 interface ProjectionTabCandidate {
@@ -232,22 +336,6 @@ function shouldRepositionServerCandidate(
   return existingState?.explicitOrderUpdatedAt === undefined || eventAt > existingState.explicitOrderUpdatedAt;
 }
 
-function insertBeforeDeferredKeys(
-  existingThreadKeys: ReadonlyArray<string>,
-  threadKey: string,
-  deferredKeys: ReadonlySet<string>,
-): string[] {
-  const normalized = normalizeProjectionThreadKey(threadKey);
-  if (!normalized) return [...existingThreadKeys];
-  const withoutTarget = existingThreadKeys.filter((key) => key !== normalized);
-  const deferredIndex = withoutTarget.findIndex((key) => deferredKeys.has(key));
-  if (deferredIndex < 0) return [...withoutTarget, normalized].slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_TABS);
-  return [...withoutTarget.slice(0, deferredIndex), normalized, ...withoutTarget.slice(deferredIndex)].slice(
-    0,
-    LEADER_THREAD_TABS_PROJECTION_MAX_TABS,
-  );
-}
-
 function buildEffectiveOpenKeys(
   existingState: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
   boardRows: ReadonlyArray<BoardRow>,
@@ -291,29 +379,10 @@ function buildEffectiveOpenKeys(
     threadKey: normalizeProjectionThreadKey(row.questId)!,
     eventAt: nonNegativeNumber(row.threadTabActivatedAt ?? row.createdAt),
   }));
-  const priorityEventAt = new Map<string, number>();
-  for (const candidate of [...needsInputCandidates, ...activeBoardCandidates]) {
-    priorityEventAt.set(
-      candidate.threadKey,
-      Math.max(priorityEventAt.get(candidate.threadKey) ?? 0, candidate.eventAt),
-    );
-  }
 
-  // Existing server-candidate order is already the authoritative event order.
-  // Move eligible active/needs-input candidates into the left prefix as one
-  // stable group so older rows cannot overwrite a newer first-position event.
-  const prefixKeys = orderedOpenThreadKeys.filter((threadKey) => {
-    const eventAt = priorityEventAt.get(threadKey);
-    return eventAt !== undefined && shouldRepositionServerCandidate(existingState, eventAt);
-  });
-  if (prefixKeys.length > 0) {
-    const prefixSet = new Set(prefixKeys);
-    const next = [...prefixKeys, ...orderedOpenThreadKeys.filter((threadKey) => !prefixSet.has(threadKey))];
-    if (!next.every((key, index) => key === orderedOpenThreadKeys[index])) {
-      orderedOpenThreadKeys = next;
-      candidateUpdatedAt = Math.max(candidateUpdatedAt, ...prefixKeys.map((key) => priorityEventAt.get(key) ?? 0));
-    }
-  }
+  // Durable order already records every accepted edge-triggered promotion.
+  // Derivation may insert genuinely missing candidates, but it must never sort
+  // or reposition an existing tab from its current visual state.
 
   // Missing needs-input candidates retain the established first-position
   // behavior, except when a newer explicit user ordering already owns the rail.
@@ -354,7 +423,11 @@ function buildEffectiveOpenKeys(
     if (orderedOpenThreadKeys.includes(candidate.threadKey)) continue;
     if (!canServerCandidateOpenThread(existingState, candidate.threadKey, candidate.eventAt)) continue;
     if (shouldRepositionServerCandidate(existingState, candidate.eventAt)) {
-      orderedOpenThreadKeys = insertBeforeDeferredKeys(orderedOpenThreadKeys, candidate.threadKey, deferredKeys);
+      orderedOpenThreadKeys = placeLeaderOpenThreadTabBeforeKeys(
+        orderedOpenThreadKeys,
+        candidate.threadKey,
+        deferredKeys,
+      );
     } else {
       placeLast(candidate.threadKey, candidate.eventAt);
       continue;
@@ -460,7 +533,8 @@ function attentionByThread(
 
 function compactJourney(row: BoardRow | undefined): LeaderThreadTabsProjectionJourney | null {
   if (!row?.journey) return null;
-  const phaseCount = Math.min(100, row.journey.phaseIds.length);
+  const phaseIds = row.journey.phaseIds.slice(0, 100);
+  const phaseCount = phaseIds.length;
   const currentPhaseId = boundedNullableText(
     getQuestJourneyCurrentPhaseId(row.journey, row.status),
     LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH,
@@ -468,6 +542,7 @@ function compactJourney(row: BoardRow | undefined): LeaderThreadTabsProjectionJo
   const activePhaseIndex = nonNegativeInteger(getQuestJourneyCurrentPhaseIndex(row.journey, row.status));
   return {
     mode: row.journey.mode ?? (normalizedStatus(row.status) === "proposed" ? "proposed" : "active"),
+    phaseIds,
     currentPhaseId,
     activePhaseIndex: activePhaseIndex !== null && activePhaseIndex < phaseCount ? activePhaseIndex : null,
     phaseCount,
@@ -598,7 +673,14 @@ function compactValueToByteLimit(value: LeaderThreadTabsProjectionValue): Leader
   return minimal;
 }
 
-export function buildLeaderThreadTabsProjectionValue(session: Session): LeaderThreadTabsProjectionValue {
+export function buildLeaderThreadTabsProjectionValue(
+  session: Session,
+  options: {
+    sessions?: Iterable<Session>;
+    isCurrentQuestSourceSession?: (session: Session) => boolean;
+    isCurrentQuestLeaderSession?: (session: Session) => boolean;
+  } = {},
+): LeaderThreadTabsProjectionValue {
   const activeBoard = sortedBoardRows(session.board.values());
   const completedBoard = sortedCompletedBoardRows(session.completedBoard.values());
   const existingState = normalizeLeaderOpenThreadTabsState(session.state.leaderOpenThreadTabs);
@@ -619,6 +701,20 @@ export function buildLeaderThreadTabsProjectionValue(session: Session): LeaderTh
   );
   const activeByKey = boardRowsByKey(activeBoard);
   const completedByKey = boardRowsByKey(completedBoard);
+  const allSessions = new Map<string, Session>([[session.id, session]]);
+  const isCurrentQuestSourceSession =
+    options.isCurrentQuestSourceSession ??
+    ((candidate: Session) => candidate.searchDataOnly !== true && candidate.state.hidden !== true);
+  for (const candidate of options.sessions ?? []) {
+    if (candidate.id === session.id || isCurrentQuestSourceSession(candidate)) allSessions.set(candidate.id, candidate);
+  }
+  const isCurrentQuestLeaderSession =
+    options.isCurrentQuestLeaderSession ?? ((candidate: Session) => candidate.state.isOrchestrator === true);
+  const currentQuestRows = currentQuestRowsByKey(
+    [...allSessions.values()],
+    new Set(orderedOpenThreadKeys),
+    isCurrentQuestLeaderSession,
+  );
   const threadStatuses = relevantThreadStatuses(session.state.leaderThreadStatuses ?? {}, orderedOpenThreadKeys);
   const relevantTombstoneKeys = new Set<string>([
     ...activeByKey.keys(),
@@ -642,13 +738,17 @@ export function buildLeaderThreadTabsProjectionValue(session: Session): LeaderTh
     : null;
 
   const tabs: LeaderThreadTabsProjectionTab[] = orderedOpenThreadKeys.map((threadKey) => {
-    const activeRow = activeByKey.get(threadKey);
-    const completedRow = activeRow ? undefined : completedByKey.get(threadKey);
-    const row = activeRow ?? completedRow;
-    const completed = isCompletedRow(row) || (!!completedRow && !activeRow);
-    const queued = !completed && isQueuedRow(activeRow);
-    const proposed = !completed && isProposedRow(activeRow);
-    const isActive = !!activeRow && !completed && !queued && !proposed;
+    const localActiveRow = activeByKey.get(threadKey);
+    const localCompletedRow = localActiveRow ? undefined : completedByKey.get(threadKey);
+    const localRow = localActiveRow ?? localCompletedRow;
+    const currentQuestRow = currentQuestRows.get(threadKey);
+    const row = currentQuestRow?.row ?? localRow;
+    const completed = currentQuestRow
+      ? currentQuestRow.completed
+      : isCompletedRow(row) || (!!localCompletedRow && !localActiveRow);
+    const queued = !completed && isQueuedRow(row);
+    const proposed = !completed && isProposedRow(row);
+    const isActive = !!row && !completed && !queued && !proposed;
     const tabAttention = attention.get(threadKey) ?? EMPTY_ATTENTION;
     const status = threadStatuses[threadKey];
     return {
@@ -660,13 +760,21 @@ export function buildLeaderThreadTabsProjectionValue(session: Session): LeaderTh
       ),
       boardStatus: boundedNullableText(row?.status, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH),
       journey: compactJourney(row),
+      sourceLeaderSessionId: boundedNullableText(
+        currentQuestRow?.sourceLeaderSessionId ?? (localRow ? session.id : null),
+        LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH,
+      ),
+      sourceRowCreatedAt: row ? nonNegativeNumber(row.createdAt) : null,
+      workerSessionId: boundedNullableText(row?.worker, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH),
+      workerSessionNum: nonNegativeInteger(row?.workerNum),
       active: isActive,
       queued,
       proposed,
       completed,
-      canClose: !activeRow,
+      canClose: !localActiveRow,
       attention: { ...tabAttention },
       updatedAt: Math.max(
+        nonNegativeNumber(row?.completedAt),
         nonNegativeNumber(row?.updatedAt),
         tabAttention.updatedAt,
         nonNegativeNumber(status?.updatedAt),
@@ -675,6 +783,7 @@ export function buildLeaderThreadTabsProjectionValue(session: Session): LeaderTh
   });
 
   return compactValueToByteLimit({
+    currentQuestStateVersion: 1,
     tabState,
     tabs,
     mainAttention: { ...(attention.get("main") ?? EMPTY_ATTENTION) },
@@ -691,6 +800,7 @@ export function createLeaderThreadTabsProjectionDefinition<TSubscriber>(
     dependencies: [
       "leader-open-thread-tabs",
       "leader-board",
+      "leader-current-quest-state",
       "leader-notifications",
       "leader-attention-records",
       "leader-thread-statuses",
@@ -700,7 +810,12 @@ export function createLeaderThreadTabsProjectionDefinition<TSubscriber>(
       const session = deps.getSession(key);
       return session && deps.isLeaderSession(session) ? session : undefined;
     },
-    selectDependencies: (session) => buildLeaderThreadTabsProjectionValue(session),
+    selectDependencies: (session) =>
+      buildLeaderThreadTabsProjectionValue(session, {
+        sessions: deps.listSessions?.(),
+        isCurrentQuestSourceSession: deps.isCurrentQuestSourceSession,
+        isCurrentQuestLeaderSession: deps.isLeaderSession,
+      }),
     dependenciesEqual: leaderThreadTabsProjectionEqual,
     derive: (_session, _key, dependencies) => dependencies,
     valueEqual: leaderThreadTabsProjectionEqual,

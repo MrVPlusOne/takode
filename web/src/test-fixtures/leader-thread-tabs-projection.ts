@@ -25,6 +25,10 @@ function tab(threadKey: string, overrides: Partial<LeaderThreadTabsProjectionTab
     title: `Projected ${threadKey}`,
     boardStatus: null,
     journey: null,
+    sourceLeaderSessionId: null,
+    sourceRowCreatedAt: null,
+    workerSessionId: null,
+    workerSessionNum: null,
     active: false,
     queued: false,
     proposed: false,
@@ -37,6 +41,8 @@ function tab(threadKey: string, overrides: Partial<LeaderThreadTabsProjectionTab
 }
 
 export interface LeaderThreadTabsProjectionValueOverrides {
+  /** Null omits the current-state marker for a legacy producer fixture. */
+  currentQuestStateVersion?: 1 | null;
   tabState?: LeaderThreadTabsProjectionTabState | null;
   tabs?: LeaderThreadTabsProjectionTab[];
   mainAttention?: Partial<LeaderThreadTabsProjectionAttention>;
@@ -60,7 +66,13 @@ export function createLeaderThreadTabsProjectionValue(
     tab("q-1", {
       title: "Active projected thread",
       boardStatus: "WORKING",
-      journey: { mode: "active", currentPhaseId: "work", activePhaseIndex: 1, phaseCount: 3 },
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "work", "memory"],
+        currentPhaseId: "work",
+        activePhaseIndex: 1,
+        phaseCount: 3,
+      },
       active: true,
       canClose: false,
       attention: attention({ needsInput: true, updatedAt: 90 }),
@@ -75,6 +87,9 @@ export function createLeaderThreadTabsProjectionValue(
     }),
   ];
   return {
+    ...(overrides.currentQuestStateVersion === null
+      ? {}
+      : { currentQuestStateVersion: overrides.currentQuestStateVersion ?? 1 }),
     tabState,
     tabs: tabs.map((entry) => ({
       ...entry,

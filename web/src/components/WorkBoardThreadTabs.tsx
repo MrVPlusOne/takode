@@ -1,0 +1,1116 @@
+/**
+ * Leader quest/thread tab rail presentation and interaction.
+ *
+ * WorkBoardBar owns projection/model assembly; this module owns the bounded
+ * tab strip, overflow menu, drag handling, and hover-detail lifecycle.
+ */
+import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DraggableAttributes,
+} from "@dnd-kit/core";
+import { SortableContext, horizontalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
+import { CSS, type Transform } from "@dnd-kit/utilities";
+import { useStore } from "../store.js";
+import type { ActiveTurnRoute, QuestmasterTask } from "../types.js";
+import { threadStatusKey, type LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import { isCompletedJourneyPresentationStatus } from "./QuestJourneyTimeline.js";
+import { ALL_THREADS_KEY, MAIN_THREAD_KEY } from "../utils/thread-projection.js";
+import type { AttentionRecord } from "../utils/attention-records.js";
+import { QuestHoverCard } from "./QuestHoverCard.js";
+import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
+import { isQuestIdOnlyTitle } from "../utils/quest-title-index.js";
+
+export const DONE_THREAD_TITLE_COLOR = "var(--color-cc-muted)";
+const NORMAL_THREAD_TITLE_COLOR = "var(--color-cc-fg)";
+export const QUEUED_THREAD_TITLE_COLOR = "var(--color-cc-fg)";
+
+export function reorderThreadTabsAfterDrag(
+  threadKeys: ReadonlyArray<string>,
+  activeThreadKey: unknown,
+  overThreadKey: unknown,
+): string[] {
+  const keys = threadKeys.map((key) => normalizeThreadKey(key));
+  const activeKey = normalizeThreadKey(String(activeThreadKey ?? ""));
+  const overKey = normalizeThreadKey(String(overThreadKey ?? ""));
+  if (!activeKey || !overKey || activeKey === overKey) return keys;
+  const oldIndex = keys.indexOf(activeKey);
+  const newIndex = keys.indexOf(overKey);
+  if (oldIndex < 0 || newIndex < 0) return keys;
+  return arrayMove(keys, oldIndex, newIndex);
+}
+
+export function constrainThreadTabTransformToHorizontal(transform: Transform | null): Transform | null {
+  if (!transform || transform.y === 0) return transform;
+  return { ...transform, y: 0 };
+}
+
+const COMPACT_MOBILE_THREAD_TAB_WIDTH = 76;
+const COMPACT_DESKTOP_THREAD_TAB_WIDTH = 160;
+const COMPACT_DESKTOP_PACKING_MIN_RAIL_WIDTH = 640;
+const COMPACT_MORE_TABS_WIDTH = 72;
+const COMPACT_TAB_GAP = 4;
+const FLUID_THREAD_TAB_SIZE_CLASS = "min-w-[var(--thread-tab-width)] max-w-[14rem] flex-[1_1_var(--thread-tab-width)]";
+
+export interface CompactThreadTabPartition<T> {
+  visibleTabs: T[];
+  hiddenTabs: T[];
+  visibleThreadKeys: string[];
+  hiddenThreadKeys: string[];
+}
+
+export function buildCompactThreadTabPartition<T extends { threadKey: string }>({
+  tabs,
+  currentThreadKey,
+  railWidth,
+}: {
+  tabs: ReadonlyArray<T>;
+  currentThreadKey: string;
+  railWidth: number | null;
+}): CompactThreadTabPartition<T> {
+  const visibleCapacity = estimateCompactVisibleTabCapacity(tabs.length, railWidth);
+  if (visibleCapacity >= tabs.length) {
+    return {
+      visibleTabs: [...tabs],
+      hiddenTabs: [],
+      visibleThreadKeys: tabs.map((tab) => normalizeThreadKey(tab.threadKey)),
+      hiddenThreadKeys: [],
+    };
+  }
+
+  const selectedThreadKey = normalizeThreadKey(currentThreadKey);
+  const visibleKeys = new Set<string>();
+  if (
+    selectedThreadKey !== MAIN_THREAD_KEY &&
+    tabs.some((tab) => normalizeThreadKey(tab.threadKey) === selectedThreadKey)
+  ) {
+    visibleKeys.add(selectedThreadKey);
+  }
+
+  for (const tab of tabs) {
+    if (visibleKeys.size >= visibleCapacity) break;
+    visibleKeys.add(normalizeThreadKey(tab.threadKey));
+  }
+
+  const visibleTabs: T[] = [];
+  const hiddenTabs: T[] = [];
+  for (const tab of tabs) {
+    const threadKey = normalizeThreadKey(tab.threadKey);
+    if (visibleKeys.has(threadKey)) visibleTabs.push(tab);
+    else hiddenTabs.push(tab);
+  }
+
+  return {
+    visibleTabs,
+    hiddenTabs,
+    visibleThreadKeys: visibleTabs.map((tab) => normalizeThreadKey(tab.threadKey)),
+    hiddenThreadKeys: hiddenTabs.map((tab) => normalizeThreadKey(tab.threadKey)),
+  };
+}
+
+function estimateCompactVisibleTabCapacity(tabCount: number, railWidth: number | null): number {
+  if (tabCount <= 0) return 0;
+  if (!railWidth || railWidth <= 0) return tabCount;
+
+  const fitsWithoutOverflow = estimatedCompactRailWidth(tabCount, false, railWidth) <= railWidth;
+  if (fitsWithoutOverflow) return tabCount;
+
+  for (let count = tabCount - 1; count > 0; count--) {
+    if (estimatedCompactRailWidth(count, true, railWidth) <= railWidth) return count;
+  }
+  return 1;
+}
+
+function estimatedCompactRailWidth(
+  visibleTabCount: number,
+  includesMoreTabs: boolean,
+  railWidth: number | null,
+): number {
+  const extraItemCount = visibleTabCount + (includesMoreTabs ? 1 : 0);
+  const threadTabWidth = compactThreadTabWidthForRail(railWidth);
+  return (
+    threadTabWidth +
+    visibleTabCount * threadTabWidth +
+    (includesMoreTabs ? COMPACT_MORE_TABS_WIDTH : 0) +
+    extraItemCount * COMPACT_TAB_GAP
+  );
+}
+
+function compactThreadTabWidthForRail(railWidth?: number | null): number {
+  if (!railWidth || railWidth < COMPACT_DESKTOP_PACKING_MIN_RAIL_WIDTH) return COMPACT_MOBILE_THREAD_TAB_WIDTH;
+  return COMPACT_DESKTOP_THREAD_TAB_WIDTH;
+}
+
+function stringArraysEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+export function normalizeThreadKey(threadKey: string): string {
+  return threadKey.trim().toLowerCase();
+}
+
+export function isSelectedThread(currentThreadKey: string, targetThreadKey: string): boolean {
+  return normalizeThreadKey(currentThreadKey) === normalizeThreadKey(targetThreadKey);
+}
+
+function isActiveOutputThread(activeTurnRoute: ActiveTurnRoute | null | undefined, targetThreadKey: string): boolean {
+  if (!activeTurnRoute?.threadKey) return false;
+  return normalizeThreadKey(activeTurnRoute.threadKey) === normalizeThreadKey(targetThreadKey);
+}
+
+export function ThreadNavButton({
+  label,
+  detail,
+  selected,
+  onClick,
+  testId,
+  variant = "card",
+  secondary = false,
+}: {
+  label: string;
+  detail?: string;
+  selected: boolean;
+  onClick: () => void;
+  testId: string;
+  variant?: "card" | "compact";
+  secondary?: boolean;
+}) {
+  const tone = selected
+    ? "border-cc-primary/45 bg-cc-primary/12 text-cc-fg"
+    : secondary
+      ? "border-cc-border/45 bg-transparent text-cc-muted hover:bg-cc-hover/45 hover:text-cc-fg"
+      : "border-cc-border/70 bg-cc-hover/35 text-cc-muted hover:bg-cc-hover/65 hover:text-cc-fg";
+  const layout =
+    variant === "compact"
+      ? "inline-flex min-w-0 items-center gap-1.5 rounded-md border px-2 py-1"
+      : "flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-1.5";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${layout} text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 focus-visible:ring-inset ${tone}`}
+      data-testid={testId}
+      data-variant={variant}
+      data-secondary={secondary ? "true" : "false"}
+      aria-pressed={selected}
+    >
+      {variant === "compact" ? (
+        <>
+          <span className="min-w-0 truncate text-[11px] font-medium">{label}</span>
+          {detail && <span className="hidden shrink-0 text-[10px] text-cc-muted/75 sm:inline">{detail}</span>}
+        </>
+      ) : (
+        <span className="min-w-0">
+          <span className="block truncate text-[11px] font-medium">{label}</span>
+          {detail && <span className="block truncate text-[10px] text-cc-muted/80">{detail}</span>}
+        </span>
+      )}
+    </button>
+  );
+}
+
+export interface PrimaryThreadChip {
+  threadKey: string;
+  questId?: string;
+  title: string;
+  detail?: string;
+  messageCount?: number;
+  needsInput: boolean;
+  mutedNeedsInput: boolean;
+  blueNudge: boolean;
+  titleColor?: string;
+  projectedCurrentState?: boolean;
+  canClose: boolean;
+  route?: AttentionRecord["route"];
+  updatedAt: number;
+}
+
+function isQuestIdFallbackTitle(title: string | undefined, threadKey: string, questId?: string): boolean {
+  return isQuestIdOnlyTitle(title, questId ?? threadKey) || isQuestIdOnlyTitle(title, threadKey);
+}
+
+export function strongestThreadTabTitle({
+  threadKey,
+  questId,
+  questTitle,
+  boardRowTitle,
+  rowTitle,
+  activeTitle,
+}: {
+  threadKey: string;
+  questId?: string;
+  questTitle?: string;
+  boardRowTitle?: string;
+  rowTitle?: string;
+  activeTitle?: string;
+}): string {
+  const candidates = [questTitle, boardRowTitle, rowTitle, activeTitle];
+  const canonical = candidates.find((title) => !isQuestIdFallbackTitle(title, threadKey, questId));
+  if (canonical) return canonical.trim();
+  return candidates.find((title) => title?.trim())?.trim() ?? threadKey;
+}
+
+function SortableThreadTabContainer({
+  tab,
+  className,
+  style: tabStyle,
+  title,
+  minLabel,
+  activeOutput,
+  newTab,
+  hoverQuest,
+  onMouseEnter,
+  onMouseLeave,
+  children,
+}: {
+  tab: PrimaryThreadChip;
+  className: string;
+  style?: CSSProperties;
+  title?: string;
+  minLabel?: string;
+  activeOutput: boolean;
+  newTab: boolean;
+  hoverQuest?: QuestmasterTask;
+  onMouseEnter?: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  onMouseLeave?: () => void;
+  children: (dragSurfaceProps: {
+    attributes: DraggableAttributes;
+    listeners: ReturnType<typeof useSortable>["listeners"];
+    isDragging: boolean;
+  }) => ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tab.threadKey });
+  const style: CSSProperties = {
+    ...tabStyle,
+    transform: CSS.Transform.toString(constrainThreadTabTransformToHorizontal(transform)),
+    transition,
+    ...(isDragging ? { opacity: 0.78, zIndex: 30 } : {}),
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      title={title}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className={className}
+      data-testid="thread-tab"
+      data-thread-key={tab.threadKey}
+      data-needs-input={tab.needsInput ? "true" : "false"}
+      data-muted-needs-input={tab.mutedNeedsInput ? "true" : "false"}
+      data-blue-notification={tab.blueNudge ? "true" : "false"}
+      data-active-output={activeOutput ? "true" : "false"}
+      data-new-tab={newTab ? "true" : "false"}
+      data-min-label={minLabel ?? tab.questId ?? tab.threadKey}
+      data-closable={tab.canClose ? "true" : "false"}
+      data-has-quest-hover={hoverQuest ? "true" : "false"}
+      data-thread-tab-width-source="true"
+      data-reorderable="true"
+      data-dragging={isDragging ? "true" : "false"}
+    >
+      {children({ attributes, listeners, isDragging })}
+    </div>
+  );
+}
+
+export function threadKeyToSelectAfterClosing(threadKey: string, tabs: ReadonlyArray<PrimaryThreadChip>): string {
+  const normalized = normalizeThreadKey(threadKey);
+  const closingIndex = tabs.findIndex((tab) => normalizeThreadKey(tab.threadKey) === normalized);
+  if (closingIndex < 0) return MAIN_THREAD_KEY;
+
+  const rightTab = tabs.slice(closingIndex + 1).find((tab) => normalizeThreadKey(tab.threadKey) !== normalized);
+  return rightTab ? normalizeThreadKey(rightTab.threadKey) : MAIN_THREAD_KEY;
+}
+
+function completedQuestTitleColor(quest?: QuestmasterTask): string | undefined {
+  return quest && isCompletedJourneyPresentationStatus(quest.status) ? DONE_THREAD_TITLE_COLOR : undefined;
+}
+
+function currentThreadTitleColor(
+  baseTitleColor: string | undefined,
+  threadKey: string,
+  statuses: Readonly<Record<string, LeaderThreadStatus>> | undefined,
+): string | undefined {
+  if (baseTitleColor === DONE_THREAD_TITLE_COLOR && statuses?.[threadStatusKey(threadKey)]?.kind === "waiting") {
+    return NORMAL_THREAD_TITLE_COLOR;
+  }
+  return baseTitleColor;
+}
+
+function displayThreadTabTitleColor(
+  tab: PrimaryThreadChip,
+  hydratedQuest: QuestmasterTask | undefined,
+  statuses: Readonly<Record<string, LeaderThreadStatus>> | undefined,
+): string | undefined {
+  const hydratedTitleColor = completedQuestTitleColor(hydratedQuest);
+  const baseTitleColor = tab.projectedCurrentState ? tab.titleColor : (hydratedTitleColor ?? tab.titleColor);
+  return currentThreadTitleColor(baseTitleColor, tab.threadKey, statuses);
+}
+
+function ActiveOutputIndicator() {
+  return (
+    <span
+      className="pointer-events-none absolute inset-0"
+      aria-hidden="true"
+      data-testid="thread-tab-active-output-indicator"
+      data-reduced-motion-static="true"
+      data-dot-position="stripe-origin"
+      data-stripe-origin="top-left"
+    >
+      <span
+        className="absolute inset-x-1 top-0 h-px overflow-hidden rounded-full bg-violet-100/30"
+        data-testid="thread-tab-active-output-glint-track"
+      >
+        <span
+          className="thread-tab-output-glint absolute inset-y-0 left-0 w-1/2 rounded-full bg-gradient-to-r from-transparent via-white to-sky-200 shadow-[0_0_8px_rgba(224,242,254,0.66)]"
+          data-testid="thread-tab-active-output-glint"
+          data-reduced-motion="animation-disabled"
+        />
+      </span>
+      <span
+        className="absolute left-1 top-0 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-sky-50/95 shadow-[0_0_9px_rgba(224,242,254,0.78)] ring-1 ring-violet-100/75"
+        data-testid="thread-tab-active-output-dot"
+      />
+    </span>
+  );
+}
+
+export function ThreadTabRail({
+  mainState,
+  tabs,
+  reorderableThreadKeys,
+  sessionId,
+  currentThreadKey,
+  onSelectThread,
+  onCloseThreadTab,
+  onReorderThreadTabs,
+  newTabKeys,
+  threadStatuses,
+}: {
+  mainState?: PrimaryThreadChip;
+  tabs: PrimaryThreadChip[];
+  reorderableThreadKeys: string[];
+  sessionId: string;
+  currentThreadKey: string;
+  onSelectThread?: (threadKey: string) => void;
+  onCloseThreadTab?: (threadKey: string) => void;
+  onReorderThreadTabs?: (orderedThreadKeys: string[]) => void;
+  newTabKeys?: ReadonlySet<string>;
+  threadStatuses?: Readonly<Record<string, LeaderThreadStatus>>;
+}) {
+  function NeedsInputBell({ activeOutput }: { activeOutput: boolean }) {
+    return (
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="relative z-10 h-3 w-3 shrink-0 text-cc-attention"
+        aria-hidden="true"
+        data-testid="thread-tab-needs-input-bell"
+        data-active-output={activeOutput ? "true" : "false"}
+      >
+        <path d="M8 2.5a3.5 3.5 0 0 0-3.5 3.5v1.8c0 .7-.24 1.38-.68 1.92L3 10.75h10l-.82-1.03a3.05 3.05 0 0 1-.68-1.92V6A3.5 3.5 0 0 0 8 2.5Z" />
+        <path d="M6.75 12.5a1.35 1.35 0 0 0 2.5 0" />
+      </svg>
+    );
+  }
+
+  function BlueNotificationBell({ activeOutput }: { activeOutput: boolean }) {
+    return (
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="relative z-10 h-3 w-3 shrink-0 text-cc-info"
+        aria-hidden="true"
+        data-testid="thread-tab-blue-notification-bell"
+        data-active-output={activeOutput ? "true" : "false"}
+      >
+        <path d="M8 2.5a3.5 3.5 0 0 0-3.5 3.5v1.8c0 .7-.24 1.38-.68 1.92L3 10.75h10l-.82-1.03a3.05 3.05 0 0 1-.68-1.92V6A3.5 3.5 0 0 0 8 2.5Z" />
+        <path d="M6.75 12.5a1.35 1.35 0 0 0 2.5 0" />
+      </svg>
+    );
+  }
+
+  function MutedNeedsInputBell({ activeOutput }: { activeOutput: boolean }) {
+    return (
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="relative z-10 h-3 w-3 shrink-0 text-cc-muted"
+        aria-hidden="true"
+        data-testid="thread-tab-muted-needs-input-bell"
+        data-active-output={activeOutput ? "true" : "false"}
+      >
+        <path d="M8 2.5a3.5 3.5 0 0 0-3.5 3.5v1.8c0 .7-.24 1.38-.68 1.92L3 10.75h10l-.82-1.03a3.05 3.05 0 0 1-.68-1.92V6A3.5 3.5 0 0 0 8 2.5Z" />
+        <path d="M6.75 12.5a1.35 1.35 0 0 0 2.5 0" />
+      </svg>
+    );
+  }
+
+  function ActiveTitle({
+    activeOutput,
+    titleColor,
+    children,
+  }: {
+    activeOutput: boolean;
+    titleColor?: string;
+    children: ReactNode;
+  }) {
+    const style: CSSProperties | undefined = titleColor
+      ? {
+          color: titleColor,
+        }
+      : undefined;
+    return (
+      <span
+        className="inline-flex min-w-0 items-center gap-1.5 px-1"
+        style={style}
+        data-testid="thread-tab-title"
+        data-active-output={activeOutput ? "true" : "false"}
+        data-title-color={titleColor ?? ""}
+      >
+        {children}
+      </span>
+    );
+  }
+
+  function tabTone({ selected }: { selected: boolean; needsInput: boolean; blueNudge: boolean }): string {
+    if (selected) {
+      return "relative z-10 -mb-px rounded-b-none border-cc-primary/45 border-b-transparent bg-cc-card text-cc-fg shadow-[0_-1px_0_rgba(174,86,48,0.46),0_0_0_1px_rgba(174,86,48,0.13),0_10px_20px_-16px_rgba(174,86,48,0.55),inset_0_1px_0_rgba(255,255,255,0.18)]";
+    }
+    return "border-cc-border/70 bg-cc-hover/30 text-cc-muted hover:bg-cc-hover/60 hover:text-cc-fg";
+  }
+
+  const openThread = (threadKey: string) => {
+    const targetThread = normalizeThreadKey(threadKey || MAIN_THREAD_KEY);
+    const selectedThread = normalizeThreadKey(currentThreadKey || "main");
+
+    if (onSelectThread && (selectedThread === ALL_THREADS_KEY || selectedThread !== targetThread)) {
+      onSelectThread(targetThread);
+      return;
+    }
+  };
+
+  const mainSelected = isSelectedThread(currentThreadKey, MAIN_THREAD_KEY);
+  const mainNeedsInput = mainState?.needsInput ?? false;
+  const mainMutedNeedsInput = mainState?.mutedNeedsInput ?? false;
+  const mainBlueNudge = mainState?.blueNudge ?? false;
+  const showMainBlueNudge = mainBlueNudge && !mainNeedsInput;
+  const showMainMutedNeedsInput = mainMutedNeedsInput && !mainNeedsInput && !mainBlueNudge;
+  const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
+  const activeTurnRoute = useStore((s) => s.activeTurnRoutes.get(sessionId));
+  const quests = useStore((s) => s.quests);
+  const questDetails = useStore((s) => s.questDetails ?? new Map<string, QuestmasterTask>());
+  const questById = useMemo(() => {
+    const byId = new Map(quests.map((quest) => [normalizeThreadKey(quest.questId), quest]));
+    for (const quest of questDetails.values()) byId.set(normalizeThreadKey(quest.questId), quest);
+    return byId;
+  }, [questDetails, quests]);
+  const [hoveredQuest, setHoveredQuest] = useState<{
+    quest: QuestmasterTask;
+    anchorRect: DOMRect;
+  } | null>(null);
+  const hideQuestHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingQuestHoverRef = useRef<{
+    questId: string;
+    anchorRect: DOMRect;
+  } | null>(null);
+  const tabStripRef = useRef<HTMLDivElement | null>(null);
+  const [railWidth, setRailWidth] = useState<number | null>(null);
+  const [moreTabsOpen, setMoreTabsOpen] = useState(false);
+  const [reorderMode, setReorderMode] = useState(false);
+  const [draftReorderKeys, setDraftReorderKeys] = useState<string[]>([]);
+  const runningActiveTurnRoute = sessionStatus === "running" ? activeTurnRoute : null;
+  const mainActiveOutput = isActiveOutputThread(runningActiveTurnRoute, MAIN_THREAD_KEY);
+  const mainTone = tabTone({
+    selected: mainSelected,
+    needsInput: mainNeedsInput,
+    blueNudge: mainBlueNudge,
+  });
+  const compactTabs = useMemo(
+    () => buildCompactThreadTabPartition({ tabs, currentThreadKey, railWidth }),
+    [currentThreadKey, railWidth, tabs],
+  );
+  const visibleTabs = compactTabs.visibleTabs;
+  const hiddenTabs = compactTabs.hiddenTabs;
+  const hasOverflowTabs = hiddenTabs.length > 0;
+  const sortableTabKeys = useMemo(
+    () =>
+      visibleTabs.map((tab) => normalizeThreadKey(tab.threadKey)).filter((key) => reorderableThreadKeys.includes(key)),
+    [reorderableThreadKeys, visibleTabs],
+  );
+  const allReorderableTabKeys = useMemo(
+    () => tabs.map((tab) => normalizeThreadKey(tab.threadKey)).filter((key) => reorderableThreadKeys.includes(key)),
+    [reorderableThreadKeys, tabs],
+  );
+  const moreTabsReorderKeys = useMemo(
+    () =>
+      hiddenTabs.map((tab) => normalizeThreadKey(tab.threadKey)).filter((key) => reorderableThreadKeys.includes(key)),
+    [hiddenTabs, reorderableThreadKeys],
+  );
+  const sortableTabKeySet = useMemo(() => new Set(sortableTabKeys), [sortableTabKeys]);
+  const moreTabsReorderKeySet = useMemo(() => new Set(moreTabsReorderKeys), [moreTabsReorderKeys]);
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    }),
+  );
+  function handleThreadTabDragEnd(event: DragEndEvent) {
+    if (!onReorderThreadTabs || !event.over) return;
+    const orderedThreadKeys = reorderThreadTabsAfterDrag(sortableTabKeys, event.active.id, event.over.id);
+    if (stringArraysEqual(sortableTabKeys, orderedThreadKeys)) return;
+    onReorderThreadTabs(orderedThreadKeys);
+  }
+  useEffect(
+    () => () => {
+      pendingQuestHoverRef.current = null;
+      if (hideQuestHoverTimerRef.current) clearTimeout(hideQuestHoverTimerRef.current);
+    },
+    [],
+  );
+
+  function showQuestHover(
+    quest: QuestmasterTask | undefined,
+    questId: string | undefined,
+    anchorRect: DOMRect,
+    showCachedImmediately: boolean,
+  ) {
+    if (hideQuestHoverTimerRef.current) clearTimeout(hideQuestHoverTimerRef.current);
+    if (quest && showCachedImmediately) setHoveredQuest({ quest, anchorRect });
+    else setHoveredQuest(null);
+    if (!questId) return;
+
+    const pending = { questId, anchorRect };
+    pendingQuestHoverRef.current = pending;
+    void hydrateQuestDetail(questId)
+      .then((hydratedQuest) => {
+        if (pendingQuestHoverRef.current !== pending || !hydratedQuest) return;
+        pendingQuestHoverRef.current = null;
+        setHoveredQuest({ quest: hydratedQuest, anchorRect });
+      })
+      .catch(() => {
+        if (pendingQuestHoverRef.current === pending) pendingQuestHoverRef.current = null;
+      });
+  }
+
+  function scheduleQuestHoverHide() {
+    if (hideQuestHoverTimerRef.current) clearTimeout(hideQuestHoverTimerRef.current);
+    hideQuestHoverTimerRef.current = setTimeout(() => {
+      pendingQuestHoverRef.current = null;
+      setHoveredQuest(null);
+    }, 100);
+  }
+
+  function hideQuestHoverImmediately() {
+    pendingQuestHoverRef.current = null;
+    if (hideQuestHoverTimerRef.current) clearTimeout(hideQuestHoverTimerRef.current);
+    setHoveredQuest(null);
+  }
+
+  useLayoutEffect(() => {
+    const element = tabStripRef.current;
+    if (!element) return;
+
+    const measure = () => {
+      const width = Math.floor(element.getBoundingClientRect().width);
+      setRailWidth((existing) => (existing === width ? existing : width));
+    };
+    measure();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(measure);
+      observer.observe(element);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  useEffect(() => {
+    if (hasOverflowTabs) return;
+    if (moreTabsOpen) {
+      setMoreTabsOpen(false);
+    }
+    setReorderMode(false);
+  }, [hasOverflowTabs, moreTabsOpen]);
+
+  useEffect(() => {
+    if (!moreTabsOpen) return;
+    setReorderMode(false);
+    setDraftReorderKeys(moreTabsReorderKeys);
+  }, [moreTabsOpen, moreTabsReorderKeys]);
+
+  useEffect(() => {
+    if (!moreTabsOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      closeMoreTabs();
+      setReorderMode(false);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [moreTabsOpen]);
+
+  function moveDraftReorderKey(threadKey: string, direction: -1 | 1) {
+    setDraftReorderKeys((keys) => {
+      const index = keys.indexOf(threadKey);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= keys.length) return keys;
+      return arrayMove(keys, index, nextIndex);
+    });
+  }
+
+  function commitMoreTabsReorder() {
+    if (!stringArraysEqual(moreTabsReorderKeys, draftReorderKeys)) {
+      onReorderThreadTabs?.(mergeHiddenReorderIntoOpenOrder());
+    }
+    setReorderMode(false);
+    closeMoreTabs();
+  }
+
+  function cancelMoreTabsReorder() {
+    setDraftReorderKeys(moreTabsReorderKeys);
+    setReorderMode(false);
+  }
+
+  function closeMoreTabs() {
+    setMoreTabsOpen(false);
+  }
+
+  function moreTabsListOrder(): PrimaryThreadChip[] {
+    if (!reorderMode) return hiddenTabs;
+    const tabByKey = new Map(hiddenTabs.map((tab) => [normalizeThreadKey(tab.threadKey), tab]));
+    const ordered = draftReorderKeys.map((key) => tabByKey.get(key)).filter((tab): tab is PrimaryThreadChip => !!tab);
+    const nonReorderable = hiddenTabs.filter((tab) => !moreTabsReorderKeySet.has(normalizeThreadKey(tab.threadKey)));
+    return [...ordered, ...nonReorderable];
+  }
+
+  function mergeHiddenReorderIntoOpenOrder(): string[] {
+    const hiddenDraftKeys = [...draftReorderKeys];
+    const hiddenDraftKeySet = new Set(hiddenDraftKeys);
+    return allReorderableTabKeys.map((key) => (hiddenDraftKeySet.has(key) ? (hiddenDraftKeys.shift() ?? key) : key));
+  }
+
+  const hiddenKeySet = new Set(compactTabs.hiddenThreadKeys);
+  const selectedHidden = hiddenTabs.some((tab) => isSelectedThread(currentThreadKey, tab.threadKey));
+  const activeOutputHidden = hiddenTabs.some((tab) => isActiveOutputThread(runningActiveTurnRoute, tab.threadKey));
+  const needsInputHidden = hiddenTabs.some((tab) => tab.needsInput);
+  const mutedNeedsInputHidden = hiddenTabs.some((tab) => tab.mutedNeedsInput);
+  const blueNudgeHidden = hiddenTabs.some((tab) => tab.blueNudge);
+  const showBlueNudgeHidden = blueNudgeHidden && !needsInputHidden;
+  const showMutedNeedsInputHidden = mutedNeedsInputHidden && !needsInputHidden && !blueNudgeHidden;
+  const tabStripStyle = {
+    "--thread-tab-width": `${compactThreadTabWidthForRail(railWidth)}px`,
+  } as CSSProperties;
+
+  return (
+    <div
+      className="border-b border-cc-border bg-cc-card px-3 pb-0 pt-1.5 sm:px-4"
+      data-testid="thread-tab-rail"
+      data-open-tab-count={tabs.length + 1}
+      data-closed-chip-count="0"
+      data-unified-tab-track="true"
+      data-overflow={hasOverflowTabs ? "more-tabs-list" : "none"}
+      data-hidden-tab-count={hiddenTabs.length}
+    >
+      <div
+        ref={tabStripRef}
+        style={tabStripStyle}
+        className="mobile-scroll-stable-surface relative flex w-full min-w-0 items-end gap-1 overflow-visible"
+        data-testid="thread-tab-strip"
+        data-overflow-mode="more-tabs"
+        data-close-target-width-frozen="false"
+        data-frozen-thread-tab-width=""
+        aria-label="Thread tabs"
+      >
+        <button
+          type="button"
+          onClick={() => openThread(MAIN_THREAD_KEY)}
+          title={
+            mainNeedsInput
+              ? `${mainState?.title ?? "Main Thread"} needs input`
+              : mainBlueNudge
+                ? `${mainState?.title ?? "Main Thread"} has review updates`
+                : (mainState?.title ?? "Main Thread")
+          }
+          className={`relative inline-flex ${FLUID_THREAD_TAB_SIZE_CLASS} items-center gap-1.5 overflow-hidden rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset ${mainTone}`}
+          data-testid="thread-main-tab"
+          data-thread-key={MAIN_THREAD_KEY}
+          data-thread-tab-width-source="true"
+          data-needs-input={mainNeedsInput ? "true" : "false"}
+          data-muted-needs-input={mainMutedNeedsInput ? "true" : "false"}
+          data-blue-notification={mainBlueNudge ? "true" : "false"}
+          data-active-output={mainActiveOutput ? "true" : "false"}
+          data-min-label="Main Thread"
+          aria-pressed={mainSelected}
+        >
+          {mainActiveOutput && <ActiveOutputIndicator />}
+          {mainNeedsInput && <NeedsInputBell activeOutput={mainActiveOutput} />}
+          {showMainBlueNudge && <BlueNotificationBell activeOutput={mainActiveOutput} />}
+          {showMainMutedNeedsInput && <MutedNeedsInputBell activeOutput={mainActiveOutput} />}
+          <ActiveTitle activeOutput={mainActiveOutput}>
+            <span className="min-w-0 truncate">Main Thread</span>
+          </ActiveTitle>
+          {mainState?.detail && <span className="shrink-0 text-[10px] text-cc-muted/80">{mainState.detail}</span>}
+        </button>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleThreadTabDragEnd}>
+          <SortableContext items={sortableTabKeys} strategy={horizontalListSortingStrategy}>
+            {visibleTabs.map((tab) => {
+              const selected = isSelectedThread(currentThreadKey, tab.threadKey);
+              const activeOutput = isActiveOutputThread(runningActiveTurnRoute, tab.threadKey);
+              const showBlueNudge = tab.blueNudge && !tab.needsInput;
+              const showMutedNeedsInput = tab.mutedNeedsInput && !tab.needsInput && !tab.blueNudge;
+              const tone = tabTone({
+                selected,
+                needsInput: tab.needsInput,
+                blueNudge: tab.blueNudge,
+              });
+              const newTab = newTabKeys?.has(tab.threadKey) ?? false;
+              const hoverQuest = tab.questId ? questById.get(normalizeThreadKey(tab.questId)) : undefined;
+              const displayQuestId = hoverQuest?.questId ?? tab.questId;
+              const displayTitle = tab.title;
+              const displayTitleColor = displayThreadTabTitleColor(tab, hoverQuest, threadStatuses);
+              const reorderable = onReorderThreadTabs && sortableTabKeySet.has(normalizeThreadKey(tab.threadKey));
+              const title = hoverQuest
+                ? undefined
+                : `${displayQuestId ? `${displayQuestId}: ${displayTitle}` : displayTitle}${tab.needsInput ? " needs input" : showBlueNudge ? " has review updates" : ""}`;
+              const className = `group relative inline-flex ${FLUID_THREAD_TAB_SIZE_CLASS} items-stretch overflow-hidden rounded-t-md border text-[11px] font-medium transition-colors ${newTab ? "thread-tab-pop" : ""} ${reorderable ? "cursor-grab active:cursor-grabbing" : ""} ${tone}`;
+              const mouseEnter = (event: ReactMouseEvent<HTMLDivElement>) =>
+                showQuestHover(
+                  hoverQuest,
+                  displayQuestId,
+                  event.currentTarget.getBoundingClientRect(),
+                  hoverQuest?.title === displayTitle,
+                );
+              const children = (dragSurfaceProps?: {
+                attributes: DraggableAttributes;
+                listeners: ReturnType<typeof useSortable>["listeners"];
+                isDragging: boolean;
+              }) => (
+                <>
+                  {activeOutput && <ActiveOutputIndicator />}
+                  <button
+                    type="button"
+                    onClick={() => openThread(tab.threadKey)}
+                    className="inline-flex min-w-0 flex-1 items-center gap-1.5 rounded-t-[inherit] px-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset"
+                    data-testid="thread-tab-select"
+                    data-dragging={dragSurfaceProps?.isDragging ? "true" : "false"}
+                    {...(dragSurfaceProps?.attributes ?? {})}
+                    {...(dragSurfaceProps?.listeners ?? {})}
+                    aria-pressed={selected}
+                  >
+                    {tab.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
+                    {showBlueNudge && <BlueNotificationBell activeOutput={activeOutput} />}
+                    {showMutedNeedsInput && <MutedNeedsInputBell activeOutput={activeOutput} />}
+                    <ActiveTitle activeOutput={activeOutput} titleColor={displayTitleColor}>
+                      {displayQuestId && <span className="shrink-0 font-mono-code">{displayQuestId}</span>}
+                      <span className="min-w-0 truncate">{displayTitle}</span>
+                    </ActiveTitle>
+                  </button>
+                  {onCloseThreadTab && tab.canClose && (
+                    <button
+                      type="button"
+                      aria-label={`Close ${displayQuestId ?? displayTitle}`}
+                      className={`inline-flex w-5 shrink-0 items-center justify-center overflow-hidden border-l border-current/10 text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:border-current/10 focus-visible:opacity-100 ${
+                        selected
+                          ? "w-5 opacity-100"
+                          : "opacity-70 sm:pointer-events-none sm:border-transparent sm:opacity-0 sm:group-hover:pointer-events-auto sm:group-hover:border-current/10 sm:group-hover:opacity-100"
+                      }`}
+                      data-testid="thread-tab-close"
+                      data-compact-close="true"
+                      data-selected={selected ? "true" : "false"}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onCloseThreadTab(tab.threadKey);
+                      }}
+                    >
+                      <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                        <path d="M3 3l6 6M9 3L3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                  )}
+                </>
+              );
+
+              return reorderable ? (
+                <SortableThreadTabContainer
+                  key={tab.threadKey}
+                  tab={tab}
+                  className={className}
+                  title={title}
+                  minLabel={displayQuestId ?? tab.threadKey}
+                  activeOutput={activeOutput}
+                  newTab={newTab}
+                  hoverQuest={hoverQuest}
+                  onMouseEnter={mouseEnter}
+                  onMouseLeave={displayQuestId ? scheduleQuestHoverHide : undefined}
+                >
+                  {children}
+                </SortableThreadTabContainer>
+              ) : (
+                <div
+                  key={tab.threadKey}
+                  title={title}
+                  onMouseEnter={mouseEnter}
+                  onMouseLeave={displayQuestId ? scheduleQuestHoverHide : undefined}
+                  className={className}
+                  data-testid="thread-tab"
+                  data-thread-key={tab.threadKey}
+                  data-thread-tab-width-source="true"
+                  data-needs-input={tab.needsInput ? "true" : "false"}
+                  data-muted-needs-input={tab.mutedNeedsInput ? "true" : "false"}
+                  data-blue-notification={tab.blueNudge ? "true" : "false"}
+                  data-active-output={activeOutput ? "true" : "false"}
+                  data-new-tab={newTab ? "true" : "false"}
+                  data-min-label={displayQuestId ?? tab.threadKey}
+                  data-closable={tab.canClose ? "true" : "false"}
+                  data-has-quest-hover={hoverQuest ? "true" : "false"}
+                  data-reorderable="false"
+                >
+                  {children()}
+                </div>
+              );
+            })}
+          </SortableContext>
+        </DndContext>
+        {hasOverflowTabs && (
+          <div className="relative shrink-0" data-testid="thread-tabs-more-wrapper">
+            <button
+              type="button"
+              onClick={() => {
+                if (moreTabsOpen) closeMoreTabs();
+                else setMoreTabsOpen(true);
+              }}
+              className={`relative inline-flex h-full min-w-[4.25rem] items-center justify-center gap-1 rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset ${
+                moreTabsOpen || selectedHidden
+                  ? "border-cc-primary/45 bg-cc-card text-cc-fg"
+                  : activeOutputHidden
+                    ? "border-cc-info-border bg-cc-info-bg text-cc-info hover:bg-cc-info-bg/80"
+                    : "border-cc-border/70 bg-cc-hover/30 text-cc-muted hover:bg-cc-hover/60 hover:text-cc-fg"
+              }`}
+              data-testid="thread-tabs-more-button"
+              data-hidden-count={hiddenTabs.length}
+              data-has-selected={selectedHidden ? "true" : "false"}
+              data-has-active-output={activeOutputHidden ? "true" : "false"}
+              data-has-needs-input={needsInputHidden ? "true" : "false"}
+              data-has-muted-needs-input={mutedNeedsInputHidden ? "true" : "false"}
+              data-has-blue-notification={blueNudgeHidden ? "true" : "false"}
+              aria-haspopup="menu"
+              aria-expanded={moreTabsOpen}
+              aria-label={`${hiddenTabs.length} hidden tab${hiddenTabs.length === 1 ? "" : "s"}`}
+            >
+              {activeOutputHidden && (
+                <span className="h-1.5 w-1.5 rounded-full bg-cc-info shadow-[0_0_8px_rgba(14,116,144,0.45)] dark:shadow-[0_0_8px_rgba(125,211,252,0.65)]" />
+              )}
+              {needsInputHidden && <NeedsInputBell activeOutput={activeOutputHidden} />}
+              {showBlueNudgeHidden && <BlueNotificationBell activeOutput={activeOutputHidden} />}
+              {showMutedNeedsInputHidden && <MutedNeedsInputBell activeOutput={activeOutputHidden} />}
+              <span>More</span>
+              <span className="rounded-sm bg-cc-hover/70 px-1 font-mono-code text-[10px] text-cc-fg">
+                {hiddenTabs.length}
+              </span>
+            </button>
+            {moreTabsOpen && (
+              <div
+                className="absolute right-0 top-full z-50 mt-1 w-[min(22rem,90vw)] overflow-hidden rounded-md border border-cc-border bg-cc-card shadow-xl"
+                data-testid="thread-tabs-more-list"
+                data-reorder-mode={reorderMode ? "true" : "false"}
+                role="menu"
+              >
+                <div className="flex items-center justify-between gap-2 border-b border-cc-border px-2 py-1.5">
+                  <span className="text-[11px] font-medium text-cc-fg">More tabs</span>
+                  {onReorderThreadTabs && moreTabsReorderKeys.length > 1 && (
+                    <div className="flex items-center gap-1">
+                      {reorderMode ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={cancelMoreTabsReorder}
+                            className="rounded border border-cc-border/70 px-1.5 py-0.5 text-[10px] text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={commitMoreTabsReorder}
+                            className="rounded border border-cc-primary/50 bg-cc-primary/15 px-1.5 py-0.5 text-[10px] text-cc-fg transition-colors hover:bg-cc-primary/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
+                          >
+                            Done
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDraftReorderKeys(moreTabsReorderKeys);
+                            setReorderMode(true);
+                          }}
+                          className="rounded border border-cc-border/70 px-1.5 py-0.5 text-[10px] text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
+                          data-testid="thread-tabs-more-reorder-toggle"
+                        >
+                          Reorder
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="max-h-72 overflow-y-auto py-1" data-testid="thread-tabs-more-list-rows">
+                  {moreTabsListOrder().map((tab) => {
+                    const threadKey = normalizeThreadKey(tab.threadKey);
+                    const selected = isSelectedThread(currentThreadKey, threadKey);
+                    const activeOutput = isActiveOutputThread(runningActiveTurnRoute, threadKey);
+                    const hidden = hiddenKeySet.has(threadKey);
+                    const reorderable = moreTabsReorderKeySet.has(threadKey);
+                    const draftIndex = draftReorderKeys.indexOf(threadKey);
+                    const hoverQuest = tab.questId ? questById.get(normalizeThreadKey(tab.questId)) : undefined;
+                    const displayQuestId = hoverQuest?.questId ?? tab.questId;
+                    const displayTitle = tab.title;
+                    const displayTitleColor = displayThreadTabTitleColor(tab, hoverQuest, threadStatuses);
+                    return (
+                      <div
+                        key={threadKey}
+                        className={`group flex min-w-0 items-center gap-2 px-2 py-1.5 text-left text-[11px] transition-colors ${
+                          selected ? "bg-cc-primary/10 text-cc-fg" : "text-cc-fg hover:bg-cc-hover/50"
+                        }`}
+                        data-testid="thread-tabs-more-row"
+                        data-thread-key={threadKey}
+                        data-hidden={hidden ? "true" : "false"}
+                        data-current={selected ? "true" : "false"}
+                        data-active-output={activeOutput ? "true" : "false"}
+                        data-needs-input={tab.needsInput ? "true" : "false"}
+                        data-muted-needs-input={tab.mutedNeedsInput ? "true" : "false"}
+                        data-blue-notification={tab.blueNudge ? "true" : "false"}
+                        data-reorderable={reorderable ? "true" : "false"}
+                        onMouseEnter={(event) =>
+                          showQuestHover(
+                            hoverQuest,
+                            displayQuestId,
+                            event.currentTarget.getBoundingClientRect(),
+                            hoverQuest?.title === displayTitle,
+                          )
+                        }
+                        onMouseLeave={displayQuestId ? scheduleQuestHoverHide : undefined}
+                      >
+                        {reorderMode && reorderable && (
+                          <div className="flex shrink-0 flex-col gap-0.5">
+                            <button
+                              type="button"
+                              aria-label={`Move ${displayQuestId ?? threadKey} up`}
+                              disabled={draftIndex <= 0}
+                              onClick={() => moveDraftReorderKey(threadKey, -1)}
+                              className="rounded border border-cc-border/70 px-1 text-[10px] text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg disabled:opacity-35"
+                            >
+                              Up
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Move ${displayQuestId ?? threadKey} down`}
+                              disabled={draftIndex < 0 || draftIndex >= draftReorderKeys.length - 1}
+                              onClick={() => moveDraftReorderKey(threadKey, 1)}
+                              className="rounded border border-cc-border/70 px-1 text-[10px] text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg disabled:opacity-35"
+                            >
+                              Down
+                            </button>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          disabled={reorderMode}
+                          onClick={() => {
+                            openThread(threadKey);
+                            closeMoreTabs();
+                          }}
+                          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 disabled:cursor-default"
+                          data-testid="thread-tabs-more-row-select"
+                        >
+                          {activeOutput && (
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-200 shadow-[0_0_8px_rgba(224,242,254,0.8)]" />
+                          )}
+                          {tab.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
+                          {tab.blueNudge && !tab.needsInput && <BlueNotificationBell activeOutput={activeOutput} />}
+                          {tab.mutedNeedsInput && !tab.needsInput && !tab.blueNudge && (
+                            <MutedNeedsInputBell activeOutput={activeOutput} />
+                          )}
+                          <span className="min-w-0 flex-1">
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              {displayQuestId && <span className="shrink-0 font-mono-code">{displayQuestId}</span>}
+                              <span
+                                className="min-w-0 truncate"
+                                style={displayTitleColor ? { color: displayTitleColor } : undefined}
+                                data-testid="thread-tabs-more-row-title"
+                                data-title-color={displayTitleColor ?? ""}
+                              >
+                                {displayTitle}
+                              </span>
+                            </span>
+                            <span className="flex min-w-0 items-center gap-1.5 text-[10px] text-cc-muted">
+                              <span>{threadKey}</span>
+                              {selected && <span className="text-violet-100">Current</span>}
+                              {!hidden && <span>Visible</span>}
+                              {tab.detail && <span className="min-w-0 truncate">{tab.detail}</span>}
+                            </span>
+                          </span>
+                        </button>
+                        {onCloseThreadTab && tab.canClose && !reorderMode && (
+                          <button
+                            type="button"
+                            aria-label={`Close ${displayQuestId ?? displayTitle}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onCloseThreadTab(threadKey);
+                            }}
+                            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
+                            data-testid="thread-tabs-more-row-close"
+                          >
+                            <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                              <path
+                                d="M3 3l6 6M9 3L3 9"
+                                stroke="currentColor"
+                                strokeWidth="1.4"
+                                strokeLinecap="round"
+                              />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      {hoveredQuest && (
+        <QuestHoverCard
+          quest={hoveredQuest.quest}
+          anchorRect={hoveredQuest.anchorRect}
+          onMouseEnter={() => {
+            if (hideQuestHoverTimerRef.current) clearTimeout(hideQuestHoverTimerRef.current);
+          }}
+          onMouseLeave={hideQuestHoverImmediately}
+        />
+      )}
+    </div>
+  );
+}

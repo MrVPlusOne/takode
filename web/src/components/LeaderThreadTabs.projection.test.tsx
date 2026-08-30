@@ -106,6 +106,10 @@ function projectedTab(
     title: `Projected ${threadKey}`,
     boardStatus: null,
     journey: null,
+    sourceLeaderSessionId: null,
+    sourceRowCreatedAt: null,
+    workerSessionId: null,
+    workerSessionNum: null,
     active: false,
     queued: false,
     proposed: false,
@@ -193,17 +197,33 @@ describe("leader thread tabs projected component behavior", () => {
     );
   });
 
-  it("uses the same completed Waiting treatment in the hidden More row without adding attention", async () => {
+  it("keeps active Work color and completed Waiting foreground in hidden More rows", async () => {
     setMeasuredRailWidth(392);
     const tabs = [
       projectedTab("q-1", { active: true, canClose: false }),
       projectedTab("q-2", { active: true, canClose: false }),
-      projectedTab("q-3"),
+      projectedTab("q-3", {
+        completed: true,
+        boardStatus: "MEMORY",
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "memory",
+          activePhaseIndex: 2,
+          phaseCount: 3,
+        },
+      }),
       projectedTab("q-4", {
         active: true,
         completed: false,
-        boardStatus: "PORTING",
-        journey: { mode: "active", currentPhaseId: "port", activePhaseIndex: 2, phaseCount: 4 },
+        boardStatus: "WORKING",
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "work",
+          activePhaseIndex: 1,
+          phaseCount: 3,
+        },
         canClose: false,
       }),
       projectedTab("q-5"),
@@ -219,6 +239,16 @@ describe("leader thread tabs projected component behavior", () => {
         tabs,
         mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
         threadStatuses: {
+          "q-3": {
+            kind: "waiting",
+            label: "Thread Waiting",
+            threadKey: "q-3",
+            questId: "q-3",
+            summary: "waiting for final user review after completion",
+            messageId: "q-3-waiting",
+            timestamp: 100,
+            updatedAt: 100,
+          },
           "q-4": {
             kind: "waiting",
             label: "Thread Waiting",
@@ -233,6 +263,20 @@ describe("leader thread tabs projected component behavior", () => {
         activePhaseSummary: [],
       }),
     );
+    useStore.setState({
+      quests: [
+        {
+          id: "q-4",
+          questId: "q-4",
+          title: "Stale hydrated completion",
+          status: "done",
+          description: "",
+          createdAt: 1,
+          completedAt: 90,
+          verificationItems: [],
+        } as never,
+      ],
+    });
 
     render(
       <WorkBoardBar
@@ -248,21 +292,44 @@ describe("leader thread tabs projected component behavior", () => {
     expect(moreButton).toHaveAttribute("data-has-needs-input", "false");
     expect(moreButton).toHaveAttribute("data-has-blue-notification", "false");
     fireEvent.click(moreButton);
-    const q4Row = screen
-      .getAllByTestId("thread-tabs-more-row")
-      .find((row) => row.getAttribute("data-thread-key") === "q-4")!;
-    expect(within(q4Row).getByTestId("thread-tabs-more-row-title")).toHaveAttribute(
+    const hiddenRows = screen.getAllByTestId("thread-tabs-more-row");
+    const completedRow = hiddenRows.find((row) => row.getAttribute("data-thread-key") === "q-3")!;
+    const activeWorkRow = hiddenRows.find((row) => row.getAttribute("data-thread-key") === "q-4")!;
+
+    expect(within(completedRow).getByTestId("thread-tabs-more-row-title")).toHaveAttribute(
       "data-title-color",
       "var(--color-cc-fg)",
     );
-    expect(within(q4Row).getByRole("button", { name: "Close q-4" })).toBeTruthy();
+    fireEvent.mouseEnter(completedRow);
+    expect(within(completedRow).getByTestId("thread-tabs-more-row-title")).toHaveAttribute(
+      "data-title-color",
+      "var(--color-cc-fg)",
+    );
+    expect(within(completedRow).getByRole("button", { name: "Close q-3" })).toBeTruthy();
+
+    expect(within(activeWorkRow).getByTestId("thread-tabs-more-row-title")).toHaveAttribute(
+      "data-title-color",
+      "var(--color-cc-phase-thread-tab-title-work, #166534)",
+    );
+    fireEvent.mouseEnter(activeWorkRow);
+    expect(within(activeWorkRow).getByTestId("thread-tabs-more-row-title")).toHaveAttribute(
+      "data-title-color",
+      "var(--color-cc-phase-thread-tab-title-work, #166534)",
+    );
+    expect(within(activeWorkRow).queryByRole("button", { name: "Close q-4" })).toBeNull();
   });
 
-  it("preserves hydrated Questmaster completion over stale projected activity", async () => {
+  it("uses accepted projected activity over stale hydrated completion and follows projected completion", async () => {
     const projected = projectedTab("q-700", {
       active: true,
-      boardStatus: "PORTING",
-      journey: { mode: "active", currentPhaseId: "port", activePhaseIndex: 2, phaseCount: 4 },
+      boardStatus: "WORKING",
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "work", "memory"],
+        currentPhaseId: "work",
+        activePhaseIndex: 1,
+        phaseCount: 3,
+      },
       canClose: false,
     });
     installLeaderProjection(
@@ -274,7 +341,12 @@ describe("leader thread tabs projected component behavior", () => {
           updatedAt: 100,
         },
         tabs: [projected],
-        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+        mainAttention: {
+          needsInput: false,
+          mutedNeedsInput: false,
+          reviewUnread: false,
+          updatedAt: 0,
+        },
         threadStatuses: {
           "q-700": {
             kind: "waiting",
@@ -312,9 +384,32 @@ describe("leader thread tabs projected component behavior", () => {
 
     const tab = screen.getByTestId("thread-tab");
     expect(tab).toHaveAttribute("data-thread-key", "q-700");
-    expect(tab).toHaveAttribute("data-closable", "true");
-    expect(within(tab).getByTestId("thread-tab-title")).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
-    expect(within(tab).getByRole("button", { name: "Close q-700" })).toBeTruthy();
+    expect(tab).toHaveAttribute("data-closable", "false");
+    expect(within(tab).getByTestId("thread-tab-title")).toHaveAttribute(
+      "data-title-color",
+      "var(--color-cc-phase-thread-tab-title-work, #166534)",
+    );
+    fireEvent.mouseEnter(tab);
+    act(() => {
+      useStore.getState().upsertQuestDetail({
+        id: "q-700",
+        questId: "q-700",
+        version: 2,
+        title: "Hydrated current quest",
+        status: "in_progress",
+        description: "",
+        createdAt: 1,
+        updatedAt: 110,
+        statusChangedAt: 110,
+        sessionId: "worker-current",
+        claimedAt: 110,
+      });
+    });
+    expect(within(tab).getByTestId("thread-tab-title")).toHaveAttribute(
+      "data-title-color",
+      "var(--color-cc-phase-thread-tab-title-work, #166534)",
+    );
+    expect(within(tab).queryByRole("button", { name: "Close q-700" })).toBeNull();
 
     act(() => {
       useStore.getState().applySyncedProjectionUpdate(
@@ -329,8 +424,21 @@ describe("leader thread tabs projected component behavior", () => {
               closedThreadTombstones: [],
               updatedAt: 120,
             },
-            tabs: [{ ...projected, updatedAt: 120 }],
-            mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+            tabs: [
+              {
+                ...projected,
+                active: false,
+                completed: true,
+                canClose: true,
+                updatedAt: 120,
+              },
+            ],
+            mainAttention: {
+              needsInput: false,
+              mutedNeedsInput: false,
+              reviewUnread: false,
+              updatedAt: 0,
+            },
             threadStatuses: {
               "q-700": {
                 kind: "ready",
@@ -349,9 +457,35 @@ describe("leader thread tabs projected component behavior", () => {
       );
     });
 
-    await waitFor(() =>
-      expect(within(tab).getByTestId("thread-tab-title")).toHaveAttribute("data-title-color", "var(--color-cc-muted)"),
+    await waitFor(() => {
+      expect(tab).toHaveAttribute("data-closable", "true");
+      expect(within(tab).getByTestId("thread-tab-title")).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
+      expect(within(tab).getByRole("button", { name: "Close q-700" })).toBeTruthy();
+    });
+  });
+
+  it("retains local completion fallback for legacy projection values", () => {
+    const legacyTab = projectedTab("q-701", { active: true, canClose: false });
+    installLeaderProjection(
+      createLeaderThreadTabsProjectionValue({
+        currentQuestStateVersion: null,
+        tabState: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-701"],
+          closedThreadTombstones: [],
+          updatedAt: 10,
+        },
+        tabs: [legacyTab],
+        threadStatuses: {},
+      }),
     );
+    useStore.setState({ quests: [{ questId: "q-701", title: "Legacy done", status: "done" } as never] });
+
+    render(<WorkBoardBar sessionId="leader" currentThreadKey="main" onCloseThreadTab={vi.fn()} />);
+
+    const tab = screen.getByTestId("thread-tab");
+    expect(tab).toHaveAttribute("data-closable", "true");
+    expect(within(tab).getByTestId("thread-tab-title")).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
   });
 
   it("combines restored local tabs with derived projection tabs while tab state is absent", () => {
@@ -404,31 +538,149 @@ describe("leader thread tabs projected component behavior", () => {
     expect(screen.queryByTestId("thread-tab-rail")).toBeNull();
   });
 
-  it("does not rerender the production workboard for an equal projection update", () => {
-    installLeaderProjection(createLeaderThreadTabsProjectionValue());
-    let renderCount = 0;
-    const onRender: ProfilerOnRenderCallback = () => {
-      renderCount += 1;
+  it("bounds Work to Memory to Completed renders and suppresses an equal completion revision", () => {
+    const work = createLeaderThreadTabsProjectionValue({
+      tabs: [
+        projectedTab("q-1", {
+          title: "Current quest",
+          boardStatus: "WORKING",
+          journey: {
+            mode: "active",
+            phaseIds: ["alignment", "work", "memory"],
+            currentPhaseId: "work",
+            activePhaseIndex: 1,
+            phaseCount: 3,
+          },
+          active: true,
+          canClose: false,
+          updatedAt: 100,
+        }),
+      ],
+      tabState: {
+        version: 1,
+        orderedOpenThreadKeys: ["q-1"],
+        closedThreadTombstones: [],
+        updatedAt: 100,
+      },
+      threadStatuses: {},
+      activePhaseSummary: [{ label: "Work", count: 1, tone: "phase", color: "blue", colorName: "Blue" }],
+    });
+    const memory = createLeaderThreadTabsProjectionValue({
+      ...work,
+      tabs: [
+        {
+          ...work.tabs[0]!,
+          boardStatus: "MEMORY",
+          journey: {
+            ...work.tabs[0]!.journey!,
+            currentPhaseId: "memory",
+            activePhaseIndex: 2,
+          },
+          updatedAt: 110,
+        },
+      ],
+      tabState: { ...work.tabState!, updatedAt: 110 },
+      activePhaseSummary: [{ label: "Memory", count: 1, tone: "phase", color: "purple", colorName: "Purple" }],
+    });
+    const completed = createLeaderThreadTabsProjectionValue({
+      ...memory,
+      tabs: [
+        {
+          ...memory.tabs[0]!,
+          boardStatus: "DONE",
+          active: false,
+          completed: true,
+          canClose: true,
+          updatedAt: 120,
+        },
+      ],
+      tabState: { ...memory.tabState!, updatedAt: 120 },
+      activePhaseSummary: [],
+    });
+
+    installLeaderProjection(work);
+    const commits: Array<{ phase: Parameters<ProfilerOnRenderCallback>[1]; actualDuration: number }> = [];
+    const onRender: ProfilerOnRenderCallback = (_id, phase, actualDuration) => {
+      commits.push({ phase, actualDuration });
     };
     render(
-      <Profiler id="workboard" onRender={onRender}>
+      <Profiler id="workboard-transition" onRender={onRender}>
         <WorkBoardBar sessionId="leader" />
       </Profiler>,
     );
-    const beforeUpdate = renderCount;
 
+    const commitsAfterMount = commits.length;
     act(() => {
       useStore.getState().applySyncedProjectionUpdate(
         createLeaderThreadTabsProjectionEnvelope({
           type: "synced_projection_update",
           key: "leader",
           revision: 2,
-          value: createLeaderThreadTabsProjectionValue(),
+          value: memory,
+        }),
+      );
+    });
+    const commitsAfterMemory = commits.length;
+    expect(commits.slice(commitsAfterMount, commitsAfterMemory)).toHaveLength(1);
+
+    act(() => {
+      useStore.getState().applySyncedProjectionUpdate(
+        createLeaderThreadTabsProjectionEnvelope({
+          type: "synced_projection_update",
+          key: "leader",
+          revision: 3,
+          value: completed,
+        }),
+      );
+    });
+    const commitsAfterCompleted = commits.length;
+    expect(commits.slice(commitsAfterMemory, commitsAfterCompleted)).toHaveLength(1);
+
+    act(() => {
+      useStore.getState().applySyncedProjectionUpdate(
+        createLeaderThreadTabsProjectionEnvelope({
+          type: "synced_projection_update",
+          key: "leader",
+          revision: 4,
+          value: createLeaderThreadTabsProjectionValue({ ...completed }),
         }),
       );
     });
 
-    expect(renderCount).toBe(beforeUpdate);
+    expect(commitsAfterMount).toBeGreaterThan(0);
+    expect(commits.slice(commitsAfterCompleted)).toEqual([]);
+    expect(screen.getByTestId("thread-tab")).toHaveAttribute("data-thread-key", "q-1");
+    expect(screen.getByTestId("thread-tab")).toHaveAttribute("data-closable", "true");
+  });
+
+  it("measures zero additional WorkBoardBar commits across repeated equal projection updates", () => {
+    installLeaderProjection(createLeaderThreadTabsProjectionValue());
+    const commitPhases: Parameters<ProfilerOnRenderCallback>[1][] = [];
+    const onRender: ProfilerOnRenderCallback = (_id, phase) => {
+      commitPhases.push(phase);
+    };
+    render(
+      <Profiler id="workboard" onRender={onRender}>
+        <WorkBoardBar sessionId="leader" />
+      </Profiler>,
+    );
+    const committedBeforeNoOps = commitPhases.length;
+
+    act(() => {
+      for (const revision of [2, 3, 4, 5]) {
+        useStore.getState().applySyncedProjectionUpdate(
+          createLeaderThreadTabsProjectionEnvelope({
+            type: "synced_projection_update",
+            key: "leader",
+            revision,
+            value: createLeaderThreadTabsProjectionValue(),
+          }),
+        );
+      }
+    });
+
+    expect(committedBeforeNoOps).toBeGreaterThan(0);
+    expect(commitPhases.slice(committedBeforeNoOps)).toEqual([]);
   });
 
   it("shows projected current status only in its owning feed and hides it from All Threads", () => {

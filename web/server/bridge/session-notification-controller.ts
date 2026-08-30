@@ -6,7 +6,7 @@ import type {
 } from "../session-types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import {
-  applyLeaderThreadTabUpdate,
+  applyLeaderServerCandidateThreadTabEvent,
   canServerCandidateOpenThread,
   normalizeLeaderOpenThreadTabsState,
   normalizeLeaderThreadKey,
@@ -43,6 +43,12 @@ type BrowserNotificationDeps = {
 
 type PersistNotificationDeps = BrowserNotificationDeps & {
   persistSession: (session: SessionLike) => void;
+  promoteLeaderThreadTabForAttention?: (
+    sessionId: string,
+    threadKey: string,
+    eventAt: number,
+    kind: "primary" | "review",
+  ) => boolean;
 };
 
 type NotifyUserDeps = PersistNotificationDeps & {
@@ -61,6 +67,7 @@ type NotifyUserOptions = {
   suggestedAnswers?: string[];
   questions?: NeedsInputNotificationQuestion[];
   threadRoute?: ThreadRouteMetadata;
+  suppressThreadTabPromotion?: boolean;
 };
 
 type NotifyUserResult = {
@@ -398,6 +405,8 @@ export function notifyUser(
   if (notif.category === "needs-input") {
     surfaceCreatedNeedsInputThreadTab(session, threadRoute, timestamp, deps);
     markSatisfiedThreadOutcomeReminders(session, notif, anchorIndex);
+  } else if (notif.category === "review" && !options.suppressThreadTabPromotion) {
+    deps.promoteLeaderThreadTabForAttention?.(session.id, threadRoute.threadKey, timestamp, "review");
   }
   touchNotificationStatus(session);
 
@@ -513,6 +522,7 @@ export function recordThreadReadyUnreadNotifications(
       threadRoute,
     );
     session.notifications.push(notification);
+    deps.promoteLeaderThreadTabForAttention?.(session.id, threadRoute.threadKey, record.timestamp, "review");
     changed = true;
   }
 
@@ -534,11 +544,9 @@ function surfaceCreatedNeedsInputThreadTab(
     session.state?.isOrchestrator === true || deps.getLauncherSessionInfo?.(session.id)?.isOrchestrator === true;
   if (!isLeader || !shouldPersistLeaderThreadTab(route.threadKey)) return;
   const existingState = normalizeLeaderOpenThreadTabsState(session.state?.leaderOpenThreadTabs);
-  const nextState = applyLeaderThreadTabUpdate(
-    existingState,
-    { type: "open", threadKey: route.threadKey, placement: "first", source: "server_candidate", eventAt },
-    eventAt,
-  );
+  const nextState = applyLeaderServerCandidateThreadTabEvent(existingState, route.threadKey, eventAt, {
+    repositionExisting: true,
+  });
   if (!nextState || nextState === existingState) return;
   session.state = { ...(session.state ?? {}), leaderOpenThreadTabs: nextState };
 }

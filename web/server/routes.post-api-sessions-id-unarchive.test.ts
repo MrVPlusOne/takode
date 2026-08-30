@@ -226,6 +226,7 @@ function createMockBridge() {
     _vscodeSelectionState: null as any,
     _vscodeWindows: [] as any[],
     closeSession: vi.fn(),
+    invalidateLeaderThreadTabsForSessionQuestState: vi.fn(),
     getSession: vi.fn(function (this: any, sessionId: string) {
       if (sessionId in this._sessions) return this._sessions[sessionId];
       const stateEntries = this.getAllSessions();
@@ -548,6 +549,7 @@ describe("POST /api/sessions/:id/unarchive", () => {
     expect(json.relaunch).toEqual({ ok: true });
     expect(launcher.setArchived).toHaveBeenCalledWith("s1", false);
     expect(sessionStore.setArchived).toHaveBeenCalledWith("s1", false);
+    expect(bridge.invalidateLeaderThreadTabsForSessionQuestState).toHaveBeenCalledWith("s1");
     expect(launcher.relaunch).toHaveBeenCalledWith("s1");
   });
 

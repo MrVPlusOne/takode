@@ -238,6 +238,7 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
 
     launcher.setArchived(id, false);
     await sessionStore.setArchived(id, false);
+    wsBridge.invalidateLeaderThreadTabsForSessionQuestState?.(id);
 
     // For worktree sessions: recreate the worktree if it was deleted during archiving
     let worktreeRecreated = false;

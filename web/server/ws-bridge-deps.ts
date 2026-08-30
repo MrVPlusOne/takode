@@ -498,6 +498,12 @@ export function getSessionNotificationDeps(host: any) {
     broadcastToBrowsers: (targetSession: unknown, msg: BrowserIncomingMessage) =>
       host.broadcastToBrowsers(targetSession as Session, msg),
     persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),
+    promoteLeaderThreadTabForAttention: (
+      sessionId: string,
+      threadKey: string,
+      eventAt: number,
+      kind: "primary" | "review",
+    ) => host.promoteLeaderThreadTabForAttention?.(sessionId, threadKey, eventAt, kind),
     emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) =>
       host.emitTakodeEvent(sessionId, type as TakodeEventType, data as any),
     scheduleNotification: (
@@ -568,6 +574,8 @@ export function getSessionRegistryDeps(host: any) {
     onSessionNamedByQuest: host.onSessionNamedByQuest
       ? (sessionId: string, title: string) => host.onSessionNamedByQuest?.(sessionId, title)
       : undefined,
+    invalidateLeaderThreadTabsForQuestIds: (questIds: readonly string[]) =>
+      host.invalidateLeaderThreadTabsForQuestIds?.(questIds),
     finalizeCodexRecoveringTurn: (targetSession: unknown, reason: "recovery_timeout" | "recovery_failed") =>
       host.finalizeCodexRecoveringTurn(targetSession as Session, reason),
   };
@@ -938,6 +946,10 @@ export function getBrowserTransportDeps(host: any) {
       }
       session.searchDataOnly = false;
       session.searchExcerpts = [];
+      // Search-only sessions are excluded from projection authority. Revealing one may change both
+      // its own leader tabs and the current quest state projected by every leader that references it.
+      host.getSyncedProjectionController().invalidateSession(session);
+      host.invalidateLeaderThreadTabsForSessionQuestState?.(session.id);
     },
   };
 }
@@ -1162,7 +1174,11 @@ export function getWorkBoardStateDeps(host: any) {
       getBoardDispatchableSignatureController(targetSession as Session, questId, host.getBoardWatchdogDeps()),
     markNotificationDone: (sessionId: string, notifId: string, done: boolean) =>
       markNotificationDoneBySessionIdController(host.sessions, sessionId, notifId, done, notificationDeps),
-    broadcastBoard: (targetSession: unknown, board: BoardRow[], completedBoard: BoardRow[]) =>
+    invalidateLeaderThreadTabsForQuestIds: (questIds: readonly string[]) =>
+      host.invalidateLeaderThreadTabsForQuestIds?.(questIds),
+    promoteLeaderThreadTabForQuest: (questId: string, eventAt: number, sourceSessionId: string) =>
+      host.promoteLeaderThreadTabForQuest?.(questId, eventAt, sourceSessionId),
+    broadcastBoard: (targetSession: unknown, board: BoardRow[], completedBoard: BoardRow[]) => {
       host.broadcastToBrowsers(targetSession as Session, {
         type: "board_updated",
         board,
@@ -1172,15 +1188,16 @@ export function getWorkBoardStateDeps(host: any) {
           : {}),
         leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
         rowSessionStatuses: host.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
-      }),
+      });
+    },
     broadcastAttentionRecords: (targetSession: unknown, attentionRecords: SessionAttentionRecord[]) =>
       host.broadcastToBrowsers(targetSession as Session, {
         type: "attention_records_update",
         attentionRecords,
       }),
     persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),
-    notifyReview: (sessionId: string, summary: string) =>
-      void notifyUserBySessionIdController(host.sessions, sessionId, "review", summary, notificationDeps),
+    notifyReview: (sessionId: string, summary: string, options?: { suppressThreadTabPromotion?: boolean }) =>
+      void notifyUserBySessionIdController(host.sessions, sessionId, "review", summary, notificationDeps, options),
   };
 }
 
@@ -1294,6 +1311,10 @@ export function getBrowserRoutingDeps(host: any) {
         ? host.emitTakodeEvent(sessionId, type as TakodeEventType, data as Record<string, unknown>)
         : host.emitTakodeEvent(sessionId, type as TakodeEventType, data as Record<string, unknown>, actorSessionId),
     persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),
+    promoteLeaderThreadTabForMessageAttention: (
+      sessionId: string,
+      message: Extract<BrowserIncomingMessage, { type: "user_message" }>,
+    ) => host.promoteLeaderThreadTabForMessageAttention?.(sessionId, message),
     sessionNotificationDeps: {
       ...notificationDeps,
       schedulePermissionNotification: (targetSession: unknown, request: PermissionRequest) => {

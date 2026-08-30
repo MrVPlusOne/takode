@@ -547,6 +547,15 @@ describe("Playground", () => {
       expect(needsInput).toHaveAttribute("data-blue-notification", "true");
       expect(within(needsInput).getByTestId("thread-tab-needs-input-bell")).toBeTruthy();
       expect(within(needsInput).queryByTestId("thread-tab-blue-notification-bell")).toBeNull();
+      expect(within(needsInput).getByTestId("thread-tab-title")).toHaveAttribute(
+        "data-title-color",
+        "var(--color-cc-phase-thread-tab-title-work, #166534)",
+      );
+      fireEvent.mouseEnter(needsInput);
+      expect(within(needsInput).getByTestId("thread-tab-title")).toHaveAttribute(
+        "data-title-color",
+        "var(--color-cc-phase-thread-tab-title-work, #166534)",
+      );
       expect(completedWaiting).toHaveAttribute("data-closable", "true");
       expect(within(completedWaiting).getByTestId("thread-tab-title")).toHaveAttribute(
         "data-title-color",

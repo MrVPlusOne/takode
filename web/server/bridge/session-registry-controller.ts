@@ -106,6 +106,7 @@ export interface SessionRegistryDeps {
   resolveQuestTitle?: (questId: string) => Promise<string | undefined>;
   broadcastTaskHistory?: (session: SessionLike) => void;
   onSessionNamedByQuest?: (sessionId: string, title: string) => void;
+  invalidateLeaderThreadTabsForQuestIds?: (questIds: readonly string[]) => void;
   finalizeCodexRecoveringTurn?: (session: SessionLike, reason: "recovery_timeout" | "recovery_failed") => void;
 }
 
@@ -1381,7 +1382,11 @@ export function setSessionClaimedQuest(
   } | null,
   deps: Pick<
     SessionRegistryDeps,
-    "broadcastToBrowsers" | "persistSession" | "getLauncherSessionInfo" | "onSessionNamedByQuest"
+    | "broadcastToBrowsers"
+    | "persistSession"
+    | "getLauncherSessionInfo"
+    | "onSessionNamedByQuest"
+    | "invalidateLeaderThreadTabsForQuestIds"
   >,
 ): void {
   console.log(
@@ -1411,6 +1416,12 @@ export function setSessionClaimedQuest(
   session.state.claimedQuestStatus = quest?.status;
   session.state.claimedQuestVerificationInboxUnread = quest?.verificationInboxUnread;
   session.state.claimedQuestLeaderSessionId = quest?.leaderSessionId;
+  const projectionClaimChanged =
+    prevId !== nextId || prevStatus !== nextStatus || prevLeaderSessionId !== nextLeaderSessionId;
+  if (projectionClaimChanged) {
+    const affectedQuestIds = [...new Set([prevId, nextId].filter((id): id is string => !!id))];
+    if (affectedQuestIds.length > 0) deps.invalidateLeaderThreadTabsForQuestIds?.(affectedQuestIds);
+  }
   const isQuestActive =
     !!quest?.title &&
     (quest?.status === "in_progress" ||

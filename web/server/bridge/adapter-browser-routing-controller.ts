@@ -1263,6 +1263,7 @@ export function ingestUserMessage(
         deps.broadcastToBrowsers(session, reminderHistoryEntry);
       }
       session.messageHistory.push(userHistoryEntry);
+      deps.promoteLeaderThreadTabForMessageAttention?.(session.id, userHistoryEntry);
       userMsgHistoryIdx = session.messageHistory.length - 1;
       session.lastUserMessage = formatReplyContentForPreview(msg.content || "", msg.replyContext).slice(0, 80);
       if (isActualHumanUserMessage(userHistoryEntry)) {
@@ -1844,6 +1845,7 @@ export function routeAdapterBrowserMessage(
           return true;
         }
         deps.addPendingCodexInput(session, pendingInput);
+        deps.promoteLeaderThreadTabForMessageAttention?.(session.id, ingested.historyEntry);
         markNeedsInputResolutionNoticesQueued(
           session,
           ingested.needsInputResolutionNoticeIds,

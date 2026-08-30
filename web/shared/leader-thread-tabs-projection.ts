@@ -1,6 +1,6 @@
 import type { LeaderActivePhaseSummarySegment } from "./leader-active-phase-summary.js";
 import { LEADER_OPEN_THREAD_TABS_VERSION } from "./leader-open-thread-tabs.js";
-import type { QuestJourneyLifecycleMode } from "./quest-journey.js";
+import type { QuestJourneyLifecycleMode, QuestJourneyPhaseId } from "./quest-journey.js";
 import { THREAD_STATUS_MESSAGE_ID_HASH_LENGTH, type LeaderThreadStatus } from "./thread-status-marker.js";
 
 export const LEADER_THREAD_TABS_PROJECTION = "leader-thread-tabs" as const;
@@ -33,6 +33,8 @@ export interface LeaderThreadTabsProjectionAttention {
 
 export interface LeaderThreadTabsProjectionJourney {
   mode: QuestJourneyLifecycleMode | null;
+  /** Current bounded phase sequence. Omitted by legacy projection producers. */
+  phaseIds?: readonly QuestJourneyPhaseId[];
   currentPhaseId: string | null;
   activePhaseIndex: number | null;
   phaseCount: number;
@@ -45,6 +47,13 @@ export interface LeaderThreadTabsProjectionTab {
   title: string | null;
   boardStatus: string | null;
   journey: LeaderThreadTabsProjectionJourney | null;
+  /** Leader session that owns the current visual board row, not necessarily this projected thread. */
+  sourceLeaderSessionId?: string | null;
+  /** Creation identity of the current visual board row, used to fence historical Journey detail. */
+  sourceRowCreatedAt?: number | null;
+  /** Worker assigned by the current visual board row. */
+  workerSessionId?: string | null;
+  workerSessionNum?: number | null;
   active: boolean;
   queued: boolean;
   proposed: boolean;
@@ -55,6 +64,8 @@ export interface LeaderThreadTabsProjectionTab {
 }
 
 export interface LeaderThreadTabsProjectionValue {
+  /** Present when tab completion, Journey, and participant fields come from current cross-session authority. */
+  currentQuestStateVersion?: 1;
   /** Null means no durable tab state exists yet; derived visual candidates may still populate tabs. */
   tabState: LeaderThreadTabsProjectionTabState | null;
   tabs: LeaderThreadTabsProjectionTab[];
@@ -100,15 +111,25 @@ function isAttention(value: unknown): value is LeaderThreadTabsProjectionAttenti
   );
 }
 
-function isJourney(value: unknown): value is LeaderThreadTabsProjectionJourney {
+function isJourney(
+  value: unknown,
+  requireCurrentQuestStateFields: boolean,
+): value is LeaderThreadTabsProjectionJourney {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<LeaderThreadTabsProjectionJourney>;
+  const phaseIds = candidate.phaseIds;
+  const validPhaseIds =
+    Array.isArray(phaseIds) &&
+    phaseIds.length <= 100 &&
+    phaseIds.every((phaseId) => boundedString(phaseId, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH));
+  if (requireCurrentQuestStateFields ? !validPhaseIds : phaseIds !== undefined && !validPhaseIds) return false;
   return (
     (candidate.mode === null || candidate.mode === "active" || candidate.mode === "proposed") &&
     boundedNullableString(candidate.currentPhaseId, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH) &&
     (candidate.activePhaseIndex === null || nonNegativeInteger(candidate.activePhaseIndex)) &&
     nonNegativeInteger(candidate.phaseCount) &&
     candidate.phaseCount <= 100 &&
+    (phaseIds === undefined || phaseIds.length === candidate.phaseCount) &&
     (candidate.activePhaseIndex === null || candidate.activePhaseIndex < candidate.phaseCount)
   );
 }
@@ -144,15 +165,32 @@ function isTabState(value: unknown): value is LeaderThreadTabsProjectionTabState
   return true;
 }
 
-function isTab(value: unknown): value is LeaderThreadTabsProjectionTab {
+function isTab(value: unknown, requireCurrentQuestStateFields: boolean): value is LeaderThreadTabsProjectionTab {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<LeaderThreadTabsProjectionTab>;
+  const hasOwn = (key: keyof LeaderThreadTabsProjectionTab): boolean => Object.hasOwn(candidate, key);
   return (
     normalizedThreadKey(candidate.threadKey) &&
     boundedNullableString(candidate.questId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) &&
     boundedNullableString(candidate.title, LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH) &&
     boundedNullableString(candidate.boardStatus, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH) &&
-    (candidate.journey === null || isJourney(candidate.journey)) &&
+    (candidate.journey === null || isJourney(candidate.journey, requireCurrentQuestStateFields)) &&
+    (!requireCurrentQuestStateFields || hasOwn("sourceLeaderSessionId")) &&
+    (candidate.sourceLeaderSessionId === undefined
+      ? !requireCurrentQuestStateFields
+      : boundedNullableString(candidate.sourceLeaderSessionId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH)) &&
+    (!requireCurrentQuestStateFields || hasOwn("sourceRowCreatedAt")) &&
+    (candidate.sourceRowCreatedAt === undefined
+      ? !requireCurrentQuestStateFields
+      : candidate.sourceRowCreatedAt === null || nonNegativeNumber(candidate.sourceRowCreatedAt)) &&
+    (!requireCurrentQuestStateFields || hasOwn("workerSessionId")) &&
+    (candidate.workerSessionId === undefined
+      ? !requireCurrentQuestStateFields
+      : boundedNullableString(candidate.workerSessionId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH)) &&
+    (!requireCurrentQuestStateFields || hasOwn("workerSessionNum")) &&
+    (candidate.workerSessionNum === undefined
+      ? !requireCurrentQuestStateFields
+      : candidate.workerSessionNum === null || nonNegativeInteger(candidate.workerSessionNum)) &&
     typeof candidate.active === "boolean" &&
     typeof candidate.queued === "boolean" &&
     typeof candidate.proposed === "boolean" &&
@@ -226,9 +264,11 @@ function utf8ByteLength(value: string): number {
 export function isLeaderThreadTabsProjectionValue(value: unknown): value is LeaderThreadTabsProjectionValue {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<LeaderThreadTabsProjectionValue>;
+  if (candidate.currentQuestStateVersion !== undefined && candidate.currentQuestStateVersion !== 1) return false;
   if (candidate.tabState !== null && !isTabState(candidate.tabState)) return false;
   if (!Array.isArray(candidate.tabs) || candidate.tabs.length > LEADER_THREAD_TABS_PROJECTION_MAX_TABS) return false;
-  if (!candidate.tabs.every(isTab)) return false;
+  const requireCurrentQuestStateFields = candidate.currentQuestStateVersion === 1;
+  if (!candidate.tabs.every((tab) => isTab(tab, requireCurrentQuestStateFields))) return false;
   if (!isAttention(candidate.mainAttention)) return false;
   if (!candidate.threadStatuses || typeof candidate.threadStatuses !== "object") return false;
   const statusEntries = Object.entries(candidate.threadStatuses);
@@ -279,6 +319,10 @@ export function leaderThreadTabsProjectionTabEqual(
     left.title === right.title &&
     left.boardStatus === right.boardStatus &&
     journeyEqual(left.journey, right.journey) &&
+    left.sourceLeaderSessionId === right.sourceLeaderSessionId &&
+    left.sourceRowCreatedAt === right.sourceRowCreatedAt &&
+    left.workerSessionId === right.workerSessionId &&
+    left.workerSessionNum === right.workerSessionNum &&
     left.active === right.active &&
     left.queued === right.queued &&
     left.proposed === right.proposed &&
@@ -294,6 +338,7 @@ export function leaderThreadTabsProjectionEqual(
   right: LeaderThreadTabsProjectionValue,
 ): boolean {
   return (
+    left.currentQuestStateVersion === right.currentQuestStateVersion &&
     tabStateEqual(left.tabState, right.tabState) &&
     arraysEqual(left.tabs, right.tabs, leaderThreadTabsProjectionTabEqual) &&
     leaderThreadTabsProjectionAttentionEqual(left.mainAttention, right.mainAttention) &&
@@ -325,6 +370,7 @@ export function reconcileLeaderThreadTabsProjectionValue(
     activePhaseSegmentEqual,
   );
   if (
+    previous.currentQuestStateVersion === next.currentQuestStateVersion &&
     tabState === previous.tabState &&
     tabs === previous.tabs &&
     mainAttention === previous.mainAttention &&
@@ -333,7 +379,14 @@ export function reconcileLeaderThreadTabsProjectionValue(
   ) {
     return previous;
   }
-  return { tabState, tabs, mainAttention, threadStatuses, activePhaseSummary };
+  return {
+    ...(next.currentQuestStateVersion ? { currentQuestStateVersion: next.currentQuestStateVersion } : {}),
+    tabState,
+    tabs,
+    mainAttention,
+    threadStatuses,
+    activePhaseSummary,
+  };
 }
 
 function journeyEqual(
@@ -345,8 +398,18 @@ function journeyEqual(
     left.mode === right.mode &&
     left.currentPhaseId === right.currentPhaseId &&
     left.activePhaseIndex === right.activePhaseIndex &&
-    left.phaseCount === right.phaseCount
+    left.phaseCount === right.phaseCount &&
+    optionalArraysEqual(left.phaseIds, right.phaseIds, (a, b) => a === b)
   );
+}
+
+function optionalArraysEqual<T>(
+  left: ReadonlyArray<T> | undefined,
+  right: ReadonlyArray<T> | undefined,
+  equal: (left: T, right: T) => boolean,
+): boolean {
+  if (!left || !right) return left === right;
+  return arraysEqual(left, right, equal);
 }
 
 function tabStateEqual(

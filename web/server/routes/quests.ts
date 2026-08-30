@@ -463,6 +463,7 @@ export function createQuestRoutes(ctx: RouteContext) {
       getLauncherSessionInfo: (targetSessionId) => launcher.getSession(targetSessionId),
       onSessionNamedByQuest: (targetSessionId, title) =>
         (wsBridge as any).onSessionNamedByQuest?.(targetSessionId, title),
+      invalidateLeaderThreadTabsForQuestIds: wsBridge.invalidateLeaderThreadTabsForQuestIds?.bind(wsBridge),
     });
   };
 

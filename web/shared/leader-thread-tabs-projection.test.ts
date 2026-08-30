@@ -10,6 +10,7 @@ import {
 
 function value(): LeaderThreadTabsProjectionValue {
   return {
+    currentQuestStateVersion: 1,
     tabState: {
       version: 1,
       orderedOpenThreadKeys: ["q-1", "q-2"],
@@ -22,7 +23,17 @@ function value(): LeaderThreadTabsProjectionValue {
         questId: "q-1",
         title: "Active work",
         boardStatus: "WORKING",
-        journey: { mode: "active", currentPhaseId: "work", activePhaseIndex: 1, phaseCount: 3 },
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "work",
+          activePhaseIndex: 1,
+          phaseCount: 3,
+        },
+        sourceLeaderSessionId: "leader-current",
+        sourceRowCreatedAt: 10,
+        workerSessionId: "worker-current",
+        workerSessionNum: 42,
         active: true,
         queued: false,
         proposed: false,
@@ -36,7 +47,17 @@ function value(): LeaderThreadTabsProjectionValue {
         questId: "q-2",
         title: "Completed work",
         boardStatus: "MEMORY",
-        journey: { mode: "active", currentPhaseId: "memory", activePhaseIndex: 2, phaseCount: 3 },
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "memory",
+          activePhaseIndex: 2,
+          phaseCount: 3,
+        },
+        sourceLeaderSessionId: null,
+        sourceRowCreatedAt: null,
+        workerSessionId: null,
+        workerSessionNum: null,
         active: false,
         queued: false,
         proposed: false,
@@ -93,6 +114,68 @@ describe("leader thread tabs projection wire contract", () => {
         },
       }),
     ).toBe(false);
+    expect(
+      isLeaderThreadTabsProjectionValue({
+        ...valid,
+        tabs: [
+          {
+            ...valid.tabs[0],
+            journey: { ...valid.tabs[0]!.journey!, phaseIds: ["alignment", "work"] },
+          },
+          valid.tabs[1],
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      isLeaderThreadTabsProjectionValue({
+        ...valid,
+        tabs: [{ ...valid.tabs[0], workerSessionNum: -1 }, valid.tabs[1]],
+      }),
+    ).toBe(false);
+    expect(isLeaderThreadTabsProjectionValue({ ...valid, currentQuestStateVersion: 2 })).toBe(false);
+  });
+
+  it("requires the full current-state payload atomically when version 1 is present", () => {
+    const current = value();
+    expect(isLeaderThreadTabsProjectionValue(current)).toBe(true);
+
+    for (const key of ["sourceLeaderSessionId", "sourceRowCreatedAt", "workerSessionId", "workerSessionNum"] as const) {
+      const missingIdentity = structuredClone(current);
+      delete missingIdentity.tabs[0]![key];
+      expect(isLeaderThreadTabsProjectionValue(missingIdentity), `missing ${key}`).toBe(false);
+    }
+
+    const missingPhaseIds = structuredClone(current);
+    delete missingPhaseIds.tabs[0]!.journey!.phaseIds;
+    expect(isLeaderThreadTabsProjectionValue(missingPhaseIds)).toBe(false);
+
+    const nullIdentity = structuredClone(current);
+    nullIdentity.tabs[0] = {
+      ...nullIdentity.tabs[0]!,
+      sourceLeaderSessionId: null,
+      sourceRowCreatedAt: null,
+      workerSessionId: null,
+      workerSessionNum: null,
+    };
+    expect(isLeaderThreadTabsProjectionValue(nullIdentity)).toBe(true);
+
+    const nullJourney = structuredClone(current);
+    nullJourney.tabs[0]!.journey = null;
+    expect(isLeaderThreadTabsProjectionValue(nullJourney)).toBe(true);
+  });
+
+  it("preserves optional current-state fields for unversioned legacy payloads", () => {
+    const legacy = value();
+    delete legacy.currentQuestStateVersion;
+    for (const tab of legacy.tabs) {
+      delete tab.sourceLeaderSessionId;
+      delete tab.sourceRowCreatedAt;
+      delete tab.workerSessionId;
+      delete tab.workerSessionNum;
+      if (tab.journey) delete tab.journey.phaseIds;
+    }
+
+    expect(isLeaderThreadTabsProjectionValue(legacy)).toBe(true);
   });
 
   it("distinguishes proposed from queued and preserves exact Waiting status semantics", () => {
@@ -127,5 +210,40 @@ describe("leader thread tabs projection wire contract", () => {
 
     const equal = reconcileLeaderThreadTabsProjectionValue(reconciled, structuredClone(reconciled));
     expect(equal).toBe(reconciled);
+  });
+
+  it("upgrades legacy cached values when current-state authority arrives", () => {
+    const legacy = value();
+    delete legacy.currentQuestStateVersion;
+    const current = structuredClone(legacy);
+    current.currentQuestStateVersion = 1;
+
+    const reconciled = reconcileLeaderThreadTabsProjectionValue(legacy, current);
+    expect(reconciled).not.toBe(legacy);
+    expect(reconciled.currentQuestStateVersion).toBe(1);
+    expect(reconciled.tabs).toBe(legacy.tabs);
+  });
+
+  it("treats current phase sequences and participant identity as semantic visual changes", () => {
+    const previous = value();
+    const next = structuredClone(previous);
+    next.tabs[0] = {
+      ...next.tabs[0]!,
+      sourceLeaderSessionId: "leader-next",
+      sourceRowCreatedAt: 20,
+      workerSessionId: "worker-next",
+      workerSessionNum: 43,
+      journey: {
+        ...next.tabs[0]!.journey!,
+        phaseIds: ["alignment", "work", "user-checkpoint", "memory"],
+        activePhaseIndex: 1,
+        phaseCount: 4,
+      },
+    };
+
+    expect(leaderThreadTabsProjectionEqual(previous, next)).toBe(false);
+    const reconciled = reconcileLeaderThreadTabsProjectionValue(previous, next);
+    expect(reconciled.tabs[0]).not.toBe(previous.tabs[0]);
+    expect(reconciled.tabs[1]).toBe(previous.tabs[1]);
   });
 });

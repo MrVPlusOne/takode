@@ -10,12 +10,14 @@ import {
   recordThreadReadyUnreadNotifications,
   restorePersistedSessions,
   setNotificationMuted,
+  setSessionClaimedQuest,
   updateLeaderGroupIdleState,
 } from "./session-registry-controller.js";
 import { replaceAttentionRecords } from "./attention-record-controller.js";
 import { validateLeaderThreadOutcomes } from "./leader-thread-outcome-validator.js";
 import type { SessionAttentionRecord } from "../session-types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import { applyLeaderServerCandidateThreadTabEvent } from "../../shared/leader-open-thread-tabs.js";
 
 function makeSession(overrides: Record<string, unknown> = {}) {
   return {
@@ -141,7 +143,155 @@ function makeDeps() {
   };
 }
 
+describe("session claimed quest projection invalidation", () => {
+  it("invalidates only quest identity, status, or leader changes", () => {
+    const session = makeSession({
+      state: {
+        backend_type: "claude",
+        claimedQuestId: "q-1",
+        claimedQuestTitle: "Earlier title",
+        claimedQuestStatus: "done",
+      },
+      browserSockets: new Set(),
+    });
+    const invalidateLeaderThreadTabsForQuestIds = vi.fn();
+    const deps = {
+      broadcastToBrowsers: vi.fn(),
+      persistSession: vi.fn(),
+      getLauncherSessionInfo: () => ({ isOrchestrator: false }),
+      onSessionNamedByQuest: vi.fn(),
+      invalidateLeaderThreadTabsForQuestIds,
+    };
+
+    setSessionClaimedQuest(
+      session,
+      { id: "q-1", title: "Renamed", status: "done", verificationInboxUnread: true },
+      deps,
+    );
+    expect(invalidateLeaderThreadTabsForQuestIds).not.toHaveBeenCalled();
+    expect(session.state).toMatchObject({
+      claimedQuestTitle: "Renamed",
+      claimedQuestVerificationInboxUnread: true,
+    });
+
+    setSessionClaimedQuest(
+      session,
+      { id: "q-1", title: "Renamed", status: "in_progress", verificationInboxUnread: true },
+      deps,
+    );
+    setSessionClaimedQuest(
+      session,
+      {
+        id: "q-1",
+        title: "Renamed again",
+        status: "in_progress",
+        verificationInboxUnread: false,
+        leaderSessionId: "leader-1",
+      },
+      deps,
+    );
+    setSessionClaimedQuest(
+      session,
+      {
+        id: "q-2",
+        title: "Current work",
+        status: "in_progress",
+        verificationInboxUnread: false,
+        leaderSessionId: "leader-1",
+      },
+      deps,
+    );
+    setSessionClaimedQuest(
+      session,
+      {
+        id: "q-2",
+        title: "Current work",
+        status: "in_progress",
+        verificationInboxUnread: false,
+        leaderSessionId: "leader-1",
+      },
+      deps,
+    );
+
+    expect(invalidateLeaderThreadTabsForQuestIds.mock.calls).toEqual([[["q-1"]], [["q-1"]], [["q-1", "q-2"]]]);
+  });
+});
+
 describe("session notification status metadata", () => {
+  it("emits review tab promotion edges for review notifications and new Thread Ready markers", () => {
+    const session = makeSession({
+      state: { backend_type: "claude", isOrchestrator: true },
+      browserSockets: new Set(),
+    });
+    const promoteLeaderThreadTabForAttention = vi.fn();
+    const deps = {
+      ...makeDeps(),
+      getLauncherSessionInfo: () => ({ isOrchestrator: true }),
+      promoteLeaderThreadTabForAttention,
+    };
+
+    notifyUser(session, "review", "Review current quest", deps, {
+      threadRoute: { threadKey: "q-42", questId: "q-42" },
+    });
+    expect(promoteLeaderThreadTabForAttention).toHaveBeenCalledWith(session.id, "q-42", expect.any(Number), "review");
+
+    promoteLeaderThreadTabForAttention.mockClear();
+    const ready = {
+      kind: "ready" as const,
+      label: "Thread Ready" as const,
+      threadKey: "q-43",
+      questId: "q-43",
+      summary: "ready for review",
+      messageId: "ready-q-43",
+      timestamp: 200,
+      updatedAt: 200,
+    };
+    expect(recordThreadReadyUnreadNotifications(session, [ready], deps)).toBe(true);
+    expect(promoteLeaderThreadTabForAttention).toHaveBeenCalledWith(session.id, "q-43", 200, "review");
+    expect(recordThreadReadyUnreadNotifications(session, [ready], deps)).toBe(false);
+    expect(promoteLeaderThreadTabForAttention).toHaveBeenCalledTimes(1);
+  });
+
+  it("fences older server candidates after a newer needs-input promotion", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(300);
+    const session = makeSession({
+      state: {
+        backend_type: "claude",
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-newer", "q-needs-input", "q-delayed"],
+          closedThreadTombstones: [],
+          updatedAt: 200,
+          latestServerCandidateEventAt: 200,
+          serverCandidatePromotedAt: { "q-newer": 200 },
+        },
+      },
+    });
+    const deps = {
+      ...makeDeps(),
+      getLauncherSessionInfo: () => ({ isOrchestrator: true }),
+    };
+
+    try {
+      notifyUser(session, "needs-input", "Need current decision", deps, {
+        threadRoute: { threadKey: "q-needs-input", questId: "q-needs-input" },
+      });
+
+      const promoted = session.state.leaderOpenThreadTabs;
+      expect(promoted).toMatchObject({
+        orderedOpenThreadKeys: ["q-needs-input", "q-newer", "q-delayed"],
+        latestServerCandidateEventAt: 300,
+        serverCandidatePromotedAt: { "q-newer": 200, "q-needs-input": 300 },
+      });
+      expect(applyLeaderServerCandidateThreadTabEvent(promoted, "q-delayed", 250, { repositionExisting: true })).toBe(
+        promoted,
+      );
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("increments metadata and includes it in notification updates", () => {
     const session = makeSession();
     const deps = makeDeps();

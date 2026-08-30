@@ -16,7 +16,7 @@ import {
   type QuestJourneyPhaseTiming,
 } from "../../shared/quest-journey.js";
 import {
-  applyLeaderThreadTabUpdate,
+  applyLeaderServerCandidateThreadTabEvent,
   normalizeLeaderOpenThreadTabsState,
   shouldPersistLeaderThreadTab,
 } from "../../shared/leader-open-thread-tabs.js";
@@ -93,9 +93,11 @@ export interface WorkBoardStateDeps {
   getBoardDispatchableSignature: (session: SessionLike, questId: string) => string | null;
   markNotificationDone: (sessionId: string, notifId: string, done: boolean) => boolean;
   broadcastBoard: (session: SessionLike, board: BoardRow[], completedBoard: BoardRow[]) => void;
+  invalidateLeaderThreadTabsForQuestIds?: (questIds: readonly string[]) => void;
+  promoteLeaderThreadTabForQuest?: (questId: string, eventAt: number, sourceSessionId: string) => void;
   broadcastAttentionRecords?: (session: SessionLike, attentionRecords: SessionAttentionRecord[]) => void;
   persistSession: (session: SessionLike) => void;
-  notifyReview: (sessionId: string, summary: string) => void;
+  notifyReview: (sessionId: string, summary: string, options?: { suppressThreadTabPromotion?: boolean }) => void;
 }
 
 export interface AdvanceBoardRowOptions {
@@ -167,24 +169,24 @@ function shouldServerSurfaceBoardRowThreadTab(row: Pick<BoardRow, "questId" | "s
   );
 }
 
-function surfaceBoardRowThreadTab(session: SessionLike, row: BoardRow): void {
-  if (!shouldServerSurfaceBoardRowThreadTab(row)) return;
+function applyBoardRowThreadTabEvent(
+  session: SessionLike,
+  row: BoardRow,
+  eventAt: number,
+  repositionExisting: boolean,
+): boolean {
+  if (!shouldServerSurfaceBoardRowThreadTab(row)) return false;
   const existingState = normalizeLeaderOpenThreadTabsState(session.state?.leaderOpenThreadTabs);
-  if (existingState?.orderedOpenThreadKeys.includes(row.questId.toLowerCase())) return;
-  const eventAt = row.threadTabActivatedAt ?? row.createdAt;
-  const nextState = applyLeaderThreadTabUpdate(
-    existingState,
-    {
-      type: "open",
-      threadKey: row.questId,
-      placement: "first",
-      source: "server_candidate",
-      eventAt,
-    },
-    row.updatedAt,
-  );
-  if (nextState === existingState || !nextState) return;
+  const nextState = applyLeaderServerCandidateThreadTabEvent(existingState, row.questId, eventAt, {
+    repositionExisting,
+  });
+  if (nextState === existingState || !nextState) return false;
   session.state = { ...(session.state ?? {}), leaderOpenThreadTabs: nextState };
+  return true;
+}
+
+function surfaceBoardRowThreadTab(session: SessionLike, row: BoardRow): void {
+  applyBoardRowThreadTabEvent(session, row, row.threadTabActivatedAt ?? row.createdAt, false);
 }
 
 function surfaceBoardRowThreadTabs(session: SessionLike): void {
@@ -195,11 +197,27 @@ function surfaceBoardRowThreadTabs(session: SessionLike): void {
   }
 }
 
-function updateBoardRowThreadTabActivation(existing: BoardRow | undefined, next: BoardRow, activatedAt: number): void {
+function updateBoardRowThreadTabActivation(
+  existing: BoardRow | undefined,
+  next: BoardRow,
+  activatedAt: number,
+): number | null {
   next.threadTabActivatedAt = existing?.threadTabActivatedAt;
-  if (!existing || !shouldServerSurfaceBoardRowThreadTab(next)) return;
-  if (shouldServerSurfaceBoardRowThreadTab(existing)) return;
+  if (!shouldServerSurfaceBoardRowThreadTab(next)) return null;
+  if (existing && shouldServerSurfaceBoardRowThreadTab(existing)) return null;
   next.threadTabActivatedAt = activatedAt;
+  return activatedAt;
+}
+
+function applyBoardRowActivationEvent(
+  session: SessionLike,
+  row: BoardRow,
+  eventAt: number | null,
+  deps: WorkBoardStateDeps,
+): void {
+  if (eventAt === null) return;
+  applyBoardRowThreadTabEvent(session, row, eventAt, true);
+  deps.promoteLeaderThreadTabForQuest?.(row.questId, eventAt, session.id);
 }
 
 function getNextBoardJourneyPhaseAdvance(
@@ -603,9 +621,11 @@ function completeBoardRow(
   for (const notificationId of removedWaitForInput) {
     deps.markNotificationDone(session.id, notificationId, true);
   }
-  const board = commitBoard(session, deps);
+  const board = commitBoard(session, deps, [questId]);
   if (completed) {
-    deps.notifyReview(session.id, buildBoardCompletionSummary([completed]));
+    deps.notifyReview(session.id, buildBoardCompletionSummary([completed]), {
+      suppressThreadTabPromotion: true,
+    });
   }
   return { board, completed };
 }
@@ -613,7 +633,10 @@ function completeBoardRow(
 export function completeQueuedBoardRowsForQuestInAllSessions(
   sessions: BoardSessionsLike,
   questId: string,
-  deps: Pick<WorkBoardStateDeps, "broadcastBoard" | "persistSession" | "markNotificationDone">,
+  deps: Pick<
+    WorkBoardStateDeps,
+    "broadcastBoard" | "persistSession" | "markNotificationDone" | "invalidateLeaderThreadTabsForQuestIds"
+  >,
 ): string[] {
   return completeBoardRowsForQuestInAllSessions(sessions, questId, deps, { queuedOnly: true });
 }
@@ -621,7 +644,10 @@ export function completeQueuedBoardRowsForQuestInAllSessions(
 export function completeDoneBoardRowsForQuestInAllSessions(
   sessions: BoardSessionsLike,
   questId: string,
-  deps: Pick<WorkBoardStateDeps, "broadcastBoard" | "persistSession" | "markNotificationDone">,
+  deps: Pick<
+    WorkBoardStateDeps,
+    "broadcastBoard" | "persistSession" | "markNotificationDone" | "invalidateLeaderThreadTabsForQuestIds"
+  >,
 ): string[] {
   return completeBoardRowsForQuestInAllSessions(sessions, questId, deps, { queuedOnly: false });
 }
@@ -629,7 +655,10 @@ export function completeDoneBoardRowsForQuestInAllSessions(
 function completeBoardRowsForQuestInAllSessions(
   sessions: BoardSessionsLike,
   questId: string,
-  deps: Pick<WorkBoardStateDeps, "broadcastBoard" | "persistSession" | "markNotificationDone">,
+  deps: Pick<
+    WorkBoardStateDeps,
+    "broadcastBoard" | "persistSession" | "markNotificationDone" | "invalidateLeaderThreadTabsForQuestIds"
+  >,
   options: { queuedOnly: boolean },
 ): string[] {
   const completedInSessions: string[] = [];
@@ -656,12 +685,18 @@ function completeBoardRowsForQuestInAllSessions(
     session.boardDispatchStates.delete(boardQuestId);
     session.boardStallStates.delete(boardQuestId);
 
-    if (hasCompletedBoardRow(session, boardQuestId)) {
+    const completedEntry = completedBoardRowEntry(session, boardQuestId);
+    const replaceCompletedRow =
+      !options.queuedOnly && !!completedEntry && isNewerActiveJourneyRow(row, completedEntry[1]);
+    if (completedEntry && !replaceCompletedRow) {
       session.board.delete(boardQuestId);
     } else {
       row.waitFor = undefined;
       row.waitForInput = undefined;
       moveBoardRowToCompleted(session, boardQuestId);
+      if (completedEntry && completedEntry[0] !== boardQuestId) {
+        session.completedBoard.delete(completedEntry[0]);
+      }
     }
     clearResolvedQuestWaitFor(session, [boardQuestId]);
 
@@ -672,6 +707,8 @@ function completeBoardRowsForQuestInAllSessions(
     syncedSessionIds.add(session.id);
     completedInSessions.push(session.id);
   }
+
+  if (completedInSessions.length > 0) deps.invalidateLeaderThreadTabsForQuestIds?.([questId]);
 
   for (const session of sessions.values()) {
     const changed = clearResolvedQuestWaitFor(session, [questId]);
@@ -685,9 +722,25 @@ function completeBoardRowsForQuestInAllSessions(
   return completedInSessions;
 }
 
-function hasCompletedBoardRow(session: SessionLike, questId: string): boolean {
+function completedBoardRowEntry(session: SessionLike, questId: string): [string, BoardRow] | null {
   const normalizedQuestId = questId.toLowerCase();
-  return [...session.completedBoard.keys()].some((candidate: string) => candidate.toLowerCase() === normalizedQuestId);
+  const completedQuestId = [...session.completedBoard.keys()].find(
+    (candidate: string) => candidate.toLowerCase() === normalizedQuestId,
+  );
+  if (!completedQuestId) return null;
+  const row = session.completedBoard.get(completedQuestId) as BoardRow | undefined;
+  return row ? [completedQuestId, row] : null;
+}
+
+// completedBoard keeps the latest compact row; durable historical runs live in Questmaster.
+// Only an activation strictly after the prior completion proves this is a later active run.
+function isNewerActiveJourneyRow(row: BoardRow, completedRow: BoardRow): boolean {
+  if (row.completedAt !== undefined || isQueuedBoardRowStatus(row.status) || isProposedBoardRowStatus(row.status)) {
+    return false;
+  }
+  const activationAt = row.threadTabActivatedAt ?? row.createdAt;
+  const priorCompletionAt = completedRow.completedAt ?? completedRow.createdAt;
+  return activationAt > priorCompletionAt;
 }
 
 export function moveBoardRowToCompleted(session: SessionLike, questId: string): BoardRow | null {
@@ -736,7 +789,11 @@ export function clearResolvedQuestWaitFor(session: SessionLike, resolvedQuestIds
   return changed;
 }
 
-export function commitBoard(session: SessionLike, deps: WorkBoardStateDeps): BoardRow[] {
+export function commitBoard(
+  session: SessionLike,
+  deps: WorkBoardStateDeps,
+  changedQuestIds?: readonly string[],
+): BoardRow[] {
   for (const [questId] of [...session.boardDispatchStates.entries()]) {
     const row = session.board.get(questId);
     const candidateSignature = row ? deps.getBoardDispatchableSignature(session, row.questId) : null;
@@ -755,6 +812,7 @@ export function commitBoard(session: SessionLike, deps: WorkBoardStateDeps): Boa
   surfaceBoardRowThreadTabs(session);
   const board = getBoard(session);
   const completedBoard = getCompletedBoard(session);
+  if (changedQuestIds?.length) deps.invalidateLeaderThreadTabsForQuestIds?.(changedQuestIds);
   deps.broadcastBoard(session, board, completedBoard);
   deps.persistSession(session);
   return board;
@@ -814,10 +872,11 @@ export function upsertBoardRow(
     threadTabActivatedAt: existing?.threadTabActivatedAt,
     updatedAt: row.updatedAt ?? now,
   };
-  updateBoardRowThreadTabActivation(existing, merged, merged.updatedAt);
+  const activationAt = updateBoardRowThreadTabActivation(existing, merged, merged.updatedAt);
   applyBoardWaitStateInvariant(merged);
   applyQuestJourneyPhaseTiming(merged, existing, now);
   session.board.set(row.questId, merged);
+  applyBoardRowActivationEvent(session, merged, activationAt, deps);
   if (shouldRecordJourneyStart(existing, merged)) {
     const startedAt = existing && isProposedBoardRowStatus(existing.status) ? merged.updatedAt : merged.createdAt;
     upsertJourneyLifecycleAttentionRecord(session, merged, "started", deps, startedAt);
@@ -828,7 +887,7 @@ export function upsertBoardRow(
     getBoardRowWaitForInputIds(merged),
     deps,
   );
-  return commitBoard(session, deps);
+  return commitBoard(session, deps, [row.questId]);
 }
 
 export function upsertBoardRowForSession(
@@ -864,9 +923,11 @@ export function removeBoardRows(session: SessionLike, questIds: string[], deps: 
   for (const notificationId of removedWaitForInput) {
     deps.markNotificationDone(session.id, notificationId, true);
   }
-  const board = commitBoard(session, deps);
+  const board = commitBoard(session, deps, questIds);
   if (completedRows.length > 0) {
-    deps.notifyReview(session.id, buildBoardCompletionSummary(completedRows));
+    deps.notifyReview(session.id, buildBoardCompletionSummary(completedRows), {
+      suppressThreadTabPromotion: true,
+    });
   }
   return board;
 }
@@ -885,9 +946,13 @@ export function removeBoardRowsForSession(
 export function removeBoardRowFromAllSessions(
   sessions: BoardSessionsLike,
   questId: string,
-  deps: Pick<WorkBoardStateDeps, "broadcastBoard" | "persistSession" | "markNotificationDone">,
+  deps: Pick<
+    WorkBoardStateDeps,
+    "broadcastBoard" | "persistSession" | "markNotificationDone" | "invalidateLeaderThreadTabsForQuestIds"
+  >,
 ): void {
   const syncedSessionIds = new Set<string>();
+  let removedAny = false;
   for (const session of sessions.values()) {
     const hadActive = session.board.has(questId);
     const hadCompleted = session.completedBoard.has(questId);
@@ -898,6 +963,7 @@ export function removeBoardRowFromAllSessions(
     if (hadActive) session.board.delete(questId);
     if (hadCompleted) session.completedBoard.delete(questId);
     if (hadActive || hadCompleted) {
+      removedAny = true;
       clearResolvedQuestWaitFor(session, [questId]);
       for (const notificationId of removedWaitForInput) {
         deps.markNotificationDone(session.id, notificationId, true);
@@ -909,6 +975,8 @@ export function removeBoardRowFromAllSessions(
       syncedSessionIds.add(session.id);
     }
   }
+
+  if (removedAny) deps.invalidateLeaderThreadTabsForQuestIds?.([questId]);
 
   for (const session of sessions.values()) {
     const changed = clearResolvedQuestWaitFor(session, [questId]);
@@ -1082,9 +1150,10 @@ export function advanceBoardRow(
       applyBoardWaitStateInvariant(row);
       applyQuestJourneyPhaseTiming(row, previousRowForTiming, now);
       row.updatedAt = now;
-      updateBoardRowThreadTabActivation(previousRowForTiming, row, now);
+      const activationAt = updateBoardRowThreadTabActivation(previousRowForTiming, row, now);
       session.board.set(questId, row);
-      const board = commitBoard(session, deps);
+      applyBoardRowActivationEvent(session, row, activationAt, deps);
+      const board = commitBoard(session, deps, [questId]);
       return { board, removed: false, previousState, newState: row.status };
     }
   }
@@ -1101,9 +1170,10 @@ export function advanceBoardRow(
   applyBoardWaitStateInvariant(row);
   applyQuestJourneyPhaseTiming(row, previousRowForTiming, now);
   row.updatedAt = now;
-  updateBoardRowThreadTabActivation(previousRowForTiming, row, now);
+  const activationAt = updateBoardRowThreadTabActivation(previousRowForTiming, row, now);
   session.board.set(questId, row);
-  const board = commitBoard(session, deps);
+  applyBoardRowActivationEvent(session, row, activationAt, deps);
+  const board = commitBoard(session, deps, [questId]);
   return { board, removed: false, previousState, newState: row.status };
 }
 

@@ -374,6 +374,60 @@ describe("WsBridge synchronized projections", () => {
     ]);
   });
 
+  it("retries the latest self-subscription requested during search-only lazy load", async () => {
+    const bridge = new WsBridge();
+    const carrier = bridge.getOrCreateSession("carrier");
+    carrier.searchDataOnly = true;
+    carrier.state.isOrchestrator = true;
+    let releaseLoad!: () => void;
+    const load = new Promise<void>((resolve) => {
+      releaseLoad = resolve;
+    });
+    bridge.store = {
+      load: vi.fn(async () => {
+        await load;
+        return { messageHistory: [], toolResults: [] };
+      }),
+      save: vi.fn(),
+    } as any;
+    const socket = browserSocket("carrier");
+
+    const reconnect = bridge.handleBrowserMessage(
+      socket,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        synced_projection_subscriptions: [{ projection: "session-attention", key: carrier.id }],
+      }),
+    );
+    await Promise.resolve();
+    const refresh = bridge.handleBrowserMessage(
+      socket,
+      JSON.stringify({
+        type: "synced_projection_subscribe",
+        subscriptions: [{ projection: "leader-thread-tabs", key: carrier.id }],
+      }),
+    );
+    releaseLoad();
+    await Promise.all([reconnect, refresh]);
+
+    expect(
+      messages(socket)
+        .filter((message: any) => message.type === "synced_projection_subscriptions_ack")
+        .map((message: any) => message.subscriptions),
+    ).toEqual([[], [], [{ projection: "leader-thread-tabs", key: carrier.id }]]);
+    expect(
+      messages(socket).filter(
+        (message: any) =>
+          message.type === "synced_projection_snapshot" &&
+          message.projection === "leader-thread-tabs" &&
+          message.key === carrier.id,
+      ),
+    ).toHaveLength(1);
+    expect(bridge.getSyncedProjectionController().hasSubscription(socket, "leader-thread-tabs", carrier.id)).toBe(true);
+    expect(bridge.getSyncedProjectionController().hasSubscription(socket, "session-attention", carrier.id)).toBe(false);
+  });
+
   it("serializes a slow reconnect snapshot before a newer refresh replacement", async () => {
     const bridge = new WsBridge();
     const carrier = bridge.getOrCreateSession("carrier");
