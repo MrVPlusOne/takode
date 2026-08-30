@@ -116,6 +116,9 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     );
     const titleLayer = await screen.findByTestId("quest-feed-title-preview");
     expect(titleLayer).toHaveTextContent("Keep link focus limited to the title-only preview");
+    await waitFor(() =>
+      expect(within(titleLayer).getByTestId("quest-feed-title-preview-status")).toHaveTextContent("Refined"),
+    );
     expect(titleLayer).toHaveClass("pointer-events-none");
     expect(titleLayer).toHaveAttribute("aria-hidden", "true");
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -151,6 +154,10 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     expect(within(dialog).getByTestId("quest-hover-journey")).toHaveTextContent("Completed Journey");
     expect(within(dialog).getByRole("link", { name: "Open feedback #4" })).toBeInTheDocument();
     expect(within(dialog).getByRole("link", { name: "Open quest" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "Open Thread" })).toHaveAttribute(
+      "href",
+      "#/session/playground-inline-preview-leader?thread=q-9413",
+    );
     live = within(section).getByTestId("playground-inline-quest-preview-live");
     expect(within(live).getByRole("button", { name: /Preview q-9413 feedback #4/ })).toHaveAttribute(
       "aria-expanded",
@@ -217,6 +224,26 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     expect(dialog).toHaveTextContent("Keep exact chat links independently navigable");
     expect(eye).toHaveAttribute("aria-expanded", "true");
     expect(dialog).not.toHaveFocus();
+  });
+
+  it("keeps the authoritative Open Thread fixture available across session-list refreshes", async () => {
+    render(<PlaygroundInlineQuestPreviewSection />);
+    await screen.findByTestId("playground-inline-quest-preview-live");
+
+    useStore.setState({ sdkSessions: [] });
+    expect(
+      useStore
+        .getState()
+        .sessionCompletedBoards.get("playground-inline-preview-leader")
+        ?.some((row) => row.questId === "q-9413"),
+    ).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show fine-pointer eye-hover details" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("link", { name: "Open Thread" })).toHaveAttribute(
+      "href",
+      "#/session/playground-inline-preview-leader?thread=q-9413",
+    );
   });
 
   it("keeps the real parsed Markdown opt-in explicit and preserves the adjacent non-feed legacy boundary", async () => {

@@ -4,6 +4,8 @@ import type { QuestListPreview, QuestmasterTask } from "../types.js";
 import { useStore } from "../store.js";
 import { openQuestOverlayRouteAware } from "../utils/routing.js";
 import { QuestPreviewCardContent, QuestPreviewHeaderAction } from "./QuestPreviewCardContent.js";
+import { rectFromEdges, toPreviewRect } from "./quest-feed-preview-geometry.js";
+import { chooseLegacyQuestHoverPlacement } from "./quest-hover-card-placement.js";
 
 interface QuestHoverCardProps {
   quest: QuestmasterTask | QuestListPreview;
@@ -34,15 +36,15 @@ export function QuestHoverCard({
     const rect = cardRef.current.getBoundingClientRect();
     const el = cardRef.current;
 
-    if (rect.right > window.innerWidth - 8) {
-      el.style.left = `${Math.max(8, window.innerWidth - cardWidth - 8)}px`;
-    }
-    if (rect.bottom > window.innerHeight - 8) {
-      el.style.top = `${Math.max(8, anchorRect.top - rect.height - gap)}px`;
-    }
-    if (rect.top < 8) {
-      el.style.top = "8px";
-    }
+    const placement = chooseLegacyQuestHoverPlacement({
+      anchorRect: toPreviewRect(anchorRect),
+      layerSize: { width: rect.width, height: rect.height },
+      placementWidth: cardWidth,
+      viewport: rectFromEdges(0, 0, window.innerWidth, window.innerHeight),
+      gap,
+    });
+    el.style.left = `${placement.left}px`;
+    el.style.top = `${placement.top}px`;
   }, [anchorRect, cardWidth]);
 
   return createPortal(

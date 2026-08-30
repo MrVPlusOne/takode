@@ -15,14 +15,25 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { isDeletedQuestFeedbackEntry } from "../../shared/quest-feedback.js";
+import { normalizeLeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { navigateTo } from "../utils/navigation.js";
 import { hydrateQuestDetail } from "../utils/quest-detail-hydration.js";
+import { getQuestLeaderSessionId } from "../utils/quest-helpers.js";
+import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
+import { resolveLeaderThreadTabsProjection } from "../utils/leader-thread-tabs-resolver.js";
 import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 import { useHashLocation } from "../utils/hash-location.js";
-import { openQuestOverlayRouteAware, withQuestFeedbackInHash, withQuestIdInHash } from "../utils/routing.js";
+import {
+  openQuestOverlayRouteAware,
+  routeSessionRefForId,
+  sessionThreadHash,
+  withQuestFeedbackInHash,
+  withQuestIdInHash,
+} from "../utils/routing.js";
 import { QuestPreviewCardContent, QuestPreviewHeaderAction } from "./QuestPreviewCardContent.js";
+import { chooseLegacyQuestHoverPlacement } from "./quest-hover-card-placement.js";
 import {
   chooseQuestBlockSheetPlacement,
   chooseQuestRichPopoverPlacement,
@@ -60,10 +71,10 @@ function findQuestById(quests: QuestmasterTask[], questId: string): QuestmasterT
 }
 
 type PreviewPhase = "idle" | "arming" | "micro" | "rich-loading" | "rich-ready" | "rich-error";
-type ControlKey = "link" | "preview" | "rich";
+type ControlKey = "link" | "preview" | "preview-proxy" | "rich";
 type RichOpenMode = "hover" | "explicit";
 type RichPlacement =
-  | ({ kind: "popover" } & PreviewPlacement)
+  | ({ kind: "popover"; width: number; maxHeight: number; hoverActivationRect?: PreviewRect } & PreviewPlacement)
   | {
       kind: "side-sheet";
       edge: "left" | "right" | "top" | "bottom";
@@ -114,6 +125,19 @@ function samePlacement(a: RichPlacement | null, b: RichPlacement | null): boolea
   if (a === b) return true;
   if (!a || !b || a.kind !== b.kind) return false;
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function placementCoversRect(
+  placement: PreviewPlacement,
+  layerSize: { width: number; height: number },
+  target: PreviewRect,
+): boolean {
+  return (
+    placement.left < target.right &&
+    placement.left + layerSize.width > target.left &&
+    placement.top < target.bottom &&
+    placement.top + layerSize.height > target.top
+  );
 }
 
 function sameMicroPlacement(a: PreviewPlacement | null | undefined, b: PreviewPlacement | null | undefined): boolean {
@@ -246,10 +270,12 @@ export function QuestFeedInlineLink({
   const previewRef = useRef<HTMLButtonElement>(null);
   const microRef = useRef<HTMLDivElement>(null);
   const richRef = useRef<HTMLDivElement>(null);
+  const hoverActivationProxyRef = useRef<HTMLSpanElement>(null);
   const phaseRef = useRef<PreviewPhase>("idle");
   const [phase, setPhaseState] = useState<PreviewPhase>("idle");
   const [microPlacement, setMicroPlacement] = useState<PreviewPlacement | null | undefined>(undefined);
   const [microHydrationFailed, setMicroHydrationFailed] = useState(false);
+  const [validatedMicroQuest, setValidatedMicroQuest] = useState<QuestmasterTask | null>(null);
   const [richPlacement, setRichPlacement] = useState<RichPlacement | null>(null);
   const [richError, setRichError] = useState<string | null>(null);
   const [validatedRichQuest, setValidatedRichQuest] = useState<QuestmasterTask | null>(null);
@@ -265,6 +291,7 @@ export function QuestFeedInlineLink({
   const focusSuppressionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointerFocusSuppressedRef = useRef(false);
   const pendingPreviewPointerTypeRef = useRef<string | null>(null);
+  const hoverActivationPointerDownRef = useRef(false);
   const pendingFocusedLinkRestoreRef = useRef(false);
   const suppressedUntilExitRef = useRef(false);
   const openingPointerRef = useRef<PreviewPoint | null>(null);
@@ -325,12 +352,15 @@ export function QuestFeedInlineLink({
       pointerGeometryFrameRef.current = null;
       setMicroPlacement(undefined);
       setMicroHydrationFailed(false);
+      setValidatedMicroQuest(null);
       openingPointerRef.current = null;
       pendingPreviewPointerTypeRef.current = null;
+      hoverActivationPointerDownRef.current = false;
       pendingFocusedLinkRestoreRef.current = false;
       setRichPlacement(null);
       setRichError(null);
       setValidatedRichQuest(null);
+      hoverTargetsRef.current.delete("preview-proxy");
       setRichOpenMode(null);
       setPhase("idle");
       focusedRichEpochRef.current = null;
@@ -377,12 +407,19 @@ export function QuestFeedInlineLink({
     (epoch: number) => {
       if (hydrationEpochRef.current === epoch) return;
       hydrationEpochRef.current = epoch;
-      void loadQuest(questId).catch(() => {
-        if (!mountedRef.current || epochRef.current !== epoch) return;
-        if (phaseRef.current === "arming" || phaseRef.current === "micro") {
-          setMicroHydrationFailed(true);
-        }
-      });
+      void loadQuest(questId)
+        .then((hydrated) => {
+          if (!mountedRef.current || epochRef.current !== epoch) return;
+          if (phaseRef.current === "arming" || phaseRef.current === "micro") {
+            setValidatedMicroQuest(hydrated);
+          }
+        })
+        .catch(() => {
+          if (!mountedRef.current || epochRef.current !== epoch) return;
+          if (phaseRef.current === "arming" || phaseRef.current === "micro") {
+            setMicroHydrationFailed(true);
+          }
+        });
     },
     [loadQuest, questId],
   );
@@ -419,6 +456,7 @@ export function QuestFeedInlineLink({
         epoch = ++epochRef.current;
         hydrationEpochRef.current = null;
         setMicroHydrationFailed(false);
+        setValidatedMicroQuest(null);
       }
       beginHydrationForEpoch(epoch);
       openingPointerRef.current = kind === "focus" ? null : (pointer ?? null);
@@ -450,6 +488,7 @@ export function QuestFeedInlineLink({
       if (phaseRef.current.startsWith("rich") && richOpenModeRef.current === "hover") return;
       setMicroPlacement(undefined);
       setMicroHydrationFailed(false);
+      setValidatedMicroQuest(null);
       openingPointerRef.current = null;
       pendingPreviewPointerTypeRef.current = null;
       lastActivationPointerTypeRef.current = pointerType;
@@ -536,7 +575,7 @@ export function QuestFeedInlineLink({
       hoverTargetsRef.current.add(control);
       clearTimer(leaveTimerRef);
       if (!isFineHoverPointer(event.pointerType)) return;
-      if (control === "preview") {
+      if (control === "preview" || control === "preview-proxy") {
         beginHoverRichPreview(event.pointerType);
         return;
       }
@@ -571,8 +610,11 @@ export function QuestFeedInlineLink({
           : null;
       const enteredOwnRichPreview =
         event.relatedTarget instanceof Node && richRef.current?.contains(event.relatedTarget);
+      const enteredOwnActivationProxy =
+        event.relatedTarget instanceof Node && hoverActivationProxyRef.current?.contains(event.relatedTarget);
       const enteredOtherInteractive =
         !enteredOwnRichPreview &&
+        !enteredOwnActivationProxy &&
         relatedControl != null &&
         relatedControl !== linkRef.current &&
         relatedControl !== previewRef.current;
@@ -639,7 +681,8 @@ export function QuestFeedInlineLink({
   const handlePointerDown = useCallback((control: ControlKey, event: PointerEvent<HTMLElement>) => {
     const pointerType = event.pointerType || "mouse";
     lastActivationPointerTypeRef.current = pointerType;
-    if (control === "preview") pendingPreviewPointerTypeRef.current = pointerType;
+    if (control === "preview" || control === "preview-proxy") pendingPreviewPointerTypeRef.current = pointerType;
+    if (control === "preview-proxy") hoverActivationPointerDownRef.current = true;
     pointerFocusSuppressedRef.current = true;
     clearTimer(focusSuppressionTimerRef);
     if (pointerType === "touch") {
@@ -675,17 +718,20 @@ export function QuestFeedInlineLink({
   );
 
   const activateRichPreview = useCallback(
-    (event: MouseEvent<HTMLButtonElement>) => {
+    (event: MouseEvent<HTMLElement>) => {
       if (stopPropagation) event.stopPropagation();
       pendingFocusedLinkRestoreRef.current = false;
       claimThisPreview("rich");
       const activationPointerType = pendingPreviewPointerTypeRef.current ?? (event.detail === 0 ? "keyboard" : "mouse");
       pendingPreviewPointerTypeRef.current = null;
+      hoverActivationPointerDownRef.current = false;
       lastActivationPointerTypeRef.current = activationPointerType;
       clearTimer(armTimerRef);
       clearTimer(leaveTimerRef);
       setMicroPlacement(undefined);
       setMicroHydrationFailed(false);
+      setValidatedMicroQuest(null);
+      hoverTargetsRef.current.delete("preview-proxy");
       openingPointerRef.current = null;
       nextFocusableRef.current = previewRef.current ? findNextFocusableAfter(previewRef.current) : null;
       if (phaseRef.current.startsWith("rich")) {
@@ -737,6 +783,33 @@ export function QuestFeedInlineLink({
       closeAllRef.current(false);
       return;
     }
+
+    if (phaseRef.current.startsWith("rich") && richOpenModeRef.current === "hover" && richRef.current) {
+      const hoverWidth = Math.min(RICH_LOGICAL_WIDTH_PX, Math.max(1, (viewport.width - 16) / zoomLevel));
+      const hoverMaxHeight = Math.min(RICH_MAX_LOGICAL_HEIGHT_PX, Math.max(1, (viewport.height - 16) / zoomLevel));
+      richRef.current.style.width = `${hoverWidth}px`;
+      richRef.current.style.maxHeight = `${hoverMaxHeight}px`;
+      const richRect = richRef.current.getBoundingClientRect();
+      if (richRect.width <= 0 || richRect.height <= 0) return;
+      const placement = chooseLegacyQuestHoverPlacement({
+        anchorRect: triggerRect,
+        layerSize: { width: richRect.width, height: richRect.height },
+        viewport,
+      });
+      const hoverActivationRect =
+        placementCoversRect(placement, richRect, triggerRect) || hoverActivationPointerDownRef.current
+          ? triggerRect
+          : undefined;
+      if (!hoverActivationRect) hoverTargetsRef.current.delete("preview-proxy");
+      updateIfChanged(
+        setRichPlacement,
+        { kind: "popover", ...placement, width: hoverWidth, maxHeight: hoverMaxHeight, hoverActivationRect },
+        samePlacement,
+      );
+      return;
+    }
+
+    hoverTargetsRef.current.delete("preview-proxy");
     const ignoredPortal = phaseRef.current === "micro" ? microRef.current : richRef.current;
     const nearbyInteractiveRects = interactiveRectsNearSource(
       source,
@@ -792,7 +865,11 @@ export function QuestFeedInlineLink({
         viewport,
       });
       if (popover) {
-        updateIfChanged(setRichPlacement, { kind: "popover", ...popover }, samePlacement);
+        updateIfChanged(
+          setRichPlacement,
+          { kind: "popover", ...popover, width: RICH_LOGICAL_WIDTH_PX, maxHeight: maxLogicalHeight },
+          samePlacement,
+        );
         return;
       }
 
@@ -903,7 +980,15 @@ export function QuestFeedInlineLink({
     const handleDocumentClick = (event: globalThis.MouseEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (richRef.current?.contains(target) || previewRef.current?.contains(target)) return;
+      if (
+        richRef.current?.contains(target) ||
+        previewRef.current?.contains(target) ||
+        hoverActivationProxyRef.current?.contains(target) ||
+        (target instanceof Element &&
+          target.closest<HTMLElement>("[data-quest-feed-preview-hit-proxy]")?.dataset.previewOwner === dialogId)
+      ) {
+        return;
+      }
       closeAllRef.current(false);
     };
     document.addEventListener("click", handleDocumentClick);
@@ -958,6 +1043,7 @@ export function QuestFeedInlineLink({
   }, [ownerId]);
 
   const microVisible = phase === "micro" && canonicalTitle && !microHydrationFailed;
+  const microStatusTheme = validatedMicroQuest ? getQuestStatusTheme(validatedMicroQuest.status) : null;
   const richOpen = phase.startsWith("rich");
   const previewAccessibleLabel = canonicalTitle
     ? `Preview ${targetLabel}: ${canonicalTitle}`
@@ -1001,6 +1087,7 @@ export function QuestFeedInlineLink({
         aria-haspopup="dialog"
         aria-expanded={richOpen}
         aria-controls={dialogId}
+        data-rich-open-mode={richOpenMode ?? undefined}
         data-testid="quest-feed-preview-button"
         data-quest-id={normalizedQuestId}
         onPointerEnter={(event) => {
@@ -1032,6 +1119,41 @@ export function QuestFeedInlineLink({
           <circle cx="8" cy="8" r="1.6" />
         </svg>
       </button>
+      {richOpenMode === "hover" &&
+        richPlacement?.kind === "popover" &&
+        richPlacement.hoverActivationRect &&
+        createPortal(
+          // The real eye stays the only accessible control. This pointer-only body portal
+          // bridges the app root's transform stacking context when the hover card covers it.
+          // biome-ignore lint/a11y/noStaticElementInteractions: pointer-only bridge for the accessible eye control
+          <span
+            ref={hoverActivationProxyRef}
+            aria-hidden="true"
+            data-testid="quest-feed-preview-hit-proxy"
+            data-quest-feed-preview-hit-proxy="true"
+            data-preview-owner={dialogId}
+            className="fixed z-[83] cursor-pointer"
+            style={{
+              left: richPlacement.hoverActivationRect.left,
+              top: richPlacement.hoverActivationRect.top,
+              width: richPlacement.hoverActivationRect.width,
+              height: richPlacement.hoverActivationRect.height,
+            }}
+            onPointerEnter={(event) => handlePointerEnter("preview-proxy", event)}
+            onPointerLeave={(event) => handlePointerLeave("preview-proxy", event)}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              handlePointerDown("preview-proxy", event);
+            }}
+            onPointerCancel={() => {
+              pendingPreviewPointerTypeRef.current = null;
+              hoverActivationPointerDownRef.current = false;
+              schedulePointerGeometry();
+            }}
+            onClick={activateRichPreview}
+          />,
+          document.body,
+        )}
       {microVisible &&
         createPortal(
           <div
@@ -1049,7 +1171,22 @@ export function QuestFeedInlineLink({
               transformOrigin: "top left",
             }}
           >
-            <div className="text-[10px] font-medium uppercase tracking-wide text-cc-muted/70">{targetLabel}</div>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <div
+                data-testid="quest-feed-title-preview-target"
+                className="min-w-0 truncate text-[10px] font-medium uppercase tracking-wide text-cc-muted/70"
+              >
+                {targetLabel}
+              </div>
+              {microStatusTheme && (
+                <span
+                  data-testid="quest-feed-title-preview-status"
+                  className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-medium leading-none ${microStatusTheme.bg} ${microStatusTheme.text} ${microStatusTheme.border}`}
+                >
+                  {microStatusTheme.label}
+                </span>
+              )}
+            </div>
             <div className="mt-0.5 line-clamp-2 text-[13px] font-semibold leading-snug text-cc-fg">
               {canonicalTitle}
             </div>
@@ -1144,12 +1281,37 @@ const QuestFeedRichPreview = forwardRef<
   const feedbackUnavailable = feedbackIndex !== undefined && (!feedback || isDeletedQuestFeedbackEntry(feedback));
   const title = displayTitle?.trim() || quest?.title?.trim() || `${questId} preview`;
   const primaryActionLabel = feedbackIndex === undefined ? "Open quest" : `Open feedback #${feedbackIndex}`;
-  const initialWidth =
-    placement?.kind === "bottom-sheet" || placement?.kind === "side-sheet" ? placement.width : RICH_LOGICAL_WIDTH_PX;
-  const maxHeight =
-    placement?.kind === "bottom-sheet" || placement?.kind === "side-sheet"
-      ? placement.maxHeight
-      : RICH_MAX_LOGICAL_HEIGHT_PX;
+  const recordedLeaderSessionId = quest ? getQuestLeaderSessionId(quest) : null;
+  const leaderThreadHref = useStore((state) => {
+    if (!recordedLeaderSessionId) return null;
+    const sdkSession = state.sdkSessions.find((session) => session.sessionId === recordedLeaderSessionId);
+    const liveSession = state.sessions.get(recordedLeaderSessionId);
+
+    const threadKey = questId.trim().toLowerCase();
+    const hasBoardRow = [
+      state.sessionBoards.get(recordedLeaderSessionId),
+      state.sessionCompletedBoards.get(recordedLeaderSessionId),
+      sdkSession?.leaderActiveBoardRows,
+    ].some((rows) => rows?.some((row) => row.questId.trim().toLowerCase() === threadKey));
+    const hasProjectedThread = state.leaderProjections
+      .get(recordedLeaderSessionId)
+      ?.threadSummaries.some((summary) => summary.threadKey.trim().toLowerCase() === threadKey);
+    const leaderTabsResolution = resolveLeaderThreadTabsProjection(state, recordedLeaderSessionId);
+    const hasLeaderRuntimeAuthority = liveSession?.isOrchestrator === true || sdkSession?.isOrchestrator === true;
+    const hasOpenThread =
+      leaderTabsResolution.projectionState === "accepted"
+        ? leaderTabsResolution.value.tabs.some((tab) => tab.threadKey === threadKey)
+        : leaderTabsResolution.projectionState === "legacy" &&
+          hasLeaderRuntimeAuthority &&
+          normalizeLeaderOpenThreadTabsState(
+            liveSession?.leaderOpenThreadTabs ?? sdkSession?.leaderOpenThreadTabs,
+          )?.orderedOpenThreadKeys.some((key) => key.trim().toLowerCase() === threadKey);
+    if (!hasBoardRow && !hasProjectedThread && !hasOpenThread) return null;
+
+    return sessionThreadHash(routeSessionRefForId(recordedLeaderSessionId, state.sdkSessions), questId);
+  });
+  const initialWidth = placement?.width ?? RICH_LOGICAL_WIDTH_PX;
+  const maxHeight = placement?.maxHeight ?? RICH_MAX_LOGICAL_HEIGHT_PX;
 
   const dismissalPointerTypeRef = useRef<string | null>(null);
 
@@ -1346,6 +1508,22 @@ const QuestFeedRichPreview = forwardRef<
             onClick={onNavigate}
           >
             Open quest
+          </a>
+        )}
+        {leaderThreadHref && (
+          <a
+            href={leaderThreadHref}
+            data-preview-focusable="true"
+            data-testid="quest-feed-thread-action"
+            className="cc-session-link inline-flex min-h-8 items-center rounded-md px-2.5 py-1 text-xs text-cc-muted hover:bg-cc-hover/45 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50"
+            onClick={(event) => {
+              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              onNavigate();
+              navigateTo(leaderThreadHref);
+            }}
+          >
+            Open Thread
           </a>
         )}
         {phase === "rich-error" && (

@@ -8,6 +8,8 @@ import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 type PreviewFixtureState = "idle" | "title" | "no-fit" | "rich" | "error" | "keyboard" | "coarse";
 
+const PREVIEW_LEADER_SESSION_ID = "playground-inline-preview-leader";
+
 interface PreviewFixtureDefinition {
   id: PreviewFixtureState;
   label: string;
@@ -33,7 +35,7 @@ const PREVIEW_FIXTURES: readonly PreviewFixtureDefinition[] = [
     questId: "q-9411",
     title: "Keep link focus limited to the title-only preview",
     description:
-      "Keyboard focus on the native text link reveals only its pointer-inert title layer; the eye stays separate.",
+      "Keyboard focus on the native text link reveals its pointer-inert title and current validated status; the eye stays separate.",
   },
   {
     id: "no-fit",
@@ -51,7 +53,7 @@ const PREVIEW_FIXTURES: readonly PreviewFixtureDefinition[] = [
     questId: "q-9413",
     title: "Reveal rich quest context from the integrated eye",
     description:
-      "Fine-pointer entry on the eye hydrates the local by-ID fixture and opens its labelled nonmodal surface.",
+      "Fine-pointer entry on the eye hydrates the local by-ID fixture, opens near the eye, and exposes its authoritative leader thread.",
   },
   {
     id: "error",
@@ -106,6 +108,7 @@ const PREVIEW_QUEST_BY_ID = new Map(
       feedback,
       createdAt: 1_787_990_400_000,
       updatedAt: 1_787_990_460_000 + fixtureIndex,
+      ...(showsFullEstablishedPreview ? { leaderSessionId: PREVIEW_LEADER_SESSION_ID } : {}),
       ...(showsFullEstablishedPreview
         ? {
             completedAt,
@@ -174,6 +177,25 @@ function useSeedPreviewFixtures(): boolean {
     const state = useStore.getState();
     const previousTitles = new Map<string, { present: boolean; value?: QuestTitlePreview | null }>();
     const questTitlePreviews = new Map(state.questTitlePreviews);
+    const previousLeaderBoard = {
+      present: state.sessionCompletedBoards.has(PREVIEW_LEADER_SESSION_ID),
+      value: state.sessionCompletedBoards.get(PREVIEW_LEADER_SESSION_ID),
+    };
+    const sessionCompletedBoards = new Map(state.sessionCompletedBoards);
+    sessionCompletedBoards.set(PREVIEW_LEADER_SESSION_ID, [
+      {
+        questId: PREVIEW_FIXTURE_BY_ID.get("rich")!.questId,
+        title: PREVIEW_FIXTURE_BY_ID.get("rich")!.title,
+        status: "MEMORY",
+        updatedAt: 1_787_990_460_000,
+        completedAt: 1_787_990_520_000,
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "memory",
+        },
+      },
+    ]);
 
     for (const [questId, quest] of PREVIEW_QUEST_BY_ID) {
       previousTitles.set(questId, {
@@ -188,13 +210,22 @@ function useSeedPreviewFixtures(): boolean {
       });
     }
 
-    useStore.setState({ questTitlePreviews });
+    useStore.setState({ questTitlePreviews, sessionCompletedBoards });
     setSeeded(true);
 
     return () => {
-      useStore.setState((current) => ({
-        questTitlePreviews: restoreMapEntries(current.questTitlePreviews, previousTitles),
-      }));
+      useStore.setState((current) => {
+        const restoredBoards = new Map(current.sessionCompletedBoards);
+        if (previousLeaderBoard.present) {
+          restoredBoards.set(PREVIEW_LEADER_SESSION_ID, previousLeaderBoard.value ?? []);
+        } else {
+          restoredBoards.delete(PREVIEW_LEADER_SESSION_ID);
+        }
+        return {
+          questTitlePreviews: restoreMapEntries(current.questTitlePreviews, previousTitles),
+          sessionCompletedBoards: restoredBoards,
+        };
+      });
     };
   }, []);
 

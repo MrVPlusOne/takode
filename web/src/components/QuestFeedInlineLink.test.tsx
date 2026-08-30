@@ -5,6 +5,7 @@ import "@testing-library/jest-dom";
 import type { QuestmasterTask } from "../types.js";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
+import { createLeaderThreadTabsProjectionEnvelope } from "../test-fixtures/leader-thread-tabs-projection.js";
 import { QuestFeedInlineLink } from "./QuestFeedInlineLink.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 
@@ -238,7 +239,9 @@ describe("QuestInlineLink chat-feed preview", () => {
     await act(async () => vi.advanceTimersByTime(249));
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
     await act(async () => vi.advanceTimersByTime(1));
-    expect(screen.getByTestId("quest-feed-title-preview")).toHaveStyle({ visibility: "visible" });
+    const titlePreview = screen.getByTestId("quest-feed-title-preview");
+    expect(titlePreview).toHaveStyle({ visibility: "visible" });
+    expect(within(titlePreview).getByTestId("quest-feed-title-preview-status")).toHaveTextContent("Refined");
     expect(screen.queryByRole("dialog")).toBeNull();
 
     fireEvent.pointerLeave(link, { pointerType: "mouse" });
@@ -246,6 +249,89 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(screen.getByTestId("quest-feed-title-preview")).toBeInTheDocument();
     await act(async () => vi.advanceTimersByTime(50));
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
+  });
+
+  it("shows status only after bounded by-id validation and refreshes it from the current quest", async () => {
+    const cached = quest({ questId: "q-430", title: "Current compact status", status: "refined" });
+    useStore.setState({
+      questDetails: new Map([["q-430", cached]]),
+      questDetailEtags: new Map([["q-430", '"compact-v1"']]),
+    });
+    const request = deferred<Awaited<ReturnType<typeof api.getQuestValidated>>>();
+    mockGetQuestValidated.mockReturnValueOnce(request.promise);
+    renderFeedLink("q-430");
+
+    fireEvent.pointerEnter(screen.getByRole("link", { name: "q-430" }), {
+      pointerType: "mouse",
+      clientX: 120,
+      clientY: 110,
+    });
+    await act(async () => vi.advanceTimersByTime(250));
+
+    const titlePreview = screen.getByTestId("quest-feed-title-preview");
+    expect(titlePreview).toHaveTextContent("Current compact status");
+    expect(within(titlePreview).queryByTestId("quest-feed-title-preview-status")).toBeNull();
+
+    const current = quest({
+      ...cached,
+      questId: "q-430",
+      title: "Current compact status",
+      version: 2,
+      status: "in_progress",
+      updatedAt: 2,
+    });
+    await act(async () =>
+      request.resolve({
+        status: "fresh",
+        data: current,
+        etag: '"compact-v2"',
+      }),
+    );
+
+    const target = within(titlePreview).getByTestId("quest-feed-title-preview-target");
+    const status = within(titlePreview).getByTestId("quest-feed-title-preview-status");
+    const title = within(titlePreview).getByText("Current compact status");
+    expect(status).toHaveTextContent("In Progress");
+    expect(target.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(status.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(mockGetQuestValidated).toHaveBeenCalledWith("q-430", '"compact-v1"');
+  });
+
+  it("ignores a late compact-status result after the keyed quest target changes", async () => {
+    const oldRequest = deferred<Awaited<ReturnType<typeof api.getQuestValidated>>>();
+    const newRequest = deferred<Awaited<ReturnType<typeof api.getQuestValidated>>>();
+    const oldQuest = quest({ questId: "q-431", title: "Old compact target", status: "done" });
+    const newQuest = quest({ questId: "q-432", title: "New compact target", status: "in_progress" });
+    useStore.setState({
+      questDetails: new Map([
+        ["q-431", oldQuest],
+        ["q-432", newQuest],
+      ]),
+    });
+    mockGetQuestValidated.mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(newRequest.promise);
+    const view = render(
+      <div data-message-id="rerendered-compact-target">
+        <QuestInlineLink questId="q-431" surface="chat-feed" />
+      </div>,
+    );
+
+    fireEvent.focus(screen.getByRole("link", { name: "q-431" }));
+    expect(screen.getByTestId("quest-feed-title-preview")).toHaveTextContent("Old compact target");
+
+    view.rerender(
+      <div data-message-id="rerendered-compact-target">
+        <QuestInlineLink questId="q-432" surface="chat-feed" />
+      </div>,
+    );
+    fireEvent.focus(screen.getByRole("link", { name: "q-432" }));
+    await act(async () => newRequest.resolve({ status: "fresh", data: newQuest, etag: '"new-compact"' }));
+    expect(screen.getByTestId("quest-feed-title-preview")).toHaveTextContent("New compact target");
+    expect(screen.getByTestId("quest-feed-title-preview-status")).toHaveTextContent("In Progress");
+
+    await act(async () => oldRequest.resolve({ status: "fresh", data: oldQuest, etag: '"old-compact"' }));
+    expect(screen.getByTestId("quest-feed-title-preview")).toHaveTextContent("New compact target");
+    expect(screen.getByTestId("quest-feed-title-preview-status")).toHaveTextContent("In Progress");
+    expect(screen.queryByText("Done")).toBeNull();
   });
 
   it("closes immediately when pointer travel enters another interactive control", async () => {
@@ -279,6 +365,7 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
     expect(document.activeElement).toBe(link);
     expect(preview).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByTestId("quest-feed-preview-hit-proxy")).toBeNull();
   });
 
   it("keeps hover-owned rich detail through eye-to-card travel grace, then closes after leaving both", async () => {
@@ -357,12 +444,14 @@ describe("QuestInlineLink chat-feed preview", () => {
     fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 198, clientY: 110 });
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveAttribute("data-open-mode", "hover");
+    expect(preview).toHaveAttribute("data-rich-open-mode", "hover");
     expect(mockGetQuestValidated).toHaveBeenCalledTimes(1);
 
     fireEvent.pointerDown(preview, { pointerType: "mouse" });
     fireEvent.click(preview, { detail: 1 });
     expect(screen.getByRole("dialog")).toBe(dialog);
     expect(dialog).toHaveAttribute("data-open-mode", "explicit");
+    expect(preview).toHaveAttribute("data-rich-open-mode", "explicit");
     expect(mockGetQuestValidated).toHaveBeenCalledTimes(1);
     expect(document.activeElement).toBe(dialog);
 
@@ -702,6 +791,248 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(actions[0]).toHaveAttribute("href", "#/session/s1?quest=q-49&feedback=1");
     expect(actions[1]).toHaveAttribute("href", "#/session/s1?quest=q-49");
     expect(within(dialog).getByTestId("quest-feed-feedback-unavailable")).toHaveTextContent("stable index");
+  });
+
+  it("adds Open Thread only from a recorded, server-known leader quest route", async () => {
+    const cached = quest({
+      questId: "q-490",
+      title: "Authoritative leader route",
+      leaderSessionId: "leader-490",
+      feedback: [{ author: "human", text: "Keep the exact feedback action primary.", ts: 1 }],
+    });
+    useStore.setState({
+      questDetails: new Map([["q-490", cached]]),
+      questDetailEtags: new Map([["q-490", '"leader-route"']]),
+      sdkSessions: [
+        {
+          sessionId: "leader-490",
+          sessionNum: 7490,
+          archived: false,
+          isOrchestrator: true,
+          state: "running",
+          cwd: "/tmp/leader-490",
+          createdAt: 1,
+        },
+      ],
+      sessionBoards: new Map([
+        [
+          "leader-490",
+          [
+            {
+              questId: "q-490",
+              title: "Authoritative leader route",
+              status: "WORKING",
+              updatedAt: 1,
+            },
+          ],
+        ],
+      ]),
+    });
+    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"leader-route"' });
+    renderFeedLink("q-490", { feedbackIndex: 0 });
+
+    fireEvent.click(screen.getByRole("button", { name: /Preview q-490 feedback #0/ }));
+    await act(async () => Promise.resolve());
+
+    const dialog = screen.getByRole("dialog", { name: "Authoritative leader route" });
+    const primary = within(dialog).getByTestId("quest-feed-primary-action");
+    const parent = within(dialog).getByTestId("quest-feed-parent-action");
+    const thread = within(dialog).getByTestId("quest-feed-thread-action");
+    expect(primary).toHaveTextContent("Open feedback #0");
+    expect(parent).toHaveTextContent("Open quest");
+    expect(thread).toHaveTextContent("Open Thread");
+    expect(thread).toHaveAttribute("href", "#/session/7490?thread=q-490");
+    expect(primary.compareDocumentPosition(parent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(parent.compareDocumentPosition(thread) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(thread);
+    expect(window.location.hash).toBe("#/session/7490?thread=q-490");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("uses synchronized leader-tab authority without requiring legacy tab state", async () => {
+    const cached = quest({
+      questId: "q-493",
+      title: "Projected leader route",
+      leaderSessionId: "leader-493",
+    });
+    useStore.setState({
+      questDetails: new Map([["q-493", cached]]),
+      questDetailEtags: new Map([["q-493", '"projected-route"']]),
+      sdkSessions: [
+        {
+          sessionId: "leader-493",
+          sessionNum: 7493,
+          archived: false,
+          state: "running",
+          cwd: "/tmp/leader-493",
+          createdAt: 1,
+        },
+      ],
+    });
+    useStore.getState().applySyncedProjectionSnapshot(
+      createLeaderThreadTabsProjectionEnvelope({
+        key: "leader-493",
+        overrides: {
+          tabState: {
+            version: 1,
+            orderedOpenThreadKeys: ["q-493"],
+            closedThreadTombstones: [],
+            updatedAt: 10,
+          },
+          tabs: [
+            {
+              threadKey: "q-493",
+              questId: "q-493",
+              title: "Projected leader route",
+              boardStatus: null,
+              journey: null,
+              active: false,
+              queued: false,
+              proposed: false,
+              completed: false,
+              canClose: true,
+              attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 10 },
+              updatedAt: 10,
+            },
+          ],
+        },
+      }),
+    );
+    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"projected-route"' });
+    renderFeedLink("q-493");
+
+    fireEvent.click(screen.getByRole("button", { name: /Preview q-493/ }));
+    await act(async () => Promise.resolve());
+
+    expect(
+      within(screen.getByRole("dialog", { name: "Projected leader route" })).getByTestId("quest-feed-thread-action"),
+    ).toHaveAttribute("href", "#/session/7493?thread=q-493");
+  });
+
+  it("hides Open Thread without an authoritative recorded leader route", async () => {
+    const cached = quest({
+      questId: "q-491",
+      title: "Display-only leader fallback",
+      sessionId: "worker-491",
+      claimedAt: 2,
+    });
+    useStore.setState({
+      questDetails: new Map([["q-491", cached]]),
+      questDetailEtags: new Map([["q-491", '"display-only-route"']]),
+      sdkSessions: [
+        {
+          sessionId: "worker-491",
+          archived: false,
+          herdedBy: "leader-491",
+          state: "running",
+          cwd: "/tmp/worker-491",
+          createdAt: 1,
+        },
+        {
+          sessionId: "leader-491",
+          sessionNum: 7491,
+          archived: false,
+          isOrchestrator: true,
+          state: "running",
+          cwd: "/tmp/leader-491",
+          createdAt: 1,
+        },
+      ],
+    });
+    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"display-only-route"' });
+    renderFeedLink("q-491");
+
+    fireEvent.click(screen.getByRole("button", { name: /Preview q-491/ }));
+    await act(async () => Promise.resolve());
+
+    const dialog = screen.getByRole("dialog", { name: "Display-only leader fallback" });
+    expect(within(dialog).getByTestId("quest-hover-leader-session")).toBeInTheDocument();
+    expect(within(dialog).queryByTestId("quest-feed-thread-action")).toBeNull();
+  });
+
+  it("requires leader authority for an open-tab-only recorded route", async () => {
+    const cached = quest({
+      questId: "q-492",
+      title: "Non-leader recorded route",
+      leaderSessionId: "not-a-leader-492",
+    });
+    const recordedSession = {
+      sessionId: "not-a-leader-492",
+      sessionNum: 7492,
+      archived: false,
+      state: "running" as const,
+      cwd: "/tmp/not-a-leader-492",
+      createdAt: 1,
+      leaderOpenThreadTabs: {
+        version: 1 as const,
+        orderedOpenThreadKeys: ["q-492"],
+        closedThreadTombstones: [],
+        updatedAt: 1,
+      },
+    };
+    useStore.setState({
+      questDetails: new Map([["q-492", cached]]),
+      questDetailEtags: new Map([["q-492", '"non-leader-route"']]),
+      sdkSessions: [recordedSession],
+    });
+    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"non-leader-route"' });
+    renderFeedLink("q-492");
+
+    fireEvent.click(screen.getByRole("button", { name: /Preview q-492/ }));
+    await act(async () => Promise.resolve());
+
+    const dialog = screen.getByRole("dialog", { name: "Non-leader recorded route" });
+    expect(within(dialog).queryByTestId("quest-feed-thread-action")).toBeNull();
+
+    await act(async () =>
+      useStore.setState({
+        sdkSessions: [{ ...recordedSession, isOrchestrator: true }],
+      }),
+    );
+    expect(within(dialog).getByTestId("quest-feed-thread-action")).toHaveAttribute(
+      "href",
+      "#/session/7492?thread=q-492",
+    );
+  });
+
+  it("fails closed instead of reviving legacy tabs after an invalid projection is supplied", async () => {
+    const cached = quest({
+      questId: "q-494",
+      title: "Invalid projected route",
+      leaderSessionId: "leader-494",
+    });
+    useStore.setState({
+      questDetails: new Map([["q-494", cached]]),
+      questDetailEtags: new Map([["q-494", '"invalid-projected-route"']]),
+      sdkSessions: [
+        {
+          sessionId: "leader-494",
+          sessionNum: 7494,
+          archived: false,
+          isOrchestrator: true,
+          state: "running",
+          cwd: "/tmp/leader-494",
+          createdAt: 1,
+          leaderOpenThreadTabs: {
+            version: 1,
+            orderedOpenThreadKeys: ["q-494"],
+            closedThreadTombstones: [],
+            updatedAt: 1,
+          },
+          leaderThreadTabsProjection: { malformed: true } as never,
+        },
+      ],
+    });
+    mockGetQuestValidated.mockResolvedValueOnce({ status: "not-modified", etag: '"invalid-projected-route"' });
+    renderFeedLink("q-494");
+
+    fireEvent.click(screen.getByRole("button", { name: /Preview q-494/ }));
+    await act(async () => Promise.resolve());
+
+    expect(
+      within(screen.getByRole("dialog", { name: "Invalid projected route" })).queryByTestId("quest-feed-thread-action"),
+    ).toBeNull();
   });
 
   it("retains direct actions on error, retries by id, and rejects a stale route completion", async () => {
@@ -1120,36 +1451,100 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(renderedMaxHeight).toBeLessThanOrEqual(500 - 24);
   });
 
-  it("closes hover-owned rich detail instead of modalizing when no nonblocking placement exists", async () => {
+  it("keeps fine-pointer legacy hover sizing within a zoomed visual viewport", async () => {
+    useStore.setState({ zoomLevel: 2 });
+    setVisualViewport({ left: 25, top: 15, width: 430, height: 500 });
+    geometryFixture = {
+      ...geometryFixture,
+      sourceRects: [domRect(249, 100, 82, 20)],
+      previewRect: domRect(337, 96, 26, 26),
+      richRect: domRect(0, 0, 414, 484),
+    };
+    renderFeedLink("q-680", { title: "Responsive legacy hover" });
+
+    const preview = screen.getByRole("button", { name: /Preview q-680/ });
+    fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 345, clientY: 106 });
+    await act(async () => Promise.resolve());
+
+    const dialog = screen.getByRole("dialog", { name: "Responsive legacy hover" });
+    expect(dialog).toHaveAttribute("data-open-mode", "hover");
+    expect(dialog).toHaveAttribute("data-surface", "popover");
+    expect(dialog).toHaveStyle({ width: "207px", maxHeight: "242px", transform: "scale(2)" });
+    const renderedLeft = Number.parseFloat(dialog.style.left);
+    const renderedTop = Number.parseFloat(dialog.style.top);
+    expect(renderedLeft).toBeGreaterThanOrEqual(25 + 8);
+    expect(renderedLeft + Number.parseFloat(dialog.style.width) * 2).toBeLessThanOrEqual(25 + 430 - 8);
+    expect(renderedTop).toBeGreaterThanOrEqual(15 + 8);
+    expect(renderedTop + Number.parseFloat(dialog.style.maxHeight) * 2).toBeLessThanOrEqual(15 + 500 - 8);
+  });
+
+  it("reuses legacy eye-relative hover placement even when the top-clamped card covers the eye", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 500 });
     geometryFixture = {
       ...geometryFixture,
       sourceRects: [domRect(100, 110, 600, 280)],
       previewRect: domRect(710, 235, 26, 26),
-      richRect: domRect(0, 0, 760, 400),
+      richRect: domRect(0, 0, 560, 400),
     };
-    renderFeedLink("q-84", { title: "Hover no-fit detail" });
+    renderFeedLink("q-84", { title: "Overlapping legacy hover detail" });
     const preview = screen.getByRole("button", { name: /Preview q-84/ });
 
     fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 720, clientY: 245 });
     await act(async () => Promise.resolve());
 
-    expect(screen.queryByRole("dialog")).toBeNull();
+    const dialog = screen.getByRole("dialog", { name: "Overlapping legacy hover detail" });
+    expect(dialog).toHaveAttribute("data-open-mode", "hover");
+    expect(dialog).toHaveAttribute("data-surface", "popover");
+    expect(dialog).toHaveAttribute("aria-modal", "false");
+    expect(dialog).toHaveStyle({ left: "232px", top: "8px" });
+    const placedLeft = Number.parseFloat(dialog.style.left);
+    const placedTop = Number.parseFloat(dialog.style.top);
+    expect(placedLeft).toBeLessThan(geometryFixture.previewRect.right);
+    expect(placedLeft + geometryFixture.richRect.width).toBeGreaterThan(geometryFixture.previewRect.left);
+    expect(placedTop).toBeLessThan(geometryFixture.previewRect.bottom);
+    expect(placedTop + geometryFixture.richRect.height).toBeGreaterThan(geometryFixture.previewRect.top);
     expect(screen.queryByTestId("quest-feed-rich-backdrop")).toBeNull();
-    expect(preview).toHaveAttribute("aria-expanded", "false");
+    expect(preview).toHaveAttribute("aria-expanded", "true");
+
+    const hitProxy = screen.getByTestId("quest-feed-preview-hit-proxy");
+    expect(hitProxy).toHaveAttribute("aria-hidden", "true");
+    expect(hitProxy).not.toHaveAttribute("role");
+    expect(hitProxy).toHaveStyle({ left: "710px", top: "235px", width: "26px", height: "26px" });
+
+    fireEvent.pointerLeave(preview, { pointerType: "mouse", relatedTarget: hitProxy });
+    fireEvent.pointerEnter(hitProxy, { pointerType: "mouse", clientX: 720, clientY: 245 });
+    await act(async () => vi.advanceTimersByTime(150));
+    expect(screen.getByRole("dialog", { name: "Overlapping legacy hover detail" })).toHaveAttribute(
+      "data-open-mode",
+      "hover",
+    );
+
+    fireEvent.pointerDown(hitProxy, { pointerType: "mouse" });
+    expect(screen.getByTestId("quest-feed-preview-hit-proxy")).toBe(hitProxy);
+    expect(screen.getByRole("dialog", { name: "Overlapping legacy hover detail" })).toHaveAttribute(
+      "data-open-mode",
+      "hover",
+    );
+    fireEvent.pointerUp(hitProxy, { pointerType: "mouse" });
+    fireEvent.click(hitProxy, { detail: 1 });
+    expect(screen.queryByTestId("quest-feed-preview-hit-proxy")).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Overlapping legacy hover detail" })).toHaveAttribute(
+      "data-open-mode",
+      "explicit",
+    );
   });
 
-  it("restores focused-link title intent after a hover-rich no-fit eye exit", async () => {
+  it("restores focused-link title intent after leaving an overlapping hover card", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 500 });
     geometryFixture = {
       ...geometryFixture,
       sourceRects: [domRect(100, 110, 600, 280)],
       previewRect: domRect(710, 235, 26, 26),
-      richRect: domRect(0, 0, 760, 400),
+      richRect: domRect(0, 0, 560, 400),
     };
-    renderFeedLink("q-88", { title: "Focused no-fit recovery" });
+    renderFeedLink("q-88", { title: "Focused overlap recovery" });
     const link = screen.getByRole("link", { name: "q-88" });
     const preview = screen.getByRole("button", { name: /Preview q-88/ });
     link.focus();
@@ -1158,12 +1553,19 @@ describe("QuestInlineLink chat-feed preview", () => {
 
     fireEvent.pointerEnter(preview, { pointerType: "mouse", clientX: 720, clientY: 245 });
     await act(async () => Promise.resolve());
-    expect(screen.queryByRole("dialog")).toBeNull();
+    const dialog = screen.getByRole("dialog", { name: "Focused overlap recovery" });
     expect(screen.queryByTestId("quest-feed-title-preview")).toBeNull();
     expect(document.activeElement).toBe(link);
 
-    fireEvent.pointerLeave(preview, { pointerType: "mouse", relatedTarget: null });
-    expect(screen.getByTestId("quest-feed-title-preview")).toHaveTextContent("Focused no-fit recovery");
+    fireEvent.pointerLeave(preview, { pointerType: "mouse", relatedTarget: dialog });
+    fireEvent.pointerEnter(dialog, { pointerType: "mouse" });
+    await act(async () => vi.advanceTimersByTime(150));
+    expect(screen.getByRole("dialog", { name: "Focused overlap recovery" })).toBe(dialog);
+
+    fireEvent.pointerLeave(dialog, { pointerType: "mouse", relatedTarget: null });
+    await act(async () => vi.advanceTimersByTime(150));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTestId("quest-feed-title-preview")).toHaveTextContent("Focused overlap recovery");
     expect(document.activeElement).toBe(link);
   });
 
