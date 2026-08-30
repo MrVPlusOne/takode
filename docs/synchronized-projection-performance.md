@@ -1,6 +1,6 @@
 # Synchronized Projection Performance Baseline
 
-Measured on August 30, 2026 against synchronized runtime target `90af5d6686c5930aac768c7288455c409433fb86`.
+Measured on August 30, 2026 against synchronized runtime target `b5482152edc4ba2c440d0771ddce0ce4d65e19ea`.
 
 This document fixes the comparison boundary for the session-navigation and leader-thread-tab projection migrations. It compares equivalent bounded feature work, not whole-server behavior or unrelated commits.
 
@@ -29,7 +29,7 @@ Use each feature commit against its own direct parent. Do not use one cumulative
 | Frontend state and components | +1,696 |
 | **Total non-test footprint** | **+4,991** |
 
-The later `90af5d6686c5930aac768c7288455c409433fb86` recovery commit is also excluded from feature accounting as unrelated concurrent target work; remeasurement on that synchronized target produced the same projection figures.
+The later `90af5d6686c5930aac768c7288455c409433fb86` recovery commit and `b5482152edc4ba2c440d0771ddce0ce4d65e19ea` scheduled-tab priority follow-up are excluded from the original migration footprint. The latter adds one bounded activation-history boolean per projected tab, so the leader-tab wire figures below were remeasured on that synchronized target.
 
 The reusable synchronized-projection foundation is excluded in full: `0e5c6eb2e1f49856d48e57556de260b5984f8d2f..a17da8a10e3fc19385c30467126e3b6fe659fe2c`. Later feature-specific definitions, registrations, invalidations, subscriptions, wire integration, stores, resolvers, compatibility arbitration, and UI consumption remain included even when they modify generic framework files.
 
@@ -79,8 +79,8 @@ Counts below use two browsers. “Assembly” is one full control/parallel paylo
 | Navigation one status change | 1 / 1 / 2 | 2 / 2 / 4 | 412 | 2,055 | Worse: 4.99× bytes and one extra send |
 | Navigation 25-frame burst | 25 / 25 / 50 | 26 / 26 / 52 | 10,300 | 10,839 | Worse: 5.2% more bytes and one extra send |
 | Leader equal board producer | 2 / 2 / 4 | 3 / 2 / 4 | 6,934 | 6,934 | Same wire; projected value suppressed |
-| Leader Work → Memory producer | 2 / 2 / 4 | 3 / 3 / 6 | 7,102 | 14,500 | Worse: 2.04× bytes and one extra send |
-| Leader 25-frame phase burst | 50 / 50 / 100 | 51 / 51 / 102 | 177,550 | 184,948 | Worse: 4.2% more bytes and one extra send |
+| Leader Work → Memory producer | 2 / 2 / 4 | 3 / 3 / 6 | 7,102 | 14,852 | Worse: 2.09× bytes and one extra send |
+| Leader 25-frame phase burst | 50 / 50 / 100 | 51 / 51 / 102 | 177,550 | 185,300 | Worse: 4.4% more bytes and one extra send |
 
 Each leader board producer includes the companion global activity message followed by `board_updated`. The control and current pair are modeled with established leader navigation and attention subscriptions, so the activity message uses its subscribed residual shape.
 
@@ -93,12 +93,12 @@ Both feature definitions build their complete value during dependency selection 
 | Measurement | Historical or parallel payload | Projection contribution | Matched/current result |
 | --- | ---: | ---: | ---: |
 | Navigation one status change, per browser | 366 B retained activity/notification fields | 1,689 B | 2,055 B total |
-| Leader narrow thread-status update, per browser | 236 B confirmed projection-owned compatibility | 7,307 B | 7,307 B compatible target; 7,543 B currently shipped |
-| Leader Work → Memory producer, per browser | 3,317 B subscribed activity residual + 3,785 B board/detail payload | 7,398 B | 14,500 B total |
+| Leader narrow thread-status update, per browser | 236 B confirmed projection-owned compatibility | 7,659 B | 7,659 B compatible target; 7,895 B currently shipped |
+| Leader Work → Memory producer, per browser | 3,317 B subscribed activity residual + 3,785 B board/detail payload | 7,750 B | 14,852 B total |
 
-Initial subscription for two browsers performs two dependency selections, one initial derivation, two accepted subscriptions, and two snapshots. The projection snapshot-plus-ack response is 1,819 B per browser for navigation and 7,447 B for leader tabs. The normal `state_snapshot` follows and is not included in those incremental totals. Historical navigation has no navigation-projection subscription work; the leader control already assumes the shared navigation and attention subscriptions but has no leader-tabs subscription.
+Initial subscription for two browsers performs two dependency selections, one initial derivation, two accepted subscriptions, and two snapshots. The projection snapshot-plus-ack response is 1,819 B per browser for navigation and 7,799 B for leader tabs. The normal `state_snapshot` follows and is not included in those incremental totals. Historical navigation has no navigation-projection subscription work; the leader control already assumes the shared navigation and attention subscriptions but has no leader-tabs subscription.
 
-A cold navigation invalidation with no subscribers still selects, derives, and caches a 1,506 B value. Targeted cross-leader quest invalidation correctly skips leader-tab work without a subscriber, but generic session persistence still derives and caches a 7,138 B leader-tab value without a viewer. Reconnect snapshots also rebuild dependencies before equality suppresses derivation.
+A cold navigation invalidation with no subscribers still selects, derives, and caches a 1,506 B value. Targeted cross-leader quest invalidation correctly skips leader-tab work without a subscriber, but generic session persistence still derives and caches a 7,490 B leader-tab value without a viewer. Reconnect snapshots also rebuild dependencies before equality suppresses derivation.
 
 ## Frontend results
 
@@ -145,6 +145,6 @@ Downstream cleanup and any later projection candidate must preserve these determ
 
 **Current performance is mixed and does not satisfy the equal-or-better acceptance gate.** Projection-local batching, dependency equality, and linear fanout work: equal projected values do not publish, 25 invalidations collapse to one projected update, and subscriber count does not multiply server derivation.
 
-Those internal gains are outweighed at the matched-pair boundary. Navigation single-change wire is 4.99× the control, its 25-frame burst is 5.2% larger, and both single and burst add a full-list React commit. Leader Work → Memory wire is 2.04× the full historical producer sequence and its 25-frame burst is 4.2% larger. Leader phase changes and reconnect add a commit; the full three-frame leader burst merely breaks even on commits while doing fewer store writes. Both reconnect paths add one commit, session navigation still rerenders unrelated rows, generic invalidation can derive without subscribers, and snapshots reselect whole values.
+Those internal gains are outweighed at the matched-pair boundary. Navigation single-change wire is 4.99× the control, its 25-frame burst is 5.2% larger, and both single and burst add a full-list React commit. Leader Work → Memory wire is 2.09× the full historical producer sequence and its 25-frame burst is 4.4% larger. Leader phase changes and reconnect add a commit; the full three-frame leader burst merely breaks even on commits while doing fewer store writes. Both reconnect paths add one commit, session navigation still rerenders unrelated rows, generic invalidation can derive without subscribers, and snapshots reselect whole values.
 
 Before another UI family uses this pattern, cleanup should split or delta-encode hot leader-tab facets, remove confirmed projection-owned compatibility fields without deleting detailed board authority, batch or reconcile parallel detail-plus-visual deliveries, isolate session-row selectors, and demand-gate generic invalidation. The repaired authority model remains valuable, but these measurements do not support treating the current implementation as a minimal or performance-proven template.
