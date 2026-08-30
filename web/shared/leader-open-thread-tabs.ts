@@ -169,11 +169,13 @@ export function canServerCandidateOpenThread(
   state: LeaderOpenThreadTabsState | undefined,
   threadKey: string,
   eventAt: number | undefined,
+  options: { allowTombstoneReopen?: boolean } = {},
 ): boolean {
   const normalized = normalizeLeaderThreadKey(threadKey);
   if (!shouldPersistLeaderThreadTab(normalized)) return false;
   const tombstone = state?.closedThreadTombstones.find((entry) => entry.threadKey === normalized);
   if (!tombstone) return true;
+  if (options.allowTombstoneReopen === false) return false;
   return typeof eventAt === "number" && Number.isFinite(eventAt) && eventAt > tombstone.closedAt;
 }
 
@@ -185,6 +187,7 @@ export function applyLeaderServerCandidateThreadTabEvent(
     repositionExisting?: boolean;
     placement?: "first" | "last" | "before";
     beforeThreadKeys?: ReadonlySet<string>;
+    allowTombstoneReopen?: boolean;
   } = {},
 ): LeaderOpenThreadTabsState | undefined {
   const state = normalizeLeaderOpenThreadTabsState(currentState);
@@ -200,7 +203,13 @@ export function applyLeaderServerCandidateThreadTabEvent(
       return currentState ?? state;
     }
   }
-  if (!canServerCandidateOpenThread(state, normalizedThreadKey, eventAt)) return currentState ?? state;
+  if (
+    !canServerCandidateOpenThread(state, normalizedThreadKey, eventAt, {
+      allowTombstoneReopen: options.allowTombstoneReopen,
+    })
+  ) {
+    return currentState ?? state;
+  }
 
   const effectivePlacement =
     !alreadyOpen && state?.explicitOrderUpdatedAt !== undefined && eventAt <= state.explicitOrderUpdatedAt

@@ -9,6 +9,7 @@ import {
   normalizeThreadKey,
 } from "../utils/thread-projection.js";
 import { shouldPersistOpenThreadTab } from "../utils/leader-open-thread-tabs.js";
+import { isScheduledLeaderThreadTabStatus } from "../../shared/leader-thread-tab-priority.js";
 import { isCompletedJourneyPresentationStatus } from "./QuestJourneyTimeline.js";
 
 type OpenThreadTab = (
@@ -155,6 +156,7 @@ export function useLeaderThreadTabSurfacing({
       if (!marker) continue;
       const targetThreadKey = normalizeThreadKey(marker.threadKey || marker.questId || "");
       if (!shouldPersistOpenThreadTab(targetThreadKey)) continue;
+      if (leaderThreadTargetIsScheduled(targetThreadKey, navigationThreadRows)) continue;
       if (seenTransitionTargetKeys.has(targetThreadKey)) continue;
       seenTransitionTargetKeys.add(targetThreadKey);
       if (marker.targetThreadFreshness !== "new_quest_thread") continue;
@@ -233,6 +235,7 @@ export function useLeaderThreadTabSurfacing({
       if (!marker) continue;
       const targetThreadKey = normalizeThreadKey(marker.threadKey || marker.questId || "");
       if (!shouldPersistOpenThreadTab(targetThreadKey)) continue;
+      if (leaderThreadTargetIsScheduled(targetThreadKey, navigationThreadRows)) continue;
 
       const wasOpen = openThreadTabKeys.includes(targetThreadKey);
       const targetCompleted = leaderThreadTargetIsCompleted({
@@ -311,6 +314,12 @@ function threadAttachmentMarkerKey(message: ChatMessage): string | null {
   const marker = message.metadata?.threadAttachmentMarker;
   if (!marker) return null;
   return marker.markerKey || marker.id || message.id;
+}
+
+function leaderThreadTargetIsScheduled(threadKey: string, rows: ReadonlyArray<LeaderThreadTabSurfacingRow>): boolean {
+  const normalized = normalizeThreadKey(threadKey);
+  const row = rows.find((candidate) => normalizeThreadKey(candidate.threadKey) === normalized);
+  return !!row && (isScheduledLeaderThreadTabStatus(row.boardStatus) || isScheduledLeaderThreadTabStatus(row.status));
 }
 
 function leaderThreadTargetIsCompleted({

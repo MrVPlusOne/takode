@@ -448,7 +448,7 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
             workerSessionNum: 2580,
             active: true,
             completed: false,
-            canClose: true,
+            canClose: false,
             journey: expect.objectContaining({
               phaseIds: ["alignment", "work", "memory"],
               currentPhaseId: "work",

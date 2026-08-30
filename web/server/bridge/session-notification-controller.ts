@@ -20,6 +20,11 @@ import {
   sameThreadRoute,
   withThreadRoute,
 } from "../thread-routing-metadata.js";
+import {
+  isNeverStartedScheduledLeaderThreadTabRow,
+  isScheduledLeaderThreadTabStatus,
+  type LeaderThreadTabMutationPolicy,
+} from "../../shared/leader-thread-tab-priority.js";
 import { THREAD_OUTCOME_REMINDER_SOURCE_ID } from "../../shared/thread-outcome-reminder.js";
 
 type SessionLike = any;
@@ -52,6 +57,7 @@ type PersistNotificationDeps = BrowserNotificationDeps & {
 };
 
 type NotifyUserDeps = PersistNotificationDeps & {
+  getLeaderThreadTabMutationPolicy?: (sessionId: string, threadKey: string) => LeaderThreadTabMutationPolicy | null;
   isHerdedWorkerSession?: (session: SessionLike) => boolean;
   getLauncherSessionInfo?: (sessionId: string) => any;
   emitTakodeEvent?: (sessionId: string, type: string, data: Record<string, unknown>) => void;
@@ -191,6 +197,17 @@ function isThreadScopedReviewNotification(notification: SessionNotification): bo
   return route !== null && route.threadKey !== "main";
 }
 
+function scheduledBoardRowForThread(session: SessionLike, threadKey: string): BoardRow | undefined {
+  const normalizedThreadKey = normalizeLeaderThreadKey(threadKey);
+  const board = session.board;
+  const rows: Iterable<BoardRow> = board instanceof Map ? board.values() : Array.isArray(board) ? board : [];
+  for (const row of rows) {
+    if (normalizeLeaderThreadKey(row.questId) !== normalizedThreadKey) continue;
+    return isScheduledLeaderThreadTabStatus(row.status) ? row : undefined;
+  }
+  return undefined;
+}
+
 function openLeaderReviewThreadKeys(session: SessionLike): Set<string> | null {
   if (session.state?.isOrchestrator !== true) return null;
   const openTabs = normalizeLeaderOpenThreadTabsState(session.state?.leaderOpenThreadTabs);
@@ -205,7 +222,13 @@ function openLeaderReviewThreadKeys(session: SessionLike): Set<string> | null {
   for (const row of rows) {
     if (!row || row.completedAt !== undefined || !shouldPersistLeaderThreadTab(row.questId)) continue;
     const eventAt = row.threadTabActivatedAt ?? row.createdAt;
-    if (!canServerCandidateOpenThread(openTabs, row.questId, eventAt)) continue;
+    if (
+      !canServerCandidateOpenThread(openTabs, row.questId, eventAt, {
+        allowTombstoneReopen: !isScheduledLeaderThreadTabStatus(row.status),
+      })
+    ) {
+      continue;
+    }
     keys.add(normalizeLeaderThreadKey(row.questId));
   }
   return keys;
@@ -538,14 +561,27 @@ function surfaceCreatedNeedsInputThreadTab(
   session: SessionLike,
   route: ThreadRouteMetadata,
   eventAt: number,
-  deps: Pick<NotifyUserDeps, "getLauncherSessionInfo">,
+  deps: Pick<NotifyUserDeps, "getLauncherSessionInfo" | "getLeaderThreadTabMutationPolicy">,
 ): void {
   const isLeader =
     session.state?.isOrchestrator === true || deps.getLauncherSessionInfo?.(session.id)?.isOrchestrator === true;
   if (!isLeader || !shouldPersistLeaderThreadTab(route.threadKey)) return;
+  const scheduledRow = scheduledBoardRowForThread(session, route.threadKey);
+  const mutationPolicy =
+    deps.getLeaderThreadTabMutationPolicy?.(session.id, route.threadKey) ??
+    (scheduledRow
+      ? {
+          inMotion: false,
+          scheduled: true,
+          neverStartedScheduled: isNeverStartedScheduledLeaderThreadTabRow(scheduledRow),
+          canClose: true,
+        }
+      : null);
+  if (mutationPolicy?.neverStartedScheduled) return;
   const existingState = normalizeLeaderOpenThreadTabsState(session.state?.leaderOpenThreadTabs);
   const nextState = applyLeaderServerCandidateThreadTabEvent(existingState, route.threadKey, eventAt, {
     repositionExisting: true,
+    allowTombstoneReopen: mutationPolicy?.scheduled !== true,
   });
   if (!nextState || nextState === existingState) return;
   session.state = { ...(session.state ?? {}), leaderOpenThreadTabs: nextState };

@@ -26,6 +26,12 @@ import {
   shouldPersistLeaderThreadTab,
 } from "../shared/leader-open-thread-tabs.js";
 import { getQuestJourneyCurrentPhaseId, getQuestJourneyCurrentPhaseIndex } from "../shared/quest-journey.js";
+import {
+  isInMotionLeaderThreadTabRow,
+  isNeverStartedScheduledLeaderThreadTabRow,
+  promoteInMotionLeaderThreadTabsBeforeScheduled,
+  type LeaderThreadTabMutationPolicy,
+} from "../shared/leader-thread-tab-priority.js";
 import { threadStatusKey, threadStatusMessageIdHash, type LeaderThreadStatus } from "../shared/thread-status-marker.js";
 import { buildProjectionAttentionRecords, collectMessageAttentionRecords } from "../shared/leader-projection.js";
 import { getUserVisibleSessionNotifications } from "./bridge/session-notification-controller.js";
@@ -153,11 +159,9 @@ function isProposedRow(row: BoardRow | undefined): boolean {
   return normalizedStatus(row?.status) === "proposed";
 }
 
-function isActiveBoardCandidate(row: BoardRow): boolean {
+function isInMotionBoardCandidate(row: BoardRow): boolean {
   return (
-    !isQueuedRow(row) &&
-    !isProposedRow(row) &&
-    !isCompletedRow(row) &&
+    isInMotionLeaderThreadTabRow(row, { completed: isCompletedRow(row) }) &&
     normalizeProjectionThreadKey(row.questId) !== null
   );
 }
@@ -272,6 +276,57 @@ function currentQuestRowsByKey(
   return result;
 }
 
+export function resolveLeaderThreadTabMutationPolicy(
+  session: Session,
+  threadKey: string,
+  options: {
+    sessions?: Iterable<Session>;
+    isCurrentQuestSourceSession?: (session: Session) => boolean;
+    isCurrentQuestLeaderSession?: (session: Session) => boolean;
+  } = {},
+): LeaderThreadTabMutationPolicy {
+  const normalizedThreadKey = normalizeProjectionThreadKey(threadKey);
+  if (!normalizedThreadKey) {
+    return {
+      inMotion: false,
+      scheduled: false,
+      neverStartedScheduled: false,
+      canClose: true,
+    };
+  }
+
+  const allSessions = new Map<string, Session>([[session.id, session]]);
+  const isCurrentQuestSourceSession =
+    options.isCurrentQuestSourceSession ??
+    ((candidate: Session) => candidate.searchDataOnly !== true && candidate.state.hidden !== true);
+  for (const candidate of options.sessions ?? []) {
+    if (candidate.id === session.id || isCurrentQuestSourceSession(candidate)) allSessions.set(candidate.id, candidate);
+  }
+  const isCurrentQuestLeaderSession =
+    options.isCurrentQuestLeaderSession ?? ((candidate: Session) => candidate.state.isOrchestrator === true);
+  const currentQuestRow = currentQuestRowsByKey(
+    [...allSessions.values()],
+    new Set([normalizedThreadKey]),
+    isCurrentQuestLeaderSession,
+  ).get(normalizedThreadKey);
+  const localActiveRow = boardRowsByKey([...session.board.values()]).get(normalizedThreadKey);
+  const localCompletedRow = localActiveRow
+    ? undefined
+    : boardRowsByKey([...session.completedBoard.values()]).get(normalizedThreadKey);
+  const row = currentQuestRow?.row ?? localActiveRow ?? localCompletedRow;
+  const completed = currentQuestRow
+    ? currentQuestRow.completed
+    : isCompletedRow(row) || (!!localCompletedRow && !localActiveRow);
+  const inMotion = isInMotionLeaderThreadTabRow(row, { completed });
+  const scheduled = !completed && (isQueuedRow(row) || isProposedRow(row));
+  return {
+    inMotion,
+    scheduled,
+    neverStartedScheduled: scheduled && isNeverStartedScheduledLeaderThreadTabRow(row),
+    canClose: !inMotion,
+  };
+}
+
 type ProjectionTabCandidateKind = "needs-input" | "primary" | "review";
 
 interface ProjectionTabCandidate {
@@ -347,6 +402,18 @@ function buildEffectiveOpenKeys(
     .slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_TABS);
   let candidateUpdatedAt = 0;
 
+  const scheduledThreadKeys = new Set(
+    boardRows
+      .filter((row) => isQueuedRow(row) || isProposedRow(row))
+      .map((row) => normalizeProjectionThreadKey(row.questId))
+      .filter((threadKey): threadKey is string => threadKey !== null),
+  );
+  const neverStartedScheduledThreadKeys = new Set(
+    boardRows
+      .filter(isNeverStartedScheduledLeaderThreadTabRow)
+      .map((row) => normalizeProjectionThreadKey(row.questId))
+      .filter((threadKey): threadKey is string => threadKey !== null),
+  );
   const candidates = projectionTabCandidates(attentionRecords);
   const candidatesByKind = (kind: ProjectionTabCandidateKind) =>
     candidates
@@ -355,7 +422,14 @@ function buildEffectiveOpenKeys(
 
   const placeFirst = (threadKey: string, eventAt: number, repositionExisting: boolean) => {
     const alreadyOpen = orderedOpenThreadKeys.includes(threadKey);
-    if (!alreadyOpen && !canServerCandidateOpenThread(existingState, threadKey, eventAt)) return;
+    if (
+      !alreadyOpen &&
+      !canServerCandidateOpenThread(existingState, threadKey, eventAt, {
+        allowTombstoneReopen: !scheduledThreadKeys.has(threadKey),
+      })
+    ) {
+      return;
+    }
     if (alreadyOpen && !repositionExisting) return;
     const next = placeLeaderOpenThreadTabKey(orderedOpenThreadKeys, threadKey, "first").slice(
       0,
@@ -368,14 +442,20 @@ function buildEffectiveOpenKeys(
 
   const placeLast = (threadKey: string, eventAt: number) => {
     if (orderedOpenThreadKeys.includes(threadKey)) return;
-    if (!canServerCandidateOpenThread(existingState, threadKey, eventAt)) return;
+    if (
+      !canServerCandidateOpenThread(existingState, threadKey, eventAt, {
+        allowTombstoneReopen: !scheduledThreadKeys.has(threadKey),
+      })
+    ) {
+      return;
+    }
     if (orderedOpenThreadKeys.length >= LEADER_THREAD_TABS_PROJECTION_MAX_TABS) return;
     orderedOpenThreadKeys = [...orderedOpenThreadKeys, threadKey];
     candidateUpdatedAt = Math.max(candidateUpdatedAt, eventAt);
   };
 
   const needsInputCandidates = candidatesByKind("needs-input");
-  const activeBoardCandidates = boardRows.filter(isActiveBoardCandidate).map((row) => ({
+  const activeBoardCandidates = boardRows.filter(isInMotionBoardCandidate).map((row) => ({
     threadKey: normalizeProjectionThreadKey(row.questId)!,
     eventAt: nonNegativeNumber(row.threadTabActivatedAt ?? row.createdAt),
   }));
@@ -387,6 +467,7 @@ function buildEffectiveOpenKeys(
   // Missing needs-input candidates retain the established first-position
   // behavior, except when a newer explicit user ordering already owns the rail.
   for (const candidate of needsInputCandidates) {
+    if (neverStartedScheduledThreadKeys.has(candidate.threadKey)) continue;
     if (orderedOpenThreadKeys.includes(candidate.threadKey)) continue;
     if (shouldRepositionServerCandidate(existingState, candidate.eventAt)) {
       placeFirst(candidate.threadKey, candidate.eventAt, false);
@@ -420,8 +501,15 @@ function buildEffectiveOpenKeys(
   // Review-only tabs sit ahead of synthetic queued/proposed rows without
   // disturbing already-open user order.
   for (const candidate of candidatesByKind("review")) {
+    if (neverStartedScheduledThreadKeys.has(candidate.threadKey)) continue;
     if (orderedOpenThreadKeys.includes(candidate.threadKey)) continue;
-    if (!canServerCandidateOpenThread(existingState, candidate.threadKey, candidate.eventAt)) continue;
+    if (
+      !canServerCandidateOpenThread(existingState, candidate.threadKey, candidate.eventAt, {
+        allowTombstoneReopen: !scheduledThreadKeys.has(candidate.threadKey),
+      })
+    ) {
+      continue;
+    }
     if (shouldRepositionServerCandidate(existingState, candidate.eventAt)) {
       orderedOpenThreadKeys = placeLeaderOpenThreadTabBeforeKeys(
         orderedOpenThreadKeys,
@@ -439,6 +527,7 @@ function buildEffectiveOpenKeys(
   // leading transient candidates. Older restored records respect newer user
   // order and append instead of unexpectedly reshuffling it.
   for (const candidate of candidatesByKind("primary")) {
+    if (neverStartedScheduledThreadKeys.has(candidate.threadKey)) continue;
     if (orderedOpenThreadKeys.includes(candidate.threadKey)) continue;
     if (shouldRepositionServerCandidate(existingState, candidate.eventAt)) {
       placeFirst(candidate.threadKey, candidate.eventAt, false);
@@ -590,9 +679,15 @@ function compactActivePhaseSummary(activeBoard: ReadonlyArray<BoardRow>) {
       label: boundedText(segment.label, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH),
       count: Math.max(1, Math.floor(segment.count)),
       tone: segment.tone,
-      ...(segment.color ? { color: boundedText(segment.color, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH) } : {}),
+      ...(segment.color
+        ? {
+            color: boundedText(segment.color, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH),
+          }
+        : {}),
       ...(segment.colorName
-        ? { colorName: boundedText(segment.colorName, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH) }
+        ? {
+            colorName: boundedText(segment.colorName, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH),
+          }
         : {}),
     }));
 }
@@ -615,7 +710,10 @@ function compactValueToByteLimit(value: LeaderThreadTabsProjectionValue): Leader
   if (serializedValueBytes(value) <= LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES) return value;
   const compacted: LeaderThreadTabsProjectionValue = {
     ...value,
-    tabs: value.tabs.map((tab) => ({ ...tab, title: tab.title?.slice(0, 80) || null })),
+    tabs: value.tabs.map((tab) => ({
+      ...tab,
+      title: tab.title?.slice(0, 80) || null,
+    })),
     threadStatuses: Object.fromEntries(
       Object.entries(value.threadStatuses).map(([key, status]) => [
         key,
@@ -694,11 +792,6 @@ export function buildLeaderThreadTabsProjectionValue(
   });
   const attention = attentionByThread(attentionRecords);
   const attentionTitles = attentionTitleInputs(attentionRecords);
-  const { orderedOpenThreadKeys, candidateUpdatedAt } = buildEffectiveOpenKeys(
-    existingState,
-    activeBoard,
-    attentionRecords,
-  );
   const activeByKey = boardRowsByKey(activeBoard);
   const completedByKey = boardRowsByKey(completedBoard);
   const allSessions = new Map<string, Session>([[session.id, session]]);
@@ -710,10 +803,51 @@ export function buildLeaderThreadTabsProjectionValue(
   }
   const isCurrentQuestLeaderSession =
     options.isCurrentQuestLeaderSession ?? ((candidate: Session) => candidate.state.isOrchestrator === true);
+  const relevantCurrentQuestKeys = new Set<string>(existingState?.orderedOpenThreadKeys ?? []);
+  for (const threadKey of activeByKey.keys()) relevantCurrentQuestKeys.add(threadKey);
+  for (const threadKey of completedByKey.keys()) relevantCurrentQuestKeys.add(threadKey);
+  for (const threadKey of attention.keys()) {
+    if (threadKey !== "main") relevantCurrentQuestKeys.add(threadKey);
+  }
+  for (const threadKey of Object.keys(session.state.leaderThreadStatuses ?? {})) {
+    const normalizedThreadKey = normalizeProjectionThreadKey(threadStatusKey(threadKey));
+    if (normalizedThreadKey) relevantCurrentQuestKeys.add(normalizedThreadKey);
+  }
   const currentQuestRows = currentQuestRowsByKey(
     [...allSessions.values()],
-    new Set(orderedOpenThreadKeys),
+    relevantCurrentQuestKeys,
     isCurrentQuestLeaderSession,
+  );
+  const orderingRowsByKey = new Map(activeByKey);
+  for (const [threadKey, currentQuestRow] of currentQuestRows) {
+    orderingRowsByKey.set(threadKey, currentQuestRow.row);
+  }
+  const orderingRows = sortedBoardRows(orderingRowsByKey.values());
+  const { orderedOpenThreadKeys: candidateOpenThreadKeys, candidateUpdatedAt } = buildEffectiveOpenKeys(
+    existingState,
+    orderingRows,
+    attentionRecords,
+  );
+  const inMotionThreadKeys = new Set<string>();
+  const scheduledThreadKeys = new Set<string>();
+  for (const threadKey of candidateOpenThreadKeys) {
+    const localActiveRow = activeByKey.get(threadKey);
+    const localCompletedRow = localActiveRow ? undefined : completedByKey.get(threadKey);
+    const currentQuestRow = currentQuestRows.get(threadKey);
+    const row = currentQuestRow?.row ?? localActiveRow ?? localCompletedRow;
+    const completed = currentQuestRow
+      ? currentQuestRow.completed
+      : isCompletedRow(row) || (!!localCompletedRow && !localActiveRow);
+    if (isInMotionLeaderThreadTabRow(row, { completed })) inMotionThreadKeys.add(threadKey);
+    else if (!completed && isNeverStartedScheduledLeaderThreadTabRow(row)) scheduledThreadKeys.add(threadKey);
+  }
+  // This is a narrow promotion-only repair, not a global state sort: only
+  // current in-motion tabs cross scheduled tabs, while every peer class keeps
+  // its durable/manual order.
+  const orderedOpenThreadKeys = promoteInMotionLeaderThreadTabsBeforeScheduled(
+    candidateOpenThreadKeys,
+    inMotionThreadKeys,
+    scheduledThreadKeys,
   );
   const threadStatuses = relevantThreadStatuses(session.state.leaderThreadStatuses ?? {}, orderedOpenThreadKeys);
   const relevantTombstoneKeys = new Set<string>([
@@ -729,10 +863,14 @@ export function buildLeaderThreadTabsProjectionValue(
         closedThreadTombstones: tombstones,
         updatedAt: Math.max(nonNegativeNumber(existingState?.updatedAt), candidateUpdatedAt),
         ...(existingState?.migratedFromLocalStorageAt !== undefined
-          ? { migratedFromLocalStorageAt: nonNegativeNumber(existingState.migratedFromLocalStorageAt) }
+          ? {
+              migratedFromLocalStorageAt: nonNegativeNumber(existingState.migratedFromLocalStorageAt),
+            }
           : {}),
         ...(existingState?.explicitOrderUpdatedAt !== undefined
-          ? { explicitOrderUpdatedAt: nonNegativeNumber(existingState.explicitOrderUpdatedAt) }
+          ? {
+              explicitOrderUpdatedAt: nonNegativeNumber(existingState.explicitOrderUpdatedAt),
+            }
           : {}),
       }
     : null;
@@ -748,7 +886,8 @@ export function buildLeaderThreadTabsProjectionValue(
       : isCompletedRow(row) || (!!localCompletedRow && !localActiveRow);
     const queued = !completed && isQueuedRow(row);
     const proposed = !completed && isProposedRow(row);
-    const isActive = !!row && !completed && !queued && !proposed;
+    const neverStartedScheduled = (queued || proposed) && isNeverStartedScheduledLeaderThreadTabRow(row);
+    const isActive = isInMotionLeaderThreadTabRow(row, { completed });
     const tabAttention = attention.get(threadKey) ?? EMPTY_ATTENTION;
     const status = threadStatuses[threadKey];
     return {
@@ -770,8 +909,9 @@ export function buildLeaderThreadTabsProjectionValue(
       active: isActive,
       queued,
       proposed,
+      neverStartedScheduled,
       completed,
-      canClose: !localActiveRow,
+      canClose: !isActive,
       attention: { ...tabAttention },
       updatedAt: Math.max(
         nonNegativeNumber(row?.completedAt),

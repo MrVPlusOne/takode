@@ -4,6 +4,7 @@ import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-t
 import {
   mergeProjectedLeaderThreadRows,
   mergeProjectedTabsWithRestoredOrder,
+  prioritizeLeaderThreadKeysForFallback,
 } from "./leader-thread-tabs-navigation.js";
 
 function currentTab(overrides: Partial<LeaderThreadTabsProjectionTab> = {}): LeaderThreadTabsProjectionTab {
@@ -75,8 +76,16 @@ const staleCompletedRow = {
   },
   leaderSessionId: "leader-historical",
   rowStatus: {
-    worker: { sessionId: "worker-historical", sessionNum: 2569, status: "idle" },
-    reviewer: { sessionId: "reviewer-historical", sessionNum: 2570, status: "idle" },
+    worker: {
+      sessionId: "worker-historical",
+      sessionNum: 2569,
+      status: "idle",
+    },
+    reviewer: {
+      sessionId: "reviewer-historical",
+      sessionNum: 2570,
+      status: "idle",
+    },
   },
   section: "done" as const,
   messageCount: 2,
@@ -124,8 +133,16 @@ describe("leader thread tabs navigation projection", () => {
         createdAt: 200,
       },
       rowStatus: {
-        worker: { sessionId: "worker-current", sessionNum: 2580, status: "running" },
-        reviewer: { sessionId: "reviewer-current", sessionNum: 2581, status: "idle" },
+        worker: {
+          sessionId: "worker-current",
+          sessionNum: 2580,
+          status: "running",
+        },
+        reviewer: {
+          sessionId: "reviewer-current",
+          sessionNum: 2581,
+          status: "idle",
+        },
       },
     };
 
@@ -218,7 +235,125 @@ describe("leader thread tabs navigation projection", () => {
     });
     const [row] = mergeProjectedLeaderThreadRows([staleCompletedRow], projectionFor(legacyTab, false), new Map());
 
-    expect(row).toMatchObject({ status: "done", section: "done", boardRow: { completedAt: 30 } });
+    expect(row).toMatchObject({
+      status: "done",
+      section: "done",
+      boardRow: { completedAt: 30 },
+    });
+  });
+
+  it("promotes active fallback tabs across newer never-started scheduled tabs", () => {
+    // Legacy/restored peers keep their relative order; only active-versus-scheduled inversions are repaired.
+    expect(
+      prioritizeLeaderThreadKeysForFallback(
+        ["q-queued", "q-neutral", "q-work", "q-proposed", "q-memory"],
+        [
+          { questId: "q-queued", status: "QUEUED", updatedAt: 50 },
+          { questId: "q-work", status: "WORKING", updatedAt: 20 },
+          { questId: "q-proposed", status: "PROPOSED", updatedAt: 60 },
+          { questId: "q-memory", status: "MEMORY", updatedAt: 10 },
+        ],
+      ),
+    ).toEqual(["q-work", "q-memory", "q-queued", "q-neutral", "q-proposed"]);
+  });
+
+  it("uses projected current state during first-upgrade ordering without demoting a requeued run", () => {
+    // Current projection authority overrides stale local classification, while an activated queued row stays neutral.
+    const projection = createLeaderThreadTabsProjectionValue({
+      tabState: null,
+      tabs: [
+        currentTab({ threadKey: "q-current", questId: "q-current" }),
+        currentTab({
+          threadKey: "q-scheduled",
+          questId: "q-scheduled",
+          active: false,
+          queued: true,
+          neverStartedScheduled: true,
+          boardStatus: "QUEUED",
+          canClose: true,
+        }),
+      ],
+    });
+    expect(
+      prioritizeLeaderThreadKeysForFallback(
+        ["q-scheduled", "q-current", "q-requeued"],
+        [
+          { questId: "q-current", status: "QUEUED", updatedAt: 1 },
+          { questId: "q-scheduled", status: "QUEUED", updatedAt: 2 },
+          {
+            questId: "q-requeued",
+            status: "QUEUED",
+            threadTabActivatedAt: 3,
+            updatedAt: 4,
+          },
+        ],
+        projection,
+      ),
+    ).toEqual(["q-current", "q-scheduled", "q-requeued"]);
+  });
+
+  it("preserves a cross-session requeued tab when no local active row carries its activation history", () => {
+    const projection = createLeaderThreadTabsProjectionValue({
+      tabState: null,
+      tabs: [
+        currentTab({ threadKey: "q-current", questId: "q-current" }),
+        currentTab({
+          threadKey: "q-scheduled",
+          questId: "q-scheduled",
+          active: false,
+          queued: true,
+          neverStartedScheduled: true,
+          boardStatus: "QUEUED",
+          canClose: true,
+        }),
+        currentTab({
+          threadKey: "q-requeued",
+          questId: "q-requeued",
+          active: false,
+          queued: true,
+          neverStartedScheduled: false,
+          boardStatus: "QUEUED",
+          canClose: true,
+        }),
+      ],
+    });
+
+    expect(
+      prioritizeLeaderThreadKeysForFallback(
+        ["q-requeued", "q-scheduled", "q-current"],
+        [
+          { questId: "q-current", status: "WORKING", updatedAt: 1 },
+          { questId: "q-scheduled", status: "QUEUED", updatedAt: 2 },
+        ],
+        projection,
+      ),
+    ).toEqual(["q-requeued", "q-current", "q-scheduled"]);
+  });
+
+  it("does not infer never-started state from an absent local row for legacy projections", () => {
+    const projection = createLeaderThreadTabsProjectionValue({
+      tabState: null,
+      tabs: [
+        currentTab({ threadKey: "q-current", questId: "q-current" }),
+        currentTab({
+          threadKey: "q-legacy-scheduled",
+          questId: "q-legacy-scheduled",
+          active: false,
+          queued: true,
+          neverStartedScheduled: undefined,
+          boardStatus: "QUEUED",
+          canClose: true,
+        }),
+      ],
+    });
+
+    expect(
+      prioritizeLeaderThreadKeysForFallback(
+        ["q-legacy-scheduled", "q-current"],
+        [{ questId: "q-current", status: "WORKING", updatedAt: 1 }],
+        projection,
+      ),
+    ).toEqual(["q-legacy-scheduled", "q-current"]);
   });
 
   it("keeps restored local order while projected visuals cover overlapping and newly derived tabs", () => {

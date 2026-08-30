@@ -60,11 +60,13 @@ function TabSurfacingHarness({
   selectedThreadKey,
   openThreadTab = () => {},
   openThreadTabKeys,
+  navigationThreadRows = [],
 }: {
   messages: ChatMessage[];
   selectedThreadKey: string;
   openThreadTab?: TabSurfacingProps["openThreadTab"];
   openThreadTabKeys?: ReadonlyArray<string>;
+  navigationThreadRows?: TabSurfacingProps["navigationThreadRows"];
 }) {
   const effectiveOpenThreadTabKeys = openThreadTabKeys ?? [selectedThreadKey].filter((key) => key.startsWith("q-"));
   useLeaderThreadTabSurfacing({
@@ -73,7 +75,7 @@ function TabSurfacingHarness({
     authoritativeLeaderOpenThreadTabs: leaderTabs([...effectiveOpenThreadTabKeys]),
     historyLoading: false,
     isLeaderSession: true,
-    navigationThreadRows: [],
+    navigationThreadRows,
     openThreadTab,
     openThreadTabKeys: effectiveOpenThreadTabKeys,
     preview: false,
@@ -142,6 +144,21 @@ describe("useLeaderThreadTabSurfacing transition markers", () => {
         messages={[firstMarker, laterFreshLookingMarker]}
         openThreadTab={openThreadTab}
         openThreadTabKeys={["q-1671"]}
+        selectedThreadKey="main"
+      />,
+    );
+
+    await waitFor(() => expect(openThreadTab).not.toHaveBeenCalled());
+  });
+
+  it("does not let a transition candidate reopen or promote a scheduled target", async () => {
+    // Once board status is known, the server projection already owns scheduled availability.
+    const openThreadTab = vi.fn<TabSurfacingProps["openThreadTab"]>();
+    render(
+      <TabSurfacingHarness
+        messages={[transitionMarker({ sourceThreadKey: "main", targetThreadKey: "q-1002", transitionedAt: 200 })]}
+        navigationThreadRows={[{ threadKey: "q-1002", boardStatus: "QUEUED" }]}
+        openThreadTab={openThreadTab}
         selectedThreadKey="main"
       />,
     );

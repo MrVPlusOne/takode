@@ -28,7 +28,10 @@ import {
 import type { Session } from "./bridge/ws-bridge-session.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { createSessionAttentionProjectionDefinition } from "./session-attention-projection.js";
-import { createLeaderThreadTabsProjectionDefinition } from "./leader-thread-tabs-projection.js";
+import {
+  createLeaderThreadTabsProjectionDefinition,
+  resolveLeaderThreadTabMutationPolicy,
+} from "./leader-thread-tabs-projection.js";
 import { collectMessageAttentionRecords } from "../shared/leader-projection.js";
 import { createSessionNavigationProjectionDefinition } from "./session-navigation-projection.js";
 import type { SdkSessionInfo } from "./session-info.js";
@@ -68,20 +71,6 @@ function leaderSessionReferencesQuest(session: Session, questIds: ReadonlySet<st
   }
   for (const notification of session.notifications) {
     if (!notification.done && matches(notification.threadKey || notification.questId)) return true;
-  }
-  return false;
-}
-
-function leaderThreadTabHasActiveBoardRow(session: Session, questId: string): boolean {
-  for (const row of session.board.values()) {
-    if (row.questId.trim().toLowerCase() !== questId) continue;
-    const status = row.status?.trim().toLowerCase() ?? "";
-    return (
-      row.completedAt === undefined &&
-      status !== "queued" &&
-      status !== "proposed" &&
-      !COMPLETED_QUEST_STATUSES.has(status)
-    );
   }
   return false;
 }
@@ -158,6 +147,16 @@ export class WsBridgeSyncedProjectionController {
     );
   }
 
+  getLeaderThreadTabMutationPolicy(sessionId: string, threadKey: string) {
+    const session = this.deps.getSession(sessionId);
+    if (!session) return null;
+    return resolveLeaderThreadTabMutationPolicy(session, threadKey, {
+      sessions: this.deps.listSessions(),
+      isCurrentQuestSourceSession: (candidate) => this.isProjectionVisibleSession(candidate),
+      isCurrentQuestLeaderSession: (candidate) => this.isLeaderSession(candidate),
+    });
+  }
+
   invalidateSession(session: Session): void {
     this.runtime.transaction(() => {
       this.runtime.invalidate(SESSION_ATTENTION_PROJECTION, session.id);
@@ -189,14 +188,19 @@ export class WsBridgeSyncedProjectionController {
     }
     const existingState = normalizeLeaderOpenThreadTabsState(session.state.leaderOpenThreadTabs);
     const alreadyOpen = existingState?.orderedOpenThreadKeys.includes(normalizedThreadKey) === true;
+    const policy = this.getLeaderThreadTabMutationPolicy(session.id, normalizedThreadKey);
+    // Never-started scheduled tabs keep their low-priority placement even when
+    // attention changes; their badge remains projected in place.
+    if (policy?.neverStartedScheduled) return false;
     // Active work is already in the leading class. Review/rework attention may
     // promote a missing, completed, scheduled, or otherwise non-active tab,
     // but ordinary active edits must not perturb its durable order.
-    if (alreadyOpen && leaderThreadTabHasActiveBoardRow(session, normalizedThreadKey)) return false;
+    if (alreadyOpen && policy?.inMotion) return false;
     const nextState = applyLeaderServerCandidateThreadTabEvent(existingState, normalizedThreadKey, eventAt, {
       repositionExisting: true,
       placement: kind === "review" ? "before" : "first",
       ...(kind === "review" ? { beforeThreadKeys: deferredLeaderThreadKeys(session) } : {}),
+      allowTombstoneReopen: policy?.scheduled !== true,
     });
     if (!nextState || nextState === existingState) return false;
     session.state = { ...session.state, leaderOpenThreadTabs: nextState };

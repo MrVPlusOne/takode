@@ -585,7 +585,7 @@ describe("Playground", () => {
     expect(screen.queryByText(/@to\(user\)/)).toBeNull();
   });
 
-  it("documents projected tab attention and completed-Waiting parity on desktop and mobile", () => {
+  it("documents projected scheduled priority and dismissal parity on desktop and mobile", () => {
     setMeasuredRailWidth(430);
     render(<PlaygroundOverviewOnly />);
 
@@ -594,8 +594,9 @@ describe("Playground", () => {
     for (const scope of [desktop, mobile]) {
       const rail = scope.getByTestId("thread-tab-rail");
       expect(rail).toHaveAttribute("data-overflow", "more-tabs-list");
-      expect(rail).toHaveAttribute("data-hidden-tab-count", "2");
+      expect(rail).toHaveAttribute("data-hidden-tab-count", "3");
       const visibleTabs = scope.getAllByTestId("thread-tab");
+      expect(visibleTabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-9001", "q-9004", "q-9003"]);
       const needsInput = visibleTabs.find((tab) => tab.getAttribute("data-thread-key") === "q-9001")!;
       const completedWaiting = visibleTabs.find((tab) => tab.getAttribute("data-thread-key") === "q-9004")!;
       const reviewUnread = visibleTabs.find((tab) => tab.getAttribute("data-thread-key") === "q-9003")!;
@@ -603,6 +604,8 @@ describe("Playground", () => {
       expect(needsInput).toHaveAttribute("data-blue-notification", "true");
       expect(within(needsInput).getByTestId("thread-tab-needs-input-bell")).toBeTruthy();
       expect(within(needsInput).queryByTestId("thread-tab-blue-notification-bell")).toBeNull();
+      expect(needsInput).toHaveAttribute("data-closable", "false");
+      expect(within(needsInput).queryByTestId("thread-tab-close")).toBeNull();
       expect(within(needsInput).getByTestId("thread-tab-title")).toHaveAttribute(
         "data-title-color",
         "var(--color-cc-phase-thread-tab-title-work, #166534)",
@@ -618,16 +621,23 @@ describe("Playground", () => {
         "var(--color-cc-fg)",
       );
       expect(reviewUnread).toHaveAttribute("data-blue-notification", "true");
+      expect(reviewUnread).toHaveAttribute("data-closable", "true");
       expect(within(reviewUnread).getByTestId("thread-tab-blue-notification-bell")).toBeTruthy();
+      expect(within(reviewUnread).getByRole("button", { name: "Close q-9003" })).toBeTruthy();
       expect(scope.getByTestId("thread-tabs-more-button")).toHaveAttribute("data-has-muted-needs-input", "true");
     }
 
     fireEvent.click(mobile.getByTestId("thread-tabs-more-button"));
-    const mutedRow = mobile
-      .getAllByTestId("thread-tabs-more-row")
-      .find((row) => row.getAttribute("data-thread-key") === "q-9005")!;
+    const moreRows = mobile.getAllByTestId("thread-tabs-more-row");
+    expect(moreRows.map((row) => row.getAttribute("data-thread-key"))).toEqual(["q-9005", "q-9002", "q-9006"]);
+    const mutedRow = moreRows[0]!;
+    const queuedRow = moreRows[1]!;
+    const proposedRow = moreRows[2]!;
     expect(mutedRow).toHaveAttribute("data-muted-needs-input", "true");
     expect(within(mutedRow).getByTestId("thread-tab-muted-needs-input-bell")).toBeTruthy();
+    expect(within(mutedRow).getByRole("button", { name: "Close q-9005" })).toBeTruthy();
+    expect(within(queuedRow).getByRole("button", { name: "Close q-9002" })).toBeTruthy();
+    expect(within(proposedRow).getByRole("button", { name: "Close q-9006" })).toBeTruthy();
   });
 
   it("documents additive source projection without source attachment markers", () => {
@@ -958,15 +968,15 @@ describe("Playground", () => {
     expect(rail).toHaveAttribute("data-overflow", "more-tabs-list");
     const tabs = workBoardBar.getAllByTestId("thread-tab");
     expect(tabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
-      "q-61",
       "q-42",
-      "q-55",
       "q-1101",
       "q-1102",
       "q-1103",
       "q-1104",
       "q-1105",
       "q-1106",
+      "q-1107",
+      "q-1108",
       "q-1112",
     ]);
     expect(workBoardBar.getByTestId("thread-tab-strip").getAttribute("style") ?? "").toContain(

@@ -334,6 +334,245 @@ describe("leader_thread_tabs_update", () => {
     });
   });
 
+  it("materializes and closes a projection-only scheduled tab without mutating its board row", () => {
+    // The explicit command persists projection-only peers and a tombstone, never board state.
+    const queuedRow = { questId: "q-queued", status: "QUEUED" };
+    const session = makeSession({
+      state: { permissionMode: "default", isOrchestrator: true } as any,
+      board: new Map([[queuedRow.questId, queuedRow]]),
+    } as any);
+    const getLeaderThreadTabsProjectionValue = vi.fn(() => ({
+      currentQuestStateVersion: 1 as const,
+      tabState: null,
+      tabs: [
+        {
+          threadKey: "q-active",
+          questId: "q-active",
+          title: "Active",
+          boardStatus: "WORKING",
+          journey: null,
+          sourceLeaderSessionId: "test-session",
+          sourceRowCreatedAt: 1,
+          workerSessionId: null,
+          workerSessionNum: null,
+          active: true,
+          queued: false,
+          proposed: false,
+          completed: false,
+          canClose: false,
+          attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+          updatedAt: 10,
+        },
+        {
+          threadKey: "q-queued",
+          questId: "q-queued",
+          title: "Queued",
+          boardStatus: "QUEUED",
+          journey: null,
+          sourceLeaderSessionId: "test-session",
+          sourceRowCreatedAt: 2,
+          workerSessionId: null,
+          workerSessionNum: null,
+          active: false,
+          queued: true,
+          proposed: false,
+          completed: false,
+          canClose: true,
+          attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+          updatedAt: 20,
+        },
+      ],
+      mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+      threadStatuses: {},
+      activePhaseSummary: [],
+    }));
+    const deps = makeInjectDeps({ getLeaderThreadTabsProjectionValue });
+
+    expect(
+      handleBrowserProtocolMessage(
+        session,
+        {
+          type: "leader_thread_tabs_update",
+          operation: { type: "close", threadKey: "q-queued", closedAt: 30 },
+          client_msg_id: "tabs-close-projected-queued",
+        },
+        undefined,
+        deps,
+      ),
+    ).toBe(true);
+
+    expect(session.state.leaderOpenThreadTabs).toMatchObject({
+      orderedOpenThreadKeys: ["q-active"],
+      closedThreadTombstones: [{ threadKey: "q-queued", closedAt: 30 }],
+    });
+    expect((session as any).board.get("q-queued")).toBe(queuedRow);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects stale close commands for current in-motion tabs", () => {
+    // A stale browser must not turn a hidden close affordance into active-work authority.
+    const serverState = {
+      version: 1 as const,
+      orderedOpenThreadKeys: ["q-active"],
+      closedThreadTombstones: [],
+      updatedAt: 100,
+    };
+    const session = makeSession({
+      state: { permissionMode: "default", isOrchestrator: true, leaderOpenThreadTabs: serverState } as any,
+    });
+    const deps = makeInjectDeps({
+      getLeaderThreadTabMutationPolicy: vi.fn(() => ({
+        inMotion: true,
+        scheduled: false,
+        neverStartedScheduled: false,
+        canClose: false,
+      })),
+    });
+
+    handleBrowserProtocolMessage(
+      session,
+      {
+        type: "leader_thread_tabs_update",
+        operation: { type: "close", threadKey: "q-active", closedAt: 200 },
+        client_msg_id: "tabs-stale-active-close",
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.state.leaderOpenThreadTabs).toEqual(serverState);
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
+  });
+
+  it("does not let a board-lag generic candidate evict a full active rail", () => {
+    // An attachment can arrive before its queued row; capacity must fail closed
+    // until a later authoritative activation decides whether an eviction is valid.
+    const activeKeys = Array.from({ length: 50 }, (_, index) => `q-${index + 1}`);
+    const serverState = {
+      version: 1 as const,
+      orderedOpenThreadKeys: activeKeys,
+      closedThreadTombstones: [],
+      updatedAt: 100,
+    };
+    const session = makeSession({
+      state: { permissionMode: "default", isOrchestrator: true, leaderOpenThreadTabs: serverState } as any,
+    });
+    const deps = makeInjectDeps();
+
+    handleBrowserProtocolMessage(
+      session,
+      {
+        type: "leader_thread_tabs_update",
+        operation: {
+          type: "open",
+          threadKey: "q-999",
+          placement: "first",
+          source: "server_candidate",
+          eventAt: 200,
+        },
+        client_msg_id: "tabs-full-board-lag-candidate",
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.state.leaderOpenThreadTabs).toEqual(serverState);
+    expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toHaveLength(50);
+    expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys.at(-1)).toBe("q-50");
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
+  });
+
+  it("uses current cross-session policy to reject generic scheduled candidates", () => {
+    // Local board state may be absent or stale while another leader owns the current queued run.
+    const serverState = {
+      version: 1 as const,
+      orderedOpenThreadKeys: ["q-active"],
+      closedThreadTombstones: [{ threadKey: "q-cross-scheduled", closedAt: 100 }],
+      updatedAt: 100,
+    };
+    const session = makeSession({
+      state: { permissionMode: "default", isOrchestrator: true, leaderOpenThreadTabs: serverState } as any,
+    });
+    const deps = makeInjectDeps({
+      getLeaderThreadTabMutationPolicy: vi.fn(() => ({
+        inMotion: false,
+        scheduled: true,
+        neverStartedScheduled: true,
+        canClose: true,
+      })),
+    });
+
+    handleBrowserProtocolMessage(
+      session,
+      {
+        type: "leader_thread_tabs_update",
+        operation: {
+          type: "open",
+          threadKey: "q-cross-scheduled",
+          placement: "first",
+          source: "server_candidate",
+          eventAt: 200,
+        },
+        client_msg_id: "tabs-cross-scheduled-candidate",
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.state.leaderOpenThreadTabs).toEqual(serverState);
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
+  });
+
+  it("keeps scheduled tombstones closed for generic candidates but allows explicit reopen", () => {
+    // Automatic attachment/transition candidates are weaker than user or route navigation.
+    const serverState = {
+      version: 1 as const,
+      orderedOpenThreadKeys: ["q-active"],
+      closedThreadTombstones: [{ threadKey: "q-queued", closedAt: 100 }],
+      updatedAt: 100,
+    };
+    const session = makeSession({
+      state: { permissionMode: "default", isOrchestrator: true, leaderOpenThreadTabs: serverState } as any,
+      board: new Map([["q-queued", { questId: "q-queued", status: "QUEUED" }]]),
+    } as any);
+    const deps = makeInjectDeps();
+
+    handleBrowserProtocolMessage(
+      session,
+      {
+        type: "leader_thread_tabs_update",
+        operation: {
+          type: "open",
+          threadKey: "q-queued",
+          placement: "first",
+          source: "server_candidate",
+          eventAt: 200,
+        },
+        client_msg_id: "tabs-scheduled-candidate",
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.state.leaderOpenThreadTabs).toEqual(serverState);
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
+
+    handleBrowserProtocolMessage(
+      session,
+      {
+        type: "leader_thread_tabs_update",
+        operation: { type: "open", threadKey: "q-queued", placement: "first", source: "user" },
+        client_msg_id: "tabs-scheduled-user-reopen",
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-queued", "q-active"]);
+    expect(session.state.leaderOpenThreadTabs?.closedThreadTombstones).toEqual([]);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledTimes(1);
+  });
+
   it("materializes projection-only visible tabs before applying a browser reorder", () => {
     const session = makeSession({
       state: {

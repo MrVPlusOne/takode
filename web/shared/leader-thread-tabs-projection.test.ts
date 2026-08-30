@@ -37,9 +37,15 @@ function value(): LeaderThreadTabsProjectionValue {
         active: true,
         queued: false,
         proposed: false,
+        neverStartedScheduled: false,
         completed: false,
         canClose: false,
-        attention: { needsInput: true, mutedNeedsInput: false, reviewUnread: true, updatedAt: 9 },
+        attention: {
+          needsInput: true,
+          mutedNeedsInput: false,
+          reviewUnread: true,
+          updatedAt: 9,
+        },
         updatedAt: 10,
       },
       {
@@ -61,13 +67,24 @@ function value(): LeaderThreadTabsProjectionValue {
         active: false,
         queued: false,
         proposed: false,
+        neverStartedScheduled: false,
         completed: true,
         canClose: true,
-        attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+        attention: {
+          needsInput: false,
+          mutedNeedsInput: false,
+          reviewUnread: false,
+          updatedAt: 0,
+        },
         updatedAt: 7,
       },
     ],
-    mainAttention: { needsInput: false, mutedNeedsInput: true, reviewUnread: false, updatedAt: 6 },
+    mainAttention: {
+      needsInput: false,
+      mutedNeedsInput: true,
+      reviewUnread: false,
+      updatedAt: 6,
+    },
     threadStatuses: {
       "q-2": {
         kind: "waiting",
@@ -80,7 +97,15 @@ function value(): LeaderThreadTabsProjectionValue {
         updatedAt: 7,
       },
     },
-    activePhaseSummary: [{ label: "Work", count: 1, tone: "phase", color: "#123456", colorName: "blue" }],
+    activePhaseSummary: [
+      {
+        label: "Work",
+        count: 1,
+        tone: "phase",
+        color: "#123456",
+        colorName: "blue",
+      },
+    ],
   };
 }
 
@@ -90,7 +115,12 @@ describe("leader thread tabs projection wire contract", () => {
     expect(isLeaderThreadTabsProjectionValue(valid)).toBe(true);
     expect(isLeaderThreadTabsProjectionValue({ ...valid, tabState: null })).toBe(true);
 
-    expect(isLeaderThreadTabsProjectionValue({ ...valid, tabs: valid.tabs.slice(1) })).toBe(false);
+    expect(
+      isLeaderThreadTabsProjectionValue({
+        ...valid,
+        tabs: valid.tabs.slice(1),
+      }),
+    ).toBe(false);
     expect(
       isLeaderThreadTabsProjectionValue({
         ...valid,
@@ -120,7 +150,10 @@ describe("leader thread tabs projection wire contract", () => {
         tabs: [
           {
             ...valid.tabs[0],
-            journey: { ...valid.tabs[0]!.journey!, phaseIds: ["alignment", "work"] },
+            journey: {
+              ...valid.tabs[0]!.journey!,
+              phaseIds: ["alignment", "work"],
+            },
           },
           valid.tabs[1],
         ],
@@ -132,7 +165,18 @@ describe("leader thread tabs projection wire contract", () => {
         tabs: [{ ...valid.tabs[0], workerSessionNum: -1 }, valid.tabs[1]],
       }),
     ).toBe(false);
-    expect(isLeaderThreadTabsProjectionValue({ ...valid, currentQuestStateVersion: 2 })).toBe(false);
+    expect(
+      isLeaderThreadTabsProjectionValue({
+        ...valid,
+        currentQuestStateVersion: 2,
+      }),
+    ).toBe(false);
+    expect(
+      isLeaderThreadTabsProjectionValue({
+        ...valid,
+        tabs: [{ ...valid.tabs[0], neverStartedScheduled: "yes" }, valid.tabs[1]],
+      }),
+    ).toBe(false);
   });
 
   it("requires the full current-state payload atomically when version 1 is present", () => {
@@ -194,7 +238,11 @@ describe("leader thread tabs projection wire contract", () => {
   it("reuses unchanged slices, tabs, and statuses across a partial update", () => {
     const previous = value();
     const next = structuredClone(previous);
-    next.tabs[0]!.attention = { ...next.tabs[0]!.attention, needsInput: false, updatedAt: 11 };
+    next.tabs[0]!.attention = {
+      ...next.tabs[0]!.attention,
+      needsInput: false,
+      updatedAt: 11,
+    };
     next.tabs[0]!.updatedAt = 11;
 
     const reconciled = reconcileLeaderThreadTabsProjectionValue(previous, next);
@@ -240,6 +288,24 @@ describe("leader thread tabs projection wire contract", () => {
         phaseCount: 4,
       },
     };
+
+    expect(leaderThreadTabsProjectionEqual(previous, next)).toBe(false);
+    const reconciled = reconcileLeaderThreadTabsProjectionValue(previous, next);
+    expect(reconciled.tabs[0]).not.toBe(previous.tabs[0]);
+    expect(reconciled.tabs[1]).toBe(previous.tabs[1]);
+  });
+
+  it("treats the scheduled activation-history distinction as a semantic visual change", () => {
+    const previous = value();
+    previous.tabs[0] = {
+      ...previous.tabs[0]!,
+      active: false,
+      queued: true,
+      canClose: true,
+      neverStartedScheduled: false,
+    };
+    const next = structuredClone(previous);
+    next.tabs[0]!.neverStartedScheduled = true;
 
     expect(leaderThreadTabsProjectionEqual(previous, next)).toBe(false);
     const reconciled = reconcileLeaderThreadTabsProjectionValue(previous, next);

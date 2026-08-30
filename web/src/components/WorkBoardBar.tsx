@@ -22,6 +22,7 @@ import { ALL_THREADS_KEY, MAIN_THREAD_KEY } from "../utils/thread-projection.js"
 import { isAttentionRecordActive, type AttentionRecord } from "../utils/attention-records.js";
 import { getQuestPhaseThreadTabTitleColorValue } from "../utils/quest-phase-theme.js";
 import type { QuestmasterTask } from "../types.js";
+import { isInMotionLeaderThreadTabRow } from "../../shared/leader-thread-tab-priority.js";
 import {
   activeBoardSummarySegments,
   boardSummary,
@@ -36,7 +37,10 @@ import {
   type SessionNavigationResolverSource,
 } from "../utils/session-navigation-resolver.js";
 import { resolveLeaderThreadTabsProjection } from "../utils/leader-thread-tabs-resolver.js";
-import { mergeProjectedTabsWithRestoredOrder } from "../utils/leader-thread-tabs-navigation.js";
+import {
+  mergeProjectedTabsWithRestoredOrder,
+  prioritizeLeaderThreadKeysForFallback,
+} from "../utils/leader-thread-tabs-navigation.js";
 import type {
   LeaderThreadTabsProjectionTab,
   LeaderThreadTabsProjectionValue,
@@ -328,7 +332,7 @@ function buildPrimaryThreadChips({
       mutedNeedsInput: boardRowHasMutedNeedsInput(row, attention),
       blueNudge: attention.some(isBlueNotificationAttention),
       titleColor: boardRowTitleColor(row),
-      canClose: false,
+      canClose: !isInMotionLeaderThreadTabRow(row),
       route: attention[0]?.route,
       updatedAt: Math.max(row.updatedAt, ...attention.map((record) => record.updatedAt), 0),
     });
@@ -437,7 +441,7 @@ function buildOpenThreadTabs({
       mutedNeedsInput: active?.mutedNeedsInput ?? false,
       blueNudge: active?.blueNudge ?? false,
       titleColor: completedTitleColor ?? active?.titleColor ?? (boardRow ? boardRowTitleColor(boardRow) : undefined),
-      canClose: !activeBoardRow,
+      canClose: !activeBoardRow || !isInMotionLeaderThreadTabRow(activeBoardRow),
       route: active?.route,
       updatedAt: active?.updatedAt ?? boardRow?.updatedAt ?? 0,
     });
@@ -714,6 +718,13 @@ export function WorkBoardBar({
     for (const row of activeBoardRows) keys.add(normalizeThreadKey(row.questId));
     return keys;
   }, [activeBoardRows]);
+  const protectedActiveBoardThreadKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const row of activeBoardRows) {
+      if (isInMotionLeaderThreadTabRow(row)) keys.add(normalizeThreadKey(row.questId));
+    }
+    return keys;
+  }, [activeBoardRows]);
   const closedActiveThreadChips = useMemo(
     () =>
       activeThreadChips.filter(
@@ -721,9 +732,9 @@ export function WorkBoardBar({
           chip.threadKey !== MAIN_THREAD_KEY &&
           chip.threadKey !== ALL_THREADS_KEY &&
           !openThreadTabKeys.has(chip.threadKey) &&
-          (activeBoardThreadKeys.has(chip.threadKey) || !dismissedAutoThreadTabKeys.has(chip.threadKey)),
+          (protectedActiveBoardThreadKeys.has(chip.threadKey) || !dismissedAutoThreadTabKeys.has(chip.threadKey)),
       ),
-    [activeBoardThreadKeys, activeThreadChips, dismissedAutoThreadTabKeys, openThreadTabKeys],
+    [activeThreadChips, dismissedAutoThreadTabKeys, openThreadTabKeys, protectedActiveBoardThreadKeys],
   );
   const closedActiveBoardThreadKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -745,15 +756,23 @@ export function WorkBoardBar({
     const nextKeys = new Set<string>();
 
     for (const key of rememberedKeys) {
-      if (closedActiveBoardThreadKeys.has(key) && !openThreadTabKeys.has(key)) nextKeys.add(key);
+      if (
+        closedActiveBoardThreadKeys.has(key) &&
+        protectedActiveBoardThreadKeys.has(key) &&
+        !openThreadTabKeys.has(key)
+      ) {
+        nextKeys.add(key);
+      }
     }
     if (previousKeys) {
       for (const key of closedActiveBoardThreadKeys) {
-        if (!previousKeys.has(key) && !openThreadTabKeys.has(key)) nextKeys.add(key);
+        if (protectedActiveBoardThreadKeys.has(key) && !previousKeys.has(key) && !openThreadTabKeys.has(key)) {
+          nextKeys.add(key);
+        }
       }
     }
     return nextKeys;
-  }, [closedActiveBoardThreadKeys, openThreadTabKeys, sessionId]);
+  }, [closedActiveBoardThreadKeys, openThreadTabKeys, protectedActiveBoardThreadKeys, sessionId]);
   useLayoutEffect(() => {
     pendingThreadTabSessionRef.current = sessionId;
     previousClosedActiveBoardThreadKeysRef.current = new Set(closedActiveBoardThreadKeys);
@@ -770,9 +789,19 @@ export function WorkBoardBar({
           }),
     [closedActiveThreadChips, leaderTabsProjectionOwned, leadingPendingThreadKeys, openThreadTabs],
   );
+  const displayedThreadTabs = useMemo(() => {
+    if (leaderTabsProjectionOwned && leaderTabsProjection?.tabState !== null) return unifiedThreadTabs;
+    const orderedKeys = prioritizeLeaderThreadKeysForFallback(
+      unifiedThreadTabs.map((tab) => tab.threadKey),
+      activeBoardRows,
+      leaderTabsProjection,
+    );
+    const tabsByKey = new Map(unifiedThreadTabs.map((tab) => [normalizeThreadKey(tab.threadKey), tab]));
+    return orderedKeys.map((threadKey) => tabsByKey.get(threadKey)).filter((tab): tab is PrimaryThreadChip => !!tab);
+  }, [activeBoardRows, leaderTabsProjection, leaderTabsProjectionOwned, unifiedThreadTabs]);
   const handleCloseThreadTab = (threadKey: string) => {
     const normalized = normalizeThreadKey(threadKey);
-    const nextThreadKey = threadKeyToSelectAfterClosing(normalized, unifiedThreadTabs);
+    const nextThreadKey = threadKeyToSelectAfterClosing(normalized, displayedThreadTabs);
     onCloseThreadTab?.(normalized, nextThreadKey);
 
     setDismissedAutoThreadTabKeys((existing) => new Set([...existing, normalized]));
@@ -821,7 +850,7 @@ export function WorkBoardBar({
     <div className="shrink-0 flex flex-col min-h-0">
       <ThreadTabRail
         mainState={mainThreadState}
-        tabs={unifiedThreadTabs}
+        tabs={displayedThreadTabs}
         reorderableThreadKeys={openThreadTabs.map((tab) => normalizeThreadKey(tab.threadKey))}
         sessionId={sessionId}
         currentThreadKey={currentThreadKey}

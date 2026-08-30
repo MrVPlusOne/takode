@@ -402,7 +402,7 @@ describe("WorkBoardBar", () => {
     expect(tabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1", "q-2"]);
     expect(tabs[0]).toHaveAttribute("data-needs-input", "true");
     expect(tabs[0]).toHaveAttribute("data-closable", "false");
-    expect(tabs[1]).toHaveAttribute("data-closable", "false");
+    expect(tabs[1]).toHaveAttribute("data-closable", "true");
     expect(queryByText("Active")).not.toBeInTheDocument();
   });
 
@@ -1061,7 +1061,7 @@ describe("WorkBoardBar", () => {
       expect(newTab).toHaveAttribute("data-new-tab", "true");
       expect(newTab).toHaveClass("thread-tab-pop");
     });
-    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-2", "q-1"]);
+    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1", "q-2"]);
   });
 
   it("colors the whole visible quest tab title by phase without rendering a separate phase label", () => {
@@ -1157,6 +1157,7 @@ describe("WorkBoardBar", () => {
         currentPhaseId: "user-checkpoint",
         activePhaseIndex: 2,
       },
+      waitForInput: ["n-active-checkpoint"],
       updatedAt: 4,
     };
     const repeatedCompleted: BoardRowData = {

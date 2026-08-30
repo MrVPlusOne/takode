@@ -2,9 +2,14 @@ import {
   applyLeaderServerCandidateThreadTabEvent,
   applyLeaderThreadTabUpdate,
   LEADER_OPEN_THREAD_TABS_VERSION,
+  MAX_LEADER_OPEN_THREAD_TABS,
   normalizeLeaderOpenThreadTabsState,
 } from "../../shared/leader-open-thread-tabs.js";
 import type { LeaderThreadTabsProjectionValue } from "../../shared/leader-thread-tabs-projection.js";
+import {
+  isScheduledLeaderThreadTabStatus,
+  type LeaderThreadTabMutationPolicy,
+} from "../../shared/leader-thread-tab-priority.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, SessionState } from "../session-types.js";
 
 export type SyncedProjectionSubscriptions = Extract<
@@ -176,12 +181,42 @@ export function completeSyncedProjectionSessionSubscribe<
 interface LeaderThreadTabsCommandSessionLike {
   id: string;
   state: Pick<SessionState, "leaderOpenThreadTabs">;
+  board?: ReadonlyMap<string, { questId: string; status?: string }>;
 }
 
 interface LeaderThreadTabsCommandDeps<TSession extends LeaderThreadTabsCommandSessionLike> {
   getLeaderThreadTabsProjectionValue?: (sessionId: string) => LeaderThreadTabsProjectionValue | null;
+  getLeaderThreadTabMutationPolicy?: (sessionId: string, threadKey: string) => LeaderThreadTabMutationPolicy | null;
   persistSession: (session: TSession) => void;
   broadcastToBrowsers: (session: TSession, message: BrowserIncomingMessage) => void;
+}
+
+function isScheduledLeaderThreadTabCommandTarget(
+  session: LeaderThreadTabsCommandSessionLike,
+  threadKey: string,
+): boolean {
+  const normalizedThreadKey = threadKey.trim().toLowerCase();
+  for (const row of session.board?.values() ?? []) {
+    if (row.questId.trim().toLowerCase() !== normalizedThreadKey) continue;
+    return isScheduledLeaderThreadTabStatus(row.status);
+  }
+  return false;
+}
+
+function projectedLeaderThreadTabMutationPolicy(
+  projection: LeaderThreadTabsProjectionValue | null,
+  threadKey: string,
+): LeaderThreadTabMutationPolicy | null {
+  const normalizedThreadKey = threadKey.trim().toLowerCase();
+  const tab = projection?.tabs.find((candidate) => candidate.threadKey === normalizedThreadKey);
+  if (!tab) return null;
+  const scheduled = tab.queued || tab.proposed;
+  return {
+    inMotion: tab.active,
+    scheduled,
+    neverStartedScheduled: tab.neverStartedScheduled ?? false,
+    canClose: tab.canClose,
+  };
 }
 
 export function handleLeaderThreadTabsUpdate<TSession extends LeaderThreadTabsCommandSessionLike>(
@@ -191,12 +226,36 @@ export function handleLeaderThreadTabsUpdate<TSession extends LeaderThreadTabsCo
 ): void {
   const existingState = normalizeLeaderOpenThreadTabsState(session.state.leaderOpenThreadTabs);
   if (operation.type === "migrate" && existingState) return;
+  const projection = deps.getLeaderThreadTabsProjectionValue?.(session.id) ?? null;
+  const targetThreadKey = operation.type === "open" || operation.type === "close" ? operation.threadKey : null;
+  const mutationPolicy = targetThreadKey
+    ? (deps.getLeaderThreadTabMutationPolicy?.(session.id, targetThreadKey) ??
+      projectedLeaderThreadTabMutationPolicy(projection, targetThreadKey))
+    : null;
+  // Closeability is server authority, not merely a hidden browser affordance.
+  if (operation.type === "close" && mutationPolicy?.canClose === false) return;
+  // Scheduled rows are already supplied by the server projection. Browser
+  // attachment/transition candidates must not promote them or revive a close
+  // tombstone; explicit user and route opens keep their normal authority.
+  if (
+    operation.type === "open" &&
+    operation.source === "server_candidate" &&
+    (mutationPolicy?.scheduled || isScheduledLeaderThreadTabCommandTarget(session, operation.threadKey))
+  ) {
+    return;
+  }
 
   const projectedState =
-    operation.type === "migrate"
-      ? undefined
-      : leaderThreadTabsCommandStateFromProjection(deps.getLeaderThreadTabsProjectionValue?.(session.id) ?? null);
+    operation.type === "migrate" ? undefined : leaderThreadTabsCommandStateFromProjection(projection);
   const commandBaseState = mergeLeaderThreadTabsCommandBase(existingState, projectedState);
+  if (
+    operation.type === "open" &&
+    operation.source === "server_candidate" &&
+    !commandBaseState?.orderedOpenThreadKeys.includes(operation.threadKey.trim().toLowerCase()) &&
+    (commandBaseState?.orderedOpenThreadKeys.length ?? 0) >= MAX_LEADER_OPEN_THREAD_TABS
+  ) {
+    return;
+  }
   const nextState =
     operation.type === "open" &&
     operation.source === "server_candidate" &&

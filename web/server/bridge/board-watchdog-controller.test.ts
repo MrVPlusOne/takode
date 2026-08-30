@@ -250,6 +250,78 @@ describe("Work Board leader thread tabs", () => {
     expect(deps.persistSession).toHaveBeenCalledWith(session);
   });
 
+  it("repairs attachment-first scheduled placement without demoting formerly active rows", () => {
+    const session = createSession();
+    const deps = createDeps();
+    session.board.set("q-work-a", {
+      questId: "q-work-a",
+      status: "WORKING",
+      createdAt: 10,
+      updatedAt: 10,
+      threadTabActivatedAt: 10,
+    });
+    session.board.set("q-memory", {
+      questId: "q-memory",
+      status: "MEMORY",
+      createdAt: 20,
+      updatedAt: 20,
+      threadTabActivatedAt: 20,
+    });
+    session.board.set("q-requeued", {
+      questId: "q-requeued",
+      status: "QUEUED",
+      createdAt: 30,
+      updatedAt: 30,
+      threadTabActivatedAt: 25,
+    });
+    session.board.set("q-proposed", {
+      questId: "q-proposed",
+      status: "PROPOSED",
+      createdAt: 40,
+      updatedAt: 40,
+    });
+    // A thread attachment surfaced q-target before its first authoritative
+    // board classification arrived. Existing completed/review peers remain
+    // neutral while in-motion rows promote across never-started schedules.
+    session.state.leaderOpenThreadTabs = {
+      version: 1,
+      orderedOpenThreadKeys: [
+        "q-completed",
+        "q-target",
+        "q-review",
+        "q-work-a",
+        "q-requeued",
+        "q-proposed",
+        "q-memory",
+      ],
+      closedThreadTombstones: [],
+      updatedAt: 50,
+    };
+
+    upsertBoardRow(session, { questId: "q-target", status: "QUEUED", updatedAt: 60 }, deps);
+
+    expect((session.state.leaderOpenThreadTabs as any).orderedOpenThreadKeys).toEqual([
+      "q-completed",
+      "q-work-a",
+      "q-memory",
+      "q-target",
+      "q-review",
+      "q-requeued",
+      "q-proposed",
+    ]);
+
+    upsertBoardRow(session, { questId: "q-requeued", status: "QUEUED", updatedAt: 70 }, deps);
+    expect((session.state.leaderOpenThreadTabs as any).orderedOpenThreadKeys).toEqual([
+      "q-completed",
+      "q-work-a",
+      "q-memory",
+      "q-target",
+      "q-review",
+      "q-requeued",
+      "q-proposed",
+    ]);
+  });
+
   it("resurfaces a queued row with a fresh activation event without weakening later closes", () => {
     // A queued row can be closed before it resumes. Its transition back to
     // active work is a new server candidate, while later active-phase edits are not.
@@ -263,6 +335,14 @@ describe("Work Board leader thread tabs", () => {
       closedThreadTombstones: [{ threadKey: "q-9", closedAt: 200 }],
       updatedAt: 200,
     };
+
+    upsertBoardRow(session, { questId: "q-9", status: "QUEUED", updatedAt: 250 }, deps);
+    expect(session.state.leaderOpenThreadTabs).toEqual({
+      version: 1,
+      orderedOpenThreadKeys: [],
+      closedThreadTombstones: [{ threadKey: "q-9", closedAt: 200 }],
+      updatedAt: 200,
+    });
 
     upsertBoardRow(session, { questId: "q-9", status: "WORKING", updatedAt: 300 }, deps);
 

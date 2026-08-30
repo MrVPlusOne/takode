@@ -274,6 +274,13 @@ describe("leader open thread tab state", () => {
     };
 
     expect(canServerCandidateOpenThread(closed, "q-9", 99)).toBe(false);
+    expect(canServerCandidateOpenThread(closed, "q-9", 101, { allowTombstoneReopen: false })).toBe(false);
+    expect(
+      applyLeaderServerCandidateThreadTabEvent(closed, "q-9", 101, {
+        repositionExisting: true,
+        allowTombstoneReopen: false,
+      }),
+    ).toBe(closed);
     expect(
       applyLeaderThreadTabUpdate(
         closed,

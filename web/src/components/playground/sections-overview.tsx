@@ -492,7 +492,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Leader Workboard Thread Navigation"
-        description="Projection-backed leader tabs cover active needs-input priority, review unread, muted needs-input, completed plus Waiting, and the same More behavior at desktop and 430px mobile widths."
+        description="Projection-backed leader tabs keep in-motion work ahead of queued/proposed tabs, expose scheduled dismissal in the rail and More, and cover attention plus completed-Waiting behavior at desktop and 430px mobile widths."
       >
         <div className="grid max-w-5xl gap-3 lg:grid-cols-2">
           {compactQuestThreadBannerRows.map(({ label, row, threadKey }) => (

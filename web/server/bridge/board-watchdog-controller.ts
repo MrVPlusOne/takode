@@ -20,6 +20,11 @@ import {
   normalizeLeaderOpenThreadTabsState,
   shouldPersistLeaderThreadTab,
 } from "../../shared/leader-open-thread-tabs.js";
+import {
+  isInMotionLeaderThreadTabRow,
+  isNeverStartedScheduledLeaderThreadTabRow,
+  promoteInMotionLeaderThreadTabsBeforeScheduled,
+} from "../../shared/leader-thread-tab-priority.js";
 import { HERD_WORKER_SLOT_LIMIT } from "../../shared/takode-constants.js";
 import type {
   BoardRow,
@@ -160,13 +165,8 @@ function isProposedBoardRowStatus(status: string | undefined): boolean {
   return (status || "").trim().toUpperCase() === "PROPOSED";
 }
 
-function shouldServerSurfaceBoardRowThreadTab(row: Pick<BoardRow, "questId" | "status" | "completedAt">): boolean {
-  return (
-    shouldPersistLeaderThreadTab(row.questId) &&
-    !isQueuedBoardRowStatus(row.status) &&
-    !isProposedBoardRowStatus(row.status) &&
-    row.completedAt === undefined
-  );
+function shouldServerSurfaceBoardRowThreadTab(row: BoardRow): boolean {
+  return shouldPersistLeaderThreadTab(row.questId) && isInMotionLeaderThreadTabRow(row);
 }
 
 function applyBoardRowThreadTabEvent(
@@ -195,6 +195,37 @@ function surfaceBoardRowThreadTabs(session: SessionLike): void {
   for (const row of [...getBoard(session)].reverse()) {
     surfaceBoardRowThreadTab(session, row);
   }
+}
+
+function repairNeverStartedScheduledThreadTabPriority(session: SessionLike): boolean {
+  const existingState = normalizeLeaderOpenThreadTabsState(session.state?.leaderOpenThreadTabs);
+  if (!existingState) return false;
+  const rows = [...session.board.values()] as BoardRow[];
+  const inMotionThreadKeys = new Set(rows.filter((row) => isInMotionLeaderThreadTabRow(row)).map((row) => row.questId));
+  const neverStartedScheduledThreadKeys = new Set(
+    rows.filter(isNeverStartedScheduledLeaderThreadTabRow).map((row) => row.questId),
+  );
+  const orderedOpenThreadKeys = promoteInMotionLeaderThreadTabsBeforeScheduled(
+    existingState.orderedOpenThreadKeys,
+    inMotionThreadKeys,
+    neverStartedScheduledThreadKeys,
+  );
+  if (arraysEqual(existingState.orderedOpenThreadKeys, orderedOpenThreadKeys)) return false;
+  session.state = {
+    ...(session.state ?? {}),
+    leaderOpenThreadTabs: {
+      ...existingState,
+      orderedOpenThreadKeys,
+      updatedAt: rows.reduce(
+        (latest, row) =>
+          typeof row.updatedAt === "number" && Number.isFinite(row.updatedAt)
+            ? Math.max(latest, row.updatedAt)
+            : latest,
+        existingState.updatedAt,
+      ),
+    },
+  };
+  return true;
 }
 
 function updateBoardRowThreadTabActivation(
@@ -810,6 +841,7 @@ export function commitBoard(
     }
   }
   surfaceBoardRowThreadTabs(session);
+  repairNeverStartedScheduledThreadTabPriority(session);
   const board = getBoard(session);
   const completedBoard = getCompletedBoard(session);
   if (changedQuestIds?.length) deps.invalidateLeaderThreadTabsForQuestIds?.(changedQuestIds);

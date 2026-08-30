@@ -17,6 +17,7 @@ import {
   createLeaderThreadTabsProjectionValue,
 } from "../test-fixtures/leader-thread-tabs-projection.js";
 import { MessageFeed } from "./MessageFeed.js";
+import type { BoardRowData } from "./BoardTable.js";
 import { WorkBoardBar } from "./WorkBoardBar.js";
 
 const mockSendToSession = vi.hoisted(() => vi.fn(() => true));
@@ -317,6 +318,187 @@ describe("leader thread tabs projected component behavior", () => {
       "var(--color-cc-phase-thread-tab-title-work, #166534)",
     );
     expect(within(activeWorkRow).queryByRole("button", { name: "Close q-4" })).toBeNull();
+  });
+
+  it("keeps projected in-motion order while exposing scheduled close controls in the rail and More", async () => {
+    // The server-authored projection owns ordering and closeability. The client
+    // may pin the selected scheduled tab into the visible subset, but it must not
+    // sort the projection or make in-motion rows dismissible.
+    setMeasuredRailWidth(430);
+    const tabs = [
+      projectedTab("q-101", {
+        title: "Alignment work",
+        boardStatus: "PLANNING",
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "alignment",
+          activePhaseIndex: 0,
+          phaseCount: 3,
+        },
+        active: true,
+        canClose: false,
+      }),
+      projectedTab("q-102", {
+        title: "Implementation work",
+        boardStatus: "WORKING",
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "work",
+          activePhaseIndex: 1,
+          phaseCount: 3,
+        },
+        active: true,
+        canClose: false,
+      }),
+      projectedTab("q-103", {
+        title: "Checkpoint work",
+        boardStatus: "USER_CHECKPOINTING",
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
+          currentPhaseId: "user-checkpoint",
+          activePhaseIndex: 2,
+          phaseCount: 5,
+        },
+        active: true,
+        canClose: false,
+        attention: { needsInput: true, mutedNeedsInput: false, reviewUnread: false, updatedAt: 30 },
+      }),
+      projectedTab("q-104", {
+        title: "Memory work",
+        boardStatus: "MEMORY",
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "memory",
+          activePhaseIndex: 2,
+          phaseCount: 3,
+        },
+        active: true,
+        canClose: false,
+      }),
+      projectedTab("q-105", {
+        title: "Queued follow-up",
+        boardStatus: "QUEUED",
+        active: false,
+        queued: true,
+        canClose: true,
+      }),
+      projectedTab("q-106", {
+        title: "Proposed follow-up",
+        boardStatus: "PROPOSED",
+        active: false,
+        proposed: true,
+        canClose: true,
+      }),
+      projectedTab("q-107", {
+        title: "Completed follow-up",
+        boardStatus: "DONE",
+        active: false,
+        completed: true,
+        canClose: true,
+      }),
+    ];
+    installLeaderProjection(
+      createLeaderThreadTabsProjectionValue({
+        tabState: {
+          version: 1,
+          orderedOpenThreadKeys: tabs.map((tab) => tab.threadKey),
+          closedThreadTombstones: [],
+          updatedAt: 100,
+        },
+        tabs,
+        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+        threadStatuses: {},
+        activePhaseSummary: [],
+      }),
+    );
+    const onCloseThreadTab = vi.fn();
+
+    render(<WorkBoardBar sessionId="leader" currentThreadKey="q-105" onCloseThreadTab={onCloseThreadTab} />);
+
+    const visibleTabs = screen.getAllByTestId("thread-tab");
+    expect(visibleTabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-101", "q-102", "q-105"]);
+    const alignmentTab = visibleTabs[0]!;
+    const workTab = visibleTabs[1]!;
+    const queuedTab = visibleTabs[2]!;
+    expect(alignmentTab).toHaveAttribute("data-closable", "false");
+    expect(workTab).toHaveAttribute("data-closable", "false");
+    expect(queuedTab).toHaveAttribute("data-closable", "true");
+    expect(within(alignmentTab).queryByTestId("thread-tab-close")).toBeNull();
+    expect(within(workTab).queryByTestId("thread-tab-close")).toBeNull();
+    fireEvent.click(within(queuedTab).getByRole("button", { name: "Close q-105" }));
+    expect(onCloseThreadTab).toHaveBeenCalledWith("q-105", "q-106");
+
+    fireEvent.click(screen.getByTestId("thread-tabs-more-button"));
+    const moreRows = screen.getAllByTestId("thread-tabs-more-row");
+    expect(moreRows.map((row) => row.getAttribute("data-thread-key"))).toEqual(["q-103", "q-104", "q-106", "q-107"]);
+    const checkpointRow = moreRows[0]!;
+    const memoryRow = moreRows[1]!;
+    const proposedRow = moreRows[2]!;
+    expect(within(checkpointRow).queryByRole("button", { name: "Close q-103" })).toBeNull();
+    expect(within(memoryRow).queryByRole("button", { name: "Close q-104" })).toBeNull();
+    fireEvent.click(within(proposedRow).getByRole("button", { name: "Close q-106" }));
+    expect(onCloseThreadTab).toHaveBeenLastCalledWith("q-106", "q-107");
+  });
+
+  it("keeps in-motion fallback tabs protected while scheduled board tabs can stay dismissed", async () => {
+    // Legacy sessions may still derive board tabs in the browser. Queued and
+    // proposed rows are dismissible there, while a close tombstone must never
+    // suppress an in-motion row that the fallback still needs to protect.
+    const onCloseThreadTab = vi.fn();
+    const board: BoardRowData[] = [
+      { questId: "q-201", status: "WORKING", title: "Current work", updatedAt: 30 },
+      { questId: "q-202", status: "QUEUED", title: "Queued follow-up", updatedAt: 20 },
+      { questId: "q-203", status: "PROPOSED", title: "Proposed follow-up", updatedAt: 10 },
+    ];
+    useStore.setState({
+      sdkSessions: [{ sessionId: "leader", isOrchestrator: true } as never],
+      sessionBoards: new Map([["leader", board]]),
+    });
+
+    const view = render(
+      <WorkBoardBar sessionId="leader" openThreadKeys={["q-202", "q-201"]} onCloseThreadTab={onCloseThreadTab} />,
+    );
+    const tabFor = (threadKey: string) =>
+      view.getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === threadKey);
+
+    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
+      "q-201",
+      "q-202",
+      "q-203",
+    ]);
+    expect(tabFor("q-201")).toHaveAttribute("data-closable", "false");
+    expect(tabFor("q-202")).toHaveAttribute("data-closable", "true");
+    expect(tabFor("q-203")).toHaveAttribute("data-closable", "true");
+    expect(within(tabFor("q-201")!).queryByTestId("thread-tab-close")).toBeNull();
+
+    fireEvent.click(within(tabFor("q-202")!).getByRole("button", { name: "Close q-202" }));
+    view.rerender(<WorkBoardBar sessionId="leader" openThreadKeys={["q-201"]} onCloseThreadTab={onCloseThreadTab} />);
+    await waitFor(() => expect(tabFor("q-202")).toBeUndefined());
+    expect(onCloseThreadTab).toHaveBeenCalledWith("q-202", "q-203");
+
+    fireEvent.click(within(tabFor("q-203")!).getByRole("button", { name: "Close q-203" }));
+    await waitFor(() => expect(tabFor("q-203")).toBeUndefined());
+    expect(onCloseThreadTab).toHaveBeenLastCalledWith("q-203", "main");
+    expect(tabFor("q-201")).toBeDefined();
+
+    view.unmount();
+    const restored = render(
+      <WorkBoardBar
+        sessionId="leader"
+        openThreadKeys={[]}
+        closedThreadKeys={["q-201", "q-202", "q-203"]}
+        onCloseThreadTab={vi.fn()}
+      />,
+    );
+    await waitFor(() => {
+      const restoredKeys = restored.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"));
+      expect(restoredKeys).toEqual(["q-201"]);
+    });
+    expect(restored.getByTestId("thread-tab")).toHaveAttribute("data-closable", "false");
   });
 
   it("uses accepted projected activity over stale hydrated completion and follows projected completion", async () => {

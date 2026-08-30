@@ -928,58 +928,6 @@ describe("ChatView leader open thread tabs", () => {
     expect(readLeaderSelectedThreadKey("s1")).toBe("q-900001");
   });
 
-  it("migrates valid legacy localStorage only when no server state exists", async () => {
-    localStorage.setItem("test-server:cc-leader-open-thread-tabs:s1", '["q-941","q-777"]');
-    resetStore({
-      sessions: leaderSession(),
-      messages: new Map([["s1", [threadMessage("q-941", 2), threadMessage("q-777", 3)]]]),
-      quests: [
-        { questId: "q-941", title: "Migrated thread", status: "in_progress" },
-        { questId: "q-777", title: "Second migrated thread", status: "in_progress" },
-      ],
-    });
-
-    const view = render(<ChatView sessionId="s1" />);
-    const scope = within(view.container);
-
-    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941,q-777");
-    await waitFor(() => {
-      expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-        type: "leader_thread_tabs_update",
-        operation: { type: "migrate", orderedOpenThreadKeys: ["q-941", "q-777"], migratedAt: expect.any(Number) },
-      });
-    });
-
-    view.rerender(<ChatView sessionId="s1" />);
-    expect(
-      mockSendToSession.mock.calls.filter((call) => {
-        const msg = call[1] as { operation?: { type?: string } };
-        return msg.operation?.type === "migrate";
-      }),
-    ).toHaveLength(1);
-  });
-
-  it("ignores corrupt legacy localStorage when server state exists", async () => {
-    localStorage.setItem("test-server:cc-leader-open-thread-tabs:s1", "{not-json");
-    resetStore({
-      sessions: leaderSession(leaderTabs(["q-server"])),
-      messages: new Map([["s1", [threadMessage("q-server", 2)]]]),
-      quests: [{ questId: "q-server", title: "Server tab", status: "in_progress" }],
-    });
-
-    const view = render(<ChatView sessionId="s1" />);
-    const scope = within(view.container);
-
-    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-server");
-    await waitFor(() => {
-      expect(localStorage.getItem("test-server:cc-leader-open-thread-tabs:s1")).toBeNull();
-    });
-    expect(mockSendToSession).not.toHaveBeenCalledWith(
-      "s1",
-      expect.objectContaining({ operation: expect.objectContaining({ type: "migrate" }) }),
-    );
-  });
-
   it("keeps leader tabs open when their quests complete or finish a Journey", () => {
     resetStore({
       sessions: leaderSession(leaderTabs(["q-941", "q-777"])),

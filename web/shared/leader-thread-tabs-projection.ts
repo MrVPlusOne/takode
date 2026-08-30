@@ -57,6 +57,8 @@ export interface LeaderThreadTabsProjectionTab {
   active: boolean;
   queued: boolean;
   proposed: boolean;
+  /** True only when the current queued/proposed run has never entered active execution. Omitted by legacy producers. */
+  neverStartedScheduled?: boolean;
   completed: boolean;
   canClose: boolean;
   attention: LeaderThreadTabsProjectionAttention;
@@ -194,6 +196,7 @@ function isTab(value: unknown, requireCurrentQuestStateFields: boolean): value i
     typeof candidate.active === "boolean" &&
     typeof candidate.queued === "boolean" &&
     typeof candidate.proposed === "boolean" &&
+    (candidate.neverStartedScheduled === undefined || typeof candidate.neverStartedScheduled === "boolean") &&
     typeof candidate.completed === "boolean" &&
     Number(candidate.active) + Number(candidate.queued) + Number(candidate.proposed) + Number(candidate.completed) <=
       1 &&
@@ -326,6 +329,7 @@ export function leaderThreadTabsProjectionTabEqual(
     left.active === right.active &&
     left.queued === right.queued &&
     left.proposed === right.proposed &&
+    left.neverStartedScheduled === right.neverStartedScheduled &&
     left.completed === right.completed &&
     left.canClose === right.canClose &&
     leaderThreadTabsProjectionAttentionEqual(left.attention, right.attention) &&

@@ -1049,6 +1049,14 @@ export function usePlaygroundSeed() {
         createdAt: Date.now() - 150_000,
         journey: { mode: "active", phaseIds: ["alignment", "work", "memory"] },
       },
+      {
+        questId: "q-9006",
+        title: "Review proposed tab dismissal",
+        status: "PROPOSED",
+        updatedAt: Date.now() - 12_000,
+        createdAt: Date.now() - 120_000,
+        journey: { mode: "proposed", phaseIds: ["alignment", "work", "memory"] },
+      },
     ]);
     store.setSessionBoardRowStatuses(PLAYGROUND_THREAD_PANEL_SESSION_ID, {
       "q-9001": {
@@ -1124,7 +1132,7 @@ export function usePlaygroundSeed() {
         dedupeKey: "playground-chip-seen",
       },
     ]);
-    const projectedTabKeys = ["q-9001", "q-9004", "q-9003", "q-9005", "q-9002"];
+    const projectedTabKeys = ["q-9001", "q-9004", "q-9003", "q-9005", "q-9002", "q-9006"];
     const projectedAttention = (
       overrides: Partial<{
         needsInput: boolean;
@@ -1158,6 +1166,7 @@ export function usePlaygroundSeed() {
           const boardRow = projectedBoardRows.get(threadKey)!;
           const completed = boardRow.completedAt !== undefined;
           const queued = !completed && boardRow.status === "QUEUED";
+          const proposed = !completed && boardRow.status === "PROPOSED";
           const attention =
             threadKey === "q-9001"
               ? projectedAttention({ needsInput: true, reviewUnread: true, updatedAt: boardRow.updatedAt })
@@ -1184,11 +1193,12 @@ export function usePlaygroundSeed() {
             sourceRowCreatedAt: boardRow.createdAt,
             workerSessionId: boardRow.worker ?? null,
             workerSessionNum: boardRow.workerNum ?? null,
-            active: !queued && !completed,
+            active: !queued && !proposed && !completed,
             queued,
-            proposed: false,
+            proposed,
+            neverStartedScheduled: (queued || proposed) && boardRow.threadTabActivatedAt === undefined,
             completed,
-            canClose: completed,
+            canClose: completed || queued || proposed,
             attention,
             updatedAt: boardRow.updatedAt,
           };

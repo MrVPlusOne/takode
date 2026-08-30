@@ -115,7 +115,11 @@ describe("leader thread tabs projection derivation", () => {
         [
           "q-1",
           boardRow("q-1", "WORKING", {
-            journey: { mode: "active", phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1 },
+            journey: {
+              mode: "active",
+              phaseIds: ["alignment", "work", "memory"],
+              activePhaseIndex: 1,
+            },
           }),
         ],
         ["q-4", boardRow("q-4", "PROPOSED")],
@@ -139,7 +143,11 @@ describe("leader thread tabs projection derivation", () => {
         proposed: false,
         completed: false,
         canClose: false,
-        journey: expect.objectContaining({ currentPhaseId: "work", activePhaseIndex: 1, phaseCount: 3 }),
+        journey: expect.objectContaining({
+          currentPhaseId: "work",
+          activePhaseIndex: 1,
+          phaseCount: 3,
+        }),
       }),
       expect.objectContaining({
         threadKey: "q-2",
@@ -147,11 +155,25 @@ describe("leader thread tabs projection derivation", () => {
         attention: expect.objectContaining({ needsInput: true }),
         canClose: true,
       }),
-      expect.objectContaining({ threadKey: "q-3", completed: true, canClose: true }),
-      expect.objectContaining({ threadKey: "q-4", proposed: true, queued: false, active: false, canClose: false }),
+      expect.objectContaining({
+        threadKey: "q-3",
+        completed: true,
+        canClose: true,
+      }),
+      expect.objectContaining({
+        threadKey: "q-4",
+        proposed: true,
+        queued: false,
+        neverStartedScheduled: true,
+        active: false,
+        canClose: true,
+      }),
     ]);
     expect(value.tabState?.orderedOpenThreadKeys).not.toContain("q-5");
-    expect(value.threadStatuses["q-3"]).toMatchObject({ kind: "waiting", threadKey: "q-3" });
+    expect(value.threadStatuses["q-3"]).toMatchObject({
+      kind: "waiting",
+      threadKey: "q-3",
+    });
     expect(value.tabs[2]?.attention).toMatchObject({ reviewUnread: true });
     expect(isLeaderThreadTabsProjectionValue(value)).toBe(true);
     // Projection backfill is read-only; raw durable state is changed only by a producer mutation.
@@ -188,7 +210,10 @@ describe("leader thread tabs projection derivation", () => {
         leaderOpenThreadTabs: {
           version: 1,
           orderedOpenThreadKeys: keys,
-          closedThreadTombstones: keys.map((key, index) => ({ threadKey: `q-${index + 101}`, closedAt: index })),
+          closedThreadTombstones: keys.map((key, index) => ({
+            threadKey: `q-${index + 101}`,
+            closedAt: index,
+          })),
           updatedAt: 100,
         },
         leaderThreadStatuses: statuses,
@@ -243,7 +268,11 @@ describe("leader thread tabs projection derivation", () => {
       board: new Map(
         keys.map((key, index) => [
           key,
-          boardRow(key, "界".repeat(80), { title: "界".repeat(160), createdAt: index + 1, updatedAt: index + 2 }),
+          boardRow(key, "界".repeat(80), {
+            title: "界".repeat(160),
+            createdAt: index + 1,
+            updatedAt: index + 2,
+          }),
         ]),
       ),
     });
@@ -258,11 +287,15 @@ describe("leader thread tabs projection derivation", () => {
       messageId: "",
       messageIdHash: threadStatusMessageIdHash(fullMessageId),
     });
+    expect(value.tabs[0]).toHaveProperty("neverStartedScheduled", false);
   });
 
   it("authorizes the definition only for visible leader sources", () => {
     const leader = makeSession();
-    const worker = makeSession({ id: "worker", state: { isOrchestrator: false } as unknown as Session["state"] });
+    const worker = makeSession({
+      id: "worker",
+      state: { isOrchestrator: false } as unknown as Session["state"],
+    });
     const sessions = new Map([
       [leader.id, leader],
       [worker.id, worker],
@@ -290,9 +323,19 @@ describe("leader thread tabs projection parity regressions", () => {
     const active = buildLeaderThreadTabsProjectionValue(
       makeSession({
         board: new Map([
-          ["q-target", boardRow("q-target", "WORKING", { createdAt: 30, updatedAt: 50, threadTabActivatedAt: 50 })],
+          [
+            "q-target",
+            boardRow("q-target", "WORKING", {
+              createdAt: 30,
+              updatedAt: 50,
+              threadTabActivatedAt: 50,
+            }),
+          ],
         ]),
-        state: { isOrchestrator: true, leaderOpenThreadTabs: durableOrder } as unknown as Session["state"],
+        state: {
+          isOrchestrator: true,
+          leaderOpenThreadTabs: durableOrder,
+        } as unknown as Session["state"],
       }),
     );
     expect(active.tabState?.orderedOpenThreadKeys).toEqual(["q-old-a", "q-target", "q-old-b"]);
@@ -300,9 +343,19 @@ describe("leader thread tabs projection parity regressions", () => {
     const completed = buildLeaderThreadTabsProjectionValue(
       makeSession({
         completedBoard: new Map([
-          ["q-target", boardRow("q-target", "MEMORY", { createdAt: 30, updatedAt: 60, completedAt: 60 })],
+          [
+            "q-target",
+            boardRow("q-target", "MEMORY", {
+              createdAt: 30,
+              updatedAt: 60,
+              completedAt: 60,
+            }),
+          ],
         ]),
-        state: { isOrchestrator: true, leaderOpenThreadTabs: durableOrder } as unknown as Session["state"],
+        state: {
+          isOrchestrator: true,
+          leaderOpenThreadTabs: durableOrder,
+        } as unknown as Session["state"],
       }),
     );
     expect(completed.tabState?.orderedOpenThreadKeys).toEqual(["q-old-a", "q-target", "q-old-b"]);
@@ -310,12 +363,101 @@ describe("leader thread tabs projection parity regressions", () => {
     const repeated = buildLeaderThreadTabsProjectionValue(
       makeSession({
         board: new Map([
-          ["q-target", boardRow("q-target", "MEMORY", { createdAt: 30, updatedAt: 70, threadTabActivatedAt: 50 })],
+          [
+            "q-target",
+            boardRow("q-target", "MEMORY", {
+              createdAt: 30,
+              updatedAt: 70,
+              threadTabActivatedAt: 50,
+            }),
+          ],
         ]),
-        state: { isOrchestrator: true, leaderOpenThreadTabs: durableOrder } as unknown as Session["state"],
+        state: {
+          isOrchestrator: true,
+          leaderOpenThreadTabs: durableOrder,
+        } as unknown as Session["state"],
       }),
     );
     expect(repeated.tabState?.orderedOpenThreadKeys).toEqual(["q-old-a", "q-target", "q-old-b"]);
+  });
+
+  it("promotes current in-motion tabs ahead of only never-started scheduled tabs", () => {
+    // Mixed durable order models attachment-first scheduling plus retained neutral peers.
+    const session = makeSession({
+      state: {
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: [
+            "q-completed",
+            "q-queued",
+            "q-review",
+            "q-work",
+            "q-requeued",
+            "q-proposed",
+            "q-memory",
+            "q-checkpoint-active",
+            "q-checkpoint-parked",
+          ],
+          closedThreadTombstones: [],
+          updatedAt: 100,
+        },
+      } as unknown as Session["state"],
+      board: new Map([
+        ["q-queued", boardRow("q-queued", "QUEUED")],
+        ["q-work", boardRow("q-work", "WORKING")],
+        ["q-requeued", boardRow("q-requeued", "QUEUED", { threadTabActivatedAt: 15 })],
+        ["q-proposed", boardRow("q-proposed", "PROPOSED")],
+        ["q-memory", boardRow("q-memory", "MEMORY")],
+        [
+          "q-checkpoint-active",
+          boardRow("q-checkpoint-active", "USER_CHECKPOINTING", {
+            waitForInput: ["n-1"],
+          }),
+        ],
+        ["q-checkpoint-parked", boardRow("q-checkpoint-parked", "USER_CHECKPOINTING")],
+      ]),
+      completedBoard: new Map([["q-completed", boardRow("q-completed", "MEMORY", { completedAt: 90 })]]),
+      attentionRecords: [attentionRecord("q-review")],
+    });
+
+    const value = buildLeaderThreadTabsProjectionValue(session);
+
+    expect(value.tabs.map((tab) => tab.threadKey)).toEqual([
+      "q-completed",
+      "q-work",
+      "q-memory",
+      "q-checkpoint-active",
+      "q-queued",
+      "q-review",
+      "q-requeued",
+      "q-proposed",
+      "q-checkpoint-parked",
+    ]);
+    expect(value.tabs.find((tab) => tab.threadKey === "q-checkpoint-active")).toMatchObject({
+      active: true,
+      canClose: false,
+    });
+    expect(value.tabs.find((tab) => tab.threadKey === "q-checkpoint-parked")).toMatchObject({
+      active: false,
+      canClose: true,
+    });
+    expect(value.tabs.find((tab) => tab.threadKey === "q-requeued")).toMatchObject({
+      queued: true,
+      neverStartedScheduled: false,
+      canClose: true,
+    });
+    expect(value.tabs.find((tab) => tab.threadKey === "q-queued")).toMatchObject({
+      queued: true,
+      neverStartedScheduled: true,
+    });
+    expect(value.tabs.find((tab) => tab.threadKey === "q-proposed")).toMatchObject({
+      proposed: true,
+      neverStartedScheduled: true,
+    });
+    // Projection catch-up is read-only; the next explicit command or board
+    // mutation materializes this visual order into durable tab state.
+    expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys[1]).toBe("q-queued");
   });
 
   it("projects active attention and review tabs around active, queued, and proposed board tabs", () => {
@@ -329,7 +471,11 @@ describe("leader thread tabs projection parity regressions", () => {
         attentionRecord("q-review", {
           id: "review-q-review",
           type: "review_ready",
-          source: { kind: "notification", id: "notification-q-review", questId: "q-review" },
+          source: {
+            kind: "notification",
+            id: "notification-q-review",
+            questId: "q-review",
+          },
           title: "Review q-review",
           summary: "Review is ready",
           actionLabel: "Review",
@@ -369,14 +515,45 @@ describe("leader thread tabs projection parity regressions", () => {
       active: false,
       queued: true,
       proposed: false,
-      canClose: false,
+      neverStartedScheduled: true,
+      canClose: true,
     });
     expect(value.tabs.find((tab) => tab.threadKey === "q-proposed")).toMatchObject({
       active: false,
       queued: false,
       proposed: true,
-      canClose: false,
+      neverStartedScheduled: true,
+      canClose: true,
     });
+  });
+
+  it("keeps a dismissed scheduled tab closed across newer attention and routine row updates", () => {
+    // Scheduled status fences automatic candidates even when their timestamps advance.
+    const session = makeSession({
+      state: {
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-active"],
+          closedThreadTombstones: [{ threadKey: "q-queued", closedAt: 50 }],
+          updatedAt: 50,
+        },
+      } as unknown as Session["state"],
+      board: new Map([
+        ["q-active", boardRow("q-active", "WORKING", { createdAt: 1, updatedAt: 10 })],
+        ["q-queued", boardRow("q-queued", "QUEUED", { createdAt: 2, updatedAt: 200 })],
+      ]),
+      attentionRecords: [attentionRecord("q-queued", { createdAt: 200, updatedAt: 200 })],
+    });
+
+    const value = buildLeaderThreadTabsProjectionValue(session);
+
+    expect(value.tabs.map((tab) => tab.threadKey)).toEqual(["q-active"]);
+    expect(value.tabState?.closedThreadTombstones).toContainEqual({
+      threadKey: "q-queued",
+      closedAt: 50,
+    });
+    expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-active"]);
   });
 
   it("surfaces producer-shaped message-derived rework attention", () => {
@@ -442,7 +619,14 @@ describe("leader thread tabs projection parity regressions", () => {
         } as unknown as Session["state"],
         board: new Map([
           ["q-a", boardRow("q-a", "WORKING", { createdAt: 10, updatedAt: 20 })],
-          ["q-b", boardRow("q-b", "WORKING", { createdAt: 15, updatedAt: 40, threadTabActivatedAt: 40 })],
+          [
+            "q-b",
+            boardRow("q-b", "WORKING", {
+              createdAt: 15,
+              updatedAt: 40,
+              threadTabActivatedAt: 40,
+            }),
+          ],
         ]),
       }),
     );
@@ -527,7 +711,11 @@ describe("leader thread tabs current quest state", () => {
             title: "Unclaimed conflicting run",
             worker: "worker-unclaimed",
             workerNum: 9999,
-            journey: { mode: "active", phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 0 },
+            journey: {
+              mode: "active",
+              phaseIds: ["alignment", "work", "memory"],
+              activePhaseIndex: 0,
+            },
             createdAt: 400,
             updatedAt: 500,
           }),
@@ -568,7 +756,7 @@ describe("leader thread tabs current quest state", () => {
         workerSessionNum: 2580,
         active: true,
         completed: false,
-        canClose: true,
+        canClose: false,
         journey: {
           mode: "active",
           phaseIds: ["alignment", "work", "memory"],
@@ -579,6 +767,125 @@ describe("leader thread tabs current quest state", () => {
       }),
     ]);
     expect(oldLeader.completedBoard.get("q-1974")?.title).toBe("Historical completed run");
+  });
+
+  it("uses current cross-session state for scheduled priority instead of the observer's stale row", () => {
+    // Ordering and presentation must resolve from the same current-run authority.
+    const observer = makeSession({
+      id: "leader-observer",
+      state: {
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-scheduled", "q-current"],
+          closedThreadTombstones: [],
+          updatedAt: 100,
+        },
+      } as unknown as Session["state"],
+      board: new Map([["q-scheduled", boardRow("q-scheduled", "QUEUED")]]),
+      completedBoard: new Map([
+        [
+          "q-current",
+          boardRow("q-current", "MEMORY", {
+            completedAt: 90,
+            createdAt: 50,
+            updatedAt: 90,
+          }),
+        ],
+      ]),
+    });
+    const currentLeader = makeSession({
+      id: "leader-current",
+      board: new Map([
+        [
+          "q-current",
+          boardRow("q-current", "WORKING", {
+            worker: "worker-current",
+            createdAt: 200,
+            updatedAt: 220,
+            threadTabActivatedAt: 200,
+          }),
+        ],
+      ]),
+    });
+    const worker = makeSession({
+      id: "worker-current",
+      state: {
+        isOrchestrator: false,
+        claimedQuestId: "q-current",
+        claimedQuestStatus: "in_progress",
+        claimedQuestLeaderSessionId: "leader-current",
+      } as unknown as Session["state"],
+    });
+
+    const value = buildLeaderThreadTabsProjectionValue(observer, {
+      sessions: [observer, currentLeader, worker],
+    });
+
+    expect(value.tabs.map((tab) => tab.threadKey)).toEqual(["q-current", "q-scheduled"]);
+    expect(value.tabs[0]).toMatchObject({
+      active: true,
+      canClose: false,
+      sourceLeaderSessionId: "leader-current",
+    });
+    expect(value.tabs[1]).toMatchObject({ queued: true, canClose: true });
+  });
+
+  it("projects cross-session requeue history without demoting the retained tab", () => {
+    const observer = makeSession({
+      id: "leader-observer",
+      state: {
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-requeued", "q-scheduled", "q-active"],
+          closedThreadTombstones: [],
+          updatedAt: 100,
+        },
+      } as unknown as Session["state"],
+      board: new Map([
+        ["q-scheduled", boardRow("q-scheduled", "QUEUED")],
+        ["q-active", boardRow("q-active", "WORKING")],
+      ]),
+      completedBoard: new Map([
+        [
+          "q-requeued",
+          boardRow("q-requeued", "MEMORY", {
+            completedAt: 90,
+            createdAt: 50,
+            updatedAt: 90,
+          }),
+        ],
+      ]),
+    });
+    const currentLeader = makeSession({
+      id: "leader-current",
+      board: new Map([
+        [
+          "q-requeued",
+          boardRow("q-requeued", "QUEUED", {
+            createdAt: 200,
+            updatedAt: 220,
+            threadTabActivatedAt: 180,
+          }),
+        ],
+      ]),
+    });
+
+    const value = buildLeaderThreadTabsProjectionValue(observer, {
+      sessions: [observer, currentLeader],
+    });
+
+    expect(value.tabs.map((tab) => tab.threadKey)).toEqual(["q-requeued", "q-active", "q-scheduled"]);
+    expect(value.tabs[0]).toMatchObject({
+      queued: true,
+      neverStartedScheduled: false,
+      sourceLeaderSessionId: "leader-current",
+    });
+    expect(value.tabs[2]).toMatchObject({
+      queued: true,
+      neverStartedScheduled: true,
+    });
   });
 
   it("prefers a demonstrably newer unclaimed active run over an older completed claim", () => {
@@ -617,7 +924,11 @@ describe("leader thread tabs current quest state", () => {
             title: "Fresh reopened alignment",
             createdAt: 300,
             threadTabActivatedAt: 300,
-            journey: { mode: "active", phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 0 },
+            journey: {
+              mode: "active",
+              phaseIds: ["alignment", "work", "memory"],
+              activePhaseIndex: 0,
+            },
           }),
         ],
       ]),
@@ -690,7 +1001,10 @@ describe("leader thread tabs current quest state", () => {
     });
     const hiddenLeader = makeSession({
       id: "leader-hidden",
-      state: { isOrchestrator: true, hidden: true } as unknown as Session["state"],
+      state: {
+        isOrchestrator: true,
+        hidden: true,
+      } as unknown as Session["state"],
       board: new Map([["q-9", boardRow("q-9", "WORKING", { title: "Hidden row", createdAt: 500 })]]),
     });
     const archivedSearchLeader = makeSession({
@@ -700,7 +1014,11 @@ describe("leader thread tabs current quest state", () => {
     });
     const baseSessions = [projectedLeader, completedLeader, staleActiveLeader, hiddenLeader, archivedSearchLeader];
 
-    expect(buildLeaderThreadTabsProjectionValue(projectedLeader, { sessions: baseSessions }).tabs[0]).toMatchObject({
+    expect(
+      buildLeaderThreadTabsProjectionValue(projectedLeader, {
+        sessions: baseSessions,
+      }).tabs[0],
+    ).toMatchObject({
       title: "Current completion",
       sourceLeaderSessionId: "leader-completed",
       active: false,
@@ -710,11 +1028,20 @@ describe("leader thread tabs current quest state", () => {
     const newerActiveLeader = makeSession({
       id: "leader-new-active",
       board: new Map([
-        ["q-9", boardRow("q-9", "WORKING", { title: "New active run", createdAt: 400, updatedAt: 410 })],
+        [
+          "q-9",
+          boardRow("q-9", "WORKING", {
+            title: "New active run",
+            createdAt: 400,
+            updatedAt: 410,
+          }),
+        ],
       ]),
     });
     expect(
-      buildLeaderThreadTabsProjectionValue(projectedLeader, { sessions: [...baseSessions, newerActiveLeader] }).tabs[0],
+      buildLeaderThreadTabsProjectionValue(projectedLeader, {
+        sessions: [...baseSessions, newerActiveLeader],
+      }).tabs[0],
     ).toMatchObject({
       title: "New active run",
       sourceLeaderSessionId: "leader-new-active",
@@ -736,7 +1063,14 @@ describe("leader thread tabs current quest state", () => {
         },
       } as unknown as Session["state"],
       completedBoard: new Map([
-        ["q-41", boardRow("q-41", "MEMORY", { title: "Older local completion", createdAt: 50, completedAt: 100 })],
+        [
+          "q-41",
+          boardRow("q-41", "MEMORY", {
+            title: "Older local completion",
+            createdAt: 50,
+            completedAt: 100,
+          }),
+        ],
       ]),
     });
     const currentLeader = makeSession({
@@ -751,7 +1085,14 @@ describe("leader thread tabs current quest state", () => {
         },
       } as unknown as Session["state"],
       completedBoard: new Map([
-        ["q-41", boardRow("q-41", "MEMORY", { title: "Current completion", createdAt: 150, completedAt: 200 })],
+        [
+          "q-41",
+          boardRow("q-41", "MEMORY", {
+            title: "Current completion",
+            createdAt: 150,
+            completedAt: 200,
+          }),
+        ],
       ]),
     });
 
@@ -782,7 +1123,14 @@ describe("leader thread tabs current quest state", () => {
     const currentLeader = makeSession({
       id: "leader-current",
       board: new Map([
-        ["q-42", boardRow("q-42", "WORKING", { title: "Leader authority", worker: "worker-current", createdAt: 100 })],
+        [
+          "q-42",
+          boardRow("q-42", "WORKING", {
+            title: "Leader authority",
+            worker: "worker-current",
+            createdAt: 100,
+          }),
+        ],
       ]),
     });
     const workerWithClaimAndStrayRow = makeSession({
@@ -793,7 +1141,15 @@ describe("leader thread tabs current quest state", () => {
         claimedQuestStatus: "in_progress",
         claimedQuestLeaderSessionId: "leader-current",
       } as unknown as Session["state"],
-      board: new Map([["q-42", boardRow("q-42", "MEMORY", { title: "Stray worker row", createdAt: 1_000 })]]),
+      board: new Map([
+        [
+          "q-42",
+          boardRow("q-42", "MEMORY", {
+            title: "Stray worker row",
+            createdAt: 1_000,
+          }),
+        ],
+      ]),
     });
 
     expect(
@@ -825,13 +1181,27 @@ describe("leader thread tabs current quest state", () => {
     const exactLeader = makeSession({
       id: "leader-exact",
       board: new Map([
-        ["q-43", boardRow("q-43", "WORKING", { title: "Exact current row", worker: "worker-exact", createdAt: 100 })],
+        [
+          "q-43",
+          boardRow("q-43", "WORKING", {
+            title: "Exact current row",
+            worker: "worker-exact",
+            createdAt: 100,
+          }),
+        ],
       ]),
     });
     const legacyLeader = makeSession({
       id: "leader-legacy",
       board: new Map([
-        ["q-43", boardRow("q-43", "WORKING", { title: "Newer legacy row", worker: "worker-legacy", createdAt: 500 })],
+        [
+          "q-43",
+          boardRow("q-43", "WORKING", {
+            title: "Newer legacy row",
+            worker: "worker-legacy",
+            createdAt: 500,
+          }),
+        ],
       ]),
     });
     const exactWorker = makeSession({
@@ -865,6 +1235,37 @@ describe("leader thread tabs current quest state", () => {
 });
 
 describe("needs-input leader tab authority", () => {
+  it("keeps a dismissed never-started scheduled tab closed when a prompt is created", () => {
+    // A proposed/queued prompt may badge the hidden row but cannot revoke its tombstone.
+    const session = makeSession({
+      state: {
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-1"],
+          closedThreadTombstones: [{ threadKey: "q-2", closedAt: 1 }],
+          updatedAt: 1,
+        },
+      } as unknown as Session["state"],
+      board: new Map([["q-2", boardRow("q-2", "QUEUED")]]),
+    });
+    const deps = {
+      persistSession: vi.fn(),
+      getLauncherSessionInfo: () => ({ isOrchestrator: true }),
+      isHerdedWorkerSession: () => false,
+      broadcastToBrowsers: vi.fn(),
+    };
+
+    notifyUser(session, "needs-input", "Choose an option", deps, {
+      threadRoute: { threadKey: "q-2", questId: "q-2" },
+    });
+
+    expect(session.state.leaderOpenThreadTabs).toMatchObject({
+      orderedOpenThreadKeys: ["q-1"],
+      closedThreadTombstones: [{ threadKey: "q-2", closedAt: 1 }],
+    });
+  });
+
   it("surfaces a newly created routed needs-input tab once while respecting newer close tombstones", () => {
     const session = makeSession({
       state: {

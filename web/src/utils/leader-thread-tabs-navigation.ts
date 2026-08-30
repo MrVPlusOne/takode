@@ -1,5 +1,10 @@
 import type { LeaderThreadTabsProjectionValue } from "../../shared/leader-thread-tabs-projection.js";
 import { getQuestJourneyPhase, type QuestJourneyPlanState } from "../../shared/quest-journey.js";
+import {
+  isInMotionLeaderThreadTabRow,
+  isNeverStartedScheduledLeaderThreadTabRow,
+  promoteInMotionLeaderThreadTabsBeforeScheduled,
+} from "../../shared/leader-thread-tab-priority.js";
 
 export interface LeaderThreadNavigationRowBase {
   threadKey: string;
@@ -24,6 +29,7 @@ interface ProjectableBoardRow {
   journey?: QuestJourneyPlanState;
   createdAt?: number;
   updatedAt?: number;
+  threadTabActivatedAt?: number;
 }
 
 interface ProjectableThreadRowDetail {
@@ -205,4 +211,52 @@ export function mergeProjectedTabsWithRestoredOrder<T extends { threadKey: strin
     ...restoredTabs.map((tab) => projectedByKey.get(tab.threadKey.toLowerCase()) ?? tab),
     ...projectedTabs.filter((tab) => !restoredKeys.has(tab.threadKey.toLowerCase())),
   ];
+}
+interface LeaderThreadTabPrioritySourceRow extends ProjectableBoardRow {
+  questId: string;
+}
+
+/** Preserve legacy/restored peer order while applying the server's narrow scheduled precedence rule. */
+export function prioritizeLeaderThreadKeysForFallback(
+  threadKeys: ReadonlyArray<string>,
+  boardRows: ReadonlyArray<LeaderThreadTabPrioritySourceRow>,
+  projection: LeaderThreadTabsProjectionValue | null = null,
+): string[] {
+  const boardByKey = new Map(boardRows.map((row) => [row.questId.trim().toLowerCase(), row]));
+  const inMotionThreadKeys = new Set<string>();
+  const neverStartedScheduledThreadKeys = new Set<string>();
+  for (const [threadKey, row] of boardByKey) {
+    if (isInMotionLeaderThreadTabRow(row)) inMotionThreadKeys.add(threadKey);
+    else if (isNeverStartedScheduledLeaderThreadTabRow(row)) neverStartedScheduledThreadKeys.add(threadKey);
+  }
+  for (const tab of projection?.tabs ?? []) {
+    const threadKey = tab.threadKey.trim().toLowerCase();
+    if (tab.active) {
+      inMotionThreadKeys.add(threadKey);
+      neverStartedScheduledThreadKeys.delete(threadKey);
+      continue;
+    }
+    inMotionThreadKeys.delete(threadKey);
+    if (tab.queued || tab.proposed) {
+      const localRow = boardByKey.get(threadKey);
+      if (
+        tab.neverStartedScheduled === true ||
+        (tab.neverStartedScheduled === undefined && !!localRow && isNeverStartedScheduledLeaderThreadTabRow(localRow))
+      ) {
+        neverStartedScheduledThreadKeys.add(threadKey);
+      } else {
+        // A projected false value preserves cross-session requeue history. A
+        // missing legacy value also fails conservatively unless local board
+        // evidence proves this scheduled run has never started.
+        neverStartedScheduledThreadKeys.delete(threadKey);
+      }
+    } else {
+      neverStartedScheduledThreadKeys.delete(threadKey);
+    }
+  }
+  return promoteInMotionLeaderThreadTabsBeforeScheduled(
+    threadKeys,
+    inMotionThreadKeys,
+    neverStartedScheduledThreadKeys,
+  );
 }

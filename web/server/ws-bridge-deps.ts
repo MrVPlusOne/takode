@@ -605,6 +605,8 @@ export function getSessionNotificationDeps(host: any) {
       eventAt: number,
       kind: "primary" | "review",
     ) => host.promoteLeaderThreadTabForAttention?.(sessionId, threadKey, eventAt, kind),
+    getLeaderThreadTabMutationPolicy: (sessionId: string, threadKey: string) =>
+      host.getSyncedProjectionController().getLeaderThreadTabMutationPolicy(sessionId, threadKey),
     emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) =>
       host.emitTakodeEvent(sessionId, type as TakodeEventType, data as any),
     scheduleNotification: (
@@ -1039,6 +1041,8 @@ export function getBrowserTransportDeps(host: any) {
       host.getSyncedProjectionController().removeSubscriber(socket),
     getLeaderThreadTabsProjectionValue: (sessionId: string) =>
       host.getSyncedProjectionController().getLeaderThreadTabsSnapshot(sessionId)?.value ?? null,
+    getLeaderThreadTabMutationPolicy: (sessionId: string, threadKey: string) =>
+      host.getSyncedProjectionController().getLeaderThreadTabMutationPolicy(sessionId, threadKey),
     lazyLoadFullHistory: async (targetSession: unknown) => {
       const session = targetSession as Session;
       if (!session.searchDataOnly || !host.store) return;

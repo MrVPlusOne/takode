@@ -182,7 +182,42 @@ describe("leader thread tab edge promotion", () => {
     expect(persistSession).not.toHaveBeenCalled();
   });
 
-  it("promotes completed or scheduled tabs on review/rework edges but leaves active work in place", () => {
+  it("uses cross-session current scheduled state to protect a retained leader tombstone", () => {
+    // The retained observer has no local row; the current queued run lives on another leader.
+    const observer = leaderSession("leader-observer", "q-cross");
+    observer.state.leaderOpenThreadTabs = {
+      version: 1,
+      orderedOpenThreadKeys: [],
+      closedThreadTombstones: [{ threadKey: "q-cross", closedAt: 100 }],
+      updatedAt: 100,
+    };
+    const currentLeader = leaderSession("leader-current", "q-other");
+    currentLeader.board.set("q-cross", {
+      questId: "q-cross",
+      status: "QUEUED",
+      createdAt: 200,
+      updatedAt: 200,
+    });
+    const sessions = new Map([
+      [observer.id, observer],
+      [currentLeader.id, currentLeader],
+    ]);
+    const persistSession = vi.fn();
+    const controller = controllerFor(sessions, persistSession);
+
+    expect(controller.getLeaderThreadTabMutationPolicy(observer.id, "q-cross")).toMatchObject({
+      scheduled: true,
+      neverStartedScheduled: true,
+      canClose: true,
+    });
+    expect(controller.promoteLeaderThreadTabForAttention(observer.id, "q-cross", 300, "review")).toBe(false);
+    expect(observer.state.leaderOpenThreadTabs.closedThreadTombstones).toEqual([
+      { threadKey: "q-cross", closedAt: 100 },
+    ]);
+    expect(persistSession).not.toHaveBeenCalled();
+  });
+
+  it("promotes completed tabs while keeping never-started schedules low and closed", () => {
     const leader = leaderSession("leader-attention", "q-42");
     leader.state.leaderOpenThreadTabs = {
       version: 1,
@@ -209,6 +244,17 @@ describe("leader thread tab edge promotion", () => {
 
     expect(controller.promoteLeaderThreadTabForAttention(leader.id, "q-42", 200, "review")).toBe(true);
     expect(leader.state.leaderOpenThreadTabs.orderedOpenThreadKeys).toEqual(["q-1", "q-42", "q-43"]);
+    expect(controller.promoteLeaderThreadTabForAttention(leader.id, "q-43", 210, "review")).toBe(false);
+    expect(leader.state.leaderOpenThreadTabs.orderedOpenThreadKeys).toEqual(["q-1", "q-42", "q-43"]);
+
+    leader.state.leaderOpenThreadTabs = {
+      ...leader.state.leaderOpenThreadTabs,
+      orderedOpenThreadKeys: ["q-1", "q-42"],
+      closedThreadTombstones: [{ threadKey: "q-43", closedAt: 220 }],
+      updatedAt: 220,
+    };
+    expect(controller.promoteLeaderThreadTabForAttention(leader.id, "q-43", 230, "review")).toBe(false);
+    expect(leader.state.leaderOpenThreadTabs.closedThreadTombstones).toEqual([{ threadKey: "q-43", closedAt: 220 }]);
 
     leader.state.leaderOpenThreadTabs = {
       ...leader.state.leaderOpenThreadTabs,
