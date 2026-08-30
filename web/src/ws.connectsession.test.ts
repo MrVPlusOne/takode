@@ -144,6 +144,17 @@ describe("connectSession", () => {
     expect(lastWs).toBe(first);
   });
 
+  it("announces each WebSocket open for a backend build recheck", () => {
+    const listener = vi.fn();
+    window.addEventListener("takode:backend-connection-open", listener);
+
+    wsModule.connectSession("s1");
+    lastWs.onopen?.(new Event("open"));
+
+    expect(listener).toHaveBeenCalledOnce();
+    window.removeEventListener("takode:backend-connection-open", listener);
+  });
+
   it("sends session_subscribe with last_seq, known_frozen_count, and known_frozen_hash on open when store has messages", () => {
     // Simulate a WebSocket reconnect (not a page refresh): store already has
     // messages and a server-provided frozen hash

@@ -57,6 +57,10 @@ export async function saveRestartContinuationPlan(directory: string, plan: Resta
   await writeFile(filePath(directory), JSON.stringify(plan, null, 2), "utf-8");
 }
 
+export async function clearRestartContinuationPlan(directory: string): Promise<void> {
+  await deletePlanFile(directory);
+}
+
 export async function drainRestartContinuationPlan(directory: string): Promise<RestartContinuationPlan | null> {
   let raw: string;
   try {

@@ -57,6 +57,9 @@ describe("server restart controls", () => {
     getHerdedSessions: ReturnType<typeof vi.fn>;
   };
   let requestRestart: ReturnType<typeof vi.fn>;
+  let prepareRestart: ReturnType<typeof vi.fn>;
+  let publishPreparedRestart: ReturnType<typeof vi.fn>;
+  let discardPreparedRestart: ReturnType<typeof vi.fn>;
   let sentOrder: string[];
   let cliSockets: Record<string, TestCliSocket>;
   let tempDir: string;
@@ -68,6 +71,14 @@ describe("server restart controls", () => {
     sentOrder = [];
     cliSockets = {};
     requestRestart = vi.fn();
+    publishPreparedRestart = vi.fn(async () => {});
+    discardPreparedRestart = vi.fn(async () => {});
+    prepareRestart = vi.fn(async () => ({
+      frontendRoot: join(tempDir, "frontend-build-next"),
+      buildId: "build-next",
+      publish: publishPreparedRestart,
+      discard: discardPreparedRestart,
+    }));
     process.env.COMPANION_RESTART_PREP_TIMEOUT_MS = "20";
     process.env.COMPANION_RESTART_PREP_RETRY_DELAY_MS = "0";
     process.env.COMPANION_RESTART_PREP_MAX_INTERRUPT_ATTEMPTS = "3";
@@ -94,7 +105,7 @@ describe("server restart controls", () => {
         launcher,
         wsBridge: bridge,
         sessionStore: { directory: tempDir },
-        options: { requestRestart },
+        options: { requestRestart, prepareRestart },
         pushoverNotifier: undefined,
       } as any),
     );
@@ -181,6 +192,72 @@ describe("server restart controls", () => {
     (bridge as any).onCLIRelaunchNeeded = relaunchNeeded;
     return { sentMessages, relaunchNeeded };
   }
+
+  it("returns a build failure without interrupting sessions or stopping the current pair", async () => {
+    launcher.listSessions.mockReturnValue([{ sessionId: "worker", state: "connected", name: "Worker session" }]);
+    attachBlockingSession("worker", { isGenerating: true });
+    prepareRestart.mockRejectedValueOnce(new Error("Vite build failed"));
+
+    const res = await app.request("/api/server/restart", { method: "POST" });
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: "Frontend restart preparation failed: Vite build failed" });
+    expect(cliSockets.worker.send).not.toHaveBeenCalled();
+    expect(requestRestart).not.toHaveBeenCalled();
+    expect(publishPreparedRestart).not.toHaveBeenCalled();
+    expect(discardPreparedRestart).not.toHaveBeenCalled();
+  });
+
+  it("rejects a concurrent restart while the first production candidate is still building", async () => {
+    let releasePreparation!: () => void;
+    const preparationGate = new Promise<void>((resolvePromise) => {
+      releasePreparation = resolvePromise;
+    });
+    prepareRestart.mockImplementationOnce(async () => {
+      await preparationGate;
+      return {
+        frontendRoot: join(tempDir, "frontend-build-next"),
+        buildId: "build-next",
+        publish: publishPreparedRestart,
+        discard: discardPreparedRestart,
+      };
+    });
+
+    const firstRequest = app.request("/api/server/restart", { method: "POST" });
+    expect(prepareRestart).toHaveBeenCalledOnce();
+    const concurrentResponse = await app.request("/api/server/restart", { method: "POST" });
+
+    expect(concurrentResponse.status).toBe(409);
+    await expect(concurrentResponse.json()).resolves.toEqual({ error: "A server restart is already being prepared" });
+    expect(requestRestart).not.toHaveBeenCalled();
+
+    releasePreparation();
+    const firstResponse = await firstRequest;
+    expect(firstResponse.status).toBe(200);
+    expect(publishPreparedRestart).toHaveBeenCalledOnce();
+    expect(requestRestart).toHaveBeenCalledOnce();
+  });
+
+  it("keeps restart behavior unchanged when no production frontend preparer is configured", async () => {
+    const devApp = new Hono();
+    const devRequestRestart = vi.fn();
+    devApp.route(
+      "/api",
+      createSettingsRoutes({
+        launcher,
+        wsBridge: bridge,
+        sessionStore: { directory: tempDir },
+        options: { requestRestart: devRequestRestart },
+        pushoverNotifier: undefined,
+      } as any),
+    );
+
+    const res = await devApp.request("/api/server/restart", { method: "POST" });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ ok: true, restartRequested: true });
+    expect(devRequestRestart).toHaveBeenCalledOnce();
+  });
 
   it("blocks restart when a session only has pending permissions", async () => {
     launcher.listSessions.mockReturnValue([{ sessionId: "approval", state: "connected", name: "Needs approval" }]);
@@ -330,10 +407,18 @@ describe("server restart controls", () => {
       return routed;
     });
 
+    publishPreparedRestart.mockImplementationOnce(async () => {
+      await access(join(tempDir, "restart-continuations.json"));
+      expect(requestRestart).not.toHaveBeenCalled();
+    });
+
     const res = await app.request("/api/server/restart", { method: "POST" });
     const body = await res.json();
 
     expect(res.status).toBe(200);
+    expect(prepareRestart).toHaveBeenCalledOnce();
+    expect(publishPreparedRestart).toHaveBeenCalledOnce();
+    expect(discardPreparedRestart).not.toHaveBeenCalled();
     expect(requestRestart).toHaveBeenCalledTimes(1);
     expect(body).toMatchObject({
       ok: true,
@@ -349,6 +434,28 @@ describe("server restart controls", () => {
       message: "Continue.",
       sessions: [{ sessionId: "worker", label: "Worker session" }],
     });
+  });
+
+  it("removes a queued continuation when the atomic frontend handoff cannot publish", async () => {
+    launcher.listSessions.mockReturnValue([{ sessionId: "worker", state: "connected", name: "Worker session" }]);
+    attachBlockingSession("worker", { isGenerating: true });
+    const originalInterruptSession = bridge.interruptSession.bind(bridge);
+    vi.spyOn(bridge, "interruptSession").mockImplementation(async (...args) => {
+      const routed = await originalInterruptSession(...args);
+      const session = bridge.getSession(args[0]);
+      if (session) session.isGenerating = false;
+      return routed;
+    });
+    publishPreparedRestart.mockRejectedValueOnce(new Error("handoff unavailable"));
+
+    const res = await app.request("/api/server/restart", { method: "POST" });
+    const body = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(body.error).toContain("Frontend restart handoff failed: handoff unavailable");
+    expect(body.result.restartRequested).toBe(false);
+    expect(requestRestart).not.toHaveBeenCalled();
+    await expect(access(join(tempDir, "restart-continuations.json"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("retries running blockers before restart gives up", async () => {

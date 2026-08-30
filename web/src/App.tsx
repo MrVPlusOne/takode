@@ -7,7 +7,7 @@ import {
   refreshSyncedProjectionSubscriptions,
   sendVsCodeSelectionUpdate,
 } from "./ws.js";
-import { api, checkHealth } from "./api.js";
+import { api, checkHealthStatus } from "./api.js";
 
 import {
   parseHash,
@@ -42,6 +42,7 @@ import { TaskPanel } from "./components/TaskPanel.js";
 import { DiffPanel } from "./components/DiffPanel.js";
 import { QuestCodeCommitDiffPanel } from "./components/QuestCommitDiffView.js";
 import { Playground } from "./components/Playground.js";
+import { ActiveBuildMismatchNotice } from "./components/BuildMismatchNotice.js";
 import { SettingsPage } from "./components/SettingsPage.js";
 import { ChangelogPage } from "./components/ChangelogPage.js";
 import { LogsPage } from "./components/LogsPage.js";
@@ -62,6 +63,7 @@ import { buildSidebarVisibleSessions } from "./utils/sidebar-visible-sessions.js
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 import { resolveDiffTarget } from "./utils/diff-target.js";
 import { requestAutoSessionGitStatusRefresh } from "./utils/session-git-status-auto-refresh.js";
+import { BACKEND_CONNECTION_OPEN_EVENT, observeBackendBuildId } from "./build-compatibility.js";
 import {
   announceVsCodeReady,
   type VsCodeSelectionContextPayload,
@@ -448,13 +450,16 @@ export default function App() {
     })();
   }, []);
 
-  // Poll server health every 10s. Require 2+ consecutive failures before marking unreachable.
+  // Poll backend liveness every 10s and compare its server-authored build identity
+  // with this loaded frontend. WebSocket opens trigger the same comparison so a
+  // reconnect after a restart does not wait for the next interval.
   useEffect(() => {
     let failures = 0;
     const poll = async () => {
-      const ok = await checkHealth();
+      const status = await checkHealthStatus();
       const store = useStore.getState();
-      if (ok) {
+      if (status.ok) {
+        observeBackendBuildId(status.buildId);
         failures = 0;
         if (!store.serverReachable) {
           store.setServerReachable(true);
@@ -466,9 +471,17 @@ export default function App() {
         }
       }
     };
-    poll();
-    const interval = setInterval(poll, 10_000);
-    return () => clearInterval(interval);
+    const compareAfterBackendConnection = () => {
+      void poll();
+    };
+
+    void poll();
+    const interval = setInterval(() => void poll(), 10_000);
+    window.addEventListener(BACKEND_CONNECTION_OPEN_EVENT, compareAfterBackendConnection);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener(BACKEND_CONNECTION_OPEN_EVENT, compareAfterBackendConnection);
+    };
   }, []);
 
   useEffect(() => {
@@ -759,7 +772,12 @@ export default function App() {
   }, []);
 
   if (route.page === "playground") {
-    return <Playground />;
+    return (
+      <>
+        <ActiveBuildMismatchNotice />
+        <Playground />
+      </>
+    );
   }
 
   return (
@@ -772,6 +790,8 @@ export default function App() {
         height: `${100 / zoomLevel}%`,
       }}
     >
+      <ActiveBuildMismatchNotice />
+
       {/* Mobile overlay backdrop */}
       {sidebarOpen && !isDesktopShell && (
         <div className="fixed inset-0 bg-black/30 z-30" onClick={() => useStore.getState().setSidebarOpen(false)} />

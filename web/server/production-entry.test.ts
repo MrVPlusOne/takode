@@ -6,6 +6,7 @@ import {
   cleanupOwnedFrontendRuntimeSnapshot,
   getOwnedFrontendRuntimeSnapshotCleanupRoot,
 } from "./frontend-runtime-snapshot.js";
+import { serializeTakodeBuildManifest, TAKODE_BUILD_MANIFEST_FILENAME } from "./build-identity.js";
 import { startProductionServer } from "./production-entry.js";
 
 const tempRoots: string[] = [];
@@ -16,13 +17,14 @@ async function makeTempRoot(): Promise<string> {
   return root;
 }
 
-async function writeFrontend(root: string): Promise<void> {
+async function writeFrontend(root: string, buildId = "build-packaged"): Promise<void> {
   await mkdir(join(root, "assets"), { recursive: true });
   await writeFile(
     join(root, "index.html"),
     '<link rel="manifest" href="/manifest.json"><script type="module" src="/assets/app.js"></script>',
   );
   await writeFile(join(root, "manifest.json"), '{"name":"Takode"}');
+  await writeFile(join(root, TAKODE_BUILD_MANIFEST_FILENAME), serializeTakodeBuildManifest(buildId));
   await writeFile(join(root, "assets", "app.js"), "console.log('snapshot')");
 }
 
@@ -53,6 +55,7 @@ describe("startProductionServer", () => {
       expect(servingRoot).not.toBe(sourceRoot);
       expect(await readFile(join(servingRoot!, "assets", "app.js"), "utf-8")).toBe("console.log('snapshot')");
       expect(getOwnedFrontendRuntimeSnapshotCleanupRoot()).toBe(join(servingRoot!, ".."));
+      expect(environment.TAKODE_BUILD_ID).toBe("build-packaged");
     });
 
     const snapshot = await startProductionServer({
@@ -66,6 +69,7 @@ describe("startProductionServer", () => {
     expect(importServer).toHaveBeenCalledOnce();
     expect(snapshot).not.toBeNull();
     expect(environment.COMPANION_FRONTEND_ROOT).toBe(snapshot!.servingRoot);
+    expect(environment.TAKODE_BUILD_ID).toBe("build-packaged");
     expect(snapshot!.cleanupRoot.split("/").at(-1)).toMatch(/^direct-4567-/);
     expect(await readFile(join(sourceRoot, "assets", "app.js"), "utf-8")).toBe("console.log('snapshot')");
 
@@ -111,6 +115,7 @@ describe("startProductionServer", () => {
       NODE_ENV: "production",
       COMPANION_FRONTEND_ROOT: sourceRoot,
       COMPANION_FRONTEND_RUNTIME_DIR: runtimeParent,
+      TAKODE_BUILD_ID: "build-packaged",
     } as NodeJS.ProcessEnv;
     let adoptedRoot = "";
 
@@ -128,9 +133,36 @@ describe("startProductionServer", () => {
     ).rejects.toThrow("server import failed");
 
     expect(environment.COMPANION_FRONTEND_ROOT).toBe(sourceRoot);
+    expect(environment.TAKODE_BUILD_ID).toBe("build-packaged");
     expect(getOwnedFrontendRuntimeSnapshotCleanupRoot()).toBeNull();
     await expectAbsent(adoptedRoot);
     expect(await readdir(runtimeParent)).toEqual([]);
+  });
+
+  it("rejects a configured backend identity that does not match the packaged frontend", async () => {
+    const root = await makeTempRoot();
+    const packageRoot = join(root, "package");
+    const sourceRoot = join(packageRoot, "dist");
+    const runtimeParent = join(root, "runtime", "frontends");
+    await writeFrontend(sourceRoot, "build-frontend");
+    const importServer = vi.fn(async () => undefined);
+
+    await expect(
+      startProductionServer({
+        environment: {
+          NODE_ENV: "production",
+          TAKODE_BUILD_ID: "build-backend",
+          COMPANION_FRONTEND_RUNTIME_DIR: runtimeParent,
+        } as NodeJS.ProcessEnv,
+        packageRoot,
+        cwd: root,
+        homeDir: join(root, "home"),
+        importServer,
+      }),
+    ).rejects.toThrow("Configured backend build ID does not match");
+
+    expect(importServer).not.toHaveBeenCalled();
+    await expectAbsent(runtimeParent);
   });
 
   it("bypasses snapshots outside production mode", async () => {

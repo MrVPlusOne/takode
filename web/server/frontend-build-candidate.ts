@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { generateTakodeBuildId, normalizeTakodeBuildId, readTakodeBuildManifest } from "./build-identity.js";
 
 const DEFAULT_TERMINATION_GRACE_MS = 5_000;
 
@@ -10,6 +11,7 @@ export interface FrontendBuildInvocation {
   cwd: string;
   candidateDir: string;
   signal?: AbortSignal;
+  environment: NodeJS.ProcessEnv;
 }
 
 export type FrontendBuildRunner = (invocation: FrontendBuildInvocation) => Promise<number>;
@@ -21,6 +23,15 @@ export interface CreateFrontendBuildCandidateOptions {
   validate: FrontendBuildCandidateValidator;
   runner?: FrontendBuildRunner;
   signal?: AbortSignal;
+  /** Opaque ID shared by this Vite output and the backend process that will serve it. */
+  buildId?: string;
+  /** Base environment for the Vite child. The caller object is never mutated. */
+  environment?: NodeJS.ProcessEnv;
+}
+
+export interface ValidatedFrontendBuildCandidate {
+  frontendRoot: string;
+  buildId: string;
 }
 
 function abortFailure(signal: AbortSignal): unknown {
@@ -46,6 +57,7 @@ async function runFrontendBuild(invocation: FrontendBuildInvocation): Promise<nu
     const child = spawn(invocation.executable, invocation.args, {
       cwd: invocation.cwd,
       stdio: "inherit",
+      env: invocation.environment,
     });
     let settled = false;
     let aborted = false;
@@ -116,7 +128,11 @@ async function removeFailedCandidate(candidateDir: string, failure: unknown): Pr
  */
 export async function createValidatedFrontendBuildCandidate(
   options: CreateFrontendBuildCandidateOptions,
-): Promise<string> {
+): Promise<ValidatedFrontendBuildCandidate> {
+  const requestedBuildId = options.buildId;
+  const buildId = requestedBuildId === undefined ? generateTakodeBuildId() : normalizeTakodeBuildId(requestedBuildId);
+  if (!buildId) throw new Error("Invalid Takode frontend build ID");
+
   const webRoot = resolve(options.webRoot);
   const runtimeRoot = resolve(options.runtimeRoot);
   throwIfAborted(options.signal);
@@ -130,6 +146,10 @@ export async function createValidatedFrontendBuildCandidate(
     cwd: webRoot,
     candidateDir,
     signal: options.signal,
+    environment: {
+      ...(options.environment ?? process.env),
+      TAKODE_BUILD_ID: buildId,
+    },
   };
 
   try {
@@ -139,9 +159,13 @@ export async function createValidatedFrontendBuildCandidate(
     if (exitCode !== 0) {
       throw new Error(`Frontend build exited with code ${exitCode}`);
     }
+    const manifest = await readTakodeBuildManifest(candidateDir);
+    if (manifest.buildId !== buildId) {
+      throw new Error("Frontend build manifest ID does not match the requested build ID");
+    }
     await options.validate(candidateDir);
     throwIfAborted(options.signal);
-    return candidateDir;
+    return { frontendRoot: candidateDir, buildId };
   } catch (failure) {
     return await removeFailedCandidate(candidateDir, failure);
   }

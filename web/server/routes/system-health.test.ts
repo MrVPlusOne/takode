@@ -46,7 +46,8 @@ describe("system health and readiness routes", () => {
     // Existing callers use /health as process/API liveness, so frontend readiness must not change its status or body contract.
     const healthResponse = await app.request("/api/health");
     expect(healthResponse.status).toBe(200);
-    expect(await healthResponse.json()).toMatchObject({ ok: true });
+    expect(healthResponse.headers.get("Cache-Control")).toBe("no-store");
+    expect(await healthResponse.json()).toMatchObject({ ok: true, buildId: "development" });
     expect(checker).not.toHaveBeenCalled();
 
     const readyResponse = await app.request("/api/ready");
@@ -54,6 +55,7 @@ describe("system health and readiness routes", () => {
     expect(readyResponse.headers.get("Cache-Control")).toBe("no-store");
     expect(await readyResponse.json()).toMatchObject({
       ok: false,
+      buildId: "development",
       frontend: {
         required: true,
         ready: false,
@@ -70,6 +72,7 @@ describe("system health and readiness routes", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       ok: true,
+      buildId: "development",
       frontend: { required: true, ready: true, reason: "ready" },
     });
   });

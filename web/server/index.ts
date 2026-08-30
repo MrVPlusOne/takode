@@ -55,6 +55,10 @@ import { resumeRestartContinuations } from "./restart-continuation-store.js";
 import { requestStartupRecoveryRelaunch, runStartupRecovery } from "./startup-recovery.js";
 import { getStaticAssetCacheControl } from "./static-asset-cache.js";
 import { checkFrontendAvailability } from "./frontend-availability.js";
+import {
+  COMPANION_FRONTEND_RUNTIME_ROOT_ENV,
+  createProductionFrontendRestartPreparer,
+} from "./frontend-restart-preparation.js";
 import { stopFrontendServerBeforeSnapshotCleanup } from "./frontend-runtime-snapshot.js";
 import { markCodexIntentionalRelaunch, markSessionRelaunchPending } from "./bridge/codex-recovery-orchestrator.js";
 import { deliverModelProvenanceMigration } from "./model-provenance-migration-delivery.js";
@@ -123,6 +127,29 @@ const checkCurrentFrontendAvailability = () =>
     required: frontendRequired,
     frontendRoot,
   });
+const productionFrontendRestartController = (() => {
+  if (!frontendRequired || !process.env.COMPANION_SUPERVISED) return undefined;
+  const runtimeRoot = process.env[COMPANION_FRONTEND_RUNTIME_ROOT_ENV]?.trim();
+  if (!runtimeRoot) return undefined;
+  return createProductionFrontendRestartPreparer({
+    webRoot: packageRoot,
+    runtimeRoot,
+    environment: process.env,
+    validate: async (candidateRoot) => {
+      const availability = await checkFrontendAvailability({ required: true, frontendRoot: candidateRoot });
+      if (!availability.ready) {
+        throw new Error(`Frontend candidate is not ready (${availability.reason})`);
+      }
+    },
+  });
+})();
+const prepareProductionFrontendRestart =
+  productionFrontendRestartController?.prepare ??
+  (frontendRequired && process.env.COMPANION_SUPERVISED
+    ? async () => {
+        throw new Error("Supervised production restart is missing its frontend runtime root");
+      }
+    : undefined);
 
 // Initialize file-based logging before anything else logs
 initServerLogger(port);
@@ -885,7 +912,12 @@ app.route(
     timerManager,
     imageStore,
     pushoverNotifier,
-    { requestRestart, codexSidecarRegistry, checkFrontendAvailability: checkCurrentFrontendAvailability },
+    {
+      requestRestart,
+      prepareRestart: prepareProductionFrontendRestart,
+      codexSidecarRegistry,
+      checkFrontendAvailability: checkCurrentFrontendAvailability,
+    },
     perfTracer,
     sleepInhibitor,
     resourceLeaseManager,
@@ -905,7 +937,16 @@ if (process.env.NODE_ENV === "production") {
       },
     }),
   );
-  app.get("/*", serveStatic({ path: resolve(frontendRoot, "index.html") }));
+  app.get(
+    "/*",
+    serveStatic({
+      path: resolve(frontendRoot, "index.html"),
+      onFound: (path, c) => {
+        const cacheControl = getStaticAssetCacheControl(path);
+        if (cacheControl) c.header("Cache-Control", cacheControl);
+      },
+    }),
+  );
 }
 
 const server = Bun.serve<SocketData>({
@@ -1111,6 +1152,17 @@ sleepInhibitor.start();
 // ── Shutdown helpers ─────────────────────────────────────────────────────────
 async function performShutdown() {
   serverLog.info("Persisting state before shutdown...");
+  try {
+    await productionFrontendRestartController?.cancelAndWait(
+      new Error("Server shutdown interrupted frontend restart preparation"),
+    );
+  } catch (error) {
+    // Runtime-candidate cleanup must never bypass durable session persistence.
+    // The supervisor owns and removes the enclosing runtime root after exit.
+    serverLog.error("Failed to settle frontend restart preparation during shutdown", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   await stopFrontendServerBeforeSnapshotCleanup({
     server,
     onFailure: (phase, error) => {

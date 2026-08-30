@@ -37,6 +37,7 @@ import type { VsCodeSelectionState, VsCodeWindowState } from "../session-types.j
 import { trafficStats } from "../traffic-stats.js";
 import { loadCodexModelCatalog } from "../codex-model-catalog.js";
 import type { FrontendAvailability } from "../frontend-availability.js";
+import { getTakodeProcessBuildId } from "../build-identity.js";
 
 function getCodexModelVariantRank(slug: string): number {
   if (slug.includes("-codex-spark")) return 2;
@@ -248,7 +249,10 @@ export function createSystemRoutes(ctx: RouteContext) {
 
   // ─── Health ─────────────────────────────────────────────────────────
 
-  api.get("/health", (c) => c.json({ ok: true, timestamp: Date.now() }));
+  api.get("/health", (c) => {
+    c.header("Cache-Control", "no-store");
+    return c.json({ ok: true, timestamp: Date.now(), buildId: getTakodeProcessBuildId() });
+  });
 
   api.get("/ready", async (c) => {
     c.header("Cache-Control", "no-store");
@@ -265,6 +269,7 @@ export function createSystemRoutes(ctx: RouteContext) {
       {
         ok: frontend.ready,
         timestamp: Date.now(),
+        buildId: getTakodeProcessBuildId(),
         frontend,
       },
       frontend.ready ? 200 : 503,

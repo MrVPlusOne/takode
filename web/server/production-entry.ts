@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkFrontendAvailability } from "./frontend-availability.js";
+import { normalizeTakodeBuildId, readTakodeBuildManifest } from "./build-identity.js";
 import {
   adoptFrontendRuntimeSnapshot,
   cleanupOwnedFrontendRuntimeSnapshot,
@@ -63,12 +64,24 @@ export async function startProductionServer(
     },
   });
   const previousFrontendRoot = environment.COMPANION_FRONTEND_ROOT;
+  const previousBuildId = environment.TAKODE_BUILD_ID;
+  await validateProductionFrontend(sourceRoot);
+  const sourceBuildId = (await readTakodeBuildManifest(sourceRoot)).buildId;
+  if (previousBuildId !== undefined && normalizeTakodeBuildId(previousBuildId) !== sourceBuildId) {
+    throw new Error("Configured backend build ID does not match the packaged frontend build");
+  }
 
   const snapshot = await createValidatedFrontendRuntimeSnapshot({
     sourceRoot,
     runtimeParent,
     prefix: frontendSnapshotPrefix(environment),
-    validate: async (frontendRoot) => validateProductionFrontend(frontendRoot),
+    validate: async (frontendRoot) => {
+      await validateProductionFrontend(frontendRoot);
+      const manifest = await readTakodeBuildManifest(frontendRoot);
+      if (manifest.buildId !== sourceBuildId) {
+        throw new Error("Copied frontend build ID does not match the packaged frontend build");
+      }
+    },
   });
 
   let adopted = false;
@@ -76,6 +89,7 @@ export async function startProductionServer(
     adoptFrontendRuntimeSnapshot(snapshot);
     adopted = true;
     environment.COMPANION_FRONTEND_ROOT = snapshot.servingRoot;
+    environment.TAKODE_BUILD_ID = sourceBuildId;
     await importServer();
     return snapshot;
   } catch (failure) {
@@ -83,6 +97,11 @@ export async function startProductionServer(
       delete environment.COMPANION_FRONTEND_ROOT;
     } else {
       environment.COMPANION_FRONTEND_ROOT = previousFrontendRoot;
+    }
+    if (previousBuildId === undefined) {
+      delete environment.TAKODE_BUILD_ID;
+    } else {
+      environment.TAKODE_BUILD_ID = previousBuildId;
     }
 
     try {

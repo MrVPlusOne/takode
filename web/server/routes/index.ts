@@ -11,6 +11,7 @@ import type { WorktreeTracker } from "../worktree-tracker.js";
 import type { TerminalManager } from "../terminal-manager.js";
 import type { PerfTracer } from "../perf-tracer.js";
 import type { FrontendAvailabilityChecker } from "../frontend-availability.js";
+import type { PreparedFrontendRestart } from "../frontend-restart-preparation.js";
 import { GIT_CMD_TIMEOUT } from "../constants.js";
 import { validateCompanionAuth } from "./auth.js";
 import { createSessionsRoutes } from "./sessions.js";
@@ -161,6 +162,7 @@ export function createRoutes(
   pushoverNotifier?: import("../pushover.js").PushoverNotifier,
   options?: {
     requestRestart?: () => void;
+    prepareRestart?: () => Promise<PreparedFrontendRestart>;
     codexSidecarRegistry?: import("../codex-sidecar-auth.js").CodexSidecarRegistry;
     checkFrontendAvailability?: FrontendAvailabilityChecker;
   },

@@ -36,7 +36,8 @@ import type { ShortcutSettings } from "./shortcuts.js";
 import type { SessionDefaultsSettings } from "../shared/session-defaults.js";
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 
-export { checkHealth, checkReadiness } from "./api/server-status.js";
+export { checkHealth, checkHealthStatus, checkReadiness, checkReadinessStatus } from "./api/server-status.js";
+export type { ServerStatusProbe } from "./api/server-status.js";
 
 export type {
   FetchRecentAskBundlesOptions,

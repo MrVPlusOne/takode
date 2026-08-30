@@ -5,6 +5,7 @@ import type { WorktreeTracker } from "../worktree-tracker.js";
 import type { TerminalManager } from "../terminal-manager.js";
 import type { PerfTracer } from "../perf-tracer.js";
 import type { FrontendAvailabilityChecker } from "../frontend-availability.js";
+import type { PreparedFrontendRestart } from "../frontend-restart-preparation.js";
 
 export type ResolvedSession = NonNullable<ReturnType<CliLauncher["getSession"]>>;
 
@@ -38,6 +39,7 @@ export interface RouteContext {
   modelProvenanceMigrationAcknowledgementStore?: import("../model-provenance-migration-acknowledgement-store.js").ModelProvenanceMigrationAcknowledgementStore;
   options?: {
     requestRestart?: () => void;
+    prepareRestart?: () => Promise<PreparedFrontendRestart>;
     codexSidecarRegistry?: import("../codex-sidecar-auth.js").CodexSidecarRegistry;
     checkFrontendAvailability?: FrontendAvailabilityChecker;
   };

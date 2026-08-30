@@ -32,6 +32,8 @@ interface MockStoreState {
   setShortcutOverride: ReturnType<typeof vi.fn>;
   resetShortcutOverrides: ReturnType<typeof vi.fn>;
   setZoomLevel: ReturnType<typeof vi.fn>;
+  serverReachable: boolean;
+  setServerReachable: ReturnType<typeof vi.fn>;
   setServerRestarting: ReturnType<typeof vi.fn>;
 }
 
@@ -66,6 +68,8 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     setShortcutOverride: vi.fn(),
     resetShortcutOverrides: vi.fn(),
     setZoomLevel: vi.fn(),
+    serverReachable: true,
+    setServerReachable: vi.fn(),
     setServerRestarting: vi.fn(),
     ...overrides,
   };
@@ -88,6 +92,7 @@ const mockApi = {
   getAutoApprovalLogs: vi.fn().mockResolvedValue([]),
   getAutoApprovalLogEntry: vi.fn(),
 };
+const mockCheckReadinessStatus = vi.fn().mockResolvedValue({ ok: true, buildId: "development" });
 
 const mockApiErrorClass = vi.hoisted(
   () =>
@@ -122,7 +127,7 @@ vi.mock("../api.js", () => ({
     getAutoApprovalLogEntry: (...args: unknown[]) => mockApi.getAutoApprovalLogEntry(...args),
   },
   ApiError: mockApiErrorClass,
-  checkReadiness: vi.fn().mockResolvedValue(true),
+  checkReadinessStatus: (...args: unknown[]) => mockCheckReadinessStatus(...args),
   isInterruptRestartBlockersResponse: (value: unknown) => {
     if (!value || typeof value !== "object") return false;
     const candidate = value as { mode?: unknown; herdDelivery?: unknown };
@@ -159,6 +164,7 @@ vi.mock("./FolderPicker.js", () => ({
 }));
 
 import { SettingsPage } from "./SettingsPage.js";
+import { getBuildCompatibilitySnapshot, resetBuildCompatibilityForTest } from "../build-compatibility.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -194,6 +200,8 @@ beforeEach(() => {
   });
   mockApi.getBackendModels.mockResolvedValue([]);
   mockApi.restartServer.mockResolvedValue({ ok: true });
+  mockCheckReadinessStatus.mockResolvedValue({ ok: true, buildId: "development" });
+  resetBuildCompatibilityForTest();
   mockApi.updateSettings.mockResolvedValue({
     serverName: "",
     serverId: "test-id",
@@ -296,6 +304,56 @@ describe("SettingsPage", () => {
     expect(mockApi.getSettings).toHaveBeenCalledTimes(1);
     // Wait for loading to complete — section headings are visible
     await waitForSettingsPage();
+  });
+
+  it("clears the restart overlay without auto-reloading and surfaces a new backend build", async () => {
+    vi.useFakeTimers();
+    mockCheckReadinessStatus.mockResolvedValue({ ok: true, buildId: "backend-after-restart" });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    try {
+      render(<SettingsPage />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+      await act(async () => {
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+
+      expect(mockApi.restartServer).toHaveBeenCalledOnce();
+      expect(mockCheckReadinessStatus).toHaveBeenCalled();
+      expect(mockState.setServerRestarting).toHaveBeenNthCalledWith(1, true);
+      expect(mockState.setServerRestarting).toHaveBeenLastCalledWith(false);
+      expect(screen.getByRole("button", { name: "Restart Server" })).toBeEnabled();
+      expect(getBuildCompatibilitySnapshot()).toMatchObject({
+        backendBuildId: "backend-after-restart",
+        status: "mismatch",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows a server-returned frontend build failure without polling the healthy old pair", async () => {
+    // Vite errors often contain capital “Failed”; typed API failures must not be mistaken for the expected disconnect.
+    mockApi.restartServer.mockRejectedValue(
+      new mockApiErrorClass("Failed to resolve import while preparing the frontend", 500, {
+        error: "Failed to resolve import while preparing the frontend",
+      }),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+    fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+
+    expect(await screen.findByText("Failed to resolve import while preparing the frontend")).toBeInTheDocument();
+    expect(mockCheckReadinessStatus).not.toHaveBeenCalled();
+    expect(mockState.setServerRestarting).toHaveBeenLastCalledWith(false);
   });
 
   it("surfaces rich restart-prep details when Restart Server auto-prep fails", async () => {

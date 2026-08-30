@@ -6,6 +6,7 @@ import { resolveBinary, getEnrichedPath } from "../path-resolver.js";
 import type { RestartPrepOperationSnapshot, RestartPrepSessionSummary } from "../herd-event-dispatcher.js";
 import {
   buildRestartContinuationPlan,
+  clearRestartContinuationPlan,
   saveRestartContinuationPlan,
   type RestartContinuationTarget,
 } from "../restart-continuation-store.js";
@@ -66,6 +67,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
   const restartPrepTimeoutMs = Number(process.env.COMPANION_RESTART_PREP_TIMEOUT_MS || "8000");
   const restartPrepMaxInterruptAttempts = readPositiveIntEnv("COMPANION_RESTART_PREP_MAX_INTERRUPT_ATTEMPTS", 3);
   const restartPrepRetryDelayMs = readNonNegativeIntEnv("COMPANION_RESTART_PREP_RETRY_DELAY_MS", 100);
+  let restartRequestInFlight = false;
 
   interface RestartBlockingSession {
     sessionId: string;
@@ -477,21 +479,21 @@ export function createSettingsRoutes(ctx: RouteContext) {
     operationId: string | null;
     interrupted: RestartPrepResult["interrupted"];
     excludeSessionIds?: Set<string>;
-  }): Promise<{ ok: true } | { ok: false; error: string }> {
-    if (!options.operationId) return { ok: true };
+  }): Promise<{ ok: true; queued: boolean } | { ok: false; error: string }> {
+    if (!options.operationId) return { ok: true, queued: false };
 
     const sessions: RestartContinuationTarget[] = options.interrupted
       .filter((item) => item.reasons.includes("running"))
       .filter((item) => !options.excludeSessionIds?.has(item.sessionId))
       .map((item) => ({ sessionId: item.sessionId, label: item.label }));
-    if (sessions.length === 0) return { ok: true };
+    if (sessions.length === 0) return { ok: true, queued: false };
 
     try {
       await saveRestartContinuationPlan(
         sessionStore.directory,
         buildRestartContinuationPlan({ operationId: options.operationId, sessions }),
       );
-      return { ok: true };
+      return { ok: true, queued: true };
     } catch (error) {
       return {
         ok: false,
@@ -508,69 +510,175 @@ export function createSettingsRoutes(ctx: RouteContext) {
     if (!options?.requestRestart) {
       return c.json({ error: "Restart not supported in this mode" }, 503);
     }
-    // Block restart while sessions are still holding the restart readiness gate.
-    const busySessions = getRestartBlockingSessions();
-    if (busySessions.length > 0) {
-      const timeoutMs = restartPrepTimeoutMs;
-      const operationId = beginRestartPrepOperation(busySessions, "restart", timeoutMs);
-      const protectedLeaders = getProtectedLeaders(busySessions);
-      const prep = await runRestartPrepAttempts(busySessions, operationId, timeoutMs);
-      const fallback = await applyCodexRestartPrepFallbacks(prep.blockers, operationId);
-      const fallbackSessionIds = new Set(fallback.fallbacks.map((item) => item.sessionId));
-      const readiness =
-        fallback.fallbacks.length > 0 ? await waitForRestartReadiness(1) : { timedOut: false, blockers: prep.blockers };
-      const failures = [...(readiness.blockers.length > 0 ? prep.failures : []), ...fallback.failures];
-      if (readiness.blockers.length > 0 || failures.length > 0) {
+    if (restartRequestInFlight) {
+      return c.json({ error: "A server restart is already being prepared" }, 409);
+    }
+
+    restartRequestInFlight = true;
+    let restartScheduled = false;
+    let preparedRestart: Awaited<ReturnType<NonNullable<typeof options.prepareRestart>>> | null = null;
+    let continuationQueued = false;
+
+    const discardPreparedRestart = async (): Promise<string | null> => {
+      if (!preparedRestart) return null;
+      try {
+        await preparedRestart.discard();
+        return null;
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    };
+
+    const clearQueuedContinuation = async (): Promise<string | null> => {
+      if (!continuationQueued) return null;
+      try {
+        await clearRestartContinuationPlan(sessionStore.directory);
+        continuationQueued = false;
+        return null;
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    };
+
+    try {
+      if (options.prepareRestart) {
+        try {
+          // Production builds the candidate before interrupting sessions or stopping the current compatible pair.
+          preparedRestart = await options.prepareRestart();
+        } catch (error) {
+          return c.json(
+            {
+              error: `Frontend restart preparation failed: ${error instanceof Error ? error.message : String(error)}`,
+            },
+            500,
+          );
+        }
+      }
+
+      // Block restart while sessions are still holding the restart readiness gate.
+      const busySessions = getRestartBlockingSessions();
+      if (busySessions.length > 0) {
+        const timeoutMs = restartPrepTimeoutMs;
+        const operationId = beginRestartPrepOperation(busySessions, "restart", timeoutMs);
+        const protectedLeaders = getProtectedLeaders(busySessions);
+        const prep = await runRestartPrepAttempts(busySessions, operationId, timeoutMs);
+        const fallback = await applyCodexRestartPrepFallbacks(prep.blockers, operationId);
+        const fallbackSessionIds = new Set(fallback.fallbacks.map((item) => item.sessionId));
+        const readiness =
+          fallback.fallbacks.length > 0
+            ? await waitForRestartReadiness(1)
+            : { timedOut: false, blockers: prep.blockers };
+        const failures = [...(readiness.blockers.length > 0 ? prep.failures : []), ...fallback.failures];
+        if (readiness.blockers.length > 0 || failures.length > 0) {
+          const cleanupError = await discardPreparedRestart();
+          if (cleanupError) {
+            return c.json(
+              { error: `Restart was blocked and its prepared frontend could not be removed: ${cleanupError}` },
+              500,
+            );
+          }
+          const result = buildRestartPrepResult({
+            mode: "restart",
+            operationId,
+            restartRequested: false,
+            timedOut: prep.timedOut || readiness.timedOut,
+            retryAttempts: prep.retryAttempts,
+            interrupted: prep.interrupted,
+            skipped: prep.skipped,
+            failures,
+            fallbacks: fallback.fallbacks,
+            protectedLeaders,
+            unresolvedBlockers: readiness.blockers,
+          });
+          return c.json(
+            {
+              error: `Cannot restart while ${readiness.blockers.length} session(s) are still blocking restart readiness: ${readiness.blockers
+                .map((session) => session.label)
+                .join(", ")}`,
+              result,
+            },
+            409,
+          );
+        }
+        const continuation = await queueRestartContinuations({
+          operationId,
+          interrupted: prep.interrupted,
+          excludeSessionIds: fallbackSessionIds,
+        });
+        continuationQueued = continuation.ok && continuation.queued;
         const result = buildRestartPrepResult({
           mode: "restart",
           operationId,
-          restartRequested: false,
-          timedOut: prep.timedOut || readiness.timedOut,
+          restartRequested: continuation.ok,
+          timedOut: false,
           retryAttempts: prep.retryAttempts,
           interrupted: prep.interrupted,
           skipped: prep.skipped,
           failures,
           fallbacks: fallback.fallbacks,
           protectedLeaders,
-          unresolvedBlockers: readiness.blockers,
+          unresolvedBlockers: [],
         });
-        return c.json(
-          {
-            error: `Cannot restart while ${readiness.blockers.length} session(s) are still blocking restart readiness: ${readiness.blockers
-              .map((session) => session.label)
-              .join(", ")}`,
-            result,
-          },
-          409,
-        );
-      }
-      const continuation = await queueRestartContinuations({
-        operationId,
-        interrupted: prep.interrupted,
-        excludeSessionIds: fallbackSessionIds,
-      });
-      const result = buildRestartPrepResult({
-        mode: "restart",
-        operationId,
-        restartRequested: continuation.ok,
-        timedOut: false,
-        retryAttempts: prep.retryAttempts,
-        interrupted: prep.interrupted,
-        skipped: prep.skipped,
-        failures,
-        fallbacks: fallback.fallbacks,
-        protectedLeaders,
-        unresolvedBlockers: [],
-      });
-      if (!continuation.ok) {
-        return c.json({ error: continuation.error, result }, 500);
+        if (!continuation.ok) {
+          const cleanupError = await discardPreparedRestart();
+          if (cleanupError) {
+            return c.json(
+              { error: `${continuation.error}; prepared frontend cleanup also failed: ${cleanupError}`, result },
+              500,
+            );
+          }
+          return c.json({ error: continuation.error, result }, 500);
+        }
+
+        try {
+          await preparedRestart?.publish();
+        } catch (error) {
+          const continuationCleanupError = await clearQueuedContinuation();
+          const suffix = continuationCleanupError
+            ? ` Restart continuation cleanup also failed: ${continuationCleanupError}`
+            : "";
+          return c.json(
+            {
+              error: `Frontend restart handoff failed: ${error instanceof Error ? error.message : String(error)}.${suffix}`,
+              result: { ...result, restartRequested: false },
+            },
+            500,
+          );
+        }
+
+        options.requestRestart();
+        restartScheduled = true;
+        return c.json(result);
       }
 
+      try {
+        await preparedRestart?.publish();
+      } catch (error) {
+        return c.json(
+          { error: `Frontend restart handoff failed: ${error instanceof Error ? error.message : String(error)}` },
+          500,
+        );
+      }
       options.requestRestart();
-      return c.json(result);
+      restartScheduled = true;
+      return c.json({ ok: true, restartRequested: true });
+    } catch (error) {
+      const [preparedCleanupError, continuationCleanupError] = await Promise.all([
+        discardPreparedRestart(),
+        clearQueuedContinuation(),
+      ]);
+      const cleanupErrors = [preparedCleanupError, continuationCleanupError].filter(Boolean);
+      return c.json(
+        {
+          error: `Server restart preparation failed: ${error instanceof Error ? error.message : String(error)}${
+            cleanupErrors.length > 0 ? `; cleanup failed: ${cleanupErrors.join("; ")}` : ""
+          }`,
+        },
+        500,
+      );
+    } finally {
+      if (!restartScheduled) restartRequestInFlight = false;
     }
-    options.requestRestart();
-    return c.json({ ok: true, restartRequested: true });
   });
 
   api.post("/server/interrupt-all", async (c) => {

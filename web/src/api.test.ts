@@ -3,7 +3,9 @@ import {
   ApiError,
   api,
   checkHealth,
+  checkHealthStatus,
   checkReadiness,
+  checkReadinessStatus,
   getTranscriptionRequestTimeoutMs,
   resolveAudioUploadFilename,
 } from "./api.js";
@@ -16,7 +18,11 @@ import {
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-function mockResponse(data: unknown, status = 200, headers: Record<string, string> = {}) {
+function mockResponse(
+  data: unknown,
+  status = 200,
+  headers: Record<string, string> = { "content-type": "application/json" },
+) {
   return {
     ok: status >= 200 && status < 300,
     status,
@@ -37,15 +43,31 @@ beforeEach(() => {
 // Server status probes
 // ===========================================================================
 describe("server status probes", () => {
-  it("keeps backend liveness on /health", async () => {
+  it("keeps backend liveness on /health and exposes its build identity", async () => {
     // Liveness remains a distinct signal so an unavailable frontend does not
     // make connected browsers treat the entire backend as unreachable.
-    mockFetch.mockResolvedValueOnce(mockResponse({ ok: true }));
+    mockFetch.mockResolvedValueOnce(mockResponse({ ok: true, buildId: "build-a" }));
 
-    await expect(checkHealth()).resolves.toBe(true);
+    await expect(checkHealthStatus()).resolves.toEqual({ ok: true, buildId: "build-a" });
 
     expect(mockFetch).toHaveBeenCalledOnce();
     expect(mockFetch.mock.calls[0][0]).toBe("/api/health");
+    expect(mockFetch.mock.calls[0][1]).toMatchObject({ cache: "no-store" });
+  });
+
+  it("rejects an HTML or malformed health fallback instead of latching a false build mismatch", async () => {
+    // A proxy or SPA fallback can return HTTP 200; only the documented JSON health contract is authoritative.
+    mockFetch.mockResolvedValueOnce(
+      new Response("<html>login</html>", { status: 200, headers: { "content-type": "text/html" } }),
+    );
+
+    await expect(checkHealthStatus()).resolves.toEqual({ ok: false, buildId: null });
+  });
+
+  it("preserves the boolean health helper for existing callers", async () => {
+    mockFetch.mockResolvedValueOnce(mockResponse({ ok: true, buildId: "build-a" }));
+
+    await expect(checkHealth()).resolves.toBe(true);
   });
 
   it("uses /ready when a caller needs the web application", async () => {
@@ -53,7 +75,7 @@ describe("server status probes", () => {
     // backend process to accept connections again.
     mockFetch.mockResolvedValueOnce(mockResponse({ ok: false }, 503, { "content-type": "application/json" }));
 
-    await expect(checkReadiness()).resolves.toBe(false);
+    await expect(checkReadinessStatus()).resolves.toEqual({ ok: false, buildId: null });
 
     expect(mockFetch).toHaveBeenCalledOnce();
     expect(mockFetch.mock.calls[0][0]).toBe("/api/ready");
@@ -68,7 +90,15 @@ describe("server status probes", () => {
     await expect(checkReadiness()).resolves.toBe(false);
   });
 
-  it("accepts the readiness JSON contract only when ok is true", async () => {
+  it("accepts the readiness JSON contract and exposes its build identity", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockResponse({ ok: true, buildId: "build-ready" }, 200, { "content-type": "application/json" }),
+    );
+
+    await expect(checkReadinessStatus()).resolves.toEqual({ ok: true, buildId: "build-ready" });
+  });
+
+  it("preserves the boolean readiness helper for existing callers", async () => {
     mockFetch.mockResolvedValueOnce(mockResponse({ ok: true }, 200, { "content-type": "application/json" }));
 
     await expect(checkReadiness()).resolves.toBe(true);

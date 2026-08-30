@@ -5,7 +5,8 @@
  * Builds each frontend into a fresh runtime snapshot, then starts the server
  * against that immutable directory. Source-checkout `web/dist` cleanup or an
  * interrupted later build therefore cannot remove the frontend currently being
- * served. A failed restart build reuses the last validated runtime snapshot.
+ * served. Restart builds complete while the current pair remains live; a failed
+ * preparation leaves that pair untouched.
  *
  * Usage: bun serve.ts          (or: bun run serve)
  */
@@ -15,8 +16,16 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { TAKODE_BUILD_ID_ENV } from "./server/build-identity.js";
 import { checkFrontendAvailability } from "./server/frontend-availability.js";
-import { createValidatedFrontendBuildCandidate } from "./server/frontend-build-candidate.js";
+import {
+  createValidatedFrontendBuildCandidate,
+  type ValidatedFrontendBuildCandidate,
+} from "./server/frontend-build-candidate.js";
+import {
+  COMPANION_FRONTEND_RUNTIME_ROOT_ENV,
+  consumeFrontendRestartHandoff,
+} from "./server/frontend-restart-preparation.js";
 import { RESTART_EXIT_CODE } from "./server/constants.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -33,11 +42,13 @@ let shuttingDown = false;
 let serverProc: ReturnType<typeof spawn> | null = null;
 let installProc: ReturnType<typeof spawn> | null = null;
 let buildAbortController: AbortController | null = null;
-let buildOperation: Promise<string> | null = null;
+let buildOperation: Promise<ValidatedFrontendBuildCandidate> | null = null;
 let runtimeRoot: string | null = null;
 let shutdownOperation: Promise<never> | null = null;
 
-const CHILD_TERMINATION_GRACE_MS = 5_000;
+// The backend may need its own 5s grace window to terminate an in-flight Vite
+// child before it can finish shutdown, so the supervisor must wait longer.
+const CHILD_TERMINATION_GRACE_MS = 15_000;
 
 function missingDependencyMarker(): string | null {
   return dependencyMarkers.find((marker) => !existsSync(marker)) ?? null;
@@ -84,7 +95,7 @@ async function ensureDependencies(): Promise<boolean> {
   }
 }
 
-async function buildFrontendSnapshot(): Promise<string | null> {
+async function buildFrontendSnapshot(): Promise<ValidatedFrontendBuildCandidate | null> {
   if (!(await ensureDependencies())) return null;
   if (shuttingDown) return null;
   if (!runtimeRoot) throw new Error("Frontend runtime root is not initialized");
@@ -182,9 +193,10 @@ async function run(): Promise<void> {
   );
   await mkdir(runtimeParent, { recursive: true });
   runtimeRoot = await mkdtemp(join(runtimeParent, `serve-${portLabel}-`));
+  const supervisedRuntimeRoot = runtimeRoot;
 
-  let activeFrontendRoot = await buildFrontendSnapshot();
-  if (!activeFrontendRoot) {
+  let activeFrontend = await buildFrontendSnapshot();
+  if (!activeFrontend) {
     if (shuttingDown) return;
     await requestShutdown(1);
   }
@@ -200,7 +212,9 @@ async function run(): Promise<void> {
         ...process.env,
         NODE_ENV: "production",
         COMPANION_SUPERVISED: "1",
-        COMPANION_FRONTEND_ROOT: activeFrontendRoot,
+        COMPANION_FRONTEND_ROOT: activeFrontend.frontendRoot,
+        [COMPANION_FRONTEND_RUNTIME_ROOT_ENV]: supervisedRuntimeRoot,
+        [TAKODE_BUILD_ID_ENV]: activeFrontend.buildId,
         UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE || "32",
       },
     });
@@ -215,22 +229,37 @@ async function run(): Promise<void> {
       await requestShutdown(code ?? 1);
     }
 
-    console.log("\x1b[33m[serve] Server requested restart, building a fresh frontend snapshot...\x1b[0m");
+    console.log("\x1b[33m[serve] Server requested restart, consuming its prepared frontend snapshot...\x1b[0m");
+
+    // The live server builds and validates this candidate before it exits. A
+    // missing or invalid handoff must fail closed: launching current backend
+    // code against the previous frontend would create an unsupported pair.
+    let nextFrontend: ValidatedFrontendBuildCandidate;
+    try {
+      nextFrontend = await consumeFrontendRestartHandoff({
+        runtimeRoot: supervisedRuntimeRoot,
+        validate: async (frontendRoot) => {
+          const availability = await checkFrontendAvailability({ required: true, frontendRoot });
+          if (!availability.ready) {
+            throw new Error(`Prepared frontend is not ready (${availability.reason})`);
+          }
+        },
+      });
+    } catch (error) {
+      console.error(
+        `\x1b[31m[serve] Prepared frontend handoff failed: ${error instanceof Error ? error.message : String(error)}\x1b[0m`,
+      );
+      await requestShutdown(1);
+    }
+
+    const previousFrontendRoot = activeFrontend.frontendRoot;
+    activeFrontend = nextFrontend;
+    await rm(previousFrontendRoot, { recursive: true, force: true }).catch((error) => {
+      console.error(`[serve] Failed to remove retired frontend snapshot at ${previousFrontendRoot}:`, error);
+    });
 
     // Brief pause to let the port be released.
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 1000));
-    if (shuttingDown) return;
-
-    const nextFrontendRoot = await buildFrontendSnapshot();
-    if (nextFrontendRoot) {
-      const previousFrontendRoot = activeFrontendRoot;
-      activeFrontendRoot = nextFrontendRoot;
-      await rm(previousFrontendRoot, { recursive: true, force: true }).catch((error) => {
-        console.error(`[serve] Failed to remove retired frontend snapshot at ${previousFrontendRoot}:`, error);
-      });
-    } else {
-      console.error("\x1b[33m[serve] Rebuild failed; restarting with the preserved frontend snapshot.\x1b[0m");
-    }
   }
 }
 

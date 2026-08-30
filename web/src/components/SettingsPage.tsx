@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   api,
   ApiError,
-  checkReadiness,
+  checkReadinessStatus,
   isInterruptRestartBlockersResponse,
   type ImportStats,
   type AutoApprovalConfig,
@@ -13,6 +13,7 @@ import {
   type InterruptRestartBlockersResponse,
 } from "../api.js";
 import { useStore, COLOR_THEMES } from "../store.js";
+import { observeBackendBuildId } from "../build-compatibility.js";
 import { createShortcutGestureRecorder, type ShortcutActionId } from "../shortcuts.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
 import { CollapsibleSection, isCollapsibleSectionCollapsed } from "./CollapsibleSection.js";
@@ -623,17 +624,22 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
     try {
       await api.restartServer();
     } catch (e: unknown) {
-      // Distinguish server-returned errors (e.g. busy sessions) from network
-      // errors (expected when the server shuts down mid-request).
+      // Typed API failures came from the still-running server and must remain
+      // visible even when build tooling includes words such as "Failed". Only
+      // transport failures are expected when the process exits mid-response.
       const msg = e instanceof Error ? e.message : String(e);
+      if (e instanceof ApiError) {
+        const result = e.body && typeof e.body === "object" ? (e.body as { result?: unknown }).result : undefined;
+        if (isInterruptRestartBlockersResponse(result)) {
+          setRestartPrepResult(result);
+        }
+        setRestartError(msg);
+        setRestarting(false);
+        useStore.getState().setServerRestarting(false);
+        return;
+      }
       const isNetworkError = !msg || msg.includes("fetch") || msg.includes("Failed") || msg.includes("ECONNREFUSED");
       if (!isNetworkError) {
-        if (e instanceof ApiError) {
-          const result = e.body && typeof e.body === "object" ? (e.body as { result?: unknown }).result : undefined;
-          if (isInterruptRestartBlockersResponse(result)) {
-            setRestartPrepResult(result);
-          }
-        }
         setRestartError(msg);
         setRestarting(false);
         useStore.getState().setServerRestarting(false);
@@ -642,15 +648,20 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
     }
 
     // Wait for both the backend and its production frontend to become usable.
+    // A new backend build is surfaced through the persistent global Reload
+    // notice; never replace the page while the user may be typing or reading.
     healthPollRef.current = setInterval(async () => {
-      const ready = await checkReadiness();
-      if (ready) {
+      const readiness = await checkReadinessStatus();
+      if (readiness.ok) {
+        observeBackendBuildId(readiness.buildId);
         if (healthPollRef.current) clearInterval(healthPollRef.current);
         if (healthTimeoutRef.current) clearTimeout(healthTimeoutRef.current);
         healthPollRef.current = null;
         healthTimeoutRef.current = null;
-        // Reload to pick up new frontend assets (especially in prod mode)
-        window.location.reload();
+        const store = useStore.getState();
+        store.setServerRestarting(false);
+        if (!store.serverReachable) store.setServerReachable(true);
+        setRestarting(false);
       }
     }, 2000);
 

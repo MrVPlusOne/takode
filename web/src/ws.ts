@@ -16,6 +16,7 @@ import {
   isSyncedProjectionEligibleForSession,
 } from "../shared/synced-projection-registry.js";
 import { syncedProjectionEntryId, type SyncedProjectionSubscription } from "../shared/synced-projection.js";
+import { announceBackendConnectionOpen } from "./build-compatibility.js";
 import {
   projectedLeaderOpenThreadTabs,
   resolveLeaderThreadTabsProjection,
@@ -174,6 +175,7 @@ const transport = createWsTransport({
   },
   onConnected: (sessionId) => {
     useStore.getState().setConnectionStatus(sessionId, "connected");
+    announceBackendConnectionOpen();
     if (pendingVsCodeSelectionUpdate) {
       const delivered = transport.sendGlobalMessage(pendingVsCodeSelectionUpdate, sessionId);
       if (delivered) {

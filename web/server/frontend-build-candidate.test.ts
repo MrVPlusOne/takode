@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { access, chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
+import { serializeTakodeBuildManifest, TAKODE_BUILD_MANIFEST_FILENAME } from "./build-identity.js";
 import {
   createValidatedFrontendBuildCandidate,
   type FrontendBuildInvocation,
@@ -23,6 +24,12 @@ async function writeActiveSnapshot(activeDir: string): Promise<{ index: Buffer; 
   await writeFile(join(activeDir, "index.html"), index);
   await writeFile(join(activeDir, "assets", "app.bin"), asset);
   return { index, asset };
+}
+
+async function writeBuildManifest(invocation: FrontendBuildInvocation): Promise<void> {
+  const buildId = invocation.environment.TAKODE_BUILD_ID;
+  if (!buildId) throw new Error("Missing build ID in test invocation");
+  await writeFile(join(invocation.candidateDir, TAKODE_BUILD_MANIFEST_FILENAME), serializeTakodeBuildManifest(buildId));
 }
 
 async function expectActiveSnapshot(activeDir: string, expected: { index: Buffer; asset: Buffer }): Promise<void> {
@@ -95,6 +102,7 @@ describe("createValidatedFrontendBuildCandidate", () => {
     const runner: FrontendBuildRunner = async (invocation) => {
       candidateDir = invocation.candidateDir;
       await writeFile(join(candidateDir, "index.html"), "invalid-output");
+      await writeBuildManifest(invocation);
       return 0;
     };
 
@@ -126,6 +134,7 @@ describe("createValidatedFrontendBuildCandidate", () => {
       await mkdir(join(invocation.candidateDir, "assets"), { recursive: true });
       await writeFile(join(invocation.candidateDir, "index.html"), "candidate-index");
       await writeFile(join(invocation.candidateDir, "assets", "app.js"), "candidate-asset");
+      await writeBuildManifest(invocation);
       return 0;
     };
     const validate = vi.fn(async (candidateDir: string) => {
@@ -133,12 +142,22 @@ describe("createValidatedFrontendBuildCandidate", () => {
       expect(await readFile(join(candidateDir, "assets", "app.js"), "utf8")).toBe("candidate-asset");
     });
 
-    const candidateDir = await createValidatedFrontendBuildCandidate({ webRoot, runtimeRoot, runner, validate });
+    const environment = { CUSTOM_VALUE: "preserved", TAKODE_BUILD_ID: "caller-value" };
+    const candidate = await createValidatedFrontendBuildCandidate({
+      webRoot,
+      runtimeRoot,
+      runner,
+      validate,
+      buildId: "build-explicit",
+      environment,
+    });
 
     expect(validate).toHaveBeenCalledOnce();
-    expect(candidateDir).not.toBe(activeDir);
-    expect(relative(runtimeRoot, candidateDir)).not.toMatch(/^\.\./);
-    expect(await readFile(join(candidateDir, "index.html"), "utf8")).toBe("candidate-index");
+    expect(candidate.buildId).toBe("build-explicit");
+    expect(candidate.frontendRoot).not.toBe(activeDir);
+    expect(relative(runtimeRoot, candidate.frontendRoot)).not.toMatch(/^\.\./);
+    expect(await readFile(join(candidate.frontendRoot, "index.html"), "utf8")).toBe("candidate-index");
+    expect(environment).toEqual({ CUSTOM_VALUE: "preserved", TAKODE_BUILD_ID: "caller-value" });
     await expectActiveSnapshot(activeDir, activeSnapshot);
   });
 

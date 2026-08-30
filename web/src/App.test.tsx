@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { StrictMode } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 const mockConnectSession = vi.fn();
@@ -195,7 +195,7 @@ vi.mock("./store.js", () => {
   };
 });
 
-const mockCheckHealth = vi.fn().mockResolvedValue(true);
+const mockCheckHealthStatus = vi.fn().mockResolvedValue({ ok: true, buildId: "development" });
 const mockMarkSessionRead = vi.fn().mockResolvedValue({ ok: true });
 const mockListSessions = vi.fn().mockResolvedValue([]);
 const mockSearchSessions = vi.fn().mockResolvedValue({ query: "", tookMs: 0, totalMatches: 0, results: [] });
@@ -208,7 +208,7 @@ vi.mock("./api.js", () => ({
     searchSessions: (...args: unknown[]) => mockSearchSessions(...args),
     refreshSessionGitStatus: (...args: unknown[]) => mockRefreshSessionGitStatus(...args),
   },
-  checkHealth: (...args: unknown[]) => mockCheckHealth(...args),
+  checkHealthStatus: (...args: unknown[]) => mockCheckHealthStatus(...args),
 }));
 
 vi.mock("./ws.js", () => ({
@@ -372,6 +372,7 @@ import App from "./App.js";
 import { hydrateSessionList } from "./session-list-hydration.js";
 import { resetSessionGitStatusAutoRefreshForTest } from "./utils/session-git-status-auto-refresh.js";
 import { retireSessionMessageRoute } from "./utils/routing.js";
+import { BACKEND_CONNECTION_OPEN_EVENT, resetBuildCompatibilityForTest } from "./build-compatibility.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -380,6 +381,8 @@ beforeEach(() => {
   mockListSessions.mockResolvedValue([]);
   mockSearchSessions.mockResolvedValue({ query: "", tookMs: 0, totalMatches: 0, results: [] });
   mockRefreshSessionGitStatus.mockResolvedValue({ ok: true });
+  mockCheckHealthStatus.mockResolvedValue({ ok: true, buildId: "development" });
+  resetBuildCompatibilityForTest();
   setViewportWidth(1024);
   resetStore();
   window.location.hash = "#/session/s1";
@@ -829,21 +832,78 @@ describe("App hidden panels", () => {
 
   it("does not republish unchanged health state on a successful poll", async () => {
     resetStore({ serverReachable: true });
-    mockCheckHealth.mockResolvedValueOnce(true);
+    mockCheckHealthStatus.mockResolvedValueOnce({ ok: true, buildId: "development" });
 
     render(<App />);
 
-    await waitFor(() => expect(mockCheckHealth).toHaveBeenCalled());
+    await waitFor(() => expect(mockCheckHealthStatus).toHaveBeenCalled());
     expect(mockState.setServerReachable).not.toHaveBeenCalled();
   });
 
   it("marks the server reachable when a successful poll recovers from unreachable state", async () => {
     resetStore({ serverReachable: false });
-    mockCheckHealth.mockResolvedValueOnce(true);
+    mockCheckHealthStatus.mockResolvedValueOnce({ ok: true, buildId: "development" });
 
     render(<App />);
 
     await waitFor(() => expect(mockState.setServerReachable).toHaveBeenCalledWith(true));
+  });
+
+  it("keeps the app quiet when the initial health build matches", async () => {
+    render(<App />);
+
+    await waitFor(() => expect(mockCheckHealthStatus).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("build-mismatch-notice")).toBeNull();
+  });
+
+  it("shows the Reload notice when the initial health response has a different build", async () => {
+    mockCheckHealthStatus.mockResolvedValueOnce({ ok: true, buildId: "new-backend-build" });
+
+    render(<App />);
+
+    expect(await screen.findByRole("alert", { name: "Frontend update required" })).toBeInTheDocument();
+  });
+
+  it("lets a successful WebSocket recheck reset liveness failure accounting", async () => {
+    // A reconnect proves the backend recovered; the next isolated poll failure must not be treated as two consecutive failures.
+    mockCheckHealthStatus
+      .mockResolvedValueOnce({ ok: false, buildId: null })
+      .mockResolvedValueOnce({ ok: true, buildId: "development" })
+      .mockResolvedValueOnce({ ok: false, buildId: null });
+
+    vi.useFakeTimers();
+    try {
+      render(<App />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(mockState.setServerReachable).not.toHaveBeenCalledWith(false);
+
+      window.dispatchEvent(new Event(BACKEND_CONNECTION_OPEN_EVENT));
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(mockCheckHealthStatus).toHaveBeenCalledTimes(3);
+      expect(mockState.setServerReachable).not.toHaveBeenCalledWith(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rechecks build compatibility after a WebSocket opens", async () => {
+    render(<App />);
+    await waitFor(() => expect(mockCheckHealthStatus).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("build-mismatch-notice")).toBeNull();
+
+    mockCheckHealthStatus.mockResolvedValueOnce({ ok: true, buildId: "backend-after-reconnect" });
+    window.dispatchEvent(new Event(BACKEND_CONNECTION_OPEN_EVENT));
+
+    expect(await screen.findByRole("alert", { name: "Frontend update required" })).toBeInTheDocument();
+    expect(mockCheckHealthStatus).toHaveBeenCalledTimes(2);
   });
 
   it("resolves readable message deep links through raw history index before selecting and scrolling", async () => {
