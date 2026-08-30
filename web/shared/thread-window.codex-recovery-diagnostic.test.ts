@@ -25,21 +25,12 @@ function assistant(id: string, text: string, threadKey: string): BrowserIncoming
   };
 }
 
-function successfulResult(threadKey: string): BrowserIncomingMessage {
-  return {
-    type: "result",
-    data: { type: "result", subtype: "success", is_error: false },
-    threadKey,
-  } as BrowserIncomingMessage;
-}
-
 describe("thread windows for Codex recovery diagnostics", () => {
   it("keeps the latest continuation and its diagnostic together without erasing the continuation boundary", () => {
     const threadKey = "main";
     const history: BrowserIncomingMessage[] = [
       { type: "user_message", id: "user-a", content: "inspect", timestamp: 1, threadKey },
       assistant("partial-a", "Partial response", threadKey),
-      successfulResult(threadKey),
       {
         type: "user_message",
         id: "continuation-a",
@@ -63,7 +54,6 @@ describe("thread windows for Codex recovery diagnostics", () => {
           sessionLabel: CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL,
         },
       },
-      successfulResult(threadKey),
     ];
 
     const sync = buildThreadWindowSync({
@@ -75,7 +65,7 @@ describe("thread windows for Codex recovery diagnostics", () => {
       visibleItemCount: 1,
     });
 
-    expect(sync.entries.map((entry) => entry.history_index)).toEqual([3, 4, 5, 6]);
+    expect(sync.entries.map((entry) => entry.history_index)).toEqual([2, 3, 4]);
     expect(sync.entries.filter((entry) => entry.message.type === "user_message")).toHaveLength(2);
     expect(sync.window).toMatchObject({ from_item: 1, item_count: 1, total_items: 2, has_older_items: true });
   });

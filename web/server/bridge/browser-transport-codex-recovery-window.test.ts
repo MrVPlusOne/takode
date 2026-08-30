@@ -25,14 +25,6 @@ function assistant(id: string, text: string, threadKey: string): BrowserIncoming
   };
 }
 
-function successfulResult(threadKey: string): BrowserIncomingMessage {
-  return {
-    type: "result",
-    data: { type: "result", subtype: "success", is_error: false },
-    threadKey,
-  } as BrowserIncomingMessage;
-}
-
 describe("browser thread windows for Codex recovery", () => {
   it("hydrates one owner-scoped fallback with its separately owned continuation", () => {
     const threadKey = "main";
@@ -51,7 +43,6 @@ describe("browser thread windows for Codex recovery", () => {
       messageHistory: [
         { type: "user_message", id: "user-a", content: "inspect", timestamp: 1, threadKey },
         assistant("partial-a", "Partial response", threadKey),
-        successfulResult(threadKey),
         {
           type: "user_message",
           id: "continuation-a",
@@ -65,7 +56,6 @@ describe("browser thread windows for Codex recovery", () => {
         },
         assistant("partial-continuation-a", "Continuation also stopped before a final response.", threadKey),
         diagnostic,
-        successfulResult(threadKey),
       ],
     } as BrowserTransportSessionLike;
     const send = vi.fn();
@@ -84,7 +74,7 @@ describe("browser thread windows for Codex recovery", () => {
 
     const payload = JSON.parse(send.mock.calls[0]?.[0] as string);
     expect(payload.type).toBe("thread_window_sync");
-    expect(payload.entries.map((entry: any) => entry.history_index)).toEqual([3, 4, 5, 6]);
+    expect(payload.entries.map((entry: any) => entry.history_index)).toEqual([2, 3, 4]);
     expect(
       payload.entries.filter(
         (entry: any) => entry.message.agentSource?.sessionId === CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID,

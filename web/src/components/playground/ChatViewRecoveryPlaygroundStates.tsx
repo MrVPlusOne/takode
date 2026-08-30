@@ -1,10 +1,5 @@
-import {
-  CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID,
-  CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL,
-} from "../../../shared/injected-event-message.js";
-import type { ChatMessage, ModelProvenanceMigration } from "../../types.js";
+import type { ModelProvenanceMigration } from "../../types.js";
 import { ChatView } from "../ChatView.js";
-import { MessageBubble } from "../MessageBubble.js";
 import { ModelProvenanceMigrationBanner } from "../ModelProvenanceMigrationBanner.js";
 import {
   PLAYGROUND_BROKEN_SESSION_ID,
@@ -52,24 +47,6 @@ function ChatStateCard({ label, sessionId, testId }: { label: string; sessionId:
   );
 }
 
-function PlaygroundCodexRecoveryDiagnosticMessage() {
-  const message: ChatMessage = {
-    id: "playground-codex-recovery-diagnostic-msg",
-    role: "user",
-    content: [
-      "Codex recovery diagnostic: automatic replay stopped after the partial leader response above.",
-      "No automatic replay will run because it could duplicate side effects. Review the partial response and send a new continuation instruction only if the intended outcome is still missing.",
-    ].join("\n"),
-    timestamp: Date.now() - 13_500,
-    agentSource: {
-      sessionId: CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID,
-      sessionLabel: CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL,
-    },
-  };
-
-  return <MessageBubble message={message} sessionId="playground-codex-recovery-diagnostic" showTimestamp={false} />;
-}
-
 export function PlaygroundChatViewRecoveryStates() {
   return (
     <Section
@@ -97,11 +74,6 @@ export function PlaygroundChatViewRecoveryStates() {
           sessionId={PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID}
           testId="playground-codex-turn-recovery-action-required"
         />
-        <Card label="Action-required recovery diagnostic">
-          <div data-testid="playground-codex-recovery-diagnostic">
-            <PlaygroundCodexRecoveryDiagnosticMessage />
-          </div>
-        </Card>
         <ChatStateCard label="Fresh session starting" sessionId={PLAYGROUND_STARTING_SESSION_ID} />
         <ChatStateCard label="Safe request retry + reconnecting chips" sessionId={PLAYGROUND_RECOVERING_SESSION_ID} />
         <ChatStateCard label="Recoverable resuming chip" sessionId={PLAYGROUND_RESUMING_SESSION_ID} />

@@ -24,10 +24,6 @@ function assistant(id: string, text: string): BrowserIncomingMessage {
   };
 }
 
-function successfulResult(): BrowserIncomingMessage {
-  return { type: "result", data: { type: "result", subtype: "success", is_error: false } } as BrowserIncomingMessage;
-}
-
 describe("turn boundaries", () => {
   it("keeps neutral recovery diagnostics inside their owner while preserving continuation turns", () => {
     // The browser-only diagnostic must stay with the interrupted continuation
@@ -35,7 +31,6 @@ describe("turn boundaries", () => {
     const history: BrowserIncomingMessage[] = [
       { type: "user_message", id: "user-a", content: "inspect", timestamp: 1, threadKey: "main" },
       assistant("partial-a", "Partial response"),
-      successfulResult(),
       {
         type: "user_message",
         id: "continuation-a",
@@ -59,12 +54,11 @@ describe("turn boundaries", () => {
           sessionLabel: CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL,
         },
       },
-      successfulResult(),
     ];
 
     expect(findTurnBoundaries(history)).toEqual([
-      { startIdx: 0, endIdx: 2 },
-      { startIdx: 3, endIdx: 6 },
+      { startIdx: 0, endIdx: -1 },
+      { startIdx: 2, endIdx: -1 },
     ]);
   });
 });

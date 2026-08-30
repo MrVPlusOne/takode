@@ -48,6 +48,7 @@ import { createSyntheticLargeLeaderFeedFixture } from "../../test-fixtures/large
 import { buildLeaderActivePhaseSummary } from "../../../shared/leader-active-phase-summary.js";
 import { LEADER_THREAD_TABS_PROJECTION } from "../../../shared/leader-thread-tabs-projection.js";
 import { SYNCED_PROJECTION_SCHEMA_VERSION } from "../../../shared/synced-projection.js";
+import { buildPlaygroundActionRequiredRecoveryMessages } from "./CodexRecoveryPlaygroundMessages.js";
 
 export function usePlaygroundSeed() {
   useEffect(() => {
@@ -1756,6 +1757,10 @@ export function usePlaygroundSeed() {
     store.setCliConnected(PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID, true);
     store.setCliEverConnected(PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID);
     store.setSessionStatus(PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID, null);
+    store.setMessages(
+      PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID,
+      buildPlaygroundActionRequiredRecoveryMessages(interruptedTurnRecoveryBase.recoveryId),
+    );
 
     // Seed quest-named state for sidebar quest demo rows.
     // SessionItem reads isQuestNamed + claimedQuestStatus from the store.
