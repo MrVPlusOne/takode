@@ -683,12 +683,14 @@ describe("session notification status metadata", () => {
           nextModel: "gpt-5.6-sol",
           createdAt: now,
           expiresAt: now + 60_000,
+          modelActivityObserved: true,
         },
       }),
     );
     expect(persisted.codexModelSwitchCompactionGuard).toMatchObject({
       previousModel: "gpt-5.5",
       nextModel: "gpt-5.6-sol",
+      modelActivityObserved: true,
     });
 
     const sessions = new Map<string, any>();
@@ -702,6 +704,7 @@ describe("session notification status metadata", () => {
     expect(sessions.get("s1")?.codexModelSwitchCompactionGuard).toMatchObject({
       previousModel: "gpt-5.5",
       nextModel: "gpt-5.6-sol",
+      modelActivityObserved: true,
     });
 
     const expired = {

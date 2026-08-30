@@ -654,6 +654,39 @@ describe("Takode server-authoritative auth", () => {
     }
   });
 
+  it("prefers live bridge Codex context diagnostics in takode info", async () => {
+    const sessions = setupTakodeSessions();
+    sessions["worker-1"].backendType = "codex";
+    sessions["worker-1"].codexContextWindowDiagnostics = {
+      role: "non_leader",
+      capacitySource: "codex_default",
+    };
+    bridge._sessions["worker-1"].state.codex_context_window_diagnostics = {
+      role: "non_leader",
+      capacitySource: "configured_usable_capacity",
+      configuredUsableContextWindow: 770_000,
+      displayContextWindow: 770_000,
+      providerRawContextWindow: 810_527,
+      catalogEffectiveContextWindowPercent: 95,
+      providerEffectiveContextWindow: 770_000,
+      autoCompactTokenLimit: 693_000,
+      autoCompactTokenLimitScope: "total",
+    };
+
+    const res = await app.request("/api/sessions/worker-1/info", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.codexContextWindowDiagnostics).toMatchObject({
+      capacitySource: "configured_usable_capacity",
+      displayContextWindow: 770_000,
+      autoCompactTokenLimit: 693_000,
+    });
+  });
+
   it("includes pendingTimerCount in takode info", async () => {
     // Verifies the detailed info endpoint exposes the pending timer count used
     // by takode info alongside other session metadata.

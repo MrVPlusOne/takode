@@ -549,6 +549,9 @@ function normalizePersistedCodexModelSwitchCompactionGuard(
     nextModel: record.nextModel,
     createdAt: typeof record.createdAt === "number" ? record.createdAt : Date.now(),
     expiresAt: record.expiresAt,
+    ...(typeof record.modelActivityObserved === "boolean"
+      ? { modelActivityObserved: record.modelActivityObserved }
+      : {}),
   };
 }
 

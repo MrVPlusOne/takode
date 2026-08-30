@@ -25,10 +25,11 @@ import { CompactSessionLink } from "./CompactSessionLink.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
 import { SessionContextStats, SessionPayloadStats } from "./SessionPayloadStats.js";
 import { api, type SessionDirectoryOpenTarget } from "../api.js";
-import type { SdkSessionInfo, SessionLifecycleEvent } from "../types.js";
+import type { CodexContextWindowDiagnostics, SdkSessionInfo, SessionLifecycleEvent } from "../types.js";
 import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
 import { getRecoverableSessionConnectionPresentation } from "../utils/recoverable-session-connection.js";
 import { formatContextWindowLabel } from "../utils/token-format.js";
+import { isCodexLeaderRecycleMode } from "../../shared/codex-leader-compaction-mode.js";
 
 const POPOVER_MARGIN = 12;
 const POPOVER_GAP = 8;
@@ -157,6 +158,7 @@ export function SessionInfoPopover({
   const [openDirectoryError, setOpenDirectoryError] = useState("");
   const [openingDirectoryTarget, setOpeningDirectoryTarget] = useState<SessionDirectoryOpenTarget | null>(null);
   const [sdkSessionsFallback, setSdkSessionsFallback] = useState<SdkSessionInfo[] | null>(null);
+  const [sdkSessionDetail, setSdkSessionDetail] = useState<SdkSessionInfo | null>(null);
   const [dynamicModelOptions, setDynamicModelOptions] = useState<ModelOption[]>([]);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const reasoningDropdownRef = useRef<HTMLDivElement>(null);
@@ -218,6 +220,23 @@ export function SessionInfoPopover({
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    setSdkSessionDetail(null);
+    if (!isCodexSession) return;
+    api
+      .getSessionInfo(sessionId)
+      .then((detail) => {
+        if (!cancelled) setSdkSessionDetail(detail);
+      })
+      .catch(() => {
+        if (!cancelled) setSdkSessionDetail(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isCodexSession, sessionId]);
+
+  useEffect(() => {
     if (sdkSessions.length > 0 && sdkSession) {
       setSdkSessionsFallback(null);
       return;
@@ -241,11 +260,18 @@ export function SessionInfoPopover({
   const backendLabel = backendType === "codex" ? "Codex" : "Claude";
   const hasGit = gitBranch || gitAhead > 0 || gitBehind > 0 || linesAdded > 0 || linesRemoved > 0;
   const effectiveSdkSessions = sdkSessions.length > 0 ? sdkSessions : (sdkSessionsFallback ?? []);
-  const effectiveSdkSession = sdkSession ?? effectiveSdkSessions.find((x) => x.sessionId === sessionId);
+  const listedSdkSession = sdkSession ?? effectiveSdkSessions.find((x) => x.sessionId === sessionId);
+  const effectiveSdkSession =
+    listedSdkSession || sdkSessionDetail
+      ? ({ ...(listedSdkSession ?? {}), ...(sdkSessionDetail ?? {}) } as SdkSessionInfo)
+      : undefined;
+  const codexLeaderCompactionMode =
+    session?.codex_leader_compaction_mode ?? effectiveSdkSession?.codexLeaderCompactionMode;
   const contextStats = getSessionInfoContextStats(
     sessionVm,
     effectiveSdkSession,
     resolvedNavigation?.projectionState === "accepted",
+    codexLeaderCompactionMode,
   );
   const contextPercent = contextStats.contextPercent;
   const contextWindow = contextStats.contextWindow;
@@ -256,8 +282,11 @@ export function SessionInfoPopover({
   const codexLeaderRecycleLineage = effectiveSdkSession?.codexLeaderRecycleLineage;
   const codexLeaderRecyclePending = effectiveSdkSession?.codexLeaderRecyclePending;
   const lifecycleEvents = session?.lifecycle_events ?? effectiveSdkSession?.sessionLifecycleEvents ?? [];
+  const contextWindowDiagnostics =
+    session?.codex_context_window_diagnostics ?? effectiveSdkSession?.codexContextWindowDiagnostics;
   const hasLifecycleDebug =
     lifecycleEvents.length > 0 ||
+    !!contextWindowDiagnostics ||
     !!codexLeaderRecyclePending ||
     !!(
       codexLeaderRecycleLineage &&
@@ -720,6 +749,13 @@ export function SessionInfoPopover({
             />
             {!lifecycleCollapsed && (
               <div className="px-4 py-2 space-y-2">
+                {contextWindowDiagnostics && (
+                  <CodexContextDiagnosticsPanel
+                    diagnostics={contextWindowDiagnostics}
+                    runtimeContextWindow={sessionVm?.backendReportedContextWindow}
+                    displayContextWindow={contextWindow}
+                  />
+                )}
                 {codexLeaderRecyclePending && (
                   <div className="text-[11px] text-amber-400">
                     Pending {formatCodexLeaderRecycleTrigger(codexLeaderRecyclePending.trigger).toLowerCase()} recycle
@@ -793,6 +829,7 @@ function getSessionInfoContextStats(
   sessionVm: SessionViewModel | null,
   effectiveSdkSession: SdkSessionInfo | undefined,
   navigationProjectionOwned = false,
+  codexLeaderCompactionMode?: string,
 ): { contextPercent: number; contextWindow: number } {
   const defaultStats = {
     contextPercent: sessionVm?.contextUsedPercent ?? 0,
@@ -806,7 +843,7 @@ function getSessionInfoContextStats(
     sessionVm?.backendType === "codex" &&
     (sessionVm?.isOrchestrator === true ||
       (!navigationProjectionOwned && effectiveSdkSession?.isOrchestrator === true));
-  if (!isCodexLeader) return defaultStats;
+  if (!isCodexLeader || !isCodexLeaderRecycleMode(codexLeaderCompactionMode)) return defaultStats;
 
   const contextTokensUsed =
     positiveNumber(sessionVm?.contextTokensUsed) ??
@@ -849,21 +886,162 @@ function getContextWindowTitle(sessionVm: SessionViewModel | null, contextWindow
 
 function LifecycleEventRow({ event }: { event: SessionLifecycleEvent }) {
   if (event.type !== "compaction") return null;
-  const title = `${formatLifecycleBackend(event.backendType)} compaction`;
-  const trigger = event.trigger ? ` • ${event.trigger}` : "";
+  const title = formatCompactionTitle(event);
+  const codexEvent = event.backendType === "codex";
+  const chargedContextLowerBound = formatChargedContextLowerBound(event);
   return (
     <div className="rounded-lg bg-cc-hover/40 px-2 py-1.5">
-      <div className="text-[11px] text-cc-fg">
-        {title}
-        {trigger}
-      </div>
+      <div className="text-[11px] text-cc-fg">{title}</div>
       <div className="mt-0.5 text-[10px] text-cc-muted">{formatRecycleTimestamp(event.timestamp)}</div>
-      <div className="mt-1 grid grid-cols-2 gap-1 text-[10px] text-cc-muted">
-        <span>Before {formatContextSnapshot(event.before)}</span>
-        <span>After {formatContextSnapshot(event.after)}</span>
+      {codexEvent ? (
+        <div className="mt-1 space-y-0.5 text-[10px] text-cc-muted">
+          <div>Provider input {formatProviderInputSnapshot(event.before)}</div>
+          {chargedContextLowerBound && <div>{chargedContextLowerBound}</div>}
+          <div>{formatCodexAfterSnapshot(event.after)}</div>
+        </div>
+      ) : (
+        <div className="mt-1 grid grid-cols-2 gap-1 text-[10px] text-cc-muted">
+          <span>Before {formatContextSnapshot(event.before)}</span>
+          <span>After {formatContextSnapshot(event.after)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CodexContextDiagnosticsPanel({
+  diagnostics,
+  runtimeContextWindow,
+  displayContextWindow,
+}: {
+  diagnostics: CodexContextWindowDiagnostics;
+  runtimeContextWindow?: number;
+  displayContextWindow?: number;
+}) {
+  const role = diagnostics.role === "leader" ? "Leader" : "Non-leader";
+  const policy = formatContextCapacityPolicy(diagnostics);
+  const displayed = positiveNumber(displayContextWindow) ?? positiveNumber(diagnostics.displayContextWindow);
+  return (
+    <div className="rounded-lg bg-cc-hover/40 px-2 py-1.5" data-testid="codex-context-diagnostics">
+      <div className="text-[10px] text-cc-muted/70">Context policy</div>
+      <div className="mt-0.5 text-[11px] text-cc-fg">
+        {role} · {policy}
+      </div>
+      <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 text-[10px] text-cc-muted">
+        {positiveNumber(diagnostics.configuredUsableContextWindow) && (
+          <ContextDiagnosticValue label="Configured usable target" value={diagnostics.configuredUsableContextWindow!} />
+        )}
+        {positiveNumber(runtimeContextWindow) && (
+          <ContextDiagnosticValue label="Runtime effective window" value={runtimeContextWindow!} />
+        )}
+        {positiveNumber(diagnostics.providerEffectiveContextWindow) && (
+          <ContextDiagnosticValue
+            label="Provider effective window"
+            value={diagnostics.providerEffectiveContextWindow!}
+          />
+        )}
+        {displayed && <ContextDiagnosticValue label="Displayed denominator" value={displayed} />}
+        {positiveNumber(diagnostics.providerRawContextWindow) && (
+          <ContextDiagnosticValue label="Provider launch window" value={diagnostics.providerRawContextWindow!} />
+        )}
+        {positiveNumber(diagnostics.autoCompactTokenLimit) && (
+          <>
+            <span>Auto-compact limit</span>
+            <span className="text-right tabular-nums text-cc-fg/90">
+              {formatLifecycleTokenCount(diagnostics.autoCompactTokenLimit!)} ·{" "}
+              {formatAutoCompactScope(diagnostics.autoCompactTokenLimitScope)}
+            </span>
+          </>
+        )}
+        {positiveNumber(diagnostics.catalogEffectiveContextWindowPercent) && (
+          <>
+            <span>Catalog effective capacity</span>
+            <span className="text-right tabular-nums text-cc-fg/90">
+              {`${Math.round(diagnostics.catalogEffectiveContextWindowPercent!)}% · reserve ${Math.max(
+                0,
+                100 - diagnostics.catalogEffectiveContextWindowPercent!,
+              )}%`}
+            </span>
+          </>
+        )}
       </div>
     </div>
   );
+}
+
+function ContextDiagnosticValue({ label, value }: { label: string; value: number }) {
+  return (
+    <>
+      <span>{label}</span>
+      <span className="text-right tabular-nums text-cc-fg/90">{formatLifecycleTokenCount(value)}</span>
+    </>
+  );
+}
+
+function formatContextCapacityPolicy(diagnostics: CodexContextWindowDiagnostics): string {
+  if (diagnostics.role === "leader") {
+    return diagnostics.leaderMode === "compact" ? "Compact" : "Recycle";
+  }
+  if (diagnostics.capacitySource === "configured_usable_capacity") return "Configured capacity";
+  if (diagnostics.capacitySource === "codex_config") return "Codex config";
+  return "Codex default";
+}
+
+function formatCompactionTitle(event: Extract<SessionLifecycleEvent, { type: "compaction" }>): string {
+  const backend = formatLifecycleBackend(event.backendType);
+  if (event.cause === "context_pressure") return `${backend} compaction · context pressure`;
+  if (event.cause === "manual") return `${backend} compaction · manual`;
+  if (event.cause === "model_switch_migration") return `${backend} compaction · model switch migration`;
+  return `${backend} compaction${event.trigger ? ` · ${event.trigger}` : ""}`;
+}
+
+function formatProviderInputSnapshot(
+  snapshot: Extract<SessionLifecycleEvent, { type: "compaction" }>["before"],
+): string {
+  if (!snapshot) return "unknown";
+  const tokens =
+    snapshot.providerReportedInputTokens ??
+    (snapshot.source === "codex_token_details" ? snapshot.contextTokensUsed : undefined);
+  if (typeof tokens !== "number") return "unknown";
+  const window = snapshot.modelContextWindow;
+  if (typeof window !== "number" || window <= 0) return formatLifecycleTokenCount(tokens);
+  return `${formatLifecycleTokenCount(tokens)} / ${formatLifecycleTokenCount(window)} (${Math.round((tokens / window) * 100)}%)`;
+}
+
+function formatCodexAfterSnapshot(snapshot: Extract<SessionLifecycleEvent, { type: "compaction" }>["after"]): string {
+  if (!snapshot) return "After unknown";
+  const providerTotal = snapshot.providerReportedTotalTokens;
+  if (typeof providerTotal === "number") {
+    return `After provider total ${formatSnapshotTokens(providerTotal, snapshot.modelContextWindow)}`;
+  }
+  const providerInput = snapshot.providerReportedInputTokens ?? snapshot.contextTokensUsed;
+  if (typeof providerInput !== "number") return "After unknown";
+  return `After provider input ${formatSnapshotTokens(providerInput, snapshot.modelContextWindow)}`;
+}
+
+function formatSnapshotTokens(tokens: number, window: number | undefined): string {
+  if (typeof window !== "number" || window <= 0) return formatLifecycleTokenCount(tokens);
+  return `${formatLifecycleTokenCount(tokens)} / ${formatLifecycleTokenCount(window)} (${Math.round((tokens / window) * 100)}%)`;
+}
+
+function formatAutoCompactScope(scope: string | undefined): string {
+  if (scope === "body_after_prefix") return "body after prefix";
+  if (scope === "total") return "total";
+  return "scope unknown/default";
+}
+
+function formatChargedContextLowerBound(event: Extract<SessionLifecycleEvent, { type: "compaction" }>): string | null {
+  if (event.cause !== "context_pressure") return null;
+  const before = event.before;
+  if (!before) return null;
+  const lowerBound =
+    before.source === "codex_auto_compact_limit" ? before.contextTokensUsed : before.autoCompactTokenLimit;
+  if (typeof lowerBound !== "number") return null;
+  const window = before.modelContextWindow;
+  if (typeof window !== "number" || window <= 0) {
+    return `Charged context ≥${formatLifecycleTokenCount(lowerBound)} at trigger`;
+  }
+  return `Charged context ≥${formatLifecycleTokenCount(lowerBound)} / ${formatLifecycleTokenCount(window)} (≥${Math.round((lowerBound / window) * 100)}%) at trigger`;
 }
 
 function formatRecycleTimestamp(timestamp: number): string {

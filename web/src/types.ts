@@ -41,6 +41,7 @@ import type {
   SessionAttentionRecordType,
   StarredMessageRecord,
   SessionLifecycleEvent,
+  CodexContextWindowDiagnostics,
   ActiveTurnRoute,
   ActiveCodexReasoningPreview,
   SideChatRecord,
@@ -144,6 +145,7 @@ export type {
   SessionAttentionRecordType,
   StarredMessageRecord,
   SessionLifecycleEvent,
+  CodexContextWindowDiagnostics,
   ActiveTurnRoute,
   ActiveCodexReasoningPreview,
   SideChatRecord,
@@ -425,6 +427,8 @@ export interface SdkSessionInfo {
   codexServiceTier?: string | null;
   /** Optional per-session Codex usable context capacity target. */
   codexMaxContextLength?: number | null;
+  /** Launch-resolved context/compaction diagnostics, present only on selected detail surfaces. */
+  codexContextWindowDiagnostics?: CodexContextWindowDiagnostics;
   /** Codex leader context management mode. Missing values mean recycling. */
   codexLeaderCompactionMode?: CodexLeaderCompactionMode;
   /** Claude reasoning effort selected at launch. */

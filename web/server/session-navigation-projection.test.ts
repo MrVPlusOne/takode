@@ -204,6 +204,45 @@ describe("session navigation projection", () => {
     expect(buildSessionNavigationProjectionValue(session, deps).identity.askPermission).toBe(false);
   });
 
+  it("uses the recycle budget only for Codex leaders that are actually in recycle mode", () => {
+    // A compact-mode leader can retain an older recycle threshold in persisted
+    // metadata. That stale value must not replace the provider runtime window.
+    const session = makeSession();
+    session.state.codex_leader_compaction_mode = "compact";
+    const launcherInfo: SdkSessionInfo = {
+      sessionId: session.id,
+      state: "connected",
+      cwd: session.state.cwd,
+      createdAt: 5,
+      backendType: "codex",
+      isOrchestrator: true,
+      codexLeaderCompactionMode: "compact",
+      codexLeaderRecycleThresholdTokens: 350_000,
+    };
+    const deps = {
+      getSession: () => session,
+      getLauncherSessionInfo: () => launcherInfo,
+      getSessionName: () => undefined,
+      getPendingTimerCount: () => 0,
+      getBackendConnected: () => true,
+      getSessionStatus: () => "idle" as const,
+      getLastActivityAt: () => undefined,
+      getLastUserMessageAt: () => undefined,
+      getLastMessagePreviewAt: () => undefined,
+      authorizeSubscription: () => true,
+    };
+
+    expect(buildSessionNavigationProjectionValue(session, deps).detail.effectiveContextWindow).toBe(400_000);
+
+    session.state.codex_leader_compaction_mode = "recycle";
+    launcherInfo.codexLeaderCompactionMode = "recycle";
+    expect(buildSessionNavigationProjectionValue(session, deps).detail.effectiveContextWindow).toBe(350_000);
+
+    session.state.isOrchestrator = false;
+    launcherInfo.isOrchestrator = false;
+    expect(buildSessionNavigationProjectionValue(session, deps).detail.effectiveContextWindow).toBe(400_000);
+  });
+
   it("truncates text/path inputs and normalizes invalid numeric sources", () => {
     const session = makeSession();
     session.state.model = "m".repeat(2_000);

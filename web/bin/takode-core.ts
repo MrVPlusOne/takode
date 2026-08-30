@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { CodexMultiAgentVersion } from "../shared/codex-multi-agent-version.ts";
+import type { CodexContextWindowDiagnostics } from "../server/codex-context-types.ts";
 import {
   getSessionAuthDir,
   getSessionAuthFilePrefixes,
@@ -583,6 +584,7 @@ export type TakodeSessionInfo = {
   };
   codexServiceTier?: string | null;
   codexMaxContextLength?: number;
+  codexContextWindowDiagnostics?: CodexContextWindowDiagnostics;
   claudeReasoningEffort?: string;
   claudeMaxContextLength?: number;
   codexPendingDelivery?: CodexPendingDeliveryDiagnostics | null;
@@ -681,6 +683,7 @@ const SESSION_INFO_INCLUDE_FIELDS = [
   "mcpServers",
   "keywords",
   "codexPendingDeliveryDetails",
+  "codexContextWindowDiagnostics",
 ] as const;
 
 const SESSION_INFO_INCLUDE_FIELD_SET = new Set<string>(SESSION_INFO_INCLUDE_FIELDS);

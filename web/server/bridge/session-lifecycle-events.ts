@@ -1,5 +1,7 @@
 import type {
   BackendType,
+  CodexCompactionCause,
+  CodexContextWindowDiagnostics,
   SessionContextLengthSnapshot,
   SessionLifecycleEvent,
   SessionState,
@@ -9,18 +11,34 @@ const MAX_LIFECYCLE_EVENTS = 50;
 
 export interface LifecycleEventSessionLike {
   backendType?: BackendType;
-  state: Pick<SessionState, "codex_token_details" | "context_used_percent" | "lifecycle_events">;
+  state: Pick<
+    SessionState,
+    "codex_token_details" | "codex_context_window_diagnostics" | "context_used_percent" | "lifecycle_events"
+  >;
 }
 
 export function recordCompactionStarted(
   session: LifecycleEventSessionLike,
-  options: { id: string; timestamp: number; trigger?: "auto" | "manual"; before?: SessionContextLengthSnapshot },
+  options: {
+    id: string;
+    timestamp: number;
+    trigger?: "auto" | "manual";
+    cause?: CodexCompactionCause;
+    before?: SessionContextLengthSnapshot;
+  },
 ): void {
   upsertCompactionEvent(session, options.id, {
     timestamp: options.timestamp,
     backendType: session.backendType,
     trigger: options.trigger,
-    before: options.before ?? snapshotCodexContextLength(session.state, options.timestamp),
+    cause: options.cause,
+    contextWindowDiagnostics: cloneContextWindowDiagnostics(session.state.codex_context_window_diagnostics),
+    before:
+      options.before ??
+      snapshotCodexContextLength(session.state, options.timestamp, {
+        cause: options.cause,
+        stage: "before",
+      }),
   });
 }
 
@@ -48,28 +66,73 @@ export function recordCompactionFinished(session: LifecycleEventSessionLike, fin
   if (!event) return;
   event.finishedAt = finishedAt;
 
-  const snapshot = snapshotCodexContextLength(session.state, finishedAt);
+  const snapshot = snapshotCodexContextLength(session.state, finishedAt, { stage: "after" });
+  if (!snapshot) return;
+
+  const beforeProviderTotal = event.before?.providerReportedTotalTokens;
+  const afterProviderTotal = snapshot.providerReportedTotalTokens;
   const beforeTokens = event.before?.contextTokensUsed;
-  if (
-    typeof snapshot?.contextTokensUsed === "number" &&
-    typeof beforeTokens === "number" &&
-    snapshot.contextTokensUsed < beforeTokens
-  ) {
+  const afterTokens = snapshot.contextTokensUsed;
+  const isReduced =
+    typeof beforeProviderTotal === "number" && typeof afterProviderTotal === "number"
+      ? afterProviderTotal < beforeProviderTotal
+      : typeof beforeTokens === "number" && typeof afterTokens === "number" && afterTokens < beforeTokens;
+  if (isReduced) {
     event.after = snapshot;
   }
 }
 
 export function snapshotCodexContextLength(
-  state: Pick<SessionState, "codex_token_details" | "context_used_percent">,
+  state: Pick<SessionState, "codex_token_details" | "codex_context_window_diagnostics" | "context_used_percent">,
   capturedAt = Date.now(),
+  options: { cause?: CodexCompactionCause; stage?: "before" | "after" } = {},
 ): SessionContextLengthSnapshot | undefined {
   const details = state.codex_token_details;
-  if (typeof details?.contextTokensUsed !== "number") return undefined;
+  const providerReportedInputTokens = finiteNumber(details?.contextTokensUsed);
+  const providerReportedTotalTokens = finiteNumber(details?.providerReportedTotalTokens);
+  if (providerReportedInputTokens === undefined && providerReportedTotalTokens === undefined) return undefined;
+
+  const diagnostics = state.codex_context_window_diagnostics;
+  const modelContextWindow = resolveCompactionContextWindow(details?.modelContextWindow, diagnostics);
+  const autoCompactTokenLimit = positiveFiniteNumber(diagnostics?.autoCompactTokenLimit);
+  const isPressureBoundary = options.stage !== "after" && options.cause === "context_pressure";
+
+  let contextTokensUsed: number;
+  let source: SessionContextLengthSnapshot["source"];
+  if (options.stage === "after") {
+    contextTokensUsed = providerReportedTotalTokens ?? providerReportedInputTokens!;
+    source = "codex_token_details";
+  } else if (isPressureBoundary && autoCompactTokenLimit !== undefined) {
+    const pressureLowerBound =
+      modelContextWindow !== undefined ? Math.min(autoCompactTokenLimit, modelContextWindow) : autoCompactTokenLimit;
+    contextTokensUsed = Math.max(providerReportedTotalTokens ?? providerReportedInputTokens ?? 0, pressureLowerBound);
+    source = "codex_auto_compact_limit";
+  } else {
+    contextTokensUsed = providerReportedInputTokens ?? providerReportedTotalTokens!;
+    source = "codex_token_details";
+  }
+
+  const recomputedPercent =
+    modelContextWindow !== undefined
+      ? clampPercent(Math.round((contextTokensUsed / modelContextWindow) * 100))
+      : undefined;
+  const contextUsedPercent =
+    recomputedPercent ??
+    (typeof state.context_used_percent === "number" && Number.isFinite(state.context_used_percent)
+      ? state.context_used_percent
+      : undefined);
+
   return {
-    contextTokensUsed: details.contextTokensUsed,
-    ...(typeof state.context_used_percent === "number" ? { contextUsedPercent: state.context_used_percent } : {}),
-    ...(typeof details.modelContextWindow === "number" ? { modelContextWindow: details.modelContextWindow } : {}),
-    source: "codex_token_details",
+    contextTokensUsed,
+    ...(providerReportedInputTokens !== undefined ? { providerReportedInputTokens } : {}),
+    ...(providerReportedTotalTokens !== undefined ? { providerReportedTotalTokens } : {}),
+    ...(contextUsedPercent !== undefined ? { contextUsedPercent } : {}),
+    ...(modelContextWindow !== undefined ? { modelContextWindow } : {}),
+    ...(autoCompactTokenLimit !== undefined ? { autoCompactTokenLimit } : {}),
+    ...(diagnostics?.autoCompactTokenLimitScope
+      ? { autoCompactTokenLimitScope: diagnostics.autoCompactTokenLimitScope }
+      : {}),
+    source,
     capturedAt,
   };
 }
@@ -84,6 +147,8 @@ function upsertCompactionEvent(
   if (existing) {
     if (patch.backendType) existing.backendType = patch.backendType;
     if (patch.trigger) existing.trigger = patch.trigger;
+    if (patch.cause) existing.cause = patch.cause;
+    if (patch.contextWindowDiagnostics) existing.contextWindowDiagnostics = patch.contextWindowDiagnostics;
     if (patch.before) existing.before = patch.before;
     if (patch.after) existing.after = patch.after;
     if (typeof patch.finishedAt === "number") existing.finishedAt = patch.finishedAt;
@@ -96,6 +161,8 @@ function upsertCompactionEvent(
     timestamp: patch.timestamp,
     ...(patch.backendType ? { backendType: patch.backendType } : {}),
     ...(patch.trigger ? { trigger: patch.trigger } : {}),
+    ...(patch.cause ? { cause: patch.cause } : {}),
+    ...(patch.contextWindowDiagnostics ? { contextWindowDiagnostics: patch.contextWindowDiagnostics } : {}),
     ...(patch.before ? { before: patch.before } : {}),
     ...(patch.after ? { after: patch.after } : {}),
     ...(typeof patch.finishedAt === "number" ? { finishedAt: patch.finishedAt } : {}),
@@ -127,4 +194,40 @@ function findLatestUnfinishedCompactionEvent(
     }
   }
   return undefined;
+}
+
+function cloneContextWindowDiagnostics(
+  diagnostics: CodexContextWindowDiagnostics | undefined,
+): CodexContextWindowDiagnostics | undefined {
+  return diagnostics ? { ...diagnostics } : undefined;
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function positiveFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function resolveCompactionContextWindow(
+  runtimeWindow: unknown,
+  diagnostics: CodexContextWindowDiagnostics | undefined,
+): number | undefined {
+  if (diagnostics?.role === "leader" && diagnostics.leaderMode === "recycle") {
+    return (
+      positiveFiniteNumber(diagnostics.providerEffectiveContextWindow) ??
+      positiveFiniteNumber(runtimeWindow) ??
+      positiveFiniteNumber(diagnostics.displayContextWindow)
+    );
+  }
+  return (
+    positiveFiniteNumber(runtimeWindow) ??
+    positiveFiniteNumber(diagnostics?.providerEffectiveContextWindow) ??
+    positiveFiniteNumber(diagnostics?.displayContextWindow)
+  );
+}
+
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, value));
 }

@@ -21,6 +21,7 @@ import type { HerdSessionsResponse } from "../shared/herd-types.js";
 import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
 import { searchGlobalStarredMessages, searchSessionMessages } from "./api/session-message-search.js";
 import { fetchRecentAskBundles } from "./api/recent-asks.js";
+import { getSessionInfo, listSessions } from "./api/session-info.js";
 import { getMemoryCatalog, getMemoryRecord, getMemoryUpdateDiff, listMemorySpaces } from "./api/memory.js";
 import type { MemoryUpdateDiffSourceFile } from "./api/memory.js";
 import { transcribe } from "./api/transcription.js";
@@ -1057,14 +1058,8 @@ export const api = {
       },
     ),
 
-  listSessions: (options?: { includeArchived?: boolean }) => {
-    const params = new URLSearchParams();
-    if (typeof options?.includeArchived === "boolean") {
-      params.set("includeArchived", options.includeArchived ? "true" : "false");
-    }
-    const query = params.toString();
-    return get<SdkSessionInfo[]>(`/sessions${query ? `?${query}` : ""}`);
-  },
+  listSessions,
+  getSessionInfo,
 
   getDelegateTrace: (
     sessionId: string,

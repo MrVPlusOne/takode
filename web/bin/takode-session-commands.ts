@@ -38,7 +38,7 @@ Options:
   --details           With --json, output the full session info payload
   --include <fields>  With --json, include opt-in bulky fields.
                       Supported: injectedSystemPrompt, taskHistory, tools, mcpServers, keywords,
-                      codexPendingDeliveryDetails
+                      codexPendingDeliveryDetails, codexContextWindowDiagnostics
 `;
 
 const INFO_ALLOWED_FLAGS = new Set(["json", "details", "include"]);

@@ -914,6 +914,50 @@ describe("GET /api/sessions", () => {
     });
   });
 
+  it("omits event-time Codex launch envelopes from compact session-list lifecycle data", async () => {
+    launcher.listSessions.mockReturnValue([{ sessionId: "s1", state: "connected", cwd: "/a", backendType: "codex" }]);
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({});
+    bridge.getAllSessions.mockReturnValue([
+      {
+        session_id: "s1",
+        lifecycle_events: [
+          {
+            type: "compaction",
+            id: "compact-1",
+            timestamp: 1,
+            backendType: "codex",
+            cause: "context_pressure",
+            contextWindowDiagnostics: {
+              role: "leader",
+              leaderMode: "recycle",
+              capacitySource: "leader_recycle_guard",
+              displayContextWindow: 545_000,
+              providerRawContextWindow: 3_027_778,
+              autoCompactTokenLimit: 2_725_000,
+            },
+            before: {
+              contextTokensUsed: 2_725_000,
+              modelContextWindow: 2_876_389,
+              source: "codex_auto_compact_limit",
+              capturedAt: 1,
+            },
+          },
+        ],
+      },
+    ]);
+
+    const res = await app.request("/api/sessions", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json[0].sessionLifecycleEvents[0]).toMatchObject({
+      id: "compact-1",
+      cause: "context_pressure",
+      before: { contextTokensUsed: 2_725_000 },
+    });
+    expect(json[0].sessionLifecycleEvents[0]).not.toHaveProperty("contextWindowDiagnostics");
+  });
+
   it("includes restored Claude token metadata from bridge state", async () => {
     launcher.listSessions.mockReturnValue([{ sessionId: "s1", state: "connected", cwd: "/a", backendType: "claude" }]);
     vi.mocked(sessionNames.getAllNames).mockReturnValue({});

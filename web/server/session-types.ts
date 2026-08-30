@@ -46,6 +46,15 @@ import type {
 } from "../shared/synced-projection.js";
 import type { QuestTitlePreview } from "./quest-types.js";
 import type { HistoryWindowState, InitialThreadWindowRequest, ThreadWindowState } from "./window-protocol-types.js";
+import type {
+  CodexCompactionCause,
+  CodexContextWindowDiagnostics,
+  CodexLeaderRecycleContinuation,
+  CodexLeaderRecycleTrigger,
+  CodexModelSwitchCompactionGuard,
+  SessionContextLengthSnapshot,
+  SessionLifecycleEvent,
+} from "./codex-context-types.js";
 export type {
   CodexAutoPauseRecoveryLink,
   CodexAutoPauseRecoveryOutcome,
@@ -76,6 +85,21 @@ export type { HistoryWindowState, InitialThreadWindowRequest, ThreadWindowState 
 export type { CodexAppReference, CodexSkillReference } from "./codex-reference-types.js";
 export type { ActiveCodexReasoningPreview, CodexReasoningDetailMessage } from "./codex-reasoning-types.js";
 export type { CodexMessagePhase } from "../shared/codex-message-phase.js";
+export type {
+  CodexAutoCompactTokenLimitScope,
+  CodexCompactionCause,
+  CodexContextCapacitySource,
+  CodexContextWindowDiagnostics,
+  CodexLeaderRecycleContinuation,
+  CodexLeaderRecycleEvent,
+  CodexLeaderRecycleLineage,
+  CodexLeaderRecycleTokenSnapshot,
+  CodexLeaderRecycleTrigger,
+  CodexModelSwitchCompactionGuard,
+  SessionCompactionLifecycleEvent,
+  SessionContextLengthSnapshot,
+  SessionLifecycleEvent,
+} from "./codex-context-types.js";
 
 // Types for the WebSocket bridge between Claude Code CLI and the browser
 
@@ -953,6 +977,7 @@ export type BrowserIncomingMessageBase =
   | {
       type: "status_change";
       status: "compacting" | "reverting" | "idle" | "running" | null;
+      codexCompactionCause?: CodexCompactionCause;
       activeTurnRoute?: ActiveTurnRoute | null;
       activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
       codexReasoningPreviews?: ActiveCodexReasoningPreview[];
@@ -1333,6 +1358,8 @@ export interface SessionState {
   codex_internet_access?: boolean | null;
   /** Server-owned configured Codex usable context capacity target for the next launch/resume. */
   codex_max_context_length?: number | null;
+  /** Launch-resolved context/compaction values used only for diagnostics and truthful presentation. */
+  codex_context_window_diagnostics?: CodexContextWindowDiagnostics;
   /** Server-owned Codex leader context management mode for the next launch/resume. */
   codex_leader_compaction_mode?: import("../shared/codex-leader-compaction-mode.js").CodexLeaderCompactionMode;
   /** Server-owned configured Claude reasoning effort for the next launch/resume. */
@@ -1398,7 +1425,10 @@ export interface SessionState {
   git_status_refresh_error?: string | null;
   // Codex-specific token details (forwarded from thread/tokenUsage/updated)
   codex_token_details?: {
+    /** Provider-reported last input charge; retained as the leader recycle trigger input. */
     contextTokensUsed?: number;
+    /** Provider-reported last total charge, separate from hidden retained-reasoning pressure. */
+    providerReportedTotalTokens?: number;
     inputTokens: number;
     outputTokens: number;
     cachedInputTokens: number;
@@ -1576,68 +1606,6 @@ export interface SessionNotification {
     queuedInputId?: string;
     deliveredAt?: number;
   };
-}
-
-export type CodexLeaderRecycleTrigger = "threshold" | "manual_compact" | "context_window_exhausted";
-
-export interface CodexLeaderRecycleContinuation {
-  trigger: CodexLeaderRecycleTrigger;
-  requestedAt: number;
-  content: string;
-  threadKey?: string;
-  questId?: string;
-}
-
-export interface CodexModelSwitchCompactionGuard {
-  previousModel?: string;
-  nextModel: string;
-  createdAt: number;
-  expiresAt: number;
-}
-
-export interface SessionContextLengthSnapshot {
-  /** Known context length in tokens. Omitted when only percentage/window data is known. */
-  contextTokensUsed?: number;
-  contextUsedPercent?: number;
-  modelContextWindow?: number;
-  source: "compact_boundary" | "codex_token_details";
-  capturedAt: number;
-}
-
-export interface SessionCompactionLifecycleEvent {
-  type: "compaction";
-  id: string;
-  timestamp: number;
-  backendType?: BackendType;
-  trigger?: "auto" | "manual";
-  before?: SessionContextLengthSnapshot;
-  after?: SessionContextLengthSnapshot;
-  finishedAt?: number;
-}
-
-export type SessionLifecycleEvent = SessionCompactionLifecycleEvent;
-
-export interface CodexLeaderRecycleTokenSnapshot {
-  contextTokensUsed?: number;
-  contextUsedPercent?: number;
-  modelContextWindow?: number;
-  inputTokens?: number;
-  cachedInputTokens?: number;
-  outputTokens?: number;
-  reasoningOutputTokens?: number;
-}
-
-export interface CodexLeaderRecycleEvent {
-  trigger: CodexLeaderRecycleTrigger;
-  requestedAt: number;
-  previousCliSessionId?: string;
-  nextCliSessionId?: string;
-  tokenUsage?: CodexLeaderRecycleTokenSnapshot;
-}
-
-export interface CodexLeaderRecycleLineage {
-  cliSessionIds: string[];
-  recycleEvents: CodexLeaderRecycleEvent[];
 }
 
 // ─── MCP Types ───────────────────────────────────────────────────────────────

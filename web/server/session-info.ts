@@ -9,6 +9,7 @@ import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-ph
 import type { ModelAuthorityDecision, ModelProvenanceMigration } from "./model-identity-contract.js";
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 import type { CodexMultiAgentVersion } from "../shared/codex-multi-agent-version.js";
+import type { CodexContextWindowDiagnostics } from "./codex-context-types.js";
 import type { CodexWorkerV2CutoverState } from "./codex-worker-v2-cutover-state.js";
 import type { SyncedProjectionEnvelope } from "../shared/synced-projection.js";
 import type { SessionAttentionProjectionValue } from "../shared/session-attention-projection.js";
@@ -109,6 +110,8 @@ export interface SdkSessionInfo {
   codexServiceTier?: string | null;
   /** Optional per-session Codex usable context capacity target. */
   codexMaxContextLength?: number;
+  /** Launch-resolved context/compaction contract. Omitted from normal session-list payloads. */
+  codexContextWindowDiagnostics?: CodexContextWindowDiagnostics;
   /** Claude reasoning effort selected at launch. */
   claudeReasoningEffort?: string;
   /** Optional Claude max-context override; currently 1M beta only. */
@@ -210,14 +213,16 @@ type LauncherInternalSessionField = "sessionAuthToken" | "codexWorkerV2Cutover";
 /** Remove launcher-only secrets and recovery state before a session crosses an API boundary. */
 export function stripInternalLauncherSessionState(
   info: SdkSessionInfo,
-  options: { includeInjectedSystemPrompt?: boolean } = {},
+  options: { includeInjectedSystemPrompt?: boolean; includeCodexContextWindowDiagnostics?: boolean } = {},
 ): Omit<SdkSessionInfo, LauncherInternalSessionField> {
   const {
     sessionAuthToken: _sessionAuthToken,
     codexWorkerV2Cutover: _codexWorkerV2Cutover,
     ...withoutInternalState
   } = info;
-  if (options.includeInjectedSystemPrompt) return withoutInternalState;
-  const { injectedSystemPrompt: _injectedSystemPrompt, ...safe } = withoutInternalState;
-  return safe;
+  const { injectedSystemPrompt: _injectedSystemPrompt, ...withoutPrompt } = withoutInternalState;
+  const promptSafe = options.includeInjectedSystemPrompt ? withoutInternalState : withoutPrompt;
+  if (options.includeCodexContextWindowDiagnostics) return promptSafe;
+  const { codexContextWindowDiagnostics: _codexContextWindowDiagnostics, ...withoutDiagnostics } = promptSafe;
+  return withoutDiagnostics;
 }

@@ -1,10 +1,8 @@
-import type { SessionState, CodexModelSwitchCompactionGuard } from "../session-types.js";
+import type { CodexModelSwitchCompactionGuard } from "../session-types.js";
 
 const MODEL_SWITCH_COMPACTION_GUARD_TTL_MS = 5 * 60 * 1000;
-const MODEL_SWITCH_COMPACTION_SUPPRESSION_THRESHOLD_PERCENT = 90;
 
 type ModelSwitchCompactionSessionLike = {
-  state: Pick<SessionState, "codex_token_details" | "context_used_percent">;
   codexModelSwitchCompactionGuard?: CodexModelSwitchCompactionGuard | null;
   codexSuppressRecoveryForCurrentCompaction?: boolean;
 };
@@ -22,8 +20,27 @@ export function markCodexModelSwitchCompactionGuard(
     nextModel,
     createdAt: now,
     expiresAt: now + MODEL_SWITCH_COMPACTION_GUARD_TTL_MS,
+    modelActivityObserved: false,
   };
   session.codexSuppressRecoveryForCurrentCompaction = false;
+}
+
+export function markCodexModelSwitchActivity(session: ModelSwitchCompactionSessionLike, now = Date.now()): boolean {
+  const guard = session.codexModelSwitchCompactionGuard;
+  if (!guard) return false;
+  if (now > guard.expiresAt) {
+    session.codexModelSwitchCompactionGuard = null;
+    return false;
+  }
+  if (guard.modelActivityObserved) return false;
+  guard.modelActivityObserved = true;
+  return true;
+}
+
+export function discardCodexModelSwitchCompactionGuard(session: ModelSwitchCompactionSessionLike): boolean {
+  if (!session.codexModelSwitchCompactionGuard) return false;
+  session.codexModelSwitchCompactionGuard = null;
+  return true;
 }
 
 export function shouldSuppressCodexModelSwitchCompaction(
@@ -34,32 +51,8 @@ export function shouldSuppressCodexModelSwitchCompaction(
   if (!guard) return false;
   session.codexModelSwitchCompactionGuard = null;
   if (now > guard.expiresAt) return false;
-
-  const percent = currentContextUsedPercent(session.state);
-  if (percent === undefined || percent >= MODEL_SWITCH_COMPACTION_SUPPRESSION_THRESHOLD_PERCENT) {
-    return false;
-  }
+  if (guard.modelActivityObserved) return false;
 
   session.codexSuppressRecoveryForCurrentCompaction = true;
   return true;
-}
-
-function currentContextUsedPercent(
-  state: Pick<SessionState, "codex_token_details" | "context_used_percent">,
-): number | undefined {
-  if (typeof state.context_used_percent === "number" && Number.isFinite(state.context_used_percent)) {
-    return state.context_used_percent;
-  }
-  const tokens = state.codex_token_details?.contextTokensUsed;
-  const window = state.codex_token_details?.modelContextWindow;
-  if (
-    typeof tokens !== "number" ||
-    typeof window !== "number" ||
-    !Number.isFinite(tokens) ||
-    !Number.isFinite(window) ||
-    window <= 0
-  ) {
-    return undefined;
-  }
-  return (tokens / window) * 100;
 }

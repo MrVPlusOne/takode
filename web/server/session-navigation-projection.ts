@@ -11,6 +11,7 @@ import {
   type SessionNavigationStatus,
 } from "../shared/session-navigation-projection.js";
 import { deriveAskPermissionForMode } from "../shared/permission-modes.js";
+import { isCodexLeaderRecycleMode } from "../shared/codex-leader-compaction-mode.js";
 import { countPendingUserPermissions } from "./bridge/session-registry-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
 import type { SdkSessionInfo } from "./session-info.js";
@@ -106,7 +107,8 @@ function effectiveContextWindow(
   session: Session,
   launcherInfo: SdkSessionInfo | null | undefined,
 ): number | null {
-  if (backendType === "codex" && isOrchestrator) {
+  const leaderCompactionMode = launcherInfo?.codexLeaderCompactionMode ?? session.state.codex_leader_compaction_mode;
+  if (backendType === "codex" && isOrchestrator && isCodexLeaderRecycleMode(leaderCompactionMode)) {
     const recycleThreshold =
       nonNegativeNullableNumber(launcherInfo?.codexLeaderRecycleThresholdTokens) ??
       nonNegativeNullableNumber(session.state.codex_leader_recycle_threshold_tokens);

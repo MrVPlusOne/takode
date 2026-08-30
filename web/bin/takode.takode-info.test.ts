@@ -364,6 +364,18 @@ describe("takode info", () => {
         freshTurnRequiredUntilTurnId: null,
         proofSignals: [{ kind: "turn_started", timestamp: 123, turnId: "turn-active" }],
       },
+      codexContextWindowDiagnostics: {
+        role: "leader",
+        leaderMode: "recycle",
+        capacitySource: "leader_recycle_guard",
+        configuredUsableContextWindow: 770_000,
+        displayContextWindow: 693_000,
+        providerRawContextWindow: 1_000_000,
+        catalogEffectiveContextWindowPercent: 77,
+        providerEffectiveContextWindow: 770_000,
+        autoCompactTokenLimit: 693_000,
+        autoCompactTokenLimitScope: "total",
+      },
     });
 
     server.listen(0);
@@ -403,7 +415,74 @@ describe("takode info", () => {
     expect(parsed).not.toHaveProperty("mcpServers");
     expect(parsed).not.toHaveProperty("keywords");
     expect(parsed).not.toHaveProperty("codexPendingDeliveryDetails");
+    expect(parsed).not.toHaveProperty("codexContextWindowDiagnostics");
     expect(parsed).not.toHaveProperty("codexMultiAgentRuntimeDiagnostics");
+  });
+
+  it("reveals Codex context-window diagnostics through explicit JSON detail modes", async () => {
+    const codexContextWindowDiagnostics = {
+      role: "leader",
+      leaderMode: "recycle",
+      capacitySource: "leader_recycle_guard",
+      configuredUsableContextWindow: 770_000,
+      displayContextWindow: 693_000,
+      providerRawContextWindow: 1_000_000,
+      catalogEffectiveContextWindowPercent: 77,
+      providerEffectiveContextWindow: 770_000,
+      autoCompactTokenLimit: 693_000,
+      autoCompactTokenLimitScope: "total",
+    };
+    const server = createInfoServer({
+      sessionId: "leader-context-diagnostics",
+      sessionNum: 54,
+      name: "Context Diagnostics Leader",
+      state: "running",
+      backendType: "codex",
+      model: "gpt-5.4",
+      cwd: "/tmp/context-diagnostics-leader",
+      createdAt: 123,
+      cliConnected: true,
+      isGenerating: false,
+      codexContextWindowDiagnostics,
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    const env = {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-info",
+      COMPANION_AUTH_TOKEN: "auth-info",
+    };
+
+    const compact = await runTakode(["info", "leader-context-diagnostics", "--port", String(port), "--json"], env);
+    const included = await runTakode(
+      [
+        "info",
+        "leader-context-diagnostics",
+        "--port",
+        String(port),
+        "--json",
+        "--include",
+        "codexContextWindowDiagnostics",
+      ],
+      env,
+    );
+    const detailed = await runTakode(
+      ["info", "leader-context-diagnostics", "--port", String(port), "--json", "--details"],
+      env,
+    );
+
+    server.close();
+
+    expect(compact.status).toBe(0);
+    expect(JSON.parse(compact.stdout)).not.toHaveProperty("codexContextWindowDiagnostics");
+
+    expect(included.status).toBe(0);
+    expect(JSON.parse(included.stdout)).toMatchObject({ codexContextWindowDiagnostics });
+
+    expect(detailed.status).toBe(0);
+    expect(JSON.parse(detailed.stdout)).toMatchObject({ codexContextWindowDiagnostics });
   });
 
   it("reveals Codex pending-delivery details only when explicitly included", async () => {

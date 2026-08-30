@@ -1282,6 +1282,7 @@ export class CliLauncher {
       spawnCwd = spawnSpec.spawnCwd;
       sandboxMode = spawnSpec.sandboxMode;
       reasoningSummary = spawnSpec.reasoningSummary;
+      info.codexContextWindowDiagnostics = spawnSpec.contextWindowDiagnostics;
       if (typeof spawnSpec.codexLeaderRecycleThresholdTokens === "number") {
         info.codexLeaderRecycleThresholdTokens = spawnSpec.codexLeaderRecycleThresholdTokens;
       } else {

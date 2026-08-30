@@ -197,6 +197,29 @@ describe("listSessions", () => {
     expect(result).toEqual(sessions);
   });
 
+  it("fetches selected Session Info diagnostics without the full takode info payload", async () => {
+    const session = {
+      sessionId: "leader/context",
+      state: "connected",
+      cwd: "/tmp",
+      createdAt: 1,
+      codexContextWindowDiagnostics: {
+        role: "leader",
+        leaderMode: "compact",
+        capacitySource: "configured_usable_capacity",
+      },
+    };
+    mockFetch.mockResolvedValueOnce(mockResponse(session));
+
+    const result = await api.getSessionInfo("leader/context");
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/sessions/leader%2Fcontext?includeCodexContextWindowDiagnostics=true");
+    expect(opts).toBeUndefined();
+    expect(result).toEqual(session);
+  });
+
   it("can request a bounded archived session page", async () => {
     const page = {
       sessions: [{ sessionId: "s1", state: "exited", cwd: "/tmp", archived: true }],

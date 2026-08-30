@@ -68,8 +68,8 @@ import {
 } from "./session-list-snapshot.js";
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
 import { normalizeAffectedThreadKey, normalizeNotifyThreadRoute } from "./takode-route-thread-helpers.js";
-import { buildCodexPendingDeliveryDiagnostics } from "../codex-pending-delivery-diagnostics.js";
 import { registerTakodeReconnectRoute } from "./takode-reconnect.js";
+import { buildTakodeCodexPendingDeliveryFields, buildTakodeInfoSafeSession } from "./session-detail-response.js";
 
 const THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS = 100;
 const THREAD_ATTACHMENT_UPDATE_VERSION = 1;
@@ -705,7 +705,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const currentBridgeSession = wsBridge.getSession(sessionId) ?? bridgeSession;
     const bridge = currentBridgeSession?.state;
     const names = sessionNames.getAllNames();
-    const safeSession = stripInternalLauncherSessionState(session, { includeInjectedSystemPrompt: true });
+    const safeSession = buildTakodeInfoSafeSession(session, bridge);
 
     // Compute real user turns from backend history. CLI num_turns can be per-result
     // or reset around compaction, and injected/system user-shaped messages are not
@@ -720,12 +720,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
           pendingPermissionSummary: summarizePendingPermissions(currentBridgeSession),
         }
       : null;
-    const codexPendingDelivery =
-      currentBridgeSession?.backendType === "codex" ? buildCodexPendingDeliveryDiagnostics(currentBridgeSession) : null;
-    const codexPendingDeliveryDetails =
-      currentBridgeSession?.backendType === "codex"
-        ? buildCodexPendingDeliveryDiagnostics(currentBridgeSession, { details: true })
-        : null;
+    const { codexPendingDelivery, codexPendingDeliveryDetails } =
+      buildTakodeCodexPendingDeliveryFields(currentBridgeSession);
     return c.json({
       ...safeSession,
       sessionNum: launcher.getSessionNum(sessionId) ?? null,

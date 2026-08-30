@@ -4,12 +4,15 @@ import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
   CLIResultMessage,
+  CodexCompactionCause,
+  CodexContextWindowDiagnostics,
   CodexLeaderRecycleTrigger,
   CodexOutboundTurn,
   ContentBlock,
   PermissionRequest,
   ThreadRef,
 } from "../session-types.js";
+import { createLogger } from "../server-logger.js";
 import type { LeaderThreadStatus, ParsedThreadStatusMarker } from "../../shared/thread-status-marker.js";
 import { sessionTag } from "../session-tag.js";
 import {
@@ -23,7 +26,11 @@ import {
 import { recordThreadReadyUnreadNotifications } from "./session-notification-controller.js";
 import { queueQuestThreadRemindersForCompletedTurn } from "./quest-thread-reminder.js";
 import { recordCompactionFinished, recordCompactionStarted } from "./session-lifecycle-events.js";
-import { shouldSuppressCodexModelSwitchCompaction } from "./codex-model-switch-compaction.js";
+import {
+  discardCodexModelSwitchCompactionGuard,
+  markCodexModelSwitchActivity,
+  shouldSuppressCodexModelSwitchCompaction,
+} from "./codex-model-switch-compaction.js";
 import { shouldTrackCodexToolResultRecovery } from "./tool-result-recovery-controller.js";
 import { recordContextUsageHistory } from "./context-usage.js";
 import { markCodexAutoPauseRecoveryTurnCompleted } from "./codex-auto-pause-recovery-summary.js";
@@ -58,12 +65,57 @@ import {
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 const DELEGATE_LIVE_ACTIVITY_LIMIT = 800;
+const codexContextLog = createLogger("ws-bridge/codex-context");
 type CodexBrowserMessageSessionLike = any;
 type CodexBrowserMessageAdapterLike = {
   sendBrowserMessage(msg: unknown): void;
 };
 type AssistantBrowserMessage = Extract<BrowserIncomingMessage, { type: "assistant" }>;
 type ToolUseContentBlock = Extract<ContentBlock, { type: "tool_use" }>;
+
+const CODEX_MODEL_ACTIVITY_MESSAGE_TYPES = new Set<BrowserIncomingMessage["type"]>([
+  "assistant",
+  "stream_event",
+  "codex_reasoning_detail",
+  "tool_progress",
+  "permission_request",
+  "result",
+]);
+
+function isSubstantiveCodexModelActivity(msg: BrowserIncomingMessage): boolean {
+  return CODEX_MODEL_ACTIVITY_MESSAGE_TYPES.has(msg.type);
+}
+
+function logCodexCompactionStarted(
+  session: CodexBrowserMessageSessionLike,
+  eventId: string,
+  cause: CodexCompactionCause,
+  trigger: "auto" | "manual",
+): void {
+  const event = session.state.lifecycle_events?.find(
+    (candidate: { type?: string; id?: string }) => candidate.type === "compaction" && candidate.id === eventId,
+  );
+  const before = event?.before;
+  const diagnostics = event?.contextWindowDiagnostics ?? session.state.codex_context_window_diagnostics;
+  codexContextLog.info("Codex compaction started", {
+    sessionId: session.id,
+    cause,
+    trigger,
+    role: diagnostics?.role,
+    leaderMode: diagnostics?.leaderMode,
+    capacitySource: diagnostics?.capacitySource,
+    configuredUsableContextWindow: diagnostics?.configuredUsableContextWindow,
+    displayContextWindow: diagnostics?.displayContextWindow,
+    providerEffectiveContextWindow: diagnostics?.providerEffectiveContextWindow,
+    providerRawContextWindow: diagnostics?.providerRawContextWindow,
+    autoCompactTokenLimit: diagnostics?.autoCompactTokenLimit,
+    autoCompactTokenLimitScope: diagnostics?.autoCompactTokenLimitScope,
+    providerReportedInputTokens: before?.providerReportedInputTokens,
+    providerReportedTotalTokens: before?.providerReportedTotalTokens,
+    chargedContextLowerBound: before?.source === "codex_auto_compact_limit" ? before.contextTokensUsed : undefined,
+    runtimeContextWindow: before?.modelContextWindow,
+  });
+}
 
 function truncateDelegateLiveActivity(text: string): string {
   return text.length > DELEGATE_LIVE_ACTIVITY_LIMIT ? text.slice(-DELEGATE_LIVE_ACTIVITY_LIMIT) : text;
@@ -430,6 +482,7 @@ type CodexLeaderRecycleLauncherInfo = {
   isOrchestrator?: boolean;
   cliSessionId?: string | null;
   codexLeaderCompactionMode?: string;
+  codexContextWindowDiagnostics?: CodexContextWindowDiagnostics;
   codexServiceTier?: string | null;
   codexLeaderRecycleThresholdTokens?: number;
   codexLeaderRecycleLineage?: {
@@ -450,6 +503,18 @@ function positiveInteger(value: unknown): number | undefined {
 
 function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
+}
+
+function withCodexContextWindowDiagnostics(
+  patch: Record<string, unknown>,
+  launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined,
+): Record<string, unknown> {
+  const diagnostics = launcherInfo?.codexContextWindowDiagnostics;
+  if (!diagnostics) return patch;
+  return {
+    ...patch,
+    codex_context_window_diagnostics: { ...diagnostics },
+  };
 }
 
 function withCodexLeaderDisplayBudget(
@@ -843,6 +908,9 @@ export async function handleCodexAdapterBrowserMessage(
   deps.touchActivity(session.id);
   session.lastCliMessageAt = Date.now();
   deps.clearOptimisticRunningTimer(session, `codex_output:${msg.type}`);
+  if (isSubstantiveCodexModelActivity(msg) && markCodexModelSwitchActivity(session)) {
+    deps.persistSession(session);
+  }
   if (msg.type === "codex_reasoning_detail") {
     const routed = withThreadRoute(msg, routeForCodexReasoningDetail(session, msg));
     const update = upsertCodexReasoningDetail(session, routed);
@@ -893,7 +961,11 @@ export async function handleCodexAdapterBrowserMessage(
     const launcherInfo = deps.getLauncherSessionInfo(session.id);
     const enriched = withHistoryTurnMetrics(
       session,
-      withCodexLeaderDisplayBudget(session, { ...sanitized, backend_type: "codex" }, launcherInfo),
+      withCodexLeaderDisplayBudget(
+        session,
+        withCodexContextWindowDiagnostics({ ...sanitized, backend_type: "codex" }, launcherInfo),
+        launcherInfo,
+      ),
     );
     const initializedState = session.state.codex_native_subagents
       ? {
@@ -946,7 +1018,28 @@ export async function handleCodexAdapterBrowserMessage(
     const wasCompacting = session.state.is_compacting;
     session.state.is_compacting = msg.status === "compacting";
     if (msg.status === "compacting" && !wasCompacting) {
-      if (shouldSuppressCodexModelSwitchCompaction(session)) {
+      const reportedCause = msg.codexCompactionCause ?? "context_pressure";
+      if (reportedCause === "manual") {
+        discardCodexModelSwitchCompactionGuard(session);
+      }
+      const suppressModelSwitchMigration =
+        reportedCause === "model_switch_migration" ||
+        (reportedCause === "context_pressure" && shouldSuppressCodexModelSwitchCompaction(session));
+      const cause = suppressModelSwitchMigration ? "model_switch_migration" : reportedCause;
+      const ts = Date.now();
+      const markerId = `compact-boundary-${ts}`;
+      recordCompactionStarted(session, {
+        id: markerId,
+        timestamp: ts,
+        trigger: cause === "manual" ? "manual" : "auto",
+        cause,
+      });
+      logCodexCompactionStarted(session, markerId, cause, cause === "manual" ? "manual" : "auto");
+      deps.broadcastToBrowsers(session, {
+        type: "session_update",
+        session: { lifecycle_events: session.state.lifecycle_events },
+      } as BrowserIncomingMessage);
+      if (suppressModelSwitchMigration) {
         outgoing = null;
         console.log(
           `[ws-bridge] Suppressing Codex model-switch migration compaction recovery for session ${sessionTag(session.id)}`,
@@ -954,32 +1047,31 @@ export async function handleCodexAdapterBrowserMessage(
       } else {
         session.compactedDuringTurn = true;
         deps.emitTakodeEvent(session.id, "compaction_started", {
+          cause,
           ...(typeof session.state.context_used_percent === "number"
             ? { context_used_percent: session.state.context_used_percent }
             : {}),
         });
-        const ts = Date.now();
-        const markerId = `compact-boundary-${ts}`;
         session.messageHistory.push({
           type: "compact_marker",
           timestamp: ts,
           id: markerId,
         });
-        recordCompactionStarted(session, { id: markerId, timestamp: ts });
         deps.freezeHistoryThroughCurrentTail(session);
         deps.broadcastToBrowsers(session, {
           type: "compact_boundary",
           id: markerId,
           timestamp: ts,
         } as BrowserIncomingMessage);
-        deps.broadcastToBrowsers(session, {
-          type: "session_update",
-          session: { lifecycle_events: session.state.lifecycle_events },
-        } as BrowserIncomingMessage);
       }
     }
     if (wasCompacting && msg.status !== "compacting") {
       if (session.codexSuppressRecoveryForCurrentCompaction) {
+        recordCompactionFinished(session);
+        deps.broadcastToBrowsers(session, {
+          type: "session_update",
+          session: { lifecycle_events: session.state.lifecycle_events },
+        } as BrowserIncomingMessage);
         session.codexSuppressRecoveryForCurrentCompaction = false;
         outgoing = null;
       } else {

@@ -32,12 +32,6 @@ type TestCodexSession = {
   attentionReason: "action" | "error" | "review" | null;
   lastCliMessageAt?: number;
   compactedDuringTurn?: boolean;
-  codexModelSwitchCompactionGuard?: {
-    previousModel?: string;
-    nextModel: string;
-    createdAt: number;
-    expiresAt: number;
-  } | null;
   codexSuppressRecoveryForCurrentCompaction?: boolean;
 };
 
@@ -903,6 +897,48 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     );
   });
 
+  it("copies launch-resolved context diagnostics into authoritative Codex session state", async () => {
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const diagnostics = {
+      role: "non_leader" as const,
+      capacitySource: "configured_usable_capacity" as const,
+      configuredUsableContextWindow: 760_000,
+      displayContextWindow: 760_000,
+      providerRawContextWindow: 800_000,
+      catalogEffectiveContextWindowPercent: 95,
+      providerEffectiveContextWindow: 760_000,
+      autoCompactTokenLimit: 684_000,
+      autoCompactTokenLimitScope: "total" as const,
+    };
+    const deps = {
+      ...makeDeps(broadcasts),
+      getLauncherSessionInfo: vi.fn(() => ({ codexContextWindowDiagnostics: diagnostics })),
+    };
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "session_init",
+        session: {
+          session_id: session.id,
+          backend_type: "codex",
+          model: "gpt-5.6-sol",
+          cwd: "/repo",
+        },
+      } as BrowserIncomingMessage,
+      deps,
+    );
+
+    expect(session.state.codex_context_window_diagnostics).toEqual(diagnostics);
+    expect(broadcasts).toContainEqual(
+      expect.objectContaining({
+        type: "session_init",
+        session: expect.objectContaining({ codex_context_window_diagnostics: diagnostics }),
+      }),
+    );
+  });
+
   it("leaves leader context stats provider-authored in compaction mode", async () => {
     // Compaction-mode leaders rely on Codex built-in compaction, so Takode
     // should not rewrite the runtime window to the smaller recycle budget.
@@ -1211,138 +1247,6 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
 
     expect(deps.requestCodexLeaderRecycle).not.toHaveBeenCalled();
     expect(broadcasts).toEqual([{ type: "error", message }]);
-  });
-
-  it("records and broadcasts Codex compaction lifecycle events from status changes", async () => {
-    // Codex surfaces compaction through item lifecycle status changes; the
-    // bridge should persist lifecycle telemetry without relying on chat history.
-    const session = makeSession();
-    session.state = {
-      backend_type: "codex",
-      context_used_percent: 90,
-      codex_token_details: {
-        contextTokensUsed: 270_000,
-        inputTokens: 300_000,
-        outputTokens: 10_000,
-        cachedInputTokens: 30_000,
-        reasoningOutputTokens: 5_000,
-        modelContextWindow: 300_000,
-      },
-    };
-    const broadcasts: BrowserIncomingMessage[] = [];
-    const deps = makeDeps(broadcasts);
-
-    await handleCodexAdapterBrowserMessage(session, { type: "status_change", status: "compacting" }, deps);
-
-    expect(session.state.lifecycle_events).toEqual([
-      expect.objectContaining({
-        type: "compaction",
-        before: expect.objectContaining({
-          contextTokensUsed: 270_000,
-          contextUsedPercent: 90,
-          source: "codex_token_details",
-        }),
-      }),
-    ]);
-    expect(broadcasts).toContainEqual(
-      expect.objectContaining({
-        type: "session_update",
-        session: { lifecycle_events: session.state.lifecycle_events },
-      }),
-    );
-
-    session.state.codex_token_details = {
-      ...session.state.codex_token_details,
-      contextTokensUsed: 42_000,
-    };
-    session.state.context_used_percent = 14;
-    await handleCodexAdapterBrowserMessage(session, { type: "status_change", status: null }, deps);
-
-    expect(session.state.lifecycle_events?.[0]).toMatchObject({
-      after: {
-        contextTokensUsed: 42_000,
-        contextUsedPercent: 14,
-        source: "codex_token_details",
-      },
-    });
-  });
-
-  it("suppresses Takode recovery for low-usage Codex model-switch migration compaction", async () => {
-    // Codex can emit a real contextCompaction immediately after changing the
-    // resumed thread model, even when reported usage is far below the normal
-    // auto-compact envelope. That migration compaction should not create a
-    // user-visible compact marker or inject Takode's generic recovery prompt.
-    const session = makeSession();
-    session.state = {
-      backend_type: "codex",
-      context_used_percent: 61,
-      codex_token_details: {
-        contextTokensUsed: 399_423,
-        inputTokens: 100,
-        outputTokens: 10,
-        cachedInputTokens: 0,
-        reasoningOutputTokens: 0,
-        modelContextWindow: 650_000,
-      },
-    };
-    session.codexModelSwitchCompactionGuard = {
-      previousModel: "gpt-5.5",
-      nextModel: "gpt-5.6-sol",
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 60_000,
-    };
-    const broadcasts: BrowserIncomingMessage[] = [];
-    const deps = makeDeps(broadcasts);
-
-    await handleCodexAdapterBrowserMessage(session, { type: "status_change", status: "compacting" }, deps);
-    await handleCodexAdapterBrowserMessage(session, { type: "status_change", status: null }, deps);
-
-    expect(session.codexModelSwitchCompactionGuard).toBeNull();
-    expect(session.codexSuppressRecoveryForCurrentCompaction).toBe(false);
-    expect(session.compactedDuringTurn).not.toBe(true);
-    expect(session.messageHistory.some((entry) => entry.type === "compact_marker")).toBe(false);
-    expect(session.state.lifecycle_events).toBeUndefined();
-    expect(deps.injectCompactionRecovery).not.toHaveBeenCalled();
-    expect(broadcasts).not.toContainEqual(expect.objectContaining({ type: "compact_boundary" }));
-    expect(broadcasts).not.toContainEqual(expect.objectContaining({ type: "status_change", status: "compacting" }));
-  });
-
-  it("keeps normal compaction recovery for high-usage compaction after model switch", async () => {
-    // The model-switch guard is only for migration compactions below the normal
-    // auto-compact envelope. Real context-pressure compaction still needs the
-    // standard marker and recovery handling.
-    const session = makeSession();
-    session.state = {
-      backend_type: "codex",
-      context_used_percent: 95,
-      codex_token_details: {
-        contextTokensUsed: 617_500,
-        inputTokens: 100,
-        outputTokens: 10,
-        cachedInputTokens: 0,
-        reasoningOutputTokens: 0,
-        modelContextWindow: 650_000,
-      },
-    };
-    session.codexModelSwitchCompactionGuard = {
-      previousModel: "gpt-5.5",
-      nextModel: "gpt-5.6-sol",
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 60_000,
-    };
-    const broadcasts: BrowserIncomingMessage[] = [];
-    const deps = makeDeps(broadcasts);
-
-    await handleCodexAdapterBrowserMessage(session, { type: "status_change", status: "compacting" }, deps);
-    await handleCodexAdapterBrowserMessage(session, { type: "status_change", status: null }, deps);
-
-    expect(session.codexModelSwitchCompactionGuard).toBeNull();
-    expect(session.compactedDuringTurn).toBe(true);
-    expect(session.messageHistory.some((entry) => entry.type === "compact_marker")).toBe(true);
-    expect(session.state.lifecycle_events?.[0]).toEqual(expect.objectContaining({ type: "compaction" }));
-    expect(deps.injectCompactionRecovery).toHaveBeenCalledWith(session);
-    expect(broadcasts).toContainEqual(expect.objectContaining({ type: "compact_boundary" }));
-    expect(broadcasts).toContainEqual(expect.objectContaining({ type: "status_change", status: "compacting" }));
   });
 
   it("strips leader thread text prefixes and persists quest thread metadata", async () => {

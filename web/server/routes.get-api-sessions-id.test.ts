@@ -583,6 +583,147 @@ describe("GET /api/sessions/:id", () => {
     }
   });
 
+  it("omits Codex context diagnostics and injected prompts from the default session detail", async () => {
+    launcher.getSession.mockReturnValue({
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/test",
+      injectedSystemPrompt: "large selected-session prompt",
+      codexContextWindowDiagnostics: {
+        role: "non_leader",
+        capacitySource: "configured_usable_capacity",
+        configuredUsableContextWindow: 770_000,
+        displayContextWindow: 770_000,
+        providerRawContextWindow: 810_527,
+        catalogEffectiveContextWindowPercent: 95,
+        providerEffectiveContextWindow: 770_000,
+        autoCompactTokenLimit: 693_000,
+        autoCompactTokenLimitScope: "total",
+      },
+    } as any);
+    ensureBridgeSession(bridge, "s1", {
+      state: {
+        lifecycle_events: [
+          {
+            type: "compaction",
+            id: "compact-default-detail",
+            timestamp: 1,
+            backendType: "codex",
+            contextWindowDiagnostics: {
+              role: "non_leader",
+              capacitySource: "configured_usable_capacity",
+              providerRawContextWindow: 810_527,
+            },
+          },
+        ],
+      },
+    } as any);
+
+    const res = await app.request("/api/sessions/s1", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).not.toHaveProperty("codexContextWindowDiagnostics");
+    expect(json).not.toHaveProperty("injectedSystemPrompt");
+    expect(json.sessionLifecycleEvents[0]).not.toHaveProperty("contextWindowDiagnostics");
+  });
+
+  it("includes only the bounded Codex context diagnostics when explicitly requested", async () => {
+    launcher.getSession.mockReturnValue({
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/test",
+      injectedSystemPrompt: "large selected-session prompt",
+      codexContextWindowDiagnostics: {
+        role: "leader",
+        leaderMode: "compact",
+        capacitySource: "configured_usable_capacity",
+        configuredUsableContextWindow: 770_000,
+        displayContextWindow: 770_000,
+        providerRawContextWindow: 810_527,
+        catalogEffectiveContextWindowPercent: 95,
+        providerEffectiveContextWindow: 770_000,
+        autoCompactTokenLimit: 693_000,
+        autoCompactTokenLimitScope: "total",
+      },
+    } as any);
+
+    const res = await app.request("/api/sessions/s1?includeCodexContextWindowDiagnostics=true", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.codexContextWindowDiagnostics).toMatchObject({
+      role: "leader",
+      leaderMode: "compact",
+      displayContextWindow: 770_000,
+      autoCompactTokenLimit: 693_000,
+    });
+    expect(json).not.toHaveProperty("injectedSystemPrompt");
+  });
+
+  it("prefers live bridge Codex context diagnostics over stale launcher detail", async () => {
+    launcher.getSession.mockReturnValue({
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/test",
+      codexContextWindowDiagnostics: {
+        role: "leader",
+        leaderMode: "recycle",
+        capacitySource: "leader_recycle_guard",
+        displayContextWindow: 545_000,
+        autoCompactTokenLimit: 2_725_000,
+      },
+    } as any);
+    ensureBridgeSession(bridge, "s1", {
+      state: {
+        codex_context_window_diagnostics: {
+          role: "leader",
+          leaderMode: "compact",
+          capacitySource: "configured_usable_capacity",
+          configuredUsableContextWindow: 770_000,
+          displayContextWindow: 770_000,
+          providerRawContextWindow: 810_527,
+          catalogEffectiveContextWindowPercent: 95,
+          providerEffectiveContextWindow: 770_000,
+          autoCompactTokenLimit: 693_000,
+          autoCompactTokenLimitScope: "total",
+        },
+        lifecycle_events: [
+          {
+            type: "compaction",
+            id: "compact-live-detail",
+            timestamp: 1,
+            backendType: "codex",
+            contextWindowDiagnostics: {
+              role: "leader",
+              leaderMode: "compact",
+              capacitySource: "configured_usable_capacity",
+              providerRawContextWindow: 810_527,
+              autoCompactTokenLimit: 693_000,
+            },
+          },
+        ],
+      },
+    } as any);
+
+    const res = await app.request("/api/sessions/s1?includeCodexContextWindowDiagnostics=true", {
+      method: "GET",
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.codexContextWindowDiagnostics).toMatchObject({
+      leaderMode: "compact",
+      displayContextWindow: 770_000,
+      autoCompactTokenLimit: 693_000,
+    });
+    expect(json.sessionLifecycleEvents[0].contextWindowDiagnostics).toMatchObject({
+      leaderMode: "compact",
+      providerRawContextWindow: 810_527,
+      autoCompactTokenLimit: 693_000,
+    });
+  });
+
   it("returns bridge-owned location metadata when launcher location state is missing or stale", async () => {
     launcher.getSession.mockReturnValue({
       sessionId: "s1",

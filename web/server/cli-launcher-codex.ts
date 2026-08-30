@@ -58,6 +58,18 @@ import {
   rawContextWindowForUsableCapacity,
 } from "./codex-context-capacity.js";
 import { isCodexLeaderRecycleMode, type CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
+import {
+  appendCodexContextLaunchArgs,
+  CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
+  deriveCodexLeaderLaunchGuard,
+  effectiveContextWindowFromModelEntry,
+  logCodexContextWindowDiagnostics,
+  nonLeaderAutoCompactTokenLimitForUsableCapacity,
+  resolveCodexContextWindowDiagnostics,
+  type CodexLeaderLaunchGuard,
+  type CodexResolvedContextLaunchConfig,
+} from "./codex-context-launch-diagnostics.js";
+import type { CodexContextWindowDiagnostics } from "./codex-context-types.js";
 import type { CodexMultiAgentVersion } from "../shared/codex-multi-agent-version.js";
 
 const codexFeaturesHeader = "[features]";
@@ -74,9 +86,7 @@ const maiWrapperEnvHostPrefix = "companion-codex-home-";
 const maiWrapperHostnameShimDirName = ".mai-wrapper-bin";
 const imagegenSkillRelativePath = ".system/imagegen";
 const deprecatedCodexSkillsDirName = "skills";
-const defaultCodexEffectiveContextWindowPercent = 95;
 const defaultCodexLeaderRecycleThresholdTokens = CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS;
-const defaultCodexLeaderProviderEnvelopeMultiplier = 5;
 const takodeLeaderModelCatalogFilename = "takode-leader-model-catalog.json";
 const spawnPrepCacheTtlMs = 60_000;
 const takodeNonLeaderModelCatalogFilename = "takode-model-catalog.json";
@@ -175,6 +185,7 @@ export interface CodexSpawnSpec {
   sandboxMode?: CodexSandboxMode;
   reasoningSummary?: CodexReasoningSummaryLaunchMode;
   codexLeaderRecycleThresholdTokens?: number;
+  contextWindowDiagnostics: CodexContextWindowDiagnostics;
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -497,43 +508,16 @@ function disableResponsesLiteForMaiLitellm(modelEntry: Record<string, any>): boo
   return true;
 }
 
-interface CodexLeaderLaunchGuard {
-  displayContextWindow: number;
-  providerRawContextWindow: number;
-  providerAutoCompactTokenLimit: number;
-}
-
-interface CodexLeaderLaunchConfig {
+interface CodexLeaderLaunchConfig extends CodexResolvedContextLaunchConfig {
   recycleThresholdTokens: number;
   sourceEffectiveContextWindowTokens?: number;
   source?: string;
-  modelContextWindow: number;
-  modelAutoCompactTokenLimit: number;
-  modelCatalogConfigPath?: string;
 }
 
-interface CodexContextLaunchConfig {
-  modelContextWindow: number;
-  modelAutoCompactTokenLimit: number;
-  modelCatalogConfigPath?: string;
-}
+type CodexContextLaunchConfig = CodexResolvedContextLaunchConfig;
 
 interface CodexLeaderRecycleThresholdForConfig extends CodexLeaderRecycleThresholdResolution {
   source?: string;
-}
-
-function effectiveContextWindowFromModelEntry(modelEntry: Record<string, any>): number | undefined {
-  const rawContextWindow =
-    coercePositiveNumber(modelEntry.context_window) || coercePositiveNumber(modelEntry.max_context_window);
-  if (!rawContextWindow) return undefined;
-  const effectivePercent =
-    coercePositiveNumber(modelEntry.effective_context_window_percent) || defaultCodexEffectiveContextWindowPercent;
-  const effectiveContextWindow = Math.floor((rawContextWindow * effectivePercent) / 100);
-  return effectiveContextWindow >= 1 ? effectiveContextWindow : undefined;
-}
-
-function nonLeaderAutoCompactTokenLimitForUsableCapacity(usableContextWindow: number): number {
-  return Math.max(1, Math.floor(usableContextWindow * 0.9));
 }
 
 async function resolveCodexLeaderRecycleThresholdForConfig(
@@ -552,7 +536,7 @@ async function resolveCodexLeaderRecycleThresholdForConfig(
   if (!modelSlug) {
     const configuredEffectiveContextWindow =
       configuredRawContextWindow && !existingCatalogIsTakodeLeaderGenerated
-        ? Math.floor((configuredRawContextWindow * defaultCodexEffectiveContextWindowPercent) / 100)
+        ? Math.floor((configuredRawContextWindow * CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT) / 100)
         : undefined;
     return {
       ...resolveCodexLeaderRecycleThresholdFromEffectiveContext(configuredEffectiveContextWindow),
@@ -579,28 +563,11 @@ async function resolveCodexLeaderRecycleThresholdForConfig(
 
   const configuredEffectiveContextWindow =
     configuredRawContextWindow && !existingCatalogIsTakodeLeaderGenerated
-      ? Math.floor((configuredRawContextWindow * defaultCodexEffectiveContextWindowPercent) / 100)
+      ? Math.floor((configuredRawContextWindow * CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT) / 100)
       : undefined;
   return {
     ...resolveCodexLeaderRecycleThresholdFromEffectiveContext(configuredEffectiveContextWindow),
     source: configuredEffectiveContextWindow ? "config" : "fallback",
-  };
-}
-
-function deriveCodexLeaderLaunchGuard(
-  recycleThresholdTokens: number,
-  effectiveContextWindowPercent: number,
-): CodexLeaderLaunchGuard {
-  const displayContextWindow = coercePositiveNumber(recycleThresholdTokens) ?? defaultCodexLeaderRecycleThresholdTokens;
-  const normalizedEffectivePercent =
-    coercePositiveNumber(effectiveContextWindowPercent) ?? defaultCodexEffectiveContextWindowPercent;
-  const providerAutoCompactTokenLimit = Math.ceil(displayContextWindow * defaultCodexLeaderProviderEnvelopeMultiplier);
-  const rawForEffectiveWindow = Math.ceil((providerAutoCompactTokenLimit * 100) / normalizedEffectivePercent);
-  const rawForCodexClamp = Math.ceil((providerAutoCompactTokenLimit * 10) / 9);
-  return {
-    displayContextWindow,
-    providerRawContextWindow: Math.max(rawForEffectiveWindow, rawForCodexClamp),
-    providerAutoCompactTokenLimit,
   };
 }
 
@@ -623,15 +590,6 @@ function existingLeaderRecycleBudget(info: CodexLaunchInfo): number | undefined 
   return budget > 0 ? budget : undefined;
 }
 
-function appendCodexLeaderLaunchGuardArgs(args: string[], leaderConfig?: CodexLeaderLaunchConfig): void {
-  if (!leaderConfig) return;
-  if (leaderConfig.modelCatalogConfigPath) {
-    args.push("-c", `model_catalog_json=${JSON.stringify(leaderConfig.modelCatalogConfigPath)}`);
-  }
-  args.push("-c", `model_context_window=${leaderConfig.modelContextWindow}`);
-  args.push("-c", `model_auto_compact_token_limit=${leaderConfig.modelAutoCompactTokenLimit}`);
-}
-
 function forceCodexModelEntryMultiAgentVersion(
   modelEntry: Record<string, any>,
   multiAgentVersion?: CodexMultiAgentVersion,
@@ -651,7 +609,10 @@ async function ensureCodexLeaderModelCatalogOverride(
     multiAgentVersion?: CodexMultiAgentVersion;
   },
 ): Promise<{ catalogJson?: string; configToml: string; launchGuard: CodexLeaderLaunchGuard }> {
-  let launchGuard = deriveCodexLeaderLaunchGuard(recycleThresholdTokens, defaultCodexEffectiveContextWindowPercent);
+  let launchGuard = deriveCodexLeaderLaunchGuard(
+    recycleThresholdTokens,
+    CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
+  );
   const override = await ensureCodexModelCatalogOverride(codexHome, configToml, {
     model: options?.model,
     modelCatalogConfigPath: options?.modelCatalogConfigPath,
@@ -660,12 +621,13 @@ async function ensureCodexLeaderModelCatalogOverride(
       slug: modelSlug,
       context_window: launchGuard.providerRawContextWindow,
       max_context_window: launchGuard.providerRawContextWindow,
-      effective_context_window_percent: defaultCodexEffectiveContextWindowPercent,
+      effective_context_window_percent: CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
       auto_compact_token_limit: launchGuard.providerAutoCompactTokenLimit,
     }),
     mutateModelEntry: (modelEntry) => {
       const effectivePercent =
-        coercePositiveNumber(modelEntry.effective_context_window_percent) || defaultCodexEffectiveContextWindowPercent;
+        coercePositiveNumber(modelEntry.effective_context_window_percent) ||
+        CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT;
       launchGuard = deriveCodexLeaderLaunchGuard(recycleThresholdTokens, effectivePercent);
       const changed =
         modelEntry.context_window !== launchGuard.providerRawContextWindow ||
@@ -818,10 +780,10 @@ async function ensureCodexNonLeaderContextCapacityOverride(
 ): Promise<{ configToml: string; modelCatalogJson?: string; launchConfig: CodexContextLaunchConfig }> {
   let rawContextWindow = rawContextWindowForUsableCapacity(
     desiredUsableContextWindow,
-    defaultCodexEffectiveContextWindowPercent,
+    CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
   );
   const modelAutoCompactTokenLimit = nonLeaderAutoCompactTokenLimitForUsableCapacity(desiredUsableContextWindow);
-  let effectivePercent = defaultCodexEffectiveContextWindowPercent;
+  let effectivePercent = CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT;
   const override = await ensureCodexModelCatalogOverride(codexHome, configToml, {
     model: options?.model,
     modelCatalogConfigPath: options?.modelCatalogConfigPath,
@@ -869,6 +831,7 @@ async function ensureCodexNonLeaderContextCapacityOverride(
     launchConfig: {
       modelContextWindow: rawContextWindow,
       modelAutoCompactTokenLimit,
+      catalogEffectiveContextWindowPercent: effectivePercent,
       ...(modelCatalogConfigPath ? { modelCatalogConfigPath } : {}),
     },
   };
@@ -1454,6 +1417,7 @@ async function ensureCodexSessionConfig(
       recycleThresholdTokens: leaderRecycleThresholdTokens,
       modelContextWindow: override.launchGuard.providerRawContextWindow,
       modelAutoCompactTokenLimit: override.launchGuard.providerAutoCompactTokenLimit,
+      catalogEffectiveContextWindowPercent: override.launchGuard.catalogEffectiveContextWindowPercent,
       ...(sourceEffectiveContextWindowTokens ? { sourceEffectiveContextWindowTokens } : {}),
       ...(leaderRecycleThreshold?.source ? { source: leaderRecycleThreshold.source } : {}),
       ...(modelCatalogConfigPath ? { modelCatalogConfigPath } : {}),
@@ -1670,6 +1634,8 @@ export async function prepareCodexSpawn(
     let leaderLaunchConfig: CodexLeaderLaunchConfig | undefined;
     let contextLaunchConfig: CodexContextLaunchConfig | undefined;
     let reasoningSummaryLaunchMode: CodexReasoningSummaryLaunchMode | undefined;
+    let resolvedConfigToml = "";
+    let resolvedModelCatalogJson: string | undefined;
     let containerLeaderConfigToml: string | undefined;
     let containerModelCatalogJson: string | undefined;
     const containerModelCatalogPath = leaderRecycleLaunch
@@ -1711,6 +1677,8 @@ export async function prepareCodexSpawn(
           timing,
         }),
       );
+      resolvedConfigToml = sessionConfig.configToml;
+      resolvedModelCatalogJson = sessionConfig.modelCatalogJson;
       resolvedLeaderRecycleThresholdTokens = sessionConfig.leaderRecycleThresholdTokens;
       leaderLaunchConfig = sessionConfig.leaderLaunchConfig;
       contextLaunchConfig = sessionConfig.contextLaunchConfig;
@@ -1744,11 +1712,38 @@ export async function prepareCodexSpawn(
       );
       containerLeaderConfigToml = containerConfig.configToml;
       containerModelCatalogJson = containerConfig.modelCatalogJson;
+      resolvedConfigToml = containerConfig.configToml;
+      resolvedModelCatalogJson = containerConfig.modelCatalogJson;
       resolvedLeaderRecycleThresholdTokens = containerConfig.leaderRecycleThresholdTokens;
       leaderLaunchConfig = containerConfig.leaderLaunchConfig;
       contextLaunchConfig = containerConfig.contextLaunchConfig;
       reasoningSummaryLaunchMode = containerConfig.reasoningSummaryLaunchMode;
     }
+
+    const selectedContextLaunchConfig = leaderLaunchConfig ?? contextLaunchConfig;
+    const contextWindowDiagnostics = await resolveCodexContextWindowDiagnostics({
+      codexHome,
+      configToml: resolvedConfigToml,
+      generatedCatalogJson: resolvedModelCatalogJson,
+      model: options.model,
+      role: codexLeaderLaunch ? "leader" : "non_leader",
+      ...(codexLeaderLaunch ? { leaderMode: leaderRecycleLaunch ? "recycle" : "compact" } : {}),
+      ...(options.codexMaxContextLength ? { configuredUsableContextWindow: options.codexMaxContextLength } : {}),
+      ...(selectedContextLaunchConfig
+        ? {
+            displayContextWindow: leaderLaunchConfig?.recycleThresholdTokens ?? options.codexMaxContextLength,
+            launchConfig: selectedContextLaunchConfig,
+          }
+        : {}),
+      leaderRecycleGuard: !!leaderLaunchConfig,
+    });
+    logCodexContextWindowDiagnostics(
+      sessionId,
+      options.model,
+      contextWindowDiagnostics,
+      selectedContextLaunchConfig?.modelCatalogConfigPath ??
+        readTopLevelStringSetting(resolvedConfigToml, "model_catalog_json"),
+    );
 
     const maiWrapperLaunchSpec =
       !isContainerized && maiWrapperHostSpec
@@ -1767,15 +1762,7 @@ export async function prepareCodexSpawn(
     if (options.codexReasoningEffort) {
       args.push("-c", `model_reasoning_effort=${options.codexReasoningEffort}`);
     }
-    if (contextLaunchConfig?.modelCatalogConfigPath) {
-      args.push("-c", `model_catalog_json=${JSON.stringify(contextLaunchConfig.modelCatalogConfigPath)}`);
-    }
-    if (contextLaunchConfig?.modelContextWindow) {
-      args.push("-c", `model_context_window=${contextLaunchConfig.modelContextWindow}`);
-    }
-    if (contextLaunchConfig?.modelAutoCompactTokenLimit) {
-      args.push("-c", `model_auto_compact_token_limit=${contextLaunchConfig.modelAutoCompactTokenLimit}`);
-    }
+    appendCodexContextLaunchArgs(args, contextLaunchConfig);
     if (options.permissionMode === "codex-auto-review") {
       args.push("-c", "approvals_reviewer=auto_review");
     }
@@ -1788,7 +1775,7 @@ export async function prepareCodexSpawn(
     if (reasoningSummaryLaunchMode) {
       args.push("-c", `model_reasoning_summary=${reasoningSummaryLaunchMode}`);
     }
-    appendCodexLeaderLaunchGuardArgs(args, leaderLaunchConfig);
+    appendCodexContextLaunchArgs(args, leaderLaunchConfig);
     args.push("app-server");
     if (leaderLaunchConfig) {
       console.info(
@@ -1838,6 +1825,7 @@ export async function prepareCodexSpawn(
         sandboxMode,
         reasoningSummary: reasoningSummaryLaunchMode,
         codexLeaderRecycleThresholdTokens: resolvedLeaderRecycleThresholdTokens,
+        contextWindowDiagnostics,
       };
     }
 
@@ -1889,6 +1877,7 @@ export async function prepareCodexSpawn(
       sandboxMode,
       reasoningSummary: reasoningSummaryLaunchMode,
       codexLeaderRecycleThresholdTokens: resolvedLeaderRecycleThresholdTokens,
+      contextWindowDiagnostics,
     };
   } finally {
     timing.finish({

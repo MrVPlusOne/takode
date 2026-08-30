@@ -1119,12 +1119,14 @@ export class CodexAdapter
     // content. A plain /compact must still reach Codex's compaction endpoint
     // even when the composer attached selection metadata to the turn.
     if (isCompactSlashCommand(msg.content) && !msg.images?.length) {
+      this.itemEventManager.markNextCompactionCause("manual");
       try {
         await this.transport.call("thread/compact/start", {
           threadId: this.threadId,
         });
         return;
       } catch (err) {
+        this.itemEventManager.clearNextCompactionCause("manual");
         const requeued = this.handleTurnStartDispatchFailure(msg, err);
         if (requeued && isCodexTransportClosedError(err)) {
           console.warn(

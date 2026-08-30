@@ -151,7 +151,11 @@ describe("CodexAdapter", () => {
   });
 
   it("uses thread/compact/start for a plain /compact command", async () => {
+    // Manual `/compact` must carry an explicit cause through the producer event
+    // so the bridge cannot mistake it for model-switch migration or pressure.
+    const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((message) => messages.push(message));
 
     await tick();
     stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
@@ -177,6 +181,23 @@ describe("CodexAdapter", () => {
     expect(compactStart).toBeDefined();
     expect(compactStart.params.threadId).toBe("thr_123");
     expect(lines.find((line) => line.method === "turn/start")).toBeUndefined();
+
+    stdout.push(
+      JSON.stringify({
+        method: "item/started",
+        params: {
+          threadId: "thr_123",
+          item: { id: "compact-manual", type: "contextCompaction" },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    expect(messages).toContainEqual({
+      type: "status_change",
+      status: "compacting",
+      codexCompactionCause: "manual",
+    });
   });
 
   it("uses thread/compact/start even when VS Code selection metadata is attached", async () => {

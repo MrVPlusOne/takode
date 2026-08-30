@@ -250,6 +250,29 @@ describe("Codex spawn preparation", () => {
     expect(updatedConfig).toContain('"TAKODE_API_PORT"');
   });
 
+  it("persists the launch-resolved Codex context diagnostics on session info", async () => {
+    // Session-detail and compaction-history diagnostics read this launcher
+    // snapshot after spawn, so the resolved values must survive prep rather
+    // than existing only in the temporary spawn specification.
+    const info = await launchCodex({
+      model: "gpt-5.6-sol",
+      codexMaxContextLength: 760_000,
+    });
+
+    expect(info.codexContextWindowDiagnostics).toMatchObject({
+      role: "non_leader",
+      capacitySource: "configured_usable_capacity",
+      configuredUsableContextWindow: 760_000,
+      displayContextWindow: 760_000,
+      providerRawContextWindow: 800_000,
+      providerEffectiveContextWindow: 760_000,
+      autoCompactTokenLimit: 684_000,
+    });
+    expect(launcher.getSession(info.sessionId)?.codexContextWindowDiagnostics).toEqual(
+      info.codexContextWindowDiagnostics,
+    );
+  });
+
   it.each([
     ["v1", "--disable", "v2"],
     ["v2", "--enable", "v1"],

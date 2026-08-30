@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { normalizeCodexMessagePhase, type CodexMessagePhase } from "../shared/codex-message-phase.js";
-import type { BrowserIncomingMessage } from "./session-types.js";
+import type { BrowserIncomingMessage, CodexCompactionCause } from "./session-types.js";
 import {
   CodexAgentMessageItem,
   CodexCollabAgentToolCallItem,
@@ -41,6 +41,7 @@ type RouterFailureToolName = "write_stdin";
 const RAW_EXEC_CALL_CACHE_LIMIT = 50;
 const RAW_EXEC_OUTPUT_COMMAND_CACHE_LIMIT = 50;
 const RAW_EXEC_OUTPUTS_PER_COMMAND_LIMIT = 5;
+const NEXT_COMPACTION_CAUSE_TTL_MS = 60_000;
 
 type TerminalInteractionToolUse = {
   toolUseId: string;
@@ -77,6 +78,8 @@ export class CodexItemEventManager {
   private parentToolUseIdByThreadId = new Map<string, string>();
   private parentToolUseIdByItemId = new Map<string, string | null>();
   private pendingSubagentToolUsesByCallId = new Map<string, PendingSubagentToolUse>();
+  private nextCompactionCause: { cause: CodexCompactionCause; expiresAt: number } | null = null;
+  private compactionCauseByItemId = new Map<string, CodexCompactionCause>();
 
   constructor(
     private readonly emit: EmitFn,
@@ -104,6 +107,8 @@ export class CodexItemEventManager {
     this.parentToolUseIdByThreadId.clear();
     this.parentToolUseIdByItemId.clear();
     this.pendingSubagentToolUsesByCallId.clear();
+    this.nextCompactionCause = null;
+    this.compactionCauseByItemId.clear();
     this.lastMessageFinishedAt = null;
   }
 
@@ -113,6 +118,25 @@ export class CodexItemEventManager {
 
   markMessageFinished(timestamp: number): void {
     this.lastMessageFinishedAt = timestamp;
+  }
+
+  markNextCompactionCause(cause: CodexCompactionCause, now = Date.now()): void {
+    this.nextCompactionCause = {
+      cause,
+      expiresAt: now + NEXT_COMPACTION_CAUSE_TTL_MS,
+    };
+  }
+
+  clearNextCompactionCause(cause?: CodexCompactionCause): void {
+    if (!this.nextCompactionCause || (cause && this.nextCompactionCause.cause !== cause)) return;
+    this.nextCompactionCause = null;
+  }
+
+  private consumeNextCompactionCause(now = Date.now()): CodexCompactionCause {
+    const pending = this.nextCompactionCause;
+    this.nextCompactionCause = null;
+    if (!pending || pending.expiresAt < now) return "context_pressure";
+    return pending.cause;
   }
 
   private rememberMessagePhase(itemId: string, value: unknown): void {
@@ -263,9 +287,12 @@ export class CodexItemEventManager {
         break;
       }
 
-      case "contextCompaction":
-        this.emit({ type: "status_change", status: "compacting" });
+      case "contextCompaction": {
+        const cause = this.consumeNextCompactionCause();
+        this.compactionCauseByItemId.set(item.id, cause);
+        this.emit({ type: "status_change", status: "compacting", codexCompactionCause: cause });
         break;
+      }
 
       default:
         break;
@@ -620,9 +647,12 @@ export class CodexItemEventManager {
         break;
       }
 
-      case "contextCompaction":
-        this.emit({ type: "status_change", status: null });
+      case "contextCompaction": {
+        const cause = this.compactionCauseByItemId.get(item.id) ?? "context_pressure";
+        this.compactionCauseByItemId.delete(item.id);
+        this.emit({ type: "status_change", status: null, codexCompactionCause: cause });
         break;
+      }
 
       default:
         break;

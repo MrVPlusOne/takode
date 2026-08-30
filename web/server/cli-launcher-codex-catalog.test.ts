@@ -659,6 +659,7 @@ describe("Codex session catalog hardening", () => {
     expect(result.contextLaunchConfig).toEqual({
       modelContextWindow: 500_000,
       modelAutoCompactTokenLimit: 360_000,
+      catalogEffectiveContextWindowPercent: 80,
       modelCatalogConfigPath: catalogPath,
     });
 

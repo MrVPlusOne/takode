@@ -7,6 +7,7 @@ import type {
   CLIResultMessage,
   ActiveTurnRoute,
   BrowserOutgoingMessage,
+  CodexModelSwitchCompactionGuard,
   CodexOutboundTurn,
   PendingCodexInput,
   SessionNotification,
@@ -88,6 +89,7 @@ import {
 } from "./codex-queued-turn-lifecycle.js";
 import { runCodexSessionMetaBarrier } from "./codex-session-meta-barrier.js";
 import { registerCodexNativeSubagentLifecycle } from "./codex-native-subagent-lifecycle.js";
+import { recordCodexAcceptedDispatchActivity } from "./codex-model-switch-dispatch-activity.js";
 import { retireProvenInactiveCodexTurnAfterSteerFailure } from "./codex-steer-failure-recovery.js";
 import { recoverNonDrainableCodexHeadTurn } from "./codex-nondrainable-turn-recovery.js";
 export { extractUserTextFromResumedTurn, normalizeResumedUserText };
@@ -117,6 +119,7 @@ export interface CodexRecoveryOrchestratorSessionLike {
   pendingCodexInputs: PendingCodexInput[];
   pendingCodexTurns: CodexOutboundTurn[];
   codexFreshTurnRequiredUntilTurnId: string | null;
+  codexModelSwitchCompactionGuard?: CodexModelSwitchCompactionGuard | null;
   codexPendingDeliveryProofSignals?: import("../session-types.js").CodexPendingDeliveryProofSignal[];
   isGenerating: boolean;
   cliInitReceived: boolean;
@@ -511,9 +514,7 @@ export function dispatchQueuedCodexTurns(
     broadcastCodexAutoPauseRecoveryTesting(session, deps);
   }
   if (outcome.status !== "dispatched" || !outcome.head) return;
-  console.log(
-    `[ws-bridge] Dispatched queued Codex turn for session ${sessionTag(session.id)} (${reason}, attempt ${outcome.head.dispatchCount})`,
-  );
+  recordCodexAcceptedDispatchActivity(session, deps.persistSession, "turn", reason, outcome.head.dispatchCount);
 }
 
 export function setPendingCodexInputCancelable(
@@ -898,9 +899,7 @@ export function trySteerPendingCodexInputs(
     setPendingCodexInputsCancelable(session, ids, true, deps);
     return false;
   }
-  console.log(
-    `[ws-bridge] Steered ${ids.length} pending Codex input(s) for session ${sessionTag(session.id)} (${reason})`,
-  );
+  recordCodexAcceptedDispatchActivity(session, deps.persistSession, "steer", reason, ids.length);
   return true;
 }
 

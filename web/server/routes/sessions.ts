@@ -4,7 +4,7 @@ import { resolveBinary, expandTilde } from "../path-resolver.js";
 import { readFile, writeFile, stat, readdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { homedir } from "node:os";
-import { stripInternalLauncherSessionState, type CliLauncher, type LaunchOptions } from "../cli-launcher.js";
+import { type CliLauncher, type LaunchOptions } from "../cli-launcher.js";
 import * as envManager from "../env-manager.js";
 import * as gitUtils from "../git-utils.js";
 import * as sessionNames from "../session-names.js";
@@ -74,6 +74,7 @@ import { applySessionDefaultsToCreateBody, SessionDefaultValidationError } from 
 import { markOrchestratorSessionWithStartupContext } from "./orchestrator-startup-injection.js";
 import { relaunchSessionProcess } from "./session-process-relaunch.js";
 import { buildSessionBackendLaunchSettings } from "./session-create-launch-settings.js";
+import { buildBrowserSessionDetail } from "./session-detail-response.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -1191,33 +1192,12 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const session = launcher.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
     const bridgeSession = wsBridge.getSession(id);
-    const rest = stripInternalLauncherSessionState(session);
-    const bridgeState = bridgeSession?.state;
-    return c.json({
-      ...rest,
-      treeGroupId: bridgeState?.treeGroupId ?? rest.treeGroupId ?? null,
-      memorySessionSpaceSlug: bridgeState?.memorySessionSpaceSlug ?? rest.memorySessionSpaceSlug ?? null,
-      gitBranch: bridgeState?.git_branch ?? null,
-      gitDefaultBranch: bridgeState?.git_default_branch ?? null,
-      diffBaseBranch: bridgeState?.diff_base_branch ?? null,
-      isWorktree: rest.isWorktree ?? bridgeState?.is_worktree ?? false,
-      repoRoot: rest.repoRoot ?? bridgeState?.repo_root ?? null,
-      branch: rest.branch ?? (bridgeState?.is_worktree ? bridgeState.git_branch : undefined),
-      actualBranch: rest.actualBranch ?? (bridgeState?.is_worktree ? bridgeState.git_branch : undefined),
-      ...(bridgeState?.leaderOpenThreadTabs ? { leaderOpenThreadTabs: bridgeState.leaderOpenThreadTabs } : {}),
-      pause: bridgeState?.pause ?? null,
-      pausedInputQueueCount: bridgeState?.pause?.queuedMessages.length ?? 0,
-      codexResultErrorAutoPause: bridgeState?.codex_result_error_auto_pause ?? null,
-      codexEffectiveReasoningEffort: bridgeState?.codex_effective_reasoning_effort ?? null,
-      codexEffectiveReasoningEffortReported: bridgeState?.codex_effective_reasoning_effort_reported === true,
-      codexAutoPausedInputCount:
-        bridgeState?.codex_result_error_auto_pause?.heldInputs.reduce(
-          (total, item) => total + Math.max(1, item.count),
-          0,
-        ) ?? 0,
-      sessionLifecycleEvents: bridgeState?.lifecycle_events ?? [],
-      isGenerating: !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size),
-    });
+    return c.json(
+      buildBrowserSessionDetail(session, bridgeSession?.state, {
+        includeCodexContextWindowDiagnostics: c.req.query("includeCodexContextWindowDiagnostics") === "true",
+        isGenerating: !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size),
+      }),
+    );
   });
   registerSessionDirectoryRoutes(api, { launcher, resolveId, wsBridge, backfillSessionProjectMeta });
   registerSessionLeaderProfileRoute(api, ctx);

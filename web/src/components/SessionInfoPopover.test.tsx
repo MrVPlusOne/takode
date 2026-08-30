@@ -7,6 +7,44 @@ import { SESSION_NAVIGATION_PROJECTION } from "../../shared/session-navigation-p
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import { createSessionNavigationProjectionValue } from "../test-fixtures/session-navigation-projection.js";
 
+type MockContextWindowDiagnostics = {
+  role: "leader" | "non_leader";
+  leaderMode?: "recycle" | "compact";
+  capacitySource: "leader_recycle_guard" | "configured_usable_capacity" | "codex_config" | "codex_default";
+  configuredUsableContextWindow?: number;
+  displayContextWindow?: number;
+  providerRawContextWindow?: number;
+  catalogEffectiveContextWindowPercent?: number;
+  providerEffectiveContextWindow?: number;
+  autoCompactTokenLimit?: number;
+  autoCompactTokenLimitScope?: "total" | "body_after_prefix";
+};
+
+type MockLifecycleSnapshot = {
+  contextTokensUsed?: number;
+  providerReportedInputTokens?: number;
+  providerReportedTotalTokens?: number;
+  contextUsedPercent?: number;
+  modelContextWindow?: number;
+  autoCompactTokenLimit?: number;
+  autoCompactTokenLimitScope?: "total" | "body_after_prefix";
+  source: "compact_boundary" | "codex_token_details" | "codex_auto_compact_limit";
+  capturedAt: number;
+};
+
+type MockLifecycleEvent = {
+  type: "compaction";
+  id: string;
+  timestamp: number;
+  backendType?: "claude" | "codex" | "claude-sdk";
+  trigger?: "auto" | "manual";
+  cause?: "context_pressure" | "manual" | "model_switch_migration";
+  contextWindowDiagnostics?: MockContextWindowDiagnostics;
+  before?: MockLifecycleSnapshot;
+  after?: MockLifecycleSnapshot;
+  finishedAt?: number;
+};
+
 interface MockStoreState {
   sessions: Map<
     string,
@@ -20,13 +58,19 @@ interface MockStoreState {
       context_used_percent?: number;
       message_history_bytes?: number;
       codex_retained_payload_bytes?: number;
-      codex_token_details?: { modelContextWindow?: number; contextTokensUsed?: number };
+      codex_token_details?: {
+        modelContextWindow?: number;
+        contextTokensUsed?: number;
+        providerReportedTotalTokens?: number;
+      };
       codex_max_context_length?: number | null;
       codexMaxContextLength?: number;
       codex_reasoning_effort?: string;
       codex_effective_reasoning_effort?: string | null;
       codex_effective_reasoning_effort_reported?: boolean;
       codex_leader_recycle_threshold_tokens?: number;
+      codex_leader_compaction_mode?: "recycle" | "compact";
+      codex_context_window_diagnostics?: MockContextWindowDiagnostics;
       codex_goal?: {
         threadId: string;
         objective: string;
@@ -42,16 +86,7 @@ interface MockStoreState {
       claude_max_context_length?: number | null;
       claudeMaxContextLength?: number;
       isOrchestrator?: boolean;
-      lifecycle_events?: Array<{
-        type: "compaction";
-        id: string;
-        timestamp: number;
-        backendType?: "claude" | "codex" | "claude-sdk";
-        trigger?: "auto" | "manual";
-        before?: { contextTokensUsed?: number; contextUsedPercent?: number; source: string; capturedAt: number };
-        after?: { contextTokensUsed?: number; contextUsedPercent?: number; source: string; capturedAt: number };
-        finishedAt?: number;
-      }>;
+      lifecycle_events?: MockLifecycleEvent[];
       git_branch?: string | null;
       is_worktree?: boolean;
       git_ahead?: number;
@@ -70,19 +105,18 @@ interface MockStoreState {
     numTurns?: number;
     messageHistoryBytes?: number;
     codexRetainedPayloadBytes?: number;
-    codexTokenDetails?: { modelContextWindow?: number; contextTokensUsed?: number };
+    codexTokenDetails?: {
+      modelContextWindow?: number;
+      contextTokensUsed?: number;
+      providerReportedTotalTokens?: number;
+    };
     codexMaxContextLength?: number;
     codexLeaderRecycleThresholdTokens?: number;
+    codexLeaderCompactionMode?: "recycle" | "compact";
+    codexContextWindowDiagnostics?: MockContextWindowDiagnostics;
     claudeTokenDetails?: { modelContextWindow?: number };
     claudeMaxContextLength?: number;
-    sessionLifecycleEvents?: Array<{
-      type: "compaction";
-      id: string;
-      timestamp: number;
-      backendType?: "claude" | "codex" | "claude-sdk";
-      before?: { contextTokensUsed?: number; source: string; capturedAt: number };
-      after?: { contextTokensUsed?: number; source: string; capturedAt: number };
-    }>;
+    sessionLifecycleEvents?: MockLifecycleEvent[];
     codexLeaderRecycleLineage?: {
       cliSessionIds: string[];
       recycleEvents: Array<{
@@ -214,6 +248,7 @@ vi.mock("../api.js", () => ({
   api: {
     getSettings: vi.fn(),
     listSessions: vi.fn(),
+    getSessionInfo: vi.fn(),
     openSessionDirectory: vi.fn(),
     relaunchSession: vi.fn(),
     updateLeaderProfilePortrait: vi.fn(),
@@ -239,6 +274,13 @@ describe("SessionInfoPopover", () => {
     window.location.hash = "#/session/s1";
     vi.mocked(api.listSessions).mockReset();
     vi.mocked(api.listSessions).mockResolvedValue([]);
+    vi.mocked(api.getSessionInfo).mockReset();
+    vi.mocked(api.getSessionInfo).mockImplementation(async (sessionId) => ({
+      sessionId,
+      state: "connected",
+      cwd: "/repo",
+      createdAt: 1,
+    }));
     vi.mocked(api.openSessionDirectory).mockReset();
     vi.mocked(api.openSessionDirectory).mockResolvedValue({
       ok: true,
@@ -793,6 +835,7 @@ describe("SessionInfoPopover", () => {
     const session = storeState.sessions.get("s1");
     if (!session) throw new Error("missing session fixture");
     session.isOrchestrator = true;
+    session.codex_leader_compaction_mode = "recycle";
     session.context_used_percent = 6;
     session.codex_token_details = { contextTokensUsed: 57_000, modelContextWindow: 950_000 };
     session.codex_leader_recycle_threshold_tokens = 260_000;
@@ -803,6 +846,24 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByText(/260 K tokens/)).toBeInTheDocument();
     expect(screen.queryByText("6% context")).toBeNull();
     expect(screen.queryByText("950 K tokens")).toBeNull();
+  });
+
+  it("ignores a stale recycle threshold for a Codex leader in compact mode", () => {
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.isOrchestrator = true;
+    session.codex_leader_compaction_mode = "compact";
+    session.context_used_percent = 55;
+    session.codex_token_details = { contextTokensUsed: 423_969, modelContextWindow: 770_000 };
+    session.codex_leader_recycle_threshold_tokens = 545_000;
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByText("55% context")).toBeInTheDocument();
+    expect(screen.getByText("770 K tokens")).toBeInTheDocument();
+    expect(screen.queryByText("78% context")).toBeNull();
+    expect(screen.queryByText("545 K tokens")).toBeNull();
   });
 
   it("uses projected effective context as the Codex leader recycle threshold", () => {
@@ -980,6 +1041,44 @@ describe("SessionInfoPopover", () => {
     expect(screen.queryByText("950 K tokens")).toBeNull();
   });
 
+  it("loads bounded context diagnostics only for the selected Session Info popover", async () => {
+    resetStore([]);
+    vi.mocked(api.getSessionInfo).mockResolvedValue({
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/repo",
+      createdAt: 1,
+      backendType: "codex",
+      codexContextWindowDiagnostics: {
+        role: "non_leader",
+        capacitySource: "configured_usable_capacity",
+        configuredUsableContextWindow: 770_000,
+        displayContextWindow: 770_000,
+        providerRawContextWindow: 810_527,
+        catalogEffectiveContextWindowPercent: 95,
+        providerEffectiveContextWindow: 770_000,
+        autoCompactTokenLimit: 693_000,
+      },
+    });
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(api.getSessionInfo).toHaveBeenCalledTimes(1);
+    expect(api.getSessionInfo).toHaveBeenCalledWith("s1");
+    const section = await screen.findByTestId("session-lifecycle-debug");
+    fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
+
+    const diagnostics = within(section).getByTestId("codex-context-diagnostics");
+    expect(within(diagnostics).getByText("Non-leader · Configured capacity")).toBeInTheDocument();
+    expect(within(diagnostics).getByText("Configured usable target")).toBeInTheDocument();
+    expect(within(diagnostics).getByText("Provider effective window")).toBeInTheDocument();
+    expect(within(diagnostics).getByText("Displayed denominator")).toBeInTheDocument();
+    expect(within(diagnostics).getByText("Provider launch window")).toBeInTheDocument();
+    expect(within(diagnostics).getByText("693K · scope unknown/default")).toBeInTheDocument();
+    expect(diagnostics).toHaveTextContent("95% · reserve 5%");
+    expect(api.listSessions).not.toHaveBeenCalled();
+  });
+
   it("shows Codex leader recycle lineage and pending recycle state", () => {
     resetStore([]);
     storeState.sdkSessions = [
@@ -1065,7 +1164,7 @@ describe("SessionInfoPopover", () => {
     expect(within(section).getByText(/180K context/)).toBeInTheDocument();
   });
 
-  it("renders compaction lifecycle events with known and unknown context lengths", () => {
+  it("renders legacy compaction lifecycle events without inventing pressure accounting", () => {
     resetStore([]);
     const session = storeState.sessions.get("s1");
     if (!session) throw new Error("missing session fixture");
@@ -1106,12 +1205,130 @@ describe("SessionInfoPopover", () => {
     const section = screen.getByTestId("session-lifecycle-debug");
     fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
 
-    expect(within(section).getByText("Claude compaction • auto")).toBeInTheDocument();
+    expect(within(section).getByText("Claude compaction · auto")).toBeInTheDocument();
     expect(within(section).getByText("Before 180K context (90%)")).toBeInTheDocument();
     expect(within(section).getByText("After unknown")).toBeInTheDocument();
     expect(within(section).getByText("Codex compaction")).toBeInTheDocument();
-    expect(within(section).getByText("Before 270K context")).toBeInTheDocument();
-    expect(within(section).getByText("After 95K context")).toBeInTheDocument();
+    expect(within(section).getByText("Provider input 270K")).toBeInTheDocument();
+    expect(within(section).getByText("After provider input 95K")).toBeInTheDocument();
+    expect(within(section).queryByText(/Charged context/)).toBeNull();
+  });
+
+  it("separates provider prompt input from the charged pressure lower bound", () => {
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.lifecycle_events = [
+      {
+        type: "compaction",
+        id: "compact-pressure",
+        timestamp: 1_777_500_000_000,
+        backendType: "codex",
+        trigger: "auto",
+        cause: "context_pressure",
+        before: {
+          contextTokensUsed: 693_000,
+          providerReportedInputTokens: 423_969,
+          providerReportedTotalTokens: 430_000,
+          contextUsedPercent: 90,
+          modelContextWindow: 770_000,
+          autoCompactTokenLimit: 693_000,
+          autoCompactTokenLimitScope: "total",
+          source: "codex_auto_compact_limit",
+          capturedAt: 1_777_500_000_000,
+        },
+        after: {
+          contextTokensUsed: 55_000,
+          providerReportedInputTokens: 54_440,
+          providerReportedTotalTokens: 55_000,
+          contextUsedPercent: 7,
+          modelContextWindow: 770_000,
+          source: "codex_token_details",
+          capturedAt: 1_777_500_010_000,
+        },
+      },
+    ];
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    const section = screen.getByTestId("session-lifecycle-debug");
+    fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
+
+    expect(within(section).getByText("Codex compaction · context pressure")).toBeInTheDocument();
+    expect(within(section).getByText("Provider input 424K / 770K (55%)")).toBeInTheDocument();
+    expect(within(section).getByText("Charged context ≥693K / 770K (≥90%) at trigger")).toBeInTheDocument();
+    expect(within(section).getByText("After provider total 55K / 770K (7%)")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["manual", "Codex compaction · manual"],
+    ["model_switch_migration", "Codex compaction · model switch migration"],
+  ] as const)("does not claim a charged pressure lower bound for %s compaction", (cause, title) => {
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.lifecycle_events = [
+      {
+        type: "compaction",
+        id: `compact-${cause}`,
+        timestamp: 1_777_500_000_000,
+        backendType: "codex",
+        trigger: cause === "manual" ? "manual" : "auto",
+        cause,
+        before: {
+          contextTokensUsed: 14_000,
+          providerReportedInputTokens: 14_000,
+          providerReportedTotalTokens: 15_000,
+          contextUsedPercent: 2,
+          modelContextWindow: 650_000,
+          autoCompactTokenLimit: 585_000,
+          source: "codex_token_details",
+          capturedAt: 1_777_500_000_000,
+        },
+      },
+    ];
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    const section = screen.getByTestId("session-lifecycle-debug");
+    fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
+
+    expect(within(section).getByText(title)).toBeInTheDocument();
+    expect(within(section).getByText("Provider input 14K / 650K (2%)")).toBeInTheDocument();
+    expect(within(section).queryByText(/Charged context/)).toBeNull();
+  });
+
+  it("does not mislabel a pressure lower bound as provider input when provider input is unknown", () => {
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.lifecycle_events = [
+      {
+        type: "compaction",
+        id: "compact-pressure-unknown-input",
+        timestamp: 1_777_500_000_000,
+        backendType: "codex",
+        trigger: "auto",
+        cause: "context_pressure",
+        before: {
+          contextTokensUsed: 693_000,
+          contextUsedPercent: 90,
+          modelContextWindow: 770_000,
+          autoCompactTokenLimit: 700_000,
+          source: "codex_auto_compact_limit",
+          capturedAt: 1_777_500_000_000,
+        },
+      },
+    ];
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    const section = screen.getByTestId("session-lifecycle-debug");
+    fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
+
+    expect(within(section).getByText("Provider input unknown")).toBeInTheDocument();
+    expect(within(section).getByText("Charged context ≥693K / 770K (≥90%) at trigger")).toBeInTheDocument();
+    expect(within(section).queryByText(/Provider input 693K/)).toBeNull();
   });
 
   it("shows turns, context, and context window for Claude SDK sessions (no cost)", () => {

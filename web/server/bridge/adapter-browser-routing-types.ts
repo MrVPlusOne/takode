@@ -3,6 +3,7 @@ import type {
   ActiveCodexReasoningPreview,
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
+  CodexModelSwitchCompactionGuard,
   CodexLeaderRecycleTrigger,
   CodexOutboundTurn,
   PendingCodexInput,
@@ -80,6 +81,7 @@ export interface AdapterBrowserRoutingSessionLike {
   recentAskVisibleResponseThreads?: Set<string>;
   activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
   codexReasoningPreviews?: CodexReasoningPreviewsByThread;
+  codexModelSwitchCompactionGuard?: CodexModelSwitchCompactionGuard | null;
   backendSocket?: unknown;
   lastUserMessage?: string;
   lastUserMessageDateTag: string;

@@ -14,6 +14,7 @@ import { computeSessionTurnMetrics, getLastActualHumanUserMessageTimestamp } fro
 import { getLeaderProfilePortraitForSession } from "../leader-profile-assignments.js";
 import { buildLeaderActivePhaseSummary } from "../../shared/leader-active-phase-summary.js";
 import { getBoard as getBoardController } from "../bridge/board-watchdog-controller.js";
+import { projectSessionLifecycleEvents } from "../session-lifecycle-projection.js";
 
 type SessionListEntry = ReturnType<CliLauncher["listSessions"]>[number];
 const scheduledWorktreeGitStateRefreshes = new Map<string, ReturnType<typeof setTimeout>>();
@@ -226,7 +227,7 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
           contextUsedPercent: bridge?.context_used_percent || 0,
           messageHistoryBytes: bridge?.message_history_bytes || 0,
           codexRetainedPayloadBytes: bridge?.codex_retained_payload_bytes || 0,
-          sessionLifecycleEvents: bridge?.lifecycle_events ?? [],
+          sessionLifecycleEvents: projectSessionLifecycleEvents(bridge?.lifecycle_events),
           leaderProfilePortraitId,
           ...(leaderProfilePortrait ? { leaderProfilePortrait } : {}),
           ...(codexLeaderRecycleThresholdTokens ? { codexLeaderRecycleThresholdTokens } : {}),

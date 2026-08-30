@@ -80,6 +80,8 @@ export function buildCodexTokenUsagePatch(params: Record<string, unknown>): Part
   const total = tokenUsage.total as Record<string, number> | undefined;
   const last = tokenUsage.last as Record<string, number> | undefined;
   const contextWindow = tokenUsage.modelContextWindow as number | undefined;
+  const providerReportedTotalTokens =
+    typeof last?.totalTokens === "number" && Number.isFinite(last.totalTokens) ? last.totalTokens : undefined;
   const updates: Partial<SessionState> = {};
 
   if (last && contextWindow && contextWindow > 0) {
@@ -99,6 +101,7 @@ export function buildCodexTokenUsagePatch(params: Record<string, unknown>): Part
           modelContextWindow: contextWindow || 0,
         }),
         contextTokensUsed,
+        ...(providerReportedTotalTokens !== undefined ? { providerReportedTotalTokens } : {}),
       };
     }
     if (typeof pct === "number") updates.context_used_percent = pct;
@@ -107,6 +110,7 @@ export function buildCodexTokenUsagePatch(params: Record<string, unknown>): Part
   if (total) {
     updates.codex_token_details = {
       contextTokensUsed: updates.codex_token_details?.contextTokensUsed,
+      ...(providerReportedTotalTokens !== undefined ? { providerReportedTotalTokens } : {}),
       inputTokens: total.inputTokens || 0,
       outputTokens: total.outputTokens || 0,
       cachedInputTokens: total.cachedInputTokens || 0,
