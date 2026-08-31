@@ -1061,8 +1061,7 @@ describe("status_change: running on user_message", () => {
     await flushAsync();
     await waitForBrowserMessage(
       browser,
-      (message) =>
-        message.type === "synced_projection_snapshot" && message.projection === SESSION_ATTENTION_PROJECTION,
+      (message) => message.type === "synced_projection_snapshot" && message.projection === SESSION_ATTENTION_PROJECTION,
     );
 
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));

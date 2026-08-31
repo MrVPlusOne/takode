@@ -53,7 +53,6 @@ import { convertLegacyParentedCodexThinkingMessage } from "./utils/codex-reasoni
 import { TODO_STATE_UPDATED_EVENT } from "./todo-events.js";
 import { indexCodexSubagentToolResults } from "./utils/codex-subagent-tool-results.js";
 import { handleQuestListUpdated, handleSessionQuestClaimed } from "./ws-quest-handlers.js";
-import { stripLegacyLeaderThreadTabsState } from "./utils/leader-thread-tabs-resolver.js";
 import {
   handleSyncedProjectionMessage,
   type SyncedProjectionMessageHandlerDeps,
