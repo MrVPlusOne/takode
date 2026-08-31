@@ -63,7 +63,11 @@ import { buildSidebarVisibleSessions } from "./utils/sidebar-visible-sessions.js
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 import { resolveDiffTarget } from "./utils/diff-target.js";
 import { requestAutoSessionGitStatusRefresh } from "./utils/session-git-status-auto-refresh.js";
-import { BACKEND_CONNECTION_OPEN_EVENT, observeBackendBuildId } from "./build-compatibility.js";
+import {
+  BACKEND_CONNECTION_OPEN_EVENT,
+  beginBuildIdentityObservation,
+  observeServerBuildIdentity,
+} from "./build-compatibility.js";
 import {
   announceVsCodeReady,
   type VsCodeSelectionContextPayload,
@@ -450,10 +454,11 @@ export default function App() {
   useEffect(() => {
     let failures = 0;
     const poll = async () => {
+      const observationSequence = beginBuildIdentityObservation();
       const status = await checkHealthStatus();
       const store = useStore.getState();
       if (status.ok) {
-        observeBackendBuildId(status.buildId);
+        observeServerBuildIdentity(status.buildId, status.servedFrontendBuildId, observationSequence);
         failures = 0;
         if (!store.serverReachable) {
           store.setServerReachable(true);

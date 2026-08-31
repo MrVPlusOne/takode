@@ -507,7 +507,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
   // ─── Server restart ───────────────────────────────────────────────
 
   api.post("/server/restart", async (c) => {
-    if (!options?.requestRestart) {
+    if (!options?.requestRestart || options.restartSupported === false) {
       return c.json({ error: "Restart not supported in this mode" }, 503);
     }
     if (restartRequestInFlight) {
@@ -896,7 +896,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       leaderProfilePoolOptions: LEADER_PROFILE_POOLS,
       ...(extras?.includeRuntimeInfo
         ? {
-            restartSupported: !!process.env.COMPANION_SUPERVISED,
+            restartSupported: options?.restartSupported ?? !!process.env.COMPANION_SUPERVISED,
             logFile: getLogPath(),
           }
         : {}),

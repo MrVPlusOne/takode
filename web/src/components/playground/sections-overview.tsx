@@ -1570,8 +1570,30 @@ export function PlaygroundOverviewSections() {
       {/* ─── Status Indicators ──────────────────────────────── */}
       <Section title="Status Indicators" description="Connection and session status banners">
         <div className="space-y-3 max-w-3xl">
-          <Card label="Frontend/backend build mismatch">
-            <BuildMismatchNotice placement="inline" onReload={() => {}} />
+          <Card label="Reloadable frontend mismatch">
+            <BuildMismatchNotice
+              placement="inline"
+              onReload={() => {}}
+              compatibility={{
+                frontendBuildId: "build-loaded",
+                servedFrontendBuildId: "build-current",
+                backendBuildId: "build-current",
+                status: "reload-required",
+                reason: "loaded-frontend-outdated",
+              }}
+            />
+          </Card>
+          <Card label="Server pair requires full restart">
+            <BuildMismatchNotice
+              placement="inline"
+              compatibility={{
+                frontendBuildId: "build-current",
+                servedFrontendBuildId: "build-current",
+                backendBuildId: null,
+                status: "restart-required",
+                reason: "backend-identity-unavailable",
+              }}
+            />
           </Card>
           <Card label="Disconnected warning">
             <div className="px-4 py-2 bg-cc-warning/10 border border-cc-warning/20 rounded-lg text-center">

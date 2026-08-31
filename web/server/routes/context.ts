@@ -6,6 +6,7 @@ import type { TerminalManager } from "../terminal-manager.js";
 import type { PerfTracer } from "../perf-tracer.js";
 import type { FrontendAvailabilityChecker } from "../frontend-availability.js";
 import type { PreparedFrontendRestart } from "../frontend-restart-preparation.js";
+import type { TakodeRuntimeBuildIdentity } from "../build-identity.js";
 
 export type ResolvedSession = NonNullable<ReturnType<CliLauncher["getSession"]>>;
 
@@ -40,6 +41,8 @@ export interface RouteContext {
   options?: {
     requestRestart?: () => void;
     prepareRestart?: () => Promise<PreparedFrontendRestart>;
+    restartSupported?: boolean;
+    buildIdentity?: TakodeRuntimeBuildIdentity;
     codexSidecarRegistry?: import("../codex-sidecar-auth.js").CodexSidecarRegistry;
     checkFrontendAvailability?: FrontendAvailabilityChecker;
   };

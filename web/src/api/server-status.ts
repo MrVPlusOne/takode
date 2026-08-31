@@ -3,6 +3,7 @@ const BASE = "/api";
 export interface ServerStatusProbe {
   ok: boolean;
   buildId: string | null;
+  servedFrontendBuildId: string | null;
 }
 
 function normalizeBuildId(value: unknown): string | null {
@@ -23,16 +24,24 @@ async function probeServerStatus(
     if (elapsed > 5000) {
       console.warn(`[${label}] slow response: ${Math.round(elapsed)}ms`);
     }
-    if (!response.ok) return { ok: false, buildId: null };
+    if (!response.ok) return { ok: false, buildId: null, servedFrontendBuildId: null };
 
     const contentType = response.headers.get("content-type") ?? "";
     if (!contentType.toLowerCase().includes("application/json")) {
-      return { ok: false, buildId: null };
+      return { ok: false, buildId: null, servedFrontendBuildId: null };
     }
 
-    const body = (await response.json().catch(() => null)) as { ok?: unknown; buildId?: unknown } | null;
-    if (body?.ok !== true) return { ok: false, buildId: null };
-    return { ok: true, buildId: normalizeBuildId(body.buildId) };
+    const body = (await response.json().catch(() => null)) as {
+      ok?: unknown;
+      buildId?: unknown;
+      servedFrontendBuildId?: unknown;
+    } | null;
+    if (body?.ok !== true) return { ok: false, buildId: null, servedFrontendBuildId: null };
+    return {
+      ok: true,
+      buildId: normalizeBuildId(body.buildId),
+      servedFrontendBuildId: normalizeBuildId(body.servedFrontendBuildId),
+    };
   } catch (error) {
     const elapsed = performance.now() - start;
     console.warn(
@@ -40,7 +49,7 @@ async function probeServerStatus(
       error instanceof Error ? error.message : error,
       `visibility=${document.visibilityState}`,
     );
-    return { ok: false, buildId: null };
+    return { ok: false, buildId: null, servedFrontendBuildId: null };
   }
 }
 

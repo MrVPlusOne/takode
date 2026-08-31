@@ -46,9 +46,13 @@ describe("server status probes", () => {
   it("keeps backend liveness on /health and exposes its build identity", async () => {
     // Liveness remains a distinct signal so an unavailable frontend does not
     // make connected browsers treat the entire backend as unreachable.
-    mockFetch.mockResolvedValueOnce(mockResponse({ ok: true, buildId: "build-a" }));
+    mockFetch.mockResolvedValueOnce(mockResponse({ ok: true, buildId: "build-a", servedFrontendBuildId: "build-a" }));
 
-    await expect(checkHealthStatus()).resolves.toEqual({ ok: true, buildId: "build-a" });
+    await expect(checkHealthStatus()).resolves.toEqual({
+      ok: true,
+      buildId: "build-a",
+      servedFrontendBuildId: "build-a",
+    });
 
     expect(mockFetch).toHaveBeenCalledOnce();
     expect(mockFetch.mock.calls[0][0]).toBe("/api/health");
@@ -61,11 +65,15 @@ describe("server status probes", () => {
       new Response("<html>login</html>", { status: 200, headers: { "content-type": "text/html" } }),
     );
 
-    await expect(checkHealthStatus()).resolves.toEqual({ ok: false, buildId: null });
+    await expect(checkHealthStatus()).resolves.toEqual({
+      ok: false,
+      buildId: null,
+      servedFrontendBuildId: null,
+    });
   });
 
   it("preserves the boolean health helper for existing callers", async () => {
-    mockFetch.mockResolvedValueOnce(mockResponse({ ok: true, buildId: "build-a" }));
+    mockFetch.mockResolvedValueOnce(mockResponse({ ok: true, buildId: "build-a", servedFrontendBuildId: "build-a" }));
 
     await expect(checkHealth()).resolves.toBe(true);
   });
@@ -75,7 +83,11 @@ describe("server status probes", () => {
     // backend process to accept connections again.
     mockFetch.mockResolvedValueOnce(mockResponse({ ok: false }, 503, { "content-type": "application/json" }));
 
-    await expect(checkReadinessStatus()).resolves.toEqual({ ok: false, buildId: null });
+    await expect(checkReadinessStatus()).resolves.toEqual({
+      ok: false,
+      buildId: null,
+      servedFrontendBuildId: null,
+    });
 
     expect(mockFetch).toHaveBeenCalledOnce();
     expect(mockFetch.mock.calls[0][0]).toBe("/api/ready");
@@ -92,10 +104,26 @@ describe("server status probes", () => {
 
   it("accepts the readiness JSON contract and exposes its build identity", async () => {
     mockFetch.mockResolvedValueOnce(
-      mockResponse({ ok: true, buildId: "build-ready" }, 200, { "content-type": "application/json" }),
+      mockResponse({ ok: true, buildId: "build-ready", servedFrontendBuildId: "build-ready" }, 200, {
+        "content-type": "application/json",
+      }),
     );
 
-    await expect(checkReadinessStatus()).resolves.toEqual({ ok: true, buildId: "build-ready" });
+    await expect(checkReadinessStatus()).resolves.toEqual({
+      ok: true,
+      buildId: "build-ready",
+      servedFrontendBuildId: "build-ready",
+    });
+  });
+
+  it("preserves missing backend and served identities for fail-closed diagnosis", async () => {
+    mockFetch.mockResolvedValueOnce(mockResponse({ ok: true, buildId: null, servedFrontendBuildId: "build-served" }));
+
+    await expect(checkHealthStatus()).resolves.toEqual({
+      ok: true,
+      buildId: null,
+      servedFrontendBuildId: "build-served",
+    });
   });
 
   it("preserves the boolean readiness helper for existing callers", async () => {

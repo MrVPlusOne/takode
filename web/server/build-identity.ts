@@ -21,6 +21,11 @@ export interface TakodeBuildEnvironment {
   TAKODE_BUILD_ID?: string;
 }
 
+export interface TakodeRuntimeBuildIdentity {
+  backendBuildId: string | null;
+  servedFrontendBuildId: string | null;
+}
+
 /** Normalizes an opaque build ID, rejecting values unsafe for compact JSON and logs. */
 export function normalizeTakodeBuildId(value: unknown): string | null {
   if (typeof value !== "string") return null;

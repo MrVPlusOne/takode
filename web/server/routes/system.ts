@@ -37,7 +37,7 @@ import type { VsCodeSelectionState, VsCodeWindowState } from "../session-types.j
 import { trafficStats } from "../traffic-stats.js";
 import { loadCodexModelCatalog } from "../codex-model-catalog.js";
 import type { FrontendAvailability } from "../frontend-availability.js";
-import { getTakodeProcessBuildId } from "../build-identity.js";
+import { getTakodeProcessBuildId, TAKODE_DEVELOPMENT_BUILD_ID } from "../build-identity.js";
 
 function getCodexModelVariantRank(slug: string): number {
   if (slug.includes("-codex-spark")) return 2;
@@ -246,12 +246,21 @@ export function createSystemRoutes(ctx: RouteContext) {
   const bridgeAny = wsBridge as any;
   const browserTransportState = () => bridgeAny.getBrowserTransportState?.() ?? bridgeAny.browserTransportState;
   const browserTransportDeps = () => bridgeAny.getBrowserTransportDeps?.();
+  const buildIdentity = ctx.options?.buildIdentity ?? {
+    backendBuildId: getTakodeProcessBuildId(),
+    servedFrontendBuildId: process.env.NODE_ENV === "production" ? null : TAKODE_DEVELOPMENT_BUILD_ID,
+  };
 
   // ─── Health ─────────────────────────────────────────────────────────
 
   api.get("/health", (c) => {
     c.header("Cache-Control", "no-store");
-    return c.json({ ok: true, timestamp: Date.now(), buildId: getTakodeProcessBuildId() });
+    return c.json({
+      ok: true,
+      timestamp: Date.now(),
+      buildId: buildIdentity.backendBuildId,
+      servedFrontendBuildId: buildIdentity.servedFrontendBuildId,
+    });
   });
 
   api.get("/ready", async (c) => {
@@ -269,7 +278,8 @@ export function createSystemRoutes(ctx: RouteContext) {
       {
         ok: frontend.ready,
         timestamp: Date.now(),
-        buildId: getTakodeProcessBuildId(),
+        buildId: buildIdentity.backendBuildId,
+        servedFrontendBuildId: buildIdentity.servedFrontendBuildId,
         frontend,
       },
       frontend.ready ? 200 : 503,

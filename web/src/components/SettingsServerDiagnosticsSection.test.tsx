@@ -91,6 +91,22 @@ describe("SettingsServerDiagnosticsSection", () => {
     expect(screen.queryByRole("button", { name: "Interrupt Restart Blockers" })).not.toBeInTheDocument();
   });
 
+  it("disables the child restart path when the resident supervisor lacks current handoff support", () => {
+    render(
+      <SettingsServerDiagnosticsSection
+        logFile=""
+        {...serverSlugProps}
+        restartSupported={false}
+        restartError=""
+        restarting={false}
+        onRestartServer={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Restart not available.", { exact: false })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restart Server" })).toBeDisabled();
+  });
+
   it("does not present active restart-prep herd delivery tracking counts as final", () => {
     render(
       <SettingsServerDiagnosticsSection

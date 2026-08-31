@@ -13,7 +13,7 @@ import {
   type InterruptRestartBlockersResponse,
 } from "../api.js";
 import { useStore, COLOR_THEMES } from "../store.js";
-import { observeBackendBuildId } from "../build-compatibility.js";
+import { beginBuildIdentityObservation, observeServerBuildIdentity } from "../build-compatibility.js";
 import { createShortcutGestureRecorder, type ShortcutActionId } from "../shortcuts.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
 import { CollapsibleSection, isCollapsibleSectionCollapsed } from "./CollapsibleSection.js";
@@ -651,9 +651,10 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
     // A new backend build is surfaced through the persistent global Reload
     // notice; never replace the page while the user may be typing or reading.
     healthPollRef.current = setInterval(async () => {
+      const observationSequence = beginBuildIdentityObservation();
       const readiness = await checkReadinessStatus();
       if (readiness.ok) {
-        observeBackendBuildId(readiness.buildId);
+        observeServerBuildIdentity(readiness.buildId, readiness.servedFrontendBuildId, observationSequence);
         if (healthPollRef.current) clearInterval(healthPollRef.current);
         if (healthTimeoutRef.current) clearTimeout(healthTimeoutRef.current);
         healthPollRef.current = null;

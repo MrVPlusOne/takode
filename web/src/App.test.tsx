@@ -195,7 +195,9 @@ vi.mock("./store.js", () => {
   };
 });
 
-const mockCheckHealthStatus = vi.fn().mockResolvedValue({ ok: true, buildId: "development" });
+const mockCheckHealthStatus = vi
+  .fn()
+  .mockResolvedValue({ ok: true, buildId: "development", servedFrontendBuildId: "development" });
 const mockMarkSessionRead = vi.fn().mockResolvedValue({ ok: true });
 const mockListSessions = vi.fn().mockResolvedValue([]);
 const mockSearchSessions = vi.fn().mockResolvedValue({ query: "", tookMs: 0, totalMatches: 0, results: [] });
@@ -381,7 +383,7 @@ beforeEach(() => {
   mockListSessions.mockResolvedValue([]);
   mockSearchSessions.mockResolvedValue({ query: "", tookMs: 0, totalMatches: 0, results: [] });
   mockRefreshSessionGitStatus.mockResolvedValue({ ok: true });
-  mockCheckHealthStatus.mockResolvedValue({ ok: true, buildId: "development" });
+  mockCheckHealthStatus.mockResolvedValue({ ok: true, buildId: "development", servedFrontendBuildId: "development" });
   resetBuildCompatibilityForTest();
   setViewportWidth(1024);
   resetStore();
@@ -832,7 +834,11 @@ describe("App hidden panels", () => {
 
   it("does not republish unchanged health state on a successful poll", async () => {
     resetStore({ serverReachable: true });
-    mockCheckHealthStatus.mockResolvedValueOnce({ ok: true, buildId: "development" });
+    mockCheckHealthStatus.mockResolvedValueOnce({
+      ok: true,
+      buildId: "development",
+      servedFrontendBuildId: "development",
+    });
 
     render(<App />);
 
@@ -842,7 +848,11 @@ describe("App hidden panels", () => {
 
   it("marks the server reachable when a successful poll recovers from unreachable state", async () => {
     resetStore({ serverReachable: false });
-    mockCheckHealthStatus.mockResolvedValueOnce({ ok: true, buildId: "development" });
+    mockCheckHealthStatus.mockResolvedValueOnce({
+      ok: true,
+      buildId: "development",
+      servedFrontendBuildId: "development",
+    });
 
     render(<App />);
 
@@ -857,19 +867,38 @@ describe("App hidden panels", () => {
   });
 
   it("shows the Reload notice when the initial health response has a different build", async () => {
-    mockCheckHealthStatus.mockResolvedValueOnce({ ok: true, buildId: "new-backend-build" });
+    mockCheckHealthStatus.mockResolvedValueOnce({
+      ok: true,
+      buildId: "new-backend-build",
+      servedFrontendBuildId: "new-backend-build",
+    });
 
     render(<App />);
 
     expect(await screen.findByRole("alert", { name: "Frontend update required" })).toBeInTheDocument();
   });
 
+  it("diagnoses an identity-less backend without offering a Reload loop", async () => {
+    mockCheckHealthStatus.mockResolvedValueOnce({
+      ok: true,
+      buildId: null,
+      servedFrontendBuildId: "development",
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("alert", { name: "Takode restart required" })).toHaveTextContent(
+      "backend has no build identity",
+    );
+    expect(screen.queryByRole("button", { name: "Reload" })).toBeNull();
+  });
+
   it("lets a successful WebSocket recheck reset liveness failure accounting", async () => {
     // A reconnect proves the backend recovered; the next isolated poll failure must not be treated as two consecutive failures.
     mockCheckHealthStatus
-      .mockResolvedValueOnce({ ok: false, buildId: null })
-      .mockResolvedValueOnce({ ok: true, buildId: "development" })
-      .mockResolvedValueOnce({ ok: false, buildId: null });
+      .mockResolvedValueOnce({ ok: false, buildId: null, servedFrontendBuildId: null })
+      .mockResolvedValueOnce({ ok: true, buildId: "development", servedFrontendBuildId: "development" })
+      .mockResolvedValueOnce({ ok: false, buildId: null, servedFrontendBuildId: null });
 
     vi.useFakeTimers();
     try {
@@ -899,7 +928,11 @@ describe("App hidden panels", () => {
     await waitFor(() => expect(mockCheckHealthStatus).toHaveBeenCalledTimes(1));
     expect(screen.queryByTestId("build-mismatch-notice")).toBeNull();
 
-    mockCheckHealthStatus.mockResolvedValueOnce({ ok: true, buildId: "backend-after-reconnect" });
+    mockCheckHealthStatus.mockResolvedValueOnce({
+      ok: true,
+      buildId: "backend-after-reconnect",
+      servedFrontendBuildId: "backend-after-reconnect",
+    });
     window.dispatchEvent(new Event(BACKEND_CONNECTION_OPEN_EVENT));
 
     expect(await screen.findByRole("alert", { name: "Frontend update required" })).toBeInTheDocument();

@@ -22,7 +22,9 @@ vi.mock("./api.js", () => ({
     markNotificationDone: vi.fn().mockResolvedValue({ ok: true }),
     updateLeaderProfilePortrait: vi.fn(),
   },
-  checkHealthStatus: vi.fn().mockResolvedValue({ ok: true, buildId: "development" }),
+  checkHealthStatus: vi
+    .fn()
+    .mockResolvedValue({ ok: true, buildId: "development", servedFrontendBuildId: "development" }),
 }));
 
 vi.mock("./ws.js", () => ({

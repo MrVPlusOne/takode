@@ -12,6 +12,7 @@ import type { TerminalManager } from "../terminal-manager.js";
 import type { PerfTracer } from "../perf-tracer.js";
 import type { FrontendAvailabilityChecker } from "../frontend-availability.js";
 import type { PreparedFrontendRestart } from "../frontend-restart-preparation.js";
+import type { TakodeRuntimeBuildIdentity } from "../build-identity.js";
 import { GIT_CMD_TIMEOUT } from "../constants.js";
 import { validateCompanionAuth } from "./auth.js";
 import { createSessionsRoutes } from "./sessions.js";
@@ -163,6 +164,8 @@ export function createRoutes(
   options?: {
     requestRestart?: () => void;
     prepareRestart?: () => Promise<PreparedFrontendRestart>;
+    restartSupported?: boolean;
+    buildIdentity?: TakodeRuntimeBuildIdentity;
     codexSidecarRegistry?: import("../codex-sidecar-auth.js").CodexSidecarRegistry;
     checkFrontendAvailability?: FrontendAvailabilityChecker;
   },

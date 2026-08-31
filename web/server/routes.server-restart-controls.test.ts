@@ -208,6 +208,27 @@ describe("server restart controls", () => {
     expect(discardPreparedRestart).not.toHaveBeenCalled();
   });
 
+  it("rejects restart before interruption when the resident supervisor lacks current handoff capability", async () => {
+    const staleSupervisorApp = new Hono();
+    staleSupervisorApp.route(
+      "/api",
+      createSettingsRoutes({
+        launcher,
+        wsBridge: bridge,
+        sessionStore: { directory: tempDir },
+        options: { requestRestart, restartSupported: false },
+        pushoverNotifier: undefined,
+      } as any),
+    );
+
+    const res = await staleSupervisorApp.request("/api/server/restart", { method: "POST" });
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({ error: "Restart not supported in this mode" });
+    expect(launcher.listSessions).not.toHaveBeenCalled();
+    expect(requestRestart).not.toHaveBeenCalled();
+  });
+
   it("rejects a concurrent restart while the first production candidate is still building", async () => {
     let releasePreparation!: () => void;
     const preparationGate = new Promise<void>((resolvePromise) => {

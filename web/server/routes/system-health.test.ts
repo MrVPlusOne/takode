@@ -1,10 +1,14 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { FrontendAvailabilityChecker } from "../frontend-availability.js";
+import type { TakodeRuntimeBuildIdentity } from "../build-identity.js";
 import { createSystemRoutes } from "./system.js";
 import type { RouteContext } from "./context.js";
 
-function createTestApp(checkFrontendAvailability?: FrontendAvailabilityChecker): Hono {
+function createTestApp(
+  checkFrontendAvailability?: FrontendAvailabilityChecker,
+  buildIdentity?: TakodeRuntimeBuildIdentity,
+): Hono {
   const app = new Hono();
   app.route(
     "/api",
@@ -29,6 +33,7 @@ function createTestApp(checkFrontendAvailability?: FrontendAvailabilityChecker):
         uiMode: "agent",
       }),
       checkFrontendAvailability,
+      options: buildIdentity ? { buildIdentity } : undefined,
     } as unknown as RouteContext),
   );
   return app;
@@ -47,7 +52,11 @@ describe("system health and readiness routes", () => {
     const healthResponse = await app.request("/api/health");
     expect(healthResponse.status).toBe(200);
     expect(healthResponse.headers.get("Cache-Control")).toBe("no-store");
-    expect(await healthResponse.json()).toMatchObject({ ok: true, buildId: "development" });
+    expect(await healthResponse.json()).toMatchObject({
+      ok: true,
+      buildId: "development",
+      servedFrontendBuildId: "development",
+    });
     expect(checker).not.toHaveBeenCalled();
 
     const readyResponse = await app.request("/api/ready");
@@ -56,6 +65,7 @@ describe("system health and readiness routes", () => {
     expect(await readyResponse.json()).toMatchObject({
       ok: false,
       buildId: "development",
+      servedFrontendBuildId: "development",
       frontend: {
         required: true,
         ready: false,
@@ -73,7 +83,31 @@ describe("system health and readiness routes", () => {
     expect(await response.json()).toMatchObject({
       ok: true,
       buildId: "development",
+      servedFrontendBuildId: "development",
       frontend: { required: true, ready: true, reason: "ready" },
+    });
+  });
+
+  it("reports the backend and served frontend identities independently", async () => {
+    const app = createTestApp(async () => ({ required: true, ready: true, reason: "ready" }), {
+      backendBuildId: null,
+      servedFrontendBuildId: "build-served",
+    });
+
+    const healthResponse = await app.request("/api/health");
+    expect(await healthResponse.json()).toMatchObject({
+      ok: true,
+      buildId: null,
+      servedFrontendBuildId: "build-served",
+    });
+
+    const readyResponse = await app.request("/api/ready");
+    expect(readyResponse.status).toBe(200);
+    expect(await readyResponse.json()).toMatchObject({
+      ok: true,
+      buildId: null,
+      servedFrontendBuildId: "build-served",
+      frontend: { ready: true },
     });
   });
 

@@ -92,7 +92,9 @@ const mockApi = {
   getAutoApprovalLogs: vi.fn().mockResolvedValue([]),
   getAutoApprovalLogEntry: vi.fn(),
 };
-const mockCheckReadinessStatus = vi.fn().mockResolvedValue({ ok: true, buildId: "development" });
+const mockCheckReadinessStatus = vi
+  .fn()
+  .mockResolvedValue({ ok: true, buildId: "development", servedFrontendBuildId: "development" });
 
 const mockApiErrorClass = vi.hoisted(
   () =>
@@ -200,7 +202,11 @@ beforeEach(() => {
   });
   mockApi.getBackendModels.mockResolvedValue([]);
   mockApi.restartServer.mockResolvedValue({ ok: true });
-  mockCheckReadinessStatus.mockResolvedValue({ ok: true, buildId: "development" });
+  mockCheckReadinessStatus.mockResolvedValue({
+    ok: true,
+    buildId: "development",
+    servedFrontendBuildId: "development",
+  });
   resetBuildCompatibilityForTest();
   mockApi.updateSettings.mockResolvedValue({
     serverName: "",
@@ -308,7 +314,11 @@ describe("SettingsPage", () => {
 
   it("clears the restart overlay without auto-reloading and surfaces a new backend build", async () => {
     vi.useFakeTimers();
-    mockCheckReadinessStatus.mockResolvedValue({ ok: true, buildId: "backend-after-restart" });
+    mockCheckReadinessStatus.mockResolvedValue({
+      ok: true,
+      buildId: "backend-after-restart",
+      servedFrontendBuildId: "backend-after-restart",
+    });
     vi.spyOn(window, "confirm").mockReturnValue(true);
 
     try {
@@ -331,7 +341,8 @@ describe("SettingsPage", () => {
       expect(screen.getByRole("button", { name: "Restart Server" })).toBeEnabled();
       expect(getBuildCompatibilitySnapshot()).toMatchObject({
         backendBuildId: "backend-after-restart",
-        status: "mismatch",
+        servedFrontendBuildId: "backend-after-restart",
+        status: "reload-required",
       });
     } finally {
       vi.useRealTimers();

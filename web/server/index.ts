@@ -55,6 +55,7 @@ import { resumeRestartContinuations } from "./restart-continuation-store.js";
 import { requestStartupRecoveryRelaunch, runStartupRecovery } from "./startup-recovery.js";
 import { getStaticAssetCacheControl } from "./static-asset-cache.js";
 import { checkFrontendAvailability } from "./frontend-availability.js";
+import { getTakodeProcessBuildId, readTakodeBuildManifest, TAKODE_DEVELOPMENT_BUILD_ID } from "./build-identity.js";
 import {
   COMPANION_FRONTEND_RUNTIME_ROOT_ENV,
   createProductionFrontendRestartPreparer,
@@ -143,13 +144,9 @@ const productionFrontendRestartController = (() => {
     },
   });
 })();
-const prepareProductionFrontendRestart =
-  productionFrontendRestartController?.prepare ??
-  (frontendRequired && process.env.COMPANION_SUPERVISED
-    ? async () => {
-        throw new Error("Supervised production restart is missing its frontend runtime root");
-      }
-    : undefined);
+const prepareProductionFrontendRestart = productionFrontendRestartController?.prepare;
+const restartSupported =
+  Boolean(process.env.COMPANION_SUPERVISED) && (!frontendRequired || Boolean(productionFrontendRestartController));
 
 // Initialize file-based logging before anything else logs
 initServerLogger(port);
@@ -162,6 +159,28 @@ if (frontendRequired && !startupFrontendAvailability.ready) {
   });
 } else if (frontendRequired) {
   serverLog.info("Production frontend readiness verified");
+}
+const servedFrontendBuildId = frontendRequired
+  ? await readTakodeBuildManifest(frontendRoot)
+      .then((manifest) => manifest.buildId)
+      .catch((error: unknown) => {
+        serverLog.warn("Production frontend build identity is unavailable", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      })
+  : TAKODE_DEVELOPMENT_BUILD_ID;
+const runtimeBuildIdentity = {
+  backendBuildId: getTakodeProcessBuildId(),
+  servedFrontendBuildId,
+};
+if (
+  frontendRequired &&
+  (runtimeBuildIdentity.backendBuildId === null ||
+    runtimeBuildIdentity.servedFrontendBuildId === null ||
+    runtimeBuildIdentity.backendBuildId !== runtimeBuildIdentity.servedFrontendBuildId)
+) {
+  serverLog.warn("Production frontend/backend build identity is not a compatible pair", runtimeBuildIdentity);
 }
 
 await initWithPort(port);
@@ -915,6 +934,8 @@ app.route(
     {
       requestRestart,
       prepareRestart: prepareProductionFrontendRestart,
+      restartSupported,
+      buildIdentity: runtimeBuildIdentity,
       codexSidecarRegistry,
       checkFrontendAvailability: checkCurrentFrontendAvailability,
     },
