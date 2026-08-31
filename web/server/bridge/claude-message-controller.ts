@@ -23,6 +23,7 @@ import type {
   ToolResultPreview,
   ActiveTurnRoute,
   ThreadRef,
+  ThreadTransitionMarker,
 } from "../session-types.js";
 import {
   computeContextUsedPercent,
@@ -169,10 +170,21 @@ interface HandleAssistantMessageDeps {
     options?: BroadcastOptions,
   ) => void;
   persistSession: (session: AssistantMessageSessionLike) => void;
+  promoteLeaderThreadTabForTransition?: (sessionId: string, marker: ThreadTransitionMarker) => boolean;
   onToolUseObserved?: (
     session: AssistantMessageSessionLike,
     toolUse: Extract<ContentBlock, { type: "tool_use" }>,
   ) => void;
+}
+
+function publishThreadTransitionMarker(
+  session: AssistantMessageSessionLike,
+  marker: ThreadTransitionMarker | null,
+  deps: Pick<HandleAssistantMessageDeps, "broadcastToBrowsers" | "promoteLeaderThreadTabForTransition">,
+): void {
+  if (!marker) return;
+  deps.promoteLeaderThreadTabForTransition?.(session.id, marker);
+  deps.broadcastToBrowsers(session, marker);
 }
 
 interface HandleAssistantRuntimeDeps extends HandleAssistantMessageDeps {
@@ -525,16 +537,10 @@ export function handleAssistantMessage(
         session.messageHistory,
         normalizeThreadRoute(routed.threadKey, routed.questId),
       );
-      if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
+      publishThreadTransitionMarker(session, transitionMarker, deps);
       session.messageHistory.push(browserMsg);
       deps.broadcastToBrowsers(session, browserMsg);
       recordThreadReadyUnreadNotifications(session, threadStatusRecords, deps);
-      if (statusUpdate.changed) {
-        deps.broadcastToBrowsers(session, {
-          type: "session_update",
-          session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
-        });
-      }
       updateActiveTurnRouteFromLeaderAssistant(session, route, deps);
     }
     maybeUpdateContextUsedPercentFromAssistantUsage(
@@ -621,16 +627,10 @@ export function handleAssistantMessage(
         session.messageHistory,
         normalizeThreadRoute(routed.threadKey, routed.questId),
       );
-      if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
+      publishThreadTransitionMarker(session, transitionMarker, deps);
       session.messageHistory.push(browserMsg);
       deps.broadcastToBrowsers(session, browserMsg);
       recordThreadReadyUnreadNotifications(session, threadStatusRecords, deps);
-      if (statusUpdate.changed) {
-        deps.broadcastToBrowsers(session, {
-          type: "session_update",
-          session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
-        });
-      }
       updateActiveTurnRouteFromLeaderAssistant(session, route, deps);
     }
     session.assistantAccumulator.set(msgId, {
@@ -734,12 +734,6 @@ export function handleAssistantMessage(
       { skipBuffer: true },
     );
     recordThreadReadyUnreadNotifications(session, threadStatusRecords, deps);
-    if (statusUpdate.changed) {
-      deps.broadcastToBrowsers(session, {
-        type: "session_update",
-        session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
-      });
-    }
     updateActiveTurnRouteFromLeaderAssistant(session, historyEntryRoute, deps);
   }
 
@@ -1150,7 +1144,12 @@ export function createClaudeMessageHandlers(
   deps: SystemMessageDeps &
     Pick<
       HandleAssistantRuntimeDeps,
-      "hasAssistantReplay" | "broadcastToBrowsers" | "persistSession" | "setGenerating" | "onToolUseObserved"
+      | "hasAssistantReplay"
+      | "broadcastToBrowsers"
+      | "persistSession"
+      | "setGenerating"
+      | "onToolUseObserved"
+      | "promoteLeaderThreadTabForTransition"
     > &
     ResultMessageDeps &
     ClaudeCliUserMessageDeps,
@@ -1189,6 +1188,7 @@ export function createClaudeMessageHandlers(
     getLauncherSessionInfo: deps.getLauncherSessionInfo,
     broadcastToBrowsers: deps.broadcastToBrowsers,
     persistSession: deps.persistSession,
+    promoteLeaderThreadTabForTransition: deps.promoteLeaderThreadTabForTransition,
     setGenerating: deps.setGenerating,
     onToolUseObserved: deps.onToolUseObserved,
     broadcastStatusRunning: (session) =>

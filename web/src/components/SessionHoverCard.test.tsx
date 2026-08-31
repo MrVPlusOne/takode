@@ -10,6 +10,11 @@ import {
   type SessionAttentionProjectionValue,
 } from "../../shared/session-attention-projection.js";
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
+import { LEADER_THREAD_TABS_PROJECTION } from "../../shared/leader-thread-tabs-projection.js";
+import {
+  createLeaderThreadTabsProjectionTab,
+  createLeaderThreadTabsProjectionValue,
+} from "../test-fixtures/leader-thread-tabs-projection.js";
 import { sessionNavigationProjectionToSessionFields } from "../../shared/session-navigation-projection.js";
 import { createSessionNavigationProjectionValue } from "../test-fixtures/session-navigation-projection.js";
 
@@ -144,6 +149,18 @@ function setSessionAttentionProjection(sessionId: string, value: SessionAttentio
   const entryId = syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, sessionId);
   mockStoreState.syncedProjectionKeys.add(entryId);
   mockStoreState.syncedProjectionValues.set(entryId, value);
+}
+
+function setLeaderTabsProjection(
+  sessionId: string,
+  tabs: ReturnType<typeof createLeaderThreadTabsProjectionTab>[],
+): void {
+  const entryId = syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, sessionId);
+  mockStoreState.syncedProjectionKeys.add(entryId);
+  mockStoreState.syncedProjectionValues.set(
+    entryId,
+    createLeaderThreadTabsProjectionValue({ tabs, mainAttention: {}, threadStatuses: {}, activePhaseSummary: [] }),
+  );
 }
 
 describe("SessionHoverCard", () => {
@@ -500,7 +517,7 @@ describe("SessionHoverCard", () => {
     expect(within(status).getByTestId("session-hover-attention-status-dot")).toHaveClass("bg-blue-500");
   });
 
-  it("does not show unread text for a loaded review whose leader thread is closed", () => {
+  it("does not show unread text after the projected leader review is cleared", () => {
     mockStoreState.sessionNotifications.set("s1", [
       {
         id: "n-review",
@@ -529,6 +546,7 @@ describe("SessionHoverCard", () => {
       },
     ];
 
+    setSessionAttentionProjection("s1", { attentionReason: null, status: null });
     render(
       <SessionHoverCard
         session={makeSession({ isOrchestrator: true, notificationUrgency: "review", activeNotificationCount: 1 })}
@@ -571,7 +589,7 @@ describe("SessionHoverCard", () => {
     expect(screen.queryByTestId("session-hover-attention-status")).toBeNull();
   });
 
-  it("explains muted gray when a leader review notification belongs to a closed thread", () => {
+  it("uses projected muted attention ahead of a stale leader review summary", () => {
     // Closed leader review tabs are filtered before deriving the sidebar marker.
     // The hover explanation must therefore describe the visible muted marker,
     // not the raw unresolved review notification.
@@ -612,6 +630,10 @@ describe("SessionHoverCard", () => {
       },
     ];
 
+    setSessionAttentionProjection("s1", {
+      attentionReason: null,
+      status: { urgency: "muted-needs-input", count: 1 },
+    });
     render(
       <SessionHoverCard
         session={makeSession({ isOrchestrator: true })}
@@ -1273,7 +1295,7 @@ describe("SessionHoverCard", () => {
     expect(screen.getByText("git worktree remove failed")).toBeInTheDocument();
   });
 
-  it("shows active board quests for leader sessions instead of herding chips or task history", () => {
+  it("shows projected active quests for leaders instead of herding chips or task history", () => {
     mockStoreState.sdkSessions = [
       {
         sessionId: "worker-1",
@@ -1325,6 +1347,35 @@ describe("SessionHoverCard", () => {
           },
         ],
       ],
+    ]);
+
+    setLeaderTabsProjection("s1", [
+      createLeaderThreadTabsProjectionTab("q-100", {
+        title: "Implement the leader hover active quest list with a title long enough to truncate",
+        boardStatus: "WORKING",
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "work",
+          activePhaseIndex: 1,
+          phaseCount: 3,
+        },
+        active: true,
+        canClose: false,
+      }),
+      createLeaderThreadTabsProjectionTab("q-200", {
+        title: null,
+        boardStatus: "PLANNING",
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "alignment",
+          activePhaseIndex: 0,
+          phaseCount: 3,
+        },
+        active: true,
+        canClose: false,
+      }),
     ]);
 
     try {
@@ -1390,7 +1441,7 @@ describe("SessionHoverCard", () => {
     }
   });
 
-  it("shows leader active quests from session-list snapshots when live board rows are not loaded", () => {
+  it("shows synchronized leader active quests with or without loaded board detail", () => {
     mockStoreState.quests = [
       {
         questId: "q-snapshot",
@@ -1417,6 +1468,22 @@ describe("SessionHoverCard", () => {
       ],
     ]);
 
+    setLeaderTabsProjection("torchflow-leader", [
+      createLeaderThreadTabsProjectionTab("q-live", {
+        title: "Torchflow live active quest",
+        boardStatus: "IMPLEMENTING",
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "work"],
+          currentPhaseId: "work",
+          activePhaseIndex: 1,
+          phaseCount: 2,
+        },
+        active: true,
+        canClose: false,
+      }),
+    ]);
+
     const live = render(
       <SessionHoverCard
         session={makeSession({ id: "torchflow-leader", isOrchestrator: true })}
@@ -1434,21 +1501,24 @@ describe("SessionHoverCard", () => {
     live.unmount();
 
     mockStoreState.sessionBoards = new Map();
+    setLeaderTabsProjection("other-leader", [
+      createLeaderThreadTabsProjectionTab("q-snapshot", {
+        title: null,
+        boardStatus: "PLANNING",
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "work"],
+          currentPhaseId: "alignment",
+          activePhaseIndex: 0,
+          phaseCount: 2,
+        },
+        active: true,
+        canClose: false,
+      }),
+    ]);
     render(
       <SessionHoverCard
-        session={makeSession({
-          id: "other-leader",
-          isOrchestrator: true,
-          leaderActiveBoardRows: [
-            {
-              questId: "q-snapshot",
-              status: "PLANNING",
-              createdAt: 1,
-              updatedAt: 2,
-              journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "alignment" },
-            },
-          ],
-        })}
+        session={makeSession({ id: "other-leader", isOrchestrator: true })}
         sessionName="Other Leader"
         sessionPreview={undefined}
         taskHistory={undefined}

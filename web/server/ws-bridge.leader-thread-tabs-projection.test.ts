@@ -10,7 +10,11 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
   return { ...original, shouldSettingsRuleApprove: mockShouldSettingsRuleApprove };
 });
 
-import { LEADER_THREAD_TABS_PROJECTION } from "../shared/leader-thread-tabs-projection.js";
+import {
+  applyLeaderThreadTabsProjectionPatch,
+  LEADER_THREAD_TABS_PROJECTION,
+  type LeaderThreadTabsProjectionValue,
+} from "../shared/leader-thread-tabs-projection.js";
 import { parseThreadStatusMarkerLine } from "../shared/thread-status-marker.js";
 import { removeBoardRows, upsertBoardRow } from "./bridge/board-watchdog-controller.js";
 import { notifyUser } from "./bridge/session-notification-controller.js";
@@ -36,6 +40,19 @@ function projectionMessages(socket: ReturnType<typeof browserSocket>, type = "sy
   return messages(socket).filter(
     (message) => message.type === type && message.projection === LEADER_THREAD_TABS_PROJECTION,
   );
+}
+
+function applyProjectionMessages(
+  previous: LeaderThreadTabsProjectionValue,
+  updates: Array<Record<string, any>>,
+): LeaderThreadTabsProjectionValue {
+  return updates.reduce<LeaderThreadTabsProjectionValue>((value, update) => {
+    const next = Object.hasOwn(update, "value")
+      ? (update.value as LeaderThreadTabsProjectionValue)
+      : applyLeaderThreadTabsProjectionPatch(value, update.patch);
+    expect(next).toBeDefined();
+    return next!;
+  }, previous);
 }
 
 function boardDeps(bridge: WsBridge) {
@@ -126,8 +143,12 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
         revision: 1,
         value: { tabState: null, tabs: [], threadStatuses: {}, activePhaseSummary: [] },
       });
+      expect(initial[stateIndex]).not.toHaveProperty("leaderActivePhaseSummary");
+      expect(initial[stateIndex]).not.toHaveProperty("leaderThreadStatuses");
     }
-    const generation = projectionMessages(first, "synced_projection_snapshot")[0]!.generation as string;
+    const initialSnapshot = projectionMessages(first, "synced_projection_snapshot")[0]!;
+    const generation = initialSnapshot.generation as string;
+    let projectedValue = initialSnapshot.value as LeaderThreadTabsProjectionValue;
     first.send.mockClear();
     second.send.mockClear();
 
@@ -144,7 +165,11 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     expect(firstUpdates[0]).toMatchObject({
       generation,
       revision: 2,
-      value: { tabState: { orderedOpenThreadKeys: ["q-1"] }, tabs: [{ threadKey: "q-1" }] },
+    });
+    projectedValue = applyProjectionMessages(projectedValue, firstUpdates);
+    expect(projectedValue).toMatchObject({
+      tabState: { version: 1 },
+      tabs: [{ threadKey: "q-1" }],
     });
 
     first.send.mockClear();
@@ -166,14 +191,11 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     secondUpdates = projectionMessages(second);
     expect(firstUpdates).toHaveLength(3);
     expect(secondUpdates).toEqual(firstUpdates);
-    expect(firstUpdates.at(-1)).toMatchObject({
-      revision: 5,
-      value: {
-        tabState: {
-          orderedOpenThreadKeys: ["q-2"],
-          closedThreadTombstones: [expect.objectContaining({ threadKey: "q-1", closedAt: 40 })],
-        },
-      },
+    expect(firstUpdates.at(-1)).toMatchObject({ revision: 5 });
+    projectedValue = applyProjectionMessages(projectedValue, firstUpdates);
+    expect(projectedValue).toMatchObject({
+      tabState: { version: 1 },
+      tabs: [{ threadKey: "q-2" }],
     });
 
     first.send.mockClear();
@@ -187,14 +209,13 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     secondUpdates = projectionMessages(second);
     expect(firstUpdates).toHaveLength(1);
     expect(secondUpdates).toEqual(firstUpdates);
-    expect(firstUpdates[0]).toMatchObject({
-      revision: 6,
-      value: {
-        tabState: { orderedOpenThreadKeys: ["q-3", "q-2"] },
-        tabs: expect.arrayContaining([
-          expect.objectContaining({ threadKey: "q-3", attention: expect.objectContaining({ needsInput: true }) }),
-        ]),
-      },
+    expect(firstUpdates[0]).toMatchObject({ revision: 6 });
+    projectedValue = applyProjectionMessages(projectedValue, firstUpdates);
+    expect(projectedValue).toMatchObject({
+      tabState: { version: 1 },
+      tabs: expect.arrayContaining([
+        expect.objectContaining({ threadKey: "q-3", attention: expect.objectContaining({ needsInput: true }) }),
+      ]),
     });
 
     first.send.mockClear();
@@ -214,21 +235,20 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     firstUpdates = projectionMessages(first);
     expect(firstUpdates).toHaveLength(1);
     expect(projectionMessages(second)).toEqual(firstUpdates);
-    expect(firstUpdates[0]).toMatchObject({
-      revision: 7,
-      value: {
-        tabs: expect.arrayContaining([
-          expect.objectContaining({
-            threadKey: "q-3",
-            title: "Projected board row",
-            boardStatus: "WORKING",
-            active: true,
-            canClose: false,
-            journey: expect.objectContaining({ currentPhaseId: "work", activePhaseIndex: 1, phaseCount: 3 }),
-          }),
-        ]),
-        activePhaseSummary: [expect.objectContaining({ label: "Work", count: 1, tone: "phase" })],
-      },
+    expect(firstUpdates[0]).toMatchObject({ revision: 7 });
+    projectedValue = applyProjectionMessages(projectedValue, firstUpdates);
+    expect(projectedValue).toMatchObject({
+      tabs: expect.arrayContaining([
+        expect.objectContaining({
+          threadKey: "q-3",
+          title: "Projected board row",
+          boardStatus: "WORKING",
+          active: true,
+          canClose: false,
+          journey: expect.objectContaining({ currentPhaseId: "work", activePhaseIndex: 1, phaseCount: 3 }),
+        }),
+      ]),
+      activePhaseSummary: [expect.objectContaining({ label: "Work", count: 1, tone: "phase" })],
     });
 
     first.send.mockClear();
@@ -240,12 +260,11 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     firstUpdates = projectionMessages(first);
     expect(firstUpdates).toHaveLength(1);
     expect(projectionMessages(second)).toEqual(firstUpdates);
-    expect(firstUpdates[0]).toMatchObject({
-      revision: 8,
-      value: {
-        threadStatuses: {
-          "q-3": expect.objectContaining({ kind: "waiting", summary: "waiting on final validation" }),
-        },
+    expect(firstUpdates[0]).toMatchObject({ revision: 8 });
+    projectedValue = applyProjectionMessages(projectedValue, firstUpdates);
+    expect(projectedValue).toMatchObject({
+      threadStatuses: {
+        "q-3": expect.objectContaining({ kind: "waiting", summary: "waiting on final validation" }),
       },
     });
 
@@ -285,7 +304,8 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
         generation,
         revision: 8,
         value: expect.objectContaining({
-          tabState: expect.objectContaining({ orderedOpenThreadKeys: ["q-3", "q-2"] }),
+          tabState: { version: 1 },
+          tabs: expect.arrayContaining([expect.objectContaining({ threadKey: "q-3" })]),
           threadStatuses: { "q-3": expect.objectContaining({ kind: "waiting" }) },
         }),
       }),
@@ -337,6 +357,8 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     unrelatedCarrier.browserSockets.add(unrelatedSocket);
     await subscribe(bridge, openSocket, openLeader.id);
     await subscribe(bridge, unrelatedSocket, unrelatedLeader.id);
+    let openValue = projectionMessages(openSocket, "synced_projection_snapshot")[0]!
+      .value as LeaderThreadTabsProjectionValue;
     openSocket.send.mockClear();
     unrelatedSocket.send.mockClear();
 
@@ -350,13 +372,12 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     sourceLeader.searchDataOnly = true;
     bridge.broadcastGlobal({ type: "session_archived", session_id: sourceLeader.id });
     await controller.flushForTest();
-    expect(projectionMessages(openSocket)).toEqual([
-      expect.objectContaining({
-        value: expect.objectContaining({
-          tabs: [expect.objectContaining({ threadKey: "q-1", active: false, sourceLeaderSessionId: null })],
-        }),
-      }),
-    ]);
+    const openUpdates = projectionMessages(openSocket);
+    expect(openUpdates).toHaveLength(1);
+    openValue = applyProjectionMessages(openValue, openUpdates);
+    expect(openValue).toMatchObject({
+      tabs: [expect.objectContaining({ threadKey: "q-1", active: false, sourceLeaderSessionId: null })],
+    });
     expect(projectionMessages(unrelatedSocket)).toEqual([]);
   });
 
@@ -449,6 +470,7 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
       },
     });
     const generation = initial[0]!.generation as string;
+    let projectedValue = initial[0]!.value as LeaderThreadTabsProjectionValue;
     first.send.mockClear();
     second.send.mockClear();
 
@@ -475,20 +497,19 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     const memoryUpdates = projectionMessages(first);
     expect(memoryUpdates).toHaveLength(1);
     expect(projectionMessages(second)).toEqual(memoryUpdates);
-    expect(memoryUpdates[0]).toMatchObject({
-      revision: 2,
-      value: {
-        tabs: [
-          expect.objectContaining({
-            boardStatus: "MEMORY",
-            sourceLeaderSessionId: "leader-current",
-            workerSessionNum: 2580,
-            active: true,
-            completed: false,
-            journey: expect.objectContaining({ currentPhaseId: "memory", activePhaseIndex: 2, phaseCount: 3 }),
-          }),
-        ],
-      },
+    expect(memoryUpdates[0]).toMatchObject({ revision: 2 });
+    projectedValue = applyProjectionMessages(projectedValue, memoryUpdates);
+    expect(projectedValue).toMatchObject({
+      tabs: [
+        expect.objectContaining({
+          boardStatus: "MEMORY",
+          sourceLeaderSessionId: "leader-current",
+          workerSessionNum: 2580,
+          active: true,
+          completed: false,
+          journey: expect.objectContaining({ currentPhaseId: "memory", activePhaseIndex: 2, phaseCount: 3 }),
+        }),
+      ],
     });
 
     first.send.mockClear();
@@ -507,23 +528,22 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     const completedUpdates = projectionMessages(first);
     expect(completedUpdates).toHaveLength(1);
     expect(projectionMessages(second)).toEqual(completedUpdates);
-    expect(completedUpdates[0]).toMatchObject({
-      revision: 3,
-      value: {
-        tabs: [
-          expect.objectContaining({
-            boardStatus: "MEMORY",
-            sourceLeaderSessionId: "leader-current",
-            sourceRowCreatedAt: 200,
-            workerSessionId: "worker-current",
-            workerSessionNum: 2580,
-            active: false,
-            completed: true,
-            canClose: true,
-            journey: expect.objectContaining({ currentPhaseId: "memory", activePhaseIndex: 2, phaseCount: 3 }),
-          }),
-        ],
-      },
+    expect(completedUpdates[0]).toMatchObject({ revision: 3 });
+    projectedValue = applyProjectionMessages(projectedValue, completedUpdates);
+    expect(projectedValue).toMatchObject({
+      tabs: [
+        expect.objectContaining({
+          boardStatus: "MEMORY",
+          sourceLeaderSessionId: "leader-current",
+          sourceRowCreatedAt: 200,
+          workerSessionId: "worker-current",
+          workerSessionNum: 2580,
+          active: false,
+          completed: true,
+          canClose: true,
+          journey: expect.objectContaining({ currentPhaseId: "memory", activePhaseIndex: 2, phaseCount: 3 }),
+        }),
+      ],
     });
 
     bridge.handleBrowserClose(first);
@@ -604,7 +624,9 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     secondCarrier.browserSockets.add(second);
     await subscribe(bridge, first, historicalLeader.id);
     await subscribe(bridge, second, historicalLeader.id);
-    const generation = projectionMessages(first, "synced_projection_snapshot")[0]!.generation as string;
+    const initialSnapshot = projectionMessages(first, "synced_projection_snapshot")[0]!;
+    const generation = initialSnapshot.generation as string;
+    let projectedValue = initialSnapshot.value as LeaderThreadTabsProjectionValue;
     first.send.mockClear();
     second.send.mockClear();
 
@@ -631,13 +653,10 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     const promoted = projectionMessages(first);
     expect(promoted).toHaveLength(1);
     expect(projectionMessages(second)).toEqual(promoted);
-    expect(promoted[0]).toMatchObject({
-      value: {
-        tabState: { orderedOpenThreadKeys: ["q-1974", "q-1", "q-2"] },
-        tabs: expect.arrayContaining([
-          expect.objectContaining({ threadKey: "q-1974", active: true, completed: false }),
-        ]),
-      },
+    projectedValue = applyProjectionMessages(projectedValue, promoted);
+    expect(projectedValue).toMatchObject({
+      tabState: { version: 1 },
+      tabs: expect.arrayContaining([expect.objectContaining({ threadKey: "q-1974", active: true, completed: false })]),
     });
 
     first.send.mockClear();
@@ -661,13 +680,12 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     const memoryUpdates = projectionMessages(first);
     expect(memoryUpdates).toHaveLength(1);
     expect(projectionMessages(second)).toEqual(memoryUpdates);
-    expect(memoryUpdates[0]).toMatchObject({
-      value: {
-        tabState: { orderedOpenThreadKeys: ["q-1974", "q-1", "q-2"] },
-        tabs: expect.arrayContaining([
-          expect.objectContaining({ threadKey: "q-1974", active: true, boardStatus: "MEMORY" }),
-        ]),
-      },
+    projectedValue = applyProjectionMessages(projectedValue, memoryUpdates);
+    expect(projectedValue).toMatchObject({
+      tabState: { version: 1 },
+      tabs: expect.arrayContaining([
+        expect.objectContaining({ threadKey: "q-1974", active: true, boardStatus: "MEMORY" }),
+      ]),
     });
 
     first.send.mockClear();
@@ -679,11 +697,10 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     const waitingUpdates = projectionMessages(first);
     expect(waitingUpdates).toHaveLength(1);
     expect(projectionMessages(second)).toEqual(waitingUpdates);
-    expect(waitingUpdates[0]).toMatchObject({
-      value: {
-        tabState: { orderedOpenThreadKeys: ["q-1974", "q-1", "q-2"] },
-        threadStatuses: { "q-1974": expect.objectContaining({ kind: "waiting" }) },
-      },
+    projectedValue = applyProjectionMessages(projectedValue, waitingUpdates);
+    expect(projectedValue).toMatchObject({
+      tabState: { version: 1 },
+      threadStatuses: { "q-1974": expect.objectContaining({ kind: "waiting" }) },
     });
 
     first.send.mockClear();
@@ -693,13 +710,10 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
     const completedUpdates = projectionMessages(first);
     expect(completedUpdates).toHaveLength(1);
     expect(projectionMessages(second)).toEqual(completedUpdates);
-    expect(completedUpdates[0]).toMatchObject({
-      value: {
-        tabState: { orderedOpenThreadKeys: ["q-1974", "q-1", "q-2"] },
-        tabs: expect.arrayContaining([
-          expect.objectContaining({ threadKey: "q-1974", active: false, completed: true }),
-        ]),
-      },
+    projectedValue = applyProjectionMessages(projectedValue, completedUpdates);
+    expect(projectedValue).toMatchObject({
+      tabState: { version: 1 },
+      tabs: expect.arrayContaining([expect.objectContaining({ threadKey: "q-1974", active: false, completed: true })]),
     });
     const finalRevision = completedUpdates[0]!.revision as number;
 
@@ -719,7 +733,7 @@ describe("WsBridge leader thread tabs synchronized projection", () => {
         generation,
         revision: finalRevision,
         value: expect.objectContaining({
-          tabState: expect.objectContaining({ orderedOpenThreadKeys: ["q-1974", "q-1", "q-2"] }),
+          tabState: { version: 1 },
           tabs: expect.arrayContaining([expect.objectContaining({ threadKey: "q-1974", completed: true })]),
         }),
       }),

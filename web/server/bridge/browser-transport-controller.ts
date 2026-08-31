@@ -12,9 +12,7 @@ import {
   computeHistoryPrefixSyncHash,
 } from "../../shared/history-sync-hash.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
-import type { LeaderThreadTabsProjectionValue } from "../../shared/leader-thread-tabs-projection.js";
-import { buildLeaderProjectionSnapshot, toLeaderProjectionWireSnapshot } from "../../shared/leader-projection.js";
-import { buildLeaderActivePhaseSummary } from "../../shared/leader-active-phase-summary.js";
+import { getLeaderMessageVisualInputs } from "../leader-thread-tabs-projection.js";
 import { buildBackendStateSnapshot } from "./backend-state-snapshot.js";
 import { attachRecentHistoryIndex } from "./browser-history-index.js";
 import {
@@ -99,7 +97,7 @@ import type {
   SessionNotification,
   SessionTaskEntry,
   SessionState,
-  LeaderProjectionInternalSnapshot,
+  LeaderProjectionSnapshot,
   InitialThreadWindowRequest,
   TakodeHerdBatchSnapshot,
   VsCodeOpenFileCommand,
@@ -167,13 +165,6 @@ export interface BrowserTransportSessionLike {
   processedClientMessageIds: string[];
   processedClientMessageIdSet: Set<string>;
 }
-
-interface CachedLeaderProjection {
-  key: string;
-  projection: LeaderProjectionInternalSnapshot;
-}
-
-const leaderProjectionCache = new WeakMap<BrowserTransportSessionLike, CachedLeaderProjection>();
 
 export interface BrowserTransportStateLike {
   vscodeSelectionState: VsCodeSelectionState | null;
@@ -265,7 +256,6 @@ export interface BrowserTransportDeps {
     key: string,
   ) => BrowserIncomingMessage | null;
   removeSyncedProjectionSubscriber?: (socket: BrowserTransportSocketLike) => void;
-  getLeaderThreadTabsProjectionValue?: (sessionId: string) => LeaderThreadTabsProjectionValue | null;
 }
 
 const BROWSER_ACTIVITY_TYPES: ReadonlySet<string> = new Set([
@@ -917,93 +907,26 @@ export function isLeaderSession(
 
 export function buildLeaderProjectionSnapshotForSession(
   session: BrowserTransportSessionLike,
-  deps: Pick<BrowserTransportDeps, "getBoard" | "getCompletedBoard" | "getBoardRowSessionStatuses">,
-): CachedLeaderProjection["projection"] {
-  const board = deps.getBoard(session.id) as BoardRow[];
-  const completedBoard = deps.getCompletedBoard(session.id) as BoardRow[];
-  const rowSessionStatuses = deps.getBoardRowSessionStatuses(session.id, board, completedBoard);
-  const key = leaderProjectionCacheKey(session, board, completedBoard, rowSessionStatuses);
-  const cached = leaderProjectionCache.get(session);
-  if (cached?.key === key) return cached.projection;
-
-  const projection = buildLeaderProjectionSnapshot({
-    leaderSessionId: session.id,
-    messageHistory: session.messageHistory,
-    activeBoard: board,
-    completedBoard,
-    rowSessionStatuses,
-    notifications: session.notifications as SessionNotification[],
-    attentionRecords: session.attentionRecords as SessionAttentionRecord[],
-  });
-  leaderProjectionCache.set(session, { key, projection });
-  return projection;
+): LeaderProjectionSnapshot {
+  const inputs = getLeaderMessageVisualInputs(session);
+  return {
+    schemaVersion: 2,
+    sourceHistoryLength: session.messageHistory.length,
+    threadSummaries: inputs.threadSummaries,
+    messageAttentionRecords: inputs.attentionRecords,
+  };
 }
 
 export function sendLeaderProjectionSnapshot(
   session: BrowserTransportSessionLike,
   ws: BrowserTransportSocketLike,
-  deps: Pick<
-    BrowserTransportDeps,
-    "getLauncherSessionInfo" | "getBoard" | "getCompletedBoard" | "getBoardRowSessionStatuses"
-  >,
+  deps: Pick<BrowserTransportDeps, "getLauncherSessionInfo">,
 ): void {
   if (!isLeaderSession(session, deps)) return;
   sendToBrowser(ws, {
     type: "leader_projection_snapshot",
-    projection: toLeaderProjectionWireSnapshot(buildLeaderProjectionSnapshotForSession(session, deps)),
+    projection: buildLeaderProjectionSnapshotForSession(session),
   } as BrowserIncomingMessage);
-}
-
-function leaderProjectionCacheKey(
-  session: BrowserTransportSessionLike,
-  board: BoardRow[],
-  completedBoard: BoardRow[],
-  rowSessionStatuses: Record<string, BoardRowSessionStatus>,
-): string {
-  const lastHistoryEntry = session.messageHistory[session.messageHistory.length - 1] as
-    | (BrowserIncomingMessage & { id?: string; message?: { id?: string } })
-    | undefined;
-  return JSON.stringify({
-    historyLength: session.messageHistory.length,
-    lastHistoryId: lastHistoryEntry?.id ?? lastHistoryEntry?.message?.id ?? null,
-    board: board.map(boardRowProjectionKey),
-    completedBoard: completedBoard.map(boardRowProjectionKey),
-    rowSessionStatuses,
-    notificationStatusVersion: session.notificationStatusVersion ?? 0,
-    notifications: (session.notifications as SessionNotification[]).map((notification) => [
-      notification.id,
-      notification.done,
-      notification.timestamp,
-      notification.threadKey,
-      notification.questId,
-      notification.summary,
-    ]),
-    attentionRecords: (session.attentionRecords as SessionAttentionRecord[]).map((record) => [
-      record.id,
-      record.updatedAt,
-      record.state,
-      record.threadKey,
-      record.questId,
-      record.title,
-      record.summary,
-      record.questTldr,
-    ]),
-  });
-}
-
-function boardRowProjectionKey(row: BoardRow): unknown[] {
-  return [
-    row.questId,
-    row.title,
-    row.questTldr,
-    row.status,
-    row.createdAt,
-    row.updatedAt,
-    row.completedAt,
-    row.waitForInput?.join(",") ?? "",
-    row.worker,
-    row.workerNum,
-  ];
 }
 
 export function sendStateSnapshot(
@@ -1031,11 +954,9 @@ export function sendStateSnapshot(
     codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
     board,
     completedBoard,
-    leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
     rowSessionStatuses: deps.getBoardRowSessionStatuses(session.id, board, completedBoard),
     notifications: getUserVisibleSessionNotifications(session),
     attentionRecords: session.attentionRecords,
-    leaderThreadStatuses: session.state.leaderThreadStatuses ?? {},
     notificationUrgency: notificationStatus.notificationUrgency,
     activeNotificationCount: notificationStatus.activeNotificationCount,
     activeNeedsInputNotificationCount: notificationStatus.activeNeedsInputNotificationCount,

@@ -95,6 +95,7 @@ function projectedTab(title: string, updatedAt: number): LeaderThreadTabsProject
     active: true,
     queued: false,
     proposed: false,
+    neverStartedScheduled: false,
     completed: false,
     canClose: false,
     attention: { needsInput: true, mutedNeedsInput: false, reviewUnread: false, updatedAt },
@@ -240,10 +241,7 @@ describe("ChatView leader thread tabs projection", () => {
 
       await waitFor(() => {
         expect(screen.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-2,q-1");
-        expect(screen.getByTestId("work-board-bar")).toHaveAttribute(
-          "data-thread-titles",
-          expect.stringContaining("q-1:Refreshed projected q-1"),
-        );
+        expect(screen.getByText("Refreshed projected q-1")).toBeTruthy();
       });
 
       act(() => {
@@ -340,7 +338,6 @@ describe("ChatView leader thread tabs projection", () => {
         type: "open",
         threadKey: "q-3",
         placement: "first",
-        source: "route",
       },
     });
     expect(window.location.hash).toBe("#/session/leader?thread=q-3");
@@ -516,6 +513,12 @@ describe("ChatView leader thread tabs projection", () => {
       ]),
     });
 
+    useStore.getState().applySyncedProjectionSnapshot(
+      createLeaderThreadTabsProjectionEnvelope({
+        key: "leader",
+        value: createLeaderThreadTabsProjectionValue({ tabState: null }),
+      }),
+    );
     render(<ChatView sessionId="leader" />);
 
     const migrationCalls = () =>
@@ -525,13 +528,6 @@ describe("ChatView leader thread tabs projection", () => {
     expect(migrationCalls()).toHaveLength(0);
 
     act(() => useStore.getState().setConnectionStatus("leader", "connected"));
-    expect(migrationCalls()).toHaveLength(0);
-
-    const board = [
-      { questId: "q-1", title: "Active", status: "WORKING", createdAt: 1, updatedAt: 1 },
-      { questId: "q-2", title: "Queued", status: "QUEUED", createdAt: 2, updatedAt: 2 },
-    ];
-    act(() => useStore.getState().setSessionBoard("leader", board));
     await waitFor(() => expect(migrationCalls()).toHaveLength(1));
     expect(migrationCalls()[0]).toEqual([
       "leader",
@@ -539,25 +535,16 @@ describe("ChatView leader thread tabs projection", () => {
         type: "leader_thread_tabs_update",
         operation: {
           type: "migrate",
-          orderedOpenThreadKeys: ["q-1", "q-2"],
+          orderedOpenThreadKeys: ["q-2", "q-1"],
           migratedAt: expect.any(Number),
         },
       },
     ]);
 
-    act(() =>
-      useStore.getState().setSessionBoard(
-        "leader",
-        board.map((row) => ({ ...row })),
-      ),
-    );
+    act(() => useStore.getState().setConnectionStatus("leader", "disconnected"));
+    act(() => useStore.getState().setConnectionStatus("leader", "connected"));
     await waitFor(() => expect(migrationCalls()).toHaveLength(2));
-    act(() =>
-      useStore.getState().setSessionBoard(
-        "leader",
-        board.map((row) => ({ ...row })),
-      ),
-    );
+    act(() => useStore.getState().setConnectionStatus("leader", "connected"));
     await act(async () => Promise.resolve());
     expect(migrationCalls()).toHaveLength(2);
   });
@@ -596,6 +583,18 @@ describe("ChatView leader thread tabs projection", () => {
         { questId: "q-777", title: "Second migrated thread", status: "in_progress" } as never,
       ],
     });
+
+    useStore.getState().applySyncedProjectionSnapshot(
+      createLeaderThreadTabsProjectionEnvelope({
+        key: "leader",
+        value: createLeaderThreadTabsProjectionValue({
+          tabState: null,
+          tabs: [],
+          activePhaseSummary: [],
+          threadStatuses: {},
+        }),
+      }),
+    );
 
     const view = render(<ChatView sessionId="leader" />);
 
@@ -649,6 +648,20 @@ describe("ChatView leader thread tabs projection", () => {
       quests: [{ questId: "q-server", title: "Server tab", status: "in_progress" } as never],
     });
 
+    useStore.getState().applySyncedProjectionSnapshot(
+      createLeaderThreadTabsProjectionEnvelope({
+        key: "leader",
+        value: createLeaderThreadTabsProjectionValue({
+          tabState: {
+            version: 1,
+            orderedOpenThreadKeys: ["q-server"],
+            closedThreadTombstones: [],
+            updatedAt: 1,
+          },
+          tabs: [{ ...projectedTab("Server tab", 1), threadKey: "q-server", questId: "q-server" }],
+        }),
+      }),
+    );
     render(<ChatView sessionId="leader" />);
 
     expect(screen.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-server");
@@ -788,6 +801,7 @@ describe("ChatView leader thread tabs projection", () => {
       active: true,
       queued: false,
       proposed: false,
+      neverStartedScheduled: false,
       completed: false,
       canClose: false,
       attention: {

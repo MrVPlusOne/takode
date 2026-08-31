@@ -2,27 +2,36 @@
 
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  LEADER_THREAD_TABS_PROJECTION,
+  type LeaderThreadTabsProjectionValue,
+} from "../../shared/leader-thread-tabs-projection.js";
+import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import { threadStatusMessageIdHash } from "../../shared/thread-status-marker.js";
+import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
 import type { ChatMessage } from "../types.js";
 import { buildFeedModel } from "./use-feed-model.js";
 import { useCollapsePolicy } from "./use-collapse-policy.js";
 
 const storeMocks = vi.hoisted(() => ({
   overridesBySession: new Map<string, Map<string, boolean>>(),
-  sessions: new Map<string, { leaderThreadStatuses?: Record<string, unknown> }>(),
+  syncedProjectionValues: new Map<string, unknown>(),
+  syncedProjectionKeys: new Set<string>(),
   toggleTurnActivity: vi.fn(),
 }));
 
 vi.mock("../store.js", () => ({
   useStore: (
     selector: (state: {
-      sessions: typeof storeMocks.sessions;
+      syncedProjectionValues: typeof storeMocks.syncedProjectionValues;
+      syncedProjectionKeys: typeof storeMocks.syncedProjectionKeys;
       turnActivityOverrides: Map<string, Map<string, boolean>>;
       toggleTurnActivity: typeof storeMocks.toggleTurnActivity;
     }) => unknown,
   ) =>
     selector({
-      sessions: storeMocks.sessions,
+      syncedProjectionValues: storeMocks.syncedProjectionValues,
+      syncedProjectionKeys: storeMocks.syncedProjectionKeys,
       turnActivityOverrides: storeMocks.overridesBySession,
       toggleTurnActivity: storeMocks.toggleTurnActivity,
     }),
@@ -46,6 +55,21 @@ function makeInjectedUserMessage(id: string, content: string, sessionId: string,
   });
 }
 
+function installLeaderProjection(threadStatuses: LeaderThreadTabsProjectionValue["threadStatuses"]) {
+  const sessionId = "leader-session";
+  const entryId = syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, sessionId);
+  storeMocks.syncedProjectionValues.set(
+    entryId,
+    createLeaderThreadTabsProjectionValue({
+      tabs: [],
+      mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+      threadStatuses,
+      activePhaseSummary: [],
+    }),
+  );
+  storeMocks.syncedProjectionKeys.add(entryId);
+}
+
 function getLeaderCollapseStates(messages: ChatMessage[], autoCollapseReadyThreadKey?: string | null) {
   const model = buildFeedModel(messages, true);
   const { result } = renderHook(() =>
@@ -65,7 +89,8 @@ function getLeaderCollapseStates(messages: ChatMessage[], autoCollapseReadyThrea
 describe("useCollapsePolicy", () => {
   beforeEach(() => {
     storeMocks.overridesBySession.clear();
-    storeMocks.sessions.clear();
+    storeMocks.syncedProjectionValues.clear();
+    storeMocks.syncedProjectionKeys.clear();
     storeMocks.toggleTurnActivity.mockClear();
   });
 
@@ -130,7 +155,7 @@ describe("useCollapsePolicy", () => {
       timestamp: 3,
       updatedAt: 3,
     } as const;
-    storeMocks.sessions.set("leader-session", { leaderThreadStatuses: { "q-1636": readyStatus } });
+    installLeaderProjection({ "q-1636": readyStatus });
 
     const states = getLeaderCollapseStates(
       [
@@ -165,7 +190,7 @@ describe("useCollapsePolicy", () => {
       timestamp: 3,
       updatedAt: 3,
     } as const;
-    storeMocks.sessions.set("leader-session", { leaderThreadStatuses: { "q-1636": projectedStatus } });
+    installLeaderProjection({ "q-1636": projectedStatus });
 
     const states = getLeaderCollapseStates(
       [

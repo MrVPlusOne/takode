@@ -2,12 +2,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fireEvent, render, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
+import type { ComponentProps } from "react";
 import type { BoardRowData } from "./BoardTable.js";
 import type { QuestTitlePreview, QuestmasterTask, SessionAttentionRecord } from "../types.js";
 import type { LeaderWorkboardView } from "../store-types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
 import { getQuestPhaseThreadTabTitleColorValue } from "../utils/quest-phase-theme.js";
+import {
+  installWorkBoardProjectionFixture,
+  resetWorkBoardProjectionFixture,
+} from "../test-fixtures/work-board-projection-adapter.js";
 
 interface MockStoreState {
   sessionBoards: Map<string, BoardRowData[]>;
@@ -31,6 +36,8 @@ interface MockStoreState {
   questTitlePreviews: Map<string, QuestTitlePreview | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
   activeTurnRoutes: Map<string, unknown>;
+  syncedProjectionValues: Map<string, unknown>;
+  syncedProjectionKeys: Set<string>;
 }
 
 let mockState: MockStoreState;
@@ -74,6 +81,8 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     questTitlePreviews: new Map(),
     sessionStatus: new Map(),
     activeTurnRoutes: new Map(),
+    syncedProjectionValues: new Map(),
+    syncedProjectionKeys: new Set(),
     ...overrides,
   };
 }
@@ -97,7 +106,31 @@ vi.mock("./BoardTable.js", async (importOriginal) => {
   };
 });
 
-const { WorkBoardBar } = await import("./WorkBoardBar.js");
+const { WorkBoardBar: CurrentWorkBoardBar } = await import("./WorkBoardBar.js");
+
+type WorkBoardBarProps = Omit<ComponentProps<typeof CurrentWorkBoardBar>, "attentionRecords"> & {
+  attentionRecords?: ReadonlyArray<SessionAttentionRecord>;
+};
+let projectionFixtureRenderRevision = 0;
+
+function WorkBoardBar(props: WorkBoardBarProps) {
+  installWorkBoardProjectionFixture(mockState, props, {
+    explicitOpenKeysProvided: Object.hasOwn(props, "openThreadKeys"),
+  });
+  const {
+    attentionRecords: _attentionRecords,
+    closedThreadKeys: _closedThreadKeys,
+    currentThreadLabel: _currentThreadLabel,
+    ...currentProps
+  } = props;
+  projectionFixtureRenderRevision += 1;
+  return (
+    <CurrentWorkBoardBar
+      {...currentProps}
+      currentThreadLabel={`projection-fixture-${projectionFixtureRenderRevision}`}
+    />
+  );
+}
 
 function quest(questId: string, title: string, status: QuestmasterTask["status"] = "done"): QuestmasterTask {
   return {
@@ -158,6 +191,7 @@ function threadStatus(threadKey: string, kind: LeaderThreadStatus["kind"]): Lead
 
 describe("WorkBoardBar tab title source precedence", () => {
   beforeEach(() => {
+    resetWorkBoardProjectionFixture();
     resetStore();
     localStorage.clear();
     localStorage.setItem("cc-server-id", "test-server");

@@ -12,6 +12,7 @@ import type {
   ContentBlock,
   PermissionRequest,
   ThreadRef,
+  ThreadTransitionMarker,
 } from "../session-types.js";
 import { createLogger } from "../server-logger.js";
 import type { LeaderThreadStatus, ParsedThreadStatusMarker } from "../../shared/thread-status-marker.js";
@@ -711,6 +712,7 @@ export interface CodexAdapterBrowserMessageDeps {
     toolResults: Extract<ContentBlock, { type: "tool_result" }>[],
   ) => unknown[];
   broadcastToBrowsers: (session: CodexBrowserMessageSessionLike, msg: BrowserIncomingMessage) => void;
+  promoteLeaderThreadTabForTransition?: (sessionId: string, marker: ThreadTransitionMarker) => boolean;
   finalizeSupersededCodexTerminalTools: (
     session: CodexBrowserMessageSessionLike,
     completedToolStartTimes: number[],
@@ -752,6 +754,16 @@ export interface CodexAdapterBrowserMessageDeps {
   requestCodexProviderRecovery?: (session: CodexBrowserMessageSessionLike, reason: string) => boolean;
   broadcastBoardParticipantRefresh?: (session: CodexBrowserMessageSessionLike) => void;
   syncSideChatParent?: (session: CodexBrowserMessageSessionLike) => void;
+}
+
+function publishThreadTransitionMarker(
+  session: CodexBrowserMessageSessionLike,
+  marker: ThreadTransitionMarker | null,
+  deps: Pick<CodexAdapterBrowserMessageDeps, "broadcastToBrowsers" | "promoteLeaderThreadTabForTransition">,
+): void {
+  if (!marker) return;
+  deps.promoteLeaderThreadTabForTransition?.(session.id, marker);
+  deps.broadcastToBrowsers(session, marker);
 }
 
 export function isCodexContextWindowExhaustionMessage(message: unknown): boolean {
@@ -948,22 +960,18 @@ export async function handleCodexAdapterBrowserMessage(
     if (update.changed) {
       const hasCurrentThreadStatus = Object.keys(session.state.leaderThreadStatuses ?? {}).length > 0;
       const launcherInfo = hasCurrentThreadStatus ? deps.getLauncherSessionInfo?.(session.id) : null;
-      const threadStatusChanged =
+      if (
         update.activityChanged &&
         hasCurrentThreadStatus &&
-        isLeaderSessionForAssistantRouting(session, launcherInfo) &&
+        isLeaderSessionForAssistantRouting(session, launcherInfo)
+      ) {
         clearLeaderThreadStatusForActivity(session, routed, {
           messageId: routed.id,
           timestamp: routed.timestamp,
         });
+      }
       deps.persistSession(session);
       deps.syncSideChatParent?.(session);
-      if (threadStatusChanged) {
-        deps.broadcastToBrowsers(session, {
-          type: "session_update",
-          session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
-        } as BrowserIncomingMessage);
-      }
       deps.broadcastToBrowsers(session, update.message);
     }
     return;
@@ -985,7 +993,6 @@ export async function handleCodexAdapterBrowserMessage(
   let activeRouteFromAssistant: ThreadRouteMetadata | undefined;
   let pendingThreadStatusMarkers: ParsedThreadStatusMarker[] | undefined;
   let threadStatusRecordsForUnread: LeaderThreadStatus[] = [];
-  let leaderThreadStatusesChanged = false;
 
   if (msg.type === "session_init") {
     const sanitized = deps.sanitizeCodexSessionPatch(msg.session as unknown as Record<string, unknown>);
@@ -1207,18 +1214,10 @@ export async function handleCodexAdapterBrowserMessage(
           session.messageHistory,
           normalizeThreadRoute(normalizedAssistant.threadKey, normalizedAssistant.questId),
         );
-        if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
+        publishThreadTransitionMarker(session, transitionMarker, deps);
         session.messageHistory.push(normalizedAssistant);
         deps.persistSession(session);
         deps.syncSideChatParent?.(session);
-        if (statusUpdate.changed) {
-          deps.broadcastToBrowsers(session, {
-            type: "session_update",
-            session: {
-              leaderThreadStatuses: session.state.leaderThreadStatuses,
-            },
-          } as BrowserIncomingMessage);
-        }
         recordThreadReadyUnreadNotifications(session, threadStatusRecords, deps);
         deps.broadcastToBrowsers(session, normalizedAssistant);
         updateActiveTurnRouteFromLeaderAssistant(session, segmentRoute, deps);
@@ -1346,7 +1345,6 @@ export async function handleCodexAdapterBrowserMessage(
       };
     }
     threadStatusRecordsForUnread = threadStatusRecords;
-    leaderThreadStatusesChanged = statusUpdate.changed;
     outgoing = normalizedAssistant;
   }
 
@@ -1355,16 +1353,10 @@ export async function handleCodexAdapterBrowserMessage(
       session.messageHistory,
       normalizeThreadRoute(outgoing.threadKey, outgoing.questId),
     );
-    if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
+    publishThreadTransitionMarker(session, transitionMarker, deps);
     session.messageHistory.push(outgoing);
     deps.persistSession(session);
     deps.syncSideChatParent?.(session);
-    if (leaderThreadStatusesChanged) {
-      deps.broadcastToBrowsers(session, {
-        type: "session_update",
-        session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
-      } as BrowserIncomingMessage);
-    }
     recordThreadReadyUnreadNotifications(session, threadStatusRecordsForUnread, deps);
   } else if (outgoing?.type === "result") {
     if (await maybeRecycleCodexLeaderForContextWindowExhaustion(session, outgoing, deps)) {

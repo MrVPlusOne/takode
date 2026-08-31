@@ -413,7 +413,6 @@ export interface SessionSearchResult {
     | "gitBranch"
     | "cwd"
     | "repoRoot"
-    | "leaderActivePhaseSummary"
   >;
   messageMatch?: {
     id?: string;

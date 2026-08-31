@@ -3,6 +3,13 @@
 import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage } from "./types.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
+import {
+  createLeaderThreadTabsProjectionEnvelope,
+  createLeaderThreadTabsProjectionTab,
+  createLeaderThreadTabsProjectionValue,
+} from "./test-fixtures/leader-thread-tabs-projection.js";
+import { LEADER_THREAD_TABS_PROJECTION } from "../shared/leader-thread-tabs-projection.js";
+import { getSyncedProjectionValue } from "./store-synced-projections.js";
 
 // Mock the names utility before any imports
 vi.mock("./utils/names.js", () => ({
@@ -156,7 +163,7 @@ describe("handleMessage: session_update", () => {
     expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBe("testing");
   });
 
-  it("applies leader open-thread tabs carried by board updates", () => {
+  it("keeps detailed board updates separate from current projected open tabs", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), isOrchestrator: true } });
 
@@ -164,37 +171,44 @@ describe("handleMessage: session_update", () => {
       type: "board_updated",
       board: [{ questId: "q-9", title: "Active quest", status: "IMPLEMENTING", createdAt: 1, updatedAt: 2 }],
       completedBoard: [],
-      leaderOpenThreadTabs: {
-        version: 1,
-        orderedOpenThreadKeys: ["q-9"],
-        closedThreadTombstones: [],
-        updatedAt: 2,
-      },
     });
+    fireMessage(
+      createLeaderThreadTabsProjectionEnvelope({
+        value: createLeaderThreadTabsProjectionValue({
+          tabs: [createLeaderThreadTabsProjectionTab("q-9", { title: "Active quest", active: true })],
+          mainAttention: {},
+          threadStatuses: {},
+          activePhaseSummary: [],
+        }),
+      }),
+    );
 
     expect(useStore.getState().sessionBoards.get("s1")).toEqual([
       { questId: "q-9", title: "Active quest", status: "IMPLEMENTING", createdAt: 1, updatedAt: 2 },
     ]);
-    expect(useStore.getState().sessions.get("s1")!.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-9"]);
+    expect(useStore.getState().sessions.get("s1")!.leaderOpenThreadTabs).toBeUndefined();
+    expect(
+      getSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "s1")?.tabs.map(
+        (tab) => tab.threadKey,
+      ),
+    ).toEqual(["q-9"]);
   });
 
   it("force-refreshes only server-open leader quest titles after a global quest update", async () => {
     // Every connected browser receives the quest update; each must refresh its
     // own bounded retained-tab title cache rather than the full quest corpus.
     wsModule.connectSession("s1");
-    fireMessage({
-      type: "session_init",
-      session: {
-        ...makeSession("s1"),
-        isOrchestrator: true,
-        leaderOpenThreadTabs: {
-          version: 1,
-          orderedOpenThreadKeys: ["q-1932", "main", "q-1932"],
-          closedThreadTombstones: [],
-          updatedAt: 2,
-        },
-      },
-    });
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), isOrchestrator: true } });
+    fireMessage(
+      createLeaderThreadTabsProjectionEnvelope({
+        value: createLeaderThreadTabsProjectionValue({
+          tabs: [createLeaderThreadTabsProjectionTab("q-1932")],
+          mainAttention: {},
+          threadStatuses: {},
+          activePhaseSummary: [],
+        }),
+      }),
+    );
 
     fireMessage({ type: "quest_list_updated" });
 

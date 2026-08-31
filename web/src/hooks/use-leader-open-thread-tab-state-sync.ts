@@ -1,19 +1,14 @@
 import { useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
-import type { LeaderOpenThreadTabsState, LeaderThreadTabUpdate } from "../../shared/leader-open-thread-tabs.js";
+import type { LeaderThreadTabUpdate } from "../../shared/leader-open-thread-tabs.js";
 import type { LeaderThreadTabsProjectionValue } from "../../shared/leader-thread-tabs-projection.js";
-import type { BoardRowData } from "../components/BoardTable.js";
 import { clearOpenThreadTabKeys, readOpenThreadTabKeys } from "../utils/leader-open-thread-tabs.js";
-import { prioritizeLeaderThreadKeysForFallback } from "../utils/leader-thread-tabs-navigation.js";
+import { buildLeaderThreadMigrationKeys } from "../utils/leader-thread-tabs-navigation.js";
 
 interface LeaderOpenThreadTabStateSyncOptions {
   sessionId: string;
   isLeaderSession: boolean;
   preview: boolean;
   connectionStatus: "connecting" | "connected" | "disconnected";
-  boardStateKnown: boolean;
-  projectionState: "accepted" | "invalid-supplied" | "legacy";
-  authoritativeState: LeaderOpenThreadTabsState | null | undefined;
-  activeBoard: ReadonlyArray<BoardRowData>;
   projection: LeaderThreadTabsProjectionValue | null;
   openThreadTabKeysRef: MutableRefObject<string[]>;
   setOpenThreadTabKeys: Dispatch<SetStateAction<string[]>>;
@@ -34,16 +29,12 @@ function updateOpenThreadTabKeys(
   setOpenThreadTabKeys(nextKeys);
 }
 
-/** Keep authoritative tab state and one-time legacy fallback restoration from overwriting each other's event edges. */
+/** Mirror current projection state and perform only the accepted-null one-time browser-storage migration. */
 export function useLeaderOpenThreadTabStateSync({
   sessionId,
   isLeaderSession,
   preview,
   connectionStatus,
-  boardStateKnown,
-  projectionState,
-  authoritativeState,
-  activeBoard,
   projection,
   openThreadTabKeysRef,
   setOpenThreadTabKeys,
@@ -52,71 +43,42 @@ export function useLeaderOpenThreadTabStateSync({
   const migratedSessionsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!isLeaderSession) {
+    if (!isLeaderSession || !projection) {
       updateOpenThreadTabKeys(openThreadTabKeysRef, setOpenThreadTabKeys, []);
       return;
     }
-    const authoritativeKeys = authoritativeState?.orderedOpenThreadKeys;
-    if (!authoritativeKeys) return;
-    updateOpenThreadTabKeys(openThreadTabKeysRef, setOpenThreadTabKeys, authoritativeKeys);
-    clearOpenThreadTabKeys(sessionId);
-  }, [authoritativeState, isLeaderSession, openThreadTabKeysRef, sessionId, setOpenThreadTabKeys]);
+    if (projection.tabState) {
+      updateOpenThreadTabKeys(
+        openThreadTabKeysRef,
+        setOpenThreadTabKeys,
+        projection.tabs.map((tab) => tab.threadKey),
+      );
+      clearOpenThreadTabKeys(sessionId);
+      return;
+    }
 
-  useEffect(() => {
-    if (!isLeaderSession || authoritativeState) return;
-    const restoredKeys = prioritizeLeaderThreadKeysForFallback(
-      readOpenThreadTabKeys(sessionId),
-      activeBoard,
-      projection,
-    );
-    updateOpenThreadTabKeys(openThreadTabKeysRef, setOpenThreadTabKeys, restoredKeys);
-  }, [
-    activeBoard,
-    authoritativeState,
-    isLeaderSession,
-    openThreadTabKeysRef,
-    projection,
-    sessionId,
-    setOpenThreadTabKeys,
-  ]);
+    const migrationKeys = buildLeaderThreadMigrationKeys(readOpenThreadTabKeys(sessionId), projection);
+    updateOpenThreadTabKeys(openThreadTabKeysRef, setOpenThreadTabKeys, migrationKeys);
+  }, [isLeaderSession, openThreadTabKeysRef, projection, sessionId, setOpenThreadTabKeys]);
 
   useEffect(() => {
     if (
       !isLeaderSession ||
+      !projection ||
+      projection.tabState ||
       preview ||
-      authoritativeState ||
       connectionStatus !== "connected" ||
       migratedSessionsRef.current.has(sessionId)
     ) {
       return;
     }
-    const migrationAuthorityReady =
-      (projectionState === "accepted" && projection?.tabState === null) ||
-      (projectionState === "legacy" && boardStateKnown);
-    if (!migrationAuthorityReady) return;
 
-    const restoredKeys = prioritizeLeaderThreadKeysForFallback(
-      readOpenThreadTabKeys(sessionId),
-      activeBoard,
-      projection,
-    );
-    if (restoredKeys.length === 0) return;
+    const migrationKeys = buildLeaderThreadMigrationKeys(readOpenThreadTabKeys(sessionId), projection);
     const sent = sendUpdate({
       type: "migrate",
-      orderedOpenThreadKeys: restoredKeys,
+      orderedOpenThreadKeys: migrationKeys,
       migratedAt: Date.now(),
     });
     if (sent) migratedSessionsRef.current.add(sessionId);
-  }, [
-    activeBoard,
-    authoritativeState,
-    boardStateKnown,
-    connectionStatus,
-    isLeaderSession,
-    preview,
-    projection,
-    projectionState,
-    sendUpdate,
-    sessionId,
-  ]);
+  }, [connectionStatus, isLeaderSession, preview, projection, sendUpdate, sessionId]);
 }

@@ -123,51 +123,6 @@ function sessionLifecycleEventsEqual(
   return true;
 }
 
-function leaderOpenThreadTabsEqual(
-  a: SdkSessionInfo["leaderOpenThreadTabs"] | undefined,
-  b: SdkSessionInfo["leaderOpenThreadTabs"] | undefined,
-): boolean {
-  if (a === b) return true;
-  if (!a || !b) return !a && !b;
-  if (
-    a.version !== b.version ||
-    a.updatedAt !== b.updatedAt ||
-    a.migratedFromLocalStorageAt !== b.migratedFromLocalStorageAt ||
-    !stringArrayEqual(a.orderedOpenThreadKeys, b.orderedOpenThreadKeys) ||
-    a.closedThreadTombstones.length !== b.closedThreadTombstones.length
-  ) {
-    return false;
-  }
-  for (let i = 0; i < a.closedThreadTombstones.length; i++) {
-    const left = a.closedThreadTombstones[i]!;
-    const right = b.closedThreadTombstones[i]!;
-    if (left.threadKey !== right.threadKey || left.closedAt !== right.closedAt) return false;
-  }
-  return true;
-}
-
-function leaderActivePhaseSummaryEqual(
-  a: SdkSessionInfo["leaderActivePhaseSummary"] | undefined,
-  b: SdkSessionInfo["leaderActivePhaseSummary"] | undefined,
-): boolean {
-  if (a === b) return true;
-  if (!a || !b) return !a && !b;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    const left = a[i]!;
-    const right = b[i]!;
-    if (
-      left.label !== right.label ||
-      left.count !== right.count ||
-      left.tone !== right.tone ||
-      left.color !== right.color
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
 function contextSnapshotEqual(
   a: NonNullable<SdkSessionInfo["sessionLifecycleEvents"]>[number]["before"],
   b: NonNullable<SdkSessionInfo["sessionLifecycleEvents"]>[number]["before"],
@@ -303,8 +258,6 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.leaderProfilePortrait?.id === b.leaderProfilePortrait?.id &&
     a.leaderProfilePortrait?.smallUrl === b.leaderProfilePortrait?.smallUrl &&
     a.leaderProfilePortrait?.largeUrl === b.leaderProfilePortrait?.largeUrl &&
-    leaderOpenThreadTabsEqual(a.leaderOpenThreadTabs, b.leaderOpenThreadTabs) &&
-    leaderActivePhaseSummaryEqual(a.leaderActivePhaseSummary, b.leaderActivePhaseSummary) &&
     a.herdedBy === b.herdedBy &&
     a.sessionNum === b.sessionNum &&
     a.attentionReason === b.attentionReason &&

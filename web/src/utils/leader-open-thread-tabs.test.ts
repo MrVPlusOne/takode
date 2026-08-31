@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  MAX_OPEN_THREAD_TAB_KEYS,
+  MAX_LEADER_OPEN_THREAD_TABS,
+  normalizeLeaderOpenThreadKeys,
+  placeLeaderOpenThreadTabKey,
+} from "../../shared/leader-open-thread-tabs.js";
+import {
+  clearOpenThreadTabKeys,
   MAX_OPEN_THREAD_TAB_STORAGE_CHARS,
-  normalizeOpenThreadTabKeys,
-  persistOpenThreadTabKeys,
-  placeOpenThreadTabKey,
   readOpenThreadTabKeys,
 } from "./leader-open-thread-tabs.js";
 
@@ -13,7 +15,7 @@ const SERVER_ID = "test-server";
 const SESSION_ID = "s1";
 const STORAGE_KEY = `${SERVER_ID}:cc-leader-open-thread-tabs:${SESSION_ID}`;
 
-describe("leader open thread tabs storage", () => {
+describe("leader open thread tabs storage migration", () => {
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem("cc-server-id", SERVER_ID);
@@ -25,19 +27,17 @@ describe("leader open thread tabs storage", () => {
     localStorage.clear();
   });
 
-  it("persists and restores compact normalized thread keys with server scoping", () => {
-    const persisted = persistOpenThreadTabKeys(SESSION_ID, [" Q-941 ", "main", "all", "q-777", "q-941"]);
+  it("restores compact normalized thread keys with server scoping", () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([" Q-941 ", "main", "all", "q-777", "q-941"]));
 
-    expect(persisted).toBe(true);
-    expect(localStorage.getItem(STORAGE_KEY)).toBe('["q-941","q-777"]');
     expect(readOpenThreadTabKeys(SESSION_ID)).toEqual(["q-941", "q-777"]);
   });
 
   it("dedupes and caps restored tab keys", () => {
-    const manyKeys = Array.from({ length: MAX_OPEN_THREAD_TAB_KEYS + 5 }, (_, index) => `q-${index + 1}`);
+    const manyKeys = Array.from({ length: MAX_LEADER_OPEN_THREAD_TABS + 5 }, (_, index) => `q-${index + 1}`);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(["q-1", ...manyKeys, "q-2"]));
 
-    expect(readOpenThreadTabKeys(SESSION_ID)).toEqual(manyKeys.slice(0, MAX_OPEN_THREAD_TAB_KEYS));
+    expect(readOpenThreadTabKeys(SESSION_ID)).toEqual(manyKeys.slice(0, MAX_LEADER_OPEN_THREAD_TABS));
   });
 
   it("recovers legacy tab descriptor shapes without restoring full payloads", () => {
@@ -56,15 +56,15 @@ describe("leader open thread tabs storage", () => {
     expect(readOpenThreadTabKeys(SESSION_ID)).toEqual(["q-1085", "q-1086"]);
   });
 
-  it("treats oversized legacy values as empty so the next compact write can recover the key", () => {
+  it("treats oversized legacy values as empty and lets migration clear the key", () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({ tabs: [{ threadKey: "q-1085", payload: "x".repeat(MAX_OPEN_THREAD_TAB_STORAGE_CHARS) }] }),
     );
 
     expect(readOpenThreadTabKeys(SESSION_ID)).toEqual([]);
-    expect(persistOpenThreadTabKeys(SESSION_ID, [])).toBe(true);
-    expect(localStorage.getItem(STORAGE_KEY)).toBe("[]");
+    clearOpenThreadTabKeys(SESSION_ID);
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
   it("treats corrupt legacy values as empty without throwing through callers", () => {
@@ -78,48 +78,46 @@ describe("leader open thread tabs storage", () => {
     );
   });
 
-  it("does not throw when quota failures reject the open-thread-tabs write", () => {
-    const originalSetItem = Storage.prototype.setItem;
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function setItem(this: Storage, key, value) {
+  it("does not throw when storage reads fail", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(function getItem(this: Storage, key) {
       if (String(key).includes("cc-leader-open-thread-tabs")) {
-        throw new DOMException("Quota exceeded", "QuotaExceededError");
+        throw new DOMException("Storage unavailable", "SecurityError");
       }
-      return originalSetItem.call(this, key, value);
+      return null;
     });
 
-    expect(() => persistOpenThreadTabKeys(SESSION_ID, ["q-941"])).not.toThrow();
-    expect(persistOpenThreadTabKeys(SESSION_ID, ["q-941"])).toBe(false);
+    expect(() => readOpenThreadTabKeys(SESSION_ID)).not.toThrow();
+    expect(readOpenThreadTabKeys(SESSION_ID)).toEqual([]);
     expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining("continuing in memory"),
+      expect.stringContaining("Could not read leader open thread tabs storage"),
       expect.any(DOMException),
     );
   });
 
-  it("removes oversized legacy values before retrying a compact write", () => {
-    const originalSetItem = Storage.prototype.setItem;
-    let shouldRejectFirstOpenTabsWrite = true;
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function setItem(this: Storage, key, value) {
-      if (String(key).includes("cc-leader-open-thread-tabs") && shouldRejectFirstOpenTabsWrite) {
-        shouldRejectFirstOpenTabsWrite = false;
-        throw new DOMException("Quota exceeded", "QuotaExceededError");
+  it("does not throw when clearing migrated storage fails", () => {
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function removeItem(this: Storage, key) {
+      if (String(key).includes("cc-leader-open-thread-tabs")) {
+        throw new DOMException("Storage unavailable", "SecurityError");
       }
-      return originalSetItem.call(this, key, value);
     });
 
-    expect(persistOpenThreadTabKeys(SESSION_ID, ["q-941"])).toBe(true);
-    expect(localStorage.getItem(STORAGE_KEY)).toBe('["q-941"]');
+    expect(() => clearOpenThreadTabKeys(SESSION_ID)).not.toThrow();
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining("Could not clear migrated leader open thread tabs storage"),
+      expect.any(DOMException),
+    );
   });
 
-  it("keeps tab placement bounded when opening more than the retained maximum", () => {
-    const baseline = Array.from({ length: MAX_OPEN_THREAD_TAB_KEYS }, (_, index) => `q-${index + 1}`);
-    const next = placeOpenThreadTabKey(baseline, "q-1000", "first");
+  it("keeps shared tab placement bounded when opening more than the retained maximum", () => {
+    const baseline = Array.from({ length: MAX_LEADER_OPEN_THREAD_TABS }, (_, index) => `q-${index + 1}`);
+    const next = placeLeaderOpenThreadTabKey(baseline, "q-1000", "first");
 
-    expect(next).toHaveLength(MAX_OPEN_THREAD_TAB_KEYS);
+    expect(next).toHaveLength(MAX_LEADER_OPEN_THREAD_TABS);
     expect(next[0]).toBe("q-1000");
-    expect(next).not.toContain(`q-${MAX_OPEN_THREAD_TAB_KEYS}`);
+    expect(next).not.toContain(`q-${MAX_LEADER_OPEN_THREAD_TABS}`);
   });
 
   it("normalizes direct arrays without accepting main, all, empty, or duplicate keys", () => {
-    expect(normalizeOpenThreadTabKeys(["", "main", "all", " Q-1 ", "q-1", "q-2"])).toEqual(["q-1", "q-2"]);
+    expect(normalizeLeaderOpenThreadKeys(["", "main", "all", " Q-1 ", "q-1", "q-2"])).toEqual(["q-1", "q-2"]);
   });
 });

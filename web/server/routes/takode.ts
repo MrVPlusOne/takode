@@ -3,7 +3,6 @@ import * as questStore from "../quest-store.js";
 import * as sessionNames from "../session-names.js";
 import type { HerdSessionsResponse } from "../../shared/herd-types.js";
 import { isValidQuestId } from "../../shared/quest-journey.js";
-import { buildLeaderActivePhaseSummary } from "../../shared/leader-active-phase-summary.js";
 import {
   SESSION_NAVIGATION_PROJECTION,
   sessionNavigationProjectionToSessionFields,
@@ -70,7 +69,7 @@ import {
   pendingThreadAttachmentChangedCount,
   scheduleThreadAttachmentUpdateBroadcast,
 } from "./takode-thread-attachment-broadcast.js";
-export { _resetThreadAttachmentHistoryBroadcastsForTest } from "./takode-thread-attachment-broadcast.js";
+export { _resetThreadAttachmentBroadcastsForTest } from "./takode-thread-attachment-broadcast.js";
 
 export function createTakodeRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -418,8 +417,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
       type: "board_updated",
       board,
       completedBoard,
-      ...(session.state?.leaderOpenThreadTabs ? { leaderOpenThreadTabs: session.state.leaderOpenThreadTabs } : {}),
-      leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
       rowSessionStatuses: buildBoardRowSessionStatusesController(
         [...board, ...completedBoard],
         getBoardStatusSessions(),
@@ -1067,6 +1064,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
           firstMessageIndex: selection.firstMessageIndex,
         };
         session.messageHistory.push(marker);
+        wsBridge.promoteLeaderThreadTabForAttachment(id, questId, timestamp);
       }
     }
 

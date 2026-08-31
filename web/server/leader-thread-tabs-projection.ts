@@ -7,8 +7,8 @@ import {
   LEADER_THREAD_TABS_PROJECTION_MAX_TABS,
   LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH,
   LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH,
-  LEADER_THREAD_TABS_PROJECTION_MAX_TOMBSTONES,
   LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES,
+  createLeaderThreadTabsProjectionPatch,
   type LeaderThreadTabsProjectionAttention,
   type LeaderThreadTabsProjectionJourney,
   type LeaderThreadTabsProjectionTab,
@@ -18,21 +18,20 @@ import {
 import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
 import {
   LEADER_OPEN_THREAD_TABS_VERSION,
-  canServerCandidateOpenThread,
   normalizeLeaderOpenThreadTabsState,
-  placeLeaderOpenThreadTabBeforeKeys,
-  placeLeaderOpenThreadTabKey,
-  shouldPersistLeaderThreadTab,
 } from "../shared/leader-open-thread-tabs.js";
 import { getQuestJourneyCurrentPhaseId, getQuestJourneyCurrentPhaseIndex } from "../shared/quest-journey.js";
 import {
   isInMotionLeaderThreadTabRow,
   isNeverStartedScheduledLeaderThreadTabRow,
-  promoteInMotionLeaderThreadTabsBeforeScheduled,
   type LeaderThreadTabMutationPolicy,
 } from "../shared/leader-thread-tab-priority.js";
 import { threadStatusKey, threadStatusMessageIdHash, type LeaderThreadStatus } from "../shared/thread-status-marker.js";
-import { buildProjectionAttentionRecords, collectMessageAttentionRecords } from "../shared/leader-projection.js";
+import {
+  buildProjectionAttentionRecords,
+  collectLeaderThreadSummaries,
+  collectMessageAttentionRecords,
+} from "../shared/leader-projection.js";
 import { getUserVisibleSessionNotifications } from "./bridge/session-notification-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
 import type { BoardRow, SessionAttentionRecord } from "./session-types.js";
@@ -52,42 +51,29 @@ const EMPTY_ATTENTION: LeaderThreadTabsProjectionAttention = {
   updatedAt: 0,
 };
 
-type MessageAttentionCacheEntry = {
-  history: Session["messageHistory"];
-  historyLength: number;
-  tail: Session["messageHistory"][number] | undefined;
-  tailContent: unknown;
-  tailMetadata: unknown;
-  records: SessionAttentionRecord[];
+type LeaderMessageVisualInputs = {
+  attentionRecords: SessionAttentionRecord[];
+  threadSummaries: ReturnType<typeof collectLeaderThreadSummaries>;
 };
 
-const messageAttentionCache = new WeakMap<Session, MessageAttentionCacheEntry>();
+type MessageAttentionCacheEntry = LeaderMessageVisualInputs & { signature: readonly unknown[] };
+const messageAttentionCache = new WeakMap<object, MessageAttentionCacheEntry>();
 
-function messageAttentionRecords(session: Session): SessionAttentionRecord[] {
+export function getLeaderMessageVisualInputs(
+  session: Pick<Session, "id" | "messageHistory">,
+): LeaderMessageVisualInputs {
   const history = session.messageHistory;
-  const tail = history[history.length - 1];
-  const tailContent = (tail as { content?: unknown } | undefined)?.content;
-  const tailMetadata = (tail as { metadata?: unknown } | undefined)?.metadata;
+  const tail = history.at(-1) as { content?: unknown; metadata?: unknown } | undefined;
+  const signature = [history, history.length, tail, tail?.content, tail?.metadata];
   const cached = messageAttentionCache.get(session);
-  if (
-    cached?.history === history &&
-    cached.historyLength === history.length &&
-    cached.tail === tail &&
-    cached.tailContent === tailContent &&
-    cached.tailMetadata === tailMetadata
-  ) {
-    return cached.records;
-  }
-  const records = collectMessageAttentionRecords(session.id, history);
-  messageAttentionCache.set(session, {
-    history,
-    historyLength: history.length,
-    tail,
-    tailContent,
-    tailMetadata,
-    records,
-  });
-  return records;
+  if (cached?.signature.every((value, index) => value === signature[index])) return cached;
+  const inputs = {
+    attentionRecords: collectMessageAttentionRecords(session.id, history),
+    threadSummaries: collectLeaderThreadSummaries(history),
+    signature,
+  };
+  messageAttentionCache.set(session, inputs);
+  return inputs;
 }
 
 export interface LeaderThreadTabsProjectionDefinitionDeps<TSubscriber> {
@@ -115,35 +101,31 @@ function nonNegativeInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
-function normalizeProjectionThreadKey(value: unknown): string | null {
+function normalizeThreadKey(value: unknown, allowMain = false): string | null {
   if (typeof value !== "string") return null;
-  const key = value.trim().toLowerCase();
-  if (!key || key === "main" || key === "all") return null;
-  if (key.length > LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) return null;
-  return shouldPersistLeaderThreadTab(key) ? key : null;
+  const key = threadStatusKey(value);
+  if (!key || key === "all" || key.length > LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) return null;
+  return key === "main" && !allowMain ? null : key;
+}
+
+function normalizeProjectionThreadKey(value: unknown): string | null {
+  return normalizeThreadKey(value);
 }
 
 function normalizeStatusThreadKey(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const key = threadStatusKey(value);
-  if (!key || key.length > LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) return null;
-  return key === "main" || /^q-\d+$/i.test(key) ? key : null;
+  const key = normalizeThreadKey(value, true);
+  return key && (key === "main" || /^q-\d+$/i.test(key)) ? key : null;
 }
 
 function normalizeAttentionThreadKey(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const key = threadStatusKey(value);
-  if (key === "main") return key;
-  return normalizeProjectionThreadKey(key);
+  return normalizeThreadKey(value, true);
 }
 
-function sortedBoardRows(rows: Iterable<BoardRow>): BoardRow[] {
-  return [...rows].sort((left, right) => left.createdAt - right.createdAt || left.questId.localeCompare(right.questId));
-}
-
-function sortedCompletedBoardRows(rows: Iterable<BoardRow>): BoardRow[] {
-  return [...rows].sort(
-    (left, right) => (right.completedAt ?? 0) - (left.completedAt ?? 0) || left.questId.localeCompare(right.questId),
+function sortedBoardRows(rows: Iterable<BoardRow>, completed = false): BoardRow[] {
+  return [...rows].sort((left, right) =>
+    completed
+      ? (right.completedAt ?? 0) - (left.completedAt ?? 0) || left.questId.localeCompare(right.questId)
+      : left.createdAt - right.createdAt || left.questId.localeCompare(right.questId),
   );
 }
 
@@ -190,6 +172,32 @@ interface CurrentQuestClaim {
   workerSessionId: string;
   leaderSessionId?: string;
   active: boolean;
+}
+
+interface CurrentQuestStateOptions {
+  sessions?: Iterable<Session>;
+  isCurrentQuestSourceSession?: (session: Session) => boolean;
+  isCurrentQuestLeaderSession?: (session: Session) => boolean;
+}
+
+function claimRank(
+  claims: ReadonlyArray<CurrentQuestClaim>,
+  workerSessionId: string | undefined,
+  leaderSessionId: string,
+  completed: boolean,
+): number {
+  let rank = 0;
+  for (const claim of claims) {
+    if (
+      claim.workerSessionId !== workerSessionId ||
+      (claim.leaderSessionId && claim.leaderSessionId !== leaderSessionId)
+    ) {
+      continue;
+    }
+    const scopedRank = claim.leaderSessionId ? 2 : 1;
+    rank = Math.max(rank, !completed && claim.active ? scopedRank + 2 : scopedRank);
+  }
+  return rank;
 }
 
 function currentQuestRowRunAt(candidate: CurrentQuestRow): number {
@@ -239,30 +247,12 @@ function currentQuestRowsByKey(
     const questId = normalizeProjectionThreadKey(row.questId);
     if (!questId || !relevantThreadKeys.has(questId)) return;
     const claims = claimsByQuest.get(questId) ?? [];
-    const matchingClaims = claims.filter((claim) => row.worker === claim.workerSessionId);
-    const exactClaims = matchingClaims.filter((claim) => claim.leaderSessionId === session.id);
-    const legacyClaims = matchingClaims.filter((claim) => !claim.leaderSessionId);
     const completed = completedBoard || isCompletedRow(row);
-    const claimRank = !completed
-      ? exactClaims.some((claim) => claim.active)
-        ? 4
-        : legacyClaims.some((claim) => claim.active)
-          ? 3
-          : exactClaims.length > 0
-            ? 2
-            : legacyClaims.length > 0
-              ? 1
-              : 0
-      : exactClaims.length > 0
-        ? 2
-        : legacyClaims.length > 0
-          ? 1
-          : 0;
     const candidate: CurrentQuestRow = {
       row,
       sourceLeaderSessionId: session.id,
       completed,
-      claimRank,
+      claimRank: claimRank(claims, row.worker, session.id, completed),
     };
     const current = result.get(questId);
     if (!current || currentQuestRowOutranks(candidate, current)) result.set(questId, candidate);
@@ -280,14 +270,29 @@ function currentQuestRowsByKey(
   return result;
 }
 
+function currentQuestRowsForSession(
+  session: Session,
+  relevantThreadKeys: ReadonlySet<string>,
+  options: CurrentQuestStateOptions,
+): Map<string, CurrentQuestRow> {
+  const isSource =
+    options.isCurrentQuestSourceSession ??
+    ((candidate: Session) => candidate.searchDataOnly !== true && candidate.state.hidden !== true);
+  const sessions = new Map<string, Session>([[session.id, session]]);
+  for (const candidate of options.sessions ?? []) {
+    if (candidate.id === session.id || isSource(candidate)) sessions.set(candidate.id, candidate);
+  }
+  return currentQuestRowsByKey(
+    [...sessions.values()],
+    relevantThreadKeys,
+    options.isCurrentQuestLeaderSession ?? ((candidate) => candidate.state.isOrchestrator === true),
+  );
+}
+
 export function resolveLeaderThreadTabMutationPolicy(
   session: Session,
   threadKey: string,
-  options: {
-    sessions?: Iterable<Session>;
-    isCurrentQuestSourceSession?: (session: Session) => boolean;
-    isCurrentQuestLeaderSession?: (session: Session) => boolean;
-  } = {},
+  options: CurrentQuestStateOptions = {},
 ): LeaderThreadTabMutationPolicy {
   const normalizedThreadKey = normalizeProjectionThreadKey(threadKey);
   if (!normalizedThreadKey) {
@@ -295,24 +300,14 @@ export function resolveLeaderThreadTabMutationPolicy(
       inMotion: false,
       scheduled: false,
       neverStartedScheduled: false,
+      completed: false,
       canClose: true,
     };
   }
 
-  const allSessions = new Map<string, Session>([[session.id, session]]);
-  const isCurrentQuestSourceSession =
-    options.isCurrentQuestSourceSession ??
-    ((candidate: Session) => candidate.searchDataOnly !== true && candidate.state.hidden !== true);
-  for (const candidate of options.sessions ?? []) {
-    if (candidate.id === session.id || isCurrentQuestSourceSession(candidate)) allSessions.set(candidate.id, candidate);
-  }
-  const isCurrentQuestLeaderSession =
-    options.isCurrentQuestLeaderSession ?? ((candidate: Session) => candidate.state.isOrchestrator === true);
-  const currentQuestRow = currentQuestRowsByKey(
-    [...allSessions.values()],
-    new Set([normalizedThreadKey]),
-    isCurrentQuestLeaderSession,
-  ).get(normalizedThreadKey);
+  const currentQuestRow = currentQuestRowsForSession(session, new Set([normalizedThreadKey]), options).get(
+    normalizedThreadKey,
+  );
   const localActiveRow = boardRowsByKey([...session.board.values()]).get(normalizedThreadKey);
   const localCompletedRow = localActiveRow
     ? undefined
@@ -327,6 +322,7 @@ export function resolveLeaderThreadTabMutationPolicy(
     inMotion,
     scheduled,
     neverStartedScheduled: scheduled && isNeverStartedScheduledLeaderThreadTabRow(row),
+    completed,
     canClose: !inMotion,
   };
 }
@@ -339,224 +335,131 @@ interface ProjectionTabCandidate {
   kind: ProjectionTabCandidateKind;
 }
 
-function isMutedNeedsInputRecord(record: SessionAttentionRecord): boolean {
-  return record.state === "muted" && record.type === "needs_input" && record.priority === "needs_input";
-}
-
-function isBlueReviewRecord(record: SessionAttentionRecord): boolean {
-  return (
-    isAttentionActive(record) &&
-    record.source.kind === "notification" &&
+function projectionTabCandidateKind(record: SessionAttentionRecord): ProjectionTabCandidateKind | null {
+  if (record.type === "needs_input" && record.priority === "needs_input") {
+    return isAttentionActive(record) || record.state === "muted" ? "needs-input" : null;
+  }
+  if (!isAttentionActive(record)) return null;
+  if (
+    record.source?.kind === "notification" &&
     (record.type === "review_ready" || record.priority === "review" || record.priority === "completed")
-  );
-}
-
-function isPrimaryThreadTabRecord(record: SessionAttentionRecord): boolean {
-  return (
-    isAttentionActive(record) &&
-    record.priority !== "review" &&
+  ) {
+    return "review";
+  }
+  return record.priority !== "review" &&
     record.priority !== "completed" &&
     record.type !== "review_ready" &&
     record.type !== "quest_completed_recent"
-  );
+    ? "primary"
+    : null;
 }
 
-function projectionTabCandidateKind(record: SessionAttentionRecord): ProjectionTabCandidateKind | null {
-  if (record.type === "needs_input" && record.priority === "needs_input") {
-    return isAttentionActive(record) || isMutedNeedsInputRecord(record) ? "needs-input" : null;
-  }
-  if (isBlueReviewRecord(record)) return "review";
-  return isPrimaryThreadTabRecord(record) ? "primary" : null;
+interface AttentionVisualInput {
+  attention: LeaderThreadTabsProjectionAttention;
+  candidate: ProjectionTabCandidate | null;
+  title: string | null;
+  titleRank: number;
+  titleUpdatedAt: number;
 }
 
-function projectionTabCandidates(records: ReadonlyArray<SessionAttentionRecord>): ProjectionTabCandidate[] {
-  const byKey = new Map<string, ProjectionTabCandidate>();
+function buildAttentionVisualInputs(records: ReadonlyArray<SessionAttentionRecord>): Map<string, AttentionVisualInput> {
+  const result = new Map<string, AttentionVisualInput>();
   for (const record of records) {
-    const kind = projectionTabCandidateKind(record);
-    if (!kind) continue;
     const threadKey = normalizeAttentionThreadKey(
       record.route.threadKey || record.threadKey || record.questId || "main",
     );
-    if (!threadKey || threadKey === "main" || !normalizeProjectionThreadKey(threadKey)) continue;
-    const eventAt = nonNegativeNumber(record.updatedAt);
-    const existing = byKey.get(threadKey);
-    const rank = kind === "primary" ? 3 : kind === "needs-input" ? 2 : 1;
-    const existingRank = existing?.kind === "primary" ? 3 : existing?.kind === "needs-input" ? 2 : 1;
-    if (existing && (existing.eventAt > eventAt || (existing.eventAt === eventAt && existingRank >= rank))) continue;
-    byKey.set(threadKey, { threadKey, eventAt, kind });
-  }
-  return [...byKey.values()];
-}
+    if (!threadKey) continue;
+    const current = result.get(threadKey) ?? {
+      attention: EMPTY_ATTENTION,
+      candidate: null,
+      title: null,
+      titleRank: 0,
+      titleUpdatedAt: 0,
+    };
+    const active = isAttentionActive(record);
+    const updatedAt = nonNegativeNumber(record.updatedAt);
+    const attention = {
+      needsInput:
+        current.attention.needsInput ||
+        (active && record.type === "needs_input" && record.priority === "needs_input" && record.state !== "muted"),
+      mutedNeedsInput:
+        current.attention.mutedNeedsInput ||
+        (record.state === "muted" && record.type === "needs_input" && record.priority === "needs_input"),
+      reviewUnread:
+        current.attention.reviewUnread ||
+        (active &&
+          record.source?.kind === "notification" &&
+          (record.type === "review_ready" || record.priority === "review" || record.priority === "completed")),
+      updatedAt: Math.max(current.attention.updatedAt, updatedAt),
+    };
 
-function shouldRepositionServerCandidate(
-  existingState: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
-  eventAt: number,
-): boolean {
-  return existingState?.explicitOrderUpdatedAt === undefined || eventAt > existingState.explicitOrderUpdatedAt;
+    let { candidate, title, titleRank, titleUpdatedAt } = current;
+    if (threadKey !== "main") {
+      const kind = projectionTabCandidateKind(record);
+      if (kind) {
+        const rank = kind === "primary" ? 3 : kind === "needs-input" ? 2 : 1;
+        const currentRank = candidate?.kind === "primary" ? 3 : candidate?.kind === "needs-input" ? 2 : 1;
+        if (!candidate || candidate.eventAt < updatedAt || (candidate.eventAt === updatedAt && currentRank < rank)) {
+          candidate = { threadKey, eventAt: updatedAt, kind };
+        }
+      }
+
+      const nextTitle = boundedText(record.title, LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH).trim();
+      const nextTitleRank =
+        record.source?.kind === "quest" || record.source?.kind === "board" || record.source?.kind === "message"
+          ? 3
+          : record.type === "needs_input"
+            ? 2
+            : 1;
+      if (
+        nextTitle &&
+        !isQuestIdFallbackTitle(nextTitle, threadKey, record.questId) &&
+        (nextTitleRank > titleRank || (nextTitleRank === titleRank && updatedAt > titleUpdatedAt))
+      ) {
+        title = nextTitle;
+        titleRank = nextTitleRank;
+        titleUpdatedAt = updatedAt;
+      }
+    }
+    result.set(threadKey, { attention, candidate, title, titleRank, titleUpdatedAt });
+  }
+  return result;
 }
 
 function buildEffectiveOpenKeys(
   existingState: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
   boardRows: ReadonlyArray<BoardRow>,
-  attentionRecords: ReadonlyArray<SessionAttentionRecord>,
-): { orderedOpenThreadKeys: string[]; candidateUpdatedAt: number } {
-  let orderedOpenThreadKeys = (existingState?.orderedOpenThreadKeys ?? [])
-    .map(normalizeProjectionThreadKey)
-    .filter((key): key is string => !!key)
-    .slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_TABS);
-  let candidateUpdatedAt = 0;
+  attentionVisualInputs: ReadonlyMap<string, AttentionVisualInput>,
+): string[] {
+  if (existingState) return existingState.orderedOpenThreadKeys.slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_TABS);
 
-  const scheduledThreadKeys = new Set(
-    boardRows
-      .filter((row) => isQueuedRow(row) || isProposedRow(row))
-      .map((row) => normalizeProjectionThreadKey(row.questId))
-      .filter((threadKey): threadKey is string => threadKey !== null),
-  );
-  const neverStartedScheduledThreadKeys = new Set(
+  const active = boardRows.filter(isInMotionBoardCandidate).map((row) => normalizeProjectionThreadKey(row.questId)!);
+  const scheduled = boardRows
+    .filter((row) => !isCompletedRow(row) && (isQueuedRow(row) || isProposedRow(row)))
+    .map((row) => normalizeProjectionThreadKey(row.questId))
+    .filter((threadKey): threadKey is string => threadKey !== null);
+  const boardKeys = new Set([...active, ...scheduled]);
+  const blockedCandidates = new Set(
     boardRows
       .filter(isNeverStartedScheduledLeaderThreadTabRow)
       .map((row) => normalizeProjectionThreadKey(row.questId))
       .filter((threadKey): threadKey is string => threadKey !== null),
   );
-  const candidates = projectionTabCandidates(attentionRecords);
-  const candidatesByKind = (kind: ProjectionTabCandidateKind) =>
-    candidates
-      .filter((candidate) => candidate.kind === kind)
-      .sort((left, right) => left.eventAt - right.eventAt || left.threadKey.localeCompare(right.threadKey));
-
-  const placeFirst = (threadKey: string, eventAt: number, repositionExisting: boolean) => {
-    const alreadyOpen = orderedOpenThreadKeys.includes(threadKey);
-    if (
-      !alreadyOpen &&
-      !canServerCandidateOpenThread(existingState, threadKey, eventAt, {
-        allowTombstoneReopen: !scheduledThreadKeys.has(threadKey),
-      })
-    ) {
-      return;
-    }
-    if (alreadyOpen && !repositionExisting) return;
-    const next = placeLeaderOpenThreadTabKey(orderedOpenThreadKeys, threadKey, "first").slice(
-      0,
-      LEADER_THREAD_TABS_PROJECTION_MAX_TABS,
-    );
-    if (next.every((key, index) => key === orderedOpenThreadKeys[index])) return;
-    orderedOpenThreadKeys = next;
-    candidateUpdatedAt = Math.max(candidateUpdatedAt, eventAt);
-  };
-
-  const placeLast = (threadKey: string, eventAt: number) => {
-    if (orderedOpenThreadKeys.includes(threadKey)) return;
-    if (
-      !canServerCandidateOpenThread(existingState, threadKey, eventAt, {
-        allowTombstoneReopen: !scheduledThreadKeys.has(threadKey),
-      })
-    ) {
-      return;
-    }
-    if (orderedOpenThreadKeys.length >= LEADER_THREAD_TABS_PROJECTION_MAX_TABS) return;
-    orderedOpenThreadKeys = [...orderedOpenThreadKeys, threadKey];
-    candidateUpdatedAt = Math.max(candidateUpdatedAt, eventAt);
-  };
-
-  const needsInputCandidates = candidatesByKind("needs-input");
-  const activeBoardCandidates = boardRows.filter(isInMotionBoardCandidate).map((row) => ({
-    threadKey: normalizeProjectionThreadKey(row.questId)!,
-    eventAt: nonNegativeNumber(row.threadTabActivatedAt ?? row.createdAt),
-  }));
-
-  // Durable order already records every accepted edge-triggered promotion.
-  // Derivation may insert genuinely missing candidates, but it must never sort
-  // or reposition an existing tab from its current visual state.
-
-  // Missing needs-input candidates retain the established first-position
-  // behavior, except when a newer explicit user ordering already owns the rail.
-  for (const candidate of needsInputCandidates) {
-    if (neverStartedScheduledThreadKeys.has(candidate.threadKey)) continue;
-    if (orderedOpenThreadKeys.includes(candidate.threadKey)) continue;
-    if (shouldRepositionServerCandidate(existingState, candidate.eventAt)) {
-      placeFirst(candidate.threadKey, candidate.eventAt, false);
-    } else {
-      placeLast(candidate.threadKey, candidate.eventAt);
-    }
-  }
-
-  // Cold/missing active work is the durable left prefix in board order. Existing
-  // candidates keep the producer-authored order preserved by the group above.
-  for (const candidate of [...activeBoardCandidates].reverse()) {
-    if (orderedOpenThreadKeys.includes(candidate.threadKey)) continue;
-    if (shouldRepositionServerCandidate(existingState, candidate.eventAt)) {
-      placeFirst(candidate.threadKey, candidate.eventAt, false);
-    } else {
-      placeLast(candidate.threadKey, candidate.eventAt);
-    }
-  }
-
-  // Queued and proposed rows remain visual tabs but are not authoritative open
-  // operations. Keep them after active work unless already ordered explicitly.
-  const deferredKeys = new Set<string>();
-  for (const row of boardRows) {
-    if (isCompletedRow(row) || (!isQueuedRow(row) && !isProposedRow(row))) continue;
-    const threadKey = normalizeProjectionThreadKey(row.questId);
-    if (!threadKey) continue;
-    deferredKeys.add(threadKey);
-    placeLast(threadKey, nonNegativeNumber(row.threadTabActivatedAt ?? row.createdAt));
-  }
-
-  // Review-only tabs sit ahead of synthetic queued/proposed rows without
-  // disturbing already-open user order.
-  for (const candidate of candidatesByKind("review")) {
-    if (neverStartedScheduledThreadKeys.has(candidate.threadKey)) continue;
-    if (orderedOpenThreadKeys.includes(candidate.threadKey)) continue;
-    if (
-      !canServerCandidateOpenThread(existingState, candidate.threadKey, candidate.eventAt, {
-        allowTombstoneReopen: !scheduledThreadKeys.has(candidate.threadKey),
-      })
-    ) {
-      continue;
-    }
-    if (shouldRepositionServerCandidate(existingState, candidate.eventAt)) {
-      orderedOpenThreadKeys = placeLeaderOpenThreadTabBeforeKeys(
-        orderedOpenThreadKeys,
-        candidate.threadKey,
-        deferredKeys,
-      );
-    } else {
-      placeLast(candidate.threadKey, candidate.eventAt);
-      continue;
-    }
-    candidateUpdatedAt = Math.max(candidateUpdatedAt, candidate.eventAt);
-  }
-
-  // Rework, blocked, created, and other primary attention edges are the
-  // leading transient candidates. Older restored records respect newer user
-  // order and append instead of unexpectedly reshuffling it.
-  for (const candidate of candidatesByKind("primary")) {
-    if (neverStartedScheduledThreadKeys.has(candidate.threadKey)) continue;
-    if (orderedOpenThreadKeys.includes(candidate.threadKey)) continue;
-    if (shouldRepositionServerCandidate(existingState, candidate.eventAt)) {
-      placeFirst(candidate.threadKey, candidate.eventAt, false);
-    } else {
-      placeLast(candidate.threadKey, candidate.eventAt);
-    }
-  }
-
-  return { orderedOpenThreadKeys, candidateUpdatedAt };
-}
-
-function projectedTombstones(
-  existingState: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
-  relevantKeys: ReadonlySet<string>,
-): LeaderThreadTabsProjectionTabState["closedThreadTombstones"] {
-  if (!existingState) return [];
-  const eligible = existingState.closedThreadTombstones.filter(
-    (entry) => normalizeProjectionThreadKey(entry.threadKey) !== null,
-  );
-  const relevant = eligible.filter((entry) => relevantKeys.has(entry.threadKey));
-  const recent = eligible.filter((entry) => !relevantKeys.has(entry.threadKey));
-  return [...relevant, ...recent].slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_TOMBSTONES).map((entry) => ({
-    threadKey: entry.threadKey,
-    closedAt: nonNegativeNumber(entry.closedAt),
-  }));
+  const candidates = [...attentionVisualInputs.values()]
+    .map((input) => input.candidate)
+    .filter(
+      (candidate): candidate is ProjectionTabCandidate =>
+        candidate !== null && !boardKeys.has(candidate.threadKey) && !blockedCandidates.has(candidate.threadKey),
+    )
+    .sort((left, right) => left.eventAt - right.eventAt || left.threadKey.localeCompare(right.threadKey));
+  const keys = [
+    ...candidates.filter((candidate) => candidate.kind === "primary").reverse(),
+    ...active.map((threadKey) => ({ threadKey })),
+    ...candidates.filter((candidate) => candidate.kind === "needs-input").reverse(),
+    ...candidates.filter((candidate) => candidate.kind === "review"),
+    ...scheduled.map((threadKey) => ({ threadKey })),
+  ];
+  return [...new Set(keys.map(({ threadKey }) => threadKey))].slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_TABS);
 }
 
 function isAttentionActive(record: SessionAttentionRecord): boolean {
@@ -565,63 +468,9 @@ function isAttentionActive(record: SessionAttentionRecord): boolean {
 
 function isQuestIdFallbackTitle(title: string, threadKey: string, questId?: string): boolean {
   const normalized = title.trim().toLowerCase();
-  const ids = new Set([threadKey, questId?.trim().toLowerCase()].filter((value): value is string => !!value));
-  if (ids.has(normalized)) return true;
-  for (const id of ids) {
-    if (normalized === `${id}: ${id}` || normalized === `${id} ${id}`) return true;
-  }
-  return false;
-}
-
-function attentionTitleInputs(records: ReadonlyArray<SessionAttentionRecord>): Map<string, string> {
-  const result = new Map<string, { title: string; rank: number; updatedAt: number }>();
-  for (const record of records) {
-    const key = normalizeAttentionThreadKey(record.route.threadKey || record.threadKey || record.questId || "main");
-    if (!key || key === "main") continue;
-    const title = boundedText(record.title, LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH).trim();
-    if (!title || isQuestIdFallbackTitle(title, key, record.questId)) continue;
-    const rank =
-      record.source.kind === "quest" || record.source.kind === "board" || record.source.kind === "message"
-        ? 3
-        : record.type === "needs_input"
-          ? 2
-          : 1;
-    const updatedAt = nonNegativeNumber(record.updatedAt);
-    const existing = result.get(key);
-    if (existing && (existing.rank > rank || (existing.rank === rank && existing.updatedAt >= updatedAt))) continue;
-    result.set(key, { title, rank, updatedAt });
-  }
-  return new Map([...result].map(([key, value]) => [key, value.title]));
-}
-
-function attentionByThread(
-  records: ReadonlyArray<SessionAttentionRecord>,
-): Map<string, LeaderThreadTabsProjectionAttention> {
-  const result = new Map<string, LeaderThreadTabsProjectionAttention>();
-  for (const record of records) {
-    const key = normalizeAttentionThreadKey(record.route.threadKey || record.threadKey || record.questId || "main");
-    if (!key) continue;
-    const current = result.get(key) ?? EMPTY_ATTENTION;
-    const active = isAttentionActive(record);
-    const needsInput =
-      current.needsInput ||
-      (active && record.type === "needs_input" && record.priority === "needs_input" && record.state !== "muted");
-    const mutedNeedsInput =
-      current.mutedNeedsInput ||
-      (record.state === "muted" && record.type === "needs_input" && record.priority === "needs_input");
-    const reviewUnread =
-      current.reviewUnread ||
-      (active &&
-        record.source.kind === "notification" &&
-        (record.type === "review_ready" || record.priority === "review" || record.priority === "completed"));
-    result.set(key, {
-      needsInput,
-      mutedNeedsInput,
-      reviewUnread,
-      updatedAt: Math.max(current.updatedAt, nonNegativeNumber(record.updatedAt)),
-    });
-  }
-  return result;
+  return [threadKey, questId?.trim().toLowerCase()].some(
+    (id) => !!id && (normalized === id || normalized === `${id}: ${id}` || normalized === `${id} ${id}`),
+  );
 }
 
 function compactJourney(row: BoardRow | undefined): LeaderThreadTabsProjectionJourney | null {
@@ -710,43 +559,38 @@ function minimalStatusIdentity(status: LeaderThreadStatus): LeaderThreadStatus {
   };
 }
 
-function compactValueToByteLimit(value: LeaderThreadTabsProjectionValue): LeaderThreadTabsProjectionValue {
-  if (serializedValueBytes(value) <= LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES) return value;
-  const compacted: LeaderThreadTabsProjectionValue = {
+function compactDisplayText(
+  value: LeaderThreadTabsProjectionValue,
+  titleLength: number,
+  summaryLength: number,
+  clearPhaseSummary = false,
+): LeaderThreadTabsProjectionValue {
+  return {
     ...value,
-    tabs: value.tabs.map((tab) => ({
-      ...tab,
-      title: tab.title?.slice(0, 80) || null,
-    })),
+    tabs: value.tabs.map((tab) => ({ ...tab, title: tab.title?.slice(0, titleLength) || null })),
     threadStatuses: Object.fromEntries(
       Object.entries(value.threadStatuses).map(([key, status]) => [
         key,
-        { ...status, summary: status.summary.slice(0, 100) },
+        { ...status, summary: status.summary.slice(0, summaryLength) },
       ]),
     ),
+    ...(clearPhaseSummary ? { activePhaseSummary: [] } : {}),
   };
+}
+
+function compactValueToByteLimit(value: LeaderThreadTabsProjectionValue): LeaderThreadTabsProjectionValue {
+  if (serializedValueBytes(value) <= LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES) return value;
+  const compacted = compactDisplayText(value, 80, 100);
   if (serializedValueBytes(compacted) <= LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES) return compacted;
 
-  const displayCompacted: LeaderThreadTabsProjectionValue = {
-    ...compacted,
-    tabs: compacted.tabs.map((tab) => ({ ...tab, title: null })),
-    threadStatuses: Object.fromEntries(
-      Object.entries(compacted.threadStatuses).map(([key, status]) => [
-        key,
-        { ...status, summary: status.summary.slice(0, 48) },
-      ]),
-    ),
-    activePhaseSummary: [],
-  };
+  const displayCompacted = compactDisplayText(compacted, 0, 48, true);
   if (serializedValueBytes(displayCompacted) <= LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES) {
     return displayCompacted;
   }
 
-  // Pathological long custom keys can still exceed the cap after all
-  // display-only text is removed. Preserve Ready correlation through a stable
-  // full-ID fingerprint, then shed nonessential phase/status detail and the
-  // oldest projected tombstones. Raw server state retains every tombstone.
-  let minimal: LeaderThreadTabsProjectionValue = {
+  // Pathological long custom keys can still require nonessential phase/status
+  // detail to be shed after display text is removed.
+  return {
     ...displayCompacted,
     tabs: displayCompacted.tabs.map((tab) => ({
       ...tab,
@@ -758,125 +602,46 @@ function compactValueToByteLimit(value: LeaderThreadTabsProjectionValue): Leader
       Object.entries(displayCompacted.threadStatuses).map(([key, status]) => [key, minimalStatusIdentity(status)]),
     ),
   };
-  while (
-    serializedValueBytes(minimal) > LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES &&
-    (minimal.tabState?.closedThreadTombstones.length ?? 0) > 0
-  ) {
-    minimal = {
-      ...minimal,
-      tabState: minimal.tabState
-        ? {
-            ...minimal.tabState,
-            closedThreadTombstones: minimal.tabState.closedThreadTombstones.slice(0, -1),
-          }
-        : null,
-    };
-  }
-  return minimal;
 }
 
 export function buildLeaderThreadTabsProjectionValue(
   session: Session,
-  options: {
-    sessions?: Iterable<Session>;
-    isCurrentQuestSourceSession?: (session: Session) => boolean;
-    isCurrentQuestLeaderSession?: (session: Session) => boolean;
-  } = {},
+  options: CurrentQuestStateOptions = {},
 ): LeaderThreadTabsProjectionValue {
   const activeBoard = sortedBoardRows(session.board.values());
-  const completedBoard = sortedCompletedBoardRows(session.completedBoard.values());
+  const completedBoard = sortedBoardRows(session.completedBoard.values(), true);
   const existingState = normalizeLeaderOpenThreadTabsState(session.state.leaderOpenThreadTabs);
   const visibleNotifications = getUserVisibleSessionNotifications(session);
   const attentionRecords = buildProjectionAttentionRecords({
     leaderSessionId: session.id,
-    records: [...session.attentionRecords, ...messageAttentionRecords(session)],
+    records: [...session.attentionRecords, ...getLeaderMessageVisualInputs(session).attentionRecords],
     notifications: visibleNotifications,
     boardRows: activeBoard,
     completedBoardRows: completedBoard,
   });
-  const attention = attentionByThread(attentionRecords);
-  const attentionTitles = attentionTitleInputs(attentionRecords);
+  const attentionVisualInputs = buildAttentionVisualInputs(attentionRecords);
   const activeByKey = boardRowsByKey(activeBoard);
   const completedByKey = boardRowsByKey(completedBoard);
-  const allSessions = new Map<string, Session>([[session.id, session]]);
-  const isCurrentQuestSourceSession =
-    options.isCurrentQuestSourceSession ??
-    ((candidate: Session) => candidate.searchDataOnly !== true && candidate.state.hidden !== true);
-  for (const candidate of options.sessions ?? []) {
-    if (candidate.id === session.id || isCurrentQuestSourceSession(candidate)) allSessions.set(candidate.id, candidate);
-  }
-  const isCurrentQuestLeaderSession =
-    options.isCurrentQuestLeaderSession ?? ((candidate: Session) => candidate.state.isOrchestrator === true);
   const relevantCurrentQuestKeys = new Set<string>(existingState?.orderedOpenThreadKeys ?? []);
   for (const threadKey of activeByKey.keys()) relevantCurrentQuestKeys.add(threadKey);
   for (const threadKey of completedByKey.keys()) relevantCurrentQuestKeys.add(threadKey);
-  for (const threadKey of attention.keys()) {
+  for (const threadKey of attentionVisualInputs.keys()) {
     if (threadKey !== "main") relevantCurrentQuestKeys.add(threadKey);
   }
   for (const threadKey of Object.keys(session.state.leaderThreadStatuses ?? {})) {
     const normalizedThreadKey = normalizeProjectionThreadKey(threadStatusKey(threadKey));
     if (normalizedThreadKey) relevantCurrentQuestKeys.add(normalizedThreadKey);
   }
-  const currentQuestRows = currentQuestRowsByKey(
-    [...allSessions.values()],
-    relevantCurrentQuestKeys,
-    isCurrentQuestLeaderSession,
-  );
+  const currentQuestRows = currentQuestRowsForSession(session, relevantCurrentQuestKeys, options);
   const orderingRowsByKey = new Map(activeByKey);
   for (const [threadKey, currentQuestRow] of currentQuestRows) {
     orderingRowsByKey.set(threadKey, currentQuestRow.row);
   }
   const orderingRows = sortedBoardRows(orderingRowsByKey.values());
-  const { orderedOpenThreadKeys: candidateOpenThreadKeys, candidateUpdatedAt } = buildEffectiveOpenKeys(
-    existingState,
-    orderingRows,
-    attentionRecords,
-  );
-  const inMotionThreadKeys = new Set<string>();
-  const scheduledThreadKeys = new Set<string>();
-  for (const threadKey of candidateOpenThreadKeys) {
-    const localActiveRow = activeByKey.get(threadKey);
-    const localCompletedRow = localActiveRow ? undefined : completedByKey.get(threadKey);
-    const currentQuestRow = currentQuestRows.get(threadKey);
-    const row = currentQuestRow?.row ?? localActiveRow ?? localCompletedRow;
-    const completed = currentQuestRow
-      ? currentQuestRow.completed
-      : isCompletedRow(row) || (!!localCompletedRow && !localActiveRow);
-    if (isInMotionLeaderThreadTabRow(row, { completed })) inMotionThreadKeys.add(threadKey);
-    else if (!completed && isNeverStartedScheduledLeaderThreadTabRow(row)) scheduledThreadKeys.add(threadKey);
-  }
-  // This is a narrow promotion-only repair, not a global state sort: only
-  // current in-motion tabs cross scheduled tabs, while every peer class keeps
-  // its durable/manual order.
-  const orderedOpenThreadKeys = promoteInMotionLeaderThreadTabsBeforeScheduled(
-    candidateOpenThreadKeys,
-    inMotionThreadKeys,
-    scheduledThreadKeys,
-  );
+  const orderedOpenThreadKeys = buildEffectiveOpenKeys(existingState, orderingRows, attentionVisualInputs);
   const threadStatuses = relevantThreadStatuses(session.state.leaderThreadStatuses ?? {}, orderedOpenThreadKeys);
-  const relevantTombstoneKeys = new Set<string>([
-    ...activeByKey.keys(),
-    ...Object.keys(session.state.leaderThreadStatuses ?? {}).map(threadStatusKey),
-    ...attention.keys(),
-  ]);
-  const tombstones = projectedTombstones(existingState, relevantTombstoneKeys);
   const tabState: LeaderThreadTabsProjectionTabState | null = existingState
-    ? {
-        version: LEADER_OPEN_THREAD_TABS_VERSION,
-        orderedOpenThreadKeys,
-        closedThreadTombstones: tombstones,
-        updatedAt: Math.max(nonNegativeNumber(existingState?.updatedAt), candidateUpdatedAt),
-        ...(existingState?.migratedFromLocalStorageAt !== undefined
-          ? {
-              migratedFromLocalStorageAt: nonNegativeNumber(existingState.migratedFromLocalStorageAt),
-            }
-          : {}),
-        ...(existingState?.explicitOrderUpdatedAt !== undefined
-          ? {
-              explicitOrderUpdatedAt: nonNegativeNumber(existingState.explicitOrderUpdatedAt),
-            }
-          : {}),
-      }
+    ? { version: LEADER_OPEN_THREAD_TABS_VERSION }
     : null;
 
   const tabs: LeaderThreadTabsProjectionTab[] = orderedOpenThreadKeys.map((threadKey) => {
@@ -892,13 +657,14 @@ export function buildLeaderThreadTabsProjectionValue(
     const proposed = !completed && isProposedRow(row);
     const neverStartedScheduled = (queued || proposed) && isNeverStartedScheduledLeaderThreadTabRow(row);
     const isActive = isInMotionLeaderThreadTabRow(row, { completed });
-    const tabAttention = attention.get(threadKey) ?? EMPTY_ATTENTION;
+    const attentionVisualInput = attentionVisualInputs.get(threadKey);
+    const tabAttention = attentionVisualInput?.attention ?? EMPTY_ATTENTION;
     const status = threadStatuses[threadKey];
     return {
       threadKey,
       questId: /^q-\d+$/i.test(threadKey) ? threadKey : null,
       title: boundedNullableText(
-        row?.title ?? attentionTitles.get(threadKey),
+        row?.title ?? attentionVisualInput?.title,
         LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH,
       ),
       boardStatus: boundedNullableText(row?.status, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH),
@@ -921,7 +687,6 @@ export function buildLeaderThreadTabsProjectionValue(
         nonNegativeNumber(row?.completedAt),
         nonNegativeNumber(row?.updatedAt),
         tabAttention.updatedAt,
-        nonNegativeNumber(status?.updatedAt),
       ),
     };
   });
@@ -930,7 +695,7 @@ export function buildLeaderThreadTabsProjectionValue(
     currentQuestStateVersion: 1,
     tabState,
     tabs,
-    mainAttention: { ...(attention.get("main") ?? EMPTY_ATTENTION) },
+    mainAttention: { ...(attentionVisualInputs.get("main")?.attention ?? EMPTY_ATTENTION) },
     threadStatuses,
     activePhaseSummary: compactActivePhaseSummary(activeBoard),
   });
@@ -962,5 +727,6 @@ export function createLeaderThreadTabsProjectionDefinition<TSubscriber>(
       }),
     authorizeSubscription: (subscriber, _key, session) =>
       deps.isLeaderSession(session) && deps.authorizeSubscription(subscriber, session),
+    createPatch: createLeaderThreadTabsProjectionPatch,
   });
 }

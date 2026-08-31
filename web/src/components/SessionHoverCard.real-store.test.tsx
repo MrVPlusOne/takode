@@ -8,6 +8,10 @@ import { useStore } from "../store.js";
 import { hydrateSessionList } from "../session-list-hydration.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
+import {
+  createLeaderThreadTabsProjectionEnvelope,
+  createLeaderThreadTabsProjectionValue,
+} from "../test-fixtures/leader-thread-tabs-projection.js";
 
 if (typeof globalThis.DOMRect === "undefined") {
   globalThis.DOMRect = class DOMRect {
@@ -200,9 +204,38 @@ describe("SessionHoverCard with the real store", () => {
       },
     ]);
 
-    expect(useStore.getState().sdkSessions[0]?.leaderActivePhaseSummary).toEqual([
-      { label: "Implement", count: 1, tone: "phase", color: "#4ade80" },
-    ]);
+    useStore.getState().applySyncedProjectionSnapshot(
+      createLeaderThreadTabsProjectionEnvelope({
+        key: "leader-session",
+        value: createLeaderThreadTabsProjectionValue({
+          tabState: {
+            version: 1,
+            orderedOpenThreadKeys: ["q-1455"],
+            closedThreadTombstones: [],
+            updatedAt: now,
+          },
+          tabs: [
+            {
+              ...createLeaderThreadTabsProjectionValue().tabs[0]!,
+              threadKey: "q-1455",
+              questId: "q-1455",
+              title: "Restore active quest rows in leader session hover",
+              boardStatus: "IMPLEMENTING",
+              journey: {
+                mode: "active",
+                phaseIds: ["alignment", "implement", "code-review"],
+                currentPhaseId: "implement",
+                activePhaseIndex: 1,
+                phaseCount: 3,
+              },
+              active: true,
+              completed: false,
+            },
+          ],
+          activePhaseSummary: [{ label: "Implement", count: 1, tone: "phase", color: "#4ade80" }],
+        }),
+      }),
+    );
 
     render(
       <StrictMode>

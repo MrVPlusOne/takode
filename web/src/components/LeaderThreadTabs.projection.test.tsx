@@ -114,6 +114,7 @@ function projectedTab(
     active: false,
     queued: false,
     proposed: false,
+    neverStartedScheduled: false,
     completed: false,
     canClose: true,
     updatedAt: 10,
@@ -444,61 +445,24 @@ describe("leader thread tabs projected component behavior", () => {
     expect(onCloseThreadTab).toHaveBeenLastCalledWith("q-106", "q-107");
   });
 
-  it("keeps in-motion fallback tabs protected while scheduled board tabs can stay dismissed", async () => {
-    // Legacy sessions may still derive board tabs in the browser. Queued and
-    // proposed rows are dismissible there, while a close tombstone must never
-    // suppress an in-motion row that the fallback still needs to protect.
-    const onCloseThreadTab = vi.fn();
-    const board: BoardRowData[] = [
-      { questId: "q-201", status: "WORKING", title: "Current work", updatedAt: 30 },
-      { questId: "q-202", status: "QUEUED", title: "Queued follow-up", updatedAt: 20 },
-      { questId: "q-203", status: "PROPOSED", title: "Proposed follow-up", updatedAt: 10 },
-    ];
+  it("does not rebuild leader tabs from raw board rows when the current projection is unavailable", () => {
     useStore.setState({
       sdkSessions: [{ sessionId: "leader", isOrchestrator: true } as never],
-      sessionBoards: new Map([["leader", board]]),
+      sessionBoards: new Map([
+        [
+          "leader",
+          [
+            { questId: "q-201", status: "WORKING", title: "Current work", updatedAt: 30 },
+            { questId: "q-202", status: "QUEUED", title: "Queued follow-up", updatedAt: 20 },
+          ],
+        ],
+      ]),
     });
 
-    const view = render(
-      <WorkBoardBar sessionId="leader" openThreadKeys={["q-202", "q-201"]} onCloseThreadTab={onCloseThreadTab} />,
-    );
-    const tabFor = (threadKey: string) =>
-      view.getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === threadKey);
+    render(<WorkBoardBar sessionId="leader" openThreadKeys={["q-202", "q-201"]} />);
 
-    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
-      "q-201",
-      "q-202",
-      "q-203",
-    ]);
-    expect(tabFor("q-201")).toHaveAttribute("data-closable", "false");
-    expect(tabFor("q-202")).toHaveAttribute("data-closable", "true");
-    expect(tabFor("q-203")).toHaveAttribute("data-closable", "true");
-    expect(within(tabFor("q-201")!).queryByTestId("thread-tab-close")).toBeNull();
-
-    fireEvent.click(within(tabFor("q-202")!).getByRole("button", { name: "Close q-202" }));
-    view.rerender(<WorkBoardBar sessionId="leader" openThreadKeys={["q-201"]} onCloseThreadTab={onCloseThreadTab} />);
-    await waitFor(() => expect(tabFor("q-202")).toBeUndefined());
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-202", "q-203");
-
-    fireEvent.click(within(tabFor("q-203")!).getByRole("button", { name: "Close q-203" }));
-    await waitFor(() => expect(tabFor("q-203")).toBeUndefined());
-    expect(onCloseThreadTab).toHaveBeenLastCalledWith("q-203", "main");
-    expect(tabFor("q-201")).toBeDefined();
-
-    view.unmount();
-    const restored = render(
-      <WorkBoardBar
-        sessionId="leader"
-        openThreadKeys={[]}
-        closedThreadKeys={["q-201", "q-202", "q-203"]}
-        onCloseThreadTab={vi.fn()}
-      />,
-    );
-    await waitFor(() => {
-      const restoredKeys = restored.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"));
-      expect(restoredKeys).toEqual(["q-201"]);
-    });
-    expect(restored.getByTestId("thread-tab")).toHaveAttribute("data-closable", "false");
+    expect(screen.queryByTestId("thread-tab")).toBeNull();
+    expect(screen.getByTestId("thread-main-tab")).toBeTruthy();
   });
 
   it("uses accepted projected activity over stale hydrated completion and follows projected completion", async () => {
@@ -646,28 +610,24 @@ describe("leader thread tabs projected component behavior", () => {
     });
   });
 
-  it("retains local completion fallback for legacy projection values", () => {
+  it("does not revive local completion from a projection value without current-build authority", () => {
     const legacyTab = projectedTab("q-701", { active: true, canClose: false });
-    installLeaderProjection(
-      createLeaderThreadTabsProjectionValue({
-        currentQuestStateVersion: null,
-        tabState: {
-          version: 1,
-          orderedOpenThreadKeys: ["q-701"],
-          closedThreadTombstones: [],
-          updatedAt: 10,
-        },
-        tabs: [legacyTab],
-        threadStatuses: {},
-      }),
-    );
-    useStore.setState({ quests: [{ questId: "q-701", title: "Legacy done", status: "done" } as never] });
+    const invalidProjection = createLeaderThreadTabsProjectionValue({
+      tabState: {
+        version: 1,
+        orderedOpenThreadKeys: ["q-701"],
+        closedThreadTombstones: [],
+        updatedAt: 10,
+      },
+      tabs: [legacyTab],
+      threadStatuses: {},
+    }) as Partial<LeaderThreadTabsProjectionValue>;
+    delete invalidProjection.currentQuestStateVersion;
+    installLeaderProjection(invalidProjection as LeaderThreadTabsProjectionValue);
 
     render(<WorkBoardBar sessionId="leader" currentThreadKey="main" onCloseThreadTab={vi.fn()} />);
 
-    const tab = screen.getByTestId("thread-tab");
-    expect(tab).toHaveAttribute("data-closable", "true");
-    expect(within(tab).getByTestId("thread-tab-title")).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
+    expect(screen.queryByTestId("thread-tab")).toBeNull();
   });
 
   it("combines restored local tabs with derived projection tabs while tab state is absent", () => {

@@ -17,6 +17,7 @@ import {
 import {
   LEADER_THREAD_TABS_PROJECTION,
   LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES,
+  applyLeaderThreadTabsProjectionPatch,
   isLeaderThreadTabsProjectionValue,
   leaderThreadTabsProjectionEqual,
   reconcileLeaderThreadTabsProjectionValue,
@@ -114,6 +115,7 @@ export const SYNCED_PROJECTION_DESCRIPTORS = {
     isValue: isLeaderThreadTabsProjectionValue,
     equal: leaderThreadTabsProjectionEqual,
     reconcile: reconcileLeaderThreadTabsProjectionValue,
+    applyPatch: applyLeaderThreadTabsProjectionPatch,
   }),
 } satisfies { [K in SyncedProjectionId]: SyncedProjectionDescriptor<K> };
 

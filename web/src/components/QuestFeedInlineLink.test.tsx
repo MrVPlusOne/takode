@@ -894,6 +894,7 @@ describe("QuestInlineLink chat-feed preview", () => {
               active: false,
               queued: false,
               proposed: false,
+              neverStartedScheduled: false,
               completed: false,
               canClose: true,
               attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 10 },
@@ -955,7 +956,7 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(within(dialog).queryByTestId("quest-feed-thread-action")).toBeNull();
   });
 
-  it("requires leader authority for an open-tab-only recorded route", async () => {
+  it("does not use a deprecated raw open tab even after leader role is confirmed", async () => {
     const cached = quest({
       questId: "q-492",
       title: "Non-leader recorded route",
@@ -994,10 +995,7 @@ describe("QuestInlineLink chat-feed preview", () => {
         sdkSessions: [{ ...recordedSession, isOrchestrator: true }],
       }),
     );
-    expect(within(dialog).getByTestId("quest-feed-thread-action")).toHaveAttribute(
-      "href",
-      "#/session/7492?thread=q-492",
-    );
+    expect(within(dialog).queryByTestId("quest-feed-thread-action")).toBeNull();
   });
 
   it("fails closed instead of reviving legacy tabs after an invalid projection is supplied", async () => {

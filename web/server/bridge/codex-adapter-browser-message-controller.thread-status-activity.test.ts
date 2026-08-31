@@ -206,7 +206,6 @@ describe("Codex leader thread status activity invalidation", () => {
       expect.objectContaining({ id: "n-needs-input", done: false, threadKey: "q-1850" }),
     ]);
     expect(broadcasts).toEqual([
-      expect.objectContaining({ type: "session_update", session: { leaderThreadStatuses: {} } }),
       expect.objectContaining({ type: "assistant", threadKey: "q-1850", questId: "q-1850" }),
     ]);
   });
@@ -376,7 +375,6 @@ describe("Codex leader thread status activity invalidation", () => {
 
     expect(session.state.leaderThreadStatuses).toEqual({});
     expect(broadcasts).toEqual([
-      expect.objectContaining({ type: "session_update", session: { leaderThreadStatuses: {} } }),
       expect.objectContaining({ type: "codex_reasoning_detail", threadKey: "q-1850", questId: "q-1850" }),
     ]);
 

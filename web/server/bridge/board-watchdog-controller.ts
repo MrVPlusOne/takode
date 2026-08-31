@@ -186,7 +186,22 @@ function applyBoardRowThreadTabEvent(
 }
 
 function surfaceBoardRowThreadTab(session: SessionLike, row: BoardRow): void {
-  applyBoardRowThreadTabEvent(session, row, row.threadTabActivatedAt ?? row.createdAt, false);
+  if (applyBoardRowThreadTabEvent(session, row, row.threadTabActivatedAt ?? row.createdAt, false)) return;
+  if (!isQueuedBoardRowStatus(row.status) && !isProposedBoardRowStatus(row.status)) return;
+  const existingState = normalizeLeaderOpenThreadTabsState(session.state?.leaderOpenThreadTabs);
+  if (!existingState) return;
+  const nextState = applyLeaderServerCandidateThreadTabEvent(
+    existingState,
+    row.questId,
+    row.updatedAt ?? row.createdAt,
+    {
+      placement: "last",
+      allowTombstoneReopen: false,
+    },
+  );
+  if (nextState && nextState !== existingState) {
+    session.state = { ...(session.state ?? {}), leaderOpenThreadTabs: nextState };
+  }
 }
 
 function surfaceBoardRowThreadTabs(session: SessionLike): void {
@@ -197,35 +212,17 @@ function surfaceBoardRowThreadTabs(session: SessionLike): void {
   }
 }
 
-function repairNeverStartedScheduledThreadTabPriority(session: SessionLike): boolean {
-  const existingState = normalizeLeaderOpenThreadTabsState(session.state?.leaderOpenThreadTabs);
-  if (!existingState) return false;
+function repairThreadTabPriorityForNewSchedule(session: SessionLike, updatedAt: number): void {
+  const state = normalizeLeaderOpenThreadTabsState(session.state?.leaderOpenThreadTabs);
+  if (!state) return;
   const rows = [...session.board.values()] as BoardRow[];
-  const inMotionThreadKeys = new Set(rows.filter((row) => isInMotionLeaderThreadTabRow(row)).map((row) => row.questId));
-  const neverStartedScheduledThreadKeys = new Set(
-    rows.filter(isNeverStartedScheduledLeaderThreadTabRow).map((row) => row.questId),
+  const order = promoteInMotionLeaderThreadTabsBeforeScheduled(
+    state.orderedOpenThreadKeys,
+    new Set(rows.filter((row) => isInMotionLeaderThreadTabRow(row)).map((row) => row.questId)),
+    new Set(rows.filter(isNeverStartedScheduledLeaderThreadTabRow).map((row) => row.questId)),
   );
-  const orderedOpenThreadKeys = promoteInMotionLeaderThreadTabsBeforeScheduled(
-    existingState.orderedOpenThreadKeys,
-    inMotionThreadKeys,
-    neverStartedScheduledThreadKeys,
-  );
-  if (arraysEqual(existingState.orderedOpenThreadKeys, orderedOpenThreadKeys)) return false;
-  session.state = {
-    ...(session.state ?? {}),
-    leaderOpenThreadTabs: {
-      ...existingState,
-      orderedOpenThreadKeys,
-      updatedAt: rows.reduce(
-        (latest, row) =>
-          typeof row.updatedAt === "number" && Number.isFinite(row.updatedAt)
-            ? Math.max(latest, row.updatedAt)
-            : latest,
-        existingState.updatedAt,
-      ),
-    },
-  };
-  return true;
+  if (arraysEqual(state.orderedOpenThreadKeys, order)) return;
+  session.state = { ...session.state, leaderOpenThreadTabs: { ...state, orderedOpenThreadKeys: order, updatedAt } };
 }
 
 function updateBoardRowThreadTabActivation(
@@ -841,7 +838,6 @@ export function commitBoard(
     }
   }
   surfaceBoardRowThreadTabs(session);
-  repairNeverStartedScheduledThreadTabPriority(session);
   const board = getBoard(session);
   const completedBoard = getCompletedBoard(session);
   if (changedQuestIds?.length) deps.invalidateLeaderThreadTabsForQuestIds?.(changedQuestIds);
@@ -905,9 +901,12 @@ export function upsertBoardRow(
     updatedAt: row.updatedAt ?? now,
   };
   const activationAt = updateBoardRowThreadTabActivation(existing, merged, merged.updatedAt);
+  const becameNeverStartedScheduled =
+    !isNeverStartedScheduledLeaderThreadTabRow(existing) && isNeverStartedScheduledLeaderThreadTabRow(merged);
   applyBoardWaitStateInvariant(merged);
   applyQuestJourneyPhaseTiming(merged, existing, now);
   session.board.set(row.questId, merged);
+  if (becameNeverStartedScheduled) repairThreadTabPriorityForNewSchedule(session, merged.updatedAt);
   applyBoardRowActivationEvent(session, merged, activationAt, deps);
   if (shouldRecordJourneyStart(existing, merged)) {
     const startedAt = existing && isProposedBoardRowStatus(existing.status) ? merged.updatedAt : merged.createdAt;

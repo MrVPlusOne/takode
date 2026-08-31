@@ -180,6 +180,48 @@ The final feature-specific non-test stack is therefore 6 lines smaller than the 
 
 This closes the session-navigation-local wire, render, no-subscriber, duplicate-path, and code-size gates. It does not change the leader-thread-tab measurements below or waive final whole-application acceptance: leader cleanup remains downstream work, followed by the mismatch-only compatibility audit and final gate.
 
+## Leader-thread cleanup remeasurement
+
+The August 31, 2026 cleanup completes the current-build leader-thread visual migration. The accepted synchronized projection is now the only runtime tab, attention, phase-color, status-marker, Journey, and participant visual authority. Mixed-version arbitration, the client-side surfacing observer, projection-to-command synthesis, the full-history attachment broadcast arm, duplicate board/activity/status visual fields, and production-only copies of legacy visual builders are removed. Detailed board rows, notifications, history, routing, selection, persisted order/tombstones, and commands remain independently authoritative.
+
+Persisted-state compatibility is intentionally narrow. `tabState: null` means the server has no durable open-tab state and permits one browser-to-server migration of older local tab keys. Once durable state exists, `tabState` is only `{ version: 1 }`; projected `tabs[]` supplies canonical visual order, while tombstones, explicit-order timestamps, capacity fences, and server-candidate promotion history remain server-only state.
+
+### Current server results
+
+| Leader scenario | Historical control sends / deliveries / bytes per browser | Current compatible pair | Result |
+| --- | ---: | ---: | --- |
+| Equal board producer | 2 / 4 / 6,934 B | 1 / 2 / 3,285 B | Better; duplicate global activity is removed and the equal projection is suppressed |
+| Work → Memory phase change | 2 / 4 / 7,102 B | 2 / 4 / 4,286 B | Same sends and deliveries, 39.6% fewer bytes |
+| 25-frame phase burst | 50 / 100 / 177,550 B | 26 / 52 / 83,150 B | Better; projection work coalesces to one publication and board detail remains authoritative |
+| Narrow thread-status change | 1 / 2 / 236 B | 1 / 2 / 228 B | Better; the legacy status broadcast is retired in favor of one keyed patch |
+
+A phase burst performs one projection dependency selection and one derivation after 25 invalidations. Equal values publish nothing. Targeted cross-leader and generic no-subscriber invalidations perform zero projection selection or derivation until a subscriber requests the value. Initial two-browser subscription is 7,602 B per browser, the cached full value is 7,311 B, and reconnect reuses that cache with one snapshot plus acknowledgement and no duplicate update. Additional browsers do not increase source selection or derivation; delivery remains exactly linear.
+
+### Current frontend results
+
+| Scenario | Historical root commits | Current compatible pair | Result |
+| --- | ---: | ---: | --- |
+| Equal board producer | 0 | 0 | Equal; the accepted equal projection is commit-free |
+| One phase change | 1 | 1 | Equal; one atomic projected visual change |
+| Three-frame phase burst | 3 | 2 | Better; one detail-count commit plus one final projection commit |
+| Reconnect | 1 | 1 | Equal; the following detailed snapshot is a selector no-op |
+
+The current pair preserves identical structural output across independently reset clients, with aggregate commits and notifications scaling exactly linearly. The Work Board continues to expose off-board historical threads through its **Other** control; detailed rows remain available for that view without becoming a second tab visual authority.
+
+### Final leader feature-size accounting
+
+The frozen pre-migration leader-thread feature baseline is +2,912 non-test lines. The cleanup is measured from the synchronized starting commit and excludes test paths. One 51-line file was already a test-store helper despite living under a production component path; moving it into `src/test-fixtures` is therefore added back rather than claimed as feature removal. Production-dead visual builders moved into test fixtures remain counted as removals because they no longer ship or execute.
+
+| Accounted change | Server | Shared protocol/types | Frontend | Total |
+| --- | ---: | ---: | ---: | ---: |
+| Current cleanup, raw tracked production delta | -550 | -559 | -2,027 | **-3,136** |
+| Test-helper relocation exclusion | 0 | 0 | +51 | **+51** |
+| Current cleanup after exclusion | -550 | -559 | -1,976 | **-3,085** |
+| Frozen pre-migration feature baseline | — | — | — | **+2,912** |
+| **Final leader-thread feature stack versus its direct-parent baseline** | — | — | — | **-173** |
+
+The final feature-specific stack is therefore 173 lines smaller than the frozen pre-migration baseline. No second full visual derivation stack remains active: current runtime visuals come from the synchronized projection, while retained legacy algorithms exist only as test controls or one-time persisted-state migration support.
+
 ## Acceptance thresholds
 
 Downstream cleanup and any later projection candidate must preserve these deterministic properties:
@@ -197,6 +239,6 @@ Downstream cleanup and any later projection candidate must preserve these determ
 
 ## Overall verdict
 
-**Session navigation now satisfies its equal-or-better and simplification gates.** The compatible pair emits no parallel status activity, uses a smaller one-field patch for real changes, coalesces bursts to one publication, does not add a reconnect commit, and rerenders only the changed session row. Its feature-specific non-test stack is 6 lines below the audited pre-migration baseline after the accepted narrow exclusions.
+**Session navigation and leader-thread tabs now both satisfy their feature-local equal-or-better and simplification gates.** Session navigation emits no parallel status activity, uses a smaller one-field patch, coalesces bursts, adds no reconnect commit, rerenders only the changed row, and finishes 6 non-test lines below its baseline. Leader tabs remove duplicate global activity and status delivery, coalesce projection bursts, match or improve representative commit counts, preserve the detailed board separately, and finish 173 non-test lines below their baseline.
 
-The synchronized-projection program is not yet complete. The framework-consolidation leader-thread-tab results above still show duplicate activity plus board/detail delivery, whole-value projection payloads, and added phase/reconnect commits. Leader cleanup and the later mismatch-only compatibility audit retain those unchanged obligations, and final whole-application acceptance remains separate.
+The remaining program work is the bounded mixed-version compatibility audit and final whole-application acceptance. Those later checks must preserve the thresholds above and confirm that no obsolete cross-feature path remains; they do not reopen the completed session-navigation or leader-thread local migrations unless new evidence finds a regression.

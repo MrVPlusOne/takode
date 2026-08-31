@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LeaderThreadTabsProjectionTab } from "../../shared/leader-thread-tabs-projection.js";
 import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
-import {
-  mergeProjectedLeaderThreadRows,
-  mergeProjectedTabsWithRestoredOrder,
-  prioritizeLeaderThreadKeysForFallback,
-} from "./leader-thread-tabs-navigation.js";
+import { buildLeaderThreadMigrationKeys, mergeProjectedLeaderThreadRows } from "./leader-thread-tabs-navigation.js";
 
 function currentTab(overrides: Partial<LeaderThreadTabsProjectionTab> = {}): LeaderThreadTabsProjectionTab {
   return {
@@ -33,9 +29,8 @@ function currentTab(overrides: Partial<LeaderThreadTabsProjectionTab> = {}): Lea
   };
 }
 
-function projectionFor(tab: LeaderThreadTabsProjectionTab, currentStateAuthoritative = true) {
+function projectionFor(tab: LeaderThreadTabsProjectionTab) {
   return createLeaderThreadTabsProjectionValue({
-    currentQuestStateVersion: currentStateAuthoritative ? 1 : null,
     tabs: [tab],
     tabState: {
       version: 1,
@@ -195,7 +190,7 @@ describe("leader thread tabs navigation projection", () => {
     expect((row as typeof samePlanHistory).boardRow.journey.phaseTimings).toBeUndefined();
   });
 
-  it("preserves compatible Journey detail from legacy producers without source identity fields", () => {
+  it("drops historical Journey detail when current projected identity is explicitly absent", () => {
     const samePlanHistory = {
       ...staleCompletedRow,
       status: "WORKING",
@@ -205,60 +200,68 @@ describe("leader thread tabs navigation projection", () => {
         phaseIds: ["alignment", "work", "memory"] as const,
         currentPhaseId: "work" as const,
         activePhaseIndex: 1,
-        phaseNotes: { "1": "Current Work note" },
+        phaseNotes: { "1": "Historical Work note" },
         phaseTimings: { "1": { startedAt: 10 } },
       },
     };
-    const legacyTab = currentTab({
-      sourceLeaderSessionId: undefined,
-      sourceRowCreatedAt: undefined,
-      workerSessionId: undefined,
-      workerSessionNum: undefined,
+    const currentWithoutMatchingRow = currentTab({
+      sourceLeaderSessionId: null,
+      sourceRowCreatedAt: null,
+      workerSessionId: null,
+      workerSessionNum: null,
     });
 
-    const [row] = mergeProjectedLeaderThreadRows([samePlanHistory], projectionFor(legacyTab, false), new Map());
+    const [row] = mergeProjectedLeaderThreadRows(
+      [samePlanHistory],
+      projectionFor(currentWithoutMatchingRow),
+      new Map(),
+    );
 
-    expect((row as typeof samePlanHistory).journey.phaseNotes).toEqual({
-      "1": "Current Work note",
-    });
-    expect((row as typeof samePlanHistory).journey.phaseTimings).toEqual({
-      "1": { startedAt: 10 },
-    });
+    expect((row as typeof samePlanHistory).journey.phaseNotes).toBeUndefined();
+    expect((row as typeof samePlanHistory).journey.phaseTimings).toBeUndefined();
   });
 
-  it("keeps local completion evidence for legacy projection producers", () => {
-    const legacyTab = currentTab({
-      sourceLeaderSessionId: undefined,
-      sourceRowCreatedAt: undefined,
-      workerSessionId: undefined,
-      workerSessionNum: undefined,
-    });
-    const [row] = mergeProjectedLeaderThreadRows([staleCompletedRow], projectionFor(legacyTab, false), new Map());
+  it("lets current projected activity clear historical local completion evidence", () => {
+    const [row] = mergeProjectedLeaderThreadRows([staleCompletedRow], projectionFor(currentTab()), new Map());
 
     expect(row).toMatchObject({
-      status: "done",
-      section: "done",
-      boardRow: { completedAt: 30 },
+      status: "WORKING",
+      section: "active",
+      boardRow: { completedAt: undefined },
     });
   });
 
-  it("promotes active fallback tabs across newer never-started scheduled tabs", () => {
-    // Legacy/restored peers keep their relative order; only active-versus-scheduled inversions are repaired.
+  it("promotes current active migration keys across never-started scheduled keys", () => {
+    const projection = createLeaderThreadTabsProjectionValue({
+      tabState: null,
+      tabs: [
+        currentTab({ threadKey: "q-work", questId: "q-work" }),
+        currentTab({ threadKey: "q-memory", questId: "q-memory", boardStatus: "MEMORY" }),
+        currentTab({
+          threadKey: "q-queued",
+          questId: "q-queued",
+          active: false,
+          queued: true,
+          neverStartedScheduled: true,
+          boardStatus: "QUEUED",
+        }),
+        currentTab({
+          threadKey: "q-proposed",
+          questId: "q-proposed",
+          active: false,
+          proposed: true,
+          neverStartedScheduled: true,
+          boardStatus: "PROPOSED",
+        }),
+      ],
+    });
+
     expect(
-      prioritizeLeaderThreadKeysForFallback(
-        ["q-queued", "q-neutral", "q-work", "q-proposed", "q-memory"],
-        [
-          { questId: "q-queued", status: "QUEUED", updatedAt: 50 },
-          { questId: "q-work", status: "WORKING", updatedAt: 20 },
-          { questId: "q-proposed", status: "PROPOSED", updatedAt: 60 },
-          { questId: "q-memory", status: "MEMORY", updatedAt: 10 },
-        ],
-      ),
+      buildLeaderThreadMigrationKeys(["q-queued", "q-neutral", "q-work", "q-proposed", "q-memory"], projection),
     ).toEqual(["q-work", "q-memory", "q-queued", "q-neutral", "q-proposed"]);
   });
 
-  it("uses projected current state during first-upgrade ordering without demoting a requeued run", () => {
-    // Current projection authority overrides stale local classification, while an activated queued row stays neutral.
+  it("unions restored keys with missing current candidates during first-upgrade migration", () => {
     const projection = createLeaderThreadTabsProjectionValue({
       tabState: null,
       tabs: [
@@ -274,25 +277,15 @@ describe("leader thread tabs navigation projection", () => {
         }),
       ],
     });
-    expect(
-      prioritizeLeaderThreadKeysForFallback(
-        ["q-scheduled", "q-current", "q-requeued"],
-        [
-          { questId: "q-current", status: "QUEUED", updatedAt: 1 },
-          { questId: "q-scheduled", status: "QUEUED", updatedAt: 2 },
-          {
-            questId: "q-requeued",
-            status: "QUEUED",
-            threadTabActivatedAt: 3,
-            updatedAt: 4,
-          },
-        ],
-        projection,
-      ),
-    ).toEqual(["q-current", "q-scheduled", "q-requeued"]);
+
+    expect(buildLeaderThreadMigrationKeys(["q-local", "q-scheduled"], projection)).toEqual([
+      "q-local",
+      "q-current",
+      "q-scheduled",
+    ]);
   });
 
-  it("preserves a cross-session requeued tab when no local active row carries its activation history", () => {
+  it("preserves a requeued peer when projection says it has started before", () => {
     const projection = createLeaderThreadTabsProjectionValue({
       tabState: null,
       tabs: [
@@ -304,7 +297,6 @@ describe("leader thread tabs navigation projection", () => {
           queued: true,
           neverStartedScheduled: true,
           boardStatus: "QUEUED",
-          canClose: true,
         }),
         currentTab({
           threadKey: "q-requeued",
@@ -313,63 +305,48 @@ describe("leader thread tabs navigation projection", () => {
           queued: true,
           neverStartedScheduled: false,
           boardStatus: "QUEUED",
-          canClose: true,
         }),
       ],
     });
 
-    expect(
-      prioritizeLeaderThreadKeysForFallback(
-        ["q-requeued", "q-scheduled", "q-current"],
-        [
-          { questId: "q-current", status: "WORKING", updatedAt: 1 },
-          { questId: "q-scheduled", status: "QUEUED", updatedAt: 2 },
-        ],
-        projection,
-      ),
-    ).toEqual(["q-requeued", "q-current", "q-scheduled"]);
+    expect(buildLeaderThreadMigrationKeys(["q-requeued", "q-scheduled", "q-current"], projection)).toEqual([
+      "q-requeued",
+      "q-current",
+      "q-scheduled",
+    ]);
   });
 
-  it("does not infer never-started state from an absent local row for legacy projections", () => {
+  it("does not infer never-started state when the current projection omits that optional discriminator", () => {
     const projection = createLeaderThreadTabsProjectionValue({
       tabState: null,
       tabs: [
         currentTab({ threadKey: "q-current", questId: "q-current" }),
         currentTab({
-          threadKey: "q-legacy-scheduled",
-          questId: "q-legacy-scheduled",
+          threadKey: "q-unknown-scheduled",
+          questId: "q-unknown-scheduled",
           active: false,
           queued: true,
           neverStartedScheduled: undefined,
           boardStatus: "QUEUED",
-          canClose: true,
         }),
       ],
     });
 
-    expect(
-      prioritizeLeaderThreadKeysForFallback(
-        ["q-legacy-scheduled", "q-current"],
-        [{ questId: "q-current", status: "WORKING", updatedAt: 1 }],
-        projection,
-      ),
-    ).toEqual(["q-legacy-scheduled", "q-current"]);
+    expect(buildLeaderThreadMigrationKeys(["q-unknown-scheduled", "q-current"], projection)).toEqual([
+      "q-unknown-scheduled",
+      "q-current",
+    ]);
   });
 
-  it("keeps restored local order while projected visuals cover overlapping and newly derived tabs", () => {
-    const restored = [
-      { threadKey: "q-701", title: "Local A" },
-      { threadKey: "q-702", title: "Local stale" },
-    ];
-    const projected = [
-      { threadKey: "q-702", title: "Projected current" },
-      { threadKey: "q-703", title: "Derived" },
-    ];
+  it("materializes projected candidates even when no localStorage keys exist", () => {
+    const projection = createLeaderThreadTabsProjectionValue({
+      tabState: null,
+      tabs: [
+        currentTab({ threadKey: "q-current", questId: "q-current" }),
+        currentTab({ threadKey: "q-second", questId: "q-second" }),
+      ],
+    });
 
-    expect(mergeProjectedTabsWithRestoredOrder(projected, restored)).toEqual([
-      { threadKey: "q-701", title: "Local A" },
-      { threadKey: "q-702", title: "Projected current" },
-      { threadKey: "q-703", title: "Derived" },
-    ]);
+    expect(buildLeaderThreadMigrationKeys([], projection)).toEqual(["q-current", "q-second"]);
   });
 });

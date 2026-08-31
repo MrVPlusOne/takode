@@ -1,6 +1,5 @@
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import type { SessionTaskEntry } from "../../server/session-types.js";
-import type { BoardRowData } from "./BoardTable.js";
 import { useRef, useLayoutEffect, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
@@ -14,13 +13,7 @@ import {
   type SessionStatusDotProps,
 } from "./SessionStatusDot.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
-import {
-  getQuestJourneyCurrentPhaseId,
-  getQuestJourneyPhase,
-  getQuestJourneyPresentation,
-  type QuestJourneyPhase,
-} from "../../shared/quest-journey.js";
-import { orderLeaderActivePhaseRows } from "../../shared/leader-active-phase-summary.js";
+import { getQuestJourneyPhase, getQuestJourneyPresentation } from "../../shared/quest-journey.js";
 import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
 import type { SessionViewModel } from "../utils/session-view-model.js";
 import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
@@ -32,6 +25,7 @@ import {
 import { getQuestOwner } from "../../shared/quest-owner.js";
 import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
 import { getSyncedProjectionValue, hasSyncedProjectionValue } from "../store-synced-projections.js";
+import { resolveLeaderThreadTabsProjection } from "../utils/leader-thread-tabs-resolver.js";
 
 interface SessionHoverCardProps {
   session: SessionItemType;
@@ -45,8 +39,6 @@ interface SessionHoverCardProps {
   onMouseLeave: () => void;
   zIndexClassName?: string;
 }
-
-const EMPTY_BOARD_ROWS: readonly BoardRowData[] = [];
 
 /** Format model name for display (e.g. "claude-sonnet-4-5-20250929" → "claude-sonnet-4-5") */
 function formatModel(model: string): string {
@@ -62,16 +54,6 @@ function getConfiguredMaxContextLength(sessionVm: SessionViewModel | null): numb
 
 function normalizeQuestId(questId: string): string {
   return questId.toLowerCase();
-}
-
-function leaderQuestTitle(row: BoardRowData, questTitlesById: Map<string, string>): string {
-  const rowTitle = row.title?.trim();
-  if (rowTitle) return rowTitle;
-  return questTitlesById.get(normalizeQuestId(row.questId)) ?? row.questId;
-}
-
-function leaderQuestPhase(row: BoardRowData): QuestJourneyPhase | null {
-  return getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.status));
 }
 
 function sessionHoverStatusLabel(visualStatus: ReturnType<typeof deriveSessionStatus>, timerCount: number): string {
@@ -145,10 +127,10 @@ export function SessionHoverCard({
   const resolvedSessionPreview = resolvedNavigation?.sidebarItem.lastMessagePreview ?? sessionPreview;
   const zoomLevel = useStore((st) => st.zoomLevel ?? 1);
   const quests = useStore((st) => st.quests) ?? [];
-  const activeLeaderBoardRows =
-    useStore((st) => (s.isOrchestrator ? st.sessionBoards?.get(s.id) : undefined)) ??
-    s.leaderActiveBoardRows ??
-    EMPTY_BOARD_ROWS;
+  const leaderTabsProjection = useStore((state) => {
+    const resolution = resolveLeaderThreadTabsProjection(state, s.id);
+    return resolution.projectionState === "accepted" ? resolution.value : null;
+  });
 
   // For worker/reviewer sessions: find the leader that owns them.
   const sdkSessions = useStore((st) => st.sdkSessions);
@@ -224,20 +206,23 @@ export function SessionHoverCard({
     [quests],
   );
   const leaderActiveQuestRows = useMemo(() => {
-    if (!s.isOrchestrator) return [];
-    return orderLeaderActivePhaseRows(activeLeaderBoardRows).map((row) => {
-      const phase = leaderQuestPhase(row);
-      const presentation = phase ? null : getQuestJourneyPresentation(row.status);
-      const phaseColor = phase ? getQuestPhaseColorValue(phase.color) : undefined;
-      return {
-        questId: row.questId,
-        title: leaderQuestTitle(row, questTitlesById),
-        phaseLabel: phase?.label ?? presentation?.label ?? row.status ?? "Active",
-        phaseColor,
-        phaseColorName: phase?.color.name ?? "",
-      };
-    });
-  }, [activeLeaderBoardRows, questTitlesById, s.isOrchestrator]);
+    if (!s.isOrchestrator || !leaderTabsProjection) return [];
+    return leaderTabsProjection.tabs
+      .filter((tab) => tab.active)
+      .map((tab) => {
+        const questId = tab.questId ?? tab.threadKey;
+        const phase = tab.journey?.currentPhaseId ? getQuestJourneyPhase(tab.journey.currentPhaseId) : null;
+        const presentation = phase ? null : getQuestJourneyPresentation(tab.boardStatus ?? undefined);
+        const phaseColor = phase ? getQuestPhaseColorValue(phase.color) : undefined;
+        return {
+          questId,
+          title: questTitlesById.get(normalizeQuestId(questId)) ?? tab.title ?? questId,
+          phaseLabel: phase?.label ?? presentation?.label ?? tab.boardStatus ?? "Active",
+          phaseColor,
+          phaseColorName: phase?.color.name ?? "",
+        };
+      });
+  }, [leaderTabsProjection, questTitlesById, s.isOrchestrator]);
   const activeQuest = useMemo(() => {
     if (s.isOrchestrator) return null;
     if (sessionVm?.claimedQuestId && sessionVm.claimedQuestStatus === "in_progress") {

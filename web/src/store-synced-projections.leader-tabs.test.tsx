@@ -92,7 +92,7 @@ describe("leader thread tabs synchronized projection store", () => {
     expect(getSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "s1")).toEqual(cleared);
 
     const malformed = createLeaderThreadTabsProjectionValue();
-    malformed.tabState!.orderedOpenThreadKeys = ["q-2", "q-1"];
+    malformed.tabs[1] = { ...malformed.tabs[1]!, threadKey: malformed.tabs[0]!.threadKey };
     const stateBeforeMalformed = useStore.getState();
     expect(
       useStore

@@ -11,6 +11,7 @@ export interface LeaderThreadTabMutationPolicy {
   inMotion: boolean;
   scheduled: boolean;
   neverStartedScheduled: boolean;
+  completed: boolean;
   canClose: boolean;
 }
 

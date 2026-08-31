@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { useStore } from "./store.js";
 import type { BrowserIncomingMessage, ChatMessage } from "./types.js";
 import { questOwnsSessionName } from "./utils/quest-helpers.js";
+import { resolveLeaderThreadTabsProjection } from "./utils/leader-thread-tabs-resolver.js";
 
 type QuestListUpdatedMessage = Extract<BrowserIncomingMessage, { type: "quest_list_updated" }>;
 type SessionQuestClaimedMessage = Extract<BrowserIncomingMessage, { type: "session_quest_claimed" }>;
@@ -17,10 +18,17 @@ export function handleQuestListUpdated(data: QuestListUpdatedMessage): void {
   // Refresh only their minimal exact projections, keeping the live update
   // visible until the bounded server response confirms it.
   const openQuestIds = new Set<string>();
-  for (const session of [...store.sessions.values(), ...store.sdkSessions]) {
-    if (session.isOrchestrator !== true) continue;
-    for (const threadKey of session.leaderOpenThreadTabs?.orderedOpenThreadKeys ?? []) {
-      const questId = threadKey.trim().toLowerCase();
+  const leaderSessionIds = new Set(
+    store.sdkSessions.filter((session) => session.isOrchestrator === true).map((session) => session.sessionId),
+  );
+  for (const [sessionId, session] of store.sessions) {
+    if (session.isOrchestrator === true) leaderSessionIds.add(sessionId);
+  }
+  for (const sessionId of leaderSessionIds) {
+    const resolution = resolveLeaderThreadTabsProjection(store, sessionId);
+    if (resolution.projectionState !== "accepted") continue;
+    for (const tab of resolution.value.tabs) {
+      const questId = (tab.questId ?? tab.threadKey).trim().toLowerCase();
       if (/^q-\d+$/.test(questId)) openQuestIds.add(questId);
     }
   }

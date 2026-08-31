@@ -7,6 +7,11 @@ import {
   sessionNavigationProjectionToSessionFields,
 } from "../../shared/session-navigation-projection.js";
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
+import { LEADER_THREAD_TABS_PROJECTION } from "../../shared/leader-thread-tabs-projection.js";
+import {
+  createLeaderThreadTabsProjectionTab,
+  createLeaderThreadTabsProjectionValue,
+} from "../test-fixtures/leader-thread-tabs-projection.js";
 import { createSessionNavigationProjectionValue } from "../test-fixtures/session-navigation-projection.js";
 
 const mockNavigateTo = vi.fn();
@@ -169,6 +174,27 @@ interface MockStoreState {
 }
 
 let storeState: MockStoreState;
+
+function leaderProjectionState(sessionId = "s1") {
+  const entryId = syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, sessionId);
+  return {
+    syncedProjectionValues: new Map([
+      [
+        entryId,
+        createLeaderThreadTabsProjectionValue({
+          tabs: [
+            createLeaderThreadTabsProjectionTab("q-1", { active: true, canClose: false }),
+            createLeaderThreadTabsProjectionTab("q-2", { completed: true }),
+          ],
+          mainAttention: {},
+          threadStatuses: {},
+          activePhaseSummary: [{ label: "Implement", count: 1, tone: "phase" }],
+        }),
+      ],
+    ]),
+    syncedProjectionKeys: new Set([entryId]),
+  };
+}
 
 function resetStore(overrides: Partial<MockStoreState> = {}) {
   storeState = {
@@ -876,6 +902,7 @@ describe("TopBar", () => {
       sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
       sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
       sessionCompletedBoards: new Map([["s1", [{ questId: "q-2", status: "DONE", updatedAt: 2, completedAt: 2 }]]]),
+      ...leaderProjectionState(),
     });
     window.location.hash = "#/session/s1?thread=q-1";
 
@@ -891,7 +918,8 @@ describe("TopBar", () => {
     fireEvent.click(screen.getByTestId(shortcutTestId));
 
     expect(window.location.hash).toBe("#/session/s1?thread=q-1");
-    view.rerender(
+    view.unmount();
+    render(
       <>
         <TopBar />
         <WorkBoardBar sessionId="s1" currentThreadKey="q-1" />

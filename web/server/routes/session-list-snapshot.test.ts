@@ -437,7 +437,7 @@ describe("buildEnrichedSessionsSnapshot", () => {
     });
   });
 
-  it("includes active Quest Journey phase summary metadata for leader sidebar rows", async () => {
+  it("omits projection-owned leader tab metadata from compact session rows", async () => {
     const launcherSession = makeLauncherSession({ isOrchestrator: true });
     const bridgeSession = {
       ...makeBridgeSession([]),
@@ -469,24 +469,9 @@ describe("buildEnrichedSessionsSnapshot", () => {
 
     const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, bridgeSession));
 
-    expect(snapshot[0]).toMatchObject({
-      leaderActiveBoardRows: [
-        {
-          questId: "q-1",
-          title: "Implement metadata hydration",
-          status: "WORKING",
-        },
-        {
-          questId: "q-2",
-          title: "Wait for worker",
-          status: "QUEUED",
-        },
-      ],
-      leaderActivePhaseSummary: [
-        { label: "Work", count: 1, tone: "phase" },
-        { label: "Queued", count: 1, tone: "status" },
-      ],
-    });
+    expect(snapshot[0]).not.toHaveProperty("leaderOpenThreadTabs");
+    expect(snapshot[0]).not.toHaveProperty("leaderActiveBoardRows");
+    expect(snapshot[0]).not.toHaveProperty("leaderActivePhaseSummary");
   });
 
   it("includes the canonical attention projection envelope in compact rows", async () => {
@@ -582,11 +567,13 @@ describe("buildEnrichedSessionsSnapshot", () => {
     expect((deps as any).wsBridge.getSyncedProjectionController).not.toHaveBeenCalled();
   });
 
-  it("returns an empty leader phase summary when active board rows clear", async () => {
+  it("does not reintroduce empty legacy leader metadata when board rows clear", async () => {
     const launcherSession = makeLauncherSession({ isOrchestrator: true });
 
     const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, makeBridgeSession([])));
 
-    expect(snapshot[0]).toMatchObject({ leaderActiveBoardRows: [], leaderActivePhaseSummary: [] });
+    expect(snapshot[0]).not.toHaveProperty("leaderOpenThreadTabs");
+    expect(snapshot[0]).not.toHaveProperty("leaderActiveBoardRows");
+    expect(snapshot[0]).not.toHaveProperty("leaderActivePhaseSummary");
   });
 });

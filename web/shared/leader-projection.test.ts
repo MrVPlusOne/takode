@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildLeaderProjectionSnapshot,
   buildLeaderThreadRowsFromSummaries,
   collectLeaderThreadSummaries,
   mergeLeaderThreadSummaries,
 } from "./leader-projection.js";
+import { buildLeaderProjectionSnapshot } from "./test-fixtures/leader-projection-snapshot.js";
 import type { BrowserIncomingMessage, ContentBlock } from "../server/session-types.js";
 
 function assistantMessage(id: string, content: ContentBlock[], timestamp: number): BrowserIncomingMessage {

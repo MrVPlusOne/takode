@@ -211,12 +211,6 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
           leaderProfilePortrait && leaderProfilePortrait.poolId !== "fallback"
             ? leaderProfilePortrait.id
             : (safeSession.leaderProfilePortraitId ?? null);
-        const leaderActiveBoardRows = buildLeaderActiveBoardRowsForSnapshot(
-          safeSession.isOrchestrator,
-          currentBridgeSession,
-        );
-        const leaderActivePhaseSummary =
-          leaderActiveBoardRows === undefined ? undefined : buildLeaderActivePhaseSummary(leaderActiveBoardRows);
         return {
           ...safeSession,
           ...navigationFields,
@@ -225,9 +219,6 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
           ...(leaderProfilePortrait ? { leaderProfilePortrait } : {}),
           ...(bridge?.codex_token_details ? { codexTokenDetails: bridge.codex_token_details } : {}),
           ...(bridge?.claude_token_details ? { claudeTokenDetails: bridge.claude_token_details } : {}),
-          ...(bridge?.leaderOpenThreadTabs ? { leaderOpenThreadTabs: bridge.leaderOpenThreadTabs } : {}),
-          ...(leaderActiveBoardRows !== undefined ? { leaderActiveBoardRows } : {}),
-          ...(leaderActivePhaseSummary !== undefined ? { leaderActivePhaseSummary } : {}),
           taskHistory: currentBridgeSession?.taskHistory ?? [],
           keywords: currentBridgeSession?.keywords ?? [],
           pause: bridge?.pause ?? null,

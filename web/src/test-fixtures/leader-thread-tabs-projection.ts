@@ -16,7 +16,12 @@ function attention(overrides: Partial<LeaderThreadTabsProjectionAttention> = {})
   };
 }
 
-function tab(threadKey: string, overrides: Partial<LeaderThreadTabsProjectionTab> = {}): LeaderThreadTabsProjectionTab {
+export function createLeaderThreadTabsProjectionTab(
+  threadKey: string,
+  overrides: Partial<Omit<LeaderThreadTabsProjectionTab, "attention">> & {
+    attention?: Partial<LeaderThreadTabsProjectionAttention>;
+  } = {},
+): LeaderThreadTabsProjectionTab {
   const { attention: attentionOverrides, ...rest } = overrides;
   return {
     threadKey,
@@ -31,6 +36,7 @@ function tab(threadKey: string, overrides: Partial<LeaderThreadTabsProjectionTab
     active: false,
     queued: false,
     proposed: false,
+    neverStartedScheduled: false,
     completed: false,
     canClose: true,
     updatedAt: 0,
@@ -40,9 +46,15 @@ function tab(threadKey: string, overrides: Partial<LeaderThreadTabsProjectionTab
 }
 
 export interface LeaderThreadTabsProjectionValueOverrides {
-  /** Null omits the current-state marker for a legacy producer fixture. */
-  currentQuestStateVersion?: 1 | null;
-  tabState?: LeaderThreadTabsProjectionTabState | null;
+  tabState?:
+    | (LeaderThreadTabsProjectionTabState & {
+        orderedOpenThreadKeys?: string[];
+        closedThreadTombstones?: Array<{ threadKey: string; closedAt: number }>;
+        updatedAt?: number;
+        migratedFromLocalStorageAt?: number;
+        explicitOrderUpdatedAt?: number;
+      })
+    | null;
   tabs?: LeaderThreadTabsProjectionTab[];
   mainAttention?: Partial<LeaderThreadTabsProjectionAttention>;
   threadStatuses?: LeaderThreadTabsProjectionValue["threadStatuses"];
@@ -54,15 +66,12 @@ export function createLeaderThreadTabsProjectionValue(
 ): LeaderThreadTabsProjectionValue {
   const tabState =
     overrides.tabState === undefined
-      ? {
-          version: 1 as const,
-          orderedOpenThreadKeys: ["q-1", "q-2"],
-          closedThreadTombstones: [{ threadKey: "q-9", closedAt: 50 }],
-          updatedAt: 100,
-        }
-      : overrides.tabState;
+      ? { version: 1 as const }
+      : overrides.tabState
+        ? { version: overrides.tabState.version }
+        : null;
   const tabs = overrides.tabs ?? [
-    tab("q-1", {
+    createLeaderThreadTabsProjectionTab("q-1", {
       title: "Active projected thread",
       boardStatus: "WORKING",
       journey: {
@@ -77,7 +86,7 @@ export function createLeaderThreadTabsProjectionValue(
       attention: attention({ needsInput: true, updatedAt: 90 }),
       updatedAt: 100,
     }),
-    tab("q-2", {
+    createLeaderThreadTabsProjectionTab("q-2", {
       title: "Completed projected thread",
       boardStatus: "DONE",
       completed: true,
@@ -86,9 +95,7 @@ export function createLeaderThreadTabsProjectionValue(
     }),
   ];
   return {
-    ...(overrides.currentQuestStateVersion === null
-      ? {}
-      : { currentQuestStateVersion: overrides.currentQuestStateVersion ?? 1 }),
+    currentQuestStateVersion: 1,
     tabState,
     tabs: tabs.map((entry) => ({
       ...entry,

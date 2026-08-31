@@ -41,6 +41,8 @@ export interface ChatViewMockStoreState {
   sessionCompletedBoards: Map<string, unknown[]>;
   sessionBoardRowStatuses: Map<string, Record<string, BoardRowSessionStatus>>;
   leaderProjections: Map<string, LeaderProjectionSnapshot>;
+  syncedProjectionValues: Map<string, unknown>;
+  syncedProjectionKeys: Set<string>;
   sessionTaskHistory: Map<string, Array<{ title: string; triggerMessageId: string }>>;
   messages: Map<string, unknown[]>;
   historyLoading: Map<string, boolean>;

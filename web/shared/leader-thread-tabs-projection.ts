@@ -20,7 +20,6 @@ import {
 export const LEADER_THREAD_TABS_PROJECTION = "leader-thread-tabs" as const;
 export const LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES = 64 * 1024;
 export const LEADER_THREAD_TABS_PROJECTION_MAX_TABS = 50;
-export const LEADER_THREAD_TABS_PROJECTION_MAX_TOMBSTONES = 50;
 export const LEADER_THREAD_TABS_PROJECTION_MAX_STATUSES = LEADER_THREAD_TABS_PROJECTION_MAX_TABS + 1;
 export const LEADER_THREAD_TABS_PROJECTION_MAX_ACTIVE_PHASE_SEGMENTS = 16;
 export const LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH = 80;
@@ -31,11 +30,6 @@ export const LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH = 200;
 
 export interface LeaderThreadTabsProjectionTabState {
   version: typeof LEADER_OPEN_THREAD_TABS_VERSION;
-  orderedOpenThreadKeys: string[];
-  closedThreadTombstones: Array<{ threadKey: string; closedAt: number }>;
-  updatedAt: number;
-  migratedFromLocalStorageAt?: number;
-  explicitOrderUpdatedAt?: number;
 }
 
 export interface LeaderThreadTabsProjectionAttention {
@@ -47,8 +41,7 @@ export interface LeaderThreadTabsProjectionAttention {
 
 export interface LeaderThreadTabsProjectionJourney {
   mode: QuestJourneyLifecycleMode | null;
-  /** Current bounded phase sequence. Omitted by legacy projection producers. */
-  phaseIds?: readonly QuestJourneyPhaseId[];
+  phaseIds: readonly QuestJourneyPhaseId[];
   currentPhaseId: string | null;
   activePhaseIndex: number | null;
   phaseCount: number;
@@ -62,17 +55,17 @@ export interface LeaderThreadTabsProjectionTab {
   boardStatus: string | null;
   journey: LeaderThreadTabsProjectionJourney | null;
   /** Leader session that owns the current visual board row, not necessarily this projected thread. */
-  sourceLeaderSessionId?: string | null;
+  sourceLeaderSessionId: string | null;
   /** Creation identity of the current visual board row, used to fence historical Journey detail. */
-  sourceRowCreatedAt?: number | null;
+  sourceRowCreatedAt: number | null;
   /** Worker assigned by the current visual board row. */
-  workerSessionId?: string | null;
-  workerSessionNum?: number | null;
+  workerSessionId: string | null;
+  workerSessionNum: number | null;
   active: boolean;
   queued: boolean;
   proposed: boolean;
-  /** True only when the current queued/proposed run has never entered active execution. Omitted by legacy producers. */
-  neverStartedScheduled?: boolean;
+  /** True only when the current queued/proposed run has never entered active execution. */
+  neverStartedScheduled: boolean;
   completed: boolean;
   canClose: boolean;
   attention: LeaderThreadTabsProjectionAttention;
@@ -80,8 +73,7 @@ export interface LeaderThreadTabsProjectionTab {
 }
 
 export interface LeaderThreadTabsProjectionValue {
-  /** Present when tab completion, Journey, and participant fields come from current cross-session authority. */
-  currentQuestStateVersion?: 1;
+  currentQuestStateVersion: 1;
   /** Null means no durable tab state exists yet; derived visual candidates may still populate tabs. */
   tabState: LeaderThreadTabsProjectionTabState | null;
   tabs: LeaderThreadTabsProjectionTab[];
@@ -111,96 +103,50 @@ function isAttention(value: unknown): value is LeaderThreadTabsProjectionAttenti
   );
 }
 
-function isJourney(
-  value: unknown,
-  requireCurrentQuestStateFields: boolean,
-): value is LeaderThreadTabsProjectionJourney {
+function isJourney(value: unknown): value is LeaderThreadTabsProjectionJourney {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<LeaderThreadTabsProjectionJourney>;
   const phaseIds = candidate.phaseIds;
-  const validPhaseIds =
+  return (
     Array.isArray(phaseIds) &&
     phaseIds.length <= 100 &&
-    phaseIds.every((phaseId) => isBoundedString(phaseId, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH));
-  if (requireCurrentQuestStateFields ? !validPhaseIds : phaseIds !== undefined && !validPhaseIds) return false;
-  return (
+    phaseIds.every((phaseId) => isBoundedString(phaseId, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH)) &&
     (candidate.mode === null || candidate.mode === "active" || candidate.mode === "proposed") &&
     isBoundedNullableString(candidate.currentPhaseId, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH) &&
     (candidate.activePhaseIndex === null || isNonNegativeInteger(candidate.activePhaseIndex)) &&
     isNonNegativeInteger(candidate.phaseCount) &&
     candidate.phaseCount <= 100 &&
-    (phaseIds === undefined || phaseIds.length === candidate.phaseCount) &&
+    phaseIds.length === candidate.phaseCount &&
     (candidate.activePhaseIndex === null || candidate.activePhaseIndex < candidate.phaseCount)
   );
 }
 
 function isTabState(value: unknown): value is LeaderThreadTabsProjectionTabState {
   if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<LeaderThreadTabsProjectionTabState>;
-  if (candidate.version !== LEADER_OPEN_THREAD_TABS_VERSION) return false;
-  if (!Array.isArray(candidate.orderedOpenThreadKeys)) return false;
-  if (candidate.orderedOpenThreadKeys.length > LEADER_THREAD_TABS_PROJECTION_MAX_TABS) return false;
-  if (!Array.isArray(candidate.closedThreadTombstones)) return false;
-  if (candidate.closedThreadTombstones.length > LEADER_THREAD_TABS_PROJECTION_MAX_TOMBSTONES) return false;
-  if (!isNonNegativeNumber(candidate.updatedAt)) return false;
-  if (
-    candidate.migratedFromLocalStorageAt !== undefined &&
-    !isNonNegativeNumber(candidate.migratedFromLocalStorageAt)
-  ) {
-    return false;
-  }
-  if (candidate.explicitOrderUpdatedAt !== undefined && !isNonNegativeNumber(candidate.explicitOrderUpdatedAt)) {
-    return false;
-  }
-
-  const openKeys = new Set<string>();
-  for (const key of candidate.orderedOpenThreadKeys) {
-    if (!normalizedThreadKey(key) || openKeys.has(key)) return false;
-    openKeys.add(key);
-  }
-  const tombstoneKeys = new Set<string>();
-  for (const tombstone of candidate.closedThreadTombstones) {
-    if (!tombstone || typeof tombstone !== "object") return false;
-    if (!normalizedThreadKey(tombstone.threadKey) || tombstoneKeys.has(tombstone.threadKey)) return false;
-    if (!isNonNegativeNumber(tombstone.closedAt)) return false;
-    tombstoneKeys.add(tombstone.threadKey);
-  }
-  return true;
+  return (value as Partial<LeaderThreadTabsProjectionTabState>).version === LEADER_OPEN_THREAD_TABS_VERSION;
 }
 
-function isTab(value: unknown, requireCurrentQuestStateFields: boolean): value is LeaderThreadTabsProjectionTab {
+function isTab(value: unknown): value is LeaderThreadTabsProjectionTab {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<LeaderThreadTabsProjectionTab>;
-  const hasOwn = (key: keyof LeaderThreadTabsProjectionTab): boolean => Object.hasOwn(candidate, key);
   return (
     normalizedThreadKey(candidate.threadKey) &&
     isBoundedNullableString(candidate.questId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) &&
     isBoundedNullableString(candidate.title, LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH) &&
     isBoundedNullableString(candidate.boardStatus, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH) &&
-    (candidate.journey === null || isJourney(candidate.journey, requireCurrentQuestStateFields)) &&
-    (!requireCurrentQuestStateFields || hasOwn("sourceLeaderSessionId")) &&
-    (candidate.sourceLeaderSessionId === undefined
-      ? !requireCurrentQuestStateFields
-      : isBoundedNullableString(
-          candidate.sourceLeaderSessionId,
-          LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH,
-        )) &&
-    (!requireCurrentQuestStateFields || hasOwn("sourceRowCreatedAt")) &&
-    (candidate.sourceRowCreatedAt === undefined
-      ? !requireCurrentQuestStateFields
-      : candidate.sourceRowCreatedAt === null || isNonNegativeNumber(candidate.sourceRowCreatedAt)) &&
-    (!requireCurrentQuestStateFields || hasOwn("workerSessionId")) &&
-    (candidate.workerSessionId === undefined
-      ? !requireCurrentQuestStateFields
-      : isBoundedNullableString(candidate.workerSessionId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH)) &&
-    (!requireCurrentQuestStateFields || hasOwn("workerSessionNum")) &&
-    (candidate.workerSessionNum === undefined
-      ? !requireCurrentQuestStateFields
-      : candidate.workerSessionNum === null || isNonNegativeInteger(candidate.workerSessionNum)) &&
+    (candidate.journey === null || isJourney(candidate.journey)) &&
+    Object.hasOwn(candidate, "sourceLeaderSessionId") &&
+    isBoundedNullableString(candidate.sourceLeaderSessionId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) &&
+    Object.hasOwn(candidate, "sourceRowCreatedAt") &&
+    (candidate.sourceRowCreatedAt === null || isNonNegativeNumber(candidate.sourceRowCreatedAt)) &&
+    Object.hasOwn(candidate, "workerSessionId") &&
+    isBoundedNullableString(candidate.workerSessionId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH) &&
+    Object.hasOwn(candidate, "workerSessionNum") &&
+    (candidate.workerSessionNum === null || isNonNegativeInteger(candidate.workerSessionNum)) &&
     typeof candidate.active === "boolean" &&
     typeof candidate.queued === "boolean" &&
     typeof candidate.proposed === "boolean" &&
-    (candidate.neverStartedScheduled === undefined || typeof candidate.neverStartedScheduled === "boolean") &&
+    typeof candidate.neverStartedScheduled === "boolean" &&
     typeof candidate.completed === "boolean" &&
     Number(candidate.active) + Number(candidate.queued) + Number(candidate.proposed) + Number(candidate.completed) <=
       1 &&
@@ -252,11 +198,10 @@ function isActivePhaseSummary(value: unknown): value is LeaderActivePhaseSummary
 export function isLeaderThreadTabsProjectionValue(value: unknown): value is LeaderThreadTabsProjectionValue {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<LeaderThreadTabsProjectionValue>;
-  if (candidate.currentQuestStateVersion !== undefined && candidate.currentQuestStateVersion !== 1) return false;
+  if (candidate.currentQuestStateVersion !== 1) return false;
   if (candidate.tabState !== null && !isTabState(candidate.tabState)) return false;
   if (!Array.isArray(candidate.tabs) || candidate.tabs.length > LEADER_THREAD_TABS_PROJECTION_MAX_TABS) return false;
-  const requireCurrentQuestStateFields = candidate.currentQuestStateVersion === 1;
-  if (!candidate.tabs.every((tab) => isTab(tab, requireCurrentQuestStateFields))) return false;
+  if (!candidate.tabs.every(isTab)) return false;
   if (!isAttention(candidate.mainAttention)) return false;
   if (!candidate.threadStatuses || typeof candidate.threadStatuses !== "object") return false;
   const statusEntries = Object.entries(candidate.threadStatuses);
@@ -276,25 +221,145 @@ export function isLeaderThreadTabsProjectionValue(value: unknown): value is Lead
 
   const tabKeys = candidate.tabs.map((tab) => tab.threadKey);
   if (new Set(tabKeys).size !== tabKeys.length) return false;
-  if (candidate.tabState) {
-    const ordered = candidate.tabState.orderedOpenThreadKeys;
-    if (candidate.tabs.length !== ordered.length) return false;
-    if (candidate.tabs.some((tab, index) => tab.threadKey !== ordered[index])) return false;
-  }
   const serializedBytes = jsonUtf8ByteLength(candidate);
   return serializedBytes !== null && serializedBytes <= LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES;
+}
+
+/** Compact keyed live-update fields; terse keys keep narrow deltas below the retained control. */
+type LeaderThreadStatusPatch = Partial<LeaderThreadStatus> & {
+  questId?: string | null;
+  messageIdHash?: string | null;
+};
+
+export interface LeaderThreadTabsProjectionPatch {
+  d?: LeaderThreadTabsProjectionTabState | null;
+  t?: Record<string, LeaderThreadTabsProjectionTab | null>;
+  o?: string[];
+  a?: LeaderThreadTabsProjectionAttention;
+  s?: Record<string, LeaderThreadStatusPatch | null>;
+  p?: LeaderActivePhaseSummarySegment[];
+}
+
+const STATUS_FIELDS = new Set([
+  "kind",
+  "label",
+  "threadKey",
+  "questId",
+  "summary",
+  "messageId",
+  "messageIdHash",
+  "timestamp",
+  "updatedAt",
+]);
+
+function statusDelta(previous: LeaderThreadStatus | undefined, next: LeaderThreadStatus): LeaderThreadStatusPatch {
+  if (!previous) return next;
+  const delta: LeaderThreadStatusPatch = {};
+  for (const key of STATUS_FIELDS as Set<keyof LeaderThreadStatus>) {
+    if (previous[key] !== next[key]) (delta as Record<string, unknown>)[key] = next[key] ?? null;
+  }
+  return delta;
+}
+
+export function createLeaderThreadTabsProjectionPatch(
+  previous: LeaderThreadTabsProjectionValue,
+  next: LeaderThreadTabsProjectionValue,
+): LeaderThreadTabsProjectionPatch | undefined {
+  const patch: LeaderThreadTabsProjectionPatch = {};
+  if (!tabStateEqual(previous.tabState, next.tabState)) patch.d = next.tabState;
+  const previousTabs = new Map(previous.tabs.map((tab) => [tab.threadKey, tab]));
+  const nextTabs = new Map(next.tabs.map((tab) => [tab.threadKey, tab]));
+  const tabs: Record<string, LeaderThreadTabsProjectionTab | null> = {};
+  for (const tab of previous.tabs) if (!nextTabs.has(tab.threadKey)) tabs[tab.threadKey] = null;
+  for (const tab of next.tabs) {
+    const prior = previousTabs.get(tab.threadKey);
+    if (!prior || !leaderThreadTabsProjectionTabEqual(prior, tab)) tabs[tab.threadKey] = tab;
+  }
+  if (Object.keys(tabs).length) patch.t = tabs;
+  const order = next.tabs.map((tab) => tab.threadKey);
+  if (!arraysEqual(previous.tabs, next.tabs, (left, right) => left.threadKey === right.threadKey)) patch.o = order;
+  if (!leaderThreadTabsProjectionAttentionEqual(previous.mainAttention, next.mainAttention))
+    patch.a = next.mainAttention;
+  const statuses: Record<string, LeaderThreadStatusPatch | null> = {};
+  for (const key of new Set([...Object.keys(previous.threadStatuses), ...Object.keys(next.threadStatuses)])) {
+    const prior = previous.threadStatuses[key];
+    const current = next.threadStatuses[key];
+    if (!current) statuses[key] = null;
+    else if (!prior || !shallowEqual(prior, current)) statuses[key] = statusDelta(prior, current);
+  }
+  if (Object.keys(statuses).length) patch.s = statuses;
+  if (!arraysEqual(previous.activePhaseSummary, next.activePhaseSummary, shallowEqual)) {
+    patch.p = next.activePhaseSummary;
+  }
+  const patchBytes = jsonUtf8ByteLength(patch);
+  const valueBytes = jsonUtf8ByteLength(next);
+  return Object.keys(patch).length && patchBytes !== null && valueBytes !== null && patchBytes < valueBytes
+    ? patch
+    : undefined;
+}
+
+export function applyLeaderThreadTabsProjectionPatch(
+  previous: LeaderThreadTabsProjectionValue,
+  input: unknown,
+): LeaderThreadTabsProjectionValue | undefined {
+  if (
+    !isLeaderThreadTabsProjectionValue(previous) ||
+    !input ||
+    typeof input !== "object" ||
+    Array.isArray(input) ||
+    (jsonUtf8ByteLength(input) ?? Infinity) > LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES
+  ) {
+    return undefined;
+  }
+  const patch = input as LeaderThreadTabsProjectionPatch;
+  const keys = Object.keys(patch);
+  if (!keys.length || keys.some((key) => key.length !== 1 || !"dtoasp".includes(key))) return undefined;
+
+  const tabMap = new Map(previous.tabs.map((tab) => [tab.threadKey, tab]));
+  if (patch.t !== undefined) {
+    if (!patch.t || typeof patch.t !== "object" || Array.isArray(patch.t)) return undefined;
+    for (const [key, tab] of Object.entries(patch.t)) tab === null ? tabMap.delete(key) : tabMap.set(key, tab);
+  }
+  let tabs = [...tabMap.values()];
+  if (patch.o !== undefined) {
+    if (!Array.isArray(patch.o) || patch.o.length !== tabs.length || patch.o.some((key) => !tabMap.has(key))) {
+      return undefined;
+    }
+    tabs = patch.o.map((key) => tabMap.get(key)!);
+  }
+
+  const threadStatuses = { ...previous.threadStatuses };
+  if (patch.s !== undefined) {
+    if (!patch.s || typeof patch.s !== "object" || Array.isArray(patch.s)) return undefined;
+    for (const [key, delta] of Object.entries(patch.s)) {
+      if (delta === null) {
+        delete threadStatuses[key];
+      } else {
+        if (Object.keys(delta).some((field) => !STATUS_FIELDS.has(field))) return undefined;
+        const status = { ...(threadStatuses[key] ?? {}), ...delta } as LeaderThreadStatus & Record<string, unknown>;
+        if (delta.questId === null) delete status.questId;
+        if (delta.messageIdHash === null) delete status.messageIdHash;
+        threadStatuses[key] = status;
+      }
+    }
+  }
+
+  const next: LeaderThreadTabsProjectionValue = {
+    ...previous,
+    ...(Object.hasOwn(patch, "d") ? { tabState: patch.d! } : {}),
+    ...(patch.a !== undefined ? { mainAttention: patch.a } : {}),
+    ...(patch.p !== undefined ? { activePhaseSummary: patch.p } : {}),
+    tabs,
+    threadStatuses,
+  };
+  return isLeaderThreadTabsProjectionValue(next) ? reconcileLeaderThreadTabsProjectionValue(previous, next) : undefined;
 }
 
 export function leaderThreadTabsProjectionAttentionEqual(
   left: LeaderThreadTabsProjectionAttention,
   right: LeaderThreadTabsProjectionAttention,
 ): boolean {
-  return (
-    left.needsInput === right.needsInput &&
-    left.mutedNeedsInput === right.mutedNeedsInput &&
-    left.reviewUnread === right.reviewUnread &&
-    left.updatedAt === right.updatedAt
-  );
+  return shallowEqual(left, right);
 }
 
 export function leaderThreadTabsProjectionTabEqual(
@@ -302,23 +367,9 @@ export function leaderThreadTabsProjectionTabEqual(
   right: LeaderThreadTabsProjectionTab,
 ): boolean {
   return (
-    left.threadKey === right.threadKey &&
-    left.questId === right.questId &&
-    left.title === right.title &&
-    left.boardStatus === right.boardStatus &&
+    shallowEqual(left, right, ["journey", "attention"]) &&
     journeyEqual(left.journey, right.journey) &&
-    left.sourceLeaderSessionId === right.sourceLeaderSessionId &&
-    left.sourceRowCreatedAt === right.sourceRowCreatedAt &&
-    left.workerSessionId === right.workerSessionId &&
-    left.workerSessionNum === right.workerSessionNum &&
-    left.active === right.active &&
-    left.queued === right.queued &&
-    left.proposed === right.proposed &&
-    left.neverStartedScheduled === right.neverStartedScheduled &&
-    left.completed === right.completed &&
-    left.canClose === right.canClose &&
-    leaderThreadTabsProjectionAttentionEqual(left.attention, right.attention) &&
-    left.updatedAt === right.updatedAt
+    leaderThreadTabsProjectionAttentionEqual(left.attention, right.attention)
   );
 }
 
@@ -326,14 +377,7 @@ export function leaderThreadTabsProjectionEqual(
   left: LeaderThreadTabsProjectionValue,
   right: LeaderThreadTabsProjectionValue,
 ): boolean {
-  return (
-    left.currentQuestStateVersion === right.currentQuestStateVersion &&
-    tabStateEqual(left.tabState, right.tabState) &&
-    arraysEqual(left.tabs, right.tabs, leaderThreadTabsProjectionTabEqual) &&
-    leaderThreadTabsProjectionAttentionEqual(left.mainAttention, right.mainAttention) &&
-    statusMapsEqual(left.threadStatuses, right.threadStatuses) &&
-    arraysEqual(left.activePhaseSummary, right.activePhaseSummary, activePhaseSegmentEqual)
-  );
+  return reconcileLeaderThreadTabsProjectionValue(left, right) === left;
 }
 
 /** Preserve stable slices and per-tab/status identities when only part of the projection changes. */
@@ -354,14 +398,9 @@ export function reconcileLeaderThreadTabsProjectionValue(
     next.mainAttention,
     leaderThreadTabsProjectionAttentionEqual,
   );
-  const threadStatuses = reconcileRecord(previous.threadStatuses, next.threadStatuses, statusEqual);
-  const activePhaseSummary = reconcileArray(
-    previous.activePhaseSummary,
-    next.activePhaseSummary,
-    activePhaseSegmentEqual,
-  );
+  const threadStatuses = reconcileRecord(previous.threadStatuses, next.threadStatuses, shallowEqual);
+  const activePhaseSummary = reconcileArray(previous.activePhaseSummary, next.activePhaseSummary, shallowEqual);
   if (
-    previous.currentQuestStateVersion === next.currentQuestStateVersion &&
     tabState === previous.tabState &&
     tabs === previous.tabs &&
     mainAttention === previous.mainAttention &&
@@ -371,7 +410,7 @@ export function reconcileLeaderThreadTabsProjectionValue(
     return previous;
   }
   return {
-    ...(next.currentQuestStateVersion ? { currentQuestStateVersion: next.currentQuestStateVersion } : {}),
+    currentQuestStateVersion: 1,
     tabState,
     tabs,
     mainAttention,
@@ -385,22 +424,7 @@ function journeyEqual(
   right: LeaderThreadTabsProjectionJourney | null,
 ): boolean {
   if (!left || !right) return left === right;
-  return (
-    left.mode === right.mode &&
-    left.currentPhaseId === right.currentPhaseId &&
-    left.activePhaseIndex === right.activePhaseIndex &&
-    left.phaseCount === right.phaseCount &&
-    optionalArraysEqual(left.phaseIds, right.phaseIds, (a, b) => a === b)
-  );
-}
-
-function optionalArraysEqual<T>(
-  left: ReadonlyArray<T> | undefined,
-  right: ReadonlyArray<T> | undefined,
-  equal: (left: T, right: T) => boolean,
-): boolean {
-  if (!left || !right) return left === right;
-  return arraysEqual(left, right, equal);
+  return shallowEqual(left, right, ["phaseIds"]) && arraysEqual(left.phaseIds, right.phaseIds, (a, b) => a === b);
 }
 
 function tabStateEqual(
@@ -408,55 +432,14 @@ function tabStateEqual(
   right: LeaderThreadTabsProjectionTabState | null,
 ): boolean {
   if (!left || !right) return left === right;
-  return (
-    left.version === right.version &&
-    left.updatedAt === right.updatedAt &&
-    left.migratedFromLocalStorageAt === right.migratedFromLocalStorageAt &&
-    left.explicitOrderUpdatedAt === right.explicitOrderUpdatedAt &&
-    arraysEqual(left.orderedOpenThreadKeys, right.orderedOpenThreadKeys, (a, b) => a === b) &&
-    arraysEqual(
-      left.closedThreadTombstones,
-      right.closedThreadTombstones,
-      (a, b) => a.threadKey === b.threadKey && a.closedAt === b.closedAt,
-    )
-  );
+  return left.version === right.version;
 }
 
-function statusEqual(left: LeaderThreadStatus, right: LeaderThreadStatus): boolean {
+function shallowEqual<T extends object>(left: T, right: T, ignored: readonly string[] = []): boolean {
+  const leftKeys = Object.keys(left).filter((key) => !ignored.includes(key));
+  const rightKeys = Object.keys(right).filter((key) => !ignored.includes(key));
   return (
-    left.kind === right.kind &&
-    left.label === right.label &&
-    left.threadKey === right.threadKey &&
-    left.questId === right.questId &&
-    left.summary === right.summary &&
-    left.messageId === right.messageId &&
-    left.messageIdHash === right.messageIdHash &&
-    left.timestamp === right.timestamp &&
-    left.updatedAt === right.updatedAt
-  );
-}
-
-function statusMapsEqual(
-  left: Readonly<Record<string, LeaderThreadStatus>>,
-  right: Readonly<Record<string, LeaderThreadStatus>>,
-): boolean {
-  const leftKeys = Object.keys(left);
-  const rightKeys = Object.keys(right);
-  return (
-    arraysEqual(leftKeys, rightKeys, (a, b) => a === b) &&
-    leftKeys.every((key) => !!right[key] && statusEqual(left[key]!, right[key]!))
-  );
-}
-
-function activePhaseSegmentEqual(
-  left: LeaderActivePhaseSummarySegment,
-  right: LeaderActivePhaseSummarySegment,
-): boolean {
-  return (
-    left.label === right.label &&
-    left.count === right.count &&
-    left.tone === right.tone &&
-    left.color === right.color &&
-    left.colorName === right.colorName
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every((key) => (left as Record<string, unknown>)[key] === (right as Record<string, unknown>)[key])
   );
 }

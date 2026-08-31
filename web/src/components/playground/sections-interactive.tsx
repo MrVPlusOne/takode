@@ -10,6 +10,12 @@ import { WorkBoardBar } from "../WorkBoardBar.js";
 import { useStore } from "../../store.js";
 import { CLAUDE_MODELS, CLAUDE_PERMISSION_MODES, CODEX_MODELS, CODEX_PERMISSION_MODES } from "../../utils/backends.js";
 import type { QuestJourneyPhaseId } from "../../../shared/quest-journey.js";
+import {
+  LEADER_THREAD_TABS_PROJECTION,
+  type LeaderThreadTabsProjectionTab,
+  type LeaderThreadTabsProjectionValue,
+} from "../../../shared/leader-thread-tabs-projection.js";
+import { getSyncedProjectionValue } from "../../store-synced-projections.js";
 import { PlaygroundNotificationInboxSection } from "./PlaygroundNotificationInboxSection.js";
 import { PlaygroundQuestSessionAutocompletePreview } from "./PlaygroundComposerAutocompletePreview.js";
 import {
@@ -42,6 +48,63 @@ import {
 } from "./shared.js";
 
 const PLAYGROUND_FAST_SERVICE_TIER = { id: "priority", name: "Fast", description: "1.5x speed, increased usage" };
+const PLAYGROUND_BOARD_SESSION_ID = "playground-board-bar";
+let playgroundBoardProjectionRevision = 0;
+
+function applyPlaygroundBoardProjection(value: LeaderThreadTabsProjectionValue): void {
+  useStore.getState().applySyncedProjectionSnapshot({
+    type: "synced_projection_snapshot",
+    projection: LEADER_THREAD_TABS_PROJECTION,
+    key: PLAYGROUND_BOARD_SESSION_ID,
+    generation: "playground-board-tabs",
+    revision: ++playgroundBoardProjectionRevision,
+    value,
+  });
+}
+
+function playgroundFallbackTab(threadKey: string): LeaderThreadTabsProjectionTab {
+  const crowdMatch = /^q-(11\d{2})$/.exec(threadKey);
+  const crowdIndex = crowdMatch ? Number(crowdMatch[1]) - 1100 : null;
+  return {
+    threadKey,
+    questId: threadKey,
+    title:
+      threadKey === "q-99"
+        ? "Newly moved user request"
+        : crowdIndex
+          ? `Desktop tab ${crowdIndex} with readable context`
+          : threadKey,
+    boardStatus: null,
+    journey: null,
+    sourceLeaderSessionId: PLAYGROUND_BOARD_SESSION_ID,
+    sourceRowCreatedAt: null,
+    workerSessionId: null,
+    workerSessionNum: null,
+    active: false,
+    queued: false,
+    proposed: false,
+    neverStartedScheduled: false,
+    completed: false,
+    canClose: true,
+    attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+    updatedAt: 0,
+  };
+}
+
+function applyPlaygroundBoardTabKeys(threadKeys: string[]): void {
+  const current = getSyncedProjectionValue(
+    useStore.getState(),
+    LEADER_THREAD_TABS_PROJECTION,
+    PLAYGROUND_BOARD_SESSION_ID,
+  );
+  if (!current) return;
+  const tabsByKey = new Map(current.tabs.map((tab) => [tab.threadKey, tab]));
+  applyPlaygroundBoardProjection({
+    ...current,
+    tabs: threadKeys.map((threadKey) => tabsByKey.get(threadKey) ?? playgroundFallbackTab(threadKey)),
+  });
+}
+
 const PLAYGROUND_CODEX_MODEL_OPTIONS = [
   {
     value: "gpt-5.6-sol",
@@ -1234,7 +1297,7 @@ export function PlaygroundInteractiveSections() {
               <button
                 type="button"
                 onClick={() => {
-                  const boardSessionId = "playground-board-bar";
+                  const boardSessionId = PLAYGROUND_BOARD_SESSION_ID;
                   // Seed Zustand store with mock board and orchestrator session
                   const state = useStore.getState();
                   const now = Date.now();
@@ -1246,18 +1309,6 @@ export function PlaygroundInteractiveSections() {
                     cwd: "/mock/playground",
                     is_containerized: false,
                     isOrchestrator: true,
-                    leaderThreadStatuses: {
-                      "q-88": {
-                        kind: "waiting",
-                        label: "Thread Waiting",
-                        threadKey: "q-88",
-                        questId: "q-88",
-                        summary: "awaiting a read-only worker follow-up",
-                        messageId: "playground-board-bar-q88-waiting",
-                        timestamp: now - 10_000,
-                        updatedAt: now - 10_000,
-                      },
-                    },
                   });
                   const mediumRepeatedJourneyPhaseIds: QuestJourneyPhaseId[] = [
                     "alignment",
@@ -1464,6 +1515,69 @@ export function PlaygroundInteractiveSections() {
                       dedupeKey: "playground-board-bar-review",
                     },
                   ]);
+                  const completedRow = useStore.getState().sessionCompletedBoards.get(boardSessionId)?.[0];
+                  const visualRows = new Map(
+                    [...boardData, ...(completedRow ? [completedRow] : [])].map((row) => [row.questId, row]),
+                  );
+                  const projectedAttention = (needsInput = false, reviewUnread = false, updatedAt = 0) => ({
+                    needsInput,
+                    mutedNeedsInput: false,
+                    reviewUnread,
+                    updatedAt,
+                  });
+                  const projectedTabs = boardOpenThreadKeys.map((threadKey) => {
+                    const row = visualRows.get(threadKey);
+                    const completed = threadKey === "q-88" || threadKey === "q-1932";
+                    const queued = !completed && row?.status === "QUEUED";
+                    const proposed = !completed && row?.status === "PROPOSED";
+                    const needsInput = threadKey === "q-42" || threadKey === "q-61";
+                    const reviewUnread = threadKey === "q-1932";
+                    const fallback = playgroundFallbackTab(threadKey);
+                    return {
+                      ...fallback,
+                      title: row?.title ?? fallback.title,
+                      boardStatus: row?.status ?? (completed ? "DONE" : null),
+                      journey: row?.journey
+                        ? {
+                            mode: row.journey.mode ?? null,
+                            phaseIds: row.journey.phaseIds,
+                            currentPhaseId: row.journey.currentPhaseId ?? null,
+                            activePhaseIndex: row.journey.activePhaseIndex ?? null,
+                            phaseCount: row.journey.phaseIds.length,
+                          }
+                        : null,
+                      sourceRowCreatedAt: row?.createdAt ?? null,
+                      workerSessionId: row?.worker ?? null,
+                      workerSessionNum: row?.workerNum ?? null,
+                      active: !queued && !proposed && !completed && row?.status === "WORKING",
+                      queued,
+                      proposed,
+                      neverStartedScheduled: queued || proposed,
+                      completed,
+                      canClose: row?.status !== "WORKING",
+                      attention: projectedAttention(needsInput, reviewUnread, row?.updatedAt ?? now),
+                      updatedAt: row?.updatedAt ?? now,
+                    } satisfies LeaderThreadTabsProjectionTab;
+                  });
+                  applyPlaygroundBoardProjection({
+                    currentQuestStateVersion: 1,
+                    tabState: { version: 1 },
+                    tabs: projectedTabs,
+                    mainAttention: projectedAttention(true, false, now),
+                    threadStatuses: {
+                      "q-88": {
+                        kind: "waiting",
+                        label: "Thread Waiting",
+                        threadKey: "q-88",
+                        questId: "q-88",
+                        summary: "awaiting a read-only worker follow-up",
+                        messageId: "playground-board-bar-q88-waiting",
+                        timestamp: now - 10_000,
+                        updatedAt: now - 10_000,
+                      },
+                    },
+                    activePhaseSummary: [{ label: "Work", count: 1, tone: "phase" }],
+                  });
                   const questIds = ["q-42", "q-55", "q-61", "q-77", "q-88", "q-99", "q-1932"];
                   const quests = state.quests
                     .filter((quest) => !questIds.includes(quest.questId))
@@ -1629,7 +1743,9 @@ export function PlaygroundInteractiveSections() {
               <button
                 type="button"
                 onClick={() => {
-                  setBoardOpenThreadKeys((keys) => ["q-99", ...keys.filter((key) => key !== "q-99")]);
+                  const nextKeys = ["q-99", ...boardOpenThreadKeys.filter((key) => key !== "q-99")];
+                  setBoardOpenThreadKeys(nextKeys);
+                  applyPlaygroundBoardTabKeys(nextKeys);
                   setBoardPreviewThreadKey("q-99");
                 }}
                 className="ml-2 text-xs font-medium px-3 py-1.5 rounded-md bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 transition-colors cursor-pointer"
@@ -1639,7 +1755,9 @@ export function PlaygroundInteractiveSections() {
               <button
                 type="button"
                 onClick={() => {
-                  setBoardOpenThreadKeys((keys) => ["q-88", ...keys.filter((key) => key !== "q-88")]);
+                  const nextKeys = ["q-88", ...boardOpenThreadKeys.filter((key) => key !== "q-88")];
+                  setBoardOpenThreadKeys(nextKeys);
+                  applyPlaygroundBoardTabKeys(nextKeys);
                   setBoardPreviewThreadKey("main");
                 }}
                 className="ml-2 text-xs font-medium px-3 py-1.5 rounded-md bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 transition-colors cursor-pointer"
@@ -1650,7 +1768,9 @@ export function PlaygroundInteractiveSections() {
                 type="button"
                 onClick={() => {
                   const crowdKeys = Array.from({ length: 12 }, (_, index) => `q-${1101 + index}`);
-                  setBoardOpenThreadKeys(crowdKeys);
+                  const nextKeys = ["q-42", ...crowdKeys, "q-55", "q-61", "q-77", "q-88"];
+                  setBoardOpenThreadKeys(nextKeys);
+                  applyPlaygroundBoardTabKeys(nextKeys);
                   setBoardPreviewThreadKey(crowdKeys.at(-1) ?? "main");
                 }}
                 className="ml-2 text-xs font-medium px-3 py-1.5 rounded-md bg-violet-500/15 hover:bg-violet-500/25 text-violet-200 transition-colors cursor-pointer"
@@ -1706,7 +1826,9 @@ export function PlaygroundInteractiveSections() {
                   onSelectThread={setBoardPreviewThreadKey}
                   openThreadKeys={boardOpenThreadKeys}
                   onCloseThreadTab={(threadKey, nextThreadKey) => {
-                    setBoardOpenThreadKeys((keys) => keys.filter((key) => key !== threadKey));
+                    const nextKeys = boardOpenThreadKeys.filter((key) => key !== threadKey);
+                    setBoardOpenThreadKeys(nextKeys);
+                    applyPlaygroundBoardTabKeys(nextKeys);
                     setBoardPreviewThreadKey((current) => (current === threadKey ? nextThreadKey : current));
                   }}
                   threadRows={[
@@ -1771,125 +1893,6 @@ export function PlaygroundInteractiveSections() {
                           };
                         })
                       : []),
-                  ]}
-                  attentionRecords={[
-                    {
-                      id: "playground-board-bar-main-input",
-                      leaderSessionId: "playground-board-bar",
-                      type: "needs_input",
-                      source: { kind: "notification", id: "playground-board-bar-main-input" },
-                      threadKey: "main",
-                      title: "Main needs input",
-                      summary: "The leader has a Main-thread decision to make.",
-                      actionLabel: "Answer",
-                      priority: "needs_input",
-                      state: "unresolved",
-                      createdAt: Date.now() - 55_000,
-                      updatedAt: Date.now() - 11_000,
-                      route: { threadKey: "main" },
-                      chipEligible: true,
-                      ledgerEligible: true,
-                      dedupeKey: "playground-board-bar-main-input",
-                    },
-                    {
-                      id: "playground-board-bar-chip",
-                      leaderSessionId: "playground-board-bar",
-                      type: "needs_input",
-                      source: { kind: "notification", id: "playground-board-bar-chip", questId: "q-42" },
-                      questId: "q-42",
-                      threadKey: "q-42",
-                      title: "q-42 needs input",
-                      summary: "The current worker has a question before continuing.",
-                      actionLabel: "Answer",
-                      priority: "needs_input",
-                      state: "unresolved",
-                      createdAt: Date.now() - 50_000,
-                      updatedAt: Date.now() - 10_000,
-                      route: { threadKey: "q-42", questId: "q-42" },
-                      chipEligible: true,
-                      ledgerEligible: true,
-                      dedupeKey: "playground-board-bar-chip",
-                    },
-                    {
-                      id: "playground-board-bar-rework",
-                      leaderSessionId: "playground-board-bar",
-                      type: "quest_reopened_or_rework",
-                      source: { kind: "message", id: "playground-board-bar-rework", questId: "q-77" },
-                      questId: "q-77",
-                      threadKey: "q-77",
-                      title: "q-77 rework requested",
-                      summary: "The thread was reopened after user feedback.",
-                      actionLabel: "Open",
-                      priority: "milestone",
-                      state: "reopened",
-                      createdAt: Date.now() - 40_000,
-                      updatedAt: Date.now() - 20_000,
-                      route: { threadKey: "q-77", questId: "q-77" },
-                      chipEligible: false,
-                      ledgerEligible: true,
-                      dedupeKey: "playground-board-bar-rework",
-                    },
-                    {
-                      id: "playground-board-bar-closed-chip-input",
-                      leaderSessionId: "playground-board-bar",
-                      type: "needs_input",
-                      source: { kind: "notification", id: "playground-board-bar-closed-chip-input", questId: "q-61" },
-                      questId: "q-61",
-                      threadKey: "q-61",
-                      title: "q-61 needs input",
-                      summary: "The queued thread is blocked on a decision.",
-                      actionLabel: "Answer",
-                      priority: "needs_input",
-                      state: "unresolved",
-                      createdAt: Date.now() - 25_000,
-                      updatedAt: Date.now() - 12_000,
-                      route: { threadKey: "q-61", questId: "q-61" },
-                      chipEligible: true,
-                      ledgerEligible: true,
-                      dedupeKey: "playground-board-bar-closed-chip-input",
-                    },
-                    {
-                      id: "playground-board-bar-review",
-                      leaderSessionId: "playground-board-bar",
-                      type: "quest_completed_recent",
-                      source: { kind: "board", id: "q-88", questId: "q-88", signature: "finished" },
-                      questId: "q-88",
-                      threadKey: "q-88",
-                      title: "Journey finished",
-                      summary: "Review inbox copy",
-                      actionLabel: "Open",
-                      priority: "review",
-                      state: "unresolved",
-                      createdAt: Date.now() - 30_000,
-                      updatedAt: Date.now() - 15_000,
-                      route: { threadKey: "q-88", questId: "q-88" },
-                      chipEligible: false,
-                      ledgerEligible: true,
-                      dedupeKey: "playground-board-bar-review",
-                    },
-                    {
-                      id: "playground-board-bar-title-fallback-review",
-                      leaderSessionId: "playground-board-bar",
-                      type: "review_ready",
-                      source: {
-                        kind: "notification",
-                        id: "playground-board-bar-title-fallback-review",
-                        questId: "q-1932",
-                      },
-                      questId: "q-1932",
-                      threadKey: "q-1932",
-                      title: "q-1932",
-                      summary: "Thread ready: q-1932 | cancelled",
-                      actionLabel: "Review",
-                      priority: "review",
-                      state: "unresolved",
-                      createdAt: Date.now() - 32_000,
-                      updatedAt: Date.now() - 16_000,
-                      route: { threadKey: "q-1932", questId: "q-1932" },
-                      chipEligible: true,
-                      ledgerEligible: true,
-                      dedupeKey: "playground-board-bar-title-fallback-review",
-                    },
                   ]}
                 />
               </div>

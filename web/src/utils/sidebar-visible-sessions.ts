@@ -1,10 +1,7 @@
 import type { SidebarSessionItem } from "./sidebar-session-item.js";
 import { resolveSessionNavigation } from "./session-navigation-resolver.js";
 import { buildTreeViewGroups } from "./tree-grouping.js";
-import { isAttentionRecordActive } from "./attention-records.js";
 import { deriveEffectiveSessionAttentionStatus } from "./session-attention-status.js";
-import { MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
-import { normalizeLeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
 import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import type {
@@ -40,40 +37,6 @@ export interface SidebarVisibleSessionsResult {
   orderedVisibleSessionIds: string[];
   treeViewGroups: ReturnType<typeof buildTreeViewGroups>;
   sessionSetAttention: Map<string, SessionAttentionReason>;
-}
-
-function isBlueNotificationAttention(record: SessionAttentionRecord): boolean {
-  if (!isAttentionRecordActive(record)) return false;
-  if (record.source.kind !== "notification") return false;
-  return record.priority === "review" || record.priority === "completed" || record.type === "review_ready";
-}
-
-function openThreadKeySet(session: SdkSessionInfo | undefined): Set<string> {
-  const keys = new Set<string>([MAIN_THREAD_KEY]);
-  const openTabs = normalizeLeaderOpenThreadTabsState(session?.leaderOpenThreadTabs);
-  for (const key of openTabs?.orderedOpenThreadKeys ?? []) keys.add(normalizeThreadKey(key));
-  return keys;
-}
-
-function hasOpenBlueThreadTab(
-  session: SdkSessionInfo | undefined,
-  records: ReadonlyArray<SessionAttentionRecord>,
-): boolean {
-  const openKeys = openThreadKeySet(session);
-  return records.some((record) => {
-    if (!isBlueNotificationAttention(record)) return false;
-    const threadKey = normalizeThreadKey(
-      record.route.threadKey || record.threadKey || record.questId || MAIN_THREAD_KEY,
-    );
-    return openKeys.has(threadKey);
-  });
-}
-
-function hasFreshActiveReviewSummary(session: SdkSessionInfo | undefined): boolean {
-  const hasFreshStatus =
-    session?.notificationStatusVersion !== undefined || session?.notificationStatusUpdatedAt !== undefined;
-  const activeReviewCount = session?.activeReviewNotificationCount ?? session?.activeNotificationCount ?? 0;
-  return hasFreshStatus && session?.notificationUrgency === "review" && activeReviewCount > 0;
 }
 
 export function deriveSessionSetAttention({
@@ -117,20 +80,6 @@ export function deriveSessionSetAttention({
     });
     const nextAttention =
       effectiveStatus?.urgency === "needs-input" ? "action" : effectiveStatus?.urgency === "review" ? "review" : null;
-    if (
-      nextAttention === "review" &&
-      sdkSession?.isOrchestrator &&
-      !sessionNotifications?.has(sessionId) &&
-      !hasFreshActiveReviewSummary(sdkSession)
-    ) {
-      // Legacy raw attention has no discoverable-target proof until the inbox
-      // loads. A fresh active server summary is already filtered to open tabs.
-      result.set(
-        sessionId,
-        hasOpenBlueThreadTab(sdkSession, sessionAttentionRecords?.get(sessionId) ?? []) ? "review" : null,
-      );
-      continue;
-    }
     result.set(sessionId, nextAttention);
   }
   return result;

@@ -38,7 +38,6 @@ export function buildBrowserSessionDetail(
     repoRoot: rest.repoRoot ?? bridgeState?.repo_root ?? null,
     branch: rest.branch ?? (bridgeState?.is_worktree ? bridgeState.git_branch : undefined),
     actualBranch: rest.actualBranch ?? (bridgeState?.is_worktree ? bridgeState.git_branch : undefined),
-    ...(bridgeState?.leaderOpenThreadTabs ? { leaderOpenThreadTabs: bridgeState.leaderOpenThreadTabs } : {}),
     pause: bridgeState?.pause ?? null,
     pausedInputQueueCount: bridgeState?.pause?.queuedMessages.length ?? 0,
     codexResultErrorAutoPause: bridgeState?.codex_result_error_auto_pause ?? null,

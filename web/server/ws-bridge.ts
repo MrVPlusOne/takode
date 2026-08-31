@@ -4,7 +4,6 @@ import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
 import { notifyCodexWorkerV2RolloutActivity } from "./codex-worker-v2-rollout-hooks.js";
 import { WsBridgeSyncedProjectionController } from "./ws-bridge-synced-projections.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
-import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
 import type { PushoverNotifier } from "./pushover.js";
 import type { TrafficStatsSnapshot } from "./traffic-stats.js";
 import type {
@@ -943,6 +942,14 @@ export class WsBridge {
     return this.syncedProjections.promoteLeaderThreadTabForQuest(questId, eventAt, sourceSessionId);
   }
 
+  promoteLeaderThreadTabForAttachment(sessionId: string, threadKey: string, attachedAt: number): boolean {
+    return this.syncedProjections.promoteLeaderThreadTabForAttachment(sessionId, threadKey, attachedAt);
+  }
+
+  promoteLeaderThreadTabForTransition(sessionId: string, marker: import("./session-types.js").ThreadTransitionMarker) {
+    return this.syncedProjections.promoteLeaderThreadTabForTransition(sessionId, marker);
+  }
+
   promoteLeaderThreadTabForAttention(
     sessionId: string,
     threadKey: string,
@@ -1231,8 +1238,6 @@ export class WsBridge {
           type: "board_updated",
           board,
           completedBoard,
-          leaderOpenThreadTabs: (targetSession as Session).state?.leaderOpenThreadTabs,
-          leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
           rowSessionStatuses: this.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
         }),
       persistSession: (targetSession) => this.persistSession(targetSession as Session),
@@ -1245,8 +1250,6 @@ export class WsBridge {
               type: "board_updated",
               board,
               completedBoard,
-              leaderOpenThreadTabs: (targetSession as Session).state?.leaderOpenThreadTabs,
-              leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
               rowSessionStatuses: this.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
             }),
           persistSession: (targetSession) => this.persistSession(targetSession as Session),
@@ -1272,8 +1275,6 @@ export class WsBridge {
           type: "board_updated",
           board,
           completedBoard,
-          leaderOpenThreadTabs: (targetSession as Session).state?.leaderOpenThreadTabs,
-          leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
           rowSessionStatuses: this.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
         }),
       persistSession: (targetSession) => this.persistSession(targetSession as Session),
@@ -1286,8 +1287,6 @@ export class WsBridge {
               type: "board_updated",
               board,
               completedBoard,
-              leaderOpenThreadTabs: (targetSession as Session).state?.leaderOpenThreadTabs,
-              leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
               rowSessionStatuses: this.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
             }),
           persistSession: (targetSession) => this.persistSession(targetSession as Session),

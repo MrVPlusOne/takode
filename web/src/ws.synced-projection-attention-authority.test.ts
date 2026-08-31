@@ -98,7 +98,7 @@ describe("projection-owned attention rejects legacy WebSocket hydration", () => 
     expect(apiMocks.markSessionRead).not.toHaveBeenCalled();
   });
 
-  it("keeps navigation-owned activity fields while retaining non-navigation board and summary updates", () => {
+  it("keeps navigation-owned fields while rejecting retired leader visual activity fields", () => {
     useStore.getState().applySyncedProjectionSnapshot(
       createSessionNavigationProjectionEnvelope({
         key: "worker",
@@ -124,8 +124,9 @@ describe("projection-owned attention rejects legacy WebSocket hydration", () => 
     expect(state.sessionStatus.get("worker")).toBe("running");
     expect(state.sdkSessions[0]?.pendingPermissionCount).toBe(2);
     expect(state.sdkSessions[0]?.pendingPermissionSummary).toBe("pending plan");
-    expect(state.sdkSessions[0]?.leaderActivePhaseSummary).toEqual([]);
-    expect(state.sessionBoards.get("worker")).toEqual([]);
+    expect(state.sdkSessions[0]).not.toHaveProperty("leaderActivePhaseSummary");
+    expect(state.sdkSessions[0]).not.toHaveProperty("leaderActiveBoardRows");
+    expect(state.sessionBoards.has("worker")).toBe(false);
   });
 
   it("ignores state_snapshot attention and does not feed back markSessionRead", () => {

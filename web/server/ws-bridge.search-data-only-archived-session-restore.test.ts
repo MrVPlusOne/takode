@@ -925,20 +925,16 @@ describe("search-data-only archived session restore", () => {
     expect(invalidateSession).toHaveBeenCalledWith(restoredLeader);
     expect(projectionMessages()).toEqual([
       expect.objectContaining({
-        value: expect.objectContaining({
-          tabs: [
-            expect.objectContaining({
+        key: observer.id,
+        patch: {
+          t: {
+            "q-7001": expect.objectContaining({
               threadKey: "q-7001",
               sourceLeaderSessionId: restoredLeaderId,
               title: "Restored leader-only run",
             }),
-            expect.objectContaining({
-              threadKey: "q-7002",
-              sourceLeaderSessionId: competingLeader.id,
-              workerSessionId: "other-worker",
-            }),
-          ],
-        }),
+          },
+        },
       }),
     ]);
     observerBrowser.send.mockClear();
@@ -955,18 +951,18 @@ describe("search-data-only archived session restore", () => {
     expect(invalidateSession).toHaveBeenCalledWith(restoredWorker);
     expect(projectionMessages()).toEqual([
       expect.objectContaining({
-        value: expect.objectContaining({
-          tabs: [
-            expect.objectContaining({ threadKey: "q-7001", sourceLeaderSessionId: restoredLeaderId }),
-            expect.objectContaining({
+        key: observer.id,
+        patch: {
+          t: {
+            "q-7002": expect.objectContaining({
               threadKey: "q-7002",
               sourceLeaderSessionId: restoredLeaderId,
               workerSessionId: restoredWorkerId,
               workerSessionNum: 2583,
               title: "Older exact-claim run",
             }),
-          ],
-        }),
+          },
+        },
       }),
     ]);
   });

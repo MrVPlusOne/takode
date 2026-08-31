@@ -2,6 +2,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SdkSessionInfo } from "./types.js";
+import { LEADER_THREAD_TABS_PROJECTION } from "../shared/leader-thread-tabs-projection.js";
+import { getSyncedProjectionValue } from "./store-synced-projections.js";
+import {
+  createLeaderThreadTabsProjectionEnvelope,
+  createLeaderThreadTabsProjectionTab,
+  createLeaderThreadTabsProjectionValue,
+} from "./test-fixtures/leader-thread-tabs-projection.js";
 
 const mockApi = vi.hoisted(() => ({
   listSessions: vi.fn(),
@@ -152,26 +159,40 @@ describe("session list hydration", () => {
     cleanup();
   });
 
-  it("hydrates derived metadata from session snapshots", () => {
+  it("hydrates derived metadata and the current leader projection from session snapshots", () => {
     hydrateSessionList([
       makeSdkSession("s1", {
         name: "Hydrated Name",
         lastMessagePreview: "latest user request",
         isOrchestrator: true,
-        leaderActivePhaseSummary: [
-          { label: "Implement", count: 1, tone: "phase", color: "#34d399" },
-          { label: "Queued", count: 1, tone: "status" },
-        ],
-        leaderActiveBoardRows: [
-          {
-            questId: "q-1455",
-            title: "Restore active quest rows",
-            status: "IMPLEMENTING",
-            createdAt: 1,
-            updatedAt: 2,
-            journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
-          },
-        ],
+        leaderThreadTabsProjection: createLeaderThreadTabsProjectionEnvelope({
+          value: createLeaderThreadTabsProjectionValue({
+            tabs: [
+              createLeaderThreadTabsProjectionTab("q-1455", {
+                title: "Restore active quest rows",
+                boardStatus: "IMPLEMENTING",
+                journey: {
+                  mode: "active",
+                  phaseIds: ["alignment", "work"],
+                  currentPhaseId: "work",
+                  activePhaseIndex: 1,
+                  phaseCount: 2,
+                },
+                sourceLeaderSessionId: "s1",
+                sourceRowCreatedAt: 1,
+                active: true,
+                canClose: false,
+                updatedAt: 2,
+              }),
+            ],
+            mainAttention: {},
+            threadStatuses: {},
+            activePhaseSummary: [
+              { label: "Work", count: 1, tone: "phase", color: "#34d399" },
+              { label: "Queued", count: 1, tone: "status" },
+            ],
+          }),
+        }),
         taskHistory: [{ title: "Task", action: "new", timestamp: 10, triggerMessageId: "m1" }],
         keywords: ["mobile", "reconnect"],
       }),
@@ -180,64 +201,67 @@ describe("session list hydration", () => {
     const state = useStore.getState();
     expect(state.sdkSessions[0]?.name).toBe("Hydrated Name");
     expect(state.sdkSessions[0]?.lastMessagePreview).toBe("latest user request");
-    expect(state.sdkSessions[0]?.leaderActivePhaseSummary).toEqual([
-      { label: "Implement", count: 1, tone: "phase", color: "#34d399" },
+    expect(getSyncedProjectionValue(state, LEADER_THREAD_TABS_PROJECTION, "s1")?.activePhaseSummary).toEqual([
+      { label: "Work", count: 1, tone: "phase", color: "#34d399" },
       { label: "Queued", count: 1, tone: "status" },
     ]);
     expect(state.sessionTaskHistory.get("s1")).toEqual([
       { title: "Task", action: "new", timestamp: 10, triggerMessageId: "m1" },
     ]);
     expect(state.sessionKeywords.get("s1")).toEqual(["mobile", "reconnect"]);
-    expect(state.sessionBoards.get("s1")).toEqual([
-      {
-        questId: "q-1455",
-        title: "Restore active quest rows",
-        status: "IMPLEMENTING",
-        createdAt: 1,
-        updatedAt: 2,
-        journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
-      },
-    ]);
+    expect(state.sessionBoards.has("s1")).toBe(false);
     expect(state.sdkSessions[0]).not.toHaveProperty("taskHistory");
     expect(state.sdkSessions[0]).not.toHaveProperty("keywords");
     expect(state.sdkSessions[0]).not.toHaveProperty("leaderActiveBoardRows");
+    expect(state.sdkSessions[0]).not.toHaveProperty("leaderActivePhaseSummary");
   });
 
-  it("clears stale leader phase summaries and board rows from authoritative session snapshots", () => {
-    useStore.getState().setSessionBoard("leader", [
+  it("replaces current leader projection snapshots without mutating separately loaded board detail", () => {
+    const detailedBoard = [
       {
         questId: "q-stale",
-        title: "Stale leader board row",
+        title: "Separately loaded leader board row",
         status: "IMPLEMENTING",
         createdAt: 1,
         updatedAt: 2,
       },
-    ]);
+    ];
+    useStore.getState().setSessionBoard("leader", detailedBoard);
     hydrateSessionList([
       makeSdkSession("leader", {
         isOrchestrator: true,
-        leaderActivePhaseSummary: [{ label: "Execute", count: 1, tone: "phase", color: "#60a5fa" }],
-        leaderActiveBoardRows: [
-          {
-            questId: "q-keep",
-            title: "Current active row",
-            status: "EXECUTING",
-            createdAt: 3,
-            updatedAt: 4,
-          },
-        ],
+        leaderThreadTabsProjection: createLeaderThreadTabsProjectionEnvelope({
+          key: "leader",
+          value: createLeaderThreadTabsProjectionValue({
+            tabs: [createLeaderThreadTabsProjectionTab("q-keep", { title: "Current active row", active: true })],
+            mainAttention: {},
+            threadStatuses: {},
+            activePhaseSummary: [{ label: "Work", count: 1, tone: "phase", color: "#60a5fa" }],
+          }),
+        }),
       }),
     ]);
 
     hydrateSessionList([
       makeSdkSession("leader", {
         isOrchestrator: true,
-        leaderActivePhaseSummary: [],
-        leaderActiveBoardRows: [],
+        leaderThreadTabsProjection: createLeaderThreadTabsProjectionEnvelope({
+          key: "leader",
+          revision: 2,
+          value: createLeaderThreadTabsProjectionValue({
+            tabs: [],
+            mainAttention: {},
+            threadStatuses: {},
+            activePhaseSummary: [],
+          }),
+        }),
       }),
     ]);
 
-    expect(useStore.getState().sdkSessions[0]?.leaderActivePhaseSummary).toEqual([]);
-    expect(useStore.getState().sessionBoards.get("leader")).toEqual([]);
+    expect(getSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "leader")?.tabs).toEqual([]);
+    expect(
+      getSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "leader")?.activePhaseSummary,
+    ).toEqual([]);
+    expect(useStore.getState().sessionBoards.get("leader")).toEqual(detailedBoard);
   });
 });

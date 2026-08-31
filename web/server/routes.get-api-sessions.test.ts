@@ -700,7 +700,7 @@ describe("GET /api/sessions", () => {
     expect(access).not.toHaveBeenCalled();
   });
 
-  it("includes lightweight leader open thread tabs in session snapshots", async () => {
+  it("omits raw leader open thread tabs from current-build session snapshots", async () => {
     const defaultSettings = vi.mocked(settingsManager.getSettings).getMockImplementation()?.() as ReturnType<
       typeof settingsManager.getSettings
     >;
@@ -738,15 +738,10 @@ describe("GET /api/sessions", () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json[0]).toMatchObject({
-      sessionId: "leader",
-      leaderOpenThreadTabs: {
-        version: 1,
-        orderedOpenThreadKeys: ["q-1", "q-2"],
-        closedThreadTombstones: [],
-        updatedAt: 1234,
-      },
-    });
+    expect(json[0]).toMatchObject({ sessionId: "leader" });
+    expect(json[0]).not.toHaveProperty("leaderOpenThreadTabs");
+    expect(json[0]).not.toHaveProperty("leaderActiveBoardRows");
+    expect(json[0]).not.toHaveProperty("leaderActivePhaseSummary");
   });
 
   it("includes pendingTimerCount in regular session snapshots", async () => {

@@ -100,7 +100,7 @@ function makeInjectDeps(overrides: Record<string, unknown> = {}) {
 }
 
 describe("leader_thread_tabs_update", () => {
-  it("persists and broadcasts authoritative leader tab updates", () => {
+  it("persists authoritative leader tab updates without a parallel visual broadcast", () => {
     const session = makeSession({
       state: {
         permissionMode: "default",
@@ -119,7 +119,7 @@ describe("leader_thread_tabs_update", () => {
       session,
       {
         type: "leader_thread_tabs_update",
-        operation: { type: "open", threadKey: "q-2", placement: "first", source: "user" },
+        operation: { type: "open", threadKey: "q-2", placement: "first" },
         client_msg_id: "tabs-1",
       },
       undefined,
@@ -129,10 +129,7 @@ describe("leader_thread_tabs_update", () => {
     expect(handled).toBe(true);
     expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-2", "q-1"]);
     expect(deps.persistSession).toHaveBeenCalledWith(session);
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
-      type: "session_update",
-      session: { leaderOpenThreadTabs: session.state.leaderOpenThreadTabs },
-    });
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
   });
 
   it("keeps migrated browser localStorage from overriding existing server state", () => {
@@ -174,7 +171,7 @@ describe("leader_thread_tabs_update", () => {
     const deps = makeInjectDeps();
     const msg = {
       type: "leader_thread_tabs_update" as const,
-      operation: { type: "open" as const, threadKey: "q-1", placement: "first" as const, source: "user" as const },
+      operation: { type: "open" as const, threadKey: "q-1", placement: "first" as const },
       client_msg_id: "tabs-1",
     };
 
@@ -183,10 +180,10 @@ describe("leader_thread_tabs_update", () => {
 
     expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-1"]);
     expect(deps.persistSession).toHaveBeenCalledTimes(2);
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledTimes(1);
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
   });
 
-  it("does not broadcast an effective no-op leader tab open", () => {
+  it("ignores browser-originated server-candidate tab opens", () => {
     const serverState = {
       version: 1 as const,
       orderedOpenThreadKeys: ["q-1", "q-2"],
@@ -206,7 +203,13 @@ describe("leader_thread_tabs_update", () => {
       session,
       {
         type: "leader_thread_tabs_update",
-        operation: { type: "open", threadKey: "q-1", placement: "first", source: "server_candidate", eventAt: 20 },
+        operation: {
+          type: "open",
+          threadKey: "q-1",
+          placement: "first",
+          source: "server_candidate",
+          eventAt: 20,
+        } as never,
         client_msg_id: "tabs-noop-open-1",
       },
       undefined,
@@ -214,12 +217,8 @@ describe("leader_thread_tabs_update", () => {
     );
 
     expect(handled).toBe(true);
-    expect(session.state.leaderOpenThreadTabs).toEqual({
-      ...serverState,
-      latestServerCandidateEventAt: 20,
-      serverCandidatePromotedAt: { "q-1": 20 },
-    });
-    expect(deps.persistSession).toHaveBeenCalledTimes(2);
+    expect(session.state.leaderOpenThreadTabs).toEqual(serverState);
+    expect(deps.persistSession).toHaveBeenCalledTimes(1);
     expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
   });
 
@@ -251,13 +250,10 @@ describe("leader_thread_tabs_update", () => {
 
     expect(handled).toBe(true);
     expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-3", "q-1", "q-2"]);
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
-      type: "session_update",
-      session: { leaderOpenThreadTabs: session.state.leaderOpenThreadTabs },
-    });
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
   });
 
-  it("rejects replayed browser server-candidate events after another tab moves ahead", () => {
+  it("ignores replayed browser server-candidate events after another tab moves ahead", () => {
     const serverState = {
       version: 1 as const,
       orderedOpenThreadKeys: ["q-3", "q-2", "q-1"],
@@ -275,7 +271,13 @@ describe("leader_thread_tabs_update", () => {
       session,
       {
         type: "leader_thread_tabs_update",
-        operation: { type: "open", threadKey: "q-2", placement: "first", source: "server_candidate", eventAt: 20 },
+        operation: {
+          type: "open",
+          threadKey: "q-2",
+          placement: "first",
+          source: "server_candidate",
+          eventAt: 20,
+        } as never,
         client_msg_id: "tabs-stale-server-candidate",
       },
       undefined,
@@ -302,20 +304,7 @@ describe("leader_thread_tabs_update", () => {
         },
       } as any,
     });
-    const deps = makeInjectDeps({
-      getLeaderThreadTabsProjectionValue: vi.fn(() => ({
-        tabState: {
-          version: 1,
-          orderedOpenThreadKeys: ["q-1", "q-2"],
-          closedThreadTombstones: [],
-          updatedAt: 200,
-        },
-        tabs: [],
-        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
-        threadStatuses: {},
-        activePhaseSummary: [],
-      })),
-    });
+    const deps = makeInjectDeps();
 
     handleBrowserProtocolMessage(
       session,
@@ -334,59 +323,14 @@ describe("leader_thread_tabs_update", () => {
     });
   });
 
-  it("materializes and closes a projection-only scheduled tab without mutating its board row", () => {
-    // The explicit command persists projection-only peers and a tombstone, never board state.
+  it("persists a tombstone for a scheduled tab without reading projected visual state without mutating its board row", () => {
+    // Command authority records only durable state; projected peers never feed back into it.
     const queuedRow = { questId: "q-queued", status: "QUEUED" };
     const session = makeSession({
       state: { permissionMode: "default", isOrchestrator: true } as any,
       board: new Map([[queuedRow.questId, queuedRow]]),
     } as any);
-    const getLeaderThreadTabsProjectionValue = vi.fn(() => ({
-      currentQuestStateVersion: 1 as const,
-      tabState: null,
-      tabs: [
-        {
-          threadKey: "q-active",
-          questId: "q-active",
-          title: "Active",
-          boardStatus: "WORKING",
-          journey: null,
-          sourceLeaderSessionId: "test-session",
-          sourceRowCreatedAt: 1,
-          workerSessionId: null,
-          workerSessionNum: null,
-          active: true,
-          queued: false,
-          proposed: false,
-          completed: false,
-          canClose: false,
-          attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
-          updatedAt: 10,
-        },
-        {
-          threadKey: "q-queued",
-          questId: "q-queued",
-          title: "Queued",
-          boardStatus: "QUEUED",
-          journey: null,
-          sourceLeaderSessionId: "test-session",
-          sourceRowCreatedAt: 2,
-          workerSessionId: null,
-          workerSessionNum: null,
-          active: false,
-          queued: true,
-          proposed: false,
-          completed: false,
-          canClose: true,
-          attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
-          updatedAt: 20,
-        },
-      ],
-      mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
-      threadStatuses: {},
-      activePhaseSummary: [],
-    }));
-    const deps = makeInjectDeps({ getLeaderThreadTabsProjectionValue });
+    const deps = makeInjectDeps();
 
     expect(
       handleBrowserProtocolMessage(
@@ -402,11 +346,11 @@ describe("leader_thread_tabs_update", () => {
     ).toBe(true);
 
     expect(session.state.leaderOpenThreadTabs).toMatchObject({
-      orderedOpenThreadKeys: ["q-active"],
+      orderedOpenThreadKeys: [],
       closedThreadTombstones: [{ threadKey: "q-queued", closedAt: 30 }],
     });
     expect((session as any).board.get("q-queued")).toBe(queuedRow);
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledTimes(1);
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
   });
 
   it("rejects stale close commands for current in-motion tabs", () => {
@@ -444,9 +388,7 @@ describe("leader_thread_tabs_update", () => {
     expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
   });
 
-  it("does not let a board-lag generic candidate evict a full active rail", () => {
-    // An attachment can arrive before its queued row; capacity must fail closed
-    // until a later authoritative activation decides whether an eviction is valid.
+  it("does not let a browser candidate evict a full active rail", () => {
     const activeKeys = Array.from({ length: 50 }, (_, index) => `q-${index + 1}`);
     const serverState = {
       version: 1 as const,
@@ -469,7 +411,7 @@ describe("leader_thread_tabs_update", () => {
           placement: "first",
           source: "server_candidate",
           eventAt: 200,
-        },
+        } as never,
         client_msg_id: "tabs-full-board-lag-candidate",
       },
       undefined,
@@ -482,8 +424,7 @@ describe("leader_thread_tabs_update", () => {
     expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
   });
 
-  it("uses current cross-session policy to reject generic scheduled candidates", () => {
-    // Local board state may be absent or stale while another leader owns the current queued run.
+  it("does not consult mutation policy for rejected browser candidates", () => {
     const serverState = {
       version: 1 as const,
       orderedOpenThreadKeys: ["q-active"],
@@ -498,6 +439,7 @@ describe("leader_thread_tabs_update", () => {
         inMotion: false,
         scheduled: true,
         neverStartedScheduled: true,
+        completed: false,
         canClose: true,
       })),
     });
@@ -512,7 +454,7 @@ describe("leader_thread_tabs_update", () => {
           placement: "first",
           source: "server_candidate",
           eventAt: 200,
-        },
+        } as never,
         client_msg_id: "tabs-cross-scheduled-candidate",
       },
       undefined,
@@ -520,11 +462,11 @@ describe("leader_thread_tabs_update", () => {
     );
 
     expect(session.state.leaderOpenThreadTabs).toEqual(serverState);
+    expect(deps.getLeaderThreadTabMutationPolicy).not.toHaveBeenCalled();
     expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
   });
 
-  it("keeps scheduled tombstones closed for generic candidates but allows explicit reopen", () => {
-    // Automatic attachment/transition candidates are weaker than user or route navigation.
+  it("ignores browser candidates but still allows an explicit scheduled-tab reopen", () => {
     const serverState = {
       version: 1 as const,
       orderedOpenThreadKeys: ["q-active"],
@@ -547,7 +489,7 @@ describe("leader_thread_tabs_update", () => {
           placement: "first",
           source: "server_candidate",
           eventAt: 200,
-        },
+        } as never,
         client_msg_id: "tabs-scheduled-candidate",
       },
       undefined,
@@ -561,7 +503,7 @@ describe("leader_thread_tabs_update", () => {
       session,
       {
         type: "leader_thread_tabs_update",
-        operation: { type: "open", threadKey: "q-queued", placement: "first", source: "user" },
+        operation: { type: "open", threadKey: "q-queued", placement: "first" },
         client_msg_id: "tabs-scheduled-user-reopen",
       },
       undefined,
@@ -570,10 +512,10 @@ describe("leader_thread_tabs_update", () => {
 
     expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-queued", "q-active"]);
     expect(session.state.leaderOpenThreadTabs?.closedThreadTombstones).toEqual([]);
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledTimes(1);
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
   });
 
-  it("materializes projection-only visible tabs before applying a browser reorder", () => {
+  it("reorders only durable server tabs without reading projected visual state", () => {
     const session = makeSession({
       state: {
         permissionMode: "default",
@@ -586,33 +528,7 @@ describe("leader_thread_tabs_update", () => {
         },
       } as any,
     });
-    const projectionKeys = ["q-projected", "q-raw"];
-    const getLeaderThreadTabsProjectionValue = vi.fn(() => ({
-      tabState: {
-        version: 1,
-        orderedOpenThreadKeys: projectionKeys,
-        closedThreadTombstones: [],
-        updatedAt: 10,
-      },
-      tabs: projectionKeys.map((threadKey) => ({
-        threadKey,
-        questId: threadKey,
-        title: threadKey,
-        boardStatus: null,
-        journey: null,
-        active: threadKey === "q-projected",
-        queued: false,
-        proposed: false,
-        completed: false,
-        canClose: threadKey !== "q-projected",
-        attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
-        updatedAt: 10,
-      })),
-      mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
-      threadStatuses: {},
-      activePhaseSummary: [],
-    }));
-    const deps = makeInjectDeps({ getLeaderThreadTabsProjectionValue });
+    const deps = makeInjectDeps();
 
     const handled = handleBrowserProtocolMessage(
       session,
@@ -626,12 +542,8 @@ describe("leader_thread_tabs_update", () => {
     );
 
     expect(handled).toBe(true);
-    expect(getLeaderThreadTabsProjectionValue).toHaveBeenCalled();
-    expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-raw", "q-projected"]);
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
-      type: "session_update",
-      session: { leaderOpenThreadTabs: session.state.leaderOpenThreadTabs },
-    });
+    expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-raw"]);
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
   });
 
   it("ignores stale or unsupported tab operations without mutating server state", () => {
@@ -769,11 +681,9 @@ describe("leader projection snapshots", () => {
     expect(first.projection).toEqual(
       expect.objectContaining({ schemaVersion: 2, sourceHistoryLength: 1, messageAttentionRecords: [] }),
     );
-    const internal = buildLeaderProjectionSnapshotForSession(session, deps);
-    expect(internal.schemaVersion).toBe(1);
-    expect(internal.threadRows).toEqual([
-      expect.objectContaining({ threadKey: "q-2040", title: "Projection source", messageCount: 1 }),
-    ]);
+    const cached = buildLeaderProjectionSnapshotForSession(session);
+    expect(cached).toEqual(first.projection);
+    expect(cached.threadSummaries).toEqual([expect.objectContaining({ threadKey: "q-2040", messageCount: 1 })]);
     expect(first.projection).not.toHaveProperty("threadRows");
   });
 });

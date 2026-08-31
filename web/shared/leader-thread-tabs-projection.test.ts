@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_SUMMARY_LENGTH,
   LEADER_THREAD_TABS_PROJECTION_MAX_TABS,
+  applyLeaderThreadTabsProjectionPatch,
+  createLeaderThreadTabsProjectionPatch,
   isLeaderThreadTabsProjectionValue,
   leaderThreadTabsProjectionEqual,
   reconcileLeaderThreadTabsProjectionValue,
@@ -11,12 +13,7 @@ import {
 function value(): LeaderThreadTabsProjectionValue {
   return {
     currentQuestStateVersion: 1,
-    tabState: {
-      version: 1,
-      orderedOpenThreadKeys: ["q-1", "q-2"],
-      closedThreadTombstones: [{ threadKey: "q-3", closedAt: 8 }],
-      updatedAt: 10,
-    },
+    tabState: { version: 1 },
     tabs: [
       {
         threadKey: "q-1",
@@ -118,7 +115,7 @@ describe("leader thread tabs projection wire contract", () => {
     expect(
       isLeaderThreadTabsProjectionValue({
         ...valid,
-        tabs: valid.tabs.slice(1),
+        tabs: [valid.tabs[0], { ...valid.tabs[1]!, threadKey: valid.tabs[0]!.threadKey }],
       }),
     ).toBe(false);
     expect(
@@ -135,13 +132,11 @@ describe("leader thread tabs projection wire contract", () => {
     expect(
       isLeaderThreadTabsProjectionValue({
         ...valid,
-        tabState: {
-          ...valid.tabState!,
-          orderedOpenThreadKeys: Array.from(
-            { length: LEADER_THREAD_TABS_PROJECTION_MAX_TABS + 1 },
-            (_, index) => `q-${index + 1}`,
-          ),
-        },
+        tabs: Array.from({ length: LEADER_THREAD_TABS_PROJECTION_MAX_TABS + 1 }, (_, index) => ({
+          ...valid.tabs[0]!,
+          threadKey: `q-${index + 1}`,
+          questId: `q-${index + 1}`,
+        })),
       }),
     ).toBe(false);
     expect(
@@ -208,18 +203,16 @@ describe("leader thread tabs projection wire contract", () => {
     expect(isLeaderThreadTabsProjectionValue(nullJourney)).toBe(true);
   });
 
-  it("preserves optional current-state fields for unversioned legacy payloads", () => {
-    const legacy = value();
-    delete legacy.currentQuestStateVersion;
-    for (const tab of legacy.tabs) {
-      delete tab.sourceLeaderSessionId;
-      delete tab.sourceRowCreatedAt;
-      delete tab.workerSessionId;
-      delete tab.workerSessionNum;
-      if (tab.journey) delete tab.journey.phaseIds;
-    }
+  it("rejects unversioned or partial current-build payloads", () => {
+    const unversioned = structuredClone(value()) as Partial<LeaderThreadTabsProjectionValue>;
+    delete unversioned.currentQuestStateVersion;
+    expect(isLeaderThreadTabsProjectionValue(unversioned)).toBe(false);
 
-    expect(isLeaderThreadTabsProjectionValue(legacy)).toBe(true);
+    for (const key of ["sourceLeaderSessionId", "sourceRowCreatedAt", "workerSessionId", "workerSessionNum"] as const) {
+      const partial = structuredClone(value()) as unknown as { tabs: Array<Record<string, unknown>> };
+      delete partial.tabs[0]![key];
+      expect(isLeaderThreadTabsProjectionValue(partial), `missing ${key}`).toBe(false);
+    }
   });
 
   it("distinguishes proposed from queued and preserves exact Waiting status semantics", () => {
@@ -260,16 +253,75 @@ describe("leader thread tabs projection wire contract", () => {
     expect(equal).toBe(reconciled);
   });
 
-  it("upgrades legacy cached values when current-state authority arrives", () => {
-    const legacy = value();
-    delete legacy.currentQuestStateVersion;
-    const current = structuredClone(legacy);
-    current.currentQuestStateVersion = 1;
+  it("encodes a narrow status change as a field delta below the retained control payload", () => {
+    const previous = value();
+    const next = structuredClone(previous);
+    next.threadStatuses["q-2"] = {
+      ...next.threadStatuses["q-2"]!,
+      summary: "changed bounded status",
+      updatedAt: 8,
+    };
 
-    const reconciled = reconcileLeaderThreadTabsProjectionValue(legacy, current);
-    expect(reconciled).not.toBe(legacy);
+    const patch = createLeaderThreadTabsProjectionPatch(previous, next);
+    expect(patch).toEqual({ s: { "q-2": { summary: "changed bounded status", updatedAt: 8 } } });
+    expect(applyLeaderThreadTabsProjectionPatch(previous, patch)).toEqual(next);
+
+    const envelope = {
+      type: "synced_projection_update",
+      projection: "leader-thread-tabs",
+      key: "leader",
+      generation: "12345678-1234-1234-1234-123456789012",
+      revision: 2,
+      patch,
+    };
+    expect(new TextEncoder().encode(JSON.stringify(envelope)).byteLength).toBeLessThanOrEqual(236);
+  });
+
+  it("applies keyed tab add, remove, reorder, attention, status, and phase operations strictly", () => {
+    const previous = value();
+    const next = structuredClone(previous);
+    next.tabs = [
+      next.tabs[1]!,
+      {
+        ...next.tabs[0]!,
+        threadKey: "q-4",
+        questId: "q-4",
+        title: "New current work",
+        updatedAt: 12,
+      },
+    ];
+    next.mainAttention = { ...next.mainAttention, mutedNeedsInput: false, updatedAt: 12 };
+    delete next.threadStatuses["q-2"];
+    next.activePhaseSummary = [{ label: "Memory", count: 1, tone: "phase" }];
+
+    const patch = createLeaderThreadTabsProjectionPatch(previous, next);
+    expect(patch).toEqual({
+      t: { "q-1": null, "q-4": next.tabs[1] },
+      o: ["q-2", "q-4"],
+      a: next.mainAttention,
+      s: { "q-2": null },
+      p: next.activePhaseSummary,
+    });
+    expect(applyLeaderThreadTabsProjectionPatch(previous, patch)).toEqual(next);
+  });
+
+  it("rejects malformed patches and omits no-op patches", () => {
+    const previous = value();
+    expect(applyLeaderThreadTabsProjectionPatch(previous, { s: { "q-2": { unknown: true } } })).toBeUndefined();
+    expect(applyLeaderThreadTabsProjectionPatch(previous, { o: ["q-1"] })).toBeUndefined();
+    expect(applyLeaderThreadTabsProjectionPatch(previous, { t: { "q-bad": { threadKey: "q-bad" } } })).toBeUndefined();
+    expect(createLeaderThreadTabsProjectionPatch(previous, structuredClone(previous))).toBeUndefined();
+  });
+
+  it("retains required current-build authority through reconciliation", () => {
+    const previous = value();
+    const current = structuredClone(previous);
+    current.mainAttention = { ...current.mainAttention, updatedAt: 7 };
+
+    const reconciled = reconcileLeaderThreadTabsProjectionValue(previous, current);
+    expect(reconciled).not.toBe(previous);
     expect(reconciled.currentQuestStateVersion).toBe(1);
-    expect(reconciled.tabs).toBe(legacy.tabs);
+    expect(reconciled.tabs).toBe(previous.tabs);
   });
 
   it("treats current phase sequences and participant identity as semantic visual changes", () => {

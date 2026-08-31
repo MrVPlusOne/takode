@@ -27,7 +27,13 @@ beforeAll(() => {
 });
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  LEADER_THREAD_TABS_PROJECTION,
+  type LeaderThreadTabsProjectionValue,
+} from "../../shared/leader-thread-tabs-projection.js";
+import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import type { ChatMessage, SessionAttentionRecord, ThreadTransitionMarker } from "../types.js";
+import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
 import {
   THREAD_ROUTING_REMINDER_SOURCE_ID,
   THREAD_ROUTING_REMINDER_SOURCE_LABEL,
@@ -115,6 +121,8 @@ vi.mock("../store.js", () => {
       backgroundAgentNotifs: mockStoreValues.backgroundAgentNotifs ?? new Map(),
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
       sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
+      syncedProjectionValues: mockStoreValues.syncedProjectionValues ?? new Map(),
+      syncedProjectionKeys: mockStoreValues.syncedProjectionKeys ?? new Set(),
       sessionBoards: mockStoreValues.sessionBoards ?? new Map(),
       sessionCompletedBoards: mockStoreValues.sessionCompletedBoards ?? new Map(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
@@ -316,6 +324,25 @@ function setStoreMessages(sessionId: string, msgs: ChatMessage[]) {
   mockStoreValues.messages = map;
 }
 
+function setStoreLeaderProjection(
+  sessionId: string,
+  threadStatuses: LeaderThreadTabsProjectionValue["threadStatuses"],
+) {
+  const entryId = syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, sessionId);
+  mockStoreValues.syncedProjectionValues = new Map([
+    [
+      entryId,
+      createLeaderThreadTabsProjectionValue({
+        tabs: [],
+        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+        threadStatuses,
+        activePhaseSummary: [],
+      }),
+    ],
+  ]);
+  mockStoreValues.syncedProjectionKeys = new Set([entryId]);
+}
+
 function setStoreTurnOverrides(sessionId: string, overrides: [string, boolean][]) {
   const map = new Map();
   map.set(sessionId, new Map(overrides));
@@ -363,6 +390,8 @@ function resetStore() {
   mockStoreValues.streamingPauseStartedAt = new Map();
   mockStoreValues.sessionStatus = new Map();
   mockStoreValues.sessions = new Map();
+  mockStoreValues.syncedProjectionValues = new Map();
+  mockStoreValues.syncedProjectionKeys = new Set();
   mockStoreValues.sessionNotifications = new Map();
   mockStoreValues.sessionAttentionRecords = new Map();
   mockStoreValues.sessionBoards = new Map();
@@ -778,9 +807,8 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
       summary: "shareable reviewer table ready",
       threadKey: "q-1874",
     });
-    mockStoreValues.sessions = new Map([
-      [sid, { isOrchestrator: true, leaderThreadStatuses: { "q-1874": readyStatus } }],
-    ]);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    setStoreLeaderProjection(sid, { "q-1874": readyStatus });
     mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
     setStoreMessages(sid, [
       makeMessage({
@@ -860,9 +888,8 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     const sid = "test-leader-status-prose-before-routing-reminder";
     const threadRef = { threadKey: "q-1814", questId: "q-1814", source: "explicit" as const };
     const readyStatus = makeThreadStatus("a-final-draft", 5);
-    mockStoreValues.sessions = new Map([
-      [sid, { isOrchestrator: true, leaderThreadStatuses: { "q-1814": readyStatus } }],
-    ]);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    setStoreLeaderProjection(sid, { "q-1814": readyStatus });
     mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
     setStoreMessages(sid, [
       makeMessage({
@@ -940,9 +967,8 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
       summary: "Copilot feedback and CI resolved",
       threadKey: "q-1636",
     });
-    mockStoreValues.sessions = new Map([
-      [sid, { isOrchestrator: true, leaderThreadStatuses: { "q-1636": readyStatus } }],
-    ]);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    setStoreLeaderProjection(sid, { "q-1636": readyStatus });
     mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
     setStoreMessages(sid, [
       makeMessage({
@@ -997,9 +1023,8 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
       summary: "waiting on reviewer pass",
       threadKey: "q-1636",
     });
-    mockStoreValues.sessions = new Map([
-      [sid, { isOrchestrator: true, leaderThreadStatuses: { "q-1636": waitingStatus } }],
-    ]);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    setStoreLeaderProjection(sid, { "q-1636": waitingStatus });
     mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
     setStoreMessages(sid, [
       makeMessage({
@@ -1226,16 +1251,8 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
       summary: "phase-aware summary ready",
       threadKey: "q-1979",
     });
-    mockStoreValues.sessions = new Map([
-      [
-        sid,
-        {
-          backend_type: "codex",
-          isOrchestrator: true,
-          leaderThreadStatuses: { "q-1979": readyStatus },
-        },
-      ],
-    ]);
+    mockStoreValues.sessions = new Map([[sid, { backend_type: "codex", isOrchestrator: true }]]);
+    setStoreLeaderProjection(sid, { "q-1979": readyStatus });
     mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
     setStoreMessages(sid, [
       makeMessage({

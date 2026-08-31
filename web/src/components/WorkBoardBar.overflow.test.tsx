@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardRowData } from "./BoardTable.js";
 import type { QuestTitlePreview, QuestmasterTask, SessionAttentionRecord, SessionState } from "../types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
 import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
+import {
+  installWorkBoardProjectionFixture,
+  resetWorkBoardProjectionFixture,
+} from "../test-fixtures/work-board-projection-adapter.js";
 
 interface MockStoreState {
   sessionBoards: Map<string, BoardRowData[]>;
@@ -27,6 +32,8 @@ interface MockStoreState {
   questTitlePreviews: Map<string, QuestTitlePreview | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
   activeTurnRoutes: Map<string, import("../types.js").ActiveTurnRoute | null>;
+  syncedProjectionValues: Map<string, unknown>;
+  syncedProjectionKeys: Set<string>;
 }
 
 let mockState: MockStoreState;
@@ -51,6 +58,8 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     questTitlePreviews: new Map(),
     sessionStatus: new Map(),
     activeTurnRoutes: new Map(),
+    syncedProjectionValues: new Map(),
+    syncedProjectionKeys: new Set(),
     ...overrides,
   };
 }
@@ -74,7 +83,31 @@ vi.mock("./BoardTable.js", async (importOriginal) => {
   };
 });
 
-const { WorkBoardBar, buildCompactThreadTabPartition } = await import("./WorkBoardBar.js");
+const { WorkBoardBar: CurrentWorkBoardBar, buildCompactThreadTabPartition } = await import("./WorkBoardBar.js");
+
+type WorkBoardBarProps = Omit<ComponentProps<typeof CurrentWorkBoardBar>, "attentionRecords"> & {
+  attentionRecords?: ReadonlyArray<SessionAttentionRecord>;
+};
+let projectionFixtureRenderRevision = 0;
+
+function WorkBoardBar(props: WorkBoardBarProps) {
+  installWorkBoardProjectionFixture(mockState, props, {
+    explicitOpenKeysProvided: Object.hasOwn(props, "openThreadKeys"),
+  });
+  const {
+    attentionRecords: _attentionRecords,
+    closedThreadKeys: _closedThreadKeys,
+    currentThreadLabel: _currentThreadLabel,
+    ...currentProps
+  } = props;
+  projectionFixtureRenderRevision += 1;
+  return (
+    <CurrentWorkBoardBar
+      {...currentProps}
+      currentThreadLabel={`projection-fixture-${projectionFixtureRenderRevision}`}
+    />
+  );
+}
 
 function reviewAttentionRecord(threadKey: string): SessionAttentionRecord {
   return {
@@ -190,6 +223,7 @@ const THREAD_ROWS = Array.from({ length: 5 }, (_, index) => {
 
 describe("WorkBoardBar overflow tabs", () => {
   beforeEach(() => {
+    resetWorkBoardProjectionFixture();
     resetStore();
     setMeasuredRailWidth(392);
   });

@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage, ContentBlock } from "../server/session-types.js";
-import { buildLeaderProjectionSnapshot, collectLeaderThreadSummaries } from "./leader-projection.js";
+import { collectLeaderThreadSummaries } from "./leader-projection.js";
+import { buildLeaderProjectionSnapshot } from "./test-fixtures/leader-projection-snapshot.js";
 import {
   appendLeaderThreadRouteIndex,
   buildLeaderThreadRouteIndex,
   buildRawTurnBoundariesFromRouteIndex,
   collectLeaderThreadSummariesFromRouteIndex,
   leaderThreadRouteIndexMatchesSource,
-} from "./leader-thread-route-index.js";
+} from "./test-fixtures/leader-thread-route-index.js";
 
 function user(id: string, content: string, timestamp: number, threadKey?: string): BrowserIncomingMessage {
   return {

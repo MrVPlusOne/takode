@@ -46,6 +46,22 @@ export interface BrowserConversationWindowSocketData {
   conversationView?: BoundedConversationView;
 }
 
+export function hasConnectedCurrentBuildBrowserViewingThread(
+  sockets: Iterable<{ data?: unknown; readyState?: number }>,
+  sourceThreadKey: string,
+): boolean {
+  const normalizedSource = normalizeSelectedFeedThreadKey(sourceThreadKey);
+  if (normalizedSource !== MAIN_THREAD_KEY && !isQuestThreadKey(normalizedSource)) return false;
+  for (const socket of sockets) {
+    if (socket.readyState !== undefined && socket.readyState !== 1) continue;
+    const data = socket.data as BrowserConversationWindowSocketData | undefined;
+    const view = data?.boundedConversation ? data.conversationView : undefined;
+    if (view?.kind !== "thread") continue;
+    if (normalizeSelectedFeedThreadKey(view.request.threadKey) === normalizedSource) return true;
+  }
+  return false;
+}
+
 interface ConversationWindowSessionLike {
   messageHistory: BrowserIncomingMessage[];
   activeTurnRoute?: ActiveTurnRoute | null;

@@ -178,7 +178,7 @@ import { join } from "node:path";
 import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
 import { _resetScheduledWorktreeGitStateRefreshesForTest } from "./routes/session-list-snapshot.js";
 import { _resetModelCache } from "./routes/system.js";
-import { _resetThreadAttachmentHistoryBroadcastsForTest } from "./routes/takode.js";
+import { _resetThreadAttachmentBroadcastsForTest } from "./routes/takode.js";
 import { trafficStats } from "./traffic-stats.js";
 import { _resetServerLoggerForTest, createLogger, initServerLogger } from "./server-logger.js";
 import * as serverLoggerModule from "./server-logger.js";
@@ -274,6 +274,7 @@ function createMockBridge() {
     onSessionArchived: vi.fn(),
     onSessionUnarchived: vi.fn(),
     persistSessionById: vi.fn(),
+    promoteLeaderThreadTabForAttachment: vi.fn(),
     broadcastToSession: vi.fn(),
     broadcastGlobal: vi.fn(),
     getVsCodeSelectionState: vi.fn(function (this: any) {
@@ -509,7 +510,7 @@ beforeEach(() => {
 
 afterEach(() => {
   _resetScheduledWorktreeGitStateRefreshesForTest();
-  _resetThreadAttachmentHistoryBroadcastsForTest();
+  _resetThreadAttachmentBroadcastsForTest();
   vi.useRealTimers();
 });
 
@@ -694,6 +695,7 @@ describe("Takode server-authoritative auth", () => {
       }),
     );
     expect(bridge.persistSessionById).toHaveBeenCalledWith("orch-1");
+    expect(bridge.promoteLeaderThreadTabForAttachment).toHaveBeenCalledWith("orch-1", "q-941", expect.any(Number));
   });
 
   it("records source route metadata on moved-message attachment markers", async () => {
@@ -780,6 +782,7 @@ describe("Takode server-authoritative auth", () => {
         (entry: { type?: string }) => entry.type === "thread_attachment_marker",
       ),
     ).toHaveLength(2);
+    expect(bridge.promoteLeaderThreadTabForAttachment).toHaveBeenCalledTimes(2);
   });
 
   it("attaches multiple explicit Main message indices to a quest thread", async () => {

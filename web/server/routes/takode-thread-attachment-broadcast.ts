@@ -7,24 +7,10 @@ const THREAD_ATTACHMENT_UPDATE_VERSION = 1;
 export const THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT = 300;
 export const THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES = 100;
 
-const pendingThreadAttachmentHistoryBroadcasts = new Map<string, ReturnType<typeof setTimeout>>();
 const pendingThreadAttachmentUpdates = new Map<
   string,
   { timer: ReturnType<typeof setTimeout>; changedCount: number; updates: ThreadAttachmentUpdateEntry[] }
 >();
-
-export function scheduleThreadAttachmentHistoryBroadcast(wsBridge: RouteContext["wsBridge"], sessionId: string): void {
-  const existing = pendingThreadAttachmentHistoryBroadcasts.get(sessionId);
-  if (existing) clearTimeout(existing);
-
-  const timer = setTimeout(() => {
-    pendingThreadAttachmentHistoryBroadcasts.delete(sessionId);
-    const session = wsBridge.getSession(sessionId);
-    if (!session) return;
-    wsBridge.broadcastToSession(sessionId, { type: "message_history", messages: session.messageHistory });
-  }, THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS);
-  pendingThreadAttachmentHistoryBroadcasts.set(sessionId, timer);
-}
 
 export function pendingThreadAttachmentChangedCount(sessionId: string): number {
   return pendingThreadAttachmentUpdates.get(sessionId)?.changedCount ?? 0;
@@ -135,11 +121,7 @@ export function scheduleThreadAttachmentUpdateBroadcast(
   pendingThreadAttachmentUpdates.set(sessionId, { timer, changedCount, updates });
 }
 
-export function _resetThreadAttachmentHistoryBroadcastsForTest(): void {
-  for (const timer of pendingThreadAttachmentHistoryBroadcasts.values()) {
-    clearTimeout(timer);
-  }
-  pendingThreadAttachmentHistoryBroadcasts.clear();
+export function _resetThreadAttachmentBroadcastsForTest(): void {
   for (const pending of pendingThreadAttachmentUpdates.values()) {
     clearTimeout(pending.timer);
   }

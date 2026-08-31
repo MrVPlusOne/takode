@@ -32,9 +32,15 @@ import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import type { ChatMessage, SessionNotification } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 import {
+  LEADER_THREAD_TABS_PROJECTION,
+  type LeaderThreadTabsProjectionValue,
+} from "../../shared/leader-thread-tabs-projection.js";
+import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
+import {
   THREAD_OUTCOME_REMINDER_SOURCE_ID,
   THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
 } from "../../shared/thread-outcome-reminder.js";
+import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
 
 // Mock react-markdown to avoid ESM issues in tests
 vi.mock("react-markdown", () => ({
@@ -106,6 +112,8 @@ vi.mock("../store.js", () => {
       backgroundAgentNotifs: mockStoreValues.backgroundAgentNotifs ?? new Map(),
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
       sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
+      syncedProjectionValues: mockStoreValues.syncedProjectionValues ?? new Map(),
+      syncedProjectionKeys: mockStoreValues.syncedProjectionKeys ?? new Set(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
       compactToolActivity: mockStoreValues.compactToolActivity ?? false,
     };
@@ -318,6 +326,25 @@ function setStoreSessionState(sessionId: string, session: Record<string, unknown
   mockStoreValues.sessions = map;
 }
 
+function setStoreLeaderProjection(
+  sessionId: string,
+  threadStatuses: LeaderThreadTabsProjectionValue["threadStatuses"],
+) {
+  const entryId = syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, sessionId);
+  mockStoreValues.syncedProjectionValues = new Map([
+    [
+      entryId,
+      createLeaderThreadTabsProjectionValue({
+        tabs: [],
+        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+        threadStatuses,
+        activePhaseSummary: [],
+      }),
+    ],
+  ]);
+  mockStoreValues.syncedProjectionKeys = new Set([entryId]);
+}
+
 function setStoreStreamingStartedAt(sessionId: string, startedAt: number | undefined) {
   const map = new Map();
   if (startedAt !== undefined) map.set(sessionId, startedAt);
@@ -484,6 +511,8 @@ function resetStore() {
   mockStoreValues.streamingPauseStartedAt = new Map();
   mockStoreValues.sessionStatus = new Map();
   mockStoreValues.sessions = new Map();
+  mockStoreValues.syncedProjectionValues = new Map();
+  mockStoreValues.syncedProjectionKeys = new Set();
   mockStoreValues.toolProgress = new Map();
   mockStoreValues.toolResults = new Map();
   mockStoreValues.toolStartTimestamps = new Map();
@@ -1014,7 +1043,7 @@ describe("MessageFeed - message rendering", () => {
       timestamp: 1_700_000_000_000,
       updatedAt: 1_700_000_000_000,
     };
-    setStoreSessionState(sid, { leaderThreadStatuses: { "q-941": status } });
+    setStoreLeaderProjection(sid, { "q-941": status });
     setStoreMessages(sid, [
       makeMessage({
         id: "status-a1",
@@ -1049,7 +1078,7 @@ describe("MessageFeed - message rendering", () => {
       timestamp: 1_700_000_000_000,
       updatedAt: 1_700_000_000_000,
     };
-    setStoreSessionState(sid, { leaderThreadStatuses: { "q-1409": status } });
+    setStoreLeaderProjection(sid, { "q-1409": status });
     setStoreMessages(sid, [
       makeMessage({
         id: "status-mobile",
@@ -1103,7 +1132,7 @@ describe("MessageFeed - message rendering", () => {
       timestamp: 1_700_000_010_000,
       updatedAt: 1_700_000_010_000,
     };
-    setStoreSessionState(sid, { leaderThreadStatuses: { "q-941": currentStatus } });
+    setStoreLeaderProjection(sid, { "q-941": currentStatus });
     setStoreMessages(sid, [
       makeMessage({
         id: "status-old",
@@ -1153,7 +1182,7 @@ describe("MessageFeed - message rendering", () => {
       timestamp: 1_700_000_010_000,
       updatedAt: 1_700_000_010_000,
     };
-    setStoreSessionState(sid, { leaderThreadStatuses: { "q-1702": currentStatus } });
+    setStoreLeaderProjection(sid, { "q-1702": currentStatus });
     setStoreMessages(sid, [
       makeMessage({
         id: "status-ready-old",
@@ -1193,7 +1222,7 @@ describe("MessageFeed - message rendering", () => {
       timestamp: base,
       updatedAt: base,
     };
-    setStoreSessionState(sid, { leaderThreadStatuses: { main: status } });
+    setStoreLeaderProjection(sid, { main: status });
     setStoreMessages(sid, [
       makeMessage({
         id: "status-main",
@@ -1267,7 +1296,7 @@ describe("MessageFeed - message rendering", () => {
       timestamp: base,
       updatedAt: base,
     };
-    setStoreSessionState(sid, { leaderThreadStatuses: { "q-1320": status } });
+    setStoreLeaderProjection(sid, { "q-1320": status });
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Coordinate the memory audit", timestamp: base - 1 }),
       makeMessage({
@@ -1360,7 +1389,7 @@ describe("MessageFeed - message rendering", () => {
       timestamp: base,
       updatedAt: base,
     };
-    setStoreSessionState(sid, { leaderThreadStatuses: { main: status } });
+    setStoreLeaderProjection(sid, { main: status });
     setStoreTurnOverrides(sid, [["u2", false]]);
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Start previous turn", timestamp: base - 2 }),
@@ -1398,7 +1427,7 @@ describe("MessageFeed - message rendering", () => {
       timestamp: base,
       updatedAt: base,
     };
-    setStoreSessionState(sid, { leaderThreadStatuses: { main: status } });
+    setStoreLeaderProjection(sid, { main: status });
     setStoreMessages(sid, [
       makeMessage({ id: "u-only", role: "user", content: "Sparse thread context only", timestamp: base }),
     ]);
@@ -1427,7 +1456,7 @@ describe("MessageFeed - message rendering", () => {
       updatedAt: base,
     };
     let jumpToLatest: (() => void) | null = null;
-    setStoreSessionState(sid, { leaderThreadStatuses: { main: status } });
+    setStoreLeaderProjection(sid, { main: status });
     setStoreMessages(sid, [
       makeMessage({
         id: "status-main",
@@ -1500,7 +1529,7 @@ describe("MessageFeed - message rendering", () => {
       timestamp: 1_700_000_010_000,
       updatedAt: 1_700_000_010_000,
     };
-    setStoreSessionState(sid, { leaderThreadStatuses: { main: mainStatus, "q-1306": questStatus } });
+    setStoreLeaderProjection(sid, { main: mainStatus, "q-1306": questStatus });
     setStoreMessages(sid, [
       makeMessage({
         id: "main-status",
@@ -1560,7 +1589,7 @@ describe("MessageFeed - message rendering", () => {
       threadKey: "main",
       done: false,
     };
-    setStoreSessionState(sid, { leaderThreadStatuses: { "q-1262": status } });
+    setStoreLeaderProjection(sid, { "q-1262": status });
     setStoreNotifications(sid, [notification]);
     setStoreMessages(sid, [
       makeMessage({
@@ -1615,7 +1644,7 @@ describe("MessageFeed - message rendering", () => {
       questId: "q-1661",
       done: false,
     };
-    setStoreSessionState(sid, { leaderThreadStatuses: { "q-1661": status } });
+    setStoreLeaderProjection(sid, { "q-1661": status });
     setStoreNotifications(sid, [notification]);
     setStoreMessages(sid, [
       makeMessage({
@@ -1671,7 +1700,7 @@ describe("MessageFeed - message rendering", () => {
       questId: "q-1702",
       done: true,
     };
-    setStoreSessionState(sid, { leaderThreadStatuses: { "q-1702": currentStatus } });
+    setStoreLeaderProjection(sid, { "q-1702": currentStatus });
     setStoreNotifications(sid, [staleNotification]);
     setStoreMessages(sid, [
       makeMessage({

@@ -26,7 +26,7 @@ describe("deriveEffectiveSessionAttentionStatus", () => {
     expect(status).toEqual({ urgency: "review", count: 1 });
   });
 
-  it("does not revive a closed leader review after the canonical inbox is loaded", () => {
+  it("does not use deprecated leader-tab state to filter the canonical notification inbox", () => {
     const closedReview: SessionNotification = {
       id: "n-closed",
       category: "review",
@@ -55,14 +55,14 @@ describe("deriveEffectiveSessionAttentionStatus", () => {
           closedThreadTombstones: [{ threadKey: "q-closed", closedAt: 4000 }],
           updatedAt: 4000,
         },
-      },
+      } as never,
       fallbackUrgency: "review",
     });
 
-    expect(status).toBeNull();
+    expect(status).toEqual({ urgency: "review", count: 1 });
   });
 
-  it("preserves a loaded unread review for an open leader thread", () => {
+  it("preserves a loaded unread review without consulting deprecated tab state", () => {
     const openReview: SessionNotification = {
       id: "n-open",
       category: "review",
@@ -85,12 +85,6 @@ describe("deriveEffectiveSessionAttentionStatus", () => {
         activeNotificationCount: 1,
         activeReviewNotificationCount: 1,
         notificationStatusVersion: 8,
-        leaderOpenThreadTabs: {
-          version: 1,
-          orderedOpenThreadKeys: ["q-open"],
-          closedThreadTombstones: [],
-          updatedAt: 5000,
-        },
       },
       fallbackUrgency: "review",
     });

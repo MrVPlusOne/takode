@@ -1,4 +1,3 @@
-import { buildLeaderActivePhaseSummary } from "../../shared/leader-active-phase-summary.js";
 import type { BoardRow, BrowserIncomingMessage } from "../session-types.js";
 import { getBoardForSession, getCompletedBoardForSession } from "./board-watchdog-controller.js";
 import type { Session } from "./ws-bridge-session.js";
@@ -72,8 +71,6 @@ function flushPendingInvalidations(host: any, state: PendingInvalidationState): 
         type: "board_updated",
         board,
         completedBoard,
-        ...(session.state?.leaderOpenThreadTabs ? { leaderOpenThreadTabs: session.state.leaderOpenThreadTabs } : {}),
-        leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
         rowSessionStatuses: host.getBoardRowSessionStatuses(leaderSessionId, board, completedBoard),
       },
       { skipBuffer: true, skipGlobalActivity: true },

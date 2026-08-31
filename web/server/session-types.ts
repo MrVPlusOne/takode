@@ -81,7 +81,6 @@ export type {
   CodexTurnRecoveryStatus,
 } from "./codex-outbound-turn-types.js";
 export type {
-  LeaderProjectionInternalSnapshot,
   LeaderProjectionSnapshot,
   LeaderProjectionThreadRow,
   LeaderProjectionThreadSummary,

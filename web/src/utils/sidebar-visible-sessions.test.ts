@@ -66,19 +66,8 @@ describe("buildSidebarVisibleSessions", () => {
     expect(result.orderedVisibleSessionIds).toEqual(["leader", "worker"]);
   });
 
-  it("keeps leader review blue only when an open thread tab has a blue notification", () => {
-    const sdkSessions: SdkSessionInfo[] = [
-      makeSdkSession("leader", {
-        isOrchestrator: true,
-        cliConnected: true,
-        leaderOpenThreadTabs: {
-          version: 1,
-          orderedOpenThreadKeys: ["q-1"],
-          closedThreadTombstones: [],
-          updatedAt: 100,
-        },
-      }),
-    ];
+  it("uses projected leader review attention for the session blue dot", () => {
+    const sdkSessions: SdkSessionInfo[] = [makeSdkSession("leader", { isOrchestrator: true, cliConnected: true })];
 
     const result = buildSidebarVisibleSessions({
       sdkSessions,
@@ -88,6 +77,7 @@ describe("buildSidebarVisibleSessions", () => {
       collapsedTreeGroups: new Set(),
       expandedHerdNodes: new Set(),
       sessionAttention: new Map([["leader", "review"]]),
+      syncedProjectionKeys: projectedSessionKeys("leader"),
       sessionAttentionRecords: new Map([["leader", [attentionRecord()]]]),
       sessionSortMode: "created",
     });
@@ -134,18 +124,8 @@ describe("buildSidebarVisibleSessions", () => {
     expect(result.treeViewGroups[0]?.unreadCount).toBe(1);
   });
 
-  it("treats directly closed unread thread tabs as read for the session blue dot", () => {
-    const sdkSessions: SdkSessionInfo[] = [
-      makeSdkSession("leader", {
-        isOrchestrator: true,
-        leaderOpenThreadTabs: {
-          version: 1,
-          orderedOpenThreadKeys: [],
-          closedThreadTombstones: [{ threadKey: "q-1", closedAt: 200 }],
-          updatedAt: 200,
-        },
-      }),
-    ];
+  it("uses the projected cleared attention after a leader thread tab is closed", () => {
+    const sdkSessions: SdkSessionInfo[] = [makeSdkSession("leader", { isOrchestrator: true })];
 
     const result = buildSidebarVisibleSessions({
       sdkSessions,
@@ -154,7 +134,8 @@ describe("buildSidebarVisibleSessions", () => {
       treeNodeOrder: new Map(),
       collapsedTreeGroups: new Set(),
       expandedHerdNodes: new Set(),
-      sessionAttention: new Map([["leader", "review"]]),
+      sessionAttention: new Map([["leader", null]]),
+      syncedProjectionKeys: projectedSessionKeys("leader"),
       sessionAttentionRecords: new Map([["leader", [attentionRecord()]]]),
       sessionSortMode: "created",
     });

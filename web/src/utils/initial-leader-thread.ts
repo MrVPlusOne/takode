@@ -1,5 +1,4 @@
-import type { LeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
-import { shouldPersistOpenThreadTab } from "./leader-open-thread-tabs.js";
+import { shouldPersistLeaderThreadTab, type LeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
 import { readLeaderSelectedThreadKey } from "./thread-viewport.js";
 
@@ -23,7 +22,7 @@ export function resolveInitialLeaderThreadKey({
     if (normalizedRouteThreadKey === MAIN_THREAD_KEY || normalizedRouteThreadKey === ALL_THREADS_KEY) {
       return normalizedRouteThreadKey;
     }
-    return shouldPersistOpenThreadTab(normalizedRouteThreadKey) ? normalizedRouteThreadKey : MAIN_THREAD_KEY;
+    return shouldPersistLeaderThreadTab(normalizedRouteThreadKey) ? normalizedRouteThreadKey : MAIN_THREAD_KEY;
   }
 
   const restoredThreadKey = readLeaderSelectedThreadKey(sessionId);
@@ -32,7 +31,7 @@ export function resolveInitialLeaderThreadKey({
   if (normalizedRestoredThreadKey === MAIN_THREAD_KEY || normalizedRestoredThreadKey === ALL_THREADS_KEY) {
     return normalizedRestoredThreadKey;
   }
-  if (!shouldPersistOpenThreadTab(normalizedRestoredThreadKey)) return MAIN_THREAD_KEY;
+  if (!shouldPersistLeaderThreadTab(normalizedRestoredThreadKey)) return MAIN_THREAD_KEY;
   if (leaderOpenThreadTabs && !leaderOpenThreadTabs.orderedOpenThreadKeys.includes(normalizedRestoredThreadKey)) {
     return MAIN_THREAD_KEY;
   }

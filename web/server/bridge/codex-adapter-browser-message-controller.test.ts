@@ -1387,14 +1387,6 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     });
     expect(broadcasts).toEqual([
       expect.objectContaining({
-        type: "session_update",
-        session: {
-          leaderThreadStatuses: expect.objectContaining({
-            "q-941": expect.objectContaining({ kind: "waiting" }),
-          }),
-        },
-      }),
-      expect.objectContaining({
         type: "assistant",
         threadStatusMarkers: [expect.objectContaining({ kind: "waiting", threadKey: "q-941" })],
       }),
@@ -1486,13 +1478,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     );
 
     expect(session.state.leaderThreadStatuses?.["q-941"]).toBeUndefined();
-    expect(broadcasts).toEqual([
-      expect.objectContaining({
-        type: "session_update",
-        session: { leaderThreadStatuses: {} },
-      }),
-      expect.objectContaining({ type: "assistant", threadKey: "q-941" }),
-    ]);
+    expect(broadcasts).toEqual([expect.objectContaining({ type: "assistant", threadKey: "q-941" })]);
   });
 
   it("does not refresh stale thread status state from duplicate Codex assistant replay markers", async () => {
@@ -1629,11 +1615,13 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     });
     session.messageHistory.push({ type: "tool_result_preview", previews: [] });
     const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+    deps.promoteLeaderThreadTabForTransition = vi.fn();
 
     await handleCodexAdapterBrowserMessage(
       session,
       makeAssistant([{ type: "text", text: "[thread:q-941]\nDispatching Codex worker" }]),
-      makeDeps(broadcasts),
+      deps,
     );
 
     expect(broadcasts).toHaveLength(2);
@@ -1648,6 +1636,10 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(broadcasts[1]).toMatchObject({ type: "assistant", threadKey: "q-941", questId: "q-941" });
     expect(session.messageHistory).toHaveLength(4);
     expect(session.messageHistory[2]).toMatchObject({ type: "thread_transition_marker" });
+    expect(deps.promoteLeaderThreadTabForTransition).toHaveBeenCalledWith(
+      session.id,
+      expect.objectContaining({ threadKey: "q-941", sourceThreadKey: "q-940" }),
+    );
   });
 
   it("persists Main-origin transition markers before Codex quest handoffs", async () => {

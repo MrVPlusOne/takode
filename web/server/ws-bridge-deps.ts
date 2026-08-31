@@ -7,8 +7,6 @@ import {
 } from "./codex-worker-v2-rollout-hooks.js";
 import { compactPendingCodexInputsForBrowser } from "./codex-pending-input-safety.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
-import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
-import { LEADER_THREAD_TABS_PROJECTION } from "../shared/leader-thread-tabs-projection.js";
 import { isSystemSourceTag } from "./bridge/adapter-browser-routing-source-tags.js";
 import { buildLeaderSkillPreloadBundles } from "./leader-skill-preload.js";
 import type { PushoverNotifier } from "./pushover.js";
@@ -470,7 +468,6 @@ export function maybeBroadcastGlobalSessionActivityUpdate(
     msg.type !== "permission_denied" &&
     msg.type !== "permission_cancelled" &&
     msg.type !== "permissions_cleared" &&
-    msg.type !== "board_updated" &&
     msg.type !== "notification_update" &&
     !(msg.type === "session_update" && ("attentionReason" in msg.session || "lastReadAt" in msg.session))
   ) {
@@ -482,12 +479,6 @@ export function maybeBroadcastGlobalSessionActivityUpdate(
     session_id: session.id,
     session: {
       ...getSessionActivitySnapshotController(session),
-      ...(msg.type === "board_updated"
-        ? {
-            leaderActiveBoardRows: msg.board,
-            leaderActivePhaseSummary: msg.leaderActivePhaseSummary ?? buildLeaderActivePhaseSummary(msg.board),
-          }
-        : {}),
     },
   });
 }
@@ -824,6 +815,10 @@ export function getClaudeMessageHandlers(host: any) {
     stuckGenerationThresholdMs: STUCK_GENERATION_THRESHOLD_MS,
     hasAssistantReplay: (targetSession: unknown, messageId: string) =>
       host.hasAssistantReplay(targetSession as Session, messageId),
+    promoteLeaderThreadTabForTransition: (
+      sessionId: string,
+      marker: import("./session-types.js").ThreadTransitionMarker,
+    ) => host.promoteLeaderThreadTabForTransition?.(sessionId, marker),
     onToolUseObserved: (targetSession: unknown, toolUse: Extract<ContentBlock, { type: "tool_use" }>) =>
       host.handleObservedLongSleepBashToolUse(targetSession as Session, toolUse),
     hasResultReplay: (targetSession: unknown, resultUuid: string) =>
@@ -1046,8 +1041,6 @@ export function getBrowserTransportDeps(host: any) {
       host.getSyncedProjectionController().resync(socket, projection, key),
     removeSyncedProjectionSubscriber: (socket: unknown) =>
       host.getSyncedProjectionController().removeSubscriber(socket),
-    getLeaderThreadTabsProjectionValue: (sessionId: string) =>
-      host.getSyncedProjectionController().getSnapshot(LEADER_THREAD_TABS_PROJECTION, sessionId)?.value ?? null,
     getLeaderThreadTabMutationPolicy: (sessionId: string, threadKey: string) =>
       host.getSyncedProjectionController().getLeaderThreadTabMutationPolicy(sessionId, threadKey),
     lazyLoadFullHistory: async (targetSession: unknown) => {
@@ -1269,6 +1262,10 @@ export function getCodexAdapterBrowserMessageDeps(host: any) {
       targetSession: unknown,
       assistant: Extract<BrowserIncomingMessage, { type: "assistant" }>,
     ) => host.isDuplicateCodexAssistantReplay(targetSession as Session, assistant),
+    promoteLeaderThreadTabForTransition: (
+      sessionId: string,
+      marker: import("./session-types.js").ThreadTransitionMarker,
+    ) => host.promoteLeaderThreadTabForTransition?.(sessionId, marker),
     completeCodexTurnsForResult: codexRecoveryDeps.completeCodexTurnsForResult,
     clearCodexFreshTurnRequirement: codexRecoveryDeps.clearCodexFreshTurnRequirement,
     reconcileRecoveredQueuedTurnLifecycle: (targetSession: unknown, reason: string) =>
@@ -1343,10 +1340,6 @@ export function getWorkBoardStateDeps(host: any) {
         type: "board_updated",
         board,
         completedBoard,
-        ...((targetSession as Session).state?.leaderOpenThreadTabs
-          ? { leaderOpenThreadTabs: (targetSession as Session).state.leaderOpenThreadTabs }
-          : {}),
-        leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
         rowSessionStatuses: host.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
       });
     },

@@ -5,6 +5,7 @@ import { useSyncExternalStore, type ReactNode } from "react";
 import { persistLeaderSelectedThreadKey, readLeaderSelectedThreadKey } from "../utils/thread-viewport.js";
 import { parseHash, threadRouteFromHash } from "../utils/routing.js";
 import { leaderTabs, needsInputNotification, threadMessage } from "./chat-view-leader-tabs-fixtures.js";
+import { installChatViewLeaderProjection } from "../test-fixtures/chat-view-leader-projection.js";
 
 const QUEST_ID = "q-1944";
 const LEADER_SESSION_ID = "leader-a";
@@ -77,6 +78,8 @@ function createMockState() {
     sessionCompletedBoards: new Map<string, unknown[]>([[LEADER_SESSION_ID, []]]),
     sessionBoardRowStatuses: new Map(),
     leaderProjections: new Map(),
+    syncedProjectionValues: new Map<string, unknown>(),
+    syncedProjectionKeys: new Set<string>(),
     messages: new Map([
       [LEADER_SESSION_ID, [threadMessage(QUEST_ID, 10)]],
       [OTHER_SESSION_ID, []],
@@ -226,6 +229,8 @@ function navigate(hash: string) {
 
 beforeEach(() => {
   mockState = createMockState();
+  installChatViewLeaderProjection(mockState, LEADER_SESSION_ID, [QUEST_ID]);
+  installChatViewLeaderProjection(mockState, OTHER_SESSION_ID, []);
   mockSendToSession.mockClear();
   localStorage.clear();
   localStorage.setItem("cc-server-id", "test-server");

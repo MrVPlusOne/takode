@@ -1,12 +1,11 @@
 import type {
   ContentBlock,
-  LeaderProjectionInternalSnapshot,
   LeaderProjectionThreadSummary,
   ThreadAttachmentMarker,
   ThreadRef,
   ThreadTransitionMarker,
-} from "../server/session-types.js";
-import { parseCommandThreadComment, parseThreadTextPrefix } from "./thread-routing.js";
+} from "../../server/session-types.js";
+import { parseCommandThreadComment, parseThreadTextPrefix } from "../thread-routing.js";
 
 export interface LeaderThreadRouteIndexMessageLike {
   id?: string;
@@ -30,13 +29,19 @@ export interface LeaderThreadRouteIndexMessageLike {
   historyIndex?: number;
 }
 
+export interface LeaderThreadTurnBoundary {
+  turnIndex: number;
+  startHistoryIndex: number;
+  endHistoryIndex: number | null;
+}
+
 export interface LeaderThreadRouteIndex {
   schemaVersion: 1;
   sourceHistoryLength: number;
   sourceFingerprint: string;
   sourceFingerprintHash: number;
   threadSummaries: LeaderProjectionThreadSummary[];
-  rawTurnBoundaries: LeaderProjectionInternalSnapshot["rawTurnBoundaries"];
+  rawTurnBoundaries: LeaderThreadTurnBoundary[];
   openTurnStartHistoryIndex: number | null;
 }
 
@@ -44,7 +49,7 @@ interface LeaderThreadRouteIndexDraft {
   sourceHistoryLength: number;
   sourceFingerprintHash: number;
   summaries: Map<string, LeaderProjectionThreadSummary>;
-  rawTurnBoundaries: LeaderProjectionInternalSnapshot["rawTurnBoundaries"];
+  rawTurnBoundaries: LeaderThreadTurnBoundary[];
   openTurnStartHistoryIndex: number | null;
 }
 
@@ -85,9 +90,7 @@ export function collectLeaderThreadSummariesFromRouteIndex(
   return index.threadSummaries.map((summary) => ({ ...summary }));
 }
 
-export function buildRawTurnBoundariesFromRouteIndex(
-  index: LeaderThreadRouteIndex,
-): LeaderProjectionInternalSnapshot["rawTurnBoundaries"] {
+export function buildRawTurnBoundariesFromRouteIndex(index: LeaderThreadRouteIndex): LeaderThreadTurnBoundary[] {
   return index.rawTurnBoundaries.map((boundary) => ({ ...boundary }));
 }
 

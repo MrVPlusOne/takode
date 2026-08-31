@@ -9,6 +9,8 @@ import {
   type SessionAttentionProjectionValue,
 } from "../../shared/session-attention-projection.js";
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
+import { LEADER_THREAD_TABS_PROJECTION } from "../../shared/leader-thread-tabs-projection.js";
+import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
 
 const mockStoreState = {
   questNamedSessions: new Set<string>(),
@@ -29,6 +31,17 @@ const mockStoreState = {
   currentSessionId: "s1",
   updateSdkSession: vi.fn(),
 };
+
+function installLeaderPhaseSummary(
+  summary: ReturnType<typeof createLeaderThreadTabsProjectionValue>["activePhaseSummary"],
+): void {
+  const entryId = syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, "s1");
+  mockStoreState.syncedProjectionKeys.add(entryId);
+  mockStoreState.syncedProjectionValues.set(
+    entryId,
+    createLeaderThreadTabsProjectionValue({ activePhaseSummary: summary }),
+  );
+}
 
 vi.mock("../store.js", () => ({
   useStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState),
@@ -481,6 +494,7 @@ describe("SessionItem leader profiles", () => {
   });
 
   it("lays out leader portraits across title and metadata rows while showing active Journey phase counts", () => {
+    installLeaderPhaseSummary([{ label: "Implement", count: 1, tone: "phase", color: "#4ade80" }]);
     mockStoreState.sessionBoards.set("s1", [
       {
         questId: "q-1",
@@ -573,6 +587,10 @@ describe("SessionItem leader profiles", () => {
   });
 
   it("renders leader phase counts from authoritative sidebar metadata before the board is opened", () => {
+    installLeaderPhaseSummary([
+      { label: "Code Review", count: 1, tone: "phase", color: "#a78bfa" },
+      { label: "Queued", count: 1, tone: "status" },
+    ]);
     renderSessionItem({
       session: makeSession({
         isOrchestrator: true,
@@ -1058,7 +1076,7 @@ describe("SessionItem notification marker", () => {
     expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "review");
   });
 
-  it("does not render a blue marker for a closed unread leader thread notification", () => {
+  it("does not consult deprecated leader-tab state when rendering notification urgency", () => {
     // Closing an unread thread tab counts as reading it for the session-set
     // indicator. The underlying review notification remains unresolved, but a
     // closed tab must not keep a hidden blue row marker alive.
@@ -1101,7 +1119,7 @@ describe("SessionItem notification marker", () => {
 
     renderSessionItem({ session: makeSession({ isOrchestrator: true }) });
 
-    expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "muted-needs-input");
+    expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "review");
   });
 
   it("keeps the blue marker when a leader review notification belongs to an open thread tab", () => {

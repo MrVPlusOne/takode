@@ -9,17 +9,12 @@ import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
 import { type NotificationUrgency } from "../utils/notification-urgency.js";
 import { formatGitStatusAge, isGitStatusStale } from "../../shared/git-status-freshness.js";
 import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
-import {
-  activeBoardSummarySegments,
-  boardSummarySegmentsFromActivePhaseSummary,
-  type BoardSummarySegment,
-} from "./leader-board-summary.js";
+import { boardSummarySegmentsFromActivePhaseSummary, type BoardSummarySegment } from "./leader-board-summary.js";
 import { findSessionQuestContextCandidate } from "../utils/session-quest-context.js";
 import { deriveEffectiveSessionAttentionStatus } from "../utils/session-attention-status.js";
 import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
 import { getSyncedProjectionValue, hasSyncedProjectionValue } from "../store-synced-projections.js";
-
-const EMPTY_LEADER_BOARD_ROWS: never[] = [];
+import { selectLeaderActivePhaseSummary } from "../utils/leader-thread-tabs-resolver.js";
 
 type SearchMatchedField =
   | "session_number"
@@ -818,7 +813,6 @@ function SessionItemComponent({
                 {s.isOrchestrator ? (
                   <LeaderActivePhasePreviewRow
                     sessionId={s.id}
-                    activeSummary={s.leaderActivePhaseSummary}
                     className={usesExpandedLeaderPortrait ? "col-span-2 row-start-3" : undefined}
                     data-testid={usesExpandedLeaderPortrait ? "session-preview-row" : undefined}
                   />
@@ -1279,23 +1273,15 @@ export const SessionItem = memo(SessionItemComponent);
 
 function LeaderActivePhasePreviewRow({
   sessionId,
-  activeSummary,
   className = "",
   "data-testid": testId,
 }: {
   sessionId: string;
-  activeSummary?: SessionItemType["leaderActivePhaseSummary"];
   className?: string;
   "data-testid"?: string;
 }) {
-  const activeBoard = useStore((s) => s.sessionBoards?.get(sessionId) ?? EMPTY_LEADER_BOARD_ROWS);
-  const storeActiveSummary = useStore(
-    (s) => s.sdkSessions.find((session) => session.sessionId === sessionId)?.leaderActivePhaseSummary,
-  );
-  const authoritativeSummary = activeSummary ?? storeActiveSummary;
-  const segments = authoritativeSummary
-    ? boardSummarySegmentsFromActivePhaseSummary(authoritativeSummary)
-    : activeBoardSummarySegments(activeBoard);
+  const activeSummary = useStore((state) => selectLeaderActivePhaseSummary(state, sessionId));
+  const segments = boardSummarySegmentsFromActivePhaseSummary(activeSummary);
   if (segments.length === 0) return null;
 
   return (

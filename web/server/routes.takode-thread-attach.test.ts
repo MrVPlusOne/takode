@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserIncomingMessage } from "./session-types.js";
-import { createTakodeRoutes, _resetThreadAttachmentHistoryBroadcastsForTest } from "./routes/takode.js";
+import { createTakodeRoutes, _resetThreadAttachmentBroadcastsForTest } from "./routes/takode.js";
 
 function createTestApp(messageHistory: BrowserIncomingMessage[]) {
   const session = {
@@ -12,6 +12,7 @@ function createTestApp(messageHistory: BrowserIncomingMessage[]) {
     getSession: vi.fn(() => session),
     broadcastToSession: vi.fn(),
     persistSessionById: vi.fn(),
+    promoteLeaderThreadTabForAttachment: vi.fn(),
   };
   const app = new Hono();
   app.route(
@@ -47,7 +48,7 @@ describe("POST /api/sessions/:id/thread/attach", () => {
   });
 
   afterEach(() => {
-    _resetThreadAttachmentHistoryBroadcastsForTest();
+    _resetThreadAttachmentBroadcastsForTest();
     vi.useRealTimers();
   });
 
@@ -78,6 +79,25 @@ describe("POST /api/sessions/:id/thread/attach", () => {
     });
 
     expect(bridge.persistSessionById).toHaveBeenCalledTimes(3);
+    expect(bridge.promoteLeaderThreadTabForAttachment).toHaveBeenCalledTimes(3);
+    expect(bridge.promoteLeaderThreadTabForAttachment).toHaveBeenNthCalledWith(
+      1,
+      "leader-1",
+      "q-1084",
+      expect.any(Number),
+    );
+    expect(bridge.promoteLeaderThreadTabForAttachment).toHaveBeenNthCalledWith(
+      2,
+      "leader-1",
+      "q-1084",
+      expect.any(Number),
+    );
+    expect(bridge.promoteLeaderThreadTabForAttachment).toHaveBeenNthCalledWith(
+      3,
+      "leader-1",
+      "q-1085",
+      expect.any(Number),
+    );
     expect(bridge.broadcastToSession).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(99);

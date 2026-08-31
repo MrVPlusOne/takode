@@ -13,6 +13,7 @@ import type {
   PendingCodexInput,
   PendingUserUpload,
   VsCodeSelectionState,
+  ActiveTurnRoute,
 } from "./types.js";
 import { api, type PRStatusResponse, type CreationProgressEvent, type CreateSessionOpts } from "./api.js";
 import type { BoardRowData } from "./components/BoardTable.js";
@@ -77,6 +78,12 @@ import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projec
 import { createSessionAttentionStoreSlice } from "./store-session-attention.js";
 
 // ─── Color Themes ───────────────────────────────────────────────────────────
+
+function activeTurnRouteEqual(current: ActiveTurnRoute | null | undefined, next: ActiveTurnRoute | null): boolean {
+  if (current === next) return true;
+  if (current == null || next === null) return current == null && next === null;
+  return current.threadKey === next.threadKey && current.questId === next.questId;
+}
 
 function diffFileStatsEqual(
   a: Map<string, { additions: number; deletions: number }> | undefined,
@@ -1523,10 +1530,8 @@ export const useStore = create<AppState>((set, get) => ({
 
   setActiveTurnRoute: (sessionId, route) =>
     set((s) => {
+      if (route === undefined || activeTurnRouteEqual(s.activeTurnRoutes.get(sessionId), route)) return s;
       const activeTurnRoutes = new Map(s.activeTurnRoutes);
-      if (route === undefined) {
-        return s;
-      }
       activeTurnRoutes.set(sessionId, route);
       return { activeTurnRoutes };
     }),

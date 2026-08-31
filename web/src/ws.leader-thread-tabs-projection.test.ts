@@ -294,7 +294,7 @@ describe("leader thread tabs projection WebSocket carrier", () => {
 
   it.each([
     "accepted",
-    "invalid-supplied",
+    "unavailable",
   ] as const)("fences legacy leader-tab ingress under %s projection authority while retaining nonvisual payloads", (authority) => {
     useStore.setState({
       sdkSessions: [
@@ -302,7 +302,7 @@ describe("leader thread tabs projection WebSocket carrier", () => {
           sessionId: "leader",
           archived: false,
           isOrchestrator: true,
-          ...(authority === "invalid-supplied" ? { leaderThreadTabsProjection: { malformed: true } as never } : {}),
+          ...(authority === "unavailable" ? { leaderThreadTabsProjection: { malformed: true } as never } : {}),
         } as never,
       ],
     });
@@ -373,7 +373,7 @@ describe("leader thread tabs projection WebSocket carrier", () => {
         notificationStatusUpdatedAt: 2_000,
       },
     });
-    expect(useStore.getState().sessionBoards.get("leader")?.[0]?.questId).toBe("q-activity");
+    expect(useStore.getState().sessionBoards.get("leader")?.[0]?.questId).toBe("q-board");
     expect(useStore.getState().sdkSessions[0]?.activeNotificationCount).toBe(1);
     expect(useStore.getState().sdkSessions[0]?.leaderActivePhaseSummary).toBeUndefined();
 

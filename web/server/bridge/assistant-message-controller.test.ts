@@ -306,18 +306,7 @@ describe("assistant-message-controller", () => {
       threadKey: "q-941",
       summary: "waiting on reviewer pass",
     });
-    expect(broadcasts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: "session_update",
-          session: {
-            leaderThreadStatuses: expect.objectContaining({
-              "q-941": expect.objectContaining({ kind: "waiting" }),
-            }),
-          },
-        }),
-      ]),
-    );
+    expect(broadcasts.some((message) => message.type === "session_update")).toBe(false);
   });
 
   it("strips standalone Thread Ready markers even when the response has no routed prose", () => {
@@ -558,12 +547,9 @@ describe("assistant-message-controller", () => {
     );
 
     expect(session.state.leaderThreadStatuses?.["q-1850"]).toBeUndefined();
-    expect(broadcasts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: "assistant", threadKey: "q-1850", questId: "q-1850" }),
-        expect.objectContaining({ type: "session_update", session: { leaderThreadStatuses: {} } }),
-      ]),
-    );
+    expect(broadcasts).toEqual([
+      expect.objectContaining({ type: "assistant", threadKey: "q-1850", questId: "q-1850" }),
+    ]);
   });
 
   it("preserves another thread's status when routed tool activity begins", () => {
@@ -610,14 +596,7 @@ describe("assistant-message-controller", () => {
     });
 
     expect(session.state.leaderThreadStatuses?.["q-941"]).toBeUndefined();
-    expect(broadcasts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: "session_update",
-          session: { leaderThreadStatuses: {} },
-        }),
-      ]),
-    );
+    expect(broadcasts.some((message) => message.type === "session_update")).toBe(false);
   });
 
   it("clears only routed activity threads across a split leader response", () => {
@@ -727,11 +706,13 @@ describe("assistant-message-controller", () => {
     });
     session.messageHistory.push({ type: "tool_result_preview", previews: [] });
     const broadcasts: BrowserIncomingMessage[] = [];
+    const promoteLeaderThreadTabForTransition = vi.fn();
 
     handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-941]\nDispatching worker" }]), {
       hasAssistantReplay: () => false,
       broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
       persistSession: () => {},
+      promoteLeaderThreadTabForTransition,
     });
 
     expect(broadcasts).toHaveLength(2);
@@ -746,6 +727,10 @@ describe("assistant-message-controller", () => {
     expect(broadcasts[1]).toMatchObject({ type: "assistant", threadKey: "q-941", questId: "q-941" });
     expect(session.messageHistory).toHaveLength(4);
     expect(session.messageHistory[2]).toMatchObject({ type: "thread_transition_marker" });
+    expect(promoteLeaderThreadTabForTransition).toHaveBeenCalledWith(
+      session.id,
+      expect.objectContaining({ threadKey: "q-941", sourceThreadKey: "q-940" }),
+    );
   });
 
   it("persists Main-origin transition markers after a Main request routes into a quest thread", () => {

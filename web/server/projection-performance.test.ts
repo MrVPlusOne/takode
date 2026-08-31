@@ -524,6 +524,15 @@ function historicalLeaderBoardControl(fixture: ProjectionFixture): BrowserIncomi
   } as BrowserIncomingMessage;
 }
 
+function currentLeaderBoardDetail(fixture: ProjectionFixture): BrowserIncomingMessage {
+  return {
+    type: "board_updated",
+    board: [...fixture.leader.board.values()],
+    completedBoard: [...fixture.leader.completedBoard.values()],
+    rowSessionStatuses: {},
+  } as BrowserIncomingMessage;
+}
+
 function subscribedLeaderBoardActivityResidual(
   fixture: ProjectionFixture,
 ): Extract<BrowserIncomingMessage, { type: "session_activity_update" }> {
@@ -612,12 +621,8 @@ async function matchedLeaderBoardSequence(options: {
   for (let frame = 0; frame < options.producerFrames; frame += 1) {
     // Execute the retained board detail assembly and fanout once per producer
     // frame, then let the synchronized runtime coalesce its own invalidations.
-    const activityRaw = JSON.stringify(subscribedLeaderBoardActivityResidual(fixture));
-    const boardRaw = JSON.stringify(historicalLeaderBoardControl(fixture));
-    for (const browser of browsers) {
-      browser.send(activityRaw);
-      browser.send(boardRaw);
-    }
+    const boardRaw = JSON.stringify(currentLeaderBoardDetail(fixture));
+    for (const browser of browsers) browser.send(boardRaw);
     expect(fixture.bridge.invalidateLeaderThreadTabsForQuestIds(["q-1901"])).toBe(1);
   }
   await fixture.bridge.getSyncedProjectionController().flushForTest();
@@ -625,7 +630,7 @@ async function matchedLeaderBoardSequence(options: {
   return matchedPairAccounting({
     producerFrames: options.producerFrames,
     browsers,
-    parallelPredicate: (message) => message.type === "session_activity_update" || message.type === "board_updated",
+    parallelPredicate: (message) => message.type === "board_updated",
     projection: LEADER_THREAD_TABS_PROJECTION,
     runtimeMetrics: metricDelta(before, after),
   });
@@ -731,8 +736,8 @@ async function leaderPhaseChangeScenario(): Promise<{
   // board_updated detail payload and synchronized projection observe the same
   // q-1901 Work -> Memory status and Journey transition.
   updateLeaderJourneyToMemory(fixture);
-  const subscribedParallelBoardActivityResidualBytes = utf8Bytes(subscribedLeaderBoardActivityResidual(fixture));
-  const parallelBoardDetailBytes = utf8Bytes(historicalLeaderBoardControl(fixture));
+  const subscribedParallelBoardActivityResidualBytes = 0;
+  const parallelBoardDetailBytes = utf8Bytes(currentLeaderBoardDetail(fixture));
   expect(fixture.bridge.invalidateLeaderThreadTabsForQuestIds(["q-1901"])).toBe(1);
   await fixture.bridge.getSyncedProjectionController().flushForTest();
   const after = projectionMetrics(fixture, LEADER_THREAD_TABS_PROJECTION);
@@ -971,8 +976,7 @@ export async function collectProjectionPerformanceResults(): Promise<ProjectionP
           leaderPhaseChange.parallelBoardDetailBytes,
         confirmedRemovableLegacyThreadStatusPayload: utf8Bytes(legacyLeaderStatus),
         requiredProjectionStatusUpdate: leaderSingleChange.requiredWireBytesPerBrowser,
-        matchedCompatiblePairStatusChange:
-          leaderSingleChange.requiredWireBytesPerBrowser + utf8Bytes(legacyLeaderStatus),
+        matchedCompatiblePairStatusChange: leaderSingleChange.requiredWireBytesPerBrowser,
       },
       initialProjectionSubscriptionResponseBytesPerBrowser: leaderInitialSubscriptionBytes,
       initialProjectionSubscriptionMetrics: metricDelta(
@@ -1228,7 +1232,7 @@ describe("synchronized projection performance controls", () => {
       requiredWireBytesTotal: 0,
     });
     expect(leaderTabs.singleChange.metrics).toEqual(
-      changedMetrics({ invalidations: 1, valueBytes: 7_483, cachedValueBytes: -7 }),
+      changedMetrics({ invalidations: 1, valueBytes: 7_304, cachedValueBytes: -7, updateValueBytes: 70 }),
     );
     expect(leaderTabs.singleChange.messagesPerBrowser).toBe(1);
     expect(leaderTabs.singleChange.requiredWireBytesTotal).toBe(
@@ -1237,8 +1241,9 @@ describe("synchronized projection performance controls", () => {
     expect(leaderTabs.burstChange.metrics).toEqual(
       changedMetrics({
         invalidations: PROJECTION_PERFORMANCE_FIXTURE.burstInvalidations,
-        valueBytes: 7_481,
+        valueBytes: 7_302,
         cachedValueBytes: -9,
+        updateValueBytes: 68,
       }),
     );
     expect(leaderTabs.burstChange.messagesPerBrowser).toBe(1);
@@ -1246,13 +1251,13 @@ describe("synchronized projection performance controls", () => {
       leaderTabs.burstChange.requiredWireBytesPerBrowser * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
     );
     expect(leaderTabs.phaseChange.metrics).toEqual(
-      changedMetrics({ invalidations: 1, valueBytes: 7_574, cachedValueBytes: 84 }),
+      changedMetrics({ invalidations: 1, valueBytes: 7_395, cachedValueBytes: 84, updateValueBytes: 842 }),
     );
     expect(leaderTabs.phaseChange.messagesPerBrowser).toBe(1);
     expect(leaderTabs.phaseChange.requiredWireBytesTotal).toBe(
       leaderTabs.phaseChange.requiredWireBytesPerBrowser * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
     );
-    expect(leaderTabs.reconnect.metrics).toEqual(reconnectMetrics(7_490));
+    expect(leaderTabs.reconnect.metrics).toEqual(reconnectMetrics(7_311));
     expect(leaderTabs.reconnect.projectionSubscriptionResponseMessages).toBe(2);
 
     expect(leaderTabs.boardProducerProjectionOwnership).toEqual({
@@ -1260,26 +1265,23 @@ describe("synchronized projection performance controls", () => {
       sessionAttentionSubscribed: true,
       note: "Both the q-1983-parent control and current compatible client are modeled with established leader navigation and attention subscriptions. Navigation ownership suppresses pendingPermissionCount from the companion global activity frame; attention ownership does not further change this payload.",
     });
-    // Detailed board state remains a parallel authority, so only the 236-byte
-    // leaderThreadStatuses session_update is confirmed compatibility overhead.
+    // Detailed board state remains authoritative, while compatible-build visual
+    // fields and the parallel thread-status update are removed.
     expect(leaderTabs.bytes).toEqual({
-      subscribedParallelBoardActivityResidual: 3_317,
-      parallelBoardDetailLegacyPayload: 3_785,
-      requiredProjectionPhaseChange: 7_732,
-      matchedCompatiblePairPhaseChange: 14_834,
+      subscribedParallelBoardActivityResidual: 0,
+      parallelBoardDetailLegacyPayload: 3_286,
+      requiredProjectionPhaseChange: 1_000,
+      matchedCompatiblePairPhaseChange: 4_286,
       confirmedRemovableLegacyThreadStatusPayload: 236,
-      requiredProjectionStatusUpdate: 7_641,
-      matchedCompatiblePairStatusChange: 7_877,
+      requiredProjectionStatusUpdate: 228,
+      matchedCompatiblePairStatusChange: 228,
     });
-    expect(leaderTabs.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(7_781);
-    expect(leaderTabs.initialProjectionSubscriptionMetrics).toEqual(initialSubscriptionMetrics(7_490));
-    expect(leaderTabs.reconnect.projectionSubscriptionResponseBytes).toBe(7_781);
+    expect(leaderTabs.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(7_602);
+    expect(leaderTabs.initialProjectionSubscriptionMetrics).toEqual(initialSubscriptionMetrics(7_311));
+    expect(leaderTabs.reconnect.projectionSubscriptionResponseBytes).toBe(7_602);
 
-    // Each board producer emits companion global activity before board detail.
-    // Per-sequence subscription work is zero because the q-1983-parent and current
-    // compatible clients are both modeled with shared nav/attention ownership
-    // already established; only current leader-tab subscription cost is separate.
-    // The current pair then adds at most one coalesced tab publication.
+    // Historical controls retain global activity plus board detail. The current
+    // compatible pair sends only detailed board authority and one coalesced patch.
     expect(leaderTabs.historicalControlSequences).toEqual({
       noOp: expectedHistoricalControlSequence(1, {
         session_activity_update: 3_233,
@@ -1297,34 +1299,44 @@ describe("synchronized projection performance controls", () => {
     expect(leaderTabs.matchedCompatiblePairSequences).toEqual({
       noOp: expectedMatchedPair({
         producerFrames: 1,
-        parallelBytesByTypePerFrame: { session_activity_update: 3_233, board_updated: 3_701 },
+        parallelBytesByTypePerFrame: { board_updated: 3_285 },
         projectionBytesPerBrowser: 0,
         runtimeMetrics: NO_OP_METRICS,
       }),
       singlePhaseChange: expectedMatchedPair({
         producerFrames: 1,
-        parallelBytesByTypePerFrame: { session_activity_update: 3_317, board_updated: 3_785 },
-        projectionBytesPerBrowser: 7_732,
-        runtimeMetrics: changedMetrics({ invalidations: 1, valueBytes: 7_574, cachedValueBytes: 84 }),
+        parallelBytesByTypePerFrame: { board_updated: 3_286 },
+        projectionBytesPerBrowser: 1_000,
+        runtimeMetrics: changedMetrics({
+          invalidations: 1,
+          valueBytes: 7_395,
+          cachedValueBytes: 84,
+          updateValueBytes: 842,
+        }),
       }),
       burstPhaseChange: expectedMatchedPair({
         producerFrames: 25,
-        parallelBytesByTypePerFrame: { session_activity_update: 3_317, board_updated: 3_785 },
-        projectionBytesPerBrowser: 7_732,
-        runtimeMetrics: changedMetrics({ invalidations: 25, valueBytes: 7_574, cachedValueBytes: 84 }),
+        parallelBytesByTypePerFrame: { board_updated: 3_286 },
+        projectionBytesPerBrowser: 1_000,
+        runtimeMetrics: changedMetrics({
+          invalidations: 25,
+          valueBytes: 7_395,
+          cachedValueBytes: 84,
+          updateValueBytes: 842,
+        }),
       }),
     });
     expect(leaderTabs.matchedCompatiblePairSequences.noOp.combined).toMatchObject({
-      logicalSends: 2,
-      deliveries: 4,
-      bytesPerBrowser: 6_934,
-      totalBytes: 13_868,
+      logicalSends: 1,
+      deliveries: 2,
+      bytesPerBrowser: 3_285,
+      totalBytes: 6_570,
     });
     expect(leaderTabs.matchedCompatiblePairSequences.burstPhaseChange.combined).toMatchObject({
-      logicalSends: 51,
-      deliveries: 102,
-      bytesPerBrowser: 185_282,
-      totalBytes: 370_564,
+      logicalSends: 26,
+      deliveries: 52,
+      bytesPerBrowser: 83_150,
+      totalBytes: 166_300,
     });
 
     // Both targeted cross-leader invalidation and generic persistence avoid

@@ -99,7 +99,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 }
 
 describe("leader thread tabs projection derivation", () => {
-  it("derives tombstone-aware active and needs-input candidates with semantic tab state", () => {
+  it("uses durable tab order without continuously rebuilding current candidates", () => {
     const session = makeSession({
       state: {
         isOrchestrator: true,
@@ -134,32 +134,9 @@ describe("leader thread tabs projection derivation", () => {
 
     const value = buildLeaderThreadTabsProjectionValue(session);
 
-    expect(value.tabState?.orderedOpenThreadKeys).toEqual(["q-1", "q-2", "q-3", "q-4"]);
+    expect(value.tabs.map((tab) => tab.threadKey)).toEqual(["q-3", "q-4"]);
     expect(value.tabs).toEqual([
-      expect.objectContaining({
-        threadKey: "q-1",
-        active: true,
-        queued: false,
-        proposed: false,
-        completed: false,
-        canClose: false,
-        journey: expect.objectContaining({
-          currentPhaseId: "work",
-          activePhaseIndex: 1,
-          phaseCount: 3,
-        }),
-      }),
-      expect.objectContaining({
-        threadKey: "q-2",
-        title: "needs-input q-2",
-        attention: expect.objectContaining({ needsInput: true }),
-        canClose: true,
-      }),
-      expect.objectContaining({
-        threadKey: "q-3",
-        completed: true,
-        canClose: true,
-      }),
+      expect.objectContaining({ threadKey: "q-3", completed: true, canClose: true }),
       expect.objectContaining({
         threadKey: "q-4",
         proposed: true,
@@ -169,15 +146,39 @@ describe("leader thread tabs projection derivation", () => {
         canClose: true,
       }),
     ]);
-    expect(value.tabState?.orderedOpenThreadKeys).not.toContain("q-5");
+    expect(value.tabs.map((tab) => tab.threadKey)).not.toContain("q-5");
     expect(value.threadStatuses["q-3"]).toMatchObject({
       kind: "waiting",
       threadKey: "q-3",
     });
-    expect(value.tabs[2]?.attention).toMatchObject({ reviewUnread: true });
+    expect(value.tabs[0]?.attention).toMatchObject({ reviewUnread: true });
     expect(isLeaderThreadTabsProjectionValue(value)).toBe(true);
     // Projection backfill is read-only; raw durable state is changed only by a producer mutation.
     expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-3", "q-4"]);
+  });
+
+  it("derives one bounded initial candidate order before durable tab migration", () => {
+    const session = makeSession({
+      board: new Map([["q-1", boardRow("q-1", "WORKING")]]),
+      notifications: [notification("needs", "needs-input", "q-2", { timestamp: 31 })],
+    });
+
+    const value = buildLeaderThreadTabsProjectionValue(session);
+
+    expect(value.tabState).toBeNull();
+    expect(value.tabs.map((tab) => tab.threadKey)).toEqual(["q-1", "q-2"]);
+    expect(session.state.leaderOpenThreadTabs).toBeUndefined();
+
+    const fullBoard = Array.from({ length: 50 }, (_, index) => boardRow(`q-${index + 1}`, "WORKING"));
+    const crowded = buildLeaderThreadTabsProjectionValue(
+      makeSession({
+        board: new Map(fullBoard.map((row) => [row.questId, row])),
+        attentionRecords: [attentionRecord("q-51", { updatedAt: 100 })],
+      }),
+    );
+    expect(crowded.tabs).toHaveLength(50);
+    expect(crowded.tabs[0]?.threadKey).toBe("q-51");
+    expect(new Set(crowded.tabs.map((tab) => tab.threadKey)).size).toBe(50);
   });
 
   it("keeps all fifty tabs and relevant statuses below the explicit 64 KiB wire ceiling", () => {
@@ -338,7 +339,7 @@ describe("leader thread tabs projection parity regressions", () => {
         } as unknown as Session["state"],
       }),
     );
-    expect(active.tabState?.orderedOpenThreadKeys).toEqual(["q-old-a", "q-target", "q-old-b"]);
+    expect(active.tabs.map((tab) => tab.threadKey)).toEqual(["q-old-a", "q-target", "q-old-b"]);
 
     const completed = buildLeaderThreadTabsProjectionValue(
       makeSession({
@@ -358,7 +359,7 @@ describe("leader thread tabs projection parity regressions", () => {
         } as unknown as Session["state"],
       }),
     );
-    expect(completed.tabState?.orderedOpenThreadKeys).toEqual(["q-old-a", "q-target", "q-old-b"]);
+    expect(completed.tabs.map((tab) => tab.threadKey)).toEqual(["q-old-a", "q-target", "q-old-b"]);
 
     const repeated = buildLeaderThreadTabsProjectionValue(
       makeSession({
@@ -378,10 +379,10 @@ describe("leader thread tabs projection parity regressions", () => {
         } as unknown as Session["state"],
       }),
     );
-    expect(repeated.tabState?.orderedOpenThreadKeys).toEqual(["q-old-a", "q-target", "q-old-b"]);
+    expect(repeated.tabs.map((tab) => tab.threadKey)).toEqual(["q-old-a", "q-target", "q-old-b"]);
   });
 
-  it("promotes current in-motion tabs ahead of only never-started scheduled tabs", () => {
+  it("leaves producer-authored persisted priority unchanged during projection", () => {
     // Mixed durable order models attachment-first scheduling plus retained neutral peers.
     const session = makeSession({
       state: {
@@ -425,13 +426,13 @@ describe("leader thread tabs projection parity regressions", () => {
 
     expect(value.tabs.map((tab) => tab.threadKey)).toEqual([
       "q-completed",
-      "q-work",
-      "q-memory",
-      "q-checkpoint-active",
       "q-queued",
       "q-review",
+      "q-work",
       "q-requeued",
       "q-proposed",
+      "q-memory",
+      "q-checkpoint-active",
       "q-checkpoint-parked",
     ]);
     expect(value.tabs.find((tab) => tab.threadKey === "q-checkpoint-active")).toMatchObject({
@@ -549,7 +550,7 @@ describe("leader thread tabs projection parity regressions", () => {
     const value = buildLeaderThreadTabsProjectionValue(session);
 
     expect(value.tabs.map((tab) => tab.threadKey)).toEqual(["q-active"]);
-    expect(value.tabState?.closedThreadTombstones).toContainEqual({
+    expect(session.state.leaderOpenThreadTabs?.closedThreadTombstones).toContainEqual({
       threadKey: "q-queued",
       closedAt: 50,
     });
@@ -558,15 +559,7 @@ describe("leader thread tabs projection parity regressions", () => {
 
   it("surfaces producer-shaped message-derived rework attention", () => {
     const session = makeSession({
-      state: {
-        isOrchestrator: true,
-        leaderOpenThreadTabs: {
-          version: 1,
-          orderedOpenThreadKeys: ["q-1"],
-          closedThreadTombstones: [],
-          updatedAt: 20,
-        },
-      } as unknown as Session["state"],
+      state: { isOrchestrator: true } as unknown as Session["state"],
       messageHistory: [
         {
           type: "user_message",
@@ -580,7 +573,8 @@ describe("leader thread tabs projection parity regressions", () => {
 
     const value = buildLeaderThreadTabsProjectionValue(session);
 
-    expect(value.tabs.map((tab) => tab.threadKey)).toEqual(["q-5", "q-1"]);
+    expect(value.tabs.map((tab) => tab.threadKey)).toEqual(["q-5"]);
+    expect(value.tabState).toBeNull();
     expect(value.tabs[0]).toMatchObject({
       threadKey: "q-5",
       title: "q-5: rework requested",
@@ -822,13 +816,13 @@ describe("leader thread tabs current quest state", () => {
       sessions: [observer, currentLeader, worker],
     });
 
-    expect(value.tabs.map((tab) => tab.threadKey)).toEqual(["q-current", "q-scheduled"]);
-    expect(value.tabs[0]).toMatchObject({
+    expect(value.tabs.map((tab) => tab.threadKey)).toEqual(["q-scheduled", "q-current"]);
+    expect(value.tabs[0]).toMatchObject({ queued: true, canClose: true });
+    expect(value.tabs[1]).toMatchObject({
       active: true,
       canClose: false,
       sourceLeaderSessionId: "leader-current",
     });
-    expect(value.tabs[1]).toMatchObject({ queued: true, canClose: true });
   });
 
   it("projects cross-session requeue history without demoting the retained tab", () => {
@@ -876,13 +870,13 @@ describe("leader thread tabs current quest state", () => {
       sessions: [observer, currentLeader],
     });
 
-    expect(value.tabs.map((tab) => tab.threadKey)).toEqual(["q-requeued", "q-active", "q-scheduled"]);
+    expect(value.tabs.map((tab) => tab.threadKey)).toEqual(["q-requeued", "q-scheduled", "q-active"]);
     expect(value.tabs[0]).toMatchObject({
       queued: true,
       neverStartedScheduled: false,
       sourceLeaderSessionId: "leader-current",
     });
-    expect(value.tabs[2]).toMatchObject({
+    expect(value.tabs[1]).toMatchObject({
       queued: true,
       neverStartedScheduled: true,
     });

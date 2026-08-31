@@ -888,10 +888,13 @@ describe("Browser message routing", () => {
     }
   });
 
-  it("broadcasts leader active board rows in global session activity updates", () => {
+  it("keeps leader board visuals out of global activity while preserving detailed board delivery", () => {
     bridge.getOrCreateSession("leader-board");
+    const leaderBrowser = makeBrowserSocket("leader-board");
     const observerBrowser = makeBrowserSocket("observer");
+    bridge.handleBrowserOpen(leaderBrowser, "leader-board");
     bridge.handleBrowserOpen(observerBrowser, "observer");
+    leaderBrowser.send.mockClear();
     observerBrowser.send.mockClear();
 
     const board = [
@@ -914,13 +917,17 @@ describe("Browser message routing", () => {
     const activity = observerBrowser.send.mock.calls
       .map(([raw]: [string]) => JSON.parse(raw))
       .find((msg: any) => msg.type === "session_activity_update" && msg.session_id === "leader-board");
+    expect(activity).toBeUndefined();
 
-    expect(activity?.session.leaderActiveBoardRows).toEqual([
+    const detail = leaderBrowser.send.mock.calls
+      .map(([raw]: [string]) => JSON.parse(raw))
+      .find((msg: any) => msg.type === "board_updated");
+    expect(detail?.board).toEqual([
       expect.objectContaining({ questId: "q-1455", title: "Restore active quest rows in leader session hover" }),
     ]);
-    expect(activity?.session.leaderActivePhaseSummary).toEqual([
-      expect.objectContaining({ label: "Work", count: 1, tone: "phase" }),
-    ]);
+    expect(detail?.board[0]?.journey).toEqual(
+      expect.objectContaining({ currentPhaseId: "work", phaseIds: ["alignment", "work", "memory"] }),
+    );
   });
 
   it("vscode_selection_update: ignores stale updates and keeps inspectable clears", () => {

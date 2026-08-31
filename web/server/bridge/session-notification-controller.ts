@@ -574,6 +574,7 @@ function surfaceCreatedNeedsInputThreadTab(
           inMotion: false,
           scheduled: true,
           neverStartedScheduled: isNeverStartedScheduledLeaderThreadTabRow(scheduledRow),
+          completed: false,
           canClose: true,
         }
       : null);

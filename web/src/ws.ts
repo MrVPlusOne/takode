@@ -3,7 +3,6 @@ import type { BrowserIncomingMessage, BrowserOutgoingMessage, McpServerConfig, S
 import { createWsTransport } from "./ws-transport.js";
 import { createWsMessageHandler, resolveSessionFilePath } from "./ws-handlers.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
-import { normalizeLeaderOpenThreadTabsState } from "../shared/leader-open-thread-tabs.js";
 import { getThreadWindowItemCount } from "../shared/thread-window.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
 import { resolveInitialLeaderThreadKey } from "./utils/initial-leader-thread.js";
@@ -52,10 +51,7 @@ function getInitialLeaderThreadWindow(
     isLeaderSession,
     hasThreadRoute: threadRoute.hasThreadParam,
     routeThreadKey: threadRoute.threadKey,
-    leaderOpenThreadTabs:
-      leaderTabsProjection.projectionState === "legacy"
-        ? normalizeLeaderOpenThreadTabsState(bridgeSession?.leaderOpenThreadTabs ?? sdkSession?.leaderOpenThreadTabs)
-        : projectedLeaderOpenThreadTabs(leaderTabsProjection),
+    leaderOpenThreadTabs: projectedLeaderOpenThreadTabs(leaderTabsProjection),
   });
   if (threadKey === ALL_THREADS_KEY) return undefined;
 

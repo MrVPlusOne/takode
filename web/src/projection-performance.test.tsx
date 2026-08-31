@@ -26,6 +26,10 @@ import {
   createLeaderThreadTabsProjectionEnvelope,
   createLeaderThreadTabsProjectionValue,
 } from "./test-fixtures/leader-thread-tabs-projection.js";
+import {
+  installWorkBoardProjectionFixture,
+  resetWorkBoardProjectionFixture,
+} from "./test-fixtures/work-board-projection-adapter.js";
 
 const apiMocks = vi.hoisted(() => ({
   getQuestValidated: vi.fn().mockResolvedValue({ status: "missing", data: null, etag: null }),
@@ -47,11 +51,11 @@ vi.mock("./ws.js", () => ({ sendToSession: vi.fn(() => true) }));
  * - session navigation: 12b08e56dd321d5cd7138cf5e57ee42eb8796f7d
  * - leader thread tabs: 6b50d3bd51b3782540016f02dc76576e5b70281d
  *
- * This test does not load or execute those historical revisions. Instead, its legacy
- * controls replay the full retained producer shapes through today's legacy derivation
- * branches. Current scenarios always install a valid accepted v1 projection, and the
- * matched cases retain the parallel detail/activity fields a compatible server sends.
- * Missing, malformed, and mixed-version modes remain excluded.
+ * This test does not load or execute those historical revisions. Navigation keeps
+ * its retained control, while leader tabs use a test-only frozen v1 WorkBoard
+ * projection control instead of the deleted production fallback. Current scenarios
+ * install the compatible projection and retain the parallel detail/activity fields a
+ * matched server sends. Missing, malformed, and mixed-version modes remain excluded.
  */
 const SESSION_IDS = ["s-1", "s-2", "s-3", "s-4"] as const;
 const LEADER_ID = "leader";
@@ -69,6 +73,7 @@ const handleMessage = createWsMessageHandler({
 });
 
 type BenchmarkMode = "legacy" | "projection";
+type LeaderBenchmarkMode = "control" | "projection";
 
 type StepMetrics = {
   rootCommits: number;
@@ -564,6 +569,7 @@ function projectedLeaderTab(
     active: !completed,
     queued: false,
     proposed: false,
+    neverStartedScheduled: false,
     completed,
     canClose: completed,
     attention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
@@ -574,7 +580,6 @@ function projectedLeaderTab(
 function leaderProjectionValue(status: "WORKING" | "MEMORY" | "DONE" = "WORKING"): LeaderThreadTabsProjectionValue {
   const tabs = LEADER_THREAD_KEYS.map((threadKey, index) => projectedLeaderTab(threadKey, index, status));
   return createLeaderThreadTabsProjectionValue({
-    currentQuestStateVersion: 1,
     tabState: {
       version: 1,
       orderedOpenThreadKeys: [...LEADER_THREAD_KEYS],
@@ -591,7 +596,30 @@ function leaderProjectionValue(status: "WORKING" | "MEMORY" | "DONE" = "WORKING"
   });
 }
 
-function installLeaderState(mode: BenchmarkMode): void {
+function installFrozenLeaderControl(board = leaderBoard(), completedBoard: BoardRowData[] = []): void {
+  const state = useStore.getState();
+  installWorkBoardProjectionFixture(
+    {
+      ...state,
+      sessionBoards: new Map(state.sessionBoards).set(LEADER_ID, board),
+      sessionCompletedBoards: new Map(state.sessionCompletedBoards).set(LEADER_ID, completedBoard),
+    },
+    {
+      sessionId: LEADER_ID,
+      openThreadKeys: [...LEADER_THREAD_KEYS],
+      threadRows: [],
+      attentionRecords: [],
+    },
+    { explicitOpenKeysProvided: true },
+  );
+}
+
+function prepareFrozenLeaderControl(status: "WORKING" | "MEMORY" | "DONE"): void {
+  const { board, completed } = leaderActivityFields(status);
+  installFrozenLeaderControl(board, completed);
+}
+
+function installLeaderState(mode: LeaderBenchmarkMode): void {
   const openTabs = {
     version: 1 as const,
     orderedOpenThreadKeys: [...LEADER_THREAD_KEYS],
@@ -645,19 +673,15 @@ function installLeaderState(mode: BenchmarkMode): void {
       .applySyncedProjectionSnapshot(
         createLeaderThreadTabsProjectionEnvelope({ key: LEADER_ID, value: leaderProjectionValue() }),
       );
+  } else {
+    installFrozenLeaderControl();
   }
 }
 
-function mountLeaderSurface(mode: BenchmarkMode, recorder: BenchmarkRecorder): RenderResult {
+function mountLeaderSurface(recorder: BenchmarkRecorder): RenderResult {
   return render(
     <Profiler id="leader-root" onRender={recorder.onRender}>
-      <WorkBoardBar
-        sessionId={LEADER_ID}
-        currentThreadKey="main"
-        openThreadKeys={mode === "legacy" ? [...LEADER_THREAD_KEYS] : []}
-        threadRows={[]}
-        attentionRecords={[]}
-      />
+      <WorkBoardBar sessionId={LEADER_ID} currentThreadKey="main" openThreadKeys={[]} threadRows={[]} />
     </Profiler>,
   );
 }
@@ -762,21 +786,27 @@ function readLeaderOutput(view: RenderResult): string {
 }
 
 function measureLeader(
-  mode: BenchmarkMode,
+  mode: LeaderBenchmarkMode,
   scenario: Scenario,
   options: { includeDetailFrames?: boolean } = {},
 ): ScenarioResult {
   useStore.getState().reset();
+  resetWorkBoardProjectionFixture();
   installLeaderState(mode);
   const recorder = createBenchmarkRecorder("leader-root");
-  const view = mountLeaderSurface(mode, recorder);
+  const view = mountLeaderSurface(recorder);
   const steps: StepMetrics[] = [];
 
-  const includeDetailFrames = mode === "legacy" || options.includeDetailFrames === true;
+  const includeDetailFrames = mode === "control" || options.includeDetailFrames === true;
   const replayBoardProducer = (status: "WORKING" | "MEMORY" | "DONE") => {
     // Both sides already subscribe to navigation/attention at this comparison boundary.
     steps.push(applyStep(recorder, () => receiveLeaderActivity(status)));
-    steps.push(applyStep(recorder, () => receiveBoard(status)));
+    steps.push(
+      applyStep(recorder, () => {
+        if (mode === "control") prepareFrozenLeaderControl(status);
+        receiveBoard(status);
+      }),
+    );
   };
   if (scenario === "noop") {
     if (includeDetailFrames) replayBoardProducer("WORKING");
@@ -804,7 +834,12 @@ function measureLeader(
         ),
       );
     }
-    steps.push(applyStep(recorder, () => handleMessage(LEADER_ID, leaderStateSnapshot("MEMORY"))));
+    steps.push(
+      applyStep(recorder, () => {
+        if (mode === "control") prepareFrozenLeaderControl("MEMORY");
+        handleMessage(LEADER_ID, leaderStateSnapshot("MEMORY"));
+      }),
+    );
   }
 
   const result = { metrics: sumMetrics(steps), output: readLeaderOutput(view) };
@@ -896,62 +931,68 @@ describe("matched-build synchronized projection performance", () => {
   });
 
   it("compares leader-tab no-op, detail-plus-projection updates, coalesced burst, and reconnect work", () => {
-    const legacyNoop = measureLeader("legacy", "noop");
+    const frozenControlNoop = measureLeader("control", "noop");
     const isolatedProjectionNoop = measureLeader("projection", "noop");
     const matchedCompatibleNoop = measureLeader("projection", "noop", { includeDetailFrames: true });
-    const legacySingle = measureLeader("legacy", "single");
+    const frozenControlSingle = measureLeader("control", "single");
     const matchedCompatibleSingle = measureLeader("projection", "single", { includeDetailFrames: true });
-    const legacyBurst = measureLeader("legacy", "burst");
+    const frozenControlBurst = measureLeader("control", "burst");
     const isolatedProjectionBurst = measureLeader("projection", "burst");
     const matchedCompatibleBurst = measureLeader("projection", "burst", { includeDetailFrames: true });
-    const legacyReconnect = measureLeader("legacy", "reconnect");
+    const frozenControlReconnect = measureLeader("control", "reconnect");
     const matchedCompatibleReconnect = measureLeader("projection", "reconnect");
 
     reportBenchmark("leader-thread-tabs", {
-      legacyNoop,
+      frozenControlNoop,
       isolatedProjectionNoop,
       matchedCompatibleNoop,
-      legacySingle,
+      frozenControlSingle,
       matchedCompatibleSingle,
-      legacyBurst,
+      frozenControlBurst,
       isolatedProjectionBurst,
       matchedCompatibleBurst,
-      legacyReconnect,
+      frozenControlReconnect,
       matchedCompatibleReconnect,
     });
 
-    expect(isolatedProjectionNoop.output).toBe(legacyNoop.output);
+    expect(isolatedProjectionNoop.output).toBe(frozenControlNoop.output);
     expect(matchedCompatibleNoop.output).toBe(isolatedProjectionNoop.output);
-    expect(matchedCompatibleSingle.output).toBe(legacySingle.output);
-    expect(isolatedProjectionBurst.output).toBe(legacyBurst.output);
+    expect(matchedCompatibleSingle.output).toBe(frozenControlSingle.output);
+    expect(isolatedProjectionBurst.output).toBe(frozenControlBurst.output);
     expect(matchedCompatibleBurst.output).toBe(isolatedProjectionBurst.output);
-    expect(matchedCompatibleReconnect.output).toBe(legacyReconnect.output);
+    expect(matchedCompatibleReconnect.output).toBe(frozenControlReconnect.output);
 
+    // Equal current projections and equal frozen-control inputs are commit-free.
+    // The compatible pair retains only its one projection transport notification.
+    expect(frozenControlNoop.metrics.rootCommits).toBe(0);
     expect(isolatedProjectionNoop.metrics.rootCommits).toBe(0);
-    expect(matchedCompatibleNoop.metrics.rootCommits).toBe(2);
-    expect(legacyNoop.metrics.rootCommits).toBe(2);
-    expect(legacyNoop.metrics.storeNotifications).toBe(7);
-    expect(matchedCompatibleNoop.metrics.storeNotifications).toBe(6);
+    expect(matchedCompatibleNoop.metrics.rootCommits).toBe(0);
+    expect(frozenControlNoop.metrics.storeNotifications).toBe(4);
+    expect(matchedCompatibleNoop.metrics.storeNotifications).toBe(frozenControlNoop.metrics.storeNotifications + 1);
 
-    // Each board producer first publishes activity summary and then board detail.
-    // The matched pair adds its visual projection as a third delivery.
-    expect(legacySingle.metrics.rootCommits).toBe(2);
-    expect(legacySingle.metrics.storeNotifications).toBe(7);
-    expect(matchedCompatibleSingle.metrics.rootCommits).toBe(3);
-    expect(matchedCompatibleSingle.metrics.storeNotifications).toBeLessThan(legacySingle.metrics.storeNotifications);
+    // The current projection owns the one visible phase change. Parallel
+    // activity/detail deliveries do not add a second React commit.
+    expect(frozenControlSingle.metrics.rootCommits).toBe(1);
+    expect(matchedCompatibleSingle.metrics.rootCommits).toBe(frozenControlSingle.metrics.rootCommits);
+    expect(frozenControlSingle.metrics.storeNotifications).toBe(4);
+    expect(matchedCompatibleSingle.metrics.storeNotifications).toBe(frozenControlSingle.metrics.storeNotifications + 1);
 
-    // The projection alone is one final commit. The matched burst retains activity
-    // and board deliveries for all three producers; its seven commits equal the full
-    // legacy control rather than collapsing to the isolated projection result.
+    // A three-step control burst commits once per visible control transition.
+    // The compatible pair needs only one detail-count commit plus its final
+    // atomic projection commit, while the isolated projection commits once.
     expect(isolatedProjectionBurst.metrics.rootCommits).toBe(1);
-    expect(legacyBurst.metrics.rootCommits).toBe(7);
-    expect(legacyBurst.metrics.storeNotifications).toBe(21);
-    expect(matchedCompatibleBurst.metrics.rootCommits).toBe(7);
-    expect(matchedCompatibleBurst.metrics.storeNotifications).toBe(16);
+    expect(frozenControlBurst.metrics.rootCommits).toBe(3);
+    expect(matchedCompatibleBurst.metrics.rootCommits).toBe(2);
+    expect(matchedCompatibleBurst.metrics.rootCommits).toBeLessThan(frozenControlBurst.metrics.rootCommits);
+    expect(frozenControlBurst.metrics.storeNotifications).toBe(12);
+    expect(matchedCompatibleBurst.metrics.storeNotifications).toBe(frozenControlBurst.metrics.storeNotifications + 1);
 
-    expect(matchedCompatibleReconnect.metrics.rootCommits).toBe(legacyReconnect.metrics.rootCommits + 1);
-    expect(matchedCompatibleReconnect.metrics.storeNotifications).toBeLessThan(
-      legacyReconnect.metrics.storeNotifications,
+    // Reconnect installs the atomic visual snapshot once. The following detail
+    // snapshot is a selector no-op, matching the frozen control's one commit.
+    expect(frozenControlReconnect.metrics.rootCommits).toBe(1);
+    expect(matchedCompatibleReconnect.metrics.rootCommits).toBe(frozenControlReconnect.metrics.rootCommits);
+    expect(matchedCompatibleReconnect.metrics.storeNotifications).toBe(
+      frozenControlReconnect.metrics.storeNotifications + 1,
     );
     expect(matchedCompatibleSingle.metrics.profilerDurationMs).toBeGreaterThanOrEqual(0);
   });

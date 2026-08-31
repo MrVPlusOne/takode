@@ -3,7 +3,17 @@ import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { ReactNode } from "react";
 
-import type { ChatViewMockStoreState } from "./chat-view-test-store.js";
+import {
+  LEADER_THREAD_TABS_PROJECTION,
+  type LeaderThreadTabsProjectionValue,
+} from "../../shared/leader-thread-tabs-projection.js";
+import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
+import type { ChatViewMockStoreState } from "../test-fixtures/chat-view-test-store.js";
+import {
+  createLeaderThreadTabsProjectionTab,
+  createLeaderThreadTabsProjectionValue,
+  type LeaderThreadTabsProjectionValueOverrides,
+} from "../test-fixtures/leader-thread-tabs-projection.js";
 
 let mockState: ChatViewMockStoreState;
 const mockUnarchiveSession = vi.fn().mockResolvedValue({});
@@ -29,6 +39,8 @@ function resetStore(overrides: Partial<ChatViewMockStoreState> = {}) {
     sessionCompletedBoards: new Map(),
     sessionBoardRowStatuses: new Map(),
     leaderProjections: new Map(),
+    syncedProjectionValues: new Map(),
+    syncedProjectionKeys: new Set(),
     sessionTaskHistory: new Map(),
     messages: new Map(),
     historyLoading: new Map(),
@@ -38,6 +50,52 @@ function resetStore(overrides: Partial<ChatViewMockStoreState> = {}) {
     openQuestOverlay: mockOpenQuestOverlay,
     ...overrides,
   };
+}
+
+function leaderTab(
+  threadKey: string,
+  title: string,
+  overrides: Parameters<typeof createLeaderThreadTabsProjectionTab>[1] = {},
+) {
+  return createLeaderThreadTabsProjectionTab(threadKey, { title, ...overrides });
+}
+
+function leaderTabsProjectionState(
+  tabs: LeaderThreadTabsProjectionValue["tabs"],
+  overrides: Omit<LeaderThreadTabsProjectionValueOverrides, "tabs"> = {},
+  sessionId = "s1",
+): Pick<ChatViewMockStoreState, "syncedProjectionValues" | "syncedProjectionKeys"> {
+  const entryId = syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, sessionId);
+  const value = createLeaderThreadTabsProjectionValue({
+    tabState: { version: 1 },
+    mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+    threadStatuses: {},
+    activePhaseSummary: [],
+    ...overrides,
+    tabs: [...tabs],
+  });
+  return {
+    syncedProjectionValues: new Map([[entryId, value]]),
+    syncedProjectionKeys: new Set([entryId]),
+  };
+}
+
+function setLeaderTabsProjection(
+  tabs: LeaderThreadTabsProjectionValue["tabs"],
+  overrides: Omit<LeaderThreadTabsProjectionValueOverrides, "tabs"> = {},
+  sessionId = "s1",
+): void {
+  Object.assign(mockState, leaderTabsProjectionState(tabs, overrides, sessionId));
+}
+
+function currentLeaderTabsProjection(sessionId: string): LeaderThreadTabsProjectionValue | null {
+  const entryId = syncedProjectionEntryId(LEADER_THREAD_TABS_PROJECTION, sessionId);
+  const value = mockState.syncedProjectionValues.get(entryId);
+  return value &&
+    typeof value === "object" &&
+    (value as { currentQuestStateVersion?: number }).currentQuestStateVersion === 1
+    ? (value as LeaderThreadTabsProjectionValue)
+    : null;
 }
 
 vi.mock("../store.js", () => ({
@@ -155,71 +213,82 @@ vi.mock("./TodoStatusLine.js", () => ({
 
 vi.mock("./WorkBoardBar.js", () => ({
   WorkBoardBar: ({
+    sessionId,
     currentThreadKey,
     currentThreadLabel,
     onReturnToMain,
     onSelectThread,
     openThreadKeys = [],
     onCloseThreadTab,
-    threadRows = [],
-    attentionRecords = [],
   }: {
+    sessionId: string;
     currentThreadKey?: string;
     currentThreadLabel?: string;
     onReturnToMain?: () => void;
     onSelectThread?: (threadKey: string) => void;
     openThreadKeys?: string[];
     onCloseThreadTab?: (threadKey: string, nextThreadKey?: string) => void;
-    threadRows?: Array<{ threadKey: string; questId?: string; title: string; messageCount?: number }>;
-    attentionRecords?: Array<unknown>;
-  }) => (
-    <div
-      data-testid="work-board-bar"
-      data-current-thread-key={currentThreadKey}
-      data-current-thread-label={currentThreadLabel}
-      data-attention-count={attentionRecords.length}
-      data-open-thread-keys={openThreadKeys.join(",")}
-    >
-      {onSelectThread && (
-        <>
-          <button type="button" data-testid="mock-workboard-main" onClick={() => onSelectThread("main")}>
-            Main
-          </button>
-          <button type="button" data-testid="mock-workboard-all" onClick={() => onSelectThread("all")}>
-            All Threads
-          </button>
-          {threadRows.map((row) => (
+  }) => {
+    const projection = currentLeaderTabsProjection(sessionId);
+    const projectedRows =
+      projection?.tabs.map((tab) => ({
+        threadKey: tab.threadKey,
+        questId: tab.questId ?? undefined,
+        title: tab.title ?? tab.questId ?? tab.threadKey,
+      })) ?? [];
+    const projectedAttentionCount = [
+      ...(projection ? [projection.mainAttention] : []),
+      ...(projection?.tabs.map((tab) => tab.attention) ?? []),
+    ].filter((attention) => attention.needsInput || attention.mutedNeedsInput || attention.reviewUnread).length;
+    return (
+      <div
+        data-testid="work-board-bar"
+        data-current-thread-key={currentThreadKey}
+        data-current-thread-label={currentThreadLabel}
+        data-attention-count={projectedAttentionCount}
+        data-open-thread-keys={openThreadKeys.join(",")}
+      >
+        {onSelectThread && (
+          <>
+            <button type="button" data-testid="mock-workboard-main" onClick={() => onSelectThread("main")}>
+              Main
+            </button>
+            <button type="button" data-testid="mock-workboard-all" onClick={() => onSelectThread("all")}>
+              All Threads
+            </button>
+            {projectedRows.map((row) => (
+              <button
+                type="button"
+                key={row.threadKey}
+                data-testid="mock-workboard-thread"
+                data-thread-key={row.threadKey}
+                onClick={() => onSelectThread(row.threadKey)}
+              >
+                {row.questId ?? row.threadKey} {row.title}
+              </button>
+            ))}
+          </>
+        )}
+        {onCloseThreadTab &&
+          openThreadKeys.map((threadKey, index) => (
             <button
               type="button"
-              key={row.threadKey}
-              data-testid="mock-workboard-thread"
-              data-thread-key={row.threadKey}
-              onClick={() => onSelectThread(row.threadKey)}
+              key={`close-${threadKey}`}
+              data-testid="mock-workboard-close-tab"
+              data-thread-key={threadKey}
+              onClick={() => onCloseThreadTab(threadKey, openThreadKeys[index + 1])}
             >
-              {row.questId ?? row.threadKey} {row.title}
+              Close {threadKey}
             </button>
           ))}
-        </>
-      )}
-      {onCloseThreadTab &&
-        openThreadKeys.map((threadKey, index) => (
-          <button
-            type="button"
-            key={`close-${threadKey}`}
-            data-testid="mock-workboard-close-tab"
-            data-thread-key={threadKey}
-            onClick={() => onCloseThreadTab(threadKey, openThreadKeys[index + 1])}
-          >
-            Close {threadKey}
+        {onReturnToMain && (
+          <button type="button" onClick={onReturnToMain}>
+            Return to Main
           </button>
-        ))}
-      {onReturnToMain && (
-        <button type="button" onClick={onReturnToMain}>
-          Return to Main
-        </button>
-      )}
-    </div>
-  ),
+        )}
+      </div>
+    );
+  },
 }));
 
 vi.mock("./CatIcons.js", () => ({
@@ -367,176 +436,7 @@ beforeEach(() => {
   clearFrontendPerfEntries();
 });
 
-describe("ChatView archived banner", () => {
-  it("renders archived banner and triggers unarchive action", () => {
-    // Validates that archived-session state is surfaced directly in chat
-    // and that the banner action sends the unarchive API request.
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", archived: true }],
-    });
-
-    const view = render(<ChatView sessionId="s1" />);
-    const scope = within(view.container);
-
-    expect(scope.getByText("This session is archived. History is read-only.")).toBeInTheDocument();
-    fireEvent.click(scope.getByRole("button", { name: "Unarchive" }));
-    expect(mockUnarchiveSession).toHaveBeenCalledWith("s1");
-  });
-
-  it("does not render archived banner for active sessions", () => {
-    // Guards against false positives: non-archived sessions should keep
-    // the existing chat chrome without the archival warning banner.
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", archived: false }],
-    });
-
-    const view = render(<ChatView sessionId="s1" />);
-    const scope = within(view.container);
-    expect(scope.queryByText("This session is archived. History is read-only.")).not.toBeInTheDocument();
-  });
-});
-
-describe("ChatView backend banners", () => {
-  function expectLiveBannerBetweenFeedAndComposer(container: HTMLElement) {
-    const feed = within(container).getByTestId("message-feed");
-    const banner = within(container).getByTestId("live-connection-status-banner");
-    const composer = within(container).getByTestId("composer");
-
-    expect(feed.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(banner.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  }
-
-  it("shows the startup banner for a freshly launched session even without explicit backend_state", () => {
-    // Claude/SDK sessions do not always populate backend_state during startup,
-    // so the live chat-surface banner still needs to key off the first-connect path.
-    resetStore({
-      sessions: new Map([["s1", { backend_state: "disconnected", backend_error: null }]]),
-      sdkSessions: [{ sessionId: "s1", state: "starting", archived: false }],
-      cliConnected: new Map([["s1", false]]),
-      cliEverConnected: new Map(),
-    });
-
-    const view = render(<ChatView sessionId="s1" />);
-    const scope = within(view.container);
-    expect(scope.getByText("Starting session...")).toBeInTheDocument();
-    expectLiveBannerBetweenFeedAndComposer(view.container);
-  });
-
-  it("shows the broken-session banner and relaunch action", () => {
-    // Broken Codex sessions should stay visibly broken until the user relaunches,
-    // rather than falling back to the generic disconnected banner.
-    resetStore({
-      sessions: new Map([
-        ["s1", { backend_state: "broken", backend_error: "Codex initialization failed: Transport closed" }],
-      ]),
-      cliConnected: new Map([["s1", false]]),
-      cliEverConnected: new Map([["s1", true]]),
-      cliDisconnectReason: new Map([["s1", "broken"]]),
-      sessionStatus: new Map([["s1", null]]),
-    });
-
-    const view = render(<ChatView sessionId="s1" />);
-    const scope = within(view.container);
-    expect(scope.getByText("Codex initialization failed: Transport closed")).toBeInTheDocument();
-    expectLiveBannerBetweenFeedAndComposer(view.container);
-    fireEvent.click(scope.getByRole("button", { name: "Relaunch" }));
-    expect(mockRelaunchSession).toHaveBeenCalledWith("s1");
-  });
-
-  it("does not show a full-width banner for recoverable auto-relaunch", () => {
-    resetStore({
-      sessions: new Map([["s1", { backend_state: "recovering", backend_error: null }]]),
-      cliConnected: new Map([["s1", false]]),
-      cliEverConnected: new Map([["s1", true]]),
-      cliDisconnectReason: new Map([["s1", null]]),
-      sessionStatus: new Map([["s1", null]]),
-    });
-
-    const view = render(<ChatView sessionId="s1" />);
-    const scope = within(view.container);
-    expect(scope.queryByTestId("live-connection-status-banner")).not.toBeInTheDocument();
-    expect(scope.getByTestId("message-feed")).toBeInTheDocument();
-    expect(scope.getByTestId("composer")).toBeInTheDocument();
-    expect(scope.queryByText("Session disconnected")).not.toBeInTheDocument();
-  });
-
-  it("shows the recovery-suppressed banner and fresh-cycle reconnect action", () => {
-    resetStore({
-      sessions: new Map([
-        ["s1", { backend_state: "recovery_suppressed", backend_error: "Automatic recovery failed after 5 attempts." }],
-      ]),
-      cliConnected: new Map([["s1", false]]),
-      cliEverConnected: new Map([["s1", true]]),
-      cliDisconnectReason: new Map([["s1", "recovery_suppressed"]]),
-      sessionStatus: new Map([["s1", null]]),
-    });
-
-    const view = render(<ChatView sessionId="s1" />);
-    const scope = within(view.container);
-    expect(scope.getByText("Automatic recovery failed after 5 attempts.")).toBeInTheDocument();
-    expectLiveBannerBetweenFeedAndComposer(view.container);
-    fireEvent.click(scope.getByRole("button", { name: "Reconnect" }));
-    expect(mockRelaunchSession).toHaveBeenCalledWith("s1");
-  });
-
-  it("keeps ordinary backend disconnects out of the prominent banner path", () => {
-    resetStore({
-      sessions: new Map([["s1", { backend_state: "disconnected", backend_error: null }]]),
-      sdkSessions: [{ sessionId: "s1", state: "exited", archived: false }],
-      cliConnected: new Map([["s1", false]]),
-      cliEverConnected: new Map(),
-      cliDisconnectReason: new Map([["s1", null]]),
-      sessionStatus: new Map([["s1", null]]),
-    });
-
-    const view = render(<ChatView sessionId="s1" />);
-    const scope = within(view.container);
-    expect(scope.queryByTestId("live-connection-status-banner")).not.toBeInTheDocument();
-    expect(scope.queryByText("Starting session...")).not.toBeInTheDocument();
-    expect(scope.getByTestId("message-feed")).toBeInTheDocument();
-    expect(scope.getByTestId("composer")).toBeInTheDocument();
-  });
-
-  it("renders the WebSocket reconnect banner near the composer", () => {
-    resetStore({
-      connectionStatus: new Map([["s1", "disconnected"]]),
-    });
-
-    const view = render(<ChatView sessionId="s1" />);
-    const scope = within(view.container);
-    expect(scope.getByText("Reconnecting to session...")).toBeInTheDocument();
-    expectLiveBannerBetweenFeedAndComposer(view.container);
-  });
-
-  it("renders the server unreachable banner inside the chat surface near the composer", () => {
-    resetStore({
-      serverReachable: false,
-    });
-
-    const view = render(<ChatView sessionId="s1" />);
-    const scope = within(view.container);
-    expect(scope.getByText("Server unreachable")).toBeInTheDocument();
-    expectLiveBannerBetweenFeedAndComposer(view.container);
-  });
-
-  it("surfaces server unreachable inside search preview chat even without composer controls", () => {
-    // Search preview mode intentionally suppresses live controls, but server
-    // reachability is still live app state and must not disappear entirely.
-    resetStore({
-      serverReachable: false,
-    });
-
-    const view = render(<ChatView sessionId="s1" preview />);
-    const scope = within(view.container);
-    const feed = scope.getByTestId("message-feed");
-    const banner = scope.getByTestId("live-connection-status-banner");
-
-    expect(scope.getByText("Previewing search result. Press Enter to select this conversation.")).toBeInTheDocument();
-    expect(scope.getByText("Server unreachable")).toBeInTheDocument();
-    expect(scope.queryByTestId("composer")).not.toBeInTheDocument();
-    expect(feed.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
+describe("ChatView chat surface and leader routing", () => {
   it("renders the feed without the external latest-indicator rail", () => {
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
@@ -610,6 +510,7 @@ describe("ChatView backend banners", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([leaderTab("q-941", "Quest thread MVP")]),
       messages: new Map([
         [
           "s1",
@@ -657,6 +558,9 @@ describe("ChatView backend banners", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([
+        leaderTab("q-941", "Quest thread MVP", { attention: { reviewUnread: true, updatedAt: 2 } }),
+      ]),
       messages: new Map([
         [
           "s1",
@@ -704,6 +608,10 @@ describe("ChatView backend banners", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([
+        leaderTab("q-1", "Journey finished", { attention: { reviewUnread: true, updatedAt: 2 } }),
+        leaderTab("q-2", "Journey finished", { attention: { reviewUnread: true, updatedAt: 2 } }),
+      ]),
       sessionNotifications: new Map([
         [
           "s1",
@@ -740,6 +648,7 @@ describe("ChatView backend banners", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([leaderTab("q-941", "Quest thread MVP")]),
       messages: new Map([
         [
           "s1",
@@ -787,6 +696,9 @@ describe("ChatView backend banners", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([
+        leaderTab("q-941", "Quest thread MVP", { attention: { needsInput: true, updatedAt: 1 } }),
+      ]),
       sessionAttentionRecords: new Map([
         [
           "s1",
@@ -827,6 +739,7 @@ describe("ChatView backend banners", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([]),
       messages: new Map([
         [
           "s1",
@@ -849,7 +762,7 @@ describe("ChatView backend banners", () => {
 
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-additional-attention-count", "0");
 
-    fireEvent.click(scope.getByRole("button", { name: /q-941 freshly opened tab/i }));
+    fireEvent.click(scope.getByTestId("mock-feed-thread-jump"));
 
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941");
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-additional-attention-count", "0");
@@ -858,7 +771,7 @@ describe("ChatView backend banners", () => {
       "s1",
       expect.objectContaining({
         type: "leader_thread_tabs_update",
-        operation: expect.objectContaining({ type: "open", threadKey: "q-941" }),
+        operation: { type: "open", threadKey: "q-941", placement: "first" },
       }),
     );
   });
@@ -867,6 +780,7 @@ describe("ChatView backend banners", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([]),
       messages: new Map([["s1", []]]),
       historyLoading: new Map(),
       quests: [{ questId: "q-1005", title: "Position newly created quest tabs", status: "in_progress" }],
@@ -922,7 +836,6 @@ describe("ChatView backend banners", () => {
         ],
       ],
     ]);
-
     view.rerender(<ChatView sessionId="s1" />);
 
     await waitFor(() => {
@@ -937,6 +850,7 @@ describe("ChatView backend banners", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([leaderTab("q-941", "Existing thread", { updatedAt: 1 })]),
       messages: new Map([
         [
           "s1",
@@ -1010,6 +924,10 @@ describe("ChatView backend banners", () => {
         ],
       ],
     ]);
+    setLeaderTabsProjection([
+      leaderTab("q-1005", "Position newly created quest tabs", { updatedAt: attachedAt }),
+      leaderTab("q-941", "Existing thread", { updatedAt: 1 }),
+    ]);
 
     view.rerender(<ChatView sessionId="s1" />);
 
@@ -1026,6 +944,7 @@ describe("ChatView backend banners", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([leaderTab("q-941", "Quest thread MVP")]),
       messages: new Map([
         [
           "s1",
@@ -1068,7 +987,11 @@ describe("ChatView backend banners", () => {
   it("correlates repeated cached warm Main and quest switches for a producer-shaped large leader", () => {
     // Cached switching emits no history receive frame, so navigation timing must survive repeated remounts independently.
     runCachedWarmThreadNavigationRegression({
-      resetStore: (overrides) => resetStore(overrides),
+      resetStore: (overrides) =>
+        resetStore({
+          ...overrides,
+          ...leaderTabsProjectionState([leaderTab(overrides.quests[0].questId, overrides.quests[0].title)]),
+        }),
       renderView: () => render(<ChatView sessionId="s1" />),
     });
   });
@@ -1077,6 +1000,7 @@ describe("ChatView backend banners", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([leaderTab("q-941", "Quest thread MVP")]),
       messages: new Map([
         [
           "s1",
@@ -1118,6 +1042,7 @@ describe("ChatView backend banners", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([leaderTab("q-941", "Quest thread MVP")]),
       messages: new Map([
         [
           "s1",
@@ -1285,6 +1210,7 @@ describe("ChatView backend banners", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([leaderTab("q-958", "q-958")]),
       messages: new Map([
         [
           "s1",
@@ -1314,6 +1240,7 @@ describe("ChatView backend banners", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([leaderTab("q-959", "q-959")]),
       messages: new Map([
         [
           "s1",
@@ -1374,6 +1301,28 @@ describe("ChatView backend banners", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([
+        leaderTab("q-100", "Empty active thread", {
+          boardStatus: "IMPLEMENT",
+          journey: {
+            mode: "active",
+            phaseIds: ["implement"],
+            currentPhaseId: "implement",
+            activePhaseIndex: 0,
+            phaseCount: 1,
+          },
+          sourceRowCreatedAt: 100,
+          active: true,
+          canClose: false,
+          updatedAt: 500,
+        }),
+        leaderTab("q-200", "Completed thread", {
+          boardStatus: "DONE",
+          sourceRowCreatedAt: 200,
+          completed: true,
+          updatedAt: 400,
+        }),
+      ]),
       sessionBoards: new Map([
         [
           "s1",
@@ -1436,6 +1385,24 @@ describe("ChatView backend banners", () => {
           cliConnected: true,
         },
       ],
+      ...leaderTabsProjectionState([
+        leaderTab("q-968", "Thread navigation rework", {
+          boardStatus: "IMPLEMENTING",
+          journey: {
+            mode: "active",
+            phaseIds: ["alignment", "implement", "code-review"],
+            currentPhaseId: "implement",
+            activePhaseIndex: 1,
+            phaseCount: 3,
+          },
+          sourceRowCreatedAt: 2,
+          workerSessionId: "worker-968",
+          workerSessionNum: 1321,
+          active: true,
+          canClose: false,
+          updatedAt: 4,
+        }),
+      ]),
       sessionBoards: new Map([
         [
           "s1",
@@ -1510,6 +1477,22 @@ describe("ChatView backend banners", () => {
           cliConnected: true,
         },
       ],
+      ...leaderTabsProjectionState([
+        leaderTab("q-968", "Waiting banner", {
+          boardStatus: "QUEUED",
+          journey: {
+            mode: "active",
+            phaseIds: ["alignment", "implement"],
+            currentPhaseId: "implement",
+            activePhaseIndex: 1,
+            phaseCount: 2,
+          },
+          sourceRowCreatedAt: 2,
+          queued: true,
+          neverStartedScheduled: true,
+          updatedAt: 4,
+        }),
+      ]),
       sessionBoards: new Map([
         [
           "s1",
@@ -1554,6 +1537,16 @@ describe("ChatView backend banners", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([
+        leaderTab("q-969", "Input wait banner", {
+          boardStatus: "USER_CHECKPOINTING",
+          sourceRowCreatedAt: 2,
+          active: true,
+          canClose: false,
+          attention: { needsInput: true, updatedAt: 4 },
+          updatedAt: 4,
+        }),
+      ]),
       sessionBoards: new Map([["s1", [pausedRow]]]),
       quests: [{ questId: "q-969", title: "Input wait banner", status: "in_progress" }],
     });
@@ -1566,6 +1559,15 @@ describe("ChatView backend banners", () => {
 
     mockState.sessionBoards = new Map([
       ["s1", [{ ...pausedRow, status: "IMPLEMENTING", waitForInput: undefined, updatedAt: 5 }]],
+    ]);
+    setLeaderTabsProjection([
+      leaderTab("q-969", "Input wait banner", {
+        boardStatus: "IMPLEMENTING",
+        sourceRowCreatedAt: 2,
+        active: true,
+        canClose: false,
+        updatedAt: 5,
+      }),
     ]);
     view.rerender(<ChatView sessionId="s1" />);
     expect(scope.queryByTestId("quest-thread-wait-pill")).not.toBeInTheDocument();
@@ -1592,6 +1594,23 @@ describe("ChatView backend banners", () => {
           cliConnected: true,
         },
       ],
+      ...leaderTabsProjectionState([
+        leaderTab("q-970", "Completed banner polish", {
+          boardStatus: "DONE",
+          journey: {
+            mode: "active",
+            phaseIds: ["alignment", "implement", "outcome-review", "code-review", "port"],
+            currentPhaseId: "port",
+            activePhaseIndex: 4,
+            phaseCount: 5,
+          },
+          sourceRowCreatedAt: 2,
+          workerSessionId: "worker-970",
+          workerSessionNum: 1321,
+          completed: true,
+          updatedAt: 5,
+        }),
+      ]),
       sessionCompletedBoards: new Map([
         [
           "s1",
@@ -1793,10 +1812,11 @@ describe("ChatView backend banners", () => {
     expect(scope.getByLabelText("Leader #1286")).toHaveAttribute("href", "#session-1286?thread=q-971");
   });
 
-  it("defers leader message-derived tabs and attention while history restore is still loading", () => {
+  it("keeps projected tabs and attention unchanged until the post-restore projection arrives", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      ...leaderTabsProjectionState([]),
       historyLoading: new Map([["s1", true]]),
       messages: new Map([
         [
@@ -1818,61 +1838,34 @@ describe("ChatView backend banners", () => {
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
 
-    // message_history sets messages before clearing historyLoading; that
-    // intermediate render must not scan the full leader transcript.
+    // message_history can set messages before the server publishes the next
+    // synchronized projection; that intermediate render stays unchanged.
     expect(scope.queryAllByTestId("mock-workboard-thread")).toHaveLength(0);
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-attention-count", "0");
 
     mockState.historyLoading = new Map();
+    setLeaderTabsProjection([
+      leaderTab("q-1005", "Restore leader sessions", {
+        attention: { needsInput: true, updatedAt: 2 },
+        updatedAt: 2,
+      }),
+    ]);
     view.rerender(<ChatView sessionId="s1" />);
 
     expect(scope.getByTestId("mock-workboard-thread")).toHaveAttribute("data-thread-key", "q-1005");
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-attention-count", "1");
   });
 
-  it("uses leader projection summaries for navigation while raw history is still loading", () => {
+  it("uses the current leader-tab projection for navigation while raw history is still loading", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
       historyLoading: new Map([["s1", true]]),
-      leaderProjections: new Map([
-        [
-          "s1",
-          {
-            schemaVersion: 2,
-            sourceHistoryLength: 50_000,
-            threadSummaries: [
-              {
-                threadKey: "q-1039",
-                questId: "q-1039",
-                messageCount: 420,
-                firstMessageAt: 1,
-                lastMessageAt: 2,
-              },
-            ],
-            messageAttentionRecords: [
-              {
-                id: "message-rework:u-1",
-                leaderSessionId: "s1",
-                type: "quest_reopened_or_rework",
-                source: { kind: "message", id: "u-1", questId: "q-1039", messageId: "u-1" },
-                questId: "q-1039",
-                threadKey: "q-1039",
-                title: "q-1039: rework requested",
-                summary: "Please ask the agent to fix the issue.",
-                actionLabel: "Open",
-                priority: "milestone",
-                state: "reopened",
-                createdAt: 1,
-                updatedAt: 1,
-                route: { threadKey: "q-1039", questId: "q-1039", messageId: "u-1" },
-                chipEligible: false,
-                ledgerEligible: true,
-                dedupeKey: "message-rework:u-1",
-              },
-            ],
-          },
-        ],
+      ...leaderTabsProjectionState([
+        leaderTab("q-1039", "Projection summaries", {
+          attention: { reviewUnread: true, updatedAt: 1 },
+          updatedAt: 2,
+        }),
       ]),
       messages: new Map([
         [
@@ -1901,29 +1894,11 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-attention-count", "1");
   });
 
-  it("counts live attachment markers with negative history indexes after a projection is installed", async () => {
+  it("applies the current projection update for a live attachment after the baseline projection", async () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
-      leaderProjections: new Map([
-        [
-          "s1",
-          {
-            schemaVersion: 2,
-            sourceHistoryLength: 500,
-            threadSummaries: [
-              {
-                threadKey: "q-941",
-                questId: "q-941",
-                messageCount: 12,
-                firstMessageAt: 1,
-                lastMessageAt: 2,
-              },
-            ],
-            messageAttentionRecords: [],
-          },
-        ],
-      ]),
+      ...leaderTabsProjectionState([leaderTab("q-941", "Projected baseline thread", { updatedAt: 2 })]),
       messages: new Map([["s1", []]]),
       quests: [
         { questId: "q-941", title: "Projected baseline thread", status: "in_progress" },
@@ -1975,6 +1950,10 @@ describe("ChatView backend banners", () => {
           },
         ],
       ],
+    ]);
+    setLeaderTabsProjection([
+      leaderTab("q-1005", "Live moved marker thread", { updatedAt: attachedAt }),
+      leaderTab("q-941", "Projected baseline thread", { updatedAt: 2 }),
     ]);
 
     view.rerender(<ChatView sessionId="s1" />);

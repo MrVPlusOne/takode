@@ -12,21 +12,21 @@ import {
   SYNCED_PROJECTION_DESCRIPTOR_LIST,
   type SyncedProjectionEnvelopeFor,
   type SyncedProjectionId,
-  type SyncedProjectionValueById,
 } from "../shared/synced-projection-registry.js";
 import type {
   SyncedProjectionSnapshotMessage,
   SyncedProjectionSubscription,
   SyncedProjectionSubscriptionsAckMessage,
-  SyncedProjectionUpdateMessage,
 } from "../shared/synced-projection.js";
 import { sendToBrowser, type BrowserTransportSocketLike } from "./bridge/browser-transport-controller.js";
 import {
   applyLeaderServerCandidateThreadTabEvent,
+  MAX_LEADER_OPEN_THREAD_TABS,
   normalizeLeaderOpenThreadTabsState,
 } from "../shared/leader-open-thread-tabs.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
-import type { BrowserIncomingMessage } from "./session-types.js";
+import type { BrowserIncomingMessage, ThreadTransitionMarker } from "./session-types.js";
+import { hasConnectedCurrentBuildBrowserViewingThread } from "./bridge/browser-conversation-window-policy.js";
 import { createSessionAttentionProjectionDefinition } from "./session-attention-projection.js";
 import {
   createLeaderThreadTabsProjectionDefinition,
@@ -63,16 +63,17 @@ function leaderSessionReferencesQuest(session: Session, questIds: ReadonlySet<st
     if (row.completedAt === undefined && !COMPLETED_QUEST_STATUSES.has(status) && matches(row.questId)) return true;
   }
   for (const record of session.attentionRecords) {
-    const active =
-      ACTIVE_ATTENTION_STATES.has(record.state) ||
-      (record.state === "muted" && record.type === "needs_input" && record.priority === "needs_input");
-    const threadKey = record.route.threadKey || record.threadKey || record.questId;
-    if (active && matches(threadKey)) return true;
+    if (
+      (ACTIVE_ATTENTION_STATES.has(record.state) ||
+        (record.state === "muted" && record.type === "needs_input" && record.priority === "needs_input")) &&
+      matches(record.route.threadKey || record.threadKey || record.questId)
+    ) {
+      return true;
+    }
   }
-  for (const notification of session.notifications) {
-    if (!notification.done && matches(notification.threadKey || notification.questId)) return true;
-  }
-  return false;
+  return session.notifications.some(
+    (notification) => !notification.done && matches(notification.threadKey || notification.questId),
+  );
 }
 
 function deferredLeaderThreadKeys(session: Session): Set<string> {
@@ -157,6 +158,53 @@ export class WsBridgeSyncedProjectionController {
     });
   }
 
+  private applyLeaderThreadTabPromotion(
+    session: Session,
+    threadKey: string,
+    eventAt: number,
+    options: Parameters<typeof applyLeaderServerCandidateThreadTabEvent>[3] = {},
+    rejectWhenFull = false,
+  ): boolean {
+    const key = threadKey.trim().toLowerCase();
+    if (!this.isLeaderSession(session) || !/^q-\d+$/.test(key) || !Number.isFinite(eventAt) || eventAt < 0) {
+      return false;
+    }
+    const current = normalizeLeaderOpenThreadTabsState(session.state.leaderOpenThreadTabs);
+    if (
+      rejectWhenFull &&
+      !current?.orderedOpenThreadKeys.includes(key) &&
+      (current?.orderedOpenThreadKeys.length ?? 0) >= MAX_LEADER_OPEN_THREAD_TABS
+    ) {
+      return false;
+    }
+    const next = applyLeaderServerCandidateThreadTabEvent(current, key, eventAt, options);
+    if (!next || next === current) return false;
+    session.state = { ...session.state, leaderOpenThreadTabs: next };
+    this.runtime.invalidate(LEADER_THREAD_TABS_PROJECTION, session.id);
+    this.deps.persistSession?.(session);
+    return true;
+  }
+
+  private promoteLeaderThreadTabForServerCandidate(session: Session, threadKey: string, eventAt: number): boolean {
+    const policy = this.getLeaderThreadTabMutationPolicy(session.id, threadKey);
+    return policy?.scheduled || policy?.completed
+      ? false
+      : this.applyLeaderThreadTabPromotion(session, threadKey, eventAt, { repositionExisting: true }, true);
+  }
+
+  promoteLeaderThreadTabForAttachment(sessionId: string, threadKey: string, attachedAt: number): boolean {
+    const session = this.deps.getSession(sessionId);
+    return session ? this.promoteLeaderThreadTabForServerCandidate(session, threadKey, attachedAt) : false;
+  }
+
+  promoteLeaderThreadTabForTransition(sessionId: string, marker: ThreadTransitionMarker): boolean {
+    const session = marker.targetThreadFreshness === "new_quest_thread" ? this.deps.getSession(sessionId) : undefined;
+    if (!session || !hasConnectedCurrentBuildBrowserViewingThread(session.browserSockets, marker.sourceThreadKey)) {
+      return false;
+    }
+    return this.promoteLeaderThreadTabForServerCandidate(session, marker.threadKey, marker.transitionedAt);
+  }
+
   invalidateSession(session: Session): void {
     this.runtime.transaction(() => {
       for (const descriptor of SYNCED_PROJECTION_DESCRIPTOR_LIST) {
@@ -176,37 +224,24 @@ export class WsBridgeSyncedProjectionController {
     kind: "primary" | "review",
   ): boolean {
     const session = this.deps.getSession(sessionId);
-    const normalizedThreadKey = threadKey.trim().toLowerCase();
+    if (!session) return false;
+    const key = threadKey.trim().toLowerCase();
+    const policy = this.getLeaderThreadTabMutationPolicy(session.id, key);
+    // Scheduled work stays low, and already-open active work keeps manual order.
     if (
-      !session ||
-      !this.isLeaderSession(session) ||
-      !/^q-\d+$/.test(normalizedThreadKey) ||
-      !Number.isFinite(eventAt) ||
-      eventAt < 0
+      policy?.neverStartedScheduled ||
+      (policy?.inMotion &&
+        normalizeLeaderOpenThreadTabsState(session.state.leaderOpenThreadTabs)?.orderedOpenThreadKeys.includes(key))
     ) {
       return false;
     }
-    const existingState = normalizeLeaderOpenThreadTabsState(session.state.leaderOpenThreadTabs);
-    const alreadyOpen = existingState?.orderedOpenThreadKeys.includes(normalizedThreadKey) === true;
-    const policy = this.getLeaderThreadTabMutationPolicy(session.id, normalizedThreadKey);
-    // Never-started scheduled tabs keep their low-priority placement even when
-    // attention changes; their badge remains projected in place.
-    if (policy?.neverStartedScheduled) return false;
-    // Active work is already in the leading class. Review/rework attention may
-    // promote a missing, completed, scheduled, or otherwise non-active tab,
-    // but ordinary active edits must not perturb its durable order.
-    if (alreadyOpen && policy?.inMotion) return false;
-    const nextState = applyLeaderServerCandidateThreadTabEvent(existingState, normalizedThreadKey, eventAt, {
+    const review = kind === "review";
+    return this.applyLeaderThreadTabPromotion(session, key, eventAt, {
       repositionExisting: true,
-      placement: kind === "review" ? "before" : "first",
-      ...(kind === "review" ? { beforeThreadKeys: deferredLeaderThreadKeys(session) } : {}),
+      placement: review ? "before" : "first",
+      ...(review ? { beforeThreadKeys: deferredLeaderThreadKeys(session) } : {}),
       allowTombstoneReopen: policy?.scheduled !== true,
     });
-    if (!nextState || nextState === existingState) return false;
-    session.state = { ...session.state, leaderOpenThreadTabs: nextState };
-    this.runtime.invalidate(LEADER_THREAD_TABS_PROJECTION, session.id);
-    this.deps.persistSession?.(session);
-    return true;
   }
 
   promoteLeaderThreadTabForMessageAttention(
@@ -228,27 +263,22 @@ export class WsBridgeSyncedProjectionController {
 
     for (const session of this.deps.listSessions()) {
       if (!this.isLeaderSession(session) || !leaderSessionReferencesQuest(session, questIds)) continue;
-      const existingState = normalizeLeaderOpenThreadTabsState(session.state.leaderOpenThreadTabs);
-      const nextState = applyLeaderServerCandidateThreadTabEvent(existingState, normalizedQuestId, eventAt, {
-        repositionExisting: true,
-      });
-      if (!nextState || nextState === existingState) continue;
-      session.state = { ...session.state, leaderOpenThreadTabs: nextState };
-      changed += 1;
-      this.runtime.invalidate(LEADER_THREAD_TABS_PROJECTION, session.id);
-      this.deps.persistSession?.(session);
+      if (this.applyLeaderThreadTabPromotion(session, normalizedQuestId, eventAt, { repositionExisting: true })) {
+        changed += 1;
+      }
     }
     return changed;
   }
 
   invalidateLeaderThreadTabsForSessionQuestState(sessionId: string): number {
     const session = this.deps.getSession(sessionId);
-    if (!session) return 0;
-    return this.invalidateLeaderThreadTabsForQuestIds([
-      session.state.claimedQuestId ?? "",
-      ...session.board.keys(),
-      ...session.completedBoard.keys(),
-    ]);
+    return session
+      ? this.invalidateLeaderThreadTabsForQuestIds([
+          session.state.claimedQuestId ?? "",
+          ...session.board.keys(),
+          ...session.completedBoard.keys(),
+        ])
+      : 0;
   }
 
   invalidateLeaderThreadTabsForQuestIds(questIds: Iterable<string>): number {
@@ -280,10 +310,7 @@ export class WsBridgeSyncedProjectionController {
   }
 
   getSnapshot<K extends SyncedProjectionId>(projection: K, sessionId: string): SyncedProjectionEnvelopeFor<K> | null {
-    return this.runtime.getSnapshot<SyncedProjectionValueById[K]>(
-      projection,
-      sessionId,
-    ) as SyncedProjectionEnvelopeFor<K> | null;
+    return this.runtime.getSnapshot(projection, sessionId) as SyncedProjectionEnvelopeFor<K> | null;
   }
 
   replaceSubscriptions(
@@ -291,11 +318,9 @@ export class WsBridgeSyncedProjectionController {
     subscriptions: readonly SyncedProjectionSubscription[],
   ): Array<SyncedProjectionSnapshotMessage | SyncedProjectionSubscriptionsAckMessage> {
     const replacement = this.runtime.replaceSubscriptions(socket, subscriptions, (subscriber, envelope) => {
-      const update = {
-        type: "synced_projection_update",
-        ...envelope,
-      } satisfies SyncedProjectionUpdateMessage;
-      if (!sendToBrowser(subscriber, update)) throw new Error("Synced projection subscriber is not sendable");
+      if (!sendToBrowser(subscriber, { type: "synced_projection_update", ...envelope })) {
+        throw new Error("Synced projection subscriber is not sendable");
+      }
     });
     return [
       ...replacement.snapshots.map((envelope) => ({ type: "synced_projection_snapshot" as const, ...envelope })),

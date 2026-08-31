@@ -3,8 +3,6 @@ import type {
   BoardRowSessionStatus,
   BrowserIncomingMessage,
   ContentBlock,
-  LeaderProjectionInternalSnapshot,
-  LeaderProjectionSnapshot,
   LeaderProjectionThreadRow,
   LeaderProjectionThreadSummary,
   SessionAttentionRecord,
@@ -14,12 +12,6 @@ import type {
   ThreadTransitionMarker,
 } from "../server/session-types.js";
 import type { QuestmasterTask } from "../server/quest-types.js";
-import type { LeaderThreadRouteIndex } from "./leader-thread-route-index.js";
-import {
-  buildRawTurnBoundariesFromRouteIndex,
-  collectLeaderThreadSummariesFromRouteIndex,
-  leaderThreadRouteIndexMatchesSource,
-} from "./leader-thread-route-index.js";
 import { normalizeThreadTarget, parseCommandThreadComment, parseThreadTextPrefix } from "./thread-routing.js";
 
 export interface LeaderProjectionBoardRow extends Omit<BoardRow, "createdAt"> {
@@ -49,20 +41,6 @@ export interface LeaderProjectionMessageLike {
   historyIndex?: number;
 }
 
-export interface BuildLeaderProjectionInput {
-  leaderSessionId: string;
-  messageHistory: ReadonlyArray<LeaderProjectionMessageLike>;
-  activeBoard?: ReadonlyArray<LeaderProjectionBoardRow>;
-  completedBoard?: ReadonlyArray<LeaderProjectionBoardRow>;
-  quests?: ReadonlyArray<Pick<QuestmasterTask, "questId" | "title" | "status" | "createdAt">>;
-  rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
-  notifications?: ReadonlyArray<SessionNotification>;
-  attentionRecords?: ReadonlyArray<SessionAttentionRecord>;
-  threadRouteIndex?: LeaderThreadRouteIndex;
-  revision?: number;
-  generatedAt?: number;
-}
-
 export interface BuildLeaderThreadRowsInput {
   activeBoard?: ReadonlyArray<LeaderProjectionBoardRow>;
   completedBoard?: ReadonlyArray<LeaderProjectionBoardRow>;
@@ -78,60 +56,6 @@ const JOURNEY_FINISHED_TITLE = "Journey finished";
 function isCompletedQuestStatus(status?: string | null): boolean {
   const normalized = (status ?? "").trim().toLowerCase();
   return normalized === "done" || normalized === "completed" || normalized === "needs_verification";
-}
-
-export function buildLeaderProjectionSnapshot(input: BuildLeaderProjectionInput): LeaderProjectionInternalSnapshot {
-  const routeIndex = usableThreadRouteIndex(input.threadRouteIndex, input.messageHistory);
-  const threadSummaries = routeIndex
-    ? collectLeaderThreadSummariesFromRouteIndex(routeIndex)
-    : collectLeaderThreadSummaries(input.messageHistory);
-  const messageAttentionRecords = collectMessageAttentionRecords(input.leaderSessionId, input.messageHistory);
-  const activeBoard = [...(input.activeBoard ?? [])];
-  const completedBoard = [...(input.completedBoard ?? [])];
-  const attentionRecords = buildProjectionAttentionRecords({
-    leaderSessionId: input.leaderSessionId,
-    records: [...(input.attentionRecords ?? []), ...messageAttentionRecords],
-    notifications: input.notifications,
-    boardRows: activeBoard,
-    completedBoardRows: completedBoard,
-  });
-  const threadRows = buildLeaderThreadRowsFromSummaries({
-    activeBoard,
-    completedBoard,
-    threadSummaries,
-    quests: input.quests,
-    rowSessionStatuses: input.rowSessionStatuses,
-  });
-  return {
-    schemaVersion: 1,
-    revision: input.revision ?? buildProjectionRevision(input),
-    sourceHistoryLength: input.messageHistory.length,
-    generatedAt: input.generatedAt ?? Date.now(),
-    threadSummaries,
-    threadRows,
-    workBoardThreadRows: threadRows.map(toWorkBoardThreadRow),
-    messageAttentionRecords,
-    attentionRecords,
-    rawTurnBoundaries: routeIndex
-      ? buildRawTurnBoundariesFromRouteIndex(routeIndex)
-      : buildRawTurnBoundaries(input.messageHistory),
-  };
-}
-
-export function toLeaderProjectionWireSnapshot(projection: LeaderProjectionInternalSnapshot): LeaderProjectionSnapshot {
-  return {
-    schemaVersion: 2,
-    sourceHistoryLength: projection.sourceHistoryLength,
-    threadSummaries: projection.threadSummaries,
-    messageAttentionRecords: projection.messageAttentionRecords,
-  };
-}
-
-function usableThreadRouteIndex(
-  index: LeaderThreadRouteIndex | undefined,
-  messages: ReadonlyArray<LeaderProjectionMessageLike>,
-): LeaderThreadRouteIndex | null {
-  return leaderThreadRouteIndexMatchesSource(index, messages) ? index : null;
 }
 
 export function collectLeaderThreadSummaries(
@@ -341,53 +265,6 @@ export function buildProjectionAttentionRecords(input: {
 
 export function normalizeThreadKey(threadKey: string): string {
   return threadKey.trim().toLowerCase();
-}
-
-function buildProjectionRevision(input: BuildLeaderProjectionInput): number {
-  const notificationVersion = input.notifications?.length ?? 0;
-  const attentionVersion = input.attentionRecords?.length ?? 0;
-  const boardVersion = (input.activeBoard?.length ?? 0) + (input.completedBoard?.length ?? 0);
-  return input.messageHistory.length * 1_000_000 + notificationVersion * 10_000 + attentionVersion * 100 + boardVersion;
-}
-
-function toWorkBoardThreadRow(
-  row: LeaderProjectionThreadRow,
-): LeaderProjectionInternalSnapshot["workBoardThreadRows"][number] {
-  return {
-    threadKey: row.threadKey,
-    questId: row.questId,
-    title: row.title,
-    messageCount: row.messageCount,
-    section: row.section,
-  };
-}
-
-function buildRawTurnBoundaries(
-  messages: ReadonlyArray<LeaderProjectionMessageLike>,
-): LeaderProjectionInternalSnapshot["rawTurnBoundaries"] {
-  const boundaries: LeaderProjectionInternalSnapshot["rawTurnBoundaries"] = [];
-  let currentStart: number | null = null;
-  messages.forEach((message, index) => {
-    if (message.type === "user_message" || message.role === "user") {
-      if (currentStart !== null) {
-        boundaries.push({ turnIndex: boundaries.length, startHistoryIndex: currentStart, endHistoryIndex: index - 1 });
-      }
-      currentStart = historyIndexForMessage(message, index);
-      return;
-    }
-    if (message.type !== "result") return;
-    if (currentStart === null) return;
-    boundaries.push({
-      turnIndex: boundaries.length,
-      startHistoryIndex: currentStart,
-      endHistoryIndex: historyIndexForMessage(message, index),
-    });
-    currentStart = null;
-  });
-  if (currentStart !== null) {
-    boundaries.push({ turnIndex: boundaries.length, startHistoryIndex: currentStart, endHistoryIndex: null });
-  }
-  return boundaries;
 }
 
 function messageThreadKeys(message: LeaderProjectionMessageLike): string[] {

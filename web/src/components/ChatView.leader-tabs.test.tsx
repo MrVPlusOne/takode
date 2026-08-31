@@ -6,6 +6,7 @@ import type { LeaderOpenThreadTabsState } from "../../shared/leader-open-thread-
 import { persistLeaderSelectedThreadKey, readLeaderSelectedThreadKey } from "../utils/thread-viewport.js";
 import { parseHash, threadRouteFromHash } from "../utils/routing.js";
 import type { LeaderWorkboardView } from "../store-types.js";
+import { installChatViewLeaderProjection } from "../test-fixtures/chat-view-leader-projection.js";
 import {
   createModelProvenanceMigration,
   resolveUnknownModelProvenanceAuthority,
@@ -61,6 +62,8 @@ interface MockStoreState {
   sessionCompletedBoards: Map<string, unknown[]>;
   sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
   leaderProjections: Map<string, import("../types.js").LeaderProjectionSnapshot>;
+  syncedProjectionValues: Map<string, unknown>;
+  syncedProjectionKeys: Set<string>;
   messages: Map<string, unknown[]>;
   historyLoading: Map<string, boolean>;
   quests: Array<Record<string, unknown> & { questId: string; title: string; status: string }>;
@@ -112,6 +115,8 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionCompletedBoards: new Map(),
     sessionBoardRowStatuses: new Map(),
     leaderProjections: new Map(),
+    syncedProjectionValues: new Map(),
+    syncedProjectionKeys: new Set(),
     messages: new Map(),
     historyLoading: new Map(),
     quests: [],
@@ -134,6 +139,24 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
       else mockState.leaderWorkboardViews.delete(sessionId);
     });
   }
+  const session = mockState.sessions.get("s1");
+  const sdkSession = mockState.sdkSessions.find((candidate) => candidate.sessionId === "s1");
+  if (session?.isOrchestrator === true || sdkSession?.isOrchestrator === true) {
+    installChatViewLeaderProjection(
+      mockState,
+      "s1",
+      session?.leaderOpenThreadTabs?.orderedOpenThreadKeys ??
+        sdkSession?.leaderOpenThreadTabs?.orderedOpenThreadKeys ??
+        [],
+    );
+  }
+}
+
+function setLeaderProjection(
+  orderedThreadKeys: readonly string[],
+  options?: Parameters<typeof installChatViewLeaderProjection>[3],
+) {
+  return installChatViewLeaderProjection(mockState, "s1", orderedThreadKeys, options);
 }
 
 vi.mock("../store.js", () => ({
@@ -422,7 +445,7 @@ describe("ChatView leader open thread tabs", () => {
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941");
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
       type: "leader_thread_tabs_update",
-      operation: { type: "open", threadKey: "q-941", placement: "first", source: "user" },
+      operation: { type: "open", threadKey: "q-941", placement: "first" },
     });
     expect(localStorage.getItem("test-server:cc-leader-open-thread-tabs:s1")).toBeNull();
 
@@ -665,11 +688,11 @@ describe("ChatView leader open thread tabs", () => {
     const scope = within(view.container);
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941,q-777");
 
-    mockState.sessions = leaderSession(leaderTabs(["q-777"], [{ threadKey: "q-941", closedAt: 10 }]));
+    setLeaderProjection(["q-777"]);
     view.rerender(<ChatView sessionId="s1" />);
 
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-777");
-    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-closed-thread-keys", "q-941");
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-closed-thread-keys", "");
   });
 
   it("sends manual reorder operations without changing selected tab or viewport ownership", () => {
@@ -697,7 +720,7 @@ describe("ChatView leader open thread tabs", () => {
       operation: { type: "reorder", orderedOpenThreadKeys: ["q-555", "q-777", "q-941"] },
     });
 
-    mockState.sessions = leaderSession(leaderTabs(["q-555", "q-777", "q-941"]));
+    setLeaderProjection(["q-555", "q-777", "q-941"]);
     view.rerender(<ChatView sessionId="s1" />);
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-555,q-777,q-941");
   });
@@ -762,7 +785,7 @@ describe("ChatView leader open thread tabs", () => {
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-555,q-777,q-941");
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
       type: "leader_thread_tabs_update",
-      operation: { type: "open", threadKey: "q-555", placement: "first", source: "user" },
+      operation: { type: "open", threadKey: "q-555", placement: "first" },
     });
   });
 
@@ -806,7 +829,7 @@ describe("ChatView leader open thread tabs", () => {
     );
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
       type: "leader_thread_tabs_update",
-      operation: { type: "open", threadKey: "q-1376", placement: "first", source: "route" },
+      operation: { type: "open", threadKey: "q-1376", placement: "first" },
     });
   });
 
@@ -842,6 +865,7 @@ describe("ChatView leader open thread tabs", () => {
     mockState.sessionBoards = new Map([
       ["s1", [{ questId: "q-1395", status: "ALIGNMENT", title: "Newly created follow-up", updatedAt: 200 }]],
     ]);
+    setLeaderProjection(["q-1395", "q-1391", "q-1376", "q-1361"]);
     view.rerender(<RouteAwareLeaderSession />);
 
     await waitFor(() =>
@@ -850,20 +874,7 @@ describe("ChatView leader open thread tabs", () => {
         "q-1395,q-1391,q-1376,q-1361",
       ),
     );
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-1395",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: 200,
-      },
-    });
-    expect(mockSendToSession).not.toHaveBeenCalledWith(
-      "s1",
-      expect.objectContaining({ operation: expect.objectContaining({ threadKey: "q-1391" }) }),
-    );
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("does not reassert an already processed route after authoritative tab updates", async () => {
@@ -885,7 +896,7 @@ describe("ChatView leader open thread tabs", () => {
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1391"));
     mockSendToSession.mockClear();
 
-    mockState.sessions = leaderSession(leaderTabs(["q-1395", "q-1391", "q-1376"], [], 200));
+    setLeaderProjection(["q-1395", "q-1391", "q-1376"]);
     view.rerender(<RouteAwareLeaderSession />);
 
     await waitFor(() =>
@@ -917,11 +928,7 @@ describe("ChatView leader open thread tabs", () => {
     // route repair must trust already-open server tabs even when their
     // projected thread rows lag behind notification/thread hydration.
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-    fireEvent.click(
-      scope
-        .getAllByTestId("mock-workboard-open-thread")
-        .find((button) => button.getAttribute("data-thread-key") === "q-900001")!,
-    );
+    fireEvent.click(scope.getByRole("button", { name: /q-900001 active ui routing tab/i }));
 
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-900001"));
     expect(window.location.hash).toBe("#/session/s1?thread=q-900001");
@@ -985,22 +992,12 @@ describe("ChatView leader open thread tabs", () => {
       quests: [{ questId: "q-1231", title: "Permission CLI", status: "in_progress" }],
     });
 
+    setLeaderProjection(["q-1231"]);
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
 
     await waitFor(() => expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1231"));
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-1231",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: 8,
-      },
-    });
-
-    mockSendToSession.mockClear();
+    expect(mockSendToSession).not.toHaveBeenCalled();
     mockState.sessionBoards = new Map([["s1", []]]);
     mockState.sessionCompletedBoards = new Map([
       [
@@ -1018,6 +1015,7 @@ describe("ChatView leader open thread tabs", () => {
       ],
     ]);
     mockState.quests = [{ questId: "q-1231", title: "Permission CLI", status: "done" }];
+    setLeaderProjection(["q-1231"]);
     view.rerender(<ChatView sessionId="s1" />);
 
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1231");
@@ -1049,6 +1047,7 @@ describe("ChatView leader open thread tabs", () => {
       ],
     });
 
+    setLeaderProjection(["q-new", "q-old-a", "q-old-b", "q-old-c"]);
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
 
@@ -1058,16 +1057,7 @@ describe("ChatView leader open thread tabs", () => {
         "q-new,q-old-a,q-old-b,q-old-c",
       ),
     );
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-new",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: 30,
-      },
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("opens a manually created idea quest at the left edge when it first becomes active", async () => {
@@ -1085,22 +1075,14 @@ describe("ChatView leader open thread tabs", () => {
       ],
     });
 
+    setLeaderProjection(["q-7", "q-8", "q-5", "q-6"]);
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
 
     await waitFor(() =>
       expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-7,q-8,q-5,q-6"),
     );
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-7",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: 70,
-      },
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("promotes routed needs-input notification quest tabs while the board is empty", async () => {
@@ -1120,35 +1102,17 @@ describe("ChatView leader open thread tabs", () => {
       ],
     });
 
+    setLeaderProjection(["q-12", "q-10", "q-13", "q-8", "q-11"]);
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
 
     await waitFor(() =>
       expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-12,q-10,q-13,q-8,q-11"),
     );
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-10",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: 100,
-      },
-    });
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-12",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: 120,
-      },
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
-  it("promotes needs-input notification tabs once per new event across authoritative refreshes", async () => {
+  it("applies server-owned needs-input tab promotion across authoritative refreshes", async () => {
     resetStore({
       sessions: leaderSession(leaderTabs(["q-13"])),
       sessionBoards: new Map([["s1", []]]),
@@ -1163,20 +1127,16 @@ describe("ChatView leader open thread tabs", () => {
       ],
     });
 
+    setLeaderProjection(["q-12", "q-10", "q-13"]);
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
 
     await waitFor(() =>
       expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-12,q-10,q-13"),
     );
-    expect(
-      mockSendToSession.mock.calls.filter(
-        ([, msg]) => (msg as { operation?: { source?: string } }).operation?.source === "server_candidate",
-      ),
-    ).toHaveLength(2);
-    mockSendToSession.mockClear();
+    expect(mockSendToSession).not.toHaveBeenCalled();
 
-    mockState.sessions = leaderSession(leaderTabs(["q-12", "q-10", "q-13"], [], 200));
+    setLeaderProjection(["q-12", "q-10", "q-13"]);
     view.rerender(<ChatView sessionId="s1" />);
     await waitFor(() =>
       expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-12,q-10,q-13"),
@@ -1186,22 +1146,13 @@ describe("ChatView leader open thread tabs", () => {
     mockState.sessionNotifications = new Map([
       ["s1", [needsInputNotification("q-10", 140), needsInputNotification("q-12", 120)]],
     ]);
+    setLeaderProjection(["q-10", "q-12", "q-13"]);
     view.rerender(<ChatView sessionId="s1" />);
 
     await waitFor(() =>
       expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-10,q-12,q-13"),
     );
-    expect(mockSendToSession).toHaveBeenCalledTimes(1);
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-10",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: 140,
-      },
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("does not reopen a needs-input notification tab after a newer explicit close", async () => {
@@ -1244,21 +1195,13 @@ describe("ChatView leader open thread tabs", () => {
     mockState.sessionBoards = new Map([
       ["s1", [{ questId: "q-new", status: "IMPLEMENTING", title: "Freshly surfaced quest", updatedAt: 30 }]],
     ]);
+    setLeaderProjection(["q-new", "q-old-a", "q-old-b"]);
     view.rerender(<ChatView sessionId="s1" />);
 
     await waitFor(() =>
       expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-new,q-old-a,q-old-b"),
     );
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-new",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: 30,
-      },
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("surfaces an already-open idea quest when it later becomes active even if its row timestamp is stale", async () => {
@@ -1290,21 +1233,13 @@ describe("ChatView leader open thread tabs", () => {
     mockState.sessionBoards = new Map([
       ["s1", [{ questId: "q-7", status: "ALIGNMENT", title: "Idea refined later", updatedAt: 70 }]],
     ]);
+    setLeaderProjection(["q-7", "q-8", "q-5", "q-6"]);
     view.rerender(<ChatView sessionId="s1" />);
 
     await waitFor(() =>
       expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-7,q-8,q-5,q-6"),
     );
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-7",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: 70,
-      },
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("repairs an already-open active board row into the leftmost leader tab prefix on hydration", async () => {
@@ -1323,22 +1258,14 @@ describe("ChatView leader open thread tabs", () => {
       ],
     });
 
+    setLeaderProjection(["q-new", "q-old-a", "q-old-b"]);
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
 
     await waitFor(() =>
       expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-new,q-old-a,q-old-b"),
     );
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-new",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: 30,
-      },
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("uses fresh board activation time to reopen a previously closed queued quest", async () => {
@@ -1362,14 +1289,12 @@ describe("ChatView leader open thread tabs", () => {
       quests: [{ questId: "q-1231", title: "Resumed queued quest", status: "in_progress" }],
     });
 
+    setLeaderProjection(["q-1231"]);
     const view = render(<ChatView sessionId="s1" />);
     await waitFor(() =>
       expect(within(view.container).getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1231"),
     );
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: { type: "open", threadKey: "q-1231", placement: "first", source: "server_candidate", eventAt: 30 },
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("does not resurrect an active quest thread that the user explicitly closed", async () => {
@@ -1412,7 +1337,7 @@ describe("ChatView leader open thread tabs", () => {
   it("surfaces a fresh Main to quest transition marker without changing the selected tab", async () => {
     const transitionedAt = 100;
     // Regression for the browser Execute failure: the marker itself is the
-    // source-of-truth fresh target event even when Questmaster rows lag behind.
+    // source evidence for the server-owned projected target even when Questmaster rows lag behind.
     resetStore({
       sessions: leaderSession(leaderTabs(["q-9003"])),
       sessionCompletedBoards: new Map([
@@ -1448,6 +1373,7 @@ describe("ChatView leader open thread tabs", () => {
         ],
       ],
     ]);
+    setLeaderProjection(["q-9001", "q-9003"]);
     view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
 
     await waitFor(() =>
@@ -1456,17 +1382,7 @@ describe("ChatView leader open thread tabs", () => {
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
     expect(readLeaderSelectedThreadKey("s1")).not.toBe("q-9001");
     expect(window.location.hash).not.toContain("thread=q-9001");
-    expect(mockSendToSession).toHaveBeenCalledTimes(1);
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-9001",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: transitionedAt,
-      },
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
 
     fireEvent.click(scope.getByRole("button", { name: /^q-9001 q-9001$/i }));
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-9001"));
@@ -1502,21 +1418,13 @@ describe("ChatView leader open thread tabs", () => {
 
     mockState.messages = new Map([["s1", [persistedMarker]]]);
     mockState.historyLoading = new Map([["s1", false]]);
+    setLeaderProjection(["q-1648"]);
     view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
 
     await waitFor(() => expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1648"));
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
     expect(readLeaderSelectedThreadKey("s1")).not.toBe("q-1648");
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-1648",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: transitionedAt,
-      },
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("does not surface a Main transition marker for an existing quest target", async () => {
@@ -1631,11 +1539,12 @@ describe("ChatView leader open thread tabs", () => {
         ],
       ],
     ]);
+    setLeaderProjection(["q-1648"]);
     view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
 
     await waitFor(() => expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1648"));
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
-    expect(mockSendToSession).toHaveBeenCalledTimes(1);
+    expect(mockSendToSession).not.toHaveBeenCalled();
 
     fireEvent.click(scope.getByTestId("mock-workboard-main"));
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
@@ -1672,21 +1581,15 @@ describe("ChatView leader open thread tabs", () => {
         ],
       ],
     ]);
+    setLeaderProjection(["q-1006", "q-941"]);
     view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
 
-    await waitFor(() => expect(mockSendToSession).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1006,q-941"),
+    );
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941");
     expect(readLeaderSelectedThreadKey("s1")).toBe("q-941");
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-1006",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: attachedAt,
-      },
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("reapplies first placement when a fresh attachment marker surfaces an already-open stale tab", async () => {
@@ -1717,6 +1620,7 @@ describe("ChatView leader open thread tabs", () => {
         ],
       ],
     ]);
+    setLeaderProjection(["q-1006", "q-941"]);
     view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
 
     await waitFor(() =>
@@ -1724,16 +1628,7 @@ describe("ChatView leader open thread tabs", () => {
     );
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941");
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1006,q-941");
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-1006",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: attachedAt,
-      },
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("surfaces moved context without selecting it when the attachment source is not the selected thread", async () => {
@@ -1762,20 +1657,12 @@ describe("ChatView leader open thread tabs", () => {
         ],
       ],
     ]);
+    setLeaderProjection(["q-1006", "q-941"]);
     view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
 
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
     expect(readLeaderSelectedThreadKey("s1")).toBe("q-941");
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-1006",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: attachedAt,
-      },
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("does not create or select a closed completed target from an attachment marker", async () => {
@@ -1880,19 +1767,12 @@ describe("ChatView leader open thread tabs", () => {
         ],
       ],
     ]);
+    setLeaderProjection(["q-1006", "q-941"]);
     view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
 
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-1006",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: attachedAt,
-      },
-    });
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1006,q-941");
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("does not select when the marker did not move the latest user-authored message", async () => {
@@ -1922,19 +1802,12 @@ describe("ChatView leader open thread tabs", () => {
         ],
       ],
     ]);
+    setLeaderProjection(["q-1006", "q-941"]);
     view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
 
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-1006",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: attachedAt,
-      },
-    });
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1006,q-941");
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("opens fresh server-created candidates but suppresses candidates older than a user close", async () => {
@@ -1962,7 +1835,6 @@ describe("ChatView leader open thread tabs", () => {
     );
 
     const freshAttachedAt = attachedAt + 10;
-    mockState.sessions = leaderSession(leaderTabs(["q-941"], [{ threadKey: "q-1006", closedAt: freshAttachedAt - 1 }]));
     mockState.messages = new Map([
       [
         "s1",
@@ -1975,21 +1847,13 @@ describe("ChatView leader open thread tabs", () => {
         ],
       ],
     ]);
+    setLeaderProjection(["q-1006", "q-941"]);
     view.rerender(<ChatView sessionId="s1" />);
 
     await waitFor(() =>
       expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1006,q-941"),
     );
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "leader_thread_tabs_update",
-      operation: {
-        type: "open",
-        threadKey: "q-1006",
-        placement: "first",
-        source: "server_candidate",
-        eventAt: freshAttachedAt,
-      },
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 });

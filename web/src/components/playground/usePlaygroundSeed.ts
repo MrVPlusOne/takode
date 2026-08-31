@@ -1150,12 +1150,7 @@ export function usePlaygroundSeed() {
       revision: 1,
       value: {
         currentQuestStateVersion: 1,
-        tabState: {
-          version: 1,
-          orderedOpenThreadKeys: projectedTabKeys,
-          closedThreadTombstones: [],
-          updatedAt: threadStatusTimestamp,
-        },
+        tabState: { version: 1 },
         tabs: projectedTabKeys.map((threadKey) => {
           const boardRow = projectedBoardRows.get(threadKey)!;
           const completed = boardRow.completedAt !== undefined;

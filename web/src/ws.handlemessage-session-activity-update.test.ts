@@ -274,7 +274,7 @@ describe("handleMessage: session_activity_update", () => {
     ).toBe(1);
   });
 
-  it("updates and clears leader active phase summaries for inactive sidebar rows", () => {
+  it("ignores deprecated leader visual summaries in inactive activity updates", () => {
     wsModule.connectSession("leader");
     fireMessage({ type: "session_init", session: makeSession("leader") });
     useStore.getState().setCurrentSession("leader");
@@ -306,19 +306,8 @@ describe("handleMessage: session_activity_update", () => {
 
     expect(
       useStore.getState().sdkSessions.find((session) => session.sessionId === "other-leader")?.leaderActivePhaseSummary,
-    ).toEqual([
-      { label: "Port", count: 1, tone: "phase", color: "#f59e0b" },
-      { label: "Queued", count: 1, tone: "status" },
-    ]);
-    expect(useStore.getState().sessionBoards.get("other-leader")).toEqual([
-      {
-        questId: "q-1455",
-        title: "Restore leader hover rows",
-        status: "PORTING",
-        createdAt: 1,
-        updatedAt: 2,
-      },
-    ]);
+    ).toBeUndefined();
+    expect(useStore.getState().sessionBoards.get("other-leader")).toBeUndefined();
 
     fireMessage({
       type: "session_activity_update",
@@ -328,8 +317,8 @@ describe("handleMessage: session_activity_update", () => {
 
     expect(
       useStore.getState().sdkSessions.find((session) => session.sessionId === "other-leader")?.leaderActivePhaseSummary,
-    ).toEqual([]);
-    expect(useStore.getState().sessionBoards.get("other-leader")).toEqual([]);
+    ).toBeUndefined();
+    expect(useStore.getState().sessionBoards.get("other-leader")).toBeUndefined();
   });
 
   it("rejects older notification status updates for inactive sidebar rows", () => {

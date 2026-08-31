@@ -146,7 +146,7 @@ describe("session-list leader thread tabs projection hydration", () => {
     ]);
 
     resolution = resolveLeaderThreadTabsProjection(useStore.getState(), "leader");
-    expect(resolution.projectionState).toBe("invalid-supplied");
+    expect(resolution.projectionState).toBe("unavailable");
     expect(projectedLeaderOpenThreadTabs(resolution)?.orderedOpenThreadKeys).toEqual([]);
     expect(selectLeaderThreadStatuses(useStore.getState(), "leader")).toEqual({});
     expect(selectLeaderActivePhaseSummary(useStore.getState(), "leader")).toEqual([]);

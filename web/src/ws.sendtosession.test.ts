@@ -232,12 +232,12 @@ describe("sendToSession", () => {
     wsModule.connectSession("s1");
     wsModule.sendToSession("s1", {
       type: "leader_thread_tabs_update",
-      operation: { type: "open", threadKey: "q-1089", placement: "first", source: "user" },
+      operation: { type: "open", threadKey: "q-1089", placement: "first" },
     });
 
     const payload = JSON.parse(lastWs.send.mock.calls[0][0]);
     expect(payload.type).toBe("leader_thread_tabs_update");
-    expect(payload.operation).toEqual({ type: "open", threadKey: "q-1089", placement: "first", source: "user" });
+    expect(payload.operation).toEqual({ type: "open", threadKey: "q-1089", placement: "first" });
     expect(typeof payload.client_msg_id).toBe("string");
   });
 });

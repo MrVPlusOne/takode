@@ -15,7 +15,6 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { isDeletedQuestFeedbackEntry } from "../../shared/quest-feedback.js";
-import { normalizeLeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { navigateTo } from "../utils/navigation.js";
@@ -1285,27 +1284,18 @@ const QuestFeedRichPreview = forwardRef<
   const leaderThreadHref = useStore((state) => {
     if (!recordedLeaderSessionId) return null;
     const sdkSession = state.sdkSessions.find((session) => session.sessionId === recordedLeaderSessionId);
-    const liveSession = state.sessions.get(recordedLeaderSessionId);
-
     const threadKey = questId.trim().toLowerCase();
     const hasBoardRow = [
       state.sessionBoards.get(recordedLeaderSessionId),
       state.sessionCompletedBoards.get(recordedLeaderSessionId),
-      sdkSession?.leaderActiveBoardRows,
     ].some((rows) => rows?.some((row) => row.questId.trim().toLowerCase() === threadKey));
     const hasProjectedThread = state.leaderProjections
       .get(recordedLeaderSessionId)
       ?.threadSummaries.some((summary) => summary.threadKey.trim().toLowerCase() === threadKey);
     const leaderTabsResolution = resolveLeaderThreadTabsProjection(state, recordedLeaderSessionId);
-    const hasLeaderRuntimeAuthority = liveSession?.isOrchestrator === true || sdkSession?.isOrchestrator === true;
     const hasOpenThread =
-      leaderTabsResolution.projectionState === "accepted"
-        ? leaderTabsResolution.value.tabs.some((tab) => tab.threadKey === threadKey)
-        : leaderTabsResolution.projectionState === "legacy" &&
-          hasLeaderRuntimeAuthority &&
-          normalizeLeaderOpenThreadTabsState(
-            liveSession?.leaderOpenThreadTabs ?? sdkSession?.leaderOpenThreadTabs,
-          )?.orderedOpenThreadKeys.some((key) => key.trim().toLowerCase() === threadKey);
+      leaderTabsResolution.projectionState === "accepted" &&
+      leaderTabsResolution.value.tabs.some((tab) => tab.threadKey === threadKey);
     if (!hasBoardRow && !hasProjectedThread && !hasOpenThread) return null;
 
     return sessionThreadHash(routeSessionRefForId(recordedLeaderSessionId, state.sdkSessions), questId);

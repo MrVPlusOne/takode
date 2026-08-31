@@ -125,7 +125,7 @@ describe("leader open thread tab state", () => {
     expect(closed.orderedOpenThreadKeys).toEqual(["q-2"]);
     expect(closed.closedThreadTombstones).toEqual([{ threadKey: "q-1", closedAt: 100 }]);
 
-    const reopened = applyLeaderThreadTabUpdate(closed, { type: "open", threadKey: "q-1", source: "user" }, 110);
+    const reopened = applyLeaderThreadTabUpdate(closed, { type: "open", threadKey: "q-1" }, 110);
     expect(reopened.orderedOpenThreadKeys[0]).toBe("q-1");
     expect(reopened.closedThreadTombstones).toEqual([]);
   });
@@ -139,9 +139,9 @@ describe("leader open thread tab state", () => {
     expect(migrated).toMatchObject({ migratedFromLocalStorageAt: 10 });
     expect(migrated?.explicitOrderUpdatedAt).toBeUndefined();
 
-    const serverCandidate = applyLeaderThreadTabUpdate(
+    const serverCandidate = applyLeaderServerCandidateThreadTabEvent(
       createLeaderOpenThreadTabsState(1),
-      { type: "open", threadKey: "q-server", source: "server_candidate", eventAt: 20 },
+      "q-server",
       20,
     );
     expect(serverCandidate?.orderedOpenThreadKeys).toEqual(["q-server"]);
@@ -149,14 +149,14 @@ describe("leader open thread tab state", () => {
 
     const userOpen = applyLeaderThreadTabUpdate(
       createLeaderOpenThreadTabsState(1),
-      { type: "open", threadKey: "q-user", source: "user" },
+      { type: "open", threadKey: "q-user" },
       30,
     );
     expect(userOpen?.explicitOrderUpdatedAt).toBe(30);
 
     const routeOpen = applyLeaderThreadTabUpdate(
       { ...createLeaderOpenThreadTabsState(1), orderedOpenThreadKeys: ["q-old", "q-route"] },
-      { type: "open", threadKey: "q-route", placement: "first", source: "route" },
+      { type: "open", threadKey: "q-route", placement: "first" },
       40,
     );
     expect(routeOpen?.orderedOpenThreadKeys).toEqual(["q-route", "q-old"]);
@@ -281,19 +281,9 @@ describe("leader open thread tab state", () => {
         allowTombstoneReopen: false,
       }),
     ).toBe(closed);
-    expect(
-      applyLeaderThreadTabUpdate(
-        closed,
-        { type: "open", threadKey: "q-9", source: "server_candidate", eventAt: 99 },
-        101,
-      ),
-    ).toEqual(closed);
+    expect(applyLeaderServerCandidateThreadTabEvent(closed, "q-9", 99)).toBe(closed);
 
-    const reopened = applyLeaderThreadTabUpdate(
-      closed,
-      { type: "open", threadKey: "q-9", source: "server_candidate", eventAt: 101 },
-      102,
-    );
+    const reopened = applyLeaderServerCandidateThreadTabEvent(closed, "q-9", 101);
     expect(reopened.orderedOpenThreadKeys).toEqual(["q-9"]);
     expect(reopened.closedThreadTombstones).toEqual([]);
   });
