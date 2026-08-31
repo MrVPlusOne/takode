@@ -16,6 +16,7 @@ export type CodexResultErrorFamily =
   | "model_not_supported";
 export type CodexProviderFailureContextFamily = "copilot_auth_refresh_invalidated";
 export type CodexProviderRecoveryFamily = "model_backend_stream_error" | CodexProviderFailureContextFamily;
+export type CodexOutageRecoveryFamily = "process_transport" | "model_backend_stream_error";
 
 export type CodexTurnRecoveryStatus = "recovering" | "continuation_pending" | "continuation_active" | "action_required";
 export type CodexTurnRecoveryReason =
@@ -51,6 +52,10 @@ export interface BackendReconnectProgress {
   maxAttempts: number;
   /** Server timestamp for the first process launch in this cycle. */
   cycleStartedAt: number;
+  /** Exact pending owner that authorizes repeated outage recovery across inner cycles. */
+  outageOwnerId?: string;
+  /** Narrow recoverable family; absent for ordinary bounded reconnect cycles. */
+  outageFamily?: CodexOutageRecoveryFamily;
 }
 
 export type CodexPendingDeliveryProofKind =
@@ -79,7 +84,8 @@ export interface CodexProviderRetryState {
   family: CodexProviderRecoveryFamily;
   ownerId: string;
   attempt: number;
-  maxAttempts: number;
+  /** Null means this exact network-outage owner remains retryable until ineligible. */
+  maxAttempts: number | null;
   startedAt: number;
 }
 
@@ -104,4 +110,6 @@ export interface CodexOutboundTurnBase<TAdapterMessage> {
   autoPauseRecoveryTestingRetired?: boolean;
   providerRecoveryAttempts?: number;
   providerRecoveryFamily?: CodexProviderRecoveryFamily;
+  /** Durable proof that this provider turn emitted model/tool/permission/stream activity. */
+  providerReplayUnsafeActivityObserved?: boolean;
 }

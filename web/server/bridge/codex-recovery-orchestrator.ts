@@ -53,7 +53,18 @@ import { consumeCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js
 import { buildCodexRecoveryDiagnosticLogContext } from "./codex-recovery-diagnostic-log.js";
 import { completeRecoveredCodexTurnWithDiagnostic } from "./codex-recovered-turn-diagnostic.js";
 import { handleTerminalTurnStartFailure } from "./codex-terminal-turn-start-failure.js";
-import { clearCodexInitRecoveryRuntimeState, codexInitRecoveryRetryDelayMs } from "./codex-provider-result-recovery.js";
+import { codexInitRecoveryRetryDelayMs } from "./codex-provider-result-recovery.js";
+import {
+  canContinueCodexOutageRecovery,
+  clearCodexRecoveryRuntimeState,
+  continueCodexOutageRecoveryAfterFailure,
+  getCodexRecoveryRuntimeReason,
+  handleExhaustedCodexAdapterDisconnect,
+  invalidateCodexRecoveryAttempt,
+  isCodexPersistentOutageRecoveryReason,
+  resolveCodexAutoRecoveryReason,
+  stopIneligibleCodexOutageRecovery,
+} from "../codex-process-reconnect.js";
 import {
   collectCodexAutoPauseRecoveryLinks,
   markCodexAutoPauseRecoveryDelivered,
@@ -92,6 +103,12 @@ import { recordCodexAcceptedDispatchActivity } from "./codex-model-switch-dispat
 import { retireProvenInactiveCodexTurnAfterSteerFailure } from "./codex-steer-failure-recovery.js";
 import { recoverNonDrainableCodexHeadTurn } from "./codex-nondrainable-turn-recovery.js";
 import {
+  buildCodexBatchMessageInputs,
+  buildCodexPendingBatchRecoveryText,
+  findQueuedCodexPendingStartBatchTurn,
+  getQueuedCodexPendingBatchInputs,
+} from "./codex-pending-start-batch.js";
+import {
   clearCodexTurnRecoveryForOwner,
   hasFinalCodexOutcomeEvidence,
   hasIncompleteCodexActivityWithoutTerminalEvidence,
@@ -106,7 +123,10 @@ import {
   type CodexTurnRecoveryDeliveryStatus,
 } from "./codex-interrupted-turn-recovery.js";
 export { extractUserTextFromResumedTurn, normalizeResumedUserText };
-export { clearCodexIntentionalRelaunch, markCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
+export {
+  clearCodexIntentionalRelaunch,
+  markCodexIntentionalRelaunch,
+} from "./codex-intentional-relaunch.js";
 export { maybeFlushQueuedCodexMessages } from "./codex-queued-message-flush.js";
 type InterruptSource = "user" | "leader" | "system";
 type CodexRecoveryAdapterLike = any;
@@ -220,6 +240,7 @@ export interface CodexRecoveryOrchestratorDeps {
 }
 
 export interface CodexAdapterRecoveryLifecycleDeps extends CodexRecoveryOrchestratorDeps {
+  clearOptimisticRunningTimer?: (session: CodexRecoveryOrchestratorSessionLike, reason: string) => void;
   clearCodexDisconnectGraceTimer: (session: CodexRecoveryOrchestratorSessionLike, reason: string) => void;
   setCliSessionIdFromMeta: (sessionId: string, cliSessionId: string) => void;
   beforeSessionMetaDispatch: (sessionId: string, cliSessionId: string) => boolean | Promise<boolean>;
@@ -641,49 +662,7 @@ export function recordSteeredCodexTurn(
     deps.trackUserMessageForTurn(session, idx, "queued");
   }
 }
-export function buildCodexBatchMessageInputs(
-  inputs: PendingCodexInput[],
-): import("../session-types.js").CodexPendingBatchInput[] {
-  return inputs.map((input) => ({
-    content: input.deliveryContent || input.content,
-    ...(input.vscodeSelection ? { vscodeSelection: input.vscodeSelection } : {}),
-  }));
-}
-export function buildCodexPendingBatchRecoveryText(
-  inputs: PendingCodexInput[],
-  deps: Pick<CodexRecoveryOrchestratorDeps, "formatVsCodeSelectionPrompt">,
-): string {
-  return inputs
-    .map((input) => {
-      const parts = [input.deliveryContent || input.content];
-      if (input.vscodeSelection) {
-        parts.push(deps.formatVsCodeSelectionPrompt(input.vscodeSelection));
-      }
-      return parts.filter(Boolean).join("\n");
-    })
-    .filter(Boolean)
-    .join("\n\n");
-}
-function findQueuedCodexPendingStartBatchTurn(session: CodexRecoveryOrchestratorSessionLike): CodexOutboundTurn | null {
-  return (
-    session.pendingCodexTurns.find(
-      (turn) => turn.status === "queued" && turn.turnId == null && turn.adapterMsg.type === "codex_start_pending",
-    ) ?? null
-  );
-}
-function getQueuedCodexPendingBatchInputs(
-  session: CodexRecoveryOrchestratorSessionLike,
-  deps: Pick<CodexRecoveryOrchestratorDeps, "getCodexHeadTurn">,
-): PendingCodexInput[] {
-  const head = deps.getCodexHeadTurn(session);
-  const coveredIds = new Set<string>();
-  if (head && !(head.status === "queued" && head.turnId == null && head.adapterMsg.type === "codex_start_pending")) {
-    for (const id of head.pendingInputIds ?? [head.userMessageId]) {
-      coveredIds.add(id);
-    }
-  }
-  return getCancelablePendingCodexInputs(session).filter((input) => !coveredIds.has(input.id));
-}
+export { buildCodexBatchMessageInputs, buildCodexPendingBatchRecoveryText } from "./codex-pending-start-batch.js";
 export function rebuildQueuedCodexPendingStartBatch(
   session: CodexRecoveryOrchestratorSessionLike,
   deps: CodexRecoveryOrchestratorDeps,
@@ -691,8 +670,8 @@ export function rebuildQueuedCodexPendingStartBatch(
   holdCodexAutoPausedQueuedBacklog(session as any, deps);
   const head = deps.getCodexHeadTurn(session);
   const headBlocksQueuedFollowUps = !!head && head.status === "blocked_broken_session";
-  const deliverable = getQueuedCodexPendingBatchInputs(session, deps);
-  const existingQueuedTurn = findQueuedCodexPendingStartBatchTurn(session);
+  const deliverable = getQueuedCodexPendingBatchInputs(session.pendingCodexInputs, head);
+  const existingQueuedTurn = findQueuedCodexPendingStartBatchTurn(session.pendingCodexTurns);
   if (headBlocksQueuedFollowUps || deliverable.length === 0) {
     if (!existingQueuedTurn) return;
     const idx = session.pendingCodexTurns.indexOf(existingQueuedTurn);
@@ -951,15 +930,23 @@ export function handleCodexAdapterInitError(
   console.error(`[ws-bridge] Codex adapter init failed for session ${sessionTag(sessionId)}: ${error}`);
   session.codexAdapter = null;
   const pending = deps.getCodexTurnInRecovery(session);
-  const autoRecoveryReason = (session as any).codexAutoRecoveryReason as string | null | undefined;
   const launcherInfo = deps.getLauncherSessionInfo(sessionId);
+  const autoRecoveryReason = resolveCodexAutoRecoveryReason(session, getCodexRecoveryRuntimeReason(session), {
+    allowPendingFallback: true,
+  });
+  const recoverableInitError = isRecoverableCodexInitError(error);
+  if (
+    recoverableInitError &&
+    autoRecoveryReason &&
+    launcherInfo &&
+    stopIneligibleCodexOutageRecovery(session, autoRecoveryReason, deps)
+  )
+    return "ignored";
   const canRetryTransientInit =
-    !!autoRecoveryReason &&
-    !!launcherInfo?.cliSessionId &&
-    isRecoverableCodexInitError(error) &&
-    deps.hasCliRelaunchCallback;
+    !!autoRecoveryReason && !!launcherInfo?.cliSessionId && recoverableInitError && deps.hasCliRelaunchCallback;
 
   if (canRetryTransientInit) {
+    invalidateCodexRecoveryAttempt(session);
     const now = Date.now();
     if (
       session.lastAdapterFailureAt !== null &&
@@ -988,12 +975,25 @@ export function handleCodexAdapterInitError(
       (session as any).codexInitRetryTimer = setTimeout(() => {
         (session as any).codexInitRetryTimer = null;
         if (session.codexAdapter) return;
+        if (
+          isCodexPersistentOutageRecoveryReason(autoRecoveryReason) &&
+          !canContinueCodexOutageRecovery(session, autoRecoveryReason, deps.getLauncherSessionInfo(sessionId))
+        ) {
+          clearCodexRecoveryRuntimeState(session);
+          session.state.backend_reconnect = null;
+          deps.setBackendState(session, "disconnected", null);
+          deps.broadcastToBrowsers(session, {
+            type: "session_update",
+            session: { backend_reconnect: null },
+          });
+          deps.persistSession(session);
+          return;
+        }
         deps.requestCodexAutoRecovery(session, `init_error:${autoRecoveryReason}`);
       }, delayMs);
       deps.persistSession(session);
       return "retrying";
     }
-    clearCodexInitRecoveryRuntimeState(session);
     if (pending) {
       pending.status = "queued";
       pending.lastError = error;
@@ -1001,13 +1001,25 @@ export function handleCodexAdapterInitError(
       deps.setPendingCodexInputsCancelable(session, pending.pendingInputIds ?? [pending.userMessageId], true);
     }
     deps.rebuildQueuedCodexPendingStartBatch(session);
+    if (
+      continueCodexOutageRecoveryAfterFailure(session, autoRecoveryReason, deps, {
+        resetCycle: true,
+      })
+    ) {
+      broadcastCodexAutoPauseRecoveryTesting(session, deps);
+      return "retrying";
+    }
+    clearCodexRecoveryRuntimeState(session);
     const diagnostic = `Codex automatic recovery is paused after ${failures} failed attempts. Use Reconnect to start a fresh cycle.`;
     markCodexTurnRecoveryActionRequired(session, "recovery_failed", deps);
     deps.setBackendState(session, "recovery_suppressed", diagnostic);
     retireCodexAutoPauseRecoveryTesting(session, deps);
     deps.emitTakodeEvent(session.id, "session_error", { error: diagnostic });
     deps.setGenerating(session, false, "codex_recovery_suppressed");
-    deps.broadcastToBrowsers(session, { type: "backend_disconnected", reason: "recovery_suppressed" });
+    deps.broadcastToBrowsers(session, {
+      type: "backend_disconnected",
+      reason: "recovery_suppressed",
+    });
     deps.broadcastToBrowsers(session, { type: "error", message: diagnostic });
     deps.broadcastToBrowsers(session, {
       type: "status_change",
@@ -1019,7 +1031,7 @@ export function handleCodexAdapterInitError(
     return "broken";
   }
 
-  clearCodexInitRecoveryRuntimeState(session);
+  clearCodexRecoveryRuntimeState(session);
   if ((session as any).pendingCodexRollback) {
     (session as any).pendingCodexRollbackError = error;
     (session as any).pendingCodexRollbackWaiter?.reject(new Error(error));
@@ -1037,7 +1049,10 @@ export function handleCodexAdapterInitError(
   deps.setAttentionError(session);
   deps.emitTakodeEvent(session.id, "session_error", { error });
   deps.setGenerating(session, false, "codex_init_error");
-  deps.broadcastToBrowsers(session, { type: "backend_disconnected", reason: "broken" });
+  deps.broadcastToBrowsers(session, {
+    type: "backend_disconnected",
+    reason: "broken",
+  });
   deps.broadcastToBrowsers(session, { type: "error", message: error });
   deps.broadcastToBrowsers(session, {
     type: "status_change",
@@ -1076,7 +1091,10 @@ export function registerCodexAdapterRecoveryLifecycle(
       (session as any).relaunchPending = false;
       if (session.state.backend_reconnect) {
         session.state.backend_reconnect = null;
-        deps.broadcastToBrowsers(session, { type: "session_update", session: { backend_reconnect: null } });
+        deps.broadcastToBrowsers(session, {
+          type: "session_update",
+          session: { backend_reconnect: null },
+        });
       }
       deps.setBackendState(session, "connected", null);
       const recyclePending = deps.getLauncherSessionInfo(session.id)?.codexLeaderRecyclePending;
@@ -1088,7 +1106,7 @@ export function registerCodexAdapterRecoveryLifecycle(
         deps.hydrateCodexResumedHistory(session, meta.resumeSnapshot);
         reconcileCodexResumedTurn(session, meta.resumeSnapshot, deps);
       }
-      clearCodexInitRecoveryRuntimeState(session);
+      clearCodexRecoveryRuntimeState(session);
       broadcastCodexAutoPauseRecoveryTesting(session, deps);
       reconcileDuplicateCodexPendingTurns(session, "session_meta", deps);
       retryNonDrainableCodexHeadTurn(session, "session_meta_stale_ack_head", deps);
@@ -1134,7 +1152,10 @@ export function registerCodexAdapterRecoveryLifecycle(
             deps.persistSession(session);
           });
         deps.broadcastToBrowsers(session, { type: "backend_connected" });
-        deps.refreshGitInfoThenRecomputeDiff(session, { broadcastUpdate: true, notifyPoller: true });
+        deps.refreshGitInfoThenRecomputeDiff(session, {
+          broadcastUpdate: true,
+          notifyPoller: true,
+        });
         deps.persistSession(session);
         return;
       }
@@ -1152,7 +1173,10 @@ export function registerCodexAdapterRecoveryLifecycle(
       }
       deps.flushQueuedMessagesToCodexAdapter(session, adapter, "session_meta");
       deps.broadcastToBrowsers(session, { type: "backend_connected" });
-      deps.refreshGitInfoThenRecomputeDiff(session, { broadcastUpdate: true, notifyPoller: true });
+      deps.refreshGitInfoThenRecomputeDiff(session, {
+        broadcastUpdate: true,
+        notifyPoller: true,
+      });
       deps.persistSession(session);
     };
     if (!meta.cliSessionId) return continueSessionMetaLifecycle();
@@ -1259,6 +1283,7 @@ export function registerCodexAdapterRecoveryLifecycle(
 
   adapter.onDisconnect(() => {
     if (session.codexAdapter !== adapter) return;
+    deps.clearOptimisticRunningTimer?.(session, "codex_disconnect");
     const wasGenerating = session.isGenerating;
     const disconnectedTurnId = adapter.getCurrentTurnId ? adapter.getCurrentTurnId() : null;
     const disconnectDiagnostics = adapter.getLastDisconnectDiagnostics?.() ?? null;
@@ -1285,7 +1310,10 @@ export function registerCodexAdapterRecoveryLifecycle(
       markCodexTurnRecoveryOnDisconnect(session, pending, deps);
     }
     for (const [reqId] of (session as any).pendingPermissions) {
-      deps.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: reqId });
+      deps.broadcastToBrowsers(session, {
+        type: "permission_cancelled",
+        request_id: reqId,
+      });
     }
     (session as any).pendingPermissions.clear();
     (session as any).pendingQuestCommands.clear();
@@ -1399,17 +1427,7 @@ export function registerCodexAdapterRecoveryLifecycle(
         reason: "idle_limit",
       });
     } else if (!intentionalRelaunch && session.consecutiveAdapterFailures > deps.maxAdapterRelaunchFailures) {
-      console.error(
-        `[ws-bridge] Codex adapter for session ${sessionTag(sessionId)} exceeded ${deps.maxAdapterRelaunchFailures} consecutive adapter-disconnect recovery attempts -- pausing adapter-disconnect auto-relaunch`,
-      );
-      deps.emitTakodeEvent(sessionId, "session_disconnected", {
-        wasGenerating,
-        reason: "adapter_disconnect",
-      });
-      deps.broadcastToBrowsers(session, {
-        type: "error",
-        message: `Codex disconnected repeatedly after ${deps.maxAdapterRelaunchFailures} automatic recovery attempts. Adapter-disconnect auto-relaunch is paused; use the relaunch button to retry. Orchestrator sessions may also be woken by queued herd events when safe.`,
-      });
+      handleExhaustedCodexAdapterDisconnect(session, wasGenerating, deps.maxAdapterRelaunchFailures, deps);
     } else if (!intentionalRelaunch && !deps.hasCliRelaunchCallback) {
       deps.emitTakodeEvent(sessionId, "session_disconnected", {
         wasGenerating,
@@ -1581,7 +1599,9 @@ export function reconcileCodexResumedTurn(
       console.log(
         `[ws-bridge] Resumed Codex snapshot for session ${sessionTag(session.id)} has no lastTurn while pending turn ${pending.turnId} is in flight; retrying message`,
       );
-      retryPendingCodexTurn(session, pending, deps, { diagnoseDispatchFailure: true });
+      retryPendingCodexTurn(session, pending, deps, {
+        diagnoseDispatchFailure: true,
+      });
     }
     return;
   }
@@ -1601,7 +1621,9 @@ export function reconcileCodexResumedTurn(
         `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} ` +
           "lost local turn identity after turn/start; thread is idle and turn has no items, retrying user message",
       );
-      retryPendingCodexTurn(session, pending, deps, { diagnoseDispatchFailure: true });
+      retryPendingCodexTurn(session, pending, deps, {
+        diagnoseDispatchFailure: true,
+      });
       return;
     }
     if (pending.turnId && pending.turnId !== lastTurn.id) {
@@ -1609,7 +1631,9 @@ export function reconcileCodexResumedTurn(
       console.log(
         `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} does not match pending turn ${pending.turnId}; retrying message`,
       );
-      retryPendingCodexTurn(session, pending, deps, { diagnoseDispatchFailure: true });
+      retryPendingCodexTurn(session, pending, deps, {
+        diagnoseDispatchFailure: true,
+      });
       return;
     }
     console.warn(
@@ -1634,7 +1658,9 @@ export function reconcileCodexResumedTurn(
     console.log(
       `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} has only user input and no local model activity; retrying message`,
     );
-    retryPendingCodexTurn(session, pending, deps, { diagnoseDispatchFailure: true });
+    retryPendingCodexTurn(session, pending, deps, {
+      diagnoseDispatchFailure: true,
+    });
     return;
   }
   const localActivity = summarizeLocalCodexDeliveryActivity(session, recoveryOwner);

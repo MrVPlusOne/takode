@@ -1,5 +1,9 @@
 import { classifyCodexResultError } from "../codex-result-error-auto-pause.js";
-import { codexProviderResultReconnectRetryDelayMs } from "../codex-process-reconnect.js";
+import {
+  CODEX_OUTAGE_RECOVERY_RETRY_INTERVAL_MS,
+  codexProviderResultReconnectRetryDelayMs,
+  isCodexPersistentOutageRecoveryReason,
+} from "../codex-process-reconnect.js";
 import type { BrowserIncomingMessage, CLIResultMessage, CodexOutboundTurn } from "../session-types.js";
 
 export const CODEX_PROVIDER_RESULT_RECOVERY_MAX_ATTEMPTS = 2;
@@ -14,6 +18,7 @@ export type CodexProviderResultRecoveryDecision =
       family: RecoverableCodexProviderFailureFamily;
       retryTurn: boolean;
       attempt: number;
+      maxAttempts: number | null;
     }
   | {
       kind: "exhausted";
@@ -23,6 +28,7 @@ export type CodexProviderResultRecoveryDecision =
 
 export interface CodexProviderResultRecoverySessionLike {
   messageHistory: BrowserIncomingMessage[];
+  pendingCodexTurns?: CodexOutboundTurn[];
 }
 
 export function decideCodexProviderResultRecovery(
@@ -39,15 +45,29 @@ export function decideCodexProviderResultRecovery(
     return { kind: "none" };
   }
 
-  const priorAttempts = completedTurn?.providerRecoveryAttempts ?? 0;
-  if (priorAttempts >= CODEX_PROVIDER_RESULT_RECOVERY_MAX_ATTEMPTS) {
-    return { kind: "exhausted", family: classified.family, attempts: priorAttempts };
+  const coOwners = getProviderTurnCoOwners(
+    session.pendingCodexTurns ?? (completedTurn ? [completedTurn] : []),
+    completedTurn,
+  );
+  const priorAttempts = Math.max(0, ...coOwners.map((turn) => turn.providerRecoveryAttempts ?? 0));
+  const persistentNetworkOutage = classified.family === "model_backend_stream_error";
+  if (persistentNetworkOutage && hasNonRetryableProviderFailureEvidence(msg)) {
+    return { kind: "none" };
+  }
+  if (!persistentNetworkOutage && priorAttempts >= CODEX_PROVIDER_RESULT_RECOVERY_MAX_ATTEMPTS) {
+    return {
+      kind: "exhausted",
+      family: classified.family,
+      attempts: priorAttempts,
+    };
   }
   return {
     kind: "recover",
     family: classified.family,
-    retryTurn: isCodexTurnReplayProvablySafe(session.messageHistory, completedTurn),
-    attempt: priorAttempts + 1,
+    retryTurn:
+      coOwners.length > 0 && coOwners.every((turn) => isCodexTurnReplayProvablySafe(session.messageHistory, turn)),
+    attempt: Math.min(Number.MAX_SAFE_INTEGER, priorAttempts + 1),
+    maxAttempts: persistentNetworkOutage ? null : CODEX_PROVIDER_RESULT_RECOVERY_MAX_ATTEMPTS,
   };
 }
 
@@ -55,15 +75,82 @@ export function isCodexTurnReplayProvablySafe(
   history: readonly BrowserIncomingMessage[],
   turn: CodexOutboundTurn | null,
 ): boolean {
+  if (turn?.providerReplayUnsafeActivityObserved) return false;
   if (!turn || turn.historyIndex < 0 || turn.historyIndex >= history.length) return false;
   for (const entry of history.slice(turn.historyIndex + 1)) {
-    if (entry.type === "assistant") return false;
-    if (entry.type === "tool_result_preview") return false;
-    if (entry.type === "permission_approved" || entry.type === "permission_denied") return false;
+    if (entry.type === "assistant" || entry.type === "codex_reasoning_detail" || entry.type === "stream_event")
+      return false;
+    if (entry.type === "tool_result_preview" || entry.type === "tool_progress") return false;
+    if (
+      entry.type === "permission_request" ||
+      entry.type === "permission_approved" ||
+      entry.type === "permission_denied"
+    )
+      return false;
     if (entry.type === "task_notification") return false;
     if (entry.type === "result" && entry.data.codex_provider_retry?.ownerId !== turn.userMessageId) return false;
   }
   return true;
+}
+
+export function prepareCodexTurnsForProviderRecovery(
+  session: Pick<CodexProviderResultRecoverySessionLike, "pendingCodexTurns">,
+  completedTurn: CodexOutboundTurn,
+  family: RecoverableCodexProviderFailureFamily,
+  attempt: number,
+  now = Date.now(),
+): CodexOutboundTurn | null {
+  const pendingTurns = session.pendingCodexTurns;
+  if (!pendingTurns) return null;
+  const coOwners = getProviderTurnCoOwners(pendingTurns, completedTurn);
+  if (coOwners.length === 0 || coOwners.some((turn) => turn.adapterMsg.type !== "codex_start_pending")) return null;
+
+  const canonical = coOwners[0]!;
+  const pendingInputIds = unique(coOwners.flatMap((turn) => turn.pendingInputIds ?? [turn.userMessageId]));
+  const inputById = new Map(
+    coOwners.flatMap((turn) => {
+      const adapterMsg = turn.adapterMsg;
+      return adapterMsg.type === "codex_start_pending"
+        ? adapterMsg.pendingInputIds.map((id, index) => [id, adapterMsg.inputs[index]] as const)
+        : [];
+    }),
+  );
+  if (pendingInputIds.some((id) => !inputById.get(id))) return null;
+  const inputs = pendingInputIds.map((id) => inputById.get(id)!);
+  const historyIndexes = coOwners.map((turn) => turn.historyIndex).filter((index) => index >= 0);
+  const recoveryLinks = uniqueBy(
+    coOwners.flatMap((turn) => turn.autoPauseRecoveryLinks ?? []),
+    (link) => `${link.summaryId}\u0000${link.groupId}`,
+  );
+
+  canonical.adapterMsg = {
+    type: "codex_start_pending",
+    pendingInputIds,
+    inputs,
+  };
+  canonical.userMessageId = pendingInputIds[0] ?? canonical.userMessageId;
+  canonical.pendingInputIds = pendingInputIds;
+  canonical.userContent = coOwners
+    .map((turn) => turn.userContent)
+    .filter(Boolean)
+    .join("\n\n");
+  canonical.historyIndex = historyIndexes.length > 0 ? Math.min(...historyIndexes) : canonical.historyIndex;
+  canonical.createdAt = Math.min(...coOwners.map((turn) => turn.createdAt));
+  canonical.dispatchCount = Math.max(...coOwners.map((turn) => turn.dispatchCount));
+  canonical.turnTarget = coOwners.some((turn) => turn.turnTarget === "current")
+    ? "current"
+    : coOwners.some((turn) => turn.turnTarget === "queued")
+      ? "queued"
+      : null;
+  canonical.autoPauseSourceKind = coOwners.every((turn) => turn.autoPauseSourceKind === "manual")
+    ? "manual"
+    : "automatic";
+  canonical.autoPauseRecoveryLinks = recoveryLinks.length > 0 ? recoveryLinks : undefined;
+
+  prepareCodexTurnForProviderRecovery(canonical, family, attempt, now);
+  const coOwnerSet = new Set(coOwners);
+  session.pendingCodexTurns = pendingTurns.filter((turn) => turn === canonical || !coOwnerSet.has(turn));
+  return canonical;
 }
 
 export function prepareCodexTurnForProviderRecovery(
@@ -75,12 +162,17 @@ export function prepareCodexTurnForProviderRecovery(
   turn.status = "queued";
   turn.providerRecoveryAttempts = attempt;
   turn.providerRecoveryFamily = family;
+  turn.providerReplayUnsafeActivityObserved = undefined;
   turn.updatedAt = now;
   turn.acknowledgedAt = null;
   turn.turnId = null;
   turn.disconnectedAt = null;
   turn.resumeConfirmedAt = null;
-  turn.lastError = `Takode is retrying this turn after recoverable provider failure ${family} (attempt ${attempt}/${CODEX_PROVIDER_RESULT_RECOVERY_MAX_ATTEMPTS}).`;
+  const attemptLabel =
+    family === "model_backend_stream_error"
+      ? `attempt ${attempt}`
+      : `attempt ${attempt}/${CODEX_PROVIDER_RESULT_RECOVERY_MAX_ATTEMPTS}`;
+  turn.lastError = `Takode is retrying this turn after recoverable provider failure ${family} (${attemptLabel}).`;
 }
 
 export function isCodexProviderResultRecoveryReason(reason: string): boolean {
@@ -88,20 +180,44 @@ export function isCodexProviderResultRecoveryReason(reason: string): boolean {
 }
 
 export function codexInitRecoveryRetryDelayMs(autoRecoveryReason: string, failures: number): number {
+  if (isCodexPersistentOutageRecoveryReason(autoRecoveryReason)) {
+    return CODEX_OUTAGE_RECOVERY_RETRY_INTERVAL_MS;
+  }
   if (!isCodexProviderResultRecoveryReason(autoRecoveryReason)) {
     return Math.min(1_000 * failures, 10_000);
   }
   return codexProviderResultReconnectRetryDelayMs(failures);
 }
 
-export function clearCodexInitRecoveryRuntimeState(session: object): void {
-  const runtime = session as {
-    codexInitRetryTimer?: ReturnType<typeof setTimeout> | null;
-    codexInitRecoveryFailures?: number;
-    codexAutoRecoveryReason?: string | null;
-  };
-  if (runtime.codexInitRetryTimer) clearTimeout(runtime.codexInitRetryTimer);
-  runtime.codexInitRetryTimer = null;
-  runtime.codexInitRecoveryFailures = 0;
-  runtime.codexAutoRecoveryReason = null;
+function hasNonRetryableProviderFailureEvidence(msg: CLIResultMessage): boolean {
+  const text = [msg.result, ...(msg.errors ?? [])].filter(Boolean).join("\n");
+  return [
+    /\b(?:http\s*)?401\b|\bunauthorized\b/i,
+    /\b(?:http\s*)?403\b|\bforbidden\b/i,
+    /invalid[_ -]?grant|tokenrefreshfailed|token[_ -]?expired|authentication(?:error| failed)/i,
+    /invalid peer certificate|certificate (?:verify|verification) failed|tls certificate|ssl certificate/i,
+  ].some((pattern) => pattern.test(text));
+}
+
+function getProviderTurnCoOwners(
+  pendingTurns: readonly CodexOutboundTurn[],
+  completedTurn: CodexOutboundTurn | null,
+): CodexOutboundTurn[] {
+  if (!completedTurn) return [];
+  if (!completedTurn.turnId) return [completedTurn];
+  return pendingTurns.filter((turn) => turn.status !== "completed" && turn.turnId === completedTurn.turnId);
+}
+
+function unique(values: readonly string[]): string[] {
+  return [...new Set(values)];
+}
+
+function uniqueBy<T>(values: readonly T[], key: (value: T) => string): T[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const id = key(value);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }

@@ -47,9 +47,8 @@ import { computeSessionTurnMetrics } from "../user-message-classification.js";
 import { isTerminalResultInterrupted } from "../result-interruption.js";
 import { markRecentAskVisibleResponseFromStream } from "../recent-ask-bundles.js";
 import {
-  CODEX_PROVIDER_RESULT_RECOVERY_MAX_ATTEMPTS,
   decideCodexProviderResultRecovery,
-  prepareCodexTurnForProviderRecovery,
+  prepareCodexTurnsForProviderRecovery,
 } from "./codex-provider-result-recovery.js";
 import { isCodexLeaderRecycleMode } from "../../shared/codex-leader-compaction-mode.js";
 import {
@@ -85,6 +84,26 @@ const CODEX_MODEL_ACTIVITY_MESSAGE_TYPES = new Set<BrowserIncomingMessage["type"
 
 function isSubstantiveCodexModelActivity(msg: BrowserIncomingMessage): boolean {
   return CODEX_MODEL_ACTIVITY_MESSAGE_TYPES.has(msg.type);
+}
+
+function markCodexProviderReplayUnsafeActivity(
+  session: CodexBrowserMessageSessionLike,
+  msg: BrowserIncomingMessage,
+): boolean {
+  if (msg.type === "result" || !isSubstantiveCodexModelActivity(msg)) return false;
+  const currentTurnId = session.codexAdapter?.getCurrentTurnId?.() ?? null;
+  const owners = currentTurnId
+    ? (session.pendingCodexTurns?.filter((turn: CodexOutboundTurn) => turn.turnId === currentTurnId) ?? [])
+    : (session.pendingCodexTurns?.filter(
+        (turn: CodexOutboundTurn) => turn.status === "backend_acknowledged" && turn.turnTarget === "current",
+      ) ?? []);
+  let changed = false;
+  for (const owner of owners) {
+    if (owner.providerReplayUnsafeActivityObserved) continue;
+    owner.providerReplayUnsafeActivityObserved = true;
+    changed = true;
+  }
+  return changed;
 }
 
 function logCodexCompactionStarted(
@@ -711,6 +730,7 @@ export interface CodexAdapterBrowserMessageDeps {
     reason: string,
     options?: { completedTurnId?: string | null },
   ) => void;
+  reconcileRecoveredQueuedTurnLifecycle?: (session: CodexBrowserMessageSessionLike, reason: string) => void;
   handleResultMessage: (session: CodexBrowserMessageSessionLike, msg: CLIResultMessage) => void;
   queueCodexPendingStartBatch: (session: CodexBrowserMessageSessionLike, reason: string) => void;
   dispatchQueuedCodexTurns: (session: CodexBrowserMessageSessionLike, reason: string) => void;
@@ -918,7 +938,8 @@ export async function handleCodexAdapterBrowserMessage(
   deps.touchActivity(session.id);
   session.lastCliMessageAt = Date.now();
   deps.clearOptimisticRunningTimer(session, `codex_output:${msg.type}`);
-  if (isSubstantiveCodexModelActivity(msg) && markCodexModelSwitchActivity(session)) {
+  const replaySafetyProofChanged = markCodexProviderReplayUnsafeActivity(session, msg);
+  if ((isSubstantiveCodexModelActivity(msg) && markCodexModelSwitchActivity(session)) || replaySafetyProofChanged) {
     deps.persistSession(session);
   }
   if (msg.type === "codex_reasoning_detail") {
@@ -1366,8 +1387,23 @@ export async function handleCodexAdapterBrowserMessage(
       outgoing.data as CLIResultMessage,
       completedTurn,
     );
-    const retainTurnForRetry =
+    const originalTurnId = completedTurn?.turnId ?? null;
+    const wantsRetryTurn =
       !resultInterrupted && providerRecovery.kind === "recover" && providerRecovery.retryTurn && !!completedTurn;
+    const retryTurn =
+      wantsRetryTurn && completedTurn && providerRecovery.kind === "recover"
+        ? prepareCodexTurnsForProviderRecovery(
+            session,
+            completedTurn,
+            providerRecovery.family,
+            providerRecovery.attempt,
+            Date.now(),
+          )
+        : null;
+    const retainTurnForRetry = retryTurn !== null;
+    if (retainTurnForRetry) {
+      deps.reconcileRecoveredQueuedTurnLifecycle?.(session, "codex_provider_result_retry");
+    }
     if (
       !retainTurnForRetry &&
       !deps.completeCodexTurnsForResult(session, outgoing.data, Date.now(), resultInterrupted)
@@ -1378,28 +1414,19 @@ export async function handleCodexAdapterBrowserMessage(
 
     let recoveryRequested = false;
     if (providerRecovery.kind === "recover") {
-      const originalTurnId = completedTurn?.turnId ?? null;
-      if (retainTurnForRetry && completedTurn) {
-        prepareCodexTurnForProviderRecovery(
-          completedTurn,
-          providerRecovery.family,
-          providerRecovery.attempt,
-          Date.now(),
-        );
-      }
       recoveryRequested =
         deps.requestCodexProviderRecovery?.(
           session,
           `provider_result:${providerRecovery.family}:attempt_${providerRecovery.attempt}`,
         ) ?? false;
-      if (recoveryRequested && retainTurnForRetry && completedTurn) {
+      if (recoveryRequested && retryTurn) {
         const retryState = setCodexProviderRetryState(
           session,
           {
             family: providerRecovery.family,
-            ownerId: completedTurn.userMessageId,
+            ownerId: retryTurn.userMessageId,
             attempt: providerRecovery.attempt,
-            maxAttempts: CODEX_PROVIDER_RESULT_RECOVERY_MAX_ATTEMPTS,
+            maxAttempts: providerRecovery.maxAttempts,
             startedAt: Date.now(),
           },
           (state) =>
@@ -1413,15 +1440,15 @@ export async function handleCodexAdapterBrowserMessage(
           data: { ...outgoing.data, codex_provider_retry: retryState },
         };
       } else {
-        clearCodexProviderRetryState(session, completedTurn?.userMessageId, (state) =>
+        clearCodexProviderRetryState(session, retryTurn?.userMessageId ?? completedTurn?.userMessageId, (state) =>
           deps.broadcastToBrowsers(session, {
             type: "session_update",
             session: { codex_provider_retry: state },
           }),
         );
       }
-      if (!recoveryRequested && retainTurnForRetry && completedTurn) {
-        completedTurn.turnId = originalTurnId;
+      if (!recoveryRequested && retryTurn) {
+        retryTurn.turnId = originalTurnId;
         deps.completeCodexTurnsForResult(session, outgoing.data, Date.now(), resultInterrupted);
       }
       deps.persistSession(session);
@@ -1444,14 +1471,17 @@ export async function handleCodexAdapterBrowserMessage(
       completedTurnId: typeof outgoing.data.codex_turn_id === "string" ? outgoing.data.codex_turn_id : null,
     });
     deps.handleResultMessage(session, outgoing.data as CLIResultMessage);
-    const recoverySummaryChanged = markCodexAutoPauseRecoveryTurnCompleted(
-      session,
-      completedTurn,
-      outgoing.data.is_error === true,
-      resultInterrupted,
-      Date.now(),
-      deps,
-    );
+    const recoverySummaryChanged =
+      providerRecovery.kind === "recover" && recoveryRequested && retryTurn
+        ? false
+        : markCodexAutoPauseRecoveryTurnCompleted(
+            session,
+            retryTurn ?? completedTurn,
+            outgoing.data.is_error === true,
+            resultInterrupted,
+            Date.now(),
+            deps,
+          );
     if (recoverySummaryChanged) {
       if (resultInterrupted) deps.freezeHistoryThroughCurrentTail(session);
       deps.persistSession(session);
@@ -1460,7 +1490,7 @@ export async function handleCodexAdapterBrowserMessage(
     const maybeAutoPause = deps.handleCodexResultErrorAutoPause(
       session,
       outgoing.data as CLIResultMessage,
-      completedTurn,
+      retryTurn ?? completedTurn,
       resultInterrupted,
     );
     if (maybeAutoPause instanceof Promise) {

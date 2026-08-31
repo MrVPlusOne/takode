@@ -387,6 +387,7 @@ describe("Playground", () => {
     expect(screen.getByText("Automatic recovery paused — unsupported selected model")).toBeTruthy();
     expect(screen.getByText("Failed recovery remains held")).toBeTruthy();
     expect(screen.getByText("Reconnecting (2/5)")).toBeTruthy();
+    expect(screen.getByText("Retrying request (attempt 4)")).toBeTruthy();
     expect(screen.getAllByText(/Cause: Copilot authentication refresh failed at/)).toHaveLength(2);
     expect(screen.getAllByText(/Cause: Model backend stream disconnected repeatedly at/)).toHaveLength(2);
     expect(screen.getByText(/Cause: Selected model is unsupported at/)).toBeTruthy();

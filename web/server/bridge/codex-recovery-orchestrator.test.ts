@@ -1811,17 +1811,18 @@ describe("handleCodexAdapterInitError", () => {
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, { type: "backend_disconnected" });
     expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(session, expect.objectContaining({ type: "error" }));
 
-    vi.advanceTimersByTime(1_000);
+    vi.advanceTimersByTime(29_999);
+    expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
     expect(deps.requestCodexAutoRecovery).toHaveBeenCalledWith(
       session,
       "init_error:queued_user_message_adapter_missing",
     );
   });
 
-  it("spreads provider-result init retries across the bounded connectivity recovery window", () => {
-    // A laptop can remain offline longer than the ordinary 1s init retry.
-    // Provider-result recovery keeps the same finite attempt budget but waits
-    // 30s, then 4m, so connectivity can return without a manual resend.
+  it("keeps provider-result init retries on the persistent outage cadence", () => {
+    // A laptop can remain offline beyond one inner process cycle. Retry timing
+    // stays bounded without requiring a manual resend.
     vi.useFakeTimers();
     const adapter = { id: "provider-adapter-1" };
     const session = makeSession([]);
@@ -1845,10 +1846,10 @@ describe("handleCodexAdapterInitError", () => {
     );
   });
 
-  it("suppresses automatic recovery after the transient init retry budget is exhausted", () => {
-    // Once the bounded retry budget is spent, queued work remains durable but
-    // automatic relaunch pauses so users see a manual recovery path instead of
-    // an infinite respawn loop.
+  it("starts a fresh inner process cycle while exact pending work remains eligible", () => {
+    // Exhausting five process launches no longer strands a proof-safe owner.
+    // Held automatic backlog remains isolated while the exact owner retries.
+    vi.useFakeTimers();
     const adapter = makeLifecycleAdapter();
     const session = makeSession([]);
     prepareLifecycleSession(session);
@@ -1869,7 +1870,13 @@ describe("handleCodexAdapterInitError", () => {
     session.pendingCodexTurns = [pending];
     (session as any).codexAutoRecoveryReason = "queued_user_message_adapter_missing";
     (session as any).codexInitRecoveryFailures = 4;
-    session.state.backend_reconnect = { attempt: 5, maxAttempts: 5, cycleStartedAt: 100 };
+    session.state.backend_reconnect = {
+      attempt: 5,
+      maxAttempts: 5,
+      cycleStartedAt: 100,
+      outageOwnerId: pending.userMessageId,
+      outageFamily: "process_transport",
+    };
     const deps = makeLifecycleDeps({ maxAdapterRelaunchFailures: 5 });
 
     const result = handleCodexAdapterInitError(
@@ -1880,55 +1887,29 @@ describe("handleCodexAdapterInitError", () => {
       deps,
     );
 
-    expect(result).toBe("broken");
-    expect(session.state.backend_state).toBe("recovery_suppressed");
-    expect((session.state as any).backend_error).toContain(
-      "Codex automatic recovery is paused after 5 failed attempts",
-    );
-    expect(pending.status).toBe("queued");
-    expect(pending).toMatchObject({ turnTarget: null, autoPauseRecoveryTestingRetired: true });
+    expect(result).toBe("retrying");
+    expect(session.state.backend_state).toBe("recovering");
+    expect(pending).toMatchObject({ status: "queued", turnTarget: "current" });
+    expect(pending.autoPauseRecoveryTestingRetired).not.toBe(true);
     expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
+    expect(deps.emitTakodeEvent).not.toHaveBeenCalledWith(session.id, "session_error", expect.anything());
+    expect(deps.setGenerating).not.toHaveBeenCalledWith(session, false, "codex_recovery_suppressed");
+
+    vi.advanceTimersByTime(29_999);
     expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
-    expect(deps.setAttentionError).not.toHaveBeenCalled();
-    expect(deps.emitTakodeEvent).toHaveBeenCalledWith(session.id, "session_error", {
-      error: "Codex automatic recovery is paused after 5 failed attempts. Use Reconnect to start a fresh cycle.",
-    });
-    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_recovery_suppressed");
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
-      type: "backend_disconnected",
-      reason: "recovery_suppressed",
-    });
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
-      type: "error",
-      message: "Codex automatic recovery is paused after 5 failed attempts. Use Reconnect to start a fresh cycle.",
-    });
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
-      type: "session_update",
-      session: {
-        codex_result_error_auto_pause_recovery_testing: false,
-        codex_result_error_auto_pause_recovery_progress: null,
-      },
-    });
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
-      type: "status_change",
-      status: null,
-      codexAutoPauseRecoveryTesting: false,
-      codexAutoPauseRecoveryProgress: null,
-    });
+    vi.advanceTimersByTime(1);
+    expect(deps.requestCodexAutoRecovery).toHaveBeenCalledWith(session, "queued_user_message_adapter_missing");
 
     const replacement = makeLifecycleAdapter();
     session.codexAdapter = replacement as any;
     vi.mocked(deps.broadcastToBrowsers).mockClear();
     registerCodexAdapterRecoveryLifecycle(session.id, session, replacement, deps);
-    replacement.emitSessionMeta({ cliSessionId: "thread-after-init-exhaustion" });
-    expect(pending.autoPauseRecoveryTestingRetired).toBe(true);
-    expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(
-      session,
-      expect.objectContaining({
-        type: "session_update",
-        session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: true }),
-      }),
-    );
+    replacement.emitSessionMeta({ cliSessionId: "thread-after-outage" });
+    expect(session.state.backend_state).toBe("connected");
+    expect(session.state.backend_reconnect).toBeNull();
+    expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
+    expect(pending.autoPauseRecoveryTestingRetired).not.toBe(true);
+    expect(deps.dispatchQueuedCodexTurns).toHaveBeenCalledWith(session, "session_meta");
   });
 
   it("marks non-transient init errors broken immediately", () => {

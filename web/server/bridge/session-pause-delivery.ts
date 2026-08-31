@@ -1,4 +1,5 @@
 import type { BrowserIncomingMessage, SessionPauseState } from "../session-types.js";
+import { clearCodexOutageRecoveryState } from "../codex-process-reconnect.js";
 import { pauseSessionState, unpauseSessionState } from "../session-pause.js";
 import { handleBrowserIngressMessage, type BrowserTransportDeps } from "./browser-transport-controller.js";
 import {
@@ -23,7 +24,14 @@ export function pauseSessionForDelivery(
   deps: Pick<SessionPauseDeliveryDeps, "broadcastToBrowsers" | "persistSession">,
 ): SessionPauseState {
   const pause = pauseSessionState(session, options);
-  deps.broadcastToBrowsers(session, { type: "session_update", session: { pause } });
+  const recoveryUpdate = session.backendType === "codex" ? (clearCodexOutageRecoveryState(session) ?? {}) : {};
+  if (session.state.backend_state === "recovering") {
+    session.state.backend_state = "disconnected";
+    session.state.backend_error = null;
+    recoveryUpdate.backend_state = "disconnected";
+    recoveryUpdate.backend_error = null;
+  }
+  deps.broadcastToBrowsers(session, { type: "session_update", session: { pause, ...recoveryUpdate } });
   deps.persistSession(session);
   return pause;
 }

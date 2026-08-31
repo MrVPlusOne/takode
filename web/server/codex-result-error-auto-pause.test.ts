@@ -10,6 +10,7 @@ import {
   materializeCodexAutoPausedInputsForDrain,
   noteCodexResultForAutoPause,
   queueCodexAutoPausedInput,
+  sweepCodexAutoPausedQueuedBacklog,
 } from "./codex-result-error-auto-pause.js";
 import type { CLIResultMessage, CodexOutboundTurn, PendingCodexInput, SessionState } from "./session-types.js";
 
@@ -356,6 +357,55 @@ describe("Codex result-error auto-pause", () => {
 
     expect(determineCodexTurnSourceKind([manual])).toBe("manual");
     expect(determineCodexTurnSourceKind([manual, automatic])).toBe("automatic");
+  });
+
+  it("holds unrelated automatic backlog without deleting the exact provider-retry owner", () => {
+    // The original user row is already committed, so it is absent from
+    // pendingCodexInputs. Auto-pause must not mistake that for a stale batch.
+    const paused = session();
+    noteCodexResultForAutoPause(paused, result({ uuid: "failure-1" }), turn("automatic"), 100);
+    noteCodexResultForAutoPause(paused, result({ uuid: "failure-2" }), turn("automatic"), 110);
+    noteCodexResultForAutoPause(paused, result({ uuid: "failure-3" }), turn("automatic"), 120);
+    const retryOwner = {
+      adapterMsg: { type: "codex_start_pending", pendingInputIds: ["original"], inputs: [{ content: "original" }] },
+      userMessageId: "original",
+      pendingInputIds: ["original"],
+      userContent: "original",
+      historyIndex: 0,
+      status: "queued",
+      dispatchCount: 3,
+      createdAt: 1,
+      updatedAt: 120,
+      acknowledgedAt: null,
+      turnTarget: "current",
+      lastError: null,
+      turnId: null,
+      disconnectedAt: null,
+      resumeConfirmedAt: null,
+      autoPauseSourceKind: "automatic",
+      providerRecoveryAttempts: 3,
+      providerRecoveryFamily: "model_backend_stream_error",
+    } as CodexOutboundTurn;
+    const unrelated = {
+      id: "later-automatic",
+      content: "later event",
+      timestamp: 125,
+      cancelable: true,
+      autoPauseSourceKind: "automatic",
+    } as PendingCodexInput;
+    const target = {
+      state: paused.state,
+      pendingCodexInputs: [unrelated],
+      pendingCodexTurns: [retryOwner],
+    };
+
+    expect(sweepCodexAutoPausedQueuedBacklog(target, 130)).toMatchObject({
+      changed: true,
+      heldInputIds: ["later-automatic"],
+    });
+    expect(target.pendingCodexTurns).toEqual([retryOwner]);
+    expect(target.pendingCodexInputs).toHaveLength(0);
+    expect(target.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
   });
 
   it("derives testing and active progress only from the exact current manual owner", () => {

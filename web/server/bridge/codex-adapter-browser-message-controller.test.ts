@@ -291,7 +291,11 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     const session = makeSession();
     session.messageHistory.push({ type: "user_message", id: "input-1", content: "continue", timestamp: 1 });
     const pending: any = {
-      adapterMsg: { type: "codex_start_pending", pendingInputIds: ["input-1"], inputs: [] },
+      adapterMsg: {
+        type: "codex_start_pending",
+        pendingInputIds: ["input-1"],
+        inputs: [{ content: "continue" }],
+      },
       userMessageId: "input-1",
       pendingInputIds: ["input-1"],
       userContent: "continue",

@@ -615,10 +615,9 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
     expect(session.pendingCodexTurns.length).toBeGreaterThan(0);
   });
 
-  it("suppresses automatic relaunch after repeated queued-work recovery failures", async () => {
-    // Once automatic recovery has repeatedly failed, new queued user work stays
-    // durable but no longer relaunches the backend indefinitely. Manual Reconnect
-    // clears the suppression through the explicit relaunch route.
+  it("starts a fresh reconnect cycle for exact queued work after the old process cap", async () => {
+    // Five process attempts remain one anti-thrash cycle. Exact newly queued
+    // work starts a later cycle instead of being stranded behind the old cap.
     const sid = "s-suppress-auto-recovery";
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
@@ -644,18 +643,17 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
       }),
     );
 
-    expect(relaunchCb).not.toHaveBeenCalled();
-    expect(session.state.backend_state).toBe("recovery_suppressed");
-    expect(session.isGenerating).toBe(false);
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    expect(session.state.backend_state).toBe("recovering");
+    expect(session.isGenerating).toBe(true);
     expect(session.pendingCodexInputs.map((input: any) => input.content)).toContain("try again");
+    expect(session.state.backend_reconnect).toMatchObject({
+      attempt: 1,
+      maxAttempts: 5,
+      outageFamily: "process_transport",
+    });
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(expect.objectContaining({ type: "status_change", status: null }));
-    expect(calls).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        message: expect.stringContaining("Codex automatic recovery is paused"),
-      }),
-    );
+    expect(calls).not.toContainEqual(expect.objectContaining({ type: "error" }));
   });
 
   it("wakes idle-killed Codex sessions by clearing flag and relaunching on user_message", async () => {

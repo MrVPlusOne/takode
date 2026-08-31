@@ -46,11 +46,13 @@ export interface AdapterBrowserRoutingSessionLike {
     SessionState,
     | "askPermission"
     | "backend_error"
+    | "backend_reconnect"
     | "backend_state"
     | "claude_token_details"
     | "codex_rate_limits"
     | "codex_image_send_stage"
     | "codex_reasoning_effort"
+    | "codex_provider_retry"
     | "codex_effective_reasoning_effort"
     | "codex_effective_reasoning_effort_reported"
     | "codex_service_tier"

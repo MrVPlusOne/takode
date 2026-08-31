@@ -511,7 +511,8 @@ function isQueuedCodexStartPendingTurn(turn: CodexOutboundTurn): boolean {
   return (
     (turn.status === "queued" || turn.status === "blocked_broken_session") &&
     turn.turnId == null &&
-    turn.adapterMsg.type === "codex_start_pending"
+    turn.adapterMsg.type === "codex_start_pending" &&
+    !turn.providerRecoveryFamily
   );
 }
 

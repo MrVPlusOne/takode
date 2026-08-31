@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CodexOutboundTurn } from "./session-types.js";
-import { getCodexRecoveryOrchestratorDeps } from "./ws-bridge-deps.js";
+import { getCodexAdapterBrowserMessageDeps, getCodexRecoveryOrchestratorDeps } from "./ws-bridge-deps.js";
 
 function turn(): CodexOutboundTurn {
   return {
@@ -23,6 +23,8 @@ function turn(): CodexOutboundTurn {
 }
 
 describe("Codex provider retry settlement", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("retires matching retry state when exact-once recovery completes the owner", () => {
     const broadcastToBrowsers = vi.fn();
     const host = {
@@ -51,5 +53,63 @@ describe("Codex provider retry settlement", () => {
       type: "session_update",
       session: { codex_provider_retry: null },
     });
+  });
+
+  it("delays persistent provider relaunch until the accepted outage cadence", () => {
+    vi.useFakeTimers();
+    const requestCodexAutoRecovery = vi.fn(() => true);
+    const broadcastToBrowsers = vi.fn();
+    const host = {
+      getClaudeMessageHandlers: () => ({ handleResultMessage: vi.fn() }),
+      getCommonCodexRuntimeDeps: () => ({}),
+      getCodexRecoveryOrchestratorDeps: () => ({
+        completeCodexTurnsForResult: vi.fn(),
+        clearCodexFreshTurnRequirement: vi.fn(),
+        queueCodexPendingStartBatch: vi.fn(),
+        dispatchQueuedCodexTurns: vi.fn(),
+        maybeFlushQueuedCodexMessages: vi.fn(),
+      }),
+      launcher: { getSession: vi.fn(() => ({ archived: false, killedByIdleManager: false })) },
+      setBackendState: (session: any, state: string, error: string | null) => {
+        session.state.backend_state = state;
+        session.state.backend_error = error;
+      },
+      broadcastToBrowsers,
+      persistSession: vi.fn(),
+      requestCodexAutoRecovery,
+    };
+    const pending = turn();
+    pending.status = "queued";
+    pending.turnId = null;
+    pending.providerRecoveryFamily = "model_backend_stream_error";
+    const session = {
+      id: "provider-cadence",
+      state: {
+        backend_state: "disconnected",
+        backend_error: null,
+        backend_reconnect: null,
+        codex_provider_retry: null,
+        codex_turn_recovery: null,
+        pause: null,
+      },
+      pendingCodexTurns: [pending],
+      pendingCodexInputs: [],
+      codexAdapter: { id: "attached" },
+      consecutiveAdapterFailures: 0,
+      lastAdapterFailureAt: null,
+    } as any;
+    const deps = getCodexAdapterBrowserMessageDeps(host);
+
+    expect(deps.requestCodexProviderRecovery(session, "provider_result:model_backend_stream_error:attempt_1")).toBe(
+      true,
+    );
+    expect(requestCodexAutoRecovery).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(29_999);
+    expect(requestCodexAutoRecovery).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(requestCodexAutoRecovery).toHaveBeenCalledWith(
+      session,
+      "provider_result:model_backend_stream_error:attempt_1",
+    );
   });
 });

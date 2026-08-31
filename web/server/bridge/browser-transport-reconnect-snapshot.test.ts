@@ -14,12 +14,18 @@ function makeSession(): BrowserTransportSessionLike {
     state: {
       permissionMode: "default",
       backend_state: "recovering",
-      backend_reconnect: { attempt: 2, maxAttempts: 5, cycleStartedAt: 100 },
+      backend_reconnect: {
+        attempt: 2,
+        maxAttempts: 5,
+        cycleStartedAt: 100,
+        outageOwnerId: "input-1",
+        outageFamily: "model_backend_stream_error",
+      },
       codex_provider_retry: {
         family: "model_backend_stream_error",
         ownerId: "input-1",
-        attempt: 1,
-        maxAttempts: 2,
+        attempt: 4,
+        maxAttempts: null,
         startedAt: 90,
       },
       codex_turn_recovery: {
@@ -80,12 +86,18 @@ describe("Codex reconnect progress snapshots", () => {
       expect(JSON.parse(String(socket.send.mock.calls[0]?.[0]))).toMatchObject({
         type: "state_snapshot",
         backendState: "recovering",
-        backendReconnect: { attempt: 2, maxAttempts: 5, cycleStartedAt: 100 },
+        backendReconnect: {
+          attempt: 2,
+          maxAttempts: 5,
+          cycleStartedAt: 100,
+          outageOwnerId: "input-1",
+          outageFamily: "model_backend_stream_error",
+        },
         codexProviderRetry: {
           family: "model_backend_stream_error",
           ownerId: "input-1",
-          attempt: 1,
-          maxAttempts: 2,
+          attempt: 4,
+          maxAttempts: null,
           startedAt: 90,
         },
         codexTurnRecovery: {

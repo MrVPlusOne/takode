@@ -912,16 +912,36 @@ export function handleResultMessage(
     ...provisionalResultBrowserMsg,
     data: { ...msg, num_turns: turnMetrics.userTurnCount },
   };
+  if (isProviderRetryResult) {
+    // Retry progress is authoritative session state. Persisting one hidden raw
+    // result per attempt would grow append-only history without bound. A fixed
+    // live-only result still clears browser streaming/tool state without
+    // exposing or retaining raw provider failure details.
+    deps.broadcastToBrowsers(
+      session,
+      {
+        ...resultBrowserMsg,
+        data: {
+          ...resultBrowserMsg.data,
+          result: "Transient provider request failed; Takode is retrying.",
+          errors: undefined,
+        },
+      },
+      { skipBuffer: true },
+    );
+    deps.persistSession(session);
+    return;
+  }
   session.messageHistory.push(resultBrowserMsg);
   deps.freezeHistoryThroughCurrentTail(session);
   deps.broadcastToBrowsers(session, resultBrowserMsg);
   deps.persistSession(session);
 
-  if (!turnWasInterrupted && !isProviderRetryResult) {
+  if (!turnWasInterrupted) {
     deps.validateLeaderThreadOutcomes(session, turnTriggerSource);
     deps.onResultAttentionAndNotifications(session, msg, turnTriggerSource);
   }
-  if (!isProviderRetryResult) deps.onTurnCompleted(session);
+  deps.onTurnCompleted(session);
   for (const reminder of deliverQuestThreadReminders) {
     deps.injectUserMessage(session.id, reminder.content, reminder.agentSource, undefined, reminder.route);
   }

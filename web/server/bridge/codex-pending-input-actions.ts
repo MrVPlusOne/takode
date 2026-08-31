@@ -1,4 +1,5 @@
 import type { BrowserOutgoingMessage } from "../session-types.js";
+import { clearCodexOutageRecoveryState } from "../codex-process-reconnect.js";
 import { markCodexAutoPauseRecoveryDiscarded } from "./codex-auto-pause-recovery-summary.js";
 import { resolveCodexTurnRecoveryAction } from "./codex-interrupted-turn-recovery.js";
 import { retryFailedCodexPendingInput } from "./codex-pending-input-retry.js";
@@ -69,6 +70,16 @@ export function handleCodexPendingInputAction(
     }
   }
   if (removed && ws) deps.sendToBrowser(ws, { type: "codex_pending_input_cancelled", input: removed });
+  const recoveryUpdate = clearCodexOutageRecoveryState(session, { onlyIfTrackedOwnerMissing: true });
+  if (recoveryUpdate) {
+    if (session.state.backend_state === "recovering") {
+      session.state.backend_state = "disconnected";
+      session.state.backend_error = null;
+      recoveryUpdate.backend_state = "disconnected";
+      recoveryUpdate.backend_error = null;
+    }
+    deps.broadcastToBrowsers(session, { type: "session_update", session: recoveryUpdate });
+  }
   deps.persistSession(session);
   return true;
 }

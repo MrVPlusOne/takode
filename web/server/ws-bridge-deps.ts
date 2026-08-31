@@ -259,7 +259,13 @@ import {
 } from "./bridge/tool-result-recovery-controller.js";
 
 import type { QuestLifecycleStatus } from "./bridge/quest-detector.js";
-import { CODEX_PROCESS_RECONNECT_MAX_ATTEMPTS } from "./codex-process-reconnect.js";
+import {
+  CODEX_OUTAGE_RECOVERY_RETRY_INTERVAL_MS,
+  CODEX_PROCESS_RECONNECT_MAX_ATTEMPTS,
+  clearCodexOutageRecoveryState,
+  isCodexPersistentOutageRecoveryReason,
+  scheduleCodexOutageRecoveryRetry,
+} from "./codex-process-reconnect.js";
 import {
   clearOptimisticRunningTimer as clearOptimisticRunningTimerLifecycle,
   getQueuedTurnLifecycleEntries as getQueuedTurnLifecycleEntriesLifecycle,
@@ -578,6 +584,8 @@ export function getSessionCleanupDeps(host: any) {
     clearOptimisticRunningTimer: (session: Session, _reason: string) => clearOptimisticRunningTimerLifecycle(session),
     clearAllCodexToolResultWatchdogs: (session: Session, _reason: string) =>
       clearAllCodexToolResultWatchdogsController(session),
+    clearCodexDisconnectGraceTimer: (session: Session, reason: string) =>
+      host.clearCodexDisconnectGraceTimer(session, reason),
     cleanupBranchState: (sessionId: string) =>
       cleanupBranchStateIndex(sessionId, {
         branchToSessions: host.branchToSessions,
@@ -1265,6 +1273,8 @@ export function getCodexAdapterBrowserMessageDeps(host: any) {
     ) => host.isDuplicateCodexAssistantReplay(targetSession as Session, assistant),
     completeCodexTurnsForResult: codexRecoveryDeps.completeCodexTurnsForResult,
     clearCodexFreshTurnRequirement: codexRecoveryDeps.clearCodexFreshTurnRequirement,
+    reconcileRecoveredQueuedTurnLifecycle: (targetSession: unknown, reason: string) =>
+      reconcileRecoveredQueuedTurnLifecycleController(targetSession as Session, reason, codexRecoveryDeps),
     handleResultMessage: claudeHandlers.handleResultMessage,
     queueCodexPendingStartBatch: codexRecoveryDeps.queueCodexPendingStartBatch,
     dispatchQueuedCodexTurns: codexRecoveryDeps.dispatchQueuedCodexTurns,
@@ -1281,11 +1291,37 @@ export function getCodexAdapterBrowserMessageDeps(host: any) {
     ) => host.handleCodexResultErrorAutoPause(targetSession as Session, msg, completedTurn, interrupted),
     requestCodexProviderRecovery: (targetSession: unknown, reason: string) => {
       const session = targetSession as Session;
-      const requested = host.requestCodexAutoRecovery(session, reason);
-      if (requested) {
-        markCodexIntentionalRelaunchController(session, reason, Math.max(CODEX_INTENTIONAL_RELAUNCH_GUARD_MS, 45_000));
-      }
-      return requested;
+      const requestRecovery = (retryReason: string) => {
+        const requested = host.requestCodexAutoRecovery(session, retryReason);
+        if (requested) {
+          markCodexIntentionalRelaunchController(
+            session,
+            retryReason,
+            Math.max(CODEX_INTENTIONAL_RELAUNCH_GUARD_MS, 45_000),
+          );
+        }
+        return requested;
+      };
+      if (!isCodexPersistentOutageRecoveryReason(reason)) return requestRecovery(reason);
+      return scheduleCodexOutageRecoveryRetry(
+        session,
+        reason,
+        {
+          getLauncherSessionInfo: () => readLauncherSession(host, session.id),
+          requestRecovery,
+          onWaiting: () => {
+            host.setBackendState(session, "recovering", null);
+            host.broadcastToBrowsers(session, { type: "backend_disconnected" });
+          },
+          onIneligible: () => {
+            const recoveryUpdate = clearCodexOutageRecoveryState(session) ?? {};
+            host.broadcastToBrowsers(session, { type: "session_update", session: recoveryUpdate });
+            host.setBackendState(session, "disconnected", null);
+          },
+          persist: () => host.persistSession(session),
+        },
+        { delayMs: CODEX_OUTAGE_RECOVERY_RETRY_INTERVAL_MS, allowAttached: true },
+      );
     },
     broadcastBoardParticipantRefresh: (targetSession: unknown) =>
       host.scheduleBoardParticipantRefresh?.((targetSession as Session).id),
@@ -1700,6 +1736,8 @@ export function getCodexRecoveryOrchestratorDeps(host: any) {
       promoteNextQueuedTurnLifecycle(generationDeps, targetSession as Session),
     isCodexWorkerV2DeliveryFrozen: (sessionId: string) =>
       isCodexWorkerV2DeliveryFrozen(sessionId, readLauncherSession(host, sessionId)?.codexWorkerV2Cutover),
+    clearOptimisticRunningTimer: (targetSession: unknown, _reason: string) =>
+      clearOptimisticRunningTimerLifecycle(targetSession as Session),
     clearCodexDisconnectGraceTimer: (targetSession: unknown, reason: string) =>
       host.clearCodexDisconnectGraceTimer(targetSession as Session, reason),
     setCliSessionIdFromMeta: (sessionId: string, cliSessionId: string) => {

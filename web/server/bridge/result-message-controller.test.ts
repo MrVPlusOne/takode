@@ -162,7 +162,9 @@ describe("result-message-controller", () => {
     expect(deps.onTurnCompleted).toHaveBeenCalledWith(session);
   });
 
-  it("persists transient provider retry audit without terminal attention or completion hooks", () => {
+  it("keeps transient provider retries out of durable history and terminal hooks", () => {
+    // Long-lived network recovery can produce many attempts. The exact retry
+    // owner lives in session state, so raw terminal rows must not accumulate.
     const session = makeSession();
     session.backendType = "codex";
     const deps = makeDeps();
@@ -176,18 +178,30 @@ describe("result-message-controller", () => {
         codex_provider_retry: {
           family: "model_backend_stream_error",
           ownerId: "input-1",
-          attempt: 1,
-          maxAttempts: 2,
+          attempt: 7,
+          maxAttempts: null,
           startedAt: 100,
         },
       }),
       deps,
     );
 
-    expect(session.messageHistory.at(-1)).toMatchObject({
-      type: "result",
-      data: { codex_provider_retry: { ownerId: "input-1", attempt: 1 } },
-    });
+    expect(session.messageHistory).toHaveLength(0);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      {
+        type: "result",
+        data: expect.objectContaining({
+          result: "Transient provider request failed; Takode is retrying.",
+          errors: undefined,
+          codex_provider_retry: expect.objectContaining({ ownerId: "input-1", attempt: 7 }),
+        }),
+      },
+      { skipBuffer: true },
+    );
+    expect(JSON.stringify(deps.broadcastToBrowsers.mock.calls)).not.toContain("stream disconnected before completion");
+    expect(deps.freezeHistoryThroughCurrentTail).not.toHaveBeenCalled();
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
     expect(deps.reconcileTerminalResultState).toHaveBeenCalledWith(session);
     expect(deps.validateLeaderThreadOutcomes).not.toHaveBeenCalled();
     expect(deps.onResultAttentionAndNotifications).not.toHaveBeenCalled();

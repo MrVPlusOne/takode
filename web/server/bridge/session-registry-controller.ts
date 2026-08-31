@@ -2,8 +2,18 @@ import { sessionTag } from "../session-tag.js";
 import {
   CODEX_PROCESS_RECONNECT_MAX_ATTEMPTS,
   CODEX_PROVIDER_RESULT_RECONNECT_TIMEOUT_MS,
+  beginCodexRecoveryAttempt,
+  canContinueCodexOutageRecovery,
+  clearCodexRecoveryRuntimeState,
+  getCodexRecoveryRuntimeReason,
+  invalidateCodexRecoveryAttempt,
+  isCodexPersistentOutageRecoveryReason,
+  isCurrentCodexRecoveryAttempt,
+  resolveCodexAutoRecoveryReason,
+  setCodexRecoveryRuntimeReason,
+  stopIneligibleCodexOutageRecovery,
+  withCodexOutageRecoveryDescriptor,
 } from "../codex-process-reconnect.js";
-import { isCodexProviderResultRecoveryReason } from "./codex-provider-result-recovery.js";
 import {
   normalizeCodexTurnRecoveryState,
   repairRestoredCodexTurnRecoveryState,
@@ -750,6 +760,7 @@ export function removeSession(
   deps: {
     clearOptimisticRunningTimer: (session: SessionLike, reason: string) => void;
     clearAllCodexToolResultWatchdogs: (session: SessionLike, reason: string) => void;
+    clearCodexDisconnectGraceTimer?: (session: SessionLike, reason: string) => void;
     cleanupBranchState: (sessionId: string) => void;
     removeStoredSession?: (sessionId: string) => void;
     removeImages?: (sessionId: string) => void;
@@ -761,6 +772,8 @@ export function removeSession(
   if (session) {
     deps.clearOptimisticRunningTimer(session, "remove_session");
     deps.clearAllCodexToolResultWatchdogs(session, "remove_session");
+    deps.clearCodexDisconnectGraceTimer?.(session, "remove_session");
+    clearCodexRecoveryRuntimeState(session);
     for (const socket of session.browserSockets) deps.removeSyncedProjectionSubscriber?.(socket);
   }
   deps.removeSessionAttentionProjection?.(sessionId);
@@ -776,6 +789,7 @@ export function closeSession(
   deps: {
     clearOptimisticRunningTimer: (session: SessionLike, reason: string) => void;
     clearAllCodexToolResultWatchdogs: (session: SessionLike, reason: string) => void;
+    clearCodexDisconnectGraceTimer?: (session: SessionLike, reason: string) => void;
     cleanupBranchState: (sessionId: string) => void;
     removeStoredSession?: (sessionId: string) => void;
     removeImages?: (sessionId: string) => void;
@@ -787,6 +801,8 @@ export function closeSession(
   if (!session) return;
   deps.clearOptimisticRunningTimer(session, "close_session");
   deps.clearAllCodexToolResultWatchdogs(session, "close_session");
+  deps.clearCodexDisconnectGraceTimer?.(session, "close_session");
+  clearCodexRecoveryRuntimeState(session);
 
   if (session.backendSocket) {
     try {
@@ -914,7 +930,9 @@ export function setBackendReconnectProgress(
   const changed =
     current?.attempt !== next?.attempt ||
     current?.maxAttempts !== next?.maxAttempts ||
-    current?.cycleStartedAt !== next?.cycleStartedAt;
+    current?.cycleStartedAt !== next?.cycleStartedAt ||
+    current?.outageOwnerId !== next?.outageOwnerId ||
+    current?.outageFamily !== next?.outageFamily;
   session.state.backend_reconnect = next;
   if (!changed) return;
   deps.broadcastSessionUpdate?.(session, { backend_reconnect: next });
@@ -924,18 +942,23 @@ function markCodexReconnectAttempt(
   session: SessionLike,
   attempt: number,
   maxAttempts: number,
+  reason: string,
   deps: Pick<SessionRegistryDeps, "broadcastSessionUpdate">,
 ): void {
   const normalizedAttempt = Math.max(1, Math.min(Math.floor(attempt), maxAttempts));
   const existing = session.state.backend_reconnect;
   setBackendReconnectProgress(
     session,
-    {
-      attempt: normalizedAttempt,
-      maxAttempts,
-      cycleStartedAt:
-        normalizedAttempt > 1 && typeof existing?.cycleStartedAt === "number" ? existing.cycleStartedAt : Date.now(),
-    },
+    withCodexOutageRecoveryDescriptor(
+      {
+        attempt: normalizedAttempt,
+        maxAttempts,
+        cycleStartedAt:
+          normalizedAttempt > 1 && typeof existing?.cycleStartedAt === "number" ? existing.cycleStartedAt : Date.now(),
+      },
+      session,
+      reason,
+    ),
     deps,
   );
 }
@@ -945,15 +968,13 @@ export function beginCodexManualReconnectCycle(
   deps: Pick<SessionRegistryDeps, "persistSession" | "broadcastSessionUpdate" | "maxAdapterRelaunchFailures">,
 ): boolean {
   if (session.backendType !== "codex") return false;
-  const retryTimer = (session as any).codexInitRetryTimer as ReturnType<typeof setTimeout> | null | undefined;
-  if (retryTimer) clearTimeout(retryTimer);
-  (session as any).codexInitRetryTimer = null;
+  clearCodexRecoveryRuntimeState(session);
   (session as any).consecutiveAdapterFailures = 0;
   (session as any).lastAdapterFailureAt = null;
-  (session as any).codexInitRecoveryFailures = 0;
-  (session as any).codexAutoRecoveryReason = "manual_reconnect";
+  setCodexRecoveryRuntimeReason(session, "manual_reconnect");
+  setBackendReconnectProgress(session, null, deps);
   const maxAttempts = deps.maxAdapterRelaunchFailures ?? CODEX_PROCESS_RECONNECT_MAX_ATTEMPTS;
-  markCodexReconnectAttempt(session, 1, maxAttempts, deps);
+  markCodexReconnectAttempt(session, 1, maxAttempts, "manual_reconnect", deps);
   setBackendState(session, "recovering", null, deps);
   deps.persistSession(session);
   return true;
@@ -978,34 +999,56 @@ export function requestCodexAutoRecovery(
 ): boolean {
   const launcherInfo = deps.getLauncherSessionInfo?.(session.id);
   if (!deps.requestCliRelaunch) return false;
-  if (launcherInfo?.archived || launcherInfo?.killedByIdleManager) return false;
+  if (launcherInfo?.archived || launcherInfo?.killedByIdleManager || session.state.pause?.pausedAt) return false;
   if (session.state.backend_state === "broken" || session.state.backend_state === "recovery_suppressed") return false;
   const maxFailures = deps.maxAdapterRelaunchFailures ?? CODEX_PROCESS_RECONNECT_MAX_ATTEMPTS;
-  if (reason !== "adapter_disconnect" && (session as any).consecutiveAdapterFailures >= maxFailures) {
-    suppressCodexAutomaticRecovery(session, `automatic recovery suppressed after ${maxFailures} failed attempts`, deps);
-    return false;
+  if ((session as any).consecutiveAdapterFailures >= maxFailures) {
+    if (canContinueCodexOutageRecovery(session, reason, launcherInfo)) {
+      (session as any).consecutiveAdapterFailures = 0;
+      (session as any).lastAdapterFailureAt = null;
+    } else if (reason !== "adapter_disconnect") {
+      suppressCodexAutomaticRecovery(
+        session,
+        `automatic recovery suppressed after ${maxFailures} failed attempts`,
+        deps,
+      );
+      return false;
+    }
   }
-  (session as any).codexAutoRecoveryReason = reason;
+  setCodexRecoveryRuntimeReason(session, reason);
   const recordedFailures = (session as any).consecutiveAdapterFailures ?? 0;
   const nextAttempt = Math.min(
     reason === "adapter_disconnect" ? Math.max(1, recordedFailures) : recordedFailures + 1,
     maxFailures,
   );
-  markCodexReconnectAttempt(session, nextAttempt, maxFailures, deps);
+  markCodexReconnectAttempt(session, nextAttempt, maxFailures, reason, deps);
   setBackendState(session, "recovering", null, deps);
   deps.persistSession(session);
   console.log(`[ws-bridge] Requesting Codex auto-recovery for session ${sessionTag(session.id)} (${reason})`);
+  const attemptToken = beginCodexRecoveryAttempt(session);
   deps.requestCliRelaunch(session.id);
-  const recoveryTimeoutMs = isCodexProviderResultRecoveryReason(reason)
-    ? Math.max(deps.recoveryTimeoutMs ?? 30_000, CODEX_PROVIDER_RESULT_RECONNECT_TIMEOUT_MS)
-    : (deps.recoveryTimeoutMs ?? 30_000);
+  const recoveryTimeoutMs = isCodexPersistentOutageRecoveryReason(reason)
+    ? (deps.recoveryTimeoutMs ?? 30_000)
+    : reason.includes("provider_result:")
+      ? Math.max(deps.recoveryTimeoutMs ?? 30_000, CODEX_PROVIDER_RESULT_RECONNECT_TIMEOUT_MS)
+      : (deps.recoveryTimeoutMs ?? 30_000);
   setTimeout(() => {
+    if (!isCurrentCodexRecoveryAttempt(session, attemptToken)) return;
     if (session.state.backend_state !== "recovering") return;
     if (deps.attached?.(session)) return;
+    if (stopIneligibleCodexOutageRecovery(session, reason, deps)) return;
     console.warn(
-      `[ws-bridge] Codex auto-recovery timeout for session ${sessionTag(session.id)} (${reason}) -- resetting to disconnected`,
+      `[ws-bridge] Codex auto-recovery timeout for session ${sessionTag(session.id)} (${reason}) -- retrying or settling`,
     );
     const failures = noteCodexAutomaticRecoveryFailure(session, deps);
+    if (canContinueCodexOutageRecovery(session, reason, deps.getLauncherSessionInfo?.(session.id))) {
+      if (failures >= maxFailures) {
+        (session as any).consecutiveAdapterFailures = 0;
+        (session as any).lastAdapterFailureAt = null;
+      }
+      requestCodexAutoRecovery(session, reason, deps);
+      return;
+    }
     if (failures >= maxFailures) {
       suppressCodexAutomaticRecovery(
         session,
@@ -1015,11 +1058,8 @@ export function requestCodexAutoRecovery(
     } else {
       setBackendState(session, "disconnected", null, deps);
     }
-    const retryTimer = (session as any).codexInitRetryTimer as ReturnType<typeof setTimeout> | null | undefined;
-    if (retryTimer) clearTimeout(retryTimer);
-    (session as any).codexInitRetryTimer = null;
-    (session as any).codexAutoRecoveryReason = null;
-    (session as any).codexInitRecoveryFailures = 0;
+    clearCodexRecoveryRuntimeState(session);
+    setBackendReconnectProgress(session, null, deps);
     deps.emitTakodeEvent?.(session.id, "session_disconnected", {
       wasGenerating: session.isGenerating,
       reason: "recovery_timeout",
@@ -1041,11 +1081,17 @@ export function markCodexAutoRecoveryFailed(
     | "broadcastToBrowsers"
     | "finalizeCodexRecoveringTurn"
     | "maxAdapterRelaunchFailures"
+    | "requestCliRelaunch"
+    | "getLauncherSessionInfo"
+    | "recoveryTimeoutMs"
   >,
 ): void {
   if (session.backendType !== "codex") return;
   if (session.state.backend_state !== "recovering") return;
   if (deps.attached?.(session)) return;
+  invalidateCodexRecoveryAttempt(session);
+  const reason = resolveCodexAutoRecoveryReason(session, getCodexRecoveryRuntimeReason(session));
+  if (reason && stopIneligibleCodexOutageRecovery(session, reason, deps)) return;
   const failures = noteCodexAutomaticRecoveryFailure(session, deps);
   const maxFailures = deps.maxAdapterRelaunchFailures ?? CODEX_PROCESS_RECONNECT_MAX_ATTEMPTS;
   if (failures >= maxFailures) {
@@ -1057,11 +1103,7 @@ export function markCodexAutoRecoveryFailed(
   } else {
     setBackendState(session, "disconnected", null, deps);
   }
-  const retryTimer = (session as any).codexInitRetryTimer as ReturnType<typeof setTimeout> | null | undefined;
-  if (retryTimer) clearTimeout(retryTimer);
-  (session as any).codexInitRetryTimer = null;
-  (session as any).codexAutoRecoveryReason = null;
-  (session as any).codexInitRecoveryFailures = 0;
+  clearCodexRecoveryRuntimeState(session);
   deps.emitTakodeEvent?.(session.id, "session_disconnected", {
     wasGenerating: session.isGenerating,
     reason: "recovery_failed",
@@ -1077,8 +1119,7 @@ export function clearCodexAutomaticRecoverySuppression(
   if (session.backendType !== "codex") return;
   (session as any).consecutiveAdapterFailures = 0;
   (session as any).lastAdapterFailureAt = null;
-  (session as any).codexInitRecoveryFailures = 0;
-  (session as any).codexAutoRecoveryReason = null;
+  clearCodexRecoveryRuntimeState(session);
   setBackendReconnectProgress(session, null, deps);
   if (session.state.backend_state === "recovery_suppressed") {
     setBackendState(session, "disconnected", null, deps);

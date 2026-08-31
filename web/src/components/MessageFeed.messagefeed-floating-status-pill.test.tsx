@@ -879,21 +879,31 @@ describe("MessageFeed - floating status pill", () => {
       codex_provider_retry: {
         family: "model_backend_stream_error",
         ownerId: "input-1",
-        attempt: 1,
-        maxAttempts: 2,
+        attempt: 4,
+        maxAttempts: null,
         startedAt: 100,
       },
     });
     setStoreConnectionState(sid);
 
-    render(<MessageFeed sessionId={sid} />);
+    const { rerender } = render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByTestId("codex-provider-retry-chip")).toHaveTextContent("Retrying request (1/2)");
+    expect(screen.getByTestId("codex-provider-retry-chip")).toHaveTextContent("Retrying request (attempt 4)");
     expect(screen.getByTestId("recoverable-connection-chip")).toHaveTextContent("Reconnecting (2/5)");
     fireEvent.click(screen.getByTestId("codex-provider-retry-chip"));
     expect(screen.getByTestId("codex-provider-retry-detail")).toHaveTextContent(
-      "separate from the five-attempt process reconnect cycle",
+      "continues while the request remains proof-safe and eligible",
     );
+
+    setStoreSessionState(sid, {
+      backend_state: "connected",
+      backend_reconnect: null,
+      codex_provider_retry: null,
+    });
+    setStoreConnectionState(sid, { cliConnected: true });
+    rerender(<MessageFeed sessionId={sid} />);
+    expect(screen.queryByTestId("codex-provider-retry-chip")).toBeNull();
+    expect(screen.queryByTestId("recoverable-connection-chip")).toBeNull();
   });
 
   it("does not render the recoverable chip for unrecoverable broken sessions", () => {

@@ -4,6 +4,7 @@ import {
   handleCodexAdapterBrowserMessage,
   type CodexAdapterBrowserMessageDeps,
 } from "./codex-adapter-browser-message-controller.js";
+import { reconcileRecoveredQueuedTurnLifecycle } from "./codex-queued-turn-lifecycle.js";
 
 function makeResult(turnId: string, uuid: string): Extract<BrowserIncomingMessage, { type: "result" }> {
   return {
@@ -34,7 +35,7 @@ function makeSuccess(turnId: string): Extract<BrowserIncomingMessage, { type: "r
 
 function makeTurn(): CodexOutboundTurn {
   return {
-    adapterMsg: { type: "codex_start_pending", pendingInputIds: ["input-1"], inputs: [] },
+    adapterMsg: { type: "codex_start_pending", pendingInputIds: ["input-1"], inputs: [{ content: "continue" }] },
     userMessageId: "input-1",
     pendingInputIds: ["input-1"],
     userContent: "continue",
@@ -60,6 +61,11 @@ function makeSession(turn = makeTurn()) {
       { type: "user_message", id: "input-1", content: "continue", timestamp: 1 } as BrowserIncomingMessage,
     ],
     pendingCodexTurns: [turn],
+    queuedTurnStarts: 0,
+    queuedTurnReasons: [],
+    queuedTurnUserMessageIds: [],
+    queuedTurnInterruptSources: [],
+    queuedTurnActiveRoutes: [],
     toolStartTimes: new Map(),
     toolProgressOutput: new Map(),
     isGenerating: true,
@@ -95,7 +101,9 @@ function makeDeps(session: ReturnType<typeof makeSession>, broadcasts: BrowserIn
     isDuplicateCodexAssistantReplay: () => false,
     completeCodexTurnsForResult: vi.fn(() => true),
     clearCodexFreshTurnRequirement: vi.fn(),
+    reconcileRecoveredQueuedTurnLifecycle: vi.fn(),
     handleResultMessage: vi.fn((_target, result: CLIResultMessage) => {
+      if (result.codex_provider_retry) return;
       session.messageHistory.push({ type: "result", data: { ...result } });
       broadcasts.push({ type: "result", data: { ...result } });
     }),
@@ -117,47 +125,32 @@ function reacknowledge(turn: CodexOutboundTurn, turnId: string): void {
 }
 
 describe("Codex transient provider retry presentation", () => {
-  it("marks both safe retries as transient, then exposes the exhausted terminal result", async () => {
-    // Producer-shaped results exercise the real controller ordering: persisted
-    // retry markers are audit evidence, not terminal feed errors or replay blockers.
+  it("keeps one exact owner retrying beyond the old cap without growing transient history", async () => {
+    // Producer-shaped results exercise the real controller ordering. The live
+    // retry state advances, while raw attempt results never enter history.
     const turn = makeTurn();
     const session = makeSession(turn);
     const broadcasts: BrowserIncomingMessage[] = [];
     const deps = makeDeps(session, broadcasts);
+    const initialHistoryLength = session.messageHistory.length;
+    let startedAt: number | undefined;
 
-    await handleCodexAdapterBrowserMessage(session, makeResult("turn-1", "retry-1"), deps);
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      if (attempt > 1) reacknowledge(turn, `turn-${attempt}`);
+      await handleCodexAdapterBrowserMessage(session, makeResult(`turn-${attempt}`, `retry-${attempt}`), deps);
+      expect(session.state.codex_provider_retry).toMatchObject({
+        ownerId: "input-1",
+        attempt,
+        maxAttempts: null,
+      });
+      startedAt ??= session.state.codex_provider_retry.startedAt;
+      expect(session.state.codex_provider_retry.startedAt).toBe(startedAt);
+      expect(session.messageHistory).toHaveLength(initialHistoryLength);
+    }
 
-    expect(session.state.codex_provider_retry).toMatchObject({ ownerId: "input-1", attempt: 1, maxAttempts: 2 });
-    expect(session.messageHistory.at(-1)).toMatchObject({
-      type: "result",
-      data: { codex_provider_retry: { ownerId: "input-1", attempt: 1, maxAttempts: 2 } },
-    });
     expect(deps.completeCodexTurnsForResult).not.toHaveBeenCalled();
-
-    const startedAt = session.state.codex_provider_retry.startedAt;
-    reacknowledge(turn, "turn-2");
-    await handleCodexAdapterBrowserMessage(session, makeResult("turn-2", "retry-2"), deps);
-
-    expect(session.state.codex_provider_retry).toMatchObject({
-      ownerId: "input-1",
-      attempt: 2,
-      maxAttempts: 2,
-      startedAt,
-    });
-    expect(session.messageHistory.at(-1)).toMatchObject({
-      type: "result",
-      data: { codex_provider_retry: { ownerId: "input-1", attempt: 2 } },
-    });
-    expect(deps.requestCodexProviderRecovery).toHaveBeenCalledTimes(2);
-
-    reacknowledge(turn, "turn-3");
-    await handleCodexAdapterBrowserMessage(session, makeResult("turn-3", "retry-exhausted"), deps);
-
-    expect(session.state.codex_provider_retry).toBeNull();
-    expect(session.messageHistory.at(-1)).toMatchObject({ type: "result", data: { is_error: true } });
-    expect((session.messageHistory.at(-1) as any).data.codex_provider_retry).toBeUndefined();
-    expect(deps.completeCodexTurnsForResult).toHaveBeenCalledTimes(1);
-    expect(deps.requestCodexProviderRecovery).toHaveBeenCalledTimes(2);
+    expect(deps.requestCodexProviderRecovery).toHaveBeenCalledTimes(5);
+    expect(broadcasts.filter((message) => message.type === "result")).toHaveLength(0);
   });
 
   it("does not replay a classified provider failure after canonical interruption", async () => {
@@ -172,6 +165,70 @@ describe("Codex transient provider retry presentation", () => {
     expect(deps.completeCodexTurnsForResult).toHaveBeenCalledWith(session, interrupted.data, expect.any(Number), true);
     expect(turn.providerRecoveryAttempts).toBeUndefined();
     expect(deps.requestCodexProviderRecovery).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists live stream activity as replay-blocking proof", async () => {
+    const turn = makeTurn();
+    const session = makeSession(turn);
+    session.codexAdapter = { getCurrentTurnId: () => "turn-1" };
+    const deps = makeDeps(session, []);
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "stream_event",
+        parent_tool_use_id: null,
+        event: { type: "content_block_delta", delta: { type: "text_delta", text: "partial" } },
+      } as any,
+      deps,
+    );
+    await handleCodexAdapterBrowserMessage(session, makeResult("turn-1", "stream-after-partial"), deps);
+
+    expect(turn.providerReplayUnsafeActivityObserved).toBe(true);
+    expect(turn.providerRecoveryAttempts).toBeUndefined();
+    expect(deps.completeCodexTurnsForResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes stale queued lifecycle ownership when same-turn co-owners canonicalize", async () => {
+    const current = makeTurn();
+    const steered: CodexOutboundTurn = {
+      ...makeTurn(),
+      adapterMsg: {
+        type: "codex_start_pending",
+        pendingInputIds: ["input-2"],
+        inputs: [{ content: "follow-up" }],
+      },
+      userMessageId: "input-2",
+      pendingInputIds: ["input-2"],
+      userContent: "follow-up",
+      historyIndex: 1,
+      turnTarget: "queued",
+    };
+    const session = makeSession(current);
+    session.pendingCodexTurns = [current, steered];
+    session.messageHistory.push({
+      type: "user_message",
+      id: "input-2",
+      content: "follow-up",
+      timestamp: 2,
+    });
+    session.queuedTurnStarts = 1;
+    session.queuedTurnReasons = ["queued_user_message"];
+    session.queuedTurnUserMessageIds = [[1]];
+    session.queuedTurnInterruptSources = [null];
+    session.queuedTurnActiveRoutes = [null];
+    const deps = makeDeps(session, []);
+    deps.reconcileRecoveredQueuedTurnLifecycle = (target, reason) => {
+      reconcileRecoveredQueuedTurnLifecycle(target, reason, {
+        getCodexHeadTurn: (candidate) => candidate.pendingCodexTurns[0] ?? null,
+      });
+    };
+
+    await handleCodexAdapterBrowserMessage(session, makeResult("turn-1", "same-turn-retry"), deps);
+
+    expect(session.pendingCodexTurns).toHaveLength(1);
+    expect(session.pendingCodexTurns[0]?.pendingInputIds).toEqual(["input-1", "input-2"]);
+    expect(session.queuedTurnStarts).toBe(0);
   });
 
   it("clears active retry state when the replayed request succeeds", async () => {

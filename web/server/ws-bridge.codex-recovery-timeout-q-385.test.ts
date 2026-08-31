@@ -622,6 +622,29 @@ describe("Codex recovery timeout (q-385)", () => {
     bridge.setLauncher({ getSession: vi.fn(() => ({ state: "exited" })) } as any);
     const session = bridge.getOrCreateSession(sid, "codex");
     session.state.backend_state = "disconnected";
+    session.pendingCodexTurns.push({
+      adapterMsg: {
+        type: "codex_start_pending",
+        pendingInputIds: ["provider-owner"],
+        inputs: [{ content: "retry exact request" }],
+      },
+      userMessageId: "provider-owner",
+      pendingInputIds: ["provider-owner"],
+      userContent: "retry exact request",
+      historyIndex: 0,
+      status: "queued",
+      dispatchCount: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      acknowledgedAt: null,
+      turnTarget: "current",
+      lastError: null,
+      turnId: null,
+      disconnectedAt: null,
+      resumeConfirmedAt: null,
+      providerRecoveryFamily: "model_backend_stream_error",
+      providerRecoveryAttempts: 1,
+    });
 
     (bridge as any).requestCodexAutoRecovery(session, "provider_result:model_backend_stream_error:attempt_1");
     await vi.advanceTimersByTimeAsync(31_000);
@@ -630,7 +653,7 @@ describe("Codex recovery timeout (q-385)", () => {
     vi.useRealTimers();
   });
 
-  it("finalizes a recoverable Codex planning turn only when recovery times out", async () => {
+  it("keeps an exact recoverable Codex planning turn active beyond one timeout", async () => {
     vi.useFakeTimers();
     const sid = "s-recovery-timeout-generating";
     const relaunchCb = vi.fn();
@@ -673,15 +696,9 @@ describe("Codex recovery timeout (q-385)", () => {
     await vi.advanceTimersByTimeAsync(15_000);
 
     turnEndCalls = spy.mock.calls.filter(([eventSid, eventType]) => eventSid === sid && eventType === "turn_end");
-    expect(turnEndCalls).toHaveLength(1);
-    expect(turnEndCalls[0]?.[2]).toEqual(
-      expect.objectContaining({
-        interrupted: true,
-        interrupt_source: "system",
-      }),
-    );
-    expect(bridge.getSession(sid)!.isGenerating).toBe(false);
-    expect(bridge.getSession(sid)!.state.backend_state).toBe("disconnected");
+    expect(turnEndCalls).toHaveLength(0);
+    expect(bridge.getSession(sid)!.isGenerating).toBe(true);
+    expect(bridge.getSession(sid)!.state.backend_state).toBe("recovering");
 
     spy.mockRestore();
     vi.useRealTimers();

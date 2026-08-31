@@ -1617,9 +1617,9 @@ export function usePlaygroundSeed() {
       codex_provider_retry: {
         family: "model_backend_stream_error",
         ownerId: "playground-retry-owner",
-        attempt: 1,
-        maxAttempts: 2,
-        startedAt: Date.now() - 45_000,
+        attempt: 4,
+        maxAttempts: null,
+        startedAt: Date.now() - 72_000,
       },
       model: "gpt-5.3-codex",
     });

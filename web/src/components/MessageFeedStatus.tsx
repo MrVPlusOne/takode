@@ -401,10 +401,18 @@ export function CodexProviderRetryChip({ sessionId }: { sessionId: string }) {
   const retry = useStore((s) => s.sessions?.get(sessionId)?.codex_provider_retry ?? null);
 
   const detailOpen = !!retry && (hoverOpen || pinnedOpen);
-  const label = retry ? `Retrying request (${retry.attempt}/${retry.maxAttempts})` : "Retrying request";
+  const persistentOutageRetry = retry?.maxAttempts === null;
+  const label = retry
+    ? persistentOutageRetry
+      ? `Retrying request (attempt ${retry.attempt})`
+      : `Retrying request (${retry.attempt}/${retry.maxAttempts})`
+    : "Retrying request";
   const detail = retry
-    ? `Takode is safely retrying this same request (attempt ${retry.attempt} of ${retry.maxAttempts}). ` +
-      "This proof-gated request retry is separate from the five-attempt process reconnect cycle."
+    ? persistentOutageRetry
+      ? `Takode is safely retrying this exact request at a low frequency (attempt ${retry.attempt}). ` +
+        "It continues while the request remains proof-safe and eligible; process reconnects still use bounded inner cycles."
+      : `Takode is safely retrying this same request (attempt ${retry.attempt} of ${retry.maxAttempts}). ` +
+        "This proof-gated request retry is separate from the five-attempt process reconnect cycle."
     : "";
 
   useLayoutEffect(() => {
