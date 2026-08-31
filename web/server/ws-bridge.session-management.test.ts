@@ -808,18 +808,19 @@ describe("Session management", () => {
     expect(bufferedTypes).not.toContain("session_quest_claimed");
   });
 
-  it("session_name_update is not buffered for event replay (prevents stale names on reconnect)", () => {
-    // Session name updates are one-shot notifications. Replaying stale name
-    // updates on reconnect would overwrite the current name with old values.
+  it("name invalidation publishes no replay-buffer event", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
-
-    bridge.broadcastToSession("s1", { type: "session_name_update", name: "New Session Name", source: "quest" } as any);
-
     const session = bridge.getSession("s1")!;
-    const bufferedTypes = session.eventBuffer.map((e: any) => e.message.type);
-    expect(bufferedTypes).not.toContain("session_name_update");
+    const before = [...session.eventBuffer];
+
+    bridge.invalidateSessionNavigation("s1");
+
+    expect(session.eventBuffer).toEqual(before);
+    expect(browser.send.mock.calls.some(([raw]: [string]) => JSON.parse(raw).type === "session_name_update")).toBe(
+      false,
+    );
   });
 
   it("closeSession: closes all sockets and removes session", () => {

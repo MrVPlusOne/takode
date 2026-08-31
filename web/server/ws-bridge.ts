@@ -643,6 +643,13 @@ export class WsBridge {
     this.broadcastToBrowsers(session, msg);
   }
 
+  /** Publish the canonical navigation row after its persisted name authority changes. */
+  invalidateSessionNavigation(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    this.syncedProjections.invalidateSessionNavigation(session);
+  }
+
   /** Recompute each subscribed browser's bounded selected conversation after a history mutation. */
   refreshSessionConversation(sessionId: string): void {
     const session = this.sessions.get(sessionId);

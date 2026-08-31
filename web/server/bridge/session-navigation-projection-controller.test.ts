@@ -65,7 +65,6 @@ describe("session navigation projection sources", () => {
   it("invalidates every direct navigation authority and ignores unrelated messages", () => {
     const session = makeSession();
     const sources: BrowserIncomingMessage[] = [
-      { type: "session_name_update", name: "Renamed" },
       { type: "timer_update", timers: [] },
       { type: "session_update", session: { model: "new-model" } },
       { type: "session_quest_claimed", quest: null },
@@ -74,12 +73,9 @@ describe("session navigation projection sources", () => {
       { type: "result", data: {} } as unknown as BrowserIncomingMessage,
     ];
     for (const source of sources) expect(captureSessionNavigationSourceMessage(session, source)).toBe(true);
-    expect(
-      captureSessionNavigationSourceMessage(session, {
-        type: "session_task_history",
-        tasks: [],
-      } as unknown as BrowserIncomingMessage),
-    ).toBe(false);
+    for (const ignored of [{ type: "session_task_history", tasks: [] }]) {
+      expect(captureSessionNavigationSourceMessage(session, ignored as BrowserIncomingMessage)).toBe(false);
+    }
   });
 });
 

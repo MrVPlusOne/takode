@@ -52,7 +52,7 @@ const BROWSER_HANDLED_TYPES = new Set([
   "session_init", "session_update", "assistant", "stream_event", "result",
   "permission_request", "permission_cancelled", "tool_progress", "tool_use_summary",
   "status_change", "auth_status", "error", "cli_disconnected", "cli_connected",
-  "session_name_update", "pr_status_update", "mcp_status", "message_history", "event_replay",
+  "pr_status_update", "mcp_status", "message_history", "event_replay",
 ]);
 
 // ─── Types ─────────────────────────────────────────────────────────────────

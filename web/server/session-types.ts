@@ -1066,7 +1066,6 @@ export type BrowserIncomingMessageBase =
     }
   | { type: "event_replay"; events: BufferedBrowserEvent[] }
   | { type: "conversation_sync_complete"; through_seq: number }
-  | { type: "session_name_update"; name: string; source?: "quest" }
   | { type: "session_task_history"; tasks: SessionTaskEntry[] }
   | { type: "pr_status_update"; pr: import("./github-pr.js").GitHubPRInfo | null; available: boolean }
   | { type: "mcp_status"; servers: McpServerDetail[] }

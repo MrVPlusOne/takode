@@ -691,8 +691,6 @@ function handleParsedMessage(
       if (typeof data.session.askPermission === "boolean") {
         store.setAskPermission(sessionId, data.session.askPermission);
       }
-      const updatedName = (data.session as Record<string, unknown>).name;
-      if (typeof updatedName === "string") store.updateSdkSession(sessionId, { name: updatedName });
       break;
     }
 
@@ -1516,15 +1514,6 @@ function handleParsedMessage(
         nodeOrderChildCount: Object.values(nodeOrder).reduce((count, children) => count + children.length, 0),
         durationMs: perfNow() - startedAt,
       });
-      break;
-    }
-
-    case "session_name_update": {
-      const previousName = store.sdkSessions.find((session) => session.sessionId === sessionId)?.name;
-      if (previousName !== data.name) {
-        store.updateSdkSession(sessionId, { name: data.name });
-        store.markRecentlyRenamed(sessionId);
-      }
       break;
     }
 

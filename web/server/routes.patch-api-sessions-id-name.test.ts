@@ -264,6 +264,7 @@ function createMockBridge() {
     onSessionArchived: vi.fn(),
     onSessionUnarchived: vi.fn(),
     persistSessionById: vi.fn(),
+    invalidateSessionNavigation: vi.fn(),
     broadcastToSession: vi.fn(),
     broadcastGlobal: vi.fn(),
     getVsCodeSelectionState: vi.fn(function (this: any) {
@@ -551,8 +552,13 @@ describe("PATCH /api/sessions/:id/name", () => {
     const json = await res.json();
     expect(json).toEqual({ ok: true, name: "Fix auth bug" });
     expect(sessionNames.setName).toHaveBeenCalledWith("s1", "Fix auth bug");
-    // Verify the session is marked as user-named to prevent auto-namer overwriting
+    // Manual rename changes the durable authority, then publishes only the canonical navigation projection.
     expect(sessionNames.setUserNamed).toHaveBeenCalledWith("s1");
+    expect(bridge.invalidateSessionNavigation).toHaveBeenCalledWith("s1");
+    expect(vi.mocked(sessionNames.setName).mock.invocationCallOrder[0]).toBeLessThan(
+      bridge.invalidateSessionNavigation.mock.invocationCallOrder[0]!,
+    );
+    expect(bridge.broadcastToSession).not.toHaveBeenCalled();
   });
 
   it("trims whitespace from name", async () => {
@@ -568,6 +574,7 @@ describe("PATCH /api/sessions/:id/name", () => {
     const json = await res.json();
     expect(json).toEqual({ ok: true, name: "My Session" });
     expect(sessionNames.setName).toHaveBeenCalledWith("s1", "My Session");
+    expect(bridge.invalidateSessionNavigation).toHaveBeenCalledWith("s1");
   });
 
   it("returns 404 when session not found", async () => {

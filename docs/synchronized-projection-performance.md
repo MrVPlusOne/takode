@@ -178,7 +178,7 @@ The hard size gate compares the original session-navigation migration with this 
 
 The final feature-specific non-test stack is therefore 6 lines smaller than the pre-migration baseline. The exclusion remains conservative: navigation definition, registration, materialization, source invalidation, REST integration, and UI consumption stay feature-owned; only generic patch transport/application and runtime support are removed from the count.
 
-This closes the session-navigation-local wire, render, no-subscriber, duplicate-path, and code-size gates. It does not change the leader-thread-tab measurements below or waive final whole-application acceptance: leader cleanup remains downstream work, followed by the mismatch-only compatibility audit and final gate.
+This closes the session-navigation-local wire, render, no-subscriber, duplicate-path, and code-size gates. The final whole-application accounting below includes the later leader, attention, conversation, browser-wire, and name/claim cleanup results without double-counting their overlapping history.
 
 ## Session-attention cleanup remeasurement
 
@@ -275,6 +275,27 @@ The frozen pre-migration leader-thread feature baseline is +2,912 non-test lines
 
 The final feature-specific stack is therefore 173 lines smaller than the frozen pre-migration baseline. No second full visual derivation stack remains active: current runtime visuals come from the synchronized projection, while retained legacy algorithms exist only as test controls or one-time persisted-state migration support.
 
+## Final whole-application gate and remaining-family audit
+
+The final compatible-build gate passed on August 31, 2026. Accounting uses the accepted common cleanup base rather than summing quest-local totals, excludes tests, fixtures, and test-only helpers, and keeps the separate build-identity rework visible instead of hiding it inside projection cleanup.
+
+| Deduplicated non-test accounting | Files | Added | Removed | Net |
+| --- | ---: | ---: | ---: | ---: |
+| Accepted common cleanup range | 57 | 434 | 1,412 | **-978** |
+| Final navigation name/claim residue cleanup | 11 | 41 | 86 | **-45** |
+| Combined cleanup envelope | — | 475 | 1,498 | **-1,023** |
+| Feature-specific cleanup after excluding 42 generic added lines | — | 433 | 1,498 | **-1,065** |
+| Separate build-identity rework | 12 | 260 | 53 | **+207** |
+| Current whole tree versus the common cleanup base | 70 | 735 | 1,551 | **-816** |
+
+The final normalized feature positions are session navigation **51 lines below** baseline, leader tabs **173 below**, and session attention **61 below**. Adding the independent bounded-conversation reduction (**401**) and browser-wire alias reduction (**116**) leaves the distinct projection and cleanup program **802 feature-specific non-test lines below** its pre-refactor baselines. Including the separate 207-line build-identity work still leaves that normalized envelope **595 lines below** baseline.
+
+The last navigation residue was a second writer for session names and claimed-quest fields. Current-build manual and automatic renames now mutate the durable name authority and invalidate navigation directly. Quest claim keeps its detailed event, while the synchronized projection alone materializes compact name and claim fields into `sdkSessions`. The retired `session_name_update` frame is absent from the current wire and remains only as a persisted replay-buffer tombstone.
+
+Focused two-browser evidence shows one rename invalidation, one dependency selection, one derivation, one projection publication, and two deliveries. Per browser, a rename is **195 B versus 269 B** for the prior dual path, and a quest claim is **480 B versus 566 B**. Quest claim now sends exactly its required detail event plus one projection update rather than those two messages plus the redundant name frame. On the frontend, the projection-owned SDK-row and rename-animation application itself produces one store notification and one owning-row commit; the separate detailed claim event retains its own selected-session and ephemeral-message responsibilities. Live reconnect/resync snapshots and REST snapshots converge without replaying rename animation. Public invalidation with no subscriber performs no selection, derivation, update, or delivery.
+
+The remaining family audit found no additional synchronized-projection candidate that clears both the matched-pair performance gate and the net-simplification threshold. Detailed board/Journey state, notifications, timers, permissions, settings, quest caches, task history, MCP state, recovery, and selected-view state retain separate detail, mutation, recovery, or command authority. PR polling has a possible direct equality/watcher-lifetime optimization, not a projection case. Native-subagent and Side Chat summaries require separate measurement and, potentially, privacy or durable-state decisions before any migration.
+
 ## Acceptance thresholds
 
 Downstream cleanup and any later projection candidate must preserve these deterministic properties:
@@ -292,6 +313,6 @@ Downstream cleanup and any later projection candidate must preserve these determ
 
 ## Overall verdict
 
-**Session navigation, session attention, and leader-thread tabs now satisfy their feature-local equal-or-better gates.** Session navigation emits no parallel status activity, uses a smaller one-field patch, coalesces bursts, adds no reconnect commit, rerenders only the changed row, and finishes 6 non-test lines below its baseline. Session attention removes raw and locally reconstructed visual delivery, keeps required notification and permission authorities separate, coalesces projection work, adds no unrelated-row or reconnect commit, and reduces every measured changed wire scenario. Leader tabs remove duplicate global activity and status delivery, coalesce projection bursts, match or improve representative commit counts, preserve the detailed board separately, and finish 173 non-test lines below their baseline.
+**The synchronized-projection program passes its final whole-application gate.** Session navigation, session attention, and leader-thread tabs satisfy their equal-or-better wire and render thresholds, preserve demand-gated no-subscriber behavior, and finish below their feature baselines. The conversation and internal browser-wire cleanups remove additional duplicate work, and the final name/claim residue cleanup makes the navigation projection the only current-build compact row writer while reducing code and traffic.
 
-The remaining program work is the other separately owned compatibility cleanup plus final whole-application acceptance. Those later checks must preserve the thresholds above and confirm that no obsolete cross-feature path remains; they do not reopen the completed feature-local migrations unless new evidence finds a regression.
+No further synchronized-projection migration is justified by the audited current application. Future work should reopen this decision only with a measured duplicate visual path, a preserved canonical authority, a credible net-simplification route, and matched-pair evidence that clears the same thresholds.

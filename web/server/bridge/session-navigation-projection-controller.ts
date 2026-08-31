@@ -54,7 +54,6 @@ export function captureSessionNavigationSourceMessage(session: Session, msg: Bro
   return (
     msg.type === "status_change" ||
     msg.type === "session_update" ||
-    msg.type === "session_name_update" ||
     msg.type === "session_quest_claimed" ||
     msg.type === "timer_update" ||
     msg.type === "backend_connected" ||

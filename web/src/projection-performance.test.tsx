@@ -415,6 +415,35 @@ function mountNavigationSurface(mode: BenchmarkMode, recorder: BenchmarkRecorder
   );
 }
 
+function NavigationNameClaimSurface({ onRender }: { onRender: ProfilerOnRenderCallback }) {
+  const summary = useStore(
+    useShallow((state) => {
+      const session = state.sdkSessions.find((candidate) => candidate.sessionId === "s-1");
+      return {
+        name: session?.name ?? "",
+        claimedQuestId: session?.claimedQuestId ?? "",
+        claimedQuestStatus: session?.claimedQuestStatus ?? "",
+        recentlyRenamed: state.recentlyRenamed.has("s-1"),
+      };
+    }),
+  );
+  return (
+    <Profiler id="navigation-name-row:s-1" onRender={onRender}>
+      <div data-testid="navigation-name-claim-summary">
+        {summary.name}|{summary.claimedQuestId}|{summary.claimedQuestStatus}|{String(summary.recentlyRenamed)}
+      </div>
+    </Profiler>
+  );
+}
+
+function mountNavigationNameClaimSurface(recorder: BenchmarkRecorder): RenderResult {
+  return render(
+    <Profiler id="navigation-name-root" onRender={recorder.onRender}>
+      <NavigationNameClaimSurface onRender={recorder.onRender} />
+    </Profiler>,
+  );
+}
+
 function receiveNavigationActivity(status: "idle" | "running" | "compacting"): void {
   // Full historical 412-byte producer shape at the baseline (using worker-1):
   // status plus attention, permission, and notification summary fields.
@@ -1284,6 +1313,64 @@ describe("matched-build synchronized projection performance", () => {
     // Profiler durations are intentionally report-only: CI timing is noisy, while the
     // structural commit and store-notification assertions above are deterministic.
     expect(isolatedProjectionSingle.metrics.profilerDurationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("commits live name and claim projection changes once without replaying snapshot animation", () => {
+    useStore.getState().reset();
+    installNavigationState("projection");
+    const recorder = createBenchmarkRecorder("navigation-name-root");
+    const view = mountNavigationNameClaimSurface(recorder);
+    const changed = navigationValue(0);
+    changed.name = "Projected rename";
+    changed.claimedQuestId = "q-42";
+    changed.claimedQuestTitle = "Projected quest";
+    changed.claimedQuestStatus = "in_progress";
+
+    const live = applyStep(recorder, () => {
+      handleMessage(
+        "carrier",
+        createSessionNavigationProjectionEnvelope({
+          type: "synced_projection_update",
+          key: "s-1",
+          generation: "navigation-generation-s-1",
+          revision: 2,
+          value: changed,
+        }) as BrowserIncomingMessage,
+      );
+    });
+    expect(live.rootCommits).toBe(1);
+    expect(live.childCommits).toEqual({ "navigation-name-row:s-1": 1 });
+    expect(live.storeNotifications).toBe(1);
+    expect(view.getByTestId("navigation-name-claim-summary")).toHaveTextContent(
+      "Projected rename|q-42|in_progress|true",
+    );
+
+    act(() => useStore.getState().clearRecentlyRenamed("s-1"));
+    const reconnect = navigationValue(0);
+    reconnect.name = "Reconnect rename";
+    reconnect.claimedQuestId = "q-42";
+    reconnect.claimedQuestTitle = "Projected quest";
+    reconnect.claimedQuestStatus = "in_progress";
+    const snapshot = applyStep(recorder, () => {
+      handleMessage(
+        "carrier",
+        createSessionNavigationProjectionEnvelope({
+          key: "s-1",
+          generation: "navigation-reconnect-s-1",
+          revision: 1,
+          value: reconnect,
+        }) as BrowserIncomingMessage,
+      );
+    });
+    expect(snapshot.rootCommits).toBe(1);
+    expect(snapshot.childCommits).toEqual({ "navigation-name-row:s-1": 1 });
+    expect(snapshot.storeNotifications).toBe(1);
+    expect(view.getByTestId("navigation-name-claim-summary")).toHaveTextContent(
+      "Reconnect rename|q-42|in_progress|false",
+    );
+
+    view.unmount();
+    recorder.stop();
   });
 
   it("compares session-attention equal, change, count, burst, clear, reconnect, and row-isolation work", () => {

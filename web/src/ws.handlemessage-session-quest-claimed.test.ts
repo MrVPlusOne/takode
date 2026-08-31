@@ -3,6 +3,7 @@
 import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage } from "./types.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
+import { createSessionNavigationProjectionEnvelope } from "./test-fixtures/session-navigation-projection.js";
 
 const getDiffStatsMock = vi.fn().mockResolvedValue({ stats: {} });
 const listSessionsMock = vi.fn().mockResolvedValue([]);
@@ -130,65 +131,121 @@ function seedSdkSession(name: string, isOrchestrator = false) {
   ]);
 }
 
+function installNavigation(name: string, isOrchestrator = false) {
+  fireMessage(
+    createSessionNavigationProjectionEnvelope({
+      overrides: { identity: { name }, topology: { isOrchestrator } },
+    }),
+  );
+  useStore.getState().clearRecentlyRenamed("s1");
+}
+
+function publishClaimProjection(options: {
+  name: string;
+  status: string;
+  verificationInboxUnread?: boolean;
+  isOrchestrator?: boolean;
+}) {
+  fireMessage(
+    createSessionNavigationProjectionEnvelope({
+      type: "synced_projection_update",
+      revision: 2,
+      overrides: {
+        identity: { name: options.name },
+        topology: { isOrchestrator: options.isOrchestrator ?? false },
+        quest: {
+          claimedQuestId: "q-348",
+          claimedQuestTitle: "Prevent leader auto-renames",
+          claimedQuestStatus: options.status,
+          claimedQuestVerificationInboxUnread: options.verificationInboxUnread ?? null,
+        },
+      },
+    }),
+  );
+}
+
 // ===========================================================================
 // Connection
 // ===========================================================================
 describe("handleMessage: session_quest_claimed", () => {
-  it("keeps worker quest-title behavior unchanged", () => {
+  it("keeps detailed claim state while the projection owns the worker row", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     seedSdkSession("Worker Session");
+    installNavigation("Worker Session");
 
     fireMessage({
       type: "session_quest_claimed",
       quest: { id: "q-348", title: "Prevent leader auto-renames", status: "in_progress" },
     });
 
-    const state = useStore.getState();
+    let state = useStore.getState();
+    expect(state.sessions.get("s1")).toMatchObject({
+      claimedQuestId: "q-348",
+      claimedQuestStatus: "in_progress",
+    });
+    expect(state.sdkSessions[0]).toMatchObject({ name: "Worker Session", claimedQuestId: null });
+
+    publishClaimProjection({ name: "Prevent leader auto-renames", status: "in_progress" });
+    state = useStore.getState();
     expect(state.sdkSessions[0]).toMatchObject({
       name: "Prevent leader auto-renames",
       claimedQuestId: "q-348",
       claimedQuestStatus: "in_progress",
     });
+    expect(state.recentlyRenamed.has("s1")).toBe(true);
   });
 
-  it("keeps review-pending done quest titles quest-named for checked-box rendering", () => {
+  it("keeps review-pending done detail and projected checked-box state aligned", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     seedSdkSession("Worker Session");
+    installNavigation("Worker Session");
 
     fireMessage({
       type: "session_quest_claimed",
       quest: { id: "q-348", title: "Prevent leader auto-renames", status: "done", verificationInboxUnread: true },
     });
 
-    const state = useStore.getState();
+    let state = useStore.getState();
+    expect(state.sessions.get("s1")?.claimedQuestStatus).toBe("done");
+    expect(state.sessions.get("s1")?.claimedQuestVerificationInboxUnread).toBe(true);
+    expect(state.sdkSessions[0]).toMatchObject({ name: "Worker Session", claimedQuestId: null });
+
+    publishClaimProjection({
+      name: "Prevent leader auto-renames",
+      status: "done",
+      verificationInboxUnread: true,
+    });
+    state = useStore.getState();
     expect(state.sdkSessions[0]).toMatchObject({
       name: "Prevent leader auto-renames",
       claimedQuestId: "q-348",
       claimedQuestStatus: "done",
       claimedQuestVerificationInboxUnread: true,
     });
-    expect(state.sessions.get("s1")?.claimedQuestStatus).toBe("done");
-    expect(state.sessions.get("s1")?.claimedQuestVerificationInboxUnread).toBe(true);
   });
 
-  it("does not rename or mark orchestrator sessions as quest-named", () => {
+  it("updates orchestrator claim fields without renaming or animating the row", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), isOrchestrator: true } });
     seedSdkSession("Leader 7", true);
+    installNavigation("Leader 7", true);
 
     fireMessage({
       type: "session_quest_claimed",
       quest: { id: "q-348", title: "Prevent leader auto-renames", status: "in_progress" },
     });
+    expect(useStore.getState().sdkSessions[0]).toMatchObject({ name: "Leader 7", claimedQuestId: null });
 
+    publishClaimProjection({ name: "Leader 7", status: "in_progress", isOrchestrator: true });
     const state = useStore.getState();
     expect(state.sdkSessions[0]).toMatchObject({
       name: "Leader 7",
       claimedQuestId: "q-348",
       claimedQuestStatus: "in_progress",
     });
+    expect(state.recentlyRenamed.has("s1")).toBe(false);
   });
 });
 

@@ -681,8 +681,9 @@ describe("WsBridge synchronized projections", () => {
     });
 
     sessionName = "After";
-    bridge.broadcastToSession("worker", { type: "session_name_update", name: sessionName });
+    bridge.invalidateSessionNavigation("worker");
     await bridge.getSyncedProjectionController().flushForTest();
+    expect(messages(socket).some((message: any) => message.type === "session_name_update")).toBe(false);
     expect(messages(socket).at(-1)).toMatchObject({
       type: "synced_projection_update",
       projection: "session-navigation",

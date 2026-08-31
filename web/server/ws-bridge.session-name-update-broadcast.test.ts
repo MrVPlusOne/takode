@@ -575,26 +575,58 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
   });
 }
 
-describe("session_name_update broadcast", () => {
-  it("sends session_name_update to connected browsers", () => {
+describe("session navigation name publication", () => {
+  it("sends one canonical projection update to each subscribed browser", async () => {
+    let sessionName = "Before";
+    bridge.sessionNameGetter = () => sessionName;
+    bridge.sessionStoredNameGetter = () => sessionName;
+    bridge.launcher = {
+      getSession: () => ({
+        sessionId: "s1",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 1,
+        backendType: "claude",
+      }),
+    } as any;
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
+    const session = bridge.getSession("s1")!;
+    session.state.model = "claude";
+    session.state.cwd = "/repo";
+    session.state.repo_root = "/repo";
 
     const browser1 = makeBrowserSocket("s1");
     const browser2 = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser1, "s1");
     bridge.handleBrowserOpen(browser2, "s1");
+    bridge
+      .getSyncedProjectionController()
+      .replaceSubscriptions(browser1, [{ projection: "session-navigation", key: "s1" }]);
+    bridge
+      .getSyncedProjectionController()
+      .replaceSubscriptions(browser2, [{ projection: "session-navigation", key: "s1" }]);
+    browser1.send.mockClear();
+    browser2.send.mockClear();
 
-    bridge.broadcastToSession("s1", { type: "session_name_update", name: "Fix Auth Bug" } as any);
+    sessionName = "Fix Auth Bug";
+    bridge.invalidateSessionNavigation("s1");
+    await bridge.getSyncedProjectionController().flushForTest();
 
-    const calls1 = browser1.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const calls2 = browser2.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls1).toContainEqual(expect.objectContaining({ type: "session_name_update", name: "Fix Auth Bug" }));
-    expect(calls2).toContainEqual(expect.objectContaining({ type: "session_name_update", name: "Fix Auth Bug" }));
+    for (const browser of [browser1, browser2]) {
+      const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+      expect(calls.filter((call: any) => call.type === "synced_projection_update")).toEqual([
+        expect.objectContaining({
+          projection: "session-navigation",
+          key: "s1",
+          patch: { name: "Fix Auth Bug" },
+        }),
+      ]);
+      expect(calls.some((call: any) => call.type === "session_name_update")).toBe(false);
+    }
   });
 
   it("does nothing for unknown sessions", () => {
-    // Should not throw
-    bridge.broadcastToSession("nonexistent", { type: "session_name_update", name: "Name" } as any);
+    expect(() => bridge.invalidateSessionNavigation("nonexistent")).not.toThrow();
   });
 });

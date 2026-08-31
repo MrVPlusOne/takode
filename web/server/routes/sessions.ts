@@ -1254,7 +1254,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (!session) return c.json({ error: "Session not found" }, 404);
     sessionNames.setName(id, body.name.trim());
     sessionNames.setUserNamed(id);
-    wsBridge.broadcastToSession(id, { type: "session_update", session: { name: body.name.trim() } } as any);
+    wsBridge.invalidateSessionNavigation(id);
     return c.json({ ok: true, name: body.name.trim() });
   });
   // ─── Tree Groups (herd-centric grouping) ─────────────────────────────

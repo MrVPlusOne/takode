@@ -10,7 +10,7 @@ const NON_REPLAYABLE_BROWSER_EVENT_TYPES = new Set<string>([
   "leader_group_idle",
   "quest_list_updated",
   "session_quest_claimed",
-  "session_name_update",
+  "session_name_update", // Legacy persisted-event-buffer tombstone; no current-build producer.
   "tree_groups_update",
   "leader_projection_snapshot",
   "synced_projection_snapshot",

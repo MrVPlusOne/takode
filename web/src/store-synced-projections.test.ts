@@ -147,6 +147,87 @@ describe("synced projection store", () => {
     expect(useStore.getState().sdkSessions).toBe(afterPatch);
   });
 
+  it("publishes live navigation name and claim changes with rename animation atomically", () => {
+    const first = { sessionId: "s1", state: "connected", cwd: "/repo", createdAt: 1, name: "Original" } as const;
+    const second = { sessionId: "s2", state: "connected", cwd: "/repo", createdAt: 2, name: "Other" } as const;
+    useStore.setState({ sdkSessions: [first, second] as never });
+    useStore.getState().applySyncedProjectionSnapshot(
+      createSessionNavigationProjectionEnvelope({
+        key: "s1",
+        overrides: { identity: { name: "Original" } },
+      }),
+      { source: "live" },
+    );
+
+    const observed: Array<{ name?: string; claimedQuestId?: string | null; renamed: boolean }> = [];
+    const unsubscribe = useStore.subscribe((state) => {
+      observed.push({
+        name: state.sdkSessions[0]?.name,
+        claimedQuestId: state.sdkSessions[0]?.claimedQuestId,
+        renamed: state.recentlyRenamed.has("s1"),
+      });
+    });
+    useStore.getState().applySyncedProjectionUpdate(
+      navigationPatchEnvelope({
+        revision: 2,
+        patch: {
+          name: "Renamed",
+          claimedQuestId: "q-42",
+          claimedQuestTitle: "Canonical quest",
+          claimedQuestStatus: "in_progress",
+        },
+      }),
+    );
+    unsubscribe();
+
+    expect(observed).toEqual([{ name: "Renamed", claimedQuestId: "q-42", renamed: true }]);
+    expect(useStore.getState().sdkSessions[1]).toBe(second);
+
+    useStore.getState().clearRecentlyRenamed("s1");
+    useStore
+      .getState()
+      .applySyncedProjectionUpdate(navigationPatchEnvelope({ revision: 3, patch: { claimedQuestStatus: "done" } }));
+    expect(useStore.getState().recentlyRenamed.has("s1")).toBe(false);
+  });
+
+  it("never replays rename animation from live, reconnect, or REST snapshots", () => {
+    useStore.setState({
+      sdkSessions: [{ sessionId: "s1", state: "connected", cwd: "/repo", createdAt: 1, name: "Before" }] as never,
+    });
+
+    useStore.getState().applySyncedProjectionSnapshot(
+      createSessionNavigationProjectionEnvelope({
+        revision: 1,
+        overrides: { identity: { name: "Initial snapshot" } },
+      }),
+      { source: "live", activeRequestSequence: 1 },
+    );
+    expect(useStore.getState().sdkSessions[0]?.name).toBe("Initial snapshot");
+    expect(useStore.getState().recentlyRenamed.has("s1")).toBe(false);
+
+    useStore.getState().applySyncedProjectionSnapshot(
+      createSessionNavigationProjectionEnvelope({
+        revision: 2,
+        overrides: { identity: { name: "Reconnect snapshot" } },
+      }),
+      { source: "live", activeRequestSequence: 1 },
+    );
+    expect(useStore.getState().sdkSessions[0]?.name).toBe("Reconnect snapshot");
+    expect(useStore.getState().recentlyRenamed.has("s1")).toBe(false);
+
+    useStore.getState().applySyncedProjectionSnapshots(
+      [
+        createSessionNavigationProjectionEnvelope({
+          revision: 3,
+          overrides: { identity: { name: "REST snapshot" } },
+        }),
+      ],
+      { source: "rest", activeRequestSequence: 2 },
+    );
+    expect(useStore.getState().sdkSessions[0]?.name).toBe("REST snapshot");
+    expect(useStore.getState().recentlyRenamed.has("s1")).toBe(false);
+  });
+
   it("validates navigation snapshots and preserves unchanged fields across full updates", () => {
     const initial = createSessionNavigationProjectionEnvelope({ key: "s1", revision: 1 });
     expect(useStore.getState().applySyncedProjectionSnapshot(initial)).toEqual({

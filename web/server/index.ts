@@ -715,7 +715,7 @@ async function applyNamingResult(
       sessionNames.setName(sessionId, result.title);
       nameSetAtHistoryIndex.set(sessionId, findLastUserMessageIndex(history));
 
-      wsBridge.broadcastToSession(sessionId, { type: "session_name_update", name: result.title } as any);
+      wsBridge.invalidateSessionNavigation(sessionId);
       addTaskHistoryEntry(sessionId, {
         title: result.title,
         action: "revise",
@@ -737,7 +737,7 @@ async function applyNamingResult(
       sessionNames.setName(sessionId, result.title);
       nameSetAtHistoryIndex.set(sessionId, findLastUserMessageIndex(history));
 
-      wsBridge.broadcastToSession(sessionId, { type: "session_name_update", name: result.title } as any);
+      wsBridge.invalidateSessionNavigation(sessionId);
       addTaskHistoryEntry(sessionId, {
         title: result.title,
         action: "new",
@@ -840,7 +840,7 @@ wsBridge.onUserMessage = async (sessionId, history, cwd, wasGenerating) => {
       sessionNames.setName(sessionId, result.title);
       nameSetAtHistoryIndex.set(sessionId, findLastUserMessageIndex(history));
 
-      wsBridge.broadcastToSession(sessionId, { type: "session_name_update", name: result.title } as any);
+      wsBridge.invalidateSessionNavigation(sessionId);
       addTaskHistoryEntry(sessionId, {
         title: result.title,
         action: "name",

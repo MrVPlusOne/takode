@@ -1040,7 +1040,7 @@ describe("Codex adapter result handling", () => {
         (c: any) =>
           c.type === "session_name_update" && c.name === "Fix Codex quest lifecycle chips" && c.source === "quest",
       ),
-    ).toBeDefined();
+    ).toBeUndefined();
     expect(calls.find((c: any) => c.type === "session_name_update" && c.name === "q-74")).toBeUndefined();
 
     const session = bridge.getSession("s1")!;

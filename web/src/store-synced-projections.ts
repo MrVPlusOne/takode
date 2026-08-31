@@ -433,24 +433,27 @@ function materializeSessionNavigationRow(
   sdkSessions: AppState["sdkSessions"],
   state: SyncedProjectionCacheState,
   application: Pick<SyncedProjectionCacheApplication, "result" | "projection" | "key">,
-): AppState["sdkSessions"] {
+): { sdkSessions: AppState["sdkSessions"]; renamedSessionId?: string } {
   if (!application.result.accepted || application.projection !== SESSION_NAVIGATION_PROJECTION || !application.key) {
-    return sdkSessions;
+    return { sdkSessions };
   }
   const value = state.syncedProjectionValues.get(
     syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, application.key),
   ) as SessionNavigationProjectionValue | undefined;
-  if (!value) return sdkSessions;
+  if (!value) return { sdkSessions };
   const index = sdkSessions.findIndex((session) => session.sessionId === application.key);
-  if (index < 0) return sdkSessions;
+  if (index < 0) return { sdkSessions };
   const current = sdkSessions[index]!;
   const fields = sessionNavigationProjectionToSessionFields(value);
   if (Object.entries(fields).every(([key, next]) => current[key as keyof typeof current] === next)) {
-    return sdkSessions;
+    return { sdkSessions };
   }
   const next = sdkSessions.slice();
   next[index] = { ...current, ...fields };
-  return next;
+  return {
+    sdkSessions: next,
+    ...(current.name !== fields.name ? { renamedSessionId: application.key } : {}),
+  };
 }
 
 type StoreSet = Parameters<StateCreator<AppState>>[0];
@@ -537,14 +540,25 @@ function removeSyncedProjectionEntries(
 export function createSyncedProjectionStoreSlice(set: StoreSet): SyncedProjectionStoreSlice {
   const apply = (
     reducer: (state: SyncedProjectionCacheState) => SyncedProjectionCacheApplication,
+    options: { animateNameChange?: boolean } = {},
   ): SyncedProjectionApplyResult => {
     let result = INVALID_RESULT;
     set((state) => {
       const application = reducer(state);
       result = application.result;
-      const sdkSessions = materializeSessionNavigationRow(state.sdkSessions, application.state, application);
-      if (application.state === state && sdkSessions === state.sdkSessions) return state;
-      return sdkSessions === state.sdkSessions ? application.state : { ...application.state, sdkSessions };
+      const materialized = materializeSessionNavigationRow(state.sdkSessions, application.state, application);
+      let recentlyRenamed = state.recentlyRenamed;
+      if (
+        options.animateNameChange &&
+        materialized.renamedSessionId &&
+        !recentlyRenamed.has(materialized.renamedSessionId)
+      ) {
+        recentlyRenamed = new Set(recentlyRenamed).add(materialized.renamedSessionId);
+      }
+      if (materialized.sdkSessions === state.sdkSessions && recentlyRenamed === state.recentlyRenamed) {
+        return application.state;
+      }
+      return { ...application.state, sdkSessions: materialized.sdkSessions, recentlyRenamed };
     });
     return result;
   };
@@ -573,13 +587,13 @@ export function createSyncedProjectionStoreSlice(set: StoreSet): SyncedProjectio
         for (const snapshot of snapshots) {
           const application = applySyncedProjectionSnapshotToCache(next, snapshot, options);
           next = application.state;
-          sdkSessions = materializeSessionNavigationRow(sdkSessions, next, application);
+          sdkSessions = materializeSessionNavigationRow(sdkSessions, next, application).sdkSessions;
         }
         if (next === state && sdkSessions === state.sdkSessions) return state;
         return sdkSessions === state.sdkSessions ? next : { ...next, sdkSessions };
       }),
     applySyncedProjectionUpdate: (update, options) =>
-      apply((state) => applySyncedProjectionUpdateToCache(state, update, options)),
+      apply((state) => applySyncedProjectionUpdateToCache(state, update, options), { animateNameChange: true }),
     clearSyncedProjectionKey: (projection, key) =>
       set((state) => removeSyncedProjectionEntries(state, [syncedProjectionEntryId(projection, key)])),
     clearSyncedProjectionsForKey: (key) =>

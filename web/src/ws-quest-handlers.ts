@@ -1,7 +1,6 @@
 import { api } from "./api.js";
 import { useStore } from "./store.js";
 import type { BrowserIncomingMessage, ChatMessage } from "./types.js";
-import { questOwnsSessionName } from "./utils/quest-helpers.js";
 import { resolveLeaderThreadTabsProjection } from "./utils/leader-thread-tabs-resolver.js";
 
 type QuestListUpdatedMessage = Extract<BrowserIncomingMessage, { type: "quest_list_updated" }>;
@@ -48,24 +47,6 @@ export function handleSessionQuestClaimed(sessionId: string, data: SessionQuestC
     claimedQuestVerificationInboxUnread: data.quest?.verificationInboxUnread,
     claimedQuestLeaderSessionId: data.quest?.leaderSessionId,
   });
-  const currentSdkSession = store.sdkSessions.find((sdk) => sdk.sessionId === sessionId);
-  const useQuestTitle = !!(
-    data.quest?.id &&
-    data.quest.title &&
-    questOwnsSessionName(data.quest.status, data.quest.verificationInboxUnread) &&
-    currentSdkSession?.isOrchestrator !== true &&
-    store.sessions.get(sessionId)?.isOrchestrator !== true
-  );
-  store.updateSdkSession(sessionId, {
-    claimedQuestId: data.quest?.id ?? null,
-    claimedQuestTitle: data.quest?.title ?? null,
-    claimedQuestStatus: data.quest?.status ?? null,
-    claimedQuestVerificationInboxUnread: data.quest?.verificationInboxUnread,
-    claimedQuestLeaderSessionId: data.quest?.leaderSessionId ?? null,
-    ...(useQuestTitle ? { name: data.quest!.title } : {}),
-  });
-  if (useQuestTitle && currentSdkSession?.name !== data.quest!.title) store.markRecentlyRenamed(sessionId);
-
   if (!data.quest?.id) return;
   const questId = data.quest.id;
   const isStatusChange = prevQuestId === questId && !!prevStatus && prevStatus !== data.quest.status;

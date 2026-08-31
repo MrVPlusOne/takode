@@ -1171,8 +1171,8 @@ export function createQuestRoutes(ctx: RouteContext) {
         body.title.trim().length > 0
       ) {
         // Keep quest-owned session names in sync when a claimed quest is retitled.
-        // setSessionClaimedQuest broadcasts session_quest_claimed + session_name_update
-        // source:quest, and persists the name via callback.
+        // setSessionClaimedQuest publishes detailed claim state and invalidates the canonical navigation row.
+        // The name store remains durable through the quest-name callback.
         setClaimedQuest(ownerSessionId, claimedQuestEvent(quest));
         // Update task history entries that reference this quest
         const session = wsBridge.getSession(ownerSessionId);
@@ -1360,8 +1360,8 @@ export function createQuestRoutes(ctx: RouteContext) {
       if (previousOwnerSessionId && previousOwnerSessionId !== sessionId) {
         setClaimedQuest(previousOwnerSessionId, null);
       }
-      // setSessionClaimedQuest broadcasts session_quest_claimed + session_name_update
-      // source:quest, cancels in-flight namers, and persists the name via callback.
+      // setSessionClaimedQuest publishes detailed claim state and invalidates the canonical navigation row,
+      // while the callback cancels in-flight namers and persists the quest-owned name.
       setClaimedQuest(sessionId, claimedQuestEvent(quest));
       console.log(`[quest-claim] Setting session name for ${sessionId} to "${quest.title}" (quest ${quest.questId})`);
       // Use the last user message as trigger so clicking the quest chip scrolls

@@ -1389,22 +1389,6 @@ export function getHerdDiagnostics(
   };
 }
 
-export function broadcastNameUpdate(
-  session: SessionLike,
-  name: string,
-  source: "quest" | undefined,
-  deps: Pick<SessionRegistryDeps, "broadcastToBrowsers">,
-): void {
-  console.log(
-    `[ws-bridge] broadcastNameUpdate: "${name}" source=${source ?? "none"} browsers=${session.browserSockets.size} session=${sessionTag(session.id)}`,
-  );
-  deps.broadcastToBrowsers?.(session, {
-    type: "session_name_update",
-    name,
-    ...(source && { source }),
-  } as BrowserIncomingMessage);
-}
-
 export function setSessionClaimedQuest(
   session: SessionLike,
   quest: {
@@ -1469,9 +1453,6 @@ export function setSessionClaimedQuest(
     type: "session_quest_claimed",
     quest,
   } as BrowserIncomingMessage);
-  if (isQuestActive && !isOrchestrator) {
-    broadcastNameUpdate(session, quest.title, "quest", deps);
-  }
   deps.persistSession(session);
 }
 
@@ -1490,21 +1471,6 @@ export function setSessionClaimedQuestBySessionId(
     return;
   }
   setSessionClaimedQuest(session, quest, deps);
-}
-
-export function broadcastNameUpdateBySessionId(
-  sessions: Map<string, SessionLike>,
-  sessionId: string,
-  name: string,
-  source: "quest" | undefined,
-  deps: Pick<SessionRegistryDeps, "broadcastToBrowsers">,
-): void {
-  const session = sessions.get(sessionId);
-  if (!session) {
-    console.log(`[ws-bridge] broadcastNameUpdate: session ${sessionTag(sessionId)} not found in sessions map`);
-    return;
-  }
-  broadcastNameUpdate(session, name, source, deps);
 }
 
 export function getNotifications(sessions: Map<string, SessionLike>, sessionId: string): SessionNotification[] {
