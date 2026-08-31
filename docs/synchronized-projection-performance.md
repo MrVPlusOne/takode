@@ -226,12 +226,12 @@ The frozen pre-migration attention feature baseline is **+442 non-test lines** a
 | Accounted change | Server | Shared protocol/types | Frontend | Total |
 | --- | ---: | ---: | ---: | ---: |
 | Frozen pre-migration feature baseline | +218 | +37 | +187 | **+442** |
-| Current cleanup, raw tracked production delta | -103 | 0 | -354 | **-457** |
+| Current cleanup, raw tracked production delta | -103 | 0 | -355 | **-458** |
 | Generic malformed/resync framework exclusion | 0 | 0 | -42 | **-42** |
-| Current cleanup after exclusion | -103 | 0 | -396 | **-499** |
-| **Final attention feature stack versus its direct-parent baseline** | **+115** | **+37** | **-209** | **-57** |
+| Current cleanup after exclusion | -103 | 0 | -397 | **-500** |
+| **Final attention feature stack versus its direct-parent baseline** | **+115** | **+37** | **-210** | **-58** |
 
-The final feature-specific stack is therefore **57 non-test lines smaller than the pre-migration baseline**. The current frontend count includes the dedicated Playground matrix; the exclusion covers only reusable validation and resync transport behavior shared by every synchronized projection.
+The final feature-specific stack is therefore **58 non-test lines smaller than the pre-migration baseline**. The current frontend count includes the dedicated Playground matrix; the exclusion covers only reusable validation and resync transport behavior shared by every synchronized projection.
 
 ## Leader-thread cleanup remeasurement
 

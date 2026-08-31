@@ -17,11 +17,7 @@ import {
   normalizeLiveAssistantThreadMetadata,
   normalizeLiveLeaderUserThreadMetadata,
 } from "./utils/history-message-normalization.js";
-import {
-  applyNotificationStatusUpdate,
-  applySessionNotifications,
-  summarizeNotificationStatus,
-} from "./notification-status.js";
+import { applyNotificationStatusUpdate, applySessionNotifications } from "./notification-status.js";
 import {
   applyAuthoritativeSessionArchive,
   beginActiveSessionListRequest,
