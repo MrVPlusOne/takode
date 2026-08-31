@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { waitForBrowserMessage } from "./ws-bridge-current-browser-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -751,11 +752,9 @@ describe("Codex broken-session recovery regression", () => {
       }),
     );
     await flushAsync();
-    expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
-      expect.objectContaining({
-        type: "state_snapshot",
-        codexAutoPauseRecoveryProgress: null,
-      }),
+    await waitForBrowserMessage(
+      reconnect,
+      (message) => message.type === "state_snapshot" && message.codexAutoPauseRecoveryProgress === null,
     );
 
     for (const connected of [first, second, reconnect]) connected.send.mockClear();

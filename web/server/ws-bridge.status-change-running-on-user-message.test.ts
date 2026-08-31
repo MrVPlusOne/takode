@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { waitForBrowserMessage } from "./ws-bridge-current-browser-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -700,6 +701,7 @@ describe("status_change: running on user_message", () => {
       }),
     );
     await flushAsync();
+    await waitForBrowserMessage(browser2, (message) => message.type === "state_snapshot");
 
     const reconnectCalls = browser2.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const snapshot = reconnectCalls.find((m: any) => m.type === "state_snapshot");
@@ -867,7 +869,8 @@ describe("status_change: running on user_message", () => {
         history_window_visible_section_count: 3,
       }),
     );
-    await flushAsync(); // sendHistorySync is async
+    await flushAsync(); // bounded sync is async
+    await waitForBrowserMessage(browser2, (message) => message.type === "state_snapshot");
 
     const calls = browser2.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const snapshot = calls.find((m: any) => m.type === "state_snapshot");
@@ -959,7 +962,8 @@ describe("status_change: running on user_message", () => {
         history_window_visible_section_count: 3,
       }),
     );
-    await flushAsync(); // sendHistorySync is async
+    await flushAsync(); // bounded sync is async
+    await waitForBrowserMessage(browser2, (message) => message.type === "state_snapshot");
 
     const calls = browser2.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const snapshot = calls.find((m: any) => m.type === "state_snapshot");
@@ -1021,7 +1025,8 @@ describe("status_change: running on user_message", () => {
         history_window_visible_section_count: 3,
       }),
     );
-    await flushAsync(); // sendHistorySync is async
+    await flushAsync(); // bounded sync is async
+    await waitForBrowserMessage(browser2, (message) => message.type === "state_snapshot");
 
     const calls = browser2.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const snapshot = calls.find((m: any) => m.type === "state_snapshot");
@@ -1052,6 +1057,7 @@ describe("status_change: running on user_message", () => {
       }),
     );
     await flushAsync();
+    await waitForBrowserMessage(browser, (message) => message.type === "state_snapshot");
 
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const snapshot = calls.find((m: any) => m.type === "state_snapshot");
