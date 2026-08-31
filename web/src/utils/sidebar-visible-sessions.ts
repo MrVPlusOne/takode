@@ -1,16 +1,7 @@
 import type { SidebarSessionItem } from "./sidebar-session-item.js";
 import { resolveSessionNavigation } from "./session-navigation-resolver.js";
 import { buildTreeViewGroups } from "./tree-grouping.js";
-import { deriveEffectiveSessionAttentionStatus } from "./session-attention-status.js";
-import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
-import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
-import type {
-  TreeGroup,
-  SessionTaskEntry,
-  SdkSessionInfo,
-  SessionAttentionRecord,
-  SessionNotification,
-} from "../types.js";
+import type { TreeGroup, SessionTaskEntry, SdkSessionInfo } from "../types.js";
 
 type SessionAttentionReason = "action" | "error" | "review" | null;
 
@@ -22,9 +13,6 @@ export interface SidebarVisibleSessionsInput {
   collapsedTreeGroups: Set<string>;
   expandedHerdNodes: Set<string>;
   sessionAttention: Map<string, SessionAttentionReason>;
-  syncedProjectionKeys?: Set<string>;
-  sessionNotifications?: Map<string, SessionNotification[]>;
-  sessionAttentionRecords?: Map<string, SessionAttentionRecord[]>;
   sessionSortMode: "created" | "activity";
 }
 
@@ -39,52 +27,6 @@ export interface SidebarVisibleSessionsResult {
   sessionSetAttention: Map<string, SessionAttentionReason>;
 }
 
-export function deriveSessionSetAttention({
-  sessionAttention,
-  syncedProjectionKeys,
-  sdkSessions,
-  sessionNotifications,
-  sessionAttentionRecords,
-}: {
-  sessionAttention: Map<string, SessionAttentionReason>;
-  syncedProjectionKeys?: Set<string>;
-  sdkSessions: SdkSessionInfo[];
-  sessionNotifications?: Map<string, SessionNotification[]>;
-  sessionAttentionRecords?: Map<string, SessionAttentionRecord[]>;
-}): Map<string, SessionAttentionReason> {
-  const sdkById = new Map(sdkSessions.map((session) => [session.sessionId, session]));
-  const result = new Map<string, SessionAttentionReason>();
-  const sessionIds = new Set<string>([
-    ...sdkById.keys(),
-    ...sessionAttention.keys(),
-    ...(sessionNotifications?.keys() ?? []),
-  ]);
-  for (const sessionId of sessionIds) {
-    const attention = sessionAttention.get(sessionId) ?? null;
-    const sdkSession = sdkById.get(sessionId);
-    if (syncedProjectionKeys?.has(syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, sessionId))) {
-      result.set(sessionId, attention);
-      continue;
-    }
-    if (attention === "error") {
-      result.set(sessionId, "error");
-      continue;
-    }
-    const effectiveStatus = deriveEffectiveSessionAttentionStatus({
-      sessionId,
-      notifications: sessionNotifications?.get(sessionId),
-      summary: sdkSession,
-      fallbackSummary: sdkSession,
-      fallbackUrgency: sdkSession?.notificationUrgency ?? null,
-      attention,
-    });
-    const nextAttention =
-      effectiveStatus?.urgency === "needs-input" ? "action" : effectiveStatus?.urgency === "review" ? "review" : null;
-    result.set(sessionId, nextAttention);
-  }
-  return result;
-}
-
 export function buildSidebarVisibleSessions<TInput extends SidebarVisibleSessionsInput>(
   input: TInput,
 ): SidebarVisibleSessionsResult {
@@ -96,18 +38,9 @@ export function buildSidebarVisibleSessions<TInput extends SidebarVisibleSession
     collapsedTreeGroups,
     expandedHerdNodes,
     sessionAttention,
-    syncedProjectionKeys,
-    sessionNotifications,
-    sessionAttentionRecords,
     sessionSortMode,
   } = input;
-  const sessionSetAttention = deriveSessionSetAttention({
-    sessionAttention,
-    syncedProjectionKeys,
-    sdkSessions,
-    sessionNotifications,
-    sessionAttentionRecords,
-  });
+  const sessionSetAttention = sessionAttention;
 
   const allSessionIds = new Set(
     sdkSessions.filter((session) => session.hidden !== true).map((session) => session.sessionId),

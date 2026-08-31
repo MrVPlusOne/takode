@@ -121,10 +121,6 @@ export function setAttention(
   const pri = { action: 3, error: 2, review: 1 } as const;
   if (current && pri[current] >= pri[reason]) return;
   session.attentionReason = reason;
-  deps.broadcastToBrowsers?.(session, {
-    type: "session_update",
-    session: { attentionReason: session.attentionReason },
-  } as BrowserIncomingMessage);
   deps.persistSession(session);
 }
 
@@ -151,13 +147,6 @@ export function clearAttentionAndMarkRead(
     touchNotificationStatus(session);
     deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
   }
-  deps.broadcastToBrowsers?.(session, {
-    type: "session_update",
-    session: {
-      attentionReason: null,
-      ...(shouldAdvanceReadTimestamp ? { lastReadAt: session.lastReadAt } : {}),
-    },
-  } as BrowserIncomingMessage);
   deps.persistSession(session);
 }
 
@@ -301,18 +290,10 @@ function buildNotificationUpdateMessage(session: SessionLike): BrowserIncomingMe
   } as BrowserIncomingMessage;
 }
 
-function broadcastNotificationStatus(session: SessionLike, deps: BrowserNotificationDeps): void {
-  deps.broadcastToBrowsers?.(session, {
-    type: "session_update",
-    session: { attentionReason: session.attentionReason ?? null },
-  } as BrowserIncomingMessage);
-}
-
 function broadcastNotificationRefresh(session: SessionLike, deps: PersistNotificationDeps): void {
   touchNotificationStatus(session);
   deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
   clearActionAttentionIfNoNotifications(session, deps);
-  broadcastNotificationStatus(session, deps);
   deps.persistSession(session);
 }
 
@@ -363,7 +344,6 @@ export function notifyUser(
     }
     touchNotificationStatus(session);
     deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
-    broadcastNotificationStatus(session, deps);
     deps.persistSession(session);
     return {
       ok: true,
@@ -462,7 +442,6 @@ export function notifyUser(
     const reason = category === "needs-input" ? "action" : "review";
     setAttention(session, reason, deps);
   }
-  broadcastNotificationStatus(session, deps);
 
   if (category === "needs-input" || category === "review") {
     deps.scheduleNotification?.(
@@ -696,7 +675,6 @@ export function markNotificationDone(
     deps.broadcastBoard?.(session, getSortedBoardRows(session), getSortedCompletedBoardRows(session));
   }
   if (done) clearActionAttentionIfNoNotifications(session, deps);
-  broadcastNotificationStatus(session, deps);
   deps.persistSession(session);
   return true;
 }
@@ -743,7 +721,6 @@ export function setNotificationMuted(
   } else {
     setAttention(session, "action", deps);
   }
-  broadcastNotificationStatus(session, deps);
   deps.persistSession(session);
   return true;
 }
@@ -787,7 +764,6 @@ export function markAllNotificationsDone(
       deps.broadcastBoard?.(session, getSortedBoardRows(session), getSortedCompletedBoardRows(session));
     }
     if (done) clearActionAttentionIfNoNotifications(session, deps);
-    broadcastNotificationStatus(session, deps);
     deps.persistSession(session);
   } else if (done) {
     broadcastNotificationRefresh(session, deps);
@@ -814,10 +790,6 @@ export function clearActionAttentionIfNoNotifications(session: SessionLike, deps
   );
   if (!hasOpenNeedsInput && session.attentionReason === "action") {
     session.attentionReason = null;
-    deps.broadcastToBrowsers?.(session, {
-      type: "session_update",
-      session: { attentionReason: null },
-    } as BrowserIncomingMessage);
   }
 }
 

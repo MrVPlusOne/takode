@@ -1505,13 +1505,12 @@ describe("Takode server-authoritative auth", () => {
         notifications: [expect.objectContaining({ id: "n-5", done: true })],
       }),
     );
-    expect(bridge.broadcastToSession).toHaveBeenCalledWith(
-      "orch-1",
-      expect.objectContaining({
-        type: "session_update",
-        session: expect.objectContaining({ attentionReason: null }),
-      }),
-    );
+    expect(
+      bridge.broadcastToSession.mock.calls.some(
+        ([, message]: [string, { type?: string; session?: Record<string, unknown> }]) =>
+          message.type === "session_update" && Object.hasOwn(message.session ?? {}, "attentionReason"),
+      ),
+    ).toBe(false);
   });
 
   it("refreshes notification status when a needs-input response is already done", async () => {

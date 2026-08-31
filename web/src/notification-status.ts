@@ -13,8 +13,6 @@ export interface NotificationStatusSnapshot {
   notificationStatusUpdatedAt?: number;
 }
 
-export type AttentionReason = "action" | "error" | "review" | null;
-
 export function isActionableNotificationCategory(category: unknown): category is SessionNotification["category"] {
   return category === "needs-input" || category === "review";
 }
@@ -139,24 +137,6 @@ function isIncomingNotificationStatusStale(
     return incomingUpdatedAt < currentUpdatedAt;
   }
   return false;
-}
-
-function hasPendingPermissionAction(status: NotificationStatusSnapshot & { pendingPermissionCount?: number }): boolean {
-  return typeof status.pendingPermissionCount === "number" && status.pendingPermissionCount > 0;
-}
-
-export function shouldApplyAttentionReasonWithNotificationFreshness(
-  sessionId: string,
-  attentionReason: AttentionReason | undefined,
-  status: NotificationStatusSnapshot & { pendingPermissionCount?: number },
-): boolean {
-  if (attentionReason !== "action") return true;
-  if (hasPendingPermissionAction(status)) return true;
-  if (status.notificationUrgency !== "needs-input") return true;
-  const current = notificationStatusFromSession(
-    useStore.getState().sdkSessions.find((session) => session.sessionId === sessionId),
-  );
-  return !isIncomingNotificationStatusStale(current, status);
 }
 
 function applyNotificationStatus(session: SdkSessionInfo, status: NotificationStatusSnapshot): SdkSessionInfo {

@@ -58,6 +58,7 @@ import {
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
+import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
 
 function createMockSocket(data: SocketData) {
   return {
@@ -1036,7 +1037,7 @@ describe("status_change: running on user_message", () => {
     expect(snapshot.backendConnected).toBe(true);
   });
 
-  it("state_snapshot includes attention for herded worker sessions when set", async () => {
+  it("attention projection snapshots include restored attention for herded worker sessions", async () => {
     bridge.setLauncher({
       touchActivity: vi.fn(),
       touchUserMessage: vi.fn(),
@@ -1047,21 +1048,28 @@ describe("status_change: running on user_message", () => {
     session.attentionReason = "review";
 
     browser.send.mockClear();
-    bridge.handleBrowserMessage(
+    await bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
         history_window_section_turn_count: 10,
         history_window_visible_section_count: 3,
+        synced_projection_subscriptions: [{ projection: SESSION_ATTENTION_PROJECTION, key: "s1" }],
       }),
     );
     await flushAsync();
-    await waitForBrowserMessage(browser, (message) => message.type === "state_snapshot");
+    await waitForBrowserMessage(
+      browser,
+      (message) =>
+        message.type === "synced_projection_snapshot" && message.projection === SESSION_ATTENTION_PROJECTION,
+    );
 
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
-    const snapshot = calls.find((m: any) => m.type === "state_snapshot");
+    const snapshot = calls.find(
+      (m: any) => m.type === "synced_projection_snapshot" && m.projection === SESSION_ATTENTION_PROJECTION,
+    );
     expect(snapshot).toBeDefined();
-    expect(snapshot.attentionReason).toBe("review");
+    expect(snapshot.value).toEqual({ attentionReason: "review", status: { urgency: "review", count: 1 } });
   });
 });

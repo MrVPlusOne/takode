@@ -20,7 +20,6 @@ import {
 import {
   applyNotificationStatusUpdate,
   applySessionNotifications,
-  shouldApplyAttentionReasonWithNotificationFreshness,
   summarizeNotificationStatus,
 } from "./notification-status.js";
 import {
@@ -54,8 +53,7 @@ import { convertLegacyParentedCodexThinkingMessage } from "./utils/codex-reasoni
 import { TODO_STATE_UPDATED_EVENT } from "./todo-events.js";
 import { indexCodexSubagentToolResults } from "./utils/codex-subagent-tool-results.js";
 import { handleQuestListUpdated, handleSessionQuestClaimed } from "./ws-quest-handlers.js";
-import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
-import { hasSyncedProjectionValue } from "./store-synced-projections.js";
+import { stripLegacyLeaderThreadTabsState } from "./utils/leader-thread-tabs-resolver.js";
 import {
   handleSyncedProjectionMessage,
   type SyncedProjectionMessageHandlerDeps,
@@ -700,21 +698,6 @@ function handleParsedMessage(
       }
       const updatedName = (data.session as Record<string, unknown>).name;
       if (typeof updatedName === "string") store.updateSdkSession(sessionId, { name: updatedName });
-      // Sync server-authoritative attention state
-      if (
-        data.session.attentionReason !== undefined &&
-        !hasSyncedProjectionValue(store, SESSION_ATTENTION_PROJECTION, sessionId)
-      ) {
-        const isViewing = useStore.getState().currentSessionId === sessionId;
-        if (isViewing && data.session.attentionReason) {
-          // User is viewing this session — suppress badge, tell server we've read it
-          api.markSessionRead?.(sessionId, { mode: "session-view" }).catch(() => {});
-        } else {
-          const sessionAttention = new Map(useStore.getState().sessionAttention);
-          sessionAttention.set(sessionId, data.session.attentionReason ?? null);
-          useStore.setState({ sessionAttention });
-        }
-      }
       break;
     }
 
@@ -722,33 +705,10 @@ function handleParsedMessage(
       const targetSessionId = data.session_id;
       if (!targetSessionId) break;
       const update = data.session ?? {};
-      const projectionOwnsAttention = hasSyncedProjectionValue(store, SESSION_ATTENTION_PROJECTION, targetSessionId);
-      const shouldApplyAttention =
-        update.attentionReason === undefined
-          ? true
-          : !projectionOwnsAttention &&
-            shouldApplyAttentionReasonWithNotificationFreshness(targetSessionId, update.attentionReason, update);
-      store.updateSdkSession(targetSessionId, {
-        ...(shouldApplyAttention && update.attentionReason !== undefined
-          ? { attentionReason: update.attentionReason }
-          : {}),
-        ...(update.lastReadAt !== undefined ? { lastReadAt: update.lastReadAt } : {}),
-        ...(update.pendingPermissionSummary !== undefined
-          ? { pendingPermissionSummary: update.pendingPermissionSummary }
-          : {}),
-        ...(update.modelProvenanceMigration ? { modelProvenanceMigration: update.modelProvenanceMigration } : {}),
-      });
-      applyNotificationStatusUpdate(targetSessionId, update);
-      if (update.attentionReason !== undefined && shouldApplyAttention) {
-        const isViewing = useStore.getState().currentSessionId === targetSessionId;
-        if (isViewing && update.attentionReason) {
-          api.markSessionRead?.(targetSessionId, { mode: "session-view" }).catch(() => {});
-        } else {
-          const sessionAttention = new Map(useStore.getState().sessionAttention);
-          sessionAttention.set(targetSessionId, update.attentionReason ?? null);
-          useStore.setState({ sessionAttention });
-        }
+      if (update.modelProvenanceMigration) {
+        store.updateSdkSession(targetSessionId, { modelProvenanceMigration: update.modelProvenanceMigration });
       }
+      applyNotificationStatusUpdate(targetSessionId, update);
       break;
     }
 
@@ -1456,32 +1416,6 @@ function handleParsedMessage(
         // Restore generation timer from server so switching sessions
         // doesn't reset the "Purring..." counter.
         store.setStreamingStats(sessionId, { startedAt: data.generationStartedAt });
-      }
-      // Sync server-authoritative attention state
-      if (
-        data.attentionReason !== undefined &&
-        !hasSyncedProjectionValue(useStore.getState(), SESSION_ATTENTION_PROJECTION, sessionId)
-      ) {
-        const snapshotNotificationStatus = data.notifications
-          ? summarizeNotificationStatus(data.notifications, authoritativeNotificationStatus, {
-              authoritativeStatus: true,
-            })
-          : authoritativeNotificationStatus;
-        const shouldApplyAttention = shouldApplyAttentionReasonWithNotificationFreshness(
-          sessionId,
-          data.attentionReason,
-          snapshotNotificationStatus,
-        );
-        if (shouldApplyAttention) {
-          const isViewing = useStore.getState().currentSessionId === sessionId;
-          if (isViewing && data.attentionReason) {
-            api.markSessionRead?.(sessionId, { mode: "session-view" }).catch(() => {});
-          } else {
-            const sessionAttention = new Map(useStore.getState().sessionAttention);
-            sessionAttention.set(sessionId, data.attentionReason ?? null);
-            useStore.setState({ sessionAttention });
-          }
-        }
       }
       // Sync board state from server on connect/reconnect
       if (data.board) {

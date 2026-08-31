@@ -9,13 +9,17 @@ import type {
   LeaderThreadTabsProjectionTab,
   LeaderThreadTabsProjectionValue,
 } from "../shared/leader-thread-tabs-projection.js";
-import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
+import {
+  SESSION_ATTENTION_PROJECTION,
+  type SessionAttentionProjectionValue,
+} from "../shared/session-attention-projection.js";
 import type { SessionNavigationProjectionValue } from "../shared/session-navigation-projection.js";
-import type { BrowserIncomingMessage, SessionState } from "./types.js";
+import type { BrowserIncomingMessage, SessionNotification, SessionState } from "./types.js";
 import { SessionItem } from "./components/SessionItem.js";
 import { WorkBoardBar } from "./components/WorkBoardBar.js";
 import type { BoardRowData } from "./components/BoardTable.js";
 import { useStore } from "./store.js";
+import { getSyncedProjectionValue } from "./store-synced-projections.js";
 import { createWsMessageHandler } from "./ws-handlers.js";
 import { buildSidebarVisibleSessions } from "./utils/sidebar-visible-sessions.js";
 import {
@@ -42,7 +46,11 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock("./api.js", () => ({ api: apiMocks }));
 vi.mock("./utils/names.js", () => ({ generateUniqueSessionName: vi.fn(() => "Benchmark Session") }));
-vi.mock("./utils/notification-sound.js", () => ({ playNotificationSound: vi.fn() }));
+vi.mock("./utils/notification-sound.js", () => ({
+  playNotificationSound: vi.fn(),
+  playNeedsInputSound: vi.fn(),
+  playReviewSound: vi.fn(),
+}));
 vi.mock("./ws.js", () => ({ sendToSession: vi.fn(() => true) }));
 
 /**
@@ -50,10 +58,12 @@ vi.mock("./ws.js", () => ({ sendToSession: vi.fn(() => true) }));
  *
  * - session navigation: 12b08e56dd321d5cd7138cf5e57ee42eb8796f7d
  * - leader thread tabs: 6b50d3bd51b3782540016f02dc76576e5b70281d
+ * - session attention: 0e5c6eb2e1f49856d48e57556de260b5984f8d2f
  *
  * This test does not load or execute those historical revisions. Navigation keeps
- * its retained control, while leader tabs use a test-only frozen v1 WorkBoard
- * projection control instead of the deleted production fallback. Current scenarios
+ * its retained control, leader tabs use a test-only frozen v1 WorkBoard projection
+ * control, and attention reconstructs the frozen notification/summary/attention
+ * arbitration instead of importing the deleted production fallback. Current scenarios
  * install the compatible projection and retain the parallel detail/activity fields a
  * matched server sends. Missing, malformed, and mixed-version modes remain excluded.
  */
@@ -74,6 +84,7 @@ const handleMessage = createWsMessageHandler({
 
 type BenchmarkMode = "legacy" | "projection";
 type LeaderBenchmarkMode = "control" | "projection";
+type AttentionBenchmarkMode = "control" | "projection";
 
 type StepMetrics = {
   rootCommits: number;
@@ -526,6 +537,351 @@ function measureNavigation(mode: BenchmarkMode, scenario: Scenario): ScenarioRes
   return result;
 }
 
+const NO_ATTENTION: SessionAttentionProjectionValue = { attentionReason: null, status: null };
+
+type AttentionScenario = "equal" | "change" | "count" | "burst" | "clear" | "reconnect";
+
+type AttentionStatus = NonNullable<SessionAttentionProjectionValue["status"]>;
+
+function attentionValue(urgency: AttentionStatus["urgency"], count = 1): SessionAttentionProjectionValue {
+  return {
+    attentionReason: urgency === "needs-input" ? "action" : urgency === "review" ? "review" : null,
+    status: { urgency, count },
+  };
+}
+
+function attentionNotifications(value: SessionAttentionProjectionValue, version: number): SessionNotification[] {
+  if (!value.status) return [];
+  const category = value.status.urgency === "review" ? "review" : "needs-input";
+  return Array.from({ length: value.status.count }, (_, index) => ({
+    id: `attention-${version}-${category}-${index}`,
+    category,
+    summary: `${category} ${index + 1}`,
+    timestamp: version * 1_000 + index,
+    messageId: null,
+    done: false,
+    ...(value.status?.urgency === "muted-needs-input" ? { muted: true } : {}),
+  }));
+}
+
+function attentionSummary(value: SessionAttentionProjectionValue, version: number) {
+  const urgency = value.status?.urgency;
+  const activeCount = urgency === "needs-input" || urgency === "review" ? (value.status?.count ?? 0) : 0;
+  return {
+    notificationUrgency: urgency === "needs-input" || urgency === "review" ? urgency : null,
+    activeNotificationCount: activeCount,
+    activeNeedsInputNotificationCount: urgency === "needs-input" ? (value.status?.count ?? 0) : 0,
+    activeReviewNotificationCount: urgency === "review" ? (value.status?.count ?? 0) : 0,
+    mutedNeedsInputNotificationCount: urgency === "muted-needs-input" ? (value.status?.count ?? 0) : 0,
+    notificationStatusVersion: version,
+    notificationStatusUpdatedAt: version * 1_000,
+  } as const;
+}
+
+/** Frozen reconstruction of the row/hover arbitration at 0e5c6eb2. */
+function frozenAttentionValue(
+  state: ReturnType<typeof useStore.getState>,
+  sessionId: string,
+): SessionAttentionProjectionValue {
+  const summary = state.sdkSessions.find((session) => session.sessionId === sessionId);
+  const notifications = state.sessionNotifications.get(sessionId);
+  const rawAttention = state.sessionAttention.get(sessionId) ?? null;
+  const activeNotifications = notifications?.filter((notification) => !notification.done) ?? [];
+  const needsInputCount = activeNotifications.filter(
+    (notification) => notification.category === "needs-input" && !notification.muted,
+  ).length;
+  const reviewCount = activeNotifications.filter(
+    (notification) => notification.category === "review" && !notification.muted,
+  ).length;
+  const mutedCount = activeNotifications.filter(
+    (notification) => notification.category === "needs-input" && notification.muted,
+  ).length;
+  const freshClear =
+    summary?.notificationStatusVersion !== undefined &&
+    summary.activeNotificationCount === 0 &&
+    (summary.mutedNeedsInputNotificationCount ?? 0) === 0;
+
+  if (rawAttention === "error") return { attentionReason: "error", status: null };
+  if (rawAttention === "action" && !freshClear) {
+    return {
+      attentionReason: "action",
+      status: {
+        urgency: "needs-input",
+        count: needsInputCount || summary?.activeNeedsInputNotificationCount || summary?.activeNotificationCount || 1,
+      },
+    };
+  }
+  if (rawAttention === "review" && !freshClear) {
+    return {
+      attentionReason: "review",
+      status: {
+        urgency: "review",
+        count: reviewCount || summary?.activeReviewNotificationCount || summary?.activeNotificationCount || 1,
+      },
+    };
+  }
+  if (needsInputCount > 0) {
+    return { attentionReason: "action", status: { urgency: "needs-input", count: needsInputCount } };
+  }
+  if (reviewCount > 0) {
+    return { attentionReason: "review", status: { urgency: "review", count: reviewCount } };
+  }
+  if (mutedCount > 0) {
+    return { attentionReason: null, status: { urgency: "muted-needs-input", count: mutedCount } };
+  }
+  if ((summary?.activeNeedsInputNotificationCount ?? 0) > 0) {
+    return {
+      attentionReason: "action",
+      status: { urgency: "needs-input", count: summary?.activeNeedsInputNotificationCount ?? 1 },
+    };
+  }
+  if ((summary?.activeReviewNotificationCount ?? 0) > 0) {
+    return {
+      attentionReason: "review",
+      status: { urgency: "review", count: summary?.activeReviewNotificationCount ?? 1 },
+    };
+  }
+  if ((summary?.mutedNeedsInputNotificationCount ?? 0) > 0) {
+    return {
+      attentionReason: null,
+      status: { urgency: "muted-needs-input", count: summary?.mutedNeedsInputNotificationCount ?? 1 },
+    };
+  }
+  return NO_ATTENTION;
+}
+
+function attentionAuthorityValue(
+  mode: AttentionBenchmarkMode,
+  state: ReturnType<typeof useStore.getState>,
+  sessionId: string,
+): SessionAttentionProjectionValue {
+  return mode === "projection"
+    ? (getSyncedProjectionValue(state, SESSION_ATTENTION_PROJECTION, sessionId) ?? NO_ATTENTION)
+    : frozenAttentionValue(state, sessionId);
+}
+
+function attentionVisualToken(value: SessionAttentionProjectionValue): string {
+  return `${value.attentionReason ?? "none"}:${value.status?.urgency ?? "none"}`;
+}
+
+function attentionAuthorityToken(value: SessionAttentionProjectionValue): string {
+  return `${attentionVisualToken(value)}:${value.status?.count ?? 0}`;
+}
+
+const AttentionBenchmarkRow = memo(function AttentionBenchmarkRow({
+  session,
+  mode,
+  onRender,
+}: {
+  session: ReturnType<typeof buildSidebarVisibleSessions>["allSessionList"][number];
+  mode: AttentionBenchmarkMode;
+  onRender: ProfilerOnRenderCallback;
+}) {
+  const attention = useStore((state) =>
+    mode === "projection"
+      ? (state.sessionAttention.get(session.id) ?? null)
+      : frozenAttentionValue(state, session.id).attentionReason,
+  );
+  return (
+    <Profiler id={`attention-row:${session.id}`} onRender={onRender}>
+      <SessionItem
+        session={session}
+        sessionName={session.name ?? undefined}
+        sessionPreview={session.lastMessagePreview || undefined}
+        attention={attention}
+        {...sessionItemProps}
+      />
+    </Profiler>
+  );
+});
+
+function AttentionBenchmarkSurface({
+  sessions,
+  mode,
+  onRender,
+}: {
+  sessions: ReturnType<typeof buildSidebarVisibleSessions>["allSessionList"];
+  mode: AttentionBenchmarkMode;
+  onRender: ProfilerOnRenderCallback;
+}) {
+  return (
+    <div data-testid="attention-benchmark-surface">
+      {sessions.map((session) => (
+        <AttentionBenchmarkRow key={session.id} session={session} mode={mode} onRender={onRender} />
+      ))}
+    </div>
+  );
+}
+
+function mountAttentionSurface(mode: AttentionBenchmarkMode, recorder: BenchmarkRecorder): RenderResult {
+  const sessions = buildSidebarVisibleSessions(useStore.getState()).allSessionList;
+  return render(
+    <Profiler id="attention-root" onRender={recorder.onRender}>
+      <AttentionBenchmarkSurface sessions={sessions} mode={mode} onRender={recorder.onRender} />
+    </Profiler>,
+  );
+}
+
+function installAttentionState(mode: AttentionBenchmarkMode, initial: SessionAttentionProjectionValue): void {
+  installNavigationState("projection");
+  const initialSummary = attentionSummary(initial, 1);
+  useStore.setState((state) => ({
+    sdkSessions: state.sdkSessions.map((session) =>
+      session.sessionId === "s-1" ? { ...session, ...initialSummary } : session,
+    ),
+    sessionNotifications: new Map(initial.status ? [["s-1", attentionNotifications(initial, 1)]] : []),
+    sessionAttention:
+      mode === "control"
+        ? new Map(SESSION_IDS.map((sessionId) => [sessionId, sessionId === "s-1" ? initial.attentionReason : null]))
+        : state.sessionAttention,
+  }));
+
+  if (mode === "projection") {
+    useStore.getState().applySyncedProjectionSnapshot({
+      type: "synced_projection_snapshot",
+      projection: SESSION_ATTENTION_PROJECTION,
+      key: "s-1",
+      generation: "attention-benchmark-generation-s-1",
+      revision: 1,
+      value: initial,
+    });
+  }
+}
+
+function receiveAttentionDetail(value: SessionAttentionProjectionValue, version: number): void {
+  handleMessage("s-1", {
+    type: "notification_update",
+    notifications: attentionNotifications(value, version),
+    ...attentionSummary(value, version),
+  } as BrowserIncomingMessage);
+}
+
+function receiveFrozenAttentionReason(reason: SessionAttentionProjectionValue["attentionReason"]): void {
+  useStore.setState((state) => {
+    const sessionAttention = new Map(state.sessionAttention);
+    sessionAttention.set("s-1", reason);
+    return { sessionAttention };
+  });
+}
+
+function receiveAttentionProjection(
+  value: SessionAttentionProjectionValue,
+  revision: number,
+  generation = "attention-benchmark-generation-s-1",
+  type: "synced_projection_snapshot" | "synced_projection_update" = "synced_projection_update",
+): void {
+  handleMessage("carrier", {
+    type,
+    projection: SESSION_ATTENTION_PROJECTION,
+    key: "s-1",
+    generation,
+    revision,
+    value,
+  } as BrowserIncomingMessage);
+}
+
+function attentionStateSnapshot(value: SessionAttentionProjectionValue, version: number): BrowserIncomingMessage {
+  return {
+    type: "state_snapshot",
+    sessionStatus: "idle",
+    permissionMode: "default",
+    backendConnected: true,
+    uiMode: null,
+    askPermission: true,
+    board: [],
+    completedBoard: [],
+    notifications: attentionNotifications(value, version),
+    attentionRecords: [],
+    rowSessionStatuses: {},
+    attentionReason: value.attentionReason,
+    ...attentionSummary(value, version),
+  } as BrowserIncomingMessage;
+}
+
+function readAttentionOutput(view: RenderResult, mode: AttentionBenchmarkMode): string {
+  const visual = [...view.container.querySelectorAll<HTMLElement>("[data-session-id]")]
+    .map((row) => {
+      const marker = row.parentElement?.querySelector<HTMLElement>("[data-testid='session-attention-marker']");
+      const reason = marker?.dataset.attention ?? "none";
+      const urgency = reason === "action" ? "needs-input" : reason === "review" ? "review" : "none";
+      return `${row.dataset.sessionId}:${reason}:${urgency}`;
+    })
+    .join("|");
+  const state = useStore.getState();
+  const authority = SESSION_IDS.map(
+    (sessionId) => `${sessionId}:${attentionAuthorityToken(attentionAuthorityValue(mode, state, sessionId))}`,
+  ).join("|");
+  return `${visual}#${authority}`;
+}
+
+function measureAttention(mode: AttentionBenchmarkMode, scenario: AttentionScenario): ScenarioResult {
+  useStore.getState().reset();
+  const activeOne = attentionValue("needs-input", 1);
+  const initial = scenario === "change" || scenario === "burst" ? NO_ATTENTION : activeOne;
+  installAttentionState(mode, initial);
+  const recorder = createBenchmarkRecorder("attention-root");
+  const view = mountAttentionSurface(mode, recorder);
+  const steps: StepMetrics[] = [];
+  const applyDetailAndAuthority = (value: SessionAttentionProjectionValue, version: number) => {
+    steps.push(applyStep(recorder, () => receiveAttentionDetail(value, version)));
+    steps.push(
+      applyStep(recorder, () =>
+        mode === "control"
+          ? receiveFrozenAttentionReason(value.attentionReason)
+          : receiveAttentionProjection(value, version),
+      ),
+    );
+  };
+
+  if (scenario === "equal") {
+    applyDetailAndAuthority(activeOne, 2);
+  } else if (scenario === "change") {
+    applyDetailAndAuthority(activeOne, 2);
+  } else if (scenario === "count") {
+    applyDetailAndAuthority(attentionValue("needs-input", 2), 2);
+  } else if (scenario === "burst") {
+    const transitions = [attentionValue("review", 1), activeOne, attentionValue("review", 2)];
+    if (mode === "control") {
+      transitions.forEach((value, index) => applyDetailAndAuthority(value, index + 2));
+    } else {
+      transitions.forEach((value, index) => {
+        steps.push(applyStep(recorder, () => receiveAttentionDetail(value, index + 2)));
+      });
+      steps.push(applyStep(recorder, () => receiveAttentionProjection(transitions[2]!, 4)));
+    }
+  } else if (scenario === "clear") {
+    steps.push(
+      applyStep(recorder, () => {
+        void apiMocks.markSessionRead("s-1", { mode: "session-view" });
+        if (mode === "control") receiveFrozenAttentionReason(null);
+      }),
+    );
+    steps.push(applyStep(recorder, () => receiveAttentionDetail(NO_ATTENTION, 2)));
+    steps.push(
+      applyStep(recorder, () =>
+        mode === "control" ? receiveFrozenAttentionReason(null) : receiveAttentionProjection(NO_ATTENTION, 2),
+      ),
+    );
+  } else {
+    if (mode === "projection") {
+      steps.push(
+        applyStep(recorder, () =>
+          receiveAttentionProjection(activeOne, 1, "attention-reconnect-s-1", "synced_projection_snapshot"),
+        ),
+      );
+    }
+    steps.push(applyStep(recorder, () => handleMessage("s-1", attentionStateSnapshot(activeOne, 2))));
+    if (mode === "control") {
+      steps.push(applyStep(recorder, () => receiveFrozenAttentionReason(activeOne.attentionReason)));
+    }
+  }
+
+  const result = { metrics: sumMetrics(steps), output: readAttentionOutput(view, mode) };
+  view.unmount();
+  recorder.stop();
+  return result;
+}
+
 function leaderBoard(status: "WORKING" | "MEMORY" | "DONE" = "WORKING"): BoardRowData[] {
   return LEADER_THREAD_KEYS.map((threadKey, index) => ({
     questId: threadKey,
@@ -899,14 +1255,14 @@ describe("matched-build synchronized projection performance", () => {
     expect(isolatedProjectionNoop.metrics.rootCommits).toBe(0);
     expect(isolatedProjectionNoop.metrics.childCommits).toEqual({});
     expect(matchedCompatibleNoop.metrics.rootCommits).toBe(0);
-    expect(legacyNoop.metrics.storeNotifications).toBe(4);
+    expect(legacyNoop.metrics.storeNotifications).toBe(2);
     expect(matchedCompatibleNoop.metrics.storeNotifications).toBe(1);
 
     // One field patch commits once and preserves every unrelated row identity.
     expect(isolatedProjectionSingle.metrics.rootCommits).toBe(1);
     expect(legacySingle.metrics.rootCommits).toBe(1);
     expect(matchedCompatibleSingle.metrics.rootCommits).toBe(1);
-    expect(legacySingle.metrics.storeNotifications).toBe(4);
+    expect(legacySingle.metrics.storeNotifications).toBe(2);
     expect(isolatedProjectionSingle.metrics.childCommits).toEqual({ "navigation-row:s-1": 1 });
     expect(matchedCompatibleSingle.metrics.childCommits).toEqual(isolatedProjectionSingle.metrics.childCommits);
     expect(matchedCompatibleSingle.metrics.storeNotifications).toBe(1);
@@ -917,7 +1273,7 @@ describe("matched-build synchronized projection performance", () => {
     expect(matchedCompatibleBurst.metrics.childCommits).toEqual({ "navigation-row:s-1": 1 });
     expect(matchedCompatibleBurst.metrics.storeNotifications).toBe(1);
     expect(legacyBurst.metrics.rootCommits).toBe(3);
-    expect(legacyBurst.metrics.storeNotifications).toBe(12);
+    expect(legacyBurst.metrics.storeNotifications).toBe(6);
 
     // Reconnect replaces authority without adding a React commit and rerenders
     // only the changed row; transport bookkeeping adds one store notification.
@@ -928,6 +1284,85 @@ describe("matched-build synchronized projection performance", () => {
     // Profiler durations are intentionally report-only: CI timing is noisy, while the
     // structural commit and store-notification assertions above are deterministic.
     expect(isolatedProjectionSingle.metrics.profilerDurationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("compares session-attention equal, change, count, burst, clear, reconnect, and row-isolation work", () => {
+    const frozenControlEqual = measureAttention("control", "equal");
+    const projectionEqual = measureAttention("projection", "equal");
+    const frozenControlChange = measureAttention("control", "change");
+    const projectionChange = measureAttention("projection", "change");
+    const frozenControlCount = measureAttention("control", "count");
+    const projectionCount = measureAttention("projection", "count");
+    const frozenControlBurst = measureAttention("control", "burst");
+    const projectionBurst = measureAttention("projection", "burst");
+    const frozenControlClear = measureAttention("control", "clear");
+    const projectionClear = measureAttention("projection", "clear");
+    const frozenControlReconnect = measureAttention("control", "reconnect");
+    const projectionReconnect = measureAttention("projection", "reconnect");
+
+    reportBenchmark("session-attention", {
+      frozenControlEqual,
+      projectionEqual,
+      frozenControlChange,
+      projectionChange,
+      frozenControlCount,
+      projectionCount,
+      frozenControlBurst,
+      projectionBurst,
+      frozenControlClear,
+      projectionClear,
+      frozenControlReconnect,
+      projectionReconnect,
+    });
+
+    for (const [control, projection] of [
+      [frozenControlEqual, projectionEqual],
+      [frozenControlChange, projectionChange],
+      [frozenControlCount, projectionCount],
+      [frozenControlBurst, projectionBurst],
+      [frozenControlClear, projectionClear],
+      [frozenControlReconnect, projectionReconnect],
+    ] as const) {
+      expect(projection.output).toBe(control.output);
+      expect(projection.metrics.rootCommits).toBeLessThanOrEqual(control.metrics.rootCommits);
+      expect(projection.metrics.storeNotifications).toBeLessThanOrEqual(control.metrics.storeNotifications);
+      expect(Object.keys(projection.metrics.childCommits).every((id) => id === "attention-row:s-1")).toBe(true);
+    }
+
+    // Equal values and same-urgency count changes keep compact rows stable.
+    expect(frozenControlEqual.metrics.storeNotifications).toBe(2);
+    expect(projectionEqual.metrics.rootCommits).toBe(0);
+    expect(projectionEqual.metrics.childCommits).toEqual({});
+    expect(projectionEqual.metrics.storeNotifications).toBe(2);
+    expect(frozenControlCount.metrics.rootCommits).toBe(0);
+    expect(frozenControlCount.metrics.storeNotifications).toBe(2);
+    expect(projectionCount.metrics.rootCommits).toBe(0);
+    expect(projectionCount.metrics.childCommits).toEqual({});
+    expect(projectionCount.metrics.storeNotifications).toBe(2);
+
+    // A visible status change, explicit clear, and coalesced burst each commit
+    // once, rerendering only the owning row. Retained notification detail does
+    // not create a second visual commit or touch unrelated rows.
+    expect(frozenControlChange.metrics.rootCommits).toBe(1);
+    expect(projectionChange.metrics.rootCommits).toBe(1);
+    expect(projectionChange.metrics.childCommits).toEqual({ "attention-row:s-1": 1 });
+    expect(projectionChange.metrics.storeNotifications).toBe(2);
+    expect(frozenControlBurst.metrics.rootCommits).toBe(3);
+    expect(frozenControlBurst.metrics.storeNotifications).toBe(6);
+    expect(projectionBurst.metrics.rootCommits).toBe(1);
+    expect(projectionBurst.metrics.childCommits).toEqual({ "attention-row:s-1": 1 });
+    expect(projectionBurst.metrics.storeNotifications).toBe(4);
+    expect(frozenControlClear.metrics.rootCommits).toBe(1);
+    expect(frozenControlClear.metrics.storeNotifications).toBe(3);
+    expect(projectionClear.metrics.rootCommits).toBe(1);
+    expect(projectionClear.metrics.childCommits).toEqual({ "attention-row:s-1": 1 });
+    expect(projectionClear.metrics.storeNotifications).toBe(2);
+    expect(frozenControlReconnect.metrics.rootCommits).toBe(0);
+    expect(frozenControlReconnect.metrics.storeNotifications).toBe(18);
+    expect(projectionReconnect.metrics.rootCommits).toBe(0);
+    expect(projectionReconnect.metrics.childCommits).toEqual({});
+    expect(projectionReconnect.metrics.storeNotifications).toBe(18);
+    expect(projectionChange.metrics.profilerDurationMs).toBeGreaterThanOrEqual(0);
   });
 
   it("compares leader-tab no-op, detail-plus-projection updates, coalesced burst, and reconnect work", () => {
@@ -967,14 +1402,14 @@ describe("matched-build synchronized projection performance", () => {
     expect(frozenControlNoop.metrics.rootCommits).toBe(0);
     expect(isolatedProjectionNoop.metrics.rootCommits).toBe(0);
     expect(matchedCompatibleNoop.metrics.rootCommits).toBe(0);
-    expect(frozenControlNoop.metrics.storeNotifications).toBe(4);
+    expect(frozenControlNoop.metrics.storeNotifications).toBe(3);
     expect(matchedCompatibleNoop.metrics.storeNotifications).toBe(frozenControlNoop.metrics.storeNotifications + 1);
 
     // The current projection owns the one visible phase change. Parallel
     // activity/detail deliveries do not add a second React commit.
     expect(frozenControlSingle.metrics.rootCommits).toBe(1);
     expect(matchedCompatibleSingle.metrics.rootCommits).toBe(frozenControlSingle.metrics.rootCommits);
-    expect(frozenControlSingle.metrics.storeNotifications).toBe(4);
+    expect(frozenControlSingle.metrics.storeNotifications).toBe(3);
     expect(matchedCompatibleSingle.metrics.storeNotifications).toBe(frozenControlSingle.metrics.storeNotifications + 1);
 
     // A three-step control burst commits once per visible control transition.
@@ -984,7 +1419,7 @@ describe("matched-build synchronized projection performance", () => {
     expect(frozenControlBurst.metrics.rootCommits).toBe(3);
     expect(matchedCompatibleBurst.metrics.rootCommits).toBe(2);
     expect(matchedCompatibleBurst.metrics.rootCommits).toBeLessThan(frozenControlBurst.metrics.rootCommits);
-    expect(frozenControlBurst.metrics.storeNotifications).toBe(12);
+    expect(frozenControlBurst.metrics.storeNotifications).toBe(9);
     expect(matchedCompatibleBurst.metrics.storeNotifications).toBe(frozenControlBurst.metrics.storeNotifications + 1);
 
     // Reconnect installs the atomic visual snapshot once. The following detail
@@ -1006,6 +1441,15 @@ describe("matched-build synchronized projection performance", () => {
     for (const [id, count] of Object.entries(navigationClients[0]!.metrics.childCommits)) {
       expect(navigationAggregate.childCommits[id]).toBe(count * 2);
     }
+
+    const attentionClients = [measureAttention("projection", "change"), measureAttention("projection", "change")];
+    expect(structuralResult(attentionClients[1]!)).toEqual(structuralResult(attentionClients[0]!));
+    const attentionAggregate = aggregateClients(attentionClients.map((client) => client.metrics));
+    expect(attentionAggregate.rootCommits).toBe(attentionClients[0]!.metrics.rootCommits * 2);
+    expect(attentionAggregate.storeNotifications).toBe(attentionClients[0]!.metrics.storeNotifications * 2);
+    expect(attentionAggregate.childCommits["attention-row:s-1"]).toBe(
+      attentionClients[0]!.metrics.childCommits["attention-row:s-1"]! * 2,
+    );
 
     const leaderClients = [
       measureLeader("projection", "single", { includeDetailFrames: true }),

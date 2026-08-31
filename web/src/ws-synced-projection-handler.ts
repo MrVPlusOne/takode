@@ -4,8 +4,14 @@ import type {
   SyncedProjectionSubscriptionsAckMessage,
   SyncedProjectionUpdateMessage,
 } from "../shared/synced-projection.js";
+import { isValidSyncedProjectionIdentity } from "../shared/synced-projection.js";
+import { isSyncedProjectionId } from "../shared/synced-projection-registry.js";
 import type { AppState } from "./store-types.js";
-import { cacheCoversSyncedProjectionSnapshot } from "./store-synced-projections.js";
+import {
+  cacheCoversSyncedProjectionSnapshot,
+  isValidSyncedProjectionSnapshot,
+  isValidSyncedProjectionUpdate,
+} from "./store-synced-projections.js";
 import {
   reconcileStoredSyncedProjectionSnapshots,
   getCurrentActiveSessionListRequestSequence,
@@ -33,6 +39,15 @@ type SyncedProjectionStore = Pick<
   | "syncedProjectionVersions"
 >;
 
+function requestMalformedProjectionResync(
+  sessionId: string,
+  message: { projection?: unknown; key?: unknown },
+  deps: SyncedProjectionMessageHandlerDeps,
+): void {
+  if (!isSyncedProjectionId(message.projection) || !isValidSyncedProjectionIdentity(message.key)) return;
+  deps.requestSyncedProjectionResync?.(sessionId, message.projection, message.key);
+}
+
 /** Apply direct projection protocol messages without routing them through legacy event handling. */
 export function handleSyncedProjectionMessage(
   sessionId: string,
@@ -49,6 +64,7 @@ export function handleSyncedProjectionMessage(
 
   if (data.type === "synced_projection_snapshot") {
     const snapshot = data as SyncedProjectionSnapshotMessage;
+    const structurallyValid = isValidSyncedProjectionSnapshot(snapshot);
     const acceptSameRevisionConflict =
       deps.hasPendingSyncedProjectionResync?.(sessionId, snapshot.projection, snapshot.key) ?? false;
     const result = store.applySyncedProjectionSnapshot(snapshot, {
@@ -59,6 +75,8 @@ export function handleSyncedProjectionMessage(
     const snapshotCovered = result.accepted || cacheCoversSyncedProjectionSnapshot(store, snapshot);
     if (result.requestResync) {
       deps.requestSyncedProjectionResync?.(sessionId, snapshot.projection, snapshot.key);
+    } else if (!structurallyValid) {
+      requestMalformedProjectionResync(sessionId, snapshot, deps);
     } else if (snapshotCovered) {
       deps.noteAcceptedSyncedProjectionSnapshot?.(sessionId, snapshot.projection, snapshot.key);
       deps.resolveSyncedProjectionResync?.(sessionId, snapshot.projection, snapshot.key);
@@ -68,11 +86,14 @@ export function handleSyncedProjectionMessage(
 
   if (data.type === "synced_projection_update") {
     const update = data as SyncedProjectionUpdateMessage;
+    const structurallyValid = isValidSyncedProjectionUpdate(update);
     const result = store.applySyncedProjectionUpdate(update, {
       activeRequestSequence: getCurrentActiveSessionListRequestSequence(),
     });
     if (result.requestResync) {
       deps.requestSyncedProjectionResync?.(sessionId, update.projection, update.key);
+    } else if (!structurallyValid) {
+      requestMalformedProjectionResync(sessionId, update, deps);
     }
     return true;
   }
@@ -87,6 +108,16 @@ export function handleSyncedProjectionMessage(
         activeRequestSequence: getCurrentActiveSessionListRequestSequence(),
         revokedSubscriptions,
       });
+      const acceptedIds = new Set(accepted.map(({ projection, key }) => `${projection}\u0000${key}`));
+      for (const subscription of ack.subscriptions) {
+        if (
+          isSyncedProjectionId(subscription?.projection) &&
+          isValidSyncedProjectionIdentity(subscription?.key) &&
+          !acceptedIds.has(`${subscription.projection}\u0000${subscription.key}`)
+        ) {
+          deps.requestSyncedProjectionResync?.(sessionId, subscription.projection, subscription.key);
+        }
+      }
     }
     return true;
   }

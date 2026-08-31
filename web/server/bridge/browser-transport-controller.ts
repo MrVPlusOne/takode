@@ -941,8 +941,6 @@ export function sendStateSnapshot(
     ...buildBackendStateSnapshot(session, deps),
     uiMode: session.state.uiMode ?? null,
     askPermission: session.state.askPermission ?? true,
-    lastReadAt: session.lastReadAt,
-    attentionReason: session.attentionReason,
     generationStartedAt: session.generationStartedAt ?? null,
     activeTurnRoute: deriveActiveTurnRoute(session),
     ...codexReasoningSnapshotFields(session),

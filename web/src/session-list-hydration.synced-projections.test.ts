@@ -108,11 +108,11 @@ describe("hydrateSessionList synced attention projection", () => {
     });
   });
 
-  it("retains legacy attention hydration only when the projection field is absent", () => {
+  it("fails closed when the current-build attention projection field is absent", () => {
     hydrateSessionList([session({ attentionReason: "review" })]);
 
     expect(hasSyncedProjectionValue(useStore.getState(), SESSION_ATTENTION_PROJECTION, "s1")).toBe(false);
-    expect(useStore.getState().sessionAttention.get("s1")).toBe("review");
+    expect(useStore.getState().sessionAttention.has("s1")).toBe(false);
   });
 
   it("does not let later legacy REST attention overwrite a projection-owned key or mark it read", () => {

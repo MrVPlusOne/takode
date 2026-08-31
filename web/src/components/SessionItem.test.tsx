@@ -122,10 +122,12 @@ function makeSession(overrides: Partial<SessionItemType> = {}): SessionItemType 
 function renderSessionItem(overrides: Partial<ComponentProps<typeof SessionItem>> = {}) {
   const onArchive = vi.fn();
   const onSelect = vi.fn();
+  const session = overrides.session ?? makeSession();
+  const projectedAttention = mockStoreState.sessionAttention.get(session.id) ?? null;
 
   const view = render(
     <SessionItem
-      session={makeSession()}
+      session={session}
       isActive={false}
       isArchived={false}
       sessionName="Session"
@@ -144,6 +146,8 @@ function renderSessionItem(overrides: Partial<ComponentProps<typeof SessionItem>
       onConfirmRename={vi.fn()}
       onCancelRename={vi.fn()}
       editInputRef={{ current: null }}
+      attention={projectedAttention}
+      hasUnread={!!projectedAttention}
       {...overrides}
     />,
   );
@@ -202,6 +206,20 @@ function EditingSessionItem({
 
 function setSessionNotifications(sessionId: string, notifications: Array<any>) {
   mockStoreState.sessionNotifications.set(sessionId, notifications);
+  const active = notifications.filter((notification) => !notification.done);
+  const needsInput = active.filter((notification) => notification.category === "needs-input" && !notification.muted);
+  const review = active.filter((notification) => notification.category === "review");
+  const muted = active.filter((notification) => notification.category === "needs-input" && notification.muted);
+  setSessionAttentionProjection(
+    sessionId,
+    needsInput.length > 0
+      ? { attentionReason: "action", status: { urgency: "needs-input", count: needsInput.length } }
+      : review.length > 0
+        ? { attentionReason: "review", status: { urgency: "review", count: review.length } }
+        : muted.length > 0
+          ? { attentionReason: null, status: { urgency: "muted-needs-input", count: muted.length } }
+          : { attentionReason: null, status: null },
+  );
 }
 
 function setSessionTimers(sessionId: string, timerIds: string[]) {
@@ -215,6 +233,7 @@ function setSessionAttentionProjection(sessionId: string, value: SessionAttentio
   const entryId = syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, sessionId);
   mockStoreState.syncedProjectionKeys.add(entryId);
   mockStoreState.syncedProjectionValues.set(entryId, value);
+  mockStoreState.sessionAttention.set(sessionId, value.attentionReason);
 }
 
 const SAGE_THEME: HerdGroupBadgeTheme = {
@@ -988,8 +1007,8 @@ describe("SessionItem notification marker", () => {
     ]);
 
     renderSessionItem();
-    const marker = screen.getByTestId("session-notification-marker");
-    expect(marker).toHaveAttribute("data-urgency", "review");
+    const marker = screen.getByTestId("session-attention-marker");
+    expect(marker).toHaveAttribute("data-attention", "review");
   });
 
   it("gives needs-input precedence over review in the inline notification marker", () => {
@@ -1001,8 +1020,8 @@ describe("SessionItem notification marker", () => {
     ]);
 
     renderSessionItem();
-    const marker = screen.getByTestId("session-notification-marker");
-    expect(marker).toHaveAttribute("data-urgency", "needs-input");
+    const marker = screen.getByTestId("session-attention-marker");
+    expect(marker).toHaveAttribute("data-attention", "action");
   });
 
   it("keeps the notification marker visible when the session row is hovered", () => {
@@ -1013,8 +1032,8 @@ describe("SessionItem notification marker", () => {
     ]);
 
     renderSessionItem();
-    const marker = screen.getByTestId("session-notification-marker");
-    expect(marker).toHaveAttribute("data-urgency", "needs-input");
+    const marker = screen.getByTestId("session-attention-marker");
+    expect(marker).toHaveAttribute("data-attention", "action");
     expect(marker.className).not.toContain("group-hover:opacity-0");
   });
 
@@ -1054,7 +1073,7 @@ describe("SessionItem notification marker", () => {
     ]);
 
     renderSessionItem();
-    expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "needs-input");
+    expect(screen.getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "action");
   });
 
   it("keeps review blue ahead of muted needs-input", () => {
@@ -1073,7 +1092,7 @@ describe("SessionItem notification marker", () => {
     ]);
 
     renderSessionItem();
-    expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "review");
+    expect(screen.getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "review");
   });
 
   it("does not consult deprecated leader-tab state when rendering notification urgency", () => {
@@ -1119,7 +1138,7 @@ describe("SessionItem notification marker", () => {
 
     renderSessionItem({ session: makeSession({ isOrchestrator: true }) });
 
-    expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "review");
+    expect(screen.getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "review");
   });
 
   it("keeps the blue marker when a leader review notification belongs to an open thread tab", () => {
@@ -1154,7 +1173,7 @@ describe("SessionItem notification marker", () => {
       session: makeSession({ isOrchestrator: true, notificationUrgency: "review", activeNotificationCount: 1 }),
     });
 
-    expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "review");
+    expect(screen.getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "review");
   });
 
   it("keeps the blue marker for a selected leader session with a fresh active review summary", () => {
@@ -1195,7 +1214,7 @@ describe("SessionItem notification marker", () => {
       session: makeSession({ isOrchestrator: true, notificationUrgency: "review", activeNotificationCount: 1 }),
     });
 
-    expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "review");
+    expect(screen.getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "review");
   });
 
   it("does not fall back to a stale snapshot marker after the live inbox is known cleared", () => {
@@ -1234,6 +1253,7 @@ describe("SessionItem notification marker", () => {
         notificationStatusUpdatedAt: 5000,
       },
     ];
+    setSessionAttentionProjection("s1", { attentionReason: null, status: null });
 
     const { container } = renderSessionItem();
 
@@ -1256,19 +1276,20 @@ describe("SessionItem notification marker", () => {
         notificationStatusUpdatedAt: 6000,
       },
     ];
+    setSessionAttentionProjection("s1", {
+      attentionReason: "action",
+      status: { urgency: "needs-input", count: 1 },
+    });
 
     renderSessionItem();
 
-    const marker = screen.getByTestId("session-notification-marker");
-    expect(marker).toHaveAttribute("data-urgency", "needs-input");
+    const marker = screen.getByTestId("session-attention-marker");
+    expect(marker).toHaveAttribute("data-attention", "action");
   });
 
-  it("does not render stale action attention after notification status is known cleared", () => {
-    // A stale action attention value should not render the same amber dot after
-    // the versioned notification summary has already cleared the inbox.
+  it("renders the projected clear instead of stale summary attention", () => {
+    setSessionAttentionProjection("s1", { attentionReason: null, status: null });
     const { container } = renderSessionItem({
-      attention: "action",
-      hasUnread: true,
       session: makeSession({
         notificationUrgency: null,
         activeNotificationCount: 0,
@@ -1300,8 +1321,12 @@ describe("SessionItem notification marker", () => {
     setSessionNotifications("s1", [
       { id: "n-review", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
     ]);
+    setSessionAttentionProjection("s1", {
+      attentionReason: "action",
+      status: { urgency: "needs-input", count: 1 },
+    });
 
-    const { container } = renderSessionItem({ attention: "action" });
+    const { container } = renderSessionItem();
     expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
   });
 
@@ -1325,12 +1350,11 @@ describe("SessionItem notification marker", () => {
     expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
   });
 
-  it("shows the timer icon instead of the lower-priority inbox marker", () => {
-    // Timers should beat passive inbox markers so sessions with scheduled work
-    // are still discoverable without hiding stronger action/review badges.
+  it("shows the timer icon after the projection explicitly clears attention", () => {
     setSessionNotifications("s1", [
       { id: "n-review", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
     ]);
+    setSessionAttentionProjection("s1", { attentionReason: null, status: null });
     const { container } = renderSessionItem({ session: makeSession({ pendingTimerCount: 1 }) });
     expect(container.querySelector('[data-testid="session-status-timer-icon"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
@@ -1343,8 +1367,8 @@ describe("SessionItem notification marker", () => {
       { id: "n-input", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
     ]);
     const { container } = renderSessionItem({ session: makeSession({ pendingTimerCount: 1 }) });
-    const marker = screen.getByTestId("session-notification-marker");
-    expect(marker).toHaveAttribute("data-urgency", "needs-input");
+    const marker = screen.getByTestId("session-attention-marker");
+    expect(marker).toHaveAttribute("data-attention", "action");
     expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
   });
 
@@ -1354,14 +1378,12 @@ describe("SessionItem notification marker", () => {
       attentionReason: "review",
       status: { urgency: "review", count: 2 },
     });
-    setSessionNotifications("s1", [
+    mockStoreState.sessionNotifications.set("s1", [
       { id: "legacy-input", category: "needs-input", summary: "Stale", timestamp: 1, done: false },
     ]);
 
     const { container } = renderSessionItem({
       session: makeSession({ pendingTimerCount: 1 }),
-      attention: null,
-      hasUnread: false,
       useStatusBar: true,
       matchContext: "message: projected result",
       matchedField: "user_message",
@@ -1378,11 +1400,11 @@ describe("SessionItem notification marker", () => {
       attentionReason: "action",
       status: { urgency: "needs-input", count: 1 },
     });
-    setSessionNotifications("s1", [
+    mockStoreState.sessionNotifications.set("s1", [
       { id: "legacy-review", category: "review", summary: "Stale", timestamp: 1, done: false },
     ]);
 
-    renderSessionItem({ attention: "review", hasUnread: true });
+    renderSessionItem();
 
     expect(screen.getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "action");
     expect(screen.queryByTestId("session-notification-marker")).toBeNull();
@@ -1396,8 +1418,6 @@ describe("SessionItem notification marker", () => {
 
     const { container } = renderSessionItem({
       session: makeSession({ pendingTimerCount: 1 }),
-      attention: "review",
-      hasUnread: true,
     });
 
     expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "muted-needs-input");
@@ -1407,14 +1427,12 @@ describe("SessionItem notification marker", () => {
 
   it("lets a projected clear reveal the ordinary timer and suppress stale legacy markers", () => {
     setSessionAttentionProjection("s1", { attentionReason: null, status: null });
-    setSessionNotifications("s1", [
+    mockStoreState.sessionNotifications.set("s1", [
       { id: "legacy-input", category: "needs-input", summary: "Stale", timestamp: 1, done: false },
     ]);
 
     renderSessionItem({
       session: makeSession({ pendingTimerCount: 1 }),
-      attention: "review",
-      hasUnread: true,
     });
 
     expect(screen.getByTestId("session-status-timer-icon")).toBeInTheDocument();
@@ -1662,9 +1680,8 @@ describe("SessionItem reviewer badge", () => {
     expect(badge).not.toHaveStyle({ animation: "reviewer-badge-glow 2s ease-in-out infinite" });
   });
 
-  it("uses projected reviewer attention instead of the legacy compatibility value", () => {
+  it("uses the projection-owned reviewer attention index", () => {
     const reviewer = makeSession({ id: "reviewer-1", reviewerOf: 8, status: "idle" });
-    mockStoreState.sessionAttention.set("reviewer-1", null);
     setSessionAttentionProjection("reviewer-1", {
       attentionReason: "review",
       status: { urgency: "review", count: 4 },

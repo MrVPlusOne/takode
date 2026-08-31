@@ -833,10 +833,18 @@ describe("Browser message routing", () => {
     }
   });
 
-  it("broadcasts session_activity_update globally when an inactive session clears a pending plan", () => {
+  it("publishes permission attention only through the scoped projection", async () => {
     bridge.getOrCreateSession("worker-1");
     const leaderBrowser = makeBrowserSocket("leader-1");
     bridge.handleBrowserOpen(leaderBrowser, "leader-1");
+    await bridge.handleBrowserMessage(
+      leaderBrowser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        synced_projection_subscriptions: [{ projection: "session-attention", key: "worker-1" }],
+      }),
+    );
     leaderBrowser.send.mockClear();
 
     const worker = bridge.getSession("worker-1")!;
@@ -852,6 +860,19 @@ describe("Browser message routing", () => {
       type: "permission_request",
       request: worker.pendingPermissions.get("plan-1"),
     } as any);
+    (bridge as any).onSessionActivityStateChanged("worker-1", "permission requested");
+    await bridge.getSyncedProjectionController().flushForTest();
+
+    const addedMessages = leaderBrowser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+    expect(addedMessages).toEqual([
+      expect.objectContaining({
+        type: "synced_projection_update",
+        projection: "session-attention",
+        key: "worker-1",
+        value: { attentionReason: "action", status: { urgency: "needs-input", count: 1 } },
+      }),
+    ]);
+    leaderBrowser.send.mockClear();
 
     worker.pendingPermissions.delete("plan-1");
     bridge.broadcastToSession("worker-1", {
@@ -863,30 +884,18 @@ describe("Browser message routing", () => {
       summary: "Plan approved",
       timestamp: Date.now(),
     } as any);
-    bridge.broadcastToSession("worker-1", {
-      type: "status_change",
-      status: "running",
-    } as any);
+    (bridge as any).onSessionActivityStateChanged("worker-1", "permission resolved");
+    await bridge.getSyncedProjectionController().flushForTest();
 
-    const globalUpdates = leaderBrowser.send.mock.calls
-      .map(([raw]: [string]) => JSON.parse(raw))
-      .filter((msg: any) => msg.type === "session_activity_update" && msg.session_id === "worker-1");
-
-    expect(globalUpdates).toHaveLength(2);
-    expect(globalUpdates[0]).toMatchObject({
-      type: "session_activity_update",
-      session_id: "worker-1",
-      session: { attentionReason: null, pendingPermissionSummary: "pending plan" },
-    });
-    expect(globalUpdates[1]).toMatchObject({
-      type: "session_activity_update",
-      session_id: "worker-1",
-      session: { attentionReason: null, pendingPermissionSummary: null },
-    });
-    for (const update of globalUpdates) {
-      expect(update.session).not.toHaveProperty("pendingPermissionCount");
-      expect(update.session).not.toHaveProperty("status");
-    }
+    const clearedMessages = leaderBrowser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+    expect(clearedMessages).toEqual([
+      expect.objectContaining({
+        type: "synced_projection_update",
+        projection: "session-attention",
+        key: "worker-1",
+        value: { attentionReason: null, status: null },
+      }),
+    ]);
   });
 
   it("keeps leader board visuals out of global activity while preserving detailed board delivery", () => {

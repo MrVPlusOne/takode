@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
-import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
-import { buildSidebarVisibleSessions, deriveSessionSetAttention } from "./sidebar-visible-sessions.js";
-import type { SessionAttentionRecord, SdkSessionInfo, TreeGroup } from "../types.js";
+import { buildSidebarVisibleSessions } from "./sidebar-visible-sessions.js";
+import type { SdkSessionInfo, TreeGroup } from "../types.js";
 
 function makeSdkSession(id: string, overrides: Partial<SdkSessionInfo> = {}): SdkSessionInfo {
   return {
@@ -14,33 +12,6 @@ function makeSdkSession(id: string, overrides: Partial<SdkSessionInfo> = {}): Sd
     treeGroupId: "default",
     ...overrides,
   };
-}
-
-function attentionRecord(overrides: Partial<SessionAttentionRecord> = {}): SessionAttentionRecord {
-  return {
-    id: "attention:q-1",
-    leaderSessionId: "leader",
-    type: "review_ready",
-    source: { kind: "notification", id: "n-review", questId: "q-1" },
-    questId: "q-1",
-    threadKey: "q-1",
-    title: "Review q-1",
-    summary: "Review q-1",
-    actionLabel: "Review",
-    priority: "review",
-    state: "unresolved",
-    createdAt: 100,
-    updatedAt: 100,
-    route: { threadKey: "q-1", questId: "q-1" },
-    chipEligible: true,
-    ledgerEligible: true,
-    dedupeKey: "attention:q-1",
-    ...overrides,
-  };
-}
-
-function projectedSessionKeys(...sessionIds: string[]): Set<string> {
-  return new Set(sessionIds.map((sessionId) => syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, sessionId)));
 }
 
 describe("buildSidebarVisibleSessions", () => {
@@ -77,8 +48,6 @@ describe("buildSidebarVisibleSessions", () => {
       collapsedTreeGroups: new Set(),
       expandedHerdNodes: new Set(),
       sessionAttention: new Map([["leader", "review"]]),
-      syncedProjectionKeys: projectedSessionKeys("leader"),
-      sessionAttentionRecords: new Map([["leader", [attentionRecord()]]]),
       sessionSortMode: "created",
     });
 
@@ -86,9 +55,7 @@ describe("buildSidebarVisibleSessions", () => {
     expect(result.treeViewGroups[0]?.unreadCount).toBe(1);
   });
 
-  it("uses a fresh active session summary before attention or inbox hydration", () => {
-    // Reconnect and multi-browser session lists can deliver the canonical
-    // summary before this browser has raw attention or a per-session inbox.
+  it("fails closed before projected attention arrives even when a summary is active", () => {
     const sdkSessions: SdkSessionInfo[] = [
       makeSdkSession("leader", {
         isOrchestrator: true,
@@ -109,13 +76,11 @@ describe("buildSidebarVisibleSessions", () => {
       collapsedTreeGroups: new Set(),
       expandedHerdNodes: new Set(),
       sessionAttention: new Map(),
-      sessionNotifications: new Map(),
-      sessionAttentionRecords: new Map(),
       sessionSortMode: "created",
     });
 
-    expect(result.sessionSetAttention.get("leader")).toBe("review");
-    expect(result.treeViewGroups[0]?.unreadCount).toBe(1);
+    expect(result.sessionSetAttention.get("leader")).toBeUndefined();
+    expect(result.treeViewGroups[0]?.unreadCount).toBe(0);
   });
 
   it("uses the projected cleared attention after a leader thread tab is closed", () => {
@@ -129,8 +94,6 @@ describe("buildSidebarVisibleSessions", () => {
       collapsedTreeGroups: new Set(),
       expandedHerdNodes: new Set(),
       sessionAttention: new Map([["leader", null]]),
-      syncedProjectionKeys: projectedSessionKeys("leader"),
-      sessionAttentionRecords: new Map([["leader", [attentionRecord()]]]),
       sessionSortMode: "created",
     });
 
@@ -138,9 +101,10 @@ describe("buildSidebarVisibleSessions", () => {
     expect(result.treeViewGroups[0]?.unreadCount).toBe(0);
   });
 
-  it("uses a fresh cleared notification summary ahead of stale unread attention", () => {
+  it("does not let notification summaries arbitrate the projection-owned reason index", () => {
     const sdkSessions: SdkSessionInfo[] = [
       makeSdkSession("leader", {
+        cliConnected: true,
         notificationUrgency: null,
         activeNotificationCount: 0,
         mutedNeedsInputNotificationCount: 0,
@@ -157,26 +121,11 @@ describe("buildSidebarVisibleSessions", () => {
       collapsedTreeGroups: new Set(),
       expandedHerdNodes: new Set(),
       sessionAttention: new Map([["leader", "review"]]),
-      sessionNotifications: new Map([
-        [
-          "leader",
-          [
-            {
-              id: "n-review",
-              category: "review",
-              summary: "Stale review",
-              timestamp: 100,
-              done: false,
-              messageId: null,
-            },
-          ],
-        ],
-      ]),
       sessionSortMode: "created",
     });
 
-    expect(result.sessionSetAttention.get("leader")).toBeNull();
-    expect(result.treeViewGroups[0]?.unreadCount).toBe(0);
+    expect(result.sessionSetAttention.get("leader")).toBe("review");
+    expect(result.treeViewGroups[0]?.unreadCount).toBe(1);
   });
 
   it("preserves active needs-input and muted-only attention semantics", () => {
@@ -208,35 +157,6 @@ describe("buildSidebarVisibleSessions", () => {
         ["needs-input", "action"],
         ["muted", null],
       ]),
-      sessionNotifications: new Map([
-        [
-          "needs-input",
-          [
-            {
-              id: "n-input",
-              category: "needs-input",
-              summary: "Need answer",
-              timestamp: 100,
-              done: false,
-              messageId: null,
-            },
-          ],
-        ],
-        [
-          "muted",
-          [
-            {
-              id: "n-muted",
-              category: "needs-input",
-              summary: "Muted answer",
-              timestamp: 100,
-              done: false,
-              messageId: null,
-              muted: true,
-            },
-          ],
-        ],
-      ]),
       sessionSortMode: "created",
     });
 
@@ -265,9 +185,6 @@ describe("buildSidebarVisibleSessions", () => {
       collapsedTreeGroups: new Set(),
       expandedHerdNodes: new Set(),
       sessionAttention: new Map([["leader", "review"]]),
-      syncedProjectionKeys: projectedSessionKeys("leader"),
-      sessionNotifications: new Map(),
-      sessionAttentionRecords: new Map([["leader", [attentionRecord({ threadKey: "q-closed", questId: "q-closed" })]]]),
       sessionSortMode: "created",
     });
 
@@ -276,7 +193,7 @@ describe("buildSidebarVisibleSessions", () => {
     expect(result.allSessionList[0]?.pendingTimerCount).toBe(1);
   });
 
-  it("bypasses every legacy attention derivation for projected needs-input, muted-only, and clear keys", () => {
+  it("passes the projection-owned attention map through without local derivation", () => {
     const sdkSessions = [
       makeSdkSession("needs-input", {
         notificationUrgency: "review",
@@ -295,50 +212,25 @@ describe("buildSidebarVisibleSessions", () => {
       }),
     ];
 
-    const result = deriveSessionSetAttention({
-      sessionAttention: new Map([
-        ["needs-input", "action"],
-        ["muted", null],
-        ["clear", null],
-      ]),
-      syncedProjectionKeys: projectedSessionKeys("needs-input", "muted", "clear"),
+    const sessionAttention = new Map<"needs-input" | "muted" | "clear", "action" | null>([
+      ["needs-input", "action"],
+      ["muted", null],
+      ["clear", null],
+    ]);
+    const result = buildSidebarVisibleSessions({
       sdkSessions,
-      sessionNotifications: new Map([
-        [
-          "needs-input",
-          [{ id: "legacy-review", category: "review", summary: "Review", timestamp: 1, done: false, messageId: null }],
-        ],
-        [
-          "muted",
-          [
-            {
-              id: "legacy-review-2",
-              category: "review",
-              summary: "Review",
-              timestamp: 1,
-              done: false,
-              messageId: null,
-            },
-          ],
-        ],
-        [
-          "clear",
-          [
-            {
-              id: "legacy-input",
-              category: "needs-input",
-              summary: "Input",
-              timestamp: 1,
-              done: false,
-              messageId: null,
-            },
-          ],
-        ],
-      ]),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map(),
+      treeNodeOrder: new Map(),
+      collapsedTreeGroups: new Set(),
+      expandedHerdNodes: new Set(),
+      sessionAttention,
+      sessionSortMode: "created",
     });
 
-    expect(result).toEqual(
-      new Map([
+    expect(result.sessionSetAttention).toBe(sessionAttention);
+    expect(result.sessionSetAttention).toEqual(
+      new Map<string, "action" | null>([
         ["needs-input", "action"],
         ["muted", null],
         ["clear", null],

@@ -171,7 +171,7 @@ describe("handleMessage: session_activity_update", () => {
     ).toEqual(migration);
   });
 
-  it("updates inactive non-navigation sidebar state from another session socket", () => {
+  it("updates notification summaries while ignoring retired attention, permission, and lifecycle fields", () => {
     wsModule.connectSession("leader");
     fireMessage({ type: "session_init", session: makeSession("leader") });
     useStore.getState().setCurrentSession("leader");
@@ -206,11 +206,11 @@ describe("handleMessage: session_activity_update", () => {
 
     const worker = useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")!;
     expect(worker.pendingPermissionCount).toBeUndefined();
-    expect(worker.pendingPermissionSummary).toBe("pending plan");
+    expect(worker.pendingPermissionSummary).toBeUndefined();
     expect(worker.notificationUrgency).toBe("needs-input");
     expect(worker.activeNotificationCount).toBe(1);
     expect(worker.notificationStatusVersion).toBe(2);
-    expect(useStore.getState().sessionAttention.get("worker")).toBe("action");
+    expect(useStore.getState().sessionAttention.has("worker")).toBe(false);
     expect(useStore.getState().sessionStatus.get("worker")).toBeUndefined();
     expect(useStore.getState().sessionBoardRowStatuses.get("leader")).toEqual(reviewerProjection);
     useStore.setState({
@@ -234,11 +234,11 @@ describe("handleMessage: session_activity_update", () => {
 
     const updatedWorker = useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")!;
     expect(updatedWorker.pendingPermissionCount).toBeUndefined();
-    expect(updatedWorker.pendingPermissionSummary).toBeNull();
+    expect(updatedWorker.pendingPermissionSummary).toBeUndefined();
     expect(updatedWorker.notificationUrgency).toBeNull();
     expect(updatedWorker.activeNotificationCount).toBe(0);
     expect(updatedWorker.notificationStatusVersion).toBe(3);
-    expect(useStore.getState().sessionAttention.get("worker")).toBeNull();
+    expect(useStore.getState().sessionAttention.has("worker")).toBe(false);
     expect(useStore.getState().sessionNotifications.get("worker")).toBeUndefined();
     expect(useStore.getState().sessionStatus.get("worker")).toBeUndefined();
     expect(useStore.getState().sessionBoardRowStatuses.get("leader")).toEqual(reviewerProjection);
@@ -361,9 +361,9 @@ describe("handleMessage: session_activity_update", () => {
     expect(useStore.getState().sessionAttention.get("worker")).toBeNull();
   });
 
-  it("preserves authoritative action attention even when notification status is older", () => {
-    // The compact activity event keeps attention authority independent from
-    // projection-owned permission counts.
+  it("does not restore retired attention or permission state from an older notification summary", () => {
+    // The compact activity event owns notification freshness only. Visual
+    // attention and permission count remain projection-owned.
     wsModule.connectSession("leader");
     fireMessage({ type: "session_init", session: makeSession("leader") });
     useStore.getState().setCurrentSession("leader");
@@ -398,6 +398,6 @@ describe("handleMessage: session_activity_update", () => {
     expect(worker.notificationUrgency).toBeNull();
     expect(worker.activeNotificationCount).toBe(0);
     expect(worker.pendingPermissionCount).toBeUndefined();
-    expect(useStore.getState().sessionAttention.get("worker")).toBe("action");
+    expect(useStore.getState().sessionAttention.has("worker")).toBe(false);
   });
 });

@@ -2,6 +2,8 @@
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { SessionNotification, SessionState, SdkSessionInfo } from "../types.js";
+import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
+import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import { setTouchDeviceForTest } from "./test-match-media.js";
 import { SessionItem } from "./SessionItem.js";
 
@@ -365,19 +367,25 @@ describe("Sidebar", { timeout: 10000 }, () => {
     }
   });
 
-  it("hydrates notification markers from the session-list snapshot without per-session sockets", async () => {
-    // Non-current sessions may not have a WebSocket after restart. The sidebar
-    // should still render restored notification state from /api/sessions.
+  it("renders notification markers from the accepted attention projection without per-session sockets", async () => {
+    // Current compatible builds render compact attention only from the
+    // synchronized projection, even when the REST summary disagrees.
     const listed = [
       makeSdkSession("s1", {
         createdAt: 1000,
-        notificationUrgency: "needs-input",
-        activeNotificationCount: 1,
+        notificationUrgency: null,
+        activeNotificationCount: 0,
       }),
     ];
+    const projectionEntryId = syncedProjectionEntryId(SESSION_ATTENTION_PROJECTION, "s1");
     mockState = createMockState({
       sdkSessions: listed,
       sessionNotifications: new Map([["s1", []]]),
+      sessionAttention: new Map([["s1", "action"]]),
+      syncedProjectionKeys: new Set([projectionEntryId]),
+      syncedProjectionValues: new Map([
+        [projectionEntryId, { attentionReason: "action", status: { urgency: "needs-input", count: 1 } }],
+      ]),
     });
     render(
       <SessionItem
@@ -399,8 +407,8 @@ describe("Sidebar", { timeout: 10000 }, () => {
           backendType: "claude",
           repoRoot: "/repo",
           permCount: 0,
-          notificationUrgency: "needs-input",
-          activeNotificationCount: 1,
+          notificationUrgency: null,
+          activeNotificationCount: 0,
         }}
         isActive={false}
         sessionName={undefined}
@@ -783,7 +791,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(window.location.hash).toBe("#/session/s2");
     expect(input).toHaveValue("");
     expect(screen.queryByText("name:")).not.toBeInTheDocument();
-    expect(mockState.markSessionViewed).toHaveBeenCalledWith("s2");
+    expect(mockApi.markSessionRead).toHaveBeenCalledWith("s2", { mode: "session-view" });
     expect(mockState.setSearchPreviewSessionId).toHaveBeenLastCalledWith(null);
     await waitFor(() => expect(mockState.focusComposer).toHaveBeenCalled());
   });
@@ -823,7 +831,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
 
     expect(window.location.hash).toBe("#/session/s2");
     expect(input).toHaveValue("");
-    expect(mockState.markSessionViewed).toHaveBeenCalledWith("s2");
+    expect(mockApi.markSessionRead).toHaveBeenCalledWith("s2", { mode: "session-view" });
     expect(mockState.setSearchPreviewSessionId).toHaveBeenLastCalledWith(null);
   });
 
@@ -1021,7 +1029,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
       expect(mockApi.archiveSession).toHaveBeenCalledWith("s1", undefined);
     });
     expect(mockState.sdkSessions[0]).toMatchObject({ sessionId: "s1", archived: true, archivedAt: 1234 });
-    expect(mockState.clearSessionAttention).toHaveBeenCalledWith("s1");
+    expect(mockState.clearSyncedProjectionsForKey).toHaveBeenCalledWith("s1");
     expect(screen.queryByText(/detach 1 active worker session/i)).not.toBeInTheDocument();
   });
 

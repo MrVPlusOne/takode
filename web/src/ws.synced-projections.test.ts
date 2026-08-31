@@ -260,6 +260,69 @@ describe("synced projection WebSocket carrier", () => {
     ]);
   });
 
+  it("requests one deduplicated resync for malformed known projection snapshots", () => {
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "carrier", archived: false } as never,
+        { sessionId: "worker", archived: false } as never,
+      ],
+    });
+    useStore.getState().setCurrentSession("carrier");
+    wsModule.connectSession("carrier");
+    const carrier = MockWebSocket.instances.at(-1)!;
+    open(carrier);
+    carrier.send.mockClear();
+
+    fire(carrier, {
+      ...attentionEnvelope({ key: "worker", revision: 1 }),
+      value: { attentionReason: "review", status: { urgency: "review", count: 0 } },
+    });
+    fire(carrier, {
+      ...attentionEnvelope({ key: "worker", revision: 2 }),
+      value: { attentionReason: "review", status: { urgency: "review", count: 0 } },
+    });
+
+    expect(messages(carrier)).toEqual([
+      { type: "synced_projection_resync", projection: SESSION_ATTENTION_PROJECTION, key: "worker" },
+    ]);
+    expect(useStore.getState().syncedProjectionKeys.has(`${SESSION_ATTENTION_PROJECTION}\u0000worker`)).toBe(false);
+  });
+
+  it("requests one resync for a malformed known projection patch update", () => {
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "carrier", archived: false } as never,
+        { sessionId: "worker", archived: false } as never,
+      ],
+    });
+    useStore.getState().setCurrentSession("carrier");
+    useStore.getState().applySyncedProjectionSnapshot(attentionEnvelope({ key: "worker", revision: 1 }));
+    wsModule.connectSession("carrier");
+    const carrier = MockWebSocket.instances.at(-1)!;
+    open(carrier);
+    carrier.send.mockClear();
+
+    fire(carrier, {
+      type: "synced_projection_update",
+      projection: SESSION_ATTENTION_PROJECTION,
+      key: "worker",
+      generation: "generation-a",
+      revision: 2,
+      patch: { status: { urgency: "review", count: 0 } },
+    });
+
+    expect(messages(carrier)).toEqual([
+      { type: "synced_projection_resync", projection: SESSION_ATTENTION_PROJECTION, key: "worker" },
+    ]);
+    expect(
+      (
+        useStore.getState().syncedProjectionValues.get(`${SESSION_ATTENTION_PROJECTION}\u0000worker`) as {
+          status: { count: number };
+        }
+      ).status.count,
+    ).toBe(1);
+  });
+
   it("ignores late snapshots and stale opens from sockets that no longer own the session", () => {
     useStore.setState({
       sdkSessions: [
@@ -473,7 +536,10 @@ describe("synced projection WebSocket carrier", () => {
     expect(wsModule.refreshSyncedProjectionSubscriptions("carrier")).toBe(true);
   });
 
-  it("revokes an acknowledged key when its replacement snapshot was missing or malformed", () => {
+  it.each([
+    "missing",
+    "malformed",
+  ] as const)("revokes visual state and resyncs when an acknowledged replacement snapshot is %s", (replacement) => {
     useStore.setState({
       sdkSessions: [
         { sessionId: "carrier", archived: false } as never,
@@ -485,11 +551,14 @@ describe("synced projection WebSocket carrier", () => {
     wsModule.connectSession("carrier");
     const carrier = MockWebSocket.instances.at(-1)!;
     open(carrier);
+    carrier.send.mockClear();
 
-    fire(carrier, {
-      ...attentionEnvelope({ key: "worker", revision: 1 }),
-      value: { attentionReason: "review", status: { urgency: "review", count: 0 } },
-    });
+    if (replacement === "malformed") {
+      fire(carrier, {
+        ...attentionEnvelope({ key: "worker", revision: 1 }),
+        value: { attentionReason: "review", status: { urgency: "review", count: 0 } },
+      });
+    }
     fire(carrier, {
       type: "synced_projection_subscriptions_ack",
       subscriptions: [{ projection: SESSION_ATTENTION_PROJECTION, key: "worker" }],
@@ -497,6 +566,34 @@ describe("synced projection WebSocket carrier", () => {
     });
 
     expect(useStore.getState().syncedProjectionKeys.has(`${SESSION_ATTENTION_PROJECTION}\u0000worker`)).toBe(false);
+    expect(useStore.getState().sessionAttention.has("worker")).toBe(false);
+    expect(messages(carrier)).toEqual([
+      { type: "synced_projection_resync", projection: SESSION_ATTENTION_PROJECTION, key: "worker" },
+    ]);
+  });
+
+  it("does not resync malformed unknown or unrequested projection identities", () => {
+    useStore.setState({ sdkSessions: [{ sessionId: "carrier", archived: false } as never] });
+    useStore.getState().setCurrentSession("carrier");
+    wsModule.connectSession("carrier");
+    const carrier = MockWebSocket.instances.at(-1)!;
+    open(carrier);
+    carrier.send.mockClear();
+
+    fire(carrier, {
+      ...attentionEnvelope({ key: "unrequested", revision: 1 }),
+      value: { attentionReason: "review", status: { urgency: "review", count: 0 } },
+    });
+    fire(carrier, {
+      type: "synced_projection_snapshot",
+      projection: "unknown-projection",
+      key: "carrier",
+      generation: "generation-a",
+      revision: 1,
+      value: null,
+    });
+
+    expect(messages(carrier)).toEqual([]);
   });
 
   it("clears a pending resync when a newer same-generation REST snapshot covers the response", () => {

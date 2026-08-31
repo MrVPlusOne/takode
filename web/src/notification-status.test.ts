@@ -5,8 +5,8 @@ import {
   applySessionNotifications,
   applyNotificationStatusUpdate,
   setSdkSessionsWithNotificationFreshness,
-  shouldApplyAttentionReasonWithNotificationFreshness,
 } from "./notification-status.js";
+import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
 import { useStore } from "./store.js";
 import type { SdkSessionInfo, SessionNotification } from "./types.js";
 
@@ -61,9 +61,7 @@ describe("notification status attention freshness", () => {
     useStore.getState().reset();
   });
 
-  it("rejects stale REST action attention after a newer cleared notification status", () => {
-    // Sidebar REST hydration first preserves the newer notification summary,
-    // then uses this guard before copying attentionReason into sessionAttention.
+  it("keeps notification-summary freshness separate from projection-owned attention", () => {
     useStore.getState().setSdkSessions([
       session({
         notificationUrgency: null,
@@ -86,14 +84,10 @@ describe("notification status attention freshness", () => {
     expect(current.notificationUrgency).toBeNull();
     expect(current.activeNotificationCount).toBe(0);
     expect(current.notificationStatusVersion).toBe(5);
-    expect(shouldApplyAttentionReasonWithNotificationFreshness("s1", staleRestRow.attentionReason, staleRestRow)).toBe(
-      false,
-    );
+    expect(useStore.getState().sessionAttention.has("s1")).toBe(false);
   });
 
-  it("keeps permission-derived action attention independent of notification freshness", () => {
-    // Pending permissions also use action attention, so the freshness guard
-    // must not hide a real permission badge.
+  it("does not let notification-summary updates mutate permission-derived projection attention", () => {
     useStore.getState().setSdkSessions([
       session({
         notificationUrgency: null,
@@ -102,16 +96,23 @@ describe("notification status attention freshness", () => {
         notificationStatusUpdatedAt: 5000,
       }),
     ]);
+    useStore.getState().applySyncedProjectionSnapshot({
+      type: "synced_projection_snapshot",
+      projection: SESSION_ATTENTION_PROJECTION,
+      key: "s1",
+      generation: "attention-generation",
+      revision: 1,
+      value: { attentionReason: "action", status: { urgency: "needs-input", count: 1 } },
+    });
 
-    expect(
-      shouldApplyAttentionReasonWithNotificationFreshness("s1", "action", {
-        pendingPermissionCount: 1,
-        notificationUrgency: "needs-input",
-        activeNotificationCount: 1,
-        notificationStatusVersion: 4,
-        notificationStatusUpdatedAt: 4000,
-      }),
-    ).toBe(true);
+    applyNotificationStatusUpdate("s1", {
+      notificationUrgency: null,
+      activeNotificationCount: 0,
+      notificationStatusVersion: 6,
+      notificationStatusUpdatedAt: 6000,
+    });
+
+    expect(useStore.getState().sessionAttention.get("s1")).toBe("action");
   });
 
   it("prunes stale cached full notifications when REST hydration accepts a newer clear summary", () => {

@@ -740,7 +740,10 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     if (!isValidSyncedProjectionIdentity(projection) || !isValidSyncedProjectionIdentity(key)) return false;
     // Fail closed if an unexpected preview/non-selected socket receives a
     // projection message. Only the selected carrier owns projection traffic.
-    if (callbacks.getSyncedProjectionSubscriptions?.(carrierSessionId) === undefined) return false;
+    const desired = callbacks.getSyncedProjectionSubscriptions?.(carrierSessionId);
+    if (!desired?.some((subscription) => subscription.projection === projection && subscription.key === key)) {
+      return false;
+    }
     const entryId = syncedProjectionEntryId(projection, key);
     const pending = pendingSyncedProjectionResyncs.get(carrierSessionId);
     if (pending?.has(entryId)) return true;

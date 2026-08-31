@@ -360,10 +360,6 @@ export interface AppState {
   clearToolProgress: (sessionId: string, toolUseId?: string) => void;
   setToolResult: (sessionId: string, toolUseId: string, preview: ToolResultPreview) => void;
   setToolStartTimestamps: (sessionId: string, timestamps: Record<string, number>) => void;
-  markSessionViewed: (sessionId: string) => void;
-  markSessionUnread: (sessionId: string) => void;
-  markAllSessionsViewed: () => void;
-  clearSessionAttention: (sessionId: string) => void;
   setTreeGroups: (
     groups: import("./types.js").TreeGroup[],
     assignments: Record<string, string>,

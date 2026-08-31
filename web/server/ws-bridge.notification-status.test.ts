@@ -85,8 +85,11 @@ describe("notification status fanout", () => {
     expect(workerMessages.some((msg) => msg.type === "notification_update" && Array.isArray(msg.notifications))).toBe(
       true,
     );
+    expect(workerMessages.some((msg) => msg.type === "session_update" && "attentionReason" in msg.session)).toBe(false);
     expect(leaderMessages.some((msg) => msg.type === "notification_update")).toBe(false);
-    const globalStatus = leaderMessages.find((msg) => msg.type === "session_activity_update");
+    const globalStatuses = leaderMessages.filter((msg) => msg.type === "session_activity_update");
+    expect(globalStatuses).toHaveLength(1);
+    const globalStatus = globalStatuses[0];
     expect(globalStatus).toMatchObject({
       session_id: "worker",
       session: {
@@ -153,7 +156,6 @@ describe("notification status fanout", () => {
     expect(leaderMessages.find((msg) => msg.type === "session_activity_update")).toMatchObject({
       session_id: "worker",
       session: {
-        attentionReason: "review",
         notificationUrgency: "review",
         activeNotificationCount: 2,
         activeReviewNotificationCount: 2,
@@ -165,5 +167,7 @@ describe("notification status fanout", () => {
       key: "worker",
       value: { attentionReason: "review", status: { urgency: "review", count: 2 } },
     });
+    expect(leaderMessages.filter((msg) => msg.type === "session_activity_update")).toHaveLength(1);
+    expect(workerMessages.some((msg) => msg.type === "session_update" && "attentionReason" in msg.session)).toBe(false);
   });
 });

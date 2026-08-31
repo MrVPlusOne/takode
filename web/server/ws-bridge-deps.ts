@@ -462,17 +462,7 @@ export function maybeBroadcastGlobalSessionActivityUpdate(
   session: Session,
   msg: BrowserIncomingMessage,
 ): void {
-  if (
-    msg.type !== "permission_request" &&
-    msg.type !== "permission_approved" &&
-    msg.type !== "permission_denied" &&
-    msg.type !== "permission_cancelled" &&
-    msg.type !== "permissions_cleared" &&
-    msg.type !== "notification_update" &&
-    !(msg.type === "session_update" && ("attentionReason" in msg.session || "lastReadAt" in msg.session))
-  ) {
-    return;
-  }
+  if (msg.type !== "notification_update") return;
 
   host.broadcastGlobal({
     type: "session_activity_update",

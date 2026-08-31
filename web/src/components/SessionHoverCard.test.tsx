@@ -330,6 +330,10 @@ describe("SessionHoverCard", () => {
   });
 
   it("explains active needs-input status near the top of the hover card", () => {
+    setSessionAttentionProjection("s1", {
+      attentionReason: "action",
+      status: { urgency: "needs-input", count: 2 },
+    });
     render(
       <SessionHoverCard
         session={makeSession({
@@ -353,6 +357,10 @@ describe("SessionHoverCard", () => {
   });
 
   it("uses conversations for unread status copy without mixed tab wording", () => {
+    setSessionAttentionProjection("s1", {
+      attentionReason: "review",
+      status: { urgency: "review", count: 3 },
+    });
     render(
       <SessionHoverCard
         session={makeSession({
@@ -377,6 +385,10 @@ describe("SessionHoverCard", () => {
   });
 
   it("explains muted needs-input status with the existing muted gray dot", () => {
+    setSessionAttentionProjection("s1", {
+      attentionReason: null,
+      status: { urgency: "muted-needs-input", count: 1 },
+    });
     render(
       <SessionHoverCard
         session={makeSession({
@@ -498,6 +510,10 @@ describe("SessionHoverCard", () => {
         },
       },
     ];
+    setSessionAttentionProjection("s1", {
+      attentionReason: "review",
+      status: { urgency: "review", count: 1 },
+    });
 
     render(
       <SessionHoverCard

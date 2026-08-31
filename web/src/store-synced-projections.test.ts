@@ -14,13 +14,6 @@ import { syncedProjectionEntryId } from "../shared/synced-projection.js";
 import { createSessionNavigationProjectionEnvelope } from "./test-fixtures/session-navigation-projection.js";
 import { getSyncedProjectionValue, hasSyncedProjectionValue } from "./store-synced-projections.js";
 
-const apiMocks = vi.hoisted(() => ({
-  markSessionUnread: vi.fn().mockResolvedValue({ ok: true }),
-  markAllSessionsRead: vi.fn().mockResolvedValue({ ok: true }),
-}));
-
-vi.mock("./api.js", () => ({ api: apiMocks }));
-
 import { useStore } from "./store.js";
 
 function attentionEnvelope(options: {
@@ -39,7 +32,7 @@ function attentionEnvelope(options: {
     generation: options.generation ?? "generation-a",
     revision: options.revision ?? 1,
     value: {
-      attentionReason: options.reason ?? "review",
+      attentionReason: options.reason === undefined ? "review" : options.reason,
       status:
         options.urgency === null
           ? null
@@ -70,8 +63,6 @@ function navigationPatchEnvelope(options: {
 beforeEach(() => {
   localStorage.clear();
   useStore.getState().reset();
-  apiMocks.markSessionUnread.mockClear();
-  apiMocks.markAllSessionsRead.mockClear();
 });
 
 describe("synced projection store", () => {
@@ -518,31 +509,24 @@ describe("synced projection store", () => {
     expect(useStore.getState().syncedProjectionKeys.size).toBe(0);
   });
 
-  it("keeps projection-owned attention out of explicit-command and permission-clearing optimism", () => {
+  it("changes the projection-owned reason index only through accepted projection state", () => {
     useStore.setState({
-      sdkSessions: [{ sessionId: "s1", archived: false } as never, { sessionId: "legacy", archived: false } as never],
-      sessionAttention: new Map([
-        ["s1", "review"],
-        ["legacy", "review"],
-      ]),
+      sdkSessions: [{ sessionId: "s1", archived: false } as never],
+      sessionAttention: new Map([["s1", "review"]]),
     });
     useStore.getState().applySyncedProjectionSnapshot(attentionEnvelope({}));
-
-    useStore.getState().markSessionViewed("s1");
-    useStore.getState().clearSessionAttention("s1");
-    useStore.getState().markSessionUnread("s1");
-    expect(useStore.getState().sessionAttention.get("s1")).toBe("review");
-    expect(apiMocks.markSessionUnread).toHaveBeenCalledWith("s1");
-
-    useStore.getState().markAllSessionsViewed();
-    expect(useStore.getState().sessionAttention.get("s1")).toBe("review");
-    expect(useStore.getState().sessionAttention.get("legacy")).toBeNull();
-    expect(apiMocks.markAllSessionsRead).toHaveBeenCalledTimes(1);
 
     useStore.getState().addPermission("s1", { request_id: "p1" } as never);
     useStore.getState().removePermission("s1", "p1");
     useStore.getState().clearPermissions("s1");
     expect(useStore.getState().sessionAttention.get("s1")).toBe("review");
+
+    useStore
+      .getState()
+      .applySyncedProjectionUpdate(
+        attentionEnvelope({ type: "synced_projection_update", revision: 2, reason: null, urgency: null }),
+      );
+    expect(useStore.getState().sessionAttention.get("s1")).toBeNull();
   });
 
   it("clears every projection for one key without disturbing another session", () => {

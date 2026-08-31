@@ -885,7 +885,7 @@ describe("WsBridge synchronized projections", () => {
     ]);
   });
 
-  it("broadcasts residual activity fields without navigation-subscription arbitration", () => {
+  it("broadcasts notification summaries without raw attention fallback fields", () => {
     const bridge = new WsBridge();
     bridge.getOrCreateSession("target");
     bridge.getOrCreateSession("other-target");
@@ -907,13 +907,23 @@ describe("WsBridge synchronized projections", () => {
     bridge.broadcastGlobal({
       type: "session_activity_update",
       session_id: "target",
-      session: { attentionReason: "review", pendingPermissionSummary: "pending plan" },
+      session: {
+        notificationUrgency: "review",
+        activeNotificationCount: 1,
+        activeReviewNotificationCount: 1,
+        notificationStatusVersion: 1,
+        notificationStatusUpdatedAt: 1000,
+      },
     });
 
     const expected = {
       type: "session_activity_update",
       session_id: "target",
-      session: { attentionReason: "review", pendingPermissionSummary: "pending plan" },
+      session: expect.objectContaining({
+        notificationUrgency: "review",
+        activeNotificationCount: 1,
+        activeReviewNotificationCount: 1,
+      }),
     };
     expect(messages(subscribed)).toEqual([expect.objectContaining(expected)]);
     expect(messages(otherSubscription)).toEqual([expect.objectContaining(expected)]);

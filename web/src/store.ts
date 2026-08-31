@@ -67,9 +67,7 @@ import { persistSidePanelStringSet, withMapEntry, withOptionalMapEntry } from ".
 import { createQuestStoreSlice, resetQuestRefreshStateForTests } from "./store-quests.js";
 import { indexCodexReasoningPreviews } from "./utils/codex-reasoning-previews.js";
 import { attachCodexSubagentToolResultsAcrossSources, updateMessageAcrossSources } from "./store-message-updates.js";
-import { createSyncedProjectionStoreSlice, hasSyncedProjectionValue } from "./store-synced-projections.js";
-import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
-import { createSessionAttentionStoreSlice } from "./store-session-attention.js";
+import { createSyncedProjectionStoreSlice } from "./store-synced-projections.js";
 
 // ─── Color Themes ───────────────────────────────────────────────────────────
 
@@ -146,7 +144,6 @@ export const useStore = create<AppState>((set, get) => ({
   threadWindowAppliedRevisions: new Map(),
   pendingThreadWindowRequests: new Map(),
   ...createSyncedProjectionStoreSlice(set),
-  ...createSessionAttentionStoreSlice(set),
   streaming: new Map(),
   streamingByParentToolUseId: new Map(),
   streamingThinking: new Map(),
@@ -931,18 +928,7 @@ export const useStore = create<AppState>((set, get) => ({
         pendingPermissions.set(sessionId, updated);
 
         if (updated.size === 0) {
-          // Clear "action" attention when all permissions are resolved — the user
-          // no longer needs to act on this session for permission approvals.
           const result: Record<string, unknown> = { pendingPermissions };
-          if (
-            s.sessionAttention.get(sessionId) === "action" &&
-            !hasSyncedProjectionValue(s, SESSION_ATTENTION_PROJECTION, sessionId)
-          ) {
-            const sessionAttention = new Map(s.sessionAttention);
-            sessionAttention.set(sessionId, null);
-            result.sessionAttention = sessionAttention;
-          }
-
           // Resume streaming timer when no more pending permissions
           if (s.streamingPauseStartedAt.has(sessionId)) {
             const pauseStart = s.streamingPauseStartedAt.get(sessionId)!;
@@ -1011,15 +997,6 @@ export const useStore = create<AppState>((set, get) => ({
       const pendingPermissions = new Map(s.pendingPermissions);
       pendingPermissions.delete(sessionId);
       const result: Record<string, unknown> = { pendingPermissions };
-      // Clear "action" attention when all permissions are cleared
-      if (
-        s.sessionAttention.get(sessionId) === "action" &&
-        !hasSyncedProjectionValue(s, SESSION_ATTENTION_PROJECTION, sessionId)
-      ) {
-        const sessionAttention = new Map(s.sessionAttention);
-        sessionAttention.set(sessionId, null);
-        result.sessionAttention = sessionAttention;
-      }
       // Also resume streaming timer if paused
       if (s.streamingPauseStartedAt.has(sessionId)) {
         const pauseStart = s.streamingPauseStartedAt.get(sessionId)!;

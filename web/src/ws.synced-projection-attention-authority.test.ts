@@ -79,7 +79,7 @@ describe("projection-owned attention rejects legacy WebSocket hydration", () => 
     expect(apiMocks.markSessionRead).not.toHaveBeenCalled();
   });
 
-  it("ignores projected activity fields while retaining unrelated compact metadata", () => {
+  it("ignores retired attention fields while retaining notification summary metadata", () => {
     handleMessage("carrier", {
       type: "session_activity_update",
       session_id: "worker",
@@ -87,18 +87,28 @@ describe("projection-owned attention rejects legacy WebSocket hydration", () => 
         attentionReason: "error",
         pendingPermissionCount: 3,
         pendingPermissionSummary: "pending plan",
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 2,
+        activeNeedsInputNotificationCount: 2,
+        notificationStatusVersion: 3,
       },
     } as never);
 
     const sdk = useStore.getState().sdkSessions[0]!;
     expect(sdk.attentionReason).toBe("review");
     expect(sdk.pendingPermissionCount).toBeUndefined();
-    expect(sdk.pendingPermissionSummary).toBe("pending plan");
+    expect(sdk.pendingPermissionSummary).toBeUndefined();
+    expect(sdk).toMatchObject({
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 2,
+      activeNeedsInputNotificationCount: 2,
+      notificationStatusVersion: 3,
+    });
     expect(useStore.getState().sessionAttention.get("worker")).toBe("review");
     expect(apiMocks.markSessionRead).not.toHaveBeenCalled();
   });
 
-  it("keeps navigation-owned fields while rejecting retired leader visual activity fields", () => {
+  it("keeps navigation-owned fields while rejecting retired broad activity fields", () => {
     useStore.getState().applySyncedProjectionSnapshot(
       createSessionNavigationProjectionEnvelope({
         key: "worker",
@@ -123,7 +133,7 @@ describe("projection-owned attention rejects legacy WebSocket hydration", () => 
     const state = useStore.getState();
     expect(state.sessionStatus.get("worker")).toBe("running");
     expect(state.sdkSessions[0]?.pendingPermissionCount).toBe(2);
-    expect(state.sdkSessions[0]?.pendingPermissionSummary).toBe("pending plan");
+    expect(state.sdkSessions[0]?.pendingPermissionSummary).toBeUndefined();
     expect(state.sdkSessions[0]).not.toHaveProperty("leaderActivePhaseSummary");
     expect(state.sdkSessions[0]).not.toHaveProperty("leaderActiveBoardRows");
     expect(state.sessionBoards.has("worker")).toBe(false);

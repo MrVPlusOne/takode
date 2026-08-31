@@ -741,13 +741,8 @@ describe("permission response handling in browser routing", () => {
     expect(session.pendingPermissions.size).toBe(0);
     expect((session as any).attentionReason).toBeNull();
     expect(deps.sessionNotificationDeps.cancelPermissionNotification).toHaveBeenCalledWith("s1", "req-codex");
-    expect(deps.sessionNotificationDeps.broadcastToBrowsers).toHaveBeenCalledWith(
-      session,
-      expect.objectContaining({
-        type: "session_update",
-        session: { attentionReason: null },
-      }),
-    );
+    expect(deps.sessionNotificationDeps.broadcastToBrowsers).not.toHaveBeenCalled();
+    expect(deps.sessionNotificationDeps.persistSession).toHaveBeenCalledWith(session);
     expect(deps.markTurnInterrupted).toHaveBeenCalledWith(session, "user");
     expect(deps.armCodexFreshTurnRequirement).toHaveBeenCalledWith(session, "turn-codex", "exit_plan_mode_denied");
     expect(codexAdapter.sendBrowserMessage).toHaveBeenCalledWith(
@@ -759,14 +754,13 @@ describe("permission response handling in browser routing", () => {
     expect(session.messageHistory.at(-1)).toEqual(expect.objectContaining({ type: "permission_denied" }));
 
     const cancelOrder = (deps.sessionNotificationDeps.cancelPermissionNotification as any).mock.invocationCallOrder[0];
-    const attentionBroadcastOrder = (deps.sessionNotificationDeps.broadcastToBrowsers as any).mock
-      .invocationCallOrder[0];
+    const attentionPersistOrder = (deps.sessionNotificationDeps.persistSession as any).mock.invocationCallOrder[0];
     const interruptOrder = (codexAdapter.sendBrowserMessage as any).mock.invocationCallOrder[0];
     const takodeOrder = (deps.emitTakodeEvent as any).mock.invocationCallOrder[0];
     expect(cancelOrder).toBeLessThan(interruptOrder);
-    expect(attentionBroadcastOrder).toBeLessThan(interruptOrder);
+    expect(attentionPersistOrder).toBeLessThan(interruptOrder);
     expect(cancelOrder).toBeLessThan(takodeOrder);
-    expect(attentionBroadcastOrder).toBeLessThan(takodeOrder);
+    expect(attentionPersistOrder).toBeLessThan(takodeOrder);
   });
 
   it("preserves request_id on Codex permission history artifacts so pending UI can clear", () => {

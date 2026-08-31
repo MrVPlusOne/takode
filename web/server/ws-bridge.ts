@@ -663,13 +663,6 @@ export class WsBridge {
     const session = this.sessions.get(sessionId);
     if (session) {
       this.syncedProjections.invalidateSession(session);
-      if (reason.includes("permission")) {
-        this.broadcastGlobal({
-          type: "session_activity_update",
-          session_id: sessionId,
-          session: getSessionActivitySnapshotController(session),
-        });
-      }
     }
     this.herdEventDispatcher?.onSessionActivityStateChanged?.(sessionId, reason);
     notifyCodexWorkerV2RolloutActivity(sessionId, reason);
@@ -988,11 +981,6 @@ export class WsBridge {
 
   invalidateAllSessionProjections(): void {
     this.syncedProjections.invalidateAllSessions();
-  }
-
-  /** @deprecated Use invalidateAllSessionProjections. */
-  invalidateAllSessionAttentionProjections(): void {
-    this.invalidateAllSessionProjections();
   }
 
   syncSideChatRecord(rootSessionId: string, threadId: string): boolean {

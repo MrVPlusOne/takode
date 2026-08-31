@@ -371,13 +371,7 @@ describe("session notification status metadata", () => {
         notifications: [expect.objectContaining({ id: "n-1", done: true })],
       }),
     );
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
-      session,
-      expect.objectContaining({
-        type: "session_update",
-        session: expect.objectContaining({ attentionReason: null }),
-      }),
-    );
+    expect(deps.broadcastToBrowsers.mock.calls.some(([, message]) => message.type === "session_update")).toBe(false);
 
     deps.broadcastToBrowsers.mockClear();
     deps.persistSession.mockClear();
@@ -540,13 +534,7 @@ describe("session notification status metadata", () => {
         notificationStatusVersion: 5,
       }),
     );
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
-      session,
-      expect.objectContaining({
-        type: "session_update",
-        session: expect.objectContaining({ attentionReason: null, lastReadAt: session.lastReadAt }),
-      }),
-    );
+    expect(deps.broadcastToBrowsers.mock.calls.some(([, message]) => message.type === "session_update")).toBe(false);
   });
 
   it("clears explicit manual unread authority on an authoritative read", () => {
@@ -628,13 +616,8 @@ describe("session notification status metadata", () => {
       activeNotificationCount: 1,
       activeReviewNotificationCount: 1,
     });
-    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
-      session,
-      expect.objectContaining({
-        type: "session_update",
-        session: { attentionReason: null },
-      }),
-    );
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
     expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(
       session,
       expect.objectContaining({ type: "notification_update" }),

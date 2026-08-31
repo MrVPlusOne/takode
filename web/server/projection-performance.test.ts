@@ -3,19 +3,27 @@ import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-sum
 import { LEADER_THREAD_TABS_PROJECTION } from "../shared/leader-thread-tabs-projection.js";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
 import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
-import { countPendingUserPermissions, getSessionActivitySnapshot } from "./bridge/session-registry-controller.js";
+import {
+  clearAttentionAndMarkRead,
+  countPendingUserPermissions,
+  getNotificationStatusSnapshot,
+  getSessionActivitySnapshot,
+  getUserVisibleSessionNotifications,
+  notifyUser,
+  summarizePendingPermissions,
+} from "./bridge/session-registry-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
 import type { BrowserIncomingMessage, BoardRow } from "./session-types.js";
 import type { SyncedProjectionRuntimeProjectionMetrics } from "./synced-projection-runtime.js";
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 
 /**
- * These are the direct parents of the two feature migrations. The benchmark
- * uses the legacy payload shapes retained by the current compatible server and
- * records the commits so a future change cannot silently redefine "before".
+ * Frozen pre-migration controls keep later cleanup from silently redefining
+ * the retained historical payloads that constitute "before".
  */
 export const PROJECTION_PERFORMANCE_CONTROL_COMMITS = {
   sessionNavigation: "12b08e56dd321d5cd7138cf5e57ee42eb8796f7d",
+  sessionAttention: "0e5c6eb2e1f49856d48e57556de260b5984f8d2f",
   leaderThreadTabs: "6b50d3bd51b3782540016f02dc76576e5b70281d",
 } as const;
 
@@ -69,6 +77,37 @@ interface ScenarioResult {
   requiredWireBytesTotal: number;
 }
 
+interface AttentionTrafficSample {
+  logicalSends: number;
+  deliveries: number;
+  bytesByBrowser: [number, number];
+  totalBytes: number;
+}
+
+interface HistoricalAttentionControl {
+  exactOwnerInbox: AttentionTrafficSample;
+  ownerPermissionDetail: AttentionTrafficSample;
+  fullGlobalSummary: AttentionTrafficSample;
+  rawAttentionSessionUpdate: AttentionTrafficSample;
+  combined: AttentionTrafficSample;
+}
+
+interface AttentionScenarioResult {
+  metrics: MetricSample;
+  exactOwnerInbox: AttentionTrafficSample;
+  ownerPermissionDetail: AttentionTrafficSample;
+  compactGlobalSummary: AttentionTrafficSample;
+  projection: AttentionTrafficSample;
+  forbidden: {
+    observerInboxDeliveries: number;
+    observerPermissionDeliveries: number;
+    rawAttentionSessionUpdateDeliveries: number;
+    globalSummariesWithLegacyAttentionOrPermissionFields: number;
+  };
+  combinedRequiredBytes: number;
+  historicalControl: HistoricalAttentionControl;
+}
+
 interface ExecutedControlSequenceAccounting {
   producerFrames: number;
   sourceAssemblies: number;
@@ -112,6 +151,23 @@ export interface ProjectionPerformanceResults {
     limitation: string;
   };
   fixture: typeof PROJECTION_PERFORMANCE_FIXTURE;
+  sessionAttention: {
+    initialProjectionSubscriptionResponseBytesPerBrowser: number;
+    initialProjectionSubscriptionMetrics: MetricSample;
+    equalInvalidation: AttentionScenarioResult;
+    firstNeedsInput: AttentionScenarioResult;
+    firstReview: AttentionScenarioResult;
+    sameUrgencyCountChange: AttentionScenarioResult;
+    burstNeedsInput: AttentionScenarioResult;
+    explicitReadClear: AttentionScenarioResult;
+    permissionChange: AttentionScenarioResult;
+    reconnect: {
+      metrics: MetricSample;
+      projectionSubscriptionResponseMessages: number;
+      projectionSubscriptionResponseBytes: number;
+    };
+    noSubscriber: AttentionScenarioResult;
+  };
   sessionNavigation: {
     bytes: {
       historicalLegacyStatusActivity: number;
@@ -500,8 +556,11 @@ function historicalNavigationControl(
     type: "session_activity_update",
     session_id: fixture.worker.id,
     session: {
-      ...getSessionActivitySnapshot(fixture.worker),
+      attentionReason: fixture.worker.attentionReason ?? null,
+      lastReadAt: fixture.worker.lastReadAt,
       pendingPermissionCount: countPendingUserPermissions(fixture.worker),
+      pendingPermissionSummary: summarizePendingPermissions(fixture.worker),
+      ...getSessionActivitySnapshot(fixture.worker),
       status: "running",
     } as never,
   };
@@ -541,10 +600,13 @@ function subscribedLeaderBoardActivityResidual(
     type: "session_activity_update",
     session_id: fixture.leader.id,
     session: {
+      attentionReason: fixture.leader.attentionReason ?? null,
+      lastReadAt: fixture.leader.lastReadAt,
+      pendingPermissionSummary: summarizePendingPermissions(fixture.leader),
       ...getSessionActivitySnapshot(fixture.leader),
       leaderActiveBoardRows: board,
       leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
-    },
+    } as never,
   };
   return fullActivity;
 }
@@ -561,6 +623,359 @@ function historicalLeaderStatusControl(fixture: ProjectionFixture): BrowserIncom
 function attachBrowserSocket(fixture: ProjectionFixture, target: CapturingSocket): void {
   const sessionId = (target.data as { sessionId: string }).sessionId;
   fixture.bridge.getOrCreateSession(sessionId).browserSockets.add(target as never);
+}
+
+function emptyAttentionTraffic(): AttentionTrafficSample {
+  return { logicalSends: 0, deliveries: 0, bytesByBrowser: [0, 0], totalBytes: 0 };
+}
+
+function trafficSample(ownerRaw: string[], observerRaw: string[]): AttentionTrafficSample {
+  const ownerBytes = ownerRaw.reduce((total, raw) => total + utf8Bytes(raw), 0);
+  const observerBytes = observerRaw.reduce((total, raw) => total + utf8Bytes(raw), 0);
+  return {
+    logicalSends: Math.max(ownerRaw.length, observerRaw.length),
+    deliveries: ownerRaw.length + observerRaw.length,
+    bytesByBrowser: [ownerBytes, observerBytes],
+    totalBytes: ownerBytes + observerBytes,
+  };
+}
+
+function addHistoricalAttentionDelivery(
+  traffic: AttentionTrafficSample,
+  message: BrowserIncomingMessage,
+  recipients: readonly [boolean, boolean],
+): void {
+  const bytes = utf8Bytes(message);
+  traffic.logicalSends += 1;
+  for (let index = 0; index < recipients.length; index += 1) {
+    if (!recipients[index]) continue;
+    traffic.deliveries += 1;
+    traffic.bytesByBrowser[index] += bytes;
+    traffic.totalBytes += bytes;
+  }
+}
+
+function emptyHistoricalAttentionControl(): HistoricalAttentionControl {
+  return {
+    exactOwnerInbox: emptyAttentionTraffic(),
+    ownerPermissionDetail: emptyAttentionTraffic(),
+    fullGlobalSummary: emptyAttentionTraffic(),
+    rawAttentionSessionUpdate: emptyAttentionTraffic(),
+    combined: { logicalSends: 0, deliveries: 0, bytesByBrowser: [0, 0], totalBytes: 0 },
+  };
+}
+
+function finalizeHistoricalAttention(control: HistoricalAttentionControl): HistoricalAttentionControl {
+  const traffic = [
+    control.exactOwnerInbox,
+    control.ownerPermissionDetail,
+    control.fullGlobalSummary,
+    control.rawAttentionSessionUpdate,
+  ];
+  control.combined = {
+    logicalSends: traffic.reduce((total, sample) => total + sample.logicalSends, 0),
+    deliveries: traffic.reduce((total, sample) => total + sample.deliveries, 0),
+    bytesByBrowser: [
+      traffic.reduce((total, sample) => total + sample.bytesByBrowser[0], 0),
+      traffic.reduce((total, sample) => total + sample.bytesByBrowser[1], 0),
+    ],
+    totalBytes: traffic.reduce((total, sample) => total + sample.totalBytes, 0),
+  };
+  return control;
+}
+
+function historicalAttentionInboxControl(fixture: ProjectionFixture): BrowserIncomingMessage {
+  return {
+    type: "notification_update",
+    notifications: getUserVisibleSessionNotifications(fixture.worker),
+    ...getNotificationStatusSnapshot(fixture.worker),
+  } as BrowserIncomingMessage;
+}
+
+function historicalAttentionGlobalControl(fixture: ProjectionFixture): BrowserIncomingMessage {
+  return {
+    type: "session_activity_update",
+    session_id: fixture.worker.id,
+    session: {
+      attentionReason: fixture.worker.attentionReason ?? null,
+      lastReadAt: fixture.worker.lastReadAt,
+      pendingPermissionCount: countPendingUserPermissions(fixture.worker),
+      pendingPermissionSummary: summarizePendingPermissions(fixture.worker),
+      ...getNotificationStatusSnapshot(fixture.worker),
+    },
+  } as BrowserIncomingMessage;
+}
+
+function historicalAttentionSessionUpdateControl(
+  fixture: ProjectionFixture,
+  includeLastReadAt = false,
+): BrowserIncomingMessage {
+  return {
+    type: "session_update",
+    session: {
+      attentionReason: fixture.worker.attentionReason ?? null,
+      ...(includeLastReadAt ? { lastReadAt: fixture.worker.lastReadAt } : {}),
+    },
+  } as BrowserIncomingMessage;
+}
+
+function appendHistoricalNotificationControl(
+  fixture: ProjectionFixture,
+  control: HistoricalAttentionControl,
+  options: {
+    globalSummarySends: number;
+    rawAttentionSessionUpdates: number;
+    includeLastReadAt?: boolean;
+  },
+): void {
+  addHistoricalAttentionDelivery(control.exactOwnerInbox, historicalAttentionInboxControl(fixture), [true, false]);
+  for (let index = 0; index < options.globalSummarySends; index += 1) {
+    addHistoricalAttentionDelivery(control.fullGlobalSummary, historicalAttentionGlobalControl(fixture), [true, true]);
+  }
+  for (let index = 0; index < options.rawAttentionSessionUpdates; index += 1) {
+    addHistoricalAttentionDelivery(
+      control.rawAttentionSessionUpdate,
+      historicalAttentionSessionUpdateControl(fixture, options.includeLastReadAt),
+      [true, false],
+    );
+  }
+}
+
+function attentionNotificationDeps(fixture: ProjectionFixture) {
+  return {
+    isHerdedWorkerSession: () => false,
+    getLauncherSessionInfo: (sessionId: string) => fixture.bridge.launcher?.getSession(sessionId),
+    broadcastToBrowsers: (session: Session, message: BrowserIncomingMessage) =>
+      fixture.bridge.broadcastToSession(session.id, message),
+    persistSession: (session: Session) => fixture.bridge.persistSessionById(session.id),
+    scheduleNotification: () => undefined,
+  };
+}
+
+function makeAttentionFixture(subscribed = true): {
+  fixture: ProjectionFixture;
+  owner: CapturingSocket;
+  observer: CapturingSocket;
+} {
+  const fixture = makeFixture();
+  const owner = socket(fixture.worker.id);
+  const observer = socket("attention-observer");
+  attachBrowserSocket(fixture, owner);
+  attachBrowserSocket(fixture, observer);
+  if (subscribed) {
+    subscribe(fixture, owner, SESSION_ATTENTION_PROJECTION, fixture.worker.id);
+    subscribe(fixture, observer, SESSION_ATTENTION_PROJECTION, fixture.worker.id);
+  }
+  clearSockets(owner, observer);
+  return { fixture, owner, observer };
+}
+
+function isLegacyAttentionSessionUpdate(message: Record<string, unknown>): boolean {
+  if (message.type !== "session_update" || !message.session || typeof message.session !== "object") return false;
+  const session = message.session as Record<string, unknown>;
+  return "attentionReason" in session || "lastReadAt" in session;
+}
+
+function hasLegacyAttentionOrPermissionSummaryFields(message: Record<string, unknown>): boolean {
+  if (message.type !== "session_activity_update" || !message.session || typeof message.session !== "object") {
+    return false;
+  }
+  const session = message.session as Record<string, unknown>;
+  return ["attentionReason", "lastReadAt", "pendingPermissionCount", "pendingPermissionSummary"].some(
+    (field) => field in session,
+  );
+}
+
+function collectAttentionScenario(
+  fixture: ProjectionFixture,
+  owner: CapturingSocket,
+  observer: CapturingSocket,
+  before: SyncedProjectionRuntimeProjectionMetrics,
+  historicalControl: HistoricalAttentionControl,
+): AttentionScenarioResult {
+  const ownerInbox = rawMessagesMatching(owner, (message) => message.type === "notification_update");
+  const observerInbox = rawMessagesMatching(observer, (message) => message.type === "notification_update");
+  const ownerPermission = rawMessagesMatching(owner, (message) => message.type === "permission_request");
+  const observerPermission = rawMessagesMatching(observer, (message) => message.type === "permission_request");
+  const ownerGlobal = rawMessagesMatching(
+    owner,
+    (message) => message.type === "session_activity_update" && message.session_id === fixture.worker.id,
+  );
+  const observerGlobal = rawMessagesMatching(
+    observer,
+    (message) => message.type === "session_activity_update" && message.session_id === fixture.worker.id,
+  );
+  const ownerProjection = rawMessagesMatching(
+    owner,
+    (message) =>
+      message.type === "synced_projection_update" &&
+      message.projection === SESSION_ATTENTION_PROJECTION &&
+      message.key === fixture.worker.id,
+  );
+  const observerProjection = rawMessagesMatching(
+    observer,
+    (message) =>
+      message.type === "synced_projection_update" &&
+      message.projection === SESSION_ATTENTION_PROJECTION &&
+      message.key === fixture.worker.id,
+  );
+  const allMessages = [...owner.sent, ...observer.sent].map((raw) => JSON.parse(raw) as Record<string, unknown>);
+  const exactOwnerInbox = trafficSample(ownerInbox, observerInbox);
+  const ownerPermissionDetail = trafficSample(ownerPermission, observerPermission);
+  const compactGlobalSummary = trafficSample(ownerGlobal, observerGlobal);
+  const projection = trafficSample(ownerProjection, observerProjection);
+  return {
+    metrics: metricDelta(before, projectionMetrics(fixture, SESSION_ATTENTION_PROJECTION)),
+    exactOwnerInbox,
+    ownerPermissionDetail,
+    compactGlobalSummary,
+    projection,
+    forbidden: {
+      observerInboxDeliveries: observerInbox.length,
+      observerPermissionDeliveries: observerPermission.length,
+      rawAttentionSessionUpdateDeliveries: allMessages.filter(isLegacyAttentionSessionUpdate).length,
+      globalSummariesWithLegacyAttentionOrPermissionFields: allMessages.filter(
+        hasLegacyAttentionOrPermissionSummaryFields,
+      ).length,
+    },
+    combinedRequiredBytes:
+      exactOwnerInbox.totalBytes +
+      ownerPermissionDetail.totalBytes +
+      compactGlobalSummary.totalBytes +
+      projection.totalBytes,
+    historicalControl: finalizeHistoricalAttention(historicalControl),
+  };
+}
+
+async function attentionEqualInvalidationScenario(): Promise<AttentionScenarioResult> {
+  const { fixture, owner, observer } = makeAttentionFixture();
+  const before = projectionMetrics(fixture, SESSION_ATTENTION_PROJECTION);
+  fixture.bridge.getSyncedProjectionController().invalidateSession(fixture.worker);
+  await fixture.bridge.getSyncedProjectionController().flushForTest();
+  return collectAttentionScenario(fixture, owner, observer, before, emptyHistoricalAttentionControl());
+}
+
+async function firstAttentionScenario(category: "needs-input" | "review"): Promise<AttentionScenarioResult> {
+  const { fixture, owner, observer } = makeAttentionFixture();
+  const before = projectionMetrics(fixture, SESSION_ATTENTION_PROJECTION);
+  notifyUser(fixture.worker, category, `First ${category} notification`, attentionNotificationDeps(fixture));
+  const historicalControl = emptyHistoricalAttentionControl();
+  appendHistoricalNotificationControl(fixture, historicalControl, {
+    globalSummarySends: 3,
+    rawAttentionSessionUpdates: 2,
+  });
+  await fixture.bridge.getSyncedProjectionController().flushForTest();
+  return collectAttentionScenario(fixture, owner, observer, before, historicalControl);
+}
+
+async function sameUrgencyAttentionCountScenario(): Promise<AttentionScenarioResult> {
+  const { fixture, owner, observer } = makeAttentionFixture();
+  const deps = attentionNotificationDeps(fixture);
+  notifyUser(fixture.worker, "review", "First review notification", deps);
+  await fixture.bridge.getSyncedProjectionController().flushForTest();
+  clearSockets(owner, observer);
+
+  const before = projectionMetrics(fixture, SESSION_ATTENTION_PROJECTION);
+  notifyUser(fixture.worker, "review", "Second review notification", deps);
+  const historicalControl = emptyHistoricalAttentionControl();
+  appendHistoricalNotificationControl(fixture, historicalControl, {
+    globalSummarySends: 2,
+    rawAttentionSessionUpdates: 1,
+  });
+  await fixture.bridge.getSyncedProjectionController().flushForTest();
+  return collectAttentionScenario(fixture, owner, observer, before, historicalControl);
+}
+
+async function burstAttentionScenario(): Promise<AttentionScenarioResult> {
+  const { fixture, owner, observer } = makeAttentionFixture();
+  const deps = attentionNotificationDeps(fixture);
+  const before = projectionMetrics(fixture, SESSION_ATTENTION_PROJECTION);
+  const historicalControl = emptyHistoricalAttentionControl();
+  for (let index = 0; index < PROJECTION_PERFORMANCE_FIXTURE.burstInvalidations; index += 1) {
+    notifyUser(fixture.worker, "needs-input", `Burst needs-input ${index + 1}`, deps);
+    appendHistoricalNotificationControl(fixture, historicalControl, {
+      globalSummarySends: index === 0 ? 3 : 2,
+      rawAttentionSessionUpdates: index === 0 ? 2 : 1,
+    });
+  }
+  await fixture.bridge.getSyncedProjectionController().flushForTest();
+  return collectAttentionScenario(fixture, owner, observer, before, historicalControl);
+}
+
+async function explicitAttentionReadClearScenario(): Promise<AttentionScenarioResult> {
+  const { fixture, owner, observer } = makeAttentionFixture();
+  const deps = attentionNotificationDeps(fixture);
+  notifyUser(fixture.worker, "review", "Review before explicit read", deps);
+  await fixture.bridge.getSyncedProjectionController().flushForTest();
+  clearSockets(owner, observer);
+
+  const before = projectionMetrics(fixture, SESSION_ATTENTION_PROJECTION);
+  clearAttentionAndMarkRead(fixture.worker, deps);
+  const historicalControl = emptyHistoricalAttentionControl();
+  appendHistoricalNotificationControl(fixture, historicalControl, {
+    globalSummarySends: 2,
+    rawAttentionSessionUpdates: 1,
+    includeLastReadAt: true,
+  });
+  await fixture.bridge.getSyncedProjectionController().flushForTest();
+  return collectAttentionScenario(fixture, owner, observer, before, historicalControl);
+}
+
+async function attentionPermissionScenario(): Promise<AttentionScenarioResult> {
+  const { fixture, owner, observer } = makeAttentionFixture();
+  const request = {
+    request_id: "attention-permission-1",
+    tool_name: "ExitPlanMode",
+    input: { plan: "Use the canonical attention projection" },
+    tool_use_id: "attention-tool-1",
+    timestamp: 1_700_000_200_000,
+  };
+  fixture.worker.pendingPermissions.set(request.request_id, request);
+  const before = projectionMetrics(fixture, SESSION_ATTENTION_PROJECTION);
+  fixture.bridge.broadcastToSession(fixture.worker.id, { type: "permission_request", request });
+  (
+    fixture.bridge as unknown as { onSessionActivityStateChanged: (sessionId: string, reason: string) => void }
+  ).onSessionActivityStateChanged(fixture.worker.id, "attention performance permission");
+
+  const historicalControl = emptyHistoricalAttentionControl();
+  addHistoricalAttentionDelivery(historicalControl.ownerPermissionDetail, { type: "permission_request", request }, [
+    true,
+    false,
+  ]);
+  addHistoricalAttentionDelivery(historicalControl.fullGlobalSummary, historicalAttentionGlobalControl(fixture), [
+    true,
+    true,
+  ]);
+  await fixture.bridge.getSyncedProjectionController().flushForTest();
+  return collectAttentionScenario(fixture, owner, observer, before, historicalControl);
+}
+
+async function attentionNoSubscriberScenario(): Promise<AttentionScenarioResult> {
+  const { fixture, owner, observer } = makeAttentionFixture(false);
+  const before = projectionMetrics(fixture, SESSION_ATTENTION_PROJECTION);
+  notifyUser(fixture.worker, "needs-input", "No-subscriber needs input", attentionNotificationDeps(fixture));
+  const historicalControl = emptyHistoricalAttentionControl();
+  appendHistoricalNotificationControl(fixture, historicalControl, {
+    globalSummarySends: 3,
+    rawAttentionSessionUpdates: 2,
+  });
+  await fixture.bridge.getSyncedProjectionController().flushForTest();
+  return collectAttentionScenario(fixture, owner, observer, before, historicalControl);
+}
+
+function seedAttentionProjectionValue(fixture: ProjectionFixture): void {
+  fixture.worker.notifications.push({
+    id: "n-1",
+    category: "needs-input",
+    summary: "Cached attention notification",
+    timestamp: 1_700_000_300_000,
+    messageId: null,
+    done: false,
+  });
+  fixture.worker.notificationCounter = 1;
+  fixture.worker.notificationStatusVersion = 1;
+  fixture.worker.notificationStatusUpdatedAt = 1_700_000_300_000;
+  fixture.worker.attentionReason = "action";
 }
 
 async function matchedNavigationStatusSequence(options: {
@@ -760,6 +1175,49 @@ async function leaderPhaseChangeScenario(): Promise<{
  * `TAKODE_PRINT_PROJECTION_PERFORMANCE=1` to emit compact JSON.
  */
 export async function collectProjectionPerformanceResults(): Promise<ProjectionPerformanceResults> {
+  const attentionInitialFixture = makeFixture();
+  seedAttentionProjectionValue(attentionInitialFixture);
+  const attentionInitialFirst = socket("attention-initial-1");
+  const attentionInitialSecond = socket("attention-initial-2");
+  const attentionBeforeInitialSubscription = projectionMetrics(attentionInitialFixture, SESSION_ATTENTION_PROJECTION);
+  const attentionFirstResponse = subscribe(
+    attentionInitialFixture,
+    attentionInitialFirst,
+    SESSION_ATTENTION_PROJECTION,
+    attentionInitialFixture.worker.id,
+  );
+  subscribe(
+    attentionInitialFixture,
+    attentionInitialSecond,
+    SESSION_ATTENTION_PROJECTION,
+    attentionInitialFixture.worker.id,
+  );
+  const attentionAfterInitialSubscription = projectionMetrics(attentionInitialFixture, SESSION_ATTENTION_PROJECTION);
+  const attentionInitialSubscriptionBytes = attentionFirstResponse.reduce(
+    (total, message) => total + utf8Bytes(message),
+    0,
+  );
+
+  const attentionEqualInvalidation = await attentionEqualInvalidationScenario();
+  const attentionFirstNeedsInput = await firstAttentionScenario("needs-input");
+  const attentionFirstReview = await firstAttentionScenario("review");
+  const attentionSameUrgencyCountChange = await sameUrgencyAttentionCountScenario();
+  const attentionBurstNeedsInput = await burstAttentionScenario();
+  const attentionExplicitReadClear = await explicitAttentionReadClearScenario();
+  const attentionPermissionChange = await attentionPermissionScenario();
+  const attentionNoSubscriber = await attentionNoSubscriberScenario();
+
+  attentionInitialFixture.bridge.getSyncedProjectionController().removeSubscriber(attentionInitialFirst as never);
+  const attentionReconnect = socket("attention-reconnect");
+  const attentionBeforeReconnect = projectionMetrics(attentionInitialFixture, SESSION_ATTENTION_PROJECTION);
+  const attentionReconnectResponse = subscribe(
+    attentionInitialFixture,
+    attentionReconnect,
+    SESSION_ATTENTION_PROJECTION,
+    attentionInitialFixture.worker.id,
+  );
+  const attentionAfterReconnect = projectionMetrics(attentionInitialFixture, SESSION_ATTENTION_PROJECTION);
+
   const navigationInitialFixture = makeFixture();
   const navigationInitialFirst = socket("navigation-initial-1");
   const navigationInitialSecond = socket("navigation-initial-2");
@@ -931,6 +1389,29 @@ export async function collectProjectionPerformanceResults(): Promise<ProjectionP
         "Executes current retained payload builders matching the historical control shapes; it does not execute the historical commit binaries or their frontend derivation loops.",
     },
     fixture: PROJECTION_PERFORMANCE_FIXTURE,
+    sessionAttention: {
+      initialProjectionSubscriptionResponseBytesPerBrowser: attentionInitialSubscriptionBytes,
+      initialProjectionSubscriptionMetrics: metricDelta(
+        attentionBeforeInitialSubscription,
+        attentionAfterInitialSubscription,
+      ),
+      equalInvalidation: attentionEqualInvalidation,
+      firstNeedsInput: attentionFirstNeedsInput,
+      firstReview: attentionFirstReview,
+      sameUrgencyCountChange: attentionSameUrgencyCountChange,
+      burstNeedsInput: attentionBurstNeedsInput,
+      explicitReadClear: attentionExplicitReadClear,
+      permissionChange: attentionPermissionChange,
+      reconnect: {
+        metrics: metricDelta(attentionBeforeReconnect, attentionAfterReconnect),
+        projectionSubscriptionResponseMessages: attentionReconnectResponse.length,
+        projectionSubscriptionResponseBytes: attentionReconnectResponse.reduce(
+          (total, message) => total + utf8Bytes(message),
+          0,
+        ),
+      },
+      noSubscriber: attentionNoSubscriber,
+    },
     sessionNavigation: {
       bytes: {
         historicalLegacyStatusActivity: utf8Bytes(navigationLegacyControl),
@@ -1120,6 +1601,155 @@ function expectedMatchedPair(options: {
 }
 
 describe("synchronized projection performance controls", () => {
+  /** Separates required owner detail, global summary, and projection traffic from the frozen duplicate path. */
+  it("measures attention equal, first urgency, count, burst, clear, reconnect, no-subscriber, and two-browser costs", async () => {
+    const result = await collectProjectionPerformanceResults();
+    const attention = result.sessionAttention;
+    const noForbiddenTraffic = {
+      observerInboxDeliveries: 0,
+      observerPermissionDeliveries: 0,
+      rawAttentionSessionUpdateDeliveries: 0,
+      globalSummariesWithLegacyAttentionOrPermissionFields: 0,
+    };
+
+    expect(result.controlCommits.sessionAttention).toBe("0e5c6eb2e1f49856d48e57556de260b5984f8d2f");
+    expect(attention.initialProjectionSubscriptionMetrics).toEqual(initialSubscriptionMetrics(73));
+    expect(attention.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(366);
+    expect(attention.reconnect).toEqual({
+      metrics: reconnectMetrics(73),
+      projectionSubscriptionResponseMessages: 2,
+      projectionSubscriptionResponseBytes: 366,
+    });
+
+    expect(attention.equalInvalidation).toMatchObject({
+      metrics: NO_OP_METRICS,
+      exactOwnerInbox: emptyAttentionTraffic(),
+      compactGlobalSummary: emptyAttentionTraffic(),
+      projection: emptyAttentionTraffic(),
+      forbidden: noForbiddenTraffic,
+      combinedRequiredBytes: 0,
+    });
+
+    const changedScenarios = [
+      {
+        scenario: attention.firstNeedsInput,
+        metrics: changedMetrics({ invalidations: 3, valueBytes: 73, cachedValueBytes: 35 }),
+        current: { inbox: [459, 0], global: [325, 325], projection: [232, 232], total: 1_573 },
+        control: { inbox: [451, 0], global: [1_254, 1_254], raw: [128, 0], total: 3_087 },
+        sends: { inbox: 1, global: 1, controlGlobal: 3, controlRaw: 2 },
+      },
+      {
+        scenario: attention.firstReview,
+        metrics: changedMetrics({ invalidations: 3, valueBytes: 68, cachedValueBytes: 30 }),
+        current: { inbox: [444, 0], global: [320, 320], projection: [227, 227], total: 1_538 },
+        control: { inbox: [436, 0], global: [1_239, 1_239], raw: [128, 0], total: 3_042 },
+        sends: { inbox: 1, global: 1, controlGlobal: 3, controlRaw: 2 },
+      },
+      {
+        scenario: attention.sameUrgencyCountChange,
+        metrics: changedMetrics({ invalidations: 2, valueBytes: 68, cachedValueBytes: 0 }),
+        current: { inbox: [591, 0], global: [320, 320], projection: [227, 227], total: 1_685 },
+        control: { inbox: [583, 0], global: [826, 826], raw: [64, 0], total: 2_299 },
+        sends: { inbox: 1, global: 1, controlGlobal: 2, controlRaw: 1 },
+      },
+      {
+        scenario: attention.burstNeedsInput,
+        metrics: changedMetrics({ invalidations: 51, valueBytes: 74, cachedValueBytes: 36 }),
+        current: { inbox: [55_041, 0], global: [8_193, 8_189], projection: [233, 233], total: 71_889 },
+        control: { inbox: [54_820, 0], global: [21_414, 21_414], raw: [1_664, 0], total: 99_312 },
+        sends: { inbox: 25, global: 25, controlGlobal: 51, controlRaw: 26 },
+      },
+      {
+        scenario: attention.explicitReadClear,
+        metrics: changedMetrics({ invalidations: 2, valueBytes: 38, cachedValueBytes: -30 }),
+        current: { inbox: [295, 0], global: [316, 316], projection: [197, 197], total: 1_321 },
+        control: { inbox: [287, 0], global: [834, 834], raw: [87, 0], total: 2_042 },
+        sends: { inbox: 1, global: 1, controlGlobal: 2, controlRaw: 1 },
+      },
+    ] as const;
+
+    for (const { scenario, metrics, current, control, sends } of changedScenarios) {
+      expect(scenario.metrics).toEqual(metrics);
+      expect(scenario.exactOwnerInbox).toMatchObject({
+        logicalSends: sends.inbox,
+        deliveries: sends.inbox,
+        bytesByBrowser: current.inbox,
+      });
+      expect(scenario.compactGlobalSummary).toMatchObject({
+        logicalSends: sends.global,
+        deliveries: sends.global * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
+        bytesByBrowser: current.global,
+      });
+      expect(scenario.projection).toMatchObject({
+        logicalSends: 1,
+        deliveries: PROJECTION_PERFORMANCE_FIXTURE.browserCount,
+        bytesByBrowser: current.projection,
+      });
+      expect(scenario.forbidden).toEqual(noForbiddenTraffic);
+      expect(scenario.combinedRequiredBytes).toBe(current.total);
+      expect(scenario.historicalControl.exactOwnerInbox).toMatchObject({
+        logicalSends: sends.inbox,
+        bytesByBrowser: control.inbox,
+      });
+      expect(scenario.historicalControl.fullGlobalSummary).toMatchObject({
+        logicalSends: sends.controlGlobal,
+        deliveries: sends.controlGlobal * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
+        bytesByBrowser: control.global,
+      });
+      expect(scenario.historicalControl.rawAttentionSessionUpdate).toMatchObject({
+        logicalSends: sends.controlRaw,
+        deliveries: sends.controlRaw,
+        bytesByBrowser: control.raw,
+      });
+      expect(scenario.historicalControl.combined.totalBytes).toBe(control.total);
+      expect(scenario.combinedRequiredBytes).toBeLessThan(scenario.historicalControl.combined.totalBytes);
+    }
+
+    expect(attention.permissionChange).toMatchObject({
+      metrics: changedMetrics({ invalidations: 2, valueBytes: 73, cachedValueBytes: 35 }),
+      exactOwnerInbox: emptyAttentionTraffic(),
+      ownerPermissionDetail: {
+        logicalSends: 1,
+        deliveries: 1,
+        bytesByBrowser: [231, 0],
+        totalBytes: 231,
+      },
+      compactGlobalSummary: emptyAttentionTraffic(),
+      projection: {
+        logicalSends: 1,
+        deliveries: 2,
+        bytesByBrowser: [232, 232],
+        totalBytes: 464,
+      },
+      forbidden: noForbiddenTraffic,
+      combinedRequiredBytes: 695,
+    });
+    expect(attention.permissionChange.historicalControl).toMatchObject({
+      ownerPermissionDetail: { logicalSends: 1, deliveries: 1, bytesByBrowser: [223, 0], totalBytes: 223 },
+      fullGlobalSummary: { logicalSends: 1, deliveries: 2, bytesByBrowser: [403, 403], totalBytes: 806 },
+      rawAttentionSessionUpdate: emptyAttentionTraffic(),
+      combined: { logicalSends: 2, deliveries: 3, bytesByBrowser: [626, 403], totalBytes: 1_029 },
+    });
+    expect(attention.permissionChange.combinedRequiredBytes).toBeLessThan(
+      attention.permissionChange.historicalControl.combined.totalBytes,
+    );
+
+    expect(attention.noSubscriber).toMatchObject({
+      metrics: { ...zeroMetrics(), invalidations: 3 },
+      exactOwnerInbox: { logicalSends: 1, deliveries: 1, bytesByBrowser: [454, 0], totalBytes: 454 },
+      compactGlobalSummary: { logicalSends: 1, deliveries: 2, bytesByBrowser: [325, 325], totalBytes: 650 },
+      projection: emptyAttentionTraffic(),
+      forbidden: noForbiddenTraffic,
+      combinedRequiredBytes: 1_104,
+    });
+    expect(attention.noSubscriber.historicalControl.combined).toEqual({
+      logicalSends: 6,
+      deliveries: 9,
+      bytesByBrowser: [1_828, 1_254],
+      totalBytes: 3_082,
+    });
+  });
+
   /**
    * Navigation assertions keep operation counts exact and separate projection
    * bytes from the retained parallel activity/notification residual. Two sockets

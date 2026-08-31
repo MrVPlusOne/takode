@@ -6,14 +6,13 @@ import { navigateToSession } from "../utils/routing.js";
 import { getHighlightParts } from "../utils/highlight.js";
 import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
-import { type NotificationUrgency } from "../utils/notification-urgency.js";
 import { formatGitStatusAge, isGitStatusStale } from "../../shared/git-status-freshness.js";
 import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
 import { boardSummarySegmentsFromActivePhaseSummary, type BoardSummarySegment } from "./leader-board-summary.js";
 import { findSessionQuestContextCandidate } from "../utils/session-quest-context.js";
-import { deriveEffectiveSessionAttentionStatus } from "../utils/session-attention-status.js";
+import { projectedSessionAttentionStatus } from "../utils/session-attention-status.js";
 import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
-import { getSyncedProjectionValue, hasSyncedProjectionValue } from "../store-synced-projections.js";
+import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { selectLeaderActivePhaseSummary } from "../utils/leader-thread-tabs-resolver.js";
 
 type SearchMatchedField =
@@ -149,22 +148,12 @@ function timeAgo(epochMs: number): string {
   return `${days}d ago`;
 }
 
-/** Derives a notification marker from the session's notification inbox.
- *  Falls back to the lightweight /api/sessions summary before a session WebSocket is opened. */
-function useNotificationUrgency(sessionId: string, fallbackUrgency: NotificationUrgency = null) {
-  return useStore((s) => {
-    const projection = getSyncedProjectionValue(s, SESSION_ATTENTION_PROJECTION, sessionId);
-    if (projection) return projection.status?.urgency ?? null;
-    const notifications = s.sessionNotifications?.get(sessionId);
-    const snapshot = s.sdkSessions?.find((session) => session.sessionId === sessionId);
-    return deriveEffectiveSessionAttentionStatus({
-      sessionId,
-      currentSessionId: s.currentSessionId,
-      notifications,
-      summary: snapshot,
-      fallbackUrgency,
-    })?.urgency;
-  });
+/** Read the current-build notification marker from the accepted attention projection. */
+function useNotificationUrgency(sessionId: string) {
+  return useStore(
+    (s) =>
+      projectedSessionAttentionStatus(getSyncedProjectionValue(s, SESSION_ATTENTION_PROJECTION, sessionId))?.urgency,
+  );
 }
 
 function NotificationMarker({ urgency }: { urgency: ReturnType<typeof useNotificationUrgency> }) {
@@ -338,40 +327,13 @@ function SessionItemComponent({
         }),
   );
   const hasQuestWorkContext = isQuestNamed || hasAssignedQuestContext;
-  const reviewerLegacyAttention = useStore((st) =>
+  const reviewerAttention = useStore((st) =>
     reviewerSession ? st.sessionAttention.get(reviewerSession.id) : undefined,
   );
-  const reviewerHasAttentionProjection = useStore((st) =>
-    reviewerSession ? hasSyncedProjectionValue(st, SESSION_ATTENTION_PROJECTION, reviewerSession.id) : false,
-  );
-  const reviewerProjectedAttention = useStore((st) =>
-    reviewerSession
-      ? getSyncedProjectionValue(st, SESSION_ATTENTION_PROJECTION, reviewerSession.id)?.attentionReason
-      : undefined,
-  );
-  const reviewerAttention = reviewerHasAttentionProjection ? reviewerProjectedAttention : reviewerLegacyAttention;
-  const hasAttentionProjection = useStore((st) => hasSyncedProjectionValue(st, SESSION_ATTENTION_PROJECTION, s.id));
-  const projectedAttention = useStore(
-    (st) => getSyncedProjectionValue(st, SESSION_ATTENTION_PROJECTION, s.id)?.attentionReason,
-  );
-  const inboxUrgency = useNotificationUrgency(s.id, s.notificationUrgency ?? null);
+  const inboxUrgency = useNotificationUrgency(s.id);
   const canSwipeToArchive = !archived && !reorderMode;
-  const suppressStaleActionAttention =
-    !hasAttentionProjection &&
-    attention === "action" &&
-    permCount === 0 &&
-    s.notificationStatusVersion !== undefined &&
-    s.activeNotificationCount === 0;
-  const effectiveAttention = hasAttentionProjection
-    ? (projectedAttention ?? null)
-    : suppressStaleActionAttention
-      ? null
-      : attention;
-  const effectiveHasUnread = hasAttentionProjection
-    ? !!projectedAttention
-    : suppressStaleActionAttention
-      ? false
-      : hasUnread;
+  const effectiveAttention = attention ?? null;
+  const effectiveHasUnread = !!hasUnread;
 
   // Long-press to open context menu on touch devices
   const handleTouchStart = useCallback(
@@ -1212,8 +1174,7 @@ function SessionItemComponent({
         />
       )}
 
-      {/* Notification inbox markers (shown when no server attention, permission, or timer-status icon is active).
-          Uses the live inbox when loaded, otherwise the lightweight /api/sessions snapshot for restored sessions. */}
+      {/* Projection-owned muted marker (shown when no stronger attention, permission, or timer icon is active). */}
       {!archived && !effectiveAttention && permCount === 0 && !showScheduledTimerIcon && (
         <NotificationMarker urgency={inboxUrgency} />
       )}

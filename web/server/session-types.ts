@@ -1160,8 +1160,6 @@ export type BrowserIncomingMessageBase =
       codexTurnRecovery?: CodexTurnRecoveryState | null;
       uiMode: string | null;
       askPermission: boolean;
-      lastReadAt?: number;
-      attentionReason?: "action" | "error" | "review" | null;
       generationStartedAt?: number | null;
       activeTurnRoute?: ActiveTurnRoute | null;
       codexReasoningPreviews?: ActiveCodexReasoningPreview[];
@@ -1236,9 +1234,6 @@ export type BrowserIncomingMessageBase =
       type: "session_activity_update";
       session_id: string;
       session: {
-        attentionReason?: "action" | "error" | "review" | null;
-        lastReadAt?: number;
-        pendingPermissionSummary?: string | null;
         notificationUrgency?: NotificationUrgency;
         activeNotificationCount?: number;
         activeNeedsInputNotificationCount?: number;

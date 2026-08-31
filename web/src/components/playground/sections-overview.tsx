@@ -11,6 +11,7 @@ import { ChatView, QuestThreadBanner, type QuestThreadBannerRow } from "../ChatV
 import { MessageFeed } from "../MessageFeed.js";
 import { LeaderSessionReturnPlaygroundState } from "./LeaderSessionReturnPlaygroundState.js";
 import { PlaygroundMarkdownMathSection } from "./PlaygroundMarkdownMathSection.js";
+import { PlaygroundSessionAttentionStates } from "./PlaygroundSessionAttentionStates.js";
 import { PlaygroundFileLinkSection } from "./PlaygroundFileLinkSection.js";
 import { PlaygroundPendingImagePreviews } from "./PlaygroundPendingImagePreviews.js";
 import { PlaygroundChatViewRecoveryStates } from "./ChatViewRecoveryPlaygroundStates.js";
@@ -1683,6 +1684,8 @@ export function PlaygroundOverviewSections() {
           </Card>
         </div>
       </Section>
+
+      <PlaygroundSessionAttentionStates />
 
       <Section
         title="Session List Herd Groups"

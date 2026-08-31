@@ -143,6 +143,14 @@ function parseKnownPatch(input: unknown): {
   return { envelope: candidate as SyncedProjectionPatchEnvelope, descriptor };
 }
 
+export function isValidSyncedProjectionSnapshot(input: unknown): boolean {
+  return parseKnownEnvelope(input) !== null;
+}
+
+export function isValidSyncedProjectionUpdate(input: unknown): boolean {
+  return parseKnownEnvelope(input) !== null || parseKnownPatch(input) !== null;
+}
+
 /** True when a fully valid snapshot is already covered by same-generation cache authority. */
 export function cacheCoversSyncedProjectionSnapshot(
   state: Pick<AppState, "syncedProjectionKeys" | "syncedProjectionVersions">,

@@ -1,6 +1,6 @@
 # Synchronized Projection Performance Baseline
 
-Baseline established on August 30, 2026 against synchronized runtime target `b54821520f863c00af50d38db93edce439d048a3`, remeasured after the framework-only consolidation on a worktree based on `8e03fd27999c6fe29d576bed367ad3296d71a146`, and remeasured again after the session-navigation cleanup on August 31, 2026.
+Baseline established on August 30, 2026 against synchronized runtime target `b54821520f863c00af50d38db93edce439d048a3`, remeasured after the framework-only consolidation on a worktree based on `8e03fd27999c6fe29d576bed367ad3296d71a146`, and remeasured again after the session-navigation and session-attention cleanups on August 31, 2026.
 
 This document fixes the comparison boundary for the session-navigation and leader-thread-tab projection migrations. It compares equivalent bounded feature work, not whole-server behavior or unrelated commits.
 
@@ -180,6 +180,59 @@ The final feature-specific non-test stack is therefore 6 lines smaller than the 
 
 This closes the session-navigation-local wire, render, no-subscriber, duplicate-path, and code-size gates. It does not change the leader-thread-tab measurements below or waive final whole-application acceptance: leader cleanup remains downstream work, followed by the mismatch-only compatibility audit and final gate.
 
+## Session-attention cleanup remeasurement
+
+The August 31, 2026 cleanup makes `SESSION_ATTENTION_PROJECTION` the sole compact visual authority for current compatible builds. Projection-absent REST and WebSocket hydration, frontend notification reconstruction, optimistic attention-map mutation, and row/sidebar/hover arbitration are removed. Persisted attention inputs, exact owner notification inboxes, compact global notification summaries, permission detail, attention records, and read/unread commands remain separate server-owned authorities.
+
+Malformed known projection messages and acknowledged subscriptions whose replacement snapshot is missing or malformed now fail closed, revoke stale visual state, and request one deduplicated resync. Unknown or unrequested identities cannot trigger resync. Browser-title and global-bell counts remain notification-summary projections of active unmuted needs-input prompts; they do not inherit permission, error, manual-unread, review, or muted-attention semantics from the session-attention projection.
+
+### Current server results
+
+Counts use two browsers and separate required owner detail, compact global summary, and synchronized projection traffic. Historical controls reconstruct the duplicate payloads at `0e5c6eb2e1f49856d48e57556de260b5984f8d2f`; they do not execute the archived binary.
+
+| Attention scenario | Historical control sends / deliveries / total bytes | Current compatible pair | Result |
+| --- | ---: | ---: | --- |
+| Equal invalidation | 0 / 0 / 0 B | 0 / 0 / 0 B | Equal; one dependency check suppresses derivation and publication |
+| First needs-input | 6 / 9 / 3,087 B | 3 / 5 / 1,573 B | Better; one owner inbox, one compact global summary, one projection update |
+| First review | 6 / 9 / 3,042 B | 3 / 5 / 1,538 B | Better; same separated-authority shape |
+| Same urgency, count 1 → 2 | 4 / 6 / 2,299 B | 3 / 5 / 1,685 B | Better; count changes without reviving raw attention delivery |
+| 25-notification burst | 102 / 153 / 99,312 B | 51 / 77 / 71,889 B | Better; required detail/summary frames remain, projection work coalesces once |
+| Explicit read/clear | 4 / 6 / 2,042 B | 3 / 5 / 1,321 B | Better; clear is projected without a raw attention/read session update |
+| Permission appears | 2 / 3 / 1,029 B | 2 / 3 / 695 B | Same sends; owner permission detail plus scoped projection replaces global permission summary |
+
+Every changed projection scenario performs one dependency selection, one derivation, and one update after its invalidations drain. Initial two-browser subscription is 366 B per browser with one source selection and one derivation; a clean reconnect is also 366 B and reuses the cache without dependency selection or derivation. With no attention subscriber, three notification invalidations perform zero selection, derivation, cache construction, projection sends, or projection bytes; required owner inbox and compact global summary delivery remains intact.
+
+The measured current path sends no raw `attentionReason`/`lastReadAt` session update, exposes no legacy attention or permission fields in global summaries, and sends neither notification inbox nor permission detail to the observer browser. Two subscribers add delivery only; they do not add source selection or derivation.
+
+### Current frontend results
+
+Four real `SessionItem` rows exercise full producer-shaped notification detail and synchronized projection messages. Counts exclude initial mount.
+
+| Scenario | Historical control root / owning-row commits / store notifications | Current compatible pair | Result |
+| --- | ---: | ---: | --- |
+| Equal value | 0 / 0 / 2 | 0 / 0 / 2 | Equal and commit-free |
+| First visible needs-input | 1 / 1 / 2 | 1 / 1 / 2 | Equal; unrelated rows do not rerender |
+| Same urgency, count 1 → 2 | 0 / 0 / 2 | 0 / 0 / 2 | Equal; projected count advances without a compact-row commit |
+| Three-transition burst | 3 / 3 / 6 | 1 / 1 / 4 | Better; the final projected visual state commits once |
+| Explicit read/clear | 1 / 1 / 3 | 1 / 1 / 2 | Equal commits, fewer store notifications |
+| Reconnect | 0 / 0 / 18 | 0 / 0 / 18 | Equal; the accepted equivalent snapshot adds no commit |
+
+Two independently reset compatible clients produce identical output. Aggregate root commits, owning-row commits, and notifications scale exactly linearly. Focused row, tree, hover, title/bell, participant, malformed/resync, and Playground coverage verifies that compact surfaces converge while notification/detail authority remains independently usable.
+
+### Final attention feature-size accounting
+
+The frozen pre-migration attention feature baseline is **+442 non-test lines** after excluding the reusable synchronized-projection foundation: +218 server, +37 shared protocol/types, and +187 frontend. Final cleanup accounting is completed from the synchronized starting target, excludes test paths, and separately neutralizes generic malformed/resync framework hardening rather than charging it to this feature. Runtime Playground coverage remains feature-owned production code.
+
+| Accounted change | Server | Shared protocol/types | Frontend | Total |
+| --- | ---: | ---: | ---: | ---: |
+| Frozen pre-migration feature baseline | +218 | +37 | +187 | **+442** |
+| Current cleanup, raw tracked production delta | -103 | 0 | -353 | **-456** |
+| Generic malformed/resync framework exclusion | 0 | 0 | -42 | **-42** |
+| Current cleanup after exclusion | -103 | 0 | -395 | **-498** |
+| **Final attention feature stack versus its direct-parent baseline** | **+115** | **+37** | **-208** | **-56** |
+
+The final feature-specific stack is therefore **56 non-test lines smaller than the pre-migration baseline**. The current frontend count includes the dedicated Playground matrix; the exclusion covers only reusable validation and resync transport behavior shared by every synchronized projection.
+
 ## Leader-thread cleanup remeasurement
 
 The August 31, 2026 cleanup completes the current-build leader-thread visual migration. The accepted synchronized projection is now the only runtime tab, attention, phase-color, status-marker, Journey, and participant visual authority. Mixed-version arbitration, the client-side surfacing observer, projection-to-command synthesis, the full-history attachment broadcast arm, duplicate board/activity/status visual fields, and production-only copies of legacy visual builders are removed. Detailed board rows, notifications, history, routing, selection, persisted order/tombstones, and commands remain independently authoritative.
@@ -239,6 +292,6 @@ Downstream cleanup and any later projection candidate must preserve these determ
 
 ## Overall verdict
 
-**Session navigation and leader-thread tabs now both satisfy their feature-local equal-or-better and simplification gates.** Session navigation emits no parallel status activity, uses a smaller one-field patch, coalesces bursts, adds no reconnect commit, rerenders only the changed row, and finishes 6 non-test lines below its baseline. Leader tabs remove duplicate global activity and status delivery, coalesce projection bursts, match or improve representative commit counts, preserve the detailed board separately, and finish 173 non-test lines below their baseline.
+**Session navigation, session attention, and leader-thread tabs now satisfy their feature-local equal-or-better gates.** Session navigation emits no parallel status activity, uses a smaller one-field patch, coalesces bursts, adds no reconnect commit, rerenders only the changed row, and finishes 6 non-test lines below its baseline. Session attention removes raw and locally reconstructed visual delivery, keeps required notification and permission authorities separate, coalesces projection work, adds no unrelated-row or reconnect commit, and reduces every measured changed wire scenario. Leader tabs remove duplicate global activity and status delivery, coalesce projection bursts, match or improve representative commit counts, preserve the detailed board separately, and finish 173 non-test lines below their baseline.
 
-The remaining program work is the bounded mixed-version compatibility audit and final whole-application acceptance. Those later checks must preserve the thresholds above and confirm that no obsolete cross-feature path remains; they do not reopen the completed session-navigation or leader-thread local migrations unless new evidence finds a regression.
+The remaining program work is the other separately owned compatibility cleanup plus final whole-application acceptance. Those later checks must preserve the thresholds above and confirm that no obsolete cross-feature path remains; they do not reopen the completed feature-local migrations unless new evidence finds a regression.

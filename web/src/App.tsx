@@ -685,7 +685,6 @@ export default function App() {
         if (connectedSessionIdRef.current && connectedSessionIdRef.current !== resolvedSessionId) {
           disconnectSession(connectedSessionIdRef.current);
         }
-        store.markSessionViewed(resolvedSessionId);
         api.markSessionRead?.(resolvedSessionId, { mode: "session-view" }).catch(() => {});
         connectSession(resolvedSessionId);
         connectedSessionIdRef.current = resolvedSessionId;

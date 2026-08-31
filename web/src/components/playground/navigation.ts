@@ -77,6 +77,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "MCP Servers",
     "Codex Session Details",
     "Status Indicators",
+    "Session Attention Projection",
     "Session List Herd Groups",
     "Herd Collapsible Container",
     "Quest Title Styling",

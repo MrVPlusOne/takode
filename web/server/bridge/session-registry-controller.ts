@@ -1278,10 +1278,6 @@ export function markSessionUnread(
   if (deps.isHerdedWorkerSession?.(session)) return true;
   session.manualUnread = true;
   session.attentionReason = "review";
-  deps.broadcastToBrowsers?.(session, {
-    type: "session_update",
-    session: { attentionReason: "review" },
-  } as BrowserIncomingMessage);
   deps.persistSession(session);
   return true;
 }
@@ -1294,16 +1290,6 @@ export function markSessionUnreadBySessionId(
   const session = sessions.get(sessionId);
   if (!session) return false;
   return markSessionUnread(session, deps);
-}
-
-export function getSessionAttentionState(session: SessionLike): {
-  lastReadAt: number;
-  attentionReason: AttentionReason | null;
-} {
-  return {
-    lastReadAt: session.lastReadAt,
-    attentionReason: session.attentionReason,
-  };
 }
 
 export function getAllSessionStates(sessions: Map<string, SessionLike>): SessionState[] {
@@ -1546,9 +1532,6 @@ export function countPendingUserPermissions(session: SessionLike): number {
 }
 
 export function getSessionActivitySnapshot(session: SessionLike): {
-  attentionReason: AttentionReason | null;
-  lastReadAt?: number;
-  pendingPermissionSummary: string | null;
   notificationUrgency: NotificationUrgency;
   activeNotificationCount: number;
   activeNeedsInputNotificationCount: number;
@@ -1557,30 +1540,7 @@ export function getSessionActivitySnapshot(session: SessionLike): {
   notificationStatusVersion: number;
   notificationStatusUpdatedAt: number;
 } {
-  const notificationStatus = getNotificationStatusSnapshot(session);
-  return {
-    attentionReason: (session.attentionReason as AttentionReason | null) ?? null,
-    ...(typeof session.lastReadAt === "number" ? { lastReadAt: session.lastReadAt } : {}),
-    pendingPermissionSummary: summarizePendingPermissions(session),
-    ...notificationStatus,
-  };
-}
-
-export function getSessionAttentionStateWithSummary(
-  sessions: Map<string, SessionLike>,
-  sessionId: string,
-): {
-  lastReadAt: number;
-  attentionReason: AttentionReason | null;
-  pendingPermissionSummary: string | null;
-} | null {
-  const session = sessions.get(sessionId);
-  if (!session) return null;
-  const base = getSessionAttentionState(session);
-  return {
-    ...base,
-    pendingPermissionSummary: summarizePendingPermissions(session),
-  };
+  return getNotificationStatusSnapshot(session);
 }
 
 export function getCurrentTurnTriggerSource(
@@ -1683,10 +1643,6 @@ export function clearActionAttentionIfNoPermissions(
 ): void {
   if (session.pendingPermissions.size !== 0 || session.attentionReason !== "action") return;
   session.attentionReason = null;
-  deps.broadcastToBrowsers?.(session, {
-    type: "session_update",
-    session: { attentionReason: null },
-  } as BrowserIncomingMessage);
   deps.persistSession?.(session);
 }
 

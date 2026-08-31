@@ -1,12 +1,8 @@
 import { api } from "./api.js";
 import { useStore } from "./store.js";
 import type { SdkSessionInfo } from "./types.js";
-import {
-  setSdkSessionsWithNotificationFreshness,
-  shouldApplyAttentionReasonWithNotificationFreshness,
-} from "./notification-status.js";
+import { setSdkSessionsWithNotificationFreshness } from "./notification-status.js";
 import { sessionTaskHistoryEqual, stringArrayEqual } from "./store-equality.js";
-import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
 import {
   SESSION_NAVIGATION_PROJECTION,
   sessionNavigationFieldsFromSession,
@@ -159,17 +155,6 @@ export function hydrateSessionList(list: SdkSessionInfo[], options: HydrateSessi
   for (const session of list) {
     hydrateSessionDerivedMetadata(store, session);
   }
-
-  const attentionStore = useStore.getState();
-  const effectiveSessionsById = new Map(nextSdkSessions.map((session) => [session.sessionId, session]));
-  let batchedAttention: Map<string, "action" | "error" | "review" | null> | null = null;
-  for (const listedSession of list) {
-    if (!effectiveActiveSessionIds.has(listedSession.sessionId)) continue;
-    const session = effectiveSessionsById.get(listedSession.sessionId) ?? listedSession;
-    if (hasOwnProjectionEnvelope(session, SYNCED_PROJECTION_DESCRIPTORS[SESSION_ATTENTION_PROJECTION])) continue;
-    batchedAttention = collectAttentionUpdate(attentionStore, session, batchedAttention);
-  }
-  if (batchedAttention) useStore.setState({ sessionAttention: batchedAttention });
 }
 
 export async function refreshTreeGroups(): Promise<void> {
@@ -385,34 +370,6 @@ function hydrateSessionDerivedMetadata(store: ReturnType<typeof useStore.getStat
   if (!stringArrayEqual(currentKeywords, nextKeywords)) {
     store.setSessionKeywords(session.sessionId, nextKeywords);
   }
-}
-
-function collectAttentionUpdate(
-  store: ReturnType<typeof useStore.getState>,
-  session: SdkSessionInfo,
-  batchedAttention: Map<string, "action" | "error" | "review" | null> | null,
-): Map<string, "action" | "error" | "review" | null> | null {
-  if (
-    hasSyncedProjectionValue(store, SESSION_ATTENTION_PROJECTION, session.sessionId) ||
-    session.attentionReason === undefined
-  ) {
-    return batchedAttention;
-  }
-  const shouldApplyAttention = shouldApplyAttentionReasonWithNotificationFreshness(
-    session.sessionId,
-    session.attentionReason,
-    session,
-  );
-  if (!shouldApplyAttention) return batchedAttention;
-  const currentAttention = store.sessionAttention.get(session.sessionId);
-  if (currentAttention === session.attentionReason) return batchedAttention;
-  if (store.currentSessionId === session.sessionId && session.attentionReason) {
-    api.markSessionRead(session.sessionId, { mode: "session-view" }).catch(() => {});
-    return batchedAttention;
-  }
-  const nextAttention = batchedAttention ?? new Map(store.sessionAttention);
-  nextAttention.set(session.sessionId, session.attentionReason ?? null);
-  return nextAttention;
 }
 
 async function runActiveSessionMetadataRefresh(options: ActiveSessionMetadataRefreshOptions): Promise<void> {

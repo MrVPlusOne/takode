@@ -101,8 +101,6 @@ export function Sidebar() {
   const clearRecentlyRenamed = useStore((s) => s.clearRecentlyRenamed);
   const sessionTaskHistory = useStore((s) => s.sessionTaskHistory);
   const sessionAttention = useStore((s) => s.sessionAttention);
-  const syncedProjectionKeys = useStore((s) => s.syncedProjectionKeys);
-  const sessionAttentionRecords = useStore((s) => s.sessionAttentionRecords);
   const sessionNotifications = useStore((s) => s.sessionNotifications);
   const reorderMode = useStore((s) => s.reorderMode);
   const setReorderMode = useStore((s) => s.setReorderMode);
@@ -324,7 +322,6 @@ export function Sidebar() {
     setSearchQuery("");
     setActiveSearchResultIndex(0);
     setSearchPreviewSessionId(null);
-    useStore.getState().markSessionViewed(sessionId);
     api.markSessionRead?.(sessionId, { mode: "session-view" }).catch(() => {});
     // Navigate to session hash — App.tsx hash effect handles setCurrentSession + connectSession
     navigateToSession(sessionId);
@@ -558,7 +555,6 @@ export function Sidebar() {
   async function doArchive(sessionId: string, force?: boolean) {
     try {
       disconnectSession(sessionId);
-      useStore.getState().clearSessionAttention(sessionId);
       const result = await api.archiveSession(sessionId, force ? { force: true } : undefined);
       applyAuthoritativeSessionArchive(result.sessionId ?? sessionId, result.archivedAt);
     } catch {
@@ -592,10 +588,8 @@ export function Sidebar() {
       try {
         for (const w of workers) {
           disconnectSession(w.sessionId);
-          useStore.getState().clearSessionAttention(w.sessionId);
         }
         disconnectSession(leaderId);
-        useStore.getState().clearSessionAttention(leaderId);
 
         const result = await api.archiveGroup(leaderId);
         archivedIds = archiveGroupSuccessfulIds(leaderId, workers, result);
@@ -697,9 +691,6 @@ export function Sidebar() {
         collapsedTreeGroups,
         expandedHerdNodes,
         sessionAttention,
-        syncedProjectionKeys,
-        sessionNotifications,
-        sessionAttentionRecords,
         sessionSortMode,
       }),
     [
@@ -708,9 +699,6 @@ export function Sidebar() {
       treeAssignments,
       treeNodeOrder,
       sessionAttention,
-      syncedProjectionKeys,
-      sessionNotifications,
-      sessionAttentionRecords,
       collapsedTreeGroups,
       expandedHerdNodes,
       sessionSortMode,
@@ -1744,14 +1732,13 @@ export function Sidebar() {
               ? {
                   label: "Mark as read",
                   onClick: () => {
-                    useStore.getState().markSessionViewed(contextMenu.sessionId);
                     api.markSessionRead?.(contextMenu.sessionId).catch(() => {});
                   },
                 }
               : {
                   label: "Mark as unread",
                   onClick: () => {
-                    useStore.getState().markSessionUnread(contextMenu.sessionId);
+                    api.markSessionUnread(contextMenu.sessionId).catch(() => {});
                   },
                 },
             // Tree groups are now the only session-browsing mode in the sidebar.
