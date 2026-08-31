@@ -146,20 +146,17 @@ describe("handleMessage: session_update", () => {
     expect(useStore.getState().sessions.get("s1")!.model).toBe("claude-sonnet-4-20250514");
   });
 
-  it("normalizes legacy live recovery updates after an authoritative progress update", () => {
+  it("applies canonical live recovery progress updates including explicit clear", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
-    fireMessage({
-      type: "session_update",
-      session: {
-        codex_result_error_auto_pause_recovery_testing: true,
-        codex_result_error_auto_pause_recovery_progress: "active",
-      },
-    });
-    fireMessage({ type: "session_update", session: { codex_result_error_auto_pause_recovery_testing: false } });
+
+    fireMessage({ type: "session_update", session: { codex_result_error_auto_pause_recovery_progress: "active" } });
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBe("active");
+
+    fireMessage({ type: "session_update", session: { codex_result_error_auto_pause_recovery_progress: null } });
     expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBeNull();
 
-    fireMessage({ type: "session_update", session: { codex_result_error_auto_pause_recovery_testing: true } });
+    fireMessage({ type: "session_update", session: { codex_result_error_auto_pause_recovery_progress: "testing" } });
     expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBe("testing");
   });
 
@@ -186,7 +183,6 @@ describe("handleMessage: session_update", () => {
     expect(useStore.getState().sessionBoards.get("s1")).toEqual([
       { questId: "q-9", title: "Active quest", status: "IMPLEMENTING", createdAt: 1, updatedAt: 2 },
     ]);
-    expect(useStore.getState().sessions.get("s1")!.leaderOpenThreadTabs).toBeUndefined();
     expect(
       getSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "s1")?.tabs.map(
         (tab) => tab.threadKey,
@@ -222,12 +218,6 @@ describe("handleMessage: session_update", () => {
       session: {
         ...makeSession("s1"),
         isOrchestrator: true,
-        leaderOpenThreadTabs: {
-          version: 1,
-          orderedOpenThreadKeys: ["q-1932"],
-          closedThreadTombstones: [],
-          updatedAt: 2,
-        },
       },
     });
 

@@ -737,12 +737,14 @@ describe("ElapsedTimer - generation stats bar", () => {
           status: "running",
           activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
           generationStartedAt: Date.now() - 12_000,
-          activeCodexReasoningPreview: {
-            text: "Checking the Journey handoff state",
-            updatedAt: Date.now(),
-            threadKey: "q-975",
-            questId: "q-975",
-          },
+          codexReasoningPreviews: [
+            {
+              text: "Checking the Journey handoff state",
+              updatedAt: Date.now(),
+              threadKey: "q-975",
+              questId: "q-975",
+            },
+          ],
         },
         reviewer: null,
       },

@@ -93,7 +93,6 @@ function expectAutoPauseProgress(
     expect.objectContaining({
       type: "session_update",
       session: expect.objectContaining({
-        codex_result_error_auto_pause_recovery_testing: progress !== null,
         codex_result_error_auto_pause_recovery_progress: progress,
       }),
     }),
@@ -944,7 +943,6 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(browserEvents(reconnectBrowser)).toContainEqual(
       expect.objectContaining({
         type: "state_snapshot",
-        codexAutoPauseRecoveryTesting: true,
         codexAutoPauseRecoveryProgress: "testing",
       }),
     );
@@ -1036,7 +1034,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
         const events = browserEvents(connected);
         expectAutoPauseProgress(connected, null);
         expect(events).toContainEqual(
-          expect.objectContaining({ type: "status_change", status: "idle", codexAutoPauseRecoveryTesting: false }),
+          expect.objectContaining({ type: "status_change", status: "idle", codexAutoPauseRecoveryProgress: null }),
         );
       }
     } finally {
@@ -1050,7 +1048,6 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(browserEvents(reconnect)).toContainEqual(
       expect.objectContaining({
         type: "state_snapshot",
-        codexAutoPauseRecoveryTesting: false,
         codexAutoPauseRecoveryProgress: null,
       }),
     );
@@ -1141,7 +1138,6 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "status_change",
-        codexAutoPauseRecoveryTesting: false,
         codexAutoPauseRecoveryProgress: null,
       }),
     );
@@ -1215,7 +1211,6 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(clearIndex).toBeGreaterThan(summaryIndex);
     expect(events[clearIndex]?.session).toMatchObject({
       codex_result_error_auto_pause: null,
-      codex_result_error_auto_pause_recovery_testing: false,
       codex_result_error_auto_pause_recovery_progress: null,
     });
     expect(session.state.codex_result_error_auto_pause).toBeNull();
@@ -1377,7 +1372,6 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(pauseClearedIndex).toBeGreaterThan(summaryIndex);
     expect(recoveryEvents[pauseClearedIndex]?.session).toMatchObject({
       codex_result_error_auto_pause: null,
-      codex_result_error_auto_pause_recovery_testing: false,
       codex_result_error_auto_pause_recovery_progress: null,
     });
 

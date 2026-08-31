@@ -718,7 +718,6 @@ describe("Codex disconnect auto-relaunch", () => {
           expect.objectContaining({
             type: "status_change",
             status: null,
-            codexAutoPauseRecoveryTesting: true,
             codexAutoPauseRecoveryProgress: "testing",
           }),
         );
@@ -739,7 +738,6 @@ describe("Codex disconnect auto-relaunch", () => {
         expect.objectContaining({
           type: "session_update",
           session: expect.objectContaining({
-            codex_result_error_auto_pause_recovery_testing: true,
             codex_result_error_auto_pause_recovery_progress: "testing",
           }),
         }),
@@ -756,7 +754,6 @@ describe("Codex disconnect auto-relaunch", () => {
     expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
       expect.objectContaining({
         type: "state_snapshot",
-        codexAutoPauseRecoveryTesting: true,
         codexAutoPauseRecoveryProgress: "testing",
       }),
     );
@@ -802,13 +799,12 @@ describe("Codex disconnect auto-relaunch", () => {
           expect.objectContaining({
             type: "session_update",
             session: expect.objectContaining({
-              codex_result_error_auto_pause_recovery_testing: false,
               codex_result_error_auto_pause_recovery_progress: null,
             }),
           }),
         );
         expect(events).toContainEqual(
-          expect.objectContaining({ type: "status_change", status: "idle", codexAutoPauseRecoveryTesting: false }),
+          expect.objectContaining({ type: "status_change", status: "idle", codexAutoPauseRecoveryProgress: null }),
         );
       }
     } finally {
@@ -822,7 +818,6 @@ describe("Codex disconnect auto-relaunch", () => {
     expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
       expect.objectContaining({
         type: "state_snapshot",
-        codexAutoPauseRecoveryTesting: false,
         codexAutoPauseRecoveryProgress: null,
       }),
     );
@@ -833,12 +828,19 @@ describe("Codex disconnect auto-relaunch", () => {
     emitCodexSessionReady(replacement, { cliSessionId: "thread-after-terminal-disconnect" });
     expect(getPendingCodexTurn(session)).toBeNull();
     expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
-    expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).not.toContainEqual(
-      expect.objectContaining({
-        type: "session_update",
-        session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: true }),
-      }),
-    );
+    const reconnectEvents = reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+    expect(
+      reconnectEvents.some(
+        (event: any) => event.session?.codex_result_error_auto_pause_recovery_progress === "testing",
+      ),
+    ).toBe(false);
+    expect(
+      reconnectEvents.every(
+        (event: any) =>
+          !Object.hasOwn(event, "codexAutoPauseRecoveryTesting") &&
+          !Object.hasOwn(event.session ?? {}, "codex_result_error_auto_pause_recovery_testing"),
+      ),
+    ).toBe(true);
   });
 
   it("does not request relaunch for idle-manager disconnects", () => {

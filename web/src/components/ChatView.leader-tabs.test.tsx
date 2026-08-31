@@ -2,7 +2,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { useSyncExternalStore, type ReactNode } from "react";
-import type { LeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
 import { persistLeaderSelectedThreadKey, readLeaderSelectedThreadKey } from "../utils/thread-viewport.js";
 import { parseHash, threadRouteFromHash } from "../utils/routing.js";
 import type { LeaderWorkboardView } from "../store-types.js";
@@ -13,7 +12,7 @@ import {
 } from "../../server/cli-launcher-model-authority.js";
 import {
   leaderSession,
-  leaderTabs,
+  projectionTabKeys,
   movedMarker,
   movedUser,
   needsInputNotification,
@@ -38,7 +37,6 @@ interface MockStoreState {
       backend_state?: "initializing" | "resuming" | "recovering" | "connected" | "disconnected" | "broken";
       backend_error?: string | null;
       isOrchestrator?: boolean;
-      leaderOpenThreadTabs?: LeaderOpenThreadTabsState;
       modelProvenanceMigration?: import("../types.js").ModelProvenanceMigration;
     }
   >;
@@ -52,7 +50,6 @@ interface MockStoreState {
     name?: string;
     archived?: boolean;
     isOrchestrator?: boolean;
-    leaderOpenThreadTabs?: LeaderOpenThreadTabsState;
     modelProvenanceMigration?: import("../types.js").ModelProvenanceMigration;
   }>;
   sessionNotifications: Map<string, import("../types.js").SessionNotification[]>;
@@ -64,6 +61,7 @@ interface MockStoreState {
   leaderProjections: Map<string, import("../types.js").LeaderProjectionSnapshot>;
   syncedProjectionValues: Map<string, unknown>;
   syncedProjectionKeys: Set<string>;
+  projectedLeaderTabKeys: string[];
   messages: Map<string, unknown[]>;
   historyLoading: Map<string, boolean>;
   quests: Array<Record<string, unknown> & { questId: string; title: string; status: string }>;
@@ -117,6 +115,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     leaderProjections: new Map(),
     syncedProjectionValues: new Map(),
     syncedProjectionKeys: new Set(),
+    projectedLeaderTabKeys: [],
     messages: new Map(),
     historyLoading: new Map(),
     quests: [],
@@ -142,13 +141,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
   const session = mockState.sessions.get("s1");
   const sdkSession = mockState.sdkSessions.find((candidate) => candidate.sessionId === "s1");
   if (session?.isOrchestrator === true || sdkSession?.isOrchestrator === true) {
-    installChatViewLeaderProjection(
-      mockState,
-      "s1",
-      session?.leaderOpenThreadTabs?.orderedOpenThreadKeys ??
-        sdkSession?.leaderOpenThreadTabs?.orderedOpenThreadKeys ??
-        [],
-    );
+    installChatViewLeaderProjection(mockState, "s1", mockState.projectedLeaderTabKeys);
   }
 }
 
@@ -221,7 +214,6 @@ vi.mock("./WorkBoardBar.js", () => ({
     currentThreadKey,
     onSelectThread,
     openThreadKeys = [],
-    closedThreadKeys = [],
     onCloseThreadTab,
     onReorderThreadTabs,
     threadRows = [],
@@ -229,7 +221,6 @@ vi.mock("./WorkBoardBar.js", () => ({
     currentThreadKey?: string;
     onSelectThread?: (threadKey: string) => void;
     openThreadKeys?: string[];
-    closedThreadKeys?: string[];
     onCloseThreadTab?: (threadKey: string, nextThreadKey?: string) => void;
     onReorderThreadTabs?: (orderedThreadKeys: string[]) => void;
     threadRows?: Array<{ threadKey: string; questId?: string; title: string }>;
@@ -238,7 +229,6 @@ vi.mock("./WorkBoardBar.js", () => ({
       data-testid="work-board-bar"
       data-current-thread-key={currentThreadKey}
       data-open-thread-keys={openThreadKeys.join(",")}
-      data-closed-thread-keys={closedThreadKeys.join(",")}
     >
       {mockState.leaderWorkboardViews.get("s1") && (
         <div data-testid="workboard-panel" data-view={mockState.leaderWorkboardViews.get("s1") ?? undefined}>
@@ -410,17 +400,11 @@ describe("ChatView archived read-only state", () => {
 });
 
 describe("ChatView leader open thread tabs", () => {
-  it("hydrates authoritative open tabs from lightweight sdk session metadata before history loads", () => {
+  it("hydrates authoritative open tabs from the synchronized projection before history loads", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
-      sdkSessions: [
-        {
-          sessionId: "s1",
-          archived: false,
-          isOrchestrator: true,
-          leaderOpenThreadTabs: leaderTabs(["q-1200", "q-927"]),
-        },
-      ],
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      projectedLeaderTabKeys: projectionTabKeys(["q-1200", "q-927"]),
       historyLoading: new Map([["s1", true]]),
     });
 
@@ -459,7 +443,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("persists a browser-local selected leader tab without writing open-tab localStorage", async () => {
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941"]),
       messages: new Map([["s1", [threadMessage("q-941", 2)]]]),
       quests: [{ questId: "q-941", title: "Persisted selection", status: "in_progress" }],
     });
@@ -477,7 +462,8 @@ describe("ChatView leader open thread tabs", () => {
   it("hydrates one canonical retained-tab title across header, banner, and navigation consumers", async () => {
     const hydrateQuestTitles = vi.fn().mockResolvedValue(undefined);
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-1932"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-1932"]),
       // Cold retained-tab hydration may have only the authoritative open key;
       // no board row or routed history row is required to recover the header.
       messages: new Map([["s1", []]]),
@@ -520,7 +506,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("passes the selected leader thread title to the composer for voice transcription vocabulary", async () => {
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-1210"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-1210"]),
       messages: new Map([["s1", [threadMessage("q-1210", 2)]]]),
       quests: [
         {
@@ -544,7 +531,8 @@ describe("ChatView leader open thread tabs", () => {
   it("restores the browser-local selected leader tab when returning without an explicit thread route", async () => {
     persistLeaderSelectedThreadKey("s1", "q-941");
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941"]),
       messages: new Map([["s1", [threadMessage("q-941", 2)]]]),
       quests: [{ questId: "q-941", title: "Restore me", status: "in_progress" }],
     });
@@ -562,7 +550,8 @@ describe("ChatView leader open thread tabs", () => {
     // selected-thread content can be snapshotted under the Main viewport key.
     persistLeaderSelectedThreadKey("s1", "q-941");
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941"]),
       messages: new Map([["s1", [threadMessage("q-941", 2)]]]),
       quests: [{ questId: "q-941", title: "Initial restore", status: "in_progress" }],
     });
@@ -590,7 +579,8 @@ describe("ChatView leader open thread tabs", () => {
     expect(readLeaderSelectedThreadKey("s1")).toBe("q-941");
 
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941"]),
       messages: new Map([["s1", [threadMessage("q-941", 2)]]]),
       quests: [{ questId: "q-941", title: "Hydrating route", status: "in_progress" }],
     });
@@ -605,7 +595,8 @@ describe("ChatView leader open thread tabs", () => {
   it("falls back to Main when the browser-local selected tab is no longer server-open", async () => {
     persistLeaderSelectedThreadKey("s1", "q-999");
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941"], [{ threadKey: "q-999", closedAt: 10 }])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941"]),
       messages: new Map([["s1", [threadMessage("q-941", 2), threadMessage("q-999", 3)]]]),
       quests: [
         { questId: "q-941", title: "Still open", status: "in_progress" },
@@ -624,7 +615,8 @@ describe("ChatView leader open thread tabs", () => {
   it("lets an explicit thread route override browser-local selected tab restore", async () => {
     persistLeaderSelectedThreadKey("s1", "q-941");
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941", "q-777"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941", "q-777"]),
       messages: new Map([["s1", [threadMessage("q-941", 2), threadMessage("q-777", 3)]]]),
       quests: [
         { questId: "q-941", title: "Stored tab", status: "in_progress" },
@@ -646,7 +638,8 @@ describe("ChatView leader open thread tabs", () => {
   ] as const)("opens the %s panel in place from a quest thread", async (shortcutTestId, expectedView) => {
     persistLeaderSelectedThreadKey("s1", "q-42");
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-42"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-42"]),
       sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true, name: "Leader Session" }],
       sessionBoards: new Map([["s1", [{ questId: "q-42", status: "IMPLEMENTING", title: "Active", updatedAt: 2 }]]]),
       sessionCompletedBoards: new Map([
@@ -676,7 +669,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("renders server-owned tabs and applies remote close updates from another browser", () => {
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941", "q-777"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941", "q-777"]),
       messages: new Map([["s1", [threadMessage("q-941", 2), threadMessage("q-777", 3)]]]),
       quests: [
         { questId: "q-941", title: "Closed elsewhere", status: "in_progress" },
@@ -692,12 +686,12 @@ describe("ChatView leader open thread tabs", () => {
     view.rerender(<ChatView sessionId="s1" />);
 
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-777");
-    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-closed-thread-keys", "");
   });
 
   it("sends manual reorder operations without changing selected tab or viewport ownership", () => {
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941", "q-777", "q-555"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941", "q-777", "q-555"]),
       messages: new Map([["s1", [threadMessage("q-941", 2), threadMessage("q-777", 3), threadMessage("q-555", 4)]]]),
       quests: [
         { questId: "q-941", title: "First tab", status: "in_progress" },
@@ -728,7 +722,8 @@ describe("ChatView leader open thread tabs", () => {
   it("preserves manual order when a route-aware local tab click selects an already-open tab", async () => {
     window.location.hash = "#/session/s1?thread=q-1376";
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-1376", "q-1350", "q-1361", "q-1360"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-1376", "q-1350", "q-1361", "q-1360"]),
       messages: new Map([
         [
           "s1",
@@ -765,7 +760,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("keeps newly opened tabs immediately after Main without reordering existing manual order", () => {
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941", "q-777"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941", "q-777"]),
       messages: new Map([["s1", [threadMessage("q-941", 2), threadMessage("q-777", 3), threadMessage("q-555", 4)]]]),
       quests: [
         { questId: "q-941", title: "First tab", status: "in_progress" },
@@ -792,7 +788,8 @@ describe("ChatView leader open thread tabs", () => {
   it("reapplies first placement when a route opens a stale hidden tab that is already persisted", async () => {
     window.location.hash = "#/session/s1?thread=q-1376";
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-1361", "q-1360", "q-1350", "q-1339", "q-1202", "q-1156", "q-1376"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-1361", "q-1360", "q-1350", "q-1339", "q-1202", "q-1156", "q-1376"]),
       messages: new Map([
         [
           "s1",
@@ -836,7 +833,8 @@ describe("ChatView leader open thread tabs", () => {
   it("keeps a fresh creation tab first when the selected route is unchanged", async () => {
     window.location.hash = "#/session/s1?thread=q-1391";
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-1391", "q-1376", "q-1361"], [], 100)),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-1391", "q-1376", "q-1361"]),
       sessionBoards: new Map([["s1", []]]),
       messages: new Map([
         [
@@ -880,7 +878,8 @@ describe("ChatView leader open thread tabs", () => {
   it("does not reassert an already processed route after authoritative tab updates", async () => {
     window.location.hash = "#/session/s1?thread=q-1391";
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-1391", "q-1376"], [], 100)),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-1391", "q-1376"]),
       messages: new Map([
         ["s1", [threadMessage("q-1391", 10), threadMessage("q-1376", 20), threadMessage("q-1395", 200)]],
       ]),
@@ -908,7 +907,8 @@ describe("ChatView leader open thread tabs", () => {
   it("keeps a server-open tab selectable while active needs-input rows are still hydrated separately", async () => {
     window.location.hash = "#/session/s1";
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-900001", "q-900002", "q-900003", "q-900004"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-900001", "q-900002", "q-900003", "q-900004"]),
       sessionNotifications: new Map([
         ["s1", [needsInputNotification("q-900002", 120), needsInputNotification("q-900003", 100)]],
       ]),
@@ -937,7 +937,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("keeps leader tabs open when their quests complete or finish a Journey", () => {
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941", "q-777"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941", "q-777"]),
       sessionBoards: new Map([
         [
           "s1",
@@ -984,7 +985,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("persists active board-row quest tabs before completion so board removal does not drop them", async () => {
     resetStore({
-      sessions: leaderSession(leaderTabs([])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys([]),
       sessionBoards: new Map([
         ["s1", [{ questId: "q-1231", status: "PORTING", title: "Permission CLI", createdAt: 8, updatedAt: 10 }]],
       ]),
@@ -1024,7 +1026,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("inserts newly active board-row candidates before older open leader tabs", async () => {
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-old-a", "q-old-b", "q-old-c"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-old-a", "q-old-b", "q-old-c"]),
       sessionBoards: new Map([
         ["s1", [{ questId: "q-new", status: "IMPLEMENTING", title: "New active quest", updatedAt: 30 }]],
       ]),
@@ -1062,7 +1065,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("opens a manually created idea quest at the left edge when it first becomes active", async () => {
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-8", "q-5", "q-6"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-8", "q-5", "q-6"]),
       sessionBoards: new Map([
         ["s1", [{ questId: "q-7", status: "ALIGNMENT", title: "Manually created idea", updatedAt: 70 }]],
       ]),
@@ -1087,7 +1091,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("promotes routed needs-input notification quest tabs while the board is empty", async () => {
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-13", "q-8", "q-11", "q-12"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-13", "q-8", "q-11", "q-12"]),
       sessionBoards: new Map([["s1", []]]),
       sessionNotifications: new Map([
         ["s1", [needsInputNotification("q-10", 100), needsInputNotification("q-12", 120)]],
@@ -1114,7 +1119,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("applies server-owned needs-input tab promotion across authoritative refreshes", async () => {
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-13"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-13"]),
       sessionBoards: new Map([["s1", []]]),
       sessionNotifications: new Map([
         ["s1", [needsInputNotification("q-10", 100), needsInputNotification("q-12", 120)]],
@@ -1157,7 +1163,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("does not reopen a needs-input notification tab after a newer explicit close", async () => {
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-13"], [{ threadKey: "q-12", closedAt: 200 }])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-13"]),
       sessionBoards: new Map([["s1", []]]),
       sessionNotifications: new Map([["s1", [needsInputNotification("q-12", 120)]]]),
       messages: new Map([["s1", [threadMessage("q-13", 13)]]]),
@@ -1176,7 +1183,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("reapplies first placement when a fresh board row surfaces an already-open stale tab", async () => {
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-old-a", "q-old-b", "q-new"], [], 10)),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-old-a", "q-old-b", "q-new"]),
       sessionBoards: new Map([["s1", []]]),
       messages: new Map([
         ["s1", [threadMessage("q-old-a", 1), threadMessage("q-old-b", 2), threadMessage("q-new", 30)]],
@@ -1206,7 +1214,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("surfaces an already-open idea quest when it later becomes active even if its row timestamp is stale", async () => {
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-8", "q-5", "q-6", "q-7"], [], 100)),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-8", "q-5", "q-6", "q-7"]),
       sessionBoards: new Map([["s1", []]]),
       messages: new Map([
         [
@@ -1244,7 +1253,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("repairs an already-open active board row into the leftmost leader tab prefix on hydration", async () => {
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-old-a", "q-new", "q-old-b"], [], 40)),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-old-a", "q-new", "q-old-b"]),
       sessionBoards: new Map([
         ["s1", [{ questId: "q-new", status: "IMPLEMENTING", title: "Active hidden quest", updatedAt: 30 }]],
       ]),
@@ -1270,7 +1280,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("uses fresh board activation time to reopen a previously closed queued quest", async () => {
     resetStore({
-      sessions: leaderSession(leaderTabs([], [{ threadKey: "q-1231", closedAt: 20 }])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys([]),
       sessionBoards: new Map([
         [
           "s1",
@@ -1299,7 +1310,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("does not resurrect an active quest thread that the user explicitly closed", async () => {
     resetStore({
-      sessions: leaderSession(leaderTabs([], [{ threadKey: "q-1231", closedAt: 20 }])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys([]),
       sessionBoards: new Map([
         ["s1", [{ questId: "q-1231", status: "PORTING", title: "Closed quest", createdAt: 10, updatedAt: 30 }]],
       ]),
@@ -1316,7 +1328,8 @@ describe("ChatView leader open thread tabs", () => {
 
   it("does not force unrelated historical completed quests into open thread tabs", async () => {
     resetStore({
-      sessions: leaderSession(leaderTabs([])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys([]),
       sessionCompletedBoards: new Map([
         [
           "s1",
@@ -1339,7 +1352,8 @@ describe("ChatView leader open thread tabs", () => {
     // Regression for the browser Execute failure: the marker itself is the
     // source evidence for the server-owned projected target even when Questmaster rows lag behind.
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-9003"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-9003"]),
       sessionCompletedBoards: new Map([
         [
           "s1",
@@ -1401,7 +1415,8 @@ describe("ChatView leader open thread tabs", () => {
       historyIndex: 5,
     };
     resetStore({
-      sessions: leaderSession(leaderTabs([])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys([]),
       historyLoading: new Map([["s1", true]]),
       messages: new Map([["s1", []]]),
       quests: [{ questId: "q-1648", title: "Fresh quest thread", status: "in_progress" }],
@@ -1430,7 +1445,8 @@ describe("ChatView leader open thread tabs", () => {
   it("does not surface a Main transition marker for an existing quest target", async () => {
     const transitionedAt = 100;
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-1648"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-1648"]),
       messages: new Map([["s1", [threadMessage("q-1648", transitionedAt - 10)]]]),
       quests: [{ questId: "q-1648", title: "Existing quest thread", status: "in_progress" }],
     });
@@ -1459,7 +1475,8 @@ describe("ChatView leader open thread tabs", () => {
   it("does not surface an already-open completed transition target", async () => {
     const transitionedAt = 100;
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-1648"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-1648"]),
       messages: new Map([["s1", [threadMessage("q-1648", transitionedAt - 10)]]]),
       quests: [{ questId: "q-1648", title: "Completed quest thread", status: "done" }],
     });
@@ -1488,7 +1505,8 @@ describe("ChatView leader open thread tabs", () => {
   it("does not surface a Main transition marker after manual navigation away from Main", async () => {
     const transitionedAt = 1;
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941"]),
       messages: new Map([["s1", [threadMessage("q-941", transitionedAt)]]]),
       quests: [
         { questId: "q-941", title: "Selected thread", status: "in_progress" },
@@ -1516,7 +1534,8 @@ describe("ChatView leader open thread tabs", () => {
   it("does not select or reopen duplicate, replayed, non-Main, or tombstoned transition markers", async () => {
     const transitionedAt = 100;
     resetStore({
-      sessions: leaderSession(leaderTabs([], [{ threadKey: "q-closed", closedAt: transitionedAt + 1 }])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys([]),
       messages: new Map([["s1", []]]),
       quests: [
         { questId: "q-1648", title: "Fresh quest thread", status: "in_progress" },
@@ -1559,7 +1578,8 @@ describe("ChatView leader open thread tabs", () => {
     const attachedAt = Date.now();
     persistLeaderSelectedThreadKey("s1", "q-941");
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941"]),
       messages: new Map([["s1", [threadMessage("q-941", attachedAt - 10)]]]),
       quests: [
         { questId: "q-941", title: "Source thread", status: "in_progress" },
@@ -1596,7 +1616,8 @@ describe("ChatView leader open thread tabs", () => {
     const attachedAt = Date.now();
     persistLeaderSelectedThreadKey("s1", "q-941");
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941", "q-1006"], [], attachedAt - 10)),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941", "q-1006"]),
       messages: new Map([["s1", [threadMessage("q-941", attachedAt - 10), threadMessage("q-1006", attachedAt - 9)]]]),
       quests: [
         { questId: "q-941", title: "Source thread", status: "in_progress" },
@@ -1635,7 +1656,8 @@ describe("ChatView leader open thread tabs", () => {
     const attachedAt = Date.now();
     persistLeaderSelectedThreadKey("s1", "q-941");
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941"]),
       messages: new Map([["s1", [threadMessage("q-941", attachedAt - 10)]]]),
       quests: [
         { questId: "q-941", title: "Selected thread", status: "in_progress" },
@@ -1669,7 +1691,8 @@ describe("ChatView leader open thread tabs", () => {
     const attachedAt = Date.now();
     persistLeaderSelectedThreadKey("s1", "q-941");
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941"]),
       messages: new Map([["s1", [threadMessage("q-941", attachedAt - 10)]]]),
       quests: [
         { questId: "q-941", title: "Source thread", status: "in_progress" },
@@ -1705,7 +1728,8 @@ describe("ChatView leader open thread tabs", () => {
     const attachedAt = Date.now();
     persistLeaderSelectedThreadKey("s1", "q-941");
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941", "q-1006"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941", "q-1006"]),
       messages: new Map([["s1", [threadMessage("q-941", attachedAt - 10), threadMessage("q-1006", attachedAt - 9)]]]),
       quests: [
         { questId: "q-941", title: "Source thread", status: "in_progress" },
@@ -1743,7 +1767,8 @@ describe("ChatView leader open thread tabs", () => {
     const attachedAt = 1;
     persistLeaderSelectedThreadKey("s1", "q-941");
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941"]),
       messages: new Map([["s1", [threadMessage("q-941", attachedAt)]]]),
       quests: [
         { questId: "q-941", title: "Source thread", status: "in_progress" },
@@ -1779,7 +1804,8 @@ describe("ChatView leader open thread tabs", () => {
     const attachedAt = Date.now();
     persistLeaderSelectedThreadKey("s1", "q-941");
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941"])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941"]),
       messages: new Map([["s1", [threadMessage("q-941", attachedAt - 10)]]]),
       quests: [
         { questId: "q-941", title: "Source thread", status: "in_progress" },
@@ -1813,7 +1839,8 @@ describe("ChatView leader open thread tabs", () => {
   it("opens fresh server-created candidates but suppresses candidates older than a user close", async () => {
     const attachedAt = Date.now();
     resetStore({
-      sessions: leaderSession(leaderTabs(["q-941"], [{ threadKey: "q-1005", closedAt: attachedAt + 1 }])),
+      sessions: leaderSession(),
+      projectedLeaderTabKeys: projectionTabKeys(["q-941"]),
       messages: new Map([["s1", []]]),
       quests: [
         { questId: "q-941", title: "Existing thread", status: "in_progress" },

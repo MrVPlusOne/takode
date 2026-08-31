@@ -2,7 +2,7 @@ import type {
   BoardParticipantStatus,
   BoardRow,
   BoardRowSessionStatus,
-  SessionState,
+  BrowserSessionState as SessionState,
   BackendReconnectProgress,
   CodexAppReference,
   CodexSkillReference,

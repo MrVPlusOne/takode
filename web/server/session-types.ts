@@ -844,7 +844,6 @@ export interface BoardParticipantStatus {
   name?: string;
   status: "running" | "idle" | "disconnected" | "archived";
   activeTurnRoute?: ActiveTurnRoute | null;
-  activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
   codexReasoningPreviews?: ActiveCodexReasoningPreview[];
   generationStartedAt?: number | null;
 }
@@ -901,8 +900,8 @@ export interface NeedsInputNotificationQuestion {
 
 /** Messages the bridge sends to the browser */
 export type BrowserIncomingMessageBase =
-  | { type: "session_init"; session: SessionState; nextEventSeq?: number }
-  | { type: "session_update"; session: Partial<SessionState> }
+  | { type: "session_init"; session: BrowserSessionState; nextEventSeq?: number }
+  | { type: "session_update"; session: Partial<BrowserSessionState> }
   | {
       type: "assistant";
       message: CLIAssistantMessage["message"];
@@ -989,9 +988,7 @@ export type BrowserIncomingMessageBase =
       codexCompactionCause?: CodexCompactionCause;
       codexCompactionCauseSource?: CodexCompactionCauseSource;
       activeTurnRoute?: ActiveTurnRoute | null;
-      activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
       codexReasoningPreviews?: ActiveCodexReasoningPreview[];
-      codexAutoPauseRecoveryTesting?: boolean;
       codexAutoPauseRecoveryProgress?: CodexAutoPauseRecoveryProgress | null;
     }
   | { type: "permissions_cleared" }
@@ -1174,9 +1171,7 @@ export type BrowserIncomingMessageBase =
       attentionReason?: "action" | "error" | "review" | null;
       generationStartedAt?: number | null;
       activeTurnRoute?: ActiveTurnRoute | null;
-      activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
       codexReasoningPreviews?: ActiveCodexReasoningPreview[];
-      codexAutoPauseRecoveryTesting?: boolean;
       codexAutoPauseRecoveryProgress?: CodexAutoPauseRecoveryProgress | null;
       board?: BoardRow[];
       completedBoard?: BoardRow[];
@@ -1184,7 +1179,6 @@ export type BrowserIncomingMessageBase =
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
       notifications?: SessionNotification[];
       attentionRecords?: SessionAttentionRecord[];
-      leaderThreadStatuses?: SessionState["leaderThreadStatuses"];
       notificationUrgency?: "needs-input" | "review" | null;
       activeNotificationCount?: number;
       activeNeedsInputNotificationCount?: number;
@@ -1226,7 +1220,6 @@ export type BrowserIncomingMessageBase =
       type: "board_updated";
       board: BoardRow[];
       completedBoard: BoardRow[];
-      leaderOpenThreadTabs?: LeaderOpenThreadTabsState;
       leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
     }
@@ -1492,7 +1485,6 @@ export interface SessionState {
   /** Exact-owner state for an interrupted Codex turn that has not reached a final response. */
   codex_turn_recovery?: CodexTurnRecoveryState | null;
   /** Ephemeral server-authored browser projection; never persisted as recovery state. */
-  codex_result_error_auto_pause_recovery_testing?: boolean;
   codex_result_error_auto_pause_recovery_progress?: CodexAutoPauseRecoveryProgress | null;
   /** Questmaster: ID of the quest claimed by this session */
   claimedQuestId?: string;
@@ -1520,6 +1512,24 @@ export interface SessionState {
   slackThreadChild?: SideChatChildState;
   /** Hidden sessions are omitted from normal user session lists but remain addressable by branch UI. */
   hidden?: boolean;
+}
+
+type BrowserSessionInternalAlias = "leaderOpenThreadTabs" | "leaderThreadStatuses";
+
+/** Session state safe for current-build browser snapshots and patches. */
+export type BrowserSessionState = Omit<SessionState, BrowserSessionInternalAlias>;
+
+/** Keep durable/internal owners off broad browser session messages. */
+export function projectBrowserSessionState<T extends Partial<SessionState>>(
+  state: T,
+): Omit<T, BrowserSessionInternalAlias> {
+  const {
+    leaderOpenThreadTabs: _leaderOpenThreadTabs,
+    leaderThreadStatuses: _leaderThreadStatuses,
+    codex_result_error_auto_pause_recovery_testing: _recoveryTesting,
+    ...browserState
+  } = state as T & { codex_result_error_auto_pause_recovery_testing?: unknown };
+  return browserState as Omit<T, BrowserSessionInternalAlias>;
 }
 
 export type NotificationUrgency = "needs-input" | "review" | null;

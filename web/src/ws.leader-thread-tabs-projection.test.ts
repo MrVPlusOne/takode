@@ -9,6 +9,7 @@ import {
   createLeaderThreadTabsProjectionEnvelope,
   createLeaderThreadTabsProjectionValue,
 } from "./test-fixtures/leader-thread-tabs-projection.js";
+import { getSyncedProjectionValue } from "./store-synced-projections.js";
 import { persistLeaderSelectedThreadKey } from "./utils/thread-viewport.js";
 
 const apiMocks = vi.hoisted(() => ({
@@ -87,28 +88,6 @@ function makeSession(id: string, overrides: Partial<SessionState> = {}): Session
     ...overrides,
   };
 }
-
-const staleTabState = {
-  version: 1 as const,
-  orderedOpenThreadKeys: ["q-stale"],
-  closedThreadTombstones: [],
-  updatedAt: 999,
-};
-
-const staleThreadStatuses = {
-  "q-stale": {
-    kind: "ready" as const,
-    label: "Thread Ready" as const,
-    threadKey: "q-stale",
-    questId: "q-stale",
-    summary: "stale legacy status",
-    messageId: "stale-status",
-    timestamp: 999,
-    updatedAt: 999,
-  },
-};
-
-const stalePhaseSummary = [{ label: "Legacy", count: 9, tone: "status" as const }];
 
 beforeEach(async () => {
   vi.resetModules();
@@ -208,12 +187,6 @@ describe("leader thread tabs projection WebSocket carrier", () => {
           sessionId: "leader",
           archived: false,
           isOrchestrator: true,
-          leaderOpenThreadTabs: {
-            version: 1,
-            orderedOpenThreadKeys: ["q-stale"],
-            closedThreadTombstones: [],
-            updatedAt: 1,
-          },
         } as never,
       ],
       sessions: new Map([
@@ -221,12 +194,6 @@ describe("leader thread tabs projection WebSocket carrier", () => {
           "leader",
           {
             isOrchestrator: true,
-            leaderOpenThreadTabs: {
-              version: 1,
-              orderedOpenThreadKeys: ["q-stale"],
-              closedThreadTombstones: [],
-              updatedAt: 1,
-            },
           } as never,
         ],
       ]),
@@ -253,12 +220,6 @@ describe("leader thread tabs projection WebSocket carrier", () => {
           sessionId: "leader",
           archived: false,
           isOrchestrator: true,
-          leaderOpenThreadTabs: {
-            version: 1,
-            orderedOpenThreadKeys: ["q-stale"],
-            closedThreadTombstones: [],
-            updatedAt: 1,
-          },
         } as never,
       ],
     });
@@ -295,7 +256,7 @@ describe("leader thread tabs projection WebSocket carrier", () => {
   it.each([
     "accepted",
     "unavailable",
-  ] as const)("fences legacy leader-tab ingress under %s projection authority while retaining nonvisual payloads", (authority) => {
+  ] as const)("keeps detailed browser updates independent under %s projection authority", (authority) => {
     useStore.setState({
       sdkSessions: [
         {
@@ -309,9 +270,9 @@ describe("leader thread tabs projection WebSocket carrier", () => {
     useStore.getState().setCurrentSession("leader");
     wsModule.connectSession("leader");
     const socket = MockWebSocket.instances.at(-1)!;
+    open(socket);
 
     if (authority === "accepted") {
-      open(socket);
       const subscriptions = messages(socket)[0]?.synced_projection_subscriptions as Array<{
         projection: string;
         key: string;
@@ -326,44 +287,18 @@ describe("leader thread tabs projection WebSocket carrier", () => {
 
     receive(socket, {
       type: "session_init",
-      session: makeSession("leader", {
-        isOrchestrator: true,
-        leaderOpenThreadTabs: staleTabState,
-        leaderThreadStatuses: staleThreadStatuses,
-      }),
+      session: makeSession("leader", { isOrchestrator: true }),
     });
-    expect(useStore.getState().sessions.get("leader")).toMatchObject({ model: "claude-opus-4-20250514" });
-    expect(useStore.getState().sessions.get("leader")?.leaderOpenThreadTabs).toBeUndefined();
-    expect(useStore.getState().sessions.get("leader")?.leaderThreadStatuses).toBeUndefined();
-
-    receive(socket, {
-      type: "session_update",
-      session: {
-        model: "updated-model",
-        leaderOpenThreadTabs: staleTabState,
-        leaderThreadStatuses: staleThreadStatuses,
-      },
-    });
-    expect(useStore.getState().sessions.get("leader")?.model).toBe("updated-model");
-    expect(useStore.getState().sessions.get("leader")?.leaderOpenThreadTabs).toBeUndefined();
-    expect(useStore.getState().sessions.get("leader")?.leaderThreadStatuses).toBeUndefined();
-
+    receive(socket, { type: "session_update", session: { model: "updated-model" } });
     receive(socket, {
       type: "board_updated",
       board: [{ questId: "q-board", title: "Board detail", status: "WORKING", createdAt: 1, updatedAt: 2 }],
       completedBoard: [],
-      leaderOpenThreadTabs: staleTabState,
-      leaderActivePhaseSummary: stalePhaseSummary,
     });
-    expect(useStore.getState().sessionBoards.get("leader")?.[0]?.questId).toBe("q-board");
-    expect(useStore.getState().sessions.get("leader")?.leaderOpenThreadTabs).toBeUndefined();
-    expect(useStore.getState().sdkSessions[0]?.leaderActivePhaseSummary).toBeUndefined();
-
     receive(socket, {
       type: "session_activity_update",
       session_id: "leader",
       session: {
-        leaderActivePhaseSummary: stalePhaseSummary,
         leaderActiveBoardRows: [
           { questId: "q-activity", title: "Activity detail", status: "WORKING", createdAt: 3, updatedAt: 4 },
         ],
@@ -373,10 +308,6 @@ describe("leader thread tabs projection WebSocket carrier", () => {
         notificationStatusUpdatedAt: 2_000,
       },
     });
-    expect(useStore.getState().sessionBoards.get("leader")?.[0]?.questId).toBe("q-board");
-    expect(useStore.getState().sdkSessions[0]?.activeNotificationCount).toBe(1);
-    expect(useStore.getState().sdkSessions[0]?.leaderActivePhaseSummary).toBeUndefined();
-
     receive(socket, {
       type: "state_snapshot",
       sessionStatus: "idle",
@@ -402,12 +333,13 @@ describe("leader thread tabs projection WebSocket carrier", () => {
       mutedNeedsInputNotificationCount: 0,
       notificationStatusVersion: 3,
       notificationStatusUpdatedAt: 3_000,
-      leaderActivePhaseSummary: stalePhaseSummary,
-      leaderThreadStatuses: staleThreadStatuses,
     });
+
+    expect(useStore.getState().sessions.get("leader")?.model).toBe("updated-model");
     expect(useStore.getState().sessionBoards.get("leader")?.[0]?.questId).toBe("q-snapshot");
     expect(useStore.getState().sessionNotifications.get("leader")?.[0]?.id).toBe("notification-1");
-    expect(useStore.getState().sessions.get("leader")?.leaderThreadStatuses).toBeUndefined();
-    expect(useStore.getState().sdkSessions[0]?.leaderActivePhaseSummary).toBeUndefined();
+    expect(useStore.getState().sdkSessions[0]?.activeNotificationCount).toBe(1);
+    const projection = getSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "leader");
+    expect(projection?.tabs.map((tab) => tab.threadKey) ?? []).toEqual(authority === "accepted" ? ["q-1", "q-2"] : []);
   });
 });

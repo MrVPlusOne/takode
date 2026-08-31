@@ -252,8 +252,8 @@ describe("handleMessage: state_snapshot", () => {
   });
 
   it("restores and replaces authoritative recovery progress on reconnect", () => {
-    // Reconnect/restart must reconstruct testing from server turn ownership,
-    // not a stale composer submit remembered by this browser.
+    // Reconnect/restart must reconstruct recovery progress from server turn
+    // ownership, not a stale composer submit remembered by this browser.
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
@@ -264,11 +264,9 @@ describe("handleMessage: state_snapshot", () => {
       backendConnected: true,
       uiMode: null,
       askPermission: true,
-      codexAutoPauseRecoveryTesting: true,
       codexAutoPauseRecoveryProgress: "active",
     });
 
-    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_testing).toBe(true);
     expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBe("active");
 
     fireMessage({
@@ -278,24 +276,9 @@ describe("handleMessage: state_snapshot", () => {
       backendConnected: true,
       uiMode: null,
       askPermission: true,
-      codexAutoPauseRecoveryTesting: false,
       codexAutoPauseRecoveryProgress: null,
     });
 
-    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_testing).toBe(false);
-    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBeNull();
-
-    fireMessage({
-      type: "state_snapshot",
-      sessionStatus: "running",
-      permissionMode: "default",
-      backendConnected: true,
-      uiMode: null,
-      askPermission: true,
-      codexAutoPauseRecoveryTesting: true,
-      codexAutoPauseRecoveryProgress: null,
-    });
-    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_testing).toBe(false);
     expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBeNull();
   });
 

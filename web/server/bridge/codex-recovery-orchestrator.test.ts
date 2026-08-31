@@ -1457,7 +1457,6 @@ describe("accepted auto-pause recovery dispatch presentation", () => {
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
       type: "session_update",
       session: {
-        codex_result_error_auto_pause_recovery_testing: true,
         codex_result_error_auto_pause_recovery_progress: "testing",
       },
     });
@@ -1482,7 +1481,6 @@ describe("accepted auto-pause recovery dispatch presentation", () => {
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
       type: "session_update",
       session: {
-        codex_result_error_auto_pause_recovery_testing: false,
         codex_result_error_auto_pause_recovery_progress: null,
       },
     });
@@ -1577,7 +1575,6 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
       type: "session_update",
       session: {
-        codex_result_error_auto_pause_recovery_testing: true,
         codex_result_error_auto_pause_recovery_progress: "active",
       },
     });
@@ -1588,7 +1585,6 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
       expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
         type: "session_update",
         session: {
-          codex_result_error_auto_pause_recovery_testing: true,
           codex_result_error_auto_pause_recovery_progress: "active",
         },
       }),
@@ -1612,7 +1608,6 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
       type: "status_change",
       status: "running",
-      codexAutoPauseRecoveryTesting: false,
       codexAutoPauseRecoveryProgress: null,
     });
     expect(deps.persistSession).toHaveBeenCalledWith(session);

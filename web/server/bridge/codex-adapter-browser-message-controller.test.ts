@@ -510,6 +510,21 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(deps.broadcastBoardParticipantRefresh).toHaveBeenCalledTimes(2);
     expect(deps.broadcastBoardParticipantRefresh).toHaveBeenCalledWith(session);
     expect(broadcasts.filter((msg) => msg.type === "stream_event")).toHaveLength(2);
+    const reasoningUpdates = broadcasts.filter((msg) => msg.type === "status_change");
+    expect(reasoningUpdates).toHaveLength(2);
+    expect(reasoningUpdates.at(-1)).toMatchObject({
+      codexReasoningPreviews: [
+        {
+          text: "Inspecting session state",
+          turnId: "turn-1",
+          threadKey: "q-975",
+          questId: "q-975",
+        },
+      ],
+    });
+    for (const update of reasoningUpdates) {
+      expect(update).not.toHaveProperty("activeCodexReasoningPreview");
+    }
   });
 
   it("keeps the full Codex-exposed reasoning text without Takode-side truncation", async () => {
@@ -699,13 +714,13 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     );
 
     expect(session.activeCodexReasoningPreview).toBeNull();
-    expect(broadcasts).toContainEqual(
-      expect.objectContaining({
-        type: "status_change",
-        status: "running",
-        activeCodexReasoningPreview: null,
-      }),
-    );
+    const previewUpdate = broadcasts.find((msg) => msg.type === "status_change");
+    expect(previewUpdate).toMatchObject({
+      type: "status_change",
+      status: "running",
+      codexReasoningPreviews: [],
+    });
+    expect(previewUpdate).not.toHaveProperty("activeCodexReasoningPreview");
   });
 
   it("does not resurrect cleared reasoning from a late top-level reasoning delta", async () => {
@@ -749,12 +764,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     await handleCodexAdapterBrowserMessage(session, msg, deps);
 
     expect(session.activeCodexReasoningPreview).toBeUndefined();
-    expect(broadcasts).not.toContainEqual(
-      expect.objectContaining({
-        type: "status_change",
-        activeCodexReasoningPreview: expect.anything(),
-      }),
-    );
+    expect(broadcasts.some((message) => message.type === "status_change")).toBe(false);
   });
 
   it("clears launcher service tier when adapter fallback updates Codex service tier to Standard", async () => {

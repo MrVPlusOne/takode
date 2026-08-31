@@ -313,6 +313,18 @@ export interface CodexAttachLifecycleDeps
   ) => void;
 }
 
+function broadcastCodexAutoPauseRecoveryStatus(
+  session: CodexRecoveryOrchestratorSessionLike,
+  deps: Pick<CodexRecoveryOrchestratorDeps, "broadcastToBrowsers">,
+  status: "running" | "idle" | null,
+): void {
+  deps.broadcastToBrowsers(session, {
+    type: "status_change",
+    status,
+    codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
+  });
+}
+
 export function requestCodexAutoRecovery(
   session: CodexRecoveryOrchestratorSessionLike,
   reason: string,
@@ -1028,12 +1040,7 @@ export function handleCodexAdapterInitError(
       reason: "recovery_suppressed",
     });
     deps.broadcastToBrowsers(session, { type: "error", message: diagnostic });
-    deps.broadcastToBrowsers(session, {
-      type: "status_change",
-      status: null,
-      codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
-      codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
-    });
+    broadcastCodexAutoPauseRecoveryStatus(session, deps, null);
     deps.persistSession(session);
     return "broken";
   }
@@ -1061,12 +1068,7 @@ export function handleCodexAdapterInitError(
     reason: "broken",
   });
   deps.broadcastToBrowsers(session, { type: "error", message: error });
-  deps.broadcastToBrowsers(session, {
-    type: "status_change",
-    status: null,
-    codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
-    codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
-  });
+  broadcastCodexAutoPauseRecoveryStatus(session, deps, null);
   deps.persistSession(session);
   return "broken";
 }
@@ -1206,12 +1208,7 @@ export function registerCodexAdapterRecoveryLifecycle(
     if (!pending) {
       if (source === "codex_goal_continuation" && !session.isGenerating) {
         deps.setGenerating(session, true, "codex_goal_continuation");
-        deps.broadcastToBrowsers(session, {
-          type: "status_change",
-          status: "running",
-          codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
-          codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
-        });
+        broadcastCodexAutoPauseRecoveryStatus(session, deps, "running");
         deps.persistSession(session);
       }
       return;
@@ -1364,12 +1361,7 @@ export function registerCodexAdapterRecoveryLifecycle(
         retireCodexAutoPauseRecoveryTesting(session, deps);
         deps.markTurnInterrupted(session, "system");
         deps.setGenerating(session, false, "codex_disconnect");
-        deps.broadcastToBrowsers(session, {
-          type: "status_change",
-          status: "idle",
-          codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
-          codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
-        });
+        broadcastCodexAutoPauseRecoveryStatus(session, deps, "idle");
         deps.persistSession(session);
         console.log(
           `[ws-bridge] Codex disconnect grace expired for session ${sessionTag(session.id)} — emitting deferred system interruption`,
@@ -1384,12 +1376,7 @@ export function registerCodexAdapterRecoveryLifecycle(
       deps.markTurnInterrupted(session, "system");
       deps.setGenerating(session, false, "codex_disconnect");
     }
-    deps.broadcastToBrowsers(session, {
-      type: "status_change",
-      status: null,
-      codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
-      codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
-    });
+    broadcastCodexAutoPauseRecoveryStatus(session, deps, null);
     deps.scheduleCodexToolResultWatchdogs(session, "codex_disconnect");
     deps.persistSession(session);
     console.log(

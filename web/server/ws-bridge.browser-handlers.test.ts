@@ -576,19 +576,75 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Browser handlers", () => {
-  it("handleBrowserOpen: adds to set and sends session_init", () => {
-    bridge.getOrCreateSession("s1");
+  it("handleBrowserOpen: sends canonical session_init while preserving internal leader state", () => {
+    const session = bridge.getOrCreateSession("s1");
+    session.state.leaderOpenThreadTabs = {
+      version: 1,
+      orderedOpenThreadKeys: ["q-2000"],
+      closedThreadTombstones: [],
+      updatedAt: 1,
+    };
+    session.state.leaderThreadStatuses = {
+      "q-2000": {
+        kind: "ready",
+        label: "Thread Ready",
+        threadKey: "q-2000",
+        questId: "q-2000",
+        summary: "ready",
+        messageId: "ready-1",
+        timestamp: 1,
+        updatedAt: 1,
+      },
+    };
+    (session.state as any).codex_result_error_auto_pause_recovery_testing = true;
+    session.state.codex_result_error_auto_pause_recovery_progress = "testing";
     const browser = makeBrowserSocket("s1");
 
     bridge.handleBrowserOpen(browser, "s1");
 
-    const session = bridge.getSession("s1")!;
     expect(session.browserSockets.has(browser)).toBe(true);
-
     expect(browser.send).toHaveBeenCalled();
     const firstMsg = JSON.parse(browser.send.mock.calls[0][0]);
-    expect(firstMsg.type).toBe("session_init");
-    expect(firstMsg.session.session_id).toBe("s1");
+    expect(firstMsg).toMatchObject({
+      type: "session_init",
+      session: { session_id: "s1", codex_result_error_auto_pause_recovery_progress: "testing" },
+    });
+    expect(firstMsg.session).not.toHaveProperty("leaderOpenThreadTabs");
+    expect(firstMsg.session).not.toHaveProperty("leaderThreadStatuses");
+    expect(firstMsg.session).not.toHaveProperty("codex_result_error_auto_pause_recovery_testing");
+    expect(session.state.leaderOpenThreadTabs.orderedOpenThreadKeys).toEqual(["q-2000"]);
+    expect(session.state.leaderThreadStatuses["q-2000"]?.kind).toBe("ready");
+  });
+
+  it("backfills only changed command catalog fields instead of broad session state", () => {
+    const source = bridge.getOrCreateSession("source");
+    source.state.cwd = "/test";
+    const target = bridge.getOrCreateSession("target");
+    target.state.cwd = "/test";
+    target.state.leaderOpenThreadTabs = {
+      version: 1,
+      orderedOpenThreadKeys: ["q-2000"],
+      closedThreadTombstones: [],
+      updatedAt: 1,
+    };
+    target.state.leaderThreadStatuses = {};
+    const browser = makeBrowserSocket("target");
+    bridge.handleBrowserOpen(browser, "target");
+    browser.send.mockClear();
+
+    (bridge as any).slashCommandCache.set("/test", {
+      slash_commands: ["/review"],
+      skills: ["review"],
+      skill_metadata: [],
+      apps: [],
+    });
+    (bridge as any).backfillSlashCommands("/test", "source");
+
+    const update = browser.send.mock.calls
+      .map(([raw]: [string]) => JSON.parse(raw))
+      .find((message: any) => message.type === "session_update");
+    expect(update?.session).toEqual({ slash_commands: ["/review"], skills: ["review"] });
+    expect(target.state.leaderOpenThreadTabs.orderedOpenThreadKeys).toEqual(["q-2000"]);
   });
 
   it("handleBrowserOpen: sends the latest global VSCode selection state", () => {

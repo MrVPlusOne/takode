@@ -4,7 +4,7 @@ import "@testing-library/jest-dom";
 import { useSyncExternalStore, type ReactNode } from "react";
 import { persistLeaderSelectedThreadKey, readLeaderSelectedThreadKey } from "../utils/thread-viewport.js";
 import { parseHash, threadRouteFromHash } from "../utils/routing.js";
-import { leaderTabs, needsInputNotification, threadMessage } from "./chat-view-leader-tabs-fixtures.js";
+import { needsInputNotification, threadMessage } from "./chat-view-leader-tabs-fixtures.js";
 import { installChatViewLeaderProjection } from "../test-fixtures/chat-view-leader-projection.js";
 
 const QUEST_ID = "q-1944";
@@ -22,7 +22,6 @@ function createMockState() {
         backend_state: "connected" as const,
         backend_error: null,
         isOrchestrator: true,
-        leaderOpenThreadTabs: leaderTabs([QUEST_ID]),
       },
     ],
     [
@@ -31,7 +30,6 @@ function createMockState() {
         backend_state: "connected" as const,
         backend_error: null,
         isOrchestrator: true,
-        leaderOpenThreadTabs: leaderTabs([]),
       },
     ],
   ]);

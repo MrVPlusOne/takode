@@ -316,7 +316,6 @@ export type PublicSdkSessionInfo = Pick<
     worktreeExists?: boolean;
     worktreeDirty?: boolean;
     leaderProfilePortrait?: LeaderProfilePortrait;
-    leaderOpenThreadTabs?: SessionState["leaderOpenThreadTabs"];
     leaderActiveBoardRows?: BoardRow[];
     attentionReason?: "action" | "error" | "review" | null;
     lastReadAt?: number;

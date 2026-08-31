@@ -136,6 +136,50 @@ describe("archived session browser viewing", () => {
     expect(sentTypes).toContain("backend_disconnected");
   });
 
+  it("keeps internal leader and recovery aliases out of broad session init", () => {
+    const ws = { data: {}, send: vi.fn() };
+    const deps = makeInjectDeps();
+    const session = makeSession({
+      browserSockets: new Set(),
+      state: {
+        permissionMode: "default",
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-2000"],
+          closedThreadTombstones: [],
+          updatedAt: 1,
+        },
+        leaderThreadStatuses: {
+          "q-2000": {
+            kind: "ready",
+            label: "Thread Ready",
+            threadKey: "q-2000",
+            questId: "q-2000",
+            summary: "ready",
+            messageId: "ready-1",
+            timestamp: 1,
+            updatedAt: 1,
+          },
+        },
+        codex_result_error_auto_pause_recovery_testing: true,
+        codex_result_error_auto_pause_recovery_progress: "testing",
+      } as any,
+    });
+
+    handleBrowserOpen(session, ws, deps);
+
+    const init = ws.send.mock.calls
+      .map(([raw]) => JSON.parse(String(raw)))
+      .find((message) => message.type === "session_init");
+    expect(init?.session).toMatchObject({ codex_result_error_auto_pause_recovery_progress: "testing" });
+    expect(init?.session).not.toHaveProperty("leaderOpenThreadTabs");
+    expect(init?.session).not.toHaveProperty("leaderThreadStatuses");
+    expect(init?.session).not.toHaveProperty("codex_result_error_auto_pause_recovery_testing");
+    expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-2000"]);
+    expect(session.state.leaderThreadStatuses?.["q-2000"]?.kind).toBe("ready");
+  });
+
   it("serves archived history subscribe without pending-delivery recovery side effects", async () => {
     // Search-data-only archived sessions are expected to hydrate full history on
     // subscribe. The archived path must not also finalize terminal tools or arm
@@ -394,27 +438,33 @@ describe("Codex auto-pause recovery summary fanout", () => {
     sendStateSnapshot(session, second, makeInjectDeps());
 
     for (const socket of [first, second]) {
-      expect(JSON.parse(String(socket.send.mock.calls[0]?.[0]))).toMatchObject({
+      const snapshot = JSON.parse(String(socket.send.mock.calls[0]?.[0]));
+      expect(snapshot).toMatchObject({
         type: "state_snapshot",
-        codexAutoPauseRecoveryTesting: true,
+        codexAutoPauseRecoveryProgress: "testing",
       });
+      expect(snapshot).not.toHaveProperty("codexAutoPauseRecoveryTesting");
     }
 
     session.isGenerating = false;
     const pendingRetry = { send: vi.fn() };
     sendStateSnapshot(session, pendingRetry, makeInjectDeps());
-    expect(JSON.parse(String(pendingRetry.send.mock.calls[0]?.[0]))).toMatchObject({
+    const pendingSnapshot = JSON.parse(String(pendingRetry.send.mock.calls[0]?.[0]));
+    expect(pendingSnapshot).toMatchObject({
       type: "state_snapshot",
-      codexAutoPauseRecoveryTesting: true,
+      codexAutoPauseRecoveryProgress: "testing",
     });
+    expect(pendingSnapshot).not.toHaveProperty("codexAutoPauseRecoveryTesting");
 
     session.pendingCodexTurns = [];
     const afterTerminal = { send: vi.fn() };
     sendStateSnapshot(session, afterTerminal, makeInjectDeps());
-    expect(JSON.parse(String(afterTerminal.send.mock.calls[0]?.[0]))).toMatchObject({
+    const terminalSnapshot = JSON.parse(String(afterTerminal.send.mock.calls[0]?.[0]));
+    expect(terminalSnapshot).toMatchObject({
       type: "state_snapshot",
-      codexAutoPauseRecoveryTesting: false,
+      codexAutoPauseRecoveryProgress: null,
     });
+    expect(terminalSnapshot).not.toHaveProperty("codexAutoPauseRecoveryTesting");
   });
 
   it("keeps persisted recovery-transfer payloads out of browser state snapshots", () => {

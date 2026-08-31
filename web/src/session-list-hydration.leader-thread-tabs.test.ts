@@ -59,12 +59,6 @@ describe("session-list leader thread tabs projection hydration", () => {
 
     hydrateSessionList([
       sdkSession({
-        leaderOpenThreadTabs: {
-          version: 1,
-          orderedOpenThreadKeys: ["q-stale"],
-          closedThreadTombstones: [],
-          updatedAt: 1,
-        },
         leaderThreadTabsProjection: createLeaderThreadTabsProjectionEnvelope({ key: "leader" }),
       }),
     ]);
@@ -77,28 +71,6 @@ describe("session-list leader thread tabs projection hydration", () => {
   });
 
   it("keeps absent projected tab state migration-eligible while malformed envelopes fail closed", () => {
-    useStore.setState({
-      sessions: new Map([
-        [
-          "leader",
-          {
-            isOrchestrator: true,
-            leaderThreadStatuses: {
-              "q-stale": {
-                kind: "ready",
-                label: "Thread Ready",
-                threadKey: "q-stale",
-                questId: "q-stale",
-                summary: "stale legacy status",
-                messageId: "legacy-status",
-                timestamp: 1,
-                updatedAt: 1,
-              },
-            },
-          } as never,
-        ],
-      ]),
-    });
     const cleared = createLeaderThreadTabsProjectionValue({
       tabState: null,
       tabs: [],
@@ -108,12 +80,6 @@ describe("session-list leader thread tabs projection hydration", () => {
     });
     hydrateSessionList([
       sdkSession({
-        leaderOpenThreadTabs: {
-          version: 1,
-          orderedOpenThreadKeys: ["q-stale"],
-          closedThreadTombstones: [],
-          updatedAt: 1,
-        },
         leaderActivePhaseSummary: [{ label: "Stale", count: 1, tone: "status" }],
         leaderThreadTabsProjection: createLeaderThreadTabsProjectionEnvelope({ key: "leader", value: cleared }),
       }),
@@ -126,17 +92,8 @@ describe("session-list leader thread tabs projection hydration", () => {
     expect(selectLeaderActivePhaseSummary(useStore.getState(), "leader")).toEqual([]);
 
     useStore.getState().reset();
-    useStore.setState({
-      sessions: new Map([["leader", { isOrchestrator: true, leaderThreadStatuses: { "q-stale": {} } } as never]]),
-    });
     hydrateSessionList([
       sdkSession({
-        leaderOpenThreadTabs: {
-          version: 1,
-          orderedOpenThreadKeys: ["q-stale"],
-          closedThreadTombstones: [],
-          updatedAt: 1,
-        },
         leaderActivePhaseSummary: [{ label: "Stale", count: 1, tone: "status" }],
         leaderThreadTabsProjection: {
           ...createLeaderThreadTabsProjectionEnvelope({ key: "leader" }),

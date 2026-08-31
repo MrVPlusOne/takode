@@ -956,7 +956,7 @@ describe("QuestInlineLink chat-feed preview", () => {
     expect(within(dialog).queryByTestId("quest-feed-thread-action")).toBeNull();
   });
 
-  it("does not use a deprecated raw open tab even after leader role is confirmed", async () => {
+  it("does not infer an open quest tab from leader role without the canonical projection", async () => {
     const cached = quest({
       questId: "q-492",
       title: "Non-leader recorded route",
@@ -969,12 +969,6 @@ describe("QuestInlineLink chat-feed preview", () => {
       state: "running" as const,
       cwd: "/tmp/not-a-leader-492",
       createdAt: 1,
-      leaderOpenThreadTabs: {
-        version: 1 as const,
-        orderedOpenThreadKeys: ["q-492"],
-        closedThreadTombstones: [],
-        updatedAt: 1,
-      },
     };
     useStore.setState({
       questDetails: new Map([["q-492", cached]]),
@@ -1016,12 +1010,6 @@ describe("QuestInlineLink chat-feed preview", () => {
           state: "running",
           cwd: "/tmp/leader-494",
           createdAt: 1,
-          leaderOpenThreadTabs: {
-            version: 1,
-            orderedOpenThreadKeys: ["q-494"],
-            closedThreadTombstones: [],
-            updatedAt: 1,
-          },
           leaderThreadTabsProjection: { malformed: true } as never,
         },
       ],

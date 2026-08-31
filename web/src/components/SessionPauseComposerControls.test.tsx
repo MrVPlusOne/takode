@@ -220,7 +220,7 @@ describe("PausedInputChip", () => {
         autoPausedHeldCount={2}
         directComposerMessagesSend={true}
         autoPause={makeAutoPauseState("model_backend_stream_error")}
-        autoPauseRecoveryTesting={true}
+        autoPauseRecoveryProgress="testing"
       />,
     );
 
@@ -267,23 +267,6 @@ describe("PausedInputChip", () => {
     expect(guidance.parentElement?.className).toContain("flex-wrap");
   });
 
-  it("lets an explicit server progress clear override a stale legacy testing boolean", () => {
-    render(
-      <PausedInputChip
-        pause={null}
-        heldCount={0}
-        autoPausedHeldCount={2}
-        directComposerMessagesSend={true}
-        autoPause={makeAutoPauseState()}
-        autoPauseRecoveryTesting={true}
-        autoPauseRecoveryProgress={null}
-      />,
-    );
-
-    expect(screen.getByText("Send a direct message to test recovery.")).toBeTruthy();
-    expect(screen.queryByText(/Testing recovery with your current message/)).toBeNull();
-  });
-
   it("explains terminal unsupported-model pauses without implying automatic model fallback", () => {
     render(
       <PausedInputChip
@@ -298,7 +281,7 @@ describe("PausedInputChip", () => {
     expect(screen.getByText(/Cause: Selected model is unsupported at/)).toBeTruthy();
   });
 
-  it("renders held-idle when testing is false and removes the banner after authoritative pause clear", () => {
+  it("renders held-idle when progress is clear and removes the banner after authoritative pause clear", () => {
     const { rerender } = render(
       <PausedInputChip
         pause={null}
@@ -306,7 +289,7 @@ describe("PausedInputChip", () => {
         autoPausedHeldCount={2}
         directComposerMessagesSend={true}
         autoPause={makeAutoPauseState()}
-        autoPauseRecoveryTesting={false}
+        autoPauseRecoveryProgress={null}
       />,
     );
 
@@ -318,7 +301,7 @@ describe("PausedInputChip", () => {
         autoPausedHeldCount={0}
         directComposerMessagesSend={true}
         autoPause={null}
-        autoPauseRecoveryTesting={false}
+        autoPauseRecoveryProgress={null}
       />,
     );
     expect(screen.queryByTestId("composer-paused-chip")).toBeNull();

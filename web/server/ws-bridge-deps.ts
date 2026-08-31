@@ -63,7 +63,7 @@ import { buildBoardRowSessionStatuses } from "./board-row-session-status.js";
 import * as gitUtils from "./git-utils.js";
 import { sessionTag } from "./session-tag.js";
 import { isSessionPaused } from "./session-pause.js";
-import { getCodexAutoPauseRecoveryProgress, isCodexAutoPauseRecoveryTesting } from "./codex-result-error-auto-pause.js";
+import { getCodexAutoPauseRecoveryProgress } from "./codex-result-error-auto-pause.js";
 import { retireCodexAutoPauseRecoveryTesting } from "./bridge/codex-auto-pause-recovery-testing.js";
 import type { PerfTracer } from "./perf-tracer.js";
 import { HerdEventDispatcher, isSessionIdleRuntime } from "./herd-event-dispatcher.js";
@@ -848,10 +848,6 @@ export function getClaudeMessageHandlers(host: any) {
         session.state.codex_provider_retry ? "codex_provider_result_retry" : "result",
       );
     },
-    getCodexAutoPauseRecoveryTesting: (targetSession: unknown) =>
-      (targetSession as Session).backendType === "codex"
-        ? isCodexAutoPauseRecoveryTesting(targetSession as Session)
-        : false,
     getCodexAutoPauseRecoveryProgress: (targetSession: unknown) =>
       (targetSession as Session).backendType === "codex"
         ? getCodexAutoPauseRecoveryProgress(targetSession as Session)
@@ -1545,12 +1541,7 @@ export function getBrowserRoutingDeps(host: any) {
         type: "status_change",
         status,
         activeTurnRoute: status === "running" ? deriveActiveTurnRouteBrowserTransportController(session) : null,
-        activeCodexReasoningPreview:
-          status === "running" && session.activeCodexReasoningPreview?.text?.trim()
-            ? session.activeCodexReasoningPreview
-            : null,
         codexReasoningPreviews: listCodexReasoningPreviews(session),
-        codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
         codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
       });
       host.scheduleBoardParticipantRefresh?.(session.id);
@@ -1807,12 +1798,7 @@ export function getGenerationLifecycleDeps(host: any) {
         type: "status_change",
         status,
         activeTurnRoute: status === "running" ? deriveActiveTurnRouteBrowserTransportController(session) : null,
-        activeCodexReasoningPreview:
-          status === "running" && session.activeCodexReasoningPreview?.text?.trim()
-            ? session.activeCodexReasoningPreview
-            : null,
         codexReasoningPreviews: listCodexReasoningPreviews(session),
-        codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
         codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
       });
       host.scheduleBoardParticipantRefresh?.(session.id);

@@ -12,6 +12,7 @@ import { getQuestPhaseColorValue, getQuestPhaseThreadTabTitleColorValue } from "
 import {
   installWorkBoardProjectionFixture,
   resetWorkBoardProjectionFixture,
+  type WorkBoardProjectionPropsFixture,
 } from "../test-fixtures/work-board-projection-adapter.js";
 
 // ─── WorkBoardBar component tests ─────────────────────────────────────────────
@@ -127,28 +128,15 @@ vi.mock("./BoardTable.js", async (importOriginal) => {
 // Must import after mocks are set up
 const { WorkBoardBar: CurrentWorkBoardBar } = await import("./WorkBoardBar.js");
 
-type WorkBoardBarProps = Omit<ComponentProps<typeof CurrentWorkBoardBar>, "attentionRecords"> & {
-  attentionRecords?: ReadonlyArray<SessionAttentionRecord>;
-};
-let projectionFixtureRenderRevision = 0;
+type WorkBoardBarProps = ComponentProps<typeof CurrentWorkBoardBar> &
+  Pick<WorkBoardProjectionPropsFixture, "attentionRecords" | "closedThreadKeys">;
 
 function WorkBoardBar(props: WorkBoardBarProps) {
   installWorkBoardProjectionFixture(mockState, props, {
     explicitOpenKeysProvided: Object.hasOwn(props, "openThreadKeys"),
   });
-  const {
-    attentionRecords: _attentionRecords,
-    closedThreadKeys: _closedThreadKeys,
-    currentThreadLabel: _currentThreadLabel,
-    ...currentProps
-  } = props;
-  projectionFixtureRenderRevision += 1;
-  return (
-    <CurrentWorkBoardBar
-      {...currentProps}
-      currentThreadLabel={`projection-fixture-${projectionFixtureRenderRevision}`}
-    />
-  );
+  const { attentionRecords: _attentionRecords, closedThreadKeys: _closedThreadKeys, ...currentProps } = props;
+  return <CurrentWorkBoardBar {...currentProps} threadRows={[...(currentProps.threadRows ?? [])]} />;
 }
 
 function attentionRecord(overrides: Partial<SessionAttentionRecord> = {}): SessionAttentionRecord {
@@ -299,9 +287,7 @@ describe("WorkBoardBar", () => {
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
 
-    const { getByTestId, queryByTestId } = render(
-      <WorkBoardBar sessionId="s1" currentThreadKey="q-1" currentThreadLabel="q-1" />,
-    );
+    const { getByTestId, queryByTestId } = render(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" />);
 
     expect(getByTestId("thread-tab-rail")).toBeInTheDocument();
     expect(queryByTestId("workboard-main-banner")).not.toBeInTheDocument();

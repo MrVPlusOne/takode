@@ -44,5 +44,6 @@ describe("state snapshot Codex reasoning projection", () => {
       sessionStatus: "idle",
       codexReasoningPreviews: [{ text: "Retained after result", threadKey: "q-975" }],
     });
+    expect(snapshot).not.toHaveProperty("activeCodexReasoningPreview");
   });
 });

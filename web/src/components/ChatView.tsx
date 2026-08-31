@@ -739,14 +739,6 @@ function useLeaderThreadModel(sessionId: string, deferMessageDerivedRows = false
   };
 }
 
-function threadLabelForKey(threadKey: string, rows: LeaderThreadRow[]): string {
-  const normalized = threadKey.toLowerCase();
-  if (normalized === MAIN_THREAD_KEY) return "Main";
-  if (normalized === ALL_THREADS_KEY) return "All Threads";
-  const row = rows.find((candidate) => candidate.threadKey === normalized);
-  return row?.questId ?? row?.title ?? threadKey;
-}
-
 function threadTitleForTranscription(threadKey: string, rows: LeaderThreadRow[]): string | undefined {
   const normalized = threadKey.toLowerCase();
   if (normalized === MAIN_THREAD_KEY) return "Main Thread";
@@ -1281,10 +1273,6 @@ export function ChatView({
       api.markNotificationDone(sessionId, notificationId, true).catch(console.error);
     }
   }, [reviewNotificationIdsToClear, sessionId]);
-  const selectedThreadLabel = useMemo(
-    () => threadLabelForKey(selectedThreadKey, navigationThreadRows),
-    [navigationThreadRows, selectedThreadKey],
-  );
   const selectedThreadRow = useMemo(() => {
     const normalizedThreadKey = normalizeThreadKey(selectedThreadKey);
     const existing = navigationThreadRows.find((row) => row.threadKey === normalizedThreadKey);
@@ -1622,7 +1610,6 @@ export function ChatView({
         <WorkBoardBar
           sessionId={sessionId}
           currentThreadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
-          currentThreadLabel={isLeaderSession ? selectedThreadLabel : "Main"}
           onSelectThread={isLeaderSession ? handleSelectThread : undefined}
           openThreadKeys={isLeaderSession ? openThreadTabKeys : undefined}
           onCloseThreadTab={isLeaderSession ? handleCloseThreadTab : undefined}

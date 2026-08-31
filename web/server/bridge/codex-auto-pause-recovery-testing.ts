@@ -26,7 +26,6 @@ export function broadcastCodexAutoPauseRecoveryTesting<S extends CodexAutoPauseR
   deps.broadcastToBrowsers(session, {
     type: "session_update",
     session: {
-      codex_result_error_auto_pause_recovery_testing: progress !== null,
       codex_result_error_auto_pause_recovery_progress: progress,
     },
   });

@@ -9,6 +9,7 @@ import type { LeaderWorkboardView } from "../store-types.js";
 import {
   installWorkBoardProjectionFixture,
   resetWorkBoardProjectionFixture,
+  type WorkBoardProjectionPropsFixture,
 } from "../test-fixtures/work-board-projection-adapter.js";
 
 interface MockStoreState {
@@ -121,28 +122,15 @@ vi.mock("./BoardTable.js", async (importOriginal) => {
 
 const { WorkBoardBar: CurrentWorkBoardBar } = await import("./WorkBoardBar.js");
 
-type WorkBoardBarProps = Omit<ComponentProps<typeof CurrentWorkBoardBar>, "attentionRecords"> & {
-  attentionRecords?: ReadonlyArray<SessionAttentionRecord>;
-};
-let projectionFixtureRenderRevision = 0;
+type WorkBoardBarProps = ComponentProps<typeof CurrentWorkBoardBar> &
+  Pick<WorkBoardProjectionPropsFixture, "attentionRecords" | "closedThreadKeys">;
 
 function WorkBoardBar(props: WorkBoardBarProps) {
   installWorkBoardProjectionFixture(mockState, props, {
     explicitOpenKeysProvided: Object.hasOwn(props, "openThreadKeys"),
   });
-  const {
-    attentionRecords: _attentionRecords,
-    closedThreadKeys: _closedThreadKeys,
-    currentThreadLabel: _currentThreadLabel,
-    ...currentProps
-  } = props;
-  projectionFixtureRenderRevision += 1;
-  return (
-    <CurrentWorkBoardBar
-      {...currentProps}
-      currentThreadLabel={`projection-fixture-${projectionFixtureRenderRevision}`}
-    />
-  );
+  const { attentionRecords: _attentionRecords, closedThreadKeys: _closedThreadKeys, ...currentProps } = props;
+  return <CurrentWorkBoardBar {...currentProps} threadRows={[...(currentProps.threadRows ?? [])]} />;
 }
 
 beforeEach(() => {

@@ -98,12 +98,6 @@ describe("buildSidebarVisibleSessions", () => {
         activeReviewNotificationCount: 3,
         notificationStatusVersion: 12,
         notificationStatusUpdatedAt: 12_000,
-        leaderOpenThreadTabs: {
-          version: 1,
-          orderedOpenThreadKeys: ["q-1964", "q-1969", "q-1977"],
-          closedThreadTombstones: [],
-          updatedAt: 12_000,
-        },
       }),
     ];
 
@@ -260,12 +254,6 @@ describe("buildSidebarVisibleSessions", () => {
         notificationUrgency: null,
         activeNotificationCount: 0,
         notificationStatusVersion: 8,
-        leaderOpenThreadTabs: {
-          version: 1,
-          orderedOpenThreadKeys: [],
-          closedThreadTombstones: [{ threadKey: "q-closed", closedAt: 8000 }],
-          updatedAt: 8000,
-        },
       }),
     ];
 

@@ -131,7 +131,6 @@ export function PauseOtherSourcesButton({
 export function PausedInputChip({
   pause,
   autoPause,
-  autoPauseRecoveryTesting = false,
   autoPauseRecoveryProgress,
   heldCount,
   autoPausedHeldCount = 0,
@@ -139,7 +138,6 @@ export function PausedInputChip({
 }: {
   pause: SessionPauseState | null | undefined;
   autoPause?: SessionState["codex_result_error_auto_pause"];
-  autoPauseRecoveryTesting?: boolean;
   autoPauseRecoveryProgress?: "testing" | "active" | null;
   heldCount: number;
   autoPausedHeldCount?: number;
@@ -160,8 +158,7 @@ export function PausedInputChip({
   const autoPauseCause = isAutoPause
     ? `Cause: ${fixedAutoPauseCause(autoPause.family)} at ${formatAutoPauseTime(autoPause.pausedAt!)}.`
     : "";
-  const recoveryProgress =
-    autoPauseRecoveryProgress !== undefined ? autoPauseRecoveryProgress : autoPauseRecoveryTesting ? "testing" : null;
+  const recoveryProgress = autoPauseRecoveryProgress ?? null;
   const autoPauseGuidance =
     recoveryProgress === "active"
       ? "Recovery is active for your current message. Automatic inputs remain held until it completes successfully."

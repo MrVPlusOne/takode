@@ -724,13 +724,12 @@ describe("Codex broken-session recovery regression", () => {
         expect.objectContaining({
           type: "session_update",
           session: expect.objectContaining({
-            codex_result_error_auto_pause_recovery_testing: false,
             codex_result_error_auto_pause_recovery_progress: null,
           }),
         }),
       );
       expect(events).toContainEqual(
-        expect.objectContaining({ type: "status_change", codexAutoPauseRecoveryTesting: false }),
+        expect.objectContaining({ type: "status_change", codexAutoPauseRecoveryProgress: null }),
       );
     }
 
@@ -747,7 +746,6 @@ describe("Codex broken-session recovery regression", () => {
     expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
       expect.objectContaining({
         type: "state_snapshot",
-        codexAutoPauseRecoveryTesting: false,
         codexAutoPauseRecoveryProgress: null,
       }),
     );
@@ -773,15 +771,19 @@ describe("Codex broken-session recovery regression", () => {
       expect(events).toContainEqual(
         expect.objectContaining({
           type: "session_update",
-          session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: false }),
+          session: expect.objectContaining({ codex_result_error_auto_pause_recovery_progress: null }),
         }),
       );
-      expect(events).not.toContainEqual(
-        expect.objectContaining({
-          session: expect.objectContaining({ codex_result_error_auto_pause_recovery_testing: true }),
-        }),
-      );
-      expect(events).not.toContainEqual(expect.objectContaining({ codexAutoPauseRecoveryTesting: true }));
+      expect(
+        events.some((event: any) => event.session?.codex_result_error_auto_pause_recovery_progress === "testing"),
+      ).toBe(false);
+      expect(
+        events.every(
+          (event: any) =>
+            !Object.hasOwn(event, "codexAutoPauseRecoveryTesting") &&
+            !Object.hasOwn(event.session ?? {}, "codex_result_error_auto_pause_recovery_testing"),
+        ),
+      ).toBe(true);
     }
 
     for (const connected of [first, second, reconnect]) connected.send.mockClear();
@@ -796,7 +798,6 @@ describe("Codex broken-session recovery regression", () => {
         expect.objectContaining({
           type: "session_update",
           session: expect.objectContaining({
-            codex_result_error_auto_pause_recovery_testing: false,
             codex_result_error_auto_pause_recovery_progress: null,
           }),
         }),
@@ -842,7 +843,6 @@ describe("Codex broken-session recovery regression", () => {
         expect.objectContaining({
           type: "session_update",
           session: expect.objectContaining({
-            codex_result_error_auto_pause_recovery_testing: true,
             codex_result_error_auto_pause_recovery_progress: "testing",
           }),
         }),

@@ -21,8 +21,8 @@ function launcherInfo(overrides: Partial<SdkSessionInfo> = {}): SdkSessionInfo {
 
 describe("public launcher session serialization", () => {
   it("keeps public configuration while omitting internal paths, secrets, and recovery state", () => {
-    const result = stripInternalLauncherSessionState(
-      launcherInfo({
+    const result = stripInternalLauncherSessionState({
+      ...launcherInfo({
         sessionAuthToken: "secret-token",
         codexWorkerV2Cutover: { status: "pending" } as never,
         codexHome: "/private/codex-home",
@@ -32,7 +32,14 @@ describe("public launcher session serialization", () => {
         injectedSystemPrompt: "private injected prompt",
         codexContextWindowDiagnostics: { role: "non_leader", capacitySource: "codex_default" },
       }),
-    );
+      leaderOpenThreadTabs: {
+        version: 1,
+        orderedOpenThreadKeys: ["q-internal"],
+        closedThreadTombstones: [],
+        updatedAt: 1,
+      },
+      leaderThreadStatuses: { "q-internal": { kind: "ready" } },
+    } as SdkSessionInfo);
 
     expect(result).toMatchObject({
       sessionId: "session-public-contract",
@@ -53,6 +60,8 @@ describe("public launcher session serialization", () => {
       "sdkDebugLogPath",
       "injectedSystemPrompt",
       "codexContextWindowDiagnostics",
+      "leaderOpenThreadTabs",
+      "leaderThreadStatuses",
     ]) {
       expect(result).not.toHaveProperty(field);
     }

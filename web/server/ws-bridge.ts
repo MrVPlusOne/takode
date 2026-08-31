@@ -548,28 +548,25 @@ export class WsBridge {
       if (id === sourceSessionId) continue;
       const key = session.state.repo_root || session.state.cwd;
       if (key !== projectKey) continue;
-      let changed = false;
+      const update: Partial<SessionState> = {};
       if (!session.state.slash_commands?.length && cached.slash_commands.length) {
         session.state.slash_commands = cached.slash_commands;
-        changed = true;
+        update.slash_commands = cached.slash_commands;
       }
       if (!session.state.skills?.length && cached.skills.length) {
         session.state.skills = cached.skills;
-        changed = true;
+        update.skills = cached.skills;
       }
       if (!session.state.skill_metadata?.length && cached.skill_metadata.length) {
         session.state.skill_metadata = cached.skill_metadata;
-        changed = true;
+        update.skill_metadata = cached.skill_metadata;
       }
       if (!session.state.apps?.length && cached.apps.length) {
         session.state.apps = cached.apps;
-        changed = true;
+        update.apps = cached.apps;
       }
-      if (changed && session.browserSockets.size > 0) {
-        this.broadcastToBrowsers(session, {
-          type: "session_update",
-          session: session.state,
-        });
+      if (Object.keys(update).length > 0 && session.browserSockets.size > 0) {
+        this.broadcastToBrowsers(session, { type: "session_update", session: update });
       }
     }
   }
@@ -1396,7 +1393,7 @@ export class WsBridge {
     this.broadcastToBrowsers(session, {
       type: "status_change",
       status: "idle",
-      codexAutoPauseRecoveryTesting: false,
+      codexAutoPauseRecoveryProgress: null,
     });
     this.persistSession(session);
     console.log(
@@ -1447,7 +1444,7 @@ export class WsBridge {
             cliConnected && bridgeSession?.isGenerating
               ? deriveActiveTurnRouteBrowserTransportController(bridgeSession)
               : null,
-          ...codexReasoningSnapshotFields(bridgeSession, cliConnected && !!bridgeSession?.isGenerating),
+          ...codexReasoningSnapshotFields(bridgeSession),
           generationStartedAt:
             cliConnected && bridgeSession?.isGenerating ? (bridgeSession.generationStartedAt ?? null) : null,
         };

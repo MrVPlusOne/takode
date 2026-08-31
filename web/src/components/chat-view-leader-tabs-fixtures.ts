@@ -1,20 +1,10 @@
-import type { LeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
 import type { SessionNotification, ThreadTransitionMarker } from "../types.js";
 
-export function leaderTabs(
-  keys: string[],
-  closed: LeaderOpenThreadTabsState["closedThreadTombstones"] = [],
-  updatedAt = 1,
-) {
-  return {
-    version: 1,
-    orderedOpenThreadKeys: keys,
-    closedThreadTombstones: closed,
-    updatedAt,
-  } satisfies LeaderOpenThreadTabsState;
+export function projectionTabKeys(keys: string[]) {
+  return keys;
 }
 
-export function leaderSession(tabs?: LeaderOpenThreadTabsState) {
+export function leaderSession() {
   return new Map([
     [
       "s1",
@@ -22,7 +12,6 @@ export function leaderSession(tabs?: LeaderOpenThreadTabsState) {
         backend_state: "connected" as const,
         backend_error: null,
         isOrchestrator: true,
-        ...(tabs ? { leaderOpenThreadTabs: tabs } : {}),
       },
     ],
   ]);

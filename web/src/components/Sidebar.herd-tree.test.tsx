@@ -490,12 +490,6 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
           notificationStatusVersion: 12,
           notificationStatusUpdatedAt: 12_000,
           sessionAttentionProjection: projectionEnvelope,
-          leaderOpenThreadTabs: {
-            version: 1,
-            orderedOpenThreadKeys: ["q-1964", "q-1969", "q-1977"],
-            closedThreadTombstones: [],
-            updatedAt: 12_000,
-          },
         }),
       ],
       sessionNames: new Map([[sessionId, "Unread Timer Leader"]]),

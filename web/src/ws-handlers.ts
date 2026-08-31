@@ -45,11 +45,7 @@ import { handleTranscriptionProgressMessage } from "./transcription-progress.js"
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 import { handleNotificationUpdateMessage } from "./ws-notification-handler.js";
 import { handleStreamEventMessage } from "./ws-stream-event-handler.js";
-import {
-  applyAutoPauseRecoverySnapshot,
-  handleStatusChangeMessage,
-  normalizeAutoPauseRecoverySessionUpdate,
-} from "./ws-status-change-handler.js";
+import { applyAutoPauseRecoverySnapshot, handleStatusChangeMessage } from "./ws-status-change-handler.js";
 import {
   mergeAssistantContentBlocks,
   stripRootCodexThinkingBlocks,
@@ -61,7 +57,6 @@ import { indexCodexSubagentToolResults } from "./utils/codex-subagent-tool-resul
 import { handleQuestListUpdated, handleSessionQuestClaimed } from "./ws-quest-handlers.js";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
 import { hasSyncedProjectionValue } from "./store-synced-projections.js";
-import { stripLegacyLeaderThreadTabsState } from "./utils/leader-thread-tabs-resolver.js";
 import {
   handleSyncedProjectionMessage,
   type SyncedProjectionMessageHandlerDeps,
@@ -689,7 +684,7 @@ function handleParsedMessage(
   switch (data.type) {
     case "session_init": {
       const existingSession = store.sessions.get(sessionId);
-      store.addSession(stripLegacyLeaderThreadTabsState(data.session));
+      store.addSession(data.session);
       // Do NOT set cliConnected here — session_init is just a state snapshot.
       // Connection status comes from explicit backend_connected/backend_disconnected messages.
       if (!existingSession) {
@@ -703,10 +698,7 @@ function handleParsedMessage(
     }
 
     case "session_update": {
-      store.updateSession(
-        sessionId,
-        stripLegacyLeaderThreadTabsState(normalizeAutoPauseRecoverySessionUpdate(data.session)),
-      );
+      store.updateSession(sessionId, data.session);
       if (data.session.backend_state === "connected") {
         clearRecoverableCodexInitErrors(sessionId);
       }
@@ -1439,10 +1431,7 @@ function handleParsedMessage(
       };
       store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | "reverting" | null);
       store.setActiveTurnRoute(sessionId, data.sessionStatus === "running" ? data.activeTurnRoute : null);
-      store.setCodexReasoningPreviews(
-        sessionId,
-        data.codexReasoningPreviews ?? (data.activeCodexReasoningPreview ? [data.activeCodexReasoningPreview] : []),
-      );
+      store.setCodexReasoningPreviews(sessionId, data.codexReasoningPreviews ?? []);
       store.setCliConnected(sessionId, data.backendConnected);
       applyAutoPauseRecoverySnapshot(sessionId, data);
       // state_snapshot is sent after subscribe replay completes. If no

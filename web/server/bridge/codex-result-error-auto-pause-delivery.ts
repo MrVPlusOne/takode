@@ -185,7 +185,6 @@ function broadcastCodexResultErrorAutoPauseUpdate(
     type: "session_update",
     session: {
       codex_result_error_auto_pause: session.state.codex_result_error_auto_pause ?? null,
-      codex_result_error_auto_pause_recovery_testing: progress !== null,
       codex_result_error_auto_pause_recovery_progress: progress,
     },
   });

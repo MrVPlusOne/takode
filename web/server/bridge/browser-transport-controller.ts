@@ -75,10 +75,10 @@ import {
   buildCodexAutoPauseDiagnostic,
   getCodexAutoPauseRecoveryProgress,
   getActiveCodexResultErrorAutoPause,
-  isCodexAutoPauseRecoveryTesting,
   isAutomaticCodexAutoPauseInput,
   queueCodexAutoPausedInput,
 } from "../codex-result-error-auto-pause.js";
+import { projectBrowserSessionState } from "../session-types.js";
 import type {
   ActiveCodexReasoningPreview,
   ActiveTurnRoute,
@@ -316,7 +316,7 @@ export function handleBrowserOpen(
   sendToBrowser(ws, {
     type: "session_init",
     session: {
-      ...session.state,
+      ...projectBrowserSessionState(session.state),
       isOrchestrator: launcherInfo?.isOrchestrator === true,
     },
     nextEventSeq: session.nextEventSeq,
@@ -949,8 +949,7 @@ export function sendStateSnapshot(
     attentionReason: session.attentionReason,
     generationStartedAt: session.generationStartedAt ?? null,
     activeTurnRoute: deriveActiveTurnRoute(session),
-    ...codexReasoningSnapshotFields(session, sessionStatus === "running"),
-    codexAutoPauseRecoveryTesting: isCodexAutoPauseRecoveryTesting(session),
+    ...codexReasoningSnapshotFields(session),
     codexAutoPauseRecoveryProgress: getCodexAutoPauseRecoveryProgress(session),
     board,
     completedBoard,

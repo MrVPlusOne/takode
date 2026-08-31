@@ -1,3 +1,4 @@
+import { projectBrowserSessionState } from "../session-types.js";
 import type {
   BackendType,
   BrowserIncomingMessage,
@@ -381,7 +382,6 @@ interface ResultMessageDeps {
   markTurnInterrupted: (session: ResultMessageSessionLike, source: "user" | "leader" | "system") => void;
   getCurrentTurnTriggerSource: (session: ResultMessageSessionLike) => "user" | "leader" | "system" | "unknown";
   reconcileTerminalResultState: (session: ResultMessageSessionLike) => void;
-  getCodexAutoPauseRecoveryTesting?: (session: ResultMessageSessionLike) => boolean;
   getCodexAutoPauseRecoveryProgress?: (
     session: ResultMessageSessionLike,
   ) => import("../session-types.js").CodexAutoPauseRecoveryProgress | null;
@@ -791,7 +791,6 @@ export function handleResultMessage(
       deps.broadcastToBrowsers(session, {
         type: "status_change",
         status: "idle",
-        codexAutoPauseRecoveryTesting: deps.getCodexAutoPauseRecoveryTesting?.(session) ?? false,
         codexAutoPauseRecoveryProgress: deps.getCodexAutoPauseRecoveryProgress?.(session) ?? null,
       });
       deps.persistSession(session);
@@ -848,7 +847,6 @@ export function handleResultMessage(
     deps.broadcastToBrowsers(session, {
       type: "status_change",
       status: "idle",
-      codexAutoPauseRecoveryTesting: deps.getCodexAutoPauseRecoveryTesting?.(session) ?? false,
       codexAutoPauseRecoveryProgress: deps.getCodexAutoPauseRecoveryProgress?.(session) ?? null,
     });
   }
@@ -1552,7 +1550,7 @@ function handleSystemInit(session: SystemMessageSessionLike, msg: CLISystemInitM
   deps.broadcastToBrowsers(session, {
     type: "session_init",
     session: {
-      ...session.state,
+      ...projectBrowserSessionState(session.state),
       isOrchestrator: launcherInfo?.isOrchestrator === true,
     },
   });

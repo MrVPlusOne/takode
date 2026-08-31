@@ -1816,13 +1816,6 @@ export function PlaygroundInteractiveSections() {
                 <WorkBoardBar
                   sessionId="playground-board-bar"
                   currentThreadKey={boardPreviewThreadKey}
-                  currentThreadLabel={
-                    boardPreviewThreadKey === "main"
-                      ? "Main Thread"
-                      : boardPreviewThreadKey === "all"
-                        ? "All Threads"
-                        : boardPreviewThreadKey
-                  }
                   onSelectThread={setBoardPreviewThreadKey}
                   openThreadKeys={boardOpenThreadKeys}
                   onCloseThreadTab={(threadKey, nextThreadKey) => {

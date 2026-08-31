@@ -293,12 +293,7 @@ function clearCodexReasoningPreviewForVisibleActivity(
 }
 
 function reasoningPreviewBroadcastFields(session: CodexBrowserMessageSessionLike) {
-  return {
-    activeCodexReasoningPreview: session.activeCodexReasoningPreview?.text?.trim()
-      ? session.activeCodexReasoningPreview
-      : null,
-    codexReasoningPreviews: listCodexReasoningPreviews(session),
-  };
+  return { codexReasoningPreviews: listCodexReasoningPreviews(session) };
 }
 
 function isTopLevelThinkingOnlyAssistant(msg: BrowserIncomingMessage): boolean {

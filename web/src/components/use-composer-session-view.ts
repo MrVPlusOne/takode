@@ -14,8 +14,6 @@ export function useComposerSessionView(sessionId: string) {
       const isConnected = s.cliConnected.get(sessionId) ?? false;
       const hasLiveRequestedEffort = !!sessionData && Object.hasOwn(sessionData, "codex_reasoning_effort");
       const hasLiveEffectiveEffort = !!sessionData && Object.hasOwn(sessionData, "codex_effective_reasoning_effort");
-      const hasAutoPauseRecoveryProgress =
-        !!sessionData && Object.hasOwn(sessionData, "codex_result_error_auto_pause_recovery_progress");
       return {
         isConnected,
         browserConnectionStatus: s.connectionStatus?.get(sessionId) ?? (isConnected ? "connected" : "disconnected"),
@@ -52,11 +50,7 @@ export function useComposerSessionView(sessionId: string) {
         pause: sessionData?.pause ?? null,
         pausedInputQueueCount: sessionData?.pause?.queuedMessages.length ?? 0,
         codexResultErrorAutoPause: sessionData?.codex_result_error_auto_pause ?? null,
-        codexAutoPauseRecoveryProgress: hasAutoPauseRecoveryProgress
-          ? (sessionData?.codex_result_error_auto_pause_recovery_progress ?? null)
-          : sessionData?.codex_result_error_auto_pause_recovery_testing === true
-            ? "testing"
-            : null,
+        codexAutoPauseRecoveryProgress: sessionData?.codex_result_error_auto_pause_recovery_progress ?? null,
         codexAutoPausedInputCount:
           sessionData?.codex_result_error_auto_pause?.heldInputs.reduce(
             (total, item) => total + Math.max(1, item.count),

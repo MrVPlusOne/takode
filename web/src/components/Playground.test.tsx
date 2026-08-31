@@ -349,8 +349,8 @@ describe("Playground", () => {
     expect(screen.getAllByLabelText("Dismiss alternate voice rerun offer")).toHaveLength(2);
     expect(screen.getAllByTestId("alternate-voice-rerun-offer")).toHaveLength(2);
     // Full Playground rendering is intentionally broad documentation coverage;
-    // in the aggregate suite it can exceed the default 10s jsdom budget.
-  }, 20_000);
+    // aggregate jsdom contention can exceed 20s as the fixture catalog grows.
+  }, 30_000);
 
   it("documents Composer backend-native permission selector states", () => {
     render(<Playground />);

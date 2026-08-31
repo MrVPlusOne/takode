@@ -49,6 +49,12 @@ import { buildLeaderActivePhaseSummary } from "../../../shared/leader-active-pha
 import { LEADER_THREAD_TABS_PROJECTION } from "../../../shared/leader-thread-tabs-projection.js";
 import { buildPlaygroundActionRequiredRecoveryMessages } from "./CodexRecoveryPlaygroundMessages.js";
 
+const EMPTY_PROJECTED_ATTENTION = { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 };
+
+function projectedAttention(overrides: Partial<typeof EMPTY_PROJECTED_ATTENTION> = {}) {
+  return { ...EMPTY_PROJECTED_ATTENTION, ...overrides };
+}
+
 export function usePlaygroundSeed() {
   useEffect(() => {
     const store = useStore.getState();
@@ -577,11 +583,6 @@ export function usePlaygroundSeed() {
       cwd: "/Users/stan/Dev/takode/thread-panel",
       is_containerized: false,
       isOrchestrator: true,
-      leaderThreadStatuses: {
-        "q-9001": playgroundActiveWorkWaitingStatus,
-        "q-9002": playgroundWaitingStatus,
-        "q-9003": playgroundReadyStatus,
-      },
     };
     store.addSession(threadPanelSession);
     store.setConnectionStatus(PLAYGROUND_THREAD_PANEL_SESSION_ID, "connected");
@@ -599,12 +600,6 @@ export function usePlaygroundSeed() {
       cwd: "/tmp/takode-playground/leader-return",
       is_containerized: false,
       isOrchestrator: true,
-      leaderOpenThreadTabs: {
-        version: 1,
-        orderedOpenThreadKeys: ["q-1944"],
-        closedThreadTombstones: [],
-        updatedAt: 1,
-      },
     };
     const leaderReturnAwaySession: SessionState = {
       ...session,
@@ -647,15 +642,51 @@ export function usePlaygroundSeed() {
       },
       leaderReturnFixture.selectedMainWindowMessages,
     );
+    const leaderReturnCompletedAt = Date.now() - 20_000;
     store.setSessionCompletedBoard(PLAYGROUND_LEADER_RETURN_SESSION_ID, [
       {
         questId: "q-1944",
         title: "Completed tab must stay passive",
         status: "DONE",
-        updatedAt: Date.now() - 20_000,
-        completedAt: Date.now() - 20_000,
+        updatedAt: leaderReturnCompletedAt,
+        completedAt: leaderReturnCompletedAt,
       },
     ]);
+    store.applySyncedProjectionSnapshot({
+      type: "synced_projection_snapshot",
+      projection: LEADER_THREAD_TABS_PROJECTION,
+      key: PLAYGROUND_LEADER_RETURN_SESSION_ID,
+      generation: "playground-leader-return-tabs",
+      revision: 1,
+      value: {
+        currentQuestStateVersion: 1,
+        tabState: { version: 1 },
+        tabs: [
+          {
+            threadKey: "q-1944",
+            questId: "q-1944",
+            title: "Completed tab must stay passive",
+            boardStatus: "DONE",
+            journey: null,
+            sourceLeaderSessionId: PLAYGROUND_LEADER_RETURN_SESSION_ID,
+            sourceRowCreatedAt: null,
+            workerSessionId: null,
+            workerSessionNum: null,
+            active: false,
+            queued: false,
+            proposed: false,
+            neverStartedScheduled: false,
+            completed: true,
+            canClose: true,
+            attention: projectedAttention(),
+            updatedAt: leaderReturnCompletedAt,
+          },
+        ],
+        mainAttention: projectedAttention(),
+        threadStatuses: {},
+        activePhaseSummary: [],
+      },
+    });
     store.setMessages(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
       makePlaygroundMessage({
         id: "playground-thread-main",
@@ -1128,14 +1159,6 @@ export function usePlaygroundSeed() {
       },
     ]);
     const projectedTabKeys = ["q-9001", "q-9004", "q-9003", "q-9005", "q-9002", "q-9006"];
-    const projectedAttention = (
-      overrides: Partial<{
-        needsInput: boolean;
-        mutedNeedsInput: boolean;
-        reviewUnread: boolean;
-        updatedAt: number;
-      }> = {},
-    ) => ({ needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0, ...overrides });
     const projectedBoardRows = new Map(
       [
         ...(useStore.getState().sessionBoards.get(PLAYGROUND_THREAD_PANEL_SESSION_ID) ?? []),
@@ -1814,6 +1837,7 @@ export function usePlaygroundSeed() {
 
     return () => {
       useStore.getState().clearSyncedProjectionsForKey(PLAYGROUND_THREAD_PANEL_SESSION_ID);
+      useStore.getState().clearSyncedProjectionsForKey(PLAYGROUND_LEADER_RETURN_SESSION_ID);
       useStore.setState((s) => {
         const sessions = new Map(s.sessions);
         const messages = new Map(s.messages);

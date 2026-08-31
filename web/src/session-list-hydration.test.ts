@@ -69,12 +69,15 @@ describe("session list hydration", () => {
     const active = makeSdkSession("active", {
       name: "Active Leader",
       isOrchestrator: true,
-      leaderOpenThreadTabs: {
-        version: 1,
-        orderedOpenThreadKeys: ["q-1200"],
-        closedThreadTombstones: [],
-        updatedAt: 5,
-      },
+      leaderThreadTabsProjection: createLeaderThreadTabsProjectionEnvelope({
+        key: "active",
+        value: createLeaderThreadTabsProjectionValue({
+          tabs: [createLeaderThreadTabsProjectionTab("q-1200")],
+          mainAttention: {},
+          threadStatuses: {},
+          activePhaseSummary: [],
+        }),
+      }),
     });
     useStore.getState().setSdkSessions([archived]);
     mockApi.listSessions.mockResolvedValueOnce([active]);
@@ -88,7 +91,11 @@ describe("session list hydration", () => {
 
     expect(mockApi.listSessions).toHaveBeenCalledWith({ includeArchived: false });
     expect(useStore.getState().sdkSessions.map((session) => session.sessionId)).toEqual(["active", "archived"]);
-    expect(useStore.getState().sdkSessions[0]?.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-1200"]);
+    expect(
+      getSyncedProjectionValue(useStore.getState(), LEADER_THREAD_TABS_PROJECTION, "active")?.tabs.map(
+        (tab) => tab.threadKey,
+      ),
+    ).toEqual(["q-1200"]);
     expect(useStore.getState().treeGroups.map((group) => group.name)).toEqual(["MSI"]);
   });
 

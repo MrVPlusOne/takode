@@ -19,16 +19,8 @@ export function listCodexReasoningPreviews(session: CodexReasoningPreviewSession
   return Object.values(session.codexReasoningPreviews ?? {}).sort((left, right) => left.updatedAt - right.updatedAt);
 }
 
-export function codexReasoningSnapshotFields(
-  session: CodexReasoningPreviewSession | null | undefined,
-  includeActive: boolean,
-) {
-  if (!session) return { activeCodexReasoningPreview: null, codexReasoningPreviews: [] };
-  return {
-    activeCodexReasoningPreview:
-      includeActive && session.activeCodexReasoningPreview?.text?.trim() ? session.activeCodexReasoningPreview : null,
-    codexReasoningPreviews: listCodexReasoningPreviews(session),
-  };
+export function codexReasoningSnapshotFields(session: CodexReasoningPreviewSession | null | undefined) {
+  return { codexReasoningPreviews: session ? listCodexReasoningPreviews(session) : [] };
 }
 
 export function retainCodexReasoningPreview(

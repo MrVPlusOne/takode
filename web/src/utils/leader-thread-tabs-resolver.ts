@@ -10,7 +10,6 @@ import {
 import type { AppState } from "../store-types.js";
 import { getSyncedProjectionValue, hasSyncedProjectionValue } from "../store-synced-projections.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
-import type { SessionState } from "../types.js";
 
 export interface LeaderThreadTabsProjectionSource {
   syncedProjectionValues?: Map<string, unknown>;
@@ -47,12 +46,6 @@ export function resolveLeaderThreadTabsProjection(
     if (value?.currentQuestStateVersion === 1) return { projectionState: "accepted", value };
   }
   return { projectionState: "unavailable", value: null };
-}
-
-/** Current builds never retain projection-owned legacy visual fields in live session state. */
-export function stripLegacyLeaderThreadTabsState<T extends Partial<SessionState>>(value: T): T {
-  const { leaderOpenThreadTabs: _leaderOpenThreadTabs, leaderThreadStatuses: _leaderThreadStatuses, ...rest } = value;
-  return rest as T;
 }
 
 /** Null accepted tab state permits the one-time persisted browser-state migration only. */

@@ -351,16 +351,11 @@ function WorkBoardBarComponent({
 }: {
   sessionId: string;
   currentThreadKey?: string;
-  currentThreadLabel?: string;
   onSelectThread?: (threadKey: string) => void;
   openThreadKeys?: string[];
-  /** Removed current-build fallback input; accepted only while tests/callers migrate. */
-  closedThreadKeys?: string[];
   onCloseThreadTab?: (threadKey: string, nextThreadKey: string) => void;
   onReorderThreadTabs?: (orderedThreadKeys: string[]) => void;
   threadRows?: WorkBoardThreadNavigationRow[];
-  /** Removed current-build fallback input; accepted only while tests/callers migrate. */
-  attentionRecords?: ReadonlyArray<unknown>;
 }) {
   const isOrchestrator = useStore((state) => resolveWorkBoardIsOrchestrator(state, sessionId));
   const leaderTabsResolution = useStore(useShallow((state) => resolveLeaderThreadTabsProjection(state, sessionId)));

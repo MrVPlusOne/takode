@@ -215,7 +215,6 @@ vi.mock("./WorkBoardBar.js", () => ({
   WorkBoardBar: ({
     sessionId,
     currentThreadKey,
-    currentThreadLabel,
     onReturnToMain,
     onSelectThread,
     openThreadKeys = [],
@@ -223,7 +222,6 @@ vi.mock("./WorkBoardBar.js", () => ({
   }: {
     sessionId: string;
     currentThreadKey?: string;
-    currentThreadLabel?: string;
     onReturnToMain?: () => void;
     onSelectThread?: (threadKey: string) => void;
     openThreadKeys?: string[];
@@ -244,7 +242,6 @@ vi.mock("./WorkBoardBar.js", () => ({
       <div
         data-testid="work-board-bar"
         data-current-thread-key={currentThreadKey}
-        data-current-thread-label={currentThreadLabel}
         data-attention-count={projectedAttentionCount}
         data-open-thread-keys={openThreadKeys.join(",")}
       >

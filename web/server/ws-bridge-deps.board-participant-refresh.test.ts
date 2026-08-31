@@ -405,5 +405,6 @@ describe("board participant names", () => {
       status: "idle",
       codexReasoningPreviews: [{ text: "Inspecting row state", threadKey: "q-1761" }],
     });
+    expect(statuses["q-1761"].worker).not.toHaveProperty("activeCodexReasoningPreview");
   });
 });
