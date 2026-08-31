@@ -89,6 +89,7 @@ export interface AdapterBrowserRoutingSessionLike {
   codexModelSwitchCompactionGuard?: CodexModelSwitchCompactionGuard | null;
   backendSocket?: unknown;
   lastUserMessage?: string;
+  lastMessagePreviewAt?: number;
   lastUserMessageDateTag: string;
   lastOutboundUserNdjson: string | null;
   consecutiveAdapterFailures: number;

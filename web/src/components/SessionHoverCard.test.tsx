@@ -10,7 +10,7 @@ import {
   type SessionAttentionProjectionValue,
 } from "../../shared/session-attention-projection.js";
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
-import { SESSION_NAVIGATION_PROJECTION } from "../../shared/session-navigation-projection.js";
+import { sessionNavigationProjectionToSessionFields } from "../../shared/session-navigation-projection.js";
 import { createSessionNavigationProjectionValue } from "../test-fixtures/session-navigation-projection.js";
 
 if (typeof globalThis.DOMRect === "undefined") {
@@ -65,6 +65,8 @@ const mockStoreState = {
     agentTurnCount?: number;
     messageHistoryBytes?: number;
     codexRetainedPayloadBytes?: number;
+    modelContextWindow?: number | null;
+    contextTokensUsed?: number | null;
     codexTokenDetails?: { modelContextWindow?: number };
     claudeTokenDetails?: { modelContextWindow?: number };
     codexMaxContextLength?: number;
@@ -127,9 +129,15 @@ function makeSession(overrides: Partial<SessionItemType> = {}): SessionItemType 
 }
 
 function setSessionNavigationProjection(sessionId: string, value = createSessionNavigationProjectionValue()) {
-  const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, sessionId);
-  mockStoreState.syncedProjectionKeys.add(entryId);
-  mockStoreState.syncedProjectionValues.set(entryId, value);
+  const existingIndex = mockStoreState.sdkSessions.findIndex((session) => session.sessionId === sessionId);
+  const existing = existingIndex >= 0 ? mockStoreState.sdkSessions[existingIndex] : undefined;
+  const session = {
+    ...existing,
+    ...sessionNavigationProjectionToSessionFields(value),
+    sessionId,
+  } as (typeof mockStoreState.sdkSessions)[number];
+  if (existingIndex >= 0) mockStoreState.sdkSessions[existingIndex] = session;
+  else mockStoreState.sdkSessions.push(session);
 }
 
 function setSessionAttentionProjection(sessionId: string, value: SessionAttentionProjectionValue) {
@@ -170,7 +178,6 @@ describe("SessionHoverCard", () => {
         sessionName="Safe Hover"
         sessionPreview="Preview text"
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -200,7 +207,6 @@ describe("SessionHoverCard", () => {
         sessionName="Stale hover"
         sessionPreview="Stale preview"
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -230,7 +236,6 @@ describe("SessionHoverCard", () => {
         sessionName="Projected no-quest worker"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -256,7 +261,6 @@ describe("SessionHoverCard", () => {
         sessionName="Projected timer"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -277,7 +281,6 @@ describe("SessionHoverCard", () => {
         sessionName="Timed Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -297,7 +300,6 @@ describe("SessionHoverCard", () => {
         sessionName="Running Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -321,7 +323,6 @@ describe("SessionHoverCard", () => {
         sessionName="Needs Input Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -345,7 +346,6 @@ describe("SessionHoverCard", () => {
         sessionName="Unread Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -370,7 +370,6 @@ describe("SessionHoverCard", () => {
         sessionName="Muted Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -405,7 +404,6 @@ describe("SessionHoverCard", () => {
         sessionName="Cleared Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -439,7 +437,6 @@ describe("SessionHoverCard", () => {
         sessionName="Cleared Unread Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -491,7 +488,6 @@ describe("SessionHoverCard", () => {
         sessionName="Selected Leader Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -539,7 +535,6 @@ describe("SessionHoverCard", () => {
         sessionName="Closed Leader Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -566,7 +561,6 @@ describe("SessionHoverCard", () => {
         sessionName="Cleared Attention Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -624,7 +618,6 @@ describe("SessionHoverCard", () => {
         sessionName="Leader Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -662,7 +655,6 @@ describe("SessionHoverCard", () => {
         sessionName="Projected Review Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -689,7 +681,6 @@ describe("SessionHoverCard", () => {
         sessionName="Projected Input Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -717,7 +708,6 @@ describe("SessionHoverCard", () => {
         sessionName="Projected Muted Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -735,7 +725,6 @@ describe("SessionHoverCard", () => {
         sessionName="Projected Clear Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -773,7 +762,6 @@ describe("SessionHoverCard", () => {
         sessionName="Archived Attention Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -797,7 +785,6 @@ describe("SessionHoverCard", () => {
         sessionName="Permission Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -821,7 +808,6 @@ describe("SessionHoverCard", () => {
         sessionName="Error Hover"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -852,7 +838,6 @@ describe("SessionHoverCard", () => {
         sessionName="Leader context"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -866,42 +851,18 @@ describe("SessionHoverCard", () => {
   });
 
   it("shows the max context window rounded to whole K tokens", () => {
-    // q-291: live hover-card metrics should use the authoritative
-    // sessionState message bytes plus Codex retained payload bytes from the server.
-    const sessionState = {
-      session_id: "s1",
-      backend_type: "codex",
-      model: "gpt-5.4",
-      cwd: "/repo",
-      tools: [],
-      permissionMode: "default",
-      claude_code_version: "1.0.0",
-      mcp_servers: [],
-      agents: [],
-      slash_commands: [],
-      skills: [],
-      total_cost_usd: 0,
-      num_turns: 1,
-      context_used_percent: 73,
-      message_history_bytes: 1_572_864,
-      codex_retained_payload_bytes: 2_621_440,
-      git_branch: "jiayi",
-      is_worktree: false,
-      is_containerized: false,
-      repo_root: "/repo",
-      git_ahead: 0,
-      git_behind: 0,
-      total_lines_added: 0,
-      total_lines_removed: 0,
-      codex_token_details: {
-        inputTokens: 0,
-        outputTokens: 0,
-        cachedInputTokens: 0,
-        reasoningOutputTokens: 0,
-        modelContextWindow: 258_400,
-      },
-      is_compacting: false,
-    } as SessionState;
+    setSessionNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        detail: {
+          userTurnCount: 1,
+          contextUsedPercent: 73,
+          modelContextWindow: 258_400,
+          messageHistoryBytes: 1_572_864,
+          codexRetainedPayloadBytes: 2_621_440,
+        },
+      }),
+    );
 
     render(
       <SessionHoverCard
@@ -909,7 +870,6 @@ describe("SessionHoverCard", () => {
         sessionName="Explain Codex Session Steering"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={sessionState}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -934,88 +894,54 @@ describe("SessionHoverCard", () => {
     expect(within(payloadRow).queryByText("258 K tokens")).toBeNull();
   });
 
-  it("falls back to sdk session metadata when no live session state is present", () => {
-    // q-291: when the full live session state is unavailable, the hover card
-    // should still render Codex replay/retained sizes from sdkSessions fallback metadata.
+  it("uses current session-row metadata when no live projection is present", () => {
     mockStoreState.sdkSessions = [
       {
         sessionId: "s1",
+        state: "connected",
+        cwd: "/repo",
+        backendType: "codex",
         contextUsedPercent: 73,
+        modelContextWindow: 258_400,
         messageHistoryBytes: 972_800,
         codexRetainedPayloadBytes: 1_228_800,
-        codexTokenDetails: { modelContextWindow: 258_400 },
       },
     ];
 
-    try {
-      render(
-        <SessionHoverCard
-          session={makeSession()}
-          sessionName="Explain Codex Session Steering"
-          sessionPreview={undefined}
-          taskHistory={undefined}
-          sessionState={undefined}
-          cliSessionId="cli-1"
-          anchorRect={new DOMRect(120, 80, 200, 40)}
-          onMouseEnter={() => {}}
-          onMouseLeave={() => {}}
-        />,
-      );
+    render(
+      <SessionHoverCard
+        session={makeSession()}
+        sessionName="Explain Codex Session Steering"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
 
-      expect(screen.getByText("73% context")).toBeInTheDocument();
-      expect(screen.getByText("950 KB replay")).toBeInTheDocument();
-      expect(screen.getByText("1.2 MB retained")).toBeInTheDocument();
-      expect(screen.getByText("258 K tokens")).toBeInTheDocument();
-    } finally {
-      mockStoreState.sdkSessions = [];
-    }
+    expect(screen.getByText("73% context")).toBeInTheDocument();
+    expect(screen.getByText("950 KB replay")).toBeInTheDocument();
+    expect(screen.getByText("1.2 MB retained")).toBeInTheDocument();
+    expect(screen.getByText("258 K tokens")).toBeInTheDocument();
   });
 
   it("shows effective Codex context primary and configured usable target secondarily", () => {
-    // q-1612: context metrics belong in their own row, with the configured
-    // usable target kept beside effective context when the values differ.
-    mockStoreState.sdkSessions = [
-      {
-        sessionId: "s1",
-        contextUsedPercent: 7,
-        codexMaxContextLength: 600_000,
-        codexTokenDetails: { modelContextWindow: 258_400 },
-      },
-    ];
-    const sessionState = {
-      session_id: "s1",
-      backend_type: "codex",
-      model: "gpt-5.5",
-      cwd: "/repo",
-      tools: [],
-      permissionMode: "codex-full-access",
-      claude_code_version: "1.0.0",
-      mcp_servers: [],
-      agents: [],
-      slash_commands: [],
-      skills: [],
-      total_cost_usd: 0,
-      num_turns: 1,
-      context_used_percent: 7,
-      message_history_bytes: 1_572_864,
-      codex_retained_payload_bytes: 2_621_440,
-      codex_token_details: {
-        inputTokens: 0,
-        outputTokens: 0,
-        cachedInputTokens: 0,
-        reasoningOutputTokens: 0,
-        modelContextWindow: 258_400,
-      },
-      is_compacting: false,
-      git_branch: "",
-      is_worktree: false,
-      is_containerized: false,
-      repo_root: "/repo",
-      git_ahead: 0,
-      git_behind: 0,
-      total_lines_added: 0,
-      total_lines_removed: 0,
-    } as SessionState;
+    setSessionNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        identity: { model: "gpt-5.5" },
+        detail: {
+          userTurnCount: 1,
+          contextUsedPercent: 7,
+          modelContextWindow: 258_400,
+          codexMaxContextLength: 600_000,
+          messageHistoryBytes: 1_572_864,
+          codexRetainedPayloadBytes: 2_621_440,
+        },
+      }),
+    );
 
     render(
       <SessionHoverCard
@@ -1023,7 +949,6 @@ describe("SessionHoverCard", () => {
         sessionName="Bold Cedar"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={sessionState}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -1057,48 +982,24 @@ describe("SessionHoverCard", () => {
     expect(within(payloadRow).queryByText("target")).toBeNull();
   });
 
-  it("uses live cleared Codex max context instead of stale sdk metadata", () => {
+  it("honors a projected Codex max-context clear over stale launcher metadata", () => {
     mockStoreState.sdkSessions = [
       {
         sessionId: "s1",
-        contextUsedPercent: 7,
+        state: "connected",
+        cwd: "/repo",
+        backendType: "codex",
         codexMaxContextLength: 600_000,
-        codexTokenDetails: { modelContextWindow: 258_400 },
-      },
-    ];
-    const sessionState = {
-      session_id: "s1",
-      backend_type: "codex",
-      model: "gpt-5.5",
-      cwd: "/repo",
-      tools: [],
-      permissionMode: "codex-full-access",
-      claude_code_version: "1.0.0",
-      mcp_servers: [],
-      agents: [],
-      slash_commands: [],
-      skills: [],
-      total_cost_usd: 0,
-      num_turns: 1,
-      context_used_percent: 7,
-      codex_max_context_length: null,
-      codex_token_details: {
-        inputTokens: 0,
-        outputTokens: 0,
-        cachedInputTokens: 0,
-        reasoningOutputTokens: 0,
         modelContextWindow: 258_400,
       },
-      is_compacting: false,
-      git_branch: "",
-      is_worktree: false,
-      is_containerized: false,
-      repo_root: "/repo",
-      git_ahead: 0,
-      git_behind: 0,
-      total_lines_added: 0,
-      total_lines_removed: 0,
-    } as SessionState;
+    ];
+    setSessionNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        identity: { model: "gpt-5.5" },
+        detail: { contextUsedPercent: 7, modelContextWindow: 258_400, codexMaxContextLength: null },
+      }),
+    );
 
     render(
       <SessionHoverCard
@@ -1106,7 +1007,6 @@ describe("SessionHoverCard", () => {
         sessionName="Bold Cedar"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={sessionState}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -1119,35 +1019,10 @@ describe("SessionHoverCard", () => {
   });
 
   it("uses the backend-owned user turn count for the visible turns label", () => {
-    // The hover metric must prefer server-computed real user turns over the
-    // legacy CLI num_turns value, which may be per-result for Codex.
-    const sessionState = {
-      session_id: "s1",
-      backend_type: "codex",
-      model: "gpt-5.4",
-      cwd: "/repo",
-      tools: [],
-      permissionMode: "default",
-      claude_code_version: "1.0.0",
-      mcp_servers: [],
-      agents: [],
-      slash_commands: [],
-      skills: [],
-      total_cost_usd: 0,
-      user_turn_count: 12,
-      agent_turn_count: 9,
-      num_turns: 1,
-      context_used_percent: 0,
-      git_branch: "jiayi",
-      is_worktree: false,
-      is_containerized: false,
-      repo_root: "/repo",
-      git_ahead: 0,
-      git_behind: 0,
-      total_lines_added: 0,
-      total_lines_removed: 0,
-      is_compacting: false,
-    } as SessionState;
+    setSessionNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({ detail: { userTurnCount: 12, agentTurnCount: 9 } }),
+    );
 
     render(
       <SessionHoverCard
@@ -1155,7 +1030,6 @@ describe("SessionHoverCard", () => {
         sessionName="Backend Turn Count"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={sessionState}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -1167,173 +1041,87 @@ describe("SessionHoverCard", () => {
     expect(screen.queryByText("1 turn")).toBeNull();
   });
 
-  it("uses sdk snapshot turns when live session state has a stale zero user count", () => {
-    // A Codex reconnect can briefly deliver live zeroed metrics before history
-    // normalization reaches the client; the corrected session-list snapshot wins.
+  it("uses current session-row turns without consulting selected-session state", () => {
     mockStoreState.sdkSessions = [
       {
         sessionId: "s1",
+        state: "connected",
+        cwd: "/repo",
+        backendType: "codex",
         userTurnCount: 12,
         agentTurnCount: 9,
-        numTurns: 12,
+        numTurns: 1,
       },
     ];
-    const sessionState = {
-      session_id: "s1",
-      backend_type: "codex",
-      model: "gpt-5.4",
-      cwd: "/repo",
-      tools: [],
-      permissionMode: "default",
-      claude_code_version: "1.0.0",
-      mcp_servers: [],
-      agents: [],
-      slash_commands: [],
-      skills: [],
-      total_cost_usd: 0,
-      user_turn_count: 0,
-      agent_turn_count: 0,
-      num_turns: 0,
-      context_used_percent: 0,
-      git_branch: "jiayi",
-      is_worktree: false,
-      is_containerized: false,
-      repo_root: "/repo",
-      git_ahead: 0,
-      git_behind: 0,
-      total_lines_added: 0,
-      total_lines_removed: 0,
-      is_compacting: false,
-    } as SessionState;
 
-    try {
-      render(
-        <SessionHoverCard
-          session={makeSession()}
-          sessionName="Backend Turn Count"
-          sessionPreview={undefined}
-          taskHistory={undefined}
-          sessionState={sessionState}
-          cliSessionId="cli-1"
-          anchorRect={new DOMRect(120, 80, 200, 40)}
-          onMouseEnter={() => {}}
-          onMouseLeave={() => {}}
-        />,
-      );
+    render(
+      <SessionHoverCard
+        session={makeSession()}
+        sessionName="Backend Turn Count"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
 
-      expect(screen.getByText("12 turns")).toBeInTheDocument();
-      expect(screen.queryByText("0 turns")).toBeNull();
-    } finally {
-      mockStoreState.sdkSessions = [];
-    }
+    expect(screen.getByText("12 turns")).toBeInTheDocument();
+    expect(screen.queryByText("1 turn")).toBeNull();
   });
 
-  it("prefers live session message-history bytes over sdk fallback metadata", () => {
-    // q-291: when both sources exist, the live authoritative session state
-    // must win over potentially stale sdkSessions fallback metadata for replay/retained metrics.
+  it("uses projected payload metrics ahead of stale launcher-row metadata", () => {
     mockStoreState.sdkSessions = [
       {
         sessionId: "s1",
-        contextUsedPercent: 73,
+        state: "connected",
+        cwd: "/repo",
+        backendType: "codex",
         messageHistoryBytes: 972_800,
         codexRetainedPayloadBytes: 1_228_800,
-        codexTokenDetails: { modelContextWindow: 258_400 },
-      },
-    ];
-
-    const sessionState = {
-      session_id: "s1",
-      backend_type: "codex",
-      model: "gpt-5.4",
-      cwd: "/repo",
-      tools: [],
-      permissionMode: "default",
-      claude_code_version: "1.0.0",
-      mcp_servers: [],
-      agents: [],
-      slash_commands: [],
-      skills: [],
-      total_cost_usd: 0,
-      num_turns: 1,
-      context_used_percent: 73,
-      message_history_bytes: 1_572_864,
-      codex_retained_payload_bytes: 2_621_440,
-      git_branch: "jiayi",
-      is_worktree: false,
-      is_containerized: false,
-      repo_root: "/repo",
-      git_ahead: 0,
-      git_behind: 0,
-      total_lines_added: 0,
-      total_lines_removed: 0,
-      codex_token_details: {
-        inputTokens: 0,
-        outputTokens: 0,
-        cachedInputTokens: 0,
-        reasoningOutputTokens: 0,
         modelContextWindow: 258_400,
       },
-      is_compacting: false,
-    } as SessionState;
+    ];
+    setSessionNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        detail: {
+          userTurnCount: 1,
+          contextUsedPercent: 73,
+          modelContextWindow: 258_400,
+          messageHistoryBytes: 1_572_864,
+          codexRetainedPayloadBytes: 2_621_440,
+        },
+      }),
+    );
 
-    try {
-      render(
-        <SessionHoverCard
-          session={makeSession()}
-          sessionName="Explain Codex Session Steering"
-          sessionPreview={undefined}
-          taskHistory={undefined}
-          sessionState={sessionState}
-          cliSessionId="cli-1"
-          anchorRect={new DOMRect(120, 80, 200, 40)}
-          onMouseEnter={() => {}}
-          onMouseLeave={() => {}}
-        />,
-      );
+    render(
+      <SessionHoverCard
+        session={makeSession()}
+        sessionName="Explain Codex Session Steering"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
 
-      expect(screen.getByText("1.5 MB replay")).toBeInTheDocument();
-      expect(screen.getByText("2.5 MB retained")).toBeInTheDocument();
-      expect(screen.queryByText("950 KB replay")).toBeNull();
-    } finally {
-      mockStoreState.sdkSessions = [];
-    }
+    expect(screen.getByText("1.5 MB replay")).toBeInTheDocument();
+    expect(screen.getByText("2.5 MB retained")).toBeInTheDocument();
+    expect(screen.queryByText("950 KB replay")).toBeNull();
   });
 
   it("keeps non-Codex sessions on history wording and hides retained payload", () => {
-    // Non-Codex sessions should keep the legacy history label and must not
-    // surface Codex-only retained payload UI.
-    const sessionState = {
-      session_id: "s1",
-      backend_type: "claude-sdk",
-      model: "claude-sonnet-4-5-20250929",
-      cwd: "/repo",
-      tools: [],
-      permissionMode: "default",
-      claude_code_version: "1.0.0",
-      mcp_servers: [],
-      agents: [],
-      slash_commands: [],
-      skills: [],
-      total_cost_usd: 0,
-      num_turns: 2,
-      context_used_percent: 41,
-      message_history_bytes: 972_800,
-      git_branch: "jiayi",
-      is_worktree: false,
-      is_containerized: false,
-      repo_root: "/repo",
-      git_ahead: 0,
-      git_behind: 0,
-      total_lines_added: 0,
-      total_lines_removed: 0,
-      claude_token_details: {
-        inputTokens: 254,
-        outputTokens: 77708,
-        cachedInputTokens: 22001692,
-        modelContextWindow: 200_000,
-      },
-      is_compacting: false,
-    } as SessionState;
+    setSessionNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        identity: { backendType: "claude-sdk", model: "claude-sonnet-4-5-20250929" },
+        detail: { userTurnCount: 2, contextUsedPercent: 41, modelContextWindow: 200_000, messageHistoryBytes: 972_800 },
+      }),
+    );
 
     render(
       <SessionHoverCard
@@ -1341,7 +1129,6 @@ describe("SessionHoverCard", () => {
         sessionName="Explain Claude Session Metrics"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={sessionState}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -1353,51 +1140,27 @@ describe("SessionHoverCard", () => {
     expect(screen.queryByText(/retained/)).toBeNull();
   });
 
-  it("uses merged backend identity for header copy and stat labeling", () => {
-    // If session list metadata lags, the hover card should still render a
-    // consistent backend identity from the merged session data.
-    const sessionState = {
-      session_id: "s1",
-      backend_type: "codex",
-      model: "gpt-5.4",
-      cwd: "/repo",
-      tools: [],
-      permissionMode: "default",
-      claude_code_version: "1.0.0",
-      mcp_servers: [],
-      agents: [],
-      slash_commands: [],
-      skills: [],
-      total_cost_usd: 0,
-      num_turns: 1,
-      context_used_percent: 73,
-      message_history_bytes: 1_572_864,
-      codex_retained_payload_bytes: 2_621_440,
-      git_branch: "jiayi",
-      is_worktree: false,
-      is_containerized: false,
-      repo_root: "/repo",
-      git_ahead: 0,
-      git_behind: 0,
-      total_lines_added: 0,
-      total_lines_removed: 0,
-      codex_token_details: {
-        inputTokens: 0,
-        outputTokens: 0,
-        cachedInputTokens: 0,
-        reasoningOutputTokens: 0,
-        modelContextWindow: 258_400,
-      },
-      is_compacting: false,
-    } as SessionState;
+  it("uses projected backend identity for header copy and stat labeling", () => {
+    setSessionNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        identity: { backendType: "codex", model: "gpt-5.4" },
+        detail: {
+          userTurnCount: 1,
+          contextUsedPercent: 73,
+          modelContextWindow: 258_400,
+          messageHistoryBytes: 1_572_864,
+          codexRetainedPayloadBytes: 2_621_440,
+        },
+      }),
+    );
 
     render(
       <SessionHoverCard
         session={makeSession({ backendType: "claude-sdk" })}
-        sessionName="Merged Backend Test"
+        sessionName="Projected Backend Test"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={sessionState}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -1410,37 +1173,13 @@ describe("SessionHoverCard", () => {
   });
 
   it("shows Claude SDK context stats with turns but no cost", () => {
-    const sessionState = {
-      session_id: "s1",
-      backend_type: "claude-sdk",
-      model: "claude-sonnet-4-5-20250929",
-      cwd: "/repo",
-      tools: [],
-      permissionMode: "default",
-      claude_code_version: "1.0.0",
-      mcp_servers: [],
-      agents: [],
-      slash_commands: [],
-      skills: [],
-      total_cost_usd: 1.25,
-      num_turns: 7,
-      context_used_percent: 41,
-      git_branch: "jiayi",
-      is_worktree: false,
-      is_containerized: false,
-      repo_root: "/repo",
-      git_ahead: 0,
-      git_behind: 0,
-      total_lines_added: 0,
-      total_lines_removed: 0,
-      claude_token_details: {
-        inputTokens: 254,
-        outputTokens: 77708,
-        cachedInputTokens: 22001692,
-        modelContextWindow: 200_000,
-      },
-      is_compacting: false,
-    } as SessionState;
+    setSessionNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        identity: { backendType: "claude-sdk", model: "claude-sonnet-4-5-20250929" },
+        detail: { userTurnCount: 7, contextUsedPercent: 41, modelContextWindow: 200_000 },
+      }),
+    );
 
     render(
       <SessionHoverCard
@@ -1448,7 +1187,6 @@ describe("SessionHoverCard", () => {
         sessionName="Explain Claude Session Metrics"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={sessionState}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -1458,10 +1196,8 @@ describe("SessionHoverCard", () => {
 
     expect(screen.getByText("41% context")).toBeInTheDocument();
     expect(screen.getByText("200 K tokens")).toBeInTheDocument();
-    // Turns now shown for all backends
     expect(screen.getByText("7 turns")).toBeInTheDocument();
-    // Cost is never shown
-    expect(screen.queryByText("$1.25")).toBeNull();
+    expect(screen.queryByText(/\$/)).toBeNull();
   });
 
   it("shows worktree and base repo paths separately with concise path tails", () => {
@@ -1475,7 +1211,6 @@ describe("SessionHoverCard", () => {
         sessionName="Fix hover card path layout"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -1503,7 +1238,6 @@ describe("SessionHoverCard", () => {
         sessionName="Archived worker"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -1529,7 +1263,6 @@ describe("SessionHoverCard", () => {
         sessionName="Archived worker"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -1608,7 +1341,6 @@ describe("SessionHoverCard", () => {
               triggerMessageId: "msg-legacy-leader-task",
             },
           ]}
-          sessionState={undefined}
           cliSessionId="cli-1"
           anchorRect={new DOMRect(120, 80, 200, 40)}
           onMouseEnter={() => {}}
@@ -1691,7 +1423,6 @@ describe("SessionHoverCard", () => {
         sessionName="Torchflow Leader"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-1"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}
@@ -1721,7 +1452,6 @@ describe("SessionHoverCard", () => {
         sessionName="Other Leader"
         sessionPreview={undefined}
         taskHistory={undefined}
-        sessionState={undefined}
         cliSessionId="cli-2"
         anchorRect={new DOMRect(120, 80, 200, 40)}
         onMouseEnter={() => {}}

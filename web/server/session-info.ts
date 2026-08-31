@@ -1,17 +1,22 @@
 import type {
   BackendType,
+  BoardRow,
   CodexResultErrorAutoPauseState,
   CodexLeaderRecycleLineage,
   CodexLeaderRecycleTrigger,
   SessionPauseState,
+  SessionState,
+  SessionTaskEntry,
 } from "./session-types.js";
 import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
+import type { LeaderProfilePortrait } from "../shared/leader-profile-portraits.js";
 import type { ModelAuthorityDecision, ModelProvenanceMigration } from "./model-identity-contract.js";
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 import type { CodexMultiAgentVersion } from "../shared/codex-multi-agent-version.js";
-import type { CodexContextWindowDiagnostics } from "./codex-context-types.js";
+import type { CodexContextWindowDiagnostics, SessionLifecycleEvent } from "./codex-context-types.js";
 import type { CodexWorkerV2CutoverState } from "./codex-worker-v2-cutover-state.js";
 import type { SyncedProjectionRestEnvelopeFields } from "../shared/synced-projection-registry.js";
+import type { SessionNavigationProjectionValue } from "../shared/session-navigation-projection.js";
 
 export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
   sessionId: string;
@@ -199,21 +204,156 @@ export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
   containerImage?: string;
 }
 
-type LauncherInternalSessionField = "sessionAuthToken" | "codexWorkerV2Cutover";
+const PUBLIC_LAUNCHER_SESSION_FIELDS = [
+  "sessionId",
+  "sessionNum",
+  "pid",
+  "state",
+  "exitCode",
+  "model",
+  "modelAuthority",
+  "modelProvenanceMigration",
+  "permissionMode",
+  "askPermission",
+  "uiMode",
+  "cwd",
+  "createdAt",
+  "lastActivityAt",
+  "lastUserMessageAt",
+  "cliSessionId",
+  "codexLeaderRecycleLineage",
+  "codexLeaderRecycleThresholdTokens",
+  "codexLeaderRecyclePending",
+  "codexLeaderCompactionMode",
+  "archived",
+  "archivedAt",
+  "worktreeCleanupStatus",
+  "worktreeCleanupError",
+  "worktreeCleanupStartedAt",
+  "worktreeCleanupFinishedAt",
+  "name",
+  "hidden",
+  "backendType",
+  "gitBranch",
+  "gitAhead",
+  "gitBehind",
+  "totalLinesAdded",
+  "totalLinesRemoved",
+  "diffStatsSkippedReason",
+  "gitStatusRefreshedAt",
+  "gitStatusRefreshError",
+  "codexInternetAccess",
+  "codexSandbox",
+  "codexReasoningEffort",
+  "codexMultiAgentVersion",
+  "codexServiceTier",
+  "codexMaxContextLength",
+  "claudeReasoningEffort",
+  "claudeMaxContextLength",
+  "cronJobId",
+  "cronJobName",
+  "pendingTimerCount",
+  "pause",
+  "pausedInputQueueCount",
+  "codexResultErrorAutoPause",
+  "codexAutoPausedInputCount",
+  "notificationUrgency",
+  "activeNotificationCount",
+  "mutedNeedsInputNotificationCount",
+  "killedByIdleManager",
+  "isWorktree",
+  "repoRoot",
+  "branch",
+  "actualBranch",
+  "worktreePortTarget",
+  "isAssistant",
+  "isOrchestrator",
+  "leaderProfilePortraitId",
+  "leaderActivePhaseSummary",
+  "herdedBy",
+  "envSlug",
+  "treeGroupId",
+  "memorySessionSpaceSlug",
+  "reviewerOf",
+  "containerId",
+  "containerName",
+  "containerImage",
+] as const satisfies readonly (keyof SdkSessionInfo)[];
 
-/** Remove launcher-only secrets and recovery state before a session crosses an API boundary. */
+type PublicLauncherSessionField = (typeof PUBLIC_LAUNCHER_SESSION_FIELDS)[number];
+type PublicLauncherProjectionOverrideField =
+  | "state"
+  | "cwd"
+  | "createdAt"
+  | "codexLeaderRecycleThresholdTokens"
+  | "name"
+  | "gitStatusRefreshedAt"
+  | "cronJobId"
+  | "cronJobName"
+  | "herdedBy"
+  | "lastActivityAt"
+  | "lastUserMessageAt"
+  | "reviewerOf";
+
+/** Browser-safe SDK session row returned by session list/detail APIs. */
+export type PublicSdkSessionInfo = Pick<
+  SdkSessionInfo,
+  Exclude<PublicLauncherSessionField, keyof SessionNavigationProjectionValue>
+> &
+  Pick<SdkSessionInfo, PublicLauncherProjectionOverrideField> &
+  SyncedProjectionRestEnvelopeFields &
+  Partial<SessionNavigationProjectionValue> & {
+    branch?: string;
+    actualBranch?: string;
+    codexInternetAccess?: boolean | null;
+    claudeReasoningEffort?: string | null;
+    codexContextWindowDiagnostics?: CodexContextWindowDiagnostics;
+    injectedSystemPrompt?: string;
+    activeNeedsInputNotificationCount?: number;
+    activeReviewNotificationCount?: number;
+    notificationStatusVersion?: number;
+    notificationStatusUpdatedAt?: number;
+    worktreeExists?: boolean;
+    worktreeDirty?: boolean;
+    leaderProfilePortrait?: LeaderProfilePortrait;
+    leaderOpenThreadTabs?: SessionState["leaderOpenThreadTabs"];
+    leaderActiveBoardRows?: BoardRow[];
+    attentionReason?: "action" | "error" | "review" | null;
+    lastReadAt?: number;
+    pendingPermissionSummary?: string | null;
+    taskHistory?: SessionTaskEntry[];
+    keywords?: string[];
+    claimedQuestVerificationInboxUnread?: boolean;
+    lastMessagePreviewAt?: number;
+    numTurns?: number;
+    codexTokenDetails?: SessionState["codex_token_details"];
+    claudeTokenDetails?: SessionState["claude_token_details"];
+    sessionLifecycleEvents?: SessionLifecycleEvent[];
+  };
+
+/**
+ * Serialize launcher state through an explicit public allowlist before it
+ * crosses a browser or CLI API boundary. Type-only narrowing is insufficient:
+ * spreading an `SdkSessionInfo` object would otherwise retain future internal
+ * recovery fields and session-local paths at runtime.
+ */
 export function stripInternalLauncherSessionState(
   info: SdkSessionInfo,
-  options: { includeInjectedSystemPrompt?: boolean; includeCodexContextWindowDiagnostics?: boolean } = {},
-): Omit<SdkSessionInfo, LauncherInternalSessionField> {
-  const {
-    sessionAuthToken: _sessionAuthToken,
-    codexWorkerV2Cutover: _codexWorkerV2Cutover,
-    ...withoutInternalState
-  } = info;
-  const { injectedSystemPrompt: _injectedSystemPrompt, ...withoutPrompt } = withoutInternalState;
-  const promptSafe = options.includeInjectedSystemPrompt ? withoutInternalState : withoutPrompt;
-  if (options.includeCodexContextWindowDiagnostics) return promptSafe;
-  const { codexContextWindowDiagnostics: _codexContextWindowDiagnostics, ...withoutDiagnostics } = promptSafe;
-  return withoutDiagnostics;
+  options: {
+    includeInjectedSystemPrompt?: boolean;
+    includeCodexContextWindowDiagnostics?: boolean;
+  } = {},
+): PublicSdkSessionInfo {
+  const result: Record<string, unknown> = {};
+  for (const field of PUBLIC_LAUNCHER_SESSION_FIELDS) {
+    const value = info[field];
+    if (value !== undefined) result[field] = value;
+  }
+  if (options.includeInjectedSystemPrompt && info.injectedSystemPrompt !== undefined) {
+    result.injectedSystemPrompt = info.injectedSystemPrompt;
+  }
+  if (options.includeCodexContextWindowDiagnostics && info.codexContextWindowDiagnostics !== undefined) {
+    result.codexContextWindowDiagnostics = info.codexContextWindowDiagnostics;
+  }
+  return result as PublicSdkSessionInfo;
 }

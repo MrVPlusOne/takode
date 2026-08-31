@@ -9,6 +9,8 @@ import {
 import { _resetForTest, updateSettings } from "../settings-manager.js";
 import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
 import { SESSION_NAVIGATION_PROJECTION } from "../../shared/session-navigation-projection.js";
+import { buildSessionNavigationProjectionValue } from "../session-navigation-projection.js";
+import { getLastActualHumanUserMessageTimestamp } from "../user-message-classification.js";
 
 function makeLauncherSession(overrides: Record<string, unknown> = {}): any {
   return {
@@ -61,7 +63,29 @@ function makeDeps(launcherSession: ReturnType<typeof makeLauncherSession>, bridg
       isBackendConnected: vi.fn(() => false),
       refreshWorktreeGitStateForSnapshot: vi.fn(),
       getSyncedProjectionController: vi.fn(() => ({
-        getSnapshot: vi.fn(() => null),
+        getSnapshot: vi.fn((projectionId: string) => {
+          if (projectionId !== SESSION_NAVIGATION_PROJECTION || !bridgeSession) return null;
+          const value = buildSessionNavigationProjectionValue(bridgeSession as never, {
+            getSession: () => bridgeSession as never,
+            getLauncherSessionInfo: () => launcherSession,
+            getSessionName: () => launcherSession.name,
+            getPendingTimerCount: () => 0,
+            getBackendConnected: () => false,
+            getSessionStatus: () => ((bridgeSession as any).isGenerating ? "running" : null),
+            getLastActivityAt: () => launcherSession.lastActivityAt,
+            getLastUserMessageAt: () =>
+              getLastActualHumanUserMessageTimestamp((bridgeSession as any).messageHistory ?? []),
+            getLastMessagePreviewAt: () => (bridgeSession as any).lastMessagePreviewAt,
+            authorizeSubscription: () => true,
+          });
+          return {
+            projection: SESSION_NAVIGATION_PROJECTION,
+            key: launcherSession.sessionId,
+            generation: "test-generation",
+            revision: 1,
+            value,
+          };
+        }),
       })),
     },
     pendingWorktreeCleanups: new Map(),
@@ -288,7 +312,7 @@ describe("buildEnrichedSessionsSnapshot", () => {
 
     const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, makeBridgeSession([])));
 
-    expect(snapshot[0]).not.toHaveProperty("codexLeaderRecycleThresholdTokens");
+    expect((snapshot[0] as any).codexLeaderRecycleThresholdTokens).toBeUndefined();
   });
 
   it("lazily backfills active leader profile portraits with a stable persisted assignment", async () => {
@@ -338,6 +362,22 @@ describe("buildEnrichedSessionsSnapshot", () => {
 
     expect((snapshot[0] as any).leaderProfilePortrait).toMatchObject({ id: "leader-fallback", poolId: "fallback" });
     expect((deps as any).launcher.setLeaderProfilePortraitId).not.toHaveBeenCalled();
+  });
+
+  it("preserves bounded name and timer metadata when an archived row has no live projection", async () => {
+    const launcherSession = makeLauncherSession({ archived: true, name: undefined });
+    const deps = makeDeps(launcherSession, makeBridgeSession([]));
+    (deps as any).getSessionName = vi.fn(() => "Archived worker");
+    (deps as any).timerManager = { listTimers: vi.fn(() => [{ id: "timer-1" }]) };
+
+    const snapshot = await buildEnrichedSessionsSnapshot(deps);
+
+    expect(snapshot[0]).toMatchObject({
+      sessionId: "s1",
+      name: "Archived worker",
+      pendingTimerCount: 1,
+    });
+    expect((deps as any).wsBridge.getSyncedProjectionController).not.toHaveBeenCalled();
   });
 
   it("does not expose portrait URLs for archived leaders in list snapshots", async () => {
@@ -484,10 +524,8 @@ describe("buildEnrichedSessionsSnapshot", () => {
       generation: "generation-a",
       revision: 3,
       value: {
-        detail: {
-          userTurnCount: (bridgeSession.state as any).user_turn_count,
-          agentTurnCount: (bridgeSession.state as any).agent_turn_count,
-        },
+        userTurnCount: (bridgeSession.state as any).user_turn_count,
+        agentTurnCount: (bridgeSession.state as any).agent_turn_count,
       },
     }));
     const getSnapshot = vi.fn((projectionId: string) =>
@@ -507,7 +545,7 @@ describe("buildEnrichedSessionsSnapshot", () => {
     expect(getSnapshot).toHaveBeenCalledWith(SESSION_NAVIGATION_PROJECTION, "s1");
     expect(snapshot[0].sessionNavigationProjection).toMatchObject({
       projection: "session-navigation",
-      value: { detail: { userTurnCount: 1, agentTurnCount: 1 } },
+      value: { userTurnCount: 1, agentTurnCount: 1 },
     });
   });
 

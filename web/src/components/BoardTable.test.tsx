@@ -21,16 +21,11 @@ interface MockStoreState {
     sessionNum?: number;
     archived?: boolean;
     state?: "starting" | "connected" | "running" | "exited";
+    status?: "idle" | "running" | "compacting" | "reverting" | null;
     cliConnected?: boolean;
     pendingTimerCount?: number;
   }>;
-  cliConnected: Map<string, boolean>;
-  cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
-  sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
-  pendingPermissions: Map<string, Map<string, unknown>>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
-  currentSessionId?: string;
-  sessionTimers: Map<string, Array<{ id: string }>>;
   zoomLevel?: number;
 }
 
@@ -61,13 +56,7 @@ beforeEach(() => {
   mockState = {
     quests: [],
     sdkSessions: [],
-    cliConnected: new Map(),
-    cliDisconnectReason: new Map(),
-    sessionStatus: new Map(),
-    pendingPermissions: new Map(),
     sessionAttention: new Map(),
-    currentSessionId: undefined,
-    sessionTimers: new Map(),
   };
   openQuestOverlay.mockReset();
 });
@@ -459,25 +448,24 @@ describe("BoardTable", () => {
     // Board rows can be less fresh than the sidebar. Participant chips should
     // use the same live store status as the sidebar when that session is known.
     mockState.sdkSessions = [
-      { sessionId: "worker-live", sessionNum: 11, state: "connected", archived: false, cliConnected: true },
+      {
+        sessionId: "worker-live",
+        sessionNum: 11,
+        state: "running",
+        status: "running",
+        archived: false,
+        cliConnected: true,
+      },
       { sessionId: "reviewer-live", sessionNum: 12, state: "exited", archived: false, cliConnected: false },
-      { sessionId: "worker-idle", sessionNum: 13, state: "connected", archived: false, cliConnected: true },
+      {
+        sessionId: "worker-idle",
+        sessionNum: 13,
+        state: "connected",
+        status: "idle",
+        archived: false,
+        cliConnected: true,
+      },
     ];
-    mockState.cliConnected = new Map([
-      ["worker-live", true],
-      ["reviewer-live", false],
-      ["worker-idle", true],
-    ]);
-    mockState.cliDisconnectReason = new Map([
-      ["worker-live", null],
-      ["reviewer-live", "broken"],
-      ["worker-idle", null],
-    ]);
-    mockState.sessionStatus = new Map([
-      ["worker-live", "running"],
-      ["reviewer-live", null],
-      ["worker-idle", "idle"],
-    ]);
     const board: BoardRowData[] = [
       { questId: "q-1", worker: "worker-live", workerNum: 11, updatedAt: 2 },
       { questId: "q-2", worker: "worker-idle", workerNum: 13, updatedAt: 1 },
@@ -510,11 +498,20 @@ describe("BoardTable", () => {
     // Participant chips share the leader banner status path. They should show
     // scheduled timer state for idle sessions without overriding active states.
     mockState.sdkSessions = [
-      { sessionId: "worker-timed", sessionNum: 11, state: "connected", archived: false, cliConnected: true },
+      {
+        sessionId: "worker-timed",
+        sessionNum: 11,
+        state: "connected",
+        status: "idle",
+        archived: false,
+        cliConnected: true,
+        pendingTimerCount: 1,
+      },
       {
         sessionId: "reviewer-running",
         sessionNum: 12,
         state: "running",
+        status: "running",
         archived: false,
         cliConnected: true,
         pendingTimerCount: 1,
@@ -523,23 +520,12 @@ describe("BoardTable", () => {
         sessionId: "worker-snapshot",
         sessionNum: 13,
         state: "connected",
+        status: "idle",
         archived: false,
         cliConnected: true,
         pendingTimerCount: 2,
       },
     ];
-    mockState.currentSessionId = "worker-timed";
-    mockState.sessionTimers = new Map([["worker-timed", [{ id: "t1" }]]]);
-    mockState.cliConnected = new Map([
-      ["worker-timed", true],
-      ["reviewer-running", true],
-      ["worker-snapshot", true],
-    ]);
-    mockState.sessionStatus = new Map([
-      ["worker-timed", "idle"],
-      ["reviewer-running", "running"],
-      ["worker-snapshot", "idle"],
-    ]);
     const board: BoardRowData[] = [
       { questId: "q-1", worker: "worker-timed", workerNum: 11, updatedAt: 2 },
       { questId: "q-2", worker: "worker-snapshot", workerNum: 13, updatedAt: 1 },
@@ -570,10 +556,20 @@ describe("BoardTable", () => {
     expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "running");
   });
 
-  it("uses live timer store data when a participant has only a session id", () => {
-    // Covers the participant hook branch where no SDK/status snapshot is
-    // available yet, but the timer store already knows the session is waiting.
-    mockState.sessionTimers = new Map([["worker-timer-only", [{ id: "timer-only" }]]]);
+  it("uses canonical timer data when a participant has only a session id", () => {
+    // Covers the participant hook branch where the board row has only a session
+    // id and the canonical navigation row carries the scheduled timer count.
+    mockState.sdkSessions = [
+      {
+        sessionId: "worker-timer-only",
+        sessionNum: 21,
+        state: "connected",
+        status: "idle",
+        archived: false,
+        cliConnected: true,
+        pendingTimerCount: 1,
+      },
+    ];
     const board: BoardRowData[] = [{ questId: "q-1", worker: "worker-timer-only", workerNum: 21, updatedAt: 1 }];
 
     render(<BoardTable board={board} />);

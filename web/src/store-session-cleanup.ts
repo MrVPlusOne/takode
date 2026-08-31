@@ -1,5 +1,5 @@
 import type { AppState } from "./store-types.js";
-import { scopedRemoveItem, scopedSetItem } from "./utils/scoped-storage.js";
+import { scopedRemoveItem } from "./utils/scoped-storage.js";
 
 function syncedProjectionEntryBelongsToKey(entryId: string, key: string): boolean {
   const separator = entryId.indexOf("\u0000");
@@ -108,12 +108,8 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
   changedFiles.delete(sessionId);
   const diffFileStats = new Map(s.diffFileStats);
   diffFileStats.delete(sessionId);
-  const sessionNames = new Map(s.sessionNames);
-  sessionNames.delete(sessionId);
   const recentlyRenamed = new Set(s.recentlyRenamed);
   recentlyRenamed.delete(sessionId);
-  const sessionPreviews = new Map(s.sessionPreviews);
-  sessionPreviews.delete(sessionId);
   const sessionTaskHistory = new Map(s.sessionTaskHistory);
   sessionTaskHistory.delete(sessionId);
   const pendingCodexInputs = new Map(s.pendingCodexInputs);
@@ -157,7 +153,6 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
   const sessionInfoOpenSessionId = s.sessionInfoOpenSessionId === sessionId ? null : s.sessionInfoOpenSessionId;
   const codexSubagentInspector = s.codexSubagentInspector?.sessionId === sessionId ? null : s.codexSubagentInspector;
 
-  scopedSetItem("cc-session-names", JSON.stringify(Array.from(sessionNames.entries())));
   if (s.currentSessionId === sessionId) {
     scopedRemoveItem("cc-current-session");
   }
@@ -209,9 +204,7 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
     leaderWorkboardViews,
     changedFiles,
     diffFileStats,
-    sessionNames,
     recentlyRenamed,
-    sessionPreviews,
     sessionTaskHistory,
     pendingCodexInputs,
     sessionKeywords,

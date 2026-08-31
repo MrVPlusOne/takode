@@ -6,9 +6,13 @@ import {
   setSdkSessionsWithNotificationFreshness,
   shouldApplyAttentionReasonWithNotificationFreshness,
 } from "./notification-status.js";
-import { questOwnsSessionName } from "./utils/quest-helpers.js";
 import { sessionTaskHistoryEqual, stringArrayEqual } from "./store-equality.js";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
+import {
+  SESSION_NAVIGATION_PROJECTION,
+  sessionNavigationFieldsFromSession,
+  sessionNavigationProjectionToSessionFields,
+} from "../shared/session-navigation-projection.js";
 import {
   SYNCED_PROJECTION_DESCRIPTORS,
   SYNCED_PROJECTION_DESCRIPTOR_LIST,
@@ -16,7 +20,7 @@ import {
   type AnySyncedProjectionDescriptor,
 } from "../shared/synced-projection-registry.js";
 import { syncedProjectionEntryId, type SyncedProjectionSubscriptionIdentity } from "../shared/synced-projection.js";
-import { hasSyncedProjectionValue } from "./store-synced-projections.js";
+import { getSyncedProjectionValue, hasSyncedProjectionValue } from "./store-synced-projections.js";
 
 export const ACTIVE_SESSION_METADATA_STALE_REFRESH_MS = 3 * 60_000;
 export const SIDEBAR_SESSION_POLL_INTERVAL_MS = 5_000;
@@ -109,6 +113,7 @@ export function reconcileStoredSyncedProjectionSnapshots(
 
 export function hydrateSessionList(list: SdkSessionInfo[], options: HydrateSessionListOptions = {}): void {
   const store = useStore.getState();
+  const currentSessionsById = new Map(store.sdkSessions.map((session) => [session.sessionId, session]));
   const strippedList = list.map(stripSearchMetadata);
   let nextSdkSessions = options.preserveMissingSessions
     ? mergePartialSnapshotWithExistingSessions(strippedList, store.sdkSessions)
@@ -133,9 +138,22 @@ export function hydrateSessionList(list: SdkSessionInfo[], options: HydrateSessi
     });
   }
   const projectionState = useStore.getState();
-  nextSdkSessions = nextSdkSessions.map((session) =>
-    stripRestFencedProjectionSnapshots(session, projectionState, options.activeSnapshotRequestSequence),
-  );
+  nextSdkSessions = nextSdkSessions.map((session) => {
+    const navigationDescriptor = SYNCED_PROJECTION_DESCRIPTORS[SESSION_NAVIGATION_PROJECTION];
+    const preserveCurrentNavigation =
+      hasOwnProjectionEnvelope(session, navigationDescriptor) &&
+      isRestProjectionFenced(session, navigationDescriptor, projectionState, options.activeSnapshotRequestSequence);
+    const stripped = stripRestFencedProjectionSnapshots(
+      session,
+      projectionState,
+      options.activeSnapshotRequestSequence,
+    );
+    if (!effectiveActiveSessionIds.has(session.sessionId)) return stripped;
+    const navigation = getSyncedProjectionValue(projectionState, SESSION_NAVIGATION_PROJECTION, session.sessionId);
+    if (navigation) return { ...stripped, ...sessionNavigationProjectionToSessionFields(navigation) };
+    const current = preserveCurrentNavigation ? currentSessionsById.get(session.sessionId) : undefined;
+    return current ? { ...stripped, ...sessionNavigationFieldsFromSession(current) } : stripped;
+  });
 
   setSdkSessionsWithNotificationFreshness(nextSdkSessions);
 
@@ -261,29 +279,39 @@ function stripStoredProjectionSnapshots(session: SdkSessionInfo): SdkSessionInfo
   return next;
 }
 
-function stripRestFencedProjectionSnapshots(
+function isRestProjectionFenced(
   session: SdkSessionInfo,
+  descriptor: AnySyncedProjectionDescriptor,
   state: Pick<ReturnType<typeof useStore.getState>, "syncedProjectionKeys" | "syncedProjectionOrderings">,
   activeRequestSequence?: number,
-): SdkSessionInfo {
+): boolean {
+  const entryId = syncedProjectionEntryId(descriptor.projection, session.sessionId);
+  if (state.syncedProjectionKeys.has(entryId)) return false;
+  const ordering = state.syncedProjectionOrderings.get(entryId);
+  if (ordering?.subscriptionRejected) return true;
+  const barrier = ordering?.liveRequestSequenceBarrier;
   const requestSequence =
     typeof activeRequestSequence === "number" &&
     Number.isSafeInteger(activeRequestSequence) &&
     activeRequestSequence >= 0
       ? activeRequestSequence
       : undefined;
-  const isFenced = (descriptor: AnySyncedProjectionDescriptor) => {
-    const entryId = syncedProjectionEntryId(descriptor.projection, session.sessionId);
-    if (state.syncedProjectionKeys.has(entryId)) return false;
-    const ordering = state.syncedProjectionOrderings.get(entryId);
-    if (ordering?.subscriptionRejected) return true;
-    const barrier = ordering?.liveRequestSequenceBarrier;
-    return barrier !== undefined && (requestSequence === undefined || requestSequence <= barrier);
-  };
+  return barrier !== undefined && (requestSequence === undefined || requestSequence <= barrier);
+}
 
+function stripRestFencedProjectionSnapshots(
+  session: SdkSessionInfo,
+  state: Pick<ReturnType<typeof useStore.getState>, "syncedProjectionKeys" | "syncedProjectionOrderings">,
+  activeRequestSequence?: number,
+): SdkSessionInfo {
   let next = session;
   for (const descriptor of SYNCED_PROJECTION_DESCRIPTOR_LIST) {
-    if (!hasOwnProjectionEnvelope(session, descriptor) || !isFenced(descriptor)) continue;
+    if (
+      !hasOwnProjectionEnvelope(session, descriptor) ||
+      !isRestProjectionFenced(session, descriptor, state, activeRequestSequence)
+    ) {
+      continue;
+    }
     if (next === session) next = { ...session };
     deleteProjectionEnvelope(next, descriptor);
   }
@@ -348,28 +376,6 @@ function mergePartialSnapshotWithExistingSessions(
 }
 
 function hydrateSessionDerivedMetadata(store: ReturnType<typeof useStore.getState>, session: SdkSessionInfo): void {
-  if (session.name) {
-    const currentStoreName = store.sessionNames.get(session.sessionId);
-    if (currentStoreName !== session.name) {
-      const hadRandomName = !!currentStoreName && /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(currentStoreName);
-      store.setSessionName(session.sessionId, session.name);
-      if (hadRandomName) {
-        store.markRecentlyRenamed(session.sessionId);
-      }
-    }
-  }
-  if (
-    !session.isOrchestrator &&
-    questOwnsSessionName(session.claimedQuestStatus ?? undefined, session.claimedQuestVerificationInboxUnread)
-  ) {
-    store.markQuestNamed(session.sessionId);
-  } else {
-    store.clearQuestNamed(session.sessionId);
-  }
-  if (session.lastMessagePreview && !store.sessionPreviews.has(session.sessionId)) {
-    store.setSessionPreview(session.sessionId, session.lastMessagePreview);
-  }
-
   const nextTaskHistory = session.taskHistory ?? [];
   const currentTaskHistory = store.sessionTaskHistory.get(session.sessionId);
   if (!sessionTaskHistoryEqual(currentTaskHistory, nextTaskHistory)) {

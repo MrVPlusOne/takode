@@ -26,8 +26,6 @@ interface TreeViewGroupProps {
   onToggleNodeCollapse: (sessionId: string) => void;
   onCreateSession: (groupId: string) => void;
   currentSessionId: string | null;
-  sessionNames: Map<string, string>;
-  sessionPreviews: Map<string, string>;
   recentlyRenamed: Set<string>;
   onSelect: (id: string) => void;
   onStartRename: (id: string, currentName: string) => void;
@@ -140,8 +138,6 @@ export function TreeViewGroup({
   onToggleNodeCollapse,
   onCreateSession,
   currentSessionId,
-  sessionNames,
-  sessionPreviews,
   recentlyRenamed,
   onSelect,
   onStartRename,
@@ -189,7 +185,6 @@ export function TreeViewGroup({
   const sessionSortMode = useStore((s) => s.sessionSortMode);
   const expandedHerdNodes = useStore((s) => s.expandedHerdNodes);
   const toggleHerdNodeExpand = useStore((s) => s.toggleHerdNodeExpand);
-  const sessionTimers = useStore((s) => s.sessionTimers);
   const touchDevice = isTouchDevice();
   const isDraggable = sessionSortMode !== "activity" && !bulkSelectionActive;
 
@@ -292,11 +287,7 @@ export function TreeViewGroup({
     isDraggable,
     onMobileReorderHandleActiveChange,
   };
-  const getTreeTimerCount = (session: SessionItemType) => {
-    if (session.navigationProjectionOwned) return session.pendingTimerCount ?? 0;
-    if (session.id === currentSessionId) return sessionTimers?.get(session.id)?.length ?? 0;
-    return session.pendingTimerCount ?? 0;
-  };
+  const getTreeTimerCount = (session: SessionItemType) => session.pendingTimerCount ?? 0;
 
   function renderSessionItem(s: SessionItemType, opts?: { compact?: boolean; reviewerSession?: SessionItemType }) {
     const permCount = s.permCount;
@@ -306,8 +297,8 @@ export function TreeViewGroup({
         key={s.id}
         session={s}
         isActive={currentSessionId === s.id}
-        sessionName={sessionNames.get(s.id)}
-        sessionPreview={sessionPreviews.get(s.id)}
+        sessionName={s.name ?? undefined}
+        sessionPreview={s.lastMessagePreview || undefined}
         permCount={permCount}
         isRecentlyRenamed={recentlyRenamed.has(s.id)}
         attention={attention}
@@ -356,7 +347,7 @@ export function TreeViewGroup({
     const hasReviewersOnly = !hasWorkers && node.reviewers.length > 0;
     const childSessions = hasWorkers ? [...node.workers, ...node.reviewers] : [];
     const childSummary = hasWorkers ? computeChildSessionSummary(childSessions) : undefined;
-    const leaderLabel = sessionNames.get(node.leader.id) || node.leader.model || node.leader.id;
+    const leaderLabel = node.leader.name || node.leader.model || node.leader.id;
     const isBulkSelected = bulkSelectedSessionIds?.has(node.leader.id) ?? false;
 
     const wrapBulkSelectableNode = (content: React.ReactNode) => {

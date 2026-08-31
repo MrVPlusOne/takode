@@ -10,7 +10,6 @@ export interface GlobalNeedsInputEntry {
 export interface GlobalNeedsInputState {
   sessionNotifications: Map<string, SessionNotification[]>;
   sdkSessions: SdkSessionInfo[];
-  sessionNames: Map<string, string>;
 }
 
 function hasFreshNotificationSummary(session: SdkSessionInfo): boolean {
@@ -39,18 +38,16 @@ function allowsMutedNeedsInput(session: SdkSessionInfo): boolean {
   return true;
 }
 
-function getSessionLabel({
-  sessionId,
-  sdkSession,
-  sessionName,
-}: {
-  sessionId: string;
-  sdkSession: SdkSessionInfo | undefined;
-  sessionName: string | undefined;
-}): { sessionName: string; sessionNum: number | null } {
+function getSessionLabel(
+  sessionId: string,
+  sdkSession: SdkSessionInfo,
+): {
+  sessionName: string;
+  sessionNum: number | null;
+} {
   return {
-    sessionName: sessionName || sdkSession?.name || `Session ${sessionId.slice(0, 8)}`,
-    sessionNum: sdkSession?.sessionNum ?? null,
+    sessionName: sdkSession.name || `Session ${sessionId.slice(0, 8)}`,
+    sessionNum: sdkSession.sessionNum ?? null,
   };
 }
 
@@ -73,11 +70,7 @@ function getNeedsInputEntries(state: GlobalNeedsInputState, mode: "active" | "mu
         ? sdkSession && allowsActiveNeedsInput(sdkSession)
         : sdkSession && allowsMutedNeedsInput(sdkSession);
     if (!sdkSession || sdkSession.archived || !allowed) continue;
-    const label = getSessionLabel({
-      sessionId,
-      sdkSession,
-      sessionName: state.sessionNames.get(sessionId),
-    });
+    const label = getSessionLabel(sessionId, sdkSession);
 
     for (const notification of notifications) {
       if (notification.done || notification.category !== "needs-input") continue;
@@ -96,8 +89,6 @@ function getNeedsInputEntries(state: GlobalNeedsInputState, mode: "active" | "mu
   return entries;
 }
 
-export function countGlobalNeedsInputNotifications(
-  state: Pick<GlobalNeedsInputState, "sessionNotifications" | "sdkSessions">,
-): number {
-  return getGlobalNeedsInputEntries({ ...state, sessionNames: new Map() }).length;
+export function countGlobalNeedsInputNotifications(state: GlobalNeedsInputState): number {
+  return getGlobalNeedsInputEntries(state).length;
 }

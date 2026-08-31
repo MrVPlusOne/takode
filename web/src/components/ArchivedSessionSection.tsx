@@ -30,8 +30,6 @@ export interface ArchivedSessionSectionProps {
   autoLoadUnsupported: boolean;
   loadMoreSentinelRef: RefObject<HTMLDivElement | null>;
   currentSessionId: string | null;
-  sessionNames: Map<string, string>;
-  sessionPreviews: Map<string, string>;
   recentlyRenamed: Set<string>;
   herdGroupBadgeThemes: Map<string, HerdGroupBadgeTheme>;
   herdHoverHighlights: Map<string, "leader" | "worker">;
@@ -54,8 +52,6 @@ export function ArchivedSessionSection({
   autoLoadUnsupported,
   loadMoreSentinelRef,
   currentSessionId,
-  sessionNames,
-  sessionPreviews,
   recentlyRenamed,
   herdGroupBadgeThemes,
   herdHoverHighlights,
@@ -97,8 +93,8 @@ export function ArchivedSessionSection({
                 session={session}
                 isActive={currentSessionId === session.id}
                 isArchived
-                sessionName={sessionNames.get(session.id)}
-                sessionPreview={sessionPreviews.get(session.id)}
+                sessionName={session.name ?? undefined}
+                sessionPreview={session.lastMessagePreview || undefined}
                 permCount={session.permCount}
                 isRecentlyRenamed={recentlyRenamed.has(session.id)}
                 herdGroupBadgeTheme={herdGroupBadgeThemes.get(session.id)}

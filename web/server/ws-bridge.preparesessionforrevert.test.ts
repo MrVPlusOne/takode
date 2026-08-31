@@ -576,6 +576,45 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("prepareSessionForRevert", () => {
+  it("repairs human activity from retained history and direct pending input", () => {
+    const bridge = attachBoardFacade(new WsBridge());
+    const cli = makeCliSocket("revert-repairs-human-activity");
+    bridge.handleCLIOpen(cli, "revert-repairs-human-activity");
+    const session = bridge.getSession("revert-repairs-human-activity");
+    expect(session).toBeDefined();
+    if (!session) return;
+
+    session.messageHistory = [
+      { type: "user_message", id: "human", content: "Human", timestamp: 100 } as any,
+      {
+        type: "user_message",
+        id: "injected",
+        content: "Injected",
+        timestamp: 200,
+        agentSource: { sessionId: "timer:t1" },
+      } as any,
+      { type: "assistant", message: { content: [] } } as any,
+    ];
+    session.pendingCodexInputs = [
+      { id: "pending", content: "Pending human", timestamp: 150, cancelable: true },
+      {
+        id: "pending-injected",
+        content: "Herd event",
+        timestamp: 300,
+        cancelable: false,
+        agentSource: { sessionId: "herd-events" },
+      },
+    ];
+    const setLastUserMessageAt = vi.fn();
+    bridge.launcher = { setLastUserMessageAt } as any;
+
+    bridge.prepareSessionForRevert("revert-repairs-human-activity", 2);
+
+    expect(setLastUserMessageAt).toHaveBeenCalledWith("revert-repairs-human-activity", 150);
+    expect(session.lastUserMessage).toBe("Herd event");
+    expect(session.lastMessagePreviewAt).toBe(300);
+  });
+
   it("prunes toolResults that are no longer reachable after revert truncation", () => {
     // Revert should drop lazy-fetch tool results for previews that were
     // truncated out of history so retained payload metrics don't stay inflated.

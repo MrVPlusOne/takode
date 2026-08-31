@@ -3,8 +3,7 @@ import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-sum
 import { LEADER_THREAD_TABS_PROJECTION } from "../shared/leader-thread-tabs-projection.js";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
 import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
-import { getSessionActivitySnapshot } from "./bridge/session-registry-controller.js";
-import { suppressProjectedSessionNavigationActivityFields } from "./bridge/session-navigation-projection-controller.js";
+import { countPendingUserPermissions, getSessionActivitySnapshot } from "./bridge/session-registry-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
 import type { BrowserIncomingMessage, BoardRow } from "./session-types.js";
 import type { SyncedProjectionRuntimeProjectionMetrics } from "./synced-projection-runtime.js";
@@ -392,6 +391,10 @@ function makeFixture(): ProjectionFixture {
     getSession: (sessionId: string) => launcherSessions.get(sessionId),
     getSessionNum: (sessionId: string) => launcherSessions.get(sessionId)?.sessionNum,
     listSessions: () => [...launcherSessions.values()],
+    setLastUserMessageAt: (sessionId: string, timestamp: number | undefined) => {
+      const session = launcherSessions.get(sessionId);
+      if (session) session.lastUserMessageAt = timestamp;
+    },
   } as never;
   bridge.sessionNameGetter = (sessionId) => `Session ${sessionId}`;
   bridge.sessionStoredNameGetter = bridge.sessionNameGetter;
@@ -498,8 +501,9 @@ function historicalNavigationControl(
     session_id: fixture.worker.id,
     session: {
       ...getSessionActivitySnapshot(fixture.worker),
+      pendingPermissionCount: countPendingUserPermissions(fixture.worker),
       status: "running",
-    },
+    } as never,
   };
 }
 
@@ -533,9 +537,7 @@ function subscribedLeaderBoardActivityResidual(
       leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
     },
   };
-  const residual = suppressProjectedSessionNavigationActivityFields(fullActivity);
-  if (!residual) throw new Error("Leader board activity residual must retain parallel fields");
-  return residual;
+  return fullActivity;
 }
 
 function historicalLeaderStatusControl(fixture: ProjectionFixture): BrowserIncomingMessage {
@@ -817,7 +819,6 @@ export async function collectProjectionPerformanceResults(): Promise<ProjectionP
 
   const navigationControlFixture = makeFixture();
   const navigationLegacyControl = historicalNavigationControl(navigationControlFixture);
-  const navigationRetainedActivityResidual = suppressProjectedSessionNavigationActivityFields(navigationLegacyControl);
   const navigationHistoricalNoOpFixture = makeFixture();
   const navigationHistoricalSingleFixture = makeFixture();
   const navigationHistoricalBurstFixture = makeFixture();
@@ -928,13 +929,11 @@ export async function collectProjectionPerformanceResults(): Promise<ProjectionP
     sessionNavigation: {
       bytes: {
         historicalLegacyStatusActivity: utf8Bytes(navigationLegacyControl),
-        retainedParallelActivityResidual: navigationRetainedActivityResidual
-          ? utf8Bytes(navigationRetainedActivityResidual)
-          : 0,
+        retainedParallelActivityResidual:
+          navigationMatchedCompatiblePairSequences.singleStatusChange.parallel.bytesPerBrowser,
         requiredProjectionStatusUpdate: navigationSingleChange.requiredWireBytesPerBrowser,
         matchedCompatiblePairStatusChange:
-          navigationSingleChange.requiredWireBytesPerBrowser +
-          (navigationRetainedActivityResidual ? utf8Bytes(navigationRetainedActivityResidual) : 0),
+          navigationMatchedCompatiblePairSequences.singleStatusChange.combined.bytesPerBrowser,
       },
       initialProjectionSubscriptionResponseBytesPerBrowser: navigationInitialSubscriptionBytes,
       initialProjectionSubscriptionMetrics: metricDelta(
@@ -1016,8 +1015,10 @@ function changedMetrics(options: {
   valueBytes: number;
   browserCount?: number;
   cachedValueBytes?: number;
+  updateValueBytes?: number;
 }): MetricSample {
   const browserCount = options.browserCount ?? PROJECTION_PERFORMANCE_FIXTURE.browserCount;
+  const updateValueBytes = options.updateValueBytes ?? options.valueBytes;
   return {
     ...zeroMetrics(),
     invalidations: options.invalidations,
@@ -1027,9 +1028,9 @@ function changedMetrics(options: {
     updates: browserCount > 0 ? 1 : 0,
     valueBytes: options.valueBytes,
     cachedValueBytes: options.cachedValueBytes ?? (browserCount > 0 ? 0 : options.valueBytes),
-    updateValueBytes: browserCount > 0 ? options.valueBytes : 0,
+    updateValueBytes: browserCount > 0 ? updateValueBytes : 0,
     deliveries: browserCount,
-    deliveredValueBytes: options.valueBytes * browserCount,
+    deliveredValueBytes: updateValueBytes * browserCount,
   };
 }
 
@@ -1131,7 +1132,7 @@ describe("synchronized projection performance controls", () => {
       requiredWireBytesTotal: 0,
     });
     expect(navigation.singleChange.metrics).toEqual(
-      changedMetrics({ invalidations: 2, valueBytes: 1_511, cachedValueBytes: 5 }),
+      changedMetrics({ invalidations: 2, valueBytes: 1_497, cachedValueBytes: 5, updateValueBytes: 20 }),
     );
     expect(navigation.singleChange.messagesPerBrowser).toBe(1);
     expect(navigation.singleChange.requiredWireBytesTotal).toBe(
@@ -1140,29 +1141,29 @@ describe("synchronized projection performance controls", () => {
     expect(navigation.burstChange.metrics).toEqual(
       changedMetrics({
         invalidations: PROJECTION_PERFORMANCE_FIXTURE.burstInvalidations * 2,
-        valueBytes: 1_511,
+        valueBytes: 1_497,
         cachedValueBytes: 5,
+        updateValueBytes: 20,
       }),
     );
     expect(navigation.burstChange.messagesPerBrowser).toBe(1);
     expect(navigation.burstChange.requiredWireBytesTotal).toBe(
       navigation.burstChange.requiredWireBytesPerBrowser * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
     );
-    expect(navigation.reconnect.metrics).toEqual(reconnectMetrics(1_506));
+    expect(navigation.reconnect.metrics).toEqual(reconnectMetrics(1_492));
     expect(navigation.reconnect.projectionSubscriptionResponseMessages).toBe(2);
 
-    // The matched compatible pair pays both the projection update and a retained
-    // parallel residual containing non-navigation activity/notification fields.
-    // The 366-byte residual is intentionally not classified as wholly removable.
+    // Status-only navigation activity is fully projection-owned in the current
+    // compatible build, so the matched pair emits only the compact field patch.
     expect(navigation.bytes).toEqual({
       historicalLegacyStatusActivity: 412,
-      retainedParallelActivityResidual: 366,
-      requiredProjectionStatusUpdate: 1_671,
-      matchedCompatiblePairStatusChange: 2_037,
+      retainedParallelActivityResidual: 0,
+      requiredProjectionStatusUpdate: 180,
+      matchedCompatiblePairStatusChange: 180,
     });
-    expect(navigation.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(1_801);
-    expect(navigation.initialProjectionSubscriptionMetrics).toEqual(initialSubscriptionMetrics(1_506));
-    expect(navigation.reconnect.projectionSubscriptionResponseBytes).toBe(1_801);
+    expect(navigation.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(1_787);
+    expect(navigation.initialProjectionSubscriptionMetrics).toEqual(initialSubscriptionMetrics(1_492));
+    expect(navigation.reconnect.projectionSubscriptionResponseBytes).toBe(1_787);
 
     // The executable historical controls have no subscription work and emit one
     // full activity payload for every producer frame, including semantic no-ops.
@@ -1174,29 +1175,39 @@ describe("synchronized projection performance controls", () => {
     expect(navigation.matchedCompatiblePairSequences).toEqual({
       noOp: expectedMatchedPair({
         producerFrames: 1,
-        parallelBytesByTypePerFrame: { session_activity_update: 366 },
+        parallelBytesByTypePerFrame: {},
         projectionBytesPerBrowser: 0,
         runtimeMetrics: { ...NO_OP_METRICS, invalidations: 2 },
       }),
       singleStatusChange: expectedMatchedPair({
         producerFrames: 1,
-        parallelBytesByTypePerFrame: { session_activity_update: 366 },
-        projectionBytesPerBrowser: 1_671,
-        runtimeMetrics: changedMetrics({ invalidations: 2, valueBytes: 1_511, cachedValueBytes: 5 }),
+        parallelBytesByTypePerFrame: {},
+        projectionBytesPerBrowser: 180,
+        runtimeMetrics: changedMetrics({
+          invalidations: 2,
+          valueBytes: 1_497,
+          cachedValueBytes: 5,
+          updateValueBytes: 20,
+        }),
       }),
       burstStatusChange: expectedMatchedPair({
         producerFrames: 25,
-        parallelBytesByTypePerFrame: { session_activity_update: 366 },
-        projectionBytesPerBrowser: 1_671,
-        runtimeMetrics: changedMetrics({ invalidations: 50, valueBytes: 1_511, cachedValueBytes: 5 }),
+        parallelBytesByTypePerFrame: {},
+        projectionBytesPerBrowser: 180,
+        runtimeMetrics: changedMetrics({
+          invalidations: 50,
+          valueBytes: 1_497,
+          cachedValueBytes: 5,
+          updateValueBytes: 20,
+        }),
       }),
     });
-    expect(navigation.matchedCompatiblePairSequences.noOp.combined.bytesPerBrowser).toBe(366);
+    expect(navigation.matchedCompatiblePairSequences.noOp.combined.bytesPerBrowser).toBe(0);
     expect(navigation.matchedCompatiblePairSequences.burstStatusChange.combined).toMatchObject({
-      logicalSends: 26,
-      deliveries: 52,
-      bytesPerBrowser: 10_821,
-      totalBytes: 21_642,
+      logicalSends: 1,
+      deliveries: 2,
+      bytesPerBrowser: 180,
+      totalBytes: 360,
     });
     expect(navigation.noSubscriber).toEqual({ ...zeroMetrics(), invalidations: 1 });
   });

@@ -187,6 +187,7 @@ import * as sessionNames from "./session-names.js";
 import * as settingsManager from "./settings-manager.js";
 import * as transcriptionEnhancer from "./transcription-enhancer.js";
 import { containerManager } from "./container-manager.js";
+import { createMockSessionNavigationProjectionController } from "./test-fixtures/mock-session-navigation-projection.js";
 
 // ─── Mock factories ──────────────────────────────────────────────────────────
 
@@ -217,6 +218,7 @@ function createMockLauncher() {
     // resolveSessionId: pass-through for exact UUIDs (used by resolveId helper in routes)
     resolveSessionId: vi.fn((id: string) => id),
     getSessionNum: vi.fn(() => undefined),
+    setLeaderProfilePortraitId: vi.fn(() => true),
   } as any;
 }
 
@@ -254,6 +256,15 @@ function createMockBridge() {
     refreshWorktreeGitStateForSnapshot: vi.fn(async () => null),
     getLastUserMessage: vi.fn(() => undefined),
     isBackendConnected: vi.fn(() => false),
+    getSyncedProjectionController: vi.fn(() =>
+      createMockSessionNavigationProjectionController({
+        getSession: (sessionId) => bridge.getSession(sessionId),
+        getLauncherSessionInfo: (sessionId) => launcher.getSession(sessionId),
+        getSessionName: (sessionId) => sessionNames.getName(sessionId) ?? launcher.getSession(sessionId)?.name,
+        getPendingTimerCount: (sessionId) => timerManager.listTimers(sessionId).length,
+        getBackendConnected: (sessionId) => bridge.isBackendConnected(sessionId),
+      }),
+    ),
     markWorktree: vi.fn(),
     applyInitialSessionState: vi.fn(),
     setDiffBaseBranch: vi.fn(() => true),
@@ -1072,7 +1083,7 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
-  it("preserves pendingTimerCount when session enrichment falls back after an error", async () => {
+  it("returns only safe launcher state when current-build enrichment fails", async () => {
     // Regression: an unrelated enrichment failure should not zero out the timer
     // indicator in takode list for that session.
     const sessions = setupTakodeSessions();
@@ -1097,10 +1108,9 @@ describe("Takode server-authoritative auth", () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.find((s: any) => s.sessionId === "worker-1")).toMatchObject({
-      sessionId: "worker-1",
-      pendingTimerCount: 1,
-    });
+    const worker = json.find((s: any) => s.sessionId === "worker-1");
+    expect(worker).toMatchObject({ sessionId: "worker-1" });
+    expect(worker).toMatchObject({ sessionId: "worker-1", pendingTimerCount: 1 });
     const serialized = JSON.stringify(json);
     expect(serialized).not.toContain("codexWorkerV2Cutover");
     expect(serialized).not.toContain("fallback handoff secret");

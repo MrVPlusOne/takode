@@ -1,9 +1,9 @@
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
-import type { SessionState, SessionTaskEntry } from "../../server/session-types.js";
+import type { SessionTaskEntry } from "../../server/session-types.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { useRef, useLayoutEffect, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { countUserPermissions, useStore } from "../store.js";
+import { useStore } from "../store.js";
 import { SessionNumChip } from "./SessionNumChip.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
 import { SessionContextStats, SessionPayloadStats } from "./SessionPayloadStats.js";
@@ -22,7 +22,7 @@ import {
 } from "../../shared/quest-journey.js";
 import { orderLeaderActivePhaseRows } from "../../shared/leader-active-phase-summary.js";
 import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
-import { coalesceSessionViewModel, type SessionViewModel } from "../utils/session-view-model.js";
+import type { SessionViewModel } from "../utils/session-view-model.js";
 import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { formatContextWindowLabel } from "../utils/token-format.js";
 import {
@@ -38,7 +38,6 @@ interface SessionHoverCardProps {
   sessionName: string | undefined;
   sessionPreview: string | undefined;
   taskHistory: SessionTaskEntry[] | undefined;
-  sessionState: SessionState | undefined;
   /** The CLI's internal session ID, used for `claude --resume` */
   cliSessionId?: string;
   anchorRect: DOMRect;
@@ -132,7 +131,6 @@ export function SessionHoverCard({
   sessionName,
   sessionPreview,
   taskHistory,
-  sessionState,
   cliSessionId,
   anchorRect,
   onMouseEnter,
@@ -141,17 +139,10 @@ export function SessionHoverCard({
 }: SessionHoverCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const taskHistoryScrollRef = useRef<HTMLDivElement>(null);
-  const resolvedNavigation = useStore((st) => {
-    const sessions = sessionState ? new Map(st.sessions).set(suppliedSession.id, sessionState) : st.sessions;
-    return resolveSessionNavigation({ ...st, sessions, countUserPermissions }, suppliedSession.id);
-  });
-  const projectionOwned =
-    resolvedNavigation?.projectionState !== undefined && resolvedNavigation.projectionState !== "legacy";
-  const s = projectionOwned ? resolvedNavigation.sidebarItem : suppliedSession;
-  const resolvedSessionName = projectionOwned ? resolvedNavigation?.name : (resolvedNavigation?.name ?? sessionName);
-  const resolvedSessionPreview = projectionOwned
-    ? resolvedNavigation?.preview
-    : (resolvedNavigation?.preview ?? sessionPreview);
+  const resolvedNavigation = useStore((state) => resolveSessionNavigation(state, suppliedSession.id));
+  const s = resolvedNavigation?.sidebarItem ?? suppliedSession;
+  const resolvedSessionName = resolvedNavigation?.sidebarItem.name ?? sessionName;
+  const resolvedSessionPreview = resolvedNavigation?.sidebarItem.lastMessagePreview ?? sessionPreview;
   const zoomLevel = useStore((st) => st.zoomLevel ?? 1);
   const quests = useStore((st) => st.quests) ?? [];
   const activeLeaderBoardRows =
@@ -162,8 +153,7 @@ export function SessionHoverCard({
   // For worker/reviewer sessions: find the leader that owns them.
   const sdkSessions = useStore((st) => st.sdkSessions);
   const sdkSessionMeta = useMemo(() => sdkSessions.find((sdk) => sdk.sessionId === s.id), [sdkSessions, s.id]);
-  const currentSessionId = useStore((st) => st.currentSessionId);
-  const liveTimerCount = useStore((st) => st.sessionTimers?.get(s.id)?.length ?? 0);
+  const currentSessionId = useStore((state) => state.currentSessionId);
   const attentionProjection = useStore((st) => getSyncedProjectionValue(st, SESSION_ATTENTION_PROJECTION, s.id));
   const sessionNotifications = useStore((st) =>
     hasSyncedProjectionValue(st, SESSION_ATTENTION_PROJECTION, s.id) ? undefined : st.sessionNotifications?.get(s.id),
@@ -171,7 +161,7 @@ export function SessionHoverCard({
   const sessionAttention = useStore((st) =>
     hasSyncedProjectionValue(st, SESSION_ATTENTION_PROJECTION, s.id) ? null : (st.sessionAttention?.get(s.id) ?? null),
   );
-  const sessionVm = resolvedNavigation?.viewModel ?? coalesceSessionViewModel(sessionState, sdkSessionMeta);
+  const sessionVm = resolvedNavigation?.viewModel ?? null;
   const effectiveBackendType = sessionVm?.backendType ?? suppliedSession.backendType ?? s.backendType;
   const leaderSession = useMemo(() => {
     if (s.isOrchestrator || !s.herdedBy) return null;
@@ -180,11 +170,7 @@ export function SessionHoverCard({
   }, [s.isOrchestrator, s.herdedBy, sdkSessions]);
 
   // Status info
-  const timerCount = s.navigationProjectionOwned
-    ? (s.pendingTimerCount ?? 0)
-    : s.id === currentSessionId
-      ? liveTimerCount
-      : (s.pendingTimerCount ?? 0);
+  const timerCount = s.pendingTimerCount ?? 0;
   const activeTimerCount = attentionProjection
     ? attentionProjection.status?.urgency === "needs-input"
       ? 0
@@ -265,7 +251,7 @@ export function SessionHoverCard({
         }
       );
     }
-    if (projectionOwned) return null;
+    if (resolvedNavigation) return null;
     return (
       quests.find((quest) => {
         if (quest.status !== "in_progress") return false;
@@ -280,20 +266,15 @@ export function SessionHoverCard({
     sessionVm?.claimedQuestId,
     sessionVm?.claimedQuestStatus,
     sessionVm?.claimedQuestTitle,
-    projectionOwned,
+    resolvedNavigation,
   ]);
   const showTaskHistory = !s.isOrchestrator && taskEntries.length > 0;
 
-  // Projection-backed stats stay fresh for unselected sessions while the
-  // legacy coalesced model preserves unsupported-server compatibility.
+  // Current-build navigation stays fresh for selected and unselected sessions.
   const turns = sessionVm?.numTurns ?? 0;
   const contextPercent = sessionVm?.contextUsedPercent ?? 0;
   const configuredMaxContextLength = getConfiguredMaxContextLength(sessionVm);
-  const backendReportedContextWindow =
-    sessionVm?.backendReportedContextWindow ??
-    (backendType === "codex"
-      ? sdkSessionMeta?.codexTokenDetails?.modelContextWindow
-      : sdkSessionMeta?.claudeTokenDetails?.modelContextWindow);
+  const backendReportedContextWindow = sessionVm?.backendReportedContextWindow;
   const contextWindow = sessionVm?.modelContextWindow ?? 0;
   const contextWindowTitle =
     configuredMaxContextLength &&

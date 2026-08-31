@@ -188,6 +188,7 @@ import * as sessionNames from "./session-names.js";
 import * as settingsManager from "./settings-manager.js";
 import * as transcriptionEnhancer from "./transcription-enhancer.js";
 import { containerManager } from "./container-manager.js";
+import { createMockSessionNavigationProjectionController } from "./test-fixtures/mock-session-navigation-projection.js";
 
 // ─── Mock factories ──────────────────────────────────────────────────────────
 
@@ -204,7 +205,9 @@ function createMockLauncher() {
     relaunch: vi.fn(async () => ({ ok: true })),
     relaunchWithResumeAt: vi.fn(async () => ({ ok: true })),
     listSessions: vi.fn(() => []),
-    getSession: vi.fn(),
+    getSession: vi.fn(function (this: any, sessionId: string) {
+      return this.listSessions().find((session: any) => session.sessionId === sessionId);
+    }),
     setArchived: vi.fn(),
     setWorktreeCleanupState: vi.fn(),
     updateWorktree: vi.fn(),
@@ -234,12 +237,14 @@ function createMockBridge() {
       const stateEntry = Array.isArray(stateEntries)
         ? stateEntries.find((entry: any) => entry?.session_id === sessionId || entry?.sessionId === sessionId)
         : null;
+      const launcherEntry = launcher.getSession(sessionId);
       const messageHistory = this.getMessageHistory(sessionId) ?? [];
-      if (!stateEntry && messageHistory.length === 0) {
+      if (!stateEntry && !launcherEntry && messageHistory.length === 0) {
         return null;
       }
       return {
         id: sessionId,
+        backendType: launcherEntry?.backendType ?? "claude",
         state: stateEntry?.state ?? stateEntry ?? {},
         messageHistory,
         notifications: [],
@@ -256,6 +261,15 @@ function createMockBridge() {
     refreshWorktreeGitStateForSnapshot: vi.fn(async () => null),
     getLastUserMessage: vi.fn(() => undefined),
     isBackendConnected: vi.fn(() => false),
+    getSyncedProjectionController: vi.fn(() =>
+      createMockSessionNavigationProjectionController({
+        getSession: (sessionId) => bridge.getSession(sessionId),
+        getLauncherSessionInfo: (sessionId) => launcher.getSession(sessionId),
+        getSessionName: (sessionId) => sessionNames.getName(sessionId) ?? launcher.getSession(sessionId)?.name,
+        getPendingTimerCount: (sessionId) => timerManager.listTimers(sessionId).length,
+        getBackendConnected: (sessionId) => bridge.isBackendConnected(sessionId),
+      }),
+    ),
     markWorktree: vi.fn(),
     applyInitialSessionState: vi.fn(),
     setDiffBaseBranch: vi.fn(() => true),
@@ -493,6 +507,7 @@ beforeEach(() => {
   tracker = createMockTracker();
   recorder = createMockRecorder();
   timerManager = createMockTimerManager();
+  vi.mocked(sessionNames.getName).mockReturnValue(undefined);
   app = new Hono();
   const terminalManager = { getInfo: () => null, spawn: () => "", kill: () => {} } as any;
   app.route(
@@ -546,10 +561,12 @@ describe("GET /api/sessions", () => {
   it("returns the list of sessions enriched with names", async () => {
     const sessions = [
       { sessionId: "s1", state: "running", cwd: "/a" },
-      { sessionId: "s2", state: "stopped", cwd: "/b" },
+      { sessionId: "s2", state: "exited", cwd: "/b" },
     ];
     launcher.listSessions.mockReturnValue(sessions);
-    vi.mocked(sessionNames.getAllNames).mockReturnValue({ s1: "Fix auth bug" });
+    vi.mocked(sessionNames.getName).mockImplementation((sessionId: string) =>
+      sessionId === "s1" ? "Fix auth bug" : undefined,
+    );
 
     const res = await app.request("/api/sessions", { method: "GET" });
 
@@ -574,7 +591,7 @@ describe("GET /api/sessions", () => {
       },
       {
         sessionId: "s2",
-        state: "stopped",
+        state: "exited",
         cwd: "/b",
         sessionNum: null,
         gitBranch: "",
@@ -821,11 +838,15 @@ describe("GET /api/sessions", () => {
     });
   });
 
-  it("preserves pendingTimerCount when regular session enrichment falls back after an error", async () => {
-    // Regression: a bridge read failure must not strip the timer signal that the
-    // sidebar uses to highlight idle sessions waiting on scheduled work.
+  it("preserves canonical name and pendingTimerCount when regular session enrichment falls back after an error", async () => {
+    // Regression: a bridge read failure must not strip the injected name or
+    // timer signal that the sidebar uses while canonical projection enrichment
+    // is unavailable.
     launcher.listSessions.mockReturnValue([{ sessionId: "s1", state: "connected", cwd: "/a" }]);
     vi.mocked(sessionNames.getAllNames).mockReturnValue({});
+    vi.mocked(sessionNames.getName).mockImplementation((sessionId: string) =>
+      sessionId === "s1" ? "Fallback session name" : undefined,
+    );
     timerManager.listTimers.mockImplementation((sessionId: string) => (sessionId === "s1" ? [{ id: "t7" }] : []));
     bridge.getSession.mockImplementation(() => {
       throw new Error("bridge read failed");
@@ -835,7 +856,11 @@ describe("GET /api/sessions", () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json[0]).toMatchObject({ sessionId: "s1", pendingTimerCount: 1 });
+    expect(json[0]).toMatchObject({
+      sessionId: "s1",
+      name: "Fallback session name",
+      pendingTimerCount: 1,
+    });
   });
 
   it("enriches sessions with git data from bridge state", async () => {

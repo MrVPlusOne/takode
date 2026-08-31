@@ -24,8 +24,10 @@ interface MockStoreState {
     state?: string;
     cwd?: string;
     createdAt?: number;
+    name?: string;
   }>;
   sessions: Map<string, SessionState>;
+  sessionAttention: Map<string, "action" | "error" | "review" | null>;
   sessionNames: Map<string, string>;
   sessionPreviews: Map<string, string>;
   sessionTaskHistory: Map<string, unknown[]>;
@@ -54,6 +56,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     }),
     sdkSessions: [],
     sessions: new Map(),
+    sessionAttention: new Map(),
     sessionNames: new Map(),
     sessionPreviews: new Map(),
     sessionTaskHistory: new Map(),
@@ -514,13 +517,16 @@ describe("WorkBoardBar", () => {
     resetStore({
       sdkSessions: [
         { sessionId: "s1", isOrchestrator: true },
-        { sessionId: "worker-1", sessionNum: 11, state: "connected", cwd: "/repo", createdAt: 1 },
-        { sessionId: "reviewer-1", sessionNum: 12, state: "connected", cwd: "/repo", createdAt: 1 },
+        { sessionId: "worker-1", sessionNum: 11, state: "connected", cwd: "/repo", createdAt: 1, name: "Worker One" },
+        {
+          sessionId: "reviewer-1",
+          sessionNum: 12,
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          name: "Reviewer One",
+        },
       ],
-      sessionNames: new Map([
-        ["worker-1", "Worker One"],
-        ["reviewer-1", "Reviewer One"],
-      ]),
       quests: [
         {
           id: "q-1-v1",

@@ -165,6 +165,12 @@ export interface Session {
   codexToolResultWatchdogs: Map<string, ReturnType<typeof setTimeout>>;
   /** Whether the CLI is actively generating a response (transient, not persisted) */
   isGenerating: boolean;
+  /** Latest producer status used only when current server lifecycle is otherwise idle. */
+  navigationProducerStatus?: import("../../shared/session-navigation-projection.js").SessionNavigationStatus;
+  /** Last launcher activity sample published through the navigation projection. */
+  navigationLastActivityAt?: number;
+  /** Coalescing bucket for navigationLastActivityAt; null means sampled with no timestamp. */
+  navigationActivityBucket?: number | null;
   /** When isGenerating became true (epoch ms), for stuck detection + timer restore */
   generationStartedAt: number | null;
   /** Quest status snapshot at turn start, for detecting changes in turn_end events */
@@ -253,6 +259,7 @@ export interface Session {
   lastActivityPreview?: string;
   /** Cached truncated content of the last user message (avoids scanning messageHistory) */
   lastUserMessage?: string;
+  lastMessagePreviewAt?: number;
   /** Calendar date key (YYYY-MM-DD) of the last CLI-bound user message, for date-boundary injection. */
   lastUserMessageDateTag: string;
   /** Epoch ms when the user last viewed this session (server-authoritative) */

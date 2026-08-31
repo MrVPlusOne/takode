@@ -99,8 +99,12 @@ describe("hydrateSessionList synced attention projection", () => {
 
     expect(navigationOwnedWhenRowPublished).toBe(true);
     expect(getSyncedProjectionValue(useStore.getState(), SESSION_NAVIGATION_PROJECTION, "s1")).toMatchObject({
-      identity: { name: "Projected name" },
-      lifecycle: { pendingPermissionCount: 2 },
+      name: "Projected name",
+      pendingPermissionCount: 2,
+    });
+    expect(useStore.getState().sdkSessions[0]).toMatchObject({
+      name: "Projected name",
+      pendingPermissionCount: 2,
     });
   });
 
@@ -169,9 +173,10 @@ describe("hydrateSessionList synced attention projection", () => {
       generation: "generation-new",
       revision: 1,
     });
-    expect(getSyncedProjectionValue(useStore.getState(), SESSION_NAVIGATION_PROJECTION, "s1")?.identity.name).toBe(
+    expect(getSyncedProjectionValue(useStore.getState(), SESSION_NAVIGATION_PROJECTION, "s1")?.name).toBe(
       "New navigation",
     );
+    expect(useStore.getState().sdkSessions[0]?.name).toBe("New navigation");
   });
 
   it("revokes projection authority when archive is authoritatively confirmed", () => {
@@ -231,7 +236,13 @@ describe("hydrateSessionList synced attention projection", () => {
   it("keeps a partial-ack navigation rejection fenced until later live subscription acceptance", () => {
     const requestSequence = beginActiveSessionListRequest();
     const attention = projectionSnapshot();
-    const navigation = createSessionNavigationProjectionEnvelope({ key: "s1" });
+    const navigation = createSessionNavigationProjectionEnvelope({
+      key: "s1",
+      overrides: {
+        identity: { name: "Accepted navigation" },
+        lifecycle: { status: "running", pendingPermissionCount: 2 },
+      },
+    });
     hydrateSessionList(
       [
         session({
@@ -258,6 +269,10 @@ describe("hydrateSessionList synced attention projection", () => {
     hydrateSessionList(
       [
         session({
+          name: "Stale REST name",
+          status: "idle",
+          pendingPermissionCount: 9,
+          cliSessionId: "fresh-rest-metadata",
           sessionAttentionProjection: attention,
           sessionNavigationProjection: { ...navigation, revision: 9 },
         }),
@@ -268,6 +283,12 @@ describe("hydrateSessionList synced attention projection", () => {
     stored = useStore.getState().sdkSessions[0]!;
     expect(Object.prototype.hasOwnProperty.call(stored, "sessionNavigationProjection")).toBe(false);
     expect(hasSyncedProjectionValue(useStore.getState(), SESSION_NAVIGATION_PROJECTION, "s1")).toBe(false);
+    expect(stored).toMatchObject({
+      name: "Accepted navigation",
+      status: "running",
+      pendingPermissionCount: 2,
+      cliSessionId: "fresh-rest-metadata",
+    });
 
     const laterRequestSequence = beginActiveSessionListRequest();
     hydrateSessionList(

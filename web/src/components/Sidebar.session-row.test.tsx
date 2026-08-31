@@ -171,6 +171,7 @@ function makeSdkSession(id: string, overrides: Partial<SdkSessionInfo> = {}): Sd
   return {
     sessionId: id,
     state: "connected",
+    model: "claude-sonnet-4-5-20250929",
     cwd: "/home/user/projects/myapp",
     createdAt: Date.now(),
     archived: false,
@@ -564,5 +565,56 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
     } finally {
       vi.stubGlobal("requestAnimationFrame", originalRequestAnimationFrame);
     }
+  });
+
+  it("keeps explicit canonical zero diff totals instead of reviving legacy local stats", () => {
+    const session = makeSession("s1", {
+      git_branch: "jiayi-wt-9954",
+      is_worktree: true,
+      total_lines_added: 0,
+      total_lines_removed: 0,
+    });
+    const sdk = makeSdkSession("s1", {
+      gitBranch: "jiayi-wt-9954",
+      isWorktree: true,
+      totalLinesAdded: 0,
+      totalLinesRemoved: 0,
+    });
+    mockState = createMockState({
+      sessions: new Map([["s1", session]]),
+      sdkSessions: [sdk],
+      diffFileStats: new Map([
+        ["s1", new Map([["/repo/docs/codex-dropped-user-messages.md", { additions: 1527, deletions: 625 }]])],
+      ]),
+    });
+
+    render(<Sidebar />);
+    const sessionButton = screen.getByText("claude-sonnet-4-5-20250929").closest("button")!;
+    expect(sessionButton.textContent).not.toContain("+1527");
+    expect(sessionButton.textContent).not.toContain("-625");
+  });
+
+  it("session uses the canonical SDK-row git stats instead of legacy bridge fields", () => {
+    const session = makeSession("s1", {
+      git_branch: "from-bridge",
+      git_ahead: 1,
+    });
+    const sdk = makeSdkSession("s1", {
+      gitBranch: "from-rest",
+      gitAhead: 99,
+    });
+    mockState = createMockState({
+      sessions: new Map([["s1", session]]),
+      sdkSessions: [sdk],
+    });
+
+    render(<Sidebar />);
+    // The list row is already materialized from current server authority; the
+    // parallel bridge map must not arbitrate navigation fields at render time.
+    expect(screen.queryByText("from-bridge")).not.toBeInTheDocument();
+    expect(screen.queryByText("from-rest")).not.toBeInTheDocument();
+    const sessionButton = screen.getByText("99↑").closest("button")!;
+    expect(sessionButton.textContent).toContain("99");
+    expect(sessionButton.textContent).not.toContain("1↑");
   });
 });

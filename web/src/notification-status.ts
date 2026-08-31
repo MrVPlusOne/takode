@@ -106,7 +106,9 @@ function hasNotificationStatus(snapshot: NotificationStatusSnapshot): boolean {
   );
 }
 
-function notificationStatusFromSession(session: SdkSessionInfo | undefined): NotificationStatusSnapshot {
+function notificationStatusFromSession(
+  session: NotificationStatusSnapshot | SdkSessionInfo | undefined,
+): NotificationStatusSnapshot {
   if (!session) return {};
   return {
     notificationUrgency: session.notificationUrgency,
@@ -158,28 +160,11 @@ export function shouldApplyAttentionReasonWithNotificationFreshness(
 }
 
 function applyNotificationStatus(session: SdkSessionInfo, status: NotificationStatusSnapshot): SdkSessionInfo {
-  return {
-    ...session,
-    ...(status.notificationUrgency !== undefined ? { notificationUrgency: status.notificationUrgency } : {}),
-    ...(status.activeNotificationCount !== undefined
-      ? { activeNotificationCount: status.activeNotificationCount }
-      : {}),
-    ...(status.activeNeedsInputNotificationCount !== undefined
-      ? { activeNeedsInputNotificationCount: status.activeNeedsInputNotificationCount }
-      : {}),
-    ...(status.activeReviewNotificationCount !== undefined
-      ? { activeReviewNotificationCount: status.activeReviewNotificationCount }
-      : {}),
-    ...(status.mutedNeedsInputNotificationCount !== undefined
-      ? { mutedNeedsInputNotificationCount: status.mutedNeedsInputNotificationCount }
-      : {}),
-    ...(status.notificationStatusVersion !== undefined
-      ? { notificationStatusVersion: status.notificationStatusVersion }
-      : {}),
-    ...(status.notificationStatusUpdatedAt !== undefined
-      ? { notificationStatusUpdatedAt: status.notificationStatusUpdatedAt }
-      : {}),
-  };
+  const updates = Object.fromEntries(
+    Object.entries(notificationStatusFromSession(status)).filter(([, value]) => value !== undefined),
+  ) as Partial<SdkSessionInfo>;
+  if (Object.entries(updates).every(([key, value]) => session[key as keyof SdkSessionInfo] === value)) return session;
+  return { ...session, ...updates };
 }
 
 function preserveCurrentNotificationStatus(
@@ -290,19 +275,31 @@ export function applySessionNotifications(
     const sdkSession = state.sdkSessions.find((session) => session.sessionId === sessionId);
     if (isIncomingNotificationStatusStale(notificationStatusFromSession(sdkSession), incoming)) return state;
 
-    const sessionNotifications = new Map(state.sessionNotifications);
-    if (actionableNotifications.length === 0) sessionNotifications.delete(sessionId);
-    else sessionNotifications.set(sessionId, actionableNotifications);
+    let sessionNotifications = state.sessionNotifications;
+    if (actionableNotifications.length === 0) {
+      if (sessionNotifications.has(sessionId)) {
+        sessionNotifications = new Map(sessionNotifications);
+        sessionNotifications.delete(sessionId);
+      }
+    } else if (sessionNotifications.get(sessionId) !== actionableNotifications) {
+      sessionNotifications = new Map(sessionNotifications);
+      sessionNotifications.set(sessionId, actionableNotifications);
+    }
 
     const index = state.sdkSessions.findIndex((session) => session.sessionId === sessionId);
     if (index === -1) {
       applied = true;
-      return { sessionNotifications };
+      return sessionNotifications === state.sessionNotifications ? state : { sessionNotifications };
     }
-    const sdkSessions = state.sdkSessions.slice();
-    sdkSessions[index] = applyNotificationStatus(sdkSessions[index]!, incoming);
+    const currentSession = state.sdkSessions[index]!;
+    const nextSession = applyNotificationStatus(currentSession, incoming);
     applied = true;
-    return { sessionNotifications, sdkSessions };
+    if (nextSession === currentSession && sessionNotifications === state.sessionNotifications) return state;
+    const sdkSessions = nextSession === currentSession ? state.sdkSessions : state.sdkSessions.slice();
+    if (nextSession !== currentSession) sdkSessions[index] = nextSession;
+    return sessionNotifications === state.sessionNotifications
+      ? { sdkSessions }
+      : { sessionNotifications, sdkSessions };
   });
   return applied;
 }

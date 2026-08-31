@@ -643,6 +643,7 @@ describe("board stall warnings", () => {
     const launcherMock = {
       touchActivity: vi.fn(),
       touchUserMessage: vi.fn(),
+      setLastUserMessageAt: vi.fn(),
       getSession: vi.fn((id: string) => launcherSessions.get(id)),
       getHerdedSessions: vi.fn((id: string) =>
         id === leaderId
@@ -762,6 +763,7 @@ describe("board stall warnings", () => {
     const launcherMock = {
       touchActivity: vi.fn(),
       touchUserMessage: vi.fn(),
+      setLastUserMessageAt: vi.fn(),
       getSession: vi.fn((id: string) => launcherSessions.get(id)),
       getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
       getSessionNum: vi.fn((id: string) => launcherSessions.get(id)?.sessionNum),
@@ -1811,6 +1813,7 @@ describe("board stall warnings", () => {
     const launcherMock = {
       touchActivity: vi.fn(),
       touchUserMessage: vi.fn(),
+      setLastUserMessageAt: vi.fn(),
       getSession: vi.fn((id: string) => launcherSessions.get(id)),
       getHerdedSessions: vi.fn((id: string) => (id === leaderId ? [{ sessionId: workerId }] : [])),
       getSessionNum: vi.fn((id: string) => launcherSessions.get(id)?.sessionNum),

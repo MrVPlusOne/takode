@@ -17,11 +17,20 @@ export interface SyncedProjectionEnvelope<T = unknown> extends SyncedProjectionV
   value: T;
 }
 
+export interface SyncedProjectionPatchEnvelope<TPatch = unknown> extends SyncedProjectionVersion {
+  projection: string;
+  key: string;
+  patch: TPatch;
+}
+
 export type SyncedProjectionSnapshotMessage<T = unknown> = SyncedProjectionEnvelope<T> & {
   type: "synced_projection_snapshot";
 };
 
-export type SyncedProjectionUpdateMessage<T = unknown> = SyncedProjectionEnvelope<T> & {
+export type SyncedProjectionUpdateMessage<T = unknown, TPatch = unknown> = (
+  | SyncedProjectionEnvelope<T>
+  | SyncedProjectionPatchEnvelope<TPatch>
+) & {
   type: "synced_projection_update";
 };
 

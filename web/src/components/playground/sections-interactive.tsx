@@ -1557,13 +1557,6 @@ export function PlaygroundInteractiveSections() {
                     "playground-board-reviewer-done",
                   ];
                   const existing = state.sdkSessions.filter((s) => !playgroundSessionIds.includes(s.sessionId));
-                  const sessionNames = new Map(state.sessionNames);
-                  sessionNames.set("playground-board-worker", "Clear Mesa");
-                  sessionNames.set("playground-board-reviewer", "Review Lead");
-                  sessionNames.set("playground-board-worker-queued", "Queued Worker");
-                  sessionNames.set("playground-board-worker-proposed", "Proposal Worker");
-                  sessionNames.set("playground-board-worker-done", "Done Worker");
-                  sessionNames.set("playground-board-reviewer-done", "Done Reviewer");
                   useStore.setState({
                     sdkSessions: [
                       ...existing,
@@ -1582,6 +1575,7 @@ export function PlaygroundInteractiveSections() {
                         createdAt: now - 3_600_000,
                         sessionNum: 5,
                         herdedBy: boardSessionId,
+                        name: "Clear Mesa",
                       },
                       {
                         sessionId: "playground-board-reviewer",
@@ -1589,6 +1583,7 @@ export function PlaygroundInteractiveSections() {
                         cwd: "/mock/playground",
                         createdAt: now - 2_400_000,
                         sessionNum: 6,
+                        name: "Review Lead",
                       },
                       {
                         sessionId: "playground-board-worker-queued",
@@ -1596,6 +1591,7 @@ export function PlaygroundInteractiveSections() {
                         cwd: "/mock/playground",
                         createdAt: now - 2_000_000,
                         sessionNum: 8,
+                        name: "Queued Worker",
                       },
                       {
                         sessionId: "playground-board-worker-proposed",
@@ -1603,6 +1599,7 @@ export function PlaygroundInteractiveSections() {
                         cwd: "/mock/playground",
                         createdAt: now - 1_800_000,
                         sessionNum: 9,
+                        name: "Proposal Worker",
                       },
                       {
                         sessionId: "playground-board-worker-done",
@@ -1610,6 +1607,7 @@ export function PlaygroundInteractiveSections() {
                         cwd: "/mock/playground",
                         createdAt: now - 6_000_000,
                         sessionNum: 10,
+                        name: "Done Worker",
                       },
                       {
                         sessionId: "playground-board-reviewer-done",
@@ -1617,9 +1615,9 @@ export function PlaygroundInteractiveSections() {
                         cwd: "/mock/playground",
                         createdAt: now - 5_000_000,
                         sessionNum: 11,
+                        name: "Done Reviewer",
                       },
                     ],
-                    sessionNames,
                     quests,
                     questTitlePreviews,
                   });

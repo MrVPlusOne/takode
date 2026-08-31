@@ -4,11 +4,6 @@ import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMess
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
 
-// Mock the names utility before any imports
-vi.mock("./utils/names.js", () => ({
-  generateUniqueSessionName: vi.fn(() => "Test Session"),
-}));
-
 const getDiffStatsMock = vi.fn().mockResolvedValue({ stats: {} });
 const listSessionsMock = vi.fn().mockResolvedValue([]);
 const playNotificationSoundMock = vi.hoisted(() => vi.fn());
@@ -124,11 +119,24 @@ function fireMessage(data: Record<string, unknown>) {
   lastWs.onmessage!({ data: JSON.stringify(data) });
 }
 
+function seedSdkSession(name: string, isOrchestrator = false) {
+  useStore.getState().setSdkSessions([
+    {
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/home/user",
+      createdAt: 1,
+      name,
+      isOrchestrator,
+    },
+  ]);
+}
+
 // ===========================================================================
 // Connection
 // ===========================================================================
 describe("handleMessage: session_init", () => {
-  it("adds session to store, generates name, but does not set CLI connected", () => {
+  it("adds session to store without inventing a browser-side name or setting CLI connected", () => {
     // session_init is just a state snapshot — CLI connection status comes from
     // explicit backend_connected/backend_disconnected messages, not from session_init.
     wsModule.connectSession("s1");
@@ -141,20 +149,20 @@ describe("handleMessage: session_init", () => {
     expect(state.sessions.get("s1")!.model).toBe("claude-opus-4-20250514");
     expect(state.cliConnected.get("s1")).toBeUndefined();
     expect(state.sessionStatus.get("s1")).toBe("idle");
-    expect(state.sessionNames.get("s1")).toBe("Test Session");
+    expect(state.sdkSessions).toEqual([]);
   });
 
-  it("does not overwrite an existing session name", () => {
-    useStore.getState().setSessionName("s1", "Custom Name");
+  it("does not overwrite an existing canonical session name", () => {
+    seedSdkSession("Custom Name");
 
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
-    expect(useStore.getState().sessionNames.get("s1")).toBe("Custom Name");
+    expect(useStore.getState().sdkSessions[0]?.name).toBe("Custom Name");
   });
 
-  it("does not overwrite an orchestrator session name from claimedQuestTitle", () => {
-    useStore.getState().setSessionName("s1", "Leader 7");
+  it("does not overwrite an orchestrator SDK-row name from claimedQuestTitle", () => {
+    seedSdkSession("Leader 7", true);
 
     wsModule.connectSession("s1");
     fireMessage({
@@ -169,8 +177,7 @@ describe("handleMessage: session_init", () => {
     });
 
     const state = useStore.getState();
-    expect(state.sessionNames.get("s1")).toBe("Leader 7");
-    expect(state.questNamedSessions.has("s1")).toBe(false);
+    expect(state.sdkSessions[0]?.name).toBe("Leader 7");
   });
 
   it("keeps direct Side Chat child WebSocket snapshots out of sidebar projection", () => {
@@ -217,14 +224,7 @@ describe("handleMessage: session_init", () => {
 
     const state = useStore.getState();
     const sidebar = buildSidebarVisibleSessions({
-      sessions: state.sessions,
       sdkSessions: state.sdkSessions,
-      cliConnected: state.cliConnected,
-      cliDisconnectReason: state.cliDisconnectReason,
-      sessionStatus: state.sessionStatus,
-      pendingPermissions: state.pendingPermissions,
-      askPermission: state.askPermission,
-      diffFileStats: state.diffFileStats,
       treeGroups: [{ id: "default", name: "Default" }],
       treeAssignments: new Map(),
       treeNodeOrder: new Map(),
@@ -232,7 +232,6 @@ describe("handleMessage: session_init", () => {
       expandedHerdNodes: new Set(),
       sessionAttention: state.sessionAttention,
       sessionSortMode: "created",
-      countUserPermissions: () => 0,
     });
 
     expect(state.sessions.has("hidden-child")).toBe(true);

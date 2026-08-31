@@ -187,6 +187,7 @@ import * as sessionNames from "./session-names.js";
 import * as settingsManager from "./settings-manager.js";
 import * as transcriptionEnhancer from "./transcription-enhancer.js";
 import { containerManager } from "./container-manager.js";
+import { createMockSessionNavigationProjectionController } from "./test-fixtures/mock-session-navigation-projection.js";
 
 // ─── Mock factories ──────────────────────────────────────────────────────────
 
@@ -217,6 +218,7 @@ function createMockLauncher() {
     // resolveSessionId: pass-through for exact UUIDs (used by resolveId helper in routes)
     resolveSessionId: vi.fn((id: string) => id),
     getSessionNum: vi.fn(() => undefined),
+    setLeaderProfilePortraitId: vi.fn(() => true),
   } as any;
 }
 
@@ -254,6 +256,15 @@ function createMockBridge() {
     refreshWorktreeGitStateForSnapshot: vi.fn(async () => null),
     getLastUserMessage: vi.fn(() => undefined),
     isBackendConnected: vi.fn(() => false),
+    getSyncedProjectionController: vi.fn(() =>
+      createMockSessionNavigationProjectionController({
+        getSession: (sessionId) => bridge.getSession(sessionId),
+        getLauncherSessionInfo: (sessionId) => launcher.getSession(sessionId),
+        getSessionName: (sessionId) => sessionNames.getName(sessionId) ?? launcher.getSession(sessionId)?.name,
+        getPendingTimerCount: (sessionId) => timerManager.listTimers(sessionId).length,
+        getBackendConnected: (sessionId) => bridge.isBackendConnected(sessionId),
+      }),
+    ),
     markWorktree: vi.fn(),
     applyInitialSessionState: vi.fn(),
     setDiffBaseBranch: vi.fn(() => true),

@@ -21,7 +21,7 @@ interface SessionNumChipProps {
 export function SessionNumChip({ sessionId, threadKey, className }: SessionNumChipProps) {
   const resolvedNavigation = useStore((s) => resolveSessionNavigation(s, sessionId));
   const session = resolvedNavigation?.sidebarItem;
-  const sessionName = resolvedNavigation?.name;
+  const sessionName = resolvedNavigation?.sidebarItem.name;
   const [hovered, setHovered] = useState(false);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
   const chipRef = useRef<HTMLButtonElement>(null);

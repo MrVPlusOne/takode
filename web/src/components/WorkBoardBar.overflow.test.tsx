@@ -14,6 +14,7 @@ interface MockStoreState {
   sessionCompletedBoards: Map<string, BoardRowData[]>;
   sdkSessions: Array<{ sessionId: string; isOrchestrator?: boolean }>;
   sessions: Map<string, SessionState>;
+  sessionAttention: Map<string, "action" | "error" | "review" | null>;
   sessionNames: Map<string, string>;
   sessionPreviews: Map<string, string>;
   sessionTaskHistory: Map<string, unknown[]>;
@@ -37,6 +38,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionCompletedBoards: new Map(),
     sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
     sessions: new Map(),
+    sessionAttention: new Map(),
     sessionNames: new Map(),
     sessionPreviews: new Map(),
     sessionTaskHistory: new Map(),

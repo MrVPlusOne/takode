@@ -57,6 +57,7 @@ function seedSessions() {
       state: "connected",
       cwd: "/repo/worker",
       createdAt: 1,
+      name: "Worker session",
     } as any,
     {
       sessionId: "leader-42",
@@ -65,15 +66,10 @@ function seedSessions() {
       cwd: "/repo/leader",
       createdAt: 1,
       isOrchestrator: true,
+      name: "Leader session",
+      lastMessagePreview: "Latest leader preview from the normal session hover card",
     } as any,
   ]);
-  useStore.setState({
-    sessionNames: new Map([
-      ["worker-42", "Worker session"],
-      ["leader-42", "Leader session"],
-    ]),
-    sessionPreviews: new Map([["leader-42", "Latest leader preview from the normal session hover card"]]),
-  });
 }
 
 describe("QuestDetailPanel navigation dismissal", () => {

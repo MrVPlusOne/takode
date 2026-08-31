@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo, useState, type CSSProperties } from "react";
-import { countUserPermissions, useStore } from "../store.js";
+import { useStore } from "../store.js";
 import {
   GitHubPRSection,
   McpCollapsible,
@@ -17,7 +17,7 @@ import {
   type ModelOption,
 } from "../utils/backends.js";
 import { buildCodexReasoningAuthorityDisplay } from "../utils/codex-reasoning-display.js";
-import { coalesceSessionViewModel, type SessionViewModel } from "../utils/session-view-model.js";
+import type { SessionViewModel } from "../utils/session-view-model.js";
 import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { navigateTo } from "../utils/navigation.js";
 import { sendToSession } from "../ws.js";
@@ -64,11 +64,9 @@ export function SessionInfoPopover({
   const session = sessions.get(sessionId);
   const sdkSession = useStore((s) => s.sdkSessions.find((x) => x.sessionId === sessionId));
   const sdkSessions = useStore((s) => s.sdkSessions);
-  const syncedProjectionValues = useStore((s) => s.syncedProjectionValues);
-  const syncedProjectionKeys = useStore((s) => s.syncedProjectionKeys);
   const taskHistory = useStore((s) => s.sessionTaskHistory.get(sessionId));
-  const resolvedNavigation = useStore((s) => resolveSessionNavigation({ ...s, countUserPermissions }, sessionId));
-  const sessionVm = resolvedNavigation?.viewModel ?? coalesceSessionViewModel(session, sdkSession);
+  const resolvedNavigation = useStore((s) => resolveSessionNavigation(s, sessionId));
+  const sessionVm = resolvedNavigation?.viewModel ?? null;
   const cwd = sessionVm?.cwd ?? null;
   const model = sessionVm?.model ?? "";
   const backendType = sessionVm?.backendType ?? "claude";
@@ -132,8 +130,7 @@ export function SessionInfoPopover({
 
   const browserConnectionStatus = useStore((s) => s.connectionStatus.get(sessionId) ?? "disconnected");
   const isConnected = browserConnectionStatus === "connected";
-  const legacyCliConnected = useStore((s) => s.cliConnected.get(sessionId) ?? false);
-  const cliConnected = resolvedNavigation?.sidebarItem.isConnected ?? legacyCliConnected;
+  const cliConnected = resolvedNavigation?.sidebarItem.isConnected ?? sdkSession?.cliConnected ?? false;
   const cliEverConnected = useStore((s) => s.cliEverConnected.get(sessionId) ?? false);
   const cliDisconnectReason = useStore((s) => s.cliDisconnectReason.get(sessionId) ?? null);
   const serverReachable = useStore((s) => s.serverReachable);
@@ -157,7 +154,6 @@ export function SessionInfoPopover({
   const [showReasoningDropdown, setShowReasoningDropdown] = useState(false);
   const [openDirectoryError, setOpenDirectoryError] = useState("");
   const [openingDirectoryTarget, setOpeningDirectoryTarget] = useState<SessionDirectoryOpenTarget | null>(null);
-  const [sdkSessionsFallback, setSdkSessionsFallback] = useState<SdkSessionInfo[] | null>(null);
   const [sdkSessionDetail, setSdkSessionDetail] = useState<SdkSessionInfo | null>(null);
   const [dynamicModelOptions, setDynamicModelOptions] = useState<ModelOption[]>([]);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
@@ -222,7 +218,6 @@ export function SessionInfoPopover({
   useEffect(() => {
     let cancelled = false;
     setSdkSessionDetail(null);
-    if (!isCodexSession) return;
     api
       .getSessionInfo(sessionId)
       .then((detail) => {
@@ -234,45 +229,13 @@ export function SessionInfoPopover({
     return () => {
       cancelled = true;
     };
-  }, [isCodexSession, sessionId]);
-
-  useEffect(() => {
-    if (sdkSessions.length > 0 && sdkSession) {
-      setSdkSessionsFallback(null);
-      return;
-    }
-    let cancelled = false;
-    api
-      .listSessions({ includeArchived: false })
-      .then((sessions) => {
-        if (cancelled) return;
-        setSdkSessionsFallback(sessions);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setSdkSessionsFallback(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [sdkSession, sdkSessions.length]);
+  }, [sessionId]);
 
   const backendLabel = backendType === "codex" ? "Codex" : "Claude";
   const hasGit = gitBranch || gitAhead > 0 || gitBehind > 0 || linesAdded > 0 || linesRemoved > 0;
-  const effectiveSdkSessions = sdkSessions.length > 0 ? sdkSessions : (sdkSessionsFallback ?? []);
-  const listedSdkSession = sdkSession ?? effectiveSdkSessions.find((x) => x.sessionId === sessionId);
-  const effectiveSdkSession =
-    listedSdkSession || sdkSessionDetail
-      ? ({ ...(listedSdkSession ?? {}), ...(sdkSessionDetail ?? {}) } as SdkSessionInfo)
-      : undefined;
-  const codexLeaderCompactionMode =
-    session?.codex_leader_compaction_mode ?? effectiveSdkSession?.codexLeaderCompactionMode;
-  const contextStats = getSessionInfoContextStats(
-    sessionVm,
-    effectiveSdkSession,
-    resolvedNavigation?.projectionState === "accepted",
-    codexLeaderCompactionMode,
-  );
+  const effectiveSdkSession = sdkSessionDetail ? { ...sdkSession, ...sdkSessionDetail } : sdkSession;
+  const codexLeaderCompactionMode = effectiveSdkSession?.codexLeaderCompactionMode;
+  const contextStats = getSessionInfoContextStats(sessionVm, codexLeaderCompactionMode);
   const contextPercent = contextStats.contextPercent;
   const contextWindow = contextStats.contextWindow;
   const configuredContextWindow = getConfiguredMaxContextLength(sessionVm);
@@ -281,9 +244,8 @@ export function SessionInfoPopover({
     turns > 0 || contextPercent > 0 || contextWindow > 0 || historyBytes > 0 || codexRetainedPayloadBytes > 0;
   const codexLeaderRecycleLineage = effectiveSdkSession?.codexLeaderRecycleLineage;
   const codexLeaderRecyclePending = effectiveSdkSession?.codexLeaderRecyclePending;
-  const lifecycleEvents = session?.lifecycle_events ?? effectiveSdkSession?.sessionLifecycleEvents ?? [];
-  const contextWindowDiagnostics =
-    session?.codex_context_window_diagnostics ?? effectiveSdkSession?.codexContextWindowDiagnostics;
+  const lifecycleEvents = effectiveSdkSession?.sessionLifecycleEvents ?? [];
+  const contextWindowDiagnostics = effectiveSdkSession?.codexContextWindowDiagnostics;
   const hasLifecycleDebug =
     lifecycleEvents.length > 0 ||
     !!contextWindowDiagnostics ||
@@ -304,32 +266,16 @@ export function SessionInfoPopover({
   const herdedBy = resolvedNavigation?.sidebarItem.herdedBy ?? effectiveSdkSession?.herdedBy;
   const herdedSessions = useMemo(() => {
     if (!isOrchestrator) return [];
-    if (sdkSessions.length === 0) {
-      return effectiveSdkSessions
-        .filter((sdk) => sdk.herdedBy === sessionId && !sdk.archived)
-        .map((sdk) => sdk.sessionId);
-    }
     return sdkSessions.flatMap((sdk) => {
-      const resolved = resolveSessionNavigation(
-        { sessions, sdkSessions, syncedProjectionValues, syncedProjectionKeys },
-        sdk.sessionId,
-      );
+      const resolved = resolveSessionNavigation({ sdkSessions }, sdk.sessionId);
       return resolved?.sidebarItem.herdedBy === sessionId && !resolved.sidebarItem.archived ? [sdk.sessionId] : [];
     });
-  }, [
-    effectiveSdkSessions,
-    isOrchestrator,
-    sdkSessions,
-    sessionId,
-    sessions,
-    syncedProjectionKeys,
-    syncedProjectionValues,
-  ]);
+  }, [isOrchestrator, sdkSessions, sessionId]);
   const leaderSession = useMemo(() => {
     if (isOrchestrator || !herdedBy) return null;
-    const leader = effectiveSdkSessions.find((sdk) => sdk.sessionId === herdedBy && !sdk.archived);
+    const leader = sdkSessions.find((sdk) => sdk.sessionId === herdedBy && !sdk.archived);
     return leader?.sessionId ?? herdedBy;
-  }, [effectiveSdkSessions, herdedBy, isOrchestrator]);
+  }, [herdedBy, isOrchestrator, sdkSessions]);
   const directoryDisabledReason = !cwd ? "No working directory is available for this session." : "";
   const canOpenWorkingDirectory = !!cwd;
   const canOpenPathRows = Boolean(sessionVm?.isWorktree && sessionVm.repoRoot && sessionVm.repoRoot !== cwd);
@@ -827,27 +773,22 @@ export function SessionInfoPopover({
 
 function getSessionInfoContextStats(
   sessionVm: SessionViewModel | null,
-  effectiveSdkSession: SdkSessionInfo | undefined,
-  navigationProjectionOwned = false,
   codexLeaderCompactionMode?: string,
 ): { contextPercent: number; contextWindow: number } {
   const defaultStats = {
     contextPercent: sessionVm?.contextUsedPercent ?? 0,
     contextWindow: sessionVm?.modelContextWindow ?? 0,
   };
-  const thresholdTokens =
-    positiveNumber(sessionVm?.codexLeaderRecycleThresholdTokens) ??
-    (navigationProjectionOwned ? undefined : positiveNumber(effectiveSdkSession?.codexLeaderRecycleThresholdTokens));
-  if (!thresholdTokens) return defaultStats;
-  const isCodexLeader =
-    sessionVm?.backendType === "codex" &&
-    (sessionVm?.isOrchestrator === true ||
-      (!navigationProjectionOwned && effectiveSdkSession?.isOrchestrator === true));
-  if (!isCodexLeader || !isCodexLeaderRecycleMode(codexLeaderCompactionMode)) return defaultStats;
-
-  const contextTokensUsed =
-    positiveNumber(sessionVm?.contextTokensUsed) ??
-    (navigationProjectionOwned ? undefined : positiveNumber(effectiveSdkSession?.codexTokenDetails?.contextTokensUsed));
+  const thresholdTokens = positiveNumber(sessionVm?.codexLeaderRecycleThresholdTokens);
+  if (
+    !thresholdTokens ||
+    sessionVm?.backendType !== "codex" ||
+    sessionVm.isOrchestrator !== true ||
+    !isCodexLeaderRecycleMode(codexLeaderCompactionMode)
+  ) {
+    return defaultStats;
+  }
+  const contextTokensUsed = positiveNumber(sessionVm.contextTokensUsed);
   return {
     contextPercent: contextTokensUsed ? (contextTokensUsed / thresholdTokens) * 100 : defaultStats.contextPercent,
     contextWindow: thresholdTokens,

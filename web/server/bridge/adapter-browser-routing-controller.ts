@@ -1263,6 +1263,7 @@ export function ingestUserMessage(
       deps.promoteLeaderThreadTabForMessageAttention?.(session.id, userHistoryEntry);
       userMsgHistoryIdx = session.messageHistory.length - 1;
       session.lastUserMessage = formatReplyContentForPreview(msg.content || "", msg.replyContext).slice(0, 80);
+      session.lastMessagePreviewAt = ts;
       if (isActualHumanUserMessage(userHistoryEntry)) {
         deps.touchUserMessage(session.id, ts);
       }

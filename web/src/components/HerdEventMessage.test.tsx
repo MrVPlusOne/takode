@@ -117,7 +117,6 @@ describe("HerdEventMessage", () => {
 
   it("shows the standard session hover card when hovering the resolved session affordance", async () => {
     const prevSdkSessions = useStore.getState().sdkSessions;
-    const prevSessionNames = useStore.getState().sessionNames;
     useStore.setState({
       sdkSessions: [
         {
@@ -126,9 +125,9 @@ describe("HerdEventMessage", () => {
           createdAt: 1,
           cwd: "/repo",
           state: "connected",
+          name: "Auth Worker",
         },
       ],
-      sessionNames: new Map([["worker-8", "Auth Worker"]]),
     });
 
     try {
@@ -143,7 +142,7 @@ describe("HerdEventMessage", () => {
 
       expect(await screen.findByText("Auth Worker")).toBeTruthy();
     } finally {
-      useStore.setState({ sdkSessions: prevSdkSessions, sessionNames: prevSessionNames });
+      useStore.setState({ sdkSessions: prevSdkSessions });
     }
   });
 

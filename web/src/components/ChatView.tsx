@@ -479,10 +479,6 @@ function QuestBannerParticipantChip({
         return candidate;
       }
     }
-    for (const id of s.sessions.keys()) {
-      const candidate = resolveSessionNavigation(s, id);
-      if (candidate?.viewModel.sessionNum === candidateSessionNum) return candidate;
-    }
     return null;
   });
   const sessionId = candidateSessionId ?? resolvedNavigation?.viewModel.sessionId ?? null;
@@ -524,9 +520,7 @@ export function participantNavigationMatchesSessionNum(
   sdkSessionNum: number | null | undefined,
   targetSessionNum: number,
 ): boolean {
-  return navigation && navigation.projectionState !== "legacy"
-    ? navigation.viewModel.sessionNum === targetSessionNum
-    : sdkSessionNum === targetSessionNum;
+  return navigation ? navigation.viewModel.sessionNum === targetSessionNum : sdkSessionNum === targetSessionNum;
 }
 
 export function resolveQuestBannerParticipantIdentity(
@@ -534,13 +528,9 @@ export function resolveQuestBannerParticipantIdentity(
   fallbackSessionNum?: number,
   fallbackName?: string,
 ): { sessionNum?: number; displayName?: string } {
-  if (navigation && navigation.projectionState !== "legacy") {
-    return { sessionNum: navigation.viewModel.sessionNum ?? undefined, displayName: navigation.name };
-  }
-  return {
-    sessionNum: fallbackSessionNum ?? navigation?.viewModel.sessionNum ?? undefined,
-    displayName: fallbackName ?? navigation?.name,
-  };
+  return navigation
+    ? { sessionNum: navigation.viewModel.sessionNum ?? undefined, displayName: navigation.sidebarItem.name }
+    : { sessionNum: fallbackSessionNum, displayName: fallbackName };
 }
 
 function boardWorkerParticipantForRow(row?: QuestThreadBannerRow): BoardRowSessionStatus["worker"] | undefined {

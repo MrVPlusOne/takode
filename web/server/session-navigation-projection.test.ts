@@ -98,73 +98,61 @@ describe("session navigation projection", () => {
     });
 
     expect(value).toMatchObject({
-      identity: {
-        name: "Projection worker",
-        model: "gpt-5.6",
-        cwd: "/repo/worktree",
-        backendType: "codex",
-        permissionMode: "codex-default",
-        askPermission: true,
-        sessionNum: 42,
-        createdAt: 5,
-      },
-      topology: {
-        treeGroupId: "project",
-        memorySessionSpaceSlug: "Takode",
-        repoRoot: "/repo",
-        isWorktree: true,
-        isContainerized: false,
-        isAssistant: false,
-        isOrchestrator: true,
-        herdedBy: "leader-1",
-        reviewerOf: 7,
-        cronJobId: "cron-1",
-        cronJobName: "Nightly",
-      },
-      lifecycle: {
-        sdkState: "running",
-        status: "running",
-        cliConnected: true,
-        idleKilled: true,
-        pendingPermissionCount: 1,
-        pendingTimerCount: 2,
-        paused: true,
-        pausedInputQueueCount: 1,
-        lastActivityAt: 40,
-        lastUserMessageAt: 20,
-        lastMessagePreviewAt: 30,
-      },
-      quest: {
-        claimedQuestId: "q-1",
-        claimedQuestTitle: "Migrate navigation",
-        claimedQuestStatus: "in_progress",
-        claimedQuestVerificationInboxUnread: false,
-        claimedQuestLeaderSessionId: "leader-1",
-      },
-      git: {
-        branch: "worker",
-        defaultBranch: "origin/main",
-        diffBaseBranch: "main",
-        ahead: 2,
-        behind: 1,
-        linesAdded: 12,
-        linesRemoved: 3,
-      },
-      detail: {
-        lastMessagePreview: "Inspect the synchronized navigation projection",
-        userTurnCount: 4,
-        agentTurnCount: 3,
-        contextUsedPercent: 25,
-        contextTokensUsed: 100_000,
-        modelContextWindow: 400_000,
-        configuredContextWindow: 500_000,
-        effectiveContextWindow: 350_000,
-        messageHistoryBytes: 1_024,
-        codexRetainedPayloadBytes: 2_048,
-        codexReasoningEffort: "high",
-        codexEffectiveReasoningEffort: "medium",
-        codexEffectiveReasoningEffortReported: true,
-      },
+      name: "Projection worker",
+      model: "gpt-5.6",
+      cwd: "/repo/worktree",
+      backendType: "codex",
+      permissionMode: "codex-default",
+      askPermission: true,
+      sessionNum: 42,
+      createdAt: 5,
+      treeGroupId: "project",
+      memorySessionSpaceSlug: "Takode",
+      repoRoot: "/repo",
+      isWorktree: true,
+      isContainerized: false,
+      isAssistant: false,
+      isOrchestrator: true,
+      herdedBy: "leader-1",
+      reviewerOf: 7,
+      cronJobId: "cron-1",
+      cronJobName: "Nightly",
+      state: "running",
+      status: "running",
+      cliConnected: true,
+      killedByIdleManager: true,
+      pendingPermissionCount: 1,
+      pendingTimerCount: 2,
+      paused: true,
+      pausedInputQueueCount: 1,
+      lastActivityAt: 40,
+      lastUserMessageAt: 20,
+      lastMessagePreviewAt: 30,
+      claimedQuestId: "q-1",
+      claimedQuestTitle: "Migrate navigation",
+      claimedQuestStatus: "in_progress",
+      claimedQuestVerificationInboxUnread: false,
+      claimedQuestLeaderSessionId: "leader-1",
+      gitBranch: "worker",
+      gitDefaultBranch: "origin/main",
+      diffBaseBranch: "main",
+      gitAhead: 2,
+      gitBehind: 1,
+      totalLinesAdded: 12,
+      totalLinesRemoved: 3,
+      lastMessagePreview: "Inspect the synchronized navigation projection",
+      userTurnCount: 4,
+      agentTurnCount: 3,
+      contextUsedPercent: 25,
+      contextTokensUsed: 100_000,
+      modelContextWindow: 400_000,
+      codexMaxContextLength: 500_000,
+      codexLeaderRecycleThresholdTokens: 350_000,
+      messageHistoryBytes: 1_024,
+      codexRetainedPayloadBytes: 2_048,
+      codexReasoningEffort: "high",
+      codexEffectiveReasoningEffort: "medium",
+      codexEffectiveReasoningEffortReported: true,
     });
     expect(isSessionNavigationProjectionValue(value)).toBe(true);
   });
@@ -193,15 +181,15 @@ describe("session navigation projection", () => {
       authorizeSubscription: () => true,
     };
 
-    expect(buildSessionNavigationProjectionValue(session, deps).identity.askPermission).toBe(false);
+    expect(buildSessionNavigationProjectionValue(session, deps).askPermission).toBe(false);
 
     delete session.state.askPermission;
     launcherInfo.askPermission = false;
-    expect(buildSessionNavigationProjectionValue(session, deps).identity.askPermission).toBe(false);
+    expect(buildSessionNavigationProjectionValue(session, deps).askPermission).toBe(false);
 
     delete launcherInfo.askPermission;
     session.state.permissionMode = "codex-full-access";
-    expect(buildSessionNavigationProjectionValue(session, deps).identity.askPermission).toBe(false);
+    expect(buildSessionNavigationProjectionValue(session, deps).askPermission).toBe(false);
   });
 
   it("uses the recycle budget only for Codex leaders that are actually in recycle mode", () => {
@@ -232,15 +220,15 @@ describe("session navigation projection", () => {
       authorizeSubscription: () => true,
     };
 
-    expect(buildSessionNavigationProjectionValue(session, deps).detail.effectiveContextWindow).toBe(400_000);
+    expect(buildSessionNavigationProjectionValue(session, deps).codexLeaderRecycleThresholdTokens).toBeNull();
 
     session.state.codex_leader_compaction_mode = "recycle";
     launcherInfo.codexLeaderCompactionMode = "recycle";
-    expect(buildSessionNavigationProjectionValue(session, deps).detail.effectiveContextWindow).toBe(350_000);
+    expect(buildSessionNavigationProjectionValue(session, deps).codexLeaderRecycleThresholdTokens).toBe(350_000);
 
     session.state.isOrchestrator = false;
     launcherInfo.isOrchestrator = false;
-    expect(buildSessionNavigationProjectionValue(session, deps).detail.effectiveContextWindow).toBe(400_000);
+    expect(buildSessionNavigationProjectionValue(session, deps).codexLeaderRecycleThresholdTokens).toBeNull();
   });
 
   it("truncates text/path inputs and normalizes invalid numeric sources", () => {
@@ -263,14 +251,14 @@ describe("session navigation projection", () => {
       authorizeSubscription: () => true,
     });
 
-    expect(value.identity.name).toHaveLength(1_024);
-    expect(value.identity.model).toHaveLength(1_024);
-    expect(value.identity.cwd).toHaveLength(4_096);
-    expect(value.detail.lastMessagePreview).toHaveLength(80);
-    expect(value.git.ahead).toBe(0);
-    expect(value.lifecycle.pendingTimerCount).toBe(0);
-    expect(value.lifecycle.lastMessagePreviewAt).toBeNull();
-    expect(value.detail.contextUsedPercent).toBe(0);
+    expect(value.name).toHaveLength(1_024);
+    expect(value.model).toHaveLength(1_024);
+    expect(value.cwd).toHaveLength(4_096);
+    expect(value.lastMessagePreview).toHaveLength(80);
+    expect(value.gitAhead).toBe(0);
+    expect(value.pendingTimerCount).toBe(0);
+    expect(value.lastMessagePreviewAt).toBeNull();
+    expect(value.contextUsedPercent).toBe(0);
     expect(isSessionNavigationProjectionValue(value)).toBe(true);
   });
 });

@@ -69,20 +69,13 @@ import type {
   TakodeHerdEventBrowserMetadata,
 } from "../server/session-types.js";
 import type { CodexMessagePhase } from "../shared/codex-message-phase.js";
-import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
-import type { SyncedProjectionRestEnvelopeFields } from "../shared/synced-projection-registry.js";
 import { assertNever, isClaudeFamily } from "../server/session-types.js";
 import type { ImageRef } from "../server/image-store.js";
 import type { SessionTimer } from "../server/timer-types.js";
 import type { ReplyContext } from "../shared/reply-context.js";
 import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
 import type { ModelAuthorityDecision, ModelProvenanceMigration } from "../server/model-identity-contract.js";
-import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
-import type {
-  LeaderProfilePool,
-  LeaderProfilePoolSettings,
-  LeaderProfilePortrait,
-} from "../shared/leader-profile-portraits.js";
+import type { LeaderProfilePool, LeaderProfilePoolSettings } from "../shared/leader-profile-portraits.js";
 import type {
   QuestmasterTask,
   QuestListPreview,
@@ -177,7 +170,10 @@ export type {
   CodexAutoPauseRecoverySummary,
 };
 export type { TreeGroup, TreeGroupState } from "../server/tree-group-store.js";
-export type { ModelAuthorityDecision, ModelProvenanceMigration } from "../server/model-identity-contract.js";
+export type {
+  ModelAuthorityDecision,
+  ModelProvenanceMigration,
+} from "../server/model-identity-contract.js";
 export type {
   StreamCurrentState,
   StreamEntryType,
@@ -368,207 +364,4 @@ export interface TaskItem {
   blockedBy?: string[];
 }
 
-export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
-  sessionId: string;
-  pid?: number;
-  state: "starting" | "connected" | "running" | "exited";
-  exitCode?: number | null;
-  model?: string;
-  modelAuthority?: ModelAuthorityDecision;
-  modelProvenanceMigration?: ModelProvenanceMigration;
-  permissionMode?: string;
-  cwd: string;
-  createdAt: number;
-  /** The CLI's internal session ID (from system.init), used for `claude --resume` */
-  cliSessionId?: string;
-  archived?: boolean;
-  /** Epoch ms when this session was archived */
-  archivedAt?: number;
-  /** Async cleanup state for archived worktree sessions. */
-  worktreeCleanupStatus?: "pending" | "done" | "failed";
-  /** Last background cleanup error, if any. */
-  worktreeCleanupError?: string;
-  /** Epoch ms when background cleanup started. */
-  worktreeCleanupStartedAt?: number;
-  /** Epoch ms when background cleanup finished. */
-  worktreeCleanupFinishedAt?: number;
-  containerId?: string;
-  containerName?: string;
-  containerImage?: string;
-  name?: string;
-  /** Hidden implementation session, omitted from normal session lists. */
-  hidden?: boolean;
-  backendType?: BackendType;
-  /** Durable session-space/group assignment. `default` means confirmed default; null means unknown. */
-  treeGroupId?: string | null;
-  /** Effective memory/session-space slug for this session, when known. */
-  memorySessionSpaceSlug?: string | null;
-  gitBranch?: string;
-  gitDefaultBranch?: string;
-  diffBaseBranch?: string;
-  gitAhead?: number;
-  gitBehind?: number;
-  totalLinesAdded?: number;
-  totalLinesRemoved?: number;
-  diffStatsSkippedReason?: string | null;
-  gitStatusRefreshedAt?: number;
-  gitStatusRefreshError?: string | null;
-  /** Whether internet/web search is enabled for Codex sessions. */
-  codexInternetAccess?: boolean | null;
-  /** Codex reasoning effort requested for this session. */
-  codexReasoningEffort?: string | null;
-  /** Last runtime-reported Codex effort; null is an explicit runtime default. */
-  codexEffectiveReasoningEffort?: string | null;
-  codexEffectiveReasoningEffortReported?: boolean;
-  /** Codex app-server service tier selected for future turns. null/undefined means Standard. */
-  codexServiceTier?: string | null;
-  /** Optional per-session Codex usable context capacity target. */
-  codexMaxContextLength?: number | null;
-  /** Launch-resolved context/compaction diagnostics, present only on selected detail surfaces. */
-  codexContextWindowDiagnostics?: CodexContextWindowDiagnostics;
-  /** Codex leader context management mode. Missing values mean recycling. */
-  codexLeaderCompactionMode?: CodexLeaderCompactionMode;
-  /** Claude reasoning effort selected at launch. */
-  claudeReasoningEffort?: string | null;
-  /** Optional Claude max-context override; currently 1M beta only. */
-  claudeMaxContextLength?: number | null;
-  /** If this session was spawned by a cron job */
-  cronJobId?: string;
-  /** Human-readable name of the cron job that spawned this session */
-  cronJobName?: string;
-  /** Number of active timers currently waiting on this session. */
-  pendingTimerCount?: number;
-  /** Highest active Takode notification urgency restored from the session inbox. */
-  notificationUrgency?: "needs-input" | "review" | null;
-  /** Number of unresolved Takode notifications for sidebar snapshots. */
-  activeNotificationCount?: number;
-  /** Number of unresolved needs-input notifications for needs-input-only surfaces. */
-  activeNeedsInputNotificationCount?: number;
-  /** Number of unresolved review notifications for tab-scoped review surfaces. */
-  activeReviewNotificationCount?: number;
-  /** Number of muted unresolved needs-input notifications. */
-  mutedNeedsInputNotificationCount?: number;
-  /** Monotonic server-owned notification status version for stale update rejection. */
-  notificationStatusVersion?: number;
-  /** Epoch ms when notification status last changed on the server. */
-  notificationStatusUpdatedAt?: number;
-  /** Emergency pause state for this session, when paused. */
-  pause?: SessionPauseState | null;
-  /** Number of inputs held while this session is paused. */
-  pausedInputQueueCount?: number;
-  /** Codex-only auto-pause state for repeated classified terminal result errors. */
-  codexResultErrorAutoPause?: SessionState["codex_result_error_auto_pause"];
-  /** Number of coalesced automatic inputs held by Codex result-error auto-pause. */
-  codexAutoPausedInputCount?: number;
-  /** Truncated preview of the last user message */
-  lastMessagePreview?: string;
-  /** Whether the CLI process is currently connected (from REST API) */
-  cliConnected?: boolean;
-  /** Whether this session uses a git worktree */
-  isWorktree?: boolean;
-  /** The original repo root path (for worktree sessions) */
-  repoRoot?: string;
-  /** Branch/repo target that worktree changes should port back to. */
-  worktreePortTarget?: {
-    repoRoot: string;
-    branch: string;
-    worktreePath?: string;
-    sourceSessionId?: string;
-    sourceSessionNum?: number | null;
-    sourceLabel?: string;
-  };
-  /** Whether the worktree directory still exists on disk (archived worktree sessions only) */
-  worktreeExists?: boolean;
-  /** Whether the worktree has uncommitted changes (archived worktree sessions only) */
-  worktreeDirty?: boolean;
-  /** Whether this is an assistant-mode session */
-  isAssistant?: boolean;
-  /** Whether this is a leader session (has herd/orchestration privileges) */
-  isOrchestrator?: boolean;
-  leaderProfilePortraitId?: string | null;
-  leaderProfilePortrait?: LeaderProfilePortrait;
-  /** Lightweight server-owned leader quest/thread tab state. */
-  leaderOpenThreadTabs?: SessionState["leaderOpenThreadTabs"];
-  /** Server-owned active Quest Journey phase counts for leader sidebar chips. */
-  leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
-  /** Server-owned active leader board rows for hover/detail surfaces. */
-  leaderActiveBoardRows?: BoardRow[];
-  /** Session UUID of the leader that has herded this worker (single leader per session) */
-  herdedBy?: string;
-  /** Short integer session ID (e.g. #5), stable across restarts */
-  sessionNum?: number | null;
-  /** Server-authoritative attention state */
-  attentionReason?: "action" | "error" | "review" | null;
-  /** Epoch ms when user last viewed this session */
-  lastReadAt?: number;
-  /** Number of pending permission requests needing human attention. */
-  pendingPermissionCount?: number;
-  /** Human-readable summary of pending permission state (e.g. "pending plan"). */
-  pendingPermissionSummary?: string | null;
-  /** Task history from the session auto-namer */
-  taskHistory?: SessionTaskEntry[];
-  /** Accumulated search keywords from the session auto-namer */
-  keywords?: string[];
-  /** Current claimed quest status for sidebar/title rendering. */
-  claimedQuestId?: string | null;
-  /** Current claimed quest title for sidebar/title rendering. */
-  claimedQuestTitle?: string | null;
-  claimedQuestStatus?: string | null;
-  /** Review inbox metadata for a claimed done quest, if it is still in review flow. */
-  claimedQuestVerificationInboxUnread?: boolean;
-  /** Orchestrating leader session for the claimed quest, when known. */
-  claimedQuestLeaderSessionId?: string | null;
-  /** Epoch ms of last real activity (user/assistant message, not keep_alive) */
-  lastActivityAt?: number;
-  /** Epoch ms of last user message (for sidebar activity sort -- not updated by assistant/tool activity) */
-  lastUserMessageAt?: number;
-  /** Last server-reported context usage percent for this session. */
-  contextUsedPercent?: number;
-  /** Number of completed turns in this session. */
-  numTurns?: number;
-  /** Backend-owned count of real human/operator user turns. */
-  userTurnCount?: number;
-  /** Backend-owned count of completed result-backed assistant turns. */
-  agentTurnCount?: number;
-  /** Approximate JSON byte size of the server-side message history. */
-  messageHistoryBytes?: number;
-  /** Codex-only retained payload estimate, including hidden full tool results. */
-  codexRetainedPayloadBytes?: number;
-  /** Last server-reported Codex token details for this session. */
-  codexTokenDetails?: SessionState["codex_token_details"];
-  /** Resolved Codex leader recycle threshold for display-only effective context metrics. */
-  codexLeaderRecycleThresholdTokens?: number;
-  /** Last server-reported Claude token details for this session. */
-  claudeTokenDetails?: SessionState["claude_token_details"];
-  /** Debug lifecycle events restored from server session state. */
-  sessionLifecycleEvents?: SessionLifecycleEvent[];
-  /** Codex leader recycle lineage persisted across fresh-thread swaps. */
-  codexLeaderRecycleLineage?: {
-    cliSessionIds: string[];
-    recycleEvents: Array<{
-      trigger: "threshold" | "manual_compact" | "context_window_exhausted";
-      requestedAt: number;
-      previousCliSessionId?: string;
-      nextCliSessionId?: string;
-      tokenUsage?: {
-        contextTokensUsed?: number;
-        contextUsedPercent?: number;
-        modelContextWindow?: number;
-        inputTokens?: number;
-        cachedInputTokens?: number;
-        outputTokens?: number;
-        reasoningOutputTokens?: number;
-      };
-    }>;
-  };
-  /** Pending Codex leader recycle waiting for the replacement thread. */
-  codexLeaderRecyclePending?: {
-    eventIndex: number;
-    trigger: "threshold" | "manual_compact" | "context_window_exhausted";
-    requestedAt: number;
-  } | null;
-  /** The Companion-injected system prompt constructed at launch time (for debugging). */
-  injectedSystemPrompt?: string;
-  /** Session number of the parent session this reviewer is reviewing (reviewer lifecycle) */
-  reviewerOf?: number;
-}
+export type { PublicSdkSessionInfo as SdkSessionInfo } from "../server/session-info.js";

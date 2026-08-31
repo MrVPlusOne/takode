@@ -75,7 +75,6 @@ const EMPTY_QUEST_DETAILS = new Map<string, QuestmasterTask>();
 const EMPTY_CHAT_MESSAGES: ChatMessage[] = [];
 const EMPTY_AUTOCOMPLETE_CONTENTS: string[] = [];
 const EMPTY_SDK_SESSIONS: SdkSessionInfo[] = [];
-const EMPTY_SESSION_NAMES = new Map<string, string>();
 const NOOP_REFRESH_QUEST_AUTOCOMPLETE = async () => {};
 
 function nowMs(): number {
@@ -209,19 +208,12 @@ export function useComposerAutocomplete({
   const sessionReferenceData = useStore(
     useShallow((s) => {
       if (!referenceMenuOpen || referenceKind !== "session") {
-        return {
-          sdkSessions: EMPTY_SDK_SESSIONS,
-          sessionNames: EMPTY_SESSION_NAMES,
-        };
+        return EMPTY_SDK_SESSIONS;
       }
-      return {
-        sdkSessions: s.sdkSessions ?? EMPTY_SDK_SESSIONS,
-        sessionNames: s.sessionNames,
-      };
+      return s.sdkSessions ?? EMPTY_SDK_SESSIONS;
     }),
   );
-  const sdkSessions = sessionReferenceData.sdkSessions;
-  const sessionNames = sessionReferenceData.sessionNames;
+  const sdkSessions = sessionReferenceData;
   const needsHistoryAutocomplete = slashMenuOpen || dollarMenuOpen || referenceMenuOpen;
   const recentAutocompleteContents = useStore(
     useShallow((s) =>
@@ -523,7 +515,7 @@ export function useComposerAutocomplete({
       .map((session) => {
         const sessionNum = session.sessionNum!;
         const rawRef = `#${sessionNum}`;
-        const preview = getSessionSuggestionPreview(session, sessionNames.get(session.sessionId));
+        const preview = getSessionSuggestionPreview(session);
         return {
           key: session.sessionId,
           kind: "session" as const,
@@ -568,7 +560,6 @@ export function useComposerAutocomplete({
     referenceQuery,
     sdkSessions,
     sessionId,
-    sessionNames,
     threadKey,
   ]);
 

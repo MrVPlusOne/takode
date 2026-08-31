@@ -1153,7 +1153,13 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
   });
 
-  const sessionSnapshotDeps = { launcher, wsBridge, timerManager: ctx.timerManager, pendingWorktreeCleanups };
+  const sessionSnapshotDeps = {
+    launcher,
+    wsBridge,
+    timerManager: ctx.timerManager,
+    getSessionName: (sessionId: string) => sessionNames.getName(sessionId),
+    pendingWorktreeCleanups,
+  };
   const buildEnrichedSessions = (filterFn?: (s: ReturnType<CliLauncher["listSessions"]>[number]) => boolean) =>
     buildEnrichedSessionsSnapshot(sessionSnapshotDeps, filterFn);
 

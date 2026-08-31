@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom";
 import { act, render, type RenderResult } from "@testing-library/react";
-import { Profiler, useMemo, type ComponentProps, type ProfilerOnRenderCallback } from "react";
+import { memo, Profiler, useMemo, type ComponentProps, type ProfilerOnRenderCallback } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -208,12 +208,19 @@ function makeSdkSession(sessionId: string, index: number, isOrchestrator = false
     lastMessagePreview: `Latest prompt ${index + 1}`,
     pendingPermissionCount: 0,
     pendingTimerCount: 0,
+    notificationUrgency: null,
+    activeNotificationCount: 0,
+    activeNeedsInputNotificationCount: 0,
+    activeReviewNotificationCount: 0,
+    mutedNeedsInputNotificationCount: 0,
+    notificationStatusVersion: 0,
+    notificationStatusUpdatedAt: 0,
   } as const;
 }
 
 function navigationValue(
   index: number,
-  status: SessionNavigationProjectionValue["lifecycle"]["status"] = "idle",
+  status: SessionNavigationProjectionValue["status"] = "idle",
 ): SessionNavigationProjectionValue {
   return createSessionNavigationProjectionValue({
     identity: {
@@ -277,6 +284,14 @@ function installNavigationState(mode: BenchmarkMode): void {
           value: navigationValue(index),
         }),
       );
+      useStore.getState().applySyncedProjectionSnapshot({
+        type: "synced_projection_snapshot",
+        projection: SESSION_ATTENTION_PROJECTION,
+        key: sessionId,
+        generation: `attention-generation-${sessionId}`,
+        revision: 1,
+        value: { attentionReason: null, status: null },
+      });
     });
   }
 }
@@ -301,40 +316,61 @@ const sessionItemProps: Omit<ComponentProps<typeof SessionItem>, "session" | "se
   editInputRef: { current: null },
 };
 
-function SessionNavigationSurface({ onRender }: { onRender: ProfilerOnRenderCallback }) {
+const NavigationBenchmarkRow = memo(function NavigationBenchmarkRow({
+  session,
+  sessionName,
+  sessionPreview,
+  attention,
+  onRender,
+}: {
+  session: ReturnType<typeof buildSidebarVisibleSessions>["allSessionList"][number];
+  sessionName: string | undefined;
+  sessionPreview: string | undefined;
+  attention: "action" | "error" | "review" | null;
+  onRender: ProfilerOnRenderCallback;
+}) {
+  return (
+    <Profiler id={`navigation-row:${session.id}`} onRender={onRender}>
+      <SessionItem
+        session={session}
+        sessionName={sessionName}
+        sessionPreview={sessionPreview}
+        attention={attention}
+        {...sessionItemProps}
+      />
+    </Profiler>
+  );
+});
+
+function SessionNavigationSurface({ mode, onRender }: { mode: BenchmarkMode; onRender: ProfilerOnRenderCallback }) {
   const source = useStore(
     useShallow((state) => ({
-      sessions: state.sessions,
       sdkSessions: state.sdkSessions,
-      cliConnected: state.cliConnected,
-      cliDisconnectReason: state.cliDisconnectReason,
-      sessionStatus: state.sessionStatus,
-      pendingPermissions: state.pendingPermissions,
-      askPermission: state.askPermission,
-      diffFileStats: state.diffFileStats,
+      syncedProjectionValues: state.syncedProjectionValues,
+      syncedProjectionKeys: state.syncedProjectionKeys,
       treeGroups: state.treeGroups,
       treeAssignments: state.treeAssignments,
       treeNodeOrder: state.treeNodeOrder,
       collapsedTreeGroups: state.collapsedTreeGroups,
       expandedHerdNodes: state.expandedHerdNodes,
       sessionAttention: state.sessionAttention,
-      syncedProjectionValues: state.syncedProjectionValues,
-      syncedProjectionKeys: state.syncedProjectionKeys,
-      sessionNotifications: state.sessionNotifications,
-      sessionAttentionRecords: state.sessionAttentionRecords,
-      sessionNames: state.sessionNames,
-      sessionPreviews: state.sessionPreviews,
+      sessionNotifications: mode === "legacy" ? state.sessionNotifications : undefined,
+      sessionAttentionRecords: mode === "legacy" ? state.sessionAttentionRecords : undefined,
+      sessionStatus: mode === "legacy" ? state.sessionStatus : undefined,
       sessionSortMode: state.sessionSortMode,
     })),
   );
-  const visible = useMemo(
-    () =>
-      buildSidebarVisibleSessions({
-        ...source,
-        countUserPermissions: (permissions) => permissions?.size ?? 0,
-      }),
-    [source],
-  );
+  const visible = useMemo(() => {
+    const current = buildSidebarVisibleSessions(source);
+    if (mode !== "legacy") return current;
+    return {
+      ...current,
+      allSessionList: current.allSessionList.map((session) => ({
+        ...session,
+        status: source.sessionStatus?.get(session.id) ?? session.status,
+      })),
+    };
+  }, [mode, source]);
 
   return (
     <div
@@ -342,24 +378,23 @@ function SessionNavigationSurface({ onRender }: { onRender: ProfilerOnRenderCall
       data-statuses={visible.allSessionList.map((session) => `${session.id}:${session.status}`).join("|")}
     >
       {visible.allSessionList.map((session) => (
-        <Profiler key={session.id} id={`navigation-row:${session.id}`} onRender={onRender}>
-          <SessionItem
-            session={session}
-            sessionName={visible.resolvedSessionNames.get(session.id)}
-            sessionPreview={visible.resolvedSessionPreviews.get(session.id)}
-            attention={visible.sessionSetAttention.get(session.id) ?? null}
-            {...sessionItemProps}
-          />
-        </Profiler>
+        <NavigationBenchmarkRow
+          key={session.id}
+          session={session}
+          sessionName={session.name ?? undefined}
+          sessionPreview={session.lastMessagePreview || undefined}
+          attention={visible.sessionSetAttention.get(session.id) ?? null}
+          onRender={onRender}
+        />
       ))}
     </div>
   );
 }
 
-function mountNavigationSurface(recorder: BenchmarkRecorder): RenderResult {
+function mountNavigationSurface(mode: BenchmarkMode, recorder: BenchmarkRecorder): RenderResult {
   return render(
     <Profiler id="navigation-root" onRender={recorder.onRender}>
-      <SessionNavigationSurface onRender={recorder.onRender} />
+      <SessionNavigationSurface mode={mode} onRender={recorder.onRender} />
     </Profiler>,
   );
 }
@@ -385,45 +420,36 @@ function receiveNavigationActivity(status: "idle" | "running" | "compacting"): v
       status,
     },
   } as BrowserIncomingMessage);
-}
-
-function receiveNavigationActivityResidual(): void {
-  // Exact post-suppression shape produced by the server benchmark: navigation
-  // authority removes status and pendingPermissionCount, while non-navigation
-  // activity and notification-summary fields remain intentionally delivered.
-  handleMessage("s-1", {
-    type: "session_activity_update",
-    session_id: "s-1",
-    session: {
-      attentionReason: null,
-      lastReadAt: 0,
-      pendingPermissionSummary: null,
-      notificationUrgency: null,
-      activeNotificationCount: 0,
-      activeNeedsInputNotificationCount: 0,
-      activeReviewNotificationCount: 0,
-      mutedNeedsInputNotificationCount: 0,
-      notificationStatusVersion: 0,
-      notificationStatusUpdatedAt: 0,
-    },
-  } as BrowserIncomingMessage);
+  // Reconstruct the retired current-build fallback for the historical control.
+  // The production handler intentionally ignores these projection-owned fields.
+  useStore.getState().updateSdkSession("s-1", { status, pendingPermissionCount: 0 });
+  useStore.getState().setSessionStatus("s-1", status);
 }
 
 function receiveNavigationProjection(
   revision: number,
-  status: SessionNavigationProjectionValue["lifecycle"]["status"],
+  status: SessionNavigationProjectionValue["status"],
   generation = "navigation-generation-s-1",
   type: "synced_projection_snapshot" | "synced_projection_update" = "synced_projection_update",
 ): void {
   handleMessage(
     "carrier",
-    createSessionNavigationProjectionEnvelope({
-      type,
-      key: "s-1",
-      generation,
-      revision,
-      value: navigationValue(0, status),
-    }) as BrowserIncomingMessage,
+    (type === "synced_projection_snapshot"
+      ? createSessionNavigationProjectionEnvelope({
+          type,
+          key: "s-1",
+          generation,
+          revision,
+          value: navigationValue(0, status),
+        })
+      : {
+          type,
+          projection: "session-navigation",
+          key: "s-1",
+          generation,
+          revision,
+          patch: { status },
+        }) as BrowserIncomingMessage,
   );
 }
 
@@ -450,32 +476,20 @@ function readNavigationStatuses(view: RenderResult): string {
 type Scenario = "noop" | "single" | "burst" | "reconnect";
 type ScenarioResult = { metrics: StepMetrics; output: string };
 
-function measureNavigation(
-  mode: BenchmarkMode,
-  scenario: Scenario,
-  options: { includeActivityResidual?: boolean } = {},
-): ScenarioResult {
+function measureNavigation(mode: BenchmarkMode, scenario: Scenario): ScenarioResult {
   useStore.getState().reset();
   installNavigationState(mode);
   const recorder = createBenchmarkRecorder("navigation-root");
-  const view = mountNavigationSurface(recorder);
+  const view = mountNavigationSurface(mode, recorder);
   const steps: StepMetrics[] = [];
 
   if (scenario === "noop") {
-    if (mode === "projection" && options.includeActivityResidual) {
-      steps.push(applyStep(recorder, receiveNavigationActivityResidual));
-    }
     steps.push(
       applyStep(recorder, () =>
         mode === "legacy" ? receiveNavigationActivity("idle") : receiveNavigationProjection(2, "idle"),
       ),
     );
   } else if (scenario === "single") {
-    if (mode === "projection" && options.includeActivityResidual) {
-      // The matched pair keeps non-navigation fields on the activity carrier.
-      // Its split delivery remains observable even though navigation fields are suppressed.
-      steps.push(applyStep(recorder, receiveNavigationActivityResidual));
-    }
     steps.push(
       applyStep(recorder, () =>
         mode === "legacy" ? receiveNavigationActivity("running") : receiveNavigationProjection(2, "running"),
@@ -487,11 +501,6 @@ function measureNavigation(
         steps.push(applyStep(recorder, () => receiveNavigationActivity(status)));
       }
     } else {
-      if (options.includeActivityResidual) {
-        for (let index = 0; index < 3; index += 1) {
-          steps.push(applyStep(recorder, receiveNavigationActivityResidual));
-        }
-      }
       steps.push(applyStep(recorder, () => receiveNavigationProjection(2, "running")));
     }
   } else {
@@ -613,8 +622,8 @@ function installLeaderState(mode: BenchmarkMode): void {
   // Session-navigation and session-attention projections already existed at the
   // 6b50 leader-tabs control boundary, so both leader modes own those authorities.
   const leaderNavigation = navigationValue(0);
-  leaderNavigation.identity.name = "Leader";
-  leaderNavigation.topology.isOrchestrator = true;
+  leaderNavigation.name = "Leader";
+  leaderNavigation.isOrchestrator = true;
   useStore.getState().applySyncedProjectionSnapshot(
     createSessionNavigationProjectionEnvelope({
       key: LEADER_ID,
@@ -818,15 +827,13 @@ describe("matched-build synchronized projection performance", () => {
   it("compares session-navigation no-op, one-field, coalesced burst, and reconnect work", () => {
     const legacyNoop = measureNavigation("legacy", "noop");
     const isolatedProjectionNoop = measureNavigation("projection", "noop");
-    const matchedCompatibleNoop = measureNavigation("projection", "noop", { includeActivityResidual: true });
+    const matchedCompatibleNoop = measureNavigation("projection", "noop");
     const legacySingle = measureNavigation("legacy", "single");
     const isolatedProjectionSingle = measureNavigation("projection", "single");
-    const matchedCompatibleSingle = measureNavigation("projection", "single", {
-      includeActivityResidual: true,
-    });
+    const matchedCompatibleSingle = measureNavigation("projection", "single");
     const legacyBurst = measureNavigation("legacy", "burst");
     const isolatedProjectionBurst = measureNavigation("projection", "burst");
-    const matchedCompatibleBurst = measureNavigation("projection", "burst", { includeActivityResidual: true });
+    const matchedCompatibleBurst = measureNavigation("projection", "burst");
     const legacyReconnect = measureNavigation("legacy", "reconnect");
     const matchedCompatibleReconnect = measureNavigation("projection", "reconnect");
 
@@ -852,42 +859,35 @@ describe("matched-build synchronized projection performance", () => {
     expect(matchedCompatibleBurst.output).toBe(isolatedProjectionBurst.output);
     expect(matchedCompatibleReconnect.output).toBe(legacyReconnect.output);
 
-    // The projection alone suppresses an equal revision, but the actual matched
-    // pair still delivers its retained activity residual as a separate commit.
+    // Current-build navigation has no parallel activity residual. Equal
+    // revisions therefore produce no React commit and only the handler notification.
     expect(isolatedProjectionNoop.metrics.rootCommits).toBe(0);
     expect(isolatedProjectionNoop.metrics.childCommits).toEqual({});
-    expect(matchedCompatibleNoop.metrics.rootCommits).toBe(1);
+    expect(matchedCompatibleNoop.metrics.rootCommits).toBe(0);
     expect(legacyNoop.metrics.storeNotifications).toBe(4);
-    expect(matchedCompatibleNoop.metrics.storeNotifications).toBe(4);
+    expect(matchedCompatibleNoop.metrics.storeNotifications).toBe(1);
 
-    // Isolating the synchronized value shows its direct cost. All four actual
-    // SessionItem children still share the Sidebar-level invalidation boundary.
+    // One field patch commits once and preserves every unrelated row identity.
     expect(isolatedProjectionSingle.metrics.rootCommits).toBe(1);
     expect(legacySingle.metrics.rootCommits).toBe(1);
+    expect(matchedCompatibleSingle.metrics.rootCommits).toBe(1);
     expect(legacySingle.metrics.storeNotifications).toBe(4);
-    expect(Object.values(isolatedProjectionSingle.metrics.childCommits)).toEqual([1, 1, 1, 1]);
-    expect(isolatedProjectionSingle.metrics.childCommits).toEqual(legacySingle.metrics.childCommits);
-    expect(isolatedProjectionSingle.metrics.storeNotifications).toBeLessThan(legacySingle.metrics.storeNotifications);
+    expect(isolatedProjectionSingle.metrics.childCommits).toEqual({ "navigation-row:s-1": 1 });
+    expect(matchedCompatibleSingle.metrics.childCommits).toEqual(isolatedProjectionSingle.metrics.childCommits);
+    expect(matchedCompatibleSingle.metrics.storeNotifications).toBe(1);
 
-    // The real compatible pair retains non-navigation activity fields by design.
-    // Its split delivery adds one commit and three notifications; this is batching/
-    // selective-subscription overhead, not an automatically removable fallback.
-    expect(matchedCompatibleSingle.metrics.rootCommits).toBe(isolatedProjectionSingle.metrics.rootCommits + 1);
-    expect(matchedCompatibleSingle.metrics.storeNotifications).toBe(
-      isolatedProjectionSingle.metrics.storeNotifications + 3,
-    );
-
-    // The isolated projection coalesces to one final render. The actual pair retains
-    // all three activity residuals and adds one commit over the legacy burst.
+    // A burst is coalesced to the same one-row, one-commit result.
     expect(isolatedProjectionBurst.metrics.rootCommits).toBe(1);
-    expect(matchedCompatibleBurst.metrics.rootCommits).toBe(4);
-    expect(matchedCompatibleBurst.metrics.storeNotifications).toBe(10);
+    expect(matchedCompatibleBurst.metrics.rootCommits).toBe(1);
+    expect(matchedCompatibleBurst.metrics.childCommits).toEqual({ "navigation-row:s-1": 1 });
+    expect(matchedCompatibleBurst.metrics.storeNotifications).toBe(1);
     expect(legacyBurst.metrics.rootCommits).toBe(3);
     expect(legacyBurst.metrics.storeNotifications).toBe(12);
 
-    // Reconnect necessarily adds the accepted projection snapshot before the ordinary
-    // state snapshot today; keep the exact extra commit visible as a cleanup target.
-    expect(matchedCompatibleReconnect.metrics.rootCommits).toBe(legacyReconnect.metrics.rootCommits + 1);
+    // Reconnect replaces authority without adding a React commit and rerenders
+    // only the changed row; transport bookkeeping adds one store notification.
+    expect(matchedCompatibleReconnect.metrics.rootCommits).toBe(legacyReconnect.metrics.rootCommits);
+    expect(matchedCompatibleReconnect.metrics.childCommits).toEqual({ "navigation-row:s-1": 1 });
     expect(matchedCompatibleReconnect.metrics.storeNotifications).toBe(legacyReconnect.metrics.storeNotifications + 1);
 
     // Profiler durations are intentionally report-only: CI timing is noisy, while the
@@ -930,13 +930,13 @@ describe("matched-build synchronized projection performance", () => {
     expect(isolatedProjectionNoop.metrics.rootCommits).toBe(0);
     expect(matchedCompatibleNoop.metrics.rootCommits).toBe(2);
     expect(legacyNoop.metrics.rootCommits).toBe(2);
-    expect(legacyNoop.metrics.storeNotifications).toBe(8);
-    expect(matchedCompatibleNoop.metrics.storeNotifications).toBe(7);
+    expect(legacyNoop.metrics.storeNotifications).toBe(7);
+    expect(matchedCompatibleNoop.metrics.storeNotifications).toBe(6);
 
     // Each board producer first publishes activity summary and then board detail.
     // The matched pair adds its visual projection as a third delivery.
     expect(legacySingle.metrics.rootCommits).toBe(2);
-    expect(legacySingle.metrics.storeNotifications).toBe(8);
+    expect(legacySingle.metrics.storeNotifications).toBe(7);
     expect(matchedCompatibleSingle.metrics.rootCommits).toBe(3);
     expect(matchedCompatibleSingle.metrics.storeNotifications).toBeLessThan(legacySingle.metrics.storeNotifications);
 
@@ -945,9 +945,9 @@ describe("matched-build synchronized projection performance", () => {
     // legacy control rather than collapsing to the isolated projection result.
     expect(isolatedProjectionBurst.metrics.rootCommits).toBe(1);
     expect(legacyBurst.metrics.rootCommits).toBe(7);
-    expect(legacyBurst.metrics.storeNotifications).toBe(24);
+    expect(legacyBurst.metrics.storeNotifications).toBe(21);
     expect(matchedCompatibleBurst.metrics.rootCommits).toBe(7);
-    expect(matchedCompatibleBurst.metrics.storeNotifications).toBe(19);
+    expect(matchedCompatibleBurst.metrics.storeNotifications).toBe(16);
 
     expect(matchedCompatibleReconnect.metrics.rootCommits).toBe(legacyReconnect.metrics.rootCommits + 1);
     expect(matchedCompatibleReconnect.metrics.storeNotifications).toBeLessThan(
@@ -957,10 +957,7 @@ describe("matched-build synchronized projection performance", () => {
   });
 
   it("keeps two independent compatible clients identical and exactly linear", () => {
-    const navigationClients = [
-      measureNavigation("projection", "single", { includeActivityResidual: true }),
-      measureNavigation("projection", "single", { includeActivityResidual: true }),
-    ];
+    const navigationClients = [measureNavigation("projection", "single"), measureNavigation("projection", "single")];
     expect(structuralResult(navigationClients[1]!)).toEqual(structuralResult(navigationClients[0]!));
     const navigationAggregate = aggregateClients(navigationClients.map((client) => client.metrics));
     expect(navigationAggregate.rootCommits).toBe(navigationClients[0]!.metrics.rootCommits * 2);

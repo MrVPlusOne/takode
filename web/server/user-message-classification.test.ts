@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage } from "./session-types.js";
-import { computeSessionTurnMetrics, getLastActualHumanUserMessageTimestamp } from "./user-message-classification.js";
+import {
+  computeSessionTurnMetrics,
+  getLastActualHumanInputTimestamp,
+  getLastActualHumanUserMessageTimestamp,
+} from "./user-message-classification.js";
 import { LEADER_KICKOFF_PREFIX, STANDARD_COMPACTION_RECOVERY_PREFIX } from "../shared/injected-event-message.js";
 
 function user(content: string, timestamp: number, agentSource?: { sessionId: string; sessionLabel?: string }) {
@@ -86,6 +90,15 @@ describe("user-message-classification", () => {
 
     expect(computeSessionTurnMetrics(history)).toEqual({ userTurnCount: 2, agentTurnCount: 2 });
     expect(getLastActualHumanUserMessageTimestamp(history)).toBe(400);
+  });
+
+  it("includes pending direct-human input while excluding agent-sourced input", () => {
+    expect(
+      getLastActualHumanInputTimestamp(
+        [user("Committed human", 100), user("Injected history", 400, { sessionId: "timer:t1" })],
+        [{ timestamp: 300 }, { timestamp: 500, agentSource: { sessionId: "herd-events" } }],
+      ),
+    ).toBe(300);
   });
 
   it("defines agent turns as completed result-backed top-level assistant spans", () => {

@@ -2,6 +2,7 @@ import {
   isValidSyncedProjectionIdentity,
   syncedProjectionEntryId,
   type SyncedProjectionEnvelope,
+  type SyncedProjectionPatchEnvelope,
   type SyncedProjectionSubscription,
   type SyncedProjectionSubscriptionIdentity,
 } from "../shared/synced-projection.js";
@@ -17,6 +18,7 @@ export interface SyncedProjectionDefinition<TSource, TDependencies, TValue, TSub
   valueEqual: (left: TValue, right: TValue) => boolean;
   authorizeSubscription: (subscriber: TSubscriber, key: string, source: TSource) => boolean;
   maxValueBytes?: number;
+  createPatch?: (previous: TValue, next: TValue) => unknown;
 }
 
 export interface DirectSyncedProjectionDefinitionOptions<TSource, TValue, TSubscriber> {
@@ -29,6 +31,7 @@ export interface DirectSyncedProjectionDefinitionOptions<TSource, TValue, TSubsc
   resolveSource: (key: string) => TSource | undefined;
   selectValue: (source: TSource, key: string) => TValue;
   authorizeSubscription: (subscriber: TSubscriber, key: string, source: TSource) => boolean;
+  createPatch?: (previous: TValue, next: TValue) => unknown;
 }
 
 /** Define a projection whose selected dependency value is already its final wire value. */
@@ -45,6 +48,7 @@ export function createDirectSyncedProjectionDefinition<TSource, TValue, TSubscri
     valueEqual: options.descriptor.equal,
     authorizeSubscription: options.authorizeSubscription,
     maxValueBytes: options.descriptor.maxValueBytes,
+    createPatch: options.createPatch,
   };
 }
 
@@ -101,9 +105,11 @@ type CacheEntry = {
   valueBytes: number;
 };
 
+type SyncedProjectionUpdateEnvelope = SyncedProjectionEnvelope | SyncedProjectionPatchEnvelope;
+
 type SubscriberState<TSubscriber> = {
   ids: Set<string>;
-  deliver: (subscriber: TSubscriber, envelope: SyncedProjectionEnvelope) => void;
+  deliver: (subscriber: TSubscriber, envelope: SyncedProjectionUpdateEnvelope) => void;
 };
 
 const DEFAULT_MAX_VALUE_BYTES = 32 * 1024;
@@ -453,7 +459,7 @@ export class SyncedProjectionRuntime<TSubscriber> {
       this.metrics.cachedValueBytes += valueBytes - (prior?.valueBytes ?? 0);
       projectionMetrics.valueBytes += valueBytes;
       projectionMetrics.cachedValueBytes += valueBytes - (prior?.valueBytes ?? 0);
-      if (publish) this.publish(projection, key, entryId, entry);
+      if (publish) this.publish(projection, key, entryId, entry, prior);
       return entry;
     } catch (error) {
       if (wasDirty) this.dirty.add(entryId);
@@ -464,9 +470,30 @@ export class SyncedProjectionRuntime<TSubscriber> {
     }
   }
 
-  private publish(projection: string, key: string, entryId: string, entry: CacheEntry): void {
-    const envelope = this.envelope(projection, key, entry);
+  private publish(
+    projection: string,
+    key: string,
+    entryId: string,
+    entry: CacheEntry,
+    prior: CacheEntry | undefined,
+  ): void {
     const definition = this.definitions.get(projection);
+    const patch = prior && definition?.createPatch ? definition.createPatch(prior.value, entry.value) : undefined;
+    const envelope: SyncedProjectionUpdateEnvelope =
+      patch === undefined
+        ? this.envelope(projection, key, entry)
+        : { projection, key, generation: this.generation, revision: entry.revision, patch };
+    const updateBytes = jsonUtf8ByteLength("patch" in envelope ? envelope.patch : envelope.value);
+    if (updateBytes === null) {
+      this.metrics.deliveryErrors += 1;
+      this.projectionMetrics(projection).deliveryErrors += 1;
+      this.onError?.(new Error("Synced projection update is not JSON serializable"), {
+        projection,
+        key,
+        phase: "deliver",
+      });
+      return;
+    }
     const source = definition?.resolveSource(key);
     let delivered = 0;
     for (const [subscriber, state] of this.subscribers) {
@@ -479,10 +506,10 @@ export class SyncedProjectionRuntime<TSubscriber> {
         state.deliver(subscriber, envelope);
         delivered += 1;
         this.metrics.deliveries += 1;
-        this.metrics.deliveredValueBytes += entry.valueBytes;
+        this.metrics.deliveredValueBytes += updateBytes;
         const projectionMetrics = this.projectionMetrics(projection);
         projectionMetrics.deliveries += 1;
-        projectionMetrics.deliveredValueBytes += entry.valueBytes;
+        projectionMetrics.deliveredValueBytes += updateBytes;
       } catch (error) {
         this.metrics.deliveryErrors += 1;
         this.projectionMetrics(projection).deliveryErrors += 1;
@@ -492,10 +519,10 @@ export class SyncedProjectionRuntime<TSubscriber> {
     }
     if (delivered > 0) {
       this.metrics.updates += 1;
-      this.metrics.updateValueBytes += entry.valueBytes;
+      this.metrics.updateValueBytes += updateBytes;
       const projectionMetrics = this.projectionMetrics(projection);
       projectionMetrics.updates += 1;
-      projectionMetrics.updateValueBytes += entry.valueBytes;
+      projectionMetrics.updateValueBytes += updateBytes;
     }
   }
 

@@ -120,6 +120,7 @@ function makeSdkSession(id: string, overrides: Partial<SdkSessionInfo> = {}): Sd
   return {
     sessionId: id,
     state: "connected",
+    model: "claude-sonnet-4-5-20250929",
     cwd: "/home/user/projects/myapp",
     createdAt: Date.now(),
     archived: false,

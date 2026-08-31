@@ -1,267 +1,36 @@
-import type { SessionState } from "../types.js";
-import type { BackendType, SdkSessionInfo, SessionPauseState } from "../types.js";
+import type { SdkSessionInfo } from "../types.js";
 
-export interface SessionViewModel {
-  sessionId: string;
-  backendType?: BackendType;
-  model?: string;
-  cwd?: string;
-  permissionMode?: string;
-  repoRoot?: string;
-  gitBranch?: string | null;
-  gitDefaultBranch?: string;
-  diffBaseBranch?: string;
-  isWorktree?: boolean;
-  isContainerized?: boolean;
-  gitAhead?: number;
-  gitBehind?: number;
-  totalLinesAdded?: number;
-  totalLinesRemoved?: number;
-  diffStatsSkippedReason?: string | null;
-  numTurns?: number;
-  userTurnCount?: number;
-  agentTurnCount?: number;
-  totalCostUsd?: number;
-  contextUsedPercent?: number;
-  modelContextWindow?: number;
-  codexMaxContextLength?: number | null;
-  claudeMaxContextLength?: number | null;
-  codexLeaderRecycleThresholdTokens?: number;
+export type SessionViewModel = Omit<
+  SdkSessionInfo,
+  | "claimedQuestId"
+  | "claimedQuestLeaderSessionId"
+  | "claimedQuestStatus"
+  | "claimedQuestTitle"
+  | "contextTokensUsed"
+  | "modelContextWindow"
+> & {
+  claimedQuestId?: string;
+  claimedQuestLeaderSessionId?: string;
+  claimedQuestStatus?: string;
+  claimedQuestTitle?: string;
   contextTokensUsed?: number;
-  messageHistoryBytes?: number;
-  codexRetainedPayloadBytes?: number;
+  modelContextWindow?: number;
   /** Provider-reported window before Takode effective-window selection. */
   backendReportedContextWindow?: number;
-  codexReasoningEffort?: string | null;
-  codexEffectiveReasoningEffort?: string | null;
-  codexEffectiveReasoningEffortReported?: boolean;
-  state?: SdkSessionInfo["state"];
-  createdAt?: number;
-  lastActivityAt?: number;
-  cliSessionId?: string;
-  sessionNum?: number | null;
-  name?: string;
-  isOrchestrator?: boolean;
-  herdedBy?: string;
-  claimedQuestId?: string;
-  claimedQuestTitle?: string;
-  claimedQuestStatus?: string;
-  claimedQuestLeaderSessionId?: string;
-  claimedQuestVerificationInboxUnread?: boolean;
-  askPermission?: boolean;
-  pause?: SessionPauseState | null;
-  pausedInputQueueCount?: number;
-}
+};
 
-function isSessionState(session: SessionState | SdkSessionInfo): session is SessionState {
-  return "session_id" in session;
-}
-
-function hasOwn(source: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(source, key);
-}
-
-export function toSessionViewModel(session: SessionState | SdkSessionInfo): SessionViewModel {
-  if (isSessionState(session)) {
-    const hasCodexMaxContextLength = hasOwn(session, "codex_max_context_length");
-    const hasClaudeMaxContextLength = hasOwn(session, "claude_max_context_length");
-    return {
-      sessionId: session.session_id,
-      backendType: session.backend_type,
-      model: session.model,
-      cwd: session.cwd,
-      permissionMode: session.permissionMode,
-      repoRoot: session.repo_root,
-      gitBranch: session.git_branch,
-      gitDefaultBranch: session.git_default_branch,
-      diffBaseBranch: session.diff_base_branch,
-      isWorktree: session.is_worktree,
-      isContainerized: session.is_containerized,
-      gitAhead: session.git_ahead,
-      gitBehind: session.git_behind,
-      totalLinesAdded: session.total_lines_added,
-      totalLinesRemoved: session.total_lines_removed,
-      diffStatsSkippedReason: session.diff_stats_skipped_reason ?? null,
-      userTurnCount: session.user_turn_count,
-      agentTurnCount: session.agent_turn_count,
-      numTurns: session.user_turn_count ?? session.num_turns,
-      totalCostUsd: session.total_cost_usd,
-      contextUsedPercent: session.context_used_percent,
-      modelContextWindow: resolveEffectiveModelContextWindow({
-        backendType: session.backend_type,
-        codexMaxContextLength: session.codex_max_context_length ?? undefined,
-        claudeMaxContextLength: session.claude_max_context_length ?? undefined,
-        codexTokenDetailsModelContextWindow: session.codex_token_details?.modelContextWindow,
-        claudeTokenDetailsModelContextWindow: session.claude_token_details?.modelContextWindow,
-      }),
-      codexMaxContextLength: hasCodexMaxContextLength ? (session.codex_max_context_length ?? null) : undefined,
-      claudeMaxContextLength: hasClaudeMaxContextLength ? (session.claude_max_context_length ?? null) : undefined,
-      codexLeaderRecycleThresholdTokens: session.codex_leader_recycle_threshold_tokens,
-      contextTokensUsed: session.codex_token_details?.contextTokensUsed,
-      messageHistoryBytes: session.message_history_bytes,
-      codexRetainedPayloadBytes: session.codex_retained_payload_bytes,
-      backendReportedContextWindow:
-        session.backend_type === "codex"
-          ? session.codex_token_details?.modelContextWindow
-          : session.claude_token_details?.modelContextWindow,
-      codexReasoningEffort: hasOwn(session, "codex_reasoning_effort")
-        ? (session.codex_reasoning_effort ?? null)
-        : undefined,
-      codexEffectiveReasoningEffort: hasOwn(session, "codex_effective_reasoning_effort")
-        ? (session.codex_effective_reasoning_effort ?? null)
-        : undefined,
-      codexEffectiveReasoningEffortReported: hasOwn(session, "codex_effective_reasoning_effort_reported")
-        ? session.codex_effective_reasoning_effort_reported === true
-        : undefined,
-      claimedQuestId: session.claimedQuestId,
-      claimedQuestTitle: session.claimedQuestTitle,
-      claimedQuestStatus: session.claimedQuestStatus,
-      claimedQuestVerificationInboxUnread: session.claimedQuestVerificationInboxUnread,
-      claimedQuestLeaderSessionId: session.claimedQuestLeaderSessionId,
-      askPermission: session.askPermission,
-      isOrchestrator: session.isOrchestrator,
-      pause: session.pause ?? null,
-      pausedInputQueueCount: session.pause?.queuedMessages.length ?? 0,
-    };
-  }
-
+/** Add the few display aliases that are not already canonical session-row fields. */
+export function toSessionViewModel(session: SdkSessionInfo): SessionViewModel {
   return {
-    sessionId: session.sessionId,
-    backendType: session.backendType,
-    model: session.model,
-    cwd: session.cwd,
-    permissionMode: session.permissionMode,
-    repoRoot: session.repoRoot,
-    gitBranch: session.gitBranch,
-    gitDefaultBranch: session.gitDefaultBranch,
-    diffBaseBranch: session.diffBaseBranch,
-    isWorktree: session.isWorktree,
-    gitAhead: session.gitAhead,
-    gitBehind: session.gitBehind,
-    totalLinesAdded: session.totalLinesAdded,
-    totalLinesRemoved: session.totalLinesRemoved,
-    diffStatsSkippedReason: session.diffStatsSkippedReason ?? null,
-    contextUsedPercent: session.contextUsedPercent,
-    userTurnCount: session.userTurnCount,
-    agentTurnCount: session.agentTurnCount,
+    ...session,
     numTurns: session.userTurnCount ?? session.numTurns,
-    modelContextWindow: resolveEffectiveModelContextWindow({
-      backendType: session.backendType,
-      codexMaxContextLength: session.codexMaxContextLength ?? undefined,
-      claudeMaxContextLength: session.claudeMaxContextLength ?? undefined,
-      codexTokenDetailsModelContextWindow: session.codexTokenDetails?.modelContextWindow,
-      claudeTokenDetailsModelContextWindow: session.claudeTokenDetails?.modelContextWindow,
-    }),
-    codexMaxContextLength: session.codexMaxContextLength ?? undefined,
-    claudeMaxContextLength: session.claudeMaxContextLength ?? undefined,
-    codexLeaderRecycleThresholdTokens: session.codexLeaderRecycleThresholdTokens,
-    contextTokensUsed: session.codexTokenDetails?.contextTokensUsed,
-    messageHistoryBytes: session.messageHistoryBytes,
-    codexRetainedPayloadBytes: session.codexRetainedPayloadBytes,
-    backendReportedContextWindow:
-      session.backendType === "codex"
-        ? session.codexTokenDetails?.modelContextWindow
-        : session.claudeTokenDetails?.modelContextWindow,
-    codexReasoningEffort: session.codexReasoningEffort ?? undefined,
-    codexEffectiveReasoningEffort: session.codexEffectiveReasoningEffort ?? undefined,
-    codexEffectiveReasoningEffortReported: session.codexEffectiveReasoningEffortReported,
-    state: session.state,
-    createdAt: session.createdAt,
-    lastActivityAt: session.lastActivityAt,
-    cliSessionId: session.cliSessionId,
-    sessionNum: session.sessionNum,
-    name: session.name,
-    isOrchestrator: session.isOrchestrator,
-    herdedBy: session.herdedBy,
     claimedQuestId: session.claimedQuestId ?? undefined,
-    claimedQuestTitle: session.claimedQuestTitle ?? undefined,
-    claimedQuestStatus: session.claimedQuestStatus ?? undefined,
-    claimedQuestVerificationInboxUnread: session.claimedQuestVerificationInboxUnread,
     claimedQuestLeaderSessionId: session.claimedQuestLeaderSessionId ?? undefined,
-    askPermission: undefined,
-    pause: session.pause ?? null,
+    claimedQuestStatus: session.claimedQuestStatus ?? undefined,
+    claimedQuestTitle: session.claimedQuestTitle ?? undefined,
+    contextTokensUsed: session.contextTokensUsed ?? undefined,
+    modelContextWindow: session.modelContextWindow ?? undefined,
+    backendReportedContextWindow: session.modelContextWindow ?? undefined,
     pausedInputQueueCount: session.pausedInputQueueCount ?? session.pause?.queuedMessages.length ?? 0,
   };
-}
-
-function preferHistoryCount(live: number | undefined, fallback: number | undefined): number | undefined {
-  if (live === 0 && typeof fallback === "number" && fallback > 0) return fallback;
-  return live ?? fallback;
-}
-
-export function coalesceSessionViewModel(
-  primary: SessionState | SdkSessionInfo | null | undefined,
-  fallback?: SessionState | SdkSessionInfo | null,
-): SessionViewModel | null {
-  if (!primary && !fallback) return null;
-
-  const fallbackVm = fallback ? toSessionViewModel(fallback) : null;
-  const primaryVm = primary ? toSessionViewModel(primary) : null;
-
-  if (!primaryVm && fallbackVm) return fallbackVm;
-  if (!fallbackVm && primaryVm) return primaryVm;
-
-  const merged: Partial<SessionViewModel> = { ...(fallbackVm || {}) };
-  if (primaryVm) {
-    for (const [key, value] of Object.entries(primaryVm) as [
-      keyof SessionViewModel,
-      SessionViewModel[keyof SessionViewModel],
-    ][]) {
-      if (value !== undefined) {
-        (merged as Record<string, unknown>)[key] = value;
-      }
-    }
-  }
-  const userTurnCount = preferHistoryCount(primaryVm?.userTurnCount, fallbackVm?.userTurnCount);
-  const agentTurnCount = preferHistoryCount(primaryVm?.agentTurnCount, fallbackVm?.agentTurnCount);
-  const numTurns = userTurnCount ?? preferHistoryCount(primaryVm?.numTurns, fallbackVm?.numTurns);
-  const primaryHasCodexMaxContextLength = primaryVm?.codexMaxContextLength !== undefined;
-  const primaryHasClaudeMaxContextLength = primaryVm?.claudeMaxContextLength !== undefined;
-  const codexMaxContextLength = primaryHasCodexMaxContextLength
-    ? primaryVm?.codexMaxContextLength
-    : fallbackVm?.codexMaxContextLength;
-  const claudeMaxContextLength = primaryHasClaudeMaxContextLength
-    ? primaryVm?.claudeMaxContextLength
-    : fallbackVm?.claudeMaxContextLength;
-  const primaryHasConfiguredContext = primaryHasCodexMaxContextLength || primaryHasClaudeMaxContextLength;
-
-  return {
-    ...(merged as SessionViewModel),
-    userTurnCount,
-    agentTurnCount,
-    numTurns,
-    codexMaxContextLength,
-    claudeMaxContextLength,
-    modelContextWindow:
-      primaryVm?.modelContextWindow ?? (primaryHasConfiguredContext ? undefined : fallbackVm?.modelContextWindow),
-    sessionId: primaryVm?.sessionId || fallbackVm?.sessionId || "",
-  };
-}
-
-export function resolveEffectiveModelContextWindow({
-  backendType,
-  codexMaxContextLength,
-  claudeMaxContextLength,
-  codexTokenDetailsModelContextWindow,
-  claudeTokenDetailsModelContextWindow,
-}: {
-  backendType?: BackendType;
-  codexMaxContextLength?: number;
-  claudeMaxContextLength?: number;
-  codexTokenDetailsModelContextWindow?: number;
-  claudeTokenDetailsModelContextWindow?: number;
-}): number | undefined {
-  if (backendType === "codex" && isPositiveFinite(codexTokenDetailsModelContextWindow)) {
-    return codexTokenDetailsModelContextWindow;
-  }
-  if (backendType !== "codex" && isPositiveFinite(claudeTokenDetailsModelContextWindow)) {
-    return claudeTokenDetailsModelContextWindow;
-  }
-  if (backendType === "codex" && isPositiveFinite(codexMaxContextLength)) return codexMaxContextLength;
-  if (backendType !== "codex" && isPositiveFinite(claudeMaxContextLength)) return claudeMaxContextLength;
-  return codexTokenDetailsModelContextWindow ?? claudeTokenDetailsModelContextWindow;
-}
-
-function isPositiveFinite(value: number | undefined): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }

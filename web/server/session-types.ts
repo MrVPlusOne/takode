@@ -1251,10 +1251,8 @@ export type BrowserIncomingMessageBase =
       type: "session_activity_update";
       session_id: string;
       session: {
-        status?: "compacting" | "reverting" | "idle" | "running" | null;
         attentionReason?: "action" | "error" | "review" | null;
         lastReadAt?: number;
-        pendingPermissionCount?: number;
         pendingPermissionSummary?: string | null;
         notificationUrgency?: NotificationUrgency;
         activeNotificationCount?: number;

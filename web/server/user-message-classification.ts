@@ -1,4 +1,5 @@
 import type { BrowserIncomingMessage } from "./session-types.js";
+import { formatReplyContentForPreview, type ReplyContext } from "../shared/reply-context.js";
 import { isCompactionRecoveryPrompt, isLeaderKickoffPrompt } from "../shared/injected-event-message.js";
 
 export interface UserMessageSourceLike {
@@ -6,10 +7,34 @@ export interface UserMessageSourceLike {
   agentSource?: unknown;
   content?: unknown;
   timestamp?: unknown;
+  codexSubagent?: unknown;
+  replyContext?: ReplyContext;
 }
 
 export interface UserInputSourceLike {
   agentSource?: unknown;
+  timestamp?: unknown;
+}
+
+/** Restore preview ownership across retained history and still-pending input. */
+export function restoreSessionMessagePreview(session: {
+  messageHistory: readonly UserMessageSourceLike[];
+  pendingCodexInputs?: readonly UserMessageSourceLike[];
+  lastUserMessage?: string;
+  lastMessagePreviewAt?: number;
+}): void {
+  let latest: { content: string; replyContext?: ReplyContext; timestamp: number } | undefined;
+  for (const candidate of [...(session.pendingCodexInputs ?? []), ...session.messageHistory]) {
+    if (candidate.type !== undefined && (candidate.type !== "user_message" || candidate.codexSubagent)) continue;
+    if (typeof candidate.content !== "string") continue;
+    if (typeof candidate.timestamp !== "number" || !Number.isFinite(candidate.timestamp)) continue;
+    if (candidate.timestamp < (latest?.timestamp ?? -1)) continue;
+    latest = { content: candidate.content, replyContext: candidate.replyContext, timestamp: candidate.timestamp };
+  }
+  session.lastUserMessage = latest
+    ? formatReplyContentForPreview(latest.content, latest.replyContext).slice(0, 80)
+    : undefined;
+  session.lastMessagePreviewAt = latest?.timestamp;
 }
 
 export function isActualHumanUserMessage(
@@ -69,6 +94,20 @@ export function getLastActualHumanUserMessageTimestamp(
     if (typeof message.timestamp === "number" && Number.isFinite(message.timestamp)) return message.timestamp;
   }
   return undefined;
+}
+
+export function getLastActualHumanInputTimestamp(
+  messages: readonly BrowserIncomingMessage[],
+  pendingInputs: readonly UserInputSourceLike[] = [],
+): number | undefined {
+  let latest = getLastActualHumanUserMessageTimestamp(messages);
+  for (const input of pendingInputs) {
+    if (!isActualHumanUserInput(input) || typeof input.timestamp !== "number" || !Number.isFinite(input.timestamp)) {
+      continue;
+    }
+    if (latest === undefined || input.timestamp > latest) latest = input.timestamp;
+  }
+  return latest;
 }
 
 function isInjectedUserPrompt(content: string): boolean {

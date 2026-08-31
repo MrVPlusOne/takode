@@ -335,6 +335,7 @@ describe("MarkdownContent quest links", () => {
           cwd: "/repo",
           createdAt: 1,
           sessionNum: 123,
+          name: "Auth Worker",
         },
       ],
     }));
@@ -412,9 +413,9 @@ describe("MarkdownContent quest links", () => {
           cwd: "/repo",
           createdAt: 1,
           sessionNum: 123,
+          name: "Auth Worker",
         },
       ],
-      sessionNames: new Map([["session-abc", "Auth Worker"]]),
     }));
 
     render(<MarkdownContent text="[q-42](quest:q-42)" />);
@@ -449,6 +450,7 @@ describe("MarkdownContent quest links", () => {
           cwd: "/repo",
           createdAt: 1,
           sessionNum: 123,
+          name: "Auth Worker",
           herdedBy: "leader-abc",
         },
         {
@@ -458,6 +460,7 @@ describe("MarkdownContent quest links", () => {
           createdAt: 1,
           sessionNum: 7,
           isOrchestrator: true,
+          name: "Quest Leader",
         },
         {
           sessionId: "reviewer-abc",
@@ -465,13 +468,9 @@ describe("MarkdownContent quest links", () => {
           cwd: "/repo",
           createdAt: 1,
           sessionNum: 8,
+          name: "Quest Reviewer",
         },
       ],
-      sessionNames: new Map([
-        ["session-abc", "Auth Worker"],
-        ["leader-abc", "Quest Leader"],
-        ["reviewer-abc", "Quest Reviewer"],
-      ]),
       sessionBoards: new Map([
         [
           "leader-abc",
@@ -612,6 +611,7 @@ describe("MarkdownContent quest links", () => {
           cwd: "/repo",
           createdAt: 1,
           sessionNum: 123,
+          name: "Auth Worker",
         },
       ],
     }));
@@ -634,6 +634,7 @@ describe("MarkdownContent quest links", () => {
           cwd: "/repo",
           createdAt: 1,
           sessionNum: 123,
+          name: "Auth Worker",
         },
       ],
     }));
@@ -664,10 +665,9 @@ describe("MarkdownContent quest links", () => {
           cwd: "/repo",
           createdAt: 1,
           sessionNum: 123,
+          name: "Auth Worker",
         },
       ],
-      sessionNames: new Map([["session-abc", "Auth Worker"]]),
-      sessionPreviews: new Map([["session-abc", "stale sidebar preview"]]),
       sessionTaskHistory: new Map([
         [
           "session-abc",
@@ -713,9 +713,9 @@ describe("MarkdownContent quest links", () => {
           cwd: "/repo",
           createdAt: 1,
           sessionNum: 123,
+          name: "Auth Worker",
         },
       ],
-      sessionNames: new Map([["session-abc", "Leader 12"]]),
     }));
 
     render(<MarkdownContent text="[#123 msg 337](session:123:337)" />);
@@ -748,9 +748,9 @@ describe("MarkdownContent quest links", () => {
           cwd: "/repo",
           createdAt: 1,
           sessionNum: 123,
+          name: "Auth Worker",
         },
       ],
-      sessionNames: new Map([["session-abc", "Auth Worker"]]),
     }));
 
     render(<MarkdownContent text="[#123 msg 7](session:123:7)" />);
@@ -771,9 +771,9 @@ describe("MarkdownContent quest links", () => {
           cwd: "/repo",
           createdAt: 1,
           sessionNum: 123,
+          name: "Auth Worker",
         },
       ],
-      sessionNames: new Map([["session-abc", "Auth Worker"]]),
     }));
 
     render(<MarkdownContent text="[#123](session:123)" />);
@@ -792,10 +792,9 @@ describe("MarkdownContent quest links", () => {
           cwd: "/repo",
           createdAt: 1,
           sessionNum: 123,
+          name: "Auth Worker",
         },
       ],
-      sessionNames: new Map([["session-abc", "Auth Worker"]]),
-      sessionPreviews: new Map([["session-abc", "Latest sidebar preview"]]),
       sessionTaskHistory: new Map([
         [
           "session-abc",
@@ -831,9 +830,12 @@ describe("MarkdownContent quest links", () => {
           cwd: "/repo",
           createdAt: 1,
           sessionNum: 123,
+          name: "Auth Worker",
+          claimedQuestId: "q-42",
+          claimedQuestTitle: "Fix auth race condition",
+          claimedQuestStatus: "in_progress",
         },
       ],
-      sessionNames: new Map([["session-abc", "Auth Worker"]]),
       quests: [
         {
           id: "q-42-v1",
@@ -880,9 +882,9 @@ describe("MarkdownContent quest links", () => {
           cwd: "/repo",
           createdAt: 1,
           sessionNum: 123,
+          name: "Auth Worker",
         },
       ],
-      sessionNames: new Map([["session-abc", "Auth Worker"]]),
     }));
 
     render(

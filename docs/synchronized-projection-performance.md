@@ -1,6 +1,6 @@
 # Synchronized Projection Performance Baseline
 
-Baseline established on August 30, 2026 against synchronized runtime target `b54821520f863c00af50d38db93edce439d048a3`, then remeasured after the framework-only consolidation on a worktree based on `8e03fd27999c6fe29d576bed367ad3296d71a146`.
+Baseline established on August 30, 2026 against synchronized runtime target `b54821520f863c00af50d38db93edce439d048a3`, remeasured after the framework-only consolidation on a worktree based on `8e03fd27999c6fe29d576bed367ad3296d71a146`, and remeasured again after the session-navigation cleanup on August 31, 2026.
 
 This document fixes the comparison boundary for the session-navigation and leader-thread-tab projection migrations. It compares equivalent bounded feature work, not whole-server behavior or unrelated commits.
 
@@ -77,7 +77,7 @@ bun --no-install ./node_modules/.bin/vitest run \
   --reporter=verbose
 ```
 
-## Server results
+## Framework-consolidation server results (pre-session-navigation cleanup)
 
 ### Equivalent control versus matched-pair event work
 
@@ -110,7 +110,7 @@ Initial subscription for two browsers performs one dependency selection, one ini
 
 A cold invalidation with no subscribers now records dirtiness without selection, derivation, or cached-value construction for both navigation and leader tabs. The next requested snapshot computes the current value, while clean reconnect snapshots reuse the cache with zero dependency selection. Targeted cross-leader invalidation remains demand-gated.
 
-## Frontend results
+## Framework-consolidation frontend results (pre-session-navigation cleanup)
 
 All counts exclude initial mount and compare equal final rendered output. Row commits count four actual `SessionItem` children.
 
@@ -136,6 +136,50 @@ The isolated projection suppresses equal values and coalesces its own burst. The
 
 Two independently reset compatible clients produced identical structural results. Aggregate commits and notifications scaled exactly linearly, matching the server’s one-delivery-per-subscriber fanout.
 
+## Session-navigation cleanup remeasurement
+
+The August 31, 2026 cleanup completes the current-build session-navigation migration. Projection updates now materialize directly into the existing `sdkSessions` row, and that row is the sole browser navigation read model. Mixed-version runtime arbitration, parallel status and permission-count activity delivery, duplicate name/preview caches, the second Takode session-list assembler, and stale consumer subscriptions are removed. REST envelopes remain ordering inputs, while stale or partial-ack responses cannot overwrite a newer materialized navigation row.
+
+The gray-dot regression was traced to stale producer idle state outranking live generation. Current running, compacting, and reverting authority now wins; a fenced stale REST row also preserves the current `running` field rather than replacing it with `idle`.
+
+### Current server results
+
+| Navigation scenario | Historical control sends / deliveries / bytes per browser | Current compatible pair | Result |
+| --- | ---: | ---: | --- |
+| Equal producer frame | 1 / 2 / 412 B | 0 / 0 / 0 B | Better; one dependency check, no derivation or publication |
+| One status change | 1 / 2 / 412 B | 1 / 2 / 180 B | Better; one 20 B field patch, 40 B delivered across two browsers |
+| 25-frame status burst | 25 / 50 / 10,300 B | 1 / 2 / 180 B | Better; 50 invalidations coalesce into one selection, derivation, and patch |
+| Cold invalidation without subscribers | no projection work | zero selection, derivation, cache construction, sends, or bytes | Demand-gated |
+
+Initial navigation subscription remains bounded at 1,787 B per browser. The cached full value is 1,492 B; a clean reconnect reuses it with zero dependency reselection and returns one snapshot plus acknowledgement for the accepted key.
+
+### Current frontend results
+
+| Scenario | Historical root / row commits / store notifications | Current compatible pair | Result |
+| --- | ---: | ---: | --- |
+| Equal producer frame | 1 / 4 / 4 | 0 / 0 / 1 | Better; no component commit |
+| One status change | 1 / 4 / 4 | 1 / 1 / 1 | Same root commits; only the changed row rerenders |
+| Three-frame burst | 3 / 12 / 12 | 1 / 1 / 1 | Better and coalesced |
+| Reconnect | 1 / 4 / 14 | 1 / 1 / 15 | No added commit; only the changed row rerenders |
+
+Two independently reset compatible clients still produce identical output, and aggregate delivery/render work remains exactly linear by client.
+
+### Final feature-size accounting
+
+The hard size gate compares the original session-navigation migration with this cleanup, excluding only the already-audited 57-line incidental turn-tool-summary extraction and genuinely generic synchronized-projection patch/runtime machinery.
+
+| Accounted change | Server | Shared protocol/types | Frontend | Total |
+| --- | ---: | ---: | ---: | ---: |
+| Original migration, gross | +759 | +382 | +938 | +2,079 |
+| Original feature baseline after the 57-line incidental exclusion | +702 | +382 | +938 | **+2,022** |
+| Current cleanup, raw tracked production delta | -160 | -366 | -1,425 | -1,951 |
+| Current cleanup after generic framework exclusions (+27 server, +11 shared, +39 frontend) | -187 | -377 | -1,464 | **-2,028** |
+| **Final session-navigation feature stack versus its direct-parent baseline** | **+515** | **+5** | **-526** | **-6** |
+
+The final feature-specific non-test stack is therefore 6 lines smaller than the pre-migration baseline. The exclusion remains conservative: navigation definition, registration, materialization, source invalidation, REST integration, and UI consumption stay feature-owned; only generic patch transport/application and runtime support are removed from the count.
+
+This closes the session-navigation-local wire, render, no-subscriber, duplicate-path, and code-size gates. It does not change the leader-thread-tab measurements below or waive final whole-application acceptance: leader cleanup remains downstream work, followed by the mismatch-only compatibility audit and final gate.
+
 ## Acceptance thresholds
 
 Downstream cleanup and any later projection candidate must preserve these deterministic properties:
@@ -153,8 +197,6 @@ Downstream cleanup and any later projection candidate must preserve these determ
 
 ## Overall verdict
 
-**After framework consolidation, performance is improved locally but still does not satisfy the full equal-or-better acceptance gate.** Projection-local batching, dependency equality, and linear fanout work: equal projected values do not publish, 25 invalidations collapse to one projected update, and subscriber count does not multiply server derivation.
+**Session navigation now satisfies its equal-or-better and simplification gates.** The compatible pair emits no parallel status activity, uses a smaller one-field patch for real changes, coalesces bursts to one publication, does not add a reconnect commit, and rerenders only the changed session row. Its feature-specific non-test stack is 6 lines below the audited pre-migration baseline after the accepted narrow exclusions.
 
-Those internal gains are outweighed at the matched-pair boundary. Navigation single-change wire is 4.94× the control, its 25-frame burst is 5.1% larger, and both single and burst add a full-list React commit. Leader Work → Memory wire is 2.09× the full historical producer sequence and its 25-frame burst is 4.4% larger. Leader phase changes and reconnect add a commit; the full three-frame leader burst merely breaks even on commits while doing fewer store writes. Both reconnect paths still add one frontend commit and session navigation still rerenders unrelated rows. Generic no-subscriber derivation and reconnect reselection are fixed, but the wire and consumer boundaries remain feature-specific residuals.
-
-Before another UI family uses this pattern, cleanup should split or delta-encode hot leader-tab facets, remove confirmed projection-owned compatibility fields without deleting detailed board authority, batch or reconcile parallel detail-plus-visual deliveries, and isolate session-row selectors. The repaired authority model remains valuable, but these measurements do not support treating the current implementation as a minimal or performance-proven template.
+The synchronized-projection program is not yet complete. The framework-consolidation leader-thread-tab results above still show duplicate activity plus board/detail delivery, whole-value projection payloads, and added phase/reconnect commits. Leader cleanup and the later mismatch-only compatibility audit retain those unchanged obligations, and final whole-application acceptance remains separate.

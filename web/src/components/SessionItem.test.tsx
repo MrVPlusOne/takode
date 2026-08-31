@@ -605,7 +605,6 @@ describe("SessionItem leader profiles", () => {
 
     renderSessionItem({
       session: makeSession({
-        navigationProjectionOwned: true,
         lastUserMessageAt: 100,
         lastMessagePreviewAt: 200,
       }),
@@ -621,7 +620,7 @@ describe("SessionItem leader profiles", () => {
     mockStoreState.sessionPreviewUpdatedAt.set("s1", 300);
 
     renderSessionItem({
-      session: makeSession({ navigationProjectionOwned: true }),
+      session: makeSession({}),
     });
 
     expect(screen.getByText("Current task")).toBeInTheDocument();
@@ -806,10 +805,8 @@ describe("SessionItem status dot", () => {
   it("replaces the idle dot with a timer icon when the session is waiting on timers", () => {
     // Idle sessions with scheduled timers should advertise that waiting state
     // in the primary status slot instead of the old hover-hidden side badge.
-    setSessionTimers("s1", ["t1", "t2"]);
-
     const { container } = renderSessionItem({
-      session: makeSession({ status: "idle", sdkState: "connected" }),
+      session: makeSession({ status: "idle", sdkState: "connected", pendingTimerCount: 2 }),
       permCount: 0,
     });
 
@@ -820,10 +817,9 @@ describe("SessionItem status dot", () => {
   });
 
   it("shows a pause badge with held-input count instead of the timer icon", () => {
-    setSessionTimers("s1", ["t1"]);
-
     const { container } = renderSessionItem({
       session: makeSession({
+        pendingTimerCount: 1,
         pause: {
           pausedAt: 123,
           queuedMessages: [
@@ -845,10 +841,8 @@ describe("SessionItem status dot", () => {
   });
 
   it("uses the dedicated alignment classes for the timer icon slot", () => {
-    setSessionTimers("s1", ["t1"]);
-
     renderSessionItem({
-      session: makeSession({ status: "idle", sdkState: "connected" }),
+      session: makeSession({ status: "idle", sdkState: "connected", pendingTimerCount: 1 }),
       permCount: 0,
     });
 
@@ -862,10 +856,8 @@ describe("SessionItem status dot", () => {
   it("shows the timer icon in status-bar sidebar rows too", () => {
     // Status-bar rows use the left status stripe instead of the dot, so the
     // timer state still needs an inline icon to stay visible there.
-    setSessionTimers("s1", ["t1"]);
-
     renderSessionItem({
-      session: makeSession({ status: "idle", sdkState: "connected" }),
+      session: makeSession({ status: "idle", sdkState: "connected", pendingTimerCount: 1 }),
       permCount: 0,
       useStatusBar: true,
     });
@@ -888,30 +880,28 @@ describe("SessionItem status dot", () => {
     expect(timerIcon).toHaveAttribute("title", "1 scheduled timer");
   });
 
-  it("uses projected timer authority for the current session", () => {
+  it("keeps row timer authority for the current session", () => {
     mockStoreState.currentSessionId = "s1";
     setSessionTimers("s1", ["stale-live"]);
 
     const { container } = renderSessionItem({
-      session: makeSession({ navigationProjectionOwned: true, pendingTimerCount: 0 }),
+      session: makeSession({ pendingTimerCount: 0 }),
       permCount: 0,
     });
 
     expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
   });
 
-  it("prefers the live current-session timer state over a stale snapshot count", () => {
-    // When viewing the session directly, the live timer store must win so a
-    // cancelled timer clears immediately instead of waiting for the next poll.
+  it("does not let stale local timer state clear the current row count", () => {
     mockStoreState.currentSessionId = "s1";
 
-    const { container } = renderSessionItem({
+    renderSessionItem({
       session: makeSession({ pendingTimerCount: 2 }),
       permCount: 0,
     });
 
-    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
-    expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "idle");
+    expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute("data-count", "2");
+    expect(screen.queryByTestId("session-status-dot")).toBeNull();
   });
 });
 
@@ -1300,9 +1290,7 @@ describe("SessionItem notification marker", () => {
   it("uses the status icon instead of a side badge when timers exist", () => {
     // A timed but otherwise idle session should use the primary status slot
     // rather than a hover-hidden side badge.
-    setSessionTimers("s1", ["t1", "t2"]);
-
-    const { container } = renderSessionItem();
+    const { container } = renderSessionItem({ session: makeSession({ pendingTimerCount: 2 }) });
 
     const icon = screen.getByTestId("session-status-timer-icon");
     expect(icon).toHaveAttribute("data-count", "2");
@@ -1312,9 +1300,10 @@ describe("SessionItem notification marker", () => {
   it("suppresses the timer icon when a stronger permission badge is active", () => {
     // Pending permissions should continue to own the badge lane because they
     // require immediate user attention.
-    setSessionTimers("s1", ["t1"]);
-
-    const { container } = renderSessionItem({ permCount: 1 });
+    const { container } = renderSessionItem({
+      session: makeSession({ pendingTimerCount: 1 }),
+      permCount: 1,
+    });
     expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
   });
 
@@ -1324,9 +1313,7 @@ describe("SessionItem notification marker", () => {
     setSessionNotifications("s1", [
       { id: "n-review", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
     ]);
-    setSessionTimers("s1", ["t1"]);
-
-    const { container } = renderSessionItem();
+    const { container } = renderSessionItem({ session: makeSession({ pendingTimerCount: 1 }) });
     expect(container.querySelector('[data-testid="session-status-timer-icon"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
   });
@@ -1337,9 +1324,7 @@ describe("SessionItem notification marker", () => {
     setSessionNotifications("s1", [
       { id: "n-input", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
     ]);
-    setSessionTimers("s1", ["t1"]);
-
-    const { container } = renderSessionItem();
+    const { container } = renderSessionItem({ session: makeSession({ pendingTimerCount: 1 }) });
     const marker = screen.getByTestId("session-notification-marker");
     expect(marker).toHaveAttribute("data-urgency", "needs-input");
     expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
@@ -1386,13 +1371,16 @@ describe("SessionItem notification marker", () => {
   });
 
   it("uses projected muted-only status ahead of a timer without reviving legacy attention", () => {
-    setSessionTimers("s1", ["t1"]);
     setSessionAttentionProjection("s1", {
       attentionReason: null,
       status: { urgency: "muted-needs-input", count: 3 },
     });
 
-    const { container } = renderSessionItem({ attention: "review", hasUnread: true });
+    const { container } = renderSessionItem({
+      session: makeSession({ pendingTimerCount: 1 }),
+      attention: "review",
+      hasUnread: true,
+    });
 
     expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "muted-needs-input");
     expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
@@ -1400,13 +1388,16 @@ describe("SessionItem notification marker", () => {
   });
 
   it("lets a projected clear reveal the ordinary timer and suppress stale legacy markers", () => {
-    setSessionTimers("s1", ["t1"]);
     setSessionAttentionProjection("s1", { attentionReason: null, status: null });
     setSessionNotifications("s1", [
       { id: "legacy-input", category: "needs-input", summary: "Stale", timestamp: 1, done: false },
     ]);
 
-    renderSessionItem({ attention: "review", hasUnread: true });
+    renderSessionItem({
+      session: makeSession({ pendingTimerCount: 1 }),
+      attention: "review",
+      hasUnread: true,
+    });
 
     expect(screen.getByTestId("session-status-timer-icon")).toBeInTheDocument();
     expect(screen.queryByTestId("session-attention-marker")).toBeNull();
@@ -1427,10 +1418,9 @@ describe("SessionItem notification marker", () => {
   });
 
   it("preserves projected error as unread without inventing notification urgency", () => {
-    setSessionTimers("s1", ["t1"]);
     setSessionAttentionProjection("s1", { attentionReason: "error", status: null });
 
-    const { container } = renderSessionItem();
+    const { container } = renderSessionItem({ session: makeSession({ pendingTimerCount: 1 }) });
 
     expect(screen.getByTestId("session-status-dot")).toHaveAttribute("data-status", "completed_unread");
     expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
@@ -1726,19 +1716,19 @@ describe("SessionItem quest title label", () => {
   });
 
   it("shows ☐ prefix for in-progress quest sessions", () => {
-    mockStoreState.questNamedSessions.add("s1");
-    mockStoreState.sessions.set("s1", { claimedQuestStatus: "in_progress" });
-
-    renderSessionItem({ sessionName: "Fix auth bug" });
+    renderSessionItem({
+      sessionName: "Fix auth bug",
+      session: makeSession({ claimedQuestStatus: "in_progress" }),
+    });
 
     expect(screen.getByText("☐ Fix auth bug")).toBeInTheDocument();
   });
 
   it("shows ☑ prefix for done quest sessions under review", () => {
-    mockStoreState.questNamedSessions.add("s1");
-    mockStoreState.sessions.set("s1", { claimedQuestStatus: "done", claimedQuestVerificationInboxUnread: true });
-
-    renderSessionItem({ sessionName: "Fix auth bug" });
+    renderSessionItem({
+      sessionName: "Fix auth bug",
+      session: makeSession({ claimedQuestStatus: "done", claimedQuestVerificationInboxUnread: true }),
+    });
 
     expect(screen.getByText("☑ Fix auth bug")).toBeInTheDocument();
   });
@@ -1760,7 +1750,7 @@ describe("SessionItem quest title label", () => {
     });
 
     renderSessionItem({
-      session: makeSession({ navigationProjectionOwned: true }),
+      session: makeSession({}),
       sessionName: "Projected plain session",
     });
 
@@ -1787,25 +1777,27 @@ describe("SessionItem quest title label", () => {
     expect(span.textContent).toBe("Regular session");
   });
 
-  it("shows ☐ prefix when quest status is undefined", () => {
-    // Edge case: session is quest-named but claimedQuestStatus was never set.
-    // Should fall through to the ☐ branch, not crash or show ☑.
+  it("does not infer quest ownership from stale local state when row status is undefined", () => {
     mockStoreState.questNamedSessions.add("s1");
-    mockStoreState.sessions.set("s1", { claimedQuestStatus: undefined });
+    mockStoreState.sessions.set("s1", { claimedQuestStatus: "in_progress" });
 
     renderSessionItem({ sessionName: "Mystery quest" });
 
-    expect(screen.getByText("☐ Mystery quest")).toBeInTheDocument();
+    expect(screen.getByText("Mystery quest")).toBeInTheDocument();
+    expect(screen.queryByText("☐ Mystery quest")).toBeNull();
   });
 
-  it("shows ☐ prefix for final done quests without review metadata", () => {
-    // Confirms the ☑ check is strict -- only review-pending done gets a checked box.
+  it("does not retain a quest prefix after authoritative review metadata is cleared", () => {
     mockStoreState.questNamedSessions.add("s1");
-    mockStoreState.sessions.set("s1", { claimedQuestStatus: "done" });
+    mockStoreState.sessions.set("s1", { claimedQuestStatus: "done", claimedQuestVerificationInboxUnread: true });
 
-    renderSessionItem({ sessionName: "Completed quest" });
+    renderSessionItem({
+      sessionName: "Completed quest",
+      session: makeSession({ claimedQuestStatus: "done" }),
+    });
 
-    expect(screen.getByText("☐ Completed quest")).toBeInTheDocument();
+    expect(screen.getByText("Completed quest")).toBeInTheDocument();
+    expect(screen.queryByText("☐ Completed quest")).toBeNull();
   });
 
   it("preserves reviewer navigation while hiding stale skip chips when board quest context is available", () => {

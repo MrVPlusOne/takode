@@ -171,7 +171,7 @@ describe("handleMessage: session_activity_update", () => {
     ).toEqual(migration);
   });
 
-  it("updates inactive session sidebar state from another session socket", () => {
+  it("updates inactive non-navigation sidebar state from another session socket", () => {
     wsModule.connectSession("leader");
     fireMessage({ type: "session_init", session: makeSession("leader") });
     useStore.getState().setCurrentSession("leader");
@@ -185,8 +185,8 @@ describe("handleMessage: session_activity_update", () => {
         reviewer: { sessionId: "worker", sessionNum: 2403, status: "idle" as const },
       },
     };
-    // Reconnect/running state is a session-activity concern and must not need a
-    // board participant projection rewrite.
+    // Detailed board-participant state remains independent from the navigation
+    // projection and must not be rewritten by compact global activity.
     useStore.getState().setSessionBoardRowStatuses("leader", reviewerProjection);
 
     fireMessage({
@@ -205,13 +205,13 @@ describe("handleMessage: session_activity_update", () => {
     });
 
     const worker = useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")!;
-    expect(worker.pendingPermissionCount).toBe(1);
+    expect(worker.pendingPermissionCount).toBeUndefined();
     expect(worker.pendingPermissionSummary).toBe("pending plan");
     expect(worker.notificationUrgency).toBe("needs-input");
     expect(worker.activeNotificationCount).toBe(1);
     expect(worker.notificationStatusVersion).toBe(2);
     expect(useStore.getState().sessionAttention.get("worker")).toBe("action");
-    expect(useStore.getState().sessionStatus.get("worker")).toBe("running");
+    expect(useStore.getState().sessionStatus.get("worker")).toBeUndefined();
     expect(useStore.getState().sessionBoardRowStatuses.get("leader")).toEqual(reviewerProjection);
     useStore.setState({
       sessionNotifications: new Map([["worker", [needsInputNotification()]]]),
@@ -233,14 +233,14 @@ describe("handleMessage: session_activity_update", () => {
     });
 
     const updatedWorker = useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")!;
-    expect(updatedWorker.pendingPermissionCount).toBe(0);
+    expect(updatedWorker.pendingPermissionCount).toBeUndefined();
     expect(updatedWorker.pendingPermissionSummary).toBeNull();
     expect(updatedWorker.notificationUrgency).toBeNull();
     expect(updatedWorker.activeNotificationCount).toBe(0);
     expect(updatedWorker.notificationStatusVersion).toBe(3);
     expect(useStore.getState().sessionAttention.get("worker")).toBeNull();
     expect(useStore.getState().sessionNotifications.get("worker")).toBeUndefined();
-    expect(useStore.getState().sessionStatus.get("worker")).toBe("idle");
+    expect(useStore.getState().sessionStatus.get("worker")).toBeUndefined();
     expect(useStore.getState().sessionBoardRowStatuses.get("leader")).toEqual(reviewerProjection);
   });
 
@@ -372,9 +372,9 @@ describe("handleMessage: session_activity_update", () => {
     expect(useStore.getState().sessionAttention.get("worker")).toBeNull();
   });
 
-  it("preserves permission-derived action attention even when notification status is older", () => {
-    // Pending permissions also use action attention. Those should keep their
-    // badge even if an older notification summary is present on the same update.
+  it("preserves authoritative action attention even when notification status is older", () => {
+    // The compact activity event keeps attention authority independent from
+    // projection-owned permission counts.
     wsModule.connectSession("leader");
     fireMessage({ type: "session_init", session: makeSession("leader") });
     useStore.getState().setCurrentSession("leader");
@@ -408,7 +408,7 @@ describe("handleMessage: session_activity_update", () => {
     const worker = useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")!;
     expect(worker.notificationUrgency).toBeNull();
     expect(worker.activeNotificationCount).toBe(0);
-    expect(worker.pendingPermissionCount).toBe(1);
+    expect(worker.pendingPermissionCount).toBeUndefined();
     expect(useStore.getState().sessionAttention.get("worker")).toBe("action");
   });
 });

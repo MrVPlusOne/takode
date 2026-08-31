@@ -3,8 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { api } from "../api.js";
-import { SESSION_NAVIGATION_PROJECTION } from "../../shared/session-navigation-projection.js";
-import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
+import { sessionNavigationProjectionToSessionFields } from "../../shared/session-navigation-projection.js";
 import { createSessionNavigationProjectionValue } from "../test-fixtures/session-navigation-projection.js";
 
 type MockContextWindowDiagnostics = {
@@ -86,7 +85,7 @@ interface MockStoreState {
       codex_goal_capability?: { state: "supported"; checkedAt: number; error: null };
       claude_token_details?: { modelContextWindow?: number };
       claude_max_context_length?: number | null;
-      claudeMaxContextLength?: number;
+      claudeMaxContextLength?: number | null;
       isOrchestrator?: boolean;
       lifecycle_events?: MockLifecycleEvent[];
       git_branch?: string | null;
@@ -101,10 +100,28 @@ interface MockStoreState {
   >;
   sdkSessions: Array<{
     sessionId: string;
+    state?: "starting" | "connected" | "running" | "exited";
     cwd?: string;
+    createdAt?: number;
+    model?: string;
+    permissionMode?: string;
     backendType?: "claude" | "codex" | "claude-sdk";
+    cliConnected?: boolean;
+    gitBranch?: string;
+    gitDefaultBranch?: string;
+    diffBaseBranch?: string;
+    isWorktree?: boolean;
+    repoRoot?: string;
+    gitAhead?: number;
+    gitBehind?: number;
+    totalLinesAdded?: number;
+    totalLinesRemoved?: number;
     contextUsedPercent?: number;
+    contextTokensUsed?: number | null;
+    modelContextWindow?: number | null;
     numTurns?: number;
+    userTurnCount?: number;
+    agentTurnCount?: number;
     messageHistoryBytes?: number;
     codexRetainedPayloadBytes?: number;
     codexTokenDetails?: {
@@ -112,12 +129,15 @@ interface MockStoreState {
       contextTokensUsed?: number;
       providerReportedTotalTokens?: number;
     };
-    codexMaxContextLength?: number;
+    codexMaxContextLength?: number | null;
+    codexReasoningEffort?: string | null;
+    codexEffectiveReasoningEffort?: string | null;
+    codexEffectiveReasoningEffortReported?: boolean;
     codexLeaderRecycleThresholdTokens?: number;
     codexLeaderCompactionMode?: "recycle" | "compact";
     codexContextWindowDiagnostics?: MockContextWindowDiagnostics;
     claudeTokenDetails?: { modelContextWindow?: number };
-    claudeMaxContextLength?: number;
+    claudeMaxContextLength?: number | null;
     sessionLifecycleEvents?: MockLifecycleEvent[];
     codexLeaderRecycleLineage?: {
       cliSessionIds: string[];
@@ -190,7 +210,27 @@ function resetStore(taskHistory: Array<{ title: string; source?: "quest"; questI
         },
       ],
     ]),
-    sdkSessions: [{ sessionId: "s1", cwd: "/repo", backendType: "codex" }],
+    sdkSessions: [
+      {
+        sessionId: "s1",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 1,
+        model: "gpt-5.3-codex",
+        permissionMode: "default",
+        backendType: "codex",
+        cliConnected: true,
+        gitBranch: "jiayi",
+        isWorktree: true,
+        repoRoot: "/repo",
+        gitAhead: 0,
+        gitBehind: 0,
+        totalLinesAdded: 0,
+        totalLinesRemoved: 0,
+        contextUsedPercent: 0,
+        numTurns: 2,
+      },
+    ],
     sessionTaskHistory: new Map([["s1", taskHistory]]),
     sessionNames: new Map(),
     sessionPreviews: new Map(),
@@ -208,13 +248,25 @@ function resetStore(taskHistory: Array<{ title: string; source?: "quest"; questI
   };
 }
 
+function updateCurrentSdkSession(patch: Partial<MockStoreState["sdkSessions"][number]>) {
+  const session = storeState.sdkSessions.find((candidate) => candidate.sessionId === "s1");
+  if (!session) throw new Error("missing session fixture");
+  Object.assign(session, patch);
+}
+
 function setNavigationProjection(
   sessionId: string,
   value = createSessionNavigationProjectionValue({ identity: { sessionNum: null } }),
 ) {
-  const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, sessionId);
-  storeState.syncedProjectionKeys.add(entryId);
-  storeState.syncedProjectionValues.set(entryId, value);
+  const existingIndex = storeState.sdkSessions.findIndex((session) => session.sessionId === sessionId);
+  const existing = existingIndex >= 0 ? storeState.sdkSessions[existingIndex] : undefined;
+  const session = {
+    ...existing,
+    ...sessionNavigationProjectionToSessionFields(value),
+    sessionId,
+  } as MockStoreState["sdkSessions"][number];
+  if (existingIndex >= 0) storeState.sdkSessions[existingIndex] = session;
+  else storeState.sdkSessions.push(session);
 }
 
 vi.mock("../store.js", () => ({
@@ -277,12 +329,16 @@ describe("SessionInfoPopover", () => {
     vi.mocked(api.listSessions).mockReset();
     vi.mocked(api.listSessions).mockResolvedValue([]);
     vi.mocked(api.getSessionInfo).mockReset();
-    vi.mocked(api.getSessionInfo).mockImplementation(async (sessionId) => ({
-      sessionId,
-      state: "connected",
-      cwd: "/repo",
-      createdAt: 1,
-    }));
+    vi.mocked(api.getSessionInfo).mockImplementation(
+      async (sessionId) =>
+        ({
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          ...storeState.sdkSessions.find((session) => session.sessionId === sessionId),
+          sessionId,
+        }) as Awaited<ReturnType<typeof api.getSessionInfo>>,
+    );
     vi.mocked(api.openSessionDirectory).mockReset();
     vi.mocked(api.openSessionDirectory).mockResolvedValue({
       ok: true,
@@ -362,11 +418,11 @@ describe("SessionInfoPopover", () => {
     // The editable Ultra setting remains the only ordinary value while the
     // Codex-reported High runtime state still produces a truthful diagnostic.
     resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.codex_reasoning_effort = "ultra";
-    session.codex_effective_reasoning_effort = "high";
-    session.codex_effective_reasoning_effort_reported = true;
+    updateCurrentSdkSession({
+      codexReasoningEffort: "ultra",
+      codexEffectiveReasoningEffort: "high",
+      codexEffectiveReasoningEffortReported: true,
+    });
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -382,7 +438,7 @@ describe("SessionInfoPopover", () => {
 
   it("labels launch settings as applying on resume when backend is disconnected but Takode is reachable", () => {
     resetStore([]);
-    storeState.cliConnected.set("s1", false);
+    updateCurrentSdkSession({ cliConnected: false });
     storeState.connectionStatus.set("s1", "connected");
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
@@ -393,7 +449,7 @@ describe("SessionInfoPopover", () => {
     expect(reasoning).toBeEnabled();
   });
 
-  it("shows the leader portrait inside session info and opens profile editing from it", () => {
+  it("keeps the list portrait after session detail loads and opens profile editing from it", async () => {
     resetStore([]);
     storeState.sdkSessions = [
       {
@@ -404,9 +460,18 @@ describe("SessionInfoPopover", () => {
         leaderProfilePortrait: TAKO_PORTRAIT,
       },
     ];
+    vi.mocked(api.getSessionInfo).mockResolvedValue({
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/repo",
+      createdAt: 1,
+      backendType: "codex",
+      isOrchestrator: true,
+    });
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
+    await waitFor(() => expect(api.getSessionInfo).toHaveBeenCalledWith("s1"));
     expect(screen.getByText("Leader profile")).toBeInTheDocument();
     const editButton = screen.getByRole("button", { name: "Edit leader profile picture" });
     fireEvent.click(editButton);
@@ -420,7 +485,7 @@ describe("SessionInfoPopover", () => {
     resetStore([]);
     const session = storeState.sessions.get("s1");
     storeState.sessions.set("s1", { ...(session ?? {}), backend_state: "connected" });
-    storeState.cliConnected = new Map([["s1", false]]);
+    updateCurrentSdkSession({ cliConnected: false });
     storeState.cliEverConnected = new Map([["s1", true]]);
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
@@ -547,10 +612,8 @@ describe("SessionInfoPopover", () => {
 
   it("uses projected model, git, and detail stats ahead of stale selected-session fields", () => {
     resetStore([]);
-    const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, "s1");
-    storeState.syncedProjectionKeys.add(entryId);
-    storeState.syncedProjectionValues.set(
-      entryId,
+    setNavigationProjection(
+      "s1",
       createSessionNavigationProjectionValue({
         identity: { model: "gpt-5.6" },
         git: { branch: "projected-branch", ahead: 3, linesAdded: 12 },
@@ -570,14 +633,14 @@ describe("SessionInfoPopover", () => {
 
   it("renders git branch and diff stats near the top below the path", () => {
     resetStore([{ title: "Task one" }]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.git_branch = "jiayi-wt-5788";
-    session.is_worktree = true;
-    session.git_ahead = 1;
-    session.git_behind = 5;
-    session.total_lines_added = 69;
-    session.total_lines_removed = 13;
+    updateCurrentSdkSession({
+      gitBranch: "jiayi-wt-5788",
+      isWorktree: true,
+      gitAhead: 1,
+      gitBehind: 5,
+      totalLinesAdded: 69,
+      totalLinesRemoved: 13,
+    });
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
     const pathLine = screen.getByTitle("/repo");
@@ -595,18 +658,11 @@ describe("SessionInfoPopover", () => {
 
   it("shows worktree and base repo paths separately with the trailing worktree segment emphasized", () => {
     resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.cwd = "/Users/test/.companion/worktrees/companion/jiayi-wt-3116";
-    session.repo_root = "/Users/test/Code/companion";
-    session.is_worktree = true;
-    storeState.sdkSessions = [
-      {
-        sessionId: "s1",
-        cwd: session.cwd,
-        backendType: "codex",
-      },
-    ];
+    updateCurrentSdkSession({
+      cwd: "/Users/test/.companion/worktrees/companion/jiayi-wt-3116",
+      repoRoot: "/Users/test/Code/companion",
+      isWorktree: true,
+    });
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -626,18 +682,11 @@ describe("SessionInfoPopover", () => {
 
   it("opens the session working directory through the system file browser", async () => {
     resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.cwd = "/Users/test/.companion/worktrees/companion/jiayi-wt-3116";
-    session.repo_root = "/Users/test/Code/companion";
-    session.is_worktree = true;
-    storeState.sdkSessions = [
-      {
-        sessionId: "s1",
-        cwd: session.cwd,
-        backendType: "codex",
-      },
-    ];
+    updateCurrentSdkSession({
+      cwd: "/Users/test/.companion/worktrees/companion/jiayi-wt-3116",
+      repoRoot: "/Users/test/Code/companion",
+      isWorktree: true,
+    });
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -652,11 +701,11 @@ describe("SessionInfoPopover", () => {
 
   it("opens visible worktree and base repo directory rows through the system file browser", async () => {
     resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.cwd = "/Users/test/.companion/worktrees/companion/jiayi-wt-3116";
-    session.repo_root = "/Users/test/Code/companion";
-    session.is_worktree = true;
+    updateCurrentSdkSession({
+      cwd: "/Users/test/.companion/worktrees/companion/jiayi-wt-3116",
+      repoRoot: "/Users/test/Code/companion",
+      isWorktree: true,
+    });
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -686,9 +735,6 @@ describe("SessionInfoPopover", () => {
 
   it("shows concise herd relationship chips in the info panel", () => {
     resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.cwd = "/repo/worker";
     storeState.sdkSessions = [
       {
         sessionId: "leader-1",
@@ -715,9 +761,6 @@ describe("SessionInfoPopover", () => {
 
   it("shows concise herding chips for leader sessions in the info panel", () => {
     resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.cwd = "/repo";
     storeState.sdkSessions = [
       {
         sessionId: "s1",
@@ -771,9 +814,6 @@ describe("SessionInfoPopover", () => {
   it("closes when herd relationship chips navigate", () => {
     resetStore([]);
     const onClose = vi.fn();
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.cwd = "/repo/worker";
     storeState.sdkSessions = [
       {
         sessionId: "leader-1",
@@ -800,15 +840,18 @@ describe("SessionInfoPopover", () => {
   });
 
   it("shows the max context window rounded to whole K tokens", () => {
-    // q-1533 feedback #31: the Session Info panel should group context
-    // metrics separately from replay/retained payload metrics.
-    resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.context_used_percent = 73;
-    session.message_history_bytes = 1_572_864;
-    session.codex_retained_payload_bytes = 2_621_440;
-    session.codex_token_details = { modelContextWindow: 258_400 };
+    setNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        detail: {
+          userTurnCount: 2,
+          contextUsedPercent: 73,
+          modelContextWindow: 258_400,
+          messageHistoryBytes: 1_572_864,
+          codexRetainedPayloadBytes: 2_621_440,
+        },
+      }),
+    );
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -830,17 +873,19 @@ describe("SessionInfoPopover", () => {
   });
 
   it("uses the Codex leader recycle threshold as the effective context window", () => {
-    // Codex leader sessions intentionally use a large provider window to avoid
-    // provider auto-compaction; the UI should show the Takode recycle threshold
-    // and compute context usage against that threshold instead.
-    resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.isOrchestrator = true;
-    session.codex_leader_compaction_mode = "recycle";
-    session.context_used_percent = 6;
-    session.codex_token_details = { contextTokensUsed: 57_000, modelContextWindow: 950_000 };
-    session.codex_leader_recycle_threshold_tokens = 260_000;
+    updateCurrentSdkSession({ codexLeaderCompactionMode: "recycle" });
+    setNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        topology: { isOrchestrator: true },
+        detail: {
+          contextUsedPercent: 6,
+          contextTokensUsed: 57_000,
+          modelContextWindow: 950_000,
+          codexLeaderRecycleThresholdTokens: 260_000,
+        },
+      }),
+    );
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -851,14 +896,19 @@ describe("SessionInfoPopover", () => {
   });
 
   it("ignores a stale recycle threshold for a Codex leader in compact mode", () => {
-    resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.isOrchestrator = true;
-    session.codex_leader_compaction_mode = "compact";
-    session.context_used_percent = 55;
-    session.codex_token_details = { contextTokensUsed: 423_969, modelContextWindow: 770_000 };
-    session.codex_leader_recycle_threshold_tokens = 545_000;
+    updateCurrentSdkSession({ codexLeaderCompactionMode: "compact" });
+    setNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        topology: { isOrchestrator: true },
+        detail: {
+          contextUsedPercent: 55,
+          contextTokensUsed: 423_969,
+          modelContextWindow: 770_000,
+          codexLeaderRecycleThresholdTokens: 545_000,
+        },
+      }),
+    );
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -869,7 +919,7 @@ describe("SessionInfoPopover", () => {
   });
 
   it("uses projected effective context as the Codex leader recycle threshold", () => {
-    resetStore([]);
+    updateCurrentSdkSession({ codexLeaderCompactionMode: "recycle" });
     setNavigationProjection(
       "s1",
       createSessionNavigationProjectionValue({
@@ -892,17 +942,13 @@ describe("SessionInfoPopover", () => {
   });
 
   it("honors a projected recycle-threshold clear over stale SDK metadata", () => {
-    resetStore([]);
-    storeState.sdkSessions = [
-      {
-        sessionId: "s1",
-        cwd: "/repo",
-        backendType: "codex",
-        isOrchestrator: true,
-        codexLeaderRecycleThresholdTokens: 260_000,
-        codexTokenDetails: { contextTokensUsed: 57_000, modelContextWindow: 950_000 },
-      },
-    ];
+    updateCurrentSdkSession({
+      isOrchestrator: true,
+      codexLeaderRecycleThresholdTokens: 260_000,
+      contextTokensUsed: 57_000,
+      modelContextWindow: 950_000,
+      codexLeaderCompactionMode: "recycle",
+    });
     setNavigationProjection(
       "s1",
       createSessionNavigationProjectionValue({
@@ -925,14 +971,17 @@ describe("SessionInfoPopover", () => {
   });
 
   it("keeps non-leader Codex sessions on provider context metrics", () => {
-    // The recycle threshold is leader-only metadata; a control Codex session
-    // should keep the server-reported context percent and model window.
-    resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.context_used_percent = 6;
-    session.codex_token_details = { contextTokensUsed: 57_000, modelContextWindow: 950_000 };
-    session.codex_leader_recycle_threshold_tokens = 260_000;
+    setNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        detail: {
+          contextUsedPercent: 6,
+          contextTokensUsed: 57_000,
+          modelContextWindow: 950_000,
+          codexLeaderRecycleThresholdTokens: 260_000,
+        },
+      }),
+    );
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -943,15 +992,13 @@ describe("SessionInfoPopover", () => {
   });
 
   it("keeps non-Codex sessions on history wording and hides retained payload", () => {
-    // Claude-family sessions should keep the generic history label and should
-    // not render the Codex-only retained payload metric.
-    resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.backend_type = "claude-sdk";
-    session.context_used_percent = 41;
-    session.message_history_bytes = 972_800;
-    session.claude_token_details = { modelContextWindow: 200_000 };
+    setNavigationProjection(
+      "s1",
+      createSessionNavigationProjectionValue({
+        identity: { backendType: "claude-sdk", model: "claude-sonnet-4-5" },
+        detail: { contextUsedPercent: 41, modelContextWindow: 200_000, messageHistoryBytes: 972_800 },
+      }),
+    );
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -959,16 +1006,18 @@ describe("SessionInfoPopover", () => {
     expect(screen.queryByText(/retained/)).toBeNull();
   });
 
-  it("falls back to sdk session metadata for context stats after restore", () => {
+  it("uses current session-row metadata for context stats after restore", () => {
     resetStore([]);
     storeState.sessions = new Map();
     storeState.sdkSessions = [
       {
         sessionId: "s1",
+        state: "connected",
         cwd: "/repo",
+        createdAt: 1,
         backendType: "codex",
         contextUsedPercent: 73,
-        codexTokenDetails: { modelContextWindow: 258_400 },
+        modelContextWindow: 258_400,
       },
     ];
 
@@ -979,21 +1028,21 @@ describe("SessionInfoPopover", () => {
   });
 
   it("shows effective Codex context primary and configured usable target secondarily after restore", () => {
-    // q-1612: restored Session Info metadata should keep the configured usable
-    // target in the context row, not mixed with non-context stats.
     resetStore([]);
     storeState.sessions = new Map();
     storeState.sdkSessions = [
       {
         sessionId: "s31",
+        state: "connected",
         cwd: "/repo",
+        createdAt: 1,
         backendType: "codex",
         numTurns: 12,
         messageHistoryBytes: 1_572_864,
         codexRetainedPayloadBytes: 2_621_440,
         contextUsedPercent: 7,
         codexMaxContextLength: 600_000,
-        codexTokenDetails: { modelContextWindow: 258_400 },
+        modelContextWindow: 258_400,
       },
     ];
 
@@ -1021,18 +1070,22 @@ describe("SessionInfoPopover", () => {
     expect(within(payloadRow).queryByText("target")).toBeNull();
   });
 
-  it("uses sdk session recycle threshold metadata for restored Codex leaders", () => {
+  it("uses current session-row recycle metadata for restored Codex leaders", () => {
     resetStore([]);
     storeState.sessions = new Map();
     storeState.sdkSessions = [
       {
         sessionId: "s1",
+        state: "connected",
         cwd: "/repo",
+        createdAt: 1,
         backendType: "codex",
         isOrchestrator: true,
         contextUsedPercent: 6,
-        codexTokenDetails: { contextTokensUsed: 57_000, modelContextWindow: 950_000 },
+        contextTokensUsed: 57_000,
+        modelContextWindow: 950_000,
         codexLeaderRecycleThresholdTokens: 260_000,
+        codexLeaderCompactionMode: "recycle",
       },
     ];
 
@@ -1135,31 +1188,32 @@ describe("SessionInfoPopover", () => {
     expect(within(section).getByText(/180K context/)).toBeInTheDocument();
   });
 
-  it("loads Codex leader recycle lineage from listSessions when sdkSessions are missing", async () => {
+  it("loads Codex leader recycle lineage from selected-session detail", async () => {
     resetStore([]);
-    storeState.sdkSessions = [];
-    vi.mocked(api.listSessions).mockResolvedValue([
-      {
-        sessionId: "s1",
-        cwd: "/repo",
-        backendType: "codex",
-        isOrchestrator: true,
-        codexLeaderRecycleLineage: {
-          cliSessionIds: ["thread-a", "thread-b"],
-          recycleEvents: [
-            {
-              trigger: "manual_compact",
-              requestedAt: 1_746_000_000_000,
-              tokenUsage: { contextTokensUsed: 180_000 },
-            },
-          ],
-        },
-        codexLeaderRecyclePending: null,
+    updateCurrentSdkSession({ isOrchestrator: true });
+    vi.mocked(api.getSessionInfo).mockResolvedValue({
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/repo",
+      createdAt: 1,
+      backendType: "codex",
+      isOrchestrator: true,
+      codexLeaderRecycleLineage: {
+        cliSessionIds: ["thread-a", "thread-b"],
+        recycleEvents: [
+          {
+            trigger: "manual_compact",
+            requestedAt: 1_746_000_000_000,
+            tokenUsage: { contextTokensUsed: 180_000 },
+          },
+        ],
       },
-    ] as Awaited<ReturnType<typeof api.listSessions>>);
+      codexLeaderRecyclePending: null,
+    });
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
+    expect(api.getSessionInfo).toHaveBeenCalledWith("s1");
     const section = await screen.findByTestId("session-lifecycle-debug");
     fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
 
@@ -1167,43 +1221,44 @@ describe("SessionInfoPopover", () => {
     expect(within(section).getByText("thread-b")).toBeInTheDocument();
     expect(within(section).getByText("Manual /compact recycle")).toBeInTheDocument();
     expect(within(section).getByText(/180K context/)).toBeInTheDocument();
+    expect(api.listSessions).not.toHaveBeenCalled();
   });
 
   it("renders legacy Codex compactions as cause-unknown without inventing active context", () => {
     resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.lifecycle_events = [
-      {
-        type: "compaction",
-        id: "compact-boundary-1",
-        timestamp: 1_746_000_000_000,
-        backendType: "claude",
-        trigger: "auto",
-        before: {
-          contextTokensUsed: 180_000,
-          contextUsedPercent: 90,
-          source: "compact_boundary",
-          capturedAt: 1_746_000_000_000,
+    updateCurrentSdkSession({
+      sessionLifecycleEvents: [
+        {
+          type: "compaction",
+          id: "compact-boundary-1",
+          timestamp: 1_746_000_000_000,
+          backendType: "claude",
+          trigger: "auto",
+          before: {
+            contextTokensUsed: 180_000,
+            contextUsedPercent: 90,
+            source: "compact_boundary",
+            capturedAt: 1_746_000_000_000,
+          },
         },
-      },
-      {
-        type: "compaction",
-        id: "compact-boundary-2",
-        timestamp: 1_746_000_100_000,
-        backendType: "codex",
-        before: {
-          contextTokensUsed: 270_000,
-          source: "codex_token_details",
-          capturedAt: 1_746_000_100_000,
+        {
+          type: "compaction",
+          id: "compact-boundary-2",
+          timestamp: 1_746_000_100_000,
+          backendType: "codex",
+          before: {
+            contextTokensUsed: 270_000,
+            source: "codex_token_details",
+            capturedAt: 1_746_000_100_000,
+          },
+          after: {
+            contextTokensUsed: 95_000,
+            source: "codex_token_details",
+            capturedAt: 1_746_000_110_000,
+          },
         },
-        after: {
-          contextTokensUsed: 95_000,
-          source: "codex_token_details",
-          capturedAt: 1_746_000_110_000,
-        },
-      },
-    ];
+      ],
+    });
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -1225,38 +1280,38 @@ describe("SessionInfoPopover", () => {
 
   it("does not repeat a legacy configured-limit lower bound as measured charge", () => {
     resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.lifecycle_events = [
-      {
-        type: "compaction",
-        id: "compact-pressure-legacy",
-        timestamp: 1_777_500_000_000,
-        backendType: "codex",
-        trigger: "auto",
-        cause: "context_pressure",
-        before: {
-          contextTokensUsed: 693_000,
-          providerReportedInputTokens: 423_969,
-          providerReportedTotalTokens: 430_000,
-          contextUsedPercent: 90,
-          modelContextWindow: 770_000,
-          autoCompactTokenLimit: 693_000,
-          autoCompactTokenLimitScope: "total",
-          source: "codex_auto_compact_limit",
-          capturedAt: 1_777_500_000_000,
+    updateCurrentSdkSession({
+      sessionLifecycleEvents: [
+        {
+          type: "compaction",
+          id: "compact-pressure-legacy",
+          timestamp: 1_777_500_000_000,
+          backendType: "codex",
+          trigger: "auto",
+          cause: "context_pressure",
+          before: {
+            contextTokensUsed: 693_000,
+            providerReportedInputTokens: 423_969,
+            providerReportedTotalTokens: 430_000,
+            contextUsedPercent: 90,
+            modelContextWindow: 770_000,
+            autoCompactTokenLimit: 693_000,
+            autoCompactTokenLimitScope: "total",
+            source: "codex_auto_compact_limit",
+            capturedAt: 1_777_500_000_000,
+          },
+          after: {
+            contextTokensUsed: 55_000,
+            providerReportedInputTokens: 54_440,
+            providerReportedTotalTokens: 55_000,
+            contextUsedPercent: 7,
+            modelContextWindow: 770_000,
+            source: "codex_token_details",
+            capturedAt: 1_777_500_010_000,
+          },
         },
-        after: {
-          contextTokensUsed: 55_000,
-          providerReportedInputTokens: 54_440,
-          providerReportedTotalTokens: 55_000,
-          contextUsedPercent: 7,
-          modelContextWindow: 770_000,
-          source: "codex_token_details",
-          capturedAt: 1_777_500_010_000,
-        },
-      },
-    ];
+      ],
+    });
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -1275,30 +1330,30 @@ describe("SessionInfoPopover", () => {
 
   it("shows a producer-proven pressure cause without inventing its active token count", () => {
     resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.lifecycle_events = [
-      {
-        type: "compaction",
-        id: "compact-pressure-proven",
-        timestamp: 1_777_500_000_000,
-        backendType: "codex",
-        trigger: "auto",
-        cause: "context_pressure",
-        causeSource: "producer",
-        before: {
-          contextTokensUsed: 430_000,
-          providerReportedInputTokens: 423_969,
-          providerReportedTotalTokens: 430_000,
-          contextUsedPercent: 56,
-          modelContextWindow: 770_000,
-          autoCompactTokenLimit: 693_000,
-          autoCompactTokenLimitScope: "total",
-          source: "codex_token_details",
-          capturedAt: 1_777_500_000_000,
+    updateCurrentSdkSession({
+      sessionLifecycleEvents: [
+        {
+          type: "compaction",
+          id: "compact-pressure-proven",
+          timestamp: 1_777_500_000_000,
+          backendType: "codex",
+          trigger: "auto",
+          cause: "context_pressure",
+          causeSource: "producer",
+          before: {
+            contextTokensUsed: 430_000,
+            providerReportedInputTokens: 423_969,
+            providerReportedTotalTokens: 430_000,
+            contextUsedPercent: 56,
+            modelContextWindow: 770_000,
+            autoCompactTokenLimit: 693_000,
+            autoCompactTokenLimitScope: "total",
+            source: "codex_token_details",
+            capturedAt: 1_777_500_000_000,
+          },
         },
-      },
-    ];
+      ],
+    });
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -1320,29 +1375,29 @@ describe("SessionInfoPopover", () => {
     ],
   ] as const)("keeps %s classification separate from active-context accounting", (cause, causeSource, title) => {
     resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.lifecycle_events = [
-      {
-        type: "compaction",
-        id: `compact-${cause}`,
-        timestamp: 1_777_500_000_000,
-        backendType: "codex",
-        trigger: cause === "manual" ? "manual" : "auto",
-        cause,
-        causeSource,
-        before: {
-          contextTokensUsed: 15_000,
-          providerReportedInputTokens: 14_000,
-          providerReportedTotalTokens: 15_000,
-          contextUsedPercent: 2,
-          modelContextWindow: 650_000,
-          autoCompactTokenLimit: 585_000,
-          source: "codex_token_details",
-          capturedAt: 1_777_500_000_000,
+    updateCurrentSdkSession({
+      sessionLifecycleEvents: [
+        {
+          type: "compaction",
+          id: `compact-${cause}`,
+          timestamp: 1_777_500_000_000,
+          backendType: "codex",
+          trigger: cause === "manual" ? "manual" : "auto",
+          cause,
+          causeSource,
+          before: {
+            contextTokensUsed: 15_000,
+            providerReportedInputTokens: 14_000,
+            providerReportedTotalTokens: 15_000,
+            contextUsedPercent: 2,
+            modelContextWindow: 650_000,
+            autoCompactTokenLimit: 585_000,
+            source: "codex_token_details",
+            capturedAt: 1_777_500_000_000,
+          },
         },
-      },
-    ];
+      ],
+    });
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
@@ -1358,13 +1413,12 @@ describe("SessionInfoPopover", () => {
 
   it("shows turns, context, and context window for Claude SDK sessions (no cost)", () => {
     resetStore([]);
-    const session = storeState.sessions.get("s1");
-    if (!session) throw new Error("missing session fixture");
-    session.backend_type = "claude-sdk";
-    session.num_turns = 7;
-    session.total_cost_usd = 1.25;
-    session.context_used_percent = 41;
-    session.claude_token_details = { modelContextWindow: 200_000 };
+    updateCurrentSdkSession({
+      backendType: "claude-sdk",
+      numTurns: 7,
+      contextUsedPercent: 41,
+      modelContextWindow: 200_000,
+    });
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 

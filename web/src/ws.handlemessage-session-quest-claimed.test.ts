@@ -4,11 +4,6 @@ import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMess
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
 
-// Mock the names utility before any imports
-vi.mock("./utils/names.js", () => ({
-  generateUniqueSessionName: vi.fn(() => "Test Session"),
-}));
-
 const getDiffStatsMock = vi.fn().mockResolvedValue({ stats: {} });
 const listSessionsMock = vi.fn().mockResolvedValue([]);
 const playNotificationSoundMock = vi.hoisted(() => vi.fn());
@@ -122,6 +117,19 @@ function fireMessage(data: Record<string, unknown>) {
   lastWs.onmessage!({ data: JSON.stringify(data) });
 }
 
+function seedSdkSession(name: string, isOrchestrator = false) {
+  useStore.getState().setSdkSessions([
+    {
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/home/user",
+      createdAt: 1,
+      name,
+      isOrchestrator,
+    },
+  ]);
+}
+
 // ===========================================================================
 // Connection
 // ===========================================================================
@@ -129,7 +137,7 @@ describe("handleMessage: session_quest_claimed", () => {
   it("keeps worker quest-title behavior unchanged", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
-    useStore.getState().setSessionName("s1", "Worker Session");
+    seedSdkSession("Worker Session");
 
     fireMessage({
       type: "session_quest_claimed",
@@ -137,14 +145,17 @@ describe("handleMessage: session_quest_claimed", () => {
     });
 
     const state = useStore.getState();
-    expect(state.sessionNames.get("s1")).toBe("Prevent leader auto-renames");
-    expect(state.questNamedSessions.has("s1")).toBe(true);
+    expect(state.sdkSessions[0]).toMatchObject({
+      name: "Prevent leader auto-renames",
+      claimedQuestId: "q-348",
+      claimedQuestStatus: "in_progress",
+    });
   });
 
   it("keeps review-pending done quest titles quest-named for checked-box rendering", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
-    useStore.getState().setSessionName("s1", "Worker Session");
+    seedSdkSession("Worker Session");
 
     fireMessage({
       type: "session_quest_claimed",
@@ -152,8 +163,12 @@ describe("handleMessage: session_quest_claimed", () => {
     });
 
     const state = useStore.getState();
-    expect(state.sessionNames.get("s1")).toBe("Prevent leader auto-renames");
-    expect(state.questNamedSessions.has("s1")).toBe(true);
+    expect(state.sdkSessions[0]).toMatchObject({
+      name: "Prevent leader auto-renames",
+      claimedQuestId: "q-348",
+      claimedQuestStatus: "done",
+      claimedQuestVerificationInboxUnread: true,
+    });
     expect(state.sessions.get("s1")?.claimedQuestStatus).toBe("done");
     expect(state.sessions.get("s1")?.claimedQuestVerificationInboxUnread).toBe(true);
   });
@@ -161,7 +176,7 @@ describe("handleMessage: session_quest_claimed", () => {
   it("does not rename or mark orchestrator sessions as quest-named", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), isOrchestrator: true } });
-    useStore.getState().setSessionName("s1", "Leader 7");
+    seedSdkSession("Leader 7", true);
 
     fireMessage({
       type: "session_quest_claimed",
@@ -169,8 +184,11 @@ describe("handleMessage: session_quest_claimed", () => {
     });
 
     const state = useStore.getState();
-    expect(state.sessionNames.get("s1")).toBe("Leader 7");
-    expect(state.questNamedSessions.has("s1")).toBe(false);
+    expect(state.sdkSessions[0]).toMatchObject({
+      name: "Leader 7",
+      claimedQuestId: "q-348",
+      claimedQuestStatus: "in_progress",
+    });
   });
 });
 

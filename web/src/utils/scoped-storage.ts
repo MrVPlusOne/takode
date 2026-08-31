@@ -34,7 +34,6 @@ const GLOBAL_KEYS = new Set([
 const SCOPED_KEYS = [
   "cc-show-usage",
   "cc-current-session",
-  "cc-session-names",
   "cc-backend",
   "cc-mode",
   "cc-codex-internet-access",

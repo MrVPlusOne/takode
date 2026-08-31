@@ -51,6 +51,22 @@ function attentionEnvelope(options: {
   } as const;
 }
 
+function navigationPatchEnvelope(options: {
+  key?: string;
+  generation?: string;
+  revision: number;
+  patch: Record<string, unknown>;
+}) {
+  return {
+    type: "synced_projection_update",
+    projection: SESSION_NAVIGATION_PROJECTION,
+    key: options.key ?? "s1",
+    generation: options.generation ?? "navigation-generation-a",
+    revision: options.revision,
+    patch: options.patch,
+  } as const;
+}
+
 beforeEach(() => {
   localStorage.clear();
   useStore.getState().reset();
@@ -109,7 +125,38 @@ describe("synced projection store", () => {
     unsubscribe();
   });
 
-  it("validates navigation snapshots and preserves equal nested slice identities", () => {
+  it("materializes accepted navigation values into one SDK row without replacing unrelated rows", () => {
+    const first = { sessionId: "s1", state: "connected", cwd: "/legacy", createdAt: 1, name: "Legacy" } as const;
+    const second = { sessionId: "s2", state: "connected", cwd: "/other", createdAt: 2, name: "Other" } as const;
+    useStore.setState({ sdkSessions: [first, second] as never });
+
+    useStore.getState().applySyncedProjectionSnapshot(
+      createSessionNavigationProjectionEnvelope({
+        key: "s1",
+        revision: 1,
+        overrides: { identity: { name: "Projected" }, lifecycle: { status: "idle" } },
+      }),
+      { source: "live" },
+    );
+    const afterSnapshot = useStore.getState().sdkSessions;
+    expect(afterSnapshot[0]).toMatchObject({ name: "Projected", status: "idle", pendingPermissionCount: 0 });
+    expect(afterSnapshot[1]).toBe(second);
+
+    const unchanged = afterSnapshot[1];
+    const patch = navigationPatchEnvelope({ revision: 2, patch: { status: "running" } });
+    useStore.getState().applySyncedProjectionUpdate(patch);
+    const afterPatch = useStore.getState().sdkSessions;
+    expect(afterPatch[0]).not.toBe(afterSnapshot[0]);
+    expect(afterPatch[0]?.status).toBe("running");
+    expect(afterPatch[1]).toBe(unchanged);
+
+    const beforeDuplicate = useStore.getState();
+    useStore.getState().applySyncedProjectionUpdate(patch);
+    expect(useStore.getState()).toBe(beforeDuplicate);
+    expect(useStore.getState().sdkSessions).toBe(afterPatch);
+  });
+
+  it("validates navigation snapshots and preserves unchanged fields across full updates", () => {
     const initial = createSessionNavigationProjectionEnvelope({ key: "s1", revision: 1 });
     expect(useStore.getState().applySyncedProjectionSnapshot(initial)).toEqual({
       applied: true,
@@ -133,13 +180,86 @@ describe("synced projection store", () => {
 
     const after = getSyncedProjectionValue(useStore.getState(), SESSION_NAVIGATION_PROJECTION, "s1")!;
     expect(after).not.toBe(before);
-    expect(after.lifecycle).not.toBe(before.lifecycle);
-    expect(after.lifecycle).toMatchObject({ pendingPermissionCount: 2, status: "running" });
-    expect(after.identity).toBe(before.identity);
-    expect(after.topology).toBe(before.topology);
-    expect(after.quest).toBe(before.quest);
-    expect(after.git).toBe(before.git);
-    expect(after.detail).toBe(before.detail);
+    expect(after).toMatchObject({ pendingPermissionCount: 2, status: "running" });
+    expect(after.name).toBe(before.name);
+    expect(after.lastMessagePreview).toBe(before.lastMessagePreview);
+  });
+
+  it("applies contiguous navigation field patches and suppresses exact duplicate delivery", () => {
+    useStore.getState().applySyncedProjectionSnapshot(createSessionNavigationProjectionEnvelope({ revision: 1 }), {
+      source: "live",
+    });
+    const before = getSyncedProjectionValue(useStore.getState(), SESSION_NAVIGATION_PROJECTION, "s1")!;
+    const patch = navigationPatchEnvelope({
+      revision: 2,
+      patch: { status: "running", pendingPermissionCount: 2 },
+    });
+
+    expect(useStore.getState().applySyncedProjectionUpdate(patch)).toEqual({
+      applied: true,
+      accepted: true,
+      requestResync: false,
+    });
+    const after = getSyncedProjectionValue(useStore.getState(), SESSION_NAVIGATION_PROJECTION, "s1")!;
+    expect(after).not.toBe(before);
+    expect(after).toMatchObject({ status: "running", pendingPermissionCount: 2 });
+    expect(after.lastMessagePreview).toBe(before.lastMessagePreview);
+
+    const beforeDuplicate = useStore.getState();
+    expect(useStore.getState().applySyncedProjectionUpdate(patch)).toEqual({
+      applied: false,
+      accepted: true,
+      requestResync: false,
+    });
+    expect(useStore.getState()).toBe(beforeDuplicate);
+    expect(getSyncedProjectionValue(useStore.getState(), SESSION_NAVIGATION_PROJECTION, "s1")).toBe(after);
+  });
+
+  it("rejects unknown navigation patch fields and retains the accepted value while requesting resync", () => {
+    useStore.setState({
+      sdkSessions: [{ sessionId: "s1", state: "connected", cwd: "/repo", createdAt: 1 }] as never,
+    });
+    useStore.getState().applySyncedProjectionSnapshot(createSessionNavigationProjectionEnvelope({ revision: 1 }), {
+      source: "live",
+    });
+    const before = getSyncedProjectionValue(useStore.getState(), SESSION_NAVIGATION_PROJECTION, "s1")!;
+    const beforeRow = useStore.getState().sdkSessions[0];
+    const beforeVersion = useStore
+      .getState()
+      .syncedProjectionVersions.get(syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, "s1"));
+
+    expect(
+      useStore
+        .getState()
+        .applySyncedProjectionUpdate(navigationPatchEnvelope({ revision: 2, patch: { legacyStatus: "running" } })),
+    ).toEqual({ applied: false, accepted: false, requestResync: true });
+    expect(getSyncedProjectionValue(useStore.getState(), SESSION_NAVIGATION_PROJECTION, "s1")).toBe(before);
+    expect(useStore.getState().sdkSessions[0]).toBe(beforeRow);
+    expect(
+      useStore.getState().syncedProjectionVersions.get(syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, "s1")),
+    ).toEqual(beforeVersion);
+  });
+
+  it("rejects a forward-gap navigation field patch and retains the accepted revision for resync", () => {
+    useStore.setState({
+      sdkSessions: [{ sessionId: "s1", state: "connected", cwd: "/repo", createdAt: 1 }] as never,
+    });
+    useStore.getState().applySyncedProjectionSnapshot(createSessionNavigationProjectionEnvelope({ revision: 1 }), {
+      source: "live",
+    });
+    const before = getSyncedProjectionValue(useStore.getState(), SESSION_NAVIGATION_PROJECTION, "s1")!;
+    const beforeRow = useStore.getState().sdkSessions[0];
+
+    expect(
+      useStore
+        .getState()
+        .applySyncedProjectionUpdate(navigationPatchEnvelope({ revision: 3, patch: { status: "running" } })),
+    ).toEqual({ applied: false, accepted: false, requestResync: true });
+    expect(getSyncedProjectionValue(useStore.getState(), SESSION_NAVIGATION_PROJECTION, "s1")).toBe(before);
+    expect(useStore.getState().sdkSessions[0]).toBe(beforeRow);
+    expect(
+      useStore.getState().syncedProjectionVersions.get(syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, "s1")),
+    ).toEqual({ generation: "navigation-generation-a", revision: 1 });
   });
 
   it("keeps duplicate and stale same-generation snapshots identity-preserving", () => {

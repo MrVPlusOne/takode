@@ -89,26 +89,21 @@ export function Sidebar() {
   const [editingServerName, setEditingServerName] = useState(false);
   const [serverNameDraft, setServerNameDraft] = useState("");
   const serverNameInputRef = useRef<HTMLInputElement>(null);
-  const sessions = useStore((s) => s.sessions);
   const sdkSessions = useStore((s) => s.sdkSessions);
   const currentSessionId = useStore((s) => s.currentSessionId);
+  const contextMenuBridge = useStore((s) => (contextMenu ? s.sessions.get(contextMenu.sessionId) : undefined));
+  const contextMenuLeaderBridge = useStore((s) =>
+    contextMenu && currentSessionId ? s.sessions.get(currentSessionId) : undefined,
+  );
   const setCurrentSession = useStore((s) => s.setCurrentSession);
-  const cliConnected = useStore((s) => s.cliConnected);
-  const cliDisconnectReason = useStore((s) => s.cliDisconnectReason);
-  const sessionStatus = useStore((s) => s.sessionStatus);
   const removeSession = useStore((s) => s.removeSession);
-  const sessionNames = useStore((s) => s.sessionNames);
   const recentlyRenamed = useStore((s) => s.recentlyRenamed);
   const clearRecentlyRenamed = useStore((s) => s.clearRecentlyRenamed);
-  const sessionPreviews = useStore((s) => s.sessionPreviews);
   const sessionTaskHistory = useStore((s) => s.sessionTaskHistory);
-  const pendingPermissions = useStore((s) => s.pendingPermissions);
   const sessionAttention = useStore((s) => s.sessionAttention);
-  const syncedProjectionValues = useStore((s) => s.syncedProjectionValues);
   const syncedProjectionKeys = useStore((s) => s.syncedProjectionKeys);
   const sessionAttentionRecords = useStore((s) => s.sessionAttentionRecords);
   const sessionNotifications = useStore((s) => s.sessionNotifications);
-  const askPermissionMap = useStore((s) => s.askPermission);
   const reorderMode = useStore((s) => s.reorderMode);
   const setReorderMode = useStore((s) => s.setReorderMode);
   const sessionSortMode = useStore((s) => s.sessionSortMode);
@@ -122,7 +117,6 @@ export function Sidebar() {
   const expandedHerdNodes = useStore((s) => s.expandedHerdNodes);
   const treeNodeOrder = useStore((s) => s.treeNodeOrder);
   const pendingSessions = useStore((s) => s.pendingSessions);
-  const diffFileStats = useStore((s) => s.diffFileStats);
   const serverName = useStore((s) => s.serverName);
   const setServerName = useStore((s) => s.setServerName);
   const setSearchPreviewSessionId = useStore((s) => s.setSearchPreviewSessionId);
@@ -256,16 +250,6 @@ export function Sidebar() {
             const store = useStore.getState();
             const sessionId = scopedGetItem("cc-current-session");
             store.setCurrentSession(sessionId);
-            const namesRaw = scopedGetItem("cc-session-names");
-            if (namesRaw) {
-              try {
-                for (const [id, name] of JSON.parse(namesRaw)) {
-                  store.setSessionName(id, name);
-                }
-              } catch {
-                /* ignore parse errors */
-              }
-            }
           }
           setGroupVisibleLimits(readSidebarGroupVisibleLimits());
         }
@@ -703,53 +687,30 @@ export function Sidebar() {
     orderedVisibleSessionIds,
     treeViewGroups,
     sessionSetAttention,
-    resolvedSessionNames,
-    resolvedSessionPreviews,
   } = useMemo(
     () =>
       buildSidebarVisibleSessions({
-        sessions,
         sdkSessions,
-        cliConnected,
-        cliDisconnectReason,
-        sessionStatus,
-        pendingPermissions,
-        askPermission: askPermissionMap ?? new Map(),
-        diffFileStats,
         treeGroups,
         treeAssignments,
         treeNodeOrder,
         collapsedTreeGroups,
         expandedHerdNodes,
         sessionAttention,
-        syncedProjectionValues,
         syncedProjectionKeys,
         sessionNotifications,
         sessionAttentionRecords,
-        sessionNames,
-        sessionPreviews,
         sessionSortMode,
-        countUserPermissions,
       }),
     [
-      sessions,
       sdkSessions,
-      cliConnected,
-      cliDisconnectReason,
-      sessionStatus,
-      pendingPermissions,
-      askPermissionMap,
-      diffFileStats,
       treeGroups,
       treeAssignments,
       treeNodeOrder,
       sessionAttention,
-      syncedProjectionValues,
       syncedProjectionKeys,
       sessionNotifications,
       sessionAttentionRecords,
-      sessionNames,
-      sessionPreviews,
       collapsedTreeGroups,
       expandedHerdNodes,
       sessionSortMode,
@@ -1315,8 +1276,8 @@ export function Sidebar() {
                   isActive={currentSessionId === s.id}
                   isSearchSelected={filteredSessions[activeSearchResultIndex]?.session.id === s.id}
                   isArchived={s.archived}
-                  sessionName={sessionName ?? resolvedSessionNames.get(s.id)}
-                  sessionPreview={sessionPreview ?? resolvedSessionPreviews.get(s.id)}
+                  sessionName={sessionName ?? s.name ?? undefined}
+                  sessionPreview={sessionPreview ?? (s.lastMessagePreview || undefined)}
                   permCount={s.permCount}
                   attention={sessionSetAttention.get(s.id) ?? null}
                   hasUnread={!!sessionSetAttention.get(s.id)}
@@ -1377,8 +1338,6 @@ export function Sidebar() {
                           onToggleNodeCollapse={toggleTreeNodeCollapse}
                           onCreateSession={handleCreateSessionInTreeGroup}
                           currentSessionId={currentSessionId}
-                          sessionNames={resolvedSessionNames}
-                          sessionPreviews={resolvedSessionPreviews}
                           recentlyRenamed={recentlyRenamed}
                           isFirst={i === 0}
                           groupDragging={isDragging}
@@ -1451,7 +1410,7 @@ export function Sidebar() {
                         key={s.id}
                         session={s}
                         isActive={currentSessionId === s.id}
-                        sessionName={resolvedSessionNames.get(s.id)}
+                        sessionName={s.name ?? undefined}
                         permCount={s.permCount}
                         attention={sessionSetAttention.get(s.id) ?? null}
                         hasUnread={!!sessionSetAttention.get(s.id)}
@@ -1480,8 +1439,6 @@ export function Sidebar() {
               autoLoadUnsupported={archivedAutoLoadUnsupported}
               loadMoreSentinelRef={archivedLoadMoreSentinelRef}
               currentSessionId={currentSessionId}
-              sessionNames={resolvedSessionNames}
-              sessionPreviews={resolvedSessionPreviews}
               recentlyRenamed={recentlyRenamed}
               herdGroupBadgeThemes={herdGroupBadgeThemes}
               herdHoverHighlights={herdHoverHighlights}
@@ -1667,7 +1624,7 @@ export function Sidebar() {
       {contextMenu &&
         (() => {
           const sdk = sdkSessions.find((s) => s.sessionId === contextMenu.sessionId);
-          const bridge = sessions.get(contextMenu.sessionId);
+          const bridge = contextMenuBridge;
           const sessionInfo = allSessionList.find((s) => s.id === contextMenu.sessionId);
           if (!sdk && !bridge) return null;
           const cliId = sdk?.cliSessionId || "";
@@ -1677,7 +1634,7 @@ export function Sidebar() {
           const attention = sessionAttention.get(contextMenu.sessionId);
           const backendType = bridge?.backend_type ?? sdk?.backendType ?? "claude";
           const currentLeaderSdk = sdkSessions.find((s) => s.sessionId === currentSessionId);
-          const currentLeaderBridge = currentSessionId ? sessions.get(currentSessionId) : undefined;
+          const currentLeaderBridge = contextMenuLeaderBridge;
           const isCurrentLeader =
             currentLeaderBridge?.isOrchestrator === true || currentLeaderSdk?.isOrchestrator === true;
           const isTargetLeader = bridge?.isOrchestrator === true || sdk?.isOrchestrator === true;
@@ -1728,7 +1685,7 @@ export function Sidebar() {
             {
               label: "Rename",
               onClick: () => {
-                const name = resolvedSessionNames.get(contextMenu.sessionId) || "";
+                const name = allSessionList.find((session) => session.id === contextMenu.sessionId)?.name || "";
                 handleStartRename(contextMenu.sessionId, name);
               },
             },
@@ -1887,10 +1844,9 @@ export function Sidebar() {
           return (
             <SessionHoverCard
               session={s}
-              sessionName={resolvedSessionNames.get(hoveredSession.sessionId)}
-              sessionPreview={resolvedSessionPreviews.get(hoveredSession.sessionId)}
+              sessionName={s.name ?? undefined}
+              sessionPreview={s.lastMessagePreview || undefined}
               taskHistory={sessionTaskHistory.get(hoveredSession.sessionId)}
-              sessionState={sessions.get(hoveredSession.sessionId)}
               cliSessionId={sdkSessions.find((sdk) => sdk.sessionId === hoveredSession.sessionId)?.cliSessionId}
               anchorRect={hoveredSession.rect}
               onMouseEnter={handleHoverCardEnter}

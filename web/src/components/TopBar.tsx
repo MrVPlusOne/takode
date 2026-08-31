@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { useStore, countUserPermissions } from "../store.js";
+import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { parseHash, threadRouteFromHash } from "../utils/routing.js";
@@ -74,42 +74,33 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
     };
   }
 
-  const resolved = resolveSessionNavigation({ ...state, countUserPermissions }, currentSessionId);
+  const resolved = resolveSessionNavigation(state, currentSessionId);
   const currentSessionVm = resolved?.viewModel ?? null;
-  const currentSdkSession = state.sdkSessions.find((sdk) => sdk.sessionId === currentSessionId) ?? null;
   const currentItem = resolved?.sidebarItem;
-  const projectionOwned = resolved?.projectionState !== undefined && resolved.projectionState !== "legacy";
   const questStatus = currentSessionVm?.claimedQuestStatus;
   const questReviewInboxUnread = currentSessionVm?.claimedQuestVerificationInboxUnread;
-  const sessionName = resolved?.name || `Session ${currentSessionId.slice(0, 8)}`;
+  const sessionName = resolved?.sidebarItem.name || `Session ${currentSessionId.slice(0, 8)}`;
 
   return {
     currentSessionId,
-    isConnected: currentItem?.isConnected ?? state.cliConnected.get(currentSessionId) ?? false,
-    status: currentItem ? currentItem.status : (state.sessionStatus.get(currentSessionId) ?? null),
-    currentPermCount: currentItem?.permCount ?? countUserPermissions(state.pendingPermissions.get(currentSessionId)),
-    currentSdkState: currentItem?.sdkState ?? currentSessionVm?.state ?? null,
-    isArchived: currentItem?.archived ?? currentSdkSession?.archived === true,
+    isConnected: currentItem?.isConnected ?? false,
+    status: currentItem?.status ?? null,
+    currentPermCount: currentItem?.permCount ?? 0,
+    currentSdkState: currentItem?.sdkState ?? null,
+    isArchived: currentItem?.archived ?? false,
     currentHasUnread: !!state.sessionAttention.get(currentSessionId),
     sessionName,
     sessionNum: currentSessionVm?.sessionNum ?? null,
     isQuestNamed:
-      currentSessionVm?.isOrchestrator !== true &&
-      (projectionOwned
-        ? questOwnsSessionName(questStatus, questReviewInboxUnread)
-        : state.questNamedSessions.has(currentSessionId) || questOwnsSessionName(questStatus, questReviewInboxUnread)),
+      currentSessionVm?.isOrchestrator !== true && questOwnsSessionName(questStatus, questReviewInboxUnread),
     questStatus,
     questReviewInboxUnread,
-    idleKilled: currentItem?.idleKilled ?? state.cliDisconnectReason.get(currentSessionId) === "idle_limit",
-    activeTimerCount: currentItem?.navigationProjectionOwned
-      ? (currentItem.pendingTimerCount ?? 0)
-      : state.sessionTimers?.has(currentSessionId)
-        ? (state.sessionTimers.get(currentSessionId)?.length ?? 0)
-        : (currentItem?.pendingTimerCount ?? 0),
+    idleKilled: currentItem?.idleKilled ?? false,
+    activeTimerCount: currentItem?.pendingTimerCount ?? 0,
     changedFilesCount: countScopedChangedFiles(state, currentSessionId, currentSessionVm),
-    leaderProfilePortrait: currentItem?.isOrchestrator ? currentSdkSession?.leaderProfilePortrait : undefined,
+    leaderProfilePortrait: currentItem?.isOrchestrator ? currentItem.leaderProfilePortrait : undefined,
     pause: currentSessionVm?.pause ?? null,
-    paused: resolved?.paused ?? !!currentSessionVm?.pause?.pausedAt,
+    paused: currentItem?.paused ?? !!currentSessionVm?.pause?.pausedAt,
   };
 }
 
@@ -166,8 +157,7 @@ export function TopBar({
       refreshQuestSummary: s.refreshQuestSummary,
       isCurrentLeaderSession:
         !!s.currentSessionId &&
-        (s.sessions.get(s.currentSessionId)?.isOrchestrator === true ||
-          s.sdkSessions.some((session) => session.sessionId === s.currentSessionId && session.isOrchestrator === true)),
+        s.sdkSessions.some((session) => session.sessionId === s.currentSessionId && session.isOrchestrator === true),
       currentLeaderBoard: s.currentSessionId
         ? (s.sessionBoards.get(s.currentSessionId) ?? EMPTY_LEADER_BOARD_ROWS)
         : EMPTY_LEADER_BOARD_ROWS,
@@ -200,7 +190,7 @@ export function TopBar({
       const target = resolveDiffTarget(s, s.currentSessionId, threadRoute.threadKey);
       const targetSessionId = target?.kind === "session" ? target.sessionId : null;
       const targetSessionVm = targetSessionId
-        ? (resolveSessionNavigation({ ...s, countUserPermissions }, targetSessionId)?.viewModel ?? null)
+        ? (resolveSessionNavigation(s, targetSessionId)?.viewModel ?? null)
         : null;
       return {
         diffTargetKind: target?.kind ?? null,

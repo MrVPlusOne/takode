@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { SESSION_NAVIGATION_PROJECTION } from "../../shared/session-navigation-projection.js";
+import {
+  SESSION_NAVIGATION_PROJECTION,
+  sessionNavigationProjectionToSessionFields,
+  type SessionNavigationProjectionValue,
+} from "../../shared/session-navigation-projection.js";
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import { createSessionNavigationProjectionValue } from "../test-fixtures/session-navigation-projection.js";
 
@@ -88,6 +92,9 @@ interface MockStoreState {
     herdedBy?: string;
     permissionMode?: string;
     name?: string;
+    claimedQuestId?: string | null;
+    claimedQuestTitle?: string | null;
+    claimedQuestStatus?: string | null;
   }[];
   taskPanelOpen: boolean;
   setTaskPanelOpen: ReturnType<typeof vi.fn>;
@@ -118,6 +125,16 @@ interface MockStoreState {
 }
 
 let mockState: MockStoreState;
+
+function materializeNavigation(sessionId: string, value: SessionNavigationProjectionValue) {
+  const index = mockState.sdkSessions.findIndex((session) => session.sessionId === sessionId);
+  if (index >= 0) {
+    mockState.sdkSessions[index] = {
+      ...mockState.sdkSessions[index]!,
+      ...sessionNavigationProjectionToSessionFields(value),
+    };
+  }
+}
 
 function resetStore(overrides: Partial<MockStoreState> = {}) {
   mockState = {
@@ -244,14 +261,13 @@ describe("TaskPanel", () => {
     });
     const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, "s1");
     mockState.syncedProjectionKeys.add(entryId);
-    mockState.syncedProjectionValues.set(
-      entryId,
-      createSessionNavigationProjectionValue({
-        identity: { backendType: "codex", cwd: "/projected/cwd" },
-        topology: { repoRoot: "/projected/root", isOrchestrator: true },
-        git: { branch: "projected-branch" },
-      }),
-    );
+    const navigation = createSessionNavigationProjectionValue({
+      identity: { backendType: "codex", cwd: "/projected/cwd" },
+      topology: { repoRoot: "/projected/root", isOrchestrator: true },
+      git: { branch: "projected-branch" },
+    });
+    mockState.syncedProjectionValues.set(entryId, navigation);
+    materializeNavigation("s1", navigation);
 
     render(<TaskPanel sessionId="s1" />);
 
@@ -339,19 +355,18 @@ describe("TaskPanel", () => {
     });
     const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, "worker-1");
     mockState.syncedProjectionKeys.add(entryId);
-    mockState.syncedProjectionValues.set(
-      entryId,
-      createSessionNavigationProjectionValue({
-        identity: {
-          name: "Projected worker",
-          sessionNum: 9,
-          backendType: "codex",
-          permissionMode: "codex-auto-review",
-        },
-        topology: { herdedBy: "s1" },
-        lifecycle: { sdkState: "running", status: "running", cliConnected: true },
-      }),
-    );
+    const navigation = createSessionNavigationProjectionValue({
+      identity: {
+        name: "Projected worker",
+        sessionNum: 9,
+        backendType: "codex",
+        permissionMode: "codex-auto-review",
+      },
+      topology: { herdedBy: "s1" },
+      lifecycle: { sdkState: "running", status: "running", cliConnected: true },
+    });
+    mockState.syncedProjectionValues.set(entryId, navigation);
+    materializeNavigation("worker-1", navigation);
 
     render(<TaskPanel sessionId="s1" />);
 
@@ -438,6 +453,17 @@ describe("TaskPanel", () => {
         ["worker-1", { backend_type: "codex" }],
       ]),
       sdkSessions: [
+        {
+          sessionId: "s1",
+          sessionNum: 1,
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 2,
+          backendType: "codex",
+          claimedQuestId: "q-42",
+          claimedQuestTitle: "Fallback claimed title",
+          claimedQuestStatus: "done",
+        },
         {
           sessionId: "worker-1",
           sessionNum: 7,

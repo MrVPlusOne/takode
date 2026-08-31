@@ -159,8 +159,6 @@ function renderGroup(props: Partial<ComponentProps<typeof TreeViewGroup>> = {}) 
     onToggleNodeCollapse: vi.fn(),
     onCreateSession: vi.fn(),
     currentSessionId: null,
-    sessionNames: new Map(),
-    sessionPreviews: new Map(),
     recentlyRenamed: new Set(),
     onSelect: vi.fn(),
     onStartRename: vi.fn(),

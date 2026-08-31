@@ -1,10 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { SESSION_NAVIGATION_PROJECTION } from "../../shared/session-navigation-projection.js";
-import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import { useStore } from "../store.js";
-import { createSessionNavigationProjectionValue } from "../test-fixtures/session-navigation-projection.js";
 import { QuestStatusPanel } from "./QuestStatusPanel.js";
 
 describe("QuestStatusPanel", () => {
@@ -41,6 +38,9 @@ describe("QuestStatusPanel", () => {
           state: "connected",
           cwd: "/repo",
           createdAt: 1,
+          claimedQuestId: "q-42",
+          claimedQuestTitle: "Threaded leader route",
+          claimedQuestStatus: "in_progress",
         } as any,
         {
           sessionId: "leader-1",
@@ -63,8 +63,7 @@ describe("QuestStatusPanel", () => {
     expect(ownerLink).toHaveClass("text-cc-attention");
   });
 
-  it("uses the projected claimed quest ahead of stale selected-session state", () => {
-    const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, "worker-projected");
+  it("uses the canonical row claim ahead of stale selected-session state", () => {
     useStore.setState({
       sessions: new Map([
         [
@@ -85,19 +84,17 @@ describe("QuestStatusPanel", () => {
           createdAt: 1,
         } as any,
       ],
-      syncedProjectionKeys: new Set([entryId]),
-      syncedProjectionValues: new Map([
-        [
-          entryId,
-          createSessionNavigationProjectionValue({
-            quest: {
-              claimedQuestId: "q-new",
-              claimedQuestTitle: "Projected claimed quest",
-              claimedQuestStatus: "refined",
-            },
-          }),
-        ],
-      ]),
+      sdkSessions: [
+        {
+          sessionId: "worker-projected",
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          claimedQuestId: "q-new",
+          claimedQuestTitle: "Projected claimed quest",
+          claimedQuestStatus: "refined",
+        } as any,
+      ],
     });
 
     render(<QuestStatusPanel sessionId="worker-projected" />);
@@ -109,8 +106,7 @@ describe("QuestStatusPanel", () => {
     expect(screen.queryByText("Stale claimed quest")).toBeNull();
   });
 
-  it("does not resurrect a stale bridge claim after the projection clears it", () => {
-    const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, "worker-cleared");
+  it("does not resurrect a stale bridge claim after the canonical row clears it", () => {
     useStore.setState({
       sessions: new Map([
         [
@@ -131,8 +127,17 @@ describe("QuestStatusPanel", () => {
           createdAt: 1,
         } as any,
       ],
-      syncedProjectionKeys: new Set([entryId]),
-      syncedProjectionValues: new Map([[entryId, createSessionNavigationProjectionValue()]]),
+      sdkSessions: [
+        {
+          sessionId: "worker-cleared",
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          claimedQuestId: null,
+          claimedQuestTitle: null,
+          claimedQuestStatus: null,
+        } as any,
+      ],
     });
 
     const { container } = render(<QuestStatusPanel sessionId="worker-cleared" />);
@@ -192,6 +197,17 @@ describe("QuestStatusPanel", () => {
           { claimedQuestId: "q-89", claimedQuestTitle: "Deleted review", claimedQuestStatus: "in_progress" } as any,
         ],
       ]),
+      sdkSessions: [
+        {
+          sessionId: "worker-deleted",
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          claimedQuestId: "q-89",
+          claimedQuestTitle: "Deleted review",
+          claimedQuestStatus: "in_progress",
+        } as any,
+      ],
       quests: [
         {
           questId: "q-89",
@@ -223,6 +239,17 @@ describe("QuestStatusPanel", () => {
           } as any,
         ],
       ]),
+      sdkSessions: [
+        {
+          sessionId: "worker-quiz",
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          claimedQuestId: "q-77",
+          claimedQuestTitle: "Add quiz metadata",
+          claimedQuestStatus: "done",
+        } as any,
+      ],
       quests: [
         {
           questId: "q-77",

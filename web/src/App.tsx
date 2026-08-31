@@ -184,14 +184,9 @@ function useQuestOverlayRouteSync(
 
 function buildSidebarOrderedShortcutSessions(state: ReturnType<typeof useStore.getState>) {
   const { orderedVisibleSessionIds } = buildSidebarVisibleSessions({
-    sessions: state.sessions,
     sdkSessions: state.sdkSessions,
-    cliConnected: state.cliConnected,
-    cliDisconnectReason: state.cliDisconnectReason,
-    sessionStatus: state.sessionStatus,
-    pendingPermissions: state.pendingPermissions,
-    askPermission: state.askPermission,
-    diffFileStats: state.diffFileStats,
+    syncedProjectionValues: state.syncedProjectionValues,
+    syncedProjectionKeys: state.syncedProjectionKeys,
     treeGroups: state.treeGroups,
     treeAssignments: state.treeAssignments,
     treeNodeOrder: state.treeNodeOrder,
@@ -199,7 +194,6 @@ function buildSidebarOrderedShortcutSessions(state: ReturnType<typeof useStore.g
     expandedHerdNodes: state.expandedHerdNodes,
     sessionAttention: state.sessionAttention,
     sessionSortMode: state.sessionSortMode,
-    countUserPermissions: () => 0,
   });
   const sdkById = new Map(state.sdkSessions.map((session) => [session.sessionId, session] as const));
   return orderedVisibleSessionIds

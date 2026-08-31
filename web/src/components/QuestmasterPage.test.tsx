@@ -98,8 +98,9 @@ type MockStoreState = {
     sessionNum?: number;
     backendType?: string;
     memorySessionSpaceSlug?: string;
+    name?: string;
   }>;
-  sessionNames: Map<string, string>;
+  sessionAttention: Map<string, "action" | "error" | "review" | null>;
   sessionBoards: Map<string, unknown[]>;
   sessionCompletedBoards: Map<string, unknown[]>;
   sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
@@ -160,6 +161,10 @@ function buildVerificationQuest(input: {
   } as QuestmasterTask;
 }
 
+function sessionRow(sessionId: string, sessionNum: number, name: string) {
+  return { sessionId, sessionNum, name, state: "idle", cwd: "/repo", createdAt: 1, archived: false };
+}
+
 function resetState(overrides: Partial<MockStoreState> = {}) {
   mockState = {
     quests: [],
@@ -209,7 +214,7 @@ function resetState(overrides: Partial<MockStoreState> = {}) {
     askPermission: new Map(),
     cliDisconnectReason: new Map(),
     sdkSessions: [],
-    sessionNames: new Map(),
+    sessionAttention: new Map(),
     sessionBoards: new Map(),
     sessionCompletedBoards: new Map(),
     sessionBoardRowStatuses: new Map(),
@@ -486,14 +491,7 @@ describe("QuestmasterPage status display", () => {
     } as QuestmasterTask;
     resetState({
       quests: [quest],
-      sdkSessions: [
-        { sessionId: "session-1", state: "idle", cwd: "/repo", createdAt: 1, archived: false, sessionNum: 10 },
-        { sessionId: "leader-1", state: "idle", cwd: "/repo", createdAt: 1, archived: false, sessionNum: 4 },
-      ],
-      sessionNames: new Map([
-        ["session-1", "Worker"],
-        ["leader-1", "Leader"],
-      ]),
+      sdkSessions: [sessionRow("session-1", 10, "Worker"), sessionRow("leader-1", 4, "Leader")],
     });
 
     renderQuestmaster({ isActive: true });

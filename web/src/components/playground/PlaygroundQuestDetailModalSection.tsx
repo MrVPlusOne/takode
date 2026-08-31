@@ -104,6 +104,7 @@ function openPlaygroundQuestDetail() {
         cwd: "/repo/takode",
         createdAt: now - 43200000,
         backendType: "codex",
+        name: "Quest detail worker",
       },
       {
         sessionId: "playground-leader",
@@ -113,12 +114,9 @@ function openPlaygroundQuestDetail() {
         createdAt: now - 7200000,
         backendType: "codex",
         isOrchestrator: true,
+        name: "Quest detail leader",
       },
     ],
-    sessionNames: new Map([
-      ["playground-worker", "Quest detail worker"],
-      ["playground-leader", "Quest detail leader"],
-    ]),
   });
   useStore.getState().openQuestOverlay("q-42");
 }

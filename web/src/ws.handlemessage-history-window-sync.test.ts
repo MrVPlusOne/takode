@@ -5,11 +5,6 @@ import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
 import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 
-// Mock the names utility before any imports
-vi.mock("./utils/names.js", () => ({
-  generateUniqueSessionName: vi.fn(() => "Test Session"),
-}));
-
 const getDiffStatsMock = vi.fn().mockResolvedValue({ stats: {} });
 const listSessionsMock = vi.fn().mockResolvedValue([]);
 const playNotificationSoundMock = vi.hoisted(() => vi.fn());
@@ -121,6 +116,19 @@ function makeSession(id: string): SessionState {
 
 function fireMessage(data: Record<string, unknown>) {
   lastWs.onmessage!({ data: JSON.stringify(data) });
+}
+
+function seedNavigationPreview(preview: string) {
+  useStore.getState().setSdkSessions([
+    {
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/home/user",
+      createdAt: 1,
+      lastMessagePreview: preview,
+      lastMessagePreviewAt: 2_000,
+    },
+  ]);
 }
 
 // ===========================================================================
@@ -424,7 +432,7 @@ describe("handleMessage: history_window_sync", () => {
   it("does not overwrite the session preview when loading an older history window", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
-    useStore.getState().setSessionPreview("s1", "latest preview");
+    seedNavigationPreview("latest preview");
 
     fireMessage({
       type: "history_window_sync",
@@ -438,13 +446,13 @@ describe("handleMessage: history_window_sync", () => {
       },
     });
 
-    expect(useStore.getState().sessionPreviews.get("s1")).toBe("latest preview");
+    expect(useStore.getState().sdkSessions[0]?.lastMessagePreview).toBe("latest preview");
   });
 
-  it("updates the session preview when the loaded window includes the latest turn", () => {
+  it("does not derive the canonical preview even when a history window includes the latest turn", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
-    useStore.getState().setSessionPreview("s1", "stale preview");
+    seedNavigationPreview("server-owned preview");
 
     fireMessage({
       type: "history_window_sync",
@@ -458,12 +466,13 @@ describe("handleMessage: history_window_sync", () => {
       },
     });
 
-    expect(useStore.getState().sessionPreviews.get("s1")).toBe("newest visible text");
+    expect(useStore.getState().sdkSessions[0]?.lastMessagePreview).toBe("server-owned preview");
   });
 
-  it("sanitizes reply context in the session preview from loaded history", () => {
+  it("does not derive canonical preview text from reply context in loaded history", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
+    seedNavigationPreview("server-owned preview");
 
     fireMessage({
       type: "history_window_sync",
@@ -485,7 +494,7 @@ describe("handleMessage: history_window_sync", () => {
       },
     });
 
-    expect(useStore.getState().sessionPreviews.get("s1")).toBe("[reply] continue the work");
+    expect(useStore.getState().sdkSessions[0]?.lastMessagePreview).toBe("server-owned preview");
   });
 
   it("clears window metadata when a full history_sync later arrives", () => {

@@ -378,9 +378,23 @@ describe("QuestHoverCard", () => {
     useStore.setState((state) => ({
       ...state,
       sdkSessions: [
-        { sessionId: "worker-abc", state: "running", cwd: "/repo", createdAt: 1, sessionNum: 123 },
-        { sessionId: "reviewer-abc", state: "connected", cwd: "/repo", createdAt: 1, sessionNum: 8 },
-        { sessionId: "leader-abc", state: "connected", cwd: "/repo", createdAt: 1, sessionNum: 7 },
+        { sessionId: "worker-abc", state: "running", cwd: "/repo", createdAt: 1, sessionNum: 123, name: "Auth Worker" },
+        {
+          sessionId: "reviewer-abc",
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          sessionNum: 8,
+          name: "Quest Reviewer",
+        },
+        {
+          sessionId: "leader-abc",
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          sessionNum: 7,
+          name: "Quest Leader",
+        },
       ],
       sessionBoards: new Map([
         [
@@ -405,11 +419,6 @@ describe("QuestHoverCard", () => {
             },
           },
         ],
-      ]),
-      sessionNames: new Map([
-        ["worker-abc", "Auth Worker"],
-        ["reviewer-abc", "Quest Reviewer"],
-        ["leader-abc", "Quest Leader"],
       ]),
     }));
 

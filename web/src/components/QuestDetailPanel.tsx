@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { useStore, countUserPermissions } from "../store.js";
+import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { navigateToSession, withoutQuestIdInHash } from "../utils/routing.js";
 import { markdownToPlainText } from "../utils/copy-utils.js";
@@ -58,17 +58,6 @@ export function QuestDetailPanel() {
   const sessionBoards = useStore((s) => s.sessionBoards);
   const sessionCompletedBoards = useStore((s) => s.sessionCompletedBoards);
   const sdkSessions = useStore((s) => s.sdkSessions);
-  const sessions = useStore((s) => s.sessions);
-  const sessionNames = useStore((s) => s.sessionNames);
-  const sessionPreviews = useStore((s) => s.sessionPreviews);
-  const cliConnected = useStore((s) => s.cliConnected);
-  const sessionStatus = useStore((s) => s.sessionStatus);
-  const cliDisconnectReason = useStore((s) => s.cliDisconnectReason);
-  const pendingPermissions = useStore((s) => s.pendingPermissions);
-  const askPermissionMap = useStore((s) => s.askPermission);
-  const diffFileStats = useStore((s) => s.diffFileStats);
-  const syncedProjectionValues = useStore((s) => s.syncedProjectionValues);
-  const syncedProjectionKeys = useStore((s) => s.syncedProjectionKeys);
   const feedbackNavigationTarget = useStore((s) => s.questOverlayFeedbackTarget);
 
   const { quest, setFetchedQuest, questLoading, questLoadError } = useQuestDetailRecord(questOverlayId);
@@ -643,50 +632,18 @@ export function QuestDetailPanel() {
     closePanel();
   }
 
-  // Active sessions for assign picker. Projection authority keeps restored,
-  // unselected rows aligned with the sidebar while legacy servers retain the
-  // existing bridge/SDK merger.
+  // Active sessions for assign picker come from the canonical current-build rows.
   const pickerSessions = useMemo(
     () =>
       sdkSessions
         .flatMap((session) => {
-          const resolved = resolveSessionNavigation(
-            {
-              sessions,
-              sdkSessions,
-              syncedProjectionValues,
-              syncedProjectionKeys,
-              cliConnected,
-              cliDisconnectReason,
-              sessionStatus,
-              pendingPermissions,
-              askPermission: askPermissionMap,
-              diffFileStats,
-              sessionNames,
-              sessionPreviews,
-              countUserPermissions,
-            },
-            session.sessionId,
-          );
+          const resolved = resolveSessionNavigation({ sdkSessions }, session.sessionId);
           return resolved && resolved.sidebarItem.sdkState !== "exited" && !resolved.sidebarItem.archived
             ? [resolved]
             : [];
         })
         .sort((left, right) => right.sidebarItem.createdAt - left.sidebarItem.createdAt),
-    [
-      askPermissionMap,
-      cliConnected,
-      cliDisconnectReason,
-      diffFileStats,
-      pendingPermissions,
-      sdkSessions,
-      sessionNames,
-      sessionPreviews,
-      sessionStatus,
-      sessions,
-      syncedProjectionKeys,
-      syncedProjectionValues,
-    ],
+    [sdkSessions],
   );
 
   if (!questOverlayId) return null;
@@ -1668,8 +1625,8 @@ export function QuestDetailPanel() {
                       <PickerSessionChip
                         key={resolved.sidebarItem.id}
                         session={resolved.sidebarItem}
-                        sessionName={resolved.name}
-                        sessionPreview={resolved.preview}
+                        sessionName={resolved.sidebarItem.name}
+                        sessionPreview={resolved.sidebarItem.lastMessagePreview || undefined}
                         onClick={() => handleAssignToSession(assignQuest, resolved.sidebarItem.id)}
                       />
                     ))}

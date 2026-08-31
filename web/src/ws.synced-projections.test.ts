@@ -393,8 +393,8 @@ describe("synced projection WebSocket carrier", () => {
     expect(useStore.getState().sessionAttention.get("worker")).toBe("review");
     expect(
       useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")?.pendingPermissionCount,
-    ).toBe(9);
-    expect(useStore.getState().sessionStatus.get("worker")).toBe("idle");
+    ).toBe(2);
+    expect(useStore.getState().sessionStatus.get("worker")).toBe("running");
   });
 
   it("keeps a newer same-generation REST snapshot when the subscription snapshot arrives stale", () => {

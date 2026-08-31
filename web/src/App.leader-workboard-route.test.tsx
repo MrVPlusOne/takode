@@ -145,33 +145,31 @@ import { resetSessionGitStatusAutoRefreshForTest } from "./utils/session-git-sta
 
 const SESSION_ID = "playground-board-bar";
 
-function seedLeaderRouteFixture({ sdkLeaderSession = true }: { sdkLeaderSession?: boolean } = {}) {
+function seedLeaderRouteFixture() {
   const now = Date.now();
   useStore.setState({
     currentSessionId: null,
-    sdkSessions: sdkLeaderSession
-      ? [
-          {
-            sessionId: SESSION_ID,
-            createdAt: now,
-            archived: false,
-            cwd: "/mock/playground",
-            isOrchestrator: true,
-            name: "Leader Route Fixture",
-            sessionNum: 402,
-            state: "connected",
-          },
-          {
-            sessionId: "playground-worker",
-            createdAt: now - 50_000,
-            archived: false,
-            cwd: "/mock/worker",
-            name: "Quest Worker",
-            sessionNum: 403,
-            state: "connected",
-          },
-        ]
-      : [],
+    sdkSessions: [
+      {
+        sessionId: SESSION_ID,
+        createdAt: now,
+        archived: false,
+        cwd: "/mock/playground",
+        isOrchestrator: true,
+        name: "Leader Route Fixture",
+        sessionNum: 402,
+        state: "connected",
+      },
+      {
+        sessionId: "playground-worker",
+        createdAt: now - 50_000,
+        archived: false,
+        cwd: "/mock/worker",
+        name: "Quest Worker",
+        sessionNum: 403,
+        state: "connected",
+      },
+    ],
     sessions: new Map([
       [
         SESSION_ID,
@@ -199,7 +197,6 @@ function seedLeaderRouteFixture({ sdkLeaderSession = true }: { sdkLeaderSession?
         } as Partial<SessionState> as SessionState,
       ],
     ]),
-    sessionNames: new Map([[SESSION_ID, "Leader Route Fixture"]]),
     cliConnected: new Map([[SESSION_ID, true]]),
     cliEverConnected: new Map([[SESSION_ID, true]]),
     connectionStatus: new Map([[SESSION_ID, "connected"]]),
@@ -312,8 +309,11 @@ it("keeps the explicit leader quest-thread route stable while title-bar shortcut
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
 });
 
-it("renders title-bar panels on a quest-thread route when leader metadata comes from session state", async () => {
-  seedLeaderRouteFixture({ sdkLeaderSession: false });
+it("renders title-bar panels from the canonical row when legacy session state is stale", async () => {
+  const sessions = new Map(useStore.getState().sessions);
+  const legacy = sessions.get(SESSION_ID)!;
+  sessions.set(SESSION_ID, { ...legacy, isOrchestrator: false });
+  useStore.setState({ sessions });
 
   render(<App />);
 

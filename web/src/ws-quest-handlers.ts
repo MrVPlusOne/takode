@@ -40,23 +40,23 @@ export function handleSessionQuestClaimed(sessionId: string, data: SessionQuestC
     claimedQuestVerificationInboxUnread: data.quest?.verificationInboxUnread,
     claimedQuestLeaderSessionId: data.quest?.leaderSessionId,
   });
-  const isOrchestrator =
-    store.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.isOrchestrator === true ||
-    store.sessions.get(sessionId)?.isOrchestrator === true;
-  if (
+  const currentSdkSession = store.sdkSessions.find((sdk) => sdk.sessionId === sessionId);
+  const useQuestTitle = !!(
     data.quest?.id &&
-    data.quest?.title &&
+    data.quest.title &&
     questOwnsSessionName(data.quest.status, data.quest.verificationInboxUnread) &&
-    !isOrchestrator
-  ) {
-    // Override session name with quest title and mark as quest-named through
-    // review handoff so the checkbox prefix stays stable until claim clearing.
-    store.setSessionName(sessionId, data.quest.title);
-    store.markRecentlyRenamed(sessionId);
-    store.markQuestNamed(sessionId);
-  } else {
-    store.clearQuestNamed(sessionId);
-  }
+    currentSdkSession?.isOrchestrator !== true &&
+    store.sessions.get(sessionId)?.isOrchestrator !== true
+  );
+  store.updateSdkSession(sessionId, {
+    claimedQuestId: data.quest?.id ?? null,
+    claimedQuestTitle: data.quest?.title ?? null,
+    claimedQuestStatus: data.quest?.status ?? null,
+    claimedQuestVerificationInboxUnread: data.quest?.verificationInboxUnread,
+    claimedQuestLeaderSessionId: data.quest?.leaderSessionId ?? null,
+    ...(useQuestTitle ? { name: data.quest!.title } : {}),
+  });
+  if (useQuestTitle && currentSdkSession?.name !== data.quest!.title) store.markRecentlyRenamed(sessionId);
 
   if (!data.quest?.id) return;
   const questId = data.quest.id;

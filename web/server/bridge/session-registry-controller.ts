@@ -19,6 +19,7 @@ import {
   repairRestoredCodexTurnRecoveryState,
 } from "./codex-interrupted-turn-recovery.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
+import { getLastActualHumanInputTimestamp, restoreSessionMessagePreview } from "../user-message-classification.js";
 import type { PersistedSession } from "../session-store.js";
 import type {
   BoardRow,
@@ -87,6 +88,7 @@ export interface SessionRegistryDeps {
   emitTakodeEvent?: (sessionId: string, type: string, data: Record<string, unknown>) => void;
   attached?: (session: SessionLike) => boolean;
   getLauncherSessionInfo?: (sessionId: string) => any;
+  setLastUserMessageAt?: (sessionId: string, timestamp: number | undefined) => void;
   recoveryTimeoutMs?: number;
   maxAdapterRelaunchFailures?: number;
   getHerdedSessionIds?: (leaderId: string) => string[];
@@ -245,6 +247,7 @@ function createSessionRuntime(
     stuckNotifiedAt: null,
     lastReadAt: options.lastReadAt ?? 0,
     lastUserMessageDateTag: "",
+    lastMessagePreviewAt: undefined,
     attentionReason: options.attentionReason ?? null,
     manualUnread: options.manualUnread === true,
     codexDisconnectGraceTimer: null,
@@ -364,7 +367,7 @@ export function applyInitialSessionState(
 export function prepareSessionForRevert(
   session: SessionLike,
   truncateIdx: number,
-  deps: Pick<SessionRegistryDeps, "pruneToolResultsForCurrentHistory" | "broadcastToSession">,
+  deps: Pick<SessionRegistryDeps, "pruneToolResultsForCurrentHistory" | "broadcastToSession" | "setLastUserMessageAt">,
   options?: { clearCodexState?: boolean },
 ): SessionLike {
   session.messageHistory = session.messageHistory.slice(0, truncateIdx);
@@ -388,14 +391,6 @@ export function prepareSessionForRevert(
   session.toolStartTimes?.clear?.();
   session.toolProgressOutput?.clear?.();
   session.dropReplayHistoryAfterRevert = session.backendType === "claude" || session.backendType === "claude-sdk";
-
-  const lastUser = [...session.messageHistory]
-    .reverse()
-    .find((msg) => msg.type === "user_message" && typeof msg.content === "string");
-  session.lastUserMessage =
-    lastUser && typeof lastUser.content === "string"
-      ? formatReplyContentForPreview(lastUser.content, lastUser.replyContext).slice(0, 80)
-      : undefined;
 
   if (session.taskHistory?.length) {
     const remainingUserMsgIds = new Set(
@@ -439,6 +434,11 @@ export function prepareSessionForRevert(
     deps.broadcastToSession(session.id, { type: "codex_pending_inputs", inputs: [] } as BrowserIncomingMessage);
   }
 
+  restoreSessionMessagePreview(session);
+  deps.setLastUserMessageAt?.(
+    session.id,
+    getLastActualHumanInputTimestamp(session.messageHistory, session.pendingCodexInputs),
+  );
   return session;
 }
 
@@ -579,6 +579,7 @@ export async function restorePersistedSessions(
     finalizeRecoveredDisconnectedTerminalTools: (session: SessionLike, reason: string) => void;
     scheduleCodexToolResultWatchdogs: (session: SessionLike, reason: string) => void;
     reconcileRestoredBoardState: (session: SessionLike) => Promise<void>;
+    setLastUserMessageAt?: (sessionId: string, timestamp: number | undefined) => void;
     resumeRecoveryDeliveryTransfers?: (session: SessionLike) => Promise<void>;
   },
 ): Promise<number> {
@@ -731,13 +732,11 @@ export async function restorePersistedSessions(
       if (perm.evaluating) perm.evaluating = undefined;
     }
 
-    for (let i = session.messageHistory.length - 1; i >= 0; i--) {
-      const m = session.messageHistory[i];
-      if (m.type === "user_message" && m.content) {
-        session.lastUserMessage = formatReplyContentForPreview(m.content, m.replyContext).slice(0, 80);
-        break;
-      }
-    }
+    restoreSessionMessagePreview(session);
+    deps.setLastUserMessageAt?.(
+      session.id,
+      getLastActualHumanInputTimestamp(session.messageHistory, session.pendingCodexInputs),
+    );
 
     deps.recoverToolStartTimesFromHistory(session);
     deps.finalizeRecoveredDisconnectedTerminalTools(session, "restore_from_disk");
@@ -1548,7 +1547,6 @@ export function countPendingUserPermissions(session: SessionLike): number {
 export function getSessionActivitySnapshot(session: SessionLike): {
   attentionReason: AttentionReason | null;
   lastReadAt?: number;
-  pendingPermissionCount: number;
   pendingPermissionSummary: string | null;
   notificationUrgency: NotificationUrgency;
   activeNotificationCount: number;
@@ -1562,7 +1560,6 @@ export function getSessionActivitySnapshot(session: SessionLike): {
   return {
     attentionReason: (session.attentionReason as AttentionReason | null) ?? null,
     ...(typeof session.lastReadAt === "number" ? { lastReadAt: session.lastReadAt } : {}),
-    pendingPermissionCount: countPendingUserPermissions(session),
     pendingPermissionSummary: summarizePendingPermissions(session),
     ...notificationStatus,
   };

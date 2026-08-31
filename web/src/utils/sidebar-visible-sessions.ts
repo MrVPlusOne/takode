@@ -13,34 +13,22 @@ import type {
   SdkSessionInfo,
   SessionAttentionRecord,
   SessionNotification,
-  SessionState,
 } from "../types.js";
 
 type SessionAttentionReason = "action" | "error" | "review" | null;
 
 export interface SidebarVisibleSessionsInput {
-  sessions: Map<string, SessionState>;
   sdkSessions: SdkSessionInfo[];
-  cliConnected: Map<string, boolean>;
-  cliDisconnectReason: Map<string, "idle_limit" | "broken" | "recovery_suppressed" | null>;
-  sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
-  pendingPermissions: Map<string, Map<string, unknown>>;
-  askPermission: Map<string, boolean>;
-  diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
   treeGroups: TreeGroup[];
   treeAssignments: Map<string, string>;
   treeNodeOrder: Map<string, string[]>;
   collapsedTreeGroups: Set<string>;
   expandedHerdNodes: Set<string>;
   sessionAttention: Map<string, SessionAttentionReason>;
-  syncedProjectionValues?: Map<string, unknown>;
   syncedProjectionKeys?: Set<string>;
   sessionNotifications?: Map<string, SessionNotification[]>;
   sessionAttentionRecords?: Map<string, SessionAttentionRecord[]>;
-  sessionNames?: Map<string, string>;
-  sessionPreviews?: Map<string, string>;
   sessionSortMode: "created" | "activity";
-  countUserPermissions: (perms: Map<string, unknown> | undefined) => number;
 }
 
 export interface SidebarVisibleSessionsResult {
@@ -52,8 +40,6 @@ export interface SidebarVisibleSessionsResult {
   orderedVisibleSessionIds: string[];
   treeViewGroups: ReturnType<typeof buildTreeViewGroups>;
   sessionSetAttention: Map<string, SessionAttentionReason>;
-  resolvedSessionNames: Map<string, string>;
-  resolvedSessionPreviews: Map<string, string>;
 }
 
 function isBlueNotificationAttention(record: SessionAttentionRecord): boolean {
@@ -98,7 +84,6 @@ export function deriveSessionSetAttention({
   sessionAttentionRecords,
 }: {
   sessionAttention: Map<string, SessionAttentionReason>;
-  syncedProjectionValues?: Map<string, unknown>;
   syncedProjectionKeys?: Set<string>;
   sdkSessions: SdkSessionInfo[];
   sessionNotifications?: Map<string, SessionNotification[]>;
@@ -151,30 +136,21 @@ export function deriveSessionSetAttention({
   return result;
 }
 
-export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput): SidebarVisibleSessionsResult {
+export function buildSidebarVisibleSessions<TInput extends SidebarVisibleSessionsInput>(
+  input: TInput,
+): SidebarVisibleSessionsResult {
   const {
-    sessions,
     sdkSessions,
-    cliConnected,
-    cliDisconnectReason,
-    sessionStatus,
-    pendingPermissions,
-    askPermission,
-    diffFileStats,
     treeGroups,
     treeAssignments,
     treeNodeOrder,
     collapsedTreeGroups,
     expandedHerdNodes,
     sessionAttention,
-    syncedProjectionValues,
     syncedProjectionKeys,
     sessionNotifications,
     sessionAttentionRecords,
-    sessionNames,
-    sessionPreviews,
     sessionSortMode,
-    countUserPermissions,
   } = input;
   const sessionSetAttention = deriveSessionSetAttention({
     sessionAttention,
@@ -184,58 +160,14 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
     sessionAttentionRecords,
   });
 
-  const allSessionIds = new Set<string>();
-  const slackThreadChildIds = new Set<string>();
-  for (const state of sessions.values()) {
-    for (const thread of Object.values(state.slackThreads ?? {})) {
-      if (thread.childSessionId) slackThreadChildIds.add(thread.childSessionId);
-    }
-  }
-  const isHiddenSession = (id: string): boolean => {
-    const bridgeState = sessions.get(id);
-    const sdkInfo = sdkSessions.find((session) => session.sessionId === id);
-    return (
-      bridgeState?.hidden === true ||
-      !!bridgeState?.slackThreadChild ||
-      sdkInfo?.hidden === true ||
-      slackThreadChildIds.has(id)
-    );
-  };
-  for (const id of sessions.keys()) {
-    if (!isHiddenSession(id)) allSessionIds.add(id);
-  }
-  for (const session of sdkSessions) {
-    if (!isHiddenSession(session.sessionId)) allSessionIds.add(session.sessionId);
-  }
+  const allSessionIds = new Set(
+    sdkSessions.filter((session) => session.hidden !== true).map((session) => session.sessionId),
+  );
 
-  const resolvedSessionNames = new Map(sessionNames ?? []);
-  const resolvedSessionPreviews = new Map(sessionPreviews ?? []);
   const allSessionList: SidebarSessionItem[] = Array.from(allSessionIds)
     .flatMap((id) => {
-      const resolved = resolveSessionNavigation(
-        {
-          sessions,
-          sdkSessions,
-          syncedProjectionValues,
-          syncedProjectionKeys,
-          cliConnected,
-          cliDisconnectReason,
-          sessionStatus,
-          pendingPermissions,
-          askPermission,
-          diffFileStats,
-          sessionNames,
-          sessionPreviews,
-          countUserPermissions,
-        },
-        id,
-      );
-      if (!resolved) return [];
-      if (resolved.name) resolvedSessionNames.set(id, resolved.name);
-      else if (resolved.projectionState !== "legacy") resolvedSessionNames.delete(id);
-      if (resolved.preview) resolvedSessionPreviews.set(id, resolved.preview);
-      else if (resolved.projectionState !== "legacy") resolvedSessionPreviews.delete(id);
-      return [resolved.sidebarItem];
+      const resolved = resolveSessionNavigation({ sdkSessions }, id);
+      return resolved ? [resolved.sidebarItem] : [];
     })
     .sort((a, b) => b.createdAt - a.createdAt);
 
@@ -278,7 +210,5 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
     orderedVisibleSessionIds,
     treeViewGroups,
     sessionSetAttention,
-    resolvedSessionNames,
-    resolvedSessionPreviews,
   };
 }

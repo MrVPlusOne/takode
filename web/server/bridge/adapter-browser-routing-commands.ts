@@ -121,6 +121,7 @@ export function appendLocalSlashCommandHistory(
   };
   session.messageHistory.push(userHistoryEntry);
   session.lastUserMessage = command;
+  session.lastMessagePreviewAt = ts;
   deps.touchUserMessage(session.id, ts);
   deps.broadcastToBrowsers(session, userHistoryEntry);
   emitStoredUserMessageTakodeEvent(deps as AdapterBrowserRoutingDeps, session.id, userHistoryEntry, {
@@ -220,6 +221,7 @@ export function handleCodexStatusCommand(
   };
   session.messageHistory.push(userHistoryEntry);
   session.lastUserMessage = "/status";
+  session.lastMessagePreviewAt = ts;
   deps.touchUserMessage(session.id, ts);
   deps.broadcastToBrowsers(session, userHistoryEntry);
   emitStoredUserMessageTakodeEvent(deps, session.id, userHistoryEntry, {
@@ -297,6 +299,7 @@ export function handleForceCompact(session: AdapterBrowserRoutingSessionLike, de
   };
   session.messageHistory.push(userHistoryEntry);
   session.lastUserMessage = "/compact";
+  session.lastMessagePreviewAt = ts;
   deps.touchUserMessage(session.id, ts);
   deps.broadcastToBrowsers(session, userHistoryEntry);
   emitStoredUserMessageTakodeEvent(deps, session.id, userHistoryEntry, {

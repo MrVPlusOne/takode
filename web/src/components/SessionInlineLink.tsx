@@ -1,6 +1,6 @@
 import { useRef, useMemo, useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { api } from "../api.js";
-import { useStore, countUserPermissions } from "../store.js";
+import { useStore } from "../store.js";
 import {
   navigateToSession,
   navigateToSessionMessage,
@@ -57,19 +57,8 @@ export function SessionInlineLink({
   onNavigate?: () => void;
 }) {
   const hoverCardsSuppressed = useHoverCardsSuppressed();
-  const sessions = useStore((s) => s.sessions);
   const sdkSessions = useStore((s) => s.sdkSessions);
-  const sessionNames = useStore((s) => s.sessionNames);
-  const sessionPreviews = useStore((s) => s.sessionPreviews);
   const sessionTaskHistory = useStore((s) => s.sessionTaskHistory);
-  const pendingPermissions = useStore((s) => s.pendingPermissions);
-  const cliConnected = useStore((s) => s.cliConnected);
-  const sessionStatus = useStore((s) => s.sessionStatus);
-  const askPermission = useStore((s) => s.askPermission);
-  const cliDisconnectReason = useStore((s) => s.cliDisconnectReason);
-  const diffFileStats = useStore((s) => s.diffFileStats);
-  const syncedProjectionValues = useStore((s) => s.syncedProjectionValues);
-  const syncedProjectionKeys = useStore((s) => s.syncedProjectionKeys);
 
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
   const hideHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -92,42 +81,8 @@ export function SessionInlineLink({
   }, [sdkSessions, sessionId, sessionNum]);
   const resolvedSessionId = sessionId ?? sdkInfo?.sessionId ?? null;
   const resolvedNavigation = useMemo(
-    () =>
-      resolvedSessionId
-        ? resolveSessionNavigation(
-            {
-              sessions,
-              sdkSessions,
-              syncedProjectionValues,
-              syncedProjectionKeys,
-              cliConnected,
-              cliDisconnectReason,
-              sessionStatus,
-              pendingPermissions,
-              askPermission,
-              diffFileStats,
-              sessionNames,
-              sessionPreviews,
-              countUserPermissions,
-            },
-            resolvedSessionId,
-          )
-        : null,
-    [
-      askPermission,
-      cliConnected,
-      cliDisconnectReason,
-      diffFileStats,
-      pendingPermissions,
-      resolvedSessionId,
-      sdkSessions,
-      sessionNames,
-      sessionPreviews,
-      sessionStatus,
-      sessions,
-      syncedProjectionKeys,
-      syncedProjectionValues,
-    ],
+    () => (resolvedSessionId ? resolveSessionNavigation({ sdkSessions }, resolvedSessionId) : null),
+    [resolvedSessionId, sdkSessions],
   );
   const sessionItem = resolvedNavigation?.sidebarItem ?? null;
   const resolvedSessionNum = sessionItem?.sessionNum ?? sdkInfo?.sessionNum ?? sessionNum ?? null;
@@ -221,7 +176,7 @@ export function SessionInlineLink({
         (messageIndex != null ? (
           <MessageLinkHoverCard
             session={sessionItem}
-            sessionName={resolvedNavigation?.name}
+            sessionName={resolvedNavigation?.sidebarItem.name}
             anchorRect={hoverRect}
             messageIndex={messageIndex}
             onMouseEnter={handleHoverCardEnter}
@@ -230,10 +185,9 @@ export function SessionInlineLink({
         ) : (
           <SessionHoverCard
             session={sessionItem}
-            sessionName={resolvedNavigation?.name}
-            sessionPreview={resolvedNavigation?.preview}
+            sessionName={resolvedNavigation?.sidebarItem.name}
+            sessionPreview={resolvedNavigation?.sidebarItem.lastMessagePreview || undefined}
             taskHistory={sessionTaskHistory.get(resolvedSessionId)}
-            sessionState={sessions.get(resolvedSessionId)}
             cliSessionId={sdkInfo?.cliSessionId}
             anchorRect={hoverRect}
             onMouseEnter={handleHoverCardEnter}

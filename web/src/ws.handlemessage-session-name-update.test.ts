@@ -4,11 +4,6 @@ import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMess
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
 
-// Mock the names utility before any imports
-vi.mock("./utils/names.js", () => ({
-  generateUniqueSessionName: vi.fn(() => "Test Session"),
-}));
-
 const getDiffStatsMock = vi.fn().mockResolvedValue({ stats: {} });
 const listSessionsMock = vi.fn().mockResolvedValue([]);
 const playNotificationSoundMock = vi.hoisted(() => vi.fn());
@@ -122,6 +117,19 @@ function fireMessage(data: Record<string, unknown>) {
   lastWs.onmessage!({ data: JSON.stringify(data) });
 }
 
+function seedSdkSession(name?: string, isOrchestrator = false) {
+  useStore.getState().setSdkSessions([
+    {
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/home/user",
+      createdAt: 1,
+      name,
+      isOrchestrator,
+    },
+  ]);
+}
+
 // ===========================================================================
 // Connection
 // ===========================================================================
@@ -133,18 +141,18 @@ describe("handleMessage: session_name_update", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
-    useStore.getState().setSessionName("s1", "Swift Falcon");
+    seedSdkSession("Swift Falcon");
 
     fireMessage({ type: "session_name_update", name: "Fix Authentication Bug" });
 
-    expect(useStore.getState().sessionNames.get("s1")).toBe("Fix Authentication Bug");
+    expect(useStore.getState().sdkSessions[0]?.name).toBe("Fix Authentication Bug");
   });
 
   it("marks session as recently renamed for animation when name changes", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
-    useStore.getState().setSessionName("s1", "Calm River");
+    seedSdkSession("Calm River");
 
     fireMessage({ type: "session_name_update", name: "Deploy Dashboard" });
 
@@ -157,18 +165,18 @@ describe("handleMessage: session_name_update", () => {
 
     // Even custom names get overwritten by server updates — the server
     // controls when names should change (it tracks manual rename state)
-    useStore.getState().setSessionName("s1", "My Custom Project");
+    seedSdkSession("My Custom Project");
 
     fireMessage({ type: "session_name_update", name: "Auto Generated Title" });
 
-    expect(useStore.getState().sessionNames.get("s1")).toBe("Auto Generated Title");
+    expect(useStore.getState().sdkSessions[0]?.name).toBe("Auto Generated Title");
   });
 
   it("does not mark as recently renamed when name is the same", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
-    useStore.getState().setSessionName("s1", "Same Name");
+    seedSdkSession("Same Name");
     useStore.getState().clearRecentlyRenamed("s1");
 
     // Server sends the same name — no animation
@@ -181,14 +189,11 @@ describe("handleMessage: session_name_update", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
-    // Clear the name entirely
-    const sessionNames = new Map(useStore.getState().sessionNames);
-    sessionNames.delete("s1");
-    useStore.setState({ sessionNames });
+    seedSdkSession();
 
     fireMessage({ type: "session_name_update", name: "Brand New Title" });
 
-    expect(useStore.getState().sessionNames.get("s1")).toBe("Brand New Title");
+    expect(useStore.getState().sdkSessions[0]?.name).toBe("Brand New Title");
     expect(useStore.getState().recentlyRenamed.has("s1")).toBe(true);
   });
 
@@ -197,30 +202,36 @@ describe("handleMessage: session_name_update", () => {
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     // Random Adj+Noun name
-    useStore.getState().setSessionName("s1", "Bright Falcon");
+    seedSdkSession("Bright Falcon");
     fireMessage({ type: "session_name_update", name: "Auto Title" });
-    expect(useStore.getState().sessionNames.get("s1")).toBe("Auto Title");
+    expect(useStore.getState().sdkSessions[0]?.name).toBe("Auto Title");
 
     // Multi-word custom name also gets updated
-    useStore.getState().setSessionName("s1", "My Cool Project");
+    useStore.getState().updateSdkSession("s1", { name: "My Cool Project" });
     useStore.getState().clearRecentlyRenamed("s1");
     fireMessage({ type: "session_name_update", name: "Another Auto Title" });
-    expect(useStore.getState().sessionNames.get("s1")).toBe("Another Auto Title");
+    expect(useStore.getState().sdkSessions[0]?.name).toBe("Another Auto Title");
   });
 
-  it("keeps the quest-owned marker on same-title updates during review-pending done", () => {
+  it("keeps canonical quest metadata on same-title updates during review-pending done", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
+    seedSdkSession("Worker Session");
     fireMessage({
       type: "session_quest_claimed",
       quest: { id: "q-348", title: "Fix Authentication Bug", status: "done", verificationInboxUnread: true },
     });
+    useStore.getState().clearRecentlyRenamed("s1");
 
     fireMessage({ type: "session_name_update", name: "Fix Authentication Bug" });
 
     const state = useStore.getState();
-    expect(state.sessionNames.get("s1")).toBe("Fix Authentication Bug");
-    expect(state.questNamedSessions.has("s1")).toBe(true);
+    expect(state.sdkSessions[0]).toMatchObject({
+      name: "Fix Authentication Bug",
+      claimedQuestStatus: "done",
+      claimedQuestVerificationInboxUnread: true,
+    });
+    expect(state.recentlyRenamed.has("s1")).toBe(false);
   });
 });

@@ -3,69 +3,15 @@ import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { ReactNode } from "react";
 
-interface MockStoreState {
-  pendingPermissions: Map<string, Map<string, { tool_name?: string; request_id?: string }>>;
-  connectionStatus: Map<string, "connecting" | "connected" | "disconnected">;
-  sessions: Map<
-    string,
-    {
-      backend_state?:
-        | "initializing"
-        | "resuming"
-        | "recovering"
-        | "connected"
-        | "disconnected"
-        | "broken"
-        | "recovery_suppressed";
-      backend_error?: string | null;
-      isOrchestrator?: boolean;
-      claimedQuestId?: string | null;
-      claimedQuestTitle?: string | null;
-      claimedQuestStatus?: string | null;
-      claimedQuestLeaderSessionId?: string | null;
-    }
-  >;
-  cliConnected: Map<string, boolean>;
-  cliEverConnected: Map<string, boolean>;
-  cliDisconnectReason: Map<string, "idle_limit" | "broken" | "recovery_suppressed" | null>;
-  serverReachable: boolean;
-  sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
-  sdkSessions: Array<{
-    sessionId: string;
-    archived?: boolean;
-    isOrchestrator?: boolean;
-    sessionNum?: number;
-    state?: "starting" | "connected" | "running" | "exited";
-    cliConnected?: boolean;
-    herdedBy?: string;
-    claimedQuestId?: string | null;
-    claimedQuestTitle?: string | null;
-    claimedQuestStatus?: string | null;
-    claimedQuestLeaderSessionId?: string | null;
-  }>;
-  sessionAttention: Map<string, "action" | "error" | "review" | null>;
-  sessionNotifications: Map<string, import("../types.js").SessionNotification[]>;
-  sessionAttentionRecords: Map<string, import("../types.js").SessionAttentionRecord[]>;
-  sessionBoards: Map<string, unknown[]>;
-  sessionCompletedBoards: Map<string, unknown[]>;
-  sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
-  leaderProjections: Map<string, import("../types.js").LeaderProjectionSnapshot>;
-  sessionTaskHistory: Map<string, Array<{ title: string; triggerMessageId: string }>>;
-  messages: Map<string, unknown[]>;
-  historyLoading: Map<string, boolean>;
-  threadWindows: Map<string, Map<string, import("../types.js").ThreadWindowState>>;
-  quests: Array<Record<string, unknown> & { questId: string; title: string; status: string }>;
-  zoomLevel: number;
-  openQuestOverlay: (questId: string) => void;
-}
+import type { ChatViewMockStoreState } from "./chat-view-test-store.js";
 
-let mockState: MockStoreState;
+let mockState: ChatViewMockStoreState;
 const mockUnarchiveSession = vi.fn().mockResolvedValue({});
 const mockRelaunchSession = vi.fn().mockResolvedValue({});
 const mockMarkNotificationDone = vi.fn().mockResolvedValue({});
 const mockOpenQuestOverlay = vi.fn();
 const mockSendToSession = vi.fn((_sessionId: string, _msg: unknown) => true);
-function resetStore(overrides: Partial<MockStoreState> = {}) {
+function resetStore(overrides: Partial<ChatViewMockStoreState> = {}) {
   mockState = {
     pendingPermissions: new Map(),
     connectionStatus: new Map([["s1", "connected"]]),
@@ -95,7 +41,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
 }
 
 vi.mock("../store.js", () => ({
-  useStore: (selector: (s: MockStoreState) => unknown) => {
+  useStore: (selector: (s: ChatViewMockStoreState) => unknown) => {
     // Simulates the useSyncExternalStore stability check so selectors do not
     // reintroduce fresh empty arrays/objects that can loop in React.
     const selected = selector(mockState);
@@ -1474,8 +1420,21 @@ describe("ChatView backend banners", () => {
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [
         { sessionId: "s1", archived: false, isOrchestrator: true },
-        { sessionId: "worker-968", sessionNum: 1321, state: "running", cliConnected: true },
-        { sessionId: "reviewer-968", sessionNum: 1306, state: "connected", cliConnected: true },
+        {
+          sessionId: "worker-968",
+          sessionNum: 1321,
+          state: "running",
+          status: "running",
+          cliConnected: true,
+          name: "Clear Mesa",
+        },
+        {
+          sessionId: "reviewer-968",
+          sessionNum: 1306,
+          state: "connected",
+          status: "idle",
+          cliConnected: true,
+        },
       ],
       sessionBoards: new Map([
         [
@@ -1503,7 +1462,7 @@ describe("ChatView backend banners", () => {
           "s1",
           {
             "q-968": {
-              worker: { sessionId: "worker-968", sessionNum: 1321, name: "Clear Mesa", status: "running" },
+              worker: { sessionId: "worker-968", sessionNum: 1321, status: "running" },
               reviewer: { sessionId: "reviewer-968", sessionNum: 1306, status: "idle" },
             },
           },
@@ -1534,7 +1493,23 @@ describe("ChatView backend banners", () => {
   it("shows queued Work Board wait reasons in the quest-thread banner", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
-      sdkSessions: [{ sessionId: "waiter-1801", sessionNum: 1801, state: "running", cliConnected: true }],
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          archived: false,
+          isOrchestrator: true,
+          state: "connected",
+          status: "idle",
+          cliConnected: true,
+        },
+        {
+          sessionId: "waiter-1801",
+          sessionNum: 1801,
+          state: "running",
+          status: "running",
+          cliConnected: true,
+        },
+      ],
       sessionBoards: new Map([
         [
           "s1",
@@ -1601,8 +1576,21 @@ describe("ChatView backend banners", () => {
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
       sdkSessions: [
         { sessionId: "s1", archived: false, isOrchestrator: true },
-        { sessionId: "worker-970", sessionNum: 1321, state: "connected", cliConnected: true },
-        { sessionId: "reviewer-970", sessionNum: 1323, state: "connected", cliConnected: true },
+        {
+          sessionId: "worker-970",
+          sessionNum: 1321,
+          state: "connected",
+          status: "idle",
+          cliConnected: true,
+          name: "Clear Mesa",
+        },
+        {
+          sessionId: "reviewer-970",
+          sessionNum: 1323,
+          state: "connected",
+          status: "idle",
+          cliConnected: true,
+        },
       ],
       sessionCompletedBoards: new Map([
         [
@@ -1632,7 +1620,7 @@ describe("ChatView backend banners", () => {
           "s1",
           {
             "q-970": {
-              worker: { sessionId: "worker-970", sessionNum: 1321, name: "Clear Mesa", status: "idle" },
+              worker: { sessionId: "worker-970", sessionNum: 1321, status: "idle" },
               reviewer: { sessionId: "reviewer-970", sessionNum: 1323, status: "idle" },
             },
           },

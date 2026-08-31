@@ -107,6 +107,44 @@ describe("SyncedProjectionRuntime", () => {
     expect(metrics.projections.example?.cachedValueBytes).toBeGreaterThan(0);
   });
 
+  it("publishes one field patch for a coalesced invalidation burst", async () => {
+    const sources = new Map<string, Source>([["a", { dependency: 1, unrelated: 0 }]]);
+    const runtime = new SyncedProjectionRuntime<Subscriber>({ generation: "generation-a" });
+    runtime.register(
+      definition(sources, {
+        createPatch: (_previous, next) => ({ parity: next.parity }),
+      }),
+    );
+    const subscriber = { allowedKeys: new Set(["a"]), updates: [] as unknown[] };
+
+    expect(subscribe(runtime, subscriber, ["a"])[0]).toMatchObject({
+      revision: 1,
+      value: { parity: 1 },
+    });
+    sources.get("a")!.dependency = 2;
+    runtime.invalidate("example", "a");
+    sources.get("a")!.dependency = 4;
+    runtime.invalidate("example", "a");
+    await runtime.flushForTest();
+
+    expect(subscriber.updates).toEqual([
+      {
+        projection: "example",
+        key: "a",
+        generation: "generation-a",
+        revision: 2,
+        patch: { parity: 0 },
+      },
+    ]);
+    expect(runtime.getSnapshot("example", "a")).toMatchObject({ revision: 2, value: { parity: 0 } });
+    expect(runtime.getMetrics()).toMatchObject({
+      invalidations: 2,
+      batches: 1,
+      updates: 1,
+      deliveries: 1,
+    });
+  });
+
   it("keeps no-subscriber invalidations dirty until a snapshot requests the value", async () => {
     const sources = new Map<string, Source>([["a", { dependency: 1, unrelated: 0 }]]);
     const runtime = new SyncedProjectionRuntime<Subscriber>({ generation: "generation-a" });

@@ -66,7 +66,7 @@ function makeHarness() {
     },
     sessionNameGetter: (sessionId: string) => names.get(sessionId),
     broadcastToBrowsers: vi.fn(),
-    broadcastSessionActivityUpdateGlobally: vi.fn(),
+    broadcastGlobal: vi.fn(),
     getBoardRowSessionStatuses: vi.fn((_leaderId: string, board: any[], completedBoard: any[]) =>
       buildBoardRowSessionStatuses(
         [...board, ...completedBoard],
@@ -307,7 +307,7 @@ describe("targeted board participant invalidation", () => {
     ]);
   });
 
-  it("keeps reconnect status on the existing global session-activity path", () => {
+  it("keeps status changes on the projection-only path", () => {
     const { host } = makeHarness();
     const reviewerSession = {
       id: "reviewer-1",
@@ -323,13 +323,7 @@ describe("targeted board participant invalidation", () => {
       status: "running",
     });
 
-    expect(host.broadcastSessionActivityUpdateGlobally).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "session_activity_update",
-        session_id: "reviewer-1",
-        session: expect.objectContaining({ status: "running" }),
-      }),
-    );
+    expect(host.broadcastGlobal).not.toHaveBeenCalled();
     expect(boardUpdates(host)).toHaveLength(0);
   });
 });

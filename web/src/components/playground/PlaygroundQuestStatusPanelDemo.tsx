@@ -16,7 +16,6 @@ export function PlaygroundQuestStatusPanelDemo({ variant }: { variant: "claimed"
             "playground-quest-status-worker",
           ].includes(session.sessionId),
       );
-      const sessionNames = new Map(state.sessionNames);
       const sessionBoards = new Map(state.sessionBoards);
       const quests = state.quests.filter((quest) => !["q-941", "q-88"].includes(quest.questId));
       const baseSession = {
@@ -72,6 +71,10 @@ export function PlaygroundQuestStatusPanelDemo({ variant }: { variant: "claimed"
           createdAt: Date.now() - 600000,
           backendType: "codex",
           sessionNum: 1197,
+          claimedQuestId: "q-941",
+          claimedQuestTitle: "Implement first milestone of left-right orchestration UI",
+          claimedQuestStatus: "done",
+          claimedQuestVerificationInboxUnread: true,
         },
         {
           sessionId: "playground-quest-status-board",
@@ -89,9 +92,12 @@ export function PlaygroundQuestStatusPanelDemo({ variant }: { variant: "claimed"
           createdAt: Date.now() - 420000,
           backendType: "codex",
           sessionNum: 1201,
+          name: "Compact Journey Worker",
+          claimedQuestId: "q-88",
+          claimedQuestTitle: "Propose compact Journey handoff",
+          claimedQuestStatus: "in_progress",
         },
       );
-      sessionNames.set("playground-quest-status-worker", "Compact Journey Worker");
 
       quests.push(
         {
@@ -169,7 +175,6 @@ export function PlaygroundQuestStatusPanelDemo({ variant }: { variant: "claimed"
         ...state,
         sessions,
         sdkSessions,
-        sessionNames,
         sessionBoards,
         quests,
       };

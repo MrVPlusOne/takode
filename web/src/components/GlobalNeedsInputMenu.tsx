@@ -483,20 +483,16 @@ function GlobalNeedsInputPopover({
 }
 
 export function GlobalNeedsInputMenu() {
-  const { sessionNotifications, sdkSessions, sessionNames } = useStore(
+  const { sessionNotifications, sdkSessions } = useStore(
     useShallow((s) => ({
       sessionNotifications: s.sessionNotifications,
       sdkSessions: s.sdkSessions,
-      sessionNames: s.sessionNames,
     })),
   );
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const fetchedKeysRef = useRef(new Set<string>());
-  const state = useMemo(
-    () => ({ sessionNotifications, sdkSessions, sessionNames }),
-    [sessionNotifications, sdkSessions, sessionNames],
-  );
+  const state = useMemo(() => ({ sessionNotifications, sdkSessions }), [sessionNotifications, sdkSessions]);
   const entries = useMemo(() => getGlobalNeedsInputEntries(state), [state]);
   const mutedEntries = useMemo(() => getGlobalMutedNeedsInputEntries(state), [state]);
   const fetchRequests = useMemo(() => needsInputFetchRequests(state), [state]);

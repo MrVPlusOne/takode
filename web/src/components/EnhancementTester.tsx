@@ -21,8 +21,9 @@ export function EnhancementTester() {
   } | null>(null);
 
   const currentSessionId = useStore((s) => s.currentSessionId);
-  const sessionNames = useStore((s) => s.sessionNames);
-  const sessionName = currentSessionId ? sessionNames.get(currentSessionId) : null;
+  const sessionName = useStore((s) =>
+    currentSessionId ? s.sdkSessions.find((session) => session.sessionId === currentSessionId)?.name : undefined,
+  );
 
   async function handleRun() {
     setLoading(true);

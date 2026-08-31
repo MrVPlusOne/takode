@@ -34,7 +34,6 @@ function entriesFor({
   return getGlobalNeedsInputEntries({
     sdkSessions,
     sessionNotifications,
-    sessionNames: new Map(),
   });
 }
 
@@ -125,7 +124,6 @@ describe("getGlobalNeedsInputEntries", () => {
         }),
       ],
       sessionNotifications: new Map([["s1", [muted, needsInputNotification({ id: "active" })]]]),
-      sessionNames: new Map(),
     });
 
     expect(entries.map((entry) => entry.notification.id)).toEqual(["muted"]);

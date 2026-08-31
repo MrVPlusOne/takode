@@ -121,10 +121,6 @@ export function usePlaygroundSeed() {
     const prevToolProgress = new Map(demoSessionIds.map((id) => [id, snapshot.toolProgress.get(id)]));
     const prevToolResults = new Map(demoSessionIds.map((id) => [id, snapshot.toolResults.get(id)]));
     const prevToolStartTimestamps = new Map(demoSessionIds.map((id) => [id, snapshot.toolStartTimestamps.get(id)]));
-    const prevQuestNamed = new Map([
-      [questInProgressId, snapshot.questNamedSessions.has(questInProgressId)],
-      [questVerificationId, snapshot.questNamedSessions.has(questVerificationId)],
-    ]);
     const sidebarTimerDemoIds = ["leader-alpha", "playground-worker-banner"];
     const prevSessionTimers = new Map(sidebarTimerDemoIds.map((id) => [id, snapshot.sessionTimers.get(id)]));
 
@@ -1770,8 +1766,7 @@ export function usePlaygroundSeed() {
       buildPlaygroundActionRequiredRecoveryMessages(interruptedTurnRecoveryBase.recoveryId),
     );
 
-    // Seed quest-named state for sidebar quest demo rows.
-    // SessionItem reads isQuestNamed + claimedQuestStatus from the store.
+    // Seed claimed-quest state used by non-sidebar playground surfaces.
     store.addSession({ ...session, session_id: questInProgressId, claimedQuestStatus: "in_progress" });
     store.addSession({
       ...session,
@@ -1779,8 +1774,6 @@ export function usePlaygroundSeed() {
       claimedQuestStatus: "done",
       claimedQuestVerificationInboxUnread: true,
     });
-    store.markQuestNamed(questInProgressId);
-    store.markQuestNamed(questVerificationId);
     store.setSessionTimers("leader-alpha", [
       {
         id: "sidebar-timer-1",
@@ -1856,7 +1849,6 @@ export function usePlaygroundSeed() {
         const toolProgress = new Map(s.toolProgress);
         const toolResults = new Map(s.toolResults);
         const toolStartTimestamps = new Map(s.toolStartTimestamps);
-        const questNamedSessions = new Set(s.questNamedSessions);
 
         for (const demoId of demoSessionIds) {
           const prevSession = prevSessions.get(demoId);
@@ -1951,11 +1943,6 @@ export function usePlaygroundSeed() {
           if (prevTimers) sessionTimers.set(timerDemoId, prevTimers);
           else sessionTimers.delete(timerDemoId);
         }
-        for (const questId of [questInProgressId, questVerificationId]) {
-          if (prevQuestNamed.get(questId)) questNamedSessions.add(questId);
-          else questNamedSessions.delete(questId);
-        }
-
         return {
           sessions,
           messages,
@@ -1986,7 +1973,6 @@ export function usePlaygroundSeed() {
           toolProgress,
           toolResults,
           toolStartTimestamps,
-          questNamedSessions,
         };
       });
     };

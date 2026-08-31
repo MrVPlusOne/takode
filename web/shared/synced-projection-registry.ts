@@ -8,6 +8,7 @@ import {
 import {
   SESSION_NAVIGATION_PROJECTION,
   SESSION_NAVIGATION_PROJECTION_MAX_VALUE_BYTES,
+  applySessionNavigationProjectionPatch,
   isSessionNavigationProjectionValue,
   reconcileSessionNavigationProjectionValue,
   sessionNavigationProjectionEqual,
@@ -52,6 +53,7 @@ export interface SyncedProjectionDescriptor<K extends SyncedProjectionId> {
     previous: SyncedProjectionValueById[K] | undefined,
     next: SyncedProjectionValueById[K],
   ) => SyncedProjectionValueById[K];
+  applyPatch?: (previous: SyncedProjectionValueById[K], patch: unknown) => SyncedProjectionValueById[K] | undefined;
 }
 
 /** Type-erased lookup shape used only after a projection ID crosses an unknown wire boundary. */
@@ -63,6 +65,7 @@ export interface AnySyncedProjectionDescriptor {
   isValue: (value: unknown) => boolean;
   equal: (left: any, right: any) => boolean;
   reconcile: (previous: any, next: any) => unknown;
+  applyPatch?: (previous: any, patch: unknown) => unknown;
 }
 
 export type SyncedProjectionEnvelopeFor<K extends SyncedProjectionId> = SyncedProjectionEnvelope<
@@ -101,6 +104,7 @@ export const SYNCED_PROJECTION_DESCRIPTORS = {
     isValue: isSessionNavigationProjectionValue,
     equal: sessionNavigationProjectionEqual,
     reconcile: reconcileSessionNavigationProjectionValue,
+    applyPatch: applySessionNavigationProjectionPatch,
   }),
   [LEADER_THREAD_TABS_PROJECTION]: defineSyncedProjectionDescriptor({
     projection: LEADER_THREAD_TABS_PROJECTION,

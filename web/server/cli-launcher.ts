@@ -1702,6 +1702,14 @@ export class CliLauncher {
     }
   }
 
+  /** Repair a persisted human-activity timestamp from authoritative history. */
+  setLastUserMessageAt(sessionId: string, timestamp: number | undefined): void {
+    const info = this.sessions.get(sessionId);
+    if (!info || info.lastUserMessageAt === timestamp) return;
+    info.lastUserMessageAt = timestamp;
+    this.persistState();
+  }
+
   /**
    * Update worktree-related fields on a session (e.g. after recreating a
    * worktree for an unarchived session).

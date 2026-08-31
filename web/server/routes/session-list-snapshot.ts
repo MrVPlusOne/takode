@@ -1,7 +1,6 @@
 import { access as accessAsync } from "node:fs/promises";
 import { stripInternalLauncherSessionState, type CliLauncher } from "../cli-launcher.js";
 import {
-  countPendingUserPermissions,
   getNotificationStatusSnapshot,
   summarizePendingPermissions,
   type NotificationStatusSnapshot,
@@ -9,14 +8,16 @@ import {
 import { getSettings } from "../settings-manager.js";
 import type { TimerManager } from "../timer-manager.js";
 import type { WsBridge } from "../ws-bridge.js";
-import * as sessionNames from "../session-names.js";
-import { computeSessionTurnMetrics, getLastActualHumanUserMessageTimestamp } from "../user-message-classification.js";
+import { computeSessionTurnMetrics } from "../user-message-classification.js";
 import { getLeaderProfilePortraitForSession } from "../leader-profile-assignments.js";
 import { buildLeaderActivePhaseSummary } from "../../shared/leader-active-phase-summary.js";
 import { getBoard as getBoardController } from "../bridge/board-watchdog-controller.js";
 import { projectSessionLifecycleEvents } from "../session-lifecycle-projection.js";
 import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
-import { SESSION_NAVIGATION_PROJECTION } from "../../shared/session-navigation-projection.js";
+import {
+  SESSION_NAVIGATION_PROJECTION,
+  sessionNavigationProjectionToSessionFields,
+} from "../../shared/session-navigation-projection.js";
 import { LEADER_THREAD_TABS_PROJECTION } from "../../shared/leader-thread-tabs-projection.js";
 import {
   SYNCED_PROJECTION_DESCRIPTORS,
@@ -26,15 +27,12 @@ import {
 type SessionListEntry = ReturnType<CliLauncher["listSessions"]>[number];
 const scheduledWorktreeGitStateRefreshes = new Map<string, ReturnType<typeof setTimeout>>();
 
-function positiveInteger(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 1 ? Math.floor(value) : undefined;
-}
-
 export interface BuildEnrichedSessionsSnapshotDeps {
   launcher: CliLauncher;
   wsBridge: WsBridge;
-  timerManager?: TimerManager;
-  pendingWorktreeCleanups: Map<string, Promise<void>>;
+  timerManager?: Pick<TimerManager, "listTimers">;
+  getSessionName?: (sessionId: string) => string | undefined;
+  pendingWorktreeCleanups?: Map<string, Promise<void>>;
 }
 
 export function scheduleWorktreeGitStateRefreshForSnapshot(
@@ -92,7 +90,7 @@ export async function buildEnrichedSessionsSnapshot(
   deps: BuildEnrichedSessionsSnapshotDeps,
   filterFn?: (session: SessionListEntry) => boolean,
 ) {
-  const { launcher, wsBridge, timerManager, pendingWorktreeCleanups } = deps;
+  const { launcher, wsBridge, pendingWorktreeCleanups } = deps;
   const sessions = launcher.listSessions().filter((session) => session.hidden !== true);
   const pool = filterFn ? sessions.filter(filterFn) : sessions;
   return buildEnrichedSessionsSnapshotFromEntries(deps, pool);
@@ -102,14 +100,12 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
   deps: BuildEnrichedSessionsSnapshotDeps,
   pool: SessionListEntry[],
 ) {
-  const { launcher, wsBridge, timerManager, pendingWorktreeCleanups } = deps;
-  const names = sessionNames.getAllNames();
+  const { launcher, wsBridge, pendingWorktreeCleanups } = deps;
   const settings = getSettings();
   const heavyRepoModeEnabled = settings.heavyRepoModeEnabled;
   return Promise.all(
     pool.map(async (session) => {
       let s = session;
-      const pendingTimerCount = timerManager?.listTimers(s.sessionId).length ?? 0;
       let notificationSummary: NotificationStatusSnapshot = {
         notificationUrgency: null,
         activeNotificationCount: 0,
@@ -120,7 +116,11 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
         notificationStatusUpdatedAt: 0,
       };
       try {
-        if (s.worktreeCleanupStatus === "pending" && !pendingWorktreeCleanups.has(s.sessionId)) {
+        if (
+          pendingWorktreeCleanups &&
+          s.worktreeCleanupStatus === "pending" &&
+          !pendingWorktreeCleanups.has(s.sessionId)
+        ) {
           launcher.setWorktreeCleanupState(s.sessionId, {
             status: "failed",
             error: s.worktreeCleanupError || "Cleanup was interrupted before completion.",
@@ -130,7 +130,6 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
           s = launcher.getSession(s.sessionId) ?? s;
         }
 
-        const launcherCodexLeaderRecycleThresholdTokens = s.codexLeaderRecycleThresholdTokens;
         const { codexLeaderRecycleThresholdTokens: _hiddenControlThreshold, ...safeSession } =
           stripInternalLauncherSessionState(s);
         const bridgeSession = wsBridge.getSession(s.sessionId);
@@ -184,27 +183,25 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
           projectionFields[SYNCED_PROJECTION_DESCRIPTORS[SESSION_NAVIGATION_PROJECTION].restField] =
             sessionNavigationProjection;
         }
-        const lastUserMessageAt = currentBridgeSession
-          ? getLastActualHumanUserMessageTimestamp(currentBridgeSession.messageHistory)
-          : safeSession.lastUserMessageAt;
+        // Persisted archived rows and a narrow pre-restore window have no live
+        // projection authority. Preserve only the independent durable/list
+        // metadata needed to identify those rows; do not rebuild the full
+        // navigation model from bridge, git, history, or status sources.
+        const navigationFields = sessionNavigationProjection
+          ? sessionNavigationProjectionToSessionFields(sessionNavigationProjection.value)
+          : {
+              sessionNum: launcher.getSessionNum(s.sessionId) ?? safeSession.sessionNum,
+              name: deps.getSessionName?.(s.sessionId) ?? safeSession.name,
+              pendingTimerCount:
+                deps.timerManager?.listTimers(s.sessionId).length ?? safeSession.pendingTimerCount ?? 0,
+            };
         const attention = currentBridgeSession
           ? {
               lastReadAt: currentBridgeSession.lastReadAt,
               attentionReason: currentBridgeSession.attentionReason,
-              pendingPermissionCount: countPendingUserPermissions(currentBridgeSession),
               pendingPermissionSummary: summarizePendingPermissions(currentBridgeSession),
             }
           : null;
-        const model = bridge?.model || safeSession.model;
-        const treeGroupId = bridge?.treeGroupId ?? safeSession.treeGroupId ?? null;
-        const memorySessionSpaceSlug = bridge?.memorySessionSpaceSlug ?? safeSession.memorySessionSpaceSlug ?? null;
-        const cliConnected = wsBridge.isBackendConnected(s.sessionId);
-        const effectiveState = cliConnected && currentBridgeSession?.isGenerating ? "running" : safeSession.state;
-        const codexLeaderRecycleThresholdTokens =
-          safeSession.backendType === "codex" && safeSession.isOrchestrator === true
-            ? (positiveInteger(launcherCodexLeaderRecycleThresholdTokens) ??
-              positiveInteger(bridge?.codex_leader_recycle_threshold_tokens))
-            : undefined;
         const leaderProfilePortrait = getLeaderProfilePortraitForSession(
           safeSession,
           settings.leaderProfilePools,
@@ -220,58 +217,20 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
         );
         const leaderActivePhaseSummary =
           leaderActiveBoardRows === undefined ? undefined : buildLeaderActivePhaseSummary(leaderActiveBoardRows);
-        const gitAhead = bridge?.git_ahead || 0;
-        const gitBehind = bridge?.git_behind || 0;
         return {
           ...safeSession,
-          lastUserMessageAt,
-          // Bridge model (from system.init) is more accurate than launcher model
-          // (creation-time value, often empty for "default").
-          model,
-          state: effectiveState,
-          treeGroupId,
-          memorySessionSpaceSlug,
-          sessionNum: launcher.getSessionNum(s.sessionId) ?? null,
-          name: names[s.sessionId] ?? s.name,
-          gitBranch: bridge?.git_branch || "",
-          gitDefaultBranch: bridge?.git_default_branch || "",
-          diffBaseBranch: bridge?.diff_base_branch || "",
-          gitAhead,
-          gitBehind,
-          totalLinesAdded: bridge?.total_lines_added || 0,
-          totalLinesRemoved: bridge?.total_lines_removed || 0,
-          diffStatsSkippedReason: bridge?.diff_stats_skipped_reason ?? null,
-          gitStatusRefreshedAt: bridge?.git_status_refreshed_at,
-          gitStatusRefreshError: bridge?.git_status_refresh_error ?? null,
-          userTurnCount: turnMetrics?.userTurnCount ?? bridge?.user_turn_count ?? bridge?.num_turns ?? 0,
-          agentTurnCount: turnMetrics?.agentTurnCount ?? bridge?.agent_turn_count ?? 0,
-          numTurns: turnMetrics?.userTurnCount ?? bridge?.user_turn_count ?? bridge?.num_turns ?? 0,
-          contextUsedPercent: bridge?.context_used_percent || 0,
-          messageHistoryBytes: bridge?.message_history_bytes || 0,
-          codexRetainedPayloadBytes: bridge?.codex_retained_payload_bytes || 0,
+          ...navigationFields,
           sessionLifecycleEvents: projectSessionLifecycleEvents(bridge?.lifecycle_events),
           leaderProfilePortraitId,
           ...(leaderProfilePortrait ? { leaderProfilePortrait } : {}),
-          ...(codexLeaderRecycleThresholdTokens ? { codexLeaderRecycleThresholdTokens } : {}),
           ...(bridge?.codex_token_details ? { codexTokenDetails: bridge.codex_token_details } : {}),
-          codexEffectiveReasoningEffort: bridge?.codex_effective_reasoning_effort ?? null,
-          codexEffectiveReasoningEffortReported: bridge?.codex_effective_reasoning_effort_reported === true,
           ...(bridge?.claude_token_details ? { claudeTokenDetails: bridge.claude_token_details } : {}),
           ...(bridge?.leaderOpenThreadTabs ? { leaderOpenThreadTabs: bridge.leaderOpenThreadTabs } : {}),
           ...(leaderActiveBoardRows !== undefined ? { leaderActiveBoardRows } : {}),
           ...(leaderActivePhaseSummary !== undefined ? { leaderActivePhaseSummary } : {}),
-          lastMessagePreview: currentBridgeSession?.lastUserMessage || "",
-          cliConnected,
           taskHistory: currentBridgeSession?.taskHistory ?? [],
           keywords: currentBridgeSession?.keywords ?? [],
-          claimedQuestId: bridge?.claimedQuestId ?? null,
-          claimedQuestTitle: bridge?.claimedQuestTitle ?? null,
-          claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
-          claimedQuestVerificationInboxUnread: bridge?.claimedQuestVerificationInboxUnread,
-          claimedQuestLeaderSessionId: bridge?.claimedQuestLeaderSessionId ?? null,
-          pendingTimerCount,
           pause: bridge?.pause ?? null,
-          pausedInputQueueCount: bridge?.pause?.queuedMessages.length ?? 0,
           codexResultErrorAutoPause: bridge?.codex_result_error_auto_pause ?? null,
           codexAutoPausedInputCount:
             bridge?.codex_result_error_auto_pause?.heldInputs.reduce(
@@ -285,10 +244,12 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
         };
       } catch (e) {
         console.warn(`[routes] Failed to enrich session ${s.sessionId}:`, e);
+        const safeSession = stripInternalLauncherSessionState(s);
         return {
-          ...stripInternalLauncherSessionState(s),
-          name: names[s.sessionId] ?? s.name,
-          pendingTimerCount,
+          ...safeSession,
+          sessionNum: launcher.getSessionNum(s.sessionId) ?? safeSession.sessionNum,
+          name: deps.getSessionName?.(s.sessionId) ?? safeSession.name,
+          pendingTimerCount: deps.timerManager?.listTimers(s.sessionId).length ?? safeSession.pendingTimerCount ?? 0,
           ...notificationSummary,
         };
       }

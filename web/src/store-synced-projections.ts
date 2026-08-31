@@ -4,12 +4,18 @@ import {
   isValidSyncedProjectionRevision,
   syncedProjectionEntryId,
   type SyncedProjectionEnvelope,
+  type SyncedProjectionPatchEnvelope,
   type SyncedProjectionVersion,
 } from "../shared/synced-projection.js";
 import {
   SESSION_ATTENTION_PROJECTION,
   type SessionAttentionProjectionValue,
 } from "../shared/session-attention-projection.js";
+import {
+  SESSION_NAVIGATION_PROJECTION,
+  sessionNavigationProjectionToSessionFields,
+  type SessionNavigationProjectionValue,
+} from "../shared/session-navigation-projection.js";
 import {
   getSyncedProjectionDescriptor,
   type AnySyncedProjectionDescriptor,
@@ -117,6 +123,24 @@ function parseKnownEnvelope(input: unknown): {
     envelope: candidate as AnySyncedProjectionEnvelope,
     descriptor,
   };
+}
+
+function parseKnownPatch(input: unknown): {
+  envelope: SyncedProjectionPatchEnvelope;
+  descriptor: AnySyncedProjectionDescriptor;
+} | null {
+  if (!input || typeof input !== "object") return null;
+  const candidate = input as Partial<SyncedProjectionPatchEnvelope>;
+  if (!isValidSyncedProjectionIdentity(candidate.projection)) return null;
+  if (!isValidSyncedProjectionIdentity(candidate.key)) return null;
+  if (!isValidSyncedProjectionIdentity(candidate.generation)) return null;
+  if (!isValidSyncedProjectionRevision(candidate.revision)) return null;
+  if (!("patch" in candidate)) return null;
+  const descriptor = getSyncedProjectionDescriptor(candidate.projection);
+  if (!descriptor?.applyPatch) return null;
+  const patchBytes = jsonUtf8ByteLength(candidate.patch);
+  if (patchBytes === null || patchBytes > descriptor.maxValueBytes) return null;
+  return { envelope: candidate as SyncedProjectionPatchEnvelope, descriptor };
 }
 
 /** True when a fully valid snapshot is already covered by same-generation cache authority. */
@@ -325,12 +349,13 @@ export function applySyncedProjectionUpdateToCache(
   input: unknown,
   options: SyncedProjectionUpdateApplyOptions = {},
 ): SyncedProjectionCacheApplication {
-  const parsed = parseKnownEnvelope(input);
-  if (!parsed) return { state, result: INVALID_RESULT };
-  const { envelope, descriptor } = parsed;
+  const full = parseKnownEnvelope(input);
+  const partial = full ? null : parseKnownPatch(input);
+  if (!full && !partial) return { state, result: INVALID_RESULT };
+  const { envelope, descriptor } = full ?? partial!;
   const entryId = syncedProjectionEntryId(envelope.projection, envelope.key);
   const ordered = state.syncedProjectionKeys.has(entryId)
-    ? applyOrderingMetadata(state, envelope, {
+    ? applyOrderingMetadata(state, envelope as SyncedProjectionEnvelope<unknown>, {
         source: "live",
         activeRequestSequence: options.activeRequestSequence,
       })
@@ -347,16 +372,35 @@ export function applySyncedProjectionUpdateToCache(
   if (envelope.revision < currentVersion.revision) {
     return applicationWithResult(orderedState, STALE_RESULT, envelope.projection, envelope.key);
   }
+
+  const currentValue = orderedState.syncedProjectionValues.get(entryId);
+  if (!orderedState.syncedProjectionValues.has(entryId)) {
+    return applicationWithResult(orderedState, RESYNC_RESULT, envelope.projection, envelope.key);
+  }
+  const nextValue = full ? full.envelope.value : descriptor.applyPatch?.(currentValue, partial!.envelope.patch);
+  if (nextValue === undefined || !descriptor.isValue(nextValue)) {
+    return applicationWithResult(orderedState, RESYNC_RESULT, envelope.projection, envelope.key);
+  }
+
   if (envelope.revision === currentVersion.revision) {
-    const currentValue = orderedState.syncedProjectionValues.get(entryId);
-    if (!orderedState.syncedProjectionValues.has(entryId) || !descriptor.equal(currentValue, envelope.value)) {
-      return applicationWithResult(orderedState, RESYNC_RESULT, envelope.projection, envelope.key);
-    }
-    return applicationWithResult(orderedState, UNCHANGED_RESULT, envelope.projection, envelope.key);
+    return applicationWithResult(
+      orderedState,
+      descriptor.equal(currentValue, nextValue) ? UNCHANGED_RESULT : RESYNC_RESULT,
+      envelope.projection,
+      envelope.key,
+    );
   }
 
   const isContiguous = envelope.revision === currentVersion.revision + 1;
-  return commitEnvelope(orderedState, envelope, descriptor, { requestResync: !isContiguous });
+  if (partial && !isContiguous) {
+    return applicationWithResult(orderedState, RESYNC_RESULT, envelope.projection, envelope.key);
+  }
+  return commitEnvelope(
+    orderedState,
+    { ...envelope, value: nextValue } as SyncedProjectionEnvelope<unknown>,
+    descriptor,
+    { requestResync: !isContiguous },
+  );
 }
 
 export function getSyncedProjectionValue<K extends SyncedProjectionId>(
@@ -375,6 +419,30 @@ export function hasSyncedProjectionValue<K extends SyncedProjectionId>(
   key: string,
 ): boolean {
   return state.syncedProjectionKeys?.has(syncedProjectionEntryId(projection, key)) ?? false;
+}
+
+function materializeSessionNavigationRow(
+  sdkSessions: AppState["sdkSessions"],
+  state: SyncedProjectionCacheState,
+  application: Pick<SyncedProjectionCacheApplication, "result" | "projection" | "key">,
+): AppState["sdkSessions"] {
+  if (!application.result.accepted || application.projection !== SESSION_NAVIGATION_PROJECTION || !application.key) {
+    return sdkSessions;
+  }
+  const value = state.syncedProjectionValues.get(
+    syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, application.key),
+  ) as SessionNavigationProjectionValue | undefined;
+  if (!value) return sdkSessions;
+  const index = sdkSessions.findIndex((session) => session.sessionId === application.key);
+  if (index < 0) return sdkSessions;
+  const current = sdkSessions[index]!;
+  const fields = sessionNavigationProjectionToSessionFields(value);
+  if (Object.entries(fields).every(([key, next]) => current[key as keyof typeof current] === next)) {
+    return sdkSessions;
+  }
+  const next = sdkSessions.slice();
+  next[index] = { ...current, ...fields };
+  return next;
 }
 
 type StoreSet = Parameters<StateCreator<AppState>>[0];
@@ -466,7 +534,9 @@ export function createSyncedProjectionStoreSlice(set: StoreSet): SyncedProjectio
     set((state) => {
       const application = reducer(state);
       result = application.result;
-      return application.state === state ? state : application.state;
+      const sdkSessions = materializeSessionNavigationRow(state.sdkSessions, application.state, application);
+      if (application.state === state && sdkSessions === state.sdkSessions) return state;
+      return sdkSessions === state.sdkSessions ? application.state : { ...application.state, sdkSessions };
     });
     return result;
   };
@@ -491,10 +561,14 @@ export function createSyncedProjectionStoreSlice(set: StoreSet): SyncedProjectio
     applySyncedProjectionSnapshots: (snapshots, options) =>
       set((state) => {
         let next: SyncedProjectionCacheState = state;
+        let sdkSessions = state.sdkSessions;
         for (const snapshot of snapshots) {
-          next = applySyncedProjectionSnapshotToCache(next, snapshot, options).state;
+          const application = applySyncedProjectionSnapshotToCache(next, snapshot, options);
+          next = application.state;
+          sdkSessions = materializeSessionNavigationRow(sdkSessions, next, application);
         }
-        return next === state ? state : next;
+        if (next === state && sdkSessions === state.sdkSessions) return state;
+        return sdkSessions === state.sdkSessions ? next : { ...next, sdkSessions };
       }),
     applySyncedProjectionUpdate: (update, options) =>
       apply((state) => applySyncedProjectionUpdateToCache(state, update, options)),

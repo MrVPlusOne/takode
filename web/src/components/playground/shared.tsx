@@ -777,7 +777,6 @@ export function CodexPlaygroundDemo() {
 export function PlaygroundHerdEventDemo({ id, content }: { id: string; content: string }) {
   useEffect(() => {
     const prevSdkSessions = useStore.getState().sdkSessions;
-    const prevSessionNames = useStore.getState().sessionNames;
 
     useStore.setState({
       sdkSessions: [
@@ -791,16 +790,13 @@ export function PlaygroundHerdEventDemo({ id, content }: { id: string; content: 
           model: "gpt-5.4-mini",
           backendType: "codex",
           cliConnected: true,
+          name: "Worker Alpha",
         },
       ],
-      sessionNames: new Map(prevSessionNames).set("worker-alpha", "Worker Alpha"),
     });
 
     return () => {
-      useStore.setState({
-        sdkSessions: prevSdkSessions,
-        sessionNames: prevSessionNames,
-      });
+      useStore.setState({ sdkSessions: prevSdkSessions });
     };
   }, []);
 
@@ -1466,6 +1462,7 @@ export function PlaygroundHoverCrossLinkDemo({ text }: { text: string }) {
           model: "gpt-5.4",
           repoRoot: "/Users/stan/Dev/takode",
           isOrchestrator: true,
+          name: "Leader Hover Demo",
         });
       }
       if (!nextSdkSessions.some((session) => session.sessionId === "playground-hover-worker")) {
@@ -1483,6 +1480,7 @@ export function PlaygroundHoverCrossLinkDemo({ text }: { text: string }) {
           notificationUrgency: "needs-input",
           activeNotificationCount: 2,
           activeNeedsInputNotificationCount: 2,
+          name: "Worker Hover Demo",
         });
       }
       if (!nextSdkSessions.some((session) => session.sessionId === "playground-hover-reviewer")) {
@@ -1496,13 +1494,9 @@ export function PlaygroundHoverCrossLinkDemo({ text }: { text: string }) {
           backendType: "codex",
           model: "gpt-5.4",
           repoRoot: "/Users/stan/Dev/takode",
+          name: "Reviewer Hover Demo",
         });
       }
-
-      const nextSessionNames = new Map(state.sessionNames);
-      nextSessionNames.set("playground-hover-leader", "Leader Hover Demo");
-      nextSessionNames.set("playground-hover-worker", "Worker Hover Demo");
-      nextSessionNames.set("playground-hover-reviewer", "Reviewer Hover Demo");
 
       const nextQuests = [...state.quests];
       const hoverQuest = {
@@ -1598,7 +1592,6 @@ export function PlaygroundHoverCrossLinkDemo({ text }: { text: string }) {
       return {
         ...state,
         sdkSessions: nextSdkSessions,
-        sessionNames: nextSessionNames,
         quests: nextQuests,
         sessionBoards: nextSessionBoards,
         sessionBoardRowStatuses: nextSessionBoardRowStatuses,
@@ -1630,17 +1623,11 @@ export function PlaygroundMessageLinkHoverDemo() {
           backendType: "codex",
           model: "gpt-5.4-mini",
           repoRoot: "/Users/stan/Dev/takode",
+          name: "Worker Hover Demo",
         });
       }
 
-      const nextSessionNames = new Map(state.sessionNames);
-      nextSessionNames.set("playground-hover-worker", "Worker Hover Demo");
-
-      return {
-        ...state,
-        sdkSessions: nextSdkSessions,
-        sessionNames: nextSessionNames,
-      };
+      return { ...state, sdkSessions: nextSdkSessions };
     });
 
     const originalFetchMessagePreview = api.fetchMessagePreview;

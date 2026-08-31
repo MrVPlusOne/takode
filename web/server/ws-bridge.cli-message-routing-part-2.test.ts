@@ -1001,7 +1001,10 @@ describe("CLI message routing", () => {
     // Idle Claude sessions send periodic keep_alive pings. These must NOT
     // refresh lastActivityAt, otherwise the idle manager treats them as
     // recently active and kills sessions with real user activity instead.
-    const mockLauncher = { touchActivity: vi.fn() } as any;
+    const mockLauncher = {
+      touchActivity: vi.fn(),
+      getSession: vi.fn(() => undefined),
+    } as any;
     bridge.setLauncher(mockLauncher);
 
     bridge.handleCLIMessage(cli, JSON.stringify({ type: "keep_alive" }));

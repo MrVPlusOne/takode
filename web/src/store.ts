@@ -52,7 +52,6 @@ import {
   getInitialNotificationDesktop,
   getInitialNotificationSound,
   getInitialSessionId,
-  getInitialSessionNames,
   getInitialZoomLevel,
 } from "./store-initial.js";
 import type { AppState, PendingSession } from "./store-types.js";
@@ -64,7 +63,6 @@ import {
   updateFeedWindowSyncState,
 } from "./store-feed-window-sync.js";
 import { isDesktopShellLayout } from "./utils/layout.js";
-import { formatReplyContentForPreview } from "./utils/reply-context.js";
 import {
   createChatDisplaySettingsHydrator,
   getInitialChatMessageLineHeight,
@@ -196,11 +194,7 @@ export const useStore = create<AppState>((set, get) => ({
     }),
   changedFiles: new Map(),
   diffFileStats: new Map(),
-  sessionNames: getInitialSessionNames(),
   recentlyRenamed: new Set(),
-  questNamedSessions: new Set(),
-  sessionPreviews: new Map(),
-  sessionPreviewUpdatedAt: new Map(),
   sessionTaskHistory: new Map(),
   pendingCodexInputs: new Map(),
   sessionKeywords: new Map(),
@@ -527,75 +521,19 @@ export const useStore = create<AppState>((set, get) => ({
 
   setSdkSessions: (sessions) =>
     set((s) => {
-      const currentSessionId = s.currentSessionId;
       const sdkSessionsChanged = !sdkSessionListEqual(s.sdkSessions, sessions);
-      let cliConnected = s.cliConnected;
       let cliEverConnected = s.cliEverConnected;
-      let cliDisconnectReason = s.cliDisconnectReason;
-      let sessionStatus = s.sessionStatus;
-      let cliConnectedChanged = false;
-      let cliEverConnectedChanged = false;
-      let cliDisconnectReasonChanged = false;
-      let sessionStatusChanged = false;
-
       for (const session of sessions) {
-        const { sessionId } = session;
-        if (typeof session.cliConnected === "boolean") {
-          const prevCliConnected = cliConnected.get(sessionId);
-          if (prevCliConnected !== session.cliConnected) {
-            if (!cliConnectedChanged) cliConnected = new Map(cliConnected);
-            cliConnected.set(sessionId, session.cliConnected);
-            cliConnectedChanged = true;
-          }
-          if (session.cliConnected) {
-            if (cliDisconnectReason.get(sessionId) !== null) {
-              if (!cliDisconnectReasonChanged) cliDisconnectReason = new Map(cliDisconnectReason);
-              cliDisconnectReason.set(sessionId, null);
-              cliDisconnectReasonChanged = true;
-            }
-          }
-        }
         const hasHistoricalBackendEvidence =
           session.cliConnected === true || Boolean(session.cliSessionId) || (session.agentTurnCount ?? 0) > 0;
-        if (hasHistoricalBackendEvidence && !cliEverConnected.get(sessionId)) {
-          if (!cliEverConnectedChanged) cliEverConnected = new Map(cliEverConnected);
-          cliEverConnected.set(sessionId, true);
-          cliEverConnectedChanged = true;
-        }
-
-        // Non-current sessions no longer keep a live chat socket open, so their
-        // sidebar chip status must be refreshed from the server-authoritative
-        // /api/sessions poll. Preserve the current session's live WebSocket
-        // status so we don't clobber richer states like compacting/reverting.
-        if (sessionId === currentSessionId) continue;
-        const nextStatus = session.state === "running" ? "running" : null;
-        const prevStatus = sessionStatus.get(sessionId) ?? null;
-        if (prevStatus === nextStatus) continue;
-        if (!sessionStatusChanged) sessionStatus = new Map(sessionStatus);
-        if (nextStatus === null) {
-          sessionStatus.delete(sessionId);
-        } else {
-          sessionStatus.set(sessionId, nextStatus);
-        }
-        sessionStatusChanged = true;
+        if (!hasHistoricalBackendEvidence || cliEverConnected.get(session.sessionId)) continue;
+        if (cliEverConnected === s.cliEverConnected) cliEverConnected = new Map(cliEverConnected);
+        cliEverConnected.set(session.sessionId, true);
       }
-
-      if (
-        !sdkSessionsChanged &&
-        !cliConnectedChanged &&
-        !cliEverConnectedChanged &&
-        !cliDisconnectReasonChanged &&
-        !sessionStatusChanged
-      ) {
-        return s;
-      }
-
+      if (!sdkSessionsChanged && cliEverConnected === s.cliEverConnected) return s;
       return {
         ...(sdkSessionsChanged ? { sdkSessions: sessions } : {}),
-        ...(cliConnectedChanged ? { cliConnected } : {}),
-        ...(cliEverConnectedChanged ? { cliEverConnected } : {}),
-        ...(cliDisconnectReasonChanged ? { cliDisconnectReason } : {}),
-        ...(sessionStatusChanged ? { sessionStatus } : {}),
+        ...(cliEverConnected !== s.cliEverConnected ? { cliEverConnected } : {}),
       };
     }),
 
@@ -1179,14 +1117,6 @@ export const useStore = create<AppState>((set, get) => ({
       return { diffFileStats };
     }),
 
-  setSessionName: (sessionId, name) =>
-    set((s) => {
-      const sessionNames = new Map(s.sessionNames);
-      sessionNames.set(sessionId, name);
-      scopedSetItem("cc-session-names", JSON.stringify(Array.from(sessionNames.entries())));
-      return { sessionNames };
-    }),
-
   markRecentlyRenamed: (sessionId) =>
     set((s) => {
       const recentlyRenamed = new Set(s.recentlyRenamed);
@@ -1199,31 +1129,6 @@ export const useStore = create<AppState>((set, get) => ({
       const recentlyRenamed = new Set(s.recentlyRenamed);
       recentlyRenamed.delete(sessionId);
       return { recentlyRenamed };
-    }),
-
-  markQuestNamed: (sessionId) =>
-    set((s) => {
-      if (s.questNamedSessions.has(sessionId)) return s;
-      const questNamedSessions = new Set(s.questNamedSessions);
-      questNamedSessions.add(sessionId);
-      return { questNamedSessions };
-    }),
-
-  clearQuestNamed: (sessionId) =>
-    set((s) => {
-      if (!s.questNamedSessions.has(sessionId)) return s;
-      const questNamedSessions = new Set(s.questNamedSessions);
-      questNamedSessions.delete(sessionId);
-      return { questNamedSessions };
-    }),
-
-  setSessionPreview: (sessionId, preview) =>
-    set((s) => {
-      const sessionPreviews = new Map(s.sessionPreviews);
-      sessionPreviews.set(sessionId, formatReplyContentForPreview(preview).slice(0, 80));
-      const sessionPreviewUpdatedAt = new Map(s.sessionPreviewUpdatedAt);
-      sessionPreviewUpdatedAt.set(sessionId, Date.now());
-      return { sessionPreviews, sessionPreviewUpdatedAt };
     }),
 
   setSessionTaskPreview: (sessionId, text) =>
@@ -1887,10 +1792,7 @@ export const useStore = create<AppState>((set, get) => ({
       sessionAttentionRecords: new Map(),
       changedFiles: new Map(),
       diffFileStats: new Map(),
-      sessionNames: new Map(),
       recentlyRenamed: new Set(),
-      sessionPreviews: new Map(),
-      sessionPreviewUpdatedAt: new Map(),
       sessionTaskHistory: new Map(),
       pendingCodexInputs: new Map(),
       sessionKeywords: new Map(),

@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState, type RefObject } from "react";
+import { memo, useRef, useCallback, useState, type RefObject } from "react";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { deriveSessionStatus, ScheduledTimerStatusIcon, type SessionVisualStatus } from "./SessionStatusDot.js";
 import { useStore } from "../store.js";
@@ -272,7 +272,7 @@ export interface SessionItemProps {
   useStatusBar?: boolean;
 }
 
-export function SessionItem({
+function SessionItemComponent({
   session: s,
   isActive,
   isArchived: archived,
@@ -327,18 +327,9 @@ export function SessionItem({
   const shortId = s.id.slice(0, 8);
   const label = sessionName || s.model || shortId;
   const isEditing = editingSessionId === s.id;
-  const storeQuestNamed = useStore((st) => st.questNamedSessions.has(s.id));
-  const bridgeQuestStatus = useStore((st) => st.sessions.get(s.id)?.claimedQuestStatus);
-  const bridgeQuestReviewInboxUnread = useStore((st) => st.sessions.get(s.id)?.claimedQuestVerificationInboxUnread);
-  const questStatus = s.navigationProjectionOwned ? s.claimedQuestStatus : (s.claimedQuestStatus ?? bridgeQuestStatus);
-  const questReviewInboxUnread = s.navigationProjectionOwned
-    ? s.claimedQuestVerificationInboxUnread
-    : (s.claimedQuestVerificationInboxUnread ?? bridgeQuestReviewInboxUnread);
-  const isQuestNamed =
-    !s.isOrchestrator &&
-    (s.navigationProjectionOwned
-      ? questOwnsSessionName(questStatus, questReviewInboxUnread)
-      : storeQuestNamed || questOwnsSessionName(questStatus, questReviewInboxUnread));
+  const questStatus = s.claimedQuestStatus;
+  const questReviewInboxUnread = s.claimedQuestVerificationInboxUnread;
+  const isQuestNamed = !s.isOrchestrator && questOwnsSessionName(questStatus, questReviewInboxUnread);
   const hasAssignedQuestContext = useStore((st) =>
     s.isOrchestrator
       ? false
@@ -369,8 +360,6 @@ export function SessionItem({
     (st) => getSyncedProjectionValue(st, SESSION_ATTENTION_PROJECTION, s.id)?.attentionReason,
   );
   const inboxUrgency = useNotificationUrgency(s.id, s.notificationUrgency ?? null);
-  const currentSessionId = useStore((st) => st.currentSessionId);
-  const liveTimerCount = useStore((st) => st.sessionTimers?.get(s.id)?.length ?? 0);
   const canSwipeToArchive = !archived && !reorderMode;
   const suppressStaleActionAttention =
     !hasAttentionProjection &&
@@ -553,11 +542,7 @@ export function SessionItem({
     hasUnread: effectiveHasUnread,
     idleKilled: s.idleKilled,
   });
-  const timerCount = s.navigationProjectionOwned
-    ? (s.pendingTimerCount ?? 0)
-    : s.id === currentSessionId
-      ? liveTimerCount
-      : (s.pendingTimerCount ?? 0);
+  const timerCount = s.pendingTimerCount ?? 0;
   const isPaused = s.paused ?? !!s.pause?.pausedAt;
   const pausedHeldCount = s.pausedInputQueueCount ?? s.pause?.queuedMessages.length ?? 0;
   const showScheduledTimerIcon =
@@ -841,7 +826,7 @@ export function SessionItem({
                   <SessionPreviewRow
                     sessionId={s.id}
                     userPreview={sessionPreview}
-                    userUpdatedAt={s.navigationProjectionOwned ? (s.lastMessagePreviewAt ?? 0) : undefined}
+                    userUpdatedAt={s.lastMessagePreviewAt ?? 0}
                     toneClassName={sidebarMetadataClassName}
                     className={usesExpandedLeaderPortrait ? "col-span-2 row-start-3" : undefined}
                     data-testid={usesExpandedLeaderPortrait ? "session-preview-row" : undefined}
@@ -1290,6 +1275,8 @@ export function SessionItem({
   );
 }
 
+export const SessionItem = memo(SessionItemComponent);
+
 function LeaderActivePhasePreviewRow({
   sessionId,
   activeSummary,
@@ -1348,16 +1335,13 @@ function SessionPreviewRow({
 }: {
   sessionId: string;
   userPreview?: string;
-  userUpdatedAt?: number;
+  userUpdatedAt: number;
   toneClassName?: string;
   className?: string;
   "data-testid"?: string;
 }) {
   const taskPreview = useStore((s) => s.sessionTaskPreview.get(sessionId));
-  const storedUserUpdatedAt = useStore((s) => s.sessionPreviewUpdatedAt.get(sessionId) ?? 0);
-  const effectiveUserUpdatedAt = userUpdatedAt ?? storedUserUpdatedAt;
-
-  const showTask = taskPreview && taskPreview.updatedAt > effectiveUserUpdatedAt;
+  const showTask = taskPreview && taskPreview.updatedAt > userUpdatedAt;
 
   if (showTask) {
     return (

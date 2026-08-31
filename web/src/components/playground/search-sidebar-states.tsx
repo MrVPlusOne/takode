@@ -307,22 +307,13 @@ function makeSidebarSession(
 }
 
 const PLAYGROUND_OVERFLOW_SESSIONS = [
-  makeSidebarSession("overflow-plan", 0),
-  makeSidebarSession("overflow-implement", 1),
-  makeSidebarSession("overflow-review", 2),
-  makeSidebarSession("overflow-e2e", 3),
-  makeSidebarSession("overflow-docs", 4),
-  makeSidebarSession("overflow-followup", 5),
+  makeSidebarSession("overflow-plan", 0, { name: "Plan sidebar overflow" }),
+  makeSidebarSession("overflow-implement", 1, { name: "Implement group folding" }),
+  makeSidebarSession("overflow-review", 2, { name: "Review group drag order" }),
+  makeSidebarSession("overflow-e2e", 3, { name: "Validate search jump" }),
+  makeSidebarSession("overflow-docs", 4, { name: "Refresh phase notes" }),
+  makeSidebarSession("overflow-followup", 5, { name: "Track follow-up polish" }),
 ];
-
-const PLAYGROUND_OVERFLOW_NAMES = new Map([
-  ["overflow-plan", "Plan sidebar overflow"],
-  ["overflow-implement", "Implement group folding"],
-  ["overflow-review", "Review group drag order"],
-  ["overflow-e2e", "Validate search jump"],
-  ["overflow-docs", "Refresh phase notes"],
-  ["overflow-followup", "Track follow-up polish"],
-]);
 
 const PLAYGROUND_OVERFLOW_GROUP: TreeViewGroupData = {
   id: "playground-overflow",
@@ -333,7 +324,6 @@ const PLAYGROUND_OVERFLOW_GROUP: TreeViewGroupData = {
   unreadCount: 0,
 };
 
-const EMPTY_STRING_MAP = new Map<string, string>();
 const EMPTY_STRING_SET = new Set<string>();
 
 function PlaygroundSidebarOverflowGroup({ expanded }: { expanded: boolean }) {
@@ -353,8 +343,6 @@ function PlaygroundSidebarOverflowGroup({ expanded }: { expanded: boolean }) {
           onToggleNodeCollapse={noop}
           onCreateSession={noop}
           currentSessionId="overflow-implement"
-          sessionNames={PLAYGROUND_OVERFLOW_NAMES}
-          sessionPreviews={EMPTY_STRING_MAP}
           recentlyRenamed={EMPTY_STRING_SET}
           onSelect={noop}
           onStartRename={noop}

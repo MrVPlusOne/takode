@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import type { CliLauncher } from "../cli-launcher.js";
-import type { TimerManager } from "../timer-manager.js";
 import type { WsBridge } from "../ws-bridge.js";
 import { buildEnrichedSessionsSnapshotFromEntries } from "./session-list-snapshot.js";
 
@@ -25,7 +24,6 @@ export interface ArchivedSessionSummaryResponse {
 export interface ArchivedSessionPageRouteDeps {
   launcher: CliLauncher;
   wsBridge: WsBridge;
-  timerManager?: TimerManager;
   pendingWorktreeCleanups: Map<string, Promise<void>>;
 }
 

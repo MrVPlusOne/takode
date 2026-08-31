@@ -9,7 +9,6 @@ import type {
   SdkSessionInfo,
   TaskItem,
 } from "./types.js";
-import { generateUniqueSessionName } from "./utils/names.js";
 import { playNotificationSound } from "./utils/notification-sound.js";
 import {
   extractTextFromBlocks,
@@ -18,8 +17,6 @@ import {
   normalizeLiveAssistantThreadMetadata,
   normalizeLiveLeaderUserThreadMetadata,
 } from "./utils/history-message-normalization.js";
-import { questOwnsSessionName } from "./utils/quest-helpers.js";
-import { formatReplyContentForPreview } from "./utils/reply-context.js";
 import {
   applyNotificationStatusUpdate,
   applySessionNotifications,
@@ -63,7 +60,6 @@ import { TODO_STATE_UPDATED_EVENT } from "./todo-events.js";
 import { indexCodexSubagentToolResults } from "./utils/codex-subagent-tool-results.js";
 import { handleQuestListUpdated, handleSessionQuestClaimed } from "./ws-quest-handlers.js";
 import { SESSION_ATTENTION_PROJECTION } from "../shared/session-attention-projection.js";
-import { SESSION_NAVIGATION_PROJECTION } from "../shared/session-navigation-projection.js";
 import { hasSyncedProjectionValue } from "./store-synced-projections.js";
 import {
   hasLeaderThreadTabsVisualAuthority,
@@ -557,22 +553,6 @@ function readHistoryMessageTimestamp(message: BrowserIncomingMessage): number | 
   return timestamp;
 }
 
-function updateSessionPreviewFromHistory(
-  sessionId: string,
-  historyMessages: BrowserIncomingMessage[],
-  options?: { allowOlderHistory?: boolean },
-): void {
-  const store = useStore.getState();
-  if (options?.allowOlderHistory === false) return;
-  for (let i = historyMessages.length - 1; i >= 0; i--) {
-    const msg = historyMessages[i];
-    if (msg.type === "user_message" && !msg.codexSubagent && msg.content) {
-      store.setSessionPreview(sessionId, formatReplyContentForPreview(msg.content, msg.replyContext).slice(0, 80));
-      break;
-    }
-  }
-}
-
 function markPendingUserMessageFailed(sessionId: string, clientMsgId: string, message: string): void {
   const store = useStore.getState();
   const active = store.pendingUserUploads.get(sessionId)?.find((upload) => upload.id === clientMsgId) ?? null;
@@ -718,34 +698,9 @@ function handleParsedMessage(
       if (!existingSession) {
         store.setSessionStatus(sessionId, "idle");
       }
-      if (!store.sessionNames.has(sessionId)) {
-        const existingNames = new Set(store.sessionNames.values());
-        const name = generateUniqueSessionName(existingNames);
-        store.setSessionName(sessionId, name);
-      }
       // Sync askPermission from server state
       if (typeof data.session.askPermission === "boolean") {
         store.setAskPermission(sessionId, data.session.askPermission);
-      }
-      // Restore quest name and styling from persisted session state (on reconnect).
-      // This is the most reliable path since session_init fires on every WS connect.
-      const isOrchestrator = data.session.isOrchestrator === true;
-      if (
-        data.session.claimedQuestId &&
-        data.session.claimedQuestTitle &&
-        !isOrchestrator &&
-        questOwnsSessionName(data.session.claimedQuestStatus, data.session.claimedQuestVerificationInboxUnread)
-      ) {
-        store.setSessionName(sessionId, data.session.claimedQuestTitle);
-        store.markQuestNamed(sessionId);
-      } else if (
-        data.session.claimedQuestId &&
-        !isOrchestrator &&
-        questOwnsSessionName(data.session.claimedQuestStatus, data.session.claimedQuestVerificationInboxUnread)
-      ) {
-        store.markQuestNamed(sessionId);
-      } else {
-        store.clearQuestNamed(sessionId);
       }
       break;
     }
@@ -762,10 +717,8 @@ function handleParsedMessage(
       if (typeof data.session.askPermission === "boolean") {
         store.setAskPermission(sessionId, data.session.askPermission);
       }
-      // Sync session name if included (e.g. after a rename via REST API)
-      if (typeof (data.session as Record<string, unknown>).name === "string") {
-        store.setSessionName(sessionId, (data.session as Record<string, unknown>).name as string);
-      }
+      const updatedName = (data.session as Record<string, unknown>).name;
+      if (typeof updatedName === "string") store.updateSdkSession(sessionId, { name: updatedName });
       // Sync server-authoritative attention state
       if (
         data.session.attentionReason !== undefined &&
@@ -789,7 +742,6 @@ function handleParsedMessage(
       if (!targetSessionId) break;
       const update = data.session ?? {};
       const projectionOwnsAttention = hasSyncedProjectionValue(store, SESSION_ATTENTION_PROJECTION, targetSessionId);
-      const projectionOwnsNavigation = hasSyncedProjectionValue(store, SESSION_NAVIGATION_PROJECTION, targetSessionId);
       const projectionOwnsLeaderTabs = hasLeaderThreadTabsVisualAuthority(store, targetSessionId);
       const shouldApplyAttention =
         update.attentionReason === undefined
@@ -801,9 +753,6 @@ function handleParsedMessage(
           ? { attentionReason: update.attentionReason }
           : {}),
         ...(update.lastReadAt !== undefined ? { lastReadAt: update.lastReadAt } : {}),
-        ...(!projectionOwnsNavigation && update.pendingPermissionCount !== undefined
-          ? { pendingPermissionCount: update.pendingPermissionCount }
-          : {}),
         ...(update.pendingPermissionSummary !== undefined
           ? { pendingPermissionSummary: update.pendingPermissionSummary }
           : {}),
@@ -816,9 +765,6 @@ function handleParsedMessage(
         store.setSessionBoard(targetSessionId, update.leaderActiveBoardRows);
       }
       applyNotificationStatusUpdate(targetSessionId, update);
-      if (!projectionOwnsNavigation && update.status !== undefined) {
-        store.setSessionStatus(targetSessionId, update.status === "compacting" ? "compacting" : update.status);
-      }
       if (update.attentionReason !== undefined && shouldApplyAttention) {
         const isViewing = useStore.getState().currentSessionId === targetSessionId;
         if (isViewing && update.attentionReason) {
@@ -1384,7 +1330,6 @@ function handleParsedMessage(
         ...(data.takodeHerdEvents?.length ? { takodeHerdEvents: data.takodeHerdEvents } : {}),
       };
       store.appendMessage(sessionId, userMsg);
-      store.setSessionPreview(sessionId, formatReplyContentForPreview(data.content, data.replyContext).slice(0, 80));
       break;
     }
 
@@ -1689,40 +1634,10 @@ function handleParsedMessage(
     }
 
     case "session_name_update": {
-      // Server is authoritative for all name updates (auto-naming, manual rename, etc.)
-      const prevName = store.sessionNames.get(sessionId);
-      const claimedQuest = store.sessions.get(sessionId);
-      const claimedQuestStatus = claimedQuest?.claimedQuestStatus;
-      const claimedQuestTitle = claimedQuest?.claimedQuestTitle;
-      const claimedQuestVerificationInboxUnread = claimedQuest?.claimedQuestVerificationInboxUnread;
-      console.log(
-        `[ws] session_name_update for ${sessionId}: "${prevName}" → "${data.name}" source=${(data as Record<string, unknown>).source ?? "none"}`,
-      );
-      // When a quest is actively claiming the session name, ignore non-quest name updates
-      // (prevents auto-namer race conditions from overwriting the quest title)
-      if (
-        store.questNamedSessions.has(sessionId) &&
-        data.source !== "quest" &&
-        questOwnsSessionName(claimedQuestStatus, claimedQuestVerificationInboxUnread) &&
-        (!claimedQuestTitle || data.name === claimedQuestTitle)
-      ) {
-        console.log(`[ws] Ignoring non-quest name update for quest-named session ${sessionId}`);
-        break;
-      }
-      if (prevName !== data.name) {
-        store.setSessionName(sessionId, data.name);
+      const previousName = store.sdkSessions.find((session) => session.sessionId === sessionId)?.name;
+      if (previousName !== data.name) {
+        store.updateSdkSession(sessionId, { name: data.name });
         store.markRecentlyRenamed(sessionId);
-      }
-      // Track whether this name was set by a quest claim (for amber styling)
-      if (
-        data.source === "quest" ||
-        (questOwnsSessionName(claimedQuestStatus, claimedQuestVerificationInboxUnread) &&
-          !!claimedQuestTitle &&
-          data.name === claimedQuestTitle)
-      ) {
-        store.markQuestNamed(sessionId);
-      } else {
-        store.clearQuestNamed(sessionId);
       }
       break;
     }
@@ -1832,7 +1747,6 @@ function handleParsedMessage(
       }
       processedToolUseIds.delete(sessionId);
       taskCounters.delete(sessionId);
-      updateSessionPreviewFromHistory(sessionId, data.messages);
       resolvePendingMessageScroll(sessionId, chatMessages);
       recordFrontendPerfEntry({
         kind: "message_history_apply",
@@ -1881,7 +1795,6 @@ function handleParsedMessage(
       }
       processedToolUseIds.delete(sessionId);
       taskCounters.delete(sessionId);
-      updateSessionPreviewFromHistory(sessionId, [...data.frozen_delta, ...data.hot_messages]);
       resolvePendingMessageScroll(sessionId, mergedMessages);
       break;
     }
@@ -1914,9 +1827,6 @@ function handleParsedMessage(
       }
       processedToolUseIds.delete(sessionId);
       taskCounters.delete(sessionId);
-      updateSessionPreviewFromHistory(sessionId, sourceMessages, {
-        allowOlderHistory: data.window.from_turn + data.window.turn_count >= data.window.total_turns,
-      });
       resolvePendingMessageScroll(sessionId, chatMessages);
       if (data.cache_hit !== true) {
         cacheHistoryWindow(sessionId, data.window, data.messages);

@@ -135,7 +135,6 @@ vi.mock("../hooks/useVoiceInput.js", async () => {
 const mockAppendMessage = vi.fn();
 const mockUpdateSession = vi.fn();
 const mockSetPreviousPermissionMode = vi.fn();
-const mockSetSessionPreview = vi.fn();
 const mockSetAskPermission = vi.fn();
 const mockRequestBottomAlignOnNextUserMessage = vi.fn();
 
@@ -270,7 +269,6 @@ function setupMockStore(
     questAutocompleteLoaded?: boolean;
     questAutocompleteLoading?: boolean;
     questAutocompleteEtag?: string | null;
-    sessionNames?: Map<string, string>;
     messages?: ChatMessage[];
     vscodeSelectionContext?: {
       selection: {
@@ -301,7 +299,6 @@ function setupMockStore(
     questAutocompleteLoaded = false,
     questAutocompleteLoading = false,
     questAutocompleteEtag = null,
-    sessionNames = new Map(),
     messages = [],
     vscodeSelectionContext = null,
   } = overrides;
@@ -328,7 +325,6 @@ function setupMockStore(
     previousPermissionMode: previousPermissionModeMap,
     askPermission: askPermissionMap,
     cliDisconnectReason: new Map(),
-    sessionPreviews: new Map(),
     sessionTaskHistory: new Map(),
     composerDrafts: draft
       ? new Map([["s1", draft]])
@@ -339,7 +335,6 @@ function setupMockStore(
     appendMessage: mockAppendMessage,
     updateSession: mockUpdateSession,
     setPreviousPermissionMode: mockSetPreviousPermissionMode,
-    setSessionPreview: mockSetSessionPreview,
     setAskPermission: mockSetAskPermission,
     requestBottomAlignOnNextUserMessage: mockRequestBottomAlignOnNextUserMessage,
     pendingUserUploads: new Map(),
@@ -364,7 +359,6 @@ function setupMockStore(
     questAutocompleteLoaded,
     questAutocompleteLoading,
     questAutocompleteEtag,
-    sessionNames,
     messages: new Map(messages.length > 0 ? [["s1", messages]] : []),
     setComposerDraft: vi.fn((sessionId: string, draft: { text: string; images: unknown[] }) => {
       (mockStoreState.composerDrafts as Map<string, unknown>).set(sessionId, draft);
@@ -672,8 +666,7 @@ describe("Composer quest/session reference autocomplete", () => {
 
   it("shows session label previews and inserts plain session references", () => {
     setupMockStore({
-      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687 })],
-      sessionNames: new Map([["worker-1", "Frontend worker"]]),
+      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687, name: "Frontend worker" })],
     });
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
@@ -708,8 +701,7 @@ describe("Composer quest/session reference autocomplete", () => {
 
   it("replaces delimiter-prefixed session triggers without leaving a stray leading bracket", () => {
     setupMockStore({
-      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687 })],
-      sessionNames: new Map([["worker-1", "Frontend worker"]]),
+      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687, name: "Frontend worker" })],
     });
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
@@ -743,8 +735,7 @@ describe("Composer quest/session reference autocomplete", () => {
 
   it("closes session autocomplete when the selection spans outside the active reference word", () => {
     setupMockStore({
-      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687 })],
-      sessionNames: new Map([["worker-1", "Frontend worker"]]),
+      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687, name: "Frontend worker" })],
     });
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
@@ -779,8 +770,7 @@ describe("Composer quest/session reference autocomplete", () => {
     setupMockStore({
       draftText: "Please review q-41 and sync with #687 ",
       quests: [makeQuest({ questId: "q-41", title: "Autocomplete ranking polish" })],
-      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687 })],
-      sessionNames: new Map([["worker-1", "Frontend worker"]]),
+      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687, name: "Frontend worker" })],
     });
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
@@ -795,7 +785,7 @@ describe("Composer quest/session reference autocomplete", () => {
     setupMockStore({
       draftText: "Please review q-9999 and sync with #1332 ",
       quests: [makeQuest({ questId: "q-41", title: "Autocomplete ranking polish" })],
-      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687 })],
+      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687, name: "Frontend worker" })],
     });
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
@@ -810,8 +800,7 @@ describe("Composer quest/session reference autocomplete", () => {
     setupMockStore({
       draftText: "Please review q-41 and q-9999, then sync with #687 and #1332 ",
       quests: [makeQuest({ questId: "q-41", title: "Autocomplete ranking polish" })],
-      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687 })],
-      sessionNames: new Map([["worker-1", "Frontend worker"]]),
+      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687, name: "Frontend worker" })],
     });
     render(<Composer sessionId="s1" />);
 
@@ -842,8 +831,7 @@ describe("Composer quest/session reference autocomplete", () => {
   it("sends plain quest and session references without converting them to Markdown", () => {
     setupMockStore({
       quests: [makeQuest({ questId: "q-41", title: "Autocomplete ranking polish" })],
-      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687 })],
-      sessionNames: new Map([["worker-1", "Frontend worker"]]),
+      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687, name: "Frontend worker" })],
     });
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
@@ -917,13 +905,9 @@ describe("Composer quest/session reference autocomplete", () => {
   it("boosts recently mentioned sessions above more active ones", () => {
     setupMockStore({
       sdkSessions: [
-        makeSdkSession({ sessionId: "worker-recent", sessionNum: 12, lastActivityAt: 10 }),
-        makeSdkSession({ sessionId: "worker-busy", sessionNum: 88, lastActivityAt: 1000 }),
+        makeSdkSession({ sessionId: "worker-recent", sessionNum: 12, lastActivityAt: 10, name: "Recent worker" }),
+        makeSdkSession({ sessionId: "worker-busy", sessionNum: 88, lastActivityAt: 1000, name: "Busy worker" }),
       ],
-      sessionNames: new Map([
-        ["worker-recent", "Recent worker"],
-        ["worker-busy", "Busy worker"],
-      ]),
       messages: [makeMessage({ id: "m1", content: "Please sync with [#12](session:12) before merging." })],
     });
     const { container } = render(<Composer sessionId="s1" />);
@@ -962,13 +946,14 @@ describe("Composer quest/session reference autocomplete", () => {
   it("treats the current input as fresher than prior session references", () => {
     setupMockStore({
       sdkSessions: [
-        makeSdkSession({ sessionId: "worker-old", sessionNum: 12, lastActivityAt: 10 }),
-        makeSdkSession({ sessionId: "worker-current", sessionNum: 88, lastActivityAt: 1000 }),
+        makeSdkSession({ sessionId: "worker-old", sessionNum: 12, lastActivityAt: 10, name: "Earlier session" }),
+        makeSdkSession({
+          sessionId: "worker-current",
+          sessionNum: 88,
+          lastActivityAt: 1000,
+          name: "Current input session",
+        }),
       ],
-      sessionNames: new Map([
-        ["worker-old", "Earlier session"],
-        ["worker-current", "Current input session"],
-      ]),
       messages: [makeMessage({ id: "m1", content: "Earlier sync with [#12](session:12)" })],
     });
     const { container } = render(<Composer sessionId="s1" />);

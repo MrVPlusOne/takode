@@ -115,11 +115,7 @@ export interface AppState {
   setSessionAttentionRecords: (sessionId: string, records: import("./types.js").SessionAttentionRecord[]) => void;
   changedFiles: Map<string, Set<string>>;
   diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
-  sessionNames: Map<string, string>;
   recentlyRenamed: Set<string>;
-  questNamedSessions: Set<string>;
-  sessionPreviews: Map<string, string>;
-  sessionPreviewUpdatedAt: Map<string, number>;
   sessionTaskHistory: Map<string, SessionTaskEntry[]>;
   pendingCodexInputs: Map<string, PendingCodexInput[]>;
   sessionKeywords: Map<string, string[]>;
@@ -333,12 +329,8 @@ export interface AppState {
   addChangedFile: (sessionId: string, filePath: string) => void;
   clearChangedFiles: (sessionId: string) => void;
   setDiffFileStats: (sessionId: string, stats: Map<string, { additions: number; deletions: number }>) => void;
-  setSessionName: (sessionId: string, name: string) => void;
   markRecentlyRenamed: (sessionId: string) => void;
   clearRecentlyRenamed: (sessionId: string) => void;
-  markQuestNamed: (sessionId: string) => void;
-  clearQuestNamed: (sessionId: string) => void;
-  setSessionPreview: (sessionId: string, preview: string) => void;
   setSessionTaskPreview: (sessionId: string, text: string | null) => void;
   setSessionTaskHistory: (sessionId: string, tasks: SessionTaskEntry[]) => void;
   setSessionKeywords: (sessionId: string, keywords: string[]) => void;

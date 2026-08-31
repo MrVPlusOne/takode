@@ -522,14 +522,9 @@ function ProjectionToggle({
 }
 
 export function resolveWorkBoardIsOrchestrator(source: SessionNavigationResolverSource, sessionId: string): boolean {
-  if (resolveLeaderThreadTabsProjection(source, sessionId).projectionState === "accepted") return true;
-  const navigation = resolveSessionNavigation(source, sessionId);
-  if (navigation && navigation.projectionState !== "legacy") {
-    return navigation.viewModel.isOrchestrator === true;
-  }
   return (
-    source.sessions.get(sessionId)?.isOrchestrator === true ||
-    source.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator === true)
+    resolveLeaderThreadTabsProjection(source, sessionId).projectionState === "accepted" ||
+    resolveSessionNavigation(source, sessionId)?.viewModel.isOrchestrator === true
   );
 }
 

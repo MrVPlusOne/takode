@@ -24,7 +24,11 @@ import {
   shouldCommitNeedsInputReminderHistoryEntry,
 } from "./adapter-browser-routing-needs-input-reminder.js";
 import { isRecoverableCodexInitError } from "../codex-adapter-utils.js";
-import { isActualHumanUserInput, isActualHumanUserMessage } from "../user-message-classification.js";
+import {
+  isActualHumanUserInput,
+  isActualHumanUserMessage,
+  restoreSessionMessagePreview,
+} from "../user-message-classification.js";
 import {
   determineCodexTurnSourceKind,
   getCodexAutoPauseRecoveryProgress,
@@ -166,6 +170,7 @@ export interface CodexRecoveryOrchestratorSessionLike {
   queuedTurnInterruptSources: Array<InterruptSource | null>;
   queuedTurnActiveRoutes?: Array<ActiveTurnRoute | null>;
   lastUserMessage?: string;
+  lastMessagePreviewAt?: number;
   codexAdapter: {
     getCurrentTurnId(): string | null;
     isConnected(): boolean;
@@ -374,6 +379,7 @@ export function addPendingCodexInput(
 ): void {
   session.pendingCodexInputs.push(input);
   session.lastUserMessage = formatReplyContentForPreview(input.content || "", input.replyContext).slice(0, 80);
+  session.lastMessagePreviewAt = input.timestamp;
   if (isActualHumanUserInput(input)) {
     deps.touchUserMessage(session.id, input.timestamp);
   }
@@ -413,6 +419,7 @@ export function hydrateCodexResumedHistory(
         };
         session.messageHistory.push(userMessage);
         session.lastUserMessage = formatReplyContentForPreview(text).slice(0, 80);
+        session.lastMessagePreviewAt = syntheticTimestamp;
         deps.broadcastToBrowsers(session, userMessage);
         hydrated += 1;
         continue;
@@ -1518,6 +1525,7 @@ function commitPendingCodexInput(
   session.messageHistory.push(userHistoryEntry);
   const userMsgHistoryIdx = session.messageHistory.length - 1;
   session.lastUserMessage = formatReplyContentForPreview(pending.content || "", pending.replyContext).slice(0, 80);
+  session.lastMessagePreviewAt = pending.timestamp;
   if (isActualHumanUserMessage(userHistoryEntry)) {
     deps.touchUserMessage(session.id, pending.timestamp);
   }
@@ -1560,6 +1568,9 @@ export function removePendingCodexInput(
   if (idx < 0) return null;
   const [removed] = session.pendingCodexInputs.splice(idx, 1);
   if (removed) restoreQueuedNeedsInputResolutionNotices(session, removed.id);
+  if (removed && session.lastMessagePreviewAt === removed.timestamp) {
+    restoreSessionMessagePreview(session);
+  }
   deps.broadcastPendingCodexInputs(session);
   deps.persistSession(session);
   return removed;

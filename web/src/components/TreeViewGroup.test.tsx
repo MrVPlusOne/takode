@@ -87,8 +87,6 @@ function renderTreeViewGroup(group: TreeViewGroupData, overrides: Partial<Compon
       onToggleNodeCollapse={vi.fn()}
       onCreateSession={vi.fn()}
       currentSessionId={null}
-      sessionNames={new Map()}
-      sessionPreviews={new Map()}
       recentlyRenamed={new Set()}
       onSelect={vi.fn()}
       onStartRename={vi.fn()}
@@ -129,7 +127,11 @@ describe("TreeViewGroup leader herd summary", () => {
     // Reviewer sessions render as inline chips, so the always-visible summary
     // must still expose their count and live status at the leader group level.
     const leader = makeSession("leader-1", { isOrchestrator: true, sessionNum: 10 });
-    const worker = makeSession("worker-1", { herdedBy: "leader-1", sessionNum: 11 });
+    const worker = makeSession("worker-1", {
+      herdedBy: "leader-1",
+      sessionNum: 11,
+      pendingTimerCount: 1,
+    });
     const reviewer = makeSession("reviewer-1", { reviewerOf: 11, sessionNum: 12, status: "running" });
     const group: TreeViewGroupData = {
       id: "team-alpha",
@@ -212,14 +214,13 @@ describe("TreeViewGroup leader herd summary", () => {
     expect(within(summary).queryByTestId("status-count-waiting")).toBeNull();
   });
 
-  it("keeps projected timer count authoritative for the selected child", () => {
+  it("keeps row timer count authoritative for the selected child", () => {
     mockStoreState.currentSessionId = "worker-1";
     mockStoreState.sessionTimers.set("worker-1", [{ id: "stale-live-timer" }]);
     const leader = makeSession("leader-1", { isOrchestrator: true, sessionNum: 10 });
     const worker = makeSession("worker-1", {
       herdedBy: "leader-1",
       sessionNum: 11,
-      navigationProjectionOwned: true,
       pendingTimerCount: 0,
     });
     const group: TreeViewGroupData = {
@@ -236,13 +237,15 @@ describe("TreeViewGroup leader herd summary", () => {
     expect(within(screen.getByTestId("herd-summary-leader-1")).queryByTestId("status-count-waiting")).toBeNull();
   });
 
-  it("uses live timer state for the selected child session in the herd summary", () => {
-    // Match SessionItem behavior: the active row uses the live timer store
-    // instead of potentially stale polled snapshot timer counts.
+  it("uses current row timer state for the selected child session in the herd summary", () => {
     mockStoreState.currentSessionId = "worker-1";
-    mockStoreState.sessionTimers.set("worker-1", [{ id: "timer-1" }]);
+    mockStoreState.sessionTimers.set("worker-1", []);
     const leader = makeSession("leader-1", { isOrchestrator: true, sessionNum: 10 });
-    const worker = makeSession("worker-1", { herdedBy: "leader-1", sessionNum: 11 });
+    const worker = makeSession("worker-1", {
+      herdedBy: "leader-1",
+      sessionNum: 11,
+      pendingTimerCount: 1,
+    });
     const group: TreeViewGroupData = {
       id: "team-alpha",
       name: "Takode",

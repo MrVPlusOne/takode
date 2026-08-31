@@ -365,6 +365,16 @@ describe("Codex native subagent browser authority", () => {
   it("preserves child audit rows without letting authoritative replay replace root-derived state", () => {
     wsModule.connectSession("s1");
     fire({ type: "session_init", session: session("s1", snapshot("safe-child", 1)) });
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "s1",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 1,
+        lastMessagePreview: "Server-owned root preview",
+        lastMessagePreviewAt: 1,
+      },
+    ]);
     const ownership = { childId: "safe-child", rootTurnId: "turn-safe-child" };
     useStore.getState().addPendingUserUpload("s1", {
       id: "colliding-upload",
@@ -478,7 +488,7 @@ describe("Codex native subagent browser authority", () => {
     });
     expect(state.toolStartTimestamps.get("s1")).toEqual(new Map([["root-todo", 100]]));
     expect(state.changedFiles.get("s1")).toEqual(new Set(["/tmp/root.ts"]));
-    expect(state.sessionPreviews.get("s1")).toBe("Root preview");
+    expect(state.sdkSessions[0]?.lastMessagePreview).toBe("Server-owned root preview");
     const childUser = state.messages.get("s1")?.find((message) => message.id === "child-user");
     expect(childUser?.clientMsgId).toBe("colliding-upload");
     expect(childUser?.localImages).toBeUndefined();

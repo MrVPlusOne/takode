@@ -7,15 +7,6 @@ function isDarkThemeLocal(theme: ColorTheme): boolean {
   return theme !== "light";
 }
 
-export function getInitialSessionNames(): Map<string, string> {
-  if (typeof window === "undefined") return new Map();
-  try {
-    return new Map(JSON.parse(scopedGetItem("cc-session-names") || "[]"));
-  } catch {
-    return new Map();
-  }
-}
-
 export function getInitialSessionId(): string | null {
   if (typeof window === "undefined") return null;
   return scopedGetItem("cc-current-session") || null;

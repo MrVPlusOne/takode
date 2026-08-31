@@ -871,40 +871,21 @@ describe("Browser message routing", () => {
       .map(([raw]: [string]) => JSON.parse(raw))
       .filter((msg: any) => msg.type === "session_activity_update" && msg.session_id === "worker-1");
 
-    expect(globalUpdates).toContainEqual(
-      expect.objectContaining({
-        type: "session_activity_update",
-        session_id: "worker-1",
-        session: expect.objectContaining({
-          attentionReason: null,
-          pendingPermissionCount: 1,
-          pendingPermissionSummary: "pending plan",
-        }),
-      }),
-    );
-    expect(globalUpdates).toContainEqual(
-      expect.objectContaining({
-        type: "session_activity_update",
-        session_id: "worker-1",
-        session: expect.objectContaining({
-          attentionReason: null,
-          pendingPermissionCount: 0,
-          pendingPermissionSummary: null,
-        }),
-      }),
-    );
-    expect(globalUpdates).toContainEqual(
-      expect.objectContaining({
-        type: "session_activity_update",
-        session_id: "worker-1",
-        session: expect.objectContaining({
-          attentionReason: null,
-          pendingPermissionCount: 0,
-          pendingPermissionSummary: null,
-          status: "running",
-        }),
-      }),
-    );
+    expect(globalUpdates).toHaveLength(2);
+    expect(globalUpdates[0]).toMatchObject({
+      type: "session_activity_update",
+      session_id: "worker-1",
+      session: { attentionReason: null, pendingPermissionSummary: "pending plan" },
+    });
+    expect(globalUpdates[1]).toMatchObject({
+      type: "session_activity_update",
+      session_id: "worker-1",
+      session: { attentionReason: null, pendingPermissionSummary: null },
+    });
+    for (const update of globalUpdates) {
+      expect(update.session).not.toHaveProperty("pendingPermissionCount");
+      expect(update.session).not.toHaveProperty("status");
+    }
   });
 
   it("broadcasts leader active board rows in global session activity updates", () => {

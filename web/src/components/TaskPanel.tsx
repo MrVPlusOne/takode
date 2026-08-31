@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { createPortal } from "react-dom";
-import { countUserPermissions, useStore } from "../store.js";
+import { useStore } from "../store.js";
 import { api, type GitHubPRInfo } from "../api.js";
 import type { TaskItem, SessionTaskEntry, SdkSessionInfo } from "../types.js";
 import { McpSection } from "./McpPanel.js";
@@ -492,7 +492,7 @@ export function GitHubPRDisplay({ pr }: { pr: GitHubPRInfo }) {
 export function GitHubPRSection({ sessionId }: { sessionId: string }) {
   const { cwd, branch, prStatus } = useStore(
     useShallow((s) => {
-      const sessionVm = resolveSessionNavigation({ ...s, countUserPermissions }, sessionId)?.viewModel;
+      const sessionVm = resolveSessionNavigation(s, sessionId)?.viewModel;
       return {
         cwd: sessionVm?.cwd,
         branch: sessionVm?.gitBranch ?? undefined,
@@ -800,54 +800,15 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
     workerId: string;
     mode: CodexPermissionMode;
   } | null>(null);
-  const sessions = useStore((s) => s.sessions);
   const sdkSessions = useStore((s) => s.sdkSessions);
-  const syncedProjectionValues = useStore((s) => s.syncedProjectionValues);
-  const syncedProjectionKeys = useStore((s) => s.syncedProjectionKeys);
-  const cliConnected = useStore((s) => s.cliConnected);
-  const cliDisconnectReason = useStore((s) => s.cliDisconnectReason);
-  const sessionStatus = useStore((s) => s.sessionStatus);
-  const pendingPermissions = useStore((s) => s.pendingPermissions);
-  const askPermission = useStore((s) => s.askPermission);
-  const sessionNames = useStore((s) => s.sessionNames);
-  const sessionPreviews = useStore((s) => s.sessionPreviews);
 
   const herded = useMemo(
     () =>
       sdkSessions.flatMap((sdk) => {
-        const resolved = resolveSessionNavigation(
-          {
-            sessions,
-            sdkSessions,
-            syncedProjectionValues,
-            syncedProjectionKeys,
-            cliConnected,
-            cliDisconnectReason,
-            sessionStatus,
-            pendingPermissions,
-            askPermission,
-            sessionNames,
-            sessionPreviews,
-            countUserPermissions,
-          },
-          sdk.sessionId,
-        );
+        const resolved = resolveSessionNavigation({ sdkSessions }, sdk.sessionId);
         return resolved?.sidebarItem.herdedBy === sessionId && !resolved.sidebarItem.archived ? [resolved] : [];
       }),
-    [
-      askPermission,
-      cliConnected,
-      cliDisconnectReason,
-      pendingPermissions,
-      sdkSessions,
-      sessionId,
-      sessionNames,
-      sessionPreviews,
-      sessionStatus,
-      sessions,
-      syncedProjectionKeys,
-      syncedProjectionValues,
-    ],
+    [sdkSessions, sessionId],
   );
 
   const handleUnherd = useCallback(
@@ -918,7 +879,7 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
           ) : (
             herded.map((resolved) => {
               const s = resolved.sidebarItem;
-              const name = resolved.name || "(unnamed)";
+              const name = resolved.sidebarItem.name || "(unnamed)";
               const isRunning = s.status === "running" || s.sdkState === "running" || s.sdkState === "connected";
               const isCodexWorker = s.backendType === "codex";
               const codexPermissionMode = deriveCodexPermissionMode(resolved.viewModel.permissionMode);
@@ -1129,7 +1090,7 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
   const { tasks, taskPanelOpen, setTaskPanelOpen, backendType, cwd, repoRoot, isLeaderSession, hasSession } = useStore(
     useShallow((s) => {
       const session = s.sessions.get(sessionId);
-      const resolved = resolveSessionNavigation({ ...s, countUserPermissions }, sessionId);
+      const resolved = resolveSessionNavigation(s, sessionId);
       return {
         tasks: s.sessionTasks.get(sessionId) || EMPTY_TASKS,
         taskPanelOpen: s.taskPanelOpen,

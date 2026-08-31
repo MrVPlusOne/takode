@@ -70,8 +70,8 @@ function getPathTail(path: string | null | undefined): string | null {
   return parts.at(-1) ?? normalized;
 }
 
-export function getSessionSuggestionPreview(session: SdkSessionInfo, sessionName: string | undefined): string {
-  const explicitName = sessionName?.trim() || session.name?.trim();
+export function getSessionSuggestionPreview(session: SdkSessionInfo): string {
+  const explicitName = session.name?.trim();
   if (explicitName) return explicitName;
   return getPathTail(session.cwd) || `Session ${session.sessionNum ?? ""}`.trim();
 }

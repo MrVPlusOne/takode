@@ -65,7 +65,6 @@ describe("SessionHoverCard with the real store", () => {
   afterEach(() => {
     useStore.setState({
       sdkSessions: [],
-      sessionNames: new Map(),
       sessionBoards: new Map(),
       quests: [],
       zoomLevel: 1,
@@ -99,6 +98,10 @@ describe("SessionHoverCard with the real store", () => {
         model: "gpt-5.4-mini",
         cliConnected: true,
         herdedBy: "leader-session",
+        claimedQuestId: "q-501",
+        claimedQuestTitle: "Worker active quest still renders",
+        claimedQuestStatus: "in_progress",
+        name: "Worker Hover Demo",
       },
     ];
     const quests: QuestmasterTask[] = [
@@ -127,10 +130,6 @@ describe("SessionHoverCard with the real store", () => {
 
     useStore.setState({
       sdkSessions,
-      sessionNames: new Map([
-        ["leader-session", "Leader Hover Demo"],
-        ["worker-session", "Worker Hover Demo"],
-      ]),
       sessionBoards: new Map(),
       quests,
       zoomLevel: 1,
@@ -144,7 +143,6 @@ describe("SessionHoverCard with the real store", () => {
             sessionName="Worker Hover Demo"
             sessionPreview="Worker is implementing the active quest hover fixture"
             taskHistory={taskHistory}
-            sessionState={undefined}
             cliSessionId="cli-worker-hover"
             anchorRect={new DOMRect(120, 80, 200, 40)}
             onMouseEnter={() => {}}
@@ -183,6 +181,7 @@ describe("SessionHoverCard with the real store", () => {
         model: "gpt-5.5",
         cliConnected: true,
         isOrchestrator: true,
+        name: "Leader Hover Demo",
         leaderActivePhaseSummary: [{ label: "Implement", count: 1, tone: "phase", color: "#4ade80" }],
         leaderActiveBoardRows: [
           {
@@ -225,7 +224,6 @@ describe("SessionHoverCard with the real store", () => {
               triggerMessageId: "leader-task",
             },
           ]}
-          sessionState={undefined}
           cliSessionId="cli-leader"
           anchorRect={new DOMRect(120, 80, 200, 40)}
           onMouseEnter={() => {}}

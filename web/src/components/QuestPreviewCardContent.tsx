@@ -112,20 +112,16 @@ export function QuestPreviewCardContent({
     if (!ownerSessionId) return null;
     return state.sdkSessions.find((session) => session.sessionId === ownerSessionId)?.herdedBy ?? null;
   });
-  const ownerSessionName = useStore((state) => (ownerSessionId ? state.sessionNames.get(ownerSessionId) : undefined));
-  const ownerSessionNum = useStore((state) =>
-    ownerSessionId
-      ? (state.sdkSessions.find((session) => session.sessionId === ownerSessionId)?.sessionNum ?? null)
-      : null,
+  const ownerSession = useStore((state) =>
+    ownerSessionId ? state.sdkSessions.find((session) => session.sessionId === ownerSessionId) : undefined,
   );
-  const leaderSessionName = useStore((state) =>
-    leaderSessionId ? state.sessionNames.get(leaderSessionId) : undefined,
+  const leaderSession = useStore((state) =>
+    leaderSessionId ? state.sdkSessions.find((session) => session.sessionId === leaderSessionId) : undefined,
   );
-  const leaderSessionNum = useStore((state) =>
-    leaderSessionId
-      ? (state.sdkSessions.find((session) => session.sessionId === leaderSessionId)?.sessionNum ?? null)
-      : null,
-  );
+  const ownerSessionName = ownerSession?.name;
+  const ownerSessionNum = ownerSession?.sessionNum ?? null;
+  const leaderSessionName = leaderSession?.name;
+  const leaderSessionNum = leaderSession?.sessionNum ?? null;
   const sessionBoards = useStore((state) => state.sessionBoards);
   const sessionCompletedBoards = useStore((state) => state.sessionCompletedBoards);
   const sessionBoardRowStatuses = useStore((state) => state.sessionBoardRowStatuses);

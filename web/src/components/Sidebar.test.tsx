@@ -201,6 +201,7 @@ function makeSdkSession(id: string, overrides: Partial<SdkSessionInfo> = {}): Sd
   return {
     sessionId: id,
     state: "connected",
+    model: "claude-sonnet-4-5-20250929",
     cwd: "/home/user/projects/myapp",
     createdAt: Date.now(),
     archived: false,
@@ -697,7 +698,10 @@ describe("Sidebar", { timeout: 10000 }, () => {
         ["s1", session1],
         ["s2", session2],
       ]),
-      sdkSessions: [makeSdkSession("s1", { createdAt: 1000 }), makeSdkSession("s2", { createdAt: 900 })],
+      sdkSessions: [
+        makeSdkSession("s1", { createdAt: 1000, name: "Alpha" }),
+        makeSdkSession("s2", { createdAt: 900, name: "Beta" }),
+      ],
       sessionNames: new Map([
         ["s1", "Alpha"],
         ["s2", "Beta"],
@@ -749,7 +753,10 @@ describe("Sidebar", { timeout: 10000 }, () => {
         ["s1", session1],
         ["s2", session2],
       ]),
-      sdkSessions: [makeSdkSession("s1", { createdAt: 1000 }), makeSdkSession("s2", { createdAt: 900 })],
+      sdkSessions: [
+        makeSdkSession("s1", { createdAt: 1000, name: "Alpha" }),
+        makeSdkSession("s2", { createdAt: 900, name: "Beta" }),
+      ],
       sessionNames: new Map([
         ["s1", "Alpha"],
         ["s2", "Beta"],
@@ -789,7 +796,10 @@ describe("Sidebar", { timeout: 10000 }, () => {
         ["s1", session1],
         ["s2", session2],
       ]),
-      sdkSessions: [makeSdkSession("s1", { createdAt: 1000 }), makeSdkSession("s2", { createdAt: 900 })],
+      sdkSessions: [
+        makeSdkSession("s1", { createdAt: 1000, name: "Alpha" }),
+        makeSdkSession("s2", { createdAt: 900, name: "Beta" }),
+      ],
       sessionNames: new Map([
         ["s1", "Alpha"],
         ["s2", "Beta"],
@@ -897,27 +907,27 @@ describe("Sidebar", { timeout: 10000 }, () => {
       git_ahead: 3,
       git_behind: 2,
     });
-    const sdk = makeSdkSession("s1");
+    const sdk = makeSdkSession("s1", { gitBranch: "main", gitAhead: 3, gitBehind: 2 });
     mockState = createMockState({
       sessions: new Map([["s1", session]]),
       sdkSessions: [sdk],
     });
 
     render(<Sidebar />);
-    // The component renders "3↑" and "2↓" using HTML entities in a stats row
+    // The canonical session row renders "3↑" and "2↓" in its stats row
     const sessionButton = screen.getByText("claude-sonnet-4-5-20250929").closest("button")!;
     expect(sessionButton.textContent).toContain("3");
     expect(sessionButton.textContent).toContain("2");
   });
 
   it("session items show lines added/removed", () => {
-    // Line stats come from server (single source of truth via bridgeState)
+    // Line stats come from the canonical server-authored session row.
     const session = makeSession("s1", {
       git_branch: "main",
       total_lines_added: 42,
       total_lines_removed: 7,
     });
-    const sdk = makeSdkSession("s1");
+    const sdk = makeSdkSession("s1", { gitBranch: "main", totalLinesAdded: 42, totalLinesRemoved: 7 });
     mockState = createMockState({
       sessions: new Map([["s1", session]]),
       sdkSessions: [sdk],
@@ -939,7 +949,13 @@ describe("Sidebar", { timeout: 10000 }, () => {
       total_lines_added: 167,
       total_lines_removed: 858,
     });
-    const sdk = makeSdkSession("s1", { gitBehind: 6 });
+    const sdk = makeSdkSession("s1", {
+      gitBranch: "jiayi-wt-9954",
+      isWorktree: true,
+      gitBehind: 6,
+      totalLinesAdded: 167,
+      totalLinesRemoved: 858,
+    });
     mockState = createMockState({
       sessions: new Map([["s1", session]]),
       sdkSessions: [sdk],
@@ -951,28 +967,6 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(sessionButton.textContent).toContain("6↓");
     expect(sessionButton.textContent).toContain("+167");
     expect(sessionButton.textContent).toContain("-858");
-  });
-
-  it("falls back to local diff file stats when server line totals are temporarily zero", () => {
-    const session = makeSession("s1", {
-      git_branch: "jiayi-wt-9954",
-      is_worktree: true,
-      total_lines_added: 0,
-      total_lines_removed: 0,
-    });
-    const sdk = makeSdkSession("s1", { totalLinesAdded: 0, totalLinesRemoved: 0 });
-    mockState = createMockState({
-      sessions: new Map([["s1", session]]),
-      sdkSessions: [sdk],
-      diffFileStats: new Map([
-        ["s1", new Map([["/repo/docs/codex-dropped-user-messages.md", { additions: 1527, deletions: 625 }]])],
-      ]),
-    });
-
-    render(<Sidebar />);
-    const sessionButton = screen.getByText("claude-sonnet-4-5-20250929").closest("button")!;
-    expect(sessionButton.textContent).toContain("+1527");
-    expect(sessionButton.textContent).toContain("-625");
   });
 
   it("archive button exists in the DOM for session items", () => {
@@ -1260,7 +1254,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
 
   it("permission badge uses mobile-friendly positioning and hover behavior", () => {
     const session = makeSession("s1");
-    const sdk = makeSdkSession("s1");
+    const sdk = makeSdkSession("s1", { cliConnected: true, pendingPermissionCount: 1 });
     mockState = createMockState({
       sessions: new Map([["s1", session]]),
       sdkSessions: [sdk],
@@ -1404,7 +1398,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
 
   it("session name shows animate-name-appear class when recently renamed", () => {
     const session = makeSession("s1");
-    const sdk = makeSdkSession("s1");
+    const sdk = makeSdkSession("s1", { name: "Auto Generated Title" });
     mockState = createMockState({
       sessions: new Map([["s1", session]]),
       sdkSessions: [sdk],
@@ -1420,7 +1414,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
 
   it("session name does NOT have animate-name-appear when not recently renamed", () => {
     const session = makeSession("s1");
-    const sdk = makeSdkSession("s1");
+    const sdk = makeSdkSession("s1", { name: "Regular Name" });
     mockState = createMockState({
       sessions: new Map([["s1", session]]),
       sdkSessions: [sdk],
@@ -1435,7 +1429,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
 
   it("calls clearRecentlyRenamed on animation end", () => {
     const session = makeSession("s1");
-    const sdk = makeSdkSession("s1");
+    const sdk = makeSdkSession("s1", { name: "Animated Name" });
     mockState = createMockState({
       sessions: new Map([["s1", session]]),
       sdkSessions: [sdk],
@@ -1472,8 +1466,8 @@ describe("Sidebar", { timeout: 10000 }, () => {
   it("animation class applies only to the recently renamed session, not others", () => {
     const session1 = makeSession("s1");
     const session2 = makeSession("s2");
-    const sdk1 = makeSdkSession("s1");
-    const sdk2 = makeSdkSession("s2");
+    const sdk1 = makeSdkSession("s1", { name: "Renamed Session" });
+    const sdk2 = makeSdkSession("s2", { name: "Other Session" });
     mockState = createMockState({
       sessions: new Map([
         ["s1", session1],
@@ -1498,7 +1492,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
 
   it("permission badge shows count for sessions with pending permissions", () => {
     const session = makeSession("s1");
-    const sdk = makeSdkSession("s1");
+    const sdk = makeSdkSession("s1", { cliConnected: true, pendingPermissionCount: 2 });
     const permMap = new Map<string, unknown>([
       ["r1", { request_id: "r1", tool_name: "Bash" }],
       ["r2", { request_id: "r2", tool_name: "Read" }],
@@ -1537,29 +1531,6 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(sessionButton.textContent).toContain("2");
     expect(sessionButton.textContent).toContain("+100");
     expect(sessionButton.textContent).toContain("-20");
-  });
-
-  it("session prefers bridgeState git stats over sdkInfo", () => {
-    const session = makeSession("s1", {
-      git_branch: "from-bridge",
-      git_ahead: 1,
-    });
-    const sdk = makeSdkSession("s1", {
-      gitBranch: "from-rest",
-      gitAhead: 99,
-    });
-    mockState = createMockState({
-      sessions: new Map([["s1", session]]),
-      sdkSessions: [sdk],
-    });
-
-    render(<Sidebar />);
-    // Bridge stats should win over REST API stats
-    expect(screen.queryByText("from-bridge")).not.toBeInTheDocument();
-    expect(screen.queryByText("from-rest")).not.toBeInTheDocument();
-    const sessionButton = screen.getByText("1↑").closest("button")!;
-    expect(sessionButton.textContent).toContain("1");
-    expect(sessionButton.textContent).not.toContain("99");
   });
 
   it("codex session shows Codex icon when bridgeState is missing", () => {
@@ -1630,8 +1601,8 @@ describe("Sidebar", { timeout: 10000 }, () => {
   it("tree group header shows running count as colored dot", () => {
     const session1 = makeSession("s1", { cwd: "/home/user/myapp" });
     const session2 = makeSession("s2", { cwd: "/home/user/myapp" });
-    const sdk1 = makeSdkSession("s1", { cwd: "/home/user/myapp" });
-    const sdk2 = makeSdkSession("s2", { cwd: "/home/user/myapp" });
+    const sdk1 = makeSdkSession("s1", { cwd: "/home/user/myapp", status: "running", cliConnected: true });
+    const sdk2 = makeSdkSession("s2", { cwd: "/home/user/myapp", status: "running", cliConnected: true });
     mockState = createMockState({
       sessions: new Map([
         ["s1", session1],
@@ -1804,9 +1775,13 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const leaderSession = makeSession("leader-1");
     const workerSession = makeSession("worker-1");
     const otherLeaderSession = makeSession("leader-9");
-    const leaderSdk = makeSdkSession("leader-1", { isOrchestrator: true, sessionNum: 1 });
-    const workerSdk = makeSdkSession("worker-1", { herdedBy: "leader-9", sessionNum: 7 });
-    const otherLeaderSdk = makeSdkSession("leader-9", { isOrchestrator: true, sessionNum: 9 });
+    const leaderSdk = makeSdkSession("leader-1", { name: "Current Leader", isOrchestrator: true, sessionNum: 1 });
+    const workerSdk = makeSdkSession("worker-1", { name: "Target Worker", herdedBy: "leader-9", sessionNum: 7 });
+    const otherLeaderSdk = makeSdkSession("leader-9", {
+      name: "Previous Leader",
+      isOrchestrator: true,
+      sessionNum: 9,
+    });
     mockState = createMockState({
       sessions: new Map([
         ["leader-1", leaderSession],
@@ -1841,8 +1816,8 @@ describe("Sidebar", { timeout: 10000 }, () => {
     // does not silently upgrade every herd to a forced reassignment.
     const leaderSession = makeSession("leader-1");
     const workerSession = makeSession("worker-2");
-    const leaderSdk = makeSdkSession("leader-1", { isOrchestrator: true, sessionNum: 1 });
-    const workerSdk = makeSdkSession("worker-2", { sessionNum: 8 });
+    const leaderSdk = makeSdkSession("leader-1", { name: "Current Leader", isOrchestrator: true, sessionNum: 1 });
+    const workerSdk = makeSdkSession("worker-2", { name: "Fresh Worker", sessionNum: 8 });
     mockState = createMockState({
       sessions: new Map([
         ["leader-1", leaderSession],
@@ -1875,8 +1850,8 @@ describe("Sidebar", { timeout: 10000 }, () => {
 
     const leaderSession = makeSession("leader-1");
     const workerSession = makeSession("worker-2");
-    const leaderSdk = makeSdkSession("leader-1", { isOrchestrator: true, sessionNum: 1 });
-    const workerSdk = makeSdkSession("worker-2", { sessionNum: 8 });
+    const leaderSdk = makeSdkSession("leader-1", { name: "Current Leader", isOrchestrator: true, sessionNum: 1 });
+    const workerSdk = makeSdkSession("worker-2", { name: "Fresh Worker", sessionNum: 8 });
     mockState = createMockState({
       sessions: new Map([
         ["leader-1", leaderSession],
@@ -1927,11 +1902,13 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const parentSession = makeSession("parent-1");
     const reviewerSession = makeSession("reviewer-1");
     const parentSdk = makeSdkSession("parent-1", {
+      name: "Parent Session",
       sessionNum: 8,
       createdAt: 1700000000000,
       cliSessionId: "cli-parent-1",
     });
     const reviewerSdk = makeSdkSession("reviewer-1", {
+      name: "Reviewer Session",
       sessionNum: 42,
       createdAt: 1700000001000,
       cliSessionId: "cli-reviewer-1",

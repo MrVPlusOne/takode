@@ -5,6 +5,10 @@ import type { HerdSessionsResponse } from "../../shared/herd-types.js";
 import { isValidQuestId } from "../../shared/quest-journey.js";
 import { buildLeaderActivePhaseSummary } from "../../shared/leader-active-phase-summary.js";
 import {
+  SESSION_NAVIGATION_PROJECTION,
+  sessionNavigationProjectionToSessionFields,
+} from "../../shared/session-navigation-projection.js";
+import {
   buildPeekResponse,
   buildPeekDefault,
   buildPeekRange,
@@ -33,7 +37,6 @@ import {
   setDiffBaseBranch as setDiffBaseBranchController,
 } from "../bridge/session-git-state.js";
 import { buildBoardRowSessionStatuses as buildBoardRowSessionStatusesController } from "../board-row-session-status.js";
-import { getSettings } from "../settings-manager.js";
 import {
   type BrowserIncomingMessage,
   type BrowserOutgoingMessage,
@@ -53,18 +56,12 @@ import {
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
 import type { RouteContext } from "./context.js";
-import { stripInternalLauncherSessionState } from "../session-info.js";
 import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
 import { registerTakodeBoardRoutes } from "./takode-board.js";
 import { registerTakodeNotificationInboxRoutes } from "./takode-notification-inbox.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
 import { getPauseState, isSessionPaused } from "../session-pause.js";
-import {
-  archivedWorktreeExists,
-  buildLeaderActiveBoardRowsForSnapshot,
-  scheduleWorktreeGitStateRefreshForSnapshot,
-} from "./session-list-snapshot.js";
-import { computeSessionTurnMetrics } from "../user-message-classification.js";
+import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
 import { normalizeNotifyThreadRoute } from "./takode-route-thread-helpers.js";
 import { registerTakodeReconnectRoute } from "./takode-reconnect.js";
 import { buildTakodeCodexPendingDeliveryFields, buildTakodeInfoSafeSession } from "./session-detail-response.js";
@@ -118,18 +115,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
     | { kind: "thread"; threadKey: string };
   type LeaderPermissionResponse = Extract<BrowserOutgoingMessage, { type: "permission_response" }>;
 
-  const resolveReportedPermissionMode = (
-    launcherMode: string | undefined,
-    bridgeMode: string | null | undefined,
-  ): string | null => {
-    if (typeof bridgeMode === "string" && bridgeMode.trim() && bridgeMode !== "default") {
-      return bridgeMode;
-    }
-    if (typeof launcherMode === "string" && launcherMode.trim()) {
-      return launcherMode;
-    }
-    return bridgeMode || null;
-  };
   const isBridgeSessionBusy = (session: BridgeSession | null | undefined): boolean =>
     !!session && (session.isGenerating || session.pendingPermissions.size > 0);
   const routeLeaderPermissionResponse = async (
@@ -257,80 +242,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
     }
     return (await bridgeAny.refreshGitInfoPublic?.(sessionId, options)) ?? false;
   };
-
-  const buildEnrichedSessions = async (filterFn?: (s: ReturnType<typeof launcher.listSessions>[number]) => boolean) => {
-    const sessions = launcher.listSessions();
-    const names = sessionNames.getAllNames();
-    const pool = filterFn ? sessions.filter(filterFn) : sessions;
-    const heavyRepoModeEnabled = getSettings().heavyRepoModeEnabled;
-    return Promise.all(
-      pool.map(async (s) => {
-        const pendingTimerCount = timerManager?.listTimers(s.sessionId).length ?? 0;
-        try {
-          const safeSession = stripInternalLauncherSessionState(s);
-          const bridgeSession = wsBridge.getSession(s.sessionId);
-          if (bridgeSession?.state?.is_worktree && !safeSession.archived && !heavyRepoModeEnabled) {
-            scheduleWorktreeGitStateRefreshForSnapshot(wsBridge, s.sessionId);
-          }
-          const currentBridgeSession = wsBridge.getSession(s.sessionId) ?? bridgeSession;
-          const bridge = currentBridgeSession?.state;
-          const attention = currentBridgeSession
-            ? {
-                lastReadAt: currentBridgeSession.lastReadAt,
-                attentionReason: currentBridgeSession.attentionReason,
-                pendingPermissionSummary: summarizePendingPermissions(currentBridgeSession),
-              }
-            : null;
-          const cliConnected = wsBridge.isBackendConnected(s.sessionId);
-          const effectiveState = cliConnected && currentBridgeSession?.isGenerating ? "running" : safeSession.state;
-          const leaderActiveBoardRows = buildLeaderActiveBoardRowsForSnapshot(
-            safeSession.isOrchestrator,
-            currentBridgeSession,
-          );
-          const leaderActivePhaseSummary =
-            leaderActiveBoardRows === undefined ? undefined : buildLeaderActivePhaseSummary(leaderActiveBoardRows);
-          return {
-            ...safeSession,
-            state: effectiveState,
-            sessionNum: launcher.getSessionNum(s.sessionId) ?? null,
-            name: names[s.sessionId] ?? s.name,
-            pendingTimerCount,
-            gitBranch: bridge?.git_branch || "",
-            gitDefaultBranch: bridge?.git_default_branch || "",
-            diffBaseBranch: bridge?.diff_base_branch || "",
-            gitAhead: bridge?.git_ahead || 0,
-            gitBehind: bridge?.git_behind || 0,
-            totalLinesAdded: bridge?.total_lines_added || 0,
-            totalLinesRemoved: bridge?.total_lines_removed || 0,
-            diffStatsSkippedReason: bridge?.diff_stats_skipped_reason ?? null,
-            gitStatusRefreshedAt: bridge?.git_status_refreshed_at,
-            gitStatusRefreshError: bridge?.git_status_refresh_error ?? null,
-            lastMessagePreview: currentBridgeSession?.lastUserMessage || "",
-            cliConnected,
-            taskHistory: currentBridgeSession?.taskHistory ?? [],
-            keywords: currentBridgeSession?.keywords ?? [],
-            claimedQuestId: bridge?.claimedQuestId ?? null,
-            claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
-            claimedQuestVerificationInboxUnread: bridge?.claimedQuestVerificationInboxUnread,
-            codexEffectiveReasoningEffort: bridge?.codex_effective_reasoning_effort ?? null,
-            codexEffectiveReasoningEffortReported: bridge?.codex_effective_reasoning_effort_reported === true,
-            ...(leaderActiveBoardRows !== undefined ? { leaderActiveBoardRows } : {}),
-            ...(leaderActivePhaseSummary !== undefined ? { leaderActivePhaseSummary } : {}),
-            ...(attention ?? {}),
-            ...(s.isWorktree && s.archived ? { worktreeExists: await archivedWorktreeExists(s.cwd) } : {}),
-          };
-        } catch (e) {
-          console.warn(`[routes] Failed to enrich session ${s.sessionId}:`, e);
-          return {
-            ...stripInternalLauncherSessionState(s),
-            name: names[s.sessionId] ?? s.name,
-            pendingTimerCount,
-          };
-        }
-      }),
-    );
-  };
-  type EnrichedSession = Awaited<ReturnType<typeof buildEnrichedSessions>>[number];
 
   const findMessageIndexById = (session: BridgeSession, messageId: string | null | undefined): number | undefined => {
     if (!messageId) return undefined;
@@ -542,7 +453,12 @@ export function createTakodeRoutes(ctx: RouteContext) {
   api.get("/takode/sessions", async (c) => {
     const authError = rejectInvalidOptionalTakodeAuth(c);
     if (authError) return authError;
-    const enriched = await buildEnrichedSessions((session) => session.hidden !== true);
+    const enriched = await buildEnrichedSessionsSnapshot({
+      launcher,
+      wsBridge,
+      timerManager,
+      getSessionName: (sessionId) => sessionNames.getName(sessionId),
+    });
     return c.json(enriched);
   });
 
@@ -567,15 +483,13 @@ export function createTakodeRoutes(ctx: RouteContext) {
     }
     const currentBridgeSession = wsBridge.getSession(sessionId) ?? bridgeSession;
     const bridge = currentBridgeSession?.state;
-    const names = sessionNames.getAllNames();
     const safeSession = buildTakodeInfoSafeSession(session, bridge);
-
-    // Compute real user turns from backend history. CLI num_turns can be per-result
-    // or reset around compaction, and injected/system user-shaped messages are not
-    // human turns.
-    const infoHistory = currentBridgeSession?.messageHistory ?? null;
-    const turnMetrics = infoHistory ? computeSessionTurnMetrics(infoHistory) : null;
-    const actualNumTurns = turnMetrics?.userTurnCount ?? bridge?.user_turn_count ?? bridge?.num_turns ?? 0;
+    const navigationSnapshot = currentBridgeSession
+      ? wsBridge.getSyncedProjectionController().getSnapshot(SESSION_NAVIGATION_PROJECTION, sessionId)
+      : null;
+    const navigationFields = navigationSnapshot
+      ? sessionNavigationProjectionToSessionFields(navigationSnapshot.value)
+      : { sessionNum: launcher.getSessionNum(sessionId) };
     const attention = currentBridgeSession
       ? {
           lastReadAt: currentBridgeSession.lastReadAt,
@@ -587,50 +501,22 @@ export function createTakodeRoutes(ctx: RouteContext) {
       buildTakodeCodexPendingDeliveryFields(currentBridgeSession);
     return c.json({
       ...safeSession,
-      sessionNum: launcher.getSessionNum(sessionId) ?? null,
-      name: names[sessionId] ?? session.name ?? null,
-      cliConnected: wsBridge.isBackendConnected(sessionId),
+      ...navigationFields,
       isGenerating: isBridgeSessionBusy(currentBridgeSession),
-      // Bridge-derived state
-      gitBranch: bridge?.git_branch || null,
       gitHeadSha: bridge?.git_head_sha || null,
-      gitDefaultBranch: bridge?.git_default_branch || null,
-      diffBaseBranch: bridge?.diff_base_branch || null,
-      isWorktree: safeSession.isWorktree ?? bridge?.is_worktree ?? false,
-      repoRoot: safeSession.repoRoot ?? bridge?.repo_root ?? null,
-      gitAhead: bridge?.git_ahead || 0,
-      gitBehind: bridge?.git_behind || 0,
-      totalLinesAdded: bridge?.total_lines_added || 0,
-      totalLinesRemoved: bridge?.total_lines_removed || 0,
-      diffStatsSkippedReason: bridge?.diff_stats_skipped_reason ?? null,
-      gitStatusRefreshedAt: bridge?.git_status_refreshed_at,
-      gitStatusRefreshError: bridge?.git_status_refresh_error ?? null,
       totalCostUsd: bridge?.total_cost_usd || 0,
-      numTurns: actualNumTurns,
-      userTurnCount: actualNumTurns,
-      agentTurnCount: turnMetrics?.agentTurnCount ?? bridge?.agent_turn_count ?? 0,
-      contextUsedPercent: bridge?.context_used_percent || 0,
       isCompacting: bridge?.is_compacting || false,
-      permissionMode: resolveReportedPermissionMode(session.permissionMode, bridge?.permissionMode),
       tools: bridge?.tools || [],
       mcpServers: bridge?.mcp_servers || [],
       claudeCodeVersion: bridge?.claude_code_version || null,
-      claimedQuestId: bridge?.claimedQuestId ?? null,
-      claimedQuestTitle: bridge?.claimedQuestTitle ?? null,
-      claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
-      claimedQuestVerificationInboxUnread: bridge?.claimedQuestVerificationInboxUnread,
       uiMode: bridge?.uiMode ?? null,
-      pendingTimerCount: timerManager?.listTimers(sessionId).length ?? 0,
       pause: bridge?.pause ?? null,
-      pausedInputQueueCount: bridge?.pause?.queuedMessages.length ?? 0,
       codexResultErrorAutoPause: bridge?.codex_result_error_auto_pause ?? null,
       codexAutoPausedInputCount:
         bridge?.codex_result_error_auto_pause?.heldInputs.reduce((total, item) => total + Math.max(1, item.count), 0) ??
         0,
       codexPendingDelivery,
       codexPendingDeliveryDetails,
-      codexEffectiveReasoningEffort: bridge?.codex_effective_reasoning_effort ?? null,
-      codexEffectiveReasoningEffortReported: bridge?.codex_effective_reasoning_effort_reported === true,
       ...(attention ?? {}),
       taskHistory: currentBridgeSession?.taskHistory ?? [],
       keywords: currentBridgeSession?.keywords ?? [],

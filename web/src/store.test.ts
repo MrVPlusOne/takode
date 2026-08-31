@@ -320,7 +320,9 @@ describe("Session management", () => {
     useStore.getState().setStreamingStats("s1", { startedAt: 100, outputTokens: 50 });
     useStore.getState().addPermission("s1", makePermission());
     useStore.getState().addTask("s1", makeTask());
-    useStore.getState().setSessionName("s1", "My Session");
+    useStore
+      .getState()
+      .setSdkSessions([{ sessionId: "s1", state: "connected", cwd: "/test", createdAt: 1, name: "My Session" }]);
     useStore.getState().setConnectionStatus("s1", "connected");
     useStore.getState().setCliConnected("s1", true);
     useStore.getState().markHistoryDelivered("s1");
@@ -350,7 +352,7 @@ describe("Session management", () => {
     expect(state.streamingOutputTokens.has("s1")).toBe(false);
     expect(state.pendingPermissions.has("s1")).toBe(false);
     expect(state.sessionTasks.has("s1")).toBe(false);
-    expect(state.sessionNames.has("s1")).toBe(false);
+    expect(state.sdkSessions.some((session) => session.sessionId === "s1")).toBe(false);
     expect(state.connectionStatus.has("s1")).toBe(false);
     expect(state.cliConnected.has("s1")).toBe(false);
     expect(state.sessionStatus.has("s1")).toBe(false);
@@ -380,7 +382,7 @@ describe("Session management", () => {
     expect(state.sdkSessions[0].sessionId).toBe("s2");
   });
 
-  it("setSdkSessions: hydrates non-current running status from the polled session list", () => {
+  it("setSdkSessions: keeps navigation authority on SDK rows without mirroring live maps", () => {
     useStore.getState().setCurrentSession("current");
     useStore.getState().setSessionStatus("other", "idle");
     useStore.getState().setCliDisconnectReason("other", "idle_limit");
@@ -403,10 +405,14 @@ describe("Session management", () => {
     ]);
 
     const state = useStore.getState();
-    expect(state.sessionStatus.get("other")).toBe("running");
-    expect(state.cliConnected.get("other")).toBe(true);
+    expect(state.sdkSessions.find((session) => session.sessionId === "other")).toMatchObject({
+      state: "running",
+      cliConnected: true,
+    });
+    expect(state.sessionStatus.get("other")).toBe("idle");
+    expect(state.cliConnected.has("other")).toBe(false);
     expect(state.cliEverConnected.get("other")).toBe(true);
-    expect(state.cliDisconnectReason.get("other")).toBeNull();
+    expect(state.cliDisconnectReason.get("other")).toBe("idle_limit");
   });
 
   it("setSdkSessions: restores prior connection evidence for a disconnected persisted session", () => {
@@ -425,11 +431,11 @@ describe("Session management", () => {
     ]);
 
     const state = useStore.getState();
-    expect(state.cliConnected.get("historical")).toBe(false);
+    expect(state.cliConnected.has("historical")).toBe(false);
     expect(state.cliEverConnected.get("historical")).toBe(true);
   });
 
-  it("setSdkSessions: clears stale non-current running state when the poll reports idle", () => {
+  it("setSdkSessions: does not rewrite selected-socket status maps from list snapshots", () => {
     useStore.getState().setSessionStatus("other", "running");
 
     useStore.getState().setSdkSessions([
@@ -442,7 +448,7 @@ describe("Session management", () => {
       },
     ]);
 
-    expect(useStore.getState().sessionStatus.has("other")).toBe(false);
+    expect(useStore.getState().sessionStatus.get("other")).toBe("running");
   });
 
   it("setSdkSessions: preserves the current session's live websocket status", () => {
@@ -1342,25 +1348,23 @@ describe("Tasks", () => {
 
 // ─── Session names ──────────────────────────────────────────────────────────
 
-describe("Session names", () => {
-  it("setSessionName: persists to localStorage as JSON", () => {
-    useStore.getState().setSessionName("s1", "My Session");
+describe("canonical session names", () => {
+  it("keeps the server-authored name on the SDK row instead of localStorage", () => {
+    useStore
+      .getState()
+      .setSdkSessions([{ sessionId: "s1", state: "connected", cwd: "/test", createdAt: 1, name: "My Session" }]);
 
-    expect(useStore.getState().sessionNames.get("s1")).toBe("My Session");
-
-    const stored = JSON.parse(localStorage.getItem("test-server:cc-session-names") || "[]");
-    expect(stored).toEqual([["s1", "My Session"]]);
+    expect(useStore.getState().sdkSessions[0]?.name).toBe("My Session");
+    expect(localStorage.getItem("test-server:cc-session-names")).toBeNull();
   });
 
-  it("setSessionName: updates existing name", () => {
-    useStore.getState().setSessionName("s1", "First");
-    useStore.getState().setSessionName("s1", "Second");
+  it("updateSdkSession updates the canonical row name", () => {
+    useStore
+      .getState()
+      .setSdkSessions([{ sessionId: "s1", state: "connected", cwd: "/test", createdAt: 1, name: "First" }]);
+    useStore.getState().updateSdkSession("s1", { name: "Second" });
 
-    expect(useStore.getState().sessionNames.get("s1")).toBe("Second");
-
-    const stored = JSON.parse(localStorage.getItem("test-server:cc-session-names") || "[]");
-    const map = new Map(stored);
-    expect(map.get("s1")).toBe("Second");
+    expect(useStore.getState().sdkSessions[0]?.name).toBe("Second");
   });
 });
 
@@ -1528,14 +1532,13 @@ describe("reset", () => {
     useStore.getState().setStreamingStats("s1", { startedAt: 1, outputTokens: 2 });
     useStore.getState().addPermission("s1", makePermission());
     useStore.getState().addTask("s1", makeTask());
-    useStore.getState().setSessionName("s1", "name");
     useStore.getState().markRecentlyRenamed("s1");
     useStore.getState().setConnectionStatus("s1", "connected");
     useStore.getState().setCliConnected("s1", true);
     useStore.getState().markHistoryDelivered("s1");
     useStore.getState().setSessionStatus("s1", "running");
     useStore.getState().setPreviousPermissionMode("s1", "default");
-    useStore.getState().setSdkSessions([{ sessionId: "s1", state: "connected", cwd: "/", createdAt: 0 }]);
+    useStore.getState().setSdkSessions([{ sessionId: "s1", state: "connected", cwd: "/", createdAt: 0, name: "name" }]);
 
     useStore.getState().reset();
     const state = useStore.getState();
@@ -1554,7 +1557,6 @@ describe("reset", () => {
     expect(state.sessionStatus.size).toBe(0);
     expect(state.previousPermissionMode.size).toBe(0);
     expect(state.sessionTasks.size).toBe(0);
-    expect(state.sessionNames.size).toBe(0);
     expect(state.recentlyRenamed.size).toBe(0);
     expect(state.mcpServers.size).toBe(0);
   });

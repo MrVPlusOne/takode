@@ -99,8 +99,10 @@ import {
   sameAgentSource as sameAgentSourceBrowserTransportController,
 } from "./bridge/browser-transport-controller.js";
 import {
-  SessionNavigationProjectionSourceController,
-  broadcastSessionActivityUpdateWithProjectionSuppression,
+  captureSessionNavigationLauncherActivity,
+  captureSessionNavigationSourceMessage,
+  getSessionNavigationLastActivityAt,
+  resolveSessionNavigationStatus,
 } from "./bridge/session-navigation-projection-controller.js";
 import { isSessionPaused } from "./session-pause.js";
 import type { BrowserTransportStateLike } from "./bridge/browser-transport-controller.js";
@@ -368,29 +370,31 @@ export class WsBridge {
   private static readonly USER_MESSAGE_RUNNING_TIMEOUT_MS = 30_000;
   private static readonly PROCESSED_CLIENT_MSG_ID_LIMIT = 1000;
   private sessions = new Map<string, Session>();
-  private readonly sessionNavigationProjectionSources = new SessionNavigationProjectionSourceController({
-    getSession: (sessionId) => this.sessions.get(sessionId),
-    getLauncherSessionInfo: (sessionId) =>
-      typeof this.launcher?.getSession === "function" ? this.launcher.getSession(sessionId) : undefined,
-    getStoredSessionName: (sessionId) => this.sessionStoredNameGetter?.(sessionId),
-    getPendingTimerCount: (sessionId) => this.timerManager?.listTimers(sessionId).length ?? 0,
-    getBackendConnected: (session) => backendConnectedController(session),
-    deriveSessionStatus: (session) =>
-      deriveSessionStatusController(session, {
-        backendConnected: (targetSession) => backendConnectedController(targetSession as Session),
-      }) as "running" | "compacting" | "reverting" | "idle" | null,
-  });
   private readonly syncedProjections = new WsBridgeSyncedProjectionController({
     getSession: (sessionId) => this.sessions.get(sessionId),
     listSessions: () => this.sessions.values(),
-    getLauncherSessionInfo: (sessionId) => this.sessionNavigationProjectionSources.getLauncherSessionInfo(sessionId),
-    getSessionName: (sessionId) => this.sessionNavigationProjectionSources.getSessionName(sessionId),
-    getPendingTimerCount: (sessionId) => this.sessionNavigationProjectionSources.getPendingTimerCount(sessionId),
-    getBackendConnected: (sessionId) => this.sessionNavigationProjectionSources.getBackendConnected(sessionId),
-    getSessionStatus: (sessionId) => this.sessionNavigationProjectionSources.getSessionStatus(sessionId),
-    getLastActivityAt: (sessionId) => this.sessionNavigationProjectionSources.getLastActivityAt(sessionId),
-    getLastUserMessageAt: (sessionId) => this.sessionNavigationProjectionSources.getLastUserMessageAt(sessionId),
-    getLastMessagePreviewAt: (sessionId) => this.sessionNavigationProjectionSources.getLastMessagePreviewAt(sessionId),
+    getLauncherSessionInfo: (sessionId) => this.launcher?.getSession(sessionId),
+    getSessionName: (sessionId) =>
+      this.sessionStoredNameGetter?.(sessionId) ?? this.launcher?.getSession(sessionId)?.name,
+    getPendingTimerCount: (sessionId) => this.timerManager?.listTimers(sessionId).length ?? 0,
+    getBackendConnected: (sessionId) => this.isBackendConnected(sessionId),
+    getSessionStatus: (sessionId) => {
+      const session = this.sessions.get(sessionId);
+      if (!session) return null;
+      return resolveSessionNavigationStatus(
+        session,
+        deriveSessionStatusController(session, {
+          backendConnected: backendConnectedController,
+        }) as "running" | "compacting" | "reverting" | "idle" | null,
+      );
+    },
+    getLastActivityAt: (sessionId) =>
+      getSessionNavigationLastActivityAt(
+        this.sessions.get(sessionId),
+        this.launcher?.getSession(sessionId)?.lastActivityAt,
+      ),
+    getLastUserMessageAt: (sessionId) => this.launcher?.getSession(sessionId)?.lastUserMessageAt,
+    getLastMessagePreviewAt: (sessionId) => this.sessions.get(sessionId)?.lastMessagePreviewAt,
     persistSession: (session) => this.persistSession(session),
   });
   private sideChatBridgeDeps: SideChatBridgeDeps = {
@@ -644,25 +648,10 @@ export class WsBridge {
 
   /** Push a message to all connected browsers across ALL sessions. */
   broadcastGlobal(msg: BrowserIncomingMessage): void {
-    if (msg.type === "session_activity_update") {
-      this.broadcastSessionActivityUpdateGlobally(msg);
-      return;
-    }
     if (msg.type === "session_archived" || msg.type === "session_deleted") {
       this.invalidateLeaderThreadTabsForSessionQuestState(msg.session_id);
     }
     broadcastGlobalAndScheduleBoardParticipantRefresh(this, msg);
-  }
-
-  private broadcastSessionActivityUpdateGlobally(
-    msg: Extract<BrowserIncomingMessage, { type: "session_activity_update" }>,
-  ): void {
-    broadcastSessionActivityUpdateWithProjectionSuppression({
-      sessions: this.sessions.values(),
-      msg,
-      hasNavigationSubscription: (socket, sessionId) =>
-        this.syncedProjections.hasSessionNavigationSubscription(socket, sessionId),
-    });
   }
 
   /** Re-check group-idle state for any leader affected by this session's activity change. */
@@ -670,16 +659,13 @@ export class WsBridge {
     const session = this.sessions.get(sessionId);
     if (session) {
       this.syncedProjections.invalidateSession(session);
-      this.broadcastSessionActivityUpdateGlobally({
-        type: "session_activity_update",
-        session_id: sessionId,
-        session: {
-          ...getSessionActivitySnapshotController(session),
-          status: deriveSessionStatusController(session, {
-            backendConnected: (targetSession) => backendConnectedController(targetSession as Session),
-          }) as "compacting" | "reverting" | "idle" | "running" | null,
-        },
-      });
+      if (reason.includes("permission")) {
+        this.broadcastGlobal({
+          type: "session_activity_update",
+          session_id: sessionId,
+          session: getSessionActivitySnapshotController(session),
+        });
+      }
     }
     this.herdEventDispatcher?.onSessionActivityStateChanged?.(sessionId, reason);
     notifyCodexWorkerV2RolloutActivity(sessionId, reason);
@@ -791,6 +777,7 @@ export class WsBridge {
       scheduleCodexToolResultWatchdogs: (session, reason) =>
         this.scheduleCodexToolResultWatchdogs(session as Session, reason),
       reconcileRestoredBoardState: (session) => this.reconcileRestoredBoardState(session as Session),
+      setLastUserMessageAt: (sessionId, timestamp) => this.launcher?.setLastUserMessageAt(sessionId, timestamp),
       resumeRecoveryDeliveryTransfers: (session) =>
         resumeRecoveryDeliveryTransfers(session as Session, getRecoveryDeliveryTransferDepsForBridge(this)),
     });
@@ -979,7 +966,10 @@ export class WsBridge {
   touchSessionActivity(sessionId: string): void {
     this.launcher?.touchActivity(sessionId);
     const session = this.sessions.get(sessionId);
-    if (session && this.sessionNavigationProjectionSources.captureLauncherActivity(sessionId)) {
+    if (
+      session &&
+      captureSessionNavigationLauncherActivity(session, this.launcher?.getSession(sessionId)?.lastActivityAt)
+    ) {
       this.syncedProjections.invalidateSessionNavigation(session);
     }
   }
@@ -1134,7 +1124,16 @@ export class WsBridge {
   ): Session | null {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
-    return prepareSessionForRevertController(session, truncateIdx, this.getSessionRegistryDeps(), options);
+    return prepareSessionForRevertController(
+      session,
+      truncateIdx,
+      {
+        ...this.getSessionRegistryDeps(),
+        setLastUserMessageAt: (targetSessionId, timestamp) =>
+          this.launcher?.setLastUserMessageAt(targetSessionId, timestamp),
+      },
+      options,
+    );
   }
 
   private finalizeCodexRollback(session: Session): void {
@@ -1469,7 +1468,6 @@ export class WsBridge {
   }
 
   removeSession(sessionId: string) {
-    this.sessionNavigationProjectionSources.removeSession(sessionId);
     removeSessionController(this.sessions, sessionId, this.getSessionCleanupDeps());
   }
 
@@ -1477,7 +1475,6 @@ export class WsBridge {
    * Close all sockets (CLI + browsers) for a session and remove it.
    */
   closeSession(sessionId: string) {
-    this.sessionNavigationProjectionSources.removeSession(sessionId);
     closeSessionController(this.sessions, sessionId, this.getSessionCleanupDeps());
   }
 
@@ -1980,8 +1977,7 @@ export class WsBridge {
   }
 
   private captureSessionNavigationSourceMessage(session: Session, msg: BrowserIncomingMessage): void {
-    if (this.sessionNavigationProjectionSources.captureSourceMessage(session, msg)) {
+    if (captureSessionNavigationSourceMessage(session, msg))
       this.syncedProjections.invalidateSessionNavigation(session);
-    }
   }
 }

@@ -178,8 +178,8 @@ describe("session list hydration", () => {
     ]);
 
     const state = useStore.getState();
-    expect(state.sessionNames.get("s1")).toBe("Hydrated Name");
-    expect(state.sessionPreviews.get("s1")).toBe("latest user request");
+    expect(state.sdkSessions[0]?.name).toBe("Hydrated Name");
+    expect(state.sdkSessions[0]?.lastMessagePreview).toBe("latest user request");
     expect(state.sdkSessions[0]?.leaderActivePhaseSummary).toEqual([
       { label: "Implement", count: 1, tone: "phase", color: "#34d399" },
       { label: "Queued", count: 1, tone: "status" },

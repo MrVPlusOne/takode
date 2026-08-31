@@ -53,6 +53,48 @@ const deps = () => ({
   reconcileRestoredBoardState: vi.fn(async () => {}),
 });
 
+describe("restored session activity", () => {
+  it("repairs human activity while restoring the latest committed or pending preview owner", async () => {
+    const sessions = new Map<string, any>();
+    const setLastUserMessageAt = vi.fn();
+    await restorePersistedSessions(
+      sessions,
+      [
+        persisted({
+          messageHistory: [
+            { type: "user_message", id: "human", content: "Human", timestamp: 100 },
+            {
+              type: "user_message",
+              id: "injected",
+              content: "Timer",
+              timestamp: 400,
+              agentSource: { sessionId: "timer:t1" },
+            },
+          ],
+          pendingCodexInputs: [
+            { id: "pending", content: "Pending human", timestamp: 300, cancelable: true },
+            {
+              id: "pending-injected",
+              content: "Herd event",
+              timestamp: 500,
+              cancelable: false,
+              agentSource: { sessionId: "herd-events" },
+            },
+          ],
+        }),
+      ],
+      { ...deps(), setLastUserMessageAt },
+    );
+
+    expect(setLastUserMessageAt).toHaveBeenCalledOnce();
+    expect(setLastUserMessageAt).toHaveBeenCalledWith("session-recovery", 300);
+    expect(sessions.get("session-recovery")).toMatchObject({
+      lastUserMessage: "Herd event",
+      lastMessagePreviewAt: 500,
+    });
+  });
+});
+
 describe("restored Codex interrupted-turn recovery", () => {
   it("repairs the durable continuation owner and active status", async () => {
     const source = "system:codex-turn-recovery:original-owner";

@@ -223,6 +223,7 @@ function makeSdkSession(id: string, overrides: Partial<SdkSessionInfo> = {}): Sd
   return {
     sessionId: id,
     state: "connected",
+    model: "claude-sonnet-4-5-20250929",
     cwd: "/home/user/projects/myapp",
     createdAt: Date.now(),
     archived: false,
@@ -349,7 +350,9 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
     const sessionIds = Array.from({ length: 12 }, (_, index) => `session-${index + 1}`);
     mockState = createMockState({
       sessions: new Map(sessionIds.map((id) => [id, makeSession(id, { model: id })])),
-      sdkSessions: sessionIds.map((id, index) => makeSdkSession(id, { sessionNum: index + 1, createdAt: index + 1 })),
+      sdkSessions: sessionIds.map((id, index) =>
+        makeSdkSession(id, { name: id, model: id, sessionNum: index + 1, createdAt: index + 1 }),
+      ),
       sessionNames: new Map(sessionIds.map((id) => [id, id])),
       treeGroups: [{ id: "default", name: "Default" }],
       treeAssignments: new Map(sessionIds.map((id) => [id, "default"])),
@@ -365,7 +368,7 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
   it("names the sidebar search clear button for assistive technology", () => {
     mockState = createMockState({
       sessions: new Map([["search-session", makeSession("search-session", { model: "search-model" })]]),
-      sdkSessions: [makeSdkSession("search-session", { sessionNum: 91, createdAt: 100 })],
+      sdkSessions: [makeSdkSession("search-session", { name: "Searchable Session", sessionNum: 91, createdAt: 100 })],
       sessionNames: new Map([["search-session", "Searchable Session"]]),
       treeGroups: [{ id: "default", name: "Default" }],
       treeAssignments: new Map([["search-session", "default"]]),
@@ -382,7 +385,13 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
     mockState = createMockState({
       sessions: new Map([[sessionId, makeSession(sessionId, { model: "search-attention-model" })]]),
       sdkSessions: [
-        makeSdkSession(sessionId, { sessionNum: 92, createdAt: 100, cliConnected: true, pendingTimerCount: 1 }),
+        makeSdkSession(sessionId, {
+          name: "Legacy Search Attention",
+          sessionNum: 92,
+          createdAt: 100,
+          cliConnected: true,
+          pendingTimerCount: 1,
+        }),
       ],
       sessionNames: new Map([[sessionId, "Legacy Search Attention"]]),
       sessionAttention: new Map([[sessionId, "error"]]),
@@ -419,6 +428,7 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
       sessions: new Map([[sessionId, makeSession(sessionId, { model: "cron-attention-model" })]]),
       sdkSessions: [
         makeSdkSession(sessionId, {
+          name: "Legacy Cron Attention",
           sessionNum: 93,
           createdAt: 100,
           cliConnected: true,
@@ -467,6 +477,7 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
       sessions: new Map([[sessionId, makeSession(sessionId, { model: "unread-timer-model" })]]),
       sdkSessions: [
         makeSdkSession(sessionId, {
+          name: "Unread Timer Leader",
           isOrchestrator: true,
           sessionNum: 2522,
           cliConnected: true,
@@ -535,8 +546,8 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
         ["beta-session", makeSession("beta-session", { model: "beta-model" })],
       ]),
       sdkSessions: [
-        makeSdkSession("alpha-session", { sessionNum: 71, createdAt: 100 }),
-        makeSdkSession("beta-session", { sessionNum: 72, createdAt: 200 }),
+        makeSdkSession("alpha-session", { name: "Alpha Session", sessionNum: 71, createdAt: 100 }),
+        makeSdkSession("beta-session", { name: "Beta Session", sessionNum: 72, createdAt: 200 }),
       ],
       sessionNames: new Map([
         ["alpha-session", "Alpha Session"],
@@ -587,8 +598,18 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
         [workerSessionId, makeSession(workerSessionId, { model: "worker-model" })],
       ]),
       sdkSessions: [
-        makeSdkSession(leaderSessionId, { isOrchestrator: true, sessionNum: 7, createdAt: 1700000000000 }),
-        makeSdkSession(workerSessionId, { herdedBy: leaderSessionId, sessionNum: 11, createdAt: 1700000001000 }),
+        makeSdkSession(leaderSessionId, {
+          name: "Leader Session",
+          isOrchestrator: true,
+          sessionNum: 7,
+          createdAt: 1700000000000,
+        }),
+        makeSdkSession(workerSessionId, {
+          name: "Worker Session",
+          herdedBy: leaderSessionId,
+          sessionNum: 11,
+          createdAt: 1700000001000,
+        }),
       ],
       sessionNames: new Map([
         [leaderSessionId, "Leader Session"],
@@ -616,10 +637,30 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
         ["worker-beta", makeSession("worker-beta", { model: "worker-beta-model" })],
       ]),
       sdkSessions: [
-        makeSdkSession("leader-alpha", { isOrchestrator: true, sessionNum: 7, createdAt: 1700000001000 }),
-        makeSdkSession("worker-alpha", { herdedBy: "leader-alpha", sessionNum: 8, createdAt: 1700000002000 }),
-        makeSdkSession("leader-beta", { isOrchestrator: true, sessionNum: 9, createdAt: 1700000003000 }),
-        makeSdkSession("worker-beta", { herdedBy: "leader-beta", sessionNum: 10, createdAt: 1700000004000 }),
+        makeSdkSession("leader-alpha", {
+          name: "Leader Alpha",
+          isOrchestrator: true,
+          sessionNum: 7,
+          createdAt: 1700000001000,
+        }),
+        makeSdkSession("worker-alpha", {
+          name: "Worker Alpha",
+          herdedBy: "leader-alpha",
+          sessionNum: 8,
+          createdAt: 1700000002000,
+        }),
+        makeSdkSession("leader-beta", {
+          name: "Leader Beta",
+          isOrchestrator: true,
+          sessionNum: 9,
+          createdAt: 1700000003000,
+        }),
+        makeSdkSession("worker-beta", {
+          name: "Worker Beta",
+          herdedBy: "leader-beta",
+          sessionNum: 10,
+          createdAt: 1700000004000,
+        }),
       ],
       sessionNames: new Map([
         ["leader-alpha", "Leader Alpha"],
@@ -650,8 +691,18 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
         ["worker-2", makeSession("worker-2", { model: "worker-open-model" })],
       ]),
       sdkSessions: [
-        makeSdkSession("leader-2", { isOrchestrator: true, sessionNum: 21, createdAt: 1700000002000 }),
-        makeSdkSession("worker-2", { herdedBy: "leader-2", sessionNum: 22, createdAt: 1700000003000 }),
+        makeSdkSession("leader-2", {
+          name: "Leader Open",
+          isOrchestrator: true,
+          sessionNum: 21,
+          createdAt: 1700000002000,
+        }),
+        makeSdkSession("worker-2", {
+          name: "Worker Open",
+          herdedBy: "leader-2",
+          sessionNum: 22,
+          createdAt: 1700000003000,
+        }),
       ],
       sessionNames: new Map([
         ["leader-2", "Leader Open"],
@@ -672,8 +723,18 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
         ["worker-3", makeSession("worker-3", { model: "worker-worker-open-model" })],
       ]),
       sdkSessions: [
-        makeSdkSession("leader-3", { isOrchestrator: true, sessionNum: 31, createdAt: 1700000004000 }),
-        makeSdkSession("worker-3", { herdedBy: "leader-3", sessionNum: 32, createdAt: 1700000005000 }),
+        makeSdkSession("leader-3", {
+          name: "Leader Worker Open",
+          isOrchestrator: true,
+          sessionNum: 31,
+          createdAt: 1700000004000,
+        }),
+        makeSdkSession("worker-3", {
+          name: "Worker Worker Open",
+          herdedBy: "leader-3",
+          sessionNum: 32,
+          createdAt: 1700000005000,
+        }),
       ],
       sessionNames: new Map([
         ["leader-3", "Leader Worker Open"],
@@ -694,8 +755,13 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
         ["worker-first", makeSession("worker-first", { model: "worker-first-model" })],
       ]),
       sdkSessions: [
-        makeSdkSession("leader-first", { isOrchestrator: true, sessionNum: 41, createdAt: 100 }),
-        makeSdkSession("worker-first", { herdedBy: "leader-first", sessionNum: 42, createdAt: 300 }),
+        makeSdkSession("leader-first", { name: "Leader First", isOrchestrator: true, sessionNum: 41, createdAt: 100 }),
+        makeSdkSession("worker-first", {
+          name: "Worker First",
+          herdedBy: "leader-first",
+          sessionNum: 42,
+          createdAt: 300,
+        }),
       ],
       sessionNames: new Map([
         ["leader-first", "Leader First"],
@@ -730,12 +796,14 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
       ]),
       sdkSessions: [
         makeSdkSession("leader-refresh", {
+          name: "Leader Refresh",
           isOrchestrator: true,
           isWorktree: true,
           sessionNum: 61,
           createdAt: 100,
         }),
         makeSdkSession("worker-refresh", {
+          name: "Worker Refresh",
           herdedBy: "leader-refresh",
           isWorktree: true,
           sessionNum: 62,
@@ -765,13 +833,20 @@ describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
       ]),
       sdkSessions: [
         makeSdkSession("leader-cross-project", {
+          name: "Cross Project Leader",
           cwd: "/home/user/project-leader",
           isOrchestrator: true,
           sessionNum: 51,
           createdAt: 100,
         }),
-        makeSdkSession("leader-peer", { cwd: "/home/user/project-leader", sessionNum: 52, createdAt: 300 }),
+        makeSdkSession("leader-peer", {
+          name: "Newer Leader-Project Peer",
+          cwd: "/home/user/project-leader",
+          sessionNum: 52,
+          createdAt: 300,
+        }),
         makeSdkSession("worker-cross-project", {
+          name: "Cross Project Worker",
           cwd: "/home/user/project-worker",
           herdedBy: "leader-cross-project",
           sessionNum: 53,

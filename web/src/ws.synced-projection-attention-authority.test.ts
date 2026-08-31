@@ -79,7 +79,7 @@ describe("projection-owned attention rejects legacy WebSocket hydration", () => 
     expect(apiMocks.markSessionRead).not.toHaveBeenCalled();
   });
 
-  it("ignores session_activity_update attention while retaining unrelated compact metadata", () => {
+  it("ignores projected activity fields while retaining unrelated compact metadata", () => {
     handleMessage("carrier", {
       type: "session_activity_update",
       session_id: "worker",
@@ -92,7 +92,7 @@ describe("projection-owned attention rejects legacy WebSocket hydration", () => 
 
     const sdk = useStore.getState().sdkSessions[0]!;
     expect(sdk.attentionReason).toBe("review");
-    expect(sdk.pendingPermissionCount).toBe(3);
+    expect(sdk.pendingPermissionCount).toBeUndefined();
     expect(sdk.pendingPermissionSummary).toBe("pending plan");
     expect(useStore.getState().sessionAttention.get("worker")).toBe("review");
     expect(apiMocks.markSessionRead).not.toHaveBeenCalled();

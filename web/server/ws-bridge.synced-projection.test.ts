@@ -663,11 +663,7 @@ describe("WsBridge synchronized projections", () => {
     expect(initial).toMatchObject({
       projection: "session-navigation",
       key: "worker",
-      value: {
-        identity: { name: "Before" },
-        topology: { herdedBy: null },
-        lifecycle: { pendingTimerCount: 0, status: null },
-      },
+      value: { name: "Before", herdedBy: null, pendingTimerCount: 0, status: null },
     });
 
     sessionName = "After";
@@ -676,7 +672,7 @@ describe("WsBridge synchronized projections", () => {
     expect(messages(socket).at(-1)).toMatchObject({
       type: "synced_projection_update",
       projection: "session-navigation",
-      value: { identity: { name: "After" } },
+      patch: { name: "After" },
     });
 
     timers = [{ id: "t1" }];
@@ -684,7 +680,7 @@ describe("WsBridge synchronized projections", () => {
     await bridge.getSyncedProjectionController().flushForTest();
     expect(messages(socket).at(-1)).toMatchObject({
       type: "synced_projection_update",
-      value: { lifecycle: { pendingTimerCount: 1 } },
+      patch: { pendingTimerCount: 1 },
     });
 
     const handleHerdChange = createLauncherHerdChangeHandler({
@@ -698,14 +694,14 @@ describe("WsBridge synchronized projections", () => {
     await bridge.getSyncedProjectionController().flushForTest();
     expect(messages(socket).at(-1)).toMatchObject({
       type: "synced_projection_update",
-      value: { topology: { herdedBy: "leader" } },
+      patch: { herdedBy: "leader" },
     });
 
     bridge.broadcastToSession("worker", { type: "status_change", status: "running" });
     await bridge.getSyncedProjectionController().flushForTest();
     expect(messages(socket).at(-1)).toMatchObject({
       type: "synced_projection_update",
-      value: { lifecycle: { status: "running" } },
+      patch: { status: "running" },
     });
 
     const metrics = bridge.getSyncedProjectionController().getMetrics().projections["session-navigation"];
@@ -716,7 +712,7 @@ describe("WsBridge synchronized projections", () => {
     expect(metrics.deliveredValueBytes).toBeGreaterThan(0);
   });
 
-  it("falls back to a launcher-stored name instead of a generic display label", () => {
+  it("uses the launcher-stored canonical name instead of a generic display label", () => {
     const bridge = new WsBridge();
     const launcherSession = {
       sessionId: "legacy-worker",
@@ -745,7 +741,7 @@ describe("WsBridge synchronized projections", () => {
       .find((message) => message.type === "synced_projection_snapshot");
 
     expect(snapshot).toMatchObject({
-      value: { identity: { name: "Recovered launcher name" } },
+      value: { name: "Recovered launcher name" },
     });
   });
 
@@ -815,7 +811,7 @@ describe("WsBridge synchronized projections", () => {
 
     expect(snapshot[0]?.sessionNavigationProjection).toMatchObject({
       revision: 2,
-      value: { detail: { userTurnCount: 1, agentTurnCount: 1 } },
+      value: { userTurnCount: 1, agentTurnCount: 1 },
     });
     for (const socket of [first, second]) {
       expect(messages(socket)).toEqual([
@@ -824,9 +820,7 @@ describe("WsBridge synchronized projections", () => {
           projection: "session-navigation",
           key: "worker",
           revision: 2,
-          value: expect.objectContaining({
-            detail: expect.objectContaining({ userTurnCount: 1, agentTurnCount: 1 }),
-          }),
+          patch: expect.objectContaining({ userTurnCount: 1, agentTurnCount: 1 }),
         }),
       ]);
     }
@@ -856,13 +850,13 @@ describe("WsBridge synchronized projections", () => {
       .getSyncedProjectionController()
       .replaceSubscriptions(socket, [{ projection: "session-navigation", key: "worker" }])
       .find((message) => message.type === "synced_projection_snapshot");
-    expect(initial).toMatchObject({ revision: 1, value: { lifecycle: { lastActivityAt: 10 } } });
+    expect(initial).toMatchObject({ revision: 1, value: { lastActivityAt: 10 } });
     socket.send.mockClear();
 
     launcherSession.lastActivityAt = 20;
     expect(bridge.getSyncedProjectionController().getSnapshot(SESSION_NAVIGATION_PROJECTION, "worker")).toMatchObject({
       revision: 1,
-      value: { lifecycle: { lastActivityAt: 10 } },
+      value: { lastActivityAt: 10 },
     });
     expect(socket.send).not.toHaveBeenCalled();
 
@@ -872,12 +866,12 @@ describe("WsBridge synchronized projections", () => {
       expect.objectContaining({
         type: "synced_projection_update",
         revision: 2,
-        value: expect.objectContaining({ lifecycle: expect.objectContaining({ lastActivityAt: 1_020 }) }),
+        patch: expect.objectContaining({ lastActivityAt: 1_020 }),
       }),
     ]);
   });
 
-  it("suppresses duplicate activity fields only for sockets subscribed to the matching navigation key", () => {
+  it("broadcasts residual activity fields without navigation-subscription arbitration", () => {
     const bridge = new WsBridge();
     bridge.getOrCreateSession("target");
     bridge.getOrCreateSession("other-target");
@@ -899,32 +893,15 @@ describe("WsBridge synchronized projections", () => {
     bridge.broadcastGlobal({
       type: "session_activity_update",
       session_id: "target",
-      session: { status: "running", pendingPermissionCount: 1, attentionReason: "review" },
+      session: { attentionReason: "review", pendingPermissionSummary: "pending plan" },
     });
 
-    expect(messages(subscribed)).toEqual([
-      {
-        type: "session_activity_update",
-        session_id: "target",
-        session: { attentionReason: "review" },
-      },
-    ]);
-    expect(messages(otherSubscription)).toEqual([
-      {
-        type: "session_activity_update",
-        session_id: "target",
-        session: { status: "running", pendingPermissionCount: 1, attentionReason: "review" },
-      },
-    ]);
-
-    subscribed.send.mockClear();
-    otherSubscription.send.mockClear();
-    bridge.broadcastGlobal({
+    const expected = {
       type: "session_activity_update",
       session_id: "target",
-      session: { status: "idle", pendingPermissionCount: 0 },
-    });
-    expect(subscribed.send).not.toHaveBeenCalled();
-    expect(messages(otherSubscription)).toHaveLength(1);
+      session: { attentionReason: "review", pendingPermissionSummary: "pending plan" },
+    };
+    expect(messages(subscribed)).toEqual([expect.objectContaining(expected)]);
+    expect(messages(otherSubscription)).toEqual([expect.objectContaining(expected)]);
   });
 });

@@ -2,7 +2,10 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { LeaderWorkboardView } from "../store-types.js";
-import { SESSION_NAVIGATION_PROJECTION } from "../../shared/session-navigation-projection.js";
+import {
+  SESSION_NAVIGATION_PROJECTION,
+  sessionNavigationProjectionToSessionFields,
+} from "../../shared/session-navigation-projection.js";
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
 import { createSessionNavigationProjectionValue } from "../test-fixtures/session-navigation-projection.js";
 
@@ -110,6 +113,7 @@ interface MockStoreState {
     claimedQuestVerificationInboxUnread?: boolean;
     pause?: any;
     pausedInputQueueCount?: number;
+    pendingTimerCount?: number;
     isOrchestrator?: boolean;
     leaderProfilePortrait?: {
       id: string;
@@ -360,13 +364,15 @@ describe("TopBar", () => {
     storeState.sdkSessions[0]!.leaderProfilePortrait = {} as never;
     const entryId = syncedProjectionEntryId(SESSION_NAVIGATION_PROJECTION, "s1");
     storeState.syncedProjectionKeys.add(entryId);
-    storeState.syncedProjectionValues.set(
-      entryId,
-      createSessionNavigationProjectionValue({
-        identity: { name: "Projected name" },
-        lifecycle: { status: null, pendingPermissionCount: 0, pendingTimerCount: 0 },
-      }),
-    );
+    const navigation = createSessionNavigationProjectionValue({
+      identity: { name: "Projected name" },
+      lifecycle: { status: null, pendingPermissionCount: 0, pendingTimerCount: 0 },
+    });
+    storeState.syncedProjectionValues.set(entryId, navigation);
+    storeState.sdkSessions[0] = {
+      ...storeState.sdkSessions[0]!,
+      ...sessionNavigationProjectionToSessionFields(navigation),
+    };
 
     const current = getCurrentTopBarSessionState(storeState as never);
 
@@ -387,7 +393,16 @@ describe("TopBar", () => {
       sessionStatus: new Map([["s1", "idle"]]),
       sessionTimers: new Map([["s1", [{ id: "timer-1" }]]]),
       sessions: new Map([["s1", { cwd: "/repo" }]]),
-      sdkSessions: [{ sessionId: "s1", createdAt: 40, cliConnected: true, state: "connected", name: "Timed" }],
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          createdAt: 40,
+          cliConnected: true,
+          state: "connected",
+          name: "Timed",
+          pendingTimerCount: 1,
+        },
+      ],
     });
 
     render(<TopBar />);
@@ -403,7 +418,16 @@ describe("TopBar", () => {
       sessionStatus: new Map([["s1", "running"]]),
       sessionTimers: new Map([["s1", [{ id: "timer-1" }]]]),
       sessions: new Map([["s1", { cwd: "/repo" }]]),
-      sdkSessions: [{ sessionId: "s1", createdAt: 40, cliConnected: true, state: "running", name: "Running" }],
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          createdAt: 40,
+          cliConnected: true,
+          state: "running",
+          name: "Running",
+          pendingTimerCount: 1,
+        },
+      ],
     });
 
     render(<TopBar />);
@@ -878,8 +902,9 @@ describe("TopBar", () => {
     expect(screen.getByTestId("board-table")).toHaveAttribute("data-mode", expectedMode);
   });
 
-  it("does not render leader shortcuts for non-leader sessions", () => {
+  it("does not let stale bridge role state revive leader shortcuts for a canonical worker row", () => {
     resetStore({
+      sessions: new Map([["s1", { cwd: "/repo", isOrchestrator: true }]]),
       sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: false, name: "Worker Session" }],
       sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
       sessionCompletedBoards: new Map([["s1", [{ questId: "q-2", status: "DONE", updatedAt: 2, completedAt: 2 }]]]),
@@ -946,6 +971,7 @@ describe("TopBar", () => {
 
   it("shows diff badge count only for files within cwd", () => {
     resetStore({
+      sdkSessions: [{ sessionId: "s1", createdAt: 1, state: "connected", cwd: "/repo" }],
       changedFiles: new Map([
         ["s1", new Set(["/repo/src/a.ts", "/repo/src/b.ts", "/Users/stan/.claude/plans/plan.md"])],
       ]),
@@ -958,6 +984,7 @@ describe("TopBar", () => {
 
   it("hides diff badge when all changed files are out of scope", () => {
     resetStore({
+      sdkSessions: [{ sessionId: "s1", createdAt: 1, state: "connected", cwd: "/repo" }],
       changedFiles: new Map([["s1", new Set(["/Users/stan/.claude/plans/plan.md"])]]),
     });
 

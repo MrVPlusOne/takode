@@ -18,7 +18,6 @@ vi.mock("../store.js", () => ({
 function session(): SidebarSessionItem {
   return {
     id: "s1",
-    navigationProjectionOwned: true,
     lastUserMessageAt: 100,
     lastMessagePreviewAt: 200,
     model: "gpt-5.6",
