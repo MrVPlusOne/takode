@@ -118,8 +118,23 @@ function makeSession(id: string): SessionState {
   };
 }
 
+function serializeIncomingTestMessage(data: Record<string, unknown>): string {
+  if (data.type !== "authoritative_history_fixture") return JSON.stringify(data);
+  const messages = Array.isArray(data.messages) ? data.messages : [];
+  return JSON.stringify({
+    type: "history_sync",
+    frozen_base_count: 0,
+    frozen_base_history_index: 0,
+    frozen_delta: messages,
+    hot_messages: [],
+    frozen_count: messages.length,
+    expected_frozen_hash: "test-frozen-hash",
+    expected_full_hash: "test-full-hash",
+  });
+}
+
 function fireMessage(data: Record<string, unknown>) {
-  lastWs.onmessage!({ data: JSON.stringify(data) });
+  lastWs.onmessage!({ data: serializeIncomingTestMessage(data) });
 }
 
 // ===========================================================================
@@ -154,7 +169,7 @@ describe("handleMessage: codex_pending_input_cancelled", () => {
       ],
     });
 
-    fireMessage({ type: "message_history", messages: [] });
+    fireMessage({ type: "authoritative_history_fixture", messages: [] });
 
     expect(useStore.getState().pendingUserUploads.get("s1")).toBeUndefined();
     expect(useStore.getState().pendingUserUploadRestorations.get("s1")?.has("pending-upload-reconnect")).toBe(true);

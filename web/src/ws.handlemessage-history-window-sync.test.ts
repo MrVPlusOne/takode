@@ -3,7 +3,6 @@
 import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage } from "./types.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
-import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 
 const getDiffStatsMock = vi.fn().mockResolvedValue({ stats: {} });
 const listSessionsMock = vi.fn().mockResolvedValue([]);
@@ -178,6 +177,8 @@ describe("handleMessage: history_window_sync", () => {
         from_turn: 100,
         turn_count: 150,
         total_turns: 320,
+        has_older_items: true,
+        has_newer_items: true,
         start_index: 50,
         section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -191,6 +192,8 @@ describe("handleMessage: history_window_sync", () => {
       from_turn: 100,
       turn_count: 150,
       total_turns: 320,
+      has_older_items: true,
+      has_newer_items: true,
       start_index: 50,
       section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -205,6 +208,8 @@ describe("handleMessage: history_window_sync", () => {
       from_turn: 100,
       turn_count: 1,
       total_turns: 320,
+      has_older_items: true,
+      has_newer_items: true,
       start_index: 50,
       section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -244,6 +249,8 @@ describe("handleMessage: history_window_sync", () => {
       from_turn: 100,
       turn_count: 1,
       total_turns: 320,
+      has_older_items: true,
+      has_newer_items: true,
       start_index: 50,
       section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -309,6 +316,8 @@ describe("handleMessage: history_window_sync", () => {
       from_turn: 250,
       turn_count: 50,
       total_turns: 320,
+      has_older_items: true,
+      has_newer_items: true,
       start_index: 125,
       section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -329,6 +338,8 @@ describe("handleMessage: history_window_sync", () => {
         from_turn: 100,
         turn_count: 150,
         total_turns: 320,
+        has_older_items: true,
+        has_newer_items: true,
         start_index: 50,
         section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -351,60 +362,37 @@ describe("handleMessage: history_window_sync", () => {
       section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
       activate_view: true,
-      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
     });
   });
 
-  it("stores additive feed_window_sync without replacing authoritative history state", () => {
+  it("uses history_window_sync as the sole authoritative history-window state", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     useStore.getState().setMessages("s1", [{ id: "visible", role: "assistant", content: "visible", timestamp: 1 }], {
       frozenCount: 0,
     });
+    const window = {
+      from_turn: 20,
+      turn_count: 10,
+      total_turns: 40,
+      has_older_items: true,
+      has_newer_items: true,
+      start_index: 200,
+      section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      window_hash: "hash-1",
+    };
 
     fireMessage({
-      type: "feed_window_sync",
-      sync: {
-        version: FEED_WINDOW_SYNC_VERSION,
-        source: "history_window",
-        legacySyncType: "history_window_sync",
-        threadKey: "main",
-        windowHash: "hash-1",
-        window: {
-          from_turn: 20,
-          turn_count: 10,
-          total_turns: 40,
-          start_index: 200,
-          section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
-          visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-          window_hash: "hash-1",
-        },
-        items: [
-          {
-            key: "200:u-window",
-            kind: "message",
-            messageId: "u-window",
-            messageType: "user_message",
-            historyIndex: 200,
-            timestamp: 1000,
-          },
-        ],
-        bounds: { from: 20, count: 10, total: 40 },
-      },
+      type: "history_window_sync",
+      messages: [{ type: "user_message", id: "u-window", content: "window user", timestamp: 1000 }],
+      window,
     });
 
-    expect(
-      useStore
-        .getState()
-        .messages.get("s1")
-        ?.map((message) => message.id),
-    ).toEqual(["visible"]);
-    expect(
-      useStore
-        .getState()
-        .feedWindowSyncs.get("s1")
-        ?.items.map((item) => item.messageId),
-    ).toEqual(["u-window"]);
+    const state = useStore.getState();
+    expect(state.messages.get("s1")?.map((message) => message.id)).toEqual(["u-window"]);
+    expect(state.historyWindows.get("s1")).toEqual(window);
+    expect("feedWindowSyncs" in state).toBe(false);
   });
 
   it("keeps a pending raw-index scroll when the current history window does not contain the target", () => {
@@ -419,6 +407,8 @@ describe("handleMessage: history_window_sync", () => {
         from_turn: 100,
         turn_count: 1,
         total_turns: 320,
+        has_older_items: true,
+        has_newer_items: true,
         start_index: 50,
         section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -441,6 +431,9 @@ describe("handleMessage: history_window_sync", () => {
         from_turn: 10,
         turn_count: 50,
         total_turns: 500,
+        has_older_items: true,
+        has_newer_items: true,
+        start_index: 10,
         section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
       },
@@ -461,6 +454,9 @@ describe("handleMessage: history_window_sync", () => {
         from_turn: 450,
         turn_count: 50,
         total_turns: 500,
+        has_older_items: true,
+        has_newer_items: false,
+        start_index: 450,
         section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
       },
@@ -489,6 +485,9 @@ describe("handleMessage: history_window_sync", () => {
         from_turn: 450,
         turn_count: 50,
         total_turns: 500,
+        has_older_items: true,
+        has_newer_items: false,
+        start_index: 450,
         section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
       },
@@ -504,6 +503,9 @@ describe("handleMessage: history_window_sync", () => {
       from_turn: 10,
       turn_count: 150,
       total_turns: 200,
+      has_older_items: true,
+      has_newer_items: true,
+      start_index: 10,
       section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
     });
@@ -511,6 +513,7 @@ describe("handleMessage: history_window_sync", () => {
     fireMessage({
       type: "history_sync",
       frozen_base_count: 0,
+      frozen_base_history_index: 0,
       frozen_delta: [{ type: "user_message", id: "u-full", content: "full history", timestamp: 1000 }],
       hot_messages: [],
       frozen_count: 1,
@@ -533,6 +536,8 @@ describe("handleMessage: thread_window_sync", () => {
       from_turn: 10,
       turn_count: 5,
       total_turns: 100,
+      has_older_items: true,
+      has_newer_items: true,
       start_index: 50,
       section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -577,6 +582,8 @@ describe("handleMessage: thread_window_sync", () => {
         from_item: 20,
         item_count: 2,
         total_items: 40,
+        has_older_items: true,
+        has_newer_items: true,
         source_history_length: 150,
         section_item_count: 10,
         visible_item_count: 2,
@@ -593,6 +600,8 @@ describe("handleMessage: thread_window_sync", () => {
       from_turn: 10,
       turn_count: 5,
       total_turns: 100,
+      has_older_items: true,
+      has_newer_items: true,
       start_index: 50,
       section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -602,6 +611,8 @@ describe("handleMessage: thread_window_sync", () => {
       from_item: 20,
       item_count: 2,
       total_items: 40,
+      has_older_items: true,
+      has_newer_items: true,
       source_history_length: 150,
       section_item_count: 10,
       visible_item_count: 2,
@@ -657,6 +668,8 @@ describe("handleMessage: thread_window_sync", () => {
         from_item: 0,
         item_count: 1,
         total_items: 1,
+        has_older_items: false,
+        has_newer_items: false,
         source_history_length: 42,
         section_item_count: 10,
         visible_item_count: 2,
@@ -722,6 +735,8 @@ describe("handleMessage: thread_window_sync", () => {
         from_item: 0,
         item_count: 2,
         total_items: 2,
+        has_older_items: false,
+        has_newer_items: false,
         source_history_length: 42,
         section_item_count: 10,
         visible_item_count: 2,
@@ -760,6 +775,8 @@ describe("handleMessage: thread_window_sync", () => {
         from_item: 0,
         item_count: 1,
         total_items: 1,
+        has_older_items: false,
+        has_newer_items: false,
         source_history_length: 41,
         section_item_count: 10,
         visible_item_count: 2,
@@ -830,6 +847,8 @@ describe("handleMessage: thread_window_sync", () => {
         from_item: 0,
         item_count: 1,
         total_items: 1,
+        has_older_items: false,
+        has_newer_items: false,
         source_history_length: 41,
         section_item_count: 10,
         visible_item_count: 1,
@@ -875,6 +894,8 @@ describe("handleMessage: thread_window_sync", () => {
         from_item: 0,
         item_count: 1,
         total_items: 1,
+        has_older_items: false,
+        has_newer_items: false,
         source_history_length: 42,
         section_item_count: 10,
         visible_item_count: 1,
@@ -920,6 +941,8 @@ describe("handleMessage: thread_window_sync", () => {
         from_item: 0,
         item_count: 1,
         total_items: 1,
+        has_older_items: false,
+        has_newer_items: false,
         source_history_length: 43,
         section_item_count: 10,
         visible_item_count: 1,
@@ -986,6 +1009,8 @@ describe("handleMessage: thread_window_sync", () => {
         from_item: 0,
         item_count: 3,
         total_items: 3,
+        has_older_items: false,
+        has_newer_items: false,
         source_history_length: 19100,
         section_item_count: 10,
         visible_item_count: 3,
@@ -1014,6 +1039,8 @@ describe("handleMessage: thread_window_sync", () => {
       from_item: 20,
       item_count: 1,
       total_items: 40,
+      has_older_items: true,
+      has_newer_items: true,
       source_history_length: 150,
       section_item_count: 10,
       visible_item_count: 2,
@@ -1066,6 +1093,8 @@ describe("handleMessage: thread_window_sync", () => {
       from_item: 20,
       item_count: 1,
       total_items: 40,
+      has_older_items: true,
+      has_newer_items: true,
       source_history_length: 150,
       section_item_count: 10,
       visible_item_count: 2,
@@ -1136,6 +1165,8 @@ describe("handleMessage: thread_window_sync", () => {
       from_item: 30,
       item_count: 10,
       total_items: 40,
+      has_older_items: true,
+      has_newer_items: false,
       source_history_length: 150,
       section_item_count: 10,
       visible_item_count: 2,
@@ -1158,6 +1189,8 @@ describe("handleMessage: thread_window_sync", () => {
         from_item: 20,
         item_count: 10,
         total_items: 40,
+        has_older_items: true,
+        has_newer_items: true,
         source_history_length: 150,
         section_item_count: 10,
         visible_item_count: 2,
@@ -1182,11 +1215,10 @@ describe("handleMessage: thread_window_sync", () => {
       section_item_count: 10,
       visible_item_count: 2,
       activate_view: true,
-      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
     });
   });
 
-  it("stores additive selected-thread feed_window_sync without replacing selected-thread messages", () => {
+  it("uses thread_window_sync as the sole authoritative selected-thread window state", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     useStore.getState().setThreadWindow(
@@ -1197,58 +1229,54 @@ describe("handleMessage: thread_window_sync", () => {
         from_item: 20,
         item_count: 1,
         total_items: 40,
+        has_older_items: true,
+        has_newer_items: true,
         source_history_length: 150,
         section_item_count: 10,
         visible_item_count: 2,
       },
       [{ id: "visible-thread", role: "assistant", content: "visible", timestamp: 1 }],
     );
+    const window = {
+      thread_key: "q-1040",
+      from_item: 20,
+      item_count: 1,
+      total_items: 40,
+      has_older_items: true,
+      has_newer_items: true,
+      source_history_length: 150,
+      section_item_count: 10,
+      visible_item_count: 2,
+      window_hash: "hash-thread",
+    };
 
     fireMessage({
-      type: "feed_window_sync",
-      sync: {
-        version: FEED_WINDOW_SYNC_VERSION,
-        source: "thread_window",
-        legacySyncType: "thread_window_sync",
-        threadKey: "q-1040",
-        windowHash: "hash-thread",
-        window: {
-          thread_key: "q-1040",
-          from_item: 20,
-          item_count: 1,
-          total_items: 40,
-          source_history_length: 150,
-          section_item_count: 10,
-          visible_item_count: 2,
-          window_hash: "hash-thread",
-        },
-        items: [
-          {
-            key: "120:u-thread",
-            kind: "message",
-            messageId: "u-thread",
-            messageType: "user_message",
-            historyIndex: 120,
+      type: "thread_window_sync",
+      thread_key: "q-1040",
+      entries: [
+        {
+          history_index: 120,
+          message: {
+            type: "user_message",
+            id: "u-thread",
+            content: "thread user",
             timestamp: 1000,
+            threadKey: "q-1040",
+            questId: "q-1040",
           },
-        ],
-        bounds: { from: 20, count: 1, total: 40, sourceHistoryLength: 150 },
-      },
+        },
+      ],
+      window,
     });
 
+    const state = useStore.getState();
     expect(
-      useStore
-        .getState()
-        .threadWindowMessages.get("s1")
+      state.threadWindowMessages
+        .get("s1")
         ?.get("q-1040")
         ?.map((message) => message.id),
-    ).toEqual(["visible-thread"]);
-    expect(
-      useStore
-        .getState()
-        .threadFeedWindowSyncs.get("s1")
-        ?.get("q-1040")
-        ?.items.map((item) => item.messageId),
     ).toEqual(["u-thread"]);
+    expect(state.threadWindows.get("s1")?.get("q-1040")).toEqual(window);
+    expect("threadFeedWindowSyncs" in state).toBe(false);
   });
 });

@@ -13,7 +13,7 @@ function message(id: string, timestamp: number, historyIndex?: number): ChatMess
 }
 
 function windowState(overrides: Partial<ThreadWindowState> = {}): ThreadWindowState {
-  return {
+  const window = {
     thread_key: "q-1040",
     from_item: 0,
     item_count: 1,
@@ -22,6 +22,11 @@ function windowState(overrides: Partial<ThreadWindowState> = {}): ThreadWindowSt
     section_item_count: 5,
     visible_item_count: 2,
     ...overrides,
+  };
+  return {
+    ...window,
+    has_older_items: overrides.has_older_items ?? window.from_item > 0,
+    has_newer_items: overrides.has_newer_items ?? window.from_item + window.item_count < window.total_items,
   };
 }
 

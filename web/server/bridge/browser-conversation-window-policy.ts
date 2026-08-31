@@ -1,4 +1,3 @@
-import { supportsFeedWindowSync } from "../../shared/feed-window-sync.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
 import { MAIN_THREAD_KEY, normalizeSelectedFeedThreadKey } from "../../shared/thread-window.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
@@ -22,7 +21,6 @@ export interface BoundedHistoryViewRequest {
   cachedWindowHash?: string;
   targetMessageId?: string;
   targetHistoryIndex?: number;
-  feedWindowSyncVersion?: number;
 }
 
 export interface BoundedThreadViewRequest {
@@ -34,7 +32,6 @@ export interface BoundedThreadViewRequest {
   cachedWindowHash?: string;
   targetMessageId?: string;
   targetHistoryIndex?: number;
-  feedWindowSyncVersion?: number;
 }
 
 export type BoundedConversationView =
@@ -42,7 +39,6 @@ export type BoundedConversationView =
   | { kind: "thread"; request: BoundedThreadViewRequest };
 
 export interface BrowserConversationWindowSocketData {
-  boundedConversation?: boolean;
   conversationView?: BoundedConversationView;
 }
 
@@ -55,7 +51,7 @@ export function hasConnectedCurrentBuildBrowserViewingThread(
   for (const socket of sockets) {
     if (socket.readyState !== undefined && socket.readyState !== 1) continue;
     const data = socket.data as BrowserConversationWindowSocketData | undefined;
-    const view = data?.boundedConversation ? data.conversationView : undefined;
+    const view = data?.conversationView;
     if (view?.kind !== "thread") continue;
     if (normalizeSelectedFeedThreadKey(view.request.threadKey) === normalizedSource) return true;
   }
@@ -70,7 +66,6 @@ interface ConversationWindowSessionLike {
 export function prepareBoundedConversationSubscribe(input: {
   session: ConversationWindowSessionLike & { eventBuffer: BufferedBrowserEvent[]; nextEventSeq: number };
   socketData: BrowserConversationWindowSocketData;
-  feedWindowSyncVersion: number | undefined;
   initialThreadWindow: InitialThreadWindowRequest | null;
   historyWindowSectionTurnCount: number | undefined;
   historyWindowVisibleSectionCount: number | undefined;
@@ -81,7 +76,6 @@ export function prepareBoundedConversationSubscribe(input: {
   isHistoryBackedEvent: (message: ReplayableBrowserIncomingMessage) => boolean;
 }): {
   boundedView: BoundedConversationView | null;
-  historyView: BoundedHistoryViewRequest | null;
   syncThroughSeq: number;
   replayEvents: BufferedBrowserEvent[];
 } {
@@ -104,12 +98,10 @@ export function prepareBoundedConversationSubscribe(input: {
         visibleSectionCount: input.historyWindowVisibleSectionCount!,
         targetMessageId: input.historyWindowTargetMessageId,
         targetHistoryIndex: input.historyWindowTargetIndex,
-        feedWindowSyncVersion: input.feedWindowSyncVersion,
       }
     : null;
   const boundedView = configureBoundedConversationSubscribe({
     socketData: input.socketData,
-    feedWindowSyncVersion: input.feedWindowSyncVersion,
     initialThreadWindow: input.initialThreadWindow,
     historyWindow: historyView,
   });
@@ -124,7 +116,7 @@ export function prepareBoundedConversationSubscribe(input: {
           return shouldDeliverBrowserEventToSocket(input.session, event.message, input.socketData);
         })
       : [];
-  return { boundedView, historyView, syncThroughSeq, replayEvents };
+  return { boundedView, syncThroughSeq, replayEvents };
 }
 
 export function normalizeInitialThreadWindowRequest(
@@ -167,24 +159,15 @@ export function normalizeInitialThreadWindowRequest(
 
 export function configureBoundedConversationSubscribe(input: {
   socketData: BrowserConversationWindowSocketData;
-  feedWindowSyncVersion: number | undefined;
   initialThreadWindow: InitialThreadWindowRequest | null;
   historyWindow: BoundedHistoryViewRequest | null;
 }): BoundedConversationView | null {
-  const capable = supportsFeedWindowSync(input.feedWindowSyncVersion);
-  input.socketData.boundedConversation = capable;
-  if (!capable) {
-    delete input.socketData.conversationView;
-    return null;
-  }
-
   const view = input.initialThreadWindow
-    ? threadViewFromInitialRequest(input.initialThreadWindow, input.feedWindowSyncVersion)
+    ? threadViewFromInitialRequest(input.initialThreadWindow)
     : input.historyWindow
       ? ({ kind: "history", request: input.historyWindow } as const)
       : null;
   if (!view) {
-    input.socketData.boundedConversation = false;
     delete input.socketData.conversationView;
     return null;
   }
@@ -196,7 +179,7 @@ export function setBoundedHistoryView(
   socketData: BrowserConversationWindowSocketData,
   request: BoundedHistoryViewRequest,
 ): void {
-  if (!socketData.boundedConversation) return;
+  if (!socketData.conversationView) return;
   socketData.conversationView = { kind: "history", request };
 }
 
@@ -204,7 +187,7 @@ export function setBoundedThreadView(
   socketData: BrowserConversationWindowSocketData,
   request: BoundedThreadViewRequest,
 ): void {
-  if (!socketData.boundedConversation) return;
+  if (!socketData.conversationView) return;
   socketData.conversationView = {
     kind: "thread",
     request: { ...request, threadKey: normalizeSelectedFeedThreadKey(request.threadKey) },
@@ -225,7 +208,6 @@ export function recordBoundedConversationRequest(
       cachedWindowHash: request.cached_window_hash,
       targetMessageId: request.target_message_id,
       targetHistoryIndex: request.target_history_index,
-      feedWindowSyncVersion: request.feed_window_sync_version,
     });
     return;
   }
@@ -237,7 +219,6 @@ export function recordBoundedConversationRequest(
     visibleItemCount: request.visible_item_count,
     cachedWindowHash: request.cached_window_hash,
     targetMessageId: request.target_message_id,
-    feedWindowSyncVersion: request.feed_window_sync_version,
   });
 }
 
@@ -245,11 +226,10 @@ export function recordBoundedConversationViewUpdate(
   socketData: BrowserConversationWindowSocketData,
   update: Extract<BrowserOutgoingMessage, { type: "conversation_view_update" }>,
 ): void {
-  if (!supportsFeedWindowSync(update.feed_window_sync_version)) return;
+  if (!socketData.conversationView) return;
   if (!validPositiveWindow(update.from, update.count, update.section_count, update.visible_count)) return;
   const threadKey = normalizeSelectedFeedThreadKey(update.thread_key ?? MAIN_THREAD_KEY);
   if (update.view === "thread" && threadKey !== MAIN_THREAD_KEY && !isQuestThreadKey(threadKey)) return;
-  socketData.boundedConversation = true;
   if (update.view === "history") {
     setBoundedHistoryView(socketData, {
       fromTurn: update.from,
@@ -257,7 +237,6 @@ export function recordBoundedConversationViewUpdate(
       sectionTurnCount: update.section_count,
       visibleSectionCount: update.visible_count,
       cachedWindowHash: update.cached_window_hash,
-      feedWindowSyncVersion: update.feed_window_sync_version,
     });
     return;
   }
@@ -268,7 +247,6 @@ export function recordBoundedConversationViewUpdate(
     sectionItemCount: update.section_count,
     visibleItemCount: update.visible_count,
     cachedWindowHash: update.cached_window_hash,
-    feedWindowSyncVersion: update.feed_window_sync_version,
   });
 }
 
@@ -288,7 +266,7 @@ export function boundedConversationSyncComplete(
   socketData: BrowserConversationWindowSocketData,
   throughSeq: number,
 ): Extract<BrowserIncomingMessage, { type: "conversation_sync_complete" }> | null {
-  return socketData.boundedConversation
+  return socketData.conversationView
     ? { type: "conversation_sync_complete", through_seq: Math.max(0, Math.floor(throughSeq)) }
     : null;
 }
@@ -298,22 +276,19 @@ export function shouldDeliverBrowserEventToSocket(
   message: BrowserIncomingMessage,
   socketData: BrowserConversationWindowSocketData,
 ): boolean {
-  if (!socketData.boundedConversation) return true;
-  if (message.type === "message_history" || message.type === "history_sync") return false;
+  if (message.type === "history_sync") return false;
   if (!isConversationScopedMessage(message)) return true;
 
   const view = socketData.conversationView;
-  if (!view || view.kind === "history") return true;
+  if (!view) return false;
+  if (view.kind === "history") return true;
   const selectedThreadKey = normalizeSelectedFeedThreadKey(view.request.threadKey);
   const routeKeys = conversationRouteKeys(session, message);
   if (selectedThreadKey === MAIN_THREAD_KEY) return routeKeys.size === 0 || routeKeys.has(MAIN_THREAD_KEY);
   return routeKeys.has(selectedThreadKey);
 }
 
-function threadViewFromInitialRequest(
-  request: InitialThreadWindowRequest,
-  feedWindowSyncVersion: number | undefined,
-): BoundedConversationView {
+function threadViewFromInitialRequest(request: InitialThreadWindowRequest): BoundedConversationView {
   return {
     kind: "thread",
     request: {
@@ -325,7 +300,6 @@ function threadViewFromInitialRequest(
       cachedWindowHash: request.cached_window_hash,
       targetMessageId: request.target_message_id,
       targetHistoryIndex: request.target_history_index,
-      feedWindowSyncVersion,
     },
   };
 }

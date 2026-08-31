@@ -73,6 +73,8 @@ describe("WsBridge synchronized projections", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
         synced_projection_subscriptions: [{ projection: "session-attention", key: "worker" }],
       }),
     );
@@ -81,6 +83,8 @@ describe("WsBridge synchronized projections", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
         synced_projection_subscriptions: [{ projection: "session-attention", key: "other-carrier" }],
       }),
     );
@@ -158,6 +162,8 @@ describe("WsBridge synchronized projections", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
         synced_projection_subscriptions: [{ projection: "session-attention", key: "worker" }],
       }),
     );
@@ -306,6 +312,8 @@ describe("WsBridge synchronized projections", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
         synced_projection_subscriptions: [{ projection: "session-attention", key: "carrier" }],
       }),
     );
@@ -335,6 +343,8 @@ describe("WsBridge synchronized projections", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
         synced_projection_subscriptions: [{ projection: "session-attention", key: "first-target" }],
       }),
     );
@@ -392,6 +402,8 @@ describe("WsBridge synchronized projections", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
         synced_projection_subscriptions: [{ projection: "session-attention", key: carrier.id }],
       }),
     );
@@ -441,6 +453,8 @@ describe("WsBridge synchronized projections", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
         synced_projection_subscriptions: [{ projection: "session-attention", key: "first-target" }],
       }),
     );

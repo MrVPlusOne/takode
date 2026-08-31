@@ -57,12 +57,6 @@ import {
 } from "./store-initial.js";
 import type { AppState, PendingSession } from "./store-types.js";
 import { removeSessionState } from "./store-session-cleanup.js";
-import {
-  clearFeedWindowSyncState,
-  clearHistoryFeedWindowSyncState,
-  clearThreadFeedWindowSyncState,
-  updateFeedWindowSyncState,
-} from "./store-feed-window-sync.js";
 import { isDesktopShellLayout } from "./utils/layout.js";
 import {
   createChatDisplaySettingsHydrator,
@@ -151,8 +145,6 @@ export const useStore = create<AppState>((set, get) => ({
   threadWindowRefreshRevisions: new Map(),
   threadWindowAppliedRevisions: new Map(),
   pendingThreadWindowRequests: new Map(),
-  feedWindowSyncs: new Map(),
-  threadFeedWindowSyncs: new Map(),
   ...createSyncedProjectionStoreSlice(set),
   ...createSessionAttentionStoreSlice(set),
   streaming: new Map(),
@@ -605,7 +597,7 @@ export const useStore = create<AppState>((set, get) => ({
         return { historyWindows };
       } else {
         historyWindows.delete(sessionId);
-        return { historyWindows, ...clearHistoryFeedWindowSyncState(s, sessionId) };
+        return { historyWindows };
       }
     }),
 
@@ -634,12 +626,7 @@ export const useStore = create<AppState>((set, get) => ({
       if (nextAppliedRevisions.size > 0) threadWindowAppliedRevisions.set(sessionId, nextAppliedRevisions);
       else threadWindowAppliedRevisions.delete(sessionId);
       if (window) return { threadWindows, threadWindowMessages, threadWindowAppliedRevisions };
-      return {
-        threadWindows,
-        threadWindowMessages,
-        threadWindowAppliedRevisions,
-        ...clearThreadFeedWindowSyncState(s, sessionId, normalizedThreadKey),
-      };
+      return { threadWindows, threadWindowMessages, threadWindowAppliedRevisions };
     }),
   setPendingThreadWindowRequest: (sessionId, threadKey) =>
     set((s) => {
@@ -648,8 +635,6 @@ export const useStore = create<AppState>((set, get) => ({
       else pendingThreadWindowRequests.delete(sessionId);
       return { pendingThreadWindowRequests };
     }),
-
-  setFeedWindowSync: (sessionId, sync) => set((s) => updateFeedWindowSyncState(s, sessionId, sync)),
 
   setPendingCodexInputs: (sessionId, inputs) =>
     set((s) => {
@@ -853,7 +838,6 @@ export const useStore = create<AppState>((set, get) => ({
       historyWindows.delete(sessionId);
       const threadWindowRefreshRevisions = new Map(s.threadWindowRefreshRevisions);
       threadWindowRefreshRevisions.set(sessionId, (threadWindowRefreshRevisions.get(sessionId) ?? 0) + 1);
-      const feedWindowSyncPatch = clearFeedWindowSyncState(s, sessionId);
       const streaming = new Map(s.streaming);
       streaming.delete(sessionId);
       const streamingByParentToolUseId = new Map(s.streamingByParentToolUseId);
@@ -913,7 +897,6 @@ export const useStore = create<AppState>((set, get) => ({
         sessionTaskPreview,
         historyWindows,
         threadWindowRefreshRevisions,
-        ...feedWindowSyncPatch,
         streaming,
         streamingByParentToolUseId,
         streamingThinking,
@@ -1767,8 +1750,6 @@ export const useStore = create<AppState>((set, get) => ({
       threadWindowRefreshRevisions: new Map(),
       threadWindowAppliedRevisions: new Map(),
       pendingThreadWindowRequests: new Map(),
-      feedWindowSyncs: new Map(),
-      threadFeedWindowSyncs: new Map(),
       leaderProjections: new Map(),
       syncedProjectionValues: new Map(),
       syncedProjectionVersions: new Map(),

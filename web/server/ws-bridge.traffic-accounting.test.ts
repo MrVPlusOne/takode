@@ -609,7 +609,15 @@ describe("traffic accounting", () => {
     bridge.handleBrowserOpen(browser, "s1");
     bridge.resetTrafficStats();
 
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
 
     const snapshot = bridge.getTrafficStatsSnapshot();
     const bucket = snapshot.buckets.find(

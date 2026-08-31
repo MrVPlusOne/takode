@@ -11,7 +11,6 @@ import {
 
 function threadSocket(threadKey: string): BrowserConversationWindowSocketData {
   return {
-    boundedConversation: true,
     conversationView: {
       kind: "thread",
       request: {
@@ -53,7 +52,6 @@ describe("bounded browser conversation delivery", () => {
     const prepared = prepareBoundedConversationSubscribe({
       session: { messageHistory: history, eventBuffer: [], nextEventSeq: 1 },
       socketData: {},
-      feedWindowSyncVersion: 1,
       initialThreadWindow: null,
       historyWindowSectionTurnCount: 1,
       historyWindowVisibleSectionCount: 3,
@@ -64,26 +62,45 @@ describe("bounded browser conversation delivery", () => {
       isHistoryBackedEvent: () => false,
     });
 
-    expect(prepared.historyView).toMatchObject({ fromTurn: 7, turnCount: 3 });
     expect(prepared.boundedView).toMatchObject({ kind: "history", request: { fromTurn: 7, turnCount: 3 } });
   });
 
-  it("fails closed to legacy delivery when capability metadata has no bounded view", () => {
+  it("fails closed when a current-build subscribe omits every bounded conversation view", () => {
     const socketData: BrowserConversationWindowSocketData = {};
     expect(
       configureBoundedConversationSubscribe({
         socketData,
-        feedWindowSyncVersion: 1,
         initialThreadWindow: null,
         historyWindow: null,
       }),
     ).toBeNull();
-    expect(socketData.boundedConversation).toBe(false);
+    expect(socketData).not.toHaveProperty("conversationView");
+
+    const conversation = {
+      type: "user_message",
+      content: "must not leak without a selected view",
+      timestamp: 1,
+      threadKey: "q-1",
+    } as BrowserIncomingMessage;
+    expect(shouldDeliverBrowserEventToSocket({ messageHistory: [] }, conversation, socketData)).toBe(false);
+    expect(
+      shouldDeliverBrowserEventToSocket(
+        { messageHistory: [] },
+        { type: "status_change", status: "idle" } as BrowserIncomingMessage,
+        socketData,
+      ),
+    ).toBe(true);
   });
 
-  it("keeps legacy sockets on unfiltered delivery", () => {
-    const message = { type: "user_message", content: "q", timestamp: 1, threadKey: "q-1" } as BrowserIncomingMessage;
-    expect(shouldDeliverBrowserEventToSocket({ messageHistory: [] }, message, {})).toBe(true);
+  it("keeps pre-subscribe conversation events fail-closed until a selected view exists", () => {
+    const routed = {
+      type: "user_message",
+      content: "q-A activity",
+      timestamp: 1,
+      threadKey: "q-a",
+    } as BrowserIncomingMessage;
+
+    expect(shouldDeliverBrowserEventToSocket({ messageHistory: [] }, routed, {})).toBe(false);
   });
 
   it("does not change live routing for a non-active background window request", () => {
@@ -95,7 +112,6 @@ describe("bounded browser conversation delivery", () => {
       item_count: 30,
       section_item_count: 10,
       visible_item_count: 3,
-      feed_window_sync_version: 1,
     });
     expect(socketData.conversationView).toMatchObject({ kind: "thread", request: { threadKey: "q-1" } });
   });
@@ -110,7 +126,6 @@ describe("bounded browser conversation delivery", () => {
       section_item_count: 10,
       visible_item_count: 3,
       activate_view: true,
-      feed_window_sync_version: 1,
     });
     expect(socketData.conversationView).toMatchObject({ kind: "thread", request: { threadKey: "q-2" } });
   });
@@ -125,7 +140,6 @@ describe("bounded browser conversation delivery", () => {
       count: 0,
       section_count: 10,
       visible_count: 3,
-      feed_window_sync_version: 1,
     });
     expect(socketData).toEqual({});
   });

@@ -14,7 +14,6 @@ export type {
   PendingCodexInputImageDraft,
   ProgrammaticHistoryFollowUp,
 } from "./codex-pending-input-types.js";
-import type { FeedWindowSync } from "../shared/feed-window-sync.js";
 import type { LeaderOpenThreadTabsState, LeaderThreadTabUpdate } from "../shared/leader-open-thread-tabs.js";
 import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
 import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
@@ -667,11 +666,10 @@ export type BrowserOutgoingMessage =
       last_seq: number;
       known_frozen_count?: number;
       known_frozen_hash?: string;
-      history_window_section_turn_count?: number;
-      history_window_visible_section_count?: number;
+      history_window_section_turn_count: number;
+      history_window_visible_section_count: number;
       history_window_target_message_id?: string;
       history_window_target_index?: number;
-      feed_window_sync_version?: number;
       initial_thread_window?: InitialThreadWindowRequest;
       full_history_sync?: boolean;
       synced_projection_subscriptions?: SyncedProjectionSubscription[];
@@ -688,7 +686,6 @@ export type BrowserOutgoingMessage =
       target_message_id?: string;
       target_history_index?: number;
       activate_view?: boolean;
-      feed_window_sync_version?: number;
     }
   | {
       type: "thread_window_request";
@@ -700,7 +697,6 @@ export type BrowserOutgoingMessage =
       cached_window_hash?: string;
       target_message_id?: string;
       activate_view?: boolean;
-      feed_window_sync_version?: number;
     }
   | {
       type: "conversation_view_update";
@@ -711,7 +707,6 @@ export type BrowserOutgoingMessage =
       section_count: number;
       visible_count: number;
       cached_window_hash?: string;
-      feed_window_sync_version?: number;
     }
   | {
       type: "leader_thread_tabs_update";
@@ -1046,9 +1041,7 @@ export type BrowserIncomingMessageBase =
       searchText: string;
       recovery: CodexAutoPauseRecoverySummary;
     }
-  | { type: "message_history"; messages: BrowserIncomingMessage[] }
   | ThreadAttachmentUpdate
-  | { type: "feed_window_sync"; sync: FeedWindowSync }
   | { type: "history_window_sync"; messages: BrowserIncomingMessage[]; window: HistoryWindowState; cache_hit?: boolean }
   | {
       type: "thread_window_sync";
@@ -1064,7 +1057,7 @@ export type BrowserIncomingMessageBase =
   | {
       type: "history_sync";
       frozen_base_count: number;
-      frozen_base_history_index?: number;
+      frozen_base_history_index: number;
       frozen_delta: BrowserIncomingMessage[];
       hot_messages: BrowserIncomingMessage[];
       frozen_count: number;

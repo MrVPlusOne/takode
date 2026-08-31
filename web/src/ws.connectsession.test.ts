@@ -3,7 +3,6 @@
 import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage } from "./types.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
-import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 
 // Mock the names utility before any imports
 vi.mock("./utils/names.js", () => ({
@@ -189,14 +188,13 @@ describe("connectSession", () => {
         known_frozen_hash: "abcd1234",
         history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       }),
     );
   });
 
   // Regression test: after a full page refresh, the Zustand store is empty but
   // localStorage still holds a stale high last_seq. If we send that stale value,
-  // the server thinks we're caught up and skips sending message_history, leaving
+  // the server thinks we're caught up and skips sending the authoritative history window, leaving
   // the UI empty. Fix: send last_seq: 0 when the store has no messages.
   it("sends last_seq: 0 on open when store has no messages (page refresh scenario)", () => {
     localStorage.setItem("companion:last-seq:s1", "50");
@@ -212,7 +210,6 @@ describe("connectSession", () => {
         known_frozen_count: 0,
         history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       }),
     );
   });
@@ -229,7 +226,6 @@ describe("connectSession", () => {
       type: "session_subscribe",
       last_seq: 0,
       history_window_target_message_id: "message-42",
-      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
     });
     expect(subscribe.initial_thread_window).toBeUndefined();
   });
@@ -247,7 +243,6 @@ describe("connectSession", () => {
         known_frozen_count: 0,
         history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       }),
     );
   });
@@ -268,7 +263,6 @@ describe("connectSession", () => {
         known_frozen_count: 0,
         history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
         initial_thread_window: {
           thread_key: "q-1825",
           from_item: -1,
@@ -281,7 +275,7 @@ describe("connectSession", () => {
     expect(useStore.getState().pendingThreadWindowRequests.get("s1")).toBe("q-1825");
   });
 
-  it("keeps All Threads on the legacy bounded history subscribe", () => {
+  it("keeps All Threads on the bounded history subscribe", () => {
     useStore.setState({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true } as any],
     });
@@ -297,7 +291,6 @@ describe("connectSession", () => {
         known_frozen_count: 0,
         history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       }),
     );
     expect(useStore.getState().pendingThreadWindowRequests.has("s1")).toBe(false);
@@ -334,6 +327,8 @@ describe("connectSession", () => {
       from_item: 7,
       item_count: 12,
       total_items: 20,
+      has_older_items: true,
+      has_newer_items: true,
       source_history_length: 100,
       section_item_count: 4,
       visible_item_count: 3,
@@ -374,7 +369,6 @@ describe("connectSession", () => {
         history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
         history_window_target_index: 42,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       }),
     );
   });
@@ -396,7 +390,6 @@ describe("connectSession", () => {
       last_seq: 17,
       known_frozen_count: 1,
       known_frozen_hash: "frozen-hash",
-      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       initial_thread_window: { thread_key: "q-1831", from_item: -1 },
     });
   });
@@ -481,7 +474,6 @@ describe("connectSession", () => {
       type: "session_subscribe",
       last_seq: 0,
       full_history_sync: true,
-      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       initial_thread_window: { thread_key: "q-1831" },
     });
   });
@@ -513,6 +505,9 @@ describe("connectSession", () => {
       from_turn: 100,
       turn_count: 150,
       total_turns: 500,
+      has_older_items: true,
+      has_newer_items: true,
+      start_index: 100,
       section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
     });
@@ -527,7 +522,6 @@ describe("connectSession", () => {
         known_frozen_count: 0,
         history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       }),
     );
   });

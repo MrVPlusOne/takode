@@ -44,7 +44,6 @@ import {
   refreshGitInfoPublic as refreshGitInfoPublicController,
   setDiffBaseBranch as setDiffBaseBranchController,
 } from "./bridge/session-git-state.js";
-import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
 import { trafficStats } from "./traffic-stats.js";
 import {
@@ -734,7 +733,6 @@ describe("search-data-only archived session restore", () => {
         known_frozen_count: 0,
         history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       }),
     );
 
@@ -869,6 +867,8 @@ describe("search-data-only archived session restore", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
         synced_projection_subscriptions: [{ projection: "leader-thread-tabs", key: observer.id }],
       }),
     );
@@ -903,6 +903,8 @@ describe("search-data-only archived session restore", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
         synced_projection_subscriptions: [{ projection: "leader-thread-tabs", key: restoredLeaderId }],
       }),
     );
@@ -944,7 +946,12 @@ describe("search-data-only archived session restore", () => {
     invalidateSession.mockClear();
     await restored.handleBrowserMessage(
       restoredWorkerBrowser,
-      JSON.stringify({ type: "session_subscribe", last_seq: 0 }),
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      }),
     );
     await projectionController.flushForTest();
 

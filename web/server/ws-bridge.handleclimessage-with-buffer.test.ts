@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -576,12 +577,12 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("handleCLIMessage with Buffer", () => {
-  it("parses Buffer input correctly", () => {
+  it("parses Buffer input correctly", async () => {
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     const jsonStr = JSON.stringify({
       type: "tool_progress",
@@ -603,12 +604,12 @@ describe("handleCLIMessage with Buffer", () => {
     expect(progressMsg.tool_name).toBe("Bash");
   });
 
-  it("handles multi-line NDJSON as Buffer", () => {
+  it("handles multi-line NDJSON as Buffer", async () => {
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     const line1 = JSON.stringify({ type: "keep_alive" });
     const line2 = JSON.stringify({

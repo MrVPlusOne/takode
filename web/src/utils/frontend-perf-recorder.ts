@@ -161,15 +161,6 @@ export type FrontendPerfEntry =
       applyToNextPaintMs?: number;
     }
   | {
-      kind: "message_history_apply";
-      timestamp: number;
-      sessionId: string;
-      rawMessageCount: number;
-      chatMessageCount: number;
-      frozenCount: number;
-      durationMs: number;
-    }
-  | {
       kind: "thread_attachment_update_apply";
       timestamp: number;
       sessionId: string;
@@ -240,7 +231,6 @@ const MAX_PENDING_THREAD_NAVIGATIONS = 100;
 const MAX_PENDING_CORRELATION_AGE_MS = 30_000;
 const HISTORY_RECEIVE_TYPES = new Set([
   "leader_projection_snapshot",
-  "message_history",
   "history_sync",
   "history_window_sync",
   "thread_window_sync",

@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -587,7 +588,7 @@ describe("Codex resumed-turn recovery", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     await bridge.handleBrowserMessage(
       browser,
@@ -645,7 +646,7 @@ describe("Codex resumed-turn recovery", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     await bridge.handleBrowserMessage(
       browser,
@@ -715,7 +716,7 @@ describe("Codex resumed-turn recovery", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     adapter.emitSessionMeta({
       cliSessionId: "thread-history",
@@ -783,7 +784,7 @@ describe("Codex resumed-turn recovery", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     await bridge.handleBrowserMessage(
       browser,
@@ -945,7 +946,7 @@ describe("Codex resumed-turn recovery", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "initial owner" }));
     await Promise.resolve();
@@ -1066,7 +1067,7 @@ describe("Codex resumed-turn recovery", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     const request = "investigate the recovery bug and create the promised quest";
     await bridge.handleBrowserMessage(
@@ -1241,7 +1242,7 @@ describe("Codex resumed-turn recovery", () => {
     emitCodexSessionReady(adapter1, { cliSessionId: "thread-continuation-action" });
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     const request = "finish the interrupted leader task";
     await bridge.handleBrowserMessage(
@@ -1452,7 +1453,7 @@ describe("Codex resumed-turn recovery", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     const eventSpy = vi.spyOn(bridge, "emitTakodeEvent");
 

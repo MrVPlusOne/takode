@@ -13,6 +13,8 @@ function selectedWindow(threadKey: string): ThreadWindowState {
     from_item: 0,
     item_count: 3,
     total_items: 3,
+    has_older_items: false,
+    has_newer_items: false,
     source_history_length: 20,
     section_item_count: 50,
     visible_item_count: 3,

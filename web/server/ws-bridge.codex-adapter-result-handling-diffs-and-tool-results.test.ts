@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -581,7 +582,7 @@ describe("Codex adapter result handling", () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     const session = bridge.getSession("s1")!;
     session.state.total_lines_added = 12;
@@ -711,7 +712,7 @@ describe("Codex adapter result handling", () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
     const session = bridge.getSession("s1")!;
     session.state.diff_base_branch = "feature-base";
     session.state.diff_base_branch_explicit = true;
@@ -776,7 +777,7 @@ describe("Codex adapter result handling", () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     adapter.emitBrowserMessage({
       type: "assistant",

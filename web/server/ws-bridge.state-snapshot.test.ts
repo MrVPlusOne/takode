@@ -75,14 +75,12 @@ function makeBrowserSocket(sessionId: string) {
   return createMockSocket({ kind: "browser", sessionId });
 }
 
-/** Flush all pending microtasks and setTimeout(0) callbacks so async sendHistorySync and deferred traffic stats complete. */
+/** Flush queued ingress, bounded-sync yields, and deferred traffic-stat microtasks. */
 async function flushAsync() {
-  // Flush microtasks (queueMicrotask in traffic stats)
-  await Promise.resolve();
-  // Flush setTimeout(0) (yieldToEventLoop in sendHistorySync)
-  await new Promise((r) => setTimeout(r, 0));
-  // One more microtask pass for any traffic stats queued after the yield
-  await Promise.resolve();
+  for (let pass = 0; pass < 3; pass++) {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 }
 
 function makeCodexAdapterMock() {
@@ -589,18 +587,24 @@ describe("state_snapshot", () => {
     browser.send.mockClear();
   });
 
-  it("sends state_snapshot after session_subscribe with lastSeq=0", () => {
+  it("sends state_snapshot after session_subscribe with lastSeq=0", async () => {
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
       }),
     );
+    await flushAsync();
 
-    const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
-    const snapshots = calls.filter((m: any) => m.type === "state_snapshot");
-    expect(snapshots.length).toBe(1);
+    let snapshots: any[] = [];
+    await vi.waitFor(() => {
+      const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+      snapshots = calls.filter((m: any) => m.type === "state_snapshot");
+      expect(snapshots).toHaveLength(1);
+    });
     expect(snapshots[0].backendConnected).toBe(true);
     expect(snapshots[0].sessionStatus).toBe("idle");
     expect(typeof snapshots[0].permissionMode).toBe("string");
@@ -634,6 +638,8 @@ describe("state_snapshot", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
       }),
     );
     await flushAsync(); // sendHistorySync is async
@@ -642,9 +648,9 @@ describe("state_snapshot", () => {
     // state_snapshot should be the last message in the subscribe sequence.
     // Note: async git refresh (refreshGitInfoThenRecomputeDiff) may send a
     // session_update after state_snapshot once the yield resolves, so we check
-    // that state_snapshot comes after history_sync rather than being the
+    // that state_snapshot comes after history_window_sync rather than being the
     // absolute last message.
-    const historySyncIdx = calls.findIndex((m: any) => m.type === "history_sync");
+    const historySyncIdx = calls.findIndex((m: any) => m.type === "history_window_sync");
     const snapshotIdx = calls.findIndex((m: any) => m.type === "state_snapshot");
     expect(historySyncIdx).toBeGreaterThanOrEqual(0);
     expect(snapshotIdx).toBeGreaterThan(historySyncIdx);
@@ -684,6 +690,8 @@ describe("state_snapshot", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
       }),
     );
     await flushAsync(); // sendHistorySync is async
@@ -702,6 +710,8 @@ describe("state_snapshot", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
       }),
     );
     await flushAsync(); // sendHistorySync is async

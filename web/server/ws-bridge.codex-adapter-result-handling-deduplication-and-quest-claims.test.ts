@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
@@ -577,12 +578,12 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Codex adapter result handling", () => {
-  it("deduplicates replayed Codex assistant messages with identical timestamp and content", () => {
+  it("deduplicates replayed Codex assistant messages with identical timestamp and content", async () => {
     const browser = makeBrowserSocket("s1");
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     const replayTimestamp = 1700000000123;
     const replayedText = "Investigating reconnect behavior.";
@@ -626,7 +627,7 @@ describe("Codex adapter result handling", () => {
     expect(assistantHistory).toHaveLength(1);
   });
 
-  it("keeps exact-ID legacy rows unannotated when a later replay adds phase metadata", () => {
+  it("keeps exact-ID legacy rows unannotated when a later replay adds phase metadata", async () => {
     // Stable persisted rows created before phase support remain on the explicit
     // compatibility path. Reconnect must not append a duplicate or rewrite
     // frozen history merely to enrich presentation metadata.
@@ -634,7 +635,7 @@ describe("Codex adapter result handling", () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     const message = {
       type: "assistant" as const,
@@ -669,7 +670,7 @@ describe("Codex adapter result handling", () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     const repeatedText = "Checking reconnect status.";
 
@@ -717,7 +718,7 @@ describe("Codex adapter result handling", () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     const base = {
       type: "assistant" as const,
@@ -753,7 +754,7 @@ describe("Codex adapter result handling", () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     const base = {
       type: "assistant" as const,
@@ -789,7 +790,7 @@ describe("Codex adapter result handling", () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
     bridge.getSession("s1")!.messageHistory.push({
       type: "user_message",
       id: "root-turn",
@@ -847,7 +848,7 @@ describe("Codex adapter result handling", () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     const repeatedText = "Checking reconnect status.";
 
@@ -895,7 +896,7 @@ describe("Codex adapter result handling", () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     adapter.emitBrowserMessage({
       type: "assistant",
@@ -975,7 +976,7 @@ describe("Codex adapter result handling", () => {
     bridge.resolveQuestTitle = async (questId) => (questId === "q-74" ? "Fix Codex quest lifecycle chips" : null);
     bridge.attachCodexAdapter("s1", adapter as any);
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     adapter.emitBrowserMessage({
       type: "assistant",
@@ -1054,7 +1055,7 @@ describe("Codex adapter result handling", () => {
     bridge.resolveQuestTitle = async (questId) => (questId === "q-74" ? "Fix Codex quest lifecycle chips" : null);
     bridge.attachCodexAdapter("s1", adapter as any);
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     adapter.emitBrowserMessage({
       type: "assistant",

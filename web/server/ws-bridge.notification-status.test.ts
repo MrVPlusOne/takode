@@ -116,6 +116,8 @@ describe("notification status fanout", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
         synced_projection_subscriptions: [{ projection: "session-attention", key: "worker" }],
       }),
     );

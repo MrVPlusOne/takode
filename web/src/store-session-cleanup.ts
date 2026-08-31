@@ -33,10 +33,6 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
   threadWindowAppliedRevisions.delete(sessionId);
   const pendingThreadWindowRequests = new Map(s.pendingThreadWindowRequests);
   pendingThreadWindowRequests.delete(sessionId);
-  const feedWindowSyncs = new Map(s.feedWindowSyncs);
-  feedWindowSyncs.delete(sessionId);
-  const threadFeedWindowSyncs = new Map(s.threadFeedWindowSyncs);
-  threadFeedWindowSyncs.delete(sessionId);
   const leaderProjections = new Map(s.leaderProjections);
   leaderProjections.delete(sessionId);
   const syncedProjectionValues = new Map(s.syncedProjectionValues);
@@ -171,8 +167,6 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
     threadWindowRefreshRevisions,
     threadWindowAppliedRevisions,
     pendingThreadWindowRequests,
-    feedWindowSyncs,
-    threadFeedWindowSyncs,
     leaderProjections,
     syncedProjectionValues,
     syncedProjectionVersions,

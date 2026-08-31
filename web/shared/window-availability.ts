@@ -24,13 +24,3 @@ export function deriveWindowAvailability(bounds: WindowAvailabilityBounds): Dire
     has_newer_items: endExclusive < total,
   };
 }
-
-export function readWindowAvailability(
-  window: Partial<DirectionalWindowAvailability>,
-  fallback: DirectionalWindowAvailability,
-): DirectionalWindowAvailability {
-  return {
-    has_older_items: typeof window.has_older_items === "boolean" ? window.has_older_items : fallback.has_older_items,
-    has_newer_items: typeof window.has_newer_items === "boolean" ? window.has_newer_items : fallback.has_newer_items,
-  };
-}

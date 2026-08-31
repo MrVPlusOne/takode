@@ -1,4 +1,3 @@
-import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 import {
   getHistoryWindowTurnCount,
   HISTORY_WINDOW_SECTION_TURN_COUNT,
@@ -368,7 +367,6 @@ function requestVisibleConversationWindow(
       section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
       activate_view: true,
-      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
     });
     return { history: 0, thread: 1 };
   }
@@ -380,7 +378,6 @@ function requestVisibleConversationWindow(
     section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
     visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
     activate_view: true,
-    feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
   });
   return { history: 1, thread: 0 };
 }

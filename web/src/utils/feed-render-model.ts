@@ -2,7 +2,6 @@ import type { HistoryWindowState, SessionAttentionRecord, SessionNotification, T
 import type { ChatMessage } from "../types.js";
 import type { Turn } from "../hooks/use-feed-model.js";
 import type { FeedSection } from "../components/message-feed-sections.js";
-import { deriveWindowAvailability, readWindowAvailability } from "../../shared/window-availability.js";
 import {
   DEFAULT_VISIBLE_SECTION_COUNT,
   buildFeedSections,
@@ -253,26 +252,8 @@ export function buildFeedWindowModel(input: BuildFeedWindowModelInput): FeedWind
     : findPreviousSectionStartIndex(sections, visibleSectionStartIndex);
   const nextSectionStartIndex =
     !isWindowedFeed && visibleSectionStartIndex + 1 < sections.length ? visibleSectionStartIndex + 1 : null;
-  const activeThreadAvailability = activeThreadWindow
-    ? readWindowAvailability(
-        activeThreadWindow,
-        deriveWindowAvailability({
-          from: activeThreadWindow.from_item,
-          count: activeThreadWindow.item_count,
-          total: activeThreadWindow.total_items,
-        }),
-      )
-    : null;
-  const activeHistoryAvailability = activeHistoryWindow
-    ? readWindowAvailability(
-        activeHistoryWindow,
-        deriveWindowAvailability({
-          from: activeHistoryWindow.from_turn,
-          count: activeHistoryWindow.turn_count,
-          total: activeHistoryWindow.total_turns,
-        }),
-      )
-    : null;
+  const activeThreadAvailability = activeThreadWindow;
+  const activeHistoryAvailability = activeHistoryWindow;
   const hasOlderSections = activeThreadAvailability
     ? activeThreadAvailability.has_older_items
     : activeHistoryAvailability

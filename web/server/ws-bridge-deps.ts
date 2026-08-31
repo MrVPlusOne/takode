@@ -626,6 +626,7 @@ export function getSessionRegistryDeps(host: any) {
     pruneToolResultsForCurrentHistory: (targetSession: unknown) =>
       host.pruneToolResultsForCurrentHistory(targetSession as Session),
     broadcastToSession: (sessionId: string, msg: BrowserIncomingMessage) => host.broadcastToSession(sessionId, msg),
+    refreshSessionConversation: (sessionId: string) => host.refreshSessionConversation(sessionId),
     broadcastToBrowsers: (targetSession: unknown, msg: BrowserIncomingMessage) =>
       host.broadcastToBrowsers(targetSession as Session, msg),
     recomputeAndBroadcastHistoryBytes: (targetSession: unknown) =>

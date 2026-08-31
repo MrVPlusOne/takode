@@ -4,7 +4,6 @@ import type {
   InitialThreadWindowRequest,
   SdkSessionInfo,
 } from "./types.js";
-import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 import { scopedGetItem, scopedSetItem } from "./utils/scoped-storage.js";
 import {
   beginColdReplayFlushTiming,
@@ -67,15 +66,12 @@ export interface WsTransportCallbacks {
   hasLocalMessages: (sessionId: string) => boolean;
   getKnownFrozenCount: (sessionId: string) => number;
   getKnownFrozenHash: (sessionId: string) => string | undefined;
-  getFreshHistoryWindow?: (sessionId: string) =>
-    | {
-        sectionTurnCount: number;
-        visibleSectionCount: number;
-        targetMessageId?: string;
-        targetHistoryIndex?: number;
-      }
-    | null
-    | undefined;
+  getFreshHistoryWindow: (sessionId: string) => {
+    sectionTurnCount: number;
+    visibleSectionCount: number;
+    targetMessageId?: string;
+    targetHistoryIndex?: number;
+  };
   getInitialThreadWindow?: (sessionId: string) => InitialThreadWindowRequest | null | undefined;
   /** Undefined means this socket is not the selected projection carrier. */
   getSyncedProjectionSubscriptions?: (sessionId: string) => SyncedProjectionSubscription[] | undefined;
@@ -368,7 +364,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     const lastSeq = hasLocalMessages ? getLastSeq(sessionId) : 0;
     const knownFrozenCount = hasLocalMessages ? callbacks.getKnownFrozenCount(sessionId) : 0;
     const knownFrozenHash = hasLocalMessages ? callbacks.getKnownFrozenHash(sessionId) : undefined;
-    const freshWindow = callbacks.getFreshHistoryWindow?.(sessionId) ?? null;
+    const freshWindow = callbacks.getFreshHistoryWindow(sessionId);
     const initialThreadWindow = callbacks.getInitialThreadWindow?.(sessionId) ?? null;
     const syncedProjectionSubscriptions = callbacks.getSyncedProjectionSubscriptions?.(sessionId);
     ws.send(
@@ -381,18 +377,13 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
         ...(syncedProjectionSubscriptions !== undefined
           ? { synced_projection_subscriptions: syncedProjectionSubscriptions }
           : {}),
-        ...(freshWindow
-          ? {
-              history_window_section_turn_count: Math.max(1, Math.floor(freshWindow.sectionTurnCount)),
-              history_window_visible_section_count: Math.max(1, Math.floor(freshWindow.visibleSectionCount)),
-              ...(freshWindow.targetMessageId ? { history_window_target_message_id: freshWindow.targetMessageId } : {}),
-              ...(typeof freshWindow.targetHistoryIndex === "number"
-                ? { history_window_target_index: freshWindow.targetHistoryIndex }
-                : {}),
-              feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
-              ...(initialThreadWindow ? { initial_thread_window: initialThreadWindow } : {}),
-            }
+        history_window_section_turn_count: Math.max(1, Math.floor(freshWindow.sectionTurnCount)),
+        history_window_visible_section_count: Math.max(1, Math.floor(freshWindow.visibleSectionCount)),
+        ...(freshWindow.targetMessageId ? { history_window_target_message_id: freshWindow.targetMessageId } : {}),
+        ...(typeof freshWindow.targetHistoryIndex === "number"
+          ? { history_window_target_index: freshWindow.targetHistoryIndex }
           : {}),
+        ...(initialThreadWindow ? { initial_thread_window: initialThreadWindow } : {}),
       }),
     );
     if (syncedProjectionSubscriptions !== undefined) {
@@ -413,20 +404,14 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
             selectedThreadKey: initialThreadWindow.thread_key,
             threadItemCount: initialThreadWindow.item_count,
           }
-        : freshWindow
-          ? {
-              selectedThreadKey: "all",
-              historyTurnCount: freshWindow.sectionTurnCount * freshWindow.visibleSectionCount,
-            }
-          : {}),
+        : {
+            selectedThreadKey: "all",
+            historyTurnCount: freshWindow.sectionTurnCount * freshWindow.visibleSectionCount,
+          }),
     });
-    if (freshWindow) {
-      coldSubscribeAwaitingSnapshot.add(sessionId);
-      coldSubscribeReceivedHistory.delete(sessionId);
-      coldSubscribeBufferedReplay.delete(sessionId);
-    } else {
-      clearColdSubscribeState(sessionId);
-    }
+    coldSubscribeAwaitingSnapshot.add(sessionId);
+    coldSubscribeReceivedHistory.delete(sessionId);
+    coldSubscribeBufferedReplay.delete(sessionId);
     return true;
   }
 
@@ -437,8 +422,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
   function handleParsedMessage(sessionId: string, message: SequencedIncomingMessage): void {
     if (
       coldSubscribeAwaitingSnapshot.has(sessionId) &&
-      (message.type === "message_history" ||
-        message.type === "history_sync" ||
+      (message.type === "history_sync" ||
         message.type === "history_window_sync" ||
         message.type === "thread_window_sync")
     ) {

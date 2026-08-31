@@ -112,6 +112,23 @@ function session(id: string, native: CodexNativeSubagentSnapshot): SessionState 
 }
 
 function fire(message: unknown) {
+  if (
+    message &&
+    typeof message === "object" &&
+    (message as { type?: unknown }).type === "authoritative_history_fixture"
+  ) {
+    const messages = (message as { messages?: unknown }).messages;
+    message = {
+      type: "history_sync",
+      frozen_base_count: 0,
+      frozen_base_history_index: 0,
+      frozen_delta: Array.isArray(messages) ? messages : [],
+      hot_messages: [],
+      frozen_count: Array.isArray(messages) ? messages.length : 0,
+      expected_frozen_hash: "test-frozen-hash",
+      expected_full_hash: "test-full-hash",
+    };
+  }
   lastWs.onmessage?.({ data: JSON.stringify(message) });
 }
 
@@ -333,7 +350,7 @@ describe("Codex native subagent browser authority", () => {
     });
 
     fire({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         toolMessage("root-tool-message"),
         { type: "tool_result_preview", previews: [rootResult] },
@@ -392,7 +409,7 @@ describe("Codex native subagent browser authority", () => {
       ],
     });
     fire({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         { type: "user_message", id: "root-user", content: "Root preview", timestamp: 1 },
         {

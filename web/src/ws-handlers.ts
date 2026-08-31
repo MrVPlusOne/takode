@@ -34,7 +34,6 @@ import {
   resolveCachedHistoryWindowMessages,
   resolveCachedThreadWindowEntries,
 } from "./utils/history-window-cache.js";
-import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 import { isRootThinkingOnlyAssistantHistoryEntry } from "../shared/history-sync-hash.js";
 import { isTerminalResultInterrupted } from "../shared/result-interruption.js";
 import { SESSION_DEFAULTS_UPDATED_EVENT } from "../shared/session-defaults.js";
@@ -634,11 +633,6 @@ function resolvePendingMessageScroll(sessionId: string, messages: ChatMessage[])
   store.setExpandAllInTurn(sessionId, targetMsg.id);
 }
 
-function historyWindowStartIndex(data: Extract<BrowserIncomingMessage, { type: "history_window_sync" }>): number {
-  const startIndex = data.window.start_index;
-  return typeof startIndex === "number" && Number.isFinite(startIndex) ? Math.max(0, Math.floor(startIndex)) : 0;
-}
-
 function requestUncachedHistoryWindow(
   sessionId: string,
   data: Extract<BrowserIncomingMessage, { type: "history_window_sync" }>,
@@ -651,7 +645,6 @@ function requestUncachedHistoryWindow(
     section_turn_count: data.window.section_turn_count,
     visible_section_count: data.window.visible_section_count,
     activate_view: true,
-    feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
   });
 }
 
@@ -668,7 +661,6 @@ function requestUncachedThreadWindow(
     section_item_count: data.window.section_item_count,
     visible_item_count: data.window.visible_item_count,
     activate_view: true,
-    feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
   });
 }
 
@@ -1435,7 +1427,7 @@ function handleParsedMessage(
       store.setCliConnected(sessionId, data.backendConnected);
       applyAutoPauseRecoverySnapshot(sessionId, data);
       // state_snapshot is sent after subscribe replay completes. If no
-      // message_history/history_sync arrived, this was an empty-history
+      // history_sync arrived, this was an empty-history
       // session and the optimistic loading placeholder should be cleared.
       store.markHistoryDelivered(sessionId);
       store.setHistoryLoading(sessionId, false);
@@ -1697,34 +1689,6 @@ function handleParsedMessage(
       break;
     }
 
-    case "message_history": {
-      const startedAt = perfNow();
-      snapshotThreadViewportBeforeHistoryReplacement(sessionId);
-      resetAuthoritativeHistoryState(sessionId);
-      const { chatMessages, frozenCount } = normalizeHistoryMessages(sessionId, data.messages);
-      store.setMessages(sessionId, chatMessages, { frozenCount });
-      clearPendingUploadsCoveredByHistory(sessionId, data.messages);
-      store.setHistoryWindow(sessionId, null);
-      store.markHistoryDelivered(sessionId);
-      store.setHistoryLoading(sessionId, false);
-      if (chatMessages.length > 0) {
-        store.setCliEverConnected(sessionId);
-      }
-      processedToolUseIds.delete(sessionId);
-      taskCounters.delete(sessionId);
-      resolvePendingMessageScroll(sessionId, chatMessages);
-      recordFrontendPerfEntry({
-        kind: "message_history_apply",
-        timestamp: Date.now(),
-        sessionId,
-        rawMessageCount: data.messages.length,
-        chatMessageCount: chatMessages.length,
-        frozenCount,
-        durationMs: perfNow() - startedAt,
-      });
-      break;
-    }
-
     case "history_sync": {
       const existingMessages = store.messages.get(sessionId) || [];
       const existingFrozenCount = Math.max(
@@ -1739,7 +1703,7 @@ function handleParsedMessage(
       const { chatMessages: frozenDeltaMessages } = normalizeHistoryMessages(
         sessionId,
         data.frozen_delta,
-        data.frozen_base_history_index ?? data.frozen_base_count,
+        data.frozen_base_history_index,
       );
       const { chatMessages: hotMessages } = normalizeHistoryMessages(sessionId, data.hot_messages, data.frozen_count);
       const mergedMessages = [...frozenPrefix, ...frozenDeltaMessages, ...hotMessages];
@@ -1764,11 +1728,6 @@ function handleParsedMessage(
       break;
     }
 
-    case "feed_window_sync": {
-      store.setFeedWindowSync(sessionId, data.sync);
-      break;
-    }
-
     case "history_window_sync": {
       const sourceMessages =
         data.cache_hit === true ? resolveCachedHistoryWindowMessages(sessionId, data.window) : data.messages;
@@ -1780,7 +1739,7 @@ function handleParsedMessage(
       const { chatMessages, frozenCount } = normalizeHistoryMessages(
         sessionId,
         sourceMessages,
-        historyWindowStartIndex(data),
+        data.window.start_index,
       );
       store.setMessages(sessionId, chatMessages, { frozenCount });
       clearPendingUploadsCoveredByHistory(sessionId, sourceMessages);

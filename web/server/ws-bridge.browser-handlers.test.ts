@@ -75,14 +75,12 @@ function makeBrowserSocket(sessionId: string) {
   return createMockSocket({ kind: "browser", sessionId });
 }
 
-/** Flush all pending microtasks and setTimeout(0) callbacks so async sendHistorySync and deferred traffic stats complete. */
+/** Flush queued ingress, bounded-sync yields, and deferred traffic-stat microtasks. */
 async function flushAsync() {
-  // Flush microtasks (queueMicrotask in traffic stats)
-  await Promise.resolve();
-  // Flush setTimeout(0) (yieldToEventLoop in sendHistorySync)
-  await new Promise((r) => setTimeout(r, 0));
-  // One more microtask pass for any traffic stats queued after the yield
-  await Promise.resolve();
+  for (let pass = 0; pass < 3; pass++) {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 }
 
 function makeCodexAdapterMock() {
@@ -733,9 +731,8 @@ describe("Browser handlers", () => {
     });
   });
 
-  it("handleBrowserOpen: does NOT send message_history (deferred to session_subscribe)", () => {
-    // History is now delivered via handleSessionSubscribe (triggered by session_subscribe
-    // from the browser) instead of handleBrowserOpen, to prevent double delivery.
+  it("handleBrowserOpen defers conversation history until session_subscribe", () => {
+    // Conversation history is delivered by the current-build bounded subscribe, not browser open.
     mockExecSync.mockImplementation(() => {
       throw new Error("not a git repo");
     });
@@ -760,25 +757,32 @@ describe("Browser handlers", () => {
     });
     bridge.handleCLIMessage(cli, assistantMsg);
 
-    // Connect a browser — handleBrowserOpen should NOT send message_history
+    // Connect a browser; browser open should send metadata but no conversation payload.
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const sessionInit = calls.find((c: any) => c.type === "session_init");
     expect(sessionInit).toBeDefined();
-    const historyMsg = calls.find((c: any) => c.type === "message_history");
-    expect(historyMsg).toBeUndefined();
+    expect(calls.some((c: any) => c.type === "history_window_sync" || c.type === "history_sync")).toBe(false);
 
-    // history_sync is sent after session_subscribe
+    // The bounded history window is sent after session_subscribe
     browser.send.mockClear();
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
 
     const subscribeCalls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const historyAfterSubscribe = subscribeCalls.find((c: any) => c.type === "history_sync");
+    const historyAfterSubscribe = subscribeCalls.find((c: any) => c.type === "history_window_sync");
     expect(historyAfterSubscribe).toBeDefined();
-    expect(historyAfterSubscribe.hot_messages).toHaveLength(1);
-    expect(historyAfterSubscribe.hot_messages[0].type).toBe("assistant");
+    expect(historyAfterSubscribe.messages).toHaveLength(1);
+    expect(historyAfterSubscribe.messages[0].type).toBe("assistant");
   });
 
   it("handleBrowserOpen: sends pending permissions via session_subscribe", async () => {
@@ -804,7 +808,16 @@ describe("Browser handlers", () => {
     // Now connect a browser and send session_subscribe
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
+    await flushAsync();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const permMsg = calls.find((c: any) => c.type === "permission_request");
@@ -904,7 +917,7 @@ describe("Browser handlers", () => {
     expect(bridge.getSession("s1")!.browserSockets.has(browser)).toBe(false);
   });
 
-  it("session_subscribe: replays buffered sequenced events after last_seq", () => {
+  it("session_subscribe: replays buffered sequenced events after last_seq", async () => {
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
 
@@ -940,8 +953,11 @@ describe("Browser handlers", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 1,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
       }),
     );
+    await flushAsync();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const replay = calls.find((c: any) => c.type === "event_replay");
@@ -988,20 +1004,26 @@ describe("Browser handlers", () => {
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
 
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     await flushAsync();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls.find((c: any) => c.type === "history_sync")).toBeDefined();
+    expect(calls.find((c: any) => c.type === "history_window_sync")).toBeDefined();
     expect(calls.find((c: any) => c.type === "state_snapshot")).toBeDefined();
     expect(calls.find((c: any) => c.type === "event_replay")).toBeUndefined();
   });
 
-  it("session_subscribe: falls back to full history sync when known_frozen_count is invalid", async () => {
-    // When the browser claims a frozen count larger than the server's rendered
-    // count, the initial sync is refused. The fallback retries with
-    // knownFrozenCount=0, delivering a full history_sync so the browser is
-    // never left without history.
+  it("session_subscribe: explicit full-history recovery ignores an invalid cached count", async () => {
+    // Explicit recovery deliberately requests the complete server history instead
+    // of trusting a stale cached prefix count.
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
@@ -1061,14 +1083,17 @@ describe("Browser handlers", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 1,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+        full_history_sync: true,
         known_frozen_count: 99,
       }),
     );
-    await flushAsync(); // sendHistorySync is async
+    await flushAsync();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls.some((c: any) => c.type === "message_history")).toBe(false);
-    // Fallback full history_sync should be delivered
+    // Explicit full history_sync should be delivered
     const historySync = calls.find((c: any) => c.type === "history_sync");
     expect(historySync).toBeDefined();
     expect(historySync.frozen_base_count).toBe(0);
@@ -1076,14 +1101,13 @@ describe("Browser handlers", () => {
     expect(replayMsg).toBeDefined();
     expect(replayMsg.events.some((e: any) => e.message.type === "stream_event")).toBe(true);
     expect(calls.some((c: any) => c.type === "state_snapshot")).toBe(true);
-    expect(warnSpy).toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
   });
 
-  it("session_subscribe: falls back to full history sync when known_frozen_hash mismatches", async () => {
-    // When the browser sends a stale frozen hash on reconnect, the server
-    // should detect the mismatch and retry with a full history delivery
-    // (frozen_base_count=0) instead of leaving the browser with no history.
+  it("session_subscribe: explicit full-history recovery ignores a stale cached hash", async () => {
+    // Explicit recovery is a one-shot full history operation even when the
+    // browser still carries stale prefix metadata.
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
@@ -1141,30 +1165,28 @@ describe("Browser handlers", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+        full_history_sync: true,
         known_frozen_count: 2,
         known_frozen_hash: "deadbeef",
       }),
     );
-    await flushAsync(); // sendHistorySync is async
+    await flushAsync();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    // Should NOT get legacy message_history
-    expect(calls.some((c: any) => c.type === "message_history")).toBe(false);
-    // SHOULD get a fallback full history_sync with frozen_base_count=0
+    // Current-build explicit recovery uses history_sync with no ordinary full-history frame.
+    // It starts from a zero frozen base so every retained entry is transferred.
     const historySync = calls.find((c: any) => c.type === "history_sync");
     expect(historySync).toBeDefined();
     expect(historySync.frozen_base_count).toBe(0);
-    // The mismatch/invalid-count warning should still be logged
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("[history-sync]"));
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Falling back to full history sync"));
+    expect(warnSpy).not.toHaveBeenCalled();
     expect(calls.some((c: any) => c.type === "state_snapshot")).toBe(true);
     warnSpy.mockRestore();
   });
 
-  it("session_subscribe: falls back to full history sync on gap path with stale frozen hash", async () => {
-    // Exercises the gap-recovery code path (lastAckSeq > 0, hasGap=true) with
-    // a frozen hash mismatch. The fallback should deliver full history_sync
-    // just like the fresh connection path.
+  it("session_subscribe: explicit full-history recovery survives an empty replay buffer", async () => {
+    // An empty replay buffer does not block an explicit full-history request.
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
@@ -1222,14 +1244,15 @@ describe("Browser handlers", () => {
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
 
-    // last_seq=1 + empty eventBuffer → hasGap=true → gap recovery path.
-    // known_frozen_hash is stale → sendHistorySyncAttempt returns false →
-    // fallback delivers full history.
+    // The explicit request is independent of replay-buffer availability.
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 1,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+        full_history_sync: true,
         known_frozen_count: 2,
         known_frozen_hash: "stale-gap-hash",
       }),
@@ -1240,8 +1263,7 @@ describe("Browser handlers", () => {
     const historySync = calls.find((c: any) => c.type === "history_sync");
     expect(historySync).toBeDefined();
     expect(historySync.frozen_base_count).toBe(0);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("[history-sync]"));
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Falling back to full history sync"));
+    expect(warnSpy).not.toHaveBeenCalled();
     expect(calls.some((c: any) => c.type === "state_snapshot")).toBe(true);
     warnSpy.mockRestore();
   });
@@ -1271,10 +1293,9 @@ describe("Browser handlers", () => {
     warnSpy.mockRestore();
   });
 
-  it("session_subscribe no-gap: sends history_sync when history-backed events were missed", async () => {
-    // Simulates a mobile browser that disconnected while the session was generating,
-    // then reconnects. The event buffer covers the gap (no gap), but the browser
-    // missed assistant messages that need to be delivered via message_history.
+  it("session_subscribe no-gap: sends a bounded window when history-backed events were missed", async () => {
+    // A reconnecting browser gets the selected bounded window for persisted rows
+    // and replays only missed transient events.
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
 
@@ -1319,15 +1340,17 @@ describe("Browser handlers", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 1,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
       }),
     );
-    await flushAsync(); // sendHistorySync is async
+    await flushAsync();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     // Should send history_sync because history-backed events were missed
-    const historyMsg = calls.find((c: any) => c.type === "history_sync");
+    const historyMsg = calls.find((c: any) => c.type === "history_window_sync");
     expect(historyMsg).toBeDefined();
-    expect(historyMsg.hot_messages.some((m: any) => m.type === "assistant")).toBe(true);
+    expect(historyMsg.messages.some((m: any) => m.type === "assistant")).toBe(true);
     // Should also replay transient events (stream_event, status_change) that were missed.
     // status_change appears because the assistant message triggers cli_initiated_turn
     // detection (the CLI started outputting without a prior user message).
@@ -1337,9 +1360,9 @@ describe("Browser handlers", () => {
     expect(replayMsg.events.every((e: any) => transientTypes.has(e.message.type))).toBe(true);
   });
 
-  it("session_subscribe no-gap: skips message_history when only transient events were missed", () => {
-    // When the browser only missed transient events (stream_event, tool_progress),
-    // no message_history should be sent — just event_replay.
+  it("session_subscribe no-gap: replays transient events without a full-history frame", async () => {
+    // The current build still receives its bounded selected window, while only
+    // transient missed events enter event_replay.
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
 
@@ -1374,24 +1397,24 @@ describe("Browser handlers", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 1,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
       }),
     );
+    await flushAsync();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    // Should NOT send message_history since only transient events were missed
-    const historyMsg = calls.find((c: any) => c.type === "message_history");
-    expect(historyMsg).toBeUndefined();
-    const syncMsg = calls.find((c: any) => c.type === "history_sync");
-    expect(syncMsg).toBeUndefined();
+    expect(calls.find((c: any) => c.type === "history_window_sync")).toBeDefined();
+    expect(calls.find((c: any) => c.type === "history_sync")).toBeUndefined();
     // Should replay the missed transient events
     const replayMsg = calls.find((c: any) => c.type === "event_replay");
     expect(replayMsg).toBeDefined();
     expect(replayMsg.events).toHaveLength(2);
   });
 
-  it("session_subscribe: sends history_sync when event buffer is empty but browser is behind", () => {
-    // Edge case: the event buffer was pruned or cleared, but the browser is behind.
-    // Previously this path was skipped entirely; now it should send message_history.
+  it("session_subscribe: sends the bounded selected window when the replay buffer is empty", async () => {
+    // A pruned replay buffer does not force passive full-history delivery; the
+    // selected bounded window remains authoritative.
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
 
@@ -1429,13 +1452,17 @@ describe("Browser handlers", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 1,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
       }),
     );
+    await flushAsync();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const historyMsg = calls.find((c: any) => c.type === "history_sync");
+    const historyMsg = calls.find((c: any) => c.type === "history_window_sync");
     expect(historyMsg).toBeDefined();
-    expect(historyMsg.hot_messages.some((m: any) => m.type === "assistant")).toBe(true);
+    expect(historyMsg.messages.some((m: any) => m.type === "assistant")).toBe(true);
+    expect(calls.some((c: any) => c.type === "history_sync")).toBe(false);
   });
 
   it("session_ack: updates lastAckSeq for the session", () => {

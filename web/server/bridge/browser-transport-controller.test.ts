@@ -20,6 +20,7 @@ import {
   handleBrowserIngressMessage,
   handleSessionSubscribe,
   injectUserMessage,
+  refreshBrowserConversationViews,
   sendLeaderProjectionSnapshot,
   sendStateSnapshot,
   sendHistoryWindowSync,
@@ -28,7 +29,6 @@ import {
 } from "./browser-transport-controller.js";
 import type { BackendType, BrowserIncomingMessage, ReplayableBrowserIncomingMessage } from "../session-types.js";
 import { RecorderManager } from "../recorder.js";
-import { FEED_WINDOW_SYNC_VERSION } from "../../shared/feed-window-sync.js";
 
 function makeSession(overrides?: Partial<BrowserTransportSessionLike>): BrowserTransportSessionLike {
   const mockSocket = { send: vi.fn() };
@@ -54,6 +54,24 @@ function makeSession(overrides?: Partial<BrowserTransportSessionLike>): BrowserT
     processedClientMessageIds: [],
     processedClientMessageIdSet: new Set(),
     ...overrides,
+  };
+}
+
+function makeViewingSocket(threadKey = "main") {
+  return {
+    data: {
+      conversationView: {
+        kind: "thread" as const,
+        request: {
+          threadKey,
+          fromItem: -1,
+          itemCount: 30,
+          sectionItemCount: 10,
+          visibleItemCount: 3,
+        },
+      },
+    },
+    send: vi.fn(),
   };
 }
 
@@ -195,16 +213,16 @@ describe("archived session browser viewing", () => {
     const session = makeSession({ messageHistory: [] });
     (session as any).searchDataOnly = true;
 
-    await handleSessionSubscribe(session, ws, 0, 0, undefined, undefined, undefined, undefined, undefined, deps);
+    await handleSessionSubscribe(session, ws, 0, 0, undefined, 1, 1, undefined, deps);
 
     expect(deps.lazyLoadFullHistory).toHaveBeenCalledWith(session);
     expect(deps.recoverToolStartTimesFromHistory).not.toHaveBeenCalled();
     expect(deps.finalizeRecoveredDisconnectedTerminalTools).not.toHaveBeenCalled();
     expect(deps.scheduleCodexToolResultWatchdogs).not.toHaveBeenCalled();
-    const historySync = ws.send.mock.calls
+    const historyWindow = ws.send.mock.calls
       .map(([raw]) => JSON.parse(String(raw)))
-      .find((msg) => msg.type === "history_sync");
-    expect(historySync?.hot_messages).toEqual([{ type: "user_message", content: "archived history", id: "m1" }]);
+      .find((msg) => msg.type === "history_window_sync");
+    expect(historyWindow?.messages).toEqual([{ type: "user_message", content: "archived history", id: "m1" }]);
   });
 
   it("ignores model-bound browser messages for archived sessions", async () => {
@@ -495,8 +513,8 @@ describe("Codex auto-pause recovery summary fanout", () => {
 
   it("projects the same mutable server-authored receipt to two browsers", () => {
     // Both tabs receive the same stable history identity; neither browser invents or merges terminal state locally.
-    const first = { send: vi.fn() };
-    const second = { send: vi.fn() };
+    const first = makeViewingSocket();
+    const second = makeViewingSocket();
     const session = makeSession({ browserSockets: new Set([first, second]) });
     const deps = makeDeps();
     const message = {
@@ -621,9 +639,10 @@ describe("quest_list_updated replay-buffer exclusion", () => {
 
 describe("leader text stream replay-buffer exclusion", () => {
   it("sends top-level leader text deltas live without storing them for reconnect replay", () => {
-    const sendFn = vi.fn();
+    const socket = makeViewingSocket();
+    const sendFn = socket.send;
     const session = makeSession({
-      browserSockets: new Set([{ send: sendFn }]),
+      browserSockets: new Set([socket]),
       state: { permissionMode: "default", isOrchestrator: true } as any,
     });
     const deps = makeDeps();
@@ -916,7 +935,7 @@ describe("history window tool results", () => {
     );
   });
 
-  it("sends additive feed_window_sync only when the browser advertises v1 support", () => {
+  it("sends one canonical bounded history window without a duplicate sidecar", () => {
     const send = vi.fn();
     const session = makeSession({
       messageHistory: [
@@ -943,36 +962,14 @@ describe("history window tool results", () => {
       { send },
       { fromTurn: 0, turnCount: 1, sectionTurnCount: 1, visibleSectionCount: 1 },
     );
+
     expect(send).toHaveBeenCalledTimes(1);
-
-    send.mockClear();
-    sendHistoryWindowSync(
-      session,
-      { send },
-      {
-        fromTurn: 0,
-        turnCount: 1,
-        sectionTurnCount: 1,
-        visibleSectionCount: 1,
-        feedWindowSyncVersion: FEED_WINDOW_SYNC_VERSION,
-      },
-    );
-
-    expect(send).toHaveBeenCalledTimes(2);
-    const legacy = JSON.parse(send.mock.calls[0][0]);
-    const sidecar = JSON.parse(send.mock.calls[1][0]);
-    expect(legacy.type).toBe("history_window_sync");
-    expect(sidecar).toMatchObject({
-      type: "feed_window_sync",
-      sync: {
-        version: FEED_WINDOW_SYNC_VERSION,
-        source: "history_window",
-        threadKey: "main",
-        bounds: { from: 0, count: 1, total: 1, hasOlderItems: false, hasNewerItems: false },
-      },
+    const payload = JSON.parse(send.mock.calls[0][0]);
+    expect(payload).toMatchObject({
+      type: "history_window_sync",
+      window: { from_turn: 0, turn_count: 1, total_turns: 1 },
     });
-    expect(sidecar.sync.windowHash).toBe(legacy.window.window_hash);
-    expect(sidecar.sync.items.map((item: any) => item.messageId)).toEqual(["u1", "result:1"]);
+    expect(payload.messages.map((message: BrowserIncomingMessage) => message.type)).toEqual(["user_message", "result"]);
   });
 });
 
@@ -1027,7 +1024,6 @@ describe("bounded conversation reconnect protocol", () => {
       undefined,
       10,
       3,
-      FEED_WINDOW_SYNC_VERSION,
       {
         thread_key: "q-1831",
         from_item: -1,
@@ -1040,6 +1036,8 @@ describe("bounded conversation reconnect protocol", () => {
 
     const calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
     expect(calls.some((message) => message.type === "history_sync")).toBe(false);
+    expect(calls.some((message) => message.type === "feed_window_sync")).toBe(false);
+    expect(calls.some((message) => message.type === "message_history")).toBe(false);
     expect(calls.find((message) => message.type === "thread_window_sync")).toMatchObject({
       thread_key: "q-1831",
       entries: expect.arrayContaining([
@@ -1055,12 +1053,12 @@ describe("bounded conversation reconnect protocol", () => {
     });
   });
 
-  it("preserves history_sync for a legacy soft reconnect", async () => {
+  it("fails closed when a malformed current-build reconnect omits its bounded view", async () => {
     const ws = { data: {}, send: vi.fn() };
     const deps = makeInjectDeps();
     const assistant = {
       type: "assistant",
-      message: { id: "a-legacy", role: "assistant", content: [{ type: "text", text: "legacy" }] },
+      message: { id: "a-hidden", role: "assistant", content: [{ type: "text", text: "hidden" }] },
       parent_tool_use_id: null,
     } as ReplayableBrowserIncomingMessage;
     const session = makeSession({
@@ -1072,14 +1070,22 @@ describe("bounded conversation reconnect protocol", () => {
     handleBrowserOpen(session, ws, deps);
     ws.send.mockClear();
 
-    await handleSessionSubscribe(session, ws, 1, 0, undefined, undefined, undefined, undefined, undefined, deps);
+    await handleSessionSubscribe(session, ws, 1, 0, undefined, undefined, undefined, undefined, deps);
 
-    const calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
-    expect(calls.some((message) => message.type === "history_sync")).toBe(true);
+    let calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
+    expect(calls.some((message) => message.type === "history_sync")).toBe(false);
+    expect(calls.some((message) => message.type === "history_window_sync")).toBe(false);
+    expect(calls.some((message) => message.type === "thread_window_sync")).toBe(false);
     expect(calls.some((message) => message.type === "conversation_sync_complete")).toBe(false);
+
+    ws.send.mockClear();
+    broadcastToBrowsers(session, assistant, deps);
+    broadcastToBrowsers(session, { type: "status_change", status: "idle" }, deps);
+    calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
+    expect(calls.map((message) => message.type)).toEqual(["status_change"]);
   });
 
-  it("keeps a capable socket bounded after an explicit full-history sync", async () => {
+  it("keeps a current-build socket bounded after an explicit full-history recovery sync", async () => {
     const ws = { data: {}, send: vi.fn() };
     const deps = makeInjectDeps();
     const session = makeSession({
@@ -1109,7 +1115,6 @@ describe("bounded conversation reconnect protocol", () => {
       undefined,
       10,
       3,
-      FEED_WINDOW_SYNC_VERSION,
       {
         thread_key: "q-1831",
         from_item: -1,
@@ -1123,22 +1128,22 @@ describe("bounded conversation reconnect protocol", () => {
       true,
     );
 
-    expect(ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)).type)).toContain("history_sync");
-    expect(ws.data).toMatchObject({ boundedConversation: true });
+    const recoveryCalls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
+    expect(recoveryCalls.some((message) => message.type === "history_sync")).toBe(true);
+    expect(ws.data).toMatchObject({ conversationView: { kind: "thread", request: { threadKey: "q-1831" } } });
     ws.send.mockClear();
 
-    broadcastToBrowsers(session, { type: "message_history", messages: session.messageHistory }, deps);
+    refreshBrowserConversationViews(session);
 
     const calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
-    expect(calls.map((message) => message.type)).toEqual([
-      "thread_window_sync",
-      "feed_window_sync",
-      "conversation_sync_complete",
-    ]);
+    expect(calls.map((message) => message.type)).toEqual(["thread_window_sync", "conversation_sync_complete"]);
     expect(JSON.stringify(calls)).not.toContain("main-noise");
+    expect(
+      calls.some((message) => ["feed_window_sync", "message_history", "history_sync"].includes(message.type)),
+    ).toBe(false);
   });
 
-  it("uses a bounded raw history window for a capable All Threads soft reconnect", async () => {
+  it("uses a bounded raw history window for an All Threads soft reconnect", async () => {
     const ws = { data: {}, send: vi.fn() };
     const deps = makeInjectDeps();
     const session = makeSession({
@@ -1155,7 +1160,7 @@ describe("bounded conversation reconnect protocol", () => {
     handleBrowserOpen(session, ws, deps);
     ws.send.mockClear();
 
-    await handleSessionSubscribe(session, ws, 4, 0, undefined, 2, 2, FEED_WINDOW_SYNC_VERSION, undefined, deps);
+    await handleSessionSubscribe(session, ws, 4, 0, undefined, 2, 2, undefined, deps);
 
     const calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
     expect(calls.some((message) => message.type === "history_sync")).toBe(false);
@@ -1163,7 +1168,7 @@ describe("bounded conversation reconnect protocol", () => {
     expect(calls.find((message) => message.type === "conversation_sync_complete")?.through_seq).toBe(6);
   });
 
-  it("delivers live conversation content only to the capable socket viewing its thread", async () => {
+  it("delivers live conversation content only to the socket viewing its routed thread", async () => {
     const first = { data: {}, send: vi.fn() };
     const second = { data: {}, send: vi.fn() };
     const deps = makeInjectDeps();
@@ -1182,7 +1187,6 @@ describe("bounded conversation reconnect protocol", () => {
         undefined,
         10,
         3,
-        FEED_WINDOW_SYNC_VERSION,
         {
           thread_key: threadKey,
           from_item: -1,
@@ -1223,7 +1227,6 @@ describe("bounded conversation reconnect protocol", () => {
         count: 30,
         section_count: 10,
         visible_count: 3,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       },
       second,
       deps,
@@ -1243,7 +1246,7 @@ describe("bounded conversation reconnect protocol", () => {
     expect(second.send.mock.calls.map(([raw]) => JSON.parse(String(raw)).type)).toEqual(["assistant"]);
   });
 
-  it("translates an authoritative full-history broadcast into the capable socket's bounded view", async () => {
+  it("refreshes a selected bounded view after a history mutation without broadcasting full history", async () => {
     const ws = { data: {}, send: vi.fn() };
     const deps = makeInjectDeps();
     const session = makeSession({
@@ -1271,7 +1274,6 @@ describe("bounded conversation reconnect protocol", () => {
       undefined,
       10,
       3,
-      FEED_WINDOW_SYNC_VERSION,
       {
         thread_key: "q-1831",
         from_item: -1,
@@ -1282,17 +1284,22 @@ describe("bounded conversation reconnect protocol", () => {
       deps,
     );
     ws.send.mockClear();
+    session.messageHistory.push({
+      type: "user_message",
+      id: "selected-new",
+      content: "new selected content",
+      timestamp: 3,
+      threadKey: "q-1831",
+      questId: "q-1831",
+    } as BrowserIncomingMessage);
 
-    broadcastToBrowsers(session, { type: "message_history", messages: session.messageHistory }, deps);
+    refreshBrowserConversationViews(session);
 
     const calls = ws.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
-    expect(calls.map((message) => message.type)).toEqual([
-      "thread_window_sync",
-      "feed_window_sync",
-      "conversation_sync_complete",
-    ]);
+    expect(calls.map((message) => message.type)).toEqual(["thread_window_sync", "conversation_sync_complete"]);
     expect(calls[0].entries).toEqual([
       expect.objectContaining({ message: expect.objectContaining({ id: "selected" }) }),
+      expect.objectContaining({ message: expect.objectContaining({ id: "selected-new" }) }),
     ]);
     expect(JSON.stringify(calls)).not.toContain("main-noise");
   });
@@ -1866,18 +1873,7 @@ describe("session subscribe timer sync", () => {
     const ws = { data: {}, send: vi.fn() } as any;
     const deps = makeInjectDeps({ listTimers: vi.fn(() => []) });
 
-    await handleSessionSubscribe(
-      session,
-      ws,
-      0,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      deps,
-    );
+    await handleSessionSubscribe(session, ws, 0, undefined, undefined, 1, 1, undefined, deps);
 
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "timer_update", timers: [] }));
   });

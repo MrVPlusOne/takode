@@ -118,21 +118,36 @@ function makeSession(id: string): SessionState {
   };
 }
 
+function serializeIncomingTestMessage(data: Record<string, unknown>): string {
+  if (data.type !== "authoritative_history_fixture") return JSON.stringify(data);
+  const messages = Array.isArray(data.messages) ? data.messages : [];
+  return JSON.stringify({
+    type: "history_sync",
+    frozen_base_count: 0,
+    frozen_base_history_index: 0,
+    frozen_delta: messages,
+    hot_messages: [],
+    frozen_count: messages.length,
+    expected_frozen_hash: "test-frozen-hash",
+    expected_full_hash: "test-full-hash",
+  });
+}
+
 function fireMessage(data: Record<string, unknown>) {
-  lastWs.onmessage!({ data: JSON.stringify(data) });
+  lastWs.onmessage!({ data: serializeIncomingTestMessage(data) });
 }
 
 // ===========================================================================
 // Connection
 // ===========================================================================
-describe("handleMessage: message_history with compact_marker", () => {
+describe("handleMessage: history_sync with compact_marker", () => {
   it("renders compact_marker as a system message with summary", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     const summary = "Previous conversation summary text.";
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         {
           type: "compact_marker",
@@ -168,7 +183,7 @@ describe("handleMessage: message_history with compact_marker", () => {
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         { type: "user_message", id: "old-1", content: "old question", timestamp: 1000 },
         {
@@ -212,7 +227,7 @@ describe("handleMessage: message_history with compact_marker", () => {
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         {
           type: "compact_marker",
@@ -232,7 +247,7 @@ describe("handleMessage: message_history with compact_marker", () => {
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         {
           type: "compact_marker",
@@ -294,7 +309,7 @@ describe("handleMessage: message_history with compact_marker", () => {
         ],
       },
     };
-    fireMessage({ type: "message_history", messages: [base] });
+    fireMessage({ type: "authoritative_history_fixture", messages: [base] });
     expect(useStore.getState().messages.get("s1")).toHaveLength(1);
 
     const settled = {
@@ -332,7 +347,7 @@ describe("handleMessage: message_history with compact_marker", () => {
     });
 
     // A later authoritative full history carries the same settled projection after reconnect.
-    fireMessage({ type: "message_history", messages: [settled] });
+    fireMessage({ type: "authoritative_history_fixture", messages: [settled] });
     expect(useStore.getState().messages.get("s1")).toEqual([
       expect.objectContaining({
         id: "recovery-summary",

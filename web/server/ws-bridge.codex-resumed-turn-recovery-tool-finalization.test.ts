@@ -16,6 +16,10 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import {
+  subscribeCurrentBrowser,
+  subscribeCurrentBrowserWithoutFlush,
+} from "./ws-bridge-current-browser-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -584,7 +588,7 @@ describe("Codex resumed-turn recovery", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     await bridge.handleBrowserMessage(
       browser,
@@ -656,7 +660,7 @@ describe("Codex resumed-turn recovery", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     const imagePath = join(homedir(), ".companion", "images", sid, "img-1.orig.png");
     const content = "Now that we use multiple sections, confirm the navigation semantics. /confirm";
@@ -785,7 +789,7 @@ describe("Codex resumed-turn recovery", () => {
 
       const browser = makeBrowserSocket(sid);
       bridge.handleBrowserOpen(browser, sid);
-      browser.send.mockClear();
+      subscribeCurrentBrowserWithoutFlush(bridge, browser);
 
       await bridge.handleBrowserMessage(
         browser,
@@ -843,7 +847,7 @@ describe("Codex resumed-turn recovery", () => {
 
       const browser = makeBrowserSocket(sid);
       bridge.handleBrowserOpen(browser, sid);
-      browser.send.mockClear();
+      subscribeCurrentBrowserWithoutFlush(bridge, browser);
 
       await bridge.handleBrowserMessage(
         browser,
@@ -899,7 +903,7 @@ describe("Codex resumed-turn recovery", () => {
 
       const browser = makeBrowserSocket(sid);
       bridge.handleBrowserOpen(browser, sid);
-      browser.send.mockClear();
+      subscribeCurrentBrowserWithoutFlush(bridge, browser);
 
       await bridge.handleBrowserMessage(
         browser,
@@ -986,7 +990,7 @@ describe("Codex resumed-turn recovery", () => {
 
       const browser = makeBrowserSocket(sid);
       bridge.handleBrowserOpen(browser, sid);
-      browser.send.mockClear();
+      subscribeCurrentBrowserWithoutFlush(bridge, browser);
 
       await bridge.handleBrowserMessage(
         browser,
@@ -1054,7 +1058,7 @@ describe("Codex resumed-turn recovery", () => {
 
       const browser = makeBrowserSocket(sid);
       bridge.handleBrowserOpen(browser, sid);
-      browser.send.mockClear();
+      subscribeCurrentBrowserWithoutFlush(bridge, browser);
 
       await bridge.handleBrowserMessage(
         browser,
@@ -1155,7 +1159,7 @@ describe("Codex resumed-turn recovery", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     await bridge.handleBrowserMessage(
       browser,
@@ -1224,7 +1228,7 @@ describe("Codex resumed-turn recovery", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     await bridge.handleBrowserMessage(
       browser,
@@ -1310,7 +1314,7 @@ describe("Codex resumed-turn recovery", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     await bridge.handleBrowserMessage(
       browser,

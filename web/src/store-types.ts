@@ -2,7 +2,6 @@ import type { PRStatusResponse, CreateSessionOpts, CreationProgressEvent, QuestS
 import type { BoardRowData } from "./components/BoardTable.js";
 import type { SearchMatch, SessionSearchCategory, SessionSearchState } from "./store-session-search.js";
 import type { ReplyContext } from "../shared/reply-context.js";
-import type { FeedWindowSync } from "../shared/feed-window-sync.js";
 import type {
   BoardRowSessionStatus,
   ChatMessage,
@@ -60,8 +59,6 @@ export interface AppState {
   threadWindowRefreshRevisions: Map<string, number>;
   threadWindowAppliedRevisions: Map<string, Map<string, number>>;
   pendingThreadWindowRequests: Map<string, string>;
-  feedWindowSyncs: Map<string, FeedWindowSync>;
-  threadFeedWindowSyncs: Map<string, Map<string, FeedWindowSync>>;
   leaderProjections: Map<string, LeaderProjectionSnapshot>;
   setLeaderProjection: (sessionId: string, projection: LeaderProjectionSnapshot | null) => void;
   syncedProjectionValues: Map<string, unknown>;
@@ -291,7 +288,6 @@ export interface AppState {
     messages?: ChatMessage[],
   ) => void;
   setPendingThreadWindowRequest: (sessionId: string, threadKey: string | null) => void;
-  setFeedWindowSync: (sessionId: string, sync: FeedWindowSync | null) => void;
   setPendingCodexInputs: (sessionId: string, inputs: PendingCodexInput[]) => void;
   updateMessage: (sessionId: string, msgId: string, updates: Partial<ChatMessage>) => void;
   attachCodexSubagentToolResults: (

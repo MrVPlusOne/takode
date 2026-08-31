@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { CURRENT_SESSION_SUBSCRIBE, subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { RelaunchQueue } from "./relaunch-queue.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
@@ -99,14 +100,12 @@ function expectAutoPauseProgress(
   );
 }
 
-/** Flush all pending microtasks and setTimeout(0) callbacks so async sendHistorySync and deferred traffic stats complete. */
+/** Flush queued ingress, bounded-sync yields, and deferred traffic-stat microtasks. */
 async function flushAsync() {
-  // Flush microtasks (queueMicrotask in traffic stats)
-  await Promise.resolve();
-  // Flush setTimeout(0) (yieldToEventLoop in sendHistorySync)
-  await new Promise((r) => setTimeout(r, 0));
-  // One more microtask pass for any traffic stats queued after the yield
-  await Promise.resolve();
+  for (let pass = 0; pass < 3; pass++) {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 }
 
 function makeCodexAdapterMock() {
@@ -938,7 +937,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
 
     const reconnectBrowser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(reconnectBrowser, sid);
-    bridge.handleBrowserMessage(reconnectBrowser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(reconnectBrowser, CURRENT_SESSION_SUBSCRIBE);
     await flushAsync();
     expect(browserEvents(reconnectBrowser)).toContainEqual(
       expect.objectContaining({
@@ -967,7 +966,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
 
     const activeReconnect = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(activeReconnect, sid);
-    bridge.handleBrowserMessage(activeReconnect, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(activeReconnect, CURRENT_SESSION_SUBSCRIBE);
     await flushAsync();
     expect(browserEvents(activeReconnect)).toContainEqual(
       expect.objectContaining({ type: "state_snapshot", codexAutoPauseRecoveryProgress: "active" }),
@@ -1043,7 +1042,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
 
     const reconnect = makeBrowserSocket("s-codex-recovery-optimistic-timeout");
     bridge.handleBrowserOpen(reconnect, "s-codex-recovery-optimistic-timeout");
-    bridge.handleBrowserMessage(reconnect, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(reconnect, CURRENT_SESSION_SUBSCRIBE);
     await flushAsync();
     expect(browserEvents(reconnect)).toContainEqual(
       expect.objectContaining({
@@ -1099,8 +1098,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     };
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    await flushAsync();
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     bridge.handleBrowserMessage(
       browser,
@@ -1172,8 +1170,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     };
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    await flushAsync();
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     bridge.handleBrowserMessage(
       browser,
@@ -1311,8 +1308,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     });
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    await flushAsync();
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     await (bridge as any).handleCodexResultErrorAutoPause(
       session,

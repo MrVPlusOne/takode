@@ -95,6 +95,7 @@ import {
   isHerdEventSource as isHerdEventSourceBrowserTransportController,
   type ProgrammaticUserMessageOptions,
   isHistoryBackedEvent as isHistoryBackedEventController,
+  refreshBrowserConversationViews as refreshBrowserConversationViewsController,
   sameAgentSource as sameAgentSourceBrowserTransportController,
 } from "./bridge/browser-transport-controller.js";
 import {
@@ -640,6 +641,13 @@ export class WsBridge {
     const session = this.sessions.get(sessionId);
     if (!session) return;
     this.broadcastToBrowsers(session, msg);
+  }
+
+  /** Recompute each subscribed browser's bounded selected conversation after a history mutation. */
+  refreshSessionConversation(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    this.refreshBrowserConversation(session);
   }
 
   /** Push a message to all connected browsers across ALL sessions. */
@@ -1970,6 +1978,10 @@ export class WsBridge {
     this.captureSessionNavigationSourceMessage(session, msg);
     if (!options?.skipGlobalActivity) maybeBroadcastGlobalSessionActivityUpdate(this, session, msg);
     broadcastToBrowsersController(session, msg, this.getBrowserTransportDeps(), options);
+  }
+
+  private refreshBrowserConversation(session: Session): void {
+    refreshBrowserConversationViewsController(session);
   }
 
   private captureSessionNavigationSourceMessage(session: Session, msg: BrowserIncomingMessage): void {

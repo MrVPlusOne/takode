@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -576,7 +577,7 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Multiple browser sockets", () => {
-  it("broadcasts to ALL connected browsers", () => {
+  it("broadcasts to ALL connected browsers", async () => {
     const cli = makeCliSocket("s1");
     const browser1 = makeBrowserSocket("s1");
     const browser2 = makeBrowserSocket("s1");
@@ -586,6 +587,9 @@ describe("Multiple browser sockets", () => {
     bridge.handleBrowserOpen(browser1, "s1");
     bridge.handleBrowserOpen(browser2, "s1");
     bridge.handleBrowserOpen(browser3, "s1");
+    await subscribeCurrentBrowser(bridge, browser1);
+    await subscribeCurrentBrowser(bridge, browser2);
+    await subscribeCurrentBrowser(bridge, browser3);
     browser1.send.mockClear();
     browser2.send.mockClear();
     browser3.send.mockClear();
@@ -610,7 +614,7 @@ describe("Multiple browser sockets", () => {
     }
   });
 
-  it("removes a browser whose send() throws, but others continue to receive", () => {
+  it("removes a browser whose send() throws, but others continue to receive", async () => {
     const cli = makeCliSocket("s1");
     const browser1 = makeBrowserSocket("s1");
     const browser2 = makeBrowserSocket("s1");
@@ -620,6 +624,9 @@ describe("Multiple browser sockets", () => {
     bridge.handleBrowserOpen(browser1, "s1");
     bridge.handleBrowserOpen(browser2, "s1");
     bridge.handleBrowserOpen(browser3, "s1");
+    await subscribeCurrentBrowser(bridge, browser1);
+    await subscribeCurrentBrowser(bridge, browser2);
+    await subscribeCurrentBrowser(bridge, browser3);
     browser1.send.mockClear();
     browser2.send.mockClear();
     browser3.send.mockClear();

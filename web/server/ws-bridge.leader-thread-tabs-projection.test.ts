@@ -87,6 +87,8 @@ async function subscribe(bridge: WsBridge, socket: ReturnType<typeof browserSock
     JSON.stringify({
       type: "session_subscribe",
       last_seq: 0,
+      history_window_section_turn_count: 10,
+      history_window_visible_section_count: 3,
       synced_projection_subscriptions: [{ projection: LEADER_THREAD_TABS_PROJECTION, key }],
     }),
   );

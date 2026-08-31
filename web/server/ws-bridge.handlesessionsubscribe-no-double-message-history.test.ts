@@ -75,14 +75,12 @@ function makeBrowserSocket(sessionId: string) {
   return createMockSocket({ kind: "browser", sessionId });
 }
 
-/** Flush all pending microtasks and setTimeout(0) callbacks so async sendHistorySync and deferred traffic stats complete. */
+/** Flush queued ingress, bounded-sync yields, and deferred traffic-stat microtasks. */
 async function flushAsync() {
-  // Flush microtasks (queueMicrotask in traffic stats)
-  await Promise.resolve();
-  // Flush setTimeout(0) (yieldToEventLoop in sendHistorySync)
-  await new Promise((r) => setTimeout(r, 0));
-  // One more microtask pass for any traffic stats queued after the yield
-  await Promise.resolve();
+  for (let pass = 0; pass < 3; pass++) {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 }
 
 function makeCodexAdapterMock() {
@@ -575,7 +573,7 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
   });
 }
 
-describe("handleSessionSubscribe — no double message_history", () => {
+describe("handleSessionSubscribe — no duplicate conversation history", () => {
   function makeResultData(uuid: string) {
     return {
       type: "result",
@@ -592,7 +590,7 @@ describe("handleSessionSubscribe — no double message_history", () => {
     };
   }
 
-  it("does NOT send message_history in handleBrowserOpen (even with history present)", () => {
+  it("does not send conversation history in handleBrowserOpen even when history exists", () => {
     // CLI must connect first so the session exists when CLI messages arrive
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
@@ -626,15 +624,15 @@ describe("handleSessionSubscribe — no double message_history", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    // Check that handleBrowserOpen sends session_init but NOT message_history
+    // Browser open sends session metadata only; subscribe owns conversation history.
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const sessionInitMsgs = calls.filter((m: any) => m.type === "session_init");
-    const historyMsgs = calls.filter((m: any) => m.type === "message_history");
+    const historyMsgs = calls.filter((m: any) => m.type === "history_window_sync" || m.type === "history_sync");
     expect(sessionInitMsgs.length).toBe(1);
-    expect(historyMsgs.length).toBe(0); // message_history NOT sent yet
+    expect(historyMsgs.length).toBe(0);
   });
 
-  it("sends history_sync only after session_subscribe with lastSeq=0", async () => {
+  it("sends one bounded history window only after session_subscribe with lastSeq=0", async () => {
     const cli = makeCliSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
     bridge.handleCLIMessage(cli, makeInitMsg());
@@ -668,14 +666,17 @@ describe("handleSessionSubscribe — no double message_history", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
       }),
     );
-    await flushAsync(); // sendHistorySync is async
+    await flushAsync();
 
-    // Should now receive history_sync + state_snapshot
+    // The current build receives one bounded window plus the authoritative state snapshot.
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
-    const historyMsgs = calls.filter((m: any) => m.type === "history_sync");
-    expect(historyMsgs.length).toBe(1);
+    const historyMsgs = calls.filter((m: any) => m.type === "history_window_sync");
+    expect(historyMsgs).toHaveLength(1);
+    expect(historyMsgs[0].messages).toEqual([expect.objectContaining({ type: "assistant" })]);
 
     // state_snapshot should be sent last with authoritative transient state
     const snapshots = calls.filter((m: any) => m.type === "state_snapshot");

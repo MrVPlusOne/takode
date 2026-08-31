@@ -262,6 +262,7 @@ function createMockBridge() {
     onSessionUnarchived: vi.fn(),
     persistSessionById: vi.fn(),
     broadcastToSession: vi.fn(),
+    refreshSessionConversation: vi.fn(),
     broadcastGlobal: vi.fn(),
     getVsCodeSelectionState: vi.fn(function (this: any) {
       return this._vscodeSelectionState;
@@ -337,11 +338,11 @@ function createMockBridge() {
         if (adapter?.isConnected?.() && adapter.rollbackTurns) {
           return {
             promise: adapter.rollbackTurns(plan.numTurns).then(() => {
-              const reverted = bridge.prepareSessionForRevert(sessionId, plan.truncateIdx, {
+              bridge.prepareSessionForRevert(sessionId, plan.truncateIdx, {
                 clearCodexState: plan.clearCodexState,
               });
               bridge.persistSessionSync(sessionId);
-              bridge.broadcastToSession(sessionId, { type: "message_history", messages: reverted.messageHistory });
+              bridge.refreshSessionConversation(sessionId);
               bridge.broadcastToSession(sessionId, { type: "status_change", status: "idle" });
             }),
             requiresRelaunch: false,
@@ -619,11 +620,9 @@ describe("POST /api/sessions/:id/revert", () => {
     expect(launcher.relaunchWithResumeAt).toHaveBeenCalledWith("session-1", "cli-uuid-1");
     expect(launcher.relaunch).not.toHaveBeenCalled();
 
-    // Should broadcast truncated history
-    expect(bridge.broadcastToSession).toHaveBeenCalledWith("session-1", {
-      type: "message_history",
-      messages: mockSession.messageHistory,
-    });
+    // Should refresh each browser's subscribed bounded conversation after truncation.
+    expect(bridge.refreshSessionConversation).toHaveBeenCalledOnce();
+    expect(bridge.refreshSessionConversation).toHaveBeenCalledWith("session-1");
   });
 
   it("clears stale Claude replay state so reverted input cannot be resent after relaunch", async () => {
@@ -1009,9 +1008,9 @@ describe("POST /api/sessions/:id/revert", () => {
     launcher.relaunch.mockImplementation(async () => {
       sessionInfo.state = "starting";
       queueMicrotask(() => {
-        const reverted = bridge.prepareSessionForRevert("session-1", 3, { clearCodexState: true });
+        bridge.prepareSessionForRevert("session-1", 3, { clearCodexState: true });
         bridge.persistSessionSync("session-1");
-        bridge.broadcastToSession("session-1", { type: "message_history", messages: reverted.messageHistory });
+        bridge.refreshSessionConversation("session-1");
         bridge.broadcastToSession("session-1", { type: "status_change", status: "idle" });
         resolveRollback();
       });
@@ -1032,10 +1031,8 @@ describe("POST /api/sessions/:id/revert", () => {
     });
     expect(launcher.relaunch).toHaveBeenCalledWith("session-1");
     expect(mockSession.messageHistory).toHaveLength(3);
-    expect(bridge.broadcastToSession).toHaveBeenCalledWith("session-1", {
-      type: "message_history",
-      messages: mockSession.messageHistory,
-    });
+    expect(bridge.refreshSessionConversation).toHaveBeenCalledOnce();
+    expect(bridge.refreshSessionConversation).toHaveBeenCalledWith("session-1");
     expect(bridge.broadcastToSession).toHaveBeenCalledWith("session-1", { type: "status_change", status: "idle" });
   });
 

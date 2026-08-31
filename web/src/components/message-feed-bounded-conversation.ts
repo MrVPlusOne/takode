@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef } from "react";
-import { FEED_WINDOW_SYNC_VERSION } from "../../shared/feed-window-sync.js";
 import type { HistoryWindowState, ThreadWindowState } from "../types.js";
 import { getCachedHistoryWindowHash } from "../utils/history-window-cache.js";
 import { sendToSession } from "../ws.js";
@@ -53,7 +52,6 @@ export function useMessageFeedBoundedConversation(input: {
         section_turn_count: sectionTurnCount,
         visible_section_count: visibleSectionCount,
         activate_view: true,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
         ...(cachedWindowHash ? { cached_window_hash: cachedWindowHash } : {}),
         ...(targetMessageId ? { target_message_id: targetMessageId } : {}),
       });
@@ -74,7 +72,6 @@ export function useMessageFeedBoundedConversation(input: {
         section_count: input.activeThreadWindow.section_item_count,
         visible_count: input.activeThreadWindow.visible_item_count,
         cached_window_hash: input.activeThreadWindow.window_hash,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       });
       return;
     }
@@ -87,7 +84,6 @@ export function useMessageFeedBoundedConversation(input: {
       section_count: input.activeHistoryWindow.section_turn_count,
       visible_count: input.activeHistoryWindow.visible_section_count,
       cached_window_hash: input.activeHistoryWindow.window_hash,
-      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
     });
   }, [
     input.activeHistoryWindow,

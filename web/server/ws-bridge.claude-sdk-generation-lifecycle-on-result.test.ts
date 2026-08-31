@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -576,7 +577,7 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Claude SDK generation lifecycle on result", () => {
-  it("clears isGenerating via handleResultMessage and broadcasts idle status", () => {
+  it("clears isGenerating via handleResultMessage and broadcasts idle status", async () => {
     // Validates that SDK result messages clear isGenerating through the unified
     // handleResultMessage path (not a duplicate early setGenerating call) and
     // broadcast status:idle even though the SDK CLI doesn't send system.status.
@@ -586,6 +587,7 @@ describe("Claude SDK generation lifecycle on result", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
+    await subscribeCurrentBrowser(bridge, browser);
 
     // Set up generation state (simulating a turn in progress)
     const session = bridge.getSession(sid)!;

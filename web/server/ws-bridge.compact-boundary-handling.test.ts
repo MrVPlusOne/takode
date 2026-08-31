@@ -809,6 +809,8 @@ describe("compact_boundary handling", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
       }),
     );
 
@@ -848,6 +850,8 @@ describe("compact_boundary handling", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
       }),
     );
 
@@ -908,6 +912,8 @@ describe("compact_boundary handling", () => {
       JSON.stringify({
         type: "session_subscribe",
         last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
       }),
     );
 

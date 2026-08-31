@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -576,7 +577,7 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Claude SDK task_notification forwarding", () => {
-  it("persists task_notification from SDK adapter to messageHistory and broadcasts to browser", () => {
+  it("persists task_notification from SDK adapter to messageHistory and broadcasts to browser", async () => {
     // Validates that sub-agent completion notifications from Claude SDK sessions
     // are persisted (surviving reconnects) and forwarded to browsers, enabling
     // the floating agent chip UI to show sub-agent completion state.
@@ -586,7 +587,7 @@ describe("Claude SDK task_notification forwarding", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
 
     adapter.emitBrowserMessage({
       type: "task_notification",

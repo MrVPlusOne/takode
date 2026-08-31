@@ -8,7 +8,6 @@ import type {
 } from "../types.js";
 import type { Turn } from "../hooks/use-feed-model.js";
 import { buildFeedMessageModel, buildFeedWindowModel } from "./feed-render-model.js";
-import { buildThreadFeedWindowSync } from "../../shared/feed-window-sync.js";
 import { buildThreadWindowSync } from "../../shared/thread-window.js";
 import { normalizeHistoryMessageToChatMessages } from "./history-message-normalization.js";
 
@@ -31,7 +30,7 @@ function makeNotification(overrides: Partial<SessionNotification> & { id: string
 }
 
 function makeWindow(overrides: Partial<ThreadWindowState> = {}): ThreadWindowState {
-  return {
+  const window = {
     thread_key: "main",
     from_item: 20,
     item_count: 1,
@@ -40,6 +39,11 @@ function makeWindow(overrides: Partial<ThreadWindowState> = {}): ThreadWindowSta
     section_item_count: 50,
     visible_item_count: 3,
     ...overrides,
+  };
+  return {
+    ...window,
+    has_older_items: overrides.has_older_items ?? window.from_item > 0,
+    has_newer_items: overrides.has_newer_items ?? window.from_item + window.item_count < window.total_items,
   };
 }
 
@@ -471,15 +475,9 @@ describe("feed render model builders", () => {
       from_item: 25,
       item_count: 2,
       total_items: 60,
+      has_older_items: true,
+      has_newer_items: true,
       source_history_length: 60,
-    });
-    const feedSync = buildThreadFeedWindowSync({
-      threadKey: "main",
-      entries: [
-        { message: rawWindowStart, history_index: 25 },
-        { message: rawWindowEnd, history_index: 26 },
-      ],
-      window,
     });
     const selectedFeedWindowMessages = [
       ...normalizeHistoryMessageToChatMessages(rawWindowStart, 25),
@@ -536,7 +534,10 @@ describe("feed render model builders", () => {
       ],
     });
 
-    expect(feedSync.items.map((item) => item.messageId)).toEqual(["u-visible-window-start", "u-visible-window-end"]);
+    expect(selectedFeedWindowMessages.map((message) => message.id)).toEqual([
+      "u-visible-window-start",
+      "u-visible-window-end",
+    ]);
     expect(model.attentionLedgerMessages.map((message) => message.metadata?.attentionRecord?.id)).toEqual([
       "in-window-review",
       "in-window-needs-input",
@@ -1070,6 +1071,8 @@ describe("feed render model builders", () => {
         from_item: 2,
         item_count: 6,
         total_items: 10,
+        has_older_items: true,
+        has_newer_items: true,
         section_item_count: 2,
         visible_item_count: 3,
       }),
@@ -1084,7 +1087,7 @@ describe("feed render model builders", () => {
     expect(model.nextSectionStartIndex).toBeNull();
   });
 
-  it("prefers explicit selected-thread availability over legacy bounds math", () => {
+  it("uses explicit selected-thread availability as the canonical boundary state", () => {
     const turns = Array.from({ length: 4 }, (_, index) => makeTurn(`turn-${index + 1}`));
 
     const model = buildFeedWindowModel({
@@ -1109,7 +1112,7 @@ describe("feed render model builders", () => {
     expect(model.hasNewerSections).toBe(false);
   });
 
-  it("prefers explicit history-window availability over legacy bounds math", () => {
+  it("uses explicit history-window availability as the canonical boundary state", () => {
     const turns = Array.from({ length: 4 }, (_, index) => makeTurn(`turn-${index + 1}`));
 
     const model = buildFeedWindowModel({
@@ -1123,6 +1126,7 @@ describe("feed render model builders", () => {
         total_turns: 12,
         has_older_items: false,
         has_newer_items: false,
+        start_index: 0,
         section_turn_count: 2,
         visible_section_count: 3,
       },
@@ -1135,7 +1139,7 @@ describe("feed render model builders", () => {
     expect(model.hasNewerSections).toBe(false);
   });
 
-  it("keeps selected-thread feed_window_sync item order aligned with the render-model target", () => {
+  it("keeps canonical thread-window entry order aligned with the render-model target", () => {
     const rawThreadMessage = {
       type: "user_message",
       id: "u-q1080",
@@ -1145,41 +1149,38 @@ describe("feed render model builders", () => {
       questId: "q-1080",
       threadRefs: [{ threadKey: "q-1080", questId: "q-1080", source: "explicit" }],
     } satisfies BrowserIncomingMessage;
-    const threadWindow = makeWindow({
-      thread_key: "q-1080",
-      from_item: 0,
-      item_count: 1,
-      total_items: 1,
-      source_history_length: 4,
-    });
-    const feedSync = buildThreadFeedWindowSync({
+    const sync = buildThreadWindowSync({
+      messageHistory: [rawThreadMessage],
       threadKey: "q-1080",
-      entries: [{ message: rawThreadMessage, history_index: 3 }],
-      window: threadWindow,
+      fromItem: 0,
+      itemCount: 1,
+      sectionItemCount: 50,
+      visibleItemCount: 3,
     });
-    const chatThreadMessage = makeMessage({
-      id: "u-q1080",
-      role: "user",
-      content: "Selected thread message",
-      timestamp: 100,
-      historyIndex: 3,
-      metadata: {
-        threadKey: "q-1080",
-        questId: "q-1080",
-        threadRefs: [{ threadKey: "q-1080", questId: "q-1080", source: "explicit" }],
-      },
-    });
+    const selectedFeedWindowMessages = sync.entries.flatMap((entry) =>
+      normalizeHistoryMessageToChatMessages(entry.message, entry.history_index),
+    );
 
     const model = buildMessageModel({
       threadKey: "q-1080",
       allMessages: [],
-      selectedFeedWindow: threadWindow,
-      selectedFeedWindowMessages: [chatThreadMessage],
+      selectedFeedWindow: sync.window,
+      selectedFeedWindowMessages,
       sessionNotifications: [],
     });
 
-    expect(feedSync.items.map((item) => item.messageId)).toEqual(model.messages.map((message) => message.id));
-    expect(feedSync.bounds).toMatchObject({ from: 0, count: 1, total: 1, sourceHistoryLength: 4 });
+    expect(sync.entries.map((entry) => (entry.message as { id?: string }).id)).toEqual(
+      model.messages.map((message) => message.id),
+    );
+    expect(sync.window).toMatchObject({
+      thread_key: "q-1080",
+      from_item: 0,
+      item_count: 1,
+      total_items: 1,
+      has_older_items: false,
+      has_newer_items: false,
+      source_history_length: 1,
+    });
   });
 
   it("treats selected-thread window messages as an already routed local conversation", () => {
@@ -1188,6 +1189,8 @@ describe("feed render model builders", () => {
       from_item: 0,
       item_count: 1,
       total_items: 1,
+      has_older_items: false,
+      has_newer_items: false,
       source_history_length: 4,
     });
     const localThreadMessage = makeMessage({
@@ -1236,6 +1239,8 @@ describe("feed render model builders", () => {
       from_item: 30,
       item_count: 2,
       total_items: 32,
+      has_older_items: true,
+      has_newer_items: false,
       source_history_length: 40,
     });
     const completion = makeMessage({
@@ -1297,35 +1302,30 @@ describe("feed render model builders", () => {
       sourceThreadKey: "q-1141",
       threadKey: "q-1139",
     });
-    const selectedFeedWindowMessages = [
-      ...normalizeHistoryMessageToChatMessages(sourceMarker, 1),
-      ...normalizeHistoryMessageToChatMessages(inboundMarker, 2),
-    ];
-    const threadWindow = makeWindow({
-      thread_key: "q-1139",
-      from_item: 0,
-      item_count: 2,
-      total_items: 2,
-      source_history_length: 4,
-    });
-    const feedSync = buildThreadFeedWindowSync({
+    const sync = buildThreadWindowSync({
+      messageHistory: [sourceMarker, inboundMarker],
       threadKey: "q-1139",
-      entries: [
-        { message: sourceMarker, history_index: 1 },
-        { message: inboundMarker, history_index: 2 },
-      ],
-      window: threadWindow,
+      fromItem: 0,
+      itemCount: 2,
+      sectionItemCount: 50,
+      visibleItemCount: 3,
     });
+    const selectedFeedWindowMessages = sync.entries.flatMap((entry) =>
+      normalizeHistoryMessageToChatMessages(entry.message, entry.history_index),
+    );
 
     const model = buildMessageModel({
       threadKey: "q-1139",
       allMessages: [],
-      selectedFeedWindow: threadWindow,
+      selectedFeedWindow: sync.window,
       selectedFeedWindowMessages,
       sessionNotifications: [],
     });
 
-    expect(feedSync.items.map((item) => item.messageId)).toEqual(["transition-q1139-q1141", "transition-q1141-q1139"]);
+    expect(sync.entries.map((entry) => (entry.message as { id?: string }).id)).toEqual([
+      "transition-q1139-q1141",
+      "transition-q1141-q1139",
+    ]);
     expect(model.messages.map((message) => message.id)).toEqual(["transition-q1139-q1141"]);
   });
 

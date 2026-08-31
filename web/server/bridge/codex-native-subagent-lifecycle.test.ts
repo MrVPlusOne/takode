@@ -1,4 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+const mockRefreshBrowserConversationViews = vi.hoisted(() => vi.fn());
+vi.mock("./browser-transport-controller.js", () => ({
+  refreshBrowserConversationViews: mockRefreshBrowserConversationViews,
+}));
+
 import type { BrowserIncomingMessage, CodexOutboundTurn } from "../session-types.js";
 import {
   applyCodexNativeSubagentEvent,
@@ -33,6 +38,8 @@ function pendingTurn(): CodexOutboundTurn {
 function createFixture(
   options: { registry?: ReturnType<typeof createCodexNativeSubagentRegistry>; frozenCount?: number } = {},
 ) {
+  mockRefreshBrowserConversationViews.mockClear();
+
   let listener: ((event: CodexNativeSubagentAdapterEvent) => void) | undefined;
   const registrationOrder: string[] = [];
   const seedKnownChildProviderThreadIds = vi.fn((_threadIds: Iterable<string>) => registrationOrder.push("seed"));
@@ -54,6 +61,8 @@ function createFixture(
     messageHistory: [
       { type: "user_message", id: "feed-user-turn-a", content: "run children", timestamp: 1_787_860_000_000 },
     ] as BrowserIncomingMessage[],
+    browserSockets: new Set(),
+    nextEventSeq: 1,
     frozenCount: options.frozenCount ?? 0,
     eventBuffer: [] as Array<{ message: BrowserIncomingMessage }>,
   };
@@ -541,20 +550,8 @@ describe("Codex native subagent bridge lifecycle", () => {
       )?.codexSubagent,
     ).toBeUndefined();
     expect(fixture.session.eventBuffer[0]?.message.codexSubagent).toBeUndefined();
-    const correctedHistory = fixture.handled.find((message) => message.type === "message_history");
-    expect(correctedHistory?.type).toBe("message_history");
-    if (correctedHistory?.type === "message_history") {
-      expect(
-        correctedHistory.messages.find(
-          (message) => message.type === "assistant" && message.message.id === "misclassified-root-message",
-        )?.codexSubagent,
-      ).toBeUndefined();
-      expect(
-        correctedHistory.messages.find(
-          (message) => message.type === "assistant" && message.message.id === "ambiguous-child-message",
-        )?.codexSubagent?.childId,
-      ).toBe(ambiguousChild.publicChildId);
-    }
+    expect(mockRefreshBrowserConversationViews).toHaveBeenCalledOnce();
+    expect(mockRefreshBrowserConversationViews).toHaveBeenCalledWith(fixture.session);
     expect(fixture.persistHistoryOwnershipRepair).toHaveBeenCalledOnce();
     expect(fixture.persistHistoryOwnershipRepair).toHaveBeenCalledWith(
       fixture.session,
@@ -605,6 +602,8 @@ describe("Codex native subagent bridge lifecycle", () => {
     expect(fixture.session.messageHistory.at(-1)?.codexSubagent).toEqual({ childId: cycleChildId });
     expect(fixture.session.state.codex_native_subagents).toMatchObject({ coverage: "partial", session: { total: 0 } });
     expect(fixture.persistHistoryOwnershipRepair).toHaveBeenCalledWith(fixture.session, 2);
+    expect(mockRefreshBrowserConversationViews).toHaveBeenCalledOnce();
+    expect(mockRefreshBrowserConversationViews).toHaveBeenCalledWith(fixture.session);
   });
 
   it("scrubs all registry-known provider IDs from chronological child errors", () => {

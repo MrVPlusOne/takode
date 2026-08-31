@@ -789,7 +789,14 @@ describe("Codex user_message takode events", () => {
     bridge.handleBrowserOpen(reconnect, sid);
     await bridge.handleBrowserMessage(
       reconnect,
-      JSON.stringify({ type: "session_subscribe", last_seq: 0, known_frozen_count: 0 }),
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        known_frozen_count: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+        full_history_sync: true,
+      }),
     );
     await flushAsync();
     const historySync = reconnect.send.mock.calls

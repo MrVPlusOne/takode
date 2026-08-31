@@ -583,7 +583,15 @@ describe("Tool call duration tracking", () => {
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     browser.send.mockClear();
 
     // Send assistant message with tool_use block
@@ -635,7 +643,15 @@ describe("Tool call duration tracking", () => {
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     browser.send.mockClear();
 
     // Send assistant with two parallel tool_use blocks
@@ -695,7 +711,15 @@ describe("Tool call duration tracking", () => {
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     browser.send.mockClear();
 
     // Send tool_result WITHOUT a preceding tool_use (simulates server restart)
@@ -810,7 +834,15 @@ describe("Tool call duration tracking", () => {
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     browser.send.mockClear();
 
     // Send assistant message with tool_use blocks
@@ -853,7 +885,15 @@ describe("Tool call duration tracking", () => {
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     browser.send.mockClear();
 
     // Send assistant message with only text (no tool_use)
@@ -892,7 +932,15 @@ describe("Tool call duration tracking", () => {
 
       const browser = makeBrowserSocket("s1");
       bridge.handleBrowserOpen(browser, "s1");
-      bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+      bridge.handleBrowserMessage(
+        browser,
+        JSON.stringify({
+          type: "session_subscribe",
+          last_seq: 0,
+          history_window_section_turn_count: 10,
+          history_window_visible_section_count: 3,
+        }),
+      );
       browser.send.mockClear();
 
       vi.setSystemTime(new Date(1700000000000));
@@ -958,7 +1006,15 @@ describe("Tool call duration tracking", () => {
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     browser.send.mockClear();
 
     bridge.handleCLIMessage(
@@ -1051,7 +1107,15 @@ describe("Tool call duration tracking", () => {
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     browser.send.mockClear();
 
     bridge.handleCLIMessage(

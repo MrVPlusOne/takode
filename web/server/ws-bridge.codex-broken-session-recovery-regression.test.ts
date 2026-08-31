@@ -741,7 +741,15 @@ describe("Codex broken-session recovery regression", () => {
     });
     const reconnect = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(reconnect, sid);
-    bridge.handleBrowserMessage(reconnect, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      reconnect,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     await flushAsync();
     expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
       expect.objectContaining({

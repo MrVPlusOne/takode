@@ -3,7 +3,6 @@
 import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage } from "./types.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
-import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 
 // Mock the names utility before any imports
 vi.mock("./utils/names.js", () => ({
@@ -301,6 +300,8 @@ describe("handleMessage: event_replay", () => {
         from_turn: 0,
         turn_count: 0,
         total_turns: 0,
+        has_older_items: false,
+        has_newer_items: false,
         start_index: 0,
         section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -348,6 +349,8 @@ describe("handleMessage: event_replay", () => {
         from_turn: 0,
         turn_count: 0,
         total_turns: 0,
+        has_older_items: false,
+        has_newer_items: false,
         start_index: 0,
         section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -396,6 +399,8 @@ describe("handleMessage: event_replay", () => {
         from_item: 0,
         item_count: 0,
         total_items: 0,
+        has_older_items: false,
+        has_newer_items: false,
         source_history_length: 0,
         section_item_count: 10,
         visible_item_count: 30,
@@ -449,6 +454,8 @@ describe("handleMessage: event_replay", () => {
         from_turn: 0,
         turn_count: 1,
         total_turns: 1,
+        has_older_items: false,
+        has_newer_items: false,
         start_index: 1,
         section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,

@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -579,12 +580,12 @@ describe("CLI message routing", () => {
   let cli: ReturnType<typeof makeCliSocket>;
   let browser: ReturnType<typeof makeBrowserSocket>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     cli = makeCliSocket("s1");
     browser = makeBrowserSocket("s1");
     bridge.handleCLIOpen(cli, "s1");
     bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    await subscribeCurrentBrowser(bridge, browser);
   });
 
   it("result: updates cost/turns/context% and computes diff stats from git", async () => {

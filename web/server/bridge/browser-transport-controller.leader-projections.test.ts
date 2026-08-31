@@ -17,7 +17,6 @@ import {
   type BrowserTransportSessionLike,
 } from "./browser-transport-controller.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
-import { FEED_WINDOW_SYNC_VERSION } from "../../shared/feed-window-sync.js";
 
 function makeSession(overrides?: Partial<BrowserTransportSessionLike>): BrowserTransportSessionLike {
   const mockSocket = { send: vi.fn() };
@@ -849,7 +848,7 @@ describe("selected feed thread windows", () => {
     expect(payload.window.window_hash).toBe(firstPayload.window.window_hash);
   });
 
-  it("sends additive selected-thread feed_window_sync while keeping cache-hit fallback explicit", () => {
+  it("keeps a selected-thread cache hit explicit without a duplicate sidecar", () => {
     const send = vi.fn();
     const session = makeSession({
       messageHistory: [
@@ -874,7 +873,6 @@ describe("selected feed thread windows", () => {
         itemCount: 1,
         sectionItemCount: 1,
         visibleItemCount: 1,
-        feedWindowSyncVersion: FEED_WINDOW_SYNC_VERSION,
       },
     );
     const firstWindow = JSON.parse(send.mock.calls[0][0]).window;
@@ -890,38 +888,16 @@ describe("selected feed thread windows", () => {
         sectionItemCount: 1,
         visibleItemCount: 1,
         cachedWindowHash: firstWindow.window_hash,
-        feedWindowSyncVersion: FEED_WINDOW_SYNC_VERSION,
       },
     );
 
-    expect(send).toHaveBeenCalledTimes(2);
-    const legacy = JSON.parse(send.mock.calls[0][0]);
-    const sidecar = JSON.parse(send.mock.calls[1][0]);
-    expect(legacy).toMatchObject({
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(send.mock.calls[0][0])).toMatchObject({
       type: "thread_window_sync",
       cache_hit: true,
       entries: [],
+      window: { window_hash: firstWindow.window_hash },
     });
-    expect(sidecar).toMatchObject({
-      type: "feed_window_sync",
-      sync: {
-        version: FEED_WINDOW_SYNC_VERSION,
-        source: "thread_window",
-        threadKey: "q-1040",
-        windowHash: firstWindow.window_hash,
-        bounds: {
-          from: 0,
-          count: 1,
-          total: 1,
-          hasOlderItems: false,
-          hasNewerItems: false,
-          sourceHistoryLength: 1,
-        },
-      },
-    });
-    expect(sidecar.sync.items).toEqual([
-      expect.objectContaining({ messageId: "u-thread", historyIndex: 0, messageType: "user_message" }),
-    ]);
   });
 });
 
@@ -976,7 +952,6 @@ describe("initial selected thread subscribe", () => {
       undefined,
       10,
       3,
-      FEED_WINDOW_SYNC_VERSION,
       {
         thread_key: "q-1825",
         from_item: -1,
@@ -992,7 +967,6 @@ describe("initial selected thread subscribe", () => {
     expect(types).toEqual([
       "leader_projection_snapshot",
       "thread_window_sync",
-      "feed_window_sync",
       "tree_groups_update",
       "event_replay",
       "timer_update",
@@ -1008,7 +982,7 @@ describe("initial selected thread subscribe", () => {
     expect(types).not.toContain("history_sync");
   });
 
-  it("falls back to the legacy bounded history window for an unsupported initial thread", async () => {
+  it("falls back to the current-build bounded history window for an unsupported initial thread", async () => {
     const ws = { data: {}, send: vi.fn() };
     const deps = makeInjectDeps();
     const session = makeSession({
@@ -1026,7 +1000,6 @@ describe("initial selected thread subscribe", () => {
       undefined,
       1,
       1,
-      FEED_WINDOW_SYNC_VERSION,
       {
         thread_key: "all",
         from_item: -1,
@@ -1060,7 +1033,6 @@ describe("initial selected thread subscribe", () => {
       undefined,
       10,
       3,
-      FEED_WINDOW_SYNC_VERSION,
       {
         thread_key: "main",
         from_item: -1,

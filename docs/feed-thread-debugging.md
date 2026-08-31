@@ -79,10 +79,9 @@ ledger rows are common skip paths.
 Thread/feed/window tests should model the shape the frontend actually receives.
 Prefer these sources, in order:
 
-1. Shared/server builders such as `buildThreadWindowSync` or
-   `buildThreadFeedWindowSync`.
-2. Sanitized captured browser payloads such as `thread_window_sync` or
-   `message_history`.
+1. Shared/server builders such as `buildThreadWindowSync`.
+2. Sanitized captured browser payloads such as `history_window_sync`,
+   `thread_window_sync`, or explicit `history_sync`.
 3. Maintained generated fixtures such as
    `web/src/test-fixtures/large-leader-feed-fixture.ts`.
 

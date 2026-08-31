@@ -1829,7 +1829,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       );
 
       // Broadcast updated (truncated) history to all browsers
-      wsBridge.broadcastToSession(id, { type: "message_history", messages: revertedSession.messageHistory });
+      wsBridge.refreshSessionConversation(id);
       wsBridge.broadcastToSession(id, { type: "status_change", status: "idle" });
     }
 

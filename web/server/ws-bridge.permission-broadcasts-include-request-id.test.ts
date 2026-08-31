@@ -586,7 +586,15 @@ describe("permission broadcasts include request_id", () => {
 
     browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
   });
 
   it("permission_approved broadcast includes request_id", () => {

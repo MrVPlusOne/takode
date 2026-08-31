@@ -1,6 +1,5 @@
 import { useCallback } from "react";
 import type { ThreadWindowState } from "../types.js";
-import { FEED_WINDOW_SYNC_VERSION } from "../../shared/feed-window-sync.js";
 import { getThreadWindowItemCount } from "../../shared/thread-window.js";
 import { getCachedThreadWindowHash } from "../utils/history-window-cache.js";
 import { sendToSession } from "../ws.js";
@@ -51,7 +50,6 @@ export function useThreadWindowRequester({
         section_item_count: sectionItemCount,
         visible_item_count: visibleItemCount,
         activate_view: true,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
         ...(targetMessageId ? { target_message_id: targetMessageId } : {}),
         ...(cachedWindowHash && !targetMessageId ? { cached_window_hash: cachedWindowHash } : {}),
       });

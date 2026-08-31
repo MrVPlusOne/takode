@@ -3,7 +3,16 @@ import type { BrowserIncomingMessage } from "../session-types.js";
 import { broadcastToBrowsers, type BrowserTransportSessionLike } from "./browser-transport-controller.js";
 
 function sessionWithHistory(messageHistory: BrowserIncomingMessage[]) {
-  const socket = { send: vi.fn() };
+  const socket = {
+    data: {
+      subscribed: true,
+      conversationView: {
+        kind: "history" as const,
+        request: { fromTurn: 0, turnCount: 30, sectionTurnCount: 10, visibleSectionCount: 3 },
+      },
+    },
+    send: vi.fn(),
+  };
   const session = {
     id: "session-1",
     backendType: "codex",

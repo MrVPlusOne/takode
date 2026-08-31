@@ -78,6 +78,7 @@ export interface SessionRegistryDeps {
   makeDefaultState: (sessionId: string, backendType: string) => unknown;
   pruneToolResultsForCurrentHistory: (session: SessionLike) => void;
   broadcastToSession: (sessionId: string, msg: BrowserIncomingMessage) => void;
+  refreshSessionConversation: (sessionId: string) => void;
   recomputeAndBroadcastHistoryBytes: (session: SessionLike) => void;
   persistSession: (session: SessionLike) => void;
   persistSessionSync: (sessionId: string) => void;
@@ -444,7 +445,10 @@ export function prepareSessionForRevert(
 
 export function finalizeCodexRollback(
   session: SessionLike,
-  deps: Pick<SessionRegistryDeps, "recomputeAndBroadcastHistoryBytes" | "persistSessionSync" | "broadcastToSession">,
+  deps: Pick<
+    SessionRegistryDeps,
+    "recomputeAndBroadcastHistoryBytes" | "persistSessionSync" | "broadcastToSession" | "refreshSessionConversation"
+  >,
   revertedSession: SessionLike | null,
 ): void {
   const waiter = session.pendingCodexRollbackWaiter;
@@ -455,10 +459,7 @@ export function finalizeCodexRollback(
   if (!revertedSession) return;
   deps.recomputeAndBroadcastHistoryBytes(session);
   deps.persistSessionSync(session.id);
-  deps.broadcastToSession(session.id, {
-    type: "message_history",
-    messages: revertedSession.messageHistory,
-  } as BrowserIncomingMessage);
+  deps.refreshSessionConversation(session.id);
   deps.broadcastToSession(session.id, { type: "status_change", status: "idle" } as BrowserIncomingMessage);
 }
 

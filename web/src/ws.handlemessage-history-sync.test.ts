@@ -119,8 +119,23 @@ function makeSession(id: string): SessionState {
   };
 }
 
+function serializeIncomingTestMessage(data: Record<string, unknown>): string {
+  if (data.type !== "authoritative_history_fixture") return JSON.stringify(data);
+  const messages = Array.isArray(data.messages) ? data.messages : [];
+  return JSON.stringify({
+    type: "history_sync",
+    frozen_base_count: 0,
+    frozen_base_history_index: 0,
+    frozen_delta: messages,
+    hot_messages: [],
+    frozen_count: messages.length,
+    expected_frozen_hash: "test-frozen-hash",
+    expected_full_hash: "test-full-hash",
+  });
+}
+
 function fireMessage(data: Record<string, unknown>) {
-  lastWs.onmessage!({ data: JSON.stringify(data) });
+  lastWs.onmessage!({ data: serializeIncomingTestMessage(data) });
 }
 
 // ===========================================================================
@@ -182,6 +197,8 @@ describe("handleMessage: history_sync", () => {
         from_item: 10,
         item_count: 2,
         total_items: 20,
+        has_older_items: true,
+        has_newer_items: true,
         source_history_length: 3,
         section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -392,7 +409,7 @@ describe("handleMessage: history_sync", () => {
     expect(useStore.getState().pendingCodexInputs.has("s1")).toBe(false);
   });
 
-  it("clears stale live subagent state when message_history replaces the session feed", () => {
+  it("clears stale live subagent state when history_sync replaces the session feed", () => {
     // q-327: authoritative history replay must clear client-derived live
     // subagent state, otherwise stale running chips can survive reconnect.
     wsModule.connectSession("s1");
@@ -421,7 +438,7 @@ describe("handleMessage: history_sync", () => {
     });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         { type: "user_message", id: "u1", content: "Fresh request", timestamp: 1000 },
         {
@@ -497,8 +514,8 @@ describe("handleMessage: history_sync", () => {
     expect(state.toolProgress.has("s1")).toBe(false);
   });
 
-  it("rebuilds fresh live tool state from message_history after clearing stale entries", () => {
-    // q-327: authoritative message_history should not just clear stale live
+  it("rebuilds fresh live tool state from history_sync after clearing stale entries", () => {
+    // q-327: authoritative history_sync should not just clear stale live
     // tool state — it must also repopulate fresh tool results, notifications,
     // and tool-start timestamps from the replay payload.
     wsModule.connectSession("s1");
@@ -525,7 +542,7 @@ describe("handleMessage: history_sync", () => {
     });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         {
           type: "assistant",
@@ -581,7 +598,7 @@ describe("handleMessage: history_sync", () => {
     expect(state.toolStartTimestamps.get("s1")?.get("task-fresh")).toBe(2222);
   });
 
-  it("hydrates resolved Codex Bash previews from message_history before live activity reads tool state", () => {
+  it("hydrates resolved Codex Bash previews from history_sync before live activity reads tool state", () => {
     // Authoritative replay includes non-rendered tool_result_preview rows; if the
     // browser misses that side effect, old Bash chips can look live forever.
     wsModule.connectSession("s1");
@@ -597,7 +614,7 @@ describe("handleMessage: history_sync", () => {
     });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         {
           type: "assistant",
@@ -646,7 +663,7 @@ describe("handleMessage: history_sync", () => {
 
   it("rebuilds fresh live tool state from history_sync after clearing stale entries", () => {
     // q-327: history_sync follows the same authoritative replacement rule as
-    // message_history for fresh incoming entries, but it also preserves the
+    // history_sync for fresh incoming entries, but it also preserves the
     // reused frozen prefix's historical tool/subagent state.
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

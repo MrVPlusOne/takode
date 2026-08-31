@@ -724,7 +724,15 @@ describe("Restore from disk with pendingPermissions", () => {
     ]);
 
     // No permission_request should be sent to the browser after subscribe
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     const postSubscribe = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const permMsgs = postSubscribe.filter((c: any) => c.type === "permission_request");
     expect(permMsgs).toHaveLength(0);

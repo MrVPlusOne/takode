@@ -309,6 +309,8 @@ describe("Session management", () => {
       from_item: 0,
       item_count: 1,
       total_items: 1,
+      has_older_items: false,
+      has_newer_items: false,
       source_history_length: 1,
       section_item_count: 50,
       visible_item_count: 50,

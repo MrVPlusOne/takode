@@ -31,7 +31,14 @@ beforeAll(() => {
 import { render, screen, fireEvent, act, within, waitFor } from "@testing-library/react";
 import type { BrowserIncomingMessage, ChatMessage, ThreadWindowEntry } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
-import { FEED_WINDOW_SYNC_VERSION } from "../../shared/feed-window-sync.js";
+import {
+  makeFeedEntryMessage,
+  makeLeaderSectionedMessages,
+  makeMessage,
+  makeSectionedMessages,
+  makeSectionTurns,
+  makeTurnForSections,
+} from "./MessageFeed.messagefeed-section-windowing.test-helpers.js";
 
 // Mock react-markdown to avoid ESM issues in tests
 vi.mock("react-markdown", () => ({
@@ -169,121 +176,6 @@ import {
 } from "../../shared/history-window.js";
 import { cacheHistoryWindow, cacheThreadWindow } from "../utils/history-window-cache.js";
 
-function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
-  return {
-    id: `msg-${Math.random().toString(36).slice(2, 8)}`,
-    content: "",
-    timestamp: Date.now(),
-    ...overrides,
-  };
-}
-
-function makeFeedEntryMessage(msg: ChatMessage): FeedEntry {
-  return { kind: "message", msg };
-}
-
-function makeTurnForSections({
-  id,
-  userEntry = null,
-  systemEntries = [],
-  agentEntries = [],
-  responseEntry = null,
-}: {
-  id: string;
-  userEntry?: FeedEntry | null;
-  systemEntries?: FeedEntry[];
-  agentEntries?: FeedEntry[];
-  responseEntry?: FeedEntry | null;
-}): Turn {
-  return {
-    id,
-    userEntry,
-    allEntries: [...systemEntries, ...agentEntries, ...(responseEntry ? [responseEntry] : [])],
-    agentEntries,
-    systemEntries,
-    notificationEntries: [],
-    responseEntry,
-    subConclusions: [],
-    stats: {
-      messageCount: 0,
-      toolCount: 0,
-      subagentCount: 0,
-      herdEventCount: 0,
-    },
-  };
-}
-
-function makeSectionTurns(totalTurns: number): Turn[] {
-  return Array.from({ length: totalTurns }, (_, index) => {
-    const turnNumber = index + 1;
-    return makeTurnForSections({
-      id: `turn-${turnNumber}`,
-      userEntry: makeFeedEntryMessage(
-        makeMessage({
-          id: `u${turnNumber}`,
-          role: "user",
-          content: `Turn ${turnNumber}`,
-        }),
-      ),
-    });
-  });
-}
-
-function makeSectionedMessages(sectionCount: number, turnsPerSection = 50): ChatMessage[] {
-  const messages: ChatMessage[] = [];
-  let timestamp = 1_700_000_000_000;
-
-  for (let sectionIndex = 0; sectionIndex < sectionCount; sectionIndex++) {
-    for (let turnIndex = 0; turnIndex < turnsPerSection; turnIndex++) {
-      const turnNumber = sectionIndex * turnsPerSection + turnIndex + 1;
-      const label =
-        turnIndex === 0 ? `Section ${sectionIndex + 1} marker` : `Section ${sectionIndex + 1} turn ${turnIndex + 1}`;
-      messages.push(
-        makeMessage({
-          id: `u${turnNumber}`,
-          role: "user",
-          content: label,
-          timestamp: timestamp++,
-        }),
-      );
-    }
-  }
-
-  return messages;
-}
-
-function makeLeaderSectionedMessages(sectionCount: number, turnsPerSection = 50, leaderSessionId = "leader-session") {
-  const messages: ChatMessage[] = [];
-  let timestamp = 1_700_000_000_000;
-
-  for (let sectionIndex = 0; sectionIndex < sectionCount; sectionIndex++) {
-    for (let turnIndex = 0; turnIndex < turnsPerSection; turnIndex++) {
-      const turnNumber = sectionIndex * turnsPerSection + turnIndex + 1;
-      const label =
-        turnIndex === 0
-          ? `Leader section ${sectionIndex + 1} marker`
-          : `Leader section ${sectionIndex + 1} turn ${turnIndex + 1}`;
-      messages.push(
-        makeMessage({
-          id: `leader-u${turnNumber}`,
-          role: "user",
-          content: label,
-          timestamp: timestamp++,
-          agentSource: { sessionId: leaderSessionId, sessionLabel: "Leader" },
-        }),
-        makeMessage({
-          id: `leader-a${turnNumber}`,
-          role: "assistant",
-          content: `Worker response ${turnNumber}`,
-          timestamp: timestamp++,
-        }),
-      );
-    }
-  }
-
-  return messages;
-}
-
 function setStoreMessages(sessionId: string, msgs: ChatMessage[]) {
   const map = new Map();
   map.set(sessionId, msgs);
@@ -338,6 +230,9 @@ function setStoreHistoryWindow(sessionId: string) {
         from_turn: 7,
         turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
         total_turns: 37,
+        has_older_items: true,
+        has_newer_items: false,
+        start_index: 7,
         section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
       },
@@ -617,8 +512,8 @@ function setStoreSelectedThreadWindow({
             from_item: fromItem,
             item_count: itemCount,
             total_items: totalItems,
-            ...(hasOlderItems === undefined ? {} : { has_older_items: hasOlderItems }),
-            ...(hasNewerItems === undefined ? {} : { has_newer_items: hasNewerItems }),
+            has_older_items: hasOlderItems ?? fromItem > 0,
+            has_newer_items: hasNewerItems ?? fromItem + itemCount < totalItems,
             source_history_length: totalItems,
             section_item_count: sectionItemCount,
             visible_item_count: visibleItemCount,
@@ -950,6 +845,9 @@ describe("MessageFeed section windowing", () => {
       from_turn: 2,
       turn_count: 6,
       total_turns: 10,
+      has_older_items: true,
+      has_newer_items: true,
+      start_index: 2,
       section_turn_count: 2,
       visible_section_count: 3,
     });
@@ -969,7 +867,6 @@ describe("MessageFeed section windowing", () => {
       section_turn_count: 2,
       visible_section_count: 3,
       activate_view: true,
-      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
     });
     expect(screen.getByText("Loading older section...")).toBeTruthy();
   });
@@ -1001,7 +898,6 @@ describe("MessageFeed section windowing", () => {
         count: 6,
         section_count: 2,
         visible_count: 3,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       }),
     );
   });
@@ -1015,6 +911,9 @@ describe("MessageFeed section windowing", () => {
         from_turn: 0,
         turn_count: 8,
         total_turns: 10,
+        has_older_items: false,
+        has_newer_items: true,
+        start_index: 0,
         section_turn_count: 2,
         visible_section_count: 3,
         window_hash: "cached-history-window",
@@ -1026,6 +925,9 @@ describe("MessageFeed section windowing", () => {
       from_turn: 2,
       turn_count: 6,
       total_turns: 10,
+      has_older_items: true,
+      has_newer_items: true,
+      start_index: 2,
       section_turn_count: 2,
       visible_section_count: 3,
     });
@@ -1044,7 +946,6 @@ describe("MessageFeed section windowing", () => {
       section_turn_count: 2,
       visible_section_count: 3,
       activate_view: true,
-      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       cached_window_hash: "cached-history-window",
     });
   });
@@ -1057,6 +958,9 @@ describe("MessageFeed section windowing", () => {
       from_turn: 0,
       turn_count: 6,
       total_turns: 12,
+      has_older_items: false,
+      has_newer_items: true,
+      start_index: 0,
       section_turn_count: 2,
       visible_section_count: 3,
     });
@@ -1076,7 +980,6 @@ describe("MessageFeed section windowing", () => {
       section_turn_count: 2,
       visible_section_count: 3,
       activate_view: true,
-      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
     });
     expect(screen.getByText("Loading newer section...")).toBeTruthy();
   });
@@ -1089,6 +992,9 @@ describe("MessageFeed section windowing", () => {
       from_turn: 0,
       turn_count: 10,
       total_turns: 12,
+      has_older_items: false,
+      has_newer_items: true,
+      start_index: 0,
       section_turn_count: 2,
       visible_section_count: 3,
     });
@@ -1128,7 +1034,6 @@ describe("MessageFeed section windowing", () => {
         item_count: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
         section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       }),
     );
 

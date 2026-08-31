@@ -75,14 +75,12 @@ function makeBrowserSocket(sessionId: string) {
   return createMockSocket({ kind: "browser", sessionId });
 }
 
-/** Flush all pending microtasks and setTimeout(0) callbacks so async sendHistorySync and deferred traffic stats complete. */
+/** Flush queued ingress, bounded-sync yields, and deferred traffic-stat microtasks. */
 async function flushAsync() {
-  // Flush microtasks (queueMicrotask in traffic stats)
-  await Promise.resolve();
-  // Flush setTimeout(0) (yieldToEventLoop in sendHistorySync)
-  await new Promise((r) => setTimeout(r, 0));
-  // One more microtask pass for any traffic stats queued after the yield
-  await Promise.resolve();
+  for (let pass = 0; pass < 3; pass++) {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 }
 
 function makeCodexAdapterMock() {
@@ -586,7 +584,15 @@ describe("status_change: running on user_message", () => {
 
     browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     browser.send.mockClear();
   });
 
@@ -684,7 +690,15 @@ describe("status_change: running on user_message", () => {
 
     const browser2 = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser2, "s1");
-    bridge.handleBrowserMessage(browser2, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser2,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     await flushAsync();
 
     const reconnectCalls = browser2.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
@@ -795,7 +809,15 @@ describe("status_change: running on user_message", () => {
     // Connect a second browser to the same session
     const browser2 = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser2, "s1");
-    bridge.handleBrowserMessage(browser2, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser2,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     browser.send.mockClear();
     browser2.send.mockClear();
 
@@ -836,7 +858,15 @@ describe("status_change: running on user_message", () => {
     // Reconnect a new browser — state_snapshot should report "running"
     const browser2 = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser2, "s1");
-    bridge.handleBrowserMessage(browser2, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser2,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     await flushAsync(); // sendHistorySync is async
 
     const calls = browser2.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
@@ -920,7 +950,15 @@ describe("status_change: running on user_message", () => {
     // Reconnect a new browser — should see "idle" not "running"
     const browser2 = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser2, "s1");
-    bridge.handleBrowserMessage(browser2, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser2,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     await flushAsync(); // sendHistorySync is async
 
     const calls = browser2.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
@@ -974,7 +1012,15 @@ describe("status_change: running on user_message", () => {
     // even though history ends with an assistant message
     const browser2 = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser2, "s1");
-    bridge.handleBrowserMessage(browser2, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser2,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     await flushAsync(); // sendHistorySync is async
 
     const calls = browser2.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
@@ -985,7 +1031,7 @@ describe("status_change: running on user_message", () => {
     expect(snapshot.backendConnected).toBe(true);
   });
 
-  it("state_snapshot includes attention for herded worker sessions when set", () => {
+  it("state_snapshot includes attention for herded worker sessions when set", async () => {
     bridge.setLauncher({
       touchActivity: vi.fn(),
       touchUserMessage: vi.fn(),
@@ -996,7 +1042,16 @@ describe("status_change: running on user_message", () => {
     session.attentionReason = "review";
 
     browser.send.mockClear();
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
+    await flushAsync();
 
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const snapshot = calls.find((m: any) => m.type === "state_snapshot");

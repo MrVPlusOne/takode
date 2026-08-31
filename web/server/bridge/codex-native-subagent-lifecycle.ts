@@ -1,4 +1,5 @@
 import type { BrowserIncomingMessage, CodexOutboundTurn } from "../session-types.js";
+import { refreshBrowserConversationViews } from "./browser-transport-controller.js";
 import { toPublicCodexNativeSubagentOwnership } from "../../shared/codex-native-subagent-types.js";
 import type {
   CodexNativeSubagentAdapterEvent,
@@ -29,6 +30,8 @@ export interface CodexNativeSubagentLifecycleSessionLike {
   codexNativeSubagents?: CodexNativeSubagentRegistry;
   pendingCodexTurns: CodexOutboundTurn[];
   messageHistory: BrowserIncomingMessage[];
+  browserSockets: Set<unknown>;
+  nextEventSeq: number;
   frozenCount: number;
   eventBuffer?: Array<{ message: BrowserIncomingMessage }>;
 }
@@ -259,7 +262,7 @@ function applyEvent(
     });
   }
   if (historyChanged) {
-    deps.broadcastToBrowsers(session, { type: "message_history", messages: session.messageHistory });
+    refreshBrowserConversationViews(session);
   }
   return result.changed || historyChanged;
 }

@@ -119,14 +119,29 @@ function makeSession(id: string): SessionState {
   };
 }
 
+function serializeIncomingTestMessage(data: Record<string, unknown>): string {
+  if (data.type !== "authoritative_history_fixture") return JSON.stringify(data);
+  const messages = Array.isArray(data.messages) ? data.messages : [];
+  return JSON.stringify({
+    type: "history_sync",
+    frozen_base_count: 0,
+    frozen_base_history_index: 0,
+    frozen_delta: messages,
+    hot_messages: [],
+    frozen_count: messages.length,
+    expected_frozen_hash: "test-frozen-hash",
+    expected_full_hash: "test-full-hash",
+  });
+}
+
 function fireMessage(data: Record<string, unknown>) {
-  lastWs.onmessage!({ data: JSON.stringify(data) });
+  lastWs.onmessage!({ data: serializeIncomingTestMessage(data) });
 }
 
 // ===========================================================================
 // Connection
 // ===========================================================================
-describe("handleMessage: message_history", () => {
+describe("handleMessage: history_sync", () => {
   it("snapshots the mounted thread viewport before replacing reconnect history", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
@@ -151,7 +166,7 @@ describe("handleMessage: message_history", () => {
 
     try {
       fireMessage({
-        type: "message_history",
+        type: "authoritative_history_fixture",
         messages: [{ type: "user_message", content: "fresh reconnect history", timestamp: 2000 }],
       });
     } finally {
@@ -162,9 +177,9 @@ describe("handleMessage: message_history", () => {
     expect(useStore.getState().messages.get("s1")?.[0]?.content).toBe("fresh reconnect history");
   });
 
-  // message_history shares the authoritative replacement path used on reconnect;
+  // history_sync shares the authoritative replacement path used on reconnect;
   // selected leader windows stay visible and are marked stale for a follow-up sync.
-  it("keeps selected leader thread windows visible while marking message_history refreshes stale", () => {
+  it("keeps selected leader thread windows visible while marking history_sync refreshes stale", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), isOrchestrator: true } });
     useStore.getState().setThreadWindow(
@@ -175,6 +190,8 @@ describe("handleMessage: message_history", () => {
         from_item: 10,
         item_count: 2,
         total_items: 20,
+        has_older_items: true,
+        has_newer_items: true,
         source_history_length: 3,
         section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -184,7 +201,7 @@ describe("handleMessage: message_history", () => {
     const appliedBefore = useStore.getState().threadWindowAppliedRevisions.get("s1")?.get("project-alpha") ?? 0;
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [{ type: "user_message", content: "fresh reconnect history", timestamp: 2000 }],
     });
 
@@ -200,7 +217,7 @@ describe("handleMessage: message_history", () => {
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         { type: "user_message", content: "What is 2+2?", timestamp: 1000 },
         {
@@ -250,7 +267,7 @@ describe("handleMessage: message_history", () => {
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         { type: "user_message", id: "u1", content: "Start work", timestamp: 1000 },
         {
@@ -295,7 +312,7 @@ describe("handleMessage: message_history", () => {
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         {
           type: "assistant",
@@ -344,7 +361,7 @@ describe("handleMessage: message_history", () => {
       },
     };
 
-    fireMessage({ type: "message_history", messages: [thinkingEntry] });
+    fireMessage({ type: "authoritative_history_fixture", messages: [thinkingEntry] });
 
     const [msg] = useStore.getState().messages.get("s1")!;
     expect(msg.contentBlocks).toEqual([{ type: "thinking", thinking: "Claude reasoning retained after reconnect" }]);
@@ -359,7 +376,7 @@ describe("handleMessage: message_history", () => {
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         {
           type: "assistant",
@@ -394,7 +411,7 @@ describe("handleMessage: message_history", () => {
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         {
           type: "codex_reasoning_detail",
@@ -423,12 +440,12 @@ describe("handleMessage: message_history", () => {
     ]);
   });
 
-  it("records message_history apply diagnostics for attach-history freeze analysis", async () => {
+  it("records history_sync apply diagnostics for attach-history freeze analysis", async () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         { type: "user_message", id: "u1", content: "Attach this to [q-1084](quest:q-1084)", timestamp: 1000 },
         { type: "thread_attachment_marker", threadKey: "q-1084", questId: "q-1084", count: 1, messageIndices: [0] },
@@ -436,19 +453,13 @@ describe("handleMessage: message_history", () => {
     });
 
     const { getFrontendPerfEntries } = await import("./utils/frontend-perf-recorder.js");
-    expect(getFrontendPerfEntries()).toEqual(
+    const entries = getFrontendPerfEntries();
+    expect(entries).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          kind: "message_history_apply",
-          sessionId: "s1",
-          rawMessageCount: 2,
-          chatMessageCount: 2,
-          frozenCount: 0,
-        }),
         expect.objectContaining({
           kind: "ws_message",
           sessionId: "s1",
-          messageType: "message_history",
+          messageType: "history_sync",
           payloadUtf16CodeUnits: expect.any(Number),
           receiveId: expect.any(String),
           parseDurationMs: expect.any(Number),
@@ -457,6 +468,7 @@ describe("handleMessage: message_history", () => {
         }),
       ]),
     );
+    expect(entries).not.toEqual(expect.arrayContaining([expect.objectContaining({ kind: "message_history_apply" })]));
   });
 
   it("resolves pending deep-link indexes against raw messageHistory indexes when entries are skipped", () => {
@@ -465,7 +477,7 @@ describe("handleMessage: message_history", () => {
     useStore.getState().setPendingScrollToMessageIndex("s1", 2);
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         { type: "user_message", id: "u-raw-0", content: "Run the tool", timestamp: 1000 },
         {
@@ -515,7 +527,7 @@ describe("handleMessage: message_history", () => {
     useStore.getState().setSessionTaskPreview("s1", "Old task");
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         {
           type: "assistant",
@@ -570,7 +582,7 @@ describe("handleMessage: message_history", () => {
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         {
           type: "assistant",
@@ -597,7 +609,7 @@ describe("handleMessage: message_history", () => {
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         {
           type: "assistant",
@@ -655,7 +667,7 @@ describe("handleMessage: message_history", () => {
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         {
           type: "result",
@@ -689,7 +701,7 @@ describe("handleMessage: message_history", () => {
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         { type: "user_message", content: "hi", timestamp: 1000 },
         {
@@ -722,7 +734,7 @@ describe("handleMessage: message_history", () => {
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     const history = {
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         { type: "user_message", id: "user-1", content: "hello", timestamp: 1000 },
         {
@@ -751,7 +763,7 @@ describe("handleMessage: message_history", () => {
     expect(useStore.getState().messages.get("s1")).toHaveLength(2);
   });
 
-  it("replaces (not merges) existing messages when message_history arrives", () => {
+  it("replaces (not merges) existing messages when history_sync arrives", () => {
     // This tests the fix for cross-session message contamination where the old
     // merge logic would keep stale messages from a previous session in the store.
     wsModule.connectSession("s1");
@@ -759,7 +771,7 @@ describe("handleMessage: message_history", () => {
 
     // First history load
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [{ type: "user_message", id: "user-1", content: "old message", timestamp: 1000 }],
     });
     expect(useStore.getState().messages.get("s1")).toHaveLength(1);
@@ -767,7 +779,7 @@ describe("handleMessage: message_history", () => {
 
     // Second history load with different messages — should REPLACE, not merge
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [{ type: "user_message", id: "user-2", content: "new message", timestamp: 2000 }],
     });
     const msgs = useStore.getState().messages.get("s1")!;
@@ -782,7 +794,7 @@ describe("handleMessage: message_history", () => {
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         {
           type: "assistant",
@@ -820,7 +832,7 @@ describe("handleMessage: message_history", () => {
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         {
           type: "assistant",
@@ -856,7 +868,7 @@ describe("handleMessage: message_history", () => {
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         { type: "user_message", content: "hello", timestamp: 42000 },
         {
@@ -882,14 +894,14 @@ describe("handleMessage: message_history", () => {
   });
 
   it("extracts turn_duration_ms from assistant messages in history", () => {
-    // When the browser reconnects, the server replays message_history which may
+    // When the browser reconnects, the server replays history_sync which may
     // include assistant messages with turn_duration_ms persisted from the previous
     // turn. The browser must extract this so the chat feed can show turn durations.
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     fireMessage({
-      type: "message_history",
+      type: "authoritative_history_fixture",
       messages: [
         { type: "user_message", content: "hello", timestamp: 1000 },
         {

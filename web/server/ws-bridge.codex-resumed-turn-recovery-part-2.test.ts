@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -75,14 +76,12 @@ function makeBrowserSocket(sessionId: string) {
   return createMockSocket({ kind: "browser", sessionId });
 }
 
-/** Flush all pending microtasks and setTimeout(0) callbacks so async sendHistorySync and deferred traffic stats complete. */
+/** Flush queued ingress, bounded-sync yields, and deferred traffic-stat microtasks. */
 async function flushAsync() {
-  // Flush microtasks (queueMicrotask in traffic stats)
-  await Promise.resolve();
-  // Flush setTimeout(0) (yieldToEventLoop in sendHistorySync)
-  await new Promise((r) => setTimeout(r, 0));
-  // One more microtask pass for any traffic stats queued after the yield
-  await Promise.resolve();
+  for (let pass = 0; pass < 3; pass++) {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 }
 
 function makeCodexAdapterMock() {
@@ -614,6 +613,7 @@ describe("Codex resumed-turn recovery", () => {
     seedAutoPause(session, "held-resumed-active");
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
+    await subscribeCurrentBrowser(bridge, browser);
 
     await bridge.handleBrowserMessage(
       browser,
@@ -663,10 +663,22 @@ describe("Codex resumed-turn recovery", () => {
 
     const reconnect = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(reconnect, sid);
-    bridge.handleBrowserMessage(reconnect, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    bridge.handleBrowserMessage(
+      reconnect,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
     await flushAsync();
-    expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
-      expect.objectContaining({ type: "state_snapshot", codexAutoPauseRecoveryProgress: "active" }),
+    await vi.waitFor(
+      () =>
+        expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
+          expect.objectContaining({ type: "state_snapshot", codexAutoPauseRecoveryProgress: "active" }),
+        ),
+      { timeout: 5_000 },
     );
   });
 
@@ -680,6 +692,7 @@ describe("Codex resumed-turn recovery", () => {
     session.state.codex_result_error_auto_pause!.heldInputs = [];
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
+    await subscribeCurrentBrowser(bridge, browser);
 
     await bridge.handleBrowserMessage(
       browser,
@@ -740,6 +753,7 @@ describe("Codex resumed-turn recovery", () => {
         },
       },
     });
+    await flushAsync();
 
     await vi.waitFor(() => expect(session.state.codex_result_error_auto_pause).toBeNull());
     await vi.waitFor(() =>

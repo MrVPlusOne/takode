@@ -23,6 +23,8 @@ function selectedWindow(threadKey: string, sourceHistoryLength: number, itemCoun
     from_item: sourceHistoryLength,
     item_count: itemCount,
     total_items: sourceHistoryLength + itemCount,
+    has_older_items: sourceHistoryLength > 0,
+    has_newer_items: false,
     source_history_length: sourceHistoryLength,
     section_item_count: 50,
     visible_item_count: itemCount,

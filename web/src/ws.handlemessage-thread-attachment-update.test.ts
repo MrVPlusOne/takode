@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 
-import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
 import type { BrowserIncomingMessage, SessionState } from "./types.js";
 import { persistLeaderSelectedThreadKey } from "./utils/thread-viewport.js";
@@ -227,6 +226,8 @@ describe("handleMessage: thread_attachment_update", () => {
       from_turn: 10,
       turn_count: 5,
       total_turns: 20,
+      has_older_items: true,
+      has_newer_items: true,
       start_index: 0,
       section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -239,6 +240,8 @@ describe("handleMessage: thread_attachment_update", () => {
         from_item: 0,
         item_count: 1,
         total_items: 1,
+        has_older_items: false,
+        has_newer_items: false,
         source_history_length: 42,
         section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -268,7 +271,6 @@ describe("handleMessage: thread_attachment_update", () => {
       section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
       visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
       activate_view: true,
-      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
     });
 
     const { getFrontendPerfEntries } = await import("./utils/frontend-perf-recorder.js");
@@ -373,6 +375,8 @@ describe("handleMessage: thread_attachment_update", () => {
           from_item: 0,
           item_count: 1,
           total_items: 1,
+          has_older_items: false,
+          has_newer_items: false,
           source_history_length: 42,
           section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
           visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
@@ -543,6 +547,8 @@ describe("handleMessage: thread_attachment_update", () => {
         from_item: 30,
         item_count: 2,
         total_items: 32,
+        has_older_items: true,
+        has_newer_items: false,
         source_history_length: 50,
         section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
         visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
