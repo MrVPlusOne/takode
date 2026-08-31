@@ -671,6 +671,13 @@ describe("handleSessionSubscribe — no duplicate conversation history", () => {
       }),
     );
     await flushAsync();
+    await vi.waitFor(
+      () =>
+        expect(
+          browser.send.mock.calls.some((call: unknown[]) => JSON.parse(call[0] as string).type === "state_snapshot"),
+        ).toBe(true),
+      { timeout: 5_000 },
+    );
 
     // The current build receives one bounded window plus the authoritative state snapshot.
     const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
