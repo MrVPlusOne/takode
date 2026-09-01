@@ -165,6 +165,7 @@ vi.mock("./settings-manager.js", () => ({
 }));
 
 const mockGetUsageLimits = vi.hoisted(() => vi.fn());
+const mockMemoryCatalogRecordSeen = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock("./usage-limits.js", () => ({
   getUsageLimits: mockGetUsageLimits,
 }));
@@ -181,6 +182,7 @@ vi.mock("./memory-catalog-injection.js", () => {
     agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" },
     truncated: false,
     unavailable: false,
+    recordSeen: mockMemoryCatalogRecordSeen,
   }));
   return {
     buildMemoryCatalogInjectionBundle,
@@ -669,8 +671,12 @@ describe("buildOrchestratorSystemPrompt", () => {
             agentSource: expect.objectContaining({ sessionId: MEMORY_CATALOG_SOURCE_ID }),
           }),
         ]),
+        afterAccepted: expect.any(Function),
       }),
     );
+    const options = bridge.injectUserMessage.mock.calls[0]?.[5] as { afterAccepted?: () => void } | undefined;
+    options?.afterAccepted?.();
+    expect(mockMemoryCatalogRecordSeen).toHaveBeenCalledTimes(1);
   });
 
   it("does not inject a standalone startup memory catalog turn for non-leader sessions", async () => {

@@ -17,6 +17,7 @@ import {
   resolveMemoryOptionsForSpace,
   resolveMemoryRepo,
   scanMemoryCatalog,
+  type MemoryCatalogScanRuntime,
 } from "./workstream-memory-store.js";
 import type {
   MemoryCommitInput,
@@ -38,8 +39,8 @@ export class WorkstreamMemoryService {
     return ensureMemoryRepo(options);
   }
 
-  catalog(options?: MemoryRepoOptions) {
-    return scanMemoryCatalog(options);
+  catalog(options?: MemoryRepoOptions, runtime?: MemoryCatalogScanRuntime) {
+    return scanMemoryCatalog(options, runtime);
   }
 
   catalogDiff(options?: MemoryRepoOptions) {

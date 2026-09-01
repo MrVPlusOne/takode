@@ -682,7 +682,11 @@ export function getCompactionRecoveryRuntimeDeps(host: any) {
       content: string,
       agentSource?: { sessionId: string; sessionLabel?: string },
       threadRoute?: { threadKey: string; questId?: string },
-      options?: { deliveryContent?: string; historyFollowUps?: ProgrammaticHistoryFollowUp[] },
+      options?: {
+        deliveryContent?: string;
+        historyFollowUps?: ProgrammaticHistoryFollowUp[];
+        afterAccepted?: () => void;
+      },
     ) => host.injectUserMessage(sessionId, content, agentSource, undefined, threadRoute, options),
     buildLeaderSkillPreloadBundles,
     runExactRecoveryInjection: (

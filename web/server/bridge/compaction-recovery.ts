@@ -20,6 +20,7 @@ import {
 import {
   buildMemoryCatalogDeliveryContent,
   buildMemoryCatalogHistoryFollowUp,
+  recordMemoryCatalogSeenAfterDelivery,
   type MemoryCatalogInjectionBundle,
 } from "../memory-catalog-injection-utils.js";
 
@@ -117,6 +118,7 @@ export function injectCompactionRecovery(
       options?: {
         deliveryContent?: string;
         historyFollowUps?: ProgrammaticHistoryFollowUp[];
+        afterAccepted?: () => void;
       },
     ) => void;
     buildLeaderSkillPreloadBundles?: () => LeaderSkillPreloadBundle[] | Promise<LeaderSkillPreloadBundle[]>;
@@ -186,6 +188,7 @@ function injectWithOptionalLeaderSkillPreloads(
       options?: {
         deliveryContent?: string;
         historyFollowUps?: ProgrammaticHistoryFollowUp[];
+        afterAccepted?: () => void;
       },
     ) => void;
     buildLeaderSkillPreloadBundles?: () => LeaderSkillPreloadBundle[] | Promise<LeaderSkillPreloadBundle[]>;
@@ -209,6 +212,7 @@ function injectWithOptionalLeaderSkillPreloads(
           ...buildLeaderSkillPreloadHistoryFollowUps(bundles),
           ...buildMemoryCatalogHistoryFollowUp(memoryCatalog),
         ],
+        afterAccepted: () => recordMemoryCatalogSeenAfterDelivery(memoryCatalog),
       });
     };
     if (exactRecovery && deps.runExactRecoveryInjection) {
@@ -286,6 +290,7 @@ function injectWithOptionalMemoryCatalog(
       options?: {
         deliveryContent?: string;
         historyFollowUps?: ProgrammaticHistoryFollowUp[];
+        afterAccepted?: () => void;
       },
     ) => void;
     buildMemoryCatalogInjectionBundle?: MemoryCatalogBuilder;
@@ -299,6 +304,7 @@ function injectWithOptionalMemoryCatalog(
     deps.injectUserMessage(session.id, content, source, threadRoute, {
       deliveryContent: buildMemoryCatalogDeliveryContent(content, memoryCatalog),
       historyFollowUps: buildMemoryCatalogHistoryFollowUp(memoryCatalog),
+      afterAccepted: () => recordMemoryCatalogSeenAfterDelivery(memoryCatalog),
     });
   };
   try {

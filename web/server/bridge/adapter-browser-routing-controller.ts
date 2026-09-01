@@ -74,8 +74,8 @@ import { determineUserMessageSourceKind } from "../codex-result-error-auto-pause
 import { markAcceptedCodexAutoPauseRecoveryDispatch } from "./codex-auto-pause-recovery-testing.js";
 import { getTrustedRecoveryDeliveryTransferId } from "./recovery-delivery-transfer-routing-context.js";
 import {
-  appendMemoryCatalogToUserMessage,
-  hasMemoryCatalogHistoryFollowUp,
+  recordMemoryCatalogSeenAfterDelivery,
+  type MemoryCatalogInjectionBundle,
 } from "../memory-catalog-injection-utils.js";
 import { isCodexLeaderRecycleMode } from "../../shared/codex-leader-compaction-mode.js";
 import { rejectOversizedCodexPendingInput } from "./codex-pending-input-rejection.js";
@@ -87,6 +87,7 @@ import type {
   InterruptSource,
   PermissionResponseMessage,
 } from "./adapter-browser-routing-message-types.js";
+import { attachStartupMemoryCatalogPrelude } from "./startup-memory-catalog-prelude.js";
 export {
   hasPendingForceCompact,
   isCliSlashCommand,
@@ -280,30 +281,6 @@ function maybeAutoAnswerPendingQuestionForUserMessage(
   }
   handlePermissionResponse(session, approval, deps, actorSessionId);
   return true;
-}
-
-async function maybeAttachStartupMemoryCatalogPrelude(
-  session: AdapterBrowserRoutingSessionLike,
-  msg: BrowserUserMessage,
-  deps: AdapterBrowserRoutingDeps,
-): Promise<BrowserUserMessage> {
-  if (!session.pendingStartupMemoryCatalogInjection) return msg;
-  if (hasMemoryCatalogHistoryFollowUp(msg)) {
-    session.pendingStartupMemoryCatalogInjection = false;
-    deps.persistSession(session);
-    return msg;
-  }
-  const build = deps.buildMemoryCatalogInjectionBundle;
-  if (!build) return msg;
-  try {
-    const bundle = await build(session);
-    session.pendingStartupMemoryCatalogInjection = false;
-    deps.persistSession(session);
-    return appendMemoryCatalogToUserMessage(msg, bundle);
-  } catch (err) {
-    console.error(`[ws-bridge] Failed to build startup memory catalog context:`, err);
-    return msg;
-  }
 }
 
 function localDateKey(ts: number): string {
@@ -535,12 +512,18 @@ export async function routeBrowserMessage(
   msg: BrowserOutgoingMessage,
   ws: BrowserTransportSocketLike | undefined,
   deps: AdapterBrowserRoutingDeps,
-): Promise<void> {
+): Promise<boolean | void> {
+  let userMessageRejected = false;
+  const routeOutcome = {
+    onUserMessageRejected: () => {
+      userMessageRejected = true;
+    },
+  };
   const trustedRecoveryTransferId = getTrustedRecoveryDeliveryTransferId(session, msg);
   if (trustedRecoveryTransferId) {
-    const routed = routeAdapterBrowserMessage(session, msg, ws, deps);
+    const routed = routeAdapterBrowserMessage(session, msg, ws, deps, routeOutcome);
     if (routed instanceof Promise) await routed;
-    return;
+    return userMessageRejected ? false : true;
   }
   if (msg.type === "user_message") {
     // Reject legacy raw-image payloads -- images must be pre-uploaded via the
@@ -552,7 +535,7 @@ export async function routeBrowserMessage(
           "Raw image payloads are no longer supported. Use the attach-time upload flow (imageRefs + deliveryContent).",
         ),
       );
-      return;
+      return false;
     }
     if (maybeAutoAnswerPendingQuestionForUserMessage(session, msg, deps)) return;
     maybeAutoRejectPendingPlanForUserMessage(session, msg, deps);
@@ -609,12 +592,25 @@ export async function routeBrowserMessage(
   }
 
   let routedMsg = msg;
+  let startupMemoryCatalog: MemoryCatalogInjectionBundle | undefined;
+  let consumePendingStartupCatalogOnAccepted = false;
   if (msg.type === "user_message" && session.pendingStartupMemoryCatalogInjection) {
-    routedMsg = await maybeAttachStartupMemoryCatalogPrelude(session, msg, deps);
+    const attachment = await attachStartupMemoryCatalogPrelude(session, msg, deps);
+    routedMsg = attachment.message;
+    startupMemoryCatalog = attachment.bundle;
+    consumePendingStartupCatalogOnAccepted = attachment.consumePendingOnAccepted;
   }
-  const maybeAdapterRouted = routeAdapterBrowserMessage(session, routedMsg, ws, deps);
+  const maybeAdapterRouted = routeAdapterBrowserMessage(session, routedMsg, ws, deps, routeOutcome);
   const adapterRouted = maybeAdapterRouted instanceof Promise ? await maybeAdapterRouted : maybeAdapterRouted;
-  if (adapterRouted) return;
+  if (adapterRouted) {
+    if (userMessageRejected) return false;
+    if (consumePendingStartupCatalogOnAccepted) {
+      session.pendingStartupMemoryCatalogInjection = false;
+      deps.persistSession(session);
+      recordMemoryCatalogSeenAfterDelivery(startupMemoryCatalog);
+    }
+    return true;
+  }
 
   if (routedMsg.type === "user_message") {
     try {
@@ -626,7 +622,12 @@ export async function routeBrowserMessage(
       }
       throw err;
     }
-    return;
+    if (consumePendingStartupCatalogOnAccepted) {
+      session.pendingStartupMemoryCatalogInjection = false;
+      deps.persistSession(session);
+      recordMemoryCatalogSeenAfterDelivery(startupMemoryCatalog);
+    }
+    return true;
   }
 
   switch (routedMsg.type) {
@@ -1662,6 +1663,7 @@ export function routeAdapterBrowserMessage(
   msg: BrowserOutgoingMessage,
   ws: unknown,
   deps: AdapterBrowserRoutingDeps,
+  outcome?: { onUserMessageRejected?: (reason: "pending_input_too_large") => void },
 ): boolean | Promise<boolean> {
   const recoveryDeliveryTransferId = getTrustedRecoveryDeliveryTransferId(session, msg);
   if (session.backendType !== "codex" && session.backendType !== "claude-sdk") {
@@ -1803,6 +1805,7 @@ export function routeAdapterBrowserMessage(
         const sizeLimit = getCodexPendingInputSizeLimit(pendingInput);
         if (sizeLimit.overLimit) {
           rejectOversizedCodexPendingInput(session, pendingInput, msg.autoPauseRecoveries ?? [], sizeLimit, ws, deps);
+          outcome?.onUserMessageRejected?.("pending_input_too_large");
           return true;
         }
         deps.addPendingCodexInput(session, pendingInput);

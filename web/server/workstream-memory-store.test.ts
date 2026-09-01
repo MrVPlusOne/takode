@@ -21,6 +21,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   delete process.env.COMPANION_MEMORY_DIR;
   delete process.env.COMPANION_SERVER_ID;
   delete process.env.COMPANION_SERVER_SLUG;
@@ -380,6 +381,142 @@ facets:
         facets: { project: ["takode"], service: ["service-x"] },
       }),
     ]);
+  });
+
+  it("coalesces concurrent scans of the same memory repo", async () => {
+    await writeMemoryFile(
+      "knowledge/shared-scan.md",
+      `
+description: One catalog scan can serve overlapping readers.
+source:
+  - q-2015
+`,
+    );
+
+    // Startup and compaction can overlap under load. They should share one
+    // authoritative in-flight scan rather than multiplying cold filesystem I/O.
+    const first = memoryStore.scanMemoryCatalog();
+    const second = memoryStore.scanMemoryCatalog();
+
+    expect(second).toBe(first);
+    await expect(first).resolves.toEqual(
+      expect.objectContaining({
+        entries: [expect.objectContaining({ path: "knowledge/shared-scan.md" })],
+      }),
+    );
+  });
+
+  it("reads catalog bodies with bounded parallelism", async () => {
+    const fileCount = 10;
+    const concurrency = 4;
+    for (let index = 0; index < fileCount; index += 1) {
+      await writeMemoryFile(
+        `knowledge/parallel-${index}.md`,
+        `
+description: Parallel catalog record ${index}.
+source:
+  - q-2015
+`,
+      );
+    }
+
+    let started = 0;
+    let active = 0;
+    let maxActive = 0;
+    let releaseReads!: () => void;
+    let firstWaveReady!: () => void;
+    const readGate = new Promise<void>((resolve) => {
+      releaseReads = resolve;
+    });
+    const firstWave = new Promise<void>((resolve) => {
+      firstWaveReady = resolve;
+    });
+
+    const scan = memoryStore.scanMemoryCatalog(
+      {},
+      {
+        readConcurrency: concurrency,
+        readFile: async (path: string) => {
+          started += 1;
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          if (started === concurrency) firstWaveReady();
+          // The explicit gate proves the first batch starts together without
+          // relying on scheduler timing or sleeps.
+          await readGate;
+          try {
+            return await readFile(path, "utf-8");
+          } finally {
+            active -= 1;
+          }
+        },
+      },
+    );
+
+    await firstWave;
+    expect(started).toBe(concurrency);
+    expect(maxActive).toBe(concurrency);
+    releaseReads();
+
+    const catalog = await scan;
+    expect(catalog.entries).toHaveLength(fileCount);
+    expect(maxActive).toBe(concurrency);
+  });
+
+  it("aborts a timed-out catalog scan before scheduling the remaining files", async () => {
+    const fileCount = 6;
+    const concurrency = 2;
+    for (let index = 0; index < fileCount; index += 1) {
+      await writeMemoryFile(
+        `knowledge/timeout-${index}.md`,
+        `
+description: Timeout catalog record ${index}.
+source:
+  - q-2015
+`,
+      );
+    }
+    await memoryStore.ensureMemoryRepo();
+
+    let started = 0;
+    let hangReads = true;
+    let firstWaveReady!: () => void;
+    const firstWave = new Promise<void>((resolve) => {
+      firstWaveReady = resolve;
+    });
+    vi.useFakeTimers();
+    const runtime = {
+      readConcurrency: concurrency,
+      timeoutMs: 100,
+      readFile: async (path: string, signal?: AbortSignal) => {
+        if (!hangReads) return readFile(path, "utf-8");
+        started += 1;
+        if (started === concurrency) firstWaveReady();
+        return new Promise<string>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      },
+    };
+    const scan = memoryStore.scanMemoryCatalog({}, runtime);
+    const coalesced = memoryStore.scanMemoryCatalog({}, runtime);
+
+    expect(coalesced).toBe(scan);
+    await firstWave;
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(scan).rejects.toThrow("memory catalog scan timed out after 100ms");
+
+    // The two active readers receive abort, workers do not schedule the other
+    // files, and the rejected coalescing entry is released for a fresh retry.
+    expect(started).toBe(concurrency);
+    vi.useRealTimers();
+    hangReads = false;
+    const retry = memoryStore.scanMemoryCatalog({}, runtime);
+    expect(retry).not.toBe(scan);
+    await expect(retry).resolves.toEqual(
+      expect.objectContaining({
+        entries: expect.arrayContaining([expect.objectContaining({ path: "knowledge/timeout-5.md" })]),
+      }),
+    );
   });
 
   it("lints missing frontmatter, missing simplified fields, and obsolete old-schema fields", async () => {

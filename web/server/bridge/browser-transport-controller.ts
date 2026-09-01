@@ -120,6 +120,8 @@ export interface ProgrammaticUserMessageOptions {
   bypassPause?: boolean;
   /** Server-only source classification for Codex result-error auto-pause. */
   autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
+  /** Runs only after the routed message is accepted without throwing. */
+  afterAccepted?: () => void;
 }
 
 export interface BrowserTransportSocketLike {
@@ -152,6 +154,7 @@ export interface BrowserTransportSessionLike {
   activeTurnRoute?: ActiveTurnRoute | null;
   activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
   codexReasoningPreviews?: import("./codex-reasoning-preview-state.js").CodexReasoningPreviewsByThread;
+  pendingStartupMemoryCatalogInjection?: boolean;
   notifications: unknown[];
   attentionRecords: unknown[];
   notificationStatusVersion?: number;
@@ -210,7 +213,7 @@ export interface BrowserTransportDeps {
     session: BrowserTransportSessionLike,
     msg: BrowserOutgoingMessage,
     ws?: BrowserTransportSocketLike,
-  ) => Promise<void> | void;
+  ) => Promise<boolean | void> | boolean | void;
   pruneTakodeHerdBatch?: (
     session: BrowserTransportSessionLike,
     batch: TakodeHerdBatchSnapshot | undefined,
@@ -464,7 +467,9 @@ export async function handleBrowserIngressMessage(
     ownershipResult = classifyRecoveryDeliveryOwnership(session, msg);
   };
   const routePromise =
-    shouldSerializeBrowserMessage(msg) || hasSessionRouteInFlight(session.id, deps)
+    shouldSerializeBrowserMessage(msg) ||
+    shouldSerializeStartupCatalogMessage(session, msg) ||
+    hasSessionRouteInFlight(session.id, deps)
       ? enqueueSessionRoute(session.id, routeTask, deps)
       : Promise.resolve(routeTask());
 
@@ -698,6 +703,7 @@ export function injectUserMessage(
   const sdkAdapterMissingBeforeRoute = session.backendType === "claude-sdk" && !session.claudeSdkAdapter;
   const pendingCodexCountBefore = session.pendingCodexInputs.length;
   const hadRouteInFlight = hasSessionRouteInFlight(session.id, deps);
+  const serializeForStartupCatalog = session.pendingStartupMemoryCatalogInjection === true;
   const browserMessage: BrowserOutgoingMessage = {
     type: "user_message",
     content,
@@ -713,11 +719,12 @@ export function injectUserMessage(
     ...(threadRoute?.questId ? { questId: threadRoute.questId } : {}),
     ...(threadRoute?.threadRefs?.length ? { threadRefs: threadRoute.threadRefs } : {}),
   };
-  const routeHerdMessage = () => {
+  const dropped = Symbol("programmatic-message-dropped");
+  const routeHerdMessage = (): Promise<boolean | void> | boolean | void | typeof dropped => {
     if (isHerdEventSource(agentSource) && takodeHerdBatch && deps.pruneTakodeHerdBatch) {
       const pruned = deps.pruneTakodeHerdBatch(session, takodeHerdBatch);
       if (pruned.changed) {
-        if (!pruned.content || !pruned.batch) return;
+        if (!pruned.content || !pruned.batch) return dropped;
         return deps.routeBrowserMessage(session, {
           ...browserMessage,
           content: pruned.content,
@@ -727,8 +734,27 @@ export function injectUserMessage(
     }
     return deps.routeBrowserMessage(session, browserMessage);
   };
+  const notifyAccepted = () => {
+    try {
+      options?.afterAccepted?.();
+    } catch (error) {
+      console.warn(
+        `[ws-bridge] Programmatic message acceptance callback failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+  const routeAndNotifyAccepted = (): Promise<void> | void => {
+    const routed = routeHerdMessage();
+    if (routed === dropped) return;
+    if (routed instanceof Promise) {
+      return routed.then((accepted) => {
+        if (accepted !== false) notifyAccepted();
+      });
+    }
+    if (routed !== false) notifyAccepted();
+  };
 
-  if (hadRouteInFlight) {
+  if (hadRouteInFlight || serializeForStartupCatalog) {
     if (isHerdEventSource(agentSource) && session.backendType === "codex") {
       const queuedKey = getCodexHerdRouteQueueKey(content, agentSource, threadRoute);
       const queuedKeys = getQueuedCodexHerdRouteKeys(session);
@@ -736,7 +762,7 @@ export function injectUserMessage(
         return "queued";
       }
       queuedKeys.add(queuedKey);
-      void enqueueSessionRoute(session.id, routeHerdMessage, deps)
+      void enqueueSessionRoute(session.id, routeAndNotifyAccepted, deps)
         .finally(() => {
           queuedKeys.delete(queuedKey);
           if (queuedKeys.size === 0) {
@@ -746,9 +772,10 @@ export function injectUserMessage(
         .catch(() => {});
       return "queued";
     }
-    void enqueueSessionRoute(session.id, routeHerdMessage, deps);
+    void enqueueSessionRoute(session.id, routeAndNotifyAccepted, deps).catch(() => {});
   } else {
-    void routeHerdMessage();
+    const routed = routeAndNotifyAccepted();
+    if (routed instanceof Promise) void routed.catch(() => {});
     if (isHerdEventSource(agentSource) && session.backendType === "codex") {
       const pending = session.pendingCodexInputs
         .slice(pendingCodexCountBefore)
@@ -1450,6 +1477,13 @@ export function sendToBrowserRaw(ws: BrowserTransportSocketLike, json: string, m
 
 function shouldSerializeBrowserMessage(msg: BrowserOutgoingMessage): boolean {
   return msg.type === "user_message" && !!msg.imageRefs?.length;
+}
+
+function shouldSerializeStartupCatalogMessage(
+  session: BrowserTransportSessionLike,
+  msg: BrowserOutgoingMessage,
+): boolean {
+  return msg.type === "user_message" && session.pendingStartupMemoryCatalogInjection === true;
 }
 
 function hasSessionRouteInFlight(sessionId: string, deps: BrowserTransportDeps): boolean {

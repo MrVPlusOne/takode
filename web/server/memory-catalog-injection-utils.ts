@@ -15,6 +15,8 @@ export interface MemoryCatalogInjectionBundle {
   agentSource: { sessionId: string; sessionLabel: string };
   truncated: boolean;
   unavailable: boolean;
+  /** Persist the exact delivered catalog as this session's freshness watermark. */
+  recordSeen?: () => Promise<void>;
 }
 
 export function memoryCatalogAgentSource(): MemoryCatalogInjectionBundle["agentSource"] {
@@ -105,6 +107,23 @@ export function buildMemoryCatalogHistoryFollowUp(
       agentSource: bundle.agentSource,
     },
   ];
+}
+
+/** Record freshness only after the catalog has been accepted for delivery. */
+export function recordMemoryCatalogSeenAfterDelivery(bundle: MemoryCatalogInjectionBundle | null | undefined): void {
+  if (!bundle || bundle.unavailable) return;
+  try {
+    const recording = bundle.recordSeen?.();
+    void recording?.catch((error) => {
+      console.warn(
+        `[memory-catalog] Failed to record delivered catalog freshness: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+  } catch (error) {
+    console.warn(
+      `[memory-catalog] Failed to start delivered catalog freshness recording: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 export function appendMemoryCatalogToUserMessage<T extends { content: string } & Record<string, unknown>>(

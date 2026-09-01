@@ -9,6 +9,7 @@ import {
 import {
   buildMemoryCatalogDeliveryContent,
   buildMemoryCatalogHistoryFollowUp,
+  recordMemoryCatalogSeenAfterDelivery,
 } from "../memory-catalog-injection-utils.js";
 import { markOrchestratorSessionAfterConnect, type SessionBackend } from "./sessions-helpers.js";
 
@@ -43,6 +44,7 @@ export function markOrchestratorSessionWithStartupContext(
             ...buildLeaderSkillPreloadHistoryFollowUps(preloads),
             ...buildMemoryCatalogHistoryFollowUp(memoryCatalog),
           ],
+          afterInject: () => recordMemoryCatalogSeenAfterDelivery(memoryCatalog),
         };
       } catch (err) {
         console.error("[routes] Failed to build leader startup context:", err);

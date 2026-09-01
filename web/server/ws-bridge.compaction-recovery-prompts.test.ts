@@ -3,6 +3,7 @@ import { vi } from "vitest";
 const mockExecSync = vi.hoisted(() => vi.fn());
 const mockExec = vi.hoisted(() => vi.fn());
 const mockShouldSettingsRuleApprove = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+const mockMemoryCatalogRecordSeen = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec }));
 vi.mock("node:crypto", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:crypto")>();
@@ -29,6 +30,7 @@ vi.mock("./memory-catalog-injection.js", () => {
     agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" },
     truncated: false,
     unavailable: false,
+    recordSeen: mockMemoryCatalogRecordSeen,
   }));
   return {
     buildMemoryCatalogInjectionBundle,
@@ -722,6 +724,7 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls[0][1]).toContain("using the current phase briefs");
     expect(recoveryCalls[0][1]).not.toContain("approved next phase and stop");
     expect(recoveryCalls[0][1]).not.toContain("port only when explicitly told");
+    await vi.waitFor(() => expect(mockMemoryCatalogRecordSeen).toHaveBeenCalledTimes(1));
   });
 
   it("clears stale Codex compaction on reconnect and injects recovery once", async () => {

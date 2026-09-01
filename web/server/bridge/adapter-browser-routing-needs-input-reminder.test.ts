@@ -996,6 +996,11 @@ describe("direct user needs-input reminders", () => {
     const session = makeSession();
     session.pendingStartupMemoryCatalogInjection = true;
     const deps = makeDeps();
+    const recordSeen = vi.fn(async () => {});
+    deps.sendToCLI = vi.fn(() => {
+      expect(recordSeen).not.toHaveBeenCalled();
+      return "current" as const;
+    });
     deps.buildMemoryCatalogInjectionBundle = vi.fn(async () => ({
       content: [
         "Memory catalog preloaded",
@@ -1007,6 +1012,7 @@ describe("direct user needs-input reminders", () => {
       agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" },
       truncated: false,
       unavailable: false,
+      recordSeen,
     }));
 
     await routeBrowserMessage(session as any, userMessage({ content: "Do the assigned work" }), undefined, deps);
@@ -1026,6 +1032,78 @@ describe("direct user needs-input reminders", () => {
         agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" },
       }),
     ]);
+    expect(recordSeen).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains the startup catalog prelude after an oversized Codex first input", async () => {
+    const previousLimit = process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES;
+    process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES = "64";
+    try {
+      const session = makeSession();
+      session.backendType = "codex";
+      session.pendingStartupMemoryCatalogInjection = true;
+      session.codexAdapter = {
+        getCurrentTurnId: () => null,
+        isConnected: () => true,
+        sendBrowserMessage: vi.fn(() => true),
+      } as any;
+      const deps = makeDeps();
+      deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+        targetSession.pendingCodexInputs.push(input);
+      });
+      const firstRecordSeen = vi.fn(async () => {});
+      const secondRecordSeen = vi.fn(async () => {});
+      deps.buildMemoryCatalogInjectionBundle = vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: "Memory catalog preloaded\n" + "x".repeat(128),
+          agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" },
+          truncated: false,
+          unavailable: false,
+          recordSeen: firstRecordSeen,
+        })
+        .mockResolvedValueOnce({
+          content: "Memory catalog preloaded\nMemory repo: /tmp/takode-memory",
+          agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" },
+          truncated: false,
+          unavailable: false,
+          recordSeen: secondRecordSeen,
+        });
+
+      const rejected = await routeBrowserMessage(
+        session as any,
+        userMessage({ content: "first input" }),
+        undefined,
+        deps,
+      );
+
+      expect(rejected).toBe(false);
+      expect(session.pendingStartupMemoryCatalogInjection).toBe(true);
+      expect(session.pendingCodexInputs).toHaveLength(0);
+      expect(firstRecordSeen).not.toHaveBeenCalled();
+      expect(
+        session.messageHistory.some(
+          (entry) => entry.type === "user_message" && entry.agentSource?.sessionId === "system:memory-catalog",
+        ),
+      ).toBe(false);
+
+      process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES = "1048576";
+      const accepted = await routeBrowserMessage(
+        session as any,
+        userMessage({ content: "retry input" }),
+        undefined,
+        deps,
+      );
+
+      expect(accepted).toBe(true);
+      expect(session.pendingStartupMemoryCatalogInjection).toBe(false);
+      expect(session.pendingCodexInputs).toHaveLength(1);
+      expect(firstRecordSeen).not.toHaveBeenCalled();
+      expect(secondRecordSeen).toHaveBeenCalledTimes(1);
+    } finally {
+      if (previousLimit === undefined) delete process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES;
+      else process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES = previousLimit;
+    }
   });
 
   it("queues Codex herd inputs as a fresh pending batch instead of steering into an active turn", () => {

@@ -47,6 +47,7 @@ const LOCK_INFO_FILE = "owner.json";
 const SERVER_INDEX_DIR = ".servers";
 const CATALOG_SEEN_DIR_NAME = "takode-memory-catalog-seen";
 const DEFAULT_LOCK_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_CATALOG_READ_CONCURRENCY = 16;
 const OBSOLETE_FRONTMATTER_FIELDS = new Set([
   "id",
   "kind",
@@ -69,6 +70,23 @@ interface ServerMemoryIndexEntry {
   root: string;
   updatedAt: string;
 }
+
+export interface MemoryCatalogScanRuntime {
+  /** Testable indirection for catalog body reads; production uses async fs.readFile. */
+  readFile?: (path: string, signal?: AbortSignal) => Promise<string>;
+  /** Bound concurrent body reads so cold filesystems do not serialize every record. */
+  readConcurrency?: number;
+  /** Optional hard deadline; aborts remaining body reads and releases coalescing state. */
+  timeoutMs?: number;
+}
+
+interface InternalMemoryCatalogScanRuntime extends MemoryCatalogScanRuntime {
+  signal?: AbortSignal;
+}
+
+const inFlightMemoryCatalogScans = new Map<string, Promise<MemoryCatalog>>();
+const memoryCatalogReaderIds = new WeakMap<Function, number>();
+let nextMemoryCatalogReaderId = 1;
 
 export async function ensureMemoryRepo(options: MemoryRepoOptions = {}): Promise<MemoryRepoInfo> {
   const repo = resolveMemoryRepoInternal(options);
@@ -159,23 +177,47 @@ function publicRepoInfo(repo: ResolvedMemoryRepo): MemoryRepoInfo {
   };
 }
 
-export async function scanMemoryCatalog(options: MemoryRepoOptions = {}): Promise<MemoryCatalog> {
-  const repo = await repoForRead(options);
-  const files: MemoryFile[] = [];
-  const issues: MemoryLintIssue[] = [];
+export function scanMemoryCatalog(
+  options: MemoryRepoOptions = {},
+  runtime: MemoryCatalogScanRuntime = {},
+): Promise<MemoryCatalog> {
+  const timeoutMs = normalizeCatalogScanTimeout(runtime.timeoutMs);
+  const effectiveRuntime = { ...runtime, ...(timeoutMs ? { timeoutMs } : {}) };
+  const key = memoryCatalogScanKey(options, effectiveRuntime);
+  const existing = inFlightMemoryCatalogScans.get(key);
+  if (existing) return existing;
 
-  for (const kind of MEMORY_KINDS) {
-    const dir = join(repo.root, kind);
-    for (const absolutePath of await listMarkdownFiles(dir)) {
-      const path = repoRelative(repo.root, absolutePath);
-      try {
-        const parsed = parseMemoryFile(repo.root, absolutePath, await readFile(absolutePath, "utf-8"));
-        files.push(parsed);
-      } catch (error) {
-        issues.push({ severity: "error", path, message: errorMessage(error) });
-      }
-    }
-  }
+  const pending = createMemoryCatalogScan(options, effectiveRuntime);
+  inFlightMemoryCatalogScans.set(key, pending);
+  void pending.then(
+    () => clearInFlightMemoryCatalogScan(key, pending),
+    () => clearInFlightMemoryCatalogScan(key, pending),
+  );
+  return pending;
+}
+
+function createMemoryCatalogScan(
+  options: MemoryRepoOptions,
+  runtime: MemoryCatalogScanRuntime,
+): Promise<MemoryCatalog> {
+  const timeoutMs = normalizeCatalogScanTimeout(runtime.timeoutMs);
+  if (!timeoutMs) return scanMemoryCatalogUncoalesced(options, runtime);
+
+  const controller = new AbortController();
+  const scan = scanMemoryCatalogUncoalesced(options, { ...runtime, signal: controller.signal });
+  return withMemoryCatalogScanTimeout(scan, timeoutMs, controller);
+}
+
+async function scanMemoryCatalogUncoalesced(
+  options: MemoryRepoOptions,
+  runtime: InternalMemoryCatalogScanRuntime = {},
+): Promise<MemoryCatalog> {
+  const repo = await repoForRead(options);
+  const absolutePaths = (
+    await Promise.all(MEMORY_KINDS.map((kind) => listMarkdownFiles(join(repo.root, kind))))
+  ).flat();
+  throwIfMemoryCatalogScanAborted(runtime.signal);
+  const { files, issues } = await readMemoryCatalogFiles(repo.root, absolutePaths, runtime);
 
   const entries: MemoryCatalogEntry[] = [];
   for (const file of files) {
@@ -188,6 +230,125 @@ export async function scanMemoryCatalog(options: MemoryRepoOptions = {}): Promis
     entries: entries.sort((a, b) => a.kind.localeCompare(b.kind) || a.path.localeCompare(b.path)),
     issues,
   };
+}
+
+function memoryCatalogScanKey(options: MemoryRepoOptions, runtime: MemoryCatalogScanRuntime): string {
+  const repo = resolveMemoryRepoInternal(options);
+  const timeoutMs = normalizeCatalogScanTimeout(runtime.timeoutMs);
+  return [
+    resolve(repo.root),
+    repo.serverId,
+    repo.serverSlug,
+    repo.sessionSpaceSlug,
+    options.readOnly === true ? "read-only" : "writable",
+    timeoutMs ? `timeout:${timeoutMs}` : "no-timeout",
+    `concurrency:${normalizeCatalogReadConcurrency(runtime.readConcurrency)}`,
+    runtime.readFile ? `reader:${memoryCatalogReaderId(runtime.readFile)}` : "reader:default",
+  ].join("\0");
+}
+
+function memoryCatalogReaderId(reader: NonNullable<MemoryCatalogScanRuntime["readFile"]>): number {
+  const existing = memoryCatalogReaderIds.get(reader);
+  if (existing) return existing;
+  const id = nextMemoryCatalogReaderId++;
+  memoryCatalogReaderIds.set(reader, id);
+  return id;
+}
+
+function clearInFlightMemoryCatalogScan(key: string, pending: Promise<MemoryCatalog>): void {
+  if (inFlightMemoryCatalogScans.get(key) === pending) {
+    inFlightMemoryCatalogScans.delete(key);
+  }
+}
+
+async function readMemoryCatalogFiles(
+  root: string,
+  absolutePaths: string[],
+  runtime: InternalMemoryCatalogScanRuntime,
+): Promise<{ files: MemoryFile[]; issues: MemoryLintIssue[] }> {
+  type ReadResult = { file: MemoryFile; issue?: never } | { file?: never; issue: MemoryLintIssue };
+  const readCatalogFile =
+    runtime.readFile ?? ((path: string, signal?: AbortSignal) => readFile(path, { encoding: "utf-8", signal }));
+  const concurrency = normalizeCatalogReadConcurrency(runtime.readConcurrency);
+  const results = await mapWithConcurrency<string, ReadResult>(absolutePaths, concurrency, async (absolutePath) => {
+    throwIfMemoryCatalogScanAborted(runtime.signal);
+    const path = repoRelative(root, absolutePath);
+    try {
+      const content = await readCatalogFile(absolutePath, runtime.signal);
+      throwIfMemoryCatalogScanAborted(runtime.signal);
+      return { file: parseMemoryFile(root, absolutePath, content) } as const;
+    } catch (error) {
+      if (runtime.signal?.aborted) throw memoryCatalogAbortReason(runtime.signal);
+      return {
+        issue: { severity: "error", path, message: errorMessage(error) } satisfies MemoryLintIssue,
+      } as const;
+    }
+  });
+  const files: MemoryFile[] = [];
+  const issues: MemoryLintIssue[] = [];
+  for (const result of results) {
+    if (result.file) files.push(result.file);
+    else issues.push(result.issue);
+  }
+  return { files, issues };
+}
+
+function normalizeCatalogReadConcurrency(value: number | undefined): number {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
+  return DEFAULT_CATALOG_READ_CONCURRENCY;
+}
+
+function normalizeCatalogScanTimeout(value: number | undefined): number | undefined {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
+  return undefined;
+}
+
+function throwIfMemoryCatalogScanAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw memoryCatalogAbortReason(signal);
+}
+
+function memoryCatalogAbortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error("memory catalog scan aborted");
+}
+
+async function withMemoryCatalogScanTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  controller: AbortController,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error(`memory catalog scan timed out after ${timeoutMs}ms`);
+          reject(error);
+          controller.abort(error);
+        }, timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, Math.max(1, values.length)) }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(values[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 export async function markMemoryCatalogSeen(catalog: MemoryCatalog, options: MemoryRepoOptions = {}): Promise<void> {

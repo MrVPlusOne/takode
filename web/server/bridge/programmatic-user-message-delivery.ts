@@ -49,9 +49,10 @@ export function deliverProgrammaticUserMessage(
       threadRoute,
       options,
     });
-    queuePausedUserMessage(session, "programmatic", message);
+    const queued = queuePausedUserMessage(session, "programmatic", message);
     deps.broadcastToBrowsers(session, { type: "session_update", session: { pause: session.state.pause } });
     deps.persistSession(session);
+    if (queued) notifyProgrammaticMessageAccepted(options);
     return "paused_queued";
   }
 
@@ -66,7 +67,10 @@ export function deliverProgrammaticUserMessage(
     },
     deps,
   );
-  if (autoPauseDelivery.status === "held") return "paused_queued";
+  if (autoPauseDelivery.status === "held") {
+    notifyProgrammaticMessageAccepted(options);
+    return "paused_queued";
+  }
 
   deps.syncBackendTypeFromLauncher(session, "inject_user_message");
   return injectUserMessage(
@@ -78,4 +82,14 @@ export function deliverProgrammaticUserMessage(
     threadRoute,
     autoPauseDelivery.options,
   );
+}
+
+function notifyProgrammaticMessageAccepted(options: ProgrammaticUserMessageOptions | undefined): void {
+  try {
+    options?.afterAccepted?.();
+  } catch (error) {
+    console.warn(
+      `[ws-bridge] Programmatic message acceptance callback failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }

@@ -61,6 +61,7 @@ export interface OrchestratorStartupInjection {
   content: string;
   deliveryContent?: string;
   historyFollowUps?: ProgrammaticHistoryFollowUp[];
+  afterInject?: () => void;
 }
 
 export function markOrchestratorSessionAfterConnect(
@@ -73,7 +74,11 @@ export function markOrchestratorSessionAfterConnect(
         agentSource?: { sessionId: string; sessionLabel?: string },
         takodeHerdBatch?: undefined,
         threadRoute?: undefined,
-        options?: { deliveryContent?: string; historyFollowUps?: ProgrammaticHistoryFollowUp[] },
+        options?: {
+          deliveryContent?: string;
+          historyFollowUps?: ProgrammaticHistoryFollowUp[];
+          afterAccepted?: () => void;
+        },
       ): void;
     };
   },
@@ -92,6 +97,7 @@ export function markOrchestratorSessionAfterConnect(
         deps.wsBridge.injectUserMessage(sessionId, injection.content, agentSource, undefined, undefined, {
           ...(injection.deliveryContent ? { deliveryContent: injection.deliveryContent } : {}),
           ...(injection.historyFollowUps?.length ? { historyFollowUps: injection.historyFollowUps } : {}),
+          ...(injection.afterInject ? { afterAccepted: injection.afterInject } : {}),
         });
         return;
       }
