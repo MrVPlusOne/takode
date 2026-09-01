@@ -30,6 +30,7 @@ import { PlaygroundQuestJourneyPalette } from "./PlaygroundQuestJourneyPalette.j
 import { PlaygroundQuestStatusPanelSection, PlaygroundQuestmasterCompactSection } from "./PlaygroundQuestSections.js";
 import { PlaygroundTodoStates } from "./PlaygroundTodoStates.js";
 import { PlaygroundTimerStates } from "./PlaygroundTimerStates.js";
+import { buildPlaygroundProjectedJourney } from "./leader-thread-tabs-projection-fixtures.js";
 import { MOCK_SESSION_ID } from "./fixtures.js";
 import {
   Card,
@@ -1333,6 +1334,14 @@ export function PlaygroundInteractiveSections() {
                           "5": "Sixth previous phase hidden by default in tab hover previews.",
                           "6": "First visible previous phase for the tab hover clamp.",
                         },
+                        phaseTimings: Object.fromEntries(
+                          Array.from({ length: 8 }, (_, index) => [
+                            String(index),
+                            index === 7
+                              ? { startedAt: now - 60_000 }
+                              : { startedAt: now - (8 - index) * 60_000, endedAt: now - (7 - index) * 60_000 },
+                          ]),
+                        ),
                       },
                     },
                     {
@@ -1416,6 +1425,11 @@ export function PlaygroundInteractiveSections() {
                         mode: "active" as const,
                         phaseIds: ["alignment", "work", "memory"],
                         currentPhaseId: "memory",
+                        phaseTimings: {
+                          "0": { startedAt: now - 300_000, endedAt: now - 240_000 },
+                          "1": { startedAt: now - 240_000, endedAt: now - 120_000 },
+                          "2": { startedAt: now - 120_000, endedAt: now - 110_000 },
+                        },
                       },
                     },
                   ]);
@@ -1537,15 +1551,7 @@ export function PlaygroundInteractiveSections() {
                       ...fallback,
                       title: row?.title ?? fallback.title,
                       boardStatus: row?.status ?? (completed ? "DONE" : null),
-                      journey: row?.journey
-                        ? {
-                            mode: row.journey.mode ?? null,
-                            phaseIds: row.journey.phaseIds,
-                            currentPhaseId: row.journey.currentPhaseId ?? null,
-                            activePhaseIndex: row.journey.activePhaseIndex ?? null,
-                            phaseCount: row.journey.phaseIds.length,
-                          }
-                        : null,
+                      journey: buildPlaygroundProjectedJourney(row, completed),
                       sourceRowCreatedAt: row?.createdAt ?? null,
                       workerSessionId: row?.worker ?? null,
                       workerSessionNum: row?.workerNum ?? null,

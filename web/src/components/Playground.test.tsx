@@ -648,6 +648,19 @@ describe("Playground", () => {
       expect(within(reviewUnread).getByTestId("thread-tab-blue-notification-bell")).toBeTruthy();
       expect(within(reviewUnread).getByRole("button", { name: "Close q-9003" })).toBeTruthy();
       expect(scope.getByTestId("thread-tabs-more-button")).toHaveAttribute("data-has-muted-needs-input", "true");
+
+      fireEvent.click(within(needsInput).getByTestId("thread-tab-select"));
+      fireEvent.click(scope.getByTestId("quest-thread-journey-hover-target"));
+      const preview = within(screen.getAllByTestId("quest-thread-journey-hover-card").at(-1)!).getByTestId(
+        "quest-journey-preview-card",
+      );
+      expect(preview).toHaveTextContent("3 phases · Total 4m");
+      expect(
+        within(preview)
+          .getAllByTestId("quest-journey-phase-duration")
+          .map((node) => node.textContent),
+      ).toEqual(["1m", "3m"]);
+      expect(preview).not.toHaveTextContent("Duration unavailable");
     }
 
     fireEvent.click(mobile.getByTestId("thread-tabs-more-button"));
@@ -1046,8 +1059,26 @@ describe("Playground", () => {
     fireEvent.click(within(banner).getByTestId("quest-thread-journey-hover-target"));
     const hoverCard = screen.getByTestId("quest-thread-journey-hover-card");
     expect(hoverCard).toBeTruthy();
-    expect(within(hoverCard).getByTestId("quest-journey-preview-card")).toHaveTextContent(
-      "Work owns implementation, validation, and sync evidence.",
+    const preview = within(hoverCard).getByTestId("quest-journey-preview-card");
+    expect(preview).toHaveTextContent("3 phases · Total 4m");
+    expect(
+      within(preview)
+        .getAllByTestId("quest-journey-phase-duration")
+        .map((node) => node.textContent),
+    ).toEqual(["1m", "3m"]);
+    expect(preview).not.toHaveTextContent("Duration unavailable");
+    expect(preview).toHaveTextContent("Work owns implementation, validation, and sync evidence.");
+
+    const completedBanner = screen.getAllByTestId("quest-thread-banner")[3];
+    fireEvent.click(within(completedBanner).getByTestId("quest-thread-journey-hover-target"));
+    const completedPreview = within(screen.getAllByTestId("quest-thread-journey-hover-card").at(-1)!).getByTestId(
+      "quest-journey-preview-card",
     );
+    expect(completedPreview).toHaveTextContent("3 phases · Partial 3m");
+    expect(
+      within(completedPreview)
+        .getAllByTestId("quest-journey-phase-duration")
+        .map((node) => node.textContent),
+    ).toEqual(["1m", "2m"]);
   });
 });

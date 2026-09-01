@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED,
   LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH,
   LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH,
   LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES,
@@ -192,6 +193,10 @@ describe("leader thread tabs projection derivation", () => {
           mode: "active",
           phaseIds: ["alignment", "work", "memory"],
           activePhaseIndex: 1,
+          phaseTimings: {
+            "0": { startedAt: 1_000 + index * 10_000, endedAt: 2_000 + index * 10_000 },
+            "1": { startedAt: 2_000 + index * 10_000 },
+          },
         },
       }),
     );
@@ -225,6 +230,7 @@ describe("leader thread tabs projection derivation", () => {
     const value = buildLeaderThreadTabsProjectionValue(session);
     const bytes = Buffer.byteLength(JSON.stringify(value), "utf8");
     expect(value.tabs).toHaveLength(50);
+    expect(value.tabs.every((tab) => tab.journey?.durationSummary != null)).toBe(true);
     expect(Object.keys(value.threadStatuses)).toHaveLength(50);
     expect(bytes).toBeLessThanOrEqual(LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES);
     expect(isLeaderThreadTabsProjectionValue(value)).toBe(true);
@@ -234,6 +240,74 @@ describe("leader thread tabs projection derivation", () => {
         (tab) => tab.title === null || tab.title.length < LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH,
       ) || Object.values(value.threadStatuses).some((item) => item.summary.length < 200),
     ).toBe(true);
+  });
+
+  it("preserves long Journey structure while compacting only lower-priority duration evidence", () => {
+    const keys = Array.from({ length: 50 }, (_, index) => `q-${index + 1}`);
+    const phaseIds = Array.from({ length: 74 }, () => "work" as const);
+    const phaseTimings = Object.fromEntries(
+      phaseIds.map((_, index) => [String(index), { startedAt: index * 10_000 + 1, endedAt: index * 10_000 + 5_001 }]),
+    );
+    const statuses = Object.fromEntries(
+      keys.map((key) => [key, { ...status(key, "ready"), summary: "界".repeat(200) }]),
+    );
+    const completedBoard = new Map(
+      keys.map((key, index) => [
+        key,
+        boardRow(key, "MEMORY", {
+          title: `${"界".repeat(LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH - 8)} ${index}`,
+          createdAt: index + 1,
+          updatedAt: index + 100,
+          completedAt: index + 200,
+          journey: {
+            mode: "active",
+            phaseIds,
+            activePhaseIndex: phaseIds.length - 1,
+            phaseTimings,
+          },
+        }),
+      ]),
+    );
+    const value = buildLeaderThreadTabsProjectionValue(
+      makeSession({
+        state: {
+          isOrchestrator: true,
+          leaderOpenThreadTabs: {
+            version: 1,
+            orderedOpenThreadKeys: keys,
+            closedThreadTombstones: [],
+            updatedAt: 100,
+          },
+          leaderThreadStatuses: statuses,
+        } as unknown as Session["state"],
+        completedBoard,
+      }),
+    );
+
+    expect(Buffer.byteLength(JSON.stringify(value), "utf8")).toBeLessThanOrEqual(
+      LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES,
+    );
+    expect(value.tabs).toHaveLength(50);
+    expect(value.tabs.every((tab) => tab.journey?.phaseIds.length === phaseIds.length)).toBe(true);
+    expect(value.tabs[0]?.journey?.durationSummary).not.toBe(LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED);
+    expect(value.tabs.at(-1)?.journey?.durationSummary).toBe(LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED);
+    expect(value.tabs.some((tab) => tab.journey?.durationSummary === LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED)).toBe(
+      true,
+    );
+    expect(value.tabs.some((tab) => typeof tab.journey?.durationSummary === "object")).toBe(true);
+    const firstOmittedIndex = value.tabs.findIndex(
+      (tab) => tab.journey?.durationSummary === LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED,
+    );
+    expect(firstOmittedIndex).toBeGreaterThan(0);
+    expect(
+      value.tabs.slice(0, firstOmittedIndex).every((tab) => typeof tab.journey?.durationSummary === "object"),
+    ).toBe(true);
+    expect(
+      value.tabs
+        .slice(firstOmittedIndex)
+        .every((tab) => tab.journey?.durationSummary === LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED),
+    ).toBe(true);
+    expect(isLeaderThreadTabsProjectionValue(value)).toBe(true);
   });
 
   it("uses a stable full-ID fingerprint only when pathological payloads need identity compaction", () => {
@@ -289,6 +363,86 @@ describe("leader thread tabs projection derivation", () => {
       messageIdHash: threadStatusMessageIdHash(fullMessageId),
     });
     expect(value.tabs[0]).toHaveProperty("neverStartedScheduled", false);
+  });
+
+  it("projects q-2012-shaped active timing as closed duration plus current elapsed start", () => {
+    const alignmentStartedAt = 1_788_298_097_792;
+    const workStartedAt = 1_788_298_234_066;
+    const session = makeSession({
+      board: new Map([
+        [
+          "q-2012",
+          boardRow("q-2012", "WORKING", {
+            journey: {
+              mode: "active",
+              phaseIds: ["alignment", "work", "memory"],
+              activePhaseIndex: 1,
+              currentPhaseId: "work",
+              phaseTimings: {
+                "0": { startedAt: alignmentStartedAt, endedAt: workStartedAt },
+                "1": { startedAt: workStartedAt },
+              },
+            },
+          }),
+        ],
+      ]),
+    });
+
+    expect(buildLeaderThreadTabsProjectionValue(session).tabs[0]?.journey).toMatchObject({
+      phaseIds: ["alignment", "work", "memory"],
+      activePhaseIndex: 1,
+      durationSummary: {
+        phaseDurationsMs: [workStartedAt - alignmentStartedAt],
+        activePhaseStartedAt: workStartedAt,
+      },
+    });
+  });
+
+  it("keeps completed and partial repeated-phase durations stable without an open timer", () => {
+    const completedAt = 20_000;
+    const session = makeSession({
+      state: {
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-repeat"],
+          closedThreadTombstones: [],
+          updatedAt: completedAt,
+        },
+      } as unknown as Session["state"],
+      completedBoard: new Map([
+        [
+          "q-repeat",
+          boardRow("q-repeat", "WORKING", {
+            completedAt,
+            journey: {
+              mode: "active",
+              phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
+              activePhaseIndex: 4,
+              currentPhaseId: "memory",
+              phaseTimings: {
+                "0": { startedAt: 1_000, endedAt: 2_000 },
+                "2": { startedAt: 4_000, endedAt: 4_000 },
+                "3": { startedAt: 5_000, endedAt: 8_500 },
+                "4": { startedAt: 9_000 },
+              },
+            },
+          }),
+        ],
+      ]),
+    });
+
+    const tab = buildLeaderThreadTabsProjectionValue(session).tabs[0];
+    expect(tab).toMatchObject({
+      completed: true,
+      journey: {
+        phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
+        durationSummary: {
+          phaseDurationsMs: [1_000, null, 0, 3_500],
+          activePhaseStartedAt: null,
+        },
+      },
+    });
   });
 
   it("authorizes the definition only for visible leader sources", () => {
@@ -757,6 +911,7 @@ describe("leader thread tabs current quest state", () => {
           currentPhaseId: "work",
           activePhaseIndex: 1,
           phaseCount: 3,
+          durationSummary: null,
         },
       }),
     ]);

@@ -184,6 +184,7 @@ describe("session list hydration", () => {
                   currentPhaseId: "work",
                   activePhaseIndex: 1,
                   phaseCount: 2,
+                  durationSummary: null,
                 },
                 sourceLeaderSessionId: "s1",
                 sourceRowCreatedAt: 1,

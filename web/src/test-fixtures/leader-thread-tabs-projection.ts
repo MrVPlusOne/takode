@@ -1,4 +1,5 @@
 import {
+  LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED,
   LEADER_THREAD_TABS_PROJECTION,
   type LeaderThreadTabsProjectionAttention,
   type LeaderThreadTabsProjectionTab,
@@ -80,6 +81,7 @@ export function createLeaderThreadTabsProjectionValue(
         currentPhaseId: "work",
         activePhaseIndex: 1,
         phaseCount: 3,
+        durationSummary: null,
       },
       active: true,
       canClose: false,
@@ -100,7 +102,18 @@ export function createLeaderThreadTabsProjectionValue(
     tabs: tabs.map((entry) => ({
       ...entry,
       attention: { ...entry.attention },
-      journey: entry.journey ? { ...entry.journey } : null,
+      journey: entry.journey
+        ? {
+            ...entry.journey,
+            durationSummary:
+              entry.journey.durationSummary !== null && typeof entry.journey.durationSummary === "object"
+                ? {
+                    ...entry.journey.durationSummary,
+                    phaseDurationsMs: [...entry.journey.durationSummary.phaseDurationsMs],
+                  }
+                : entry.journey.durationSummary,
+          }
+        : null,
     })),
     mainAttention: attention({ reviewUnread: true, updatedAt: 70, ...overrides.mainAttention }),
     threadStatuses: overrides.threadStatuses

@@ -1,6 +1,6 @@
 import type { LeaderActivePhaseSummarySegment } from "./leader-active-phase-summary.js";
 import { LEADER_OPEN_THREAD_TABS_VERSION } from "./leader-open-thread-tabs.js";
-import type { QuestJourneyLifecycleMode, QuestJourneyPhaseId } from "./quest-journey.js";
+import type { QuestJourneyDurationSummary, QuestJourneyLifecycleMode, QuestJourneyPhaseId } from "./quest-journey.js";
 import { THREAD_STATUS_MESSAGE_ID_HASH_LENGTH, type LeaderThreadStatus } from "./thread-status-marker.js";
 import {
   isBoundedNullableString,
@@ -27,6 +27,7 @@ export const LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH = 160;
 export const LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH = 80;
 export const LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_SUMMARY_LENGTH = 200;
 export const LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH = 200;
+export const LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED = 0 as const;
 
 export interface LeaderThreadTabsProjectionTabState {
   version: typeof LEADER_OPEN_THREAD_TABS_VERSION;
@@ -45,6 +46,8 @@ export interface LeaderThreadTabsProjectionJourney {
   currentPhaseId: string | null;
   activePhaseIndex: number | null;
   phaseCount: number;
+  /** Compact authoritative timing evidence; null means unavailable and 0 means wire-budget compaction. */
+  durationSummary: QuestJourneyDurationSummary | null | typeof LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED;
 }
 
 export interface LeaderThreadTabsProjectionTab {
@@ -103,6 +106,35 @@ function isAttention(value: unknown): value is LeaderThreadTabsProjectionAttenti
   );
 }
 
+function isDurationSummary(
+  value: unknown,
+  phaseCount: number,
+  activePhaseIndex: number | null | undefined,
+): value is QuestJourneyDurationSummary {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Partial<QuestJourneyDurationSummary>;
+  if (
+    Object.keys(value).length !== 2 ||
+    !Object.hasOwn(candidate, "phaseDurationsMs") ||
+    !Object.hasOwn(candidate, "activePhaseStartedAt") ||
+    !Array.isArray(candidate.phaseDurationsMs) ||
+    candidate.phaseDurationsMs.length > phaseCount ||
+    candidate.phaseDurationsMs.some((durationMs) => durationMs !== null && !isNonNegativeNumber(durationMs)) ||
+    candidate.phaseDurationsMs.at(-1) === null ||
+    (candidate.activePhaseStartedAt !== null &&
+      (!isNonNegativeNumber(candidate.activePhaseStartedAt) || candidate.activePhaseStartedAt <= 0))
+  ) {
+    return false;
+  }
+  if (candidate.activePhaseStartedAt === null) return true;
+  return (
+    activePhaseIndex !== null &&
+    activePhaseIndex !== undefined &&
+    activePhaseIndex < phaseCount &&
+    candidate.phaseDurationsMs[activePhaseIndex] == null
+  );
+}
+
 function isJourney(value: unknown): value is LeaderThreadTabsProjectionJourney {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<LeaderThreadTabsProjectionJourney>;
@@ -117,7 +149,11 @@ function isJourney(value: unknown): value is LeaderThreadTabsProjectionJourney {
     isNonNegativeInteger(candidate.phaseCount) &&
     candidate.phaseCount <= 100 &&
     phaseIds.length === candidate.phaseCount &&
-    (candidate.activePhaseIndex === null || candidate.activePhaseIndex < candidate.phaseCount)
+    (candidate.activePhaseIndex === null || candidate.activePhaseIndex < candidate.phaseCount) &&
+    Object.hasOwn(candidate, "durationSummary") &&
+    (candidate.durationSummary === null ||
+      candidate.durationSummary === LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED ||
+      isDurationSummary(candidate.durationSummary, candidate.phaseCount, candidate.activePhaseIndex))
   );
 }
 
@@ -419,12 +455,34 @@ export function reconcileLeaderThreadTabsProjectionValue(
   };
 }
 
+function durationSummaryEqual(
+  left: LeaderThreadTabsProjectionJourney["durationSummary"],
+  right: LeaderThreadTabsProjectionJourney["durationSummary"],
+): boolean {
+  if (
+    left === null ||
+    right === null ||
+    left === LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED ||
+    right === LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED
+  ) {
+    return left === right;
+  }
+  return (
+    left.activePhaseStartedAt === right.activePhaseStartedAt &&
+    arraysEqual(left.phaseDurationsMs, right.phaseDurationsMs, (a, b) => a === b)
+  );
+}
+
 function journeyEqual(
   left: LeaderThreadTabsProjectionJourney | null,
   right: LeaderThreadTabsProjectionJourney | null,
 ): boolean {
   if (!left || !right) return left === right;
-  return shallowEqual(left, right, ["phaseIds"]) && arraysEqual(left.phaseIds, right.phaseIds, (a, b) => a === b);
+  return (
+    shallowEqual(left, right, ["phaseIds", "durationSummary"]) &&
+    arraysEqual(left.phaseIds, right.phaseIds, (a, b) => a === b) &&
+    durationSummaryEqual(left.durationSummary, right.durationSummary)
+  );
 }
 
 function tabStateEqual(

@@ -57,7 +57,12 @@ function leaderTab(
   title: string,
   overrides: Parameters<typeof createLeaderThreadTabsProjectionTab>[1] = {},
 ) {
-  return createLeaderThreadTabsProjectionTab(threadKey, { title, ...overrides });
+  const sourceLeaderSessionId = Object.hasOwn(overrides, "sourceLeaderSessionId")
+    ? overrides.sourceLeaderSessionId
+    : overrides.sourceRowCreatedAt != null
+      ? "s1"
+      : null;
+  return createLeaderThreadTabsProjectionTab(threadKey, { title, sourceLeaderSessionId, ...overrides });
 }
 
 function leaderTabsProjectionState(
@@ -1306,6 +1311,7 @@ describe("ChatView chat surface and leader routing", () => {
             currentPhaseId: "implement",
             activePhaseIndex: 0,
             phaseCount: 1,
+            durationSummary: null,
           },
           sourceRowCreatedAt: 100,
           active: true,
@@ -1390,6 +1396,7 @@ describe("ChatView chat surface and leader routing", () => {
             currentPhaseId: "implement",
             activePhaseIndex: 1,
             phaseCount: 3,
+            durationSummary: null,
           },
           sourceRowCreatedAt: 2,
           workerSessionId: "worker-968",
@@ -1482,6 +1489,7 @@ describe("ChatView chat surface and leader routing", () => {
             currentPhaseId: "implement",
             activePhaseIndex: 1,
             phaseCount: 2,
+            durationSummary: null,
           },
           sourceRowCreatedAt: 2,
           queued: true,
@@ -1599,6 +1607,7 @@ describe("ChatView chat surface and leader routing", () => {
             currentPhaseId: "port",
             activePhaseIndex: 4,
             phaseCount: 5,
+            durationSummary: null,
           },
           sourceRowCreatedAt: 2,
           workerSessionId: "worker-970",

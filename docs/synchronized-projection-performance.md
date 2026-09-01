@@ -237,6 +237,8 @@ The final feature-specific stack is therefore **61 non-test lines smaller than t
 
 The August 31, 2026 cleanup completes the current-build leader-thread visual migration. The accepted synchronized projection is now the only runtime tab, attention, phase-color, status-marker, Journey, and participant visual authority. Mixed-version arbitration, the client-side surfacing observer, projection-to-command synthesis, the full-history attachment broadcast arm, duplicate board/activity/status visual fields, and production-only copies of legacy visual builders are removed. Detailed board rows, notifications, history, routing, selection, persisted order/tombstones, and commands remain independently authoritative.
 
+The September 1, 2026 duration restoration adds a compact positional Journey duration summary to that same projection. Closed phases carry exact elapsed milliseconds, the current open phase carries its real start time, and explicit missing timing stays distinct from stale local detail. This keeps active/completed/partial duration rendering authoritative without copying raw timestamp maps that would exceed the 64 KiB projection ceiling on the representative 50-tab leader state. If an extreme long-history set still exceeds the ceiling after display-text compaction, the projection preserves every Journey and deterministically marks lower-priority duration evidence as omitted; identity-matched board detail remains usable, while projection-only views say `Duration not loaded` rather than misreporting the timing as unavailable.
+
 Persisted-state compatibility is intentionally narrow. `tabState: null` means the server has no durable open-tab state and permits one browser-to-server migration of older local tab keys. Once durable state exists, `tabState` is only `{ version: 1 }`; projected `tabs[]` supplies canonical visual order, while tombstones, explicit-order timestamps, capacity fences, and server-candidate promotion history remain server-only state.
 
 ### Current server results
@@ -244,11 +246,11 @@ Persisted-state compatibility is intentionally narrow. `tabState: null` means th
 | Leader scenario | Historical control sends / deliveries / bytes per browser | Current compatible pair | Result |
 | --- | ---: | ---: | --- |
 | Equal board producer | 2 / 4 / 6,934 B | 1 / 2 / 3,285 B | Better; duplicate global activity is removed and the equal projection is suppressed |
-| Work → Memory phase change | 2 / 4 / 7,102 B | 2 / 4 / 4,286 B | Same sends and deliveries, 39.6% fewer bytes |
-| 25-frame phase burst | 50 / 100 / 177,550 B | 26 / 52 / 83,150 B | Better; projection work coalesces to one publication and board detail remains authoritative |
+| Work → Memory phase change | 2 / 4 / 7,102 B | 2 / 4 / 4,309 B | Same sends and deliveries, 39.3% fewer bytes |
+| 25-frame phase burst | 50 / 100 / 177,550 B | 26 / 52 / 83,173 B | Better; projection work coalesces to one publication and board detail remains authoritative |
 | Narrow thread-status change | 1 / 2 / 236 B | 1 / 2 / 228 B | Better; the legacy status broadcast is retired in favor of one keyed patch |
 
-A phase burst performs one projection dependency selection and one derivation after 25 invalidations. Equal values publish nothing. Targeted cross-leader and generic no-subscriber invalidations perform zero projection selection or derivation until a subscriber requests the value. Initial two-browser subscription is 7,602 B per browser, the cached full value is 7,311 B, and reconnect reuses that cache with one snapshot plus acknowledgement and no duplicate update. Additional browsers do not increase source selection or derivation; delivery remains exactly linear.
+A phase burst performs one projection dependency selection and one derivation after 25 invalidations. Equal values publish nothing. Targeted cross-leader and generic no-subscriber invalidations perform zero projection selection or derivation until a subscriber requests the value. Initial two-browser subscription is 7,878 B per browser, the cached full value is 7,587 B, and reconnect reuses that cache with one snapshot plus acknowledgement and no duplicate update. Additional browsers do not increase source selection or derivation; delivery remains exactly linear.
 
 ### Current frontend results
 

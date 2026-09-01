@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LeaderThreadTabsProjectionTab } from "../../shared/leader-thread-tabs-projection.js";
 import { SAVE_THREAD_VIEWPORT_EVENT, readLeaderSelectedThreadKey } from "../utils/thread-viewport.js";
@@ -87,6 +87,7 @@ function projectedTab(title: string, updatedAt: number): LeaderThreadTabsProject
       currentPhaseId: "work",
       activePhaseIndex: 1,
       phaseCount: 3,
+      durationSummary: null,
     },
     sourceLeaderSessionId: null,
     sourceRowCreatedAt: null,
@@ -203,6 +204,48 @@ beforeEach(() => {
 });
 
 describe("ChatView leader thread tabs projection", () => {
+  it("renders authoritative phase durations in the selected thread Journey preview", async () => {
+    const now = Date.now();
+    const timedTab = projectedTab("Projected q-1", now);
+    timedTab.sourceLeaderSessionId = "other-current-leader";
+    timedTab.sourceRowCreatedAt = 200;
+    timedTab.workerSessionId = "worker-current";
+    timedTab.workerSessionNum = 2580;
+    timedTab.journey = {
+      ...timedTab.journey!,
+      durationSummary: {
+        phaseDurationsMs: [5 * 60_000],
+        activePhaseStartedAt: now - 2 * 60_000,
+      },
+    };
+    useStore.getState().applySyncedProjectionUpdate(
+      createLeaderThreadTabsProjectionEnvelope({
+        type: "synced_projection_update",
+        key: "leader",
+        revision: 2,
+        value: createLeaderThreadTabsProjectionValue({
+          tabs: [timedTab],
+          mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+          threadStatuses: {},
+          activePhaseSummary: [{ label: "Work", count: 1, tone: "phase" }],
+        }),
+      }),
+    );
+
+    render(<ChatView sessionId="leader" hasThreadRoute routeThreadKey="q-1" />);
+
+    const hoverTarget = await screen.findByTestId("quest-thread-journey-hover-target");
+    fireEvent.mouseEnter(hoverTarget);
+    const card = await screen.findByTestId("quest-thread-journey-hover-card");
+    expect(within(card).getByTestId("quest-journey-timeline")).toHaveTextContent("3 phases · Total 7m");
+    expect(
+      within(card)
+        .getAllByTestId("quest-journey-phase-duration")
+        .map((node) => node.textContent),
+    ).toEqual(["5m", "2m"]);
+    expect(card).not.toHaveTextContent("Duration unavailable");
+  });
+
   it("does not feed authoritative projection refreshes back into tab commands or navigation", async () => {
     const viewportSnapshots: string[] = [];
     const onViewportSnapshot = (event: Event) => {
@@ -769,6 +812,7 @@ describe("ChatView leader thread tabs projection", () => {
         currentPhaseId: "work",
         activePhaseIndex: 1,
         phaseCount: 3,
+        durationSummary: null,
       },
       sourceLeaderSessionId: "leader-current",
       sourceRowCreatedAt: 200,

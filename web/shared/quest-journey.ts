@@ -327,9 +327,26 @@ export interface QuestJourneyPhaseTiming {
   endedAt?: number;
 }
 
+/** Compact authoritative timing evidence for duration-only Journey projections. */
+export interface QuestJourneyDurationSummary {
+  /** Stable closed durations keyed positionally; null preserves missing occurrences between known entries. */
+  phaseDurationsMs: (number | null)[];
+  /** Real start time for the current open phase when elapsed-so-far display is allowed. */
+  activePhaseStartedAt: number | null;
+}
+
+export interface QuestJourneyDurationSummaryOptions {
+  /** Include the current open phase start so consumers can render elapsed-so-far. */
+  allowActiveElapsed?: boolean;
+  /** Bound positional duration evidence to the projected phase count. */
+  maxPhaseCount?: number;
+}
+
 export interface QuestJourneyPhaseDurationOptions {
   /** When true, an open timing uses `now` as the end point for active elapsed-so-far displays. */
   allowOpenEnded?: boolean;
+  /** Explicit compact timing authority. Presence, including null, prevents fallback to full phase timings. */
+  durationSummary?: QuestJourneyDurationSummary | null;
 }
 
 export interface QuestJourneyProposalPresentation {
@@ -990,6 +1007,43 @@ function normalizeQuestJourneyPhaseTimings(
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
+export function summarizeQuestJourneyDurations(
+  plan: Partial<QuestJourneyPlanState> | undefined,
+  status?: string | null,
+  options: QuestJourneyDurationSummaryOptions = {},
+): QuestJourneyDurationSummary | null {
+  const normalized = normalizeQuestJourneyPlan(plan, status);
+  const requestedMaxPhaseCount = options.maxPhaseCount;
+  const maxPhaseCount =
+    typeof requestedMaxPhaseCount === "number" && Number.isFinite(requestedMaxPhaseCount)
+      ? Math.max(0, Math.floor(requestedMaxPhaseCount))
+      : normalized.phaseIds.length;
+  const phaseCount = Math.min(normalized.phaseIds.length, maxPhaseCount);
+  const phaseDurationsMs: (number | null)[] = Array.from({ length: phaseCount }, () => null);
+
+  for (let index = 0; index < phaseCount; index += 1) {
+    const timing = normalized.phaseTimings?.[String(index)];
+    if (!timing?.startedAt || timing.endedAt === undefined) continue;
+    phaseDurationsMs[index] = timing.endedAt - timing.startedAt;
+  }
+  while (phaseDurationsMs.at(-1) === null) phaseDurationsMs.pop();
+
+  const activePhaseIndex = normalized.activePhaseIndex;
+  const activeTiming =
+    options.allowActiveElapsed === true &&
+    activePhaseIndex !== undefined &&
+    activePhaseIndex >= 0 &&
+    activePhaseIndex < phaseCount
+      ? normalized.phaseTimings?.[String(activePhaseIndex)]
+      : undefined;
+  const activePhaseStartedAt =
+    activeTiming?.startedAt && activeTiming.endedAt === undefined ? activeTiming.startedAt : null;
+
+  return phaseDurationsMs.length > 0 || activePhaseStartedAt !== null
+    ? { phaseDurationsMs, activePhaseStartedAt }
+    : null;
+}
+
 export function getQuestJourneyPhaseDurationMs(
   plan: Partial<QuestJourneyPlanState> | undefined,
   phaseIndex: number,
@@ -997,6 +1051,29 @@ export function getQuestJourneyPhaseDurationMs(
   options: QuestJourneyPhaseDurationOptions = {},
 ): number | undefined {
   if (!Number.isInteger(phaseIndex) || phaseIndex < 0) return undefined;
+  if (Object.hasOwn(options, "durationSummary")) {
+    const summary = options.durationSummary;
+    if (!summary) return undefined;
+    const closedDurationMs = summary.phaseDurationsMs[phaseIndex];
+    if (typeof closedDurationMs === "number" && Number.isFinite(closedDurationMs) && closedDurationMs >= 0) {
+      return closedDurationMs;
+    }
+    const activePhaseIndex = getQuestJourneyCurrentPhaseIndex(plan);
+    const activePhaseStartedAt = summary.activePhaseStartedAt;
+    if (
+      options.allowOpenEnded === false ||
+      activePhaseIndex !== phaseIndex ||
+      typeof activePhaseStartedAt !== "number" ||
+      !Number.isFinite(activePhaseStartedAt) ||
+      activePhaseStartedAt <= 0 ||
+      !Number.isFinite(now) ||
+      now < activePhaseStartedAt
+    ) {
+      return undefined;
+    }
+    return now - activePhaseStartedAt;
+  }
+
   const timing = plan?.phaseTimings?.[String(phaseIndex)];
   if (!timing?.startedAt) return undefined;
   const endedAt = timing.endedAt ?? (options.allowOpenEnded === false ? undefined : now);

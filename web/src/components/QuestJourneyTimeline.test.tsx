@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
+import { vi } from "vitest";
+import { LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED } from "../../shared/leader-thread-tabs-projection.js";
 import type { QuestJourneyPhaseId, QuestJourneyPlanState } from "../../shared/quest-journey.js";
 import { QuestJourneyPreviewCard, QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 
@@ -194,5 +196,86 @@ describe("QuestJourneyTimeline vertical clamping", () => {
     expect(within(timeline).getByText("Memory")).toBeInTheDocument();
     expect(within(timeline).getByText("Old memory note")).toBeInTheDocument();
     expect(within(timeline).getByText("1m")).toBeInTheDocument();
+  });
+});
+
+describe("QuestJourneyTimeline projected duration summaries", () => {
+  it("shows completed and active elapsed durations from the authoritative projection summary", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(600_000);
+    try {
+      render(
+        <QuestJourneyPreviewCard
+          journey={{
+            mode: "active",
+            phaseIds: ["alignment", "work", "memory"],
+            currentPhaseId: "work",
+            activePhaseIndex: 1,
+          }}
+          status="WORKING"
+          durationSummary={{
+            phaseDurationsMs: [120_000],
+            activePhaseStartedAt: 540_000,
+          }}
+        />,
+      );
+
+      const timeline = screen.getByTestId("quest-journey-timeline");
+      expect(timeline).toHaveTextContent("3 phases · Total 3m");
+      expect(
+        within(timeline)
+          .getAllByTestId("quest-journey-phase-duration")
+          .map((node) => node.textContent),
+      ).toEqual(["2m", "1m"]);
+      expect(timeline).not.toHaveTextContent("Duration unavailable");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps known completed durations when another finished occurrence is missing timing", () => {
+    render(
+      <QuestJourneyPreviewCard
+        journey={{
+          mode: "active",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "memory",
+          activePhaseIndex: 2,
+        }}
+        status="done"
+        durationSummary={{
+          phaseDurationsMs: [60_000, null, 120_000],
+          activePhaseStartedAt: null,
+        }}
+      />,
+    );
+
+    const timeline = screen.getByTestId("quest-journey-timeline");
+    expect(timeline).toHaveTextContent("3 phases · Partial 3m");
+    expect(
+      within(timeline)
+        .getAllByTestId("quest-journey-phase-duration")
+        .map((node) => node.textContent),
+    ).toEqual(["1m", "2m"]);
+  });
+
+  it("distinguishes wire-budget omission from genuinely unavailable timing", () => {
+    render(
+      <QuestJourneyPreviewCard
+        journey={{
+          mode: "active",
+          phaseIds: ["alignment", "work", "memory"],
+          currentPhaseId: "memory",
+          activePhaseIndex: 2,
+        }}
+        status="done"
+        durationSummary={LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED}
+      />,
+    );
+
+    const timeline = screen.getByTestId("quest-journey-timeline");
+    expect(timeline).toHaveTextContent("3 phases · Duration not loaded");
+    expect(timeline).not.toHaveTextContent("Duration unavailable");
+    expect(within(timeline).queryByTestId("quest-journey-phase-duration")).toBeNull();
   });
 });

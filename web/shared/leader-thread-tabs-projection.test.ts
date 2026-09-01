@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED,
   LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_SUMMARY_LENGTH,
   LEADER_THREAD_TABS_PROJECTION_MAX_TABS,
   applyLeaderThreadTabsProjectionPatch,
@@ -26,6 +27,7 @@ function value(): LeaderThreadTabsProjectionValue {
           currentPhaseId: "work",
           activePhaseIndex: 1,
           phaseCount: 3,
+          durationSummary: { phaseDurationsMs: [1_000], activePhaseStartedAt: 2_000 },
         },
         sourceLeaderSessionId: "leader-current",
         sourceRowCreatedAt: 10,
@@ -56,6 +58,7 @@ function value(): LeaderThreadTabsProjectionValue {
           currentPhaseId: "memory",
           activePhaseIndex: 2,
           phaseCount: 3,
+          durationSummary: null,
         },
         sourceLeaderSessionId: null,
         sourceRowCreatedAt: null,
@@ -154,6 +157,18 @@ describe("leader thread tabs projection wire contract", () => {
         ],
       }),
     ).toBe(false);
+    const missingDurationSummary = structuredClone(valid);
+    delete (missingDurationSummary.tabs[0]!.journey as Partial<NonNullable<(typeof valid.tabs)[0]["journey"]>>)
+      .durationSummary;
+    expect(isLeaderThreadTabsProjectionValue(missingDurationSummary)).toBe(false);
+
+    const malformedDurationSummary = structuredClone(valid);
+    malformedDurationSummary.tabs[0]!.journey!.durationSummary = {
+      phaseDurationsMs: [1_000, null],
+      activePhaseStartedAt: 2_000,
+    };
+    expect(isLeaderThreadTabsProjectionValue(malformedDurationSummary)).toBe(false);
+
     expect(
       isLeaderThreadTabsProjectionValue({
         ...valid,
@@ -201,6 +216,14 @@ describe("leader thread tabs projection wire contract", () => {
     const nullJourney = structuredClone(current);
     nullJourney.tabs[0]!.journey = null;
     expect(isLeaderThreadTabsProjectionValue(nullJourney)).toBe(true);
+
+    const omittedTiming = structuredClone(current);
+    omittedTiming.tabs[0]!.journey!.durationSummary = LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED;
+    expect(isLeaderThreadTabsProjectionValue(omittedTiming)).toBe(true);
+
+    const legacyStringSentinel = structuredClone(current);
+    (legacyStringSentinel.tabs[0]!.journey as { durationSummary: unknown }).durationSummary = "omitted";
+    expect(isLeaderThreadTabsProjectionValue(legacyStringSentinel)).toBe(false);
   });
 
   it("rejects unversioned or partial current-build payloads", () => {
@@ -275,6 +298,33 @@ describe("leader thread tabs projection wire contract", () => {
       patch,
     };
     expect(new TextEncoder().encode(JSON.stringify(envelope)).byteLength).toBeLessThanOrEqual(236);
+  });
+
+  it("patches duration changes and explicit timing clears without projection churn", () => {
+    const previous = value();
+    const same = structuredClone(previous);
+    expect(reconcileLeaderThreadTabsProjectionValue(previous, same)).toBe(previous);
+
+    const advanced = structuredClone(previous);
+    advanced.tabs[0]!.journey!.durationSummary = {
+      phaseDurationsMs: [1_250],
+      activePhaseStartedAt: 2_000,
+    };
+    const advancedPatch = createLeaderThreadTabsProjectionPatch(previous, advanced);
+    expect(advancedPatch).toEqual({ t: { "q-1": advanced.tabs[0] } });
+    expect(applyLeaderThreadTabsProjectionPatch(previous, advancedPatch)).toEqual(advanced);
+
+    const omitted = structuredClone(advanced);
+    omitted.tabs[0]!.journey!.durationSummary = LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED;
+    const omittedPatch = createLeaderThreadTabsProjectionPatch(advanced, omitted);
+    expect(omittedPatch).toEqual({ t: { "q-1": omitted.tabs[0] } });
+    expect(applyLeaderThreadTabsProjectionPatch(advanced, omittedPatch)).toEqual(omitted);
+
+    const cleared = structuredClone(omitted);
+    cleared.tabs[0]!.journey!.durationSummary = null;
+    const clearPatch = createLeaderThreadTabsProjectionPatch(omitted, cleared);
+    expect(clearPatch).toEqual({ t: { "q-1": cleared.tabs[0] } });
+    expect(applyLeaderThreadTabsProjectionPatch(omitted, clearPatch)).toEqual(cleared);
   });
 
   it("applies keyed tab add, remove, reorder, attention, status, and phase operations strictly", () => {

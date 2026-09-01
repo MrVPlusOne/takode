@@ -946,6 +946,7 @@ function projectedLeaderTab(
           currentPhaseId: tabStatus === "MEMORY" ? "memory" : "work",
           activePhaseIndex: tabStatus === "MEMORY" ? 2 : 1,
           phaseCount: 3,
+          durationSummary: null,
         },
     sourceLeaderSessionId: LEADER_ID,
     sourceRowCreatedAt: index + 1,

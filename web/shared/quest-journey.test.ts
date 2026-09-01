@@ -31,6 +31,7 @@ import {
   normalizeQuestJourneyPlan,
   rebaseQuestJourneyPhaseNotes,
   reviseQuestJourneySuffix,
+  summarizeQuestJourneyDurations,
   validateQuestJourneyCompletedPrefixRevision,
   validateQuestJourneyPhaseSequence,
   validateQuestJourneyPersistedPhaseOccurrences,
@@ -297,6 +298,90 @@ describe("durations and lifecycle mode", () => {
     expect(formatQuestJourneyDuration(9_000)).toBe("9s");
     expect(formatQuestJourneyDuration(2 * 60_000)).toBe("2m");
     expect(formatQuestJourneyDuration(3 * 60 * 60_000 + 5 * 60_000)).toBe("3h 5m");
+  });
+
+  it("summarizes active v2 timings as closed durations plus a real current-phase start", () => {
+    const alignmentStartedAt = 1_788_298_097_792;
+    const workStartedAt = 1_788_298_234_066;
+    const plan = {
+      mode: "active" as const,
+      phaseIds: ["alignment", "work", "memory"] as const,
+      activePhaseIndex: 1,
+      currentPhaseId: "work" as const,
+      phaseTimings: {
+        "0": { startedAt: alignmentStartedAt, endedAt: workStartedAt },
+        "1": { startedAt: workStartedAt },
+      },
+    };
+
+    expect(summarizeQuestJourneyDurations(plan, "WORKING", { allowActiveElapsed: true, maxPhaseCount: 100 })).toEqual({
+      phaseDurationsMs: [workStartedAt - alignmentStartedAt],
+      activePhaseStartedAt: workStartedAt,
+    });
+    expect(summarizeQuestJourneyDurations(plan, "WORKING", { allowActiveElapsed: false })).toEqual({
+      phaseDurationsMs: [workStartedAt - alignmentStartedAt],
+      activePhaseStartedAt: null,
+    });
+  });
+
+  it("keeps partial and repeated phase durations positional while trimming trailing unknowns", () => {
+    const plan = {
+      phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"] as const,
+      activePhaseIndex: 4,
+      currentPhaseId: "memory" as const,
+      phaseTimings: {
+        "0": { startedAt: 1_000, endedAt: 2_000 },
+        "2": { startedAt: 4_000, endedAt: 4_000 },
+        "3": { startedAt: 5_000, endedAt: 8_500 },
+        "4": { startedAt: 9_000 },
+        "9": { startedAt: 10_000, endedAt: 20_000 },
+      },
+    };
+
+    expect(summarizeQuestJourneyDurations(plan, "MEMORY", { allowActiveElapsed: false })).toEqual({
+      phaseDurationsMs: [1_000, null, 0, 3_500],
+      activePhaseStartedAt: null,
+    });
+    expect(summarizeQuestJourneyDurations(plan, "MEMORY", { allowActiveElapsed: true, maxPhaseCount: 3 })).toEqual({
+      phaseDurationsMs: [1_000, null, 0],
+      activePhaseStartedAt: null,
+    });
+    expect(summarizeQuestJourneyDurations({ phaseIds: ["alignment"], phaseTimings: {} }, "done")).toBeNull();
+  });
+
+  it("uses an explicitly supplied duration summary as fail-closed timing authority", () => {
+    const plan = {
+      phaseIds: ["alignment", "work", "memory"] as const,
+      activePhaseIndex: 1,
+      currentPhaseId: "work" as const,
+      phaseTimings: {
+        "0": { startedAt: 1_000, endedAt: 4_000 },
+        "1": { startedAt: 4_000 },
+      },
+    };
+
+    expect(getQuestJourneyPhaseDurationMs(plan, 0, 10_000, { durationSummary: null })).toBeUndefined();
+    expect(
+      getQuestJourneyPhaseDurationMs(plan, 0, 10_000, {
+        durationSummary: { phaseDurationsMs: [2_500], activePhaseStartedAt: 7_000 },
+      }),
+    ).toBe(2_500);
+    expect(
+      getQuestJourneyPhaseDurationMs(plan, 1, 10_000, {
+        durationSummary: { phaseDurationsMs: [2_500], activePhaseStartedAt: 7_000 },
+      }),
+    ).toBe(3_000);
+    expect(
+      getQuestJourneyPhaseDurationMs(plan, 1, 10_000, {
+        allowOpenEnded: false,
+        durationSummary: { phaseDurationsMs: [2_500], activePhaseStartedAt: 7_000 },
+      }),
+    ).toBeUndefined();
+    expect(
+      getQuestJourneyPhaseDurationMs(plan, 2, 10_000, {
+        durationSummary: { phaseDurationsMs: [2_500], activePhaseStartedAt: 7_000 },
+      }),
+    ).toBeUndefined();
   });
 
   it("returns current phase helpers", () => {

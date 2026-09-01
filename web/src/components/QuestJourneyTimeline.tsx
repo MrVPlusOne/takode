@@ -1,5 +1,9 @@
 import { useState, type CSSProperties } from "react";
 import {
+  LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED,
+  type LeaderThreadTabsProjectionJourney,
+} from "../../shared/leader-thread-tabs-projection.js";
+import {
   formatQuestJourneyDuration,
   getQuestJourneyCurrentPhaseIndex,
   getQuestJourneyPhaseDurationMs,
@@ -18,6 +22,7 @@ type JourneyVariant = "horizontal" | "compact" | "vertical";
 type JourneyPresentationMode = "active" | "completed" | "proposed";
 type PhaseState = "proposed" | "completed" | "current" | "upcoming" | "finished";
 type OmittedPhaseDirection = "earlier" | "later";
+type JourneyDurationSummaryInput = LeaderThreadTabsProjectionJourney["durationSummary"];
 
 type VerticalJourneyDisplayItem =
   | { kind: "phase"; item: PhaseItem }
@@ -50,7 +55,12 @@ function getJourneyPresentationMode(journey: QuestJourneyPlanState, status?: str
   return "active";
 }
 
-function getPhaseItems(journey: QuestJourneyPlanState, status?: string | null, now = Date.now()): PhaseItem[] {
+function getPhaseItems(
+  journey: QuestJourneyPlanState,
+  status?: string | null,
+  now = Date.now(),
+  durationSummary?: JourneyDurationSummaryInput,
+): PhaseItem[] {
   const phaseIds = journey.phaseIds ?? [];
   const mode = getJourneyPresentationMode(journey, status);
   const currentIndex = mode === "active" ? (getQuestJourneyCurrentPhaseIndex(journey, status) ?? -1) : -1;
@@ -75,6 +85,11 @@ function getPhaseItems(journey: QuestJourneyPlanState, status?: string | null, n
     const expectsDuration = state === "completed" || state === "current" || state === "finished";
     const durationMs = getQuestJourneyPhaseDurationMs(journey, index, now, {
       allowOpenEnded: state === "current",
+      ...(durationSummary !== undefined
+        ? {
+            durationSummary: durationSummary === LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED ? null : durationSummary,
+          }
+        : {}),
     });
     return [
       {
@@ -297,11 +312,13 @@ function VerticalJourney({
   items,
   journey,
   status,
+  durationSummaryOmitted,
   className,
 }: {
   items: PhaseItem[];
   journey: QuestJourneyPlanState;
   status?: string | null;
+  durationSummaryOmitted: boolean;
   className?: string;
 }) {
   const [showEarlier, setShowEarlier] = useState(false);
@@ -317,8 +334,9 @@ function VerticalJourney({
   });
   const totalElapsedMs = items.reduce((total, item) => total + (item.durationMs ?? 0), 0);
   const unavailableDurationCount = items.filter((item) => item.durationUnavailable).length;
-  const totalElapsedLabel =
-    totalElapsedMs > 0
+  const totalElapsedLabel = durationSummaryOmitted
+    ? "Duration not loaded"
+    : totalElapsedMs > 0
       ? `${unavailableDurationCount > 0 ? "Partial " : "Total "}${formatQuestJourneyDuration(totalElapsedMs)}`
       : unavailableDurationCount > 0
         ? "Duration unavailable"
@@ -445,6 +463,7 @@ function VerticalJourney({
 export function QuestJourneyTimeline({
   journey,
   status,
+  durationSummary,
   className,
   compact = false,
   variant,
@@ -452,13 +471,14 @@ export function QuestJourneyTimeline({
 }: {
   journey: QuestJourneyPlanState;
   status?: string | null;
+  durationSummary?: JourneyDurationSummaryInput;
   className?: string;
   compact?: boolean;
   variant?: JourneyVariant;
   showNotes?: boolean;
 }) {
   const now = Date.now();
-  const items = getPhaseItems(journey, status, now);
+  const items = getPhaseItems(journey, status, now, durationSummary);
   if (items.length === 0) return null;
 
   const resolvedVariant: JourneyVariant = variant ?? (compact ? "compact" : "horizontal");
@@ -466,7 +486,15 @@ export function QuestJourneyTimeline({
     return <QuestJourneyCompactSummary journey={journey} status={status} className={className} showNotes={showNotes} />;
   }
   if (resolvedVariant === "vertical") {
-    return <VerticalJourney items={items} journey={journey} status={status} className={className} />;
+    return (
+      <VerticalJourney
+        items={items}
+        journey={journey}
+        status={status}
+        durationSummaryOmitted={durationSummary === LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED}
+        className={className}
+      />
+    );
   }
   return <HorizontalJourney items={items} journey={journey} status={status} compact={compact} className={className} />;
 }
@@ -474,12 +502,14 @@ export function QuestJourneyTimeline({
 export function QuestJourneyPreviewCard({
   journey,
   status,
+  durationSummary,
   quest,
   onQuestClick,
   className,
 }: {
   journey: QuestJourneyPlanState;
   status?: string | null;
+  durationSummary?: JourneyDurationSummaryInput;
   quest?: { questId: string; title?: string };
   onQuestClick?: () => void;
   className?: string;
@@ -508,7 +538,7 @@ export function QuestJourneyPreviewCard({
           )}
         </>
       )}
-      <QuestJourneyTimeline journey={journey} status={status} variant="vertical" />
+      <QuestJourneyTimeline journey={journey} status={status} durationSummary={durationSummary} variant="vertical" />
     </div>
   );
 }

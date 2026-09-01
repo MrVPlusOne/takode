@@ -1,4 +1,12 @@
-import type { LeaderThreadTabsProjectionValue } from "../../shared/leader-thread-tabs-projection.js";
+import {
+  LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED,
+  type LeaderThreadTabsProjectionJourney,
+  type LeaderThreadTabsProjectionValue,
+} from "../../shared/leader-thread-tabs-projection.js";
+/*
+ * The projected duration sentinel is a wire-budget state, distinct from null
+ * (authoritative timing unavailable) and from an absent projection overlay.
+ */
 import { getQuestJourneyPhase, type QuestJourneyPlanState } from "../../shared/quest-journey.js";
 import { promoteInMotionLeaderThreadTabsBeforeScheduled } from "../../shared/leader-thread-tab-priority.js";
 
@@ -8,6 +16,7 @@ export interface LeaderThreadNavigationRowBase {
   title: string;
   status?: string;
   boardStatus?: string;
+  journeyDurationSummary?: LeaderThreadTabsProjectionJourney["durationSummary"];
   section?: "active" | "done";
   messageCount: number;
   createdAt: number;
@@ -31,6 +40,7 @@ interface ProjectableBoardRow {
 interface ProjectableThreadRowDetail {
   boardRow?: ProjectableBoardRow;
   journey?: QuestJourneyPlanState;
+  journeyDurationSummary?: LeaderThreadTabsProjectionJourney["durationSummary"];
   leaderSessionId?: string | null;
   rowStatus?: unknown;
 }
@@ -86,6 +96,27 @@ function projectedNullableField<T>(projected: T | null | undefined): T | undefin
   return projected ?? undefined;
 }
 
+function projectedDurationSummary(
+  tab: ProjectedTab,
+  existingDetail: ProjectableThreadRowDetail | undefined,
+): LeaderThreadTabsProjectionJourney["durationSummary"] | undefined {
+  const summary = tab.journey?.durationSummary;
+  if (summary === undefined || summary === null) return summary;
+  if (summary === LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED) {
+    const hasMatchingDetailedTiming =
+      !!existingDetail?.journey?.phaseTimings &&
+      Object.keys(existingDetail.journey.phaseTimings).length > 0 &&
+      !!tab.journey &&
+      stringArraysEqual(existingDetail.journey.phaseIds, tab.journey.phaseIds) &&
+      projectedIdentityMatchesDetail(tab, existingDetail);
+    return hasMatchingDetailedTiming ? undefined : summary;
+  }
+  return {
+    phaseDurationsMs: [...summary.phaseDurationsMs],
+    activePhaseStartedAt: summary.activePhaseStartedAt,
+  };
+}
+
 /** Overlay current projected tab semantics while retaining identity-matched detailed history where useful. */
 export function mergeProjectedLeaderThreadRows<T extends LeaderThreadNavigationRowBase>(
   detailRows: ReadonlyArray<T>,
@@ -104,6 +135,7 @@ export function mergeProjectedLeaderThreadRows<T extends LeaderThreadNavigationR
     const existingBoardRow = existingDetail?.boardRow;
     const completed = tab.completed;
     const projectedJourney = projectedJourneyForTab(tab, existingDetail);
+    const journeyDurationSummary = projectedDurationSummary(tab, existingDetail);
     const worker = projectedNullableField(tab.workerSessionId);
     const workerNum = projectedNullableField(tab.workerSessionNum);
     const sourceLeaderSessionId = projectedNullableField(tab.sourceLeaderSessionId);
@@ -140,6 +172,7 @@ export function mergeProjectedLeaderThreadRows<T extends LeaderThreadNavigationR
       status: completed ? "done" : (tab.boardStatus ?? undefined),
       boardStatus: tab.boardStatus ?? undefined,
       journey: projectedJourney,
+      journeyDurationSummary,
       boardRow: projectedBoardRow,
       leaderSessionId: sourceLeaderSessionId,
       section: completed ? "done" : "active",

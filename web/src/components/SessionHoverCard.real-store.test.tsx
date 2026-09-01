@@ -227,6 +227,7 @@ describe("SessionHoverCard with the real store", () => {
                 currentPhaseId: "implement",
                 activePhaseIndex: 1,
                 phaseCount: 3,
+                durationSummary: null,
               },
               active: true,
               completed: false,

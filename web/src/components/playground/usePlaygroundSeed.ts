@@ -48,6 +48,7 @@ import { createSyntheticLargeLeaderFeedFixture } from "../../test-fixtures/large
 import { buildLeaderActivePhaseSummary } from "../../../shared/leader-active-phase-summary.js";
 import { LEADER_THREAD_TABS_PROJECTION } from "../../../shared/leader-thread-tabs-projection.js";
 import { buildPlaygroundActionRequiredRecoveryMessages } from "./CodexRecoveryPlaygroundMessages.js";
+import { buildPlaygroundProjectedJourney } from "./leader-thread-tabs-projection-fixtures.js";
 
 const EMPTY_PROJECTED_ATTENTION = { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 };
 
@@ -1192,15 +1193,7 @@ export function usePlaygroundSeed() {
             questId: threadKey,
             title: boardRow.title ?? threadKey,
             boardStatus: boardRow.status ?? null,
-            journey: boardRow.journey
-              ? {
-                  mode: boardRow.journey.mode ?? null,
-                  phaseIds: boardRow.journey.phaseIds,
-                  currentPhaseId: boardRow.journey.currentPhaseId ?? null,
-                  activePhaseIndex: boardRow.journey.activePhaseIndex ?? null,
-                  phaseCount: boardRow.journey.phaseIds.length,
-                }
-              : null,
+            journey: buildPlaygroundProjectedJourney(boardRow, completed),
             sourceLeaderSessionId: PLAYGROUND_THREAD_PANEL_SESSION_ID,
             sourceRowCreatedAt: boardRow.createdAt,
             workerSessionId: boardRow.worker ?? null,

@@ -1,4 +1,5 @@
 import {
+  LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED,
   LEADER_THREAD_TABS_PROJECTION,
   LEADER_THREAD_TABS_PROJECTION_MAX_ACTIVE_PHASE_SEGMENTS,
   LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH,
@@ -20,7 +21,11 @@ import {
   LEADER_OPEN_THREAD_TABS_VERSION,
   normalizeLeaderOpenThreadTabsState,
 } from "../shared/leader-open-thread-tabs.js";
-import { getQuestJourneyCurrentPhaseId, getQuestJourneyCurrentPhaseIndex } from "../shared/quest-journey.js";
+import {
+  getQuestJourneyCurrentPhaseId,
+  getQuestJourneyCurrentPhaseIndex,
+  summarizeQuestJourneyDurations,
+} from "../shared/quest-journey.js";
 import {
   isInMotionLeaderThreadTabRow,
   isNeverStartedScheduledLeaderThreadTabRow,
@@ -473,7 +478,7 @@ function isQuestIdFallbackTitle(title: string, threadKey: string, questId?: stri
   );
 }
 
-function compactJourney(row: BoardRow | undefined): LeaderThreadTabsProjectionJourney | null {
+function compactJourney(row: BoardRow | undefined, completed: boolean): LeaderThreadTabsProjectionJourney | null {
   if (!row?.journey) return null;
   const phaseIds = row.journey.phaseIds.slice(0, 100);
   const phaseCount = phaseIds.length;
@@ -488,6 +493,10 @@ function compactJourney(row: BoardRow | undefined): LeaderThreadTabsProjectionJo
     currentPhaseId,
     activePhaseIndex: activePhaseIndex !== null && activePhaseIndex < phaseCount ? activePhaseIndex : null,
     phaseCount,
+    durationSummary: summarizeQuestJourneyDurations(row.journey, row.status, {
+      allowActiveElapsed: !completed,
+      maxPhaseCount: phaseCount,
+    }),
   };
 }
 
@@ -578,6 +587,60 @@ function compactDisplayText(
   };
 }
 
+function durationSummaryRetentionRank(tab: LeaderThreadTabsProjectionTab): number {
+  if (tab.active) return 2;
+  if (tab.completed) return 1;
+  return 0;
+}
+
+function compactDurationSummariesToByteLimit(value: LeaderThreadTabsProjectionValue): LeaderThreadTabsProjectionValue {
+  let compacted = value;
+  const candidates = value.tabs
+    .map((tab, index) => {
+      const durationSummary = tab.journey?.durationSummary;
+      return {
+        index,
+        rank: durationSummaryRetentionRank(tab),
+        bytes:
+          durationSummary !== null &&
+          durationSummary !== undefined &&
+          durationSummary !== LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED
+            ? (jsonUtf8ByteLength(durationSummary) ?? 0)
+            : 0,
+      };
+    })
+    .filter(({ bytes }) => bytes > 0)
+    .sort((left, right) => left.rank - right.rank || right.bytes - left.bytes || right.index - left.index);
+
+  for (const { index } of candidates) {
+    const tab = compacted.tabs[index];
+    if (
+      !tab?.journey ||
+      tab.journey.durationSummary === null ||
+      tab.journey.durationSummary === LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED
+    ) {
+      continue;
+    }
+    const tabs = [...compacted.tabs];
+    tabs[index] = {
+      ...tab,
+      journey: { ...tab.journey, durationSummary: LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED },
+    };
+    compacted = { ...compacted, tabs };
+    if (serializedValueBytes(compacted) <= LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES) return compacted;
+  }
+  return compacted;
+}
+
+function compactStatusIdentities(value: LeaderThreadTabsProjectionValue): LeaderThreadTabsProjectionValue {
+  return {
+    ...value,
+    threadStatuses: Object.fromEntries(
+      Object.entries(value.threadStatuses).map(([key, status]) => [key, minimalStatusIdentity(status)]),
+    ),
+  };
+}
+
 function compactValueToByteLimit(value: LeaderThreadTabsProjectionValue): LeaderThreadTabsProjectionValue {
   if (serializedValueBytes(value) <= LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES) return value;
   const compacted = compactDisplayText(value, 80, 100);
@@ -588,19 +651,34 @@ function compactValueToByteLimit(value: LeaderThreadTabsProjectionValue): Leader
     return displayCompacted;
   }
 
+  const durationCompacted = compactDurationSummariesToByteLimit(displayCompacted);
+  if (serializedValueBytes(durationCompacted) <= LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES) {
+    return durationCompacted;
+  }
+
+  // Preserve bounded Journey structure before falling back to identity-only
+  // tabs. Once display text is already compacted, status summaries and full
+  // message IDs are less valuable than retaining the phase sequence and the
+  // highest-priority duration summaries that still fit.
+  const statusCompacted = compactStatusIdentities(displayCompacted);
+  if (serializedValueBytes(statusCompacted) <= LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES) {
+    return statusCompacted;
+  }
+  const statusAndDurationCompacted = compactDurationSummariesToByteLimit(statusCompacted);
+  if (serializedValueBytes(statusAndDurationCompacted) <= LEADER_THREAD_TABS_PROJECTION_MAX_VALUE_BYTES) {
+    return statusAndDurationCompacted;
+  }
+
   // Pathological long custom keys can still require nonessential phase/status
-  // detail to be shed after display text is removed.
+  // detail to be shed after display text and duration evidence are compacted.
   return {
-    ...displayCompacted,
-    tabs: displayCompacted.tabs.map((tab) => ({
+    ...statusAndDurationCompacted,
+    tabs: statusAndDurationCompacted.tabs.map((tab) => ({
       ...tab,
       title: null,
       boardStatus: null,
       journey: null,
     })),
-    threadStatuses: Object.fromEntries(
-      Object.entries(displayCompacted.threadStatuses).map(([key, status]) => [key, minimalStatusIdentity(status)]),
-    ),
   };
 }
 
@@ -668,7 +746,7 @@ export function buildLeaderThreadTabsProjectionValue(
         LEADER_THREAD_TABS_PROJECTION_MAX_TITLE_LENGTH,
       ),
       boardStatus: boundedNullableText(row?.status, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_LENGTH),
-      journey: compactJourney(row),
+      journey: compactJourney(row, completed),
       sourceLeaderSessionId: boundedNullableText(
         currentQuestRow?.sourceLeaderSessionId ?? (localRow ? session.id : null),
         LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH,

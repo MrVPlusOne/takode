@@ -12,6 +12,7 @@ import {
   getQuestJourneyCurrentPhaseId,
   getQuestJourneyCurrentPhaseIndex,
   normalizeQuestJourneyPlan,
+  summarizeQuestJourneyDurations,
 } from "../../shared/quest-journey.js";
 import { isInMotionLeaderThreadTabRow } from "../../shared/leader-thread-tab-priority.js";
 import { normalizeLeaderOpenThreadKeys, normalizeLeaderThreadKey } from "../../shared/leader-open-thread-tabs.js";
@@ -168,6 +169,10 @@ function compactJourney(row: BoardRowData | undefined): LeaderThreadTabsProjecti
   const normalized = normalizeQuestJourneyPlan(row.journey, row.status);
   const phaseIds = normalized.phaseIds.slice(0, 100);
   const activePhaseIndex = getQuestJourneyCurrentPhaseIndex(normalized, row.status);
+  const summary = summarizeQuestJourneyDurations(normalized, row.status, {
+    allowActiveElapsed: !isCompletedBoardRow(row, false),
+    maxPhaseCount: phaseIds.length,
+  });
   return {
     mode: normalized.mode ?? null,
     phaseIds,
@@ -177,6 +182,7 @@ function compactJourney(row: BoardRowData | undefined): LeaderThreadTabsProjecti
         ? activePhaseIndex
         : null,
     phaseCount: phaseIds.length,
+    durationSummary: summary,
   };
 }
 

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { LeaderThreadTabsProjectionTab } from "../../shared/leader-thread-tabs-projection.js";
+import {
+  LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED,
+  type LeaderThreadTabsProjectionTab,
+} from "../../shared/leader-thread-tabs-projection.js";
 import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
 import { buildLeaderThreadMigrationKeys, mergeProjectedLeaderThreadRows } from "./leader-thread-tabs-navigation.js";
 
@@ -16,6 +19,7 @@ function currentTab(overrides: Partial<LeaderThreadTabsProjectionTab> = {}): Lea
       currentPhaseId: "work",
       activePhaseIndex: 1,
       phaseCount: 3,
+      durationSummary: null,
     },
     sourceLeaderSessionId: "leader-current",
     sourceRowCreatedAt: 200,
@@ -188,6 +192,137 @@ describe("leader thread tabs navigation projection", () => {
     expect((row as typeof samePlanHistory).journey.phaseTimings).toBeUndefined();
     expect((row as typeof samePlanHistory).boardRow.journey.phaseNotes).toBeUndefined();
     expect((row as typeof samePlanHistory).boardRow.journey.phaseTimings).toBeUndefined();
+  });
+
+  it("carries authoritative projected durations when no local detail identity matches", () => {
+    const projected = currentTab({
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "work", "memory"],
+        currentPhaseId: "work",
+        activePhaseIndex: 1,
+        phaseCount: 3,
+        durationSummary: {
+          phaseDurationsMs: [120_000],
+          activePhaseStartedAt: 500_000,
+        },
+      },
+    });
+
+    const [row] = mergeProjectedLeaderThreadRows([staleCompletedRow], projectionFor(projected), new Map());
+
+    expect(row).toMatchObject({
+      journeyDurationSummary: {
+        phaseDurationsMs: [120_000],
+        activePhaseStartedAt: 500_000,
+      },
+    });
+    expect((row as { journey?: { phaseTimings?: unknown } }).journey?.phaseTimings).toBeUndefined();
+  });
+
+  it("preserves matching phase notes while an explicit projected timing clear remains authoritative", () => {
+    const matchingRow = {
+      ...staleCompletedRow,
+      leaderSessionId: "leader-current",
+      journeyDurationSummary: {
+        phaseDurationsMs: [60_000],
+        activePhaseStartedAt: 70_000,
+      },
+      journey: {
+        ...staleCompletedRow.journey,
+        phaseIds: ["alignment", "work", "memory"] as const,
+        activePhaseIndex: 1,
+        currentPhaseId: "work" as const,
+        phaseNotes: { "1": "Current Work note" },
+      },
+      boardRow: {
+        ...staleCompletedRow.boardRow,
+        worker: "worker-current",
+        workerNum: 2580,
+        createdAt: 200,
+      },
+    };
+
+    const [row] = mergeProjectedLeaderThreadRows([matchingRow], projectionFor(currentTab()), new Map());
+
+    expect((row as typeof matchingRow).journey.phaseNotes).toEqual({ "1": "Current Work note" });
+    expect((row as typeof matchingRow).journeyDurationSummary).toBeNull();
+  });
+
+  it("uses exact matching board timing when the compact projection omits only duration evidence", () => {
+    const matchingRow = {
+      ...staleCompletedRow,
+      leaderSessionId: "leader-current",
+      journey: {
+        mode: "active" as const,
+        phaseIds: ["alignment", "work", "memory"] as const,
+        activePhaseIndex: 1,
+        currentPhaseId: "work" as const,
+        phaseTimings: {
+          "0": { startedAt: 1_000, endedAt: 61_000 },
+          "1": { startedAt: 61_000 },
+        },
+      },
+      boardRow: {
+        ...staleCompletedRow.boardRow,
+        worker: "worker-current",
+        workerNum: 2580,
+        createdAt: 200,
+      },
+    };
+    const projected = currentTab({
+      journey: {
+        ...currentTab().journey!,
+        durationSummary: LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED,
+      },
+    });
+
+    const [row] = mergeProjectedLeaderThreadRows([matchingRow], projectionFor(projected), new Map());
+
+    expect((row as typeof matchingRow).journey.phaseTimings).toEqual(matchingRow.journey.phaseTimings);
+    expect((row as { journeyDurationSummary?: unknown }).journeyDurationSummary).toBeUndefined();
+  });
+
+  it("keeps wire-budget omission explicit when the same row has a revised phase sequence", () => {
+    const matchingOldSequence = {
+      ...staleCompletedRow,
+      leaderSessionId: "leader-current",
+      journey: {
+        mode: "active" as const,
+        phaseIds: ["alignment", "work", "memory"] as const,
+        activePhaseIndex: 1,
+        currentPhaseId: "work" as const,
+        phaseTimings: {
+          "0": { startedAt: 1_000, endedAt: 61_000 },
+          "1": { startedAt: 61_000 },
+        },
+      },
+      boardRow: {
+        ...staleCompletedRow.boardRow,
+        worker: "worker-current",
+        workerNum: 2580,
+        createdAt: 200,
+      },
+    };
+    const projected = currentTab({
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
+        currentPhaseId: "work",
+        activePhaseIndex: 3,
+        phaseCount: 5,
+        durationSummary: LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED,
+      },
+    });
+
+    const [row] = mergeProjectedLeaderThreadRows([matchingOldSequence], projectionFor(projected), new Map());
+
+    const revisedJourney = (row as { journey?: { phaseIds?: readonly string[]; phaseTimings?: unknown } }).journey;
+    expect(revisedJourney?.phaseIds).toEqual(["alignment", "work", "user-checkpoint", "work", "memory"]);
+    expect(revisedJourney?.phaseTimings).toBeUndefined();
+    expect((row as { journeyDurationSummary?: unknown }).journeyDurationSummary).toBe(
+      LEADER_THREAD_TABS_DURATION_SUMMARY_OMITTED,
+    );
   });
 
   it("drops historical Journey detail when current projected identity is explicitly absent", () => {

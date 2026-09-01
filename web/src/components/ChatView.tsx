@@ -16,6 +16,7 @@ import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { connectSession, sendToSession } from "../ws.js";
 import { formatWaitForRefLabel, getWaitForRefKind } from "../../shared/quest-journey.js";
+import type { LeaderThreadTabsProjectionJourney } from "../../shared/leader-thread-tabs-projection.js";
 import { MessageFeed } from "./MessageFeed.js";
 import { Composer } from "./Composer.js";
 import { SideChatPanel } from "./SideChatPanel.js";
@@ -117,6 +118,7 @@ export interface QuestThreadBannerRow {
   status?: string;
   boardStatus?: string;
   journey?: BoardRowData["journey"];
+  journeyDurationSummary?: LeaderThreadTabsProjectionJourney["durationSummary"];
   boardRow?: BoardRowData;
   rowStatus?: BoardRowSessionStatus;
   leaderSessionId?: string | null;
@@ -381,6 +383,7 @@ function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow;
               <QuestJourneyPreviewCard
                 journey={row.journey}
                 status={journeyStatusForThread(row)}
+                durationSummary={row.journeyDurationSummary}
                 quest={{ questId: row.questId ?? row.threadKey, title: row.title }}
                 onQuestClick={() => useStore.getState().openQuestOverlay(row.questId ?? row.threadKey)}
               />
@@ -722,8 +725,8 @@ function useLeaderThreadModel(sessionId: string, deferMessageDerivedRows = false
         threadSummaries,
         quests,
         rowSessionStatuses,
-      }) as LeaderThreadRow[],
-    [activeBoard, completedBoard, quests, rowSessionStatuses, threadSummaries],
+      }).map((row) => ({ ...row, leaderSessionId: sessionId })) as LeaderThreadRow[],
+    [activeBoard, completedBoard, quests, rowSessionStatuses, sessionId, threadSummaries],
   );
   const activeRows = useMemo(() => rows.filter((row) => row.section === "active"), [rows]);
   const doneRows = useMemo(() => rows.filter((row) => row.section === "done"), [rows]);

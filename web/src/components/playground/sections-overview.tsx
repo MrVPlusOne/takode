@@ -300,6 +300,10 @@ export function PlaygroundOverviewSections() {
           currentPhaseId: "work",
           phaseNotes: { "1": "Work owns implementation, validation, and sync evidence." },
         },
+        journeyDurationSummary: {
+          phaseDurationsMs: [60_000],
+          activePhaseStartedAt: Date.now() - 180_000,
+        },
         rowStatus: {
           worker: { sessionId: "playground-thread-worker", sessionNum: 1321, name: "Clear Mesa", status: "running" },
         },
@@ -377,6 +381,10 @@ export function PlaygroundOverviewSections() {
           phaseIds: ["alignment", "work", "memory"],
           currentPhaseId: "memory",
           phaseNotes: { "1": "Work completed with verification evidence.", "2": "Memory closed durable state." },
+        },
+        journeyDurationSummary: {
+          phaseDurationsMs: [60_000, null, 120_000],
+          activePhaseStartedAt: null,
         },
         boardRow: { questId: "q-9004", title: "Finish completed Journey display", worker: "worker-964", updatedAt: 1 },
         rowStatus: {
