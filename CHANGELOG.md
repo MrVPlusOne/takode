@@ -1,5 +1,36 @@
 # Takode Changelog
 
+## [0.47.0](https://github.com/MrVPlusOne/takode/compare/the-companion-v0.46.0...the-companion-v0.47.0) (2026-09-01)
+
+
+### Features
+
+* **ui:** add starred messages ([2fcf890](https://github.com/MrVPlusOne/takode/commit/2fcf8905afb6a67dc817596c8643081ecf7a7055))
+
+
+### Bug Fixes
+
+* **codex:** harden recovery receipt boundaries ([80b311d](https://github.com/MrVPlusOne/takode/commit/80b311d5023c71dca33574354ae8b294ead165bd))
+* **codex:** pause after Copilot auth refresh exhaustion ([bba568c](https://github.com/MrVPlusOne/takode/commit/bba568ca294e56cc7a9adfa5525ac4f71b284e67))
+* **codex:** persist recovery delivery handoffs ([f1546b1](https://github.com/MrVPlusOne/takode/commit/f1546b1e7b648d2c707c50fa33249a949e705243))
+* **codex:** preserve drained input ownership ([8fb3ff4](https://github.com/MrVPlusOne/takode/commit/8fb3ff45995ff3a2d5611229a172dbbccc4faf28))
+* **codex:** preserve held input outcomes ([d4a0560](https://github.com/MrVPlusOne/takode/commit/d4a05605a30c8b6f7cbea5c6f6e30887e29f0169))
+* **codex:** preserve resumed pause ownership ([b24a050](https://github.com/MrVPlusOne/takode/commit/b24a050d8894fbec47dd4864c0eae09c6b3f113b))
+* **ui:** avoid redundant health poll renders ([59cddb4](https://github.com/MrVPlusOne/takode/commit/59cddb40881ec405fcc2b4f6ec1397de4c6c8106))
+* **ui:** hide star action for fallback message ids ([a1dd2b7](https://github.com/MrVPlusOne/takode/commit/a1dd2b73581305caa9fd395a9d2d2cc3b8cd0016))
+* **ui:** highlight navigator jump target ([94a1af9](https://github.com/MrVPlusOne/takode/commit/94a1af92c05fa3425e37a321c0169669f7dce57a))
+* **ui:** isolate markdown feed renders ([f113f8c](https://github.com/MrVPlusOne/takode/commit/f113f8c501ffa648651db861da8adfd520471285))
+* **ui:** keep leader tabs selectable during route repair ([92a071b](https://github.com/MrVPlusOne/takode/commit/92a071b9e5f16221473b712e25e255a389d3af02))
+* **ui:** load targeted feed windows for message links ([4577ab3](https://github.com/MrVPlusOne/takode/commit/4577ab372529e1dc3cc996f6b85caac5d3d13368))
+* **ui:** make feed restore state idempotent ([e331222](https://github.com/MrVPlusOne/takode/commit/e3312224a513a75172f6d9713626f3ef615ebcba))
+* **ui:** move starred feed markers to rail ([c526495](https://github.com/MrVPlusOne/takode/commit/c526495d695a0fd553bd905912e3fbaf0f095060))
+* **ui:** preserve main message thread routes ([4f66e6b](https://github.com/MrVPlusOne/takode/commit/4f66e6b800dfe303e349b6ce8842a6009efd2780))
+* **ui:** prevent redundant diff selection updates ([6344349](https://github.com/MrVPlusOne/takode/commit/634434956798a49c30742c2570dcfe153a0ec6a8))
+* **ui:** reduce feed scroll rerenders ([881fac2](https://github.com/MrVPlusOne/takode/commit/881fac26524d7ae82c5883410c842f38f3a89ea7))
+* **ui:** stabilize duplicate diff transition updates ([6878d2b](https://github.com/MrVPlusOne/takode/commit/6878d2b84fbd1940864ded0dc3d078d5d26c9da8))
+* **ui:** stop leader tab promotion loop ([9c8a4e6](https://github.com/MrVPlusOne/takode/commit/9c8a4e67e30913cb9c9e62be0555b9eb25f0136e))
+* **ui:** unmount hidden chat feed on diff tab ([aab0f3e](https://github.com/MrVPlusOne/takode/commit/aab0f3e26802e6c74fb6bd19983d4ff1410391ff))
+
 ## 2026-08-31
 
 ### Changed
