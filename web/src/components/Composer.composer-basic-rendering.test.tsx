@@ -547,6 +547,67 @@ describe("Composer basic rendering", () => {
     expect(sendBtn).toBeTruthy();
   });
 
+  it("releases the exact server-authored auto-pause epoch without optimistic local state", async () => {
+    const pausedAt = new Date("2026-09-01T12:00:00Z").getTime();
+    const autoPause = {
+      family: "model_backend_stream_error" as const,
+      fingerprint: "stream-error",
+      streak: 3,
+      threshold: 3,
+      pausedAt,
+      lastError: "stream disconnected",
+      lastErrorAt: pausedAt,
+      lastSourceKind: "automatic" as const,
+      totalMatchingErrors: 3,
+      heldInputs: [],
+    };
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        codex_result_error_auto_pause: autoPause,
+      },
+    });
+
+    render(<Composer sessionId="s1" />);
+    const release = screen.getByTestId("composer-auto-pause-release");
+
+    fireEvent.click(release);
+
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "release_codex_auto_paused_inputs",
+      pausedAt,
+    });
+    expect(release.textContent).toContain("Release now");
+    expect((release as HTMLButtonElement).disabled).toBe(false);
+
+    const sessions = mockStoreState.sessions as Map<string, SessionState>;
+    act(() => {
+      sessions.set("s1", {
+        ...sessions.get("s1")!,
+        codex_result_error_auto_pause: {
+          ...autoPause,
+          releaseProgress: { status: "releasing", acceptedAt: pausedAt + 1_000 },
+        },
+      });
+      notifyMockStore();
+    });
+
+    await waitFor(() =>
+      expect((screen.getByTestId("composer-auto-pause-release") as HTMLButtonElement).disabled).toBe(true),
+    );
+    expect(screen.getByTestId("composer-auto-pause-release").textContent).toContain("Releasing…");
+
+    act(() => {
+      sessions.set("s1", {
+        ...sessions.get("s1")!,
+        codex_result_error_auto_pause: null,
+      });
+      notifyMockStore();
+    });
+
+    await waitFor(() => expect(screen.queryByTestId("composer-paused-banner")).toBeNull());
+  });
+
   it("renders archived sessions as read-only instead of active input", () => {
     // Archived session history should remain inspectable, but the composer must
     // not expose a live textarea or send control that would imply backend input.

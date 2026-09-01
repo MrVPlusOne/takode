@@ -6,10 +6,12 @@ import {
   COMPACTION_RECOVERY_SOURCE_LABEL,
   CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID,
   CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL,
+  CODEX_TURN_RECOVERY_SOURCE_LABEL,
   MEMORY_CATALOG_SOURCE_ID,
   MEMORY_CATALOG_SOURCE_LABEL,
   MEMORY_CATALOG_TITLE,
   MEMORY_CATALOG_TRUNCATED_PREFIX,
+  codexTurnRecoverySourceId,
   leaderSkillPreloadSourceId,
   leaderSkillPreloadSourceLabel,
 } from "../../shared/injected-event-message.js";
@@ -58,6 +60,22 @@ function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role
 }
 
 describe("MessageBubble injected event search highlighting", () => {
+  it("describes interrupted-work follow-ups without internal delivery jargon", () => {
+    const event = buildInjectedEventMessageViewModel({
+      content: "Takode is resuming interrupted work.",
+      agentSource: {
+        sessionId: codexTurnRecoverySourceId("recovery-1"),
+        sessionLabel: CODEX_TURN_RECOVERY_SOURCE_LABEL,
+      },
+    });
+
+    expect(event).toMatchObject({
+      title: "Resuming Interrupted Work",
+      description: "Takode added one follow-up to finish work interrupted by a disconnect.",
+    });
+    expect(event?.description).not.toMatch(/one-shot|exact owner|payload|replay/i);
+  });
+
   it("builds injected event view models with raw character sizes and memory catalog source guidance", () => {
     const skillName = "quest";
     const skillContent = [
@@ -141,8 +159,8 @@ describe("MessageBubble injected event search highlighting", () => {
     const msg = makeMessage({
       role: "user",
       content: [
-        "Codex recovery diagnostic: automatic replay stopped after the partial leader response above.",
-        "Review the partial response and send a new continuation only if the intended outcome is still missing.",
+        "Takode stopped after the partial response above.",
+        "Review the partial response and send a new instruction in this thread only if the intended outcome is still missing.",
       ].join("\n"),
       agentSource: {
         sessionId: CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID,
@@ -156,12 +174,12 @@ describe("MessageBubble injected event search highlighting", () => {
     expect(chip.getAttribute("aria-expanded")).toBe("false");
     expect(chip.textContent).toContain(CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL);
     expect(chip.className).not.toContain("red-");
-    expect(screen.queryByText(/send a new continuation/)).toBeNull();
+    expect(screen.queryByText(/send a new instruction in this thread/)).toBeNull();
 
     fireEvent.click(chip);
 
-    expect(screen.getByText(/send a new continuation/)).toBeTruthy();
-    expect(screen.getByText(/protect exact-once delivery/)).toBeTruthy();
+    expect(screen.getByText(/send a new instruction in this thread/)).toBeTruthy();
+    expect(screen.getByText(/could repeat actions/)).toBeTruthy();
   });
 
   it("renders leader skill preload injections as collapsed event chips by default", () => {

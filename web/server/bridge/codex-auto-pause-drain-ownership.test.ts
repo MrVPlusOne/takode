@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionStore, type PersistedSession } from "../session-store.js";
 import type { BrowserOutgoingMessage } from "../session-types.js";
 import { queueCodexAutoPausedInput } from "../codex-result-error-auto-pause.js";
-import { handleCodexResultErrorAutoPause } from "./codex-result-error-auto-pause-delivery.js";
+import {
+  handleCodexResultErrorAutoPause,
+  releaseCodexAutoPausedInputs,
+} from "./codex-result-error-auto-pause-delivery.js";
 import { markCodexAutoPauseRecoveryDelivered } from "./codex-auto-pause-recovery-summary.js";
 import {
   normalizePersistedRecoveryDeliveryTransfers,
@@ -13,6 +16,7 @@ import {
   resumeRecoveryDeliveryTransfers,
 } from "./recovery-delivery-transfer.js";
 import type { BrowserTransportDeps, BrowserTransportSessionLike } from "./browser-transport-controller.js";
+import { getRecoveryDeliveryTransferDepsForBridge } from "./ws-bridge-recovery-delivery-transfer-deps.js";
 
 const tempDirs: string[] = [];
 
@@ -131,6 +135,11 @@ async function releaseHeldInput(
   session: BrowserTransportSessionLike,
   getIngressDeps: () => BrowserTransportDeps,
   onFirstBarrier?: () => void | Promise<void>,
+  completedTurn: Record<string, unknown> = {
+    autoPauseSourceKind: "manual",
+    turnTarget: "current",
+    autoPauseRecoveryTestingRetired: false,
+  },
 ) {
   const persistSession = vi.fn();
   const broadcastToBrowsers = vi.fn();
@@ -145,7 +154,7 @@ async function releaseHeldInput(
       result: "ok",
       stop_reason: "end_turn",
     } as any,
-    { autoPauseSourceKind: "manual", turnTarget: "current", autoPauseRecoveryTestingRetired: false } as any,
+    completedTurn as any,
     {
       broadcastToBrowsers,
       broadcastPendingCodexInputs: vi.fn(),
@@ -196,6 +205,549 @@ function expectEveryReleasedReceiptOwned(session: BrowserTransportSessionLike): 
 }
 
 describe("Codex auto-pause drain ownership", () => {
+  it("accepts one explicit release per pause epoch while the durable handoff is in progress", async () => {
+    const session = makeSession();
+    const route = vi.fn((target: BrowserTransportSessionLike, message: BrowserOutgoingMessage) => {
+      if (message.type !== "user_message") return;
+      target.pendingCodexInputs.push({
+        id: "pending-explicit-release",
+        content: message.content,
+        timestamp: 210,
+        cancelable: true,
+        autoPauseRecoveries: message.autoPauseRecoveries,
+      } as any);
+    });
+    let releaseFirstBarrier!: () => void;
+    const firstBarrier = new Promise<void>((resolve) => {
+      releaseFirstBarrier = resolve;
+    });
+    let barrierCount = 0;
+    const broadcastToBrowsers = vi.fn();
+    const deps = {
+      broadcastToBrowsers,
+      broadcastPendingCodexInputs: vi.fn(),
+      persistSession: vi.fn(),
+      persistSessionImmediately: vi.fn(async () => {
+        barrierCount += 1;
+        if (barrierCount === 1) await firstBarrier;
+      }),
+      getBrowserTransportDeps: () => makeIngressDeps(route),
+      releasePendingTransfer: vi.fn(),
+    };
+
+    const first = releaseCodexAutoPausedInputs(session as any, 100, deps as any);
+    expect(session.state.codex_result_error_auto_pause?.releaseProgress).toMatchObject({ status: "releasing" });
+    expect(broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "session_update",
+        session: expect.objectContaining({
+          codex_result_error_auto_pause: expect.objectContaining({
+            releaseProgress: expect.objectContaining({ status: "releasing" }),
+          }),
+        }),
+      }),
+    );
+
+    await expect(releaseCodexAutoPausedInputs(session as any, 100, deps as any)).resolves.toBe("in_progress");
+    expect(session.recoveryDeliveryTransfers).toHaveLength(1);
+    releaseFirstBarrier();
+    await expect(first).resolves.toBe("accepted");
+
+    expect(route).toHaveBeenCalledTimes(1);
+    expect(session.state.codex_result_error_auto_pause).toBeNull();
+    expect(session.recoveryDeliveryTransfers).toEqual([]);
+    expect(session.messageHistory.filter((entry) => entry.type === "codex_auto_pause_recovery_summary")).toHaveLength(
+      1,
+    );
+    expect(recoveryReceipt(session).receipt).toMatchObject({
+      reasonCode: "user_release_requested",
+      outcome: "released_to_delivery",
+    });
+  });
+
+  it("re-enables the same epoch after a failed transfer barrier and retries without duplicating delivery", async () => {
+    const session = makeSession();
+    const route = vi.fn((target: BrowserTransportSessionLike, message: BrowserOutgoingMessage) => {
+      if (message.type !== "user_message") return;
+      target.pendingCodexInputs.push({
+        id: "pending-retried-explicit-release",
+        content: message.content,
+        timestamp: 220,
+        cancelable: true,
+        autoPauseRecoveries: message.autoPauseRecoveries,
+      } as any);
+    });
+    let failFirstBarrier = true;
+    const broadcastToBrowsers = vi.fn();
+    const deps = {
+      broadcastToBrowsers,
+      broadcastPendingCodexInputs: vi.fn(),
+      persistSession: vi.fn(),
+      persistSessionImmediately: vi.fn(async () => {
+        if (!failFirstBarrier) return;
+        failFirstBarrier = false;
+        throw new Error("release barrier failed");
+      }),
+      getBrowserTransportDeps: () => makeIngressDeps(route),
+      releasePendingTransfer: vi.fn(),
+    };
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(releaseCodexAutoPausedInputs(session as any, 100, deps as any)).resolves.toBe("accepted");
+    expect(session.state.codex_result_error_auto_pause).toMatchObject({ pausedAt: 100 });
+    expect(session.state.codex_result_error_auto_pause?.releaseProgress).toBeUndefined();
+    expect(route).not.toHaveBeenCalled();
+    expect(session.recoveryDeliveryTransfers).toHaveLength(1);
+
+    await expect(releaseCodexAutoPausedInputs(session as any, 99, deps as any)).resolves.toBe("stale");
+    await expect(releaseCodexAutoPausedInputs(session as any, 100, deps as any)).resolves.toBe("accepted");
+
+    expect(route).toHaveBeenCalledTimes(1);
+    expect(session.state.codex_result_error_auto_pause).toBeNull();
+    expect(session.recoveryDeliveryTransfers).toEqual([]);
+    expect(session.messageHistory.filter((entry) => entry.type === "codex_auto_pause_recovery_summary")).toHaveLength(
+      1,
+    );
+    expect(session.pendingCodexInputs).toHaveLength(1);
+  });
+
+  it("restores the pause after a second durability-barrier failure and retries without duplicate delivery", async () => {
+    const session = makeSession();
+    const route = vi.fn((target: BrowserTransportSessionLike, message: BrowserOutgoingMessage) => {
+      if (message.type !== "user_message") return;
+      target.pendingCodexInputs.push({
+        id: "pending-second-barrier-retry",
+        content: message.content,
+        timestamp: 230,
+        cancelable: true,
+        autoPauseRecoveries: message.autoPauseRecoveries,
+      } as any);
+    });
+    let barrierCount = 0;
+    const deps = {
+      broadcastToBrowsers: vi.fn(),
+      broadcastPendingCodexInputs: vi.fn(),
+      persistSession: vi.fn(),
+      persistSessionImmediately: vi.fn(async () => {
+        barrierCount += 1;
+        if (barrierCount === 2) throw new Error("source-removal barrier failed");
+      }),
+      getBrowserTransportDeps: () => makeIngressDeps(route),
+      releasePendingTransfer: vi.fn(),
+    };
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(releaseCodexAutoPausedInputs(session as any, 100, deps as any)).resolves.toBe("accepted");
+
+    expect(session.state.codex_result_error_auto_pause).toMatchObject({
+      pausedAt: 100,
+      heldInputs: [expect.objectContaining({ id: "held-group" })],
+    });
+    expect(session.state.codex_result_error_auto_pause?.releaseProgress).toBeUndefined();
+    expect(session.recoveryDeliveryTransfers).toHaveLength(1);
+    expect(route).not.toHaveBeenCalled();
+
+    await expect(releaseCodexAutoPausedInputs(session as any, 100, deps as any)).resolves.toBe("accepted");
+
+    expect(route).toHaveBeenCalledTimes(1);
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(session.state.codex_result_error_auto_pause).toBeNull();
+    expect(session.recoveryDeliveryTransfers).toEqual([]);
+  });
+
+  it("keeps exact counts when coalescing races a failed second durability barrier", async () => {
+    const session = makeSession();
+    const routedCounts: number[] = [];
+    const route = vi.fn((target: BrowserTransportSessionLike, message: BrowserOutgoingMessage) => {
+      if (message.type !== "user_message") return;
+      const coalesced = message.content.match(/auto-pause resumed: (\d+) similar automatic inputs/)?.[1];
+      routedCounts.push(coalesced ? Number(coalesced) : 1);
+      target.pendingCodexInputs.push({
+        id: `pending-coalesced-${routedCounts.length}`,
+        content: message.content,
+        timestamp: 240 + routedCounts.length,
+        cancelable: true,
+        autoPauseRecoveries: message.autoPauseRecoveries,
+      } as any);
+    });
+    let releaseFirstBarrier!: () => void;
+    const firstBarrier = new Promise<void>((resolve) => {
+      releaseFirstBarrier = resolve;
+    });
+    let barrierCount = 0;
+    const deps = {
+      broadcastToBrowsers: vi.fn(),
+      broadcastPendingCodexInputs: vi.fn(),
+      persistSession: vi.fn(),
+      persistSessionImmediately: vi.fn(async () => {
+        barrierCount += 1;
+        if (barrierCount === 1) await firstBarrier;
+        if (barrierCount === 2) throw new Error("source-removal barrier failed after coalescing");
+      }),
+      getBrowserTransportDeps: () => makeIngressDeps(route),
+      releasePendingTransfer: vi.fn(),
+    };
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const firstRelease = releaseCodexAutoPausedInputs(session as any, 100, deps as any);
+    queueCodexAutoPausedInput(
+      session as any,
+      "programmatic",
+      {
+        type: "user_message",
+        content: "held event",
+        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+      },
+      150,
+    );
+    expect(session.state.codex_result_error_auto_pause?.heldInputs[0]?.count).toBe(2);
+    releaseFirstBarrier();
+    await expect(firstRelease).resolves.toBe("accepted");
+
+    const restoredPause = session.state.codex_result_error_auto_pause;
+    expect(restoredPause).not.toBeNull();
+    expect(restoredPause!.heldInputs.reduce((total, item) => total + item.count, 0)).toBe(2);
+    expect(session.recoveryDeliveryTransfers).toHaveLength(1);
+    expect(route).not.toHaveBeenCalled();
+
+    await expect(releaseCodexAutoPausedInputs(session as any, restoredPause!.pausedAt!, deps as any)).resolves.toBe(
+      "accepted",
+    );
+
+    expect(routedCounts.reduce((total, count) => total + count, 0)).toBe(2);
+    expect(session.pendingCodexInputs).toHaveLength(2);
+    expect(session.state.codex_result_error_auto_pause).toBeNull();
+    expect(session.recoveryDeliveryTransfers).toEqual([]);
+  });
+
+  it("keeps a newer retained release epoch in progress when an older handoff rolls back", async () => {
+    // Reproduce two overlapping source-removal barriers. The older durable
+    // transfer must re-hold behind the newer accepted epoch without rewinding
+    // its token, losing ownership, or inflating the eventual delivery count.
+    const session = makeSession();
+    const routedCounts: number[] = [];
+    const route = vi.fn((target: BrowserTransportSessionLike, message: BrowserOutgoingMessage) => {
+      if (message.type !== "user_message") return;
+      const coalesced = message.content.match(/auto-pause resumed: (\d+) similar automatic inputs/)?.[1];
+      routedCounts.push(coalesced ? Number(coalesced) : 1);
+      target.pendingCodexInputs.push({
+        id: `pending-overlap-${routedCounts.length}`,
+        content: message.content,
+        timestamp: 260 + routedCounts.length,
+        cancelable: true,
+        autoPauseRecoveries: message.autoPauseRecoveries,
+      } as any);
+    });
+    let restartBoundary: BrowserTransportSessionLike | null = null;
+    let releaseFirstBarrier!: () => void;
+    const firstBarrier = new Promise<void>((resolve) => {
+      releaseFirstBarrier = resolve;
+    });
+    let rejectOlderSecondBarrier!: (error: Error) => void;
+    const olderSecondBarrier = new Promise<void>((_resolve, reject) => {
+      rejectOlderSecondBarrier = reject;
+    });
+    let noteOlderSecondBarrierStarted!: () => void;
+    const olderSecondBarrierStarted = new Promise<void>((resolve) => {
+      noteOlderSecondBarrierStarted = resolve;
+    });
+    let releaseNewerFirstBarrier!: () => void;
+    const newerFirstBarrier = new Promise<void>((resolve) => {
+      releaseNewerFirstBarrier = resolve;
+    });
+    let noteNewerFirstBarrierStarted!: () => void;
+    const newerFirstBarrierStarted = new Promise<void>((resolve) => {
+      noteNewerFirstBarrierStarted = resolve;
+    });
+    let barrierCount = 0;
+    const deps = {
+      broadcastToBrowsers: vi.fn(),
+      broadcastPendingCodexInputs: vi.fn(),
+      persistSession: vi.fn(),
+      persistSessionImmediately: vi.fn(async (target: BrowserTransportSessionLike) => {
+        barrierCount += 1;
+        if (barrierCount === 1) await firstBarrier;
+        if (barrierCount === 2) {
+          noteOlderSecondBarrierStarted();
+          await olderSecondBarrier;
+        }
+        if (barrierCount === 3) {
+          noteNewerFirstBarrierStarted();
+          await newerFirstBarrier;
+        }
+        if (barrierCount === 4) restartBoundary = structuredClone(target);
+      }),
+      getBrowserTransportDeps: () => makeIngressDeps(route),
+      releasePendingTransfer: vi.fn(),
+    };
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const olderRelease = releaseCodexAutoPausedInputs(session as any, 100, deps as any);
+    queueCodexAutoPausedInput(
+      session as any,
+      "programmatic",
+      {
+        type: "user_message",
+        content: "held event",
+        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+      },
+      150,
+    );
+    releaseFirstBarrier();
+    await olderSecondBarrierStarted;
+
+    const newerPausedAt = session.state.codex_result_error_auto_pause?.pausedAt;
+    expect(newerPausedAt).toBeTypeOf("number");
+    expect(newerPausedAt).not.toBe(100);
+    const newerRelease = releaseCodexAutoPausedInputs(session as any, newerPausedAt!, deps as any);
+    await newerFirstBarrierStarted;
+    const newerAcceptedAt = session.state.codex_result_error_auto_pause?.releaseProgress?.acceptedAt;
+    expect(newerAcceptedAt).toBeTypeOf("number");
+
+    rejectOlderSecondBarrier(new Error("older source-removal barrier failed"));
+    await expect(olderRelease).resolves.toBe("accepted");
+
+    expect(session.state.codex_result_error_auto_pause?.pausedAt).toBe(newerPausedAt);
+    expect(session.state.codex_result_error_auto_pause?.releaseProgress).toEqual({
+      status: "releasing",
+      acceptedAt: newerAcceptedAt,
+    });
+
+    expect(routedCounts).toEqual([]);
+    expect(session.pendingCodexInputs).toEqual([]);
+    expect(session.state.codex_result_error_auto_pause?.heldInputs.reduce((total, item) => total + item.count, 0)).toBe(
+      2,
+    );
+
+    releaseNewerFirstBarrier();
+    await expect(newerRelease).resolves.toBe("accepted");
+    const finalPause = session.state.codex_result_error_auto_pause;
+    expect(finalPause).not.toBeNull();
+    expect(finalPause!.pausedAt).not.toBe(newerPausedAt);
+    expect(finalPause!.releaseProgress).toBeUndefined();
+    expect(finalPause!.heldInputs.reduce((total, item) => total + item.count, 0)).toBe(2);
+    expect(routedCounts).toEqual([]);
+
+    await expect(releaseCodexAutoPausedInputs(session as any, finalPause!.pausedAt!, deps as any)).resolves.toBe(
+      "accepted",
+    );
+    expect(routedCounts).toEqual([2]);
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(session.state.codex_result_error_auto_pause).toBeNull();
+    expect(session.recoveryDeliveryTransfers).toEqual([]);
+    expectEveryReleasedReceiptOwned(session);
+
+    // Restart from the durable overlap where B is accepted, A has re-held,
+    // and both immutable transfers still exist. Resume must not expand that
+    // snapshot into a third logical delivery.
+    expect(restartBoundary).not.toBeNull();
+    const boundary = restartBoundary!;
+    const restored = makeSession();
+    restored.state = boundary.state;
+    restored.messageHistory = boundary.messageHistory;
+    restored.pendingCodexInputs = boundary.pendingCodexInputs;
+    restored.pendingCodexTurns = boundary.pendingCodexTurns;
+    restored.recoveryDeliveryTransfers = normalizePersistedRecoveryDeliveryTransfers(
+      boundary.recoveryDeliveryTransfers,
+    );
+    const restoredRoutedCounts: number[] = [];
+    const restoredRoute = vi.fn((target: BrowserTransportSessionLike, message: BrowserOutgoingMessage) => {
+      if (message.type !== "user_message") return;
+      const coalesced = message.content.match(/auto-pause resumed: (\d+) similar automatic inputs/)?.[1];
+      restoredRoutedCounts.push(coalesced ? Number(coalesced) : 1);
+      target.pendingCodexInputs.push({
+        id: `pending-restored-overlap-${restoredRoutedCounts.length}`,
+        content: message.content,
+        timestamp: 280 + restoredRoutedCounts.length,
+        cancelable: true,
+        autoPauseRecoveries: message.autoPauseRecoveries,
+      } as any);
+    });
+    const restoredPersistImmediately = vi.fn(async () => {});
+    const restoredDeps = {
+      broadcastToBrowsers: vi.fn(),
+      persistSession: vi.fn(),
+      persistSessionImmediately: restoredPersistImmediately,
+      getBrowserTransportDeps: () => makeIngressDeps(restoredRoute),
+      releasePendingTransfer: vi.fn(),
+    };
+
+    await resumeRecoveryDeliveryTransfers(restored as any, restoredDeps as any);
+    expect(restoredRoutedCounts).toEqual([]);
+    expect(restored.recoveryDeliveryTransfers).toEqual([]);
+    expect(restored.state.codex_result_error_auto_pause?.releaseProgress).toBeUndefined();
+    expect(
+      restored.state.codex_result_error_auto_pause?.heldInputs.reduce((total, item) => total + item.count, 0),
+    ).toBe(2);
+    expectEveryReleasedReceiptOwned(restored);
+
+    const persistedAfterResume = restoredPersistImmediately.mock.calls.length;
+    await resumeRecoveryDeliveryTransfers(restored as any, restoredDeps as any);
+    expect(restoredPersistImmediately).toHaveBeenCalledTimes(persistedAfterResume);
+
+    const restoredPause = restored.state.codex_result_error_auto_pause;
+    expect(restoredPause).not.toBeNull();
+    await expect(
+      releaseCodexAutoPausedInputs(restored as any, restoredPause!.pausedAt!, restoredDeps as any),
+    ).resolves.toBe("accepted");
+    expect(restoredRoutedCounts).toEqual([2]);
+    expect(restored.pendingCodexInputs).toHaveLength(1);
+    expect(restored.state.codex_result_error_auto_pause).toBeNull();
+    expect(restored.recoveryDeliveryTransfers).toEqual([]);
+    expectEveryReleasedReceiptOwned(restored);
+  });
+
+  it("durably clears an empty pause before reporting the explicit release complete", async () => {
+    const session = makeSession();
+    session.state.codex_result_error_auto_pause!.heldInputs = [];
+    const persistSessionImmediately = vi.fn(async () => {});
+    const persistSession = vi.fn();
+
+    await expect(
+      releaseCodexAutoPausedInputs(session as any, 100, {
+        broadcastToBrowsers: vi.fn(),
+        broadcastPendingCodexInputs: vi.fn(),
+        persistSession,
+        persistSessionImmediately,
+        getBrowserTransportDeps: () => makeIngressDeps(),
+        releasePendingTransfer: vi.fn(),
+      } as any),
+    ).resolves.toBe("accepted");
+
+    expect(session.state.codex_result_error_auto_pause).toBeNull();
+    expect(persistSessionImmediately).toHaveBeenCalledOnce();
+    expect(persistSession).not.toHaveBeenCalled();
+  });
+
+  it("stops an in-flight release when its session is removed", async () => {
+    const session = makeSession();
+    let current = true;
+    let releaseBarrier!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      releaseBarrier = resolve;
+    });
+    const route = vi.fn();
+    const releasePendingTransfer = vi.fn();
+    const persistSession = vi.fn();
+    let persistenceCalls = 0;
+    const release = releaseCodexAutoPausedInputs(session as any, 100, {
+      isCurrentSession: () => current,
+      broadcastToBrowsers: vi.fn(),
+      broadcastPendingCodexInputs: vi.fn(),
+      persistSession,
+      persistSessionImmediately: vi.fn(async () => {
+        persistenceCalls += 1;
+        if (persistenceCalls === 1) await barrier;
+      }),
+      getBrowserTransportDeps: () => makeIngressDeps(route),
+      releasePendingTransfer,
+    } as any);
+
+    current = false;
+    releaseBarrier();
+    await expect(release).resolves.toBe("accepted");
+
+    expect(route).not.toHaveBeenCalled();
+    expect(releasePendingTransfer).not.toHaveBeenCalled();
+    expect(persistSession).not.toHaveBeenCalled();
+  });
+
+  it("removes a store write that finishes after the session stops being current", async () => {
+    const session = Object.assign(makeSession(), {
+      toolResults: new Map(),
+      pendingMessages: [],
+      forceCompactPending: false,
+      board: new Map(),
+      completedBoard: new Map(),
+      keywords: [],
+      contextUsageHistory: [],
+    });
+    const sessions = new Map([[session.id, session]]);
+    const remove = vi.fn();
+    const host = {
+      sessions,
+      store: {
+        saveImmediate: vi.fn(async () => {
+          sessions.delete(session.id);
+        }),
+        remove,
+      },
+    };
+    const transferDeps = getRecoveryDeliveryTransferDepsForBridge(host);
+
+    await expect(transferDeps.persistSessionImmediately(session as any)).rejects.toThrow(
+      "Session was removed while recovery delivery state was being saved.",
+    );
+    expect(remove).toHaveBeenCalledWith(session.id);
+  });
+
+  it("does not recreate the released epoch when its first delivery is rejected", async () => {
+    const session = makeSession();
+    const route = vi.fn(() => {
+      throw new Error("delivery unavailable");
+    });
+    const deps = {
+      broadcastToBrowsers: vi.fn(),
+      broadcastPendingCodexInputs: vi.fn(),
+      persistSession: vi.fn(),
+      persistSessionImmediately: vi.fn(async () => {}),
+      getBrowserTransportDeps: () => makeIngressDeps(route),
+      releasePendingTransfer: vi.fn(),
+    };
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(releaseCodexAutoPausedInputs(session as any, 100, deps as any)).resolves.toBe("accepted");
+
+    expect(route).toHaveBeenCalledTimes(1);
+    expect(session.state.codex_result_error_auto_pause).toBeNull();
+    expect(session.recoveryDeliveryTransfers).toEqual([]);
+    expect(recoveryReceipt(session).receipt).toMatchObject({
+      outcome: "failed",
+      reasonCode: "delivery_pipeline_rejected",
+    });
+  });
+  it("uses the existing exact-once handoff after the matching automatic provider-recovery owner succeeds", async () => {
+    const session = makeSession();
+    const autoPause = session.state.codex_result_error_auto_pause!;
+    autoPause.family = "model_backend_stream_error";
+    autoPause.fingerprint = "model_backend_stream_error:responses";
+    autoPause.lastError = "Model backend stream disconnected before completion.";
+
+    const route = vi.fn((target: BrowserTransportSessionLike, routed: BrowserOutgoingMessage) => {
+      if (routed.type !== "user_message") return;
+      target.pendingCodexInputs.push({
+        id: "released-held-group",
+        content: routed.content,
+        timestamp: 200,
+        cancelable: true,
+        autoPauseRecoveries: routed.autoPauseRecoveries,
+      } as any);
+    });
+    const { broadcastToBrowsers } = await releaseHeldInput(session, () => makeIngressDeps(route), undefined, {
+      autoPauseSourceKind: "automatic",
+      turnTarget: "current",
+      autoPauseRecoveryTestingRetired: false,
+      providerRecoveryAttempts: 151,
+      providerRecoveryFamily: "model_backend_stream_error",
+    });
+
+    expect(session.state.codex_result_error_auto_pause).toBeNull();
+    expect(
+      session.messageHistory.filter((message) => message.type === "codex_auto_pause_recovery_summary"),
+    ).toHaveLength(1);
+    expect(recoveryReceipt(session).receipt).toMatchObject({
+      groupId: "held-group",
+      outcome: "released_to_delivery",
+    });
+    expect(broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "session_update",
+      session: expect.objectContaining({ codex_result_error_auto_pause: null }),
+    });
+    expectEveryReleasedReceiptOwned(session);
+  });
+
   it("terminalizes an archived read-only no-op instead of leaving a released receipt ownerless", async () => {
     const session = makeSession();
 

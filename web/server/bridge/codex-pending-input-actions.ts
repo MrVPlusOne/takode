@@ -7,7 +7,13 @@ import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from
 
 type PendingInputAction = Extract<
   BrowserOutgoingMessage,
-  { type: "retry_pending_codex_input" | "cancel_pending_codex_input" | "resolve_codex_turn_recovery" }
+  {
+    type:
+      | "retry_pending_codex_input"
+      | "cancel_pending_codex_input"
+      | "resolve_codex_turn_recovery"
+      | "release_codex_auto_paused_inputs";
+  }
 >;
 
 type PendingInputActionDeps = Pick<
@@ -18,9 +24,12 @@ type PendingInputActionDeps = Pick<
   | "isCodexWorkerV2DeliveryFrozen"
   | "markRunningFromUserDispatch"
   | "persistSession"
+  | "persistHistoryMetadataRepair"
+  | "refreshBrowserConversationViews"
   | "queueCodexPendingStartBatch"
   | "rebuildQueuedCodexPendingStartBatch"
   | "removePendingCodexInput"
+  | "releaseCodexAutoPausedInputs"
   | "requestCodexAutoRecovery"
   | "sendToBrowser"
   | "trySteerPendingCodexInputs"
@@ -39,6 +48,15 @@ export function handleCodexPendingInputAction(
   }
   if (msg.type === "resolve_codex_turn_recovery") {
     resolveCodexTurnRecoveryAction(session, msg.recoveryId, deps);
+    return true;
+  }
+  if (msg.type === "release_codex_auto_paused_inputs") {
+    const release = deps.releaseCodexAutoPausedInputs?.(session, msg.pausedAt);
+    if (release) {
+      void release.catch((error) => {
+        console.error("[codex-auto-pause] Failed explicit held-input release:", error);
+      });
+    }
     return true;
   }
 
@@ -88,6 +106,7 @@ function isPendingInputAction(msg: BrowserOutgoingMessage): msg is PendingInputA
   return (
     msg.type === "retry_pending_codex_input" ||
     msg.type === "cancel_pending_codex_input" ||
-    msg.type === "resolve_codex_turn_recovery"
+    msg.type === "resolve_codex_turn_recovery" ||
+    msg.type === "release_codex_auto_paused_inputs"
   );
 }

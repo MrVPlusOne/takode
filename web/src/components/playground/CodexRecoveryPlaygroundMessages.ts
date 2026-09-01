@@ -18,7 +18,7 @@ export function buildPlaygroundActionRequiredRecoveryMessages(recoveryId: string
     makePlaygroundMessage({
       id: "playground-continuation-action-required",
       role: "user",
-      content: "Takode is continuing an interrupted leader turn without replaying completed work.",
+      content: "Takode is resuming this interrupted work without repeating actions that already completed.",
       timestamp: Date.now() - 6_000,
       agentSource: {
         sessionId: codexTurnRecoverySourceId(recoveryId),
@@ -35,8 +35,9 @@ export function buildPlaygroundActionRequiredRecoveryMessages(recoveryId: string
       id: "playground-codex-recovery-diagnostic-msg",
       role: "user",
       content: [
-        "Codex recovery diagnostic: automatic replay stopped after the partial leader response above.",
-        "No automatic replay will run because it could duplicate side effects. Review the partial response and send a new continuation instruction only if the intended outcome is still missing.",
+        "Takode stopped after the partial response above.",
+        "Some model or tool activity had already happened, so retrying automatically could repeat actions.",
+        'Review the partial response. If the intended outcome is still missing, send a new instruction in this thread. If the work is already complete, open "Check interrupted work" and choose "Work is complete" to clear this notice.',
       ].join("\n"),
       timestamp: Date.now() - 2_000,
       agentSource: {

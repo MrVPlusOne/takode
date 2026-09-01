@@ -14,10 +14,7 @@ import {
   stopIneligibleCodexOutageRecovery,
   withCodexOutageRecoveryDescriptor,
 } from "../codex-process-reconnect.js";
-import {
-  normalizeCodexTurnRecoveryState,
-  repairRestoredCodexTurnRecoveryState,
-} from "./codex-interrupted-turn-recovery.js";
+import { normalizeCodexTurnRecoveryState, repairRestoredCodexTurnRecovery } from "./codex-interrupted-turn-recovery.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import { getLastActualHumanInputTimestamp, restoreSessionMessagePreview } from "../user-message-classification.js";
 import type { PersistedSession } from "../session-store.js";
@@ -593,6 +590,7 @@ export async function restorePersistedSessions(
     reconcileRestoredBoardState: (session: SessionLike) => Promise<void>;
     setLastUserMessageAt?: (sessionId: string, timestamp: number | undefined) => void;
     resumeRecoveryDeliveryTransfers?: (session: SessionLike) => Promise<void>;
+    persistHistoryMetadataRepair?: (session: SessionLike, expectedFrozenCount: number) => Promise<void>;
   },
 ): Promise<number> {
   let count = 0;
@@ -736,7 +734,8 @@ export async function restorePersistedSessions(
     session.state.backend_type = session.backendType;
     session.state.backend_state = session.state.backend_state ?? "disconnected";
     session.state.backend_error = session.state.backend_error ?? null;
-    session.state.codex_turn_recovery = repairRestoredCodexTurnRecoveryState(session);
+    const restoredRecoveryRepair = repairRestoredCodexTurnRecovery(session);
+    session.state.codex_turn_recovery = restoredRecoveryRepair.state;
     markRestoredCodexNativeSubagentsUnknown(session.codexNativeSubagents);
     session.state.codex_native_subagents = deriveCodexNativeSubagentSnapshot(session.codexNativeSubagents);
 
@@ -756,6 +755,13 @@ export async function restorePersistedSessions(
     await deps.reconcileRestoredBoardState(session);
 
     sessions.set(p.id, session);
+    if (restoredRecoveryRepair.resolvedByHistoricalSuccess) {
+      const expectedFrozenCount = Math.max(0, Math.min(session.frozenCount, session.messageHistory.length));
+      await deps.persistHistoryMetadataRepair?.(session, expectedFrozenCount);
+      console.log(
+        `[session-registry] Retired resolved Codex recovery state from restored history for ${sessionTag(session.id)}`,
+      );
+    }
     await deps.resumeRecoveryDeliveryTransfers?.(session);
     count += 1;
   }

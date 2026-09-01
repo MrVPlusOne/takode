@@ -20,6 +20,7 @@ import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
 import type { ModelProvenanceMigration } from "./model-identity-contract.js";
 import type { CodexAutoPauseRecoveryLink, CodexAutoPauseRecoverySummary } from "./codex-auto-pause-types.js";
 import type { CodexGoalCapabilityState, CodexGoalState } from "./codex-goal.js";
+import type { CodexTurnRecoveryDiagnosticMetadata } from "./codex-recovery-diagnostic-types.js";
 import type { ActiveCodexReasoningPreview, CodexReasoningDetailMessage } from "./codex-reasoning-types.js";
 import type { CodexAppReference, CodexSkillReference } from "./codex-reference-types.js";
 import type {
@@ -726,6 +727,7 @@ export type BrowserOutgoingMessage =
   | { type: "cancel_pending_codex_input"; id: string; client_msg_id?: string }
   | { type: "retry_pending_codex_input"; id: string; client_msg_id?: string }
   | { type: "resolve_codex_turn_recovery"; recoveryId: string; client_msg_id?: string }
+  | { type: "release_codex_auto_paused_inputs"; pausedAt: number; client_msg_id?: string }
   | { type: "set_model"; model: string; client_msg_id?: string }
   | { type: "set_codex_reasoning_effort"; effort: string; client_msg_id?: string }
   | { type: "set_codex_service_tier"; serviceTier: string | null; client_msg_id?: string }
@@ -774,6 +776,8 @@ export interface CodexResultErrorAutoPauseState {
   lastSourceKind: CodexAutoPauseInputSourceKind;
   totalMatchingErrors: number;
   heldInputs: CodexAutoPauseHeldInput[];
+  /** Server-authoritative explicit release accepted for this exact pause epoch. */
+  releaseProgress?: import("./codex-auto-pause-types.js").CodexAutoPauseReleaseProgress;
 }
 
 export type ContextUsageHistorySource = "claude_assistant_usage" | "claude_result_usage" | "codex_token_usage";
@@ -1004,7 +1008,7 @@ export type BrowserIncomingMessageBase =
   | { type: "backend_disconnected"; reason?: "idle_limit" | "broken" | "recovery_suppressed" }
   | { type: "backend_connected" }
   | { type: "vscode_selection_state"; state: VsCodeSelectionState | null }
-  | {
+  | ({
       type: "user_message";
       content: string;
       timestamp: number;
@@ -1025,7 +1029,7 @@ export type BrowserIncomingMessageBase =
       threadOutcomeReminder?: ThreadOutcomeReminderSatisfaction;
       /** Server-authored durable grouping boundary when visible streamed response text preceded this human input. */
       recentAskBoundaryBefore?: "visible_response";
-    }
+    } & CodexTurnRecoveryDiagnosticMetadata)
   | {
       type: "leader_user_message";
       content: string;

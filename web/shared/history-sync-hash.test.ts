@@ -270,6 +270,38 @@ describe("history-sync-hash", () => {
     expect(prefix.sourceCount).toBe(2);
   });
 
+  it("maps projected frozen prefixes across an omitted recovery diagnostic", () => {
+    const history: BrowserIncomingMessage[] = [
+      { type: "user_message", id: "u1", content: "cached row", timestamp: 1000 },
+      {
+        type: "user_message",
+        id: "resolved-recovery",
+        content: "resolved recovery guidance",
+        timestamp: 1500,
+        agentSource: { sessionId: "system:codex-leader-recovery-diagnostic" },
+        codexTurnRecoveryId: "u1",
+        codexTurnRecoveryResolvedAt: 2000,
+      },
+      { type: "user_message", id: "u2", content: "later row", timestamp: 3000 },
+    ];
+    const includeMessage = (message: BrowserIncomingMessage) =>
+      message.type !== "user_message" || message.codexTurnRecoveryResolvedAt == null;
+
+    expect(computeHistoryMessagesSyncHash(history, 0, { includeMessage })).toEqual(
+      computeHistoryMessagesSyncHash([history[0]!, history[2]!]),
+    );
+    expect(computeHistoryPrefixSyncHash(history, 1, 0, { includeMessage })).toMatchObject({
+      renderedCount: 1,
+      totalRenderedCount: 2,
+      sourceCount: 1,
+    });
+    expect(computeHistoryPrefixSyncHash(history, 2, 0, { includeMessage })).toMatchObject({
+      renderedCount: 2,
+      totalRenderedCount: 2,
+      sourceCount: 3,
+    });
+  });
+
   it("handles empty history", () => {
     const result = computeHistoryMessagesSyncHash([]);
     expect(result.hash).toMatch(/^[0-9a-f]{8}$/);

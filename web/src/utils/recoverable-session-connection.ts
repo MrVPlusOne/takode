@@ -23,7 +23,7 @@ export interface RecoverableSessionConnectionPresentation {
 
 function reconnectAttemptLabel(progress: BackendReconnectProgress | null | undefined): string {
   if (!progress) return "Reconnecting";
-  return `Reconnecting (${progress.attempt}/${progress.maxAttempts})`;
+  return `Reconnecting (${progress.attempt} of ${progress.maxAttempts})`;
 }
 
 export function getRecoverableSessionConnectionPresentation({
@@ -52,9 +52,9 @@ export function getRecoverableSessionConnectionPresentation({
       kind: "reconnecting",
       label,
       detail: reconnectProgress
-        ? `Takode is reconnecting this session (attempt ${reconnectProgress.attempt} of ${reconnectProgress.maxAttempts}). You can keep working while backend delivery catches up.`
-        : "Takode is reconnecting this session. You can keep working while backend delivery catches up.",
-      actionLabel: "Retry now",
+        ? `Takode is reconnecting this session, attempt ${reconnectProgress.attempt} of ${reconnectProgress.maxAttempts}. You can keep typing; messages will send when it reconnects.`
+        : "Takode is reconnecting this session. You can keep typing; messages will send when it reconnects.",
+      actionLabel: "Reconnect now",
     };
   }
 
@@ -62,9 +62,9 @@ export function getRecoverableSessionConnectionPresentation({
     kind: "disconnected",
     label: idlePaused ? "Paused" : "Disconnected",
     detail: idlePaused
-      ? "Takode paused this backend to stay within the keep-alive limit. You can keep working; it reconnects when backend delivery is needed."
-      : "You can keep working normally. Takode reconnects automatically when backend delivery is needed.",
-    actionLabel: "Resume",
+      ? "Takode paused this inactive session. It will reconnect when you send something."
+      : "This session is offline. You can keep typing; Takode will reconnect when there is something to send.",
+    actionLabel: "Reconnect now",
   };
 }
 

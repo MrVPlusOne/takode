@@ -128,6 +128,7 @@ describe("PausedInputChip", () => {
 
     expect(screen.getByTestId("composer-paused-chip").textContent).toContain("Other sources paused");
     expect(screen.getByText("2 held inputs")).toBeTruthy();
+    expect(screen.queryByTestId("composer-auto-pause-release")).toBeNull();
     expect(screen.queryByTestId("composer-held-input-list")).toBeNull();
 
     await userEvent.click(screen.getByTestId("composer-paused-chip"));
@@ -166,7 +167,7 @@ describe("PausedInputChip", () => {
     ).toBeTruthy();
   });
 
-  it("renders the fixed Copilot cause, original pause time, idle contract, and sanitized held list", async () => {
+  it("renders the fixed Copilot cause, original pause time, action, and sanitized held list", async () => {
     // Cause and timestamp come only from the closed family plus original pausedAt;
     // later errors and private held/provider data must never leak into visible copy.
     const autoPause = makeAutoPauseState();
@@ -193,10 +194,11 @@ describe("PausedInputChip", () => {
     expect(heldCountChip.className).toContain("border-cc-attention/45");
     expect(heldCountChip.className).toContain("bg-cc-card/70");
     expect(heldCountChip.className).toContain("text-cc-attention-strong");
-    expect(screen.getByText(`Cause: Copilot authentication refresh failed at ${pausedTime}.`)).toBeTruthy();
-    expect(screen.getByText("Send a direct message to test recovery.")).toBeTruthy();
+    expect(screen.getByText(`Cause: Copilot sign-in failed at ${pausedTime}.`)).toBeTruthy();
     expect(
-      screen.getByText("If it succeeds, held inputs release automatically. If it fails, they remain held."),
+      screen.getByText(
+        "Sign in to Copilot again, then retry this session. Held inputs will stay paused until it succeeds.",
+      ),
     ).toBeTruthy();
     expect(document.body.textContent).not.toContain("PRIVATE RAW PROVIDER ERROR");
     expect(document.body.textContent).not.toContain("PRIVATE FINGERPRINT");
@@ -212,6 +214,52 @@ describe("PausedInputChip", () => {
     expect(list.textContent).not.toContain("PRIVATE HELD PAYLOAD");
   });
 
+  it("waits for authoritative release progress before disabling and disappears only after the pause clears", async () => {
+    const onReleaseAutoPausedInputs = vi.fn();
+    const autoPause = makeAutoPauseState("model_backend_stream_error");
+    const commonProps = {
+      pause: null,
+      heldCount: 0,
+      autoPausedHeldCount: 2,
+      directComposerMessagesSend: true,
+      onReleaseAutoPausedInputs,
+    };
+    const { rerender } = render(<PausedInputChip {...commonProps} autoPause={autoPause} />);
+
+    const release = screen.getByTestId("composer-auto-pause-release");
+    expect(release.textContent).toContain("Release now");
+    expect((release as HTMLButtonElement).disabled).toBe(false);
+
+    await userEvent.click(release);
+
+    expect(onReleaseAutoPausedInputs).toHaveBeenCalledWith(autoPause.pausedAt);
+    expect(release.textContent).toContain("Release now");
+    expect((release as HTMLButtonElement).disabled).toBe(false);
+
+    rerender(
+      <PausedInputChip
+        {...commonProps}
+        autoPause={{
+          ...autoPause,
+          releaseProgress: { status: "releasing", acceptedAt: autoPause.pausedAt! + 1_000 },
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("composer-auto-pause-release").textContent).toContain("Releasing…");
+    expect((screen.getByTestId("composer-auto-pause-release") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("composer-auto-pause-guidance").textContent).toContain(
+      "Takode accepted your request and is releasing the held inputs.",
+    );
+
+    rerender(<PausedInputChip {...commonProps} autoPause={{ ...autoPause, releaseProgress: undefined }} />);
+    expect(screen.getByTestId("composer-auto-pause-release").textContent).toContain("Release now");
+    expect((screen.getByTestId("composer-auto-pause-release") as HTMLButtonElement).disabled).toBe(false);
+
+    rerender(<PausedInputChip {...commonProps} autoPause={null} autoPausedHeldCount={0} />);
+    expect(screen.queryByTestId("composer-paused-banner")).toBeNull();
+  });
+
   it("uses the repeated-stream cause and exact server-confirmed testing copy with polite mobile-safe status", () => {
     render(
       <PausedInputChip
@@ -224,13 +272,13 @@ describe("PausedInputChip", () => {
       />,
     );
 
-    expect(screen.getByText(/Cause: Model backend stream disconnected repeatedly at/)).toBeTruthy();
+    expect(screen.getByText(/Cause: The model connection dropped repeatedly at/)).toBeTruthy();
     expect(
       screen.getByText(
-        "Testing recovery with your current message. Held inputs will release automatically if it succeeds.",
+        "Takode is checking this session with your current message. Held inputs will send if it finishes successfully.",
       ),
     ).toBeTruthy();
-    expect(screen.queryByText("Send a direct message to test recovery.")).toBeNull();
+    expect(screen.queryByText(/Sign in to Copilot again/)).toBeNull();
     const guidance = screen.getByTestId("composer-auto-pause-guidance");
     expect(guidance.getAttribute("role")).toBe("status");
     expect(guidance.getAttribute("aria-live")).toBe("polite");
@@ -253,11 +301,11 @@ describe("PausedInputChip", () => {
 
     expect(
       screen.getByText(
-        "Recovery is active for your current message. Automatic inputs remain held until it completes successfully.",
+        "Your current message is running. Held automatic inputs will send when it finishes successfully.",
       ),
     ).toBeTruthy();
-    expect(screen.queryByText(/Testing recovery with your current message/)).toBeNull();
-    expect(screen.queryByText("Send a direct message to test recovery.")).toBeNull();
+    expect(screen.queryByText(/Takode is checking this session/)).toBeNull();
+    expect(screen.queryByText(/Sign in to Copilot again/)).toBeNull();
     expect(screen.getByTestId("composer-paused-chip").textContent).toContain("Automatic inputs paused· 2 held");
     const guidance = screen.getByTestId("composer-auto-pause-guidance");
     expect(guidance.getAttribute("role")).toBe("status");
@@ -278,7 +326,12 @@ describe("PausedInputChip", () => {
       />,
     );
 
-    expect(screen.getByText(/Cause: Selected model is unsupported at/)).toBeTruthy();
+    expect(screen.getByText(/Cause: The selected model is not available at/)).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Choose a supported model, then try again. Held inputs will stay paused until this session succeeds.",
+      ),
+    ).toBeTruthy();
   });
 
   it("renders held-idle when progress is clear and removes the banner after authoritative pause clear", () => {
@@ -288,12 +341,16 @@ describe("PausedInputChip", () => {
         heldCount={0}
         autoPausedHeldCount={2}
         directComposerMessagesSend={true}
-        autoPause={makeAutoPauseState()}
+        autoPause={makeAutoPauseState("model_backend_stream_error")}
         autoPauseRecoveryProgress={null}
       />,
     );
 
-    expect(screen.getByText("Send a direct message to test recovery.")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Takode will keep these inputs paused until this session completes a message successfully. They will then send automatically.",
+      ),
+    ).toBeTruthy();
     rerender(
       <PausedInputChip
         pause={null}

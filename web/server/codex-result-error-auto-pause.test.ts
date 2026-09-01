@@ -48,7 +48,14 @@ function session(): { state: Pick<SessionState, "codex_result_error_auto_pause">
 
 function turn(
   sourceKind: "manual" | "automatic",
-): Pick<CodexOutboundTurn, "autoPauseRecoveryTestingRetired" | "autoPauseSourceKind" | "turnTarget"> {
+): Pick<
+  CodexOutboundTurn,
+  | "autoPauseRecoveryTestingRetired"
+  | "autoPauseSourceKind"
+  | "providerRecoveryAttempts"
+  | "providerRecoveryFamily"
+  | "turnTarget"
+> {
   return {
     autoPauseSourceKind: sourceKind,
     turnTarget: sourceKind === "manual" ? "current" : null,
@@ -126,8 +133,8 @@ describe("Codex result-error auto-pause", () => {
     const outcome = noteCodexResultForAutoPause(s, unsupported, turn("automatic"), 100);
 
     expect(outcome.pausedNow).toBe(true);
-    expect(outcome.diagnostic).toContain("Choose a supported model or verify provider routing");
-    expect(outcome.diagnostic).toContain("will not silently change models");
+    expect(outcome.diagnostic).toContain("Choose a supported model, then send a message");
+    expect(outcome.diagnostic).toContain("will not change models");
   });
 
   it("stores and diagnoses Copilot auth refresh exhaustion without retaining raw or credential-like text", () => {
@@ -148,7 +155,7 @@ describe("Codex result-error auto-pause", () => {
     expect(rendered).not.toContain(sentinel);
     expect(rendered).not.toContain("Authorization");
     expect(rendered).not.toContain("BadRequestError");
-    expect(outcome.diagnostic).toContain("refresh exhausted its retries");
+    expect(outcome.diagnostic).toContain("Copilot sign-in could not be refreshed");
     expect(outcome.diagnostic).not.toContain("DNS");
   });
 
@@ -226,6 +233,59 @@ describe("Codex result-error auto-pause", () => {
     expect(resumed.resumedNow).toBe(true);
     expect(resumed.heldInputs).toHaveLength(1);
     expect(s.state.codex_result_error_auto_pause).toBeNull();
+  });
+
+  it("lets only the matching current provider-recovery owner clear an automatic pause", () => {
+    const success = result({ is_error: false, result: "ok", subtype: "success", stop_reason: "end_turn" });
+    const accepted = session();
+    noteCodexResultForAutoPause(accepted, result({ uuid: "r1" }), turn("automatic"), 100);
+    noteCodexResultForAutoPause(accepted, result({ uuid: "r2" }), turn("automatic"), 110);
+    noteCodexResultForAutoPause(accepted, result({ uuid: "r3" }), turn("automatic"), 120);
+    queueCodexAutoPausedInput(accepted, "programmatic", {
+      type: "user_message",
+      content: "held herd event",
+      agentSource: { sessionId: "herd-events" },
+    });
+
+    const recovered = noteCodexResultForAutoPause(
+      accepted,
+      success,
+      {
+        ...turn("automatic"),
+        turnTarget: "current",
+        providerRecoveryAttempts: 151,
+        providerRecoveryFamily: "model_backend_stream_error",
+      },
+      200,
+    );
+
+    expect(recovered).toMatchObject({ resumedNow: true });
+    expect(recovered.heldInputs).toHaveLength(1);
+    expect(accepted.state.codex_result_error_auto_pause).toBeNull();
+
+    for (const rejectedOwner of [
+      { ...turn("automatic"), turnTarget: "current" as const },
+      {
+        ...turn("automatic"),
+        turnTarget: "queued" as const,
+        providerRecoveryAttempts: 2,
+        providerRecoveryFamily: "model_backend_stream_error" as const,
+      },
+      {
+        ...turn("automatic"),
+        turnTarget: "current" as const,
+        providerRecoveryAttempts: 2,
+        providerRecoveryFamily: "copilot_auth_refresh_invalidated" as const,
+      },
+    ]) {
+      const paused = session();
+      noteCodexResultForAutoPause(paused, result({ uuid: "x1" }), turn("automatic"), 100);
+      noteCodexResultForAutoPause(paused, result({ uuid: "x2" }), turn("automatic"), 110);
+      noteCodexResultForAutoPause(paused, result({ uuid: "x3" }), turn("automatic"), 120);
+
+      expect(noteCodexResultForAutoPause(paused, success, rejectedOwner, 200)).toMatchObject({ resumedNow: false });
+      expect(paused.state.codex_result_error_auto_pause?.pausedAt).toBe(120);
+    }
   });
 
   it("does not let a retired or queued manual owner clear the pause on later success", () => {

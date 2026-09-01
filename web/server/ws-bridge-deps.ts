@@ -112,7 +112,10 @@ import {
   sendToBrowser as sendToBrowserController,
 } from "./bridge/browser-transport-controller.js";
 import type { BrowserTransportStateLike } from "./bridge/browser-transport-controller.js";
-import { handleRecoveredCodexAutoPauseSuccessForBridge } from "./bridge/ws-bridge-codex-pending-input-deps.js";
+import {
+  handleRecoveredCodexAutoPauseSuccessForBridge,
+  releaseCodexAutoPausedInputsForBridge,
+} from "./bridge/ws-bridge-codex-pending-input-deps.js";
 import {
   flushQueuedCliMessages as flushQueuedCliMessagesController,
   handleCLIClose as handleCLICloseTransportController,
@@ -324,6 +327,7 @@ const WS_BRIDGE_IDEMPOTENT_BROWSER_MESSAGE_TYPES = new Set<string>([
   "cancel_pending_codex_input",
   "retry_pending_codex_input",
   "resolve_codex_turn_recovery",
+  "release_codex_auto_paused_inputs",
   "set_model",
   "set_codex_reasoning_effort",
   "set_codex_service_tier",
@@ -1455,6 +1459,15 @@ export function getBrowserRoutingDeps(host: any) {
         ? host.emitTakodeEvent(sessionId, type as TakodeEventType, data as Record<string, unknown>)
         : host.emitTakodeEvent(sessionId, type as TakodeEventType, data as Record<string, unknown>, actorSessionId),
     persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),
+    persistHistoryMetadataRepair: async (targetSession: unknown, expectedFrozenCount: number) => {
+      if (!host.store) return;
+      await host.store.rewriteFrozenHistoryMetadata(
+        buildPersistedSessionPayloadController(targetSession as Session),
+        expectedFrozenCount,
+      );
+    },
+    refreshBrowserConversationViews: (targetSession: unknown) =>
+      host.refreshBrowserConversation(targetSession as Session),
     promoteLeaderThreadTabForMessageAttention: (
       sessionId: string,
       message: Extract<BrowserIncomingMessage, { type: "user_message" }>,
@@ -1564,6 +1577,8 @@ export function getBrowserRoutingDeps(host: any) {
       getCancelablePendingCodexInputsController(targetSession as Session),
     removePendingCodexInput: (targetSession: unknown, id: string) =>
       removePendingCodexInputController(targetSession as Session, id, codexRecoveryDeps),
+    releaseCodexAutoPausedInputs: (targetSession: unknown, pausedAt: number) =>
+      releaseCodexAutoPausedInputsForBridge(host, targetSession as Session, pausedAt),
     clearQueuedTurnLifecycleEntries: (targetSession: unknown) =>
       replaceQueuedTurnLifecycleEntriesLifecycle(targetSession as Session, []),
     queueCodexPendingStartBatch: (targetSession: unknown, reason: string) =>
@@ -1653,6 +1668,15 @@ export function getCodexRecoveryOrchestratorDeps(host: any) {
   const codexRecoveryDeps = {
     codexAssistantReplayScanLimit: WS_BRIDGE_CODEX_ASSISTANT_REPLAY_SCAN_LIMIT,
     ...runtime,
+    persistHistoryMetadataRepair: async (targetSession: unknown, expectedFrozenCount: number) => {
+      if (!host.store) return;
+      await host.store.rewriteFrozenHistoryMetadata(
+        buildPersistedSessionPayloadController(targetSession as Session),
+        expectedFrozenCount,
+      );
+    },
+    refreshBrowserConversationViews: (targetSession: unknown) =>
+      host.refreshBrowserConversation(targetSession as Session),
     broadcastPendingCodexInputs: (targetSession: unknown) =>
       host.broadcastToBrowsers(targetSession as Session, {
         type: "codex_pending_inputs",

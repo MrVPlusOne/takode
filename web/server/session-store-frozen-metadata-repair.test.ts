@@ -143,6 +143,64 @@ describe("SessionStore frozen metadata repair", () => {
     }
   });
 
+  it("keeps a retired frozen recovery diagnostic hidden after restart", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "takode-frozen-recovery-diagnostic-"));
+    try {
+      const initialStore = new SessionStore(dir);
+      const original = session("frozen-recovery-diagnostic");
+      original.state.codex_turn_recovery = {
+        recoveryId: "recovery-owner",
+        originalOwnerId: "recovery-owner",
+        originalProviderTurnId: "provider-turn",
+        originalHistoryIndex: 0,
+        continuationOwnerId: null,
+        threadKey: "main",
+        status: "action_required",
+        reason: "continuation_failed",
+        attempt: 1,
+        maxAttempts: 1,
+        createdAt: 100,
+        updatedAt: 110,
+      };
+      original.messageHistory = [
+        { type: "user_message", id: "recovery-owner", content: "Finish the task", timestamp: 100 },
+        {
+          type: "user_message",
+          id: "recovery-diagnostic",
+          content: "Review the interrupted work.",
+          timestamp: 120,
+          agentSource: { sessionId: "system:codex-leader-recovery-diagnostic" },
+          codexTurnRecoveryId: "recovery-owner",
+          threadKey: "main",
+        },
+        resultMessage("recovery-result"),
+      ];
+      await initialStore.saveSync(original);
+      await initialStore.flushAll();
+
+      const repairStore = new SessionStore(dir);
+      const repaired = await repairStore.load(original.id);
+      expect(repaired?._frozenCount).toBe(3);
+      const diagnostic = repaired?.messageHistory[1];
+      if (diagnostic?.type !== "user_message") throw new Error("missing recovery diagnostic fixture");
+      diagnostic.codexTurnRecoveryResolvedAt = 200;
+      repaired!.state.codex_turn_recovery = null;
+      await repairStore.rewriteFrozenHistoryMetadata(repaired!, 3);
+      await repairStore.flushAll();
+
+      const reloaded = await new SessionStore(dir).load(original.id);
+      expect(reloaded?.state.codex_turn_recovery).toBeNull();
+      expect(reloaded?.messageHistory[1]).toMatchObject({
+        type: "user_message",
+        id: "recovery-diagnostic",
+        codexTurnRecoveryId: "recovery-owner",
+        codexTurnRecoveryResolvedAt: 200,
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects a stale frozen-count repair instead of rewriting concurrent history", async () => {
     const dir = await mkdtemp(join(tmpdir(), "takode-frozen-metadata-guard-"));
     try {

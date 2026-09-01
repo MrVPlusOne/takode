@@ -5,6 +5,7 @@ import { rebuildQueuedCodexPendingStartBatch as rebuildQueuedCodexPendingStartBa
 import {
   handleCodexResultErrorAutoPause as handleCodexResultErrorAutoPauseDelivery,
   handleRecoveredCodexAutoPauseSuccess as handleRecoveredCodexAutoPauseSuccessDelivery,
+  releaseCodexAutoPausedInputs as releaseCodexAutoPausedInputsDelivery,
 } from "./codex-result-error-auto-pause-delivery.js";
 import type { Session } from "./ws-bridge-session.js";
 import { getRecoveryDeliveryTransferDepsForBridge } from "./ws-bridge-recovery-delivery-transfer-deps.js";
@@ -31,6 +32,10 @@ export function handleRecoveredCodexAutoPauseSuccessForBridge(
   completedTurn: CodexOutboundTurn,
 ): Promise<void> | void {
   return handleRecoveredCodexAutoPauseSuccessDelivery(session, completedTurn, getAutoPauseDeliveryDeps(host));
+}
+
+export function releaseCodexAutoPausedInputsForBridge(host: any, session: Session, pausedAt: number) {
+  return releaseCodexAutoPausedInputsDelivery(session, pausedAt, getAutoPauseDeliveryDeps(host));
 }
 
 export function pruneStalePendingCodexHerdInputsForBridge(host: any, session: Session, reason: string): boolean {

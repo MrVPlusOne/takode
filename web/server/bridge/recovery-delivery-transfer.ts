@@ -50,6 +50,7 @@ export interface RecoveryDeliveryTransferSessionLike extends BrowserTransportSes
 }
 
 export interface RecoveryDeliveryTransferDeps {
+  isCurrentSession?: (session: RecoveryDeliveryTransferSessionLike) => boolean;
   broadcastToBrowsers: (session: any, message: BrowserIncomingMessage) => void;
   persistSession: (session: any) => void;
   persistSessionImmediately: (session: any) => Promise<void>;
@@ -71,15 +72,18 @@ export async function beginRecoveryDeliveryTransferHandoff(
     removeAdditionalSourceOwners?: () => void;
     onSourceOwnersRemoved?: (result: RecoveryDeliverySourceRemoval) => void;
   },
-  deps: Pick<RecoveryDeliveryTransferDeps, "persistSessionImmediately">,
+  deps: Pick<RecoveryDeliveryTransferDeps, "isCurrentSession" | "persistSessionImmediately">,
 ): Promise<Map<string, string>> {
+  assertCurrentRecoveryDeliverySession(session, deps);
   const prepared = prepareTransfers(session, candidates);
   const transferIdsBySourceOwner = indexTransferIdsBySourceOwner(prepared);
   await deps.persistSessionImmediately(session);
+  assertCurrentRecoveryDeliverySession(session, deps);
   const removal = detachTransferSourceOwners(session, prepared);
   options.removeAdditionalSourceOwners?.();
   options.onSourceOwnersRemoved?.(removal);
   await deps.persistSessionImmediately(session);
+  assertCurrentRecoveryDeliverySession(session, deps);
   return transferIdsBySourceOwner;
 }
 
@@ -88,6 +92,7 @@ export async function deliverRecoveryDeliveryTransfer(
   transferId: string,
   deps: RecoveryDeliveryTransferDeps,
 ): Promise<void> {
+  if (!isCurrentRecoveryDeliverySession(session, deps)) return;
   const transfer = session.recoveryDeliveryTransfers.find((entry) => entry.id === transferId);
   if (!transfer) return;
   const active = activeTransferDeliveries.get(session) ?? new Set<string>();
@@ -101,9 +106,11 @@ export async function deliverRecoveryDeliveryTransfer(
     );
     let acceptedPending = false;
     if (preflight.status !== "owned") {
+      if (!isCurrentRecoveryDeliverySession(session, deps)) return;
       const admission = await withTrustedRecoveryDeliveryTransferRoute(session, transfer, async () =>
         handleBrowserIngressMessage(session, transfer.message, undefined, deps.getBrowserTransportDeps()),
       );
+      if (!isCurrentRecoveryDeliverySession(session, deps)) return;
       const ownership = resolveRecoveryIngressOwnership(admission, transfer.message);
       acceptedPending = admission.status === "accepted_pending_delivery";
       if (ownership.status === "unowned") {
@@ -115,9 +122,12 @@ export async function deliverRecoveryDeliveryTransfer(
 
     // Persist the next owner while the transfer still retains the payload.
     await deps.persistSessionImmediately(session);
+    if (!isCurrentRecoveryDeliverySession(session, deps)) return;
     session.recoveryDeliveryTransfers = session.recoveryDeliveryTransfers.filter((entry) => entry.id !== transferId);
     await deps.persistSessionImmediately(session);
-    if (acceptedPending) deps.releasePendingTransfer(session, transferId);
+    if (acceptedPending && isCurrentRecoveryDeliverySession(session, deps)) {
+      deps.releasePendingTransfer(session, transferId);
+    }
   } finally {
     active.delete(transferId);
     if (active.size === 0) activeTransferDeliveries.delete(session);
@@ -128,13 +138,29 @@ export async function resumeRecoveryDeliveryTransfers(
   session: RecoveryDeliveryTransferSessionLike,
   deps: RecoveryDeliveryTransferDeps,
 ): Promise<void> {
-  if (session.recoveryDeliveryTransfers.length === 0) return;
+  if (!isCurrentRecoveryDeliverySession(session, deps) || session.recoveryDeliveryTransfers.length === 0) return;
   await reconcilePersistedAutoPauseTransferRetry(session, deps);
   if (detachTransferSourceOwners(session).changed) {
     await deps.persistSessionImmediately(session);
   }
   for (const transfer of [...session.recoveryDeliveryTransfers]) {
     await deliverRecoveryDeliveryTransfer(session, transfer.id, deps);
+  }
+}
+
+function isCurrentRecoveryDeliverySession(
+  session: RecoveryDeliveryTransferSessionLike,
+  deps: Pick<RecoveryDeliveryTransferDeps, "isCurrentSession">,
+): boolean {
+  return deps.isCurrentSession?.(session) ?? true;
+}
+
+function assertCurrentRecoveryDeliverySession(
+  session: RecoveryDeliveryTransferSessionLike,
+  deps: Pick<RecoveryDeliveryTransferDeps, "isCurrentSession">,
+): void {
+  if (!isCurrentRecoveryDeliverySession(session, deps)) {
+    throw new Error("Recovery delivery session is no longer active.");
   }
 }
 
@@ -266,6 +292,17 @@ async function reconcilePersistedAutoPauseTransferRetry(
 ): Promise<void> {
   const state = session.state.codex_result_error_auto_pause;
   if (!state?.pausedAt) return;
+  if (state.releaseProgress?.status === "releasing") {
+    // A persisted accepted epoch already has an immutable transfer snapshot.
+    // Concurrent or re-held inputs belong to the next epoch; expanding this
+    // snapshot from live heldInputs would transfer either payload twice.
+    for (const transfer of session.recoveryDeliveryTransfers) {
+      if (transfer.sourceOwnerKind === "auto_pause") {
+        assertRecoverySummaryMembership(session, transfer.message);
+      }
+    }
+    return;
+  }
   const matchingTransfers = indexTransfersBySourceOwner(session.recoveryDeliveryTransfers, "auto_pause");
   const transferredHeldInputs = state.heldInputs.filter((item) => matchingTransfers.has(item.id));
   if (transferredHeldInputs.length === 0) return;
@@ -432,6 +469,7 @@ function detachTransferSourceOwners(
     else {
       autoPause.heldInputs = retained;
       autoPause.pausedAt = Math.max(Date.now(), (autoPause.pausedAt ?? 0) + 1);
+      delete autoPause.releaseProgress;
     }
   }
 

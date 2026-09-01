@@ -149,7 +149,14 @@ export function noteCodexResultForAutoPause(
   session: CodexResultErrorAutoPauseSessionLike,
   msg: CLIResultMessage,
   turn:
-    | Pick<CodexOutboundTurn, "autoPauseRecoveryTestingRetired" | "autoPauseSourceKind" | "turnTarget">
+    | Pick<
+        CodexOutboundTurn,
+        | "autoPauseRecoveryTestingRetired"
+        | "autoPauseSourceKind"
+        | "providerRecoveryAttempts"
+        | "providerRecoveryFamily"
+        | "turnTarget"
+      >
     | null
     | undefined,
   now = Date.now(),
@@ -191,6 +198,7 @@ export function noteCodexResultForAutoPause(
     lastSourceKind: sourceKind,
     totalMatchingErrors,
     heldInputs: priorHeld,
+    ...(existing?.releaseProgress ? { releaseProgress: existing.releaseProgress } : {}),
   };
   session.state.codex_result_error_auto_pause = state;
   return {
@@ -208,7 +216,14 @@ export function noteCodexResultForAutoPause(
 export function noteCodexAutoPauseRecoverySuccess(
   session: CodexResultErrorAutoPauseSessionLike,
   turn:
-    | Pick<CodexOutboundTurn, "autoPauseRecoveryTestingRetired" | "autoPauseSourceKind" | "turnTarget">
+    | Pick<
+        CodexOutboundTurn,
+        | "autoPauseRecoveryTestingRetired"
+        | "autoPauseSourceKind"
+        | "providerRecoveryAttempts"
+        | "providerRecoveryFamily"
+        | "turnTarget"
+      >
     | null
     | undefined,
   retainPausedOwner = false,
@@ -300,21 +315,24 @@ export function buildCodexAutoPauseDiagnostic(state: CodexResultErrorAutoPauseSt
     heldCount === 0 ? "No automatic inputs are currently held." : `${heldCount} automatic input(s) are held.`;
   if (state.family === "model_not_supported") {
     return (
-      "Automatic Codex input delivery paused because the provider rejected the selected model as unsupported. " +
-      `${heldSuffix} Choose a supported model or verify provider routing, then send a direct message to test it. ` +
-      "Takode will not silently change models or retry automatic work."
+      "Automatic inputs are paused because the selected model is not available. " +
+      `${heldSuffix} Choose a supported model, then send a message. ` +
+      "Takode will not change models or retry this automatic work on another model."
     );
   }
   const reason =
     state.family === "copilot_auth_refresh_exhausted"
-      ? "GitHub Copilot API-key refresh exhausted its retries"
+      ? "Copilot sign-in could not be refreshed"
       : state.family === "copilot_auth_refresh_invalidated"
-        ? `${state.streak} consecutive provider authentication recovery errors`
-        : `${state.streak} consecutive backend stream errors`;
+        ? "Copilot sign-in expired while Takode was reconnecting"
+        : "the model connection dropped repeatedly";
+  const action =
+    state.family === "copilot_auth_refresh_exhausted" || state.family === "copilot_auth_refresh_invalidated"
+      ? "Sign in to Copilot again, then retry this session."
+      : "Takode will keep trying the current message; you can also send a message to retry now.";
   return (
-    `Automatic Codex input delivery paused because ${reason}. ` +
-    `${heldSuffix} Send a direct composer message after fixing the backend to test recovery. ` +
-    "Success releases held automatic inputs exactly once; failure keeps them held."
+    `Automatic inputs are paused because ${reason}. ` +
+    `${heldSuffix} ${action} Held inputs will send after this session completes a message successfully.`
   );
 }
 
@@ -403,14 +421,24 @@ export function holdCodexAutoPausedQueuedBacklog<TSession extends CodexAutoPause
 function clearCodexResultErrorAutoPauseAfterSuccess(
   session: CodexResultErrorAutoPauseSessionLike,
   turn:
-    | Pick<CodexOutboundTurn, "autoPauseRecoveryTestingRetired" | "autoPauseSourceKind" | "turnTarget">
+    | Pick<
+        CodexOutboundTurn,
+        | "autoPauseRecoveryTestingRetired"
+        | "autoPauseSourceKind"
+        | "providerRecoveryAttempts"
+        | "providerRecoveryFamily"
+        | "turnTarget"
+      >
     | null
     | undefined,
   retainPausedOwner: boolean,
 ): { changed: boolean; pausedNow: false; resumedNow: boolean; heldInputs?: CodexAutoPauseHeldInput[] } {
   const existing = session.state.codex_result_error_auto_pause ?? null;
   if (!existing) return { changed: false, pausedNow: false, resumedNow: false };
-  if (existing.pausedAt && !isAcceptedCodexAutoPauseRecoveryOwner(turn)) {
+  if (existing.releaseProgress?.status === "releasing") {
+    return { changed: false, pausedNow: false, resumedNow: false };
+  }
+  if (existing.pausedAt && !isAcceptedCodexAutoPauseRecoveryOwner(turn, existing)) {
     return { changed: false, pausedNow: false, resumedNow: false };
   }
   const heldInputs = existing.pausedAt ? existing.heldInputs : [];
@@ -425,15 +453,21 @@ function clearCodexResultErrorAutoPauseAfterSuccess(
 
 function isAcceptedCodexAutoPauseRecoveryOwner(
   turn:
-    | Pick<CodexOutboundTurn, "autoPauseRecoveryTestingRetired" | "autoPauseSourceKind" | "turnTarget">
+    | Pick<
+        CodexOutboundTurn,
+        | "autoPauseRecoveryTestingRetired"
+        | "autoPauseSourceKind"
+        | "providerRecoveryAttempts"
+        | "providerRecoveryFamily"
+        | "turnTarget"
+      >
     | null
     | undefined,
+  activePause: CodexResultErrorAutoPauseState,
 ): boolean {
-  return (
-    turn?.autoPauseSourceKind === "manual" &&
-    turn.turnTarget === "current" &&
-    turn.autoPauseRecoveryTestingRetired !== true
-  );
+  if (turn?.turnTarget !== "current" || turn.autoPauseRecoveryTestingRetired === true) return false;
+  if (turn.autoPauseSourceKind === "manual") return true;
+  return (turn.providerRecoveryAttempts ?? 0) > 0 && turn.providerRecoveryFamily === activePause.family;
 }
 
 function isEligibleQueuedAutomaticCodexInput(input: PendingCodexInput): boolean {

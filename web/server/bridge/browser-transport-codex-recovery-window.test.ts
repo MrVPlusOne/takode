@@ -38,6 +38,7 @@ describe("browser thread windows for Codex recovery", () => {
         sessionId: CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID,
         sessionLabel: CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL,
       },
+      codexTurnRecoveryId: "user-a",
     };
     const session = {
       messageHistory: [
@@ -82,5 +83,29 @@ describe("browser thread windows for Codex recovery", () => {
     ).toHaveLength(1);
     expect(payload.window).toMatchObject({ from_item: 1, item_count: 1, total_items: 2, has_older_items: true });
     expect(payload.entries.some((entry: any) => entry.message.type === "error")).toBe(false);
+
+    if (diagnostic.type !== "user_message") throw new Error("expected diagnostic user message");
+    diagnostic.codexTurnRecoveryResolvedAt = 4;
+    send.mockClear();
+    sendThreadWindowSync(
+      session,
+      { send },
+      {
+        threadKey,
+        fromItem: -1,
+        itemCount: 1,
+        sectionItemCount: 1,
+        visibleItemCount: 1,
+      },
+    );
+
+    const resolvedPayload = JSON.parse(send.mock.calls[0]?.[0] as string);
+    expect(resolvedPayload.entries.map((entry: any) => entry.history_index)).toEqual([2, 3]);
+    expect(
+      resolvedPayload.entries.some(
+        (entry: any) => entry.message.agentSource?.sessionId === CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID,
+      ),
+    ).toBe(false);
+    expect(session.messageHistory).toContain(diagnostic);
   });
 });

@@ -129,7 +129,11 @@ function makeCodexAdapterMock() {
     disconnect: vi.fn(async () => {}),
     getThreadId: vi.fn(() => "thread-ready"),
     getCurrentTurnId: vi.fn(() => currentTurnId),
-    emitBrowserMessage: (msg: any) => onBrowserMessageCb?.(msg),
+    emitBrowserMessage: (msg: any) => {
+      // The real Codex adapter clears its active turn before emitting turn/completed as a result.
+      if (msg?.type === "result" && msg.data?.codex_turn_id === currentTurnId) currentTurnId = null;
+      onBrowserMessageCb?.(msg);
+    },
     emitSessionMeta: (meta: any) => onSessionMetaCb?.(meta),
     emitDisconnect: (turnId?: string | null) => {
       currentTurnId = turnId === undefined ? currentTurnId : turnId;
@@ -1363,12 +1367,21 @@ describe("Codex resumed-turn recovery", () => {
       ),
     ).toBe(true);
     const terminalMessages = browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
-    expect(terminalMessages).toContainEqual(
+    expect(terminalMessages).not.toContainEqual(
       expect.objectContaining({
         type: "error",
         message: expect.stringContaining("without a successful final turn"),
       }),
     );
+    const unresolvedDiagnostic = session.messageHistory.find(
+      (message: any) =>
+        message.type === "user_message" &&
+        message.agentSource?.sessionId?.startsWith("system:codex-leader-recovery-diagnostic"),
+    ) as any;
+    expect(unresolvedDiagnostic).toMatchObject({
+      threadKey: "main",
+      codexTurnRecoveryId: session.state.codex_turn_recovery?.recoveryId,
+    });
 
     adapter3.emitSessionMeta({
       cliSessionId: "thread-continuation-action",
@@ -1402,15 +1415,35 @@ describe("Codex resumed-turn recovery", () => {
       .find((msg: any) => msg.type === "session_init");
     expect(init?.session.codex_turn_recovery).toMatchObject({ status: "action_required", threadKey: "main" });
 
+    await subscribeCurrentBrowser(bridge, reconnectBrowser);
     await bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "user_message",
         content: "unrelated follow-up",
-        threadKey: "q-other",
-        questId: "q-other",
+        threadKey: "q-9999",
+        questId: "q-9999",
       }),
     );
+    adapter3.emitTurnStarted("turn-unrelated-follow-up");
+    adapter3.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "Unrelated work completed",
+        duration_ms: 10,
+        duration_api_ms: 10,
+        num_turns: 1,
+        total_cost_usd: 0,
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        uuid: "result-unrelated-follow-up",
+        session_id: sid,
+        codex_turn_id: "turn-unrelated-follow-up",
+        stop_reason: "completed",
+      },
+    } as any);
     await flushAsync();
     expect(session.state.codex_turn_recovery).toMatchObject({
       continuationOwnerId: recoveryOwner,
@@ -1425,14 +1458,34 @@ describe("Codex resumed-turn recovery", () => {
     expect(session.state.codex_turn_recovery).not.toBeNull();
     browser.send.mockClear();
     reconnectBrowser.send.mockClear();
+
     await bridge.handleBrowserMessage(
       browser,
-      JSON.stringify({
-        type: "resolve_codex_turn_recovery",
-        recoveryId: session.state.codex_turn_recovery?.recoveryId,
-      }),
+      JSON.stringify({ type: "user_message", content: "Finish anything still missing", threadKey: "main" }),
     );
+    adapter3.emitTurnStarted("turn-main-follow-up");
+    adapter3.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "The interrupted work is complete",
+        duration_ms: 10,
+        duration_api_ms: 10,
+        num_turns: 1,
+        total_cost_usd: 0,
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        uuid: "result-main-follow-up",
+        session_id: sid,
+        codex_turn_id: "turn-main-follow-up",
+        stop_reason: "completed",
+      },
+    } as any);
+    await flushAsync();
+
     expect(session.state.codex_turn_recovery).toBeNull();
+    expect(unresolvedDiagnostic).toMatchObject({ codexTurnRecoveryResolvedAt: expect.any(Number) });
     expect(session.attentionReason).toBe("error");
     for (const socket of [browser, reconnectBrowser]) {
       const updates = socket.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
@@ -1442,7 +1495,24 @@ describe("Codex resumed-turn recovery", () => {
       expect(updates).not.toContainEqual(
         expect.objectContaining({ type: "session_update", session: { attentionReason: null } }),
       );
+      const replacement = updates.filter((message: any) => message.type === "history_window_sync").at(-1);
+      if (replacement) {
+        expect(
+          replacement.messages.some(
+            (message: any) =>
+              message.type === "user_message" &&
+              message.agentSource?.sessionId?.startsWith("system:codex-leader-recovery-diagnostic"),
+          ),
+        ).toBe(false);
+      }
     }
+
+    const postSuccessReconnect = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(postSuccessReconnect, sid);
+    const postSuccessInit = postSuccessReconnect.send.mock.calls
+      .map(([raw]: [string]) => JSON.parse(raw))
+      .find((message: any) => message.type === "session_init");
+    expect(postSuccessInit?.session.codex_turn_recovery).toBeNull();
   });
 
   it("re-arms resumed in-progress queued follow-up turns after disconnect", async () => {

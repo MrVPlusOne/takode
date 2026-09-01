@@ -1,14 +1,14 @@
 export const COMPACTION_RECOVERY_SOURCE_ID = "system:compaction-recovery";
 export const COMPACTION_RECOVERY_SOURCE_LABEL = "Compaction Recovery";
 export const CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID = "system:codex-leader-recovery-diagnostic";
-export const CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL = "Codex Recovery Diagnostic";
+export const CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL = "Why Automatic Retry Stopped";
 export const LEADER_KICKOFF_SOURCE_ID = "system:leader-kickoff";
 export const LEADER_KICKOFF_SOURCE_LABEL = "Leader Kickoff";
 export const LEADER_SKILL_PRELOAD_SOURCE_ID_PREFIX = "system:leader-skill-preload:";
 export const LEADER_SKILL_PRELOAD_SOURCE_LABEL_PREFIX = "Required leader skill preloaded";
 export const MEMORY_CATALOG_SOURCE_ID = "system:memory-catalog";
 export const CODEX_TURN_RECOVERY_SOURCE_ID_PREFIX = "system:codex-turn-recovery:";
-export const CODEX_TURN_RECOVERY_SOURCE_LABEL = "Interrupted Turn Recovery";
+export const CODEX_TURN_RECOVERY_SOURCE_LABEL = "Resuming Interrupted Work";
 export const MEMORY_CATALOG_SOURCE_LABEL = "Memory Catalog";
 export const MEMORY_CATALOG_TITLE = "Memory catalog preloaded";
 export const MEMORY_CATALOG_TRUNCATED_PREFIX = "⚠ Memory catalog truncated:";

@@ -3,6 +3,7 @@ import { routeFromHistoryEntry, type ThreadRouteMetadata } from "../thread-routi
 import {
   CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID,
   CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL,
+  isCodexLeaderRecoveryDiagnosticSourceId,
 } from "../../shared/injected-event-message.js";
 
 type CodexLeaderRecoveryDiagnosticSession = {
@@ -13,11 +14,22 @@ type CodexLeaderRecoveryDiagnosticDeps<S extends CodexLeaderRecoveryDiagnosticSe
   broadcastToBrowsers: (session: S, msg: BrowserIncomingMessage) => void;
 };
 
+export type CodexLeaderRecoveryDiagnosticAppendResult = "appended" | "existing_unresolved" | "resolved_conflict";
+
 export function appendCodexLeaderRecoveryDiagnostic<S extends CodexLeaderRecoveryDiagnosticSession>(
   session: S,
+  recoveryId: string,
   route: ThreadRouteMetadata,
   deps: CodexLeaderRecoveryDiagnosticDeps<S>,
-): void {
+): CodexLeaderRecoveryDiagnosticAppendResult {
+  const existing = session.messageHistory.filter(
+    (message): message is Extract<BrowserIncomingMessage, { type: "user_message" }> =>
+      message.type === "user_message" &&
+      message.codexTurnRecoveryId === recoveryId &&
+      isCodexLeaderRecoveryDiagnosticSourceId(message.agentSource?.sessionId),
+  );
+  if (existing.some((message) => message.codexTurnRecoveryResolvedAt == null)) return "existing_unresolved";
+  if (existing.length > 0) return "resolved_conflict";
   const timestamp = Date.now();
   const entry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
     type: "user_message",
@@ -28,12 +40,14 @@ export function appendCodexLeaderRecoveryDiagnostic<S extends CodexLeaderRecover
       sessionId: CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID,
       sessionLabel: CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL,
     },
+    codexTurnRecoveryId: recoveryId,
     threadKey: route.threadKey,
     ...(route.questId ? { questId: route.questId } : {}),
     ...(route.threadRefs?.length ? { threadRefs: route.threadRefs } : {}),
   };
   session.messageHistory.push(entry);
   deps.broadcastToBrowsers(session, entry);
+  return "appended";
 }
 
 export function leaderRouteFromRecoveredAssistant(
@@ -47,8 +61,8 @@ export function leaderRouteFromRecoveredAssistant(
 
 function buildCodexLeaderRecoveryDiagnosticContent(): string {
   return [
-    "Codex recovery diagnostic: automatic replay stopped after the partial leader response above.",
-    "Takode already observed model activity for the original user delivery, so it did not inject that user payload again after recovery.",
-    "No automatic replay will run because it could duplicate side effects. Review the preceding partial response and send a new continuation instruction only if the intended outcome is still missing.",
+    "Takode stopped after the partial response above.",
+    "Some model or tool activity had already happened, so retrying automatically could repeat actions.",
+    'Review the partial response. If the intended outcome is still missing, send a new instruction in this thread. If the work is already complete, open "Check interrupted work" and choose "Work is complete" to clear this notice.',
   ].join("\n");
 }

@@ -86,13 +86,24 @@ export function completeRecoveredCodexTurnWithDiagnostic<Session extends CodexRe
     );
   }
 
-  const diagnosticAppended = !continuationQueued && !!options.leaderDiagnosticRoute;
-  if (diagnosticAppended) appendCodexLeaderRecoveryDiagnostic(session, options.leaderDiagnosticRoute!, deps);
+  let diagnosticRecorded = false;
+  if (!continuationQueued && options.leaderDiagnosticRoute) {
+    const diagnosticOwner = options.recoveryOwner ?? pending;
+    const currentRecovery = session.state.codex_turn_recovery ?? null;
+    const currentOwnsDiagnostic =
+      currentRecovery != null &&
+      (diagnosticOwner.userMessageId === currentRecovery.originalOwnerId ||
+        diagnosticOwner.userMessageId === currentRecovery.continuationOwnerId);
+    const recoveryId = currentOwnsDiagnostic ? currentRecovery.recoveryId : diagnosticOwner.userMessageId;
+    const appendResult = appendCodexLeaderRecoveryDiagnostic(session, recoveryId, options.leaderDiagnosticRoute, deps);
+    diagnosticRecorded = appendResult === "appended" || appendResult === "existing_unresolved";
+  }
+  const diagnosticAppended = diagnosticRecorded;
   deps.dispatchQueuedCodexTurns(session, reason);
   reconcileRecoveredQueuedTurnLifecycle(session, `${reason}_dispatched`, deps);
   deps.maybeFlushQueuedCodexMessages(session, reason);
 
-  const browserErrorBroadcast = !continuationQueued;
+  const browserErrorBroadcast = !continuationQueued && !diagnosticAppended;
   if (browserErrorBroadcast) deps.broadcastToBrowsers(session, { type: "error", message } as BrowserIncomingMessage);
   const outcome = { continuationQueued, diagnosticAppended, browserErrorBroadcast };
   if (options.diagnosticLog) {

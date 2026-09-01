@@ -1035,7 +1035,7 @@ describe("reconcileCodexResumedTurn", () => {
     expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_interrupted_turn_continuation");
     expect(deps.injectUserMessage).toHaveBeenCalledWith(
       session.id,
-      expect.stringContaining("continuing an interrupted leader turn"),
+      expect.stringContaining("resuming this interrupted work"),
       expect.objectContaining({ sessionId: expect.stringMatching(/^system:codex-turn-recovery:/) }),
       { threadKey: "main" },
       expect.objectContaining({ deliveryContent: expect.stringContaining("must not be replayed") }),
@@ -1148,7 +1148,7 @@ describe("reconcileCodexResumedTurn", () => {
     expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_interrupted_turn_continuation");
     expect(deps.injectUserMessage).toHaveBeenCalledWith(
       session.id,
-      expect.stringContaining("continuing an interrupted leader turn"),
+      expect.stringContaining("resuming this interrupted work"),
       expect.objectContaining({ sessionId: expect.stringMatching(/^system:codex-turn-recovery:/) }),
       { threadKey: "main" },
       expect.objectContaining({ deliveryContent: expect.stringContaining("takode") }),

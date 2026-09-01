@@ -493,10 +493,10 @@ describe("SessionInfoPopover", () => {
     const detail = screen.getByTestId("session-info-recoverable-connection");
     expect(within(detail).getByText("Disconnected")).toBeInTheDocument();
     expect(detail).toHaveTextContent(
-      "You can keep working normally. Takode reconnects automatically when backend delivery is needed.",
+      "This session is offline. You can keep typing; Takode will reconnect when there is something to send.",
     );
 
-    fireEvent.click(within(detail).getByRole("button", { name: "Resume" }));
+    fireEvent.click(within(detail).getByRole("button", { name: "Reconnect now" }));
     expect(api.relaunchSession).toHaveBeenCalledWith("s1");
   });
 

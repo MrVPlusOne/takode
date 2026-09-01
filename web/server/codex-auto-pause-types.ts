@@ -1,3 +1,8 @@
+export interface CodexAutoPauseReleaseProgress {
+  status: "releasing";
+  acceptedAt: number;
+}
+
 export type CodexAutoPauseRecoveryOutcome =
   | "released_to_delivery"
   | "delivered"
@@ -7,6 +12,7 @@ export type CodexAutoPauseRecoveryOutcome =
 
 export type CodexAutoPauseRecoveryReasonCode =
   | "manual_recovery_succeeded"
+  | "user_release_requested"
   | "codex_delivery_accepted"
   | "codex_delivery_completed"
   | "codex_delivery_recovered"

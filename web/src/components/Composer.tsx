@@ -1892,6 +1892,9 @@ export function Composer({
                 heldCount={pausedInputQueueCount}
                 autoPausedHeldCount={codexAutoPausedInputCount}
                 directComposerMessagesSend={isConnected}
+                onReleaseAutoPausedInputs={(pausedAt) =>
+                  sendToSession(sessionId, { type: "release_codex_auto_paused_inputs", pausedAt })
+                }
               />
               <ComposerReferencePreview references={plainReferencePreviews} />
             </>

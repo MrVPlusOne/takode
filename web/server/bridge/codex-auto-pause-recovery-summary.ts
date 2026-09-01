@@ -13,6 +13,10 @@ import type {
 import { buildCodexAutoPauseRecoverySearchText } from "../codex-auto-pause-types.js";
 
 type RecoverySummaryEntry = Extract<BrowserIncomingMessage, { type: "codex_auto_pause_recovery_summary" }>;
+type ReleasedReasonCode = Extract<
+  CodexAutoPauseRecoveryReasonCode,
+  "manual_recovery_succeeded" | "user_release_requested"
+>;
 
 interface RecoverySummarySessionLike {
   messageHistory: BrowserIncomingMessage[];
@@ -27,6 +31,7 @@ const SOURCE_DETAIL_MAX = 96;
 
 const REASONS: Record<CodexAutoPauseRecoveryReasonCode, string> = {
   manual_recovery_succeeded: "Manual recovery succeeded; queued for exact-once delivery.",
+  user_release_requested: "Released at your request and queued for delivery.",
   codex_delivery_accepted: "Accepted by Codex exactly once.",
   codex_delivery_completed: "Accepted by Codex exactly once and the turn completed.",
   codex_delivery_recovered: "Accepted by Codex exactly once and completed after automatic turn recovery.",
@@ -45,11 +50,12 @@ export function createCodexAutoPauseRecoverySummary(
   heldInputs: readonly CodexAutoPauseHeldInput[],
   now: number,
   deps: RecoverySummaryDeps,
+  releasedReasonCode: ReleasedReasonCode = "manual_recovery_succeeded",
 ): RecoverySummaryEntry {
   const id = `codex-auto-pause-recovery-${state.pausedAt ?? state.lastErrorAt}`;
   const existing = findRecoverySummary(session, id);
   if (existing) {
-    if (reconcileRecoverySummaryEntry(existing, heldInputs, now)) {
+    if (reconcileRecoverySummaryEntry(existing, heldInputs, now, releasedReasonCode)) {
       deps.broadcastToBrowsers(session, existing);
     }
     return existing;
@@ -61,7 +67,7 @@ export function createCodexAutoPauseRecoverySummary(
     recoveryConfirmedAt: now,
     updatedAt: now,
     status: "releasing" as const,
-    receipts: heldInputs.map((item) => buildReleasedReceipt(item, now)),
+    receipts: heldInputs.map((item) => buildReleasedReceipt(item, now, releasedReasonCode)),
   };
   const route = collectHeldInputRoute(heldInputs);
   const entry: RecoverySummaryEntry = {
@@ -227,7 +233,11 @@ function updateRecoveryOutcomes(
   return changed;
 }
 
-function buildReleasedReceipt(item: CodexAutoPauseHeldInput, now: number): CodexAutoPauseRecoveryReceipt {
+function buildReleasedReceipt(
+  item: CodexAutoPauseHeldInput,
+  now: number,
+  reasonCode: ReleasedReasonCode = "manual_recovery_succeeded",
+): CodexAutoPauseRecoveryReceipt {
   const count = Math.max(1, item.count);
   const coalescedCount = Math.max(0, count - 1);
   return {
@@ -242,8 +252,8 @@ function buildReleasedReceipt(item: CodexAutoPauseHeldInput, now: number): Codex
     lastQueuedAt: item.lastQueuedAt,
     releasedAt: now,
     outcome: "released_to_delivery",
-    reasonCode: "manual_recovery_succeeded",
-    reason: REASONS.manual_recovery_succeeded,
+    reasonCode,
+    reason: REASONS[reasonCode],
   };
 }
 
@@ -251,20 +261,21 @@ function reconcileRecoverySummaryEntry(
   entry: RecoverySummaryEntry,
   heldInputs: readonly CodexAutoPauseHeldInput[],
   now: number,
+  releasedReasonCode: ReleasedReasonCode = "manual_recovery_succeeded",
 ): boolean {
   let changed = false;
   const receiptByGroupId = new Map(entry.recovery.receipts.map((receipt) => [receipt.groupId, receipt]));
   for (const item of heldInputs) {
     const existing = receiptByGroupId.get(item.id);
     if (!existing) {
-      const receipt = buildReleasedReceipt(item, now);
+      const receipt = buildReleasedReceipt(item, now, releasedReasonCode);
       entry.recovery.receipts.push(receipt);
       receiptByGroupId.set(item.id, receipt);
       changed = true;
       continue;
     }
     if (existing.outcome !== "released_to_delivery") continue;
-    changed = reconcileReleasedReceipt(existing, item) || changed;
+    changed = reconcileReleasedReceipt(existing, item, releasedReasonCode) || changed;
   }
 
   changed = reconcileRecoverySummaryRoute(entry, heldInputs) || changed;
@@ -284,8 +295,12 @@ function reconcileRecoverySummaryEntry(
   return changed;
 }
 
-function reconcileReleasedReceipt(receipt: CodexAutoPauseRecoveryReceipt, item: CodexAutoPauseHeldInput): boolean {
-  const next = buildReleasedReceipt(item, receipt.releasedAt);
+function reconcileReleasedReceipt(
+  receipt: CodexAutoPauseRecoveryReceipt,
+  item: CodexAutoPauseHeldInput,
+  releasedReasonCode: ReleasedReasonCode,
+): boolean {
+  const next = buildReleasedReceipt(item, receipt.releasedAt, releasedReasonCode);
   let changed = false;
   const assign = <K extends keyof CodexAutoPauseRecoveryReceipt>(key: K, value: CodexAutoPauseRecoveryReceipt[K]) => {
     if (receipt[key] === value) return;
@@ -298,6 +313,8 @@ function reconcileReleasedReceipt(receipt: CodexAutoPauseRecoveryReceipt, item: 
   assign("coalescedCount", next.coalescedCount);
   assign("queuedAt", next.queuedAt);
   assign("lastQueuedAt", next.lastQueuedAt);
+  assign("reasonCode", next.reasonCode);
+  assign("reason", next.reason);
   changed = assignOptionalReceiptField(receipt, "sourceDetail", next.sourceDetail) || changed;
   changed = assignOptionalReceiptField(receipt, "survivingGroupId", next.survivingGroupId) || changed;
   return changed;

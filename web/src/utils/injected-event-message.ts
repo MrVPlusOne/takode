@@ -48,7 +48,7 @@ export function buildInjectedEventMessageViewModel(message: EventCandidate): Inj
   if (isCodexTurnRecoverySourceId(sourceId)) {
     return withRawContent(message, {
       title: CODEX_TURN_RECOVERY_SOURCE_LABEL,
-      description: "System-injected one-shot continuation after an interrupted leader turn.",
+      description: "Takode added one follow-up to finish work interrupted by a disconnect.",
     });
   }
 
@@ -65,7 +65,8 @@ export function buildInjectedEventMessageViewModel(message: EventCandidate): Inj
   if (sourceId === CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_ID) {
     return withRawContent(message, {
       title: CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL,
-      description: "Automatic replay was skipped to protect exact-once delivery. Expand for continuation guidance.",
+      description:
+        "Takode did not retry automatically because doing so could repeat actions. Expand to see what to check next.",
     });
   }
 

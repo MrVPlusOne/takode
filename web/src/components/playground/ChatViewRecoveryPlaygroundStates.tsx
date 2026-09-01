@@ -51,31 +51,31 @@ export function PlaygroundChatViewRecoveryStates() {
   return (
     <Section
       title="ChatView Recovery States"
-      description="Exact-owner interrupted-turn recovery stays distinct from provider retry and process reconnect status. One separately owned continuation may run without replaying the original request; terminal ambiguity remains visible and actionable."
+      description="Interrupted-work recovery stays distinct from message retries and session reconnect status. Takode may run one follow-up without repeating completed actions, while unfinished work remains visible with a clear next step."
     >
       <div className="grid gap-4 lg:grid-cols-2">
         <ChatStateCard
-          label="Interrupted turn: reconnecting"
+          label="Interrupted work: reconnecting"
           sessionId={PLAYGROUND_TURN_RECOVERY_RECOVERING_SESSION_ID}
           testId="playground-codex-turn-recovery-recovering"
         />
         <ChatStateCard
-          label="Interrupted turn: continuation queued"
+          label="Interrupted work: follow-up queued"
           sessionId={PLAYGROUND_TURN_RECOVERY_PENDING_SESSION_ID}
           testId="playground-codex-turn-recovery-continuation-pending"
         />
         <ChatStateCard
-          label="Interrupted turn: continuation active"
+          label="Interrupted work: finishing"
           sessionId={PLAYGROUND_TURN_RECOVERY_ACTIVE_SESSION_ID}
           testId="playground-codex-turn-recovery-continuation-active"
         />
         <ChatStateCard
-          label="Interrupted turn: action required"
+          label="Interrupted work: check needed"
           sessionId={PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID}
           testId="playground-codex-turn-recovery-action-required"
         />
         <ChatStateCard label="Fresh session starting" sessionId={PLAYGROUND_STARTING_SESSION_ID} />
-        <ChatStateCard label="Safe request retry + reconnecting chips" sessionId={PLAYGROUND_RECOVERING_SESSION_ID} />
+        <ChatStateCard label="Message retry + reconnecting chips" sessionId={PLAYGROUND_RECOVERING_SESSION_ID} />
         <ChatStateCard label="Recoverable resuming chip" sessionId={PLAYGROUND_RESUMING_SESSION_ID} />
         <ChatStateCard label="Recoverable disconnected chip" sessionId={PLAYGROUND_DISCONNECTED_SESSION_ID} />
         <ChatStateCard label="Broken session relaunch banner" sessionId={PLAYGROUND_BROKEN_SESSION_ID} />

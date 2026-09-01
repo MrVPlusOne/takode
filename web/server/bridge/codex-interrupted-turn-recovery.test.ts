@@ -8,6 +8,7 @@ import {
   markCodexTurnRecoveryContinuationActive,
   markCodexTurnRecoveryOnDisconnect,
   normalizeCodexTurnRecoveryState,
+  repairRestoredCodexTurnRecovery,
   repairRestoredCodexTurnRecoveryState,
   resolveCodexTurnRecoveryAction,
   resolveCodexTurnRecoveryRoute,
@@ -53,6 +54,7 @@ function makeSession(): CodexInterruptedTurnRecoverySessionLike {
     sessionNum: 42,
     state: { backend_state: "connected", isOrchestrator: true, codex_turn_recovery: null },
     messageHistory: [user],
+    frozenCount: 0,
     pendingCodexInputs: [],
     pendingCodexTurns: [],
   };
@@ -82,6 +84,7 @@ function turn(overrides: Partial<CodexOutboundTurn> = {}): CodexOutboundTurn {
 function deps(session: CodexInterruptedTurnRecoverySessionLike) {
   const broadcastToBrowsers = vi.fn();
   const persistSession = vi.fn();
+  const persistHistoryMetadataRepair = vi.fn(async () => {});
   const setAttentionError = vi.fn();
   const injectUserMessage = vi.fn(
     (_: string, __: string, agentSource: { sessionId: string }, ___: unknown, ____: { deliveryContent: string }) => {
@@ -97,7 +100,13 @@ function deps(session: CodexInterruptedTurnRecoverySessionLike) {
       return "sent" as const;
     },
   );
-  return { broadcastToBrowsers, persistSession, setAttentionError, injectUserMessage };
+  return {
+    broadcastToBrowsers,
+    persistSession,
+    persistHistoryMetadataRepair,
+    setAttentionError,
+    injectUserMessage,
+  };
 }
 
 describe("Codex interrupted turn recovery classification", () => {
@@ -478,6 +487,337 @@ describe("Codex interrupted turn recovery state", () => {
     expect(session.state.codex_turn_recovery).not.toBeNull();
     expect(resolveCodexTurnRecoveryAction(session, "original-owner", recoveryDeps)).toBe(true);
     expect(session.state.codex_turn_recovery).toBeNull();
+  });
+
+  it("retires action-required state and its routed diagnostic after a fresh same-thread human success", () => {
+    const session = makeSession();
+    const recoveryDeps = { ...deps(session), refreshBrowserConversationViews: vi.fn() };
+    session.state.codex_turn_recovery = {
+      recoveryId: "original-owner",
+      originalOwnerId: "original-owner",
+      originalProviderTurnId: "turn-original",
+      originalHistoryIndex: 0,
+      continuationOwnerId: null,
+      threadKey: "main",
+      status: "action_required",
+      reason: "continuation_dispatch_failed",
+      attempt: 1,
+      maxAttempts: 1,
+      createdAt: 100,
+      updatedAt: 110,
+    };
+    session.messageHistory.push(
+      {
+        type: "user_message",
+        id: "legacy-recovery-diagnostic",
+        content: "Review the interrupted work.",
+        timestamp: 120,
+        agentSource: { sessionId: "system:codex-leader-recovery-diagnostic" },
+        threadKey: "main",
+      },
+      {
+        type: "user_message",
+        id: "fresh-follow-up",
+        content: "Continue the missing work",
+        timestamp: 200,
+        threadKey: "main",
+      },
+      {
+        type: "user_message",
+        id: "later-distinct-legacy-diagnostic",
+        content: "A later interrupted turn still needs review.",
+        timestamp: 210,
+        agentSource: { sessionId: "system:codex-leader-recovery-diagnostic" },
+        threadKey: "main",
+      },
+    );
+    session.frozenCount = 2;
+    const followUp = turn({
+      userMessageId: "fresh-follow-up",
+      pendingInputIds: ["fresh-follow-up"],
+      historyIndex: 2,
+      turnId: "turn-follow-up",
+    });
+
+    settleCodexTurnRecoveryFromResult(session, [followUp], result(), recoveryDeps);
+
+    expect(session.state.codex_turn_recovery).toBeNull();
+    expect(session.messageHistory[1]).toMatchObject({
+      type: "user_message",
+      codexTurnRecoveryId: "original-owner",
+      codexTurnRecoveryResolvedAt: expect.any(Number),
+    });
+    expect(session.messageHistory[3]).toMatchObject({
+      type: "user_message",
+      id: "later-distinct-legacy-diagnostic",
+    });
+    expect(session.messageHistory[3]).not.toHaveProperty("codexTurnRecoveryResolvedAt");
+    expect(recoveryDeps.persistHistoryMetadataRepair).toHaveBeenCalledWith(session, 2);
+    expect(recoveryDeps.refreshBrowserConversationViews).toHaveBeenCalledWith(session);
+    expect(recoveryDeps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "session_update",
+      session: { codex_turn_recovery: null },
+    });
+  });
+
+  it("repairs restored action-required state when persisted same-thread human success proves completion", () => {
+    const session = makeSession();
+    session.frozenCount = 2;
+    session.state.codex_turn_recovery = {
+      recoveryId: "original-owner",
+      originalOwnerId: "original-owner",
+      originalProviderTurnId: "turn-original",
+      originalHistoryIndex: 0,
+      continuationOwnerId: null,
+      threadKey: "main",
+      status: "action_required",
+      reason: "continuation_dispatch_failed",
+      attempt: 1,
+      maxAttempts: 1,
+      createdAt: 100,
+      updatedAt: 110,
+    };
+    session.messageHistory.push(
+      {
+        type: "user_message",
+        id: "legacy-recovery-diagnostic",
+        content: "Review the interrupted work.",
+        timestamp: 120,
+        agentSource: { sessionId: "system:codex-leader-recovery-diagnostic" },
+        threadKey: "main",
+      },
+      {
+        type: "user_message",
+        id: "fresh-follow-up",
+        content: "Continue the missing work",
+        timestamp: 200,
+        threadKey: "main",
+      },
+      { type: "result", data: result({ uuid: "fresh-follow-up-result" }) },
+    );
+
+    const repaired = repairRestoredCodexTurnRecovery(session);
+
+    expect(repaired).toMatchObject({
+      state: null,
+      resolvedByHistoricalSuccess: true,
+      historyMetadataChanged: true,
+      requiresFrozenHistoryMetadataRepair: true,
+    });
+    expect(session.messageHistory[1]).toMatchObject({
+      codexTurnRecoveryId: "original-owner",
+      codexTurnRecoveryResolvedAt: expect.any(Number),
+    });
+  });
+
+  it.each([
+    {
+      label: "later other-thread success",
+      tail: [
+        {
+          type: "user_message",
+          id: "other-thread",
+          content: "Unrelated work",
+          timestamp: 210,
+          threadKey: "q-9999",
+          questId: "q-9999",
+        },
+        { type: "result", data: result({ uuid: "other-thread-result" }), threadKey: "q-9999", questId: "q-9999" },
+      ],
+    },
+    {
+      label: "native child success",
+      tail: [
+        {
+          type: "result",
+          data: result({ uuid: "child-result" }),
+          threadKey: "main",
+          codexSubagent: { childId: "child-1", rootTurnId: "fresh-follow-up" },
+        },
+      ],
+    },
+    {
+      label: "interrupted outer result",
+      tail: [
+        {
+          type: "result",
+          data: result({ uuid: "interrupted-result" }),
+          threadKey: "main",
+          interrupted: true,
+        },
+      ],
+    },
+  ] as const)("keeps restored recovery for $label", ({ tail }) => {
+    const session = makeSession();
+    session.state.codex_turn_recovery = {
+      recoveryId: "original-owner",
+      originalOwnerId: "original-owner",
+      originalProviderTurnId: "turn-original",
+      originalHistoryIndex: 0,
+      continuationOwnerId: null,
+      threadKey: "main",
+      status: "action_required",
+      reason: "continuation_dispatch_failed",
+      attempt: 1,
+      maxAttempts: 1,
+      createdAt: 100,
+      updatedAt: 110,
+    };
+    session.messageHistory.push(
+      {
+        type: "user_message",
+        id: "recovery-diagnostic",
+        content: "Review the interrupted work.",
+        timestamp: 120,
+        agentSource: { sessionId: "system:codex-leader-recovery-diagnostic" },
+        threadKey: "main",
+      },
+      {
+        type: "user_message",
+        id: "fresh-follow-up",
+        content: "Finish the interrupted work",
+        timestamp: 200,
+        threadKey: "main",
+      },
+      ...(tail as readonly BrowserIncomingMessage[]),
+    );
+
+    const repaired = repairRestoredCodexTurnRecovery(session);
+
+    expect(repaired.resolvedByHistoricalSuccess).toBe(false);
+    expect(repaired.state).toMatchObject({ status: "action_required", recoveryId: "original-owner" });
+    expect(session.messageHistory[1]).not.toHaveProperty("codexTurnRecoveryResolvedAt");
+  });
+
+  it("does not bulk-retire ambiguous legacy diagnostics from separate same-thread incidents", () => {
+    const session = makeSession();
+    const recoveryDeps = { ...deps(session), refreshBrowserConversationViews: vi.fn() };
+    session.state.codex_turn_recovery = {
+      recoveryId: "original-owner",
+      originalOwnerId: "original-owner",
+      originalProviderTurnId: "turn-original",
+      originalHistoryIndex: 0,
+      continuationOwnerId: null,
+      threadKey: "main",
+      status: "action_required",
+      reason: "continuation_dispatch_failed",
+      attempt: 1,
+      maxAttempts: 1,
+      createdAt: 100,
+      updatedAt: 110,
+    };
+    session.messageHistory.push(
+      {
+        type: "user_message",
+        id: "legacy-a",
+        content: "First unresolved incident.",
+        timestamp: 120,
+        agentSource: { sessionId: "system:codex-leader-recovery-diagnostic" },
+        threadKey: "main",
+      },
+      {
+        type: "user_message",
+        id: "legacy-b",
+        content: "Second unresolved incident.",
+        timestamp: 121,
+        agentSource: { sessionId: "system:codex-leader-recovery-diagnostic" },
+        threadKey: "main",
+      },
+      {
+        type: "user_message",
+        id: "fresh-follow-up",
+        content: "Continue the missing work",
+        timestamp: 200,
+        threadKey: "main",
+      },
+    );
+    const followUp = turn({
+      userMessageId: "fresh-follow-up",
+      pendingInputIds: ["fresh-follow-up"],
+      historyIndex: 3,
+      turnId: "turn-follow-up",
+    });
+
+    settleCodexTurnRecoveryFromResult(session, [followUp], result(), recoveryDeps);
+
+    expect(session.state.codex_turn_recovery).toBeNull();
+    expect(session.messageHistory[1]).not.toHaveProperty("codexTurnRecoveryResolvedAt");
+    expect(session.messageHistory[2]).not.toHaveProperty("codexTurnRecoveryResolvedAt");
+  });
+
+  it("keeps action-required state for stale, automatic, other-thread, or failed follow-ups", () => {
+    const cases = [
+      {
+        label: "stale",
+        message: { type: "user_message" as const, id: "candidate", content: "queued earlier", timestamp: 90 },
+        result: result(),
+        interrupted: false,
+      },
+      {
+        label: "automatic",
+        message: {
+          type: "user_message" as const,
+          id: "candidate",
+          content: "automatic follow-up",
+          timestamp: 200,
+          agentSource: { sessionId: "herd-events" },
+        },
+        result: result(),
+        interrupted: false,
+      },
+      {
+        label: "other thread",
+        message: {
+          type: "user_message" as const,
+          id: "candidate",
+          content: "unrelated work",
+          timestamp: 200,
+          threadKey: "q-9999",
+          questId: "q-9999",
+        },
+        result: result(),
+        interrupted: false,
+      },
+      {
+        label: "failed",
+        message: { type: "user_message" as const, id: "candidate", content: "continue", timestamp: 200 },
+        result: result({ is_error: true, subtype: "error_during_execution", stop_reason: "failed" }),
+        interrupted: false,
+      },
+    ];
+
+    for (const testCase of cases) {
+      const session = makeSession();
+      const recoveryDeps = deps(session);
+      session.state.codex_turn_recovery = {
+        recoveryId: "original-owner",
+        originalOwnerId: "original-owner",
+        originalProviderTurnId: "turn-original",
+        originalHistoryIndex: 0,
+        continuationOwnerId: null,
+        threadKey: "main",
+        status: "action_required",
+        reason: "continuation_dispatch_failed",
+        attempt: 1,
+        maxAttempts: 1,
+        createdAt: 100,
+        updatedAt: 110,
+      };
+      session.messageHistory.push(testCase.message);
+      const followUp = turn({
+        userMessageId: "candidate",
+        pendingInputIds: ["candidate"],
+        historyIndex: 1,
+        turnId: `turn-${testCase.label}`,
+      });
+
+      settleCodexTurnRecoveryFromResult(session, [followUp], testCase.result, recoveryDeps, testCase.interrupted);
+
+      expect(session.state.codex_turn_recovery, testCase.label).toMatchObject({
+        status: "action_required",
+        recoveryId: "original-owner",
+      });
+    }
   });
 
   it("does not let an unrelated compaction continuation revive action-required recovery", () => {

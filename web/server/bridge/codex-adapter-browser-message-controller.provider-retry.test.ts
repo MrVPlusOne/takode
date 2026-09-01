@@ -5,6 +5,7 @@ import {
   type CodexAdapterBrowserMessageDeps,
 } from "./codex-adapter-browser-message-controller.js";
 import { reconcileRecoveredQueuedTurnLifecycle } from "./codex-queued-turn-lifecycle.js";
+import { handleCodexResultErrorAutoPause as handleCodexResultErrorAutoPauseDelivery } from "./codex-result-error-auto-pause-delivery.js";
 
 function makeResult(turnId: string, uuid: string): Extract<BrowserIncomingMessage, { type: "result" }> {
   return {
@@ -56,11 +57,13 @@ function makeTurn(): CodexOutboundTurn {
 function makeSession(turn = makeTurn()) {
   return {
     id: "provider-retry-session",
+    backendType: "codex",
     state: { isOrchestrator: false, backend_type: "codex" },
     messageHistory: [
       { type: "user_message", id: "input-1", content: "continue", timestamp: 1 } as BrowserIncomingMessage,
     ],
     pendingCodexTurns: [turn],
+    pendingCodexInputs: [],
     queuedTurnStarts: 0,
     queuedTurnReasons: [],
     queuedTurnUserMessageIds: [],
@@ -249,6 +252,61 @@ describe("Codex transient provider retry presentation", () => {
     expect(session.state.codex_provider_retry).toBeNull();
     expect(broadcasts).toContainEqual({ type: "session_update", session: { codex_provider_retry: null } });
     expect(session.messageHistory.at(-1)).toMatchObject({ type: "result", data: { is_error: false } });
+  });
+
+  it("clears the held-input pause when the exact automatic provider-retry owner succeeds live", async () => {
+    const turn = makeTurn();
+    turn.autoPauseSourceKind = "automatic";
+    turn.providerRecoveryAttempts = 151;
+    turn.providerRecoveryFamily = "model_backend_stream_error";
+    const session = makeSession(turn);
+    session.state.codex_result_error_auto_pause = {
+      family: "model_backend_stream_error",
+      fingerprint: "model_backend_stream_error:responses",
+      streak: 3,
+      threshold: 3,
+      pausedAt: 10,
+      lastError: "Model backend stream disconnected before completion.",
+      lastErrorAt: 10,
+      lastSourceKind: "automatic",
+      totalMatchingErrors: 3,
+      heldInputs: [],
+    };
+    session.state.codex_provider_retry = {
+      family: "model_backend_stream_error",
+      ownerId: "input-1",
+      attempt: 151,
+      maxAttempts: null,
+      startedAt: 10,
+    };
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(session, broadcasts);
+    deps.handleCodexResultErrorAutoPause = (target, result, completedTurn, interrupted) =>
+      handleCodexResultErrorAutoPauseDelivery(
+        target as any,
+        result,
+        completedTurn,
+        {
+          broadcastToBrowsers: (_session: unknown, message: BrowserIncomingMessage) => broadcasts.push(message),
+          broadcastPendingCodexInputs: vi.fn(),
+          persistSession: vi.fn(),
+          persistSessionImmediately: vi.fn(async () => {}),
+          getBrowserTransportDeps: () => ({}) as any,
+          releasePendingTransfer: vi.fn(),
+        },
+        interrupted,
+      );
+
+    await handleCodexAdapterBrowserMessage(session, makeSuccess("turn-1"), deps);
+
+    expect(session.state.codex_result_error_auto_pause).toBeNull();
+    expect(broadcasts).toContainEqual({
+      type: "session_update",
+      session: {
+        codex_result_error_auto_pause: null,
+        codex_result_error_auto_pause_recovery_progress: null,
+      },
+    });
   });
 
   it("retires an orphaned retry owner when a different turn later completes", async () => {

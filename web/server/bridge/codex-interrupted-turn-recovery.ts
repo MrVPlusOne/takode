@@ -1,6 +1,7 @@
 import {
   CODEX_TURN_RECOVERY_SOURCE_LABEL,
   codexTurnRecoverySourceId,
+  isCodexLeaderRecoveryDiagnosticSourceId,
   isCodexTurnRecoverySourceId,
 } from "../../shared/injected-event-message.js";
 import { getKnownSessionNum } from "../cli-launcher.js";
@@ -18,6 +19,7 @@ import { sessionTag } from "../session-tag.js";
 import {
   browserMessageRoute,
   routeFromHistoryEntry,
+  sameThreadRoute,
   threadRouteForTarget,
   type ThreadRouteMetadata,
 } from "../thread-routing-metadata.js";
@@ -51,6 +53,7 @@ export interface CodexInterruptedTurnRecoverySessionLike {
     "backend_state" | "codex_result_error_auto_pause" | "codex_turn_recovery" | "isOrchestrator" | "pause"
   >;
   messageHistory: BrowserIncomingMessage[];
+  frozenCount?: number;
   _frozenCount?: number;
   pendingCodexInputs: PendingCodexInput[];
   pendingCodexTurns: CodexOutboundTurn[];
@@ -60,6 +63,8 @@ export interface CodexInterruptedTurnRecoverySessionLike {
 export interface CodexInterruptedTurnRecoveryDeps {
   broadcastToBrowsers: (session: any, message: BrowserIncomingMessage) => void;
   persistSession: (session: any) => void;
+  persistHistoryMetadataRepair?: (session: any, expectedFrozenCount: number) => Promise<void>;
+  refreshBrowserConversationViews?: (session: any) => void;
   injectUserMessage: (
     sessionId: string,
     content: string,
@@ -129,17 +134,50 @@ export function normalizeCodexTurnRecoveryState(value: unknown): SessionState["c
   };
 }
 
-export function repairRestoredCodexTurnRecoveryState(
+export interface RestoredCodexTurnRecoveryRepair {
+  state: SessionState["codex_turn_recovery"];
+  resolvedByHistoricalSuccess: boolean;
+  historyMetadataChanged: boolean;
+  requiresFrozenHistoryMetadataRepair: boolean;
+}
+
+export function repairRestoredCodexTurnRecovery(
   session: CodexInterruptedTurnRecoverySessionLike,
-): SessionState["codex_turn_recovery"] {
+): RestoredCodexTurnRecoveryRepair {
   const current = normalizeCodexTurnRecoveryState(session.state.codex_turn_recovery);
-  if (!current) return null;
+  if (!current) {
+    return {
+      state: null,
+      resolvedByHistoricalSuccess: false,
+      historyMetadataChanged: false,
+      requiresFrozenHistoryMetadataRepair: false,
+    };
+  }
   if (current.status === "action_required") {
+    if (hasHistoricalSuccessfulSameThreadHumanFollowUp(session, current)) {
+      const retired = retireCodexTurnRecoveryDiagnostics(session, current, Date.now());
+      return {
+        state: null,
+        resolvedByHistoricalSuccess: true,
+        historyMetadataChanged: retired.changed,
+        requiresFrozenHistoryMetadataRepair: retired.requiresFrozenHistoryMetadataRepair,
+      };
+    }
     if (!session.attentionReason) {
       session.attentionReason = "error";
-      return { ...current, raisedAttention: true };
+      return {
+        state: { ...current, raisedAttention: true },
+        resolvedByHistoricalSuccess: false,
+        historyMetadataChanged: false,
+        requiresFrozenHistoryMetadataRepair: false,
+      };
     }
-    return current;
+    return {
+      state: current,
+      resolvedByHistoricalSuccess: false,
+      historyMetadataChanged: false,
+      requiresFrozenHistoryMetadataRepair: false,
+    };
   }
 
   const sourceId = codexTurnRecoverySourceId(current.recoveryId);
@@ -152,24 +190,39 @@ export function repairRestoredCodexTurnRecoveryState(
   const continuationOwnerId = continuationInput?.id ?? continuationTurn?.userMessageId ?? null;
   if (continuationOwnerId) {
     return {
-      ...current,
-      continuationOwnerId,
-      status: continuationTurn?.status === "backend_acknowledged" ? "continuation_active" : "continuation_pending",
+      state: {
+        ...current,
+        continuationOwnerId,
+        status: continuationTurn?.status === "backend_acknowledged" ? "continuation_active" : "continuation_pending",
+      },
+      resolvedByHistoricalSuccess: false,
+      historyMetadataChanged: false,
+      requiresFrozenHistoryMetadataRepair: false,
     };
   }
 
   if (current.attempt === 1 && session.codexLeaderRecycleContinuation?.recoveryId === current.recoveryId) {
-    return { ...current, continuationOwnerId: null, status: "continuation_pending" };
+    return {
+      state: { ...current, continuationOwnerId: null, status: "continuation_pending" },
+      resolvedByHistoricalSuccess: false,
+      historyMetadataChanged: false,
+      requiresFrozenHistoryMetadataRepair: false,
+    };
   }
   if (current.attempt === 1) {
     const raisedAttention = !session.attentionReason;
     if (raisedAttention) session.attentionReason = "error";
     return {
-      ...current,
-      ...(raisedAttention ? { raisedAttention: true } : {}),
-      status: "action_required",
-      reason: "continuation_dispatch_failed",
-      updatedAt: Date.now(),
+      state: {
+        ...current,
+        ...(raisedAttention ? { raisedAttention: true } : {}),
+        status: "action_required",
+        reason: "continuation_dispatch_failed",
+        updatedAt: Date.now(),
+      },
+      resolvedByHistoricalSuccess: false,
+      historyMetadataChanged: false,
+      requiresFrozenHistoryMetadataRepair: false,
     };
   }
 
@@ -179,16 +232,34 @@ export function repairRestoredCodexTurnRecoveryState(
       (turn.userMessageId === current.originalOwnerId ||
         (!!current.originalProviderTurnId && turn.turnId === current.originalProviderTurnId)),
   );
-  if (originalPending) return current;
+  if (originalPending) {
+    return {
+      state: current,
+      resolvedByHistoricalSuccess: false,
+      historyMetadataChanged: false,
+      requiresFrozenHistoryMetadataRepair: false,
+    };
+  }
   const raisedAttention = !session.attentionReason;
   if (raisedAttention) session.attentionReason = "error";
   return {
-    ...current,
-    ...(raisedAttention ? { raisedAttention: true } : {}),
-    status: "action_required",
-    reason: "recovery_failed",
-    updatedAt: Date.now(),
+    state: {
+      ...current,
+      ...(raisedAttention ? { raisedAttention: true } : {}),
+      status: "action_required",
+      reason: "recovery_failed",
+      updatedAt: Date.now(),
+    },
+    resolvedByHistoricalSuccess: false,
+    historyMetadataChanged: false,
+    requiresFrozenHistoryMetadataRepair: false,
   };
+}
+
+export function repairRestoredCodexTurnRecoveryState(
+  session: CodexInterruptedTurnRecoverySessionLike,
+): SessionState["codex_turn_recovery"] {
+  return repairRestoredCodexTurnRecovery(session).state;
 }
 
 export function hasIncompleteCodexActivityWithoutTerminalEvidence(
@@ -437,7 +508,7 @@ export function beginCodexTurnRecoveryContinuation(
   const sourceId = codexTurnRecoverySourceId(recoveryId);
   const delivery = deps.injectUserMessage(
     session.id,
-    "Takode is continuing an interrupted leader turn without replaying completed work.",
+    "Takode is resuming this interrupted work without repeating actions that already completed.",
     { sessionId: sourceId, sessionLabel: CODEX_TURN_RECOVERY_SOURCE_LABEL },
     route,
     { deliveryContent: buildContinuationPrompt(session, pending) },
@@ -584,7 +655,14 @@ function retireCodexTurnRecoveryOwners(
 export function markCodexTurnRecoveryActionRequired(
   session: CodexInterruptedTurnRecoverySessionLike,
   reason: CodexTurnRecoveryReason,
-  deps: Pick<CodexInterruptedTurnRecoveryDeps, "broadcastToBrowsers" | "persistSession" | "setAttentionError">,
+  deps: Pick<
+    CodexInterruptedTurnRecoveryDeps,
+    | "broadcastToBrowsers"
+    | "persistSession"
+    | "persistHistoryMetadataRepair"
+    | "refreshBrowserConversationViews"
+    | "setAttentionError"
+  >,
 ): void {
   const current = session.state.codex_turn_recovery ?? null;
   if (!current) return;
@@ -606,12 +684,15 @@ export function markCodexTurnRecoveryActionRequired(
 export function resolveCodexTurnRecoveryAction(
   session: CodexInterruptedTurnRecoverySessionLike,
   recoveryId: string,
-  deps: Pick<CodexInterruptedTurnRecoveryDeps, "broadcastToBrowsers" | "persistSession">,
+  deps: Pick<
+    CodexInterruptedTurnRecoveryDeps,
+    "broadcastToBrowsers" | "persistSession" | "persistHistoryMetadataRepair" | "refreshBrowserConversationViews"
+  >,
 ): boolean {
   const current = session.state.codex_turn_recovery ?? null;
   if (!current || current.status !== "action_required" || current.recoveryId !== recoveryId) return false;
   retireCodexTurnRecoveryOwners(session, current, deps);
-  setRecoveryState(session, null, deps);
+  clearCodexTurnRecoveryState(session, current, deps);
   console.log(
     `[ws-bridge] User resolved Codex interrupted-turn recovery for session ${sessionTag(session.id)} ` +
       `(recovery=${current.recoveryId}, route=${current.threadKey})`,
@@ -622,13 +703,16 @@ export function resolveCodexTurnRecoveryAction(
 export function clearCodexTurnRecoveryForOwner(
   session: CodexInterruptedTurnRecoverySessionLike,
   ownerId: string,
-  deps: Pick<CodexInterruptedTurnRecoveryDeps, "broadcastToBrowsers" | "persistSession">,
+  deps: Pick<
+    CodexInterruptedTurnRecoveryDeps,
+    "broadcastToBrowsers" | "persistSession" | "persistHistoryMetadataRepair" | "refreshBrowserConversationViews"
+  >,
 ): void {
   const current = session.state.codex_turn_recovery ?? null;
   if (!current) return;
   if (ownerId !== current.originalOwnerId && ownerId !== current.continuationOwnerId) return;
   if (ownerId === current.originalOwnerId && current.attempt > 0) return;
-  setRecoveryState(session, null, deps);
+  clearCodexTurnRecoveryState(session, current, deps);
   console.log(
     `[ws-bridge] Cleared Codex interrupted-turn recovery for session ${sessionTag(session.id)} ` +
       `(recovery=${current.recoveryId}, owner=${ownerId})`,
@@ -645,6 +729,18 @@ export function settleCodexTurnRecoveryFromResult(
   const current = session.state.codex_turn_recovery ?? null;
   if (!current) return;
   const successful = isSuccessfulResult(result, interrupted);
+  if (successful && current.status === "action_required") {
+    const followUp = completedTurns.find((turn) => isFreshSameThreadHumanRecoveryFollowUp(session, turn, current));
+    if (followUp) {
+      clearCodexTurnRecoveryState(session, current, deps);
+      console.log(
+        `[ws-bridge] Cleared action-required Codex recovery after a successful same-thread follow-up for ` +
+          `${sessionTag(session.id)} (recovery=${current.recoveryId}, owner=${followUp.userMessageId}, ` +
+          `route=${current.threadKey})`,
+      );
+      return;
+    }
+  }
   const continuation = completedTurns.find((turn) => isRecoveryContinuationTurn(session, turn, current.recoveryId));
   if (!continuation) {
     const completedOriginal = completedTurns.some((turn) => turn.userMessageId === current.originalOwnerId);
@@ -665,6 +761,152 @@ export function settleCodexTurnRecoveryFromResult(
       : "continuation_failed",
     deps,
   );
+}
+
+function isFreshSameThreadHumanRecoveryFollowUp(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  turn: CodexOutboundTurn,
+  recovery: NonNullable<SessionState["codex_turn_recovery"]>,
+): boolean {
+  if (turn.userMessageId === recovery.originalOwnerId || turn.userMessageId === recovery.continuationOwnerId) {
+    return false;
+  }
+  if (turn.historyIndex <= recovery.originalHistoryIndex || !isDirectHumanTurn(session, turn)) return false;
+  const message = getMessageAtAbsoluteHistoryIndex(session, turn.historyIndex);
+  if (message?.type !== "user_message" || message.timestamp <= recovery.updatedAt) return false;
+  const route = routeFromHistoryEntry(message) ?? threadRouteForTarget("main");
+  return sameThreadRoute(route, { threadKey: recovery.threadKey });
+}
+
+function clearCodexTurnRecoveryState(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  recovery: NonNullable<SessionState["codex_turn_recovery"]>,
+  deps: Pick<
+    CodexInterruptedTurnRecoveryDeps,
+    "broadcastToBrowsers" | "persistSession" | "persistHistoryMetadataRepair" | "refreshBrowserConversationViews"
+  >,
+): void {
+  const retired = retireCodexTurnRecoveryDiagnostics(session, recovery, Date.now());
+  session.state.codex_turn_recovery = null;
+  deps.broadcastToBrowsers(session, { type: "session_update", session: { codex_turn_recovery: null } });
+  if (retired.requiresFrozenHistoryMetadataRepair && deps.persistHistoryMetadataRepair) {
+    const expectedFrozenCount = normalizedFrozenHistoryCount(session);
+    void deps.persistHistoryMetadataRepair(session, expectedFrozenCount).catch((error) => {
+      console.error(
+        `[ws-bridge] Failed to persist resolved Codex recovery diagnostic for ${sessionTag(session.id)} ` +
+          `(recovery=${recovery.recoveryId}):`,
+        error,
+      );
+    });
+  } else {
+    deps.persistSession(session);
+  }
+  if (retired.changed) deps.refreshBrowserConversationViews?.(session);
+}
+
+interface RetiredCodexTurnRecoveryDiagnostics {
+  changed: boolean;
+  requiresFrozenHistoryMetadataRepair: boolean;
+}
+
+function retireCodexTurnRecoveryDiagnostics(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  recovery: NonNullable<SessionState["codex_turn_recovery"]>,
+  resolvedAt: number,
+): RetiredCodexTurnRecoveryDiagnostics {
+  const exactIndexes: number[] = [];
+  for (let index = recovery.originalHistoryIndex + 1; index < session.messageHistory.length; index += 1) {
+    const message = session.messageHistory[index];
+    if (
+      message?.type === "user_message" &&
+      message.codexTurnRecoveryId === recovery.recoveryId &&
+      message.codexTurnRecoveryResolvedAt == null &&
+      isCodexLeaderRecoveryDiagnosticSourceId(message.agentSource?.sessionId)
+    ) {
+      exactIndexes.push(index);
+    }
+  }
+
+  const indexes = exactIndexes.length > 0 ? exactIndexes : uniqueLegacyRecoveryDiagnosticIndex(session, recovery);
+  const frozenCount = normalizedFrozenHistoryCount(session);
+  let requiresFrozenHistoryMetadataRepair = false;
+  for (const index of indexes) {
+    const message = session.messageHistory[index];
+    if (message?.type !== "user_message") continue;
+    message.codexTurnRecoveryId = recovery.recoveryId;
+    message.codexTurnRecoveryResolvedAt = resolvedAt;
+    requiresFrozenHistoryMetadataRepair ||= index < frozenCount;
+  }
+  return { changed: indexes.length > 0, requiresFrozenHistoryMetadataRepair };
+}
+
+function uniqueLegacyRecoveryDiagnosticIndex(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  recovery: NonNullable<SessionState["codex_turn_recovery"]>,
+): number[] {
+  const candidates: number[] = [];
+  for (let index = recovery.originalHistoryIndex + 1; index < session.messageHistory.length; index += 1) {
+    const message = session.messageHistory[index];
+    if (!message) continue;
+    if (message.type === "user_message" && message.agentSource == null) break;
+    if (
+      message.type !== "user_message" ||
+      message.codexTurnRecoveryId != null ||
+      message.codexTurnRecoveryResolvedAt != null ||
+      !isCodexLeaderRecoveryDiagnosticSourceId(message.agentSource?.sessionId) ||
+      message.timestamp < recovery.createdAt
+    ) {
+      continue;
+    }
+    const route = routeFromHistoryEntry(message) ?? threadRouteForTarget("main");
+    if (sameThreadRoute(route, { threadKey: recovery.threadKey })) candidates.push(index);
+  }
+  return candidates.length === 1 ? candidates : [];
+}
+
+function normalizedFrozenHistoryCount(session: CodexInterruptedTurnRecoverySessionLike): number {
+  const raw = session.frozenCount ?? session._frozenCount ?? 0;
+  return Number.isFinite(raw) ? Math.max(0, Math.min(Math.floor(raw), session.messageHistory.length)) : 0;
+}
+
+function hasHistoricalSuccessfulSameThreadHumanFollowUp(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  recovery: NonNullable<SessionState["codex_turn_recovery"]>,
+): boolean {
+  const pendingOwnerIds = new Set(session.pendingCodexInputs.map((input) => input.id));
+  for (const turn of session.pendingCodexTurns) {
+    if (turn.status === "completed") continue;
+    pendingOwnerIds.add(turn.userMessageId);
+    for (const id of turn.pendingInputIds ?? []) pendingOwnerIds.add(id);
+  }
+
+  let segmentHasEligibleFollowUp = false;
+  for (let index = recovery.originalHistoryIndex + 1; index < session.messageHistory.length; index += 1) {
+    const message = session.messageHistory[index];
+    if (!message || message.codexSubagent != null) continue;
+    if (message.type === "user_message") {
+      const messageId = message.id?.trim() ?? "";
+      const route = routeFromHistoryEntry(message) ?? threadRouteForTarget("main");
+      segmentHasEligibleFollowUp =
+        message.agentSource == null &&
+        messageId.length > 0 &&
+        message.timestamp > recovery.updatedAt &&
+        !pendingOwnerIds.has(messageId) &&
+        sameThreadRoute(route, { threadKey: recovery.threadKey });
+      continue;
+    }
+    if (message.type !== "result") continue;
+    const route = routeFromHistoryEntry(message) ?? threadRouteForTarget("main");
+    if (
+      segmentHasEligibleFollowUp &&
+      sameThreadRoute(route, { threadKey: recovery.threadKey }) &&
+      isSuccessfulResult(message.data, message.interrupted === true)
+    ) {
+      return true;
+    }
+    segmentHasEligibleFollowUp = false;
+  }
+  return false;
 }
 
 export function resolveCodexTurnRecoveryRoute(

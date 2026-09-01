@@ -46,7 +46,7 @@ export function selectHistoryWindowRange(input: {
   const lastTurn = input.turns[endTurnExclusive - 1];
   const trailingEndExclusive = input.turns[endTurnExclusive]?.startIdx ?? input.messageHistory.length;
   const baseEndExclusive = lastTurn && lastTurn.endIdx >= 0 ? lastTurn.endIdx + 1 : trailingEndExclusive;
-  let messages = input.messageHistory.slice(turnStartIdx, baseEndExclusive);
+  let messages = projectHistoryRange(input.messageHistory, turnStartIdx, baseEndExclusive, input.includeMessage);
   if (fromTurn === 0 && turnStartIdx > 0) {
     const leadingMessages: BrowserIncomingMessage[] = [];
     for (let historyIndex = 0; historyIndex < turnStartIdx; historyIndex++) {
@@ -57,7 +57,13 @@ export function selectHistoryWindowRange(input: {
     if (leadingMessages.length > 0) {
       messages = [
         ...leadingMessages,
-        ...messages.map((message, offset) => ({ ...message, history_index: turnStartIdx + offset })),
+        ...messages.map((message, offset) => ({
+          ...message,
+          history_index:
+            Number.isInteger(message.history_index) && (message.history_index ?? -1) >= 0
+              ? message.history_index
+              : turnStartIdx + offset,
+        })),
       ];
       startIdx = leadingMessages[0]!.history_index!;
     }
@@ -75,6 +81,26 @@ export function selectHistoryWindowRange(input: {
     startIdx,
     messages,
   };
+}
+
+function projectHistoryRange(
+  history: BrowserIncomingMessage[],
+  startIndex: number,
+  endIndex: number,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
+): BrowserIncomingMessage[] {
+  const projected: BrowserIncomingMessage[] = [];
+  for (let historyIndex = startIndex; historyIndex < endIndex; historyIndex += 1) {
+    const message = history[historyIndex];
+    if (!message || (includeMessage && !includeMessage(message, historyIndex))) continue;
+    const expectedContiguousIndex = startIndex + projected.length;
+    projected.push(
+      historyIndex === expectedContiguousIndex && message.history_index == null
+        ? message
+        : { ...message, history_index: historyIndex },
+    );
+  }
+  return projected;
 }
 
 function findOwningTurn(

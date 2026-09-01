@@ -160,6 +160,44 @@ describe("handleMessage: session_update", () => {
     expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause_recovery_progress).toBe("testing");
   });
 
+  it("replaces auto-pause release progress and clearing from authoritative session updates", () => {
+    const pausedAt = new Date("2026-09-01T12:00:00Z").getTime();
+    const autoPause = {
+      family: "model_backend_stream_error" as const,
+      fingerprint: "stream-error",
+      streak: 3,
+      threshold: 3,
+      pausedAt,
+      lastError: "stream disconnected",
+      lastErrorAt: pausedAt,
+      lastSourceKind: "automatic" as const,
+      totalMatchingErrors: 3,
+      heldInputs: [],
+    };
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), codex_result_error_auto_pause: autoPause } });
+
+    fireMessage({
+      type: "session_update",
+      session: {
+        codex_result_error_auto_pause: {
+          ...autoPause,
+          releaseProgress: { status: "releasing", acceptedAt: pausedAt + 1_000 },
+        },
+      },
+    });
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause?.releaseProgress).toEqual({
+      status: "releasing",
+      acceptedAt: pausedAt + 1_000,
+    });
+
+    fireMessage({ type: "session_update", session: { codex_result_error_auto_pause: autoPause } });
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause?.releaseProgress).toBeUndefined();
+
+    fireMessage({ type: "session_update", session: { codex_result_error_auto_pause: null } });
+    expect(useStore.getState().sessions.get("s1")?.codex_result_error_auto_pause).toBeNull();
+  });
+
   it("keeps detailed board updates separate from current projected open tabs", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), isOrchestrator: true } });

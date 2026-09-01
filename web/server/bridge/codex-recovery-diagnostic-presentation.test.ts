@@ -13,6 +13,7 @@ import {
   type CodexRecoveryOrchestratorDeps,
   type CodexRecoveryOrchestratorSessionLike,
 } from "./codex-recovery-orchestrator.js";
+import { completeRecoveredCodexTurnWithDiagnostic } from "./codex-recovered-turn-diagnostic.js";
 import { completeCodexTurn } from "./codex-turn-queue.js";
 
 function pendingTurn(): CodexOutboundTurn {
@@ -164,7 +165,7 @@ describe("Codex recovered-turn diagnostic presentation", () => {
     logCodexRecoveryDiagnostic.mockClear();
   });
 
-  it("suppresses the legacy diagnostic and red error only after a separate continuation queues", () => {
+  it("queues a separate continuation without adding fallback diagnostics", () => {
     const session = sessionWithRoutedPartial();
     const recoveryDeps = deps(session);
     const snapshot = interruptedSnapshot();
@@ -252,13 +253,13 @@ describe("Codex recovered-turn diagnostic presentation", () => {
       threadKey: "main",
     });
     expect(recoveryDiagnostics(session)).toHaveLength(1);
-    expect(recoveryDiagnostics(session)[0]).toMatchObject({ threadKey: "main" });
-    expect(recoveryDeps.broadcastToBrowsers).toHaveBeenCalledWith(
+    expect(recoveryDiagnostics(session)[0]).toMatchObject({
+      threadKey: "main",
+      codexTurnRecoveryId: "user-1",
+    });
+    expect(recoveryDeps.broadcastToBrowsers).not.toHaveBeenCalledWith(
       session,
-      expect.objectContaining({
-        type: "error",
-        message: expect.stringContaining("Send a new instruction if the intended outcome is still missing"),
-      }),
+      expect.objectContaining({ type: "error" }),
     );
     expect(recoveryDeps.setAttentionError).toHaveBeenCalledWith(session);
     expect(logCodexRecoveryDiagnostic).toHaveBeenCalledWith(
@@ -266,7 +267,7 @@ describe("Codex recovered-turn diagnostic presentation", () => {
         presentation: "action_required",
         continuationQueued: false,
         diagnosticAppended: true,
-        browserErrorBroadcast: true,
+        browserErrorBroadcast: false,
         routeThreadKey: "main",
       }),
     );
@@ -285,15 +286,66 @@ describe("Codex recovered-turn diagnostic presentation", () => {
 
     expect(recoveryDeps.injectUserMessage).not.toHaveBeenCalled();
     expect(recoveryDiagnostics(session)).toHaveLength(1);
-    expect(recoveryDeps.broadcastToBrowsers).toHaveBeenCalledWith(session, expect.objectContaining({ type: "error" }));
+    expect(recoveryDeps.broadcastToBrowsers).not.toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ type: "error" }),
+    );
     expect(logCodexRecoveryDiagnostic).toHaveBeenCalledWith(
       expect.objectContaining({
         presentation: "routed_fallback",
         continuationQueued: false,
         diagnosticAppended: true,
-        browserErrorBroadcast: true,
+        browserErrorBroadcast: false,
         routeThreadKey: "main",
       }),
+    );
+  });
+
+  it("keeps a later interrupted turn separate from an existing action-required recovery", () => {
+    const session = sessionWithRoutedPartial();
+    session.state.codex_turn_recovery = {
+      recoveryId: "older-recovery",
+      originalOwnerId: "older-owner",
+      originalProviderTurnId: "older-turn",
+      originalHistoryIndex: 0,
+      continuationOwnerId: null,
+      threadKey: "main",
+      status: "action_required",
+      reason: "continuation_failed",
+      raisedAttention: true,
+      attempt: 1,
+      maxAttempts: 1,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const laterOwner = pendingTurn();
+    laterOwner.userMessageId = "later-owner";
+    laterOwner.pendingInputIds = ["later-owner"];
+    laterOwner.turnId = "later-turn";
+    laterOwner.historyIndex = 2;
+    session.messageHistory.push({
+      type: "user_message",
+      id: "later-owner",
+      content: "later interrupted work",
+      timestamp: 10,
+      threadKey: "main",
+    });
+    session.pendingCodexTurns = [laterOwner];
+    const recoveryDeps = deps(session);
+
+    const outcome = completeRecoveredCodexTurnWithDiagnostic(
+      session,
+      laterOwner,
+      "later_interrupted_turn",
+      "fallback",
+      recoveryDeps,
+      { leaderDiagnosticRoute: { threadKey: "main" }, recoveryOwner: laterOwner },
+    );
+
+    expect(outcome).toMatchObject({ diagnosticAppended: true, browserErrorBroadcast: false });
+    expect(session.state.codex_turn_recovery).toMatchObject({ recoveryId: "older-recovery" });
+    expect(recoveryDiagnostics(session)).toContainEqual(
+      expect.objectContaining({ codexTurnRecoveryId: "later-owner", threadKey: "main" }),
     );
   });
 

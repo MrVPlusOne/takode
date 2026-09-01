@@ -54,6 +54,10 @@ function playgroundPause(family: CodexResultErrorAutoPauseState["family"]): Code
 const PLAYGROUND_COPILOT_PAUSE = playgroundPause("copilot_auth_refresh_exhausted");
 const PLAYGROUND_STREAM_PAUSE = playgroundPause("model_backend_stream_error");
 const PLAYGROUND_UNSUPPORTED_MODEL_PAUSE = playgroundPause("model_not_supported");
+const PLAYGROUND_RELEASING_STREAM_PAUSE: CodexResultErrorAutoPauseState = {
+  ...PLAYGROUND_STREAM_PAUSE,
+  releaseProgress: { status: "releasing", acceptedAt: NOW - 2_000 },
+};
 
 function PlaygroundPauseFrame({
   autoPause,
@@ -74,15 +78,18 @@ function PlaygroundPauseFrame({
           pause={null}
           autoPause={autoPause}
           autoPauseRecoveryProgress={recoveryProgress}
+          onReleaseAutoPausedInputs={() => {}}
         />
         <textarea
           readOnly
           value={
-            recoveryProgress === "active"
-              ? "The exact recovery owner is actively running."
-              : recoveryProgress === "testing"
-                ? "Recovery testing is starting."
-                : "Direct messages remain available."
+            autoPause.releaseProgress?.status === "releasing"
+              ? "Takode is releasing the held inputs."
+              : recoveryProgress === "active"
+                ? "Your current message is running."
+                : recoveryProgress === "testing"
+                  ? "Takode is checking this session."
+                  : "Held inputs will send after this session succeeds."
           }
           rows={1}
           className="w-full resize-none bg-transparent px-4 pb-1 pt-3 font-sans-ui text-sm text-cc-fg"
@@ -96,28 +103,38 @@ function PlaygroundPauseFrame({
 export function PlaygroundAutoPauseBannerStates() {
   return (
     <>
-      <Card label="Automatic recovery paused — Copilot cause">
-        <PlaygroundPauseFrame autoPause={PLAYGROUND_COPILOT_PAUSE} stateId="idle" />
+      <Card label="Held inputs — waiting for session recovery">
+        <div data-testid="playground-auto-pause-idle-mobile-width" className="max-w-[320px]">
+          <PlaygroundPauseFrame autoPause={PLAYGROUND_STREAM_PAUSE} stateId="idle" />
+        </div>
       </Card>
       <div className="mt-4" />
-      <Card label="Automatic recovery testing — repeated stream cause">
+      <Card label="Held inputs — release accepted">
+        <div data-testid="playground-auto-pause-releasing-mobile-width" className="max-w-[320px]">
+          <PlaygroundPauseFrame autoPause={PLAYGROUND_RELEASING_STREAM_PAUSE} stateId="releasing" />
+        </div>
+      </Card>
+      <div className="mt-4" />
+      <Card label="Held inputs — checking current message">
         <div data-testid="playground-auto-pause-mobile-width" className="max-w-[320px]">
           <PlaygroundPauseFrame autoPause={PLAYGROUND_STREAM_PAUSE} stateId="testing" recoveryProgress="testing" />
         </div>
       </Card>
       <div className="mt-4" />
-      <Card label="Automatic recovery active — exact owner running">
+      <Card label="Held inputs — current message running">
         <div data-testid="playground-auto-pause-active-mobile-width" className="max-w-[320px]">
           <PlaygroundPauseFrame autoPause={PLAYGROUND_STREAM_PAUSE} stateId="active" recoveryProgress="active" />
         </div>
       </Card>
       <div className="mt-4" />
-      <Card label="Automatic recovery paused — unsupported selected model">
+      <Card label="Held inputs — choose another model">
         <PlaygroundPauseFrame autoPause={PLAYGROUND_UNSUPPORTED_MODEL_PAUSE} stateId="unsupported-model" />
       </Card>
       <div className="mt-4" />
-      <Card label="Failed recovery remains held">
-        <PlaygroundPauseFrame autoPause={PLAYGROUND_COPILOT_PAUSE} stateId="failed-held" />
+      <Card label="Held inputs — Copilot sign-in required">
+        <div data-testid="playground-auto-pause-action-required-mobile-width" className="max-w-[320px]">
+          <PlaygroundPauseFrame autoPause={PLAYGROUND_COPILOT_PAUSE} stateId="failed-held" />
+        </div>
       </Card>
     </>
   );

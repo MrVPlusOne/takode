@@ -243,7 +243,7 @@ describe("SideChatPanel", () => {
     render(<SideChatPanel rootSessionId="root" sideChat={makeSideChat()} onClose={() => {}} />);
 
     expect(screen.getByText("Disconnected")).toBeTruthy();
-    expect(screen.getByText(/reconnects automatically when backend delivery is needed/i)).toBeTruthy();
+    expect(screen.getByText(/Takode will reconnect when there is something to send/i)).toBeTruthy();
   });
 
   it("prevents silent sends when the hidden child session is unavailable", async () => {

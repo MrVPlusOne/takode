@@ -184,6 +184,7 @@ export interface CodexRecoveryOrchestratorDeps {
   broadcastPendingCodexInputs: (session: CodexRecoveryOrchestratorSessionLike) => void;
   broadcastToBrowsers: (session: CodexRecoveryOrchestratorSessionLike, msg: BrowserIncomingMessage) => void;
   persistSession: (session: CodexRecoveryOrchestratorSessionLike) => void;
+  refreshBrowserConversationViews?: (session: CodexRecoveryOrchestratorSessionLike) => void;
   touchUserMessage: (sessionId: string, timestamp?: number) => void;
   emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) => void;
   injectCompactionRecovery: (session: CodexRecoveryOrchestratorSessionLike) => void;

@@ -381,36 +381,57 @@ describe("Playground", () => {
     // Message-related lifecycle states must remain inspectable without a live server or backend.
     render(<Playground />);
 
-    expect(screen.getByText("Automatic recovery paused — Copilot cause")).toBeTruthy();
-    expect(screen.getByText("Automatic recovery testing — repeated stream cause")).toBeTruthy();
-    expect(screen.getByText("Automatic recovery active — exact owner running")).toBeTruthy();
-    expect(screen.getByText("Automatic recovery paused — unsupported selected model")).toBeTruthy();
-    expect(screen.getByText("Failed recovery remains held")).toBeTruthy();
-    expect(screen.getByText("Reconnecting (2/5)")).toBeTruthy();
-    expect(screen.getByText("Retrying request (attempt 4)")).toBeTruthy();
-    expect(screen.getAllByText(/Cause: Copilot authentication refresh failed at/)).toHaveLength(2);
-    expect(screen.getAllByText(/Cause: Model backend stream disconnected repeatedly at/)).toHaveLength(2);
-    expect(screen.getByText(/Cause: Selected model is unsupported at/)).toBeTruthy();
+    expect(screen.getByText("Held inputs — waiting for session recovery")).toBeTruthy();
+    expect(screen.getByText("Held inputs — release accepted")).toBeTruthy();
+    expect(screen.getByText("Held inputs — checking current message")).toBeTruthy();
+    expect(screen.getByText("Held inputs — current message running")).toBeTruthy();
+    expect(screen.getByText("Held inputs — choose another model")).toBeTruthy();
+    expect(screen.getByText("Held inputs — Copilot sign-in required")).toBeTruthy();
+    expect(screen.getByText("Reconnecting (2 of 5)")).toBeTruthy();
+    expect(screen.getByText("Retrying message (attempt 4)")).toBeTruthy();
+    expect(screen.getAllByText(/Cause: Copilot sign-in failed at/)).toHaveLength(1);
+    expect(screen.getAllByText(/Cause: The model connection dropped repeatedly at/)).toHaveLength(4);
+    expect(screen.getByText(/Cause: The selected model is not available at/)).toBeTruthy();
     expect(
       screen.getByText(
-        "Testing recovery with your current message. Held inputs will release automatically if it succeeds.",
+        "Takode is checking this session with your current message. Held inputs will send if it finishes successfully.",
       ),
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "Recovery is active for your current message. Automatic inputs remain held until it completes successfully.",
+        "Your current message is running. Held automatic inputs will send when it finishes successfully.",
       ),
     ).toBeTruthy();
+    expect(screen.getByTestId("playground-auto-pause-idle-mobile-width").className).toContain("max-w-[320px]");
+    expect(screen.getByTestId("playground-auto-pause-releasing-mobile-width").className).toContain("max-w-[320px]");
     expect(screen.getByTestId("playground-auto-pause-mobile-width").className).toContain("max-w-[320px]");
     expect(screen.getByTestId("playground-auto-pause-active-mobile-width").className).toContain("max-w-[320px]");
-    for (const stateId of ["idle", "testing", "active", "unsupported-model", "failed-held"]) {
+    expect(screen.getByTestId("playground-auto-pause-action-required-mobile-width").className).toContain(
+      "max-w-[320px]",
+    );
+    for (const stateId of ["idle", "releasing", "testing", "active", "unsupported-model", "failed-held"]) {
       const state = within(screen.getByTestId(`playground-auto-pause-${stateId}`));
       const banner = state.getByTestId("composer-paused-banner");
       expect(banner.className).toContain("border-cc-attention/75");
       expect(banner.className).toContain("bg-cc-attention-bg");
       expect(state.getByTestId("composer-paused-chip").className).toContain("text-cc-attention-strong");
       expect(state.getByTestId("composer-auto-pause-guidance").className).toContain("text-cc-fg");
+      expect(state.getByTestId("composer-auto-pause-release")).toBeTruthy();
     }
+    const idleRelease = within(screen.getByTestId("playground-auto-pause-idle")).getByTestId(
+      "composer-auto-pause-release",
+    );
+    expect(idleRelease).toHaveTextContent("Release now");
+    expect(idleRelease).not.toBeDisabled();
+    expect(idleRelease.className).toContain("min-h-8");
+    expect(idleRelease.className).toContain("shrink-0");
+    expect(idleRelease.parentElement?.className).toContain("flex-wrap");
+    const releasing = within(screen.getByTestId("playground-auto-pause-releasing"));
+    expect(releasing.getByTestId("composer-auto-pause-release")).toHaveTextContent("Releasing…");
+    expect(releasing.getByTestId("composer-auto-pause-release")).toBeDisabled();
+    expect(releasing.getByTestId("composer-auto-pause-guidance")).toHaveTextContent(
+      "Takode accepted your request and is releasing the held inputs.",
+    );
     expect(document.body.textContent).not.toContain("PRIVATE RAW PROVIDER ERROR");
     expect(document.body.textContent).not.toContain("PRIVATE HELD HERD PAYLOAD");
     expect(document.body.textContent).not.toContain("PRIVATE TRUSTED ROUTE LABEL");
@@ -428,23 +449,23 @@ describe("Playground", () => {
     const states = [
       {
         testId: "playground-codex-turn-recovery-recovering",
-        label: "Recovering interrupted work",
-        detail: "retaining the exact interrupted request owner and route",
+        label: "Reconnecting interrupted work",
+        detail: "reconnecting this session so it can finish the interrupted work",
       },
       {
         testId: "playground-codex-turn-recovery-continuation-pending",
         label: "Interrupted work queued",
-        detail: "The original user payload will not be replayed",
+        detail: "queued one follow-up to finish the interrupted work without repeating actions",
       },
       {
         testId: "playground-codex-turn-recovery-continuation-active",
-        label: "Continuing interrupted work",
-        detail: "The original user payload will not be replayed",
+        label: "Finishing interrupted work",
+        detail: "finishing the interrupted work without repeating actions",
       },
       {
         testId: "playground-codex-turn-recovery-action-required",
-        label: "Interrupted work needs attention",
-        detail: "mark this recovery resolved",
+        label: "Check interrupted work",
+        detail: "send a new instruction if work is still missing",
       },
     ];
 
@@ -456,18 +477,19 @@ describe("Playground", () => {
       const detailId = chip.getAttribute("aria-controls");
       const detail = detailId ? document.getElementById(detailId) : null;
       expect(detail).toHaveTextContent(state.detail);
-      expect(detail).toHaveTextContent("Affected thread: q-9010");
+      expect(detail).toHaveTextContent("Work to check: q-9010");
       fireEvent.click(chip);
     }
 
     const actionRequired = within(screen.getByTestId("playground-codex-turn-recovery-action-required"));
     expect(actionRequired.getByTestId("codex-turn-recovery-chip")).toHaveClass("border-cc-attention/55");
     expect(actionRequired.getByText(/verified the already-completed side effects/)).toBeInTheDocument();
-    const diagnosticChip = actionRequired.getByRole("button", { name: "Expand Codex Recovery Diagnostic" });
+    const diagnosticChip = actionRequired.getByRole("button", { name: "Expand Why Automatic Retry Stopped" });
     expect(diagnosticChip).not.toHaveClass("border-cc-attention/55");
-    expect(actionRequired.queryByText(/send a new continuation instruction/)).toBeNull();
+    expect(actionRequired.queryByText(/send a new instruction in this thread/)).toBeNull();
     fireEvent.click(diagnosticChip);
-    expect(actionRequired.getByText(/send a new continuation instruction/)).toBeInTheDocument();
+    expect(actionRequired.getByText(/send a new instruction in this thread/)).toBeInTheDocument();
+    expect(actionRequired.getByText(/choose "Work is complete" to clear this notice/)).toBeInTheDocument();
   });
 
   it("renders real ChatView and MessageFeed recovery fixtures without a socket", () => {

@@ -1026,6 +1026,25 @@ export async function sendHistorySync(
   }
 }
 
+function projectHistorySyncRange(
+  history: BrowserIncomingMessage[],
+  startIndex: number,
+  endIndex: number,
+): BrowserIncomingMessage[] {
+  const projected: BrowserIncomingMessage[] = [];
+  for (let historyIndex = startIndex; historyIndex < endIndex; historyIndex += 1) {
+    const message = history[historyIndex];
+    if (!message || !isRootAgentHistoryMessage(message)) continue;
+    const expectedContiguousIndex = startIndex + projected.length;
+    projected.push(
+      historyIndex === expectedContiguousIndex && message.history_index == null
+        ? message
+        : { ...message, history_index: historyIndex },
+    );
+  }
+  return projected;
+}
+
 async function sendHistorySyncAttempt(
   session: BrowserTransportSessionLike,
   ws: BrowserTransportSocketLike,
@@ -1038,6 +1057,7 @@ async function sendHistorySyncAttempt(
   const frozenHistory = session.messageHistory.slice(0, frozenCount);
   const historyHashOptions = {
     suppressRootThinkingOnlyAssistant: session.backendType === "codex",
+    includeMessage: isRootAgentHistoryMessage,
   };
   const frozenPrefix = computeHistoryMessagesSyncHash(frozenHistory, 0, historyHashOptions);
   if (normalizedKnownFrozenCount > frozenPrefix.renderedCount) {
@@ -1067,8 +1087,8 @@ async function sendHistorySyncAttempt(
   if (isLargeHistory) await yieldToEventLoop();
   const fullHistory = computeHistoryMessagesSyncHash(historySnapshot, 0, historyHashOptions);
   const frozenBaseHistoryIndex = knownPrefix.sourceCount;
-  const frozenDelta = historySnapshot.slice(frozenBaseHistoryIndex, frozenCount);
-  const hotMessages = historySnapshot.slice(frozenCount);
+  const frozenDelta = projectHistorySyncRange(historySnapshot, frozenBaseHistoryIndex, frozenCount);
+  const hotMessages = projectHistorySyncRange(historySnapshot, frozenCount, historySnapshot.length);
   if (isLargeHistory) await yieldToEventLoop();
 
   const frozenDeltaJson = JSON.stringify(frozenDelta);

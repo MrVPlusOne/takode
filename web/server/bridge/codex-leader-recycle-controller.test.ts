@@ -345,7 +345,7 @@ describe("Codex leader recycle continuation", () => {
         expect(content).not.toContain("Never implement non-trivial changes yourself");
         expect(source).toEqual({
           sessionId: "system:codex-turn-recovery:original-owner",
-          sessionLabel: "Interrupted Turn Recovery",
+          sessionLabel: "Resuming Interrupted Work",
         });
         expect(options).toEqual(
           expect.objectContaining({

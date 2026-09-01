@@ -1461,10 +1461,7 @@ describe("programmatic user message injection", () => {
     expect(JSON.stringify(session.state.codex_result_error_auto_pause)).not.toContain("recoveryDeliveryTransferId");
     expect(deps.routeBrowserMessage).not.toHaveBeenCalled();
     expect(deps.persistSession).toHaveBeenCalledWith(session);
-    expect(deps.broadcastError).toHaveBeenCalledWith(
-      session,
-      expect.stringContaining("Automatic Codex input delivery paused"),
-    );
+    expect(deps.broadcastError).toHaveBeenCalledWith(session, expect.stringContaining("Automatic inputs are paused"));
   });
 
   it("routes direct composer messages during Codex result-error auto-pause", async () => {

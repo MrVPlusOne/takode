@@ -834,7 +834,7 @@ describe("Codex resumed-turn co-owner canonicalization", () => {
     expect(injectUserMessage).toHaveBeenCalledTimes(1);
     expect(injectUserMessage).toHaveBeenCalledWith(
       session.id,
-      expect.stringContaining("continuing an interrupted leader turn"),
+      expect.stringContaining("resuming this interrupted work"),
       expect.objectContaining({ sessionId: codexTurnRecoverySourceId("human-owner") }),
       expect.objectContaining({ threadKey: "q-9010", questId: "q-9010" }),
       expect.objectContaining({ deliveryContent: expect.stringContaining("already delivered") }),

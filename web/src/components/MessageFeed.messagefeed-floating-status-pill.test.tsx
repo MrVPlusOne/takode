@@ -575,9 +575,9 @@ describe("MessageFeed - floating status pill", () => {
     fireEvent.click(chip);
 
     expect(screen.getByTestId("recoverable-connection-detail")).toHaveTextContent(
-      "You can keep working normally. Takode reconnects automatically when backend delivery is needed.",
+      "This session is offline. You can keep typing; Takode will reconnect when there is something to send.",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect now" }));
     expect(mockRelaunchSession).toHaveBeenCalledWith(sid);
   });
 
@@ -640,7 +640,7 @@ describe("MessageFeed - floating status pill", () => {
     fireEvent.mouseEnter(chip.parentElement ?? chip);
 
     expect(screen.getByTestId("recoverable-connection-detail")).toHaveTextContent(
-      "You can keep working normally. Takode reconnects automatically when backend delivery is needed.",
+      "This session is offline. You can keep typing; Takode will reconnect when there is something to send.",
     );
 
     fireEvent.mouseLeave(chip.parentElement ?? chip);
@@ -659,10 +659,10 @@ describe("MessageFeed - floating status pill", () => {
     render(<MessageFeed sessionId={sid} />);
 
     const chip = screen.getByTestId("recoverable-connection-chip");
-    expect(chip).toHaveTextContent("Reconnecting (2/5)");
+    expect(chip).toHaveTextContent("Reconnecting (2 of 5)");
     fireEvent.click(chip);
     expect(screen.getByTestId("recoverable-connection-detail")).toHaveTextContent(
-      "Takode is reconnecting this session (attempt 2 of 5). You can keep working while backend delivery catches up.",
+      "Takode is reconnecting this session, attempt 2 of 5. You can keep typing; messages will send when it reconnects.",
     );
   });
 
@@ -691,8 +691,8 @@ describe("MessageFeed - floating status pill", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByTestId("codex-turn-recovery-chip")).toHaveTextContent("Recovering interrupted work");
-    expect(screen.getByTestId("recoverable-connection-chip")).toHaveTextContent("Reconnecting (1/5)");
+    expect(screen.getByTestId("codex-turn-recovery-chip")).toHaveTextContent("Reconnecting interrupted work");
+    expect(screen.getByTestId("recoverable-connection-chip")).toHaveTextContent("Reconnecting (1 of 5)");
   });
 
   it("explains that a separate queued continuation will not replay the original request", () => {
@@ -723,7 +723,7 @@ describe("MessageFeed - floating status pill", () => {
     fireEvent.click(screen.getByTestId("codex-turn-recovery-chip"));
 
     expect(screen.getByTestId("codex-turn-recovery-detail")).toHaveTextContent(
-      "The original user payload will not be replayed",
+      "queued one follow-up to finish the interrupted work without repeating actions that already completed",
     );
     fireEvent.click(screen.getByRole("button", { name: "Open affected thread" }));
     expect(onSelectThread).toHaveBeenCalledWith("q-1987");
@@ -753,14 +753,55 @@ describe("MessageFeed - floating status pill", () => {
 
     render(<MessageFeed sessionId={sid} />);
     const chip = screen.getByTestId("codex-turn-recovery-chip");
-    expect(chip).toHaveTextContent("Interrupted work needs attention");
+    expect(chip).toHaveTextContent("Check interrupted work");
     fireEvent.click(chip);
-    expect(screen.getByTestId("codex-turn-recovery-detail")).toHaveTextContent("mark this recovery resolved");
-    fireEvent.click(screen.getByRole("button", { name: "Mark resolved" }));
+    expect(screen.getByTestId("codex-turn-recovery-detail")).toHaveTextContent(
+      "The follow-up stopped before Takode could confirm the work finished",
+    );
+    expect(screen.getByTestId("codex-turn-recovery-detail")).toHaveTextContent("Work to check: main");
+    fireEvent.click(screen.getByRole("button", { name: "Work is complete" }));
     expect(mockSendToSession).toHaveBeenCalledWith(sid, {
       type: "resolve_codex_turn_recovery",
       recoveryId: "original-owner",
     });
+  });
+
+  it.each([
+    ["continuation_dispatch_failed", "could not start the follow-up"],
+    ["continuation_failed", "follow-up ended with an error"],
+    ["recovery_timeout", "could not reconnect in time"],
+    ["adapter_disconnect", "stopped when the session disconnected"],
+    ["interrupted_after_activity", "stopped after some actions had already run"],
+    ["recovery_failed", "could not finish reconnecting"],
+  ] as const)("uses a concrete next-step explanation for %s", (reason, expectedReason) => {
+    const sid = `test-feed-turn-action-${reason}`;
+    setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Partial tool work" })]);
+    setStoreSessionState(sid, {
+      backend_state: "connected",
+      codex_turn_recovery: {
+        recoveryId: "original-owner",
+        originalOwnerId: "original-owner",
+        originalProviderTurnId: "turn-original",
+        originalHistoryIndex: 7,
+        continuationOwnerId: "continuation-owner",
+        threadKey: "q-1987",
+        questId: "q-1987",
+        status: "action_required",
+        reason,
+        attempt: 1,
+        maxAttempts: 1,
+        createdAt: 100,
+        updatedAt: 110,
+      },
+    });
+    setStoreConnectionState(sid, { cliConnected: true });
+
+    const { unmount } = render(<MessageFeed sessionId={sid} />);
+    const chip = screen.getByTestId("codex-turn-recovery-chip");
+    expect(chip).toHaveAttribute("title", expect.stringContaining(expectedReason));
+    expect(chip).toHaveAttribute("title", expect.stringContaining("send a new instruction if work is still missing"));
+    expect(chip).toHaveAttribute("title", expect.stringContaining('choose "Work is complete."'));
+    unmount();
   });
 
   it("keeps the interrupted-work detail inside a short viewport", () => {
@@ -865,12 +906,12 @@ describe("MessageFeed - floating status pill", () => {
 
     expect(screen.getByTestId("codex-turn-recovery-announcement")).toBe(announcement);
     expect(announcement).toHaveTextContent(
-      "Interrupted work needs attention. Automatic continuation stopped to avoid repeating completed tools",
+      "Check interrupted work. The follow-up stopped before Takode could confirm the work finished",
     );
     expect(screen.queryByTestId("codex-turn-recovery-detail")).toBeNull();
   });
 
-  it("shows proof-gated request retry separately from process reconnect progress", () => {
+  it("shows message retry separately from session reconnect progress in plain language", () => {
     const sid = "test-feed-provider-retry-chip";
     setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Retrying safely" })]);
     setStoreSessionState(sid, {
@@ -888,11 +929,11 @@ describe("MessageFeed - floating status pill", () => {
 
     const { rerender } = render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByTestId("codex-provider-retry-chip")).toHaveTextContent("Retrying request (attempt 4)");
-    expect(screen.getByTestId("recoverable-connection-chip")).toHaveTextContent("Reconnecting (2/5)");
+    expect(screen.getByTestId("codex-provider-retry-chip")).toHaveTextContent("Retrying message (attempt 4)");
+    expect(screen.getByTestId("recoverable-connection-chip")).toHaveTextContent("Reconnecting (2 of 5)");
     fireEvent.click(screen.getByTestId("codex-provider-retry-chip"));
     expect(screen.getByTestId("codex-provider-retry-detail")).toHaveTextContent(
-      "continues while the request remains proof-safe and eligible",
+      "retrying this message about every 30 seconds. Attempt 4 is underway",
     );
 
     setStoreSessionState(sid, {
@@ -904,6 +945,58 @@ describe("MessageFeed - floating status pill", () => {
     rerender(<MessageFeed sessionId={sid} />);
     expect(screen.queryByTestId("codex-provider-retry-chip")).toBeNull();
     expect(screen.queryByTestId("recoverable-connection-chip")).toBeNull();
+  });
+
+  it("keeps the message-retry detail inside a short viewport", () => {
+    const originalInnerWidth = window.innerWidth;
+    const originalInnerHeight = window.innerHeight;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 240 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 100 });
+
+    try {
+      const sid = "test-feed-provider-retry-short-viewport";
+      setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Retrying" })]);
+      setStoreSessionState(sid, {
+        backend_state: "recovering",
+        codex_provider_retry: {
+          family: "model_backend_stream_error",
+          ownerId: "input-1",
+          attempt: 12,
+          maxAttempts: null,
+          startedAt: 100,
+        },
+      });
+      setStoreConnectionState(sid);
+
+      render(<MessageFeed sessionId={sid} />);
+      const chip = screen.getByTestId("codex-provider-retry-chip");
+      vi.spyOn(chip, "getBoundingClientRect").mockReturnValue({
+        x: 220,
+        y: 4,
+        top: 4,
+        left: 220,
+        bottom: 32,
+        right: 260,
+        width: 40,
+        height: 28,
+        toJSON: () => ({}),
+      } as DOMRect);
+      fireEvent.click(chip);
+
+      const detail = screen.getByTestId("codex-provider-retry-detail");
+      expect(detail.parentElement).toBe(document.body);
+      expect(detail).toHaveClass("fixed", "overflow-y-auto");
+      expect(detail).toHaveStyle({
+        left: "8px",
+        top: "8px",
+        width: "224px",
+        maxHeight: "84px",
+        visibility: "visible",
+      });
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalInnerWidth });
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalInnerHeight });
+    }
   });
 
   it("does not render the recoverable chip for unrecoverable broken sessions", () => {

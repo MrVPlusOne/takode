@@ -80,8 +80,9 @@ describe("session connection presentation", () => {
 
     expect(result.recoverableConnectionPresentation).toMatchObject({
       kind: "reconnecting",
-      label: "Reconnecting (2/5)",
+      label: "Reconnecting (2 of 5)",
       detail: expect.stringContaining("attempt 2 of 5"),
+      actionLabel: "Reconnect now",
     });
     expect(result.liveConnectionStatus).toBeNull();
   });

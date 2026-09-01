@@ -782,6 +782,104 @@ describe("Codex resumed-turn recovery", () => {
     ).toHaveLength(1);
   });
 
+  it("clears and drains once when resume proves the exact automatic provider-retry owner completed", async () => {
+    const sid = "s-resumed-automatic-provider-recovery-completed";
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+    emitCodexSessionReady(adapter1, { cliSessionId: "thread-resumed-automatic-provider" });
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    await subscribeCurrentBrowser(bridge, browser);
+
+    const ownerContent = "automatic provider recovery owner";
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: ownerContent,
+        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+      }),
+    );
+    adapter1.emitTurnStarted("turn-resumed-automatic-provider");
+    await flushAsync();
+    const session = bridge.getSession(sid)!;
+    const owner = getPendingCodexTurn(session);
+    owner.autoPauseSourceKind = "automatic";
+    owner.providerRecoveryAttempts = 151;
+    owner.providerRecoveryFamily = "model_backend_stream_error";
+    seedAutoPause(session, "held-resumed-automatic-provider");
+    Object.assign(session.state.codex_result_error_auto_pause!, {
+      family: "model_backend_stream_error",
+      fingerprint: "model_backend_stream_error:responses",
+      lastError: "Model backend stream disconnected before completion.",
+    });
+    adapter1.emitDisconnect();
+
+    const adapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    browser.send.mockClear();
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-resumed-automatic-provider",
+      model: "gpt-5.3-codex",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-resumed-automatic-provider",
+        turnCount: 1,
+        threadStatus: "idle",
+        turns: [],
+        lastTurn: {
+          id: "turn-resumed-automatic-provider",
+          status: "completed",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: ownerContent }] },
+            { type: "agentMessage", id: "agent-automatic-completed", text: "Automatic recovery completed." },
+          ],
+        },
+      },
+    });
+    await flushAsync();
+
+    await vi.waitFor(() => expect(session.state.codex_result_error_auto_pause).toBeNull());
+    await vi.waitFor(() =>
+      expect(
+        adapter2.sendBrowserMessage.mock.calls.filter((call) =>
+          call[0]?.inputs?.some((input: any) => input.content === "held event"),
+        ),
+      ).toHaveLength(1),
+    );
+    expect(
+      adapter2.sendBrowserMessage.mock.calls.filter((call) =>
+        call[0]?.inputs?.some((input: any) => input.content === ownerContent),
+      ),
+    ).toHaveLength(0);
+    const summaries = session.messageHistory.filter(
+      (entry) => entry.type === "codex_auto_pause_recovery_summary",
+    ) as any[];
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].recovery.receipts).toEqual([
+      expect.objectContaining({ groupId: "held-resumed-automatic-provider", outcome: "released_to_delivery" }),
+    ]);
+
+    const reconnect = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(reconnect, sid);
+    bridge.handleBrowserMessage(
+      reconnect,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 0,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
+    await flushAsync();
+    await vi.waitFor(() =>
+      expect(reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw))).toContainEqual(
+        expect.objectContaining({ type: "state_snapshot", codexAutoPauseRecoveryProgress: null }),
+      ),
+    );
+  });
+
   it("suppresses stale recovery replay when idle inProgress turn has command activity", async () => {
     // A stale idle/inProgress snapshot can still prove that the user payload
     // reached command execution. Replaying it would duplicate model delivery

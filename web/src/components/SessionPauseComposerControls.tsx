@@ -55,15 +55,42 @@ function formatHeldPreview(item: HeldInputListItem, sanitizeAutomaticPayload: bo
 function fixedAutoPauseCause(family: CodexResultErrorFamily): string {
   switch (family) {
     case "copilot_auth_refresh_exhausted":
-      return "Copilot authentication refresh failed";
+      return "Copilot sign-in failed";
     case "copilot_auth_refresh_invalidated":
-      return "Copilot authentication became invalid during recovery";
+      return "Copilot sign-in expired while Takode was reconnecting";
     case "model_not_supported":
-      return "Selected model is unsupported";
+      return "The selected model is not available";
     case "model_backend_stream_error":
-      return "Model backend stream disconnected repeatedly";
+      return "The model connection dropped repeatedly";
     default:
-      return "Model backend error";
+      return "The model connection failed";
+  }
+}
+
+function autoPauseGuidance(
+  family: CodexResultErrorFamily,
+  recoveryProgress: "testing" | "active" | null,
+  releaseAccepted: boolean,
+): string {
+  if (releaseAccepted) {
+    return "Takode accepted your request and is releasing the held inputs.";
+  }
+  if (recoveryProgress === "active") {
+    return "Your current message is running. Held automatic inputs will send when it finishes successfully.";
+  }
+  if (recoveryProgress === "testing") {
+    return "Takode is checking this session with your current message. Held inputs will send if it finishes successfully.";
+  }
+
+  switch (family) {
+    case "copilot_auth_refresh_exhausted":
+    case "copilot_auth_refresh_invalidated":
+      return "Sign in to Copilot again, then retry this session. Held inputs will stay paused until it succeeds.";
+    case "model_not_supported":
+      return "Choose a supported model, then try again. Held inputs will stay paused until this session succeeds.";
+    case "model_backend_stream_error":
+    default:
+      return "Takode will keep these inputs paused until this session completes a message successfully. They will then send automatically.";
   }
 }
 
@@ -135,6 +162,7 @@ export function PausedInputChip({
   heldCount,
   autoPausedHeldCount = 0,
   directComposerMessagesSend,
+  onReleaseAutoPausedInputs,
 }: {
   pause: SessionPauseState | null | undefined;
   autoPause?: SessionState["codex_result_error_auto_pause"];
@@ -142,6 +170,7 @@ export function PausedInputChip({
   heldCount: number;
   autoPausedHeldCount?: number;
   directComposerMessagesSend: boolean;
+  onReleaseAutoPausedInputs?: (pausedAt: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   const isManualPause = !!pause?.pausedAt;
@@ -159,19 +188,17 @@ export function PausedInputChip({
     ? `Cause: ${fixedAutoPauseCause(autoPause.family)} at ${formatAutoPauseTime(autoPause.pausedAt!)}.`
     : "";
   const recoveryProgress = autoPauseRecoveryProgress ?? null;
-  const autoPauseGuidance =
-    recoveryProgress === "active"
-      ? "Recovery is active for your current message. Automatic inputs remain held until it completes successfully."
-      : recoveryProgress === "testing"
-        ? "Testing recovery with your current message. Held inputs will release automatically if it succeeds."
-        : "Send a direct message to test recovery. If it succeeds, held inputs release automatically. If it fails, they remain held.";
+  const releaseAccepted = isAutoPause && autoPause.releaseProgress?.status === "releasing";
+  const autoPauseGuidanceText = isAutoPause
+    ? autoPauseGuidance(autoPause.family, recoveryProgress, releaseAccepted)
+    : "";
   const listTitle = useMemo(() => {
-    if (isAutoPause) return `Automatic inputs paused, ${label}. ${autoPauseCause} ${autoPauseGuidance}`;
+    if (isAutoPause) return `Automatic inputs paused, ${label}. ${autoPauseCause} ${autoPauseGuidanceText}`;
     if (visibleCount > 0) return `Other input sources are paused. ${label} will release after resume.`;
     return directComposerMessagesSend
       ? "Other input sources are paused. Direct composer messages still send."
       : "Other input sources are paused. Direct composer messages still need the session to resume.";
-  }, [autoPauseCause, autoPauseGuidance, directComposerMessagesSend, isAutoPause, label, visibleCount]);
+  }, [autoPauseCause, autoPauseGuidanceText, directComposerMessagesSend, isAutoPause, label, visibleCount]);
 
   if (!isManualPause && !isAutoPause) return null;
 
@@ -199,6 +226,32 @@ export function PausedInputChip({
               {isAutoPause ? `· ${compactLabel}` : label}
             </span>
           </button>
+          {isAutoPause && onReleaseAutoPausedInputs && (
+            <button
+              type="button"
+              data-testid="composer-auto-pause-release"
+              disabled={releaseAccepted}
+              onClick={() => onReleaseAutoPausedInputs(autoPause.pausedAt!)}
+              title={
+                releaseAccepted
+                  ? "Takode accepted your request and is releasing the held inputs."
+                  : "Release the automatic inputs held by this pause."
+              }
+              className={`ml-auto inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-attention/70 ${
+                releaseAccepted
+                  ? "cursor-wait border-cc-attention/25 bg-cc-card/40 text-cc-muted"
+                  : "cursor-pointer border-cc-attention/55 bg-cc-card/65 text-cc-attention-strong hover:bg-cc-warning/10"
+              }`}
+            >
+              {releaseAccepted && (
+                <span
+                  className="h-2.5 w-2.5 shrink-0 animate-spin rounded-full border border-current border-r-transparent"
+                  aria-hidden="true"
+                />
+              )}
+              {releaseAccepted ? "Releasing…" : "Release now"}
+            </button>
+          )}
           {isAutoPause ? (
             <div
               data-testid="composer-auto-pause-guidance"
@@ -208,14 +261,7 @@ export function PausedInputChip({
               className="min-w-0 basis-full space-y-0.5 break-words text-cc-fg sm:pl-1"
             >
               <p>{autoPauseCause}</p>
-              {recoveryProgress ? (
-                <p>{autoPauseGuidance}</p>
-              ) : (
-                <>
-                  <p>Send a direct message to test recovery.</p>
-                  <p>If it succeeds, held inputs release automatically. If it fails, they remain held.</p>
-                </>
-              )}
+              <p>{autoPauseGuidanceText}</p>
             </div>
           ) : (
             <span className="min-w-0 flex-1 text-cc-fg">

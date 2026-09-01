@@ -233,6 +233,31 @@ export function formatActiveReasoningStatusText(text: string): string {
   return collapsePreviewWhitespace(trimmed);
 }
 
+type CodexTurnRecovery = NonNullable<SessionState["codex_turn_recovery"]>;
+
+function actionRequiredRecoveryDetail(reason: CodexTurnRecovery["reason"]): string {
+  const nextStep =
+    'Takode will not retry automatically because that could repeat actions that may already have run. Open the affected thread and send a new instruction if work is still missing. If it is already complete, choose "Work is complete."';
+
+  switch (reason) {
+    case "continuation_dispatch_failed":
+      return `Takode could not start the follow-up for this interrupted work. ${nextStep}`;
+    case "continuation_interrupted":
+      return `The follow-up stopped before Takode could confirm the work finished. ${nextStep}`;
+    case "continuation_failed":
+      return `The follow-up ended with an error before Takode could confirm the work finished. ${nextStep}`;
+    case "recovery_timeout":
+      return `Takode could not reconnect in time to finish this interrupted work. ${nextStep}`;
+    case "adapter_disconnect":
+      return `This work stopped when the session disconnected. ${nextStep}`;
+    case "interrupted_after_activity":
+      return `This work stopped after some actions had already run. ${nextStep}`;
+    case "recovery_failed":
+    default:
+      return `Takode could not finish reconnecting this interrupted work. ${nextStep}`;
+  }
+}
+
 export function CodexTurnRecoveryChip({
   sessionId,
   currentThreadKey = "main",
@@ -253,19 +278,21 @@ export function CodexTurnRecoveryChip({
   const canNavigate = !!recovery && !!onSelectThread && destination !== current;
   const label = recovery
     ? recovery.status === "recovering"
-      ? "Recovering interrupted work"
+      ? "Reconnecting interrupted work"
       : recovery.status === "continuation_active"
-        ? "Continuing interrupted work"
+        ? "Finishing interrupted work"
         : recovery.status === "continuation_pending"
           ? "Interrupted work queued"
-          : "Interrupted work needs attention"
+          : "Check interrupted work"
     : "";
   const detail = recovery
     ? recovery.status === "action_required"
-      ? "Automatic continuation stopped to avoid repeating completed tools or other side effects. Review the affected thread, finish any missing work with a fresh instruction, then mark this recovery resolved."
+      ? actionRequiredRecoveryDetail(recovery.reason)
       : recovery.status === "recovering"
-        ? "Takode is reconnecting the backend while retaining the exact interrupted request owner and route."
-        : "Takode preserved completed tool work and created one separately owned continuation. The original user payload will not be replayed."
+        ? "Takode is reconnecting this session so it can finish the interrupted work. No action is needed yet."
+        : recovery.status === "continuation_pending"
+          ? "Takode queued one follow-up to finish the interrupted work without repeating actions that already completed."
+          : "Takode is finishing the interrupted work without repeating actions that already completed."
     : "";
   const warning = recovery?.status === "action_required";
   const detailVisible = !!recovery && detailOpen;
@@ -356,7 +383,7 @@ export function CodexTurnRecoveryChip({
                 <div className="text-[11px] font-medium text-cc-fg">{label}</div>
                 <div className="mt-1 text-[11px] leading-snug text-cc-muted">{detail}</div>
                 <div className="mt-1.5 text-[10px] text-cc-muted/70">
-                  Affected thread: {recovery.questId ?? recovery.threadKey}
+                  Work to check: {recovery.questId ?? recovery.threadKey}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {canNavigate && onSelectThread && (
@@ -379,7 +406,7 @@ export function CodexTurnRecoveryChip({
                         })
                       }
                     >
-                      Mark resolved
+                      Work is complete
                     </button>
                   )}
                 </div>
@@ -404,15 +431,15 @@ export function CodexProviderRetryChip({ sessionId }: { sessionId: string }) {
   const persistentOutageRetry = retry?.maxAttempts === null;
   const label = retry
     ? persistentOutageRetry
-      ? `Retrying request (attempt ${retry.attempt})`
-      : `Retrying request (${retry.attempt}/${retry.maxAttempts})`
-    : "Retrying request";
+      ? `Retrying message (attempt ${retry.attempt})`
+      : `Retrying message (${retry.attempt} of ${retry.maxAttempts})`
+    : "Retrying message";
   const detail = retry
     ? persistentOutageRetry
-      ? `Takode is safely retrying this exact request at a low frequency (attempt ${retry.attempt}). ` +
-        "It continues while the request remains proof-safe and eligible; process reconnects still use bounded inner cycles."
-      : `Takode is safely retrying this same request (attempt ${retry.attempt} of ${retry.maxAttempts}). ` +
-        "This proof-gated request retry is separate from the five-attempt process reconnect cycle."
+      ? `Takode is retrying this message about every 30 seconds. Attempt ${retry.attempt} is underway. ` +
+        "No action is needed while this status remains visible."
+      : `Takode is retrying this message, attempt ${retry.attempt} of ${retry.maxAttempts}. ` +
+        "You can keep working. If all attempts fail, this session will show what to do next."
     : "";
 
   useLayoutEffect(() => {
@@ -425,11 +452,12 @@ export function CodexProviderRetryChip({ sessionId }: { sessionId: string }) {
       if (!button) return;
       const buttonRect = button.getBoundingClientRect();
       const width = Math.min(304, Math.max(0, window.innerWidth - 16));
-      const height = detailRef.current?.offsetHeight ?? 92;
+      const maxHeight = Math.max(0, window.innerHeight - 16);
+      const height = Math.min(detailRef.current?.offsetHeight || 120, maxHeight);
       const left = Math.max(8, Math.min(buttonRect.left, window.innerWidth - width - 8));
       const aboveTop = buttonRect.top - height - 8;
-      const top =
-        aboveTop >= 8 ? aboveTop : Math.max(8, Math.min(buttonRect.bottom + 8, window.innerHeight - height - 8));
+      const maxTop = Math.max(8, window.innerHeight - height - 8);
+      const top = aboveTop >= 8 ? Math.min(aboveTop, maxTop) : Math.max(8, Math.min(buttonRect.bottom + 8, maxTop));
       setDetailPosition({ left, top, width });
     };
     updatePosition();
@@ -471,11 +499,12 @@ export function CodexProviderRetryChip({ sessionId }: { sessionId: string }) {
             ref={detailRef}
             id={`codex-provider-retry-detail-${sessionId}`}
             data-testid="codex-provider-retry-detail"
-            className="fixed z-[100] rounded-lg border border-cc-border bg-cc-card p-3 text-left shadow-xl"
+            className="fixed z-[100] overflow-y-auto rounded-lg border border-cc-border bg-cc-card p-3 text-left shadow-xl"
             style={{
               left: detailPosition?.left ?? 8,
               top: detailPosition?.top ?? 8,
               width: detailPosition?.width ?? Math.min(304, Math.max(0, window.innerWidth - 16)),
+              maxHeight: Math.max(0, window.innerHeight - 16),
               visibility: detailPosition ? "visible" : "hidden",
             }}
             role="status"

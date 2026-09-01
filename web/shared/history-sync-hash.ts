@@ -91,17 +91,22 @@ function foldFingerprints(fingerprints: Iterable<string>): string {
   return finalizeMixedHash(state);
 }
 
+export interface HistorySyncHashOptions {
+  suppressRootThinkingOnlyAssistant?: boolean;
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean;
+}
+
 function forEachComparableHistoryEntry(
   historyMessages: readonly BrowserIncomingMessage[],
   startIndex: number,
   visitor: (entry: ComparableHistoryEntry, renderedIndex: number, sourceIndex: number) => void,
-  options: { suppressRootThinkingOnlyAssistant?: boolean } = {},
+  options: HistorySyncHashOptions = {},
 ): number {
   let renderedIndex = 0;
   for (let i = 0; i < historyMessages.length; i++) {
     const historyIndex = startIndex + i;
     const message = historyMessages[i];
-    if (!message) continue;
+    if (!message || (options.includeMessage && !options.includeMessage(message, historyIndex))) continue;
     if (message.type === "user_message") {
       visitor(
         {
@@ -287,7 +292,7 @@ function forEachComparableHistoryEntry(
 export function computeHistoryMessagesSyncHash(
   historyMessages: readonly BrowserIncomingMessage[],
   startIndex = 0,
-  options: { suppressRootThinkingOnlyAssistant?: boolean } = {},
+  options: HistorySyncHashOptions = {},
 ): { hash: string; renderedCount: number } {
   const fingerprints: string[] = [];
   const renderedCount = forEachComparableHistoryEntry(
@@ -312,7 +317,7 @@ export function computeHistoryPrefixSyncHash(
   historyMessages: readonly BrowserIncomingMessage[],
   renderedCount: number,
   startIndex = 0,
-  options: { suppressRootThinkingOnlyAssistant?: boolean } = {},
+  options: HistorySyncHashOptions = {},
 ): { hash: string; renderedCount: number; totalRenderedCount: number; sourceCount: number } {
   const normalizedRenderedCount = Math.max(0, Math.floor(renderedCount));
   const fingerprints: string[] = [];

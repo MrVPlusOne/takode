@@ -73,6 +73,7 @@ export interface AdapterBrowserRoutingSessionLike {
     | "uiMode"
   >;
   messageHistory: BrowserIncomingMessage[];
+  frozenCount?: number;
   attentionReason?: "action" | "error" | "review" | null;
   notifications?: SessionNotification[];
   pendingPermissions: Map<string, PermissionRequest>;
@@ -117,6 +118,11 @@ export interface AdapterBrowserRoutingDeps {
   broadcastToBrowsers: (session: AdapterBrowserRoutingSessionLike, msg: BrowserIncomingMessage) => void;
   emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>, actorSessionId?: string) => void;
   persistSession: (session: AdapterBrowserRoutingSessionLike) => void;
+  persistHistoryMetadataRepair?: (
+    session: AdapterBrowserRoutingSessionLike,
+    expectedFrozenCount: number,
+  ) => Promise<void>;
+  refreshBrowserConversationViews?: (session: AdapterBrowserRoutingSessionLike) => void;
   promoteLeaderThreadTabForMessageAttention?: (
     sessionId: string,
     message: Extract<BrowserIncomingMessage, { type: "user_message" }>,
@@ -167,6 +173,10 @@ export interface AdapterBrowserRoutingDeps {
   addPendingCodexInput: (session: AdapterBrowserRoutingSessionLike, input: PendingCodexInput) => void;
   getCancelablePendingCodexInputs: (session: AdapterBrowserRoutingSessionLike) => PendingCodexInput[];
   removePendingCodexInput: (session: AdapterBrowserRoutingSessionLike, id: string) => PendingCodexInput | null;
+  releaseCodexAutoPausedInputs?: (
+    session: AdapterBrowserRoutingSessionLike,
+    pausedAt: number,
+  ) => Promise<"accepted" | "in_progress" | "stale">;
   clearQueuedTurnLifecycleEntries: (session: AdapterBrowserRoutingSessionLike) => void;
   queueCodexPendingStartBatch: (session: AdapterBrowserRoutingSessionLike, reason: string) => void;
   pokeStaleCodexPendingDelivery: (

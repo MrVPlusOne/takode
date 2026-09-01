@@ -193,11 +193,93 @@ describe("restored Codex interrupted-turn recovery", () => {
       "inspect retained work before continuing",
       {
         sessionId: "system:codex-turn-recovery:original-owner",
-        sessionLabel: "Interrupted Turn Recovery",
+        sessionLabel: "Resuming Interrupted Work",
       },
       { threadKey: "q-recovery", questId: "q-recovery" },
       expect.objectContaining({ deliveryContent: expect.stringContaining("inspect retained work") }),
     );
+  });
+
+  it("retires stale action-required state from persisted same-thread success and persists the metadata repair", async () => {
+    const sessions = new Map<string, any>();
+    const persistHistoryMetadataRepair = vi.fn(async () => {});
+    await restorePersistedSessions(
+      sessions,
+      [
+        persisted({
+          _frozenCount: 2,
+          state: {
+            backend_type: "codex",
+            backend_state: "disconnected",
+            backend_error: null,
+            isOrchestrator: true,
+            codex_turn_recovery: {
+              ...recovery,
+              threadKey: "main",
+              questId: undefined,
+              status: "action_required",
+              reason: "continuation_dispatch_failed",
+              updatedAt: 20,
+            },
+          },
+          messageHistory: [
+            {
+              type: "user_message",
+              id: "original-owner",
+              content: "finish the work",
+              timestamp: 1,
+              threadKey: "main",
+            },
+            {
+              type: "user_message",
+              id: "recovery-diagnostic",
+              content: "Review the interrupted work.",
+              timestamp: 30,
+              agentSource: { sessionId: "system:codex-leader-recovery-diagnostic" },
+              threadKey: "main",
+            },
+            {
+              type: "user_message",
+              id: "fresh-follow-up",
+              content: "The connection is back; finish anything still missing.",
+              timestamp: 40,
+              threadKey: "main",
+            },
+            {
+              type: "result",
+              data: {
+                type: "result",
+                subtype: "success",
+                is_error: false,
+                duration_ms: 1,
+                duration_api_ms: 1,
+                num_turns: 1,
+                total_cost_usd: 0,
+                stop_reason: "completed",
+                usage: {
+                  input_tokens: 0,
+                  output_tokens: 0,
+                  cache_creation_input_tokens: 0,
+                  cache_read_input_tokens: 0,
+                },
+                uuid: "fresh-follow-up-result",
+                session_id: "session-recovery",
+              },
+            },
+          ],
+        }),
+      ],
+      { ...deps(), persistHistoryMetadataRepair },
+    );
+
+    const restored = sessions.get("session-recovery");
+    expect(restored.state.codex_turn_recovery).toBeNull();
+    expect(restored.messageHistory[1]).toMatchObject({
+      id: "recovery-diagnostic",
+      codexTurnRecoveryId: "original-owner",
+      codexTurnRecoveryResolvedAt: expect.any(Number),
+    });
+    expect(persistHistoryMetadataRepair).toHaveBeenCalledWith(restored, 2);
   });
 
   it("fails an ownerless crash window closed and raises navigation attention", async () => {
