@@ -30,11 +30,9 @@ const MAX_CACHED_HISTORY_CHILDREN = 12;
 const HISTORY_REFRESH_DEBOUNCE_MS = 150;
 const INSPECTOR_WORKSPACE_SELECTOR = '[data-codex-subagent-workspace="true"]';
 const dismissedCoverageWarnings = new Map<string, string>();
-const dismissedTranscriptWarnings = new Map<string, string>();
 
 export function resetCodexSubagentInspectorPresentationStateForTest(): void {
   dismissedCoverageWarnings.clear();
-  dismissedTranscriptWarnings.clear();
 }
 
 const ACTIVE_STATUSES = new Set<CodexNativeSubagentStatus>(["starting", "working", "waiting"]);
@@ -207,6 +205,22 @@ function transcriptLabel(availability: CodexNativeSubagentTranscriptAvailability
   if (availability === "available") return "Transcript available";
   if (availability === "partial") return "Transcript partial";
   return "Transcript unavailable";
+}
+
+function effectiveTranscriptAvailability(
+  summaryAvailability: CodexNativeSubagentTranscriptAvailability,
+  historyEntry: Pick<HistoryCacheEntry, "availability" | "coverage"> | undefined,
+): CodexNativeSubagentTranscriptAvailability {
+  if (!historyEntry) return summaryAvailability;
+  if (summaryAvailability === "unavailable" || historyEntry.availability === "unavailable") return "unavailable";
+  if (
+    summaryAvailability === "partial" ||
+    historyEntry.availability === "partial" ||
+    historyEntry.coverage === "partial"
+  ) {
+    return "partial";
+  }
+  return "available";
 }
 
 function mergeAvailability(
@@ -509,44 +523,11 @@ function DismissibleNotice({
   );
 }
 
-function TranscriptNotice({
-  availability,
-  coverage,
-  dismissed,
-  onDismiss,
-}: {
-  availability: CodexNativeSubagentTranscriptAvailability;
-  coverage: CodexNativeSubagentCoverage;
-  dismissed: boolean;
-  onDismiss: () => void;
-}) {
-  if ((availability === "available" && coverage === "complete") || dismissed) return null;
-  const unavailable = availability === "unavailable";
-  return (
-    <DismissibleNotice
-      className={`mx-3 mt-3 rounded-lg border px-3 py-2 text-[11px] leading-relaxed sm:mx-4 ${
-        unavailable
-          ? "border-cc-border bg-cc-hover/60 text-cc-muted"
-          : "border-cc-warning/25 bg-cc-warning/8 text-cc-warning"
-      }`}
-      onDismiss={onDismiss}
-      dismissLabel="Dismiss transcript coverage warning"
-    >
-      <span className="font-semibold">{unavailable ? "Transcript unavailable." : "Transcript partial."}</span>{" "}
-      {unavailable
-        ? "No safe child-owned history can be shown."
-        : "Only the identity-proven child-owned subset is shown; inherited or legacy-flattened content is omitted."}
-    </DismissibleNotice>
-  );
-}
-
 function HistoryContent({
   sessionId,
   child,
   history,
   historyRef,
-  transcriptWarningDismissed,
-  onDismissTranscriptWarning,
   onRetry,
   onLoadMore,
 }: {
@@ -554,8 +535,6 @@ function HistoryContent({
   child: CodexNativeSubagentSummary;
   history: HistoryState;
   historyRef: RefObject<HTMLDivElement | null>;
-  transcriptWarningDismissed: boolean;
-  onDismissTranscriptWarning: () => void;
   onRetry: () => void;
   onLoadMore: () => void;
 }) {
@@ -609,30 +588,16 @@ function HistoryContent({
 
   if (entry.availability === "unavailable") {
     return (
-      <div className="flex flex-1 flex-col">
-        <TranscriptNotice
-          availability={entry.availability}
-          coverage={entry.coverage}
-          dismissed={transcriptWarningDismissed}
-          onDismiss={onDismissTranscriptWarning}
-        />
-        <div className="flex flex-1 items-center justify-center p-6 text-center">
-          <p className="max-w-sm text-xs leading-relaxed text-cc-muted">
-            No safe child-owned records are available for this subagent.
-          </p>
-        </div>
+      <div className="flex flex-1 items-center justify-center p-6 text-center">
+        <p className="max-w-sm text-xs leading-relaxed text-cc-muted">
+          No safe child-owned records are available for this subagent.
+        </p>
       </div>
     );
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <TranscriptNotice
-        availability={entry.availability}
-        coverage={entry.coverage}
-        dismissed={transcriptWarningDismissed}
-        onDismiss={onDismissTranscriptWarning}
-      />
       <div
         ref={historyRef}
         className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cc-primary/45 sm:px-4"
@@ -873,23 +838,15 @@ export function CodexSubagentInspector({
   const effectiveCoverage = aggregate?.coverage ?? snapshot?.coverage;
   const historyEntry = history.phase === "ready" || history.phase === "error" ? history.entry : undefined;
   const selectedHistoryEntry = historyEntry?.childId === selectedChildId ? historyEntry : undefined;
+  const selectedTranscriptAvailability = selectedChild
+    ? effectiveTranscriptAvailability(selectedChild.transcriptAvailability, selectedHistoryEntry)
+    : null;
   const renderedHistoryMessages = selectedHistoryEntry?.messages;
   const coverageWarningIdentity = `${sessionId}:coverage:${scopeTurnId ?? "session"}`;
   const coverageWarningSignature = effectiveCoverage === "partial" ? "verified-children-only" : null;
-  const transcriptWarningIdentity = selectedChild ? `${sessionId}:transcript:${selectedChild.childId}` : null;
-  const transcriptWarningSignature =
-    selectedHistoryEntry &&
-    !(selectedHistoryEntry.availability === "available" && selectedHistoryEntry.coverage === "complete")
-      ? `${selectedHistoryEntry.availability}:${selectedHistoryEntry.coverage}`
-      : null;
   const coverageWarningDismissed =
     coverageWarningSignature !== null &&
     dismissedCoverageWarnings.get(coverageWarningIdentity) === coverageWarningSignature;
-  const transcriptWarningDismissed =
-    transcriptWarningIdentity !== null &&
-    transcriptWarningSignature !== null &&
-    dismissedTranscriptWarnings.get(transcriptWarningIdentity) === transcriptWarningSignature;
-
   useEffect(() => {
     const dismissedSignature = dismissedCoverageWarnings.get(coverageWarningIdentity);
     if (!dismissedSignature) return;
@@ -897,21 +854,6 @@ export function CodexSubagentInspector({
     dismissedCoverageWarnings.delete(coverageWarningIdentity);
     setWarningPresentationRevision((revision) => revision + 1);
   }, [coverageWarningIdentity, coverageWarningSignature]);
-
-  useEffect(() => {
-    if (!transcriptWarningIdentity) return;
-    const dismissedSignature = dismissedTranscriptWarnings.get(transcriptWarningIdentity);
-    if (!dismissedSignature) return;
-    if (selectedChild?.transcriptAvailability !== "unavailable" && !selectedHistoryEntry) return;
-    if (dismissedSignature === transcriptWarningSignature) return;
-    dismissedTranscriptWarnings.delete(transcriptWarningIdentity);
-    setWarningPresentationRevision((revision) => revision + 1);
-  }, [
-    selectedChild?.transcriptAvailability,
-    selectedHistoryEntry,
-    transcriptWarningIdentity,
-    transcriptWarningSignature,
-  ]);
 
   const selectedHistory: HistoryState = historyEntry && !selectedHistoryEntry ? { phase: "loading" } : history;
 
@@ -1276,8 +1218,11 @@ export function CodexSubagentInspector({
                         {selectedChild.role && (
                           <span className="rounded bg-cc-hover px-1.5 py-0.5">Role: {selectedChild.role}</span>
                         )}
-                        <span className="rounded bg-cc-hover px-1.5 py-0.5">
-                          {transcriptLabel(selectedChild.transcriptAvailability)}
+                        <span
+                          className="rounded bg-cc-hover px-1.5 py-0.5"
+                          data-testid="codex-subagent-transcript-availability"
+                        >
+                          {transcriptLabel(selectedTranscriptAvailability ?? selectedChild.transcriptAvailability)}
                         </span>
                         {selectedChild.followUpAvailable !== undefined && (
                           <span className="rounded bg-cc-hover px-1.5 py-0.5">
@@ -1300,13 +1245,6 @@ export function CodexSubagentInspector({
                   child={selectedChild}
                   history={selectedHistory}
                   historyRef={historyScrollRef}
-                  transcriptWarningDismissed={transcriptWarningDismissed}
-                  onDismissTranscriptWarning={() => {
-                    if (!transcriptWarningIdentity || !transcriptWarningSignature) return;
-                    closeButtonRef.current?.focus();
-                    dismissedTranscriptWarnings.set(transcriptWarningIdentity, transcriptWarningSignature);
-                    setWarningPresentationRevision((revision) => revision + 1);
-                  }}
                   onRetry={() => void fetchFirstPage(selectedChild, true)}
                   onLoadMore={() => void loadMore()}
                 />

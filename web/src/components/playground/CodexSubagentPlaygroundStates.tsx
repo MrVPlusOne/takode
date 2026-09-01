@@ -440,6 +440,15 @@ async function loadPlaygroundHistory({
   const child = snapshot.children.find((candidate) => candidate.childId === childId) ?? snapshot.children[0]!;
   const rootTurnId = child.rootTurnId;
   const partial = child.transcriptAvailability !== "available";
+  const partialPageCoverage = partial || childId === "csa-playground-3";
+  if (childId === "csa-playground-4") {
+    return {
+      messages: [],
+      nextCursor: null,
+      availability: "unavailable",
+      coverage: "partial",
+    };
+  }
   if (childId === PLAYGROUND_OWNERSHIP.childId && cursor == null) {
     return {
       messages: PLAYGROUND_CANONICAL_CHILD_HISTORY,
@@ -461,7 +470,7 @@ async function loadPlaygroundHistory({
       ),
       nextCursor: null,
       availability: partial ? "partial" : "available",
-      coverage: partial ? "partial" : "complete",
+      coverage: partialPageCoverage ? "partial" : "complete",
     };
   }
   return {
@@ -476,7 +485,7 @@ async function loadPlaygroundHistory({
     ),
     nextCursor: PLAYGROUND_HISTORY_CURSOR,
     availability: partial ? "partial" : "available",
-    coverage: partial ? "partial" : "complete",
+    coverage: partialPageCoverage ? "partial" : "complete",
   };
 }
 
@@ -689,21 +698,56 @@ export function PlaygroundCodexSubagentStates() {
           </div>
         </Card>
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => openInspector(SESSION_ID, { scopeTurnId: SETTLED_TURN })}
-          className="min-h-10 rounded-lg border border-cc-border bg-cc-card px-4 text-xs font-medium text-cc-fg hover:bg-cc-hover"
-        >
-          Open many-child inspector list
-        </button>
-        <button
-          type="button"
-          onClick={() => openInspector(SESSION_ID, { selectedChildId: "csa-playground-2" })}
-          className="min-h-10 rounded-lg border border-cc-border bg-cc-card px-4 text-xs font-medium text-cc-fg hover:bg-cc-hover"
-        >
-          Open paged partial transcript
-        </button>
+      <div className="mt-4 rounded-lg border border-cc-border bg-cc-card/60 p-3">
+        <p className="text-xs leading-relaxed text-cc-muted">
+          Partial, unknown, and unavailable children keep compact transcript metadata without repeating coverage
+          explanation banners inside the selected transcript. Session-level coverage and actionable load errors remain
+          separate inspector states.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => openInspector(SESSION_ID, { scopeTurnId: SETTLED_TURN })}
+            className="min-h-10 rounded-lg border border-cc-border bg-cc-card px-4 text-xs font-medium text-cc-fg hover:bg-cc-hover"
+          >
+            Open many-child inspector list
+          </button>
+          <button
+            type="button"
+            onClick={() => openInspector(SESSION_ID, { selectedChildId: "csa-playground-2" })}
+            className="min-h-10 rounded-lg border border-cc-border bg-cc-card px-4 text-xs font-medium text-cc-fg hover:bg-cc-hover"
+          >
+            Open partial transcript
+          </button>
+          <button
+            type="button"
+            onClick={() => openInspector(SESSION_ID, { selectedChildId: "csa-playground-3" })}
+            className="min-h-10 rounded-lg border border-cc-border bg-cc-card px-4 text-xs font-medium text-cc-fg hover:bg-cc-hover"
+          >
+            Open loaded-partial transcript
+          </button>
+          <button
+            type="button"
+            onClick={() => openInspector(SESSION_ID, { selectedChildId: "csa-playground-4" })}
+            className="min-h-10 rounded-lg border border-cc-border bg-cc-card px-4 text-xs font-medium text-cc-fg hover:bg-cc-hover"
+          >
+            Open loaded-unavailable transcript
+          </button>
+          <button
+            type="button"
+            onClick={() => openInspector(SESSION_ID, { selectedChildId: "csa-playground-6" })}
+            className="min-h-10 rounded-lg border border-cc-border bg-cc-card px-4 text-xs font-medium text-cc-fg hover:bg-cc-hover"
+          >
+            Open unknown child
+          </button>
+          <button
+            type="button"
+            onClick={() => openInspector(SESSION_ID, { selectedChildId: "csa-playground-5" })}
+            className="min-h-10 rounded-lg border border-cc-border bg-cc-card px-4 text-xs font-medium text-cc-fg hover:bg-cc-hover"
+          >
+            Open summary-unavailable transcript
+          </button>
+        </div>
       </div>
       <CodexSubagentInspector sessionId={SESSION_ID} loadHistoryPage={loadPlaygroundHistory} />
     </Section>

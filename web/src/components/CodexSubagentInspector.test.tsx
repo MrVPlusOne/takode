@@ -454,9 +454,9 @@ describe("CodexSubagentInspector", () => {
     }
   });
 
-  it("keeps warning dismissals local across reopen and re-shows materially changed warnings", async () => {
-    // Dismissal may survive repeated inspection in this browser page, but it
-    // must never mutate the server snapshot or hide a changed warning meaning.
+  it("keeps the session coverage warning local across reopen and re-shows changed coverage", async () => {
+    // Session-level coverage remains independently actionable presentation. Its
+    // dismissal must never mutate server authority or hide a later recurrence.
     const partialSnapshot = producerSnapshot({ coverage: "partial" });
     installSnapshot(partialSnapshot);
     const view = render(<CodexSubagentInspector sessionId="session-1" />);
@@ -482,48 +482,129 @@ describe("CodexSubagentInspector", () => {
     updateSnapshot((current) => ({ ...current, revision: current.revision + 1 }));
     expect(screen.queryByRole("button", { name: "Dismiss partial coverage warning" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Privacy audit, Done/ }));
-    expect(await screen.findByText(/Transcript partial\./)).toBeInTheDocument();
-    const transcriptDismiss = screen.getByRole("button", { name: "Dismiss transcript coverage warning" });
-    transcriptDismiss.focus();
-    fireEvent.click(transcriptDismiss);
-    await waitFor(() => expect(close).toHaveFocus());
-    expect(screen.queryByText(/Transcript partial\./)).toBeNull();
-
-    updateSnapshot((current) => ({
-      ...current,
-      revision: current.revision + 1,
-      children: current.children.map((child) =>
-        child.childId === "opaque-done" ? { ...child, transcriptAvailability: "unavailable" } : child,
-      ),
-    }));
-    expect(screen.getAllByText("Transcript unavailable").length).toBeGreaterThan(0);
-
-    updateSnapshot((current) => ({
-      ...current,
-      revision: current.revision + 1,
-      children: current.children.map((child) =>
-        child.childId === "opaque-done" ? { ...child, transcriptAvailability: "partial" } : child,
-      ),
-    }));
-    expect(await screen.findByText(/Transcript partial\./)).toBeInTheDocument();
-
-    const rediscoveredTranscriptDismiss = screen.getByRole("button", {
-      name: "Dismiss transcript coverage warning",
-    });
-    rediscoveredTranscriptDismiss.focus();
-    fireEvent.click(rediscoveredTranscriptDismiss);
-    await waitFor(() => expect(close).toHaveFocus());
-
     view.unmount();
     render(<CodexSubagentInspector sessionId="session-1" />);
-    await screen.findByText("Bounded child-only history");
     expect(screen.queryByRole("button", { name: "Dismiss partial coverage warning" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Dismiss transcript coverage warning" })).toBeNull();
 
     updateSnapshot((current) => ({ ...current, revision: current.revision + 1, coverage: "complete" }));
     updateSnapshot((current) => ({ ...current, revision: current.revision + 1, coverage: "partial" }));
     expect(await screen.findByRole("button", { name: "Dismiss partial coverage warning" })).toBeInTheDocument();
+  });
+
+  it("omits selected-child coverage banners while keeping compact honest transcript states", async () => {
+    // Partial, Unknown, and Unavailable child details keep their compact
+    // producer-authored status without repeating a non-actionable banner.
+    fetchHistoryMock
+      .mockResolvedValueOnce({
+        messages: [
+          ownedHistoryMessage({
+            childId: "opaque-done",
+            rootTurnId: "turn-alignment",
+            id: "partial-child-history",
+            content: "Partial child-owned history",
+            timestamp: NOW - 40_000,
+          }),
+        ],
+        nextCursor: null,
+        availability: "partial",
+        coverage: "partial",
+      })
+      .mockResolvedValueOnce({
+        messages: [
+          ownedHistoryMessage({
+            childId: "opaque-unknown",
+            rootTurnId: "turn-work",
+            id: "unknown-child-history",
+            content: "Unknown child-owned history",
+            timestamp: NOW - 30_000,
+          }),
+        ],
+        nextCursor: null,
+        availability: "partial",
+        coverage: "partial",
+      });
+    installSnapshot(producerSnapshot({ coverage: "partial" }));
+    render(<CodexSubagentInspector sessionId="session-1" />);
+
+    expect(screen.getByRole("button", { name: "Dismiss partial coverage warning" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Privacy audit, Done/ }));
+    expect(await screen.findByText("Partial child-owned history")).toBeInTheDocument();
+    const detail = screen.getByRole("main", { name: "Codex subagent detail" });
+    expect(within(detail).getByTestId("codex-subagent-transcript-availability")).toHaveTextContent(
+      "Transcript partial",
+    );
+    expect(within(detail).queryByText(/Only the identity-proven child-owned subset/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dismiss transcript coverage warning" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Replay check, Unknown/ }));
+    expect(await screen.findByText("Unknown child-owned history")).toBeInTheDocument();
+    expect(within(detail).getByRole("heading", { name: "Replay check" })).toBeInTheDocument();
+    expect(within(detail).getByText("Unknown")).toBeInTheDocument();
+    expect(within(detail).getByTestId("codex-subagent-transcript-availability")).toHaveTextContent(
+      "Transcript partial",
+    );
+    expect(within(detail).queryByText(/Only the identity-proven child-owned subset/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /UI check, Failed/ }));
+    await waitFor(() => expect(within(detail).getByRole("heading", { name: "UI check" })).toBeInTheDocument());
+    expect(within(detail).getByTestId("codex-subagent-transcript-availability")).toHaveTextContent(
+      "Transcript unavailable",
+    );
+    expect(within(detail).getByText(/could not prove a safe child-only history boundary/i)).toBeInTheDocument();
+    expect(within(detail).queryByText(/No safe child-owned history can be shown/i)).toBeNull();
+    expect(fetchHistoryMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("downgrades compact availability when a loaded page has partial coverage", async () => {
+    // A page-level downgrade is stricter than the optimistic summary and must
+    // remain visible after the redundant explanation banner is removed.
+    fetchHistoryMock.mockResolvedValueOnce({
+      messages: [
+        ownedHistoryMessage({
+          childId: "opaque-active",
+          rootTurnId: "turn-alignment",
+          id: "page-partial-history",
+          content: "Page proves partial coverage",
+          timestamp: NOW - 20_000,
+        }),
+      ],
+      nextCursor: null,
+      availability: "available",
+      coverage: "partial",
+    });
+    installSnapshot();
+    render(<CodexSubagentInspector sessionId="session-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Schema probe, Working/ }));
+    expect(await screen.findByText("Page proves partial coverage")).toBeInTheDocument();
+    const detail = screen.getByRole("main", { name: "Codex subagent detail" });
+    expect(within(detail).getByTestId("codex-subagent-transcript-availability")).toHaveTextContent(
+      "Transcript partial",
+    );
+    expect(within(detail).queryByText(/Only the identity-proven child-owned subset/i)).toBeNull();
+  });
+
+  it("downgrades compact availability when a loaded page is unavailable", async () => {
+    // Loaded history may fail closed even when the summary began as available;
+    // keep that honest state compact and non-actionable rather than bannered.
+    fetchHistoryMock.mockResolvedValueOnce({
+      messages: [],
+      nextCursor: null,
+      availability: "unavailable",
+      coverage: "partial",
+    });
+    installSnapshot();
+    render(<CodexSubagentInspector sessionId="session-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Schema probe, Working/ }));
+    expect(await screen.findByText("No safe child-owned records are available for this subagent.")).toBeInTheDocument();
+    const detail = screen.getByRole("main", { name: "Codex subagent detail" });
+    expect(within(detail).getByTestId("codex-subagent-transcript-availability")).toHaveTextContent(
+      "Transcript unavailable",
+    );
+    expect(within(detail).queryByText(/No safe child-owned history can be shown/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dismiss transcript coverage warning" })).toBeNull();
   });
 
   it("opens a read-only bounded detail, shows breadcrumbs, and pages with opaque IDs", async () => {
@@ -574,7 +655,11 @@ describe("CodexSubagentInspector", () => {
       }),
     );
     expect(screen.getByLabelText("Subagent nesting path")).toHaveTextContent("Schema probe › Privacy audit");
-    expect(screen.getByText(/Transcript partial\./)).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("main", { name: "Codex subagent detail" })).getByTestId(
+        "codex-subagent-transcript-availability",
+      ),
+    ).toHaveTextContent("Transcript partial");
     const firstMessage = await screen.findByTestId("history-message");
     expect(firstMessage).toHaveTextContent("Bounded child-only history");
     expect(firstMessage).toHaveAttribute("data-interaction-mode", "read-only");
