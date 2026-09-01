@@ -60,6 +60,15 @@ describe("leader skill preload builder", () => {
     expect(orchestration?.content).toContain("Final Memory is mandatory");
   });
 
+  it("preloads the worker-context authority rule from the real leader-dispatch skill", async () => {
+    const bundles = await buildLeaderSkillPreloadBundles();
+    const leaderDispatch = bundles.find((bundle) => bundle.skillName === "leader-dispatch");
+
+    expect(leaderDispatch?.content).toContain("Preserve source authority in every leader-authored worker context");
+    expect(leaderDispatch?.content).toContain("Do not promote leader synthesis into accepted scope");
+    expect(leaderDispatch?.content).not.toContain("Leader-only deltas");
+  });
+
   it("keeps visible preload events separate while model delivery is atomic", async () => {
     const readFile = vi.fn(async (path: string) => `content for ${path}`);
     const bundles = await buildLeaderSkillPreloadBundles({ packageRoot: "/repo", readFile });

@@ -430,6 +430,60 @@ describe("index startup skill registration", () => {
     }
   });
 
+  it("keeps leader-authored worker-context authority in one complete owner", async () => {
+    const [leaderDispatch, questDesign, orchestration, journey, workLeader, workAssignee, phaseExamples, launcher] =
+      await Promise.all([
+        readFile(LEADER_DISPATCH_SKILL_PATH, "utf-8"),
+        readFile(QUEST_DESIGN_SKILL_PATH, "utf-8"),
+        readFile(TAKODE_ORCHESTRATION_SKILL_PATH, "utf-8"),
+        readFile(TAKODE_ORCHESTRATION_QUEST_JOURNEY_PATH, "utf-8"),
+        readFile(WORK_LEADER_BRIEF_PATH, "utf-8"),
+        readFile(WORK_ASSIGNEE_BRIEF_PATH, "utf-8"),
+        readFile(LEADER_DISPATCH_PHASE_HANDOFF_EXAMPLES_PATH, "utf-8"),
+        readFile(CLI_LAUNCHER_INSTRUCTIONS_PATH, "utf-8"),
+      ]);
+
+    const completeRuleMarkers = [
+      "Preserve source authority in every leader-authored worker context",
+      "Persistence, a leader label, or Alignment approval does not make a requirement user-approved",
+      "Do not promote leader synthesis into accepted scope",
+      "Leader-inferred product behavior, implementation approaches, test seams, failure policies, validators, thresholds, and hard gates",
+    ];
+
+    for (const marker of completeRuleMarkers) {
+      expect(leaderDispatch).toContain(marker);
+      for (const pointerOnlySource of [
+        questDesign,
+        orchestration,
+        journey,
+        workLeader,
+        workAssignee,
+        phaseExamples,
+        launcher,
+      ]) {
+        expect(pointerOnlySource).not.toContain(marker);
+      }
+    }
+
+    expect(leaderDispatch).toContain("recording or forwarding substantive human feedback");
+    expect(leaderDispatch).toContain("phase handoffs, corrections, recovery steering");
+    expect(workLeader).toContain(
+      "Alignment approval confirms the worker's understanding of the authorized scope and the intended Journey routing",
+    );
+    expect(workLeader).toContain(
+      "by itself it does not promote worker findings, leader paraphrases, or proposed approaches into requirements",
+    );
+    expect(workLeader).toContain("complete worker-context authority rule in the preloaded `leader-dispatch` skill");
+    expect(workLeader).not.toContain("--author human");
+    expect(launcher).toContain("complete worker-context authority rule in the preloaded");
+    expect(launcher).toContain("leader-dispatch");
+
+    for (const naturalHandoffSource of [leaderDispatch, workLeader, phaseExamples, launcher]) {
+      expect(naturalHandoffSource).not.toContain("Leader-only deltas");
+    }
+    expect(phaseExamples).not.toContain("Leader-specific deltas:");
+  });
+
   it("keeps the complete Work recovery rule owned by the canonical leader brief", async () => {
     const [leaderBrief, assigneeBrief, leaderDispatch, orchestration, journey, launcher, recoveryPrompts] =
       await Promise.all([
@@ -506,8 +560,8 @@ describe("index startup skill registration", () => {
     expect(source).toContain("Send this only after authorization and board recording:");
     expect(source).not.toContain("Send this only after approval and board recording:");
     expect(source).toContain("Read this phase brief first:");
-    expect(source).toContain("default Work authorization is short");
-    expect(source).toContain("Leader-only deltas: none");
+    expect(source).toContain("short natural Work authorization is sufficient");
+    expect(source).not.toContain("Leader-only deltas");
     expect(source).toContain("Do not convert the worker-authored Alignment note into a Work prompt");
     expect(source).toContain("For read-only implementation follow-ups");
     expect(source).toContain("Direct Worker Errands");
@@ -517,7 +571,7 @@ describe("index startup skill registration", () => {
     expect(source).toContain("route to the context-rich source before re-deriving technical details");
     expect(source).toContain("accepted Work/Memory note, before reopening source yourself");
     expect(source).toContain("Do not create a new quest or authorize code changes for a clarification");
-    expect(source).toContain("Provide only deltas the assignee cannot infer");
+    expect(source).toContain("Provide only genuinely useful context the assignee cannot infer");
     expect(source).toContain("For recovery of an active Work occurrence");
     expect(source).toContain("~/.companion/quest-journey-phases/work/leader.md");
     expect(source).toContain("it owns the complete rule");
@@ -537,8 +591,10 @@ describe("index startup skill registration", () => {
     expect(phaseExamples).toContain("Quick direct errand, not a Quest Journey");
     expect(phaseExamples).toContain("promoted to a normal quest");
     expect(phaseExamples).toContain("Alignment approved. Proceed with Work");
-    expect(phaseExamples).toContain("Leader-only deltas: none");
-    expect(phaseExamples).toContain("When real leader-only deltas exist");
+    expect(phaseExamples).toContain("That is sufficient when no new context exists");
+    expect(phaseExamples).toContain("write it naturally and keep it narrow");
+    expect(phaseExamples).not.toContain("Leader-only deltas");
+    expect(phaseExamples).not.toContain("Leader-specific deltas:");
     expect(phaseExamples).toContain("## Memory");
     expect(phaseExamples).toContain("## Separate Review Quest");
     expect(phaseExamples).not.toContain("Read this reference only when");

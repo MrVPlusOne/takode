@@ -491,7 +491,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("otherwise create or reopen a normal quest");
     expect(guardrails).toContain("Work is intentionally broader");
     expect(guardrails).toContain("Leader context is a scarce long-horizon resource");
-    expect(guardrails).toContain("Leader-only deltas: none");
+    expect(guardrails).toContain("when there is no new context, a short Work authorization is sufficient");
+    expect(guardrails).not.toContain("Leader-only deltas");
+    expect(guardrails).not.toContain("Do not promote leader synthesis into accepted scope");
     expect(guardrails).toContain("System-interrupted worker `turn_end` herd events may be provisional");
     expect(guardrails).toContain("`~/.companion/quest-journey-phases/work/leader.md`");
     expect(guardrails).toContain("That brief owns the complete recovery rule");
@@ -688,7 +690,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Follow the board-approved Quest Journey");
     expect(guardrails).toContain("Work is intentionally broader");
     expect(guardrails).toContain("Leader context is a scarce long-horizon resource");
-    expect(guardrails).toContain("Leader-only deltas: none");
+    expect(guardrails).toContain("when there is no new context, a short Work authorization is sufficient");
+    expect(guardrails).not.toContain("Leader-only deltas");
+    expect(guardrails).not.toContain("Do not promote leader synthesis into accepted scope");
     expect(guardrails).toContain("System-interrupted worker `turn_end` herd events may be provisional");
     expect(guardrails).toContain("`~/.companion/quest-journey-phases/work/leader.md`");
     expect(guardrails).toContain("That brief owns the complete recovery rule");

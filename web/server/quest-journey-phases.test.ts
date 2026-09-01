@@ -180,7 +180,20 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(work.leaderBrief).toContain("Normal non-transforming safeguards remain mandatory");
     expect(work.leaderBrief).toContain("one focused autonomous remediation pass per root-cause issue class");
     expect(work.leaderBrief).toContain("do not claim success or start another autonomous loop");
-    expect(work.leaderBrief).toContain("Leader-only deltas: none");
+    expect(work.leaderBrief).toContain(
+      "Alignment approval confirms the worker's understanding of the authorized scope and the intended Journey routing",
+    );
+    expect(work.leaderBrief).toContain(
+      "by itself it does not promote worker findings, leader paraphrases, or proposed approaches into requirements",
+    );
+    expect(work.leaderBrief).toContain(
+      "complete worker-context authority rule in the preloaded `leader-dispatch` skill",
+    );
+    expect(work.leaderBrief).toContain("short natural Work authorization is sufficient");
+    expect(work.leaderBrief).not.toContain("Preserve source authority in every leader-authored worker context");
+    expect(work.leaderBrief).not.toContain("Do not promote leader synthesis into accepted scope");
+    expect(work.leaderBrief).not.toContain("--author human");
+    expect(work.leaderBrief).not.toContain("Leader-only deltas");
     expect(work.leaderBrief).toContain("authoritative source for recovery routing inside an active Work occurrence");
     expect(work.leaderBrief).toContain("Recovery preserves the full remaining authorized Work envelope");
     expect(work.leaderBrief).toContain("allow one short verification window");

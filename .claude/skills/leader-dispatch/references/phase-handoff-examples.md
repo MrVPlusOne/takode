@@ -1,6 +1,6 @@
 # Phase Handoff Examples
 
-Keep actual handoffs shorter than these examples and include only context-dependent deltas. Generic behavior belongs in the active phase briefs.
+Keep actual handoffs shorter than these examples and include only genuinely useful context the worker cannot already access. Generic behavior belongs in the active phase briefs.
 
 ## Alignment
 
@@ -12,8 +12,9 @@ Read this phase brief first:
 
 Add or refresh the Alignment phase note with the concise read-in details. In final chat, point to that feedback index and include only blockers, surprises, or Journey-revision evidence that need immediate leader routing. After you send it, stop and wait for Work authorization.
 
-Leader-specific deltas: <exact prior messages, unusual boundary, memory files, or safety warning>.
 ```
+
+If the leader has genuinely useful context the worker cannot otherwise access, add it in natural prose after the phase instruction, for example: `Use [#YY msg M](session:YY:M) for the later user correction.`
 
 ## Direct Worker Errand
 
@@ -37,15 +38,12 @@ Alignment approved. Proceed with Work for [q-XX](quest:q-XX).
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/work/assignee.md`
 
-Leader-only deltas: none.
 ```
 
-When real leader-only deltas exist, keep them narrow:
+That is sufficient when no new context exists. When a later user decision or genuinely useful external fact is not otherwise available to the worker, write it naturally and keep it narrow rather than adding a required section:
 
 ```text
-Leader-only deltas:
-- The user later rejected <option>.
-- [q-YY](quest:q-YY) is waiting on this result.
+The user later rejected <option>; source: [#YY msg M](session:YY:M). [q-YY](quest:q-YY) is waiting on this result.
 ```
 
 ## User Checkpoint
@@ -73,10 +71,10 @@ Read this phase brief first:
 
 Use the accepted Work note and current artifacts. Perform catalog/direct-file memory triage, settle final debrief metadata, quest metadata, User review checks, cleanup/follow-ups, exactly one memory statement, and quest completion. Do not edit project-tracked implementation files; missing tracked work returns to Work.
 
-Leader-specific deltas: <debrief draft, memory files/terms, external artifacts, cleanup needs, or known residual risk>.
-
-Do not put synchronized Work SHAs in this Memory delta merely for attachment. The guarded Work -> Memory transition must already have recorded them as structured code commit metadata; missing code evidence routes back to Work.
+Do not put synchronized Work SHAs in this Memory handoff merely for attachment. The guarded Work -> Memory transition must already have recorded them as structured code commit metadata; missing code evidence routes back to Work.
 ```
+
+When the worker cannot otherwise access a relevant debrief decision, memory file, external artifact, cleanup need, or known residual risk, add one short natural sentence that points to it.
 
 ## Separate Review Quest
 

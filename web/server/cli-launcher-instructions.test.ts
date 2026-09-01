@@ -395,9 +395,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Non-Memory phases should not add routine `memory update not needed` statements");
     expect(result).toContain("quest-backed updates should use `q-N`");
     expect(result).toContain("should not routinely add `commit:*` or `session:*` sources");
-    expect(result).toContain("provide only leader-owned deltas the worker cannot infer");
+    expect(result).toContain("provide only genuinely useful new context the worker cannot infer");
     expect(result).toContain("Leader context is a scarce long-horizon resource");
-    expect(result).toContain("Leader-only deltas: none");
+    expect(result).toContain("when there is no new context, a short Work authorization is sufficient");
+    expect(result).not.toContain("Leader-only deltas");
+    expect(result).not.toContain("Do not promote leader synthesis into accepted scope");
     expect(result).toContain("Route implementation follow-ups to context-rich sources");
     expect(result).toContain("read-only technical clarification about an active or recently completed quest");
     expect(result).toContain("prefer a short Takode follow-up to the responsible worker");
@@ -593,9 +595,11 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("worker-owned Work -> Memory");
     expect(result).toContain("final Memory's required memory statement");
     expect(result).toContain("If the actor's context was compacted during the phase");
-    expect(result).toContain("provide only leader-owned deltas the worker cannot infer");
+    expect(result).toContain("provide only genuinely useful new context the worker cannot infer");
     expect(result).toContain("Leader context is a scarce long-horizon resource");
-    expect(result).toContain("Leader-only deltas: none");
+    expect(result).toContain("when there is no new context, a short Work authorization is sufficient");
+    expect(result).not.toContain("Leader-only deltas");
+    expect(result).not.toContain("Do not promote leader synthesis into accepted scope");
     expect(result).toContain("Route implementation follow-ups to context-rich sources");
     expect(result).toContain("Use a direct worker errand only for one-turn");
     expect(result).toContain("Do not create a quest or authorize changes for a clarification");
