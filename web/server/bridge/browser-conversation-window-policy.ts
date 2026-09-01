@@ -316,6 +316,7 @@ function isConversationScopedMessage(message: BrowserIncomingMessage): boolean {
     message.type === "result" ||
     message.type === "task_notification" ||
     message.type === "codex_auto_pause_recovery_summary" ||
+    message.type === "quest_lifecycle_event" ||
     message.type === "thread_attachment_marker" ||
     message.type === "thread_transition_marker" ||
     message.type === "cross_thread_activity_marker"

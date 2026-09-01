@@ -3,6 +3,53 @@ import type { BrowserIncomingMessage } from "../types.js";
 import { normalizeHistoryMessageToChatMessages } from "./history-message-normalization.js";
 
 describe("normalizeHistoryMessageToChatMessages", () => {
+  it("normalizes routed quest lifecycle history with stable identity and details", () => {
+    // The same raw event feeds live delivery and selected-window hydration, so
+    // its durable ID, history index, lifecycle kind, and owner route must survive.
+    const message = normalizeHistoryMessageToChatMessages(
+      {
+        type: "quest_lifecycle_event",
+        id: "quest-lifecycle-leader-42",
+        timestamp: 4200,
+        kind: "submitted",
+        quest: {
+          questId: "q-2003",
+          title: "Diagnose recurring alerts",
+          status: "done",
+          tldr: "Findings are ready for review.",
+          tags: ["security", "investigation"],
+          leaderSessionId: "leader-1",
+        },
+        threadKey: "q-2003",
+        questId: "q-2003",
+        threadRefs: [{ threadKey: "q-2003", questId: "q-2003", source: "explicit" }],
+      },
+      17,
+    )[0]!;
+
+    expect(message).toEqual({
+      id: "quest-lifecycle-leader-42",
+      role: "system",
+      content: "Quest submitted: Diagnose recurring alerts",
+      timestamp: 4200,
+      historyIndex: 17,
+      variant: "quest_submitted",
+      metadata: {
+        threadKey: "q-2003",
+        questId: "q-2003",
+        threadRefs: [{ threadKey: "q-2003", questId: "q-2003", source: "explicit" }],
+        quest: {
+          questId: "q-2003",
+          title: "Diagnose recurring alerts",
+          status: "done",
+          tldr: "Findings are ready for review.",
+          tags: ["security", "investigation"],
+          leaderSessionId: "leader-1",
+        },
+      },
+    });
+  });
+
   it("stores the raw messageHistory index on visible user and assistant messages", () => {
     // Message links use this raw index so `#/session/123/msg/N` matches
     // Takode CLI reads even when non-rendered history entries exist.

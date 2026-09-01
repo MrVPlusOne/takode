@@ -893,6 +893,18 @@ export interface NeedsInputNotificationQuestion {
   suggestedAnswers?: string[];
 }
 
+export interface QuestLifecycleEventSnapshot {
+  questId: string;
+  title: string;
+  status: string;
+  description?: string;
+  tldr?: string;
+  tags?: string[];
+  images?: import("./quest-types.js").QuestImage[];
+  verificationItems?: import("./quest-types.js").QuestVerificationItem[];
+  leaderSessionId?: string;
+}
+
 /** Messages the bridge sends to the browser */
 export type BrowserIncomingMessageBase =
   | { type: "session_init"; session: BrowserSessionState; nextEventSeq?: number }
@@ -1182,6 +1194,13 @@ export type BrowserIncomingMessageBase =
   | { type: "quest_list_updated"; quest?: QuestTitlePreview }
   | { type: "todo_state_updated"; revision: number; updatedAt: number }
   | { type: "settings_updated"; sessionDefaults: SessionDefaultsSettings }
+  | {
+      type: "quest_lifecycle_event";
+      id: string;
+      timestamp: number;
+      kind: "claimed" | "submitted";
+      quest: QuestLifecycleEventSnapshot;
+    }
   | {
       type: "session_quest_claimed";
       quest: {

@@ -385,7 +385,10 @@ function normalizeHistoryMessages(
 
   for (let i = 0; i < historyMessages.length; i++) {
     const histMsg = historyMessages[i];
-    const historyIndex = startIndex + i;
+    const historyIndex =
+      Number.isInteger(histMsg.history_index) && (histMsg.history_index ?? -1) >= 0
+        ? histMsg.history_index!
+        : startIndex + i;
     const fallbackTimestamp = fallbackTimestamps[i];
     if (histMsg.type === "assistant") {
       if (isCodexSession(sessionId) && isRootThinkingOnlyAssistantHistoryEntry(histMsg)) continue;
@@ -445,6 +448,7 @@ function normalizeHistoryMessages(
     } else if (
       histMsg.type === "compact_marker" ||
       histMsg.type === "codex_auto_pause_recovery_summary" ||
+      histMsg.type === "quest_lifecycle_event" ||
       histMsg.type === "thread_attachment_marker" ||
       histMsg.type === "thread_transition_marker" ||
       histMsg.type === "permission_denied" ||
@@ -1599,6 +1603,13 @@ function handleParsedMessage(
 
     case "settings_updated": {
       window.dispatchEvent(new CustomEvent(SESSION_DEFAULTS_UPDATED_EVENT, { detail: data.sessionDefaults }));
+      break;
+    }
+
+    case "quest_lifecycle_event": {
+      for (const message of normalizeHistoryMessageToChatMessages(data, data.history_index ?? -1)) {
+        store.appendMessage(sessionId, message);
+      }
       break;
     }
 

@@ -763,6 +763,9 @@ function extractFullText(msg: BrowserIncomingMessage, sessionId?: string): strin
     case "permission_denied":
       return `Denied: ${msg.tool_name} — ${msg.summary}`;
 
+    case "quest_lifecycle_event":
+      return `Quest ${msg.kind}: ${msg.quest.title}`;
+
     case "compact_marker":
       return getCompactMarkerText(msg);
 
@@ -799,6 +802,7 @@ function extractTimestamp(msg: BrowserIncomingMessage): number {
       return msg.timestamp || 0;
     case "permission_approved":
     case "permission_denied":
+    case "quest_lifecycle_event":
       return msg.timestamp || 0;
     default:
       return 0;
@@ -815,7 +819,8 @@ type PeekableType =
   | "result"
   | "compact_marker"
   | "permission_approved"
-  | "permission_denied";
+  | "permission_denied"
+  | "quest_lifecycle_event";
 
 const PEEKABLE_TYPES = new Set<string>([
   "user_message",
@@ -825,6 +830,7 @@ const PEEKABLE_TYPES = new Set<string>([
   "compact_marker",
   "permission_approved",
   "permission_denied",
+  "quest_lifecycle_event",
 ]);
 
 function isPeekable(msg: BrowserIncomingMessage): boolean {

@@ -1431,6 +1431,87 @@ describe("feed render model builders", () => {
     );
   });
 
+  it("keeps a historical quest event out of a later unrelated Main handoff", () => {
+    // This is the screenshot sequence from q-2008 in producer form: the q-2003
+    // lifecycle row predates the Main-to-q-2006 dispatch and remains owner-routed.
+    const q2003Event: BrowserIncomingMessage = {
+      type: "quest_lifecycle_event",
+      id: "quest-lifecycle-q2003",
+      timestamp: 100,
+      kind: "submitted",
+      quest: { questId: "q-2003", title: "Diagnose recurring alerts", status: "done" },
+      threadKey: "q-2003",
+      questId: "q-2003",
+      threadRefs: [{ threadKey: "q-2003", questId: "q-2003", source: "explicit" }],
+    };
+    const history: BrowserIncomingMessage[] = [
+      q2003Event,
+      makeRawUserMessage({ id: "u-main-q2006", content: "Create q-2006", timestamp: 200 }),
+      {
+        type: "assistant",
+        parent_tool_use_id: null,
+        timestamp: 300,
+        message: {
+          id: "a-main-q2006",
+          type: "message",
+          role: "assistant",
+          model: "claude",
+          content: [{ type: "text", text: "Creating and dispatching q-2006" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+      },
+      makeTransitionMarker({ id: "transition-main-q2006", sourceThreadKey: "main", threadKey: "q-2006" }),
+      {
+        type: "assistant",
+        parent_tool_use_id: null,
+        timestamp: 400,
+        threadKey: "q-2006",
+        questId: "q-2006",
+        threadRefs: [{ threadKey: "q-2006", questId: "q-2006", source: "explicit" }],
+        message: {
+          id: "a-q2006",
+          type: "message",
+          role: "assistant",
+          model: "claude",
+          content: [{ type: "text", text: "q-2006 is dispatched" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+      },
+    ];
+    const modelFor = (threadKey: string) => {
+      const sync = buildThreadWindowSync({
+        messageHistory: history,
+        threadKey,
+        fromItem: 0,
+        itemCount: 10,
+        sectionItemCount: 10,
+        visibleItemCount: 3,
+      });
+      const selectedFeedWindowMessages = sync.entries.flatMap((entry) =>
+        normalizeHistoryMessageToChatMessages(entry.message, entry.history_index),
+      );
+      return buildMessageModel({
+        threadKey,
+        allMessages: threadKey === "all" ? selectedFeedWindowMessages : [],
+        selectedFeedWindowEnabled: threadKey !== "all",
+        selectedFeedWindow: threadKey === "all" ? null : sync.window,
+        selectedFeedWindowMessages,
+        sessionNotifications: [],
+      });
+    };
+
+    expect(modelFor("main").messages.map((message) => message.id)).toEqual([
+      "u-main-q2006",
+      "a-main-q2006",
+      "transition-main-q2006",
+    ]);
+    expect(modelFor("q-2003").messages.map((message) => message.id)).toEqual(["quest-lifecycle-q2003"]);
+    expect(modelFor("q-2006").messages.map((message) => message.id)).toEqual(["a-q2006"]);
+    expect(modelFor("all").messages.map((message) => message.id)).toContain("quest-lifecycle-q2003");
+  });
+
   it("anchors producer-shaped historical result errors before later recovered output in selected Main windows", () => {
     // Historical `result` rows do not carry their own timestamp. This mirrors
     // session 1401: two failed result rows at 17:42 followed by recovered output

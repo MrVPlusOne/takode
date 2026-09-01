@@ -51,6 +51,7 @@ import type {
   BrowserIncomingMessage,
   CLIResultMessage,
   CLISystemCompactBoundaryMessage,
+  QuestLifecycleEventSnapshot,
   SessionState,
   ToolResultPreview,
 } from "../session-types.js";
@@ -73,6 +74,16 @@ export {
 export type { NotificationStatusSnapshot } from "./session-notification-controller.js";
 
 type SessionLike = any;
+type SessionClaimedQuestState = Omit<QuestLifecycleEventSnapshot, "questId" | "status"> & {
+  id: string;
+  status?: string;
+  verificationInboxUnread?: boolean;
+};
+type QuestLifecycleEventInput = {
+  id: string;
+  kind: Extract<BrowserIncomingMessage, { type: "quest_lifecycle_event" }>["kind"];
+  timestamp?: number;
+};
 
 export interface SessionRegistryDeps {
   makeDefaultState: (sessionId: string, backendType: string) => unknown;
@@ -1391,13 +1402,7 @@ export function getHerdDiagnostics(
 
 export function setSessionClaimedQuest(
   session: SessionLike,
-  quest: {
-    id: string;
-    title: string;
-    status?: string;
-    verificationInboxUnread?: boolean;
-    leaderSessionId?: string;
-  } | null,
+  quest: SessionClaimedQuestState | null,
   deps: Pick<
     SessionRegistryDeps,
     | "broadcastToBrowsers"
@@ -1406,6 +1411,7 @@ export function setSessionClaimedQuest(
     | "onSessionNamedByQuest"
     | "invalidateLeaderThreadTabsForQuestIds"
   >,
+  lifecycleEventInput?: QuestLifecycleEventInput,
 ): void {
   console.log(
     `[ws-bridge] setSessionClaimedQuest: quest=${quest?.id ?? "null"} title="${quest?.title ?? ""}" status=${quest?.status ?? "null"} browsers=${session.browserSockets.size} session=${session.id}`,
@@ -1420,57 +1426,99 @@ export function setSessionClaimedQuest(
   const nextStatus = quest?.status ?? null;
   const nextReviewInboxUnread = quest?.verificationInboxUnread;
   const nextLeaderSessionId = quest?.leaderSessionId ?? null;
-  if (
+  const claimStateChanged = !(
     prevId === nextId &&
     prevTitle === nextTitle &&
     prevStatus === nextStatus &&
     prevReviewInboxUnread === nextReviewInboxUnread &&
     prevLeaderSessionId === nextLeaderSessionId
-  ) {
-    return;
+  );
+  if (claimStateChanged) {
+    session.state.claimedQuestId = quest?.id;
+    session.state.claimedQuestTitle = quest?.title;
+    session.state.claimedQuestStatus = quest?.status;
+    session.state.claimedQuestVerificationInboxUnread = quest?.verificationInboxUnread;
+    session.state.claimedQuestLeaderSessionId = quest?.leaderSessionId;
+    const projectionClaimChanged =
+      prevId !== nextId || prevStatus !== nextStatus || prevLeaderSessionId !== nextLeaderSessionId;
+    if (projectionClaimChanged) {
+      const affectedQuestIds = [...new Set([prevId, nextId].filter((id): id is string => !!id))];
+      if (affectedQuestIds.length > 0) deps.invalidateLeaderThreadTabsForQuestIds?.(affectedQuestIds);
+    }
+    const isQuestActive =
+      !!quest?.title &&
+      (quest?.status === "in_progress" ||
+        quest?.status === "needs_verification" ||
+        (quest?.status === "done" && quest.verificationInboxUnread !== undefined));
+    const isOrchestrator = deps.getLauncherSessionInfo?.(session.id)?.isOrchestrator === true;
+    if (isQuestActive && !isOrchestrator && deps.onSessionNamedByQuest) {
+      deps.onSessionNamedByQuest(session.id, quest.title);
+    }
+    deps.broadcastToBrowsers?.(session, {
+      type: "session_quest_claimed",
+      quest: quest
+        ? {
+            id: quest.id,
+            title: quest.title,
+            status: quest.status,
+            verificationInboxUnread: quest.verificationInboxUnread,
+            leaderSessionId: quest.leaderSessionId,
+          }
+        : null,
+    } as BrowserIncomingMessage);
   }
-  session.state.claimedQuestId = quest?.id;
-  session.state.claimedQuestTitle = quest?.title;
-  session.state.claimedQuestStatus = quest?.status;
-  session.state.claimedQuestVerificationInboxUnread = quest?.verificationInboxUnread;
-  session.state.claimedQuestLeaderSessionId = quest?.leaderSessionId;
-  const projectionClaimChanged =
-    prevId !== nextId || prevStatus !== nextStatus || prevLeaderSessionId !== nextLeaderSessionId;
-  if (projectionClaimChanged) {
-    const affectedQuestIds = [...new Set([prevId, nextId].filter((id): id is string => !!id))];
-    if (affectedQuestIds.length > 0) deps.invalidateLeaderThreadTabsForQuestIds?.(affectedQuestIds);
+  const duplicateLifecycleEvent = lifecycleEventInput
+    ? session.messageHistory.some(
+        (message: BrowserIncomingMessage) =>
+          message.type === "quest_lifecycle_event" && message.id === lifecycleEventInput.id,
+      )
+    : false;
+  if (quest && lifecycleEventInput && !duplicateLifecycleEvent) {
+    const timestamp = lifecycleEventInput.timestamp ?? Date.now();
+    const questSnapshot: QuestLifecycleEventSnapshot = {
+      questId: quest.id,
+      title: quest.title,
+      status: quest.status ?? (lifecycleEventInput.kind === "submitted" ? "done" : "in_progress"),
+      ...(quest.description !== undefined ? { description: quest.description } : {}),
+      ...(quest.tldr !== undefined ? { tldr: quest.tldr } : {}),
+      ...(quest.tags !== undefined ? { tags: quest.tags } : {}),
+      ...(quest.images !== undefined ? { images: quest.images } : {}),
+      ...(quest.verificationItems !== undefined ? { verificationItems: quest.verificationItems } : {}),
+      ...(quest.leaderSessionId !== undefined ? { leaderSessionId: quest.leaderSessionId } : {}),
+    };
+    const lifecycleEvent: BrowserIncomingMessage = {
+      type: "quest_lifecycle_event",
+      id: lifecycleEventInput.id,
+      timestamp,
+      kind: lifecycleEventInput.kind,
+      quest: questSnapshot,
+      threadKey: quest.id,
+      questId: quest.id,
+      threadRefs: [{ threadKey: quest.id, questId: quest.id, source: "explicit" }],
+    };
+    session.messageHistory.push(lifecycleEvent);
+    deps.broadcastToBrowsers?.(session, lifecycleEvent);
   }
-  const isQuestActive =
-    !!quest?.title &&
-    (quest?.status === "in_progress" ||
-      quest?.status === "needs_verification" ||
-      (quest?.status === "done" && quest.verificationInboxUnread !== undefined));
-  const isOrchestrator = deps.getLauncherSessionInfo?.(session.id)?.isOrchestrator === true;
-  if (isQuestActive && !isOrchestrator && deps.onSessionNamedByQuest) {
-    deps.onSessionNamedByQuest(session.id, quest.title);
-  }
-  deps.broadcastToBrowsers?.(session, {
-    type: "session_quest_claimed",
-    quest,
-  } as BrowserIncomingMessage);
+  if (!claimStateChanged && (!lifecycleEventInput || duplicateLifecycleEvent || !quest)) return;
   deps.persistSession(session);
 }
 
 export function setSessionClaimedQuestBySessionId(
   sessions: Map<string, SessionLike>,
   sessionId: string,
-  quest: { id: string; title: string; status?: string; verificationInboxUnread?: boolean } | null,
+  quest: SessionClaimedQuestState | null,
   deps: Pick<
     SessionRegistryDeps,
     "broadcastToBrowsers" | "persistSession" | "getLauncherSessionInfo" | "onSessionNamedByQuest"
   >,
+  lifecycleEvent?: QuestLifecycleEventInput,
 ): void {
   const session = sessions.get(sessionId);
   if (!session) {
     console.log(`[ws-bridge] setSessionClaimedQuest: session ${sessionId} not found`);
     return;
   }
-  setSessionClaimedQuest(session, quest, deps);
+  setSessionClaimedQuest(session, quest, deps, lifecycleEvent);
 }
 
 export function getNotifications(sessions: Map<string, SessionLike>, sessionId: string): SessionNotification[] {

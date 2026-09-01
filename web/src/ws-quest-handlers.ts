@@ -1,6 +1,5 @@
-import { api } from "./api.js";
 import { useStore } from "./store.js";
-import type { BrowserIncomingMessage, ChatMessage } from "./types.js";
+import type { BrowserIncomingMessage } from "./types.js";
 import { resolveLeaderThreadTabsProjection } from "./utils/leader-thread-tabs-resolver.js";
 
 type QuestListUpdatedMessage = Extract<BrowserIncomingMessage, { type: "quest_list_updated" }>;
@@ -35,76 +34,12 @@ export function handleQuestListUpdated(data: QuestListUpdatedMessage): void {
 }
 
 export function handleSessionQuestClaimed(sessionId: string, data: SessionQuestClaimedMessage): void {
-  const store = useStore.getState();
   console.log(`[ws] session_quest_claimed for ${sessionId}:`, data.quest);
-  const prevStatus = store.sessions.get(sessionId)?.claimedQuestStatus;
-  const prevQuestId = store.sessions.get(sessionId)?.claimedQuestId;
-  const prevTitle = store.sessions.get(sessionId)?.claimedQuestTitle;
-  store.updateSession(sessionId, {
+  useStore.getState().updateSession(sessionId, {
     claimedQuestId: data.quest?.id ?? undefined,
     claimedQuestTitle: data.quest?.title ?? undefined,
     claimedQuestStatus: data.quest?.status ?? undefined,
     claimedQuestVerificationInboxUnread: data.quest?.verificationInboxUnread,
     claimedQuestLeaderSessionId: data.quest?.leaderSessionId,
   });
-  if (!data.quest?.id) return;
-  const questId = data.quest.id;
-  const isStatusChange = prevQuestId === questId && !!prevStatus && prevStatus !== data.quest.status;
-  const isTitleOnly = prevQuestId === questId && !isStatusChange && prevTitle !== data.quest.title;
-  if (isTitleOnly) {
-    store.updateQuestTitleInMessages(sessionId, questId, data.quest.title);
-    return;
-  }
-  const isSubmitted =
-    isStatusChange &&
-    (data.quest.status === "needs_verification" ||
-      (data.quest.status === "done" && data.quest.verificationInboxUnread !== undefined));
-  const variant = isSubmitted ? ("quest_submitted" as const) : ("quest_claimed" as const);
-  const label = isSubmitted ? "Quest submitted" : "Quest claimed";
-  if (isStatusChange && !isSubmitted) return;
-
-  api
-    .getQuest(questId)
-    .then((quest) => {
-      const questMeta: ChatMessage["metadata"] = {
-        quest: {
-          questId: quest.questId,
-          title: quest.title,
-          description: "description" in quest ? quest.description : undefined,
-          tldr: quest.tldr,
-          status: quest.status,
-          tags: quest.tags,
-          images: quest.images,
-          verificationItems: "verificationItems" in quest ? quest.verificationItems : undefined,
-          leaderSessionId: quest.leaderSessionId,
-        },
-      };
-      useStore.getState().appendMessage(sessionId, {
-        id: `${variant}-${questId}-${Date.now()}`,
-        role: "system",
-        content: `${label}: ${quest.title}`,
-        timestamp: Date.now(),
-        variant,
-        metadata: questMeta,
-        ephemeral: true,
-      });
-    })
-    .catch(() => {
-      useStore.getState().appendMessage(sessionId, {
-        id: `${variant}-${questId}-${Date.now()}`,
-        role: "system",
-        content: `${label}: ${data.quest!.title}`,
-        timestamp: Date.now(),
-        variant,
-        ephemeral: true,
-        metadata: {
-          quest: {
-            questId,
-            title: data.quest!.title,
-            status: data.quest!.status ?? (isSubmitted ? "done" : "in_progress"),
-            leaderSessionId: data.quest!.leaderSessionId,
-          },
-        },
-      });
-    });
 }

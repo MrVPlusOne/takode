@@ -1682,7 +1682,11 @@ function QuestVersionHistory({ questId, onNavigate }: { questId: string; onNavig
       const prefix = `${variant}-${ver.questId}-`;
 
       const messages = useStore.getState().messages.get(sessionId) ?? [];
-      const candidates = messages.filter((m) => m.id.startsWith(prefix));
+      const candidates = messages.filter(
+        (message) =>
+          message.id.startsWith(prefix) ||
+          (message.variant === variant && message.metadata?.quest?.questId === ver.questId),
+      );
       const match =
         candidates.length > 0
           ? candidates.reduce((best, m) => {

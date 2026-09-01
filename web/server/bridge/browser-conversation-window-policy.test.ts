@@ -8,6 +8,7 @@ import {
   shouldDeliverBrowserEventToSocket,
   type BrowserConversationWindowSocketData,
 } from "./browser-conversation-window-policy.js";
+import { isHistoryBackedEvent } from "./replay-buffer-policy.js";
 
 function threadSocket(threadKey: string): BrowserConversationWindowSocketData {
   return {
@@ -149,6 +150,68 @@ describe("bounded browser conversation delivery", () => {
     expect(shouldDeliverBrowserEventToSocket({ messageHistory: [] }, message, threadSocket("q-1"))).toBe(true);
     expect(shouldDeliverBrowserEventToSocket({ messageHistory: [] }, message, threadSocket("q-2"))).toBe(false);
     expect(shouldDeliverBrowserEventToSocket({ messageHistory: [] }, message, threadSocket("main"))).toBe(false);
+  });
+
+  it("delivers quest lifecycle history only to its owner thread or full-history view", () => {
+    // Lifecycle chips are conversation rows, not global claim metadata. A q-2003
+    // completion must not leak into Main or a later q-2006 selected window.
+    const event: Extract<BrowserIncomingMessage, { type: "quest_lifecycle_event" }> = {
+      type: "quest_lifecycle_event",
+      id: "quest-lifecycle-q2003",
+      timestamp: 1,
+      kind: "submitted",
+      quest: { questId: "q-2003", title: "Diagnose recurring alerts", status: "done" },
+      threadKey: "q-2003",
+      questId: "q-2003",
+      threadRefs: [{ threadKey: "q-2003", questId: "q-2003", source: "explicit" }],
+    };
+    const historyView: BrowserConversationWindowSocketData = {
+      conversationView: {
+        kind: "history",
+        request: { fromTurn: 0, turnCount: 10, sectionTurnCount: 5, visibleSectionCount: 2 },
+      },
+    };
+
+    expect(shouldDeliverBrowserEventToSocket({ messageHistory: [event] }, event, threadSocket("q-2003"))).toBe(true);
+    expect(shouldDeliverBrowserEventToSocket({ messageHistory: [event] }, event, threadSocket("q-2006"))).toBe(false);
+    expect(shouldDeliverBrowserEventToSocket({ messageHistory: [event] }, event, threadSocket("main"))).toBe(false);
+    expect(shouldDeliverBrowserEventToSocket({ messageHistory: [event] }, event, historyView)).toBe(true);
+  });
+
+  it("lets the selected window own quest lifecycle replay instead of replaying a sidecar", () => {
+    // q-255 keeps claim state events out of replay. The replacement lifecycle
+    // event is replayable only through authoritative history/window hydration.
+    const event: Extract<BrowserIncomingMessage, { type: "quest_lifecycle_event" }> = {
+      type: "quest_lifecycle_event",
+      id: "quest-lifecycle-q2003",
+      timestamp: 1,
+      kind: "submitted",
+      quest: { questId: "q-2003", title: "Diagnose recurring alerts", status: "done" },
+      threadKey: "q-2003",
+      questId: "q-2003",
+    };
+    const socketData = threadSocket("q-2003");
+    const prepared = prepareBoundedConversationSubscribe({
+      session: { messageHistory: [event], eventBuffer: [{ seq: 1, message: event }], nextEventSeq: 2 },
+      socketData,
+      initialThreadWindow: {
+        thread_key: "q-2003",
+        from_item: 0,
+        item_count: 10,
+        section_item_count: 5,
+        visible_item_count: 2,
+      },
+      historyWindowSectionTurnCount: undefined,
+      historyWindowVisibleSectionCount: undefined,
+      historyWindowTargetMessageId: undefined,
+      historyWindowTargetIndex: undefined,
+      lastAckSeq: 0,
+      running: true,
+      isHistoryBackedEvent,
+    });
+
+    expect(prepared.replayEvents).toEqual([]);
+    expect(prepared.boundedView).toMatchObject({ kind: "thread", request: { threadKey: "q-2003" } });
   });
 
   it("routes persisted Codex recovery guidance to its owning selected thread", () => {

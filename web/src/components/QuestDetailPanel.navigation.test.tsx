@@ -174,10 +174,16 @@ describe("QuestDetailPanel navigation dismissal", () => {
           "worker-42",
           [
             {
-              id: "quest_claimed-q-42-worker",
+              id: "quest-lifecycle-worker-42-7",
               type: "system",
               content: "claimed",
               timestamp: 1_700_000_000_000,
+              variant: "quest_claimed",
+              metadata: {
+                threadKey: "q-42",
+                questId: "q-42",
+                quest: { questId: "q-42", title: "Earlier modal navigation", status: "in_progress" },
+              },
             } as any,
           ],
         ],
@@ -208,6 +214,7 @@ describe("QuestDetailPanel navigation dismissal", () => {
       expect(useStore.getState().questOverlayId).toBeNull();
     });
     expect(window.location.hash).toBe("#/session/worker-42");
+    expect(useStore.getState().scrollToMessageId.get("worker-42")).toBe("quest-lifecycle-worker-42-7");
   });
 
   it("lets version-history markdown session links own navigation before dismissing", async () => {

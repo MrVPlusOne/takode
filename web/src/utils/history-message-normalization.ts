@@ -249,6 +249,24 @@ export function normalizeHistoryMessageToChatMessages(
     return [normalizeCodexReasoningDetailMessage(histMsg, historyIndex)];
   }
 
+  if (histMsg.type === "quest_lifecycle_event") {
+    const label = histMsg.kind === "submitted" ? "Quest submitted" : "Quest claimed";
+    return [
+      {
+        id: histMsg.id,
+        role: "system",
+        content: `${label}: ${histMsg.quest.title}`,
+        timestamp: histMsg.timestamp,
+        historyIndex,
+        variant: histMsg.kind === "submitted" ? "quest_submitted" : "quest_claimed",
+        metadata: {
+          ...(existingThreadMetadataFromMessage(histMsg) ?? {}),
+          quest: histMsg.quest,
+        },
+      },
+    ];
+  }
+
   if (histMsg.type === "user_message") {
     const stableMessageId = typeof histMsg.id === "string" && histMsg.id.trim().length > 0 ? histMsg.id : null;
     const threadMetadata = {

@@ -6,6 +6,8 @@ import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
 import { CompactSessionLink } from "./CompactSessionLink.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import type { QuestImage, QuestVerificationItem } from "../types.js";
+import { useStore } from "../store.js";
+import { selectCanonicalQuestTitle } from "../utils/quest-title-index.js";
 
 interface QuestClaimData {
   questId: string;
@@ -33,6 +35,17 @@ export function QuestClaimBlock({
   variant?: "claimed" | "submitted";
   questLinkSurface?: QuestLinkSurface;
 }) {
+  const normalizedQuestId = quest.questId.trim().toLowerCase();
+  const canonicalTitle = useStore((state) =>
+    selectCanonicalQuestTitle({
+      questId: quest.questId,
+      listQuest: state.quests.find((candidate) => candidate.questId.toLowerCase() === normalizedQuestId),
+      detailQuest: state.questDetails.get(normalizedQuestId),
+      titlePreview: state.questTitlePreviews.get(normalizedQuestId),
+      titlePreviewKnown: state.questTitlePreviews.has(normalizedQuestId),
+    }),
+  );
+  const title = canonicalTitle ?? quest.title;
   const [open, setOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -152,7 +165,7 @@ export function QuestClaimBlock({
           <path d="M2.5 2a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-11a.5.5 0 00-.5-.5h-11zM4 5.75a.75.75 0 01.75-.75h6.5a.75.75 0 010 1.5h-6.5A.75.75 0 014 5.75z" />
         </svg>
         <span className={`text-xs font-medium ${accentColor}`}>{headerLabel}</span>
-        <span className="text-xs text-cc-fg truncate flex-1">{quest.title}</span>
+        <span className="text-xs text-cc-fg truncate flex-1">{title}</span>
         <span className="text-[10px] text-cc-muted shrink-0">{quest.questId}</span>
       </button>
 
@@ -189,7 +202,7 @@ export function QuestClaimBlock({
           <div
             role="dialog"
             aria-modal="true"
-            aria-label={`Quest details: ${quest.title}`}
+            aria-label={`Quest details: ${title}`}
             className="w-[min(760px,100%)] max-h-[88dvh] bg-cc-card border border-cc-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
@@ -201,7 +214,7 @@ export function QuestClaimBlock({
                   </span>
                   <span className="text-[10px] text-cc-muted/60">{quest.questId}</span>
                 </div>
-                <div className="text-sm font-semibold text-cc-fg mt-1">{quest.title}</div>
+                <div className="text-sm font-semibold text-cc-fg mt-1">{title}</div>
               </div>
               <button
                 type="button"

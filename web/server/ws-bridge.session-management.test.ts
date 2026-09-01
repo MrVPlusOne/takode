@@ -186,16 +186,22 @@ function applyClaimedQuest(
   bridge: WsBridge,
   sessionId: string,
   quest: { id: string; title: string; status?: string; leaderSessionId?: string } | null,
+  lifecycleEvent?: { id: string; kind: "claimed" | "submitted"; timestamp?: number },
 ) {
   const session = bridge.getSession(sessionId);
   if (!session) return;
-  setSessionClaimedQuestController(session, quest, {
-    broadcastToBrowsers: (_session: any, msg: any) => bridge.broadcastToSession(sessionId, msg),
-    persistSession: () => bridge.persistSessionById(sessionId),
-    getLauncherSessionInfo: (targetSessionId: string) => (bridge as any).launcher?.getSession?.(targetSessionId),
-    onSessionNamedByQuest: (targetSessionId: string, title: string) =>
-      (bridge as any).onSessionNamedByQuest?.(targetSessionId, title),
-  });
+  setSessionClaimedQuestController(
+    session,
+    quest,
+    {
+      broadcastToBrowsers: (_session: any, msg: any) => bridge.broadcastToSession(sessionId, msg),
+      persistSession: () => bridge.persistSessionById(sessionId),
+      getLauncherSessionInfo: (targetSessionId: string) => (bridge as any).launcher?.getSession?.(targetSessionId),
+      onSessionNamedByQuest: (targetSessionId: string, title: string) =>
+        (bridge as any).onSessionNamedByQuest?.(targetSessionId, title),
+    },
+    lifecycleEvent,
+  );
 }
 
 type TestBridge = WsBridge & {
@@ -794,18 +800,28 @@ describe("Session management", () => {
   });
 
   it("session_quest_claimed is not buffered for event replay (prevents stale chips on reconnect)", () => {
-    // Quest lifecycle events are one-shot notifications that generate ephemeral
-    // chat chips. Buffering them causes stale chips from previous quest operations
-    // to reappear when a browser reconnects after server restart.
+    // Durable lifecycle rows hydrate through authoritative history. Buffering the
+    // same row would duplicate it or revive stale claim state on reconnect.
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
 
-    applyClaimedQuest(bridge, "s1", { id: "q-1", title: "Quest One", status: "in_progress" });
+    applyClaimedQuest(
+      bridge,
+      "s1",
+      { id: "q-1", title: "Quest One", status: "in_progress" },
+      { id: "quest_claimed-q-1-s1-1", kind: "claimed", timestamp: 1 },
+    );
 
     const session = bridge.getSession("s1")!;
     const bufferedTypes = session.eventBuffer.map((e: any) => e.message.type);
     expect(bufferedTypes).not.toContain("session_quest_claimed");
+    expect(bufferedTypes).not.toContain("quest_lifecycle_event");
+    expect(session.messageHistory.at(-1)).toMatchObject({
+      type: "quest_lifecycle_event",
+      kind: "claimed",
+      questId: "q-1",
+    });
   });
 
   it("name invalidation publishes no replay-buffer event", () => {

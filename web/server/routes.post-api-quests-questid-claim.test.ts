@@ -550,6 +550,18 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
 }
 
 describe("POST /api/quests/:questId/claim", () => {
+  beforeEach(() => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValue({
+      id: "q-1-v2",
+      questId: "q-1",
+      version: 2,
+      title: "Quest",
+      status: "refined",
+      createdAt: 1,
+      description: "Ready",
+    } as any);
+  });
+
   function companionAuthHeaders(sessionId: string, token: string): Record<string, string> {
     return {
       "x-companion-session-id": sessionId,
@@ -917,6 +929,60 @@ describe("POST /api/quests/:questId/claim", () => {
       }),
     );
     expect(bridge.persistSessionById).toHaveBeenCalledWith("session-2");
+    expect(bridge.getSession("session-2")?.messageHistory).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "quest_lifecycle_event",
+          kind: "claimed",
+          questId: "q-1",
+          threadKey: "q-1",
+        }),
+      ]),
+    );
+  });
+
+  it("does not backfill a claim event for an unchanged same-owner claim", async () => {
+    const unchangedQuest = {
+      id: "q-1-v3",
+      questId: "q-1",
+      version: 3,
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "session-2",
+      createdAt: 1,
+      claimedAt: 2,
+      description: "Ready",
+    } as any;
+    vi.mocked(questStore.getQuest).mockResolvedValueOnce(unchangedQuest);
+    vi.spyOn(questStore, "claimQuest").mockResolvedValueOnce(unchangedQuest);
+    launcher.getSession.mockReturnValue({
+      sessionId: "session-2",
+      state: "running",
+      cwd: "/test",
+      archived: false,
+    } as any);
+    const trackedSession = {
+      id: "session-2",
+      state: { claimedQuestId: "q-1", claimedQuestTitle: "Quest", claimedQuestStatus: "in_progress" },
+      browserSockets: new Set(),
+      taskHistory: [],
+      messageHistory: [],
+    } as any;
+    bridge.getSession.mockReturnValue(trackedSession);
+
+    const res = await app.request("/api/quests/q-1/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "session-2" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(trackedSession.messageHistory).toEqual([]);
+    expect(
+      bridge.broadcastToSession.mock.calls.some(
+        ([, message]: [string, { type?: string }]) => message.type === "quest_lifecycle_event",
+      ),
+    ).toBe(false);
   });
 
   it("does not duplicate quest task history on repeated same-session claims", async () => {
@@ -1271,6 +1337,9 @@ describe("POST /api/quests/:questId/complete", () => {
       debriefTldr: "Accepted work is complete with final Memory closure.",
     });
     expect(bridge.completeDoneBoardRowsForQuest).toHaveBeenCalledWith("q-1");
+    expect(bridge._sessions["worker-1"].messageHistory).toEqual([
+      expect.objectContaining({ type: "quest_lifecycle_event", kind: "submitted", questId: "q-1" }),
+    ]);
   });
 
   it("allows final Memory to repeat code SHAs that Work already recorded", async () => {

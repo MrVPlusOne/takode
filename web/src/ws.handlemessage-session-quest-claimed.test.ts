@@ -168,6 +168,31 @@ function publishClaimProjection(options: {
 // Connection
 // ===========================================================================
 describe("handleMessage: session_quest_claimed", () => {
+  it("updates current claim detail without synthesizing feed history", () => {
+    // A completed review-owner claim can remain authoritative session metadata,
+    // but only a separate durable lifecycle event may create a feed chip.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "session_quest_claimed",
+      quest: {
+        id: "q-2003",
+        title: "Diagnose recurring alerts",
+        status: "done",
+        verificationInboxUnread: true,
+      },
+    });
+
+    expect(useStore.getState().sessions.get("s1")).toMatchObject({
+      claimedQuestId: "q-2003",
+      claimedQuestTitle: "Diagnose recurring alerts",
+      claimedQuestStatus: "done",
+      claimedQuestVerificationInboxUnread: true,
+    });
+    expect(useStore.getState().messages.get("s1")).toEqual([]);
+  });
+
   it("keeps detailed claim state while the projection owns the worker row", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

@@ -10,6 +10,7 @@ const NON_REPLAYABLE_BROWSER_EVENT_TYPES = new Set<string>([
   "leader_group_idle",
   "quest_list_updated",
   "session_quest_claimed",
+  "quest_lifecycle_event",
   "session_name_update", // Legacy persisted-event-buffer tombstone; no current-build producer.
   "tree_groups_update",
   "leader_projection_snapshot",
@@ -37,7 +38,8 @@ export function isHistoryBackedEvent(msg: ReplayableBrowserIncomingMessage): boo
     msg.type === "permission_approved" ||
     msg.type === "compact_boundary" ||
     msg.type === "compact_summary" ||
-    msg.type === "compact_marker"
+    msg.type === "compact_marker" ||
+    msg.type === "quest_lifecycle_event"
   );
 }
 

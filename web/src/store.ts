@@ -648,34 +648,6 @@ export const useStore = create<AppState>((set, get) => ({
   attachCodexSubagentToolResults: (sessionId, ownership, previews) =>
     set((s) => attachCodexSubagentToolResultsAcrossSources(s, sessionId, ownership, previews)),
 
-  updateQuestTitleInMessages: (sessionId, questId, newTitle) =>
-    set((s) => {
-      const list = s.messages.get(sessionId);
-      if (!list) return s;
-      let changed = false;
-      const updated = list.map((m) => {
-        if (m.metadata?.quest?.questId === questId && m.metadata.quest.title !== newTitle) {
-          changed = true;
-          const label = m.variant === "quest_submitted" ? "Quest submitted" : "Quest Claimed";
-          return {
-            ...m,
-            content: `${label}: ${newTitle}`,
-            metadata: { ...m.metadata, quest: { ...m.metadata.quest, title: newTitle } },
-          };
-        }
-        return m;
-      });
-      if (!changed) return s;
-      const messages = new Map(s.messages);
-      messages.set(sessionId, updated);
-      const frozenCount = s.messageFrozenCounts.get(sessionId) ?? 0;
-      const changedFrozen = updated.some((m, index) => index < frozenCount && m !== list[index]);
-      if (!changedFrozen) return { messages };
-      const messageFrozenRevisions = new Map(s.messageFrozenRevisions);
-      messageFrozenRevisions.set(sessionId, (messageFrozenRevisions.get(sessionId) ?? 0) + 1);
-      return { messages, messageFrozenRevisions };
-    }),
-
   updateLastAssistantMessage: (sessionId, updater) =>
     set((s) => {
       const messages = new Map(s.messages);

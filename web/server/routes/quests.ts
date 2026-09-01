@@ -34,7 +34,7 @@ import {
   liveQuestFeedbackEntries,
   tombstoneQuestFeedbackEntry,
 } from "../../shared/quest-feedback.js";
-import type { BoardRow, SessionState } from "../session-types.js";
+import type { BoardRow, QuestLifecycleEventSnapshot, SessionState } from "../session-types.js";
 import type { SdkSessionInfo } from "../session-info.js";
 import { normalizeTldr, QUEST_TLDR_WARNING_HEADER, tldrWarningForContent } from "../quest-tldr.js";
 import {
@@ -59,6 +59,12 @@ const MAX_DIFF_BYTES = 512 * 1024;
 const MAX_QUEST_TITLE_IDS = 100;
 const SUMMARY_FEEDBACK_PREFIXES = ["summary:", "refreshed summary:"];
 const FINAL_MEMORY_STATEMENT_RE = /^memory (updated|update deferred|update not needed):\s*\S.*$/gim;
+
+type ClaimedQuestProjection = Omit<QuestLifecycleEventSnapshot, "questId" | "status"> & {
+  id: string;
+  status?: string;
+  verificationInboxUnread?: boolean;
+};
 
 function normalizeRequestedCommitSha(value: string): string | null {
   const sha = value.trim().toLowerCase();
@@ -447,24 +453,24 @@ export function createQuestRoutes(ctx: RouteContext) {
 
   const setClaimedQuest = (
     sessionId: string,
-    quest: {
-      id: string;
-      title: string;
-      status?: string;
-      verificationInboxUnread?: boolean;
-      leaderSessionId?: string;
-    } | null,
+    quest: ClaimedQuestProjection | null,
+    lifecycleEvent?: { id: string; kind: "claimed" | "submitted"; timestamp?: number },
   ) => {
     const session = wsBridge.getSession(sessionId);
     if (!session) return;
-    setSessionClaimedQuestController(session, quest, {
-      broadcastToBrowsers: (_session, msg) => wsBridge.broadcastToSession(sessionId, msg as any),
-      persistSession: () => wsBridge.persistSessionById(sessionId),
-      getLauncherSessionInfo: (targetSessionId) => launcher.getSession(targetSessionId),
-      onSessionNamedByQuest: (targetSessionId, title) =>
-        (wsBridge as any).onSessionNamedByQuest?.(targetSessionId, title),
-      invalidateLeaderThreadTabsForQuestIds: wsBridge.invalidateLeaderThreadTabsForQuestIds?.bind(wsBridge),
-    });
+    setSessionClaimedQuestController(
+      session,
+      quest,
+      {
+        broadcastToBrowsers: (_session, msg) => wsBridge.broadcastToSession(sessionId, msg as any),
+        persistSession: () => wsBridge.persistSessionById(sessionId),
+        getLauncherSessionInfo: (targetSessionId) => launcher.getSession(targetSessionId),
+        onSessionNamedByQuest: (targetSessionId, title) =>
+          (wsBridge as any).onSessionNamedByQuest?.(targetSessionId, title),
+        invalidateLeaderThreadTabsForQuestIds: wsBridge.invalidateLeaderThreadTabsForQuestIds?.bind(wsBridge),
+      },
+      lifecycleEvent,
+    );
   };
 
   type V2CompletionBody = {
@@ -644,9 +650,36 @@ export function createQuestRoutes(ctx: RouteContext) {
     id: quest.questId,
     title: quest.title,
     status: quest.status,
+    ...(quest.description !== undefined ? { description: quest.description } : {}),
+    ...(quest.tldr !== undefined ? { tldr: quest.tldr } : {}),
+    ...(quest.tags !== undefined ? { tags: quest.tags } : {}),
+    ...(quest.images !== undefined ? { images: quest.images } : {}),
+    ...("verificationItems" in quest ? { verificationItems: quest.verificationItems } : {}),
     ...(hasQuestReviewMetadata(quest) ? { verificationInboxUnread: quest.verificationInboxUnread } : {}),
     ...(quest.leaderSessionId ? { leaderSessionId: quest.leaderSessionId } : {}),
   });
+  const lifecycleEvent = (kind: "claimed" | "submitted", quest: QuestmasterTask, sessionId: string) => {
+    const occurredAt =
+      kind === "claimed"
+        ? "claimedAt" in quest
+          ? quest.claimedAt
+          : undefined
+        : "completedAt" in quest
+          ? quest.completedAt
+          : undefined;
+    const revision = occurredAt ?? quest.statusChangedAt ?? quest.updatedAt ?? quest.version ?? quest.createdAt;
+    return {
+      id: `quest_${kind}-${quest.questId}-${sessionId}-${revision}`,
+      kind,
+      ...(typeof occurredAt === "number" ? { timestamp: occurredAt } : {}),
+    };
+  };
+  const isClaimEdge = (current: QuestmasterTask | null, next: QuestmasterTask, sessionId: string): boolean =>
+    next.status === "in_progress" &&
+    getTakodeQuestOwnerSessionId(next) === sessionId &&
+    (current?.status !== "in_progress" || getTakodeQuestOwnerSessionId(current) !== sessionId);
+  const isSubmissionEdge = (current: QuestmasterTask | null, next: QuestmasterTask): boolean =>
+    !hasQuestReviewMetadata(current) && hasQuestReviewMetadata(next);
   const boardRowCandidatesForQuest = (quest: QuestmasterTask): QuestBoardRowCandidate[] => {
     if (isDirectCodexOwnedQuest(quest)) return [];
     const leaderIds = new Set<string>();
@@ -911,16 +944,24 @@ export function createQuestRoutes(ctx: RouteContext) {
       setClaimedQuest(currentReviewOwnerSessionId, null);
     }
     if (nextSessionId) {
-      setClaimedQuest(nextSessionId, claimedQuestEvent(quest));
+      setClaimedQuest(
+        nextSessionId,
+        claimedQuestEvent(quest),
+        isClaimEdge(current, quest, nextSessionId) ? lifecycleEvent("claimed", quest, nextSessionId) : undefined,
+      );
     } else if (hasQuestReviewMetadata(quest)) {
       const reviewOwner = getTakodeDisplayOwnerSessionId(quest);
       if (reviewOwner) {
-        setClaimedQuest(reviewOwner, claimedQuestEvent(quest));
+        setClaimedQuest(
+          reviewOwner,
+          claimedQuestEvent(quest),
+          isSubmissionEdge(current, quest) ? lifecycleEvent("submitted", quest, reviewOwner) : undefined,
+        );
       }
     }
 
     syncDoneQuestBoardState(questId, quest);
-    broadcastQuestUpdate(wsBridge);
+    broadcastQuestUpdate(wsBridge, quest);
     return quest;
   };
 
@@ -1183,7 +1224,7 @@ export function createQuestRoutes(ctx: RouteContext) {
           });
         }
       }
-      broadcastQuestUpdate(wsBridge);
+      broadcastQuestUpdate(wsBridge, quest);
       if (body.description !== undefined || body.tldr !== undefined) {
         const warningTldr =
           body.tldr !== undefined ? body.tldr : body.description !== undefined ? undefined : quest.tldr;
@@ -1314,13 +1355,11 @@ export function createQuestRoutes(ctx: RouteContext) {
       const questId = c.req.param("questId");
       const force = body.force === true;
       const reason = ownershipReason(body.reason);
-      let current: QuestmasterTask | null = null;
-      let previousOwnerSessionId: string | null = null;
+      const current = await questStore.getQuest(questId);
+      if (!current) return c.json({ error: "Quest not found" }, 404);
+      const previousOwnerSessionId = activeOwnerSessionId(current);
       if (force) {
         if (!authSessionId) return c.json({ error: "Force claim requires Companion session auth" }, 403);
-        current = await questStore.getQuest(questId);
-        if (!current) return c.json({ error: "Quest not found" }, 404);
-        previousOwnerSessionId = activeOwnerSessionId(current);
         if (!previousOwnerSessionId || previousOwnerSessionId === sessionId) {
           return c.json({ error: "Force claim requires a quest owned by another session" }, 400);
         }
@@ -1356,13 +1395,17 @@ export function createQuestRoutes(ctx: RouteContext) {
           : {}),
       });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
-      broadcastQuestUpdate(wsBridge);
+      broadcastQuestUpdate(wsBridge, quest);
       if (previousOwnerSessionId && previousOwnerSessionId !== sessionId) {
         setClaimedQuest(previousOwnerSessionId, null);
       }
       // setSessionClaimedQuest publishes detailed claim state and invalidates the canonical navigation row,
       // while the callback cancels in-flight namers and persists the quest-owned name.
-      setClaimedQuest(sessionId, claimedQuestEvent(quest));
+      setClaimedQuest(
+        sessionId,
+        claimedQuestEvent(quest),
+        isClaimEdge(current, quest, sessionId) ? lifecycleEvent("claimed", quest, sessionId) : undefined,
+      );
       console.log(`[quest-claim] Setting session name for ${sessionId} to "${quest.title}" (quest ${quest.questId})`);
       // Use the last user message as trigger so clicking the quest chip scrolls
       // to the user message that initiated the claim (matches auto-namer behavior).
@@ -1435,9 +1478,9 @@ export function createQuestRoutes(ctx: RouteContext) {
         },
       });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
-      broadcastQuestUpdate(wsBridge);
+      broadcastQuestUpdate(wsBridge, quest);
       setClaimedQuest(previousOwnerSessionId, null);
-      setClaimedQuest(targetSessionId, claimedQuestEvent(quest));
+      setClaimedQuest(targetSessionId, claimedQuestEvent(quest), lifecycleEvent("claimed", quest, targetSessionId));
       addQuestTaskEntry(targetSessionId, quest, "quest-" + quest.questId);
       return c.json(quest);
     } catch (e: unknown) {
@@ -1490,12 +1533,16 @@ export function createQuestRoutes(ctx: RouteContext) {
       });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       syncDoneQuestBoardState(c.req.param("questId"), quest);
-      broadcastQuestUpdate(wsBridge);
+      broadcastQuestUpdate(wsBridge, quest);
       // Update session's quest status so browsers can show review-pending state.
       const reviewOwnerSessionId =
         targetSessionId || currentOwnerSessionId || getTakodeDisplayOwnerSessionId(quest) || "";
       if (reviewOwnerSessionId && hasQuestReviewMetadata(quest) && !isDirectCodexOwnedQuest(quest)) {
-        setClaimedQuest(reviewOwnerSessionId, claimedQuestEvent(quest));
+        setClaimedQuest(
+          reviewOwnerSessionId,
+          claimedQuestEvent(quest),
+          isSubmissionEdge(currentQuest, quest) ? lifecycleEvent("submitted", quest, reviewOwnerSessionId) : undefined,
+        );
       }
       setDebriefTldrWarningHeaderForAgentWrite(c, auth, body.debrief, body.debriefTldr);
       if (recoveryEvent) c.header(QUEST_LEADER_RECOVERY_WARNING_HEADER, formatLeaderRecoveryWarning(recoveryEvent));

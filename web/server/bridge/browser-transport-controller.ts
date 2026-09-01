@@ -1103,6 +1103,9 @@ export function sendHistoryWindowSync(
       turnCount: normalizedTurnCount,
       targetMessageId: options.targetMessageId,
       targetHistoryIndex: options.targetHistoryIndex,
+      includeMessage: isRootAgentHistoryMessage,
+      includeOutsideTurnMessage: (message, historyIndex) =>
+        isRootAgentHistoryMessage(message) && message.type === "quest_lifecycle_event" && historyIndex >= 0,
     });
     ({ fromTurn, turnCount, startIdx, messages } = selected);
   } else {

@@ -187,6 +187,29 @@ describe("history-sync-hash", () => {
     expect(result.hash).not.toBe(computeHistoryMessagesSyncHash(withoutNotif).hash);
   });
 
+  it("counts and fingerprints durable quest lifecycle rows in full and frozen-prefix hashes", () => {
+    const lifecycle = {
+      type: "quest_lifecycle_event" as const,
+      id: "quest_submitted-q-2003-leader-1700",
+      timestamp: 1700,
+      kind: "submitted" as const,
+      quest: { questId: "q-2003", title: "Diagnose recurring alerts", status: "done" },
+      threadKey: "q-2003",
+      questId: "q-2003",
+      threadRefs: [{ threadKey: "q-2003", questId: "q-2003", source: "explicit" as const }],
+    };
+
+    const full = computeHistoryMessagesSyncHash([lifecycle]);
+    const prefix = computeHistoryPrefixSyncHash([lifecycle], 1);
+    const changed = computeHistoryMessagesSyncHash([
+      { ...lifecycle, kind: "claimed", quest: { ...lifecycle.quest, title: "Different title" } },
+    ]);
+
+    expect(full.renderedCount).toBe(1);
+    expect(prefix).toMatchObject({ renderedCount: 1, totalRenderedCount: 1, sourceCount: 1, hash: full.hash });
+    expect(changed.hash).not.toBe(full.hash);
+  });
+
   it("computes prefix hash for a subset of rendered messages", () => {
     const history: BrowserIncomingMessage[] = [
       { type: "user_message", id: "u1", content: "hello", timestamp: 1000 },

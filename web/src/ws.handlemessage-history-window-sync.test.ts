@@ -134,6 +134,75 @@ function seedNavigationPreview(preview: string) {
 // Connection
 // ===========================================================================
 describe("handleMessage: history_window_sync", () => {
+  it("keeps one stable quest lifecycle row across live delivery and authoritative hydration", () => {
+    // Live and reload/window paths normalize the same persisted event. The
+    // history index and durable ID prevent a completed claim from becoming a tail sidecar.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    const lifecycleEvent = {
+      type: "quest_lifecycle_event",
+      id: "quest-lifecycle-leader-4",
+      timestamp: 1500,
+      kind: "submitted",
+      quest: { questId: "q-2003", title: "Diagnose recurring alerts", status: "done" },
+      threadKey: "q-2003",
+      questId: "q-2003",
+      threadRefs: [{ threadKey: "q-2003", questId: "q-2003", source: "explicit" }],
+    };
+
+    fireMessage({ ...lifecycleEvent, history_index: 4, seq: 9 });
+    expect(useStore.getState().messages.get("s1")).toEqual([
+      expect.objectContaining({
+        id: "quest-lifecycle-leader-4",
+        historyIndex: 4,
+        variant: "quest_submitted",
+      }),
+    ]);
+    expect(useStore.getState().messages.get("s1")?.[0]?.ephemeral).toBeUndefined();
+
+    fireMessage({
+      type: "history_window_sync",
+      messages: [
+        { type: "user_message", id: "u-q2003", content: "Complete q-2003", timestamp: 1000 },
+        {
+          type: "result",
+          data: {
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            result: "",
+            duration_ms: 1,
+            duration_api_ms: 1,
+            num_turns: 1,
+            total_cost_usd: 0,
+            session_id: "s1",
+          },
+        },
+        { ...lifecycleEvent, history_index: 4 },
+      ],
+      window: {
+        from_turn: 0,
+        turn_count: 1,
+        total_turns: 1,
+        has_older_items: false,
+        has_newer_items: false,
+        start_index: 0,
+        section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      },
+    });
+
+    expect(useStore.getState().messages.get("s1")).toEqual([
+      expect.objectContaining({ id: "u-q2003", historyIndex: 0 }),
+      expect.objectContaining({
+        id: "quest-lifecycle-leader-4",
+        historyIndex: 4,
+        variant: "quest_submitted",
+        metadata: expect.objectContaining({ threadKey: "q-2003", questId: "q-2003" }),
+      }),
+    ]);
+  });
+
   it("replaces local messages with the requested history window and preserves raw history indexes", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

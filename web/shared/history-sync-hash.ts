@@ -195,6 +195,28 @@ function forEachComparableHistoryEntry(
       );
       continue;
     }
+    if (message.type === "quest_lifecycle_event") {
+      const label = message.kind === "submitted" ? "Quest submitted" : "Quest claimed";
+      visitor(
+        {
+          id: message.id,
+          role: "system",
+          content: `${label}: ${message.quest.title}`,
+          metadata: {
+            threadRefs: message.threadRefs,
+            threadKey: message.threadKey,
+            questId: message.questId,
+            quest: message.quest,
+          },
+          variant: message.kind === "submitted" ? "quest_submitted" : "quest_claimed",
+          timestamp: message.timestamp,
+          mutable: true,
+        },
+        renderedIndex++,
+        i,
+      );
+      continue;
+    }
     if (message.type === "permission_denied") {
       visitor(
         {

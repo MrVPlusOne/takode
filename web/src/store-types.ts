@@ -295,7 +295,6 @@ export interface AppState {
     ownership: NonNullable<NonNullable<ChatMessage["metadata"]>["codexSubagent"]>,
     previews: readonly ToolResultPreview[],
   ) => void;
-  updateQuestTitleInMessages: (sessionId: string, questId: string, newTitle: string) => void;
   updateLastAssistantMessage: (sessionId: string, updater: (msg: ChatMessage) => ChatMessage) => void;
   commitMessagesAsFrozen: (sessionId: string) => void;
   setStreaming: (sessionId: string, text: string | null, parentToolUseId?: string | null) => void;

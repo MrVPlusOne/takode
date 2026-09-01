@@ -144,6 +144,111 @@ function makeDeps() {
 }
 
 describe("session claimed quest projection invalidation", () => {
+  it("persists only explicitly identified claim and submission edges as routed lifecycle history", () => {
+    // Claim state can be refreshed for titles, leaders, and review metadata.
+    // Only the exact lifecycle edges belong in durable feed history.
+    const session = makeSession({
+      state: { backend_type: "claude", isOrchestrator: true },
+      browserSockets: new Set(),
+    });
+    const broadcastToBrowsers = vi.fn();
+    const deps = {
+      broadcastToBrowsers,
+      persistSession: vi.fn(),
+      getLauncherSessionInfo: () => ({ isOrchestrator: true }),
+      onSessionNamedByQuest: vi.fn(),
+      invalidateLeaderThreadTabsForQuestIds: vi.fn(),
+    };
+
+    setSessionClaimedQuest(
+      session,
+      {
+        id: "q-2003",
+        title: "Diagnose recurring alerts",
+        status: "done",
+        verificationInboxUnread: true,
+        tldr: "Findings are ready for review.",
+        tags: ["security", "investigation"],
+        leaderSessionId: "leader-1",
+      },
+      deps,
+      { id: "quest_submitted-q-2003-leader-1000", kind: "submitted", timestamp: 1000 },
+    );
+
+    const submitted = session.messageHistory[0];
+    expect(submitted).toMatchObject({
+      type: "quest_lifecycle_event",
+      kind: "submitted",
+      threadKey: "q-2003",
+      questId: "q-2003",
+      threadRefs: [{ threadKey: "q-2003", questId: "q-2003", source: "explicit" }],
+      quest: {
+        questId: "q-2003",
+        title: "Diagnose recurring alerts",
+        status: "done",
+        tldr: "Findings are ready for review.",
+        tags: ["security", "investigation"],
+        leaderSessionId: "leader-1",
+      },
+    });
+    expect(submitted.id).toBe("quest_submitted-q-2003-leader-1000");
+    expect(submitted.timestamp).toBe(1000);
+
+    setSessionClaimedQuest(
+      session,
+      {
+        id: "q-2003",
+        title: "Diagnose recurring alerts (renamed)",
+        status: "done",
+        verificationInboxUnread: true,
+        leaderSessionId: "leader-2",
+      },
+      deps,
+    );
+    expect(session.messageHistory).toHaveLength(1);
+
+    setSessionClaimedQuest(session, { id: "q-2006", title: "Correct changelog dates", status: "in_progress" }, deps, {
+      id: "quest_claimed-q-2006-worker-2000",
+      kind: "claimed",
+      timestamp: 2000,
+    });
+    expect(session.messageHistory).toHaveLength(2);
+    expect(session.messageHistory[1]).toMatchObject({
+      type: "quest_lifecycle_event",
+      kind: "claimed",
+      threadKey: "q-2006",
+      questId: "q-2006",
+      quest: { questId: "q-2006", title: "Correct changelog dates", status: "in_progress" },
+    });
+    expect(new Set(session.messageHistory.map((message: { id: string }) => message.id)).size).toBe(2);
+
+    setSessionClaimedQuest(
+      session,
+      {
+        id: "q-2003",
+        title: "Diagnose recurring alerts (renamed)",
+        status: "done",
+        verificationInboxUnread: false,
+      },
+      deps,
+    );
+    setSessionClaimedQuest(session, { id: "q-2006", title: "Correct changelog dates", status: "in_progress" }, deps, {
+      id: "quest_claimed-q-2006-worker-2000",
+      kind: "claimed",
+      timestamp: 2000,
+    });
+    expect(session.messageHistory).toHaveLength(2);
+    expect(broadcastToBrowsers.mock.calls.map(([, message]) => message.type)).toEqual([
+      "session_quest_claimed",
+      "quest_lifecycle_event",
+      "session_quest_claimed",
+      "session_quest_claimed",
+      "quest_lifecycle_event",
+      "session_quest_claimed",
+      "session_quest_claimed",
+    ]);
+  });
+
   it("invalidates only quest identity, status, or leader changes", () => {
     const session = makeSession({
       state: {

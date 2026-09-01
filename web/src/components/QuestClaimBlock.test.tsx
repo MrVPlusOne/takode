@@ -27,6 +27,21 @@ describe("QuestClaimBlock", () => {
     expect(inProgressBadge).toHaveClass("text-cc-status-progress");
   });
 
+  it("renders the canonical current title without rewriting the lifecycle snapshot", () => {
+    useStore.getState().upsertQuestTitlePreview({
+      questId: "q-77",
+      title: "Canonical renamed quest",
+      version: 4,
+      updatedAt: 40,
+      commitShas: [],
+    });
+
+    render(<QuestClaimBlock quest={{ questId: "q-77", title: "Claim-time title", status: "in_progress" }} />);
+
+    expect(screen.getByText("Canonical renamed quest")).toBeInTheDocument();
+    expect(screen.queryByText("Claim-time title")).toBeNull();
+  });
+
   it("renders leader session attribution when the quest includes a leader", () => {
     useStore.getState().setSdkSessions([
       {

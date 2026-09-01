@@ -132,6 +132,23 @@ function permissionApproved(toolName: string, summary: string, ts: number): Brow
   } as BrowserIncomingMessage;
 }
 
+function questLifecycleEvent(kind: "claimed" | "submitted", ts: number): BrowserIncomingMessage {
+  return {
+    type: "quest_lifecycle_event",
+    id: `quest_${kind}-q-2003-worker-${ts}`,
+    timestamp: ts,
+    kind,
+    quest: {
+      questId: "q-2003",
+      title: "Diagnose recurring alerts",
+      status: kind === "claimed" ? "in_progress" : "done",
+    },
+    threadKey: "q-2003",
+    questId: "q-2003",
+    threadRefs: [{ threadKey: "q-2003", questId: "q-2003", source: "explicit" }],
+  } as BrowserIncomingMessage;
+}
+
 function withThread(
   msg: BrowserIncomingMessage,
   threadKey: string,
@@ -556,6 +573,22 @@ describe("buildPeekDefault", () => {
 });
 
 describe("buildPeekRange", () => {
+  it("keeps an idle quest lifecycle event inspectable with its producer route", () => {
+    const history = [userMsg("finish", 1000), resultMsg(100), questLifecycleEvent("submitted", 1500)];
+
+    const result = buildPeekRange(history, { from: 0, count: 10, threadKey: "q-2003" });
+
+    expect(result.messages.at(-1)).toMatchObject({
+      idx: 2,
+      ts: 1500,
+      type: "system",
+      content: "Quest submitted: Diagnose recurring alerts",
+      threadKey: "q-2003",
+      questId: "q-2003",
+      threadRefs: [expect.objectContaining({ threadKey: "q-2003", questId: "q-2003", source: "explicit" })],
+    });
+  });
+
   it("shows the subagent result preview and hides child messages in range mode", () => {
     const subagentResult = JSON.stringify([{ type: "text", text: "Range preview from child agent" }]);
     const history: BrowserIncomingMessage[] = [
@@ -1025,6 +1058,19 @@ describe("buildReadResponse", () => {
     const result = buildReadResponse(history, 0)!;
     expect(result.type).toBe("permission_approved");
     expect(result.content).toContain("Approved: Edit");
+  });
+
+  it("reads a quest lifecycle event with exact type, timestamp, and route", () => {
+    const result = buildReadResponse([questLifecycleEvent("claimed", 1200)], 0)!;
+
+    expect(result).toMatchObject({
+      type: "quest_lifecycle_event",
+      ts: 1200,
+      content: "Quest claimed: Diagnose recurring alerts",
+      threadKey: "q-2003",
+      questId: "q-2003",
+      threadRefs: [expect.objectContaining({ threadKey: "q-2003", questId: "q-2003", source: "explicit" })],
+    });
   });
 
   it("defaults offset to 0 and limit to 200", () => {

@@ -551,6 +551,24 @@ describe("POST /api/quests/:questId/verification/read", () => {
       verificationItems: [{ text: "verify", checked: false }],
       verificationInboxUnread: false,
     } as any);
+    bridge._sessions["session-1"] = {
+      id: "session-1",
+      state: { claimedQuestId: "q-2006", claimedQuestTitle: "Later quest", claimedQuestStatus: "in_progress" },
+      messageHistory: [
+        {
+          type: "quest_lifecycle_event",
+          id: "quest_submitted-q-1-session-1-1",
+          timestamp: 1,
+          kind: "submitted",
+          quest: { questId: "q-1", title: "Quest", status: "done" },
+          threadKey: "q-1",
+          questId: "q-1",
+          threadRefs: [{ threadKey: "q-1", questId: "q-1", source: "explicit" }],
+        },
+      ],
+      browserSockets: new Set(),
+      taskHistory: [],
+    };
 
     const res = await app.request("/api/quests/q-1/verification/read", {
       method: "POST",
@@ -559,5 +577,6 @@ describe("POST /api/quests/:questId/verification/read", () => {
     expect(res.status).toBe(200);
     expect(questStore.markQuestVerificationRead).toHaveBeenCalledWith("q-1");
     expect(bridge.broadcastGlobal).toHaveBeenCalledWith(expect.objectContaining({ type: "quest_list_updated" }));
+    expect(bridge._sessions["session-1"].messageHistory).toHaveLength(1);
   });
 });

@@ -892,6 +892,56 @@ describe("thread window hydration", () => {
     expect(thirdThreadSync.entries).toEqual([]);
   });
 
+  it("keeps an earlier quest lifecycle event in its exact thread and history position", () => {
+    // Producer-shaped regression for q-2008: a completed q-2003 event precedes
+    // a later Main-to-q-2006 dispatch and must never migrate into that handoff.
+    const q2003Event: BrowserIncomingMessage = {
+      type: "quest_lifecycle_event",
+      id: "quest-lifecycle-q2003",
+      timestamp: 300,
+      kind: "submitted",
+      quest: { questId: "q-2003", title: "Diagnose recurring alerts", status: "done" },
+      threadKey: "q-2003",
+      questId: "q-2003",
+      threadRefs: [{ threadKey: "q-2003", questId: "q-2003", source: "explicit" }],
+    };
+    const q2003ToMain = transitionMarker({
+      id: "transition-q2003-main",
+      sourceThreadKey: "q-2003",
+      threadKey: "main",
+    });
+    const mainToQ2006 = transitionMarker({
+      id: "transition-main-q2006",
+      sourceThreadKey: "main",
+      threadKey: "q-2006",
+    });
+    const history = [
+      user("u100", "Complete the alert investigation", "q-2003"),
+      assistant("a200", "The findings are ready", { threadKey: "q-2003" }),
+      q2003Event,
+      q2003ToMain,
+      user("u500", "Create and dispatch q-2006"),
+      assistant("a600", "Creating the changelog quest"),
+      mainToQ2006,
+      assistant("a800", "q-2006 is dispatched", { threadKey: "q-2006" }),
+    ];
+    const options = { fromItem: 0, itemCount: 20, sectionItemCount: 10, visibleItemCount: 3 };
+    const main = buildThreadWindowSync({ messageHistory: history, threadKey: "main", ...options });
+    const q2003 = buildThreadWindowSync({ messageHistory: history, threadKey: "q-2003", ...options });
+    const q2006 = buildThreadWindowSync({ messageHistory: history, threadKey: "q-2006", ...options });
+    const all = buildThreadWindowSync({ messageHistory: history, threadKey: "all", ...options });
+    const indexes = (sync: ReturnType<typeof buildThreadWindowSync>) =>
+      sync.entries.map((entry) => entry.history_index);
+
+    expect(indexes(main)).toEqual([4, 5, 6]);
+    expect(indexes(q2003)).toEqual([0, 1, 2, 3]);
+    expect(indexes(q2006)).toEqual([6, 7]);
+    expect(indexes(all)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(q2003.entries.filter((entry) => entry.message === q2003Event)).toHaveLength(1);
+    expect(main.entries.some((entry) => entry.message === q2003Event)).toBe(false);
+    expect(q2006.entries.some((entry) => entry.message === q2003Event)).toBe(false);
+  });
+
   it("uses Main cross-thread markers for non-quest hidden activity", () => {
     const history = [
       user("u1", "main request"),
