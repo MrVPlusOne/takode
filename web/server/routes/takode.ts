@@ -53,6 +53,7 @@ import {
   threadRouteForTarget,
 } from "../thread-routing-metadata.js";
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
+import { formatReplyContentForAssistant } from "../../shared/reply-context.js";
 import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
 import type { RouteContext } from "./context.js";
 import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
@@ -1370,6 +1371,11 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (target.kind === "notification") {
       const callerInfo = launcher.getSession(auth.callerId);
       const sessionLabel = callerInfo?.sessionNum !== undefined ? `#${callerInfo.sessionNum}` : undefined;
+      const replyContext = {
+        ...(target.messageId ? { messageId: target.messageId } : {}),
+        notificationId: target.notification_id,
+        previewText: target.summary ?? "Needs your input",
+      };
       const delivery = wsBridge.injectUserMessage(
         id,
         response,
@@ -1379,7 +1385,12 @@ export function createTakodeRoutes(ctx: RouteContext) {
         },
         undefined,
         threadRouteForTarget(target.threadKey ?? "main"),
-        { bypassPause: true, autoPauseSourceKind: "manual" },
+        {
+          deliveryContent: formatReplyContentForAssistant(response, replyContext),
+          replyContext,
+          bypassPause: true,
+          autoPauseSourceKind: "manual",
+        },
       );
       if (delivery === "no_session") return c.json({ error: "Session not found in bridge" }, 404);
       markNotificationDoneController(session, target.notification_id, true, notificationPersistDeps);

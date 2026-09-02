@@ -14,6 +14,8 @@ import { THREAD_ROUTING_REMINDER_SOURCE_ID } from "../../shared/thread-routing-r
 import { isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
 import { isAssistantMessageRenderable, isToolHiddenFromChat } from "../utils/assistant-message-renderability.js";
 import { normalizeCodexMessagePhase } from "../../shared/codex-message-phase.js";
+import type { TakodeHerdEventLifecycle } from "../../shared/herd-event-lifecycle.js";
+import { getHerdEventCount, getHerdEventLifecycles } from "../utils/herd-event-classification.js";
 
 export interface ToolItem {
   id: string;
@@ -383,6 +385,7 @@ export interface TurnStats {
   toolCount: number;
   subagentCount: number;
   herdEventCount: number;
+  herdEventLifecycle?: TakodeHerdEventLifecycle[];
 }
 
 /** Assistant message immediately preceding a herd event injection --
@@ -427,12 +430,14 @@ function countEntryStats(entries: FeedEntry[]): {
   tools: number;
   subagents: number;
   herdEvents: number;
+  herdEventLifecycle: TakodeHerdEventLifecycle[];
   lastText: string;
 } {
   let messages = 0;
   let tools = 0;
   let subagents = 0;
   let herdEvents = 0;
+  const herdEventLifecycle: TakodeHerdEventLifecycle[] = [];
   let lastText = "";
 
   for (const entry of entries) {
@@ -457,7 +462,8 @@ function countEntryStats(entries: FeedEntry[]): {
       } else {
         // Track herd orchestration event injections
         if (msg.agentSource?.sessionId === "herd-events") {
-          herdEvents++;
+          herdEvents += Math.max(getHerdEventCount(msg), 1);
+          herdEventLifecycle.push(...getHerdEventLifecycles(msg));
         } else {
           // Non-assistant messages (e.g. user, system) count as messages
           messages++;
@@ -473,6 +479,7 @@ function countEntryStats(entries: FeedEntry[]): {
       tools += childStats.tools;
       subagents += childStats.subagents;
       herdEvents += childStats.herdEvents;
+      herdEventLifecycle.push(...childStats.herdEventLifecycle);
       if (childStats.lastText) lastText = childStats.lastText;
     } else if (entry.kind === "subagent_batch") {
       for (const sg of entry.subagents) {
@@ -482,12 +489,13 @@ function countEntryStats(entries: FeedEntry[]): {
         tools += childStats.tools;
         subagents += childStats.subagents;
         herdEvents += childStats.herdEvents;
+        herdEventLifecycle.push(...childStats.herdEventLifecycle);
         if (childStats.lastText) lastText = childStats.lastText;
       }
     }
   }
 
-  return { messages, tools, subagents, herdEvents, lastText };
+  return { messages, tools, subagents, herdEvents, herdEventLifecycle, lastText };
 }
 
 /** Check if a FeedEntry is a system message (compact markers, errors, info dividers).
@@ -978,6 +986,7 @@ function buildCollapsedTurnEntries(
         toolCount: stats.tools,
         subagentCount: stats.subagents,
         herdEventCount: stats.herdEvents,
+        ...(stats.herdEventLifecycle.length > 0 ? { herdEventLifecycle: stats.herdEventLifecycle } : {}),
       },
     });
   };
@@ -1181,6 +1190,7 @@ function makeTurn(
       toolCount: s.tools,
       subagentCount: s.subagents,
       herdEventCount: s.herdEvents,
+      ...(s.herdEventLifecycle.length > 0 ? { herdEventLifecycle: s.herdEventLifecycle } : {}),
     },
   };
 }

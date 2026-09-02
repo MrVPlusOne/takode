@@ -6,6 +6,7 @@ import {
 } from "./codex-reasoning-preview-state.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { clearRecentAskVisibleResponseBoundaries } from "../recent-ask-bundles.js";
+import { isSystemSourceTag, isTimerSourceTag } from "./adapter-browser-routing-source-tags.js";
 
 /** Reasons that indicate the turn ended due to recovery/error, not a normal result.
  *  Queued turns should be drained (not promoted) for these reasons because the CLI
@@ -70,6 +71,16 @@ export interface GenerationLifecycleSession {
     leaderThreadStatuses?: Record<string, LeaderThreadStatus>;
   };
   messageHistory: unknown[];
+  notifications?: Array<{
+    id: string;
+    category: string;
+    timestamp: number;
+    messageId?: string | null;
+    threadKey?: string;
+    questId?: string;
+    herdDecisionWaitReportedAt?: number;
+    herdDecisionResumeReportedAt?: number;
+  }>;
 }
 
 export interface GenerationLifecycleDeps<S extends GenerationLifecycleSession> {
@@ -135,6 +146,144 @@ export interface QueuedTurnLifecycleEntry {
   userMessageIds: number[];
   interruptSource: InterruptSource | null;
   activeTurnRoute: ActiveTurnRoute | null;
+}
+
+function getCurrentTurnDecisionLifecycle(
+  session: GenerationLifecycleSession,
+  generationStartedAt: number | null,
+  activeTurnRoute: ActiveTurnRoute | null | undefined,
+  turnEndedAt: number,
+): Pick<TakodeTurnEndEventData, "awaiting_decision" | "resumed_after_decision"> {
+  if (generationStartedAt === null) return {};
+  const notifications = session.notifications ?? [];
+  const activeRouteKey = decisionRouteKey(activeTurnRoute?.threadKey, activeTurnRoute?.questId);
+  const currentResponseIds = getDecisionResponseNotificationIds(session, session.userMessageIdsThisTurn);
+  const queuedResponseIds = getDecisionResponseNotificationIds(session, session.queuedTurnUserMessageIds.flat());
+  const queuedExternalContinuation = hasExternalContinuationForRoute(
+    session,
+    session.queuedTurnUserMessageIds.flat(),
+    activeRouteKey,
+  );
+  // `done` is not answer evidence here: herd delivery confirmation marks a
+  // notification done before the leader may have answered it. Correlate actual
+  // current/queued inputs instead so the predecessor's normal wait stays visible.
+  const currentWaitCandidates = notifications.filter(
+    (notification) =>
+      notification.category === "needs-input" &&
+      notification.timestamp >= generationStartedAt &&
+      decisionRouteKey(notification.threadKey, notification.questId) === activeRouteKey &&
+      !currentResponseIds.has(notification.id),
+  );
+  const inferredQueuedContinuationId =
+    currentResponseIds.size === 0 &&
+    queuedResponseIds.size === 0 &&
+    currentWaitCandidates.length === 1 &&
+    queuedExternalContinuation(currentWaitCandidates[0].timestamp)
+      ? currentWaitCandidates[0].id
+      : null;
+  const currentWaits = currentWaitCandidates.filter(
+    (notification) => !queuedResponseIds.has(notification.id) && notification.id !== inferredQueuedContinuationId,
+  );
+  for (const notification of currentWaits) {
+    notification.herdDecisionWaitReportedAt ??= turnEndedAt;
+  }
+
+  const pendingWaits = notifications.filter(
+    (notification) =>
+      notification.category === "needs-input" &&
+      notification.timestamp < generationStartedAt &&
+      decisionRouteKey(notification.threadKey, notification.questId) === activeRouteKey &&
+      typeof notification.herdDecisionWaitReportedAt === "number" &&
+      notification.herdDecisionResumeReportedAt === undefined,
+  );
+  const currentExternalContinuation = hasExternalContinuationForRoute(
+    session,
+    session.userMessageIdsThisTurn,
+    activeRouteKey,
+  );
+  const exactResumedWaits = pendingWaits.filter((notification) => currentResponseIds.has(notification.id));
+  const inferredResumedWaits =
+    exactResumedWaits.length === 0 &&
+    currentResponseIds.size === 0 &&
+    pendingWaits.length === 1 &&
+    currentExternalContinuation(pendingWaits[0].timestamp)
+      ? pendingWaits
+      : [];
+  const resumedWaits = exactResumedWaits.length > 0 ? exactResumedWaits : inferredResumedWaits;
+  for (const notification of resumedWaits) notification.herdDecisionResumeReportedAt = turnEndedAt;
+  return {
+    ...(currentWaits.length > 0 ? { awaiting_decision: true } : {}),
+    ...(resumedWaits.length > 0 ? { resumed_after_decision: true } : {}),
+  };
+}
+
+function decisionRouteKey(threadKey: string | undefined, questId: string | undefined): string {
+  return (questId ?? threadKey ?? "main").trim().toLowerCase() || "main";
+}
+
+function getDecisionResponseNotificationIds(
+  session: GenerationLifecycleSession,
+  historyIndices: readonly number[],
+): Set<string> {
+  const notifications = new Map(
+    (session.notifications ?? [])
+      .filter((notification) => notification.category === "needs-input")
+      .map((notification) => [notification.id, notification] as const),
+  );
+  const responseIds = new Set<string>();
+  for (const historyIndex of historyIndices) {
+    const entry = session.messageHistory[historyIndex] as
+      | {
+          type?: string;
+          replyContext?: { notificationId?: string };
+          threadKey?: string;
+          questId?: string;
+        }
+      | undefined;
+    if (entry?.type !== "user_message") continue;
+    const notificationId = entry.replyContext?.notificationId;
+    if (!notificationId) continue;
+    const notification = notifications.get(notificationId);
+    if (!notification) continue;
+    if (
+      decisionRouteKey(entry.threadKey, entry.questId) !==
+      decisionRouteKey(notification.threadKey, notification.questId)
+    ) {
+      continue;
+    }
+    responseIds.add(notificationId);
+  }
+  return responseIds;
+}
+
+function hasExternalContinuationForRoute(
+  session: GenerationLifecycleSession,
+  historyIndices: readonly number[],
+  routeKey: string,
+): (afterTimestamp: number) => boolean {
+  const candidates = historyIndices.flatMap((historyIndex) => {
+    const entry = session.messageHistory[historyIndex] as
+      | {
+          type?: string;
+          timestamp?: number;
+          agentSource?: { sessionId: string; sessionLabel?: string };
+          threadKey?: string;
+          questId?: string;
+        }
+      | undefined;
+    if (entry?.type !== "user_message") return [];
+    if (decisionRouteKey(entry.threadKey, entry.questId) !== routeKey) return [];
+    if (
+      isSystemSourceTag(entry.agentSource) ||
+      isTimerSourceTag(entry.agentSource) ||
+      entry.agentSource?.sessionId === "herd-events" ||
+      entry.agentSource?.sessionId.startsWith("cron:")
+    ) {
+      return [];
+    }
+    return [{ timestamp: entry.timestamp ?? 0 }];
+  });
+  return (afterTimestamp) => candidates.some((candidate) => candidate.timestamp >= afterTimestamp);
 }
 
 function interruptSourcePriority(source: InterruptSource | null): number {
@@ -412,7 +561,9 @@ export function setGenerating<S extends GenerationLifecycleSession>(
   } else {
     clearRecentAskVisibleResponseBoundaries(session);
     clearOptimisticRunningTimer(session);
-    const elapsed = session.generationStartedAt ? Date.now() - session.generationStartedAt : 0;
+    const generationStartedAt = session.generationStartedAt;
+    const turnEndedAt = Date.now();
+    const elapsed = generationStartedAt ? turnEndedAt - generationStartedAt : 0;
     session.generationStartedAt = null;
     session.stuckNotifiedAt = null;
     console.log(
@@ -428,6 +579,10 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     const compacted = session.compactedDuringTurn;
     const turnSource = deps.getCurrentTurnTriggerSource?.(session) ?? "unknown";
     const activeTurnRoute = session.activeTurnRoute;
+    const decisionLifecycle =
+      reason === "result" && !interrupted
+        ? getCurrentTurnDecisionLifecycle(session, generationStartedAt, activeTurnRoute, turnEndedAt)
+        : {};
     session.interruptedDuringTurn = false;
     session.interruptSourceDuringTurn = null;
     session.restartPrepInterruptOperationId = null;
@@ -445,6 +600,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
         ...(interruptOrigin ? { interrupt_origin: interruptOrigin } : {}),
         ...(restartPrepOperationId ? { restart_prep_operation_id: restartPrepOperationId } : {}),
         ...(compacted ? { compacted: true } : {}),
+        ...decisionLifecycle,
         ...toolSummary,
         turn_source: turnSource,
         ...(activeTurnRoute?.threadKey ? { threadKey: activeTurnRoute.threadKey } : {}),

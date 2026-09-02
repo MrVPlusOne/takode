@@ -9,6 +9,7 @@ import {
   isLeaderSkillPreloadSourceId,
   LEADER_SKILL_PRELOAD_SOURCE_ID_PREFIX,
 } from "../shared/injected-event-message.js";
+import { HERD_EVENT_LIFECYCLE_LABELS } from "../shared/herd-event-lifecycle.js";
 
 describe("leader skill preload builder", () => {
   it("builds one manifest-backed preload bundle per mandatory leader skill", async () => {
@@ -58,6 +59,9 @@ describe("leader skill preload builder", () => {
     expect(orchestration?.content).toContain("send final Memory to the normal same worker without waiting for closure");
     expect(orchestration?.content).toContain("Ordinary read-only follow-ups during Memory use accepted evidence");
     expect(orchestration?.content).toContain("Final Memory is mandatory");
+    for (const label of Object.values(HERD_EVENT_LIFECYCLE_LABELS)) {
+      expect(orchestration?.content).toContain(label);
+    }
   });
 
   it("preloads the worker-context authority rule from the real leader-dispatch skill", async () => {

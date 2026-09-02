@@ -1,9 +1,15 @@
 import type { ChatMessage } from "../types.js";
+import {
+  HERD_EVENT_LIFECYCLE_LABELS,
+  HERD_EVENT_LIFECYCLE_ORDER,
+  type TakodeHerdEventLifecycle,
+} from "../../shared/herd-event-lifecycle.js";
 import { parseHerdEvents } from "./herd-event-parser.js";
 
 const ROUTINE_STRUCTURED_EVENT_TYPES = new Set(["turn_end", "worker_stream", "board_stalled"]);
 const ROUTINE_LEGACY_TEXT_EVENT_TYPES = new Set(["turn_end", "worker_stream"]);
 const DECISION_EVENT_TYPES = new Set(["permission_request", "notification_needs_input"]);
+const HERD_EVENT_LIFECYCLE_LABEL_SET = new Set<string>(Object.values(HERD_EVENT_LIFECYCLE_LABELS));
 
 function parseHeaderEventType(header: string): string | null {
   const parts = header.split("|").map((part) => part.trim());
@@ -35,6 +41,8 @@ function isRoutineEventKey(key: string): boolean {
     const provisional = parts[11] === "true";
     const userMessageCount = Number.parseInt(parts[21] ?? "", 10);
     const turnSource = parts[23] ?? "";
+    const awaitingDecision = parts[24] === "true";
+    const resumedAfterDecision = parts[25] === "true";
     return (
       !isError &&
       !interrupted &&
@@ -42,6 +50,8 @@ function isRoutineEventKey(key: string): boolean {
       !compacted &&
       !recoveryPending &&
       !provisional &&
+      !awaitingDecision &&
+      !resumedAfterDecision &&
       (!Number.isFinite(userMessageCount) || userMessageCount === 0) &&
       turnSource !== "user"
     );
@@ -98,21 +108,53 @@ export function isCompactableHerdEventMessage(message: ChatMessage): boolean {
 }
 
 export function makeWorkerEventActivityItems(messages: ChatMessage[]) {
-  return messages.flatMap((message) =>
-    Array.from({ length: Math.max(getHerdEventCount(message), 1) }, (_, index) => ({
-      id: `${message.id}:worker-event:${index}`,
-      name: "SendMessage",
-      kind: "worker_event" as const,
-      input: {},
-      messageId: message.id,
-    })),
-  );
+  return messages.flatMap((message) => {
+    const count = Math.max(getHerdEventCount(message), 1);
+    return Array.from({ length: count }, (_, index) => {
+      const lifecycle = message.takodeHerdEvents?.[index]?.lifecycle;
+      return {
+        id: `${message.id}:worker-event:${index}`,
+        name: "SendMessage",
+        kind: "worker_event" as const,
+        input: lifecycle?.length ? { herdEventLifecycle: lifecycle } : {},
+        messageId: message.id,
+      };
+    });
+  });
+}
+
+export function getHerdEventLifecycles(message: ChatMessage): TakodeHerdEventLifecycle[] {
+  return message.takodeHerdEvents?.flatMap((event) => event.lifecycle ?? []) ?? [];
+}
+
+export function summarizeWorkerEventActivity(count: number, lifecycles: readonly TakodeHerdEventLifecycle[]): string {
+  const lifecycleCounts = new Map<TakodeHerdEventLifecycle, number>();
+  for (const lifecycle of lifecycles) {
+    lifecycleCounts.set(lifecycle, (lifecycleCounts.get(lifecycle) ?? 0) + 1);
+  }
+  const lifecycleLabels = HERD_EVENT_LIFECYCLE_ORDER.flatMap((lifecycle) => {
+    const lifecycleCount = lifecycleCounts.get(lifecycle) ?? 0;
+    if (lifecycleCount === 0) return [];
+    const label = HERD_EVENT_LIFECYCLE_LABELS[lifecycle];
+    return [lifecycleCount === 1 ? label : `${lifecycleCount}× ${label}`];
+  });
+  if (lifecycleLabels.length === 0) return `${count} worker event${count === 1 ? "" : "s"}`;
+  const label = lifecycleLabels.join(", ");
+  return count === 1 ? label : `${count} worker events · includes ${label}`;
 }
 
 export function getHerdEventHeaderSummary(header: string): string {
   const parts = header.split("|").map((part) => part.trim());
   if (parts.length < 2) return header;
+  const lifecycleLabels = parts.slice(2).filter((part) => HERD_EVENT_LIFECYCLE_LABEL_SET.has(part));
+  if (lifecycleLabels.length > 0) return `${parts[0]} | ${parts[1]} | ${lifecycleLabels.join(" | ")}`;
   const status = parts[2] ?? "";
+  if (status.includes(HERD_EVENT_LIFECYCLE_LABELS.interrupted)) {
+    return `${parts[0]} | ${parts[1]} | ${HERD_EVENT_LIFECYCLE_LABELS.interrupted}`;
+  }
+  if (status.includes(HERD_EVENT_LIFECYCLE_LABELS.failed)) {
+    return `${parts[0]} | ${parts[1]} | ${HERD_EVENT_LIFECYCLE_LABELS.failed}`;
+  }
   const firstStatusCode = status.codePointAt(0);
   const statusToken =
     firstStatusCode === 10007 || status.startsWith("!") || status.toLowerCase().includes("interrupt")

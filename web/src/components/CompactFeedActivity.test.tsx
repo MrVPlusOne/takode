@@ -66,6 +66,58 @@ const WORKER_MESSAGES: ChatMessage[] = [
   },
 ];
 
+const LIFECYCLE_MESSAGES: ChatMessage[] = [
+  {
+    id: "worker-waiting",
+    role: "user",
+    content: "1 event from 1 session\n\n#2485 | turn_end | ✓ turn complete 12s | waiting for decision; Work preserved",
+    timestamp: 1_786_340_002_000,
+    takodeHerdEvents: [
+      {
+        event: "turn_end",
+        sessionId: "worker-2485",
+        sessionNum: 2485,
+        routine: false,
+        ts: 1_786_340_002_000,
+        lifecycle: ["waiting_for_decision"],
+      },
+    ],
+  },
+  {
+    id: "worker-resumed",
+    role: "user",
+    content: "1 event from 1 session\n\n#2485 | turn_end | ✓ turn complete 15s | same Work resumed after decision wait",
+    timestamp: 1_786_340_003_000,
+    takodeHerdEvents: [
+      {
+        event: "turn_end",
+        sessionId: "worker-2485",
+        sessionNum: 2485,
+        routine: false,
+        ts: 1_786_340_003_000,
+        lifecycle: ["resumed_after_decision"],
+      },
+    ],
+  },
+  {
+    id: "worker-compacted",
+    role: "user",
+    content:
+      "1 event from 1 session\n\n#2485 | turn_end | ✓ turn complete 30s | context compacted; same Work continued",
+    timestamp: 1_786_340_004_000,
+    takodeHerdEvents: [
+      {
+        event: "turn_end",
+        sessionId: "worker-2485",
+        sessionNum: 2485,
+        routine: false,
+        ts: 1_786_340_004_000,
+        lifecycle: ["context_continued"],
+      },
+    ],
+  },
+];
+
 beforeEach(() => {
   useStore.getState().reset();
 });
@@ -75,6 +127,28 @@ afterEach(() => {
 });
 
 describe("CompactFeedActivity", () => {
+  it("keeps lifecycle categories visible while preserving the compact worker-event group", () => {
+    render(
+      <CompactFeedActivity
+        segments={[{ kind: "worker_event", messages: LIFECYCLE_MESSAGES }]}
+        sessionId="compact-feed-session"
+        isCodexSession={false}
+        activeCodexTerminalIds={new Set()}
+        onOpenCodexTerminal={() => {}}
+      />,
+    );
+
+    const summary = screen.getByText(
+      "3 worker events · includes waiting for decision; Work preserved, same Work resumed after decision wait, context compacted; same Work continued",
+    );
+    expect(summary).toBeTruthy();
+    expect(summary.className).toContain("whitespace-normal");
+    expect(screen.queryByText(/#2485/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Show 3 activity items/ }));
+    expect(screen.getAllByText(/#2485/)).toHaveLength(3);
+  });
+
   it("keeps producer-shaped worker-event counts beside a large tool-call fallback", () => {
     // q-1799 worker events remain a distinct category while long tool summaries collapse to a count.
     render(

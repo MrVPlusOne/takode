@@ -19,4 +19,25 @@ describe("TurnActivitySummary root-only tool scope", () => {
     expect(screen.getByRole("button")).toHaveAccessibleName(/1 message·3 tools/i);
     expect(screen.getByRole("button")).not.toHaveAccessibleName(/nested Codex subagent activity/i);
   });
+
+  it("keeps uncommon herd lifecycle meaning in collapsed activity summaries", () => {
+    render(
+      <CollapsedActivityBar
+        stats={{
+          messageCount: 0,
+          toolCount: 0,
+          subagentCount: 0,
+          herdEventCount: 2,
+          herdEventLifecycle: ["context_continued", "interrupted"],
+        }}
+        durationMs={null}
+        leaderMode
+        onClick={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("button")).toHaveAccessibleName(
+      "Leader activity·2 worker events · includes Work interrupted, context compacted; same Work continued",
+    );
+  });
 });

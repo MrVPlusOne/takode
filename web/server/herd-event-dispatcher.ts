@@ -29,6 +29,8 @@ import type {
   BrowserIncomingMessage,
   TakodeHerdBatchSnapshot,
 } from "./session-types.js";
+import { HERD_EVENT_LIFECYCLE_LABELS } from "../shared/herd-event-lifecycle.js";
+import { getHerdEventLifecycle } from "./herd-event-browser-metadata.js";
 import { formatActivitySummaryDetailed } from "./herd-activity-formatter.js";
 import {
   inferRouteFromHistoryEntryContent,
@@ -1365,16 +1367,25 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
       const tools = formatToolCounts(evt.data.tools);
       const resultPreview =
         typeof evt.data.resultPreview === "string" ? ` | "${truncate(evt.data.resultPreview, 60)}"` : "";
-      const compacted = evt.data.compacted ? " (compacted)" : "";
+      const lifecycleLabels = [
+        ...(evt.data.awaiting_decision ? [HERD_EVENT_LIFECYCLE_LABELS.waiting_for_decision] : []),
+        ...(evt.data.resumed_after_decision ? [HERD_EVENT_LIFECYCLE_LABELS.resumed_after_decision] : []),
+        ...(evt.data.compacted && !evt.data.interrupted && !evt.data.is_error
+          ? [HERD_EVENT_LIFECYCLE_LABELS.context_continued]
+          : []),
+      ];
+      const lifecycle = lifecycleLabels.map((lifecycleLabel) => ` | ${lifecycleLabel}`).join("");
       // Annotate user-initiated turns so the leader knows this wasn't its work
       const userInitiated = evt.data.turn_source === "user" ? " (user-initiated)" : "";
       const interruptSource = evt.data.interrupt_source ?? null;
       const recoveryPending = evt.data.recovery_pending ? "; recovery pending" : "";
       const success = evt.data.interrupted
-        ? `interrupted${interruptSource || recoveryPending ? ` (by ${interruptSource ?? "unknown"}${recoveryPending})` : ""}`
+        ? `${HERD_EVENT_LIFECYCLE_LABELS.interrupted}${
+            interruptSource || recoveryPending ? ` (by ${interruptSource ?? "unknown"}${recoveryPending})` : ""
+          }`
         : evt.data.is_error
-          ? "✗"
-          : "✓";
+          ? `✗ ${HERD_EVENT_LIFECYCLE_LABELS.failed}`
+          : "✓ turn complete";
       // Message ID range for quick peek navigation
       const range = evt.data.msgRange;
       const rangeStr = range ? ` | [${range.from}]-[${range.to}]` : "";
@@ -1387,7 +1398,7 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
       const questIdStr = !qc && evt.data.questId ? ` | ${evt.data.questId}` : "";
       const phaseNoteStr = formatPhaseNoteSummary(evt.data.phaseNote, qc?.questId ?? evt.data.questId);
 
-      const statusLine = `${label} | turn_end | ${success} ${duration}${compacted}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${questIdStr}${phaseNoteStr}${resultPreview}${ageSuffix}`;
+      const statusLine = `${label} | turn_end | ${success} ${duration}${lifecycle}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${questIdStr}${phaseNoteStr}${resultPreview}${ageSuffix}`;
 
       // Auto-inject peek-style activity summary between events
       const activity = buildActivityForEvent(evt, options);
@@ -1431,7 +1442,7 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
       const userInitiated = evt.data.turn_source === "user" ? " (user-initiated)" : "";
       // Include message index so the leader can run `takode read <session> <msg_index>`
       const msgRef = typeof evt.data.msg_index === "number" ? ` | msg [${evt.data.msg_index}]` : "";
-      const header = `${label} | permission_request${userInitiated} | ${tool}${summary}${msgRef}${ageSuffix}`;
+      const header = `${label} | permission_request${userInitiated} | ${HERD_EVENT_LIFECYCLE_LABELS.waiting_for_decision} | ${tool}${summary}${msgRef}${ageSuffix}`;
       const answerTarget =
         typeof evt.data.msg_index === "number"
           ? ` --message ${evt.data.msg_index}`
@@ -1478,13 +1489,19 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
           : "";
       return `${label} | herd_reassigned | ${evt.data.fromLeaderLabel} -> ${evt.data.toLeaderLabel}${reviewerSuffix}${ageSuffix}`;
     }
+    case "permission_resolved": {
+      return `${label} | permission_resolved | ${HERD_EVENT_LIFECYCLE_LABELS.decision_resolved} | ${evt.data.outcome} ${evt.data.tool_name}${ageSuffix}`;
+    }
     case "session_error": {
       const error = typeof evt.data.error === "string" ? truncate(evt.data.error, 80) : "unknown error";
-      return `${label} | session_error | ${error}${ageSuffix}`;
+      return `${label} | session_error | ${HERD_EVENT_LIFECYCLE_LABELS.failed} | ${error}${ageSuffix}`;
     }
     case "session_disconnected": {
       const reason = evt.data.reason;
-      return `${label} | session_disconnected | ${reason}${ageSuffix}`;
+      const lifecycle = evt.data.wasGenerating
+        ? HERD_EVENT_LIFECYCLE_LABELS.interrupted
+        : HERD_EVENT_LIFECYCLE_LABELS.idle_disconnected;
+      return `${label} | session_disconnected | ${lifecycle} | ${reason}${ageSuffix}`;
     }
     case "session_archived": {
       const userInitiated = evt.data.archive_source === "user" ? " (user-initiated)" : "";
@@ -1515,7 +1532,7 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
     case "notification_needs_input": {
       const summary = typeof evt.data.summary === "string" ? ` | "${truncate(evt.data.summary, 80)}"` : "";
       const msgRef = typeof evt.data.msg_index === "number" ? ` | msg [${evt.data.msg_index}]` : "";
-      const header = `${label} | notification_needs_input${summary}${msgRef}${ageSuffix}`;
+      const header = `${label} | notification_needs_input | ${HERD_EVENT_LIFECYCLE_LABELS.waiting_for_decision}${summary}${msgRef}${ageSuffix}`;
       if (typeof evt.sessionNum !== "number") return header;
       const answerTarget =
         typeof evt.data.msg_index === "number"
@@ -1668,7 +1685,7 @@ function getStableHerdEventKey(event: TakodeEvent): string | null {
   if (event.event === "turn_end") {
     const range = event.data.msgRange;
     if (!range) return null;
-    return [
+    const keyParts: unknown[] = [
       "turn_end",
       event.sessionId,
       event.data.reason,
@@ -1693,9 +1710,11 @@ function getStableHerdEventKey(event: TakodeEvent): string | null {
       event.data.userMsgs?.count,
       stableNumberListPart(event.data.userMsgs?.ids),
       event.data.turn_source,
-    ]
-      .map(stableKeyPart)
-      .join("|");
+    ];
+    if (event.data.awaiting_decision || event.data.resumed_after_decision) {
+      keyParts.push(event.data.awaiting_decision, event.data.resumed_after_decision);
+    }
+    return keyParts.map(stableKeyPart).join("|");
   }
   if (event.event === "worker_stream") {
     const range = event.data.msgRange;
@@ -1837,7 +1856,8 @@ function stableKeyPart(value: unknown): string {
 function snapshotHerdBatch(events: TakodeEvent[], renderedLines: string[]): TakodeHerdBatchSnapshot | undefined {
   const eventKeys = events.map((event) => getStableHerdEventKey(event) ?? "");
   const hasBoardStalledEvent = events.some((event) => event.event === "board_stalled");
-  if (!hasBoardStalledEvent && !eventKeys.some(Boolean)) return undefined;
+  const hasLifecycleMetadata = events.some((event) => getHerdEventLifecycle(event).length > 0);
+  if (!hasBoardStalledEvent && !hasLifecycleMetadata && !eventKeys.some(Boolean)) return undefined;
   return { events, renderedLines, ...(eventKeys.some(Boolean) ? { eventKeys } : {}) };
 }
 

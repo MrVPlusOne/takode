@@ -269,6 +269,36 @@ describe("HerdEventMessage", () => {
     expect(chip.closest("div")!.querySelector("pre")).toBeNull();
   });
 
+  it("keeps uncommon lifecycle text in the collapsed chip while hiding routine detail", () => {
+    const msg = makeMessage({
+      role: "user",
+      content:
+        "1 event from 1 session\n\n#8 | turn_end | ✓ turn complete 30.0s | context compacted; same Work continued | tools: 4",
+      agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+    });
+    render(<HerdEventMessage message={msg} showTimestamp={false} />);
+
+    expect(screen.getByText(/context compacted; same Work continued/)).toBeTruthy();
+    expect(screen.queryByText(/30\.0s/)).toBeNull();
+    expect(screen.queryByText(/tools: 4/)).toBeNull();
+
+    fireEvent.click(screen.getByText(/context compacted; same Work continued/));
+    expect(screen.getByText(/30\.0s/)).toBeTruthy();
+    expect(screen.getByText(/tools: 4/)).toBeTruthy();
+  });
+
+  it("keeps real interruption text in the collapsed chip", () => {
+    const msg = makeMessage({
+      role: "user",
+      content: "1 event from 1 session\n\n#8 | turn_end | Work interrupted (by system; recovery pending) 5.0s",
+      agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+    });
+    render(<HerdEventMessage message={msg} showTimestamp={false} />);
+
+    expect(screen.getByText(/Work interrupted/)).toBeTruthy();
+    expect(screen.queryByText(/5\.0s/)).toBeNull();
+  });
+
   it("renders work-board dispatchable event headers as chips", () => {
     const msg = makeMessage({
       role: "user",

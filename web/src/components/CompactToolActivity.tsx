@@ -3,6 +3,8 @@ import { useStore } from "../store.js";
 import { parseFileReadCommand } from "../utils/terminal-command-preview.js";
 import { isPureTakodeSendCommand } from "../utils/takode-send-command.js";
 import { getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
+import { summarizeWorkerEventActivity } from "../utils/herd-event-classification.js";
+import type { TakodeHerdEventLifecycle } from "../../shared/herd-event-lifecycle.js";
 
 export interface CompactToolActivityItem {
   id: string;
@@ -95,7 +97,15 @@ function conciseValue(value: unknown): string | null {
 function describeCategory(category: ActivityCategory): string {
   const count = category.items.length;
   const first = category.items[0];
-  if (category.key === "worker-event") return `${count} worker event${count === 1 ? "" : "s"}`;
+  if (category.key === "worker-event") {
+    const lifecycles = category.items.flatMap((item) => {
+      const value = item.input.herdEventLifecycle;
+      return Array.isArray(value)
+        ? value.filter((entry): entry is TakodeHerdEventLifecycle => typeof entry === "string")
+        : [];
+    });
+    return summarizeWorkerEventActivity(count, lifecycles);
+  }
   if (category.key === "worker-send") return count === 1 ? "Sent a message" : `Sent ${count} messages`;
   if (category.key === "read") return count === 1 ? "Read file" : "Read files";
   if (category.key === "command") return count === 1 ? "Ran command" : `Ran ${count} commands`;
@@ -178,6 +188,9 @@ export function CompactToolActivity({
   const expandTargetId = useStore((state) => (sessionId ? state.expandAllInTurn.get(sessionId) : undefined));
   const uniqueItems = useMemo(() => uniqueActivityItems(items), [items]);
   const summary = useMemo(() => summarizeToolActivity(uniqueItems), [uniqueItems]);
+  const hasLifecycleSummary = uniqueItems.some(
+    (item) => item.kind === "worker_event" && Array.isArray(item.input.herdEventLifecycle),
+  );
   const iconType = getToolIcon(items[0]?.name ?? "");
   const itemCount = uniqueItems.length;
   const itemKindLabel = uniqueItems.some((item) => item.kind === "worker_event")
@@ -210,7 +223,7 @@ export function CompactToolActivity({
         <span className="opacity-65">
           <ToolIcon type={iconType} />
         </span>
-        <span className="truncate">{summary}</span>
+        <span className={hasLifecycleSummary ? "min-w-0 whitespace-normal break-words" : "truncate"}>{summary}</span>
       </button>
       {open && <div className="mt-1.5 space-y-2 border-l border-cc-border/70 pl-3">{children}</div>}
     </div>

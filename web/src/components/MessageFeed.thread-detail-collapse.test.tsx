@@ -283,6 +283,10 @@ function makeHerdEvent(
   content: string,
   eventKey: string | null,
   threadRef: { threadKey: string; questId: string; source: "explicit" },
+  options: {
+    eventType?: NonNullable<ChatMessage["takodeHerdEvents"]>[number]["event"];
+    lifecycle?: NonNullable<ChatMessage["takodeHerdEvents"]>[number]["lifecycle"];
+  } = {},
 ): ChatMessage {
   return makeMessage({
     id,
@@ -290,6 +294,20 @@ function makeHerdEvent(
     content,
     agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
     ...(eventKey ? { takodeHerdEventKeys: [eventKey] } : {}),
+    ...(options.eventType
+      ? {
+          takodeHerdEvents: [
+            {
+              event: options.eventType,
+              sessionId: "worker-2455",
+              sessionNum: 2455,
+              ts: Date.now(),
+              routine: false,
+              ...(options.lifecycle?.length ? { lifecycle: options.lifecycle } : {}),
+            },
+          ],
+        }
+      : {}),
     metadata: { threadRefs: [threadRef] },
   });
 }
@@ -731,21 +749,24 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
       }),
       makeHerdEvent(
         "herd-interrupted-1",
-        "1 event from 1 session\n\n#2455 | turn_end | interrupted",
+        "1 event from 1 session\n\n#2455 | turn_end | Work interrupted",
         turnEndEventKey({ interrupted: true }),
         threadRef,
+        { eventType: "turn_end", lifecycle: ["interrupted"] },
       ),
       makeHerdEvent(
         "herd-interrupted-2",
-        "1 event from 1 session\n\n#2463 | turn_end | interrupted",
+        "1 event from 1 session\n\n#2463 | turn_end | Work interrupted",
         turnEndEventKey({ interrupted: true }),
         threadRef,
+        { eventType: "turn_end", lifecycle: ["interrupted"] },
       ),
       makeHerdEvent(
         "herd-interrupted-3",
-        "1 event from 1 session\n\n#2455 | turn_end | interrupted",
+        "1 event from 1 session\n\n#2455 | turn_end | Work interrupted",
         turnEndEventKey({ interrupted: true }),
         threadRef,
+        { eventType: "turn_end", lifecycle: ["interrupted"] },
       ),
       makeMessage({
         id: transition.id,
@@ -761,9 +782,10 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
       }),
       makeHerdEvent(
         "herd-session-error",
-        "1 event from 1 session\n\n#2455 | session_error | provider authentication failed",
+        "1 event from 1 session\n\n#2455 | session_error | Work failed | provider authentication failed",
         null,
         threadRef,
+        { eventType: "session_error", lifecycle: ["failed"] },
       ),
       makeHerdEvent(
         "herd-board-dispatchable",
@@ -785,8 +807,8 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.getByText("Alignment approved; authorizing focused Work.")).toBeTruthy();
     expect(screen.getByText("The worker resumed after recovery and is finishing closure.")).toBeTruthy();
     expect(screen.getByText("The screenshot-shaped regression is fixed.")).toBeTruthy();
-    expect(screen.getByText("3 worker events")).toBeTruthy();
-    expect(screen.getByText("2 worker events")).toBeTruthy();
+    expect(screen.getByText("3 worker events · includes 3× Work interrupted")).toBeTruthy();
+    expect(screen.getByText("2 worker events · includes Work failed")).toBeTruthy();
     expect(screen.queryByText("#2455")).toBeNull();
     expect(screen.queryByText("turn_end")).toBeNull();
     expect(screen.queryByText("session_error")).toBeNull();

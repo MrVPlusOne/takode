@@ -20,6 +20,7 @@ import {
   type StuckWatchdogDeps,
 } from "./generation-lifecycle.js";
 import { deriveActiveTurnRoute } from "./browser-transport-controller.js";
+import type { SessionNotification } from "../session-types.js";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -456,6 +457,393 @@ describe("setGenerating(false) — queued turn handling", () => {
         questId: "q-1717",
       }),
     );
+  });
+
+  it("labels a same-route decision pause and only the first later leader response turn as resumed", () => {
+    const route = { threadKey: "q-2011", questId: "q-2011" };
+    const notification: SessionNotification = {
+      id: "n-1",
+      category: "needs-input",
+      timestamp: 1_200,
+      messageId: "assistant-anchor",
+      threadKey: "q-2011",
+      questId: "q-2011",
+      done: true,
+    };
+    const waitingSession = makeSession({
+      isGenerating: true,
+      generationStartedAt: 1_000,
+      activeTurnRoute: route,
+      notifications: [notification],
+      messageHistory: [{ type: "assistant", timestamp: 1_100, message: { id: "assistant-anchor" } }],
+    });
+    const waitingDeps = makeDeps();
+    waitingDeps.sessions.set(waitingSession.id, waitingSession);
+
+    setGenerating(waitingDeps, waitingSession, false, "result");
+
+    expect(waitingDeps.emitTakodeEvent).toHaveBeenLastCalledWith(
+      waitingSession.id,
+      "turn_end",
+      expect.objectContaining({ awaiting_decision: true, threadKey: "q-2011", questId: "q-2011" }),
+    );
+    expect(vi.mocked(waitingDeps.emitTakodeEvent).mock.calls.at(-1)?.[2]).not.toHaveProperty("resumed_after_decision");
+    expect(notification.herdDecisionWaitReportedAt).toEqual(expect.any(Number));
+
+    const resumedSession = makeSession({
+      isGenerating: true,
+      generationStartedAt: 2_000,
+      activeTurnRoute: route,
+      notifications: [notification],
+      userMessageIdsThisTurn: [1],
+      messageHistory: [
+        { type: "assistant", timestamp: 1_100, message: { id: "assistant-anchor" } },
+        {
+          type: "user_message",
+          timestamp: 2_100,
+          content: "yes",
+          agentSource: { sessionId: "leader-session", sessionLabel: "#2220" },
+          threadKey: "q-2011",
+          questId: "q-2011",
+        },
+      ],
+    });
+    const resumedDeps = makeDeps();
+    resumedDeps.sessions.set(resumedSession.id, resumedSession);
+
+    setGenerating(resumedDeps, resumedSession, false, "result");
+
+    expect(resumedDeps.emitTakodeEvent).toHaveBeenLastCalledWith(
+      resumedSession.id,
+      "turn_end",
+      expect.objectContaining({ resumed_after_decision: true, threadKey: "q-2011", questId: "q-2011" }),
+    );
+    expect(vi.mocked(resumedDeps.emitTakodeEvent).mock.calls.at(-1)?.[2]).not.toHaveProperty("awaiting_decision");
+    expect(notification.herdDecisionResumeReportedAt).toEqual(expect.any(Number));
+
+    const laterSession = makeSession({
+      isGenerating: true,
+      generationStartedAt: 3_000,
+      activeTurnRoute: route,
+      notifications: [notification],
+      userMessageIdsThisTurn: [2],
+      messageHistory: [
+        resumedSession.messageHistory[0],
+        resumedSession.messageHistory[1],
+        {
+          type: "user_message",
+          timestamp: 3_100,
+          content: "continue",
+          agentSource: { sessionId: "leader-session", sessionLabel: "#2220" },
+          threadKey: "q-2011",
+          questId: "q-2011",
+        },
+      ],
+    });
+    const laterDeps = makeDeps();
+    laterDeps.sessions.set(laterSession.id, laterSession);
+
+    setGenerating(laterDeps, laterSession, false, "result");
+
+    expect(vi.mocked(laterDeps.emitTakodeEvent).mock.calls.at(-1)?.[2]).not.toHaveProperty("resumed_after_decision");
+  });
+
+  it("marks only the exact notification resumed when a route has multiple decision waits", () => {
+    const route = { threadKey: "q-2011", questId: "q-2011" };
+    const first: SessionNotification = {
+      id: "n-1",
+      category: "needs-input",
+      timestamp: 1_200,
+      messageId: "assistant-1",
+      threadKey: "q-2011",
+      questId: "q-2011",
+      done: true,
+      herdDecisionWaitReportedAt: 1_500,
+    };
+    const second: SessionNotification = {
+      id: "n-2",
+      category: "needs-input",
+      timestamp: 1_300,
+      messageId: "assistant-2",
+      threadKey: "q-2011",
+      questId: "q-2011",
+      done: false,
+      herdDecisionWaitReportedAt: 1_600,
+    };
+    const session = makeSession({
+      isGenerating: true,
+      generationStartedAt: 2_000,
+      activeTurnRoute: route,
+      notifications: [first, second],
+      userMessageIdsThisTurn: [2],
+      messageHistory: [
+        { type: "assistant", timestamp: 1_100, message: { id: "assistant-1" } },
+        { type: "assistant", timestamp: 1_200, message: { id: "assistant-2" } },
+        {
+          type: "user_message",
+          timestamp: 2_100,
+          content: "yes to the first question",
+          replyContext: { notificationId: "n-1" },
+          agentSource: { sessionId: "leader-session" },
+          threadKey: "q-2011",
+          questId: "q-2011",
+        },
+      ],
+    });
+    const deps = makeDeps();
+    deps.sessions.set(session.id, session);
+
+    setGenerating(deps, session, false, "result");
+
+    expect(vi.mocked(deps.emitTakodeEvent).mock.calls.at(-1)?.[2]).toEqual(
+      expect.objectContaining({ resumed_after_decision: true }),
+    );
+    expect(first.herdDecisionResumeReportedAt).toEqual(expect.any(Number));
+    expect(second.herdDecisionResumeReportedAt).toBeUndefined();
+  });
+
+  it("does not infer which decision resumed from an ambiguous plain same-route continuation", () => {
+    const route = { threadKey: "q-2011", questId: "q-2011" };
+    const notifications: SessionNotification[] = [
+      {
+        id: "n-1",
+        category: "needs-input",
+        timestamp: 1_200,
+        messageId: "assistant-1",
+        threadKey: "q-2011",
+        questId: "q-2011",
+        done: true,
+        herdDecisionWaitReportedAt: 1_500,
+      },
+      {
+        id: "n-2",
+        category: "needs-input",
+        timestamp: 1_300,
+        messageId: "assistant-2",
+        threadKey: "q-2011",
+        questId: "q-2011",
+        done: true,
+        herdDecisionWaitReportedAt: 1_600,
+      },
+    ];
+    const session = makeSession({
+      isGenerating: true,
+      generationStartedAt: 2_000,
+      activeTurnRoute: route,
+      notifications,
+      userMessageIdsThisTurn: [2],
+      messageHistory: [
+        { type: "assistant", timestamp: 1_100, message: { id: "assistant-1" } },
+        { type: "assistant", timestamp: 1_200, message: { id: "assistant-2" } },
+        {
+          type: "user_message",
+          timestamp: 2_100,
+          content: "continue",
+          agentSource: { sessionId: "leader-session" },
+          threadKey: "q-2011",
+          questId: "q-2011",
+        },
+      ],
+    });
+    const deps = makeDeps();
+    deps.sessions.set(session.id, session);
+
+    setGenerating(deps, session, false, "result");
+
+    expect(vi.mocked(deps.emitTakodeEvent).mock.calls.at(-1)?.[2]).not.toHaveProperty("resumed_after_decision");
+    expect(notifications.every((notification) => notification.herdDecisionResumeReportedAt === undefined)).toBe(true);
+  });
+
+  it("does not label a turn waiting when its same-route response is already queued", () => {
+    const route = { threadKey: "q-2011", questId: "q-2011" };
+    const session = makeSession({
+      isGenerating: true,
+      generationStartedAt: 1_000,
+      activeTurnRoute: route,
+      notifications: [
+        {
+          id: "n-1",
+          category: "needs-input",
+          timestamp: 1_200,
+          messageId: "assistant-anchor",
+          threadKey: "q-2011",
+          questId: "q-2011",
+        },
+      ],
+      queuedTurnStarts: 1,
+      queuedTurnReasons: ["user_message"],
+      queuedTurnUserMessageIds: [[1]],
+      queuedTurnInterruptSources: ["leader"],
+      queuedTurnActiveRoutes: [route],
+      messageHistory: [
+        { type: "assistant", timestamp: 1_100, message: { id: "assistant-anchor" } },
+        {
+          type: "user_message",
+          timestamp: 1_300,
+          content: "yes",
+          replyContext: { notificationId: "n-1" },
+          agentSource: { sessionId: "leader-session" },
+          threadKey: "q-2011",
+          questId: "q-2011",
+        },
+      ],
+    });
+    const deps = makeDeps();
+    deps.sessions.set(session.id, session);
+
+    setGenerating(deps, session, false, "result");
+
+    expect(vi.mocked(deps.emitTakodeEvent).mock.calls.at(-1)?.[2]).not.toHaveProperty("awaiting_decision");
+  });
+
+  it("keeps an unanswered sibling waiting when one exact decision response is queued", () => {
+    const route = { threadKey: "q-2011", questId: "q-2011" };
+    const first: SessionNotification = {
+      id: "n-1",
+      category: "needs-input",
+      timestamp: 1_200,
+      messageId: "assistant-1",
+      threadKey: "q-2011",
+      questId: "q-2011",
+      done: true,
+    };
+    const second: SessionNotification = {
+      id: "n-2",
+      category: "needs-input",
+      timestamp: 1_300,
+      messageId: "assistant-2",
+      threadKey: "q-2011",
+      questId: "q-2011",
+      done: false,
+    };
+    const session = makeSession({
+      isGenerating: true,
+      generationStartedAt: 1_000,
+      activeTurnRoute: route,
+      notifications: [first, second],
+      queuedTurnStarts: 1,
+      queuedTurnReasons: ["user_message"],
+      queuedTurnUserMessageIds: [[2]],
+      queuedTurnInterruptSources: ["leader"],
+      queuedTurnActiveRoutes: [route],
+      messageHistory: [
+        { type: "assistant", timestamp: 1_100, message: { id: "assistant-1" } },
+        { type: "assistant", timestamp: 1_200, message: { id: "assistant-2" } },
+        {
+          type: "user_message",
+          timestamp: 1_400,
+          content: "yes to the first question",
+          replyContext: { notificationId: "n-1" },
+          agentSource: { sessionId: "leader-session" },
+          threadKey: "q-2011",
+          questId: "q-2011",
+        },
+      ],
+    });
+    const deps = makeDeps();
+    deps.sessions.set(session.id, session);
+
+    setGenerating(deps, session, false, "result");
+
+    const turnEnd = vi.mocked(deps.emitTakodeEvent).mock.calls.findLast((call) => call[1] === "turn_end")?.[2];
+    expect(turnEnd).toEqual(expect.objectContaining({ awaiting_decision: true }));
+    expect(first.herdDecisionWaitReportedAt).toBeUndefined();
+    expect(second.herdDecisionWaitReportedAt).toEqual(expect.any(Number));
+  });
+
+  it("keeps multiple current waits visible when a plain queued continuation is ambiguous", () => {
+    const route = { threadKey: "q-2011", questId: "q-2011" };
+    const notifications: SessionNotification[] = [
+      {
+        id: "n-1",
+        category: "needs-input",
+        timestamp: 1_200,
+        messageId: "assistant-1",
+        threadKey: "q-2011",
+        questId: "q-2011",
+        done: true,
+      },
+      {
+        id: "n-2",
+        category: "needs-input",
+        timestamp: 1_300,
+        messageId: "assistant-2",
+        threadKey: "q-2011",
+        questId: "q-2011",
+        done: true,
+      },
+    ];
+    const session = makeSession({
+      isGenerating: true,
+      generationStartedAt: 1_000,
+      activeTurnRoute: route,
+      notifications,
+      queuedTurnStarts: 1,
+      queuedTurnReasons: ["user_message"],
+      queuedTurnUserMessageIds: [[2]],
+      queuedTurnInterruptSources: ["leader"],
+      queuedTurnActiveRoutes: [route],
+      messageHistory: [
+        { type: "assistant", timestamp: 1_100, message: { id: "assistant-1" } },
+        { type: "assistant", timestamp: 1_200, message: { id: "assistant-2" } },
+        {
+          type: "user_message",
+          timestamp: 1_400,
+          content: "continue",
+          agentSource: { sessionId: "leader-session" },
+          threadKey: "q-2011",
+          questId: "q-2011",
+        },
+      ],
+    });
+    const deps = makeDeps();
+    deps.sessions.set(session.id, session);
+
+    setGenerating(deps, session, false, "result");
+
+    const turnEnd = vi.mocked(deps.emitTakodeEvent).mock.calls.findLast((call) => call[1] === "turn_end")?.[2];
+    expect(turnEnd).toEqual(expect.objectContaining({ awaiting_decision: true }));
+    expect(notifications.every((notification) => typeof notification.herdDecisionWaitReportedAt === "number")).toBe(
+      true,
+    );
+  });
+
+  it("does not label automatic turns as decision resumptions", () => {
+    const notification = {
+      id: "n-1",
+      category: "needs-input",
+      timestamp: 1_200,
+      messageId: "assistant-anchor",
+      threadKey: "q-2011",
+      questId: "q-2011",
+      herdDecisionWaitReportedAt: 1_500,
+    };
+    const session = makeSession({
+      isGenerating: true,
+      generationStartedAt: 2_000,
+      activeTurnRoute: { threadKey: "q-2011", questId: "q-2011" },
+      notifications: [notification],
+      userMessageIdsThisTurn: [1],
+      messageHistory: [
+        { type: "assistant", timestamp: 1_100, message: { id: "assistant-anchor" } },
+        {
+          type: "user_message",
+          timestamp: 2_100,
+          content: "timer tick",
+          agentSource: { sessionId: "timer:resume-check" },
+          threadKey: "q-2011",
+          questId: "q-2011",
+        },
+      ],
+    });
+    const deps = makeDeps();
+    deps.sessions.set(session.id, session);
+
+    setGenerating(deps, session, false, "result");
+
+    const data = vi.mocked(deps.emitTakodeEvent).mock.calls.at(-1)?.[2];
+    expect(data).not.toHaveProperty("awaiting_decision");
+    expect(data).not.toHaveProperty("resumed_after_decision");
   });
 
   it("preserves explicit leader interrupt source when later system cleanup ends the turn", () => {

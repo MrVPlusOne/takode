@@ -409,6 +409,8 @@ function makeHerdEvent(
     eventKey?: string;
     eventType?: string;
     sessionNum?: number;
+    lifecycle?: NonNullable<ChatMessage["takodeHerdEvents"]>[number]["lifecycle"];
+    routine?: boolean;
     metadata?: ChatMessage["metadata"];
   } = {},
 ): ChatMessage {
@@ -428,9 +430,11 @@ function makeHerdEvent(
               sessionNum: options.sessionNum ?? 2444,
               ts: Date.now(),
               routine:
-                options.eventType === "turn_end" ||
-                options.eventType === "worker_stream" ||
-                options.eventType === "board_stalled",
+                options.routine ??
+                (options.eventType === "turn_end" ||
+                  options.eventType === "worker_stream" ||
+                  options.eventType === "board_stalled"),
+              ...(options.lifecycle?.length ? { lifecycle: options.lifecycle } : {}),
             },
           ],
         }
@@ -897,19 +901,32 @@ describe("MessageFeed - message rendering", () => {
       makeHerdEvent("routine-herd", "1 event from 1 session\n\n#2444 | turn_end | ok 31.3s", {
         eventKey: turnEndEventKey(),
       }),
-      makeHerdEvent("interrupted-herd", "1 event from 1 session\n\n#2444 | turn_end | interrupted | recovery pending", {
-        eventKey: turnEndEventKey({ interrupted: true }),
-      }),
-      makeHerdEvent("permission-herd", "1 event from 1 session\n\n#2444 | permission_request | Bash needs approval", {
-        eventType: "permission_request",
-      }),
+      makeHerdEvent(
+        "interrupted-herd",
+        "1 event from 1 session\n\n#2444 | turn_end | Work interrupted | recovery pending",
+        {
+          eventKey: turnEndEventKey({ interrupted: true }),
+          eventType: "turn_end",
+          lifecycle: ["interrupted"],
+          routine: false,
+        },
+      ),
+      makeHerdEvent(
+        "permission-herd",
+        "1 event from 1 session\n\n#2444 | permission_request | waiting for decision; Work preserved | Bash needs approval",
+        {
+          eventType: "permission_request",
+          lifecycle: ["waiting_for_decision"],
+          routine: false,
+        },
+      ),
     ]);
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("2 worker events")).toBeTruthy();
-    expect(screen.queryByText(/interrupted/)).toBeNull();
+    expect(screen.getByText("2 worker events · includes Work interrupted")).toBeTruthy();
     expect(screen.getByText(/permission_request/)).toBeTruthy();
+    expect(screen.getAllByText(/waiting for decision; Work preserved/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
   });
 

@@ -455,6 +455,10 @@ describe("Playground", () => {
     expect(realChat.getByRole("region", { name: "Automatic input recovery summary" })).toBeTruthy();
     expect(realChat.getByText("Herd Events · turn_end")).toBeTruthy();
     expect(realChat.getByText("Herd Events · board_stalled")).toBeTruthy();
+    expect(screen.getByText(/waiting for decision; Work preserved/)).toBeTruthy();
+    expect(screen.getByText(/same Work resumed after decision wait/)).toBeTruthy();
+    expect(screen.getByText(/context compacted; same Work continued/)).toBeTruthy();
+    expect(screen.getByText(/Work interrupted/)).toBeTruthy();
   });
 
   it("documents every exact-owner Codex interrupted-turn recovery state", () => {

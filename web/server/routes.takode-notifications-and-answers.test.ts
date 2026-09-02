@@ -1704,7 +1704,16 @@ describe("Takode server-authoritative auth", () => {
       },
       undefined,
       { threadKey: "main" },
-      { bypassPause: true, autoPauseSourceKind: "manual" },
+      {
+        deliveryContent: "[reply] Need decision on rollout\n\nUse the staged rollout.",
+        replyContext: {
+          messageId: "asst-1",
+          notificationId: "n-1",
+          previewText: "Need decision on rollout",
+        },
+        bypassPause: true,
+        autoPauseSourceKind: "manual",
+      },
     );
     expect(bridge.getSession("worker-1")?.notifications[0]?.done).toBe(true);
   });

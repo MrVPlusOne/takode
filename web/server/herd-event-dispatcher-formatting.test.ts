@@ -227,6 +227,7 @@ describe("formatHerdEventBatch", () => {
     ];
     const result = formatHerdEventBatch(events);
     expect(result).toContain("notification_needs_input");
+    expect(result).toContain("waiting for decision; Work preserved");
     expect(result).toContain("msg [18]");
     expect(result).toContain("Suggestions: ship, hold");
     expect(result).toContain("Answer: takode answer 5 --message 18 <response>");
@@ -241,8 +242,17 @@ describe("formatHerdEventBatch", () => {
       }),
     ];
     const result = formatHerdEventBatch(events);
-    expect(result).toContain("permission_request |");
+    expect(result).toContain("permission_request | waiting for decision; Work preserved |");
     expect(result).not.toContain("(user-initiated)");
+  });
+
+  it("labels permission resolution as unblocked without claiming the next turn already resumed", () => {
+    const result = formatHerdEventBatch([
+      makeEvent({ event: "permission_resolved", data: { tool_name: "Bash", outcome: "approved" } }),
+    ]);
+
+    expect(result).toContain("permission_resolved | decision resolved; wait ended | approved Bash");
+    expect(result).not.toContain("same Work resumed");
   });
 
   it("formats session_error events", () => {
@@ -254,7 +264,20 @@ describe("formatHerdEventBatch", () => {
     ];
     const result = formatHerdEventBatch(events);
     expect(result).toContain("session_error");
+    expect(result).toContain("Work failed");
     expect(result).toContain("Test suite failed");
+  });
+
+  it("distinguishes active-turn disconnects from idle session disconnects", () => {
+    const active = formatHerdEventBatch([
+      makeEvent({ event: "session_disconnected", data: { reason: "transport EOF", wasGenerating: true } }),
+    ]);
+    const idle = formatHerdEventBatch([
+      makeEvent({ event: "session_disconnected", data: { reason: "idle limit", wasGenerating: false } }),
+    ]);
+
+    expect(active).toContain("session_disconnected | Work interrupted | transport EOF");
+    expect(idle).toContain("session_disconnected | session disconnected while idle | idle limit");
   });
 
   it("formats user-initiated session_archived with explicit annotation", () => {
@@ -298,7 +321,7 @@ describe("formatHerdEventBatch", () => {
       }),
     ];
     const result = formatHerdEventBatch(events);
-    expect(result).toContain("interrupted 1.6s");
+    expect(result).toContain("Work interrupted 1.6s");
   });
 
   it("formats interrupted turn_end events with interrupt source attribution", () => {
@@ -309,7 +332,7 @@ describe("formatHerdEventBatch", () => {
       }),
     ];
     const result = formatHerdEventBatch(events);
-    expect(result).toContain("interrupted (by leader) 1.6s");
+    expect(result).toContain("Work interrupted (by leader) 1.6s");
   });
 
   it("formats provisional interrupted turn_end events with recovery-pending attribution", () => {
@@ -320,10 +343,10 @@ describe("formatHerdEventBatch", () => {
       }),
     ];
     const result = formatHerdEventBatch(events);
-    expect(result).toContain("interrupted (by system; recovery pending) 1.6s");
+    expect(result).toContain("Work interrupted (by system; recovery pending) 1.6s");
   });
 
-  it("formats turn_end with compacted annotation when context was compacted", () => {
+  it("formats compaction as same-Work context maintenance", () => {
     const events = [
       makeEvent({
         event: "turn_end",
@@ -331,8 +354,30 @@ describe("formatHerdEventBatch", () => {
       }),
     ];
     const result = formatHerdEventBatch(events);
-    // Should show "(compacted)" after the duration so the leader knows the agent was busy compacting
-    expect(result).toContain("30.0s (compacted)");
+    expect(result).toContain("✓ turn complete 30.0s | context compacted; same Work continued");
+    expect(result).not.toContain("(compacted)");
+  });
+
+  it("does not call an interrupted compaction successful continuation", () => {
+    const result = formatHerdEventBatch([
+      makeEvent({
+        event: "turn_end",
+        data: { duration_ms: 30000, compacted: true, interrupted: true, interrupt_source: "system" },
+      }),
+    ]);
+
+    expect(result).toContain("Work interrupted (by system) 30.0s");
+    expect(result).not.toContain("same Work continued");
+  });
+
+  it("formats needs-input turn boundaries as preserved Work and the next turn as resumed", () => {
+    const result = formatHerdEventBatch([
+      makeEvent({ event: "turn_end", data: { duration_ms: 5000, awaiting_decision: true } }),
+      makeEvent({ event: "turn_end", data: { duration_ms: 7000, resumed_after_decision: true } }),
+    ]);
+
+    expect(result).toContain("waiting for decision; Work preserved");
+    expect(result).toContain("same Work resumed after decision wait");
   });
 
   it("formats user-initiated turn_end with (user-initiated) annotation", () => {

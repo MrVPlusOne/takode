@@ -1,4 +1,6 @@
 import type { ReplyContext } from "../shared/reply-context.js";
+import type { McpServerConfig, McpServerDetail } from "./mcp-types.js";
+export type { McpServerConfig, McpServerDetail } from "./mcp-types.js";
 import type { CodexMessagePhase } from "../shared/codex-message-phase.js";
 import type {
   CodexPendingBatchInput,
@@ -1639,26 +1641,10 @@ export interface SessionNotification {
     queuedInputId?: string;
     deliveredAt?: number;
   };
-}
-
-// ─── MCP Types ───────────────────────────────────────────────────────────────
-
-export interface McpServerConfig {
-  type: "stdio" | "sse" | "http" | "sdk";
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  url?: string;
-}
-
-export interface McpServerDetail {
-  name: string;
-  status: "connected" | "failed" | "disabled" | "connecting";
-  serverInfo?: unknown;
-  error?: string;
-  config: { type: string; url?: string; command?: string; args?: string[] };
-  scope: string;
-  tools?: { name: string; annotations?: { readOnly?: boolean; destructive?: boolean; openWorld?: boolean } }[];
+  /** Turn-end herd label recorded when this needs-input pause was surfaced. */
+  herdDecisionWaitReportedAt?: number;
+  /** Turn-end herd label recorded when the first later same-route external turn completed. */
+  herdDecisionResumeReportedAt?: number;
 }
 
 // ─── Permission Request ──────────────────────────────────────────────────────
@@ -1792,6 +1778,10 @@ export interface TakodeTurnEndEventData {
   interrupt_origin?: "restart_prep";
   restart_prep_operation_id?: string;
   compacted?: boolean;
+  /** The turn ended after creating a still-unresolved needs-input decision. */
+  awaiting_decision?: boolean;
+  /** The turn was driven by a reply to a needs-input decision. */
+  resumed_after_decision?: boolean;
   tools?: Record<string, number>;
   resultPreview?: string;
   msgRange?: TakodeTurnEndMsgRange;
@@ -1943,6 +1933,7 @@ export interface TakodeHerdEventBrowserMetadata {
   sessionNum: number;
   ts: number;
   routine: boolean;
+  lifecycle?: import("../shared/herd-event-lifecycle.js").TakodeHerdEventLifecycle[];
 }
 
 export interface TakodeEventDataByType {

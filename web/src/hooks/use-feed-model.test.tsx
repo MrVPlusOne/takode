@@ -1325,6 +1325,35 @@ describe("sub-conclusions in collapsed turns", () => {
     expect(entryIds(model.turns[0].allEntries)).toContain("h2");
   });
 
+  it("counts structured events inside one herd batch instead of counting only the wrapper message", () => {
+    const batch = makeHerdEvent("h-batch", "3 events from 2 sessions", 2);
+    batch.takodeHerdEvents = [
+      { event: "turn_end", sessionId: "worker-1", sessionNum: 1, ts: 2, routine: true },
+      {
+        event: "turn_end",
+        sessionId: "worker-2",
+        sessionNum: 2,
+        ts: 2,
+        routine: false,
+        lifecycle: ["context_continued"],
+      },
+      {
+        event: "session_error",
+        sessionId: "worker-2",
+        sessionNum: 2,
+        ts: 2,
+        routine: false,
+        lifecycle: ["failed"],
+      },
+    ];
+
+    const turn = buildFeedModel([makeMessage({ id: "u1", role: "user", content: "status", timestamp: 1 }), batch], true)
+      .turns[0];
+
+    expect(turn.stats.herdEventCount).toBe(3);
+    expect(turn.stats.herdEventLifecycle).toEqual(["context_continued", "failed"]);
+  });
+
   it("keeps delayed herd events in the same turn when the leader only sent an in-progress status update", () => {
     // A single assistant status message ("let me check") should not be
     // treated as a completed answer. In that case, a later herd event still

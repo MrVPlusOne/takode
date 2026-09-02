@@ -40,6 +40,80 @@ const ROUTINE_HERD_MESSAGES: ChatMessage[] = [
   },
 ];
 
+const LIFECYCLE_HERD_MESSAGES: ChatMessage[] = [
+  {
+    id: "herd-waiting",
+    role: "user",
+    content:
+      "1 event from 1 session\n\n#2596 | turn_end | ✓ turn complete 12.0s | waiting for decision; Work preserved",
+    timestamp: Date.now() - 75_000,
+    agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+    takodeHerdEvents: [
+      {
+        event: "turn_end",
+        sessionId: "worker-2596",
+        sessionNum: 2596,
+        ts: Date.now() - 75_000,
+        routine: false,
+        lifecycle: ["waiting_for_decision"],
+      },
+    ],
+  },
+  {
+    id: "herd-resumed",
+    role: "user",
+    content:
+      "1 event from 1 session\n\n#2596 | turn_end | ✓ turn complete 18.0s | same Work resumed after decision wait",
+    timestamp: Date.now() - 50_000,
+    agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+    takodeHerdEvents: [
+      {
+        event: "turn_end",
+        sessionId: "worker-2596",
+        sessionNum: 2596,
+        ts: Date.now() - 50_000,
+        routine: false,
+        lifecycle: ["resumed_after_decision"],
+      },
+    ],
+  },
+  {
+    id: "herd-compacted",
+    role: "user",
+    content:
+      "1 event from 1 session\n\n#2596 | turn_end | ✓ turn complete 35.0s | context compacted; same Work continued",
+    timestamp: Date.now() - 25_000,
+    agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+    takodeHerdEvents: [
+      {
+        event: "turn_end",
+        sessionId: "worker-2596",
+        sessionNum: 2596,
+        ts: Date.now() - 25_000,
+        routine: false,
+        lifecycle: ["context_continued"],
+      },
+    ],
+  },
+  {
+    id: "herd-interrupted",
+    role: "user",
+    content: "1 event from 1 session\n\n#2596 | turn_end | Work interrupted (by system; recovery pending) 5.0s",
+    timestamp: Date.now() - 5_000,
+    agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+    takodeHerdEvents: [
+      {
+        event: "turn_end",
+        sessionId: "worker-2596",
+        sessionNum: 2596,
+        ts: Date.now() - 5_000,
+        routine: false,
+        lifecycle: ["interrupted"],
+      },
+    ],
+  },
+];
+
 export function PlaygroundHerdEventStates() {
   return (
     <Section
@@ -50,6 +124,15 @@ export function PlaygroundHerdEventStates() {
         <Card label="Routine worker events grouped as activity">
           <CompactFeedActivity
             segments={[{ kind: "worker_event", messages: ROUTINE_HERD_MESSAGES }]}
+            sessionId={MOCK_SESSION_ID}
+            isCodexSession={false}
+            activeCodexTerminalIds={new Set()}
+            onOpenCodexTerminal={() => {}}
+          />
+        </Card>
+        <Card label="Lifecycle boundaries remain distinct when grouped">
+          <CompactFeedActivity
+            segments={[{ kind: "worker_event", messages: LIFECYCLE_HERD_MESSAGES }]}
             sessionId={MOCK_SESSION_ID}
             isCodexSession={false}
             activeCodexTerminalIds={new Set()}

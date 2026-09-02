@@ -85,6 +85,18 @@ Events from herded sessions are delivered automatically as `[Herd]` user message
 | `session_error` | Session-level error | Investigate, decide whether to retry |
 | `user_message [User]` | Human sent directly to worker | May indicate new instructions -- stay aware but don't interfere |
 
+### Lifecycle Label Legend
+
+Herd headers keep their stable event type and add short text when a boundary could otherwise resemble a restart:
+
+- **`waiting for decision; Work preserved`** -- the worker reached a normal approval/input pause; its session and completed Work are intact.
+- **`decision resolved; wait ended`** -- an approval or input gate was answered; the later turn boundary confirms whether Work actually resumed.
+- **`same Work resumed after decision wait`** -- the first later user/leader turn continued that worker on the same route; this is continuation, not recovery.
+- **`context compacted; same Work continued`** -- the backend performed context maintenance inside the same session; this is not a disconnect or process restart.
+- **`session disconnected while idle`** -- the backend disconnected without interrupting active Work.
+- **`Work interrupted` / `Work failed`** -- a genuine interruption or error boundary; inspect the attached recovery/error detail before steering.
+- **`✓` / `✗` / `⊘`** -- secondary shorthand for a normal completed, failed, or interrupted turn. Trust the textual lifecycle label when one is present.
+
 ## Session Lifecycle
 
 Three distinct operations -- never confuse them:

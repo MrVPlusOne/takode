@@ -1,5 +1,6 @@
 import { memo, type Ref } from "react";
 import type { TurnStats } from "../hooks/use-feed-model.js";
+import { summarizeWorkerEventActivity } from "../utils/herd-event-classification.js";
 import { formatElapsed } from "./message-feed-utils.js";
 
 interface TurnSummaryStatsProps {
@@ -41,9 +42,7 @@ export function TurnSummaryStats({ stats, durationMs, separatorClass }: TurnSumm
       {hasHerdEvents && (
         <>
           {(hasMessages || hasTools || hasAgents) && <span className={separatorClass}>·</span>}
-          <span>
-            {stats.herdEventCount} worker event{stats.herdEventCount !== 1 ? "s" : ""}
-          </span>
+          <span>{summarizeWorkerEventActivity(stats.herdEventCount, stats.herdEventLifecycle ?? [])}</span>
         </>
       )}
       {hasDuration && (
