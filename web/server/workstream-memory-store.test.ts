@@ -484,10 +484,11 @@ source:
     const firstWave = new Promise<void>((resolve) => {
       firstWaveReady = resolve;
     });
+    const timeoutMs = 3_000;
     vi.useFakeTimers();
     const runtime = {
       readConcurrency: concurrency,
-      timeoutMs: 100,
+      timeoutMs,
       readFile: async (path: string, signal?: AbortSignal) => {
         if (!hangReads) return readFile(path, "utf-8");
         started += 1;
@@ -502,8 +503,8 @@ source:
 
     expect(coalesced).toBe(scan);
     await firstWave;
-    await vi.advanceTimersByTimeAsync(100);
-    await expect(scan).rejects.toThrow("memory catalog scan timed out after 100ms");
+    await vi.advanceTimersByTimeAsync(timeoutMs);
+    await expect(scan).rejects.toThrow(`memory catalog scan timed out after ${timeoutMs}ms`);
 
     // The two active readers receive abort, workers do not schedule the other
     // files, and the rejected coalescing entry is released for a fresh retry.
