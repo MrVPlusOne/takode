@@ -145,6 +145,8 @@ export function QuestPreviewCardContent({
   const displayOwner = owner?.kind === "codex" || workerParticipant?.sessionId !== ownerSessionId ? owner : null;
   const completedAt = quest.status === "done" ? quest.completedAt : null;
   const progressTldr = useMemo(() => {
+    const outcome = selectQuestPreviewProgressTldr(quest);
+    if (outcome?.kind === "outcome") return outcome;
     if ("phasePreviewLines" in quest && quest.phasePreviewLines?.length) {
       const latest = quest.phasePreviewLines.at(-1)!;
       return {
@@ -155,7 +157,7 @@ export function QuestPreviewCardContent({
         text: latest.text,
       };
     }
-    return selectQuestPreviewProgressTldr(quest as QuestmasterTask);
+    return outcome;
   }, [quest]);
 
   return (

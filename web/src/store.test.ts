@@ -937,6 +937,76 @@ describe("Questmaster refresh", () => {
     });
   });
 
+  it("projects the monotonic Outcome revision token from an exact quest detail", () => {
+    useStore.getState().upsertQuestDetail(
+      makeQuest({
+        questId: "q-1932",
+        title: "Stable title",
+        version: 5,
+        updatedAt: 50,
+        outcome: {
+          currentRevisionId: "r2",
+          revisions: [
+            {
+              revisionId: "r1",
+              markdown: "First outcome.",
+              summaryMarkdown: "First outcome.",
+              summarySource: "derived",
+              contentHash: "h1",
+              createdAt: 50,
+              actor: { kind: "human" },
+              sources: [],
+            },
+            {
+              revisionId: "r2",
+              parentRevisionId: "r1",
+              markdown: "Second outcome.",
+              summaryMarkdown: "Second outcome.",
+              summarySource: "derived",
+              contentHash: "h2",
+              createdAt: 50,
+              actor: { kind: "human" },
+              sources: [],
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(
+      (
+        useStore.getState().questTitlePreviews.get("q-1932") as
+          | (import("./types.js").QuestTitlePreview & { outcomeRevision?: number })
+          | undefined
+      )?.outcomeRevision,
+    ).toBe(2);
+  });
+
+  it("uses the monotonic Outcome revision token to merge same-millisecond title previews", () => {
+    useStore.getState().upsertQuestTitlePreview({
+      questId: "q-1932",
+      title: "Stable title",
+      version: 5,
+      updatedAt: 50,
+      outcomeRevision: 1,
+    } as import("./types.js").QuestTitlePreview);
+    useStore.getState().upsertQuestTitlePreview({
+      questId: "q-1932",
+      title: "Stable title",
+      version: 5,
+      updatedAt: 50,
+      outcomeRevision: 2,
+    } as import("./types.js").QuestTitlePreview);
+
+    expect(
+      (
+        useStore.getState().questTitlePreviews.get("q-1932") as
+          | (import("./types.js").QuestTitlePreview & { outcomeRevision?: number })
+          | undefined
+      )?.outcomeRevision,
+    ).toBe(2);
+  });
+
   it("preserves exact commit evidence across newer title-only and older detail projections", () => {
     useStore.getState().upsertQuestTitlePreview({
       questId: "q-1932",

@@ -92,13 +92,16 @@ function questTitlePreviewFromTask(quest: QuestmasterTask): QuestTitlePreview {
     title: quest.title,
     version: quest.version,
     updatedAt: Math.max(quest.createdAt, quest.updatedAt ?? 0, quest.statusChangedAt ?? 0),
+    ...(quest.outcome ? { outcomeRevision: quest.outcome.revisions.length } : {}),
     ...(Array.isArray(quest.commitShas) ? { commitShas: quest.commitShas } : {}),
   };
 }
 
 function compareQuestTitlePreviewFreshness(left: QuestTitlePreview, right: QuestTitlePreview): number {
   if (left.version !== right.version) return left.version - right.version;
-  return (left.updatedAt ?? 0) - (right.updatedAt ?? 0);
+  const updatedAtDelta = (left.updatedAt ?? 0) - (right.updatedAt ?? 0);
+  if (updatedAtDelta !== 0) return updatedAtDelta;
+  return (left.outcomeRevision ?? 0) - (right.outcomeRevision ?? 0);
 }
 
 function stringArraysEqual(left: readonly string[] | undefined, right: readonly string[] | undefined): boolean {
@@ -119,21 +122,29 @@ function mergeQuestTitlePreview(
     incoming.commitShas === undefined || (current.commitShas?.length ?? 0) > incoming.commitShas.length
       ? current.commitShas
       : incoming.commitShas;
+  const outcomeRevision = Math.max(current.outcomeRevision ?? 0, incoming.outcomeRevision ?? 0) || undefined;
   if (compareQuestTitlePreviewFreshness(incoming, current) < 0) {
-    if (stringArraysEqual(current.commitShas, commitShas)) return current;
-    return { ...current, ...(commitShas ? { commitShas } : {}) };
+    if (current.outcomeRevision === outcomeRevision && stringArraysEqual(current.commitShas, commitShas))
+      return current;
+    return {
+      ...current,
+      ...(outcomeRevision ? { outcomeRevision } : {}),
+      ...(commitShas ? { commitShas } : {}),
+    };
   }
   if (
     current.questId === incoming.questId &&
     current.title === incoming.title &&
     current.version === incoming.version &&
     current.updatedAt === incoming.updatedAt &&
+    current.outcomeRevision === outcomeRevision &&
     stringArraysEqual(current.commitShas, commitShas)
   ) {
     return current;
   }
   return {
     ...incoming,
+    ...(outcomeRevision ? { outcomeRevision } : {}),
     ...(commitShas ? { commitShas } : {}),
   };
 }

@@ -66,6 +66,9 @@ import { CodexReasoningDetailGroup } from "./CodexReasoningDetail.js";
 import { collectTimerMessageBatch, TimerMessageGroup } from "./TimerMessage.js";
 import { MinuteBoundaryTimestamp } from "./MinuteBoundaryTimestamp.js";
 import { SubagentSectionHeader } from "./SubagentSectionHeader.js";
+import type { QuestOutcomeTurnPresentation } from "./QuestOutcomeFeed.js";
+import { SuppressedQuestQuizIdsContext } from "./AssistantQuestQuizContent.js";
+import { getTurnSummaryDurationMs } from "./message-feed-turn-duration.js";
 
 function useExpandForScrollTarget(
   sessionId: string,
@@ -79,45 +82,6 @@ function useExpandForScrollTarget(
     }
   }, [expandTargetId, containedMessageIds, setOpen]);
 }
-
-function getTurnBoundaryTimestamp(turn: Turn): number | null {
-  const boundary = turn.userEntry;
-  if (!boundary || boundary.kind !== "message") return null;
-  if (!isTimedChatMessage(boundary.msg)) return null;
-  return boundary.msg.timestamp;
-}
-
-function getNormalTurnDurationMs(turn: Turn): number | null {
-  const boundary = turn.userEntry;
-  if (
-    !boundary ||
-    boundary.kind !== "message" ||
-    boundary.msg.role !== "user" ||
-    boundary.msg.agentSource?.sessionId === "herd-events"
-  )
-    return null;
-  const userTimestamp = boundary.msg.timestamp;
-  if (!turn.responseEntry || turn.responseEntry.kind !== "message" || turn.responseEntry.msg.role !== "assistant")
-    return null;
-  const responseTimestamp = turn.responseEntry.msg.timestamp;
-  if (responseTimestamp < userTimestamp) return null;
-  return responseTimestamp - userTimestamp;
-}
-
-function getLeaderTurnDurationMs(turn: Turn, nextTurn: Turn | null): number | null {
-  if (!nextTurn) return null;
-  const currentBoundary = getTurnBoundaryTimestamp(turn);
-  const nextBoundary = getTurnBoundaryTimestamp(nextTurn);
-  if (currentBoundary == null || nextBoundary == null || nextBoundary < currentBoundary) return null;
-  return nextBoundary - currentBoundary;
-}
-
-function getTurnSummaryDurationMs(turn: Turn, nextTurn: Turn | null, leaderMode: boolean): number | null {
-  if (leaderMode) return getLeaderTurnDurationMs(turn, nextTurn);
-  return getNormalTurnDurationMs(turn);
-}
-
-export { findPreviousSectionStartIndex };
 
 function isApprovalEntry(entry: FeedEntry): entry is { kind: "message"; msg: ChatMessage } {
   return entry.kind === "message" && entry.msg.role === "system" && entry.msg.variant === "approved";
@@ -1243,6 +1207,7 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   onOpenCodexTerminal,
   onSelectThread,
   questLinkSurface,
+  outcomeInsert,
 }: {
   turn: Turn;
   sessionId: string;
@@ -1256,16 +1221,22 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   onOpenCodexTerminal: (toolUseId: string) => void;
   onSelectThread?: (threadKey: string) => void;
   questLinkSurface: QuestLinkSurface;
+  outcomeInsert?: { afterMessageId: string; node: ReactNode };
 }) {
   const headerRef = useRef<HTMLButtonElement>(null);
+  const entries = turnPresentationEntries(turn);
+  const splitIndex = outcomeInsert
+    ? entries.findIndex((entry) => entry.kind === "message" && entry.msg.id === outcomeInsert.afterMessageId)
+    : -1;
+  const split = splitIndex >= 0 && outcomeInsert ? outcomeInsert : null;
 
   return (
     <>
-      {turn.agentEntries.length > 0 && (
+      {turn.agentEntries.length > 0 && !split && (
         <TurnCollapseBar ref={headerRef} stats={turn.stats} durationMs={durationMs} onClick={onCollapse} />
       )}
       <FeedEntries
-        entries={turnPresentationEntries(turn)}
+        entries={split ? entries.slice(0, splitIndex + 1) : entries}
         sessionId={sessionId}
         currentThreadKey={currentThreadKey}
         minuteBoundaryLabels={minuteBoundaryLabels}
@@ -1275,8 +1246,22 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
         onSelectThread={onSelectThread}
         questLinkSurface={questLinkSurface}
       />
+      {split?.node}
+      {split && (
+        <FeedEntries
+          entries={entries.slice(splitIndex + 1)}
+          sessionId={sessionId}
+          currentThreadKey={currentThreadKey}
+          minuteBoundaryLabels={minuteBoundaryLabels}
+          isCodexSession={isCodexSession}
+          activeCodexTerminalIds={activeCodexTerminalIds}
+          onOpenCodexTerminal={onOpenCodexTerminal}
+          onSelectThread={onSelectThread}
+          questLinkSurface={questLinkSurface}
+        />
+      )}
       {threadStatusFooter}
-      {turn.agentEntries.length > 0 && <TurnCollapseFooter headerRef={headerRef} onCollapse={onCollapse} />}
+      {turn.agentEntries.length > 0 && !split && <TurnCollapseFooter headerRef={headerRef} onCollapse={onCollapse} />}
     </>
   );
 });
@@ -1796,6 +1781,7 @@ export const TurnEntries = memo(function TurnEntries({
   toggleTurn,
   userBoundarySourceSessionId,
   questLinkSurface,
+  outcomePresentation,
 }: {
   sections: FeedSection[];
   sessionId: string;
@@ -1809,6 +1795,7 @@ export const TurnEntries = memo(function TurnEntries({
   toggleTurn: (turnId: string) => void;
   userBoundarySourceSessionId?: string | null;
   questLinkSurface: QuestLinkSurface;
+  outcomePresentation?: QuestOutcomeTurnPresentation;
 }) {
   const turns = useMemo(() => sections.flatMap((section) => section.turns), [sections]);
   const currentThreadStatuses = useStore((s) => selectLeaderThreadStatuses(s, sessionId));
@@ -1825,7 +1812,8 @@ export const TurnEntries = memo(function TurnEntries({
 
     for (let index = 0; index < turns.length; index++) {
       const turn = turns[index];
-      const isActivityExpanded = turnStates[index]?.isActivityExpanded ?? false;
+      const isActivityExpanded =
+        outcomePresentation?.insertWithinTurn?.turnId === turn.id || (turnStates[index]?.isActivityExpanded ?? false);
 
       if (turn.userEntry?.kind === "message" && isTimedChatMessage(turn.userEntry.msg)) {
         visibleTimedMessages.push(turn.userEntry.msg);
@@ -1839,17 +1827,29 @@ export const TurnEntries = memo(function TurnEntries({
     }
 
     return buildMinuteBoundaryLabelMap(visibleTimedMessages);
-  }, [turns, turnStates]);
+  }, [outcomePresentation?.insertWithinTurn?.turnId, turns, turnStates]);
+  const suppressedQuizIds = useMemo(
+    () =>
+      outcomePresentation?.suppressQuizQuestId ? new Set([outcomePresentation.suppressQuizQuestId]) : new Set<string>(),
+    [outcomePresentation?.suppressQuizQuestId],
+  );
 
   return (
-    <>
+    <SuppressedQuestQuizIdsContext.Provider value={suppressedQuizIds}>
       {(() => {
         let globalIndex = 0;
         return sections.map((section) => (
           <div key={section.id} data-feed-section-id={section.id} className="space-y-3 sm:space-y-5">
             {section.turns.map((turn) => {
               const turnIndex = globalIndex++;
-              const isActivityExpanded = turnStates[turnIndex]?.isActivityExpanded ?? false;
+              const outcomeInsert =
+                outcomePresentation?.insertWithinTurn?.turnId === turn.id
+                  ? {
+                      afterMessageId: outcomePresentation.insertWithinTurn.afterMessageId,
+                      node: outcomePresentation.node,
+                    }
+                  : undefined;
+              const isActivityExpanded = Boolean(outcomeInsert) || (turnStates[turnIndex]?.isActivityExpanded ?? false);
               const turnSummaryDuration = getTurnSummaryDurationMs(turn, turns[turnIndex + 1] ?? null, leaderMode);
               const showThreadStatusFooter = turn.id === threadStatusFooterTurnId;
               const threadStatusFooter = showThreadStatusFooter ? (
@@ -1861,7 +1861,13 @@ export const TurnEntries = memo(function TurnEntries({
               ) : null;
 
               return (
-                <div key={turn.id}>
+                <div
+                  key={turn.id}
+                  hidden={Boolean(
+                    outcomePresentation?.hideCoveredTurns && outcomePresentation.coveredTurnIds.has(turn.id),
+                  )}
+                >
+                  {outcomePresentation?.insertBeforeTurnId === turn.id && outcomePresentation.node}
                   <div
                     data-turn-id={turn.id}
                     data-feed-block-id={getTurnFeedBlockId(turn.id)}
@@ -1883,6 +1889,7 @@ export const TurnEntries = memo(function TurnEntries({
                         questLinkSurface={questLinkSurface}
                       />
                     )}
+                    {outcomePresentation?.insertAfterUserTurnId === turn.id && outcomePresentation.node}
 
                     {!isActivityExpanded && <CodexSubagentTurnSegment sessionId={sessionId} turnId={turn.id} />}
                     {isActivityExpanded ? (
@@ -1900,6 +1907,7 @@ export const TurnEntries = memo(function TurnEntries({
                           onSelectThread={onSelectThread}
                           onCollapse={() => toggleTurn(turn.id)}
                           questLinkSurface={questLinkSurface}
+                          outcomeInsert={outcomeInsert}
                         />
                       )
                     ) : (
@@ -1968,6 +1976,7 @@ export const TurnEntries = memo(function TurnEntries({
           </div>
         ));
       })()}
-    </>
+      {outcomePresentation?.insertAtEnd && outcomePresentation.node}
+    </SuppressedQuestQuizIdsContext.Provider>
   );
 });

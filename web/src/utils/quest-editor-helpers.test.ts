@@ -4,6 +4,8 @@ import {
   findHashtagTokenAtCursor,
   getQuestDebrief,
   getQuestDebriefTldr,
+  getQuestOutcomeMarkdown,
+  getQuestOutcomeSummary,
 } from "./quest-editor-helpers.js";
 import type { QuestmasterTask } from "../types.js";
 
@@ -28,6 +30,45 @@ describe("quest-editor-helpers hashtag parsing", () => {
       end: 12,
       query: "",
     });
+  });
+
+  it("hides unsealed completed Outcome text from compact and search helpers", () => {
+    const quest = {
+      id: "q-2-v1",
+      questId: "q-2",
+      version: 1,
+      title: "Completed Outcome guard",
+      status: "done",
+      description: "Initial",
+      createdAt: 1,
+      completedAt: 2,
+      verificationItems: [],
+      outcome: {
+        currentRevisionId: "r2",
+        revisions: [
+          {
+            revisionId: "r2",
+            markdown: "Unsealed searchable detail.",
+            summaryMarkdown: "Unsealed searchable summary.",
+            summarySource: "derived",
+            contentHash: "hash-r2",
+            createdAt: 2,
+            actor: { kind: "human" },
+            sources: [],
+          },
+        ],
+      },
+    } as QuestmasterTask;
+
+    // Completed Outcome text is user-facing only after the exact current revision is sealed.
+    expect(getQuestOutcomeSummary(quest)).toBeUndefined();
+    expect(getQuestOutcomeMarkdown(quest)).toBeUndefined();
+    const sealed = {
+      ...quest,
+      outcome: { ...quest.outcome!, finalizedRevisionId: "r2" },
+    } as QuestmasterTask;
+    expect(getQuestOutcomeSummary(sealed)).toBe("Unsealed searchable summary.");
+    expect(getQuestOutcomeMarkdown(sealed)).toBe("Unsealed searchable detail.");
   });
 
   it("returns final debrief metadata only for non-cancelled done quests", () => {

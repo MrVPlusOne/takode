@@ -25,6 +25,8 @@ describe("Quest command classification", () => {
     [["feedback", "--text", "Note", "--json", "q-12"], "mutation"],
     [["feedback", "--text", "Edit", "--json", "edit", "q-12", "0"], "mutation"],
     [["quiz", "--items-file", "quiz.json", "--json", "set", "q-12"], "mutation"],
+    [["outcome", "--text-file", "outcome.md", "--advance-through", "7", "set", "q-12"], "mutation"],
+    [["outcome", "--session", "7", "--message", "a1", "--append", "use", "q-12"], "mutation"],
     [["reassign", "--session", "worker", "--reason", "handoff", "--json", "q-12"], "reassign"],
   ])("extracts the target after valued and boolean flags from %j", (args, kind) => {
     expect(classifyQuestCommand(args)).toMatchObject({ kind, questId: "q-12" });
@@ -52,12 +54,15 @@ describe("Quest command classification", () => {
   it("detects stdin only when a supported rich-text file flag consumes it", () => {
     expect(questCommandReadsStdin(["feedback", "q-12", "--text-file", "-"])).toBe(true);
     expect(questCommandReadsStdin(["feedback", "q-12", "--text", "-"])).toBe(false);
+    expect(questCommandReadsStdin(["outcome", "set", "q-12", "--summary-file", "-"])).toBe(true);
   });
 
   it("fails closed for unknown and future commands", () => {
     expect(classifyQuestCommand(["future-mutation", "q-12"])).toEqual({ kind: "unknown" });
     expect(classifyQuestCommand(["feedback", "future-mutation", "q-12"])).toEqual({ kind: "unknown" });
     expect(classifyQuestCommand(["quiz", "future-mutation", "q-12"])).toEqual({ kind: "unknown" });
+    expect(classifyQuestCommand(["outcome", "show", "q-12"])).toEqual({ kind: "read" });
+    expect(classifyQuestCommand(["outcome", "future-mutation", "q-12"])).toEqual({ kind: "unknown" });
     expect(isQuestMutationCommand(["future-mutation", "q-12"])).toBe(true);
   });
 });

@@ -24,6 +24,7 @@
  *   inbox      Move review-pending quest back to review inbox
  *   check      Toggle a verification checkbox
  *   feedback   Add, edit, or inspect quest feedback entries
+ *   outcome    Show or update the versioned Current Outcome
  *   quiz       Show or replace quest quiz Q/A metadata
  *   address    Toggle feedback addressed status
  *   reassign   Reassign quest ownership from a leader session
@@ -123,6 +124,7 @@ import {
 import { discoverQuestCompanionCredentials, type CompanionCredentials } from "./quest-companion-credentials.js";
 import { saveQuestInputImage, uploadQuestInputImage } from "./quest-image-input.js";
 import { formatQuestStatusSummary, questStatusSummaryForJson } from "./quest-status-format.js";
+import { runQuestOutcomeCommand } from "./quest-outcome-command.js";
 
 const DEFAULT_PORT = 3456;
 const COMPANION_SESSION_ID_HEADER = "x-companion-session-id";
@@ -1879,6 +1881,20 @@ async function main(): Promise<void> {
       return cmdCheck();
     case "feedback":
       return cmdFeedback();
+    case "outcome":
+      return runQuestOutcomeCommand({
+        positional,
+        validateFlags,
+        option,
+        flag,
+        readOptionalRichTextOption,
+        getQuest,
+        companionPort,
+        companionAuthHeaders,
+        jsonOutput,
+        out,
+        die,
+      });
     case "quiz":
       return runQuizCommand({
         positional,

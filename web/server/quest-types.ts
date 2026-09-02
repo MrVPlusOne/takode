@@ -52,6 +52,97 @@ export interface QuestQuizItem {
   source?: string;
 }
 
+export interface QuestOutcomeActor {
+  kind: "human" | "leader";
+  sessionId?: string;
+  sessionNum?: number;
+  label?: string;
+}
+
+export interface QuestOutcomeAnchor {
+  /** Leader session whose chronological history owns this boundary. */
+  sessionId: string;
+  /** Raw authoritative history index through which this revision summarizes activity. */
+  historyIndex: number;
+  /** Stable source message id when the boundary came from an imported message. */
+  messageId?: string;
+}
+
+export interface QuestOutcomeMessageSource {
+  kind: "message";
+  sessionId: string;
+  messageId: string;
+  historyIndex: number;
+  targetQuestId: string;
+  sourceThreadKeys: string[];
+  crossDestinationCopy?: boolean;
+  contentHash: string;
+}
+
+export interface QuestOutcomeManualSource {
+  kind: "manual";
+  targetQuestId: string;
+  contentHash: string;
+}
+
+export type QuestOutcomeSource = QuestOutcomeMessageSource | QuestOutcomeManualSource;
+
+export interface QuestOutcomeRevision {
+  revisionId: string;
+  parentRevisionId?: string;
+  markdown: string;
+  summaryMarkdown: string;
+  summarySource: "authored" | "derived";
+  contentHash: string;
+  createdAt: number;
+  actor: QuestOutcomeActor;
+  anchor?: QuestOutcomeAnchor;
+  sources: QuestOutcomeSource[];
+  idempotencyKey?: string;
+  /** Stable hash of the caller request used to recognize exact retries before re-resolving dynamic sources. */
+  idempotencyHash?: string;
+}
+
+export interface QuestOutcomeState {
+  currentRevisionId: string;
+  revisions: QuestOutcomeRevision[];
+  /** Exact revision sealed as the completed quest's authoritative Outcome. */
+  finalizedRevisionId?: string;
+  /** Server time when the authoritative completed Outcome was sealed. */
+  finalizedAt?: number;
+  /** Set when a completed quest reopens before a new current revision is authored. */
+  reopenedAt?: number;
+  /** Last finalized revision retained for Previous outcome presentation after rework. */
+  previousFinalRevisionId?: string;
+}
+
+/** Bounded outcome data carried by compact quest previews. */
+export interface QuestOutcomePreview {
+  currentRevisionId: string;
+  /** Exact sealed revision for completed-quest preview authority. */
+  finalizedRevisionId?: string;
+  summaryMarkdown: string;
+  updatedAt: number;
+  revisionCount: number;
+  reopenedAt?: number;
+}
+
+export interface QuestOutcomeUpdateRequest {
+  baseRevisionId: string | null;
+  mode?: "replace" | "append";
+  markdown?: string;
+  summaryMarkdown?: string;
+  source?: { sessionId: string; messageId: string; historyIndex?: number };
+  /** Explicitly move the card boundary through the latest quest activity in this leader session. */
+  advanceThroughSessionId?: string;
+  idempotencyKey?: string;
+}
+
+export interface QuestOutcomeResponse {
+  quest: QuestmasterTask;
+  outcome: QuestOutcomeState;
+}
+
 /** Explicit persisted relationships authored by humans or agents. */
 export interface QuestRelationships {
   /** Earlier quests this quest explicitly follows up on. */
@@ -257,6 +348,8 @@ interface QuestBase {
   journeyRuns?: QuestJourneyRun[];
   /** Active-recall quiz items attached to this quest. */
   quizItems?: QuestQuizItem[];
+  /** Versioned user-facing quest outcome document and immutable revision history. */
+  outcome?: QuestOutcomeState;
   /** Threaded feedback conversation that must survive quest version transitions. */
   feedback?: QuestFeedbackEntry[];
 }
@@ -357,6 +450,7 @@ export interface QuestListPreview {
   verificationInboxUnread?: boolean;
   cancelled?: boolean;
   debriefTldr?: string;
+  outcomePreview?: QuestOutcomePreview;
   relationships?: QuestRelationships;
   relatedQuests?: QuestRelatedQuest[];
   journeyRuns?: QuestJourneyRun[];
@@ -377,6 +471,8 @@ export interface QuestTitlePreview {
   version: number;
   /** Canonical record freshness. Older persisted quests may omit this outside the exact projection. */
   updatedAt?: number;
+  /** Monotonic count of immutable Outcome revisions for same-millisecond live invalidation. */
+  outcomeRevision?: number;
   /** Ordered synchronized code commits. Omitted only by legacy or title-only producers. */
   commitShas?: string[];
 }

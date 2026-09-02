@@ -206,6 +206,35 @@ describe("QuestHoverCard", () => {
     expect(progress.compareDocumentPosition(journey) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("prefers the Current Outcome preview over an active phase TLDR", () => {
+    const quest = {
+      preview: true,
+      id: "q-78",
+      questId: "q-78",
+      version: 2,
+      title: "Preview current outcome",
+      status: "in_progress",
+      description: "Active quest.",
+      createdAt: 1,
+      outcomePreview: {
+        currentRevisionId: "r1",
+        summaryMarkdown: "Outcome summary wins.",
+        updatedAt: 4,
+        revisionCount: 1,
+      },
+      phasePreviewLines: [{ key: "work", label: "Work", text: "Phase summary loses." }],
+    } as const;
+
+    render(
+      <QuestHoverCard quest={quest as any} anchorRect={anchorRect()} onMouseEnter={() => {}} onMouseLeave={() => {}} />,
+    );
+
+    const progress = within(screen.getByTestId("quest-hover-card")).getByTestId("quest-hover-progress-tldr");
+    expect(progress.textContent).toContain("Current Outcome");
+    expect(progress.textContent).toContain("Outcome summary wins.");
+    expect(progress.textContent).not.toContain("Phase summary loses.");
+  });
+
   it("shows final debrief TLDR instead of phase TLDR for completed quests", () => {
     const quest: QuestmasterTask = {
       id: "q-79-v1",

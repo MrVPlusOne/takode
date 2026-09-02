@@ -1,7 +1,13 @@
 import { compareSearchRanks, normalizeForSearch, rankSearchFields } from "../../shared/search-utils.js";
 import type { QuestFeedbackEntry, QuestmasterTask } from "../types.js";
 import { liveQuestFeedbackEntries } from "../../shared/quest-feedback.js";
-import { getQuestDebrief, getQuestDebriefTldr, getQuestFeedback } from "./quest-editor-helpers.js";
+import {
+  getQuestDebrief,
+  getQuestDebriefTldr,
+  getQuestFeedback,
+  getQuestOutcomeMarkdown,
+  getQuestOutcomeSummary,
+} from "./quest-editor-helpers.js";
 
 type SearchRank = NonNullable<ReturnType<typeof rankSearchFields>>;
 
@@ -29,8 +35,10 @@ function getQuestSearchRank(quest: QuestmasterTask, query: string, words: string
     { rank: 2, text: (quest.tags ?? []).join(" ") },
     { rank: 3, text: quest.tldr },
     { rank: 4, text: "description" in quest ? quest.description : undefined },
-    { rank: 5, text: getQuestDebriefTldr(quest) },
-    { rank: 6, text: getQuestDebrief(quest) },
+    { rank: 5, text: getQuestOutcomeSummary(quest) },
+    { rank: 6, text: getQuestOutcomeMarkdown(quest) },
+    { rank: 7, text: getQuestDebriefTldr(quest) },
+    { rank: 8, text: getQuestDebrief(quest) },
     ...liveQuestFeedbackEntries(getQuestFeedback(quest)).flatMap((entry) => questFeedbackSearchFields(entry)),
   ];
 
@@ -39,8 +47,8 @@ function getQuestSearchRank(quest: QuestmasterTask, query: string, words: string
 
 function questFeedbackSearchFields(entry: QuestFeedbackEntry): SearchField[] {
   return [
-    { rank: 7, text: entry.tldr },
-    { rank: 8, text: entry.text },
+    { rank: 9, text: entry.tldr },
+    { rank: 10, text: entry.text },
   ];
 }
 

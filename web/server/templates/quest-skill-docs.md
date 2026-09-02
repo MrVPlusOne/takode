@@ -83,6 +83,9 @@ quest feedback edit <id> <index> [--text "..." | --text-file <path>|-] [--tldr "
 quest feedback list <id> [--last N] [--author human|agent|all] [--unaddressed] [--json]  List indexed feedback entries
 quest feedback latest <id> [--author human|agent|all] [--unaddressed] [--full] [--json]  Show latest matching feedback
 quest feedback show <id> <index> [--json]                     Show one indexed feedback entry
+quest outcome show <id> [--json]                               Show the current versioned Outcome
+quest outcome set <id> [--text "..." | --text-file <path>|-] [--summary "..." | --summary-file <path>|-] [--base <revision>] [--advance-through <leader>] [--json]
+quest outcome use <id> --session <leader> --message <id> [--history-index <n>] [--append] [--base <revision>] [--json]
 quest quiz show <id> [--json]                                  Show quest quiz Q/A metadata
 quest quiz set <id> --items-file <path|-> [--json]             Replace quest quiz Q/A metadata from JSON
 quest quiz clear <id> [--json]                                 Clear quest quiz Q/A metadata
@@ -119,6 +122,19 @@ TLDR metadata is for human scanning, but it must not hide major parts of the ful
 - User-facing quest completion summaries should lead with the outcome, why it matters, and any real next action or residual risk. Routine internals such as raw commit hashes, empty User review checks, final debrief metadata status, no-op memory statements, command lists, and routine verification are not useful completion-summary leads unless the exact detail is directly useful to the user.
 - Worker live commentary should happen at meaningful milestones, not after every read, edit, command, next microstep, or poll. Tool rows already expose operations. Useful milestones include material findings or decisions, completed implementation batches, blockers/User Checkpoints, verification results, sync results, Work handoffs, and Memory closure. For genuinely long operations, a concise status is enough.
 - Keep the full content complete and agent-readable while making the TLDR human-scannable without being lossy.
+
+## Current Outcome
+
+A quest may have one server-owned, versioned Markdown **Current Outcome** that appears once in the owning quest thread at the activity boundary it summarizes. Leaders should update it only for meaningful user-facing changes: a stable diagnosis or design, an important checkpoint decision, an accepted Work result, material rework, or the final outcome. Routine worker progress, polling, recovery, sync, and Memory bookkeeping do not need a revision.
+
+- Reuse prose already written in the owning quest thread with `quest outcome use q-N --session <leader> --message <message-id>`. Add `--append` to assemble several exact routed messages.
+- Edit directly with `quest outcome set q-N --text-file <path>`. Add `--advance-through <leader>` only when the edit explicitly covers newer activity; wording-only edits retain the prior card boundary.
+- `## Summary` is optional. Use `--summary` / `--summary-file` only for a deliberate compact-preview override; otherwise Takode derives it from complete opening Markdown blocks.
+- A Main-only message may be copied only through an explicit audited direct-user or recorded-leader action naming the target quest. Never infer cross-quest relevance, import another quest's routed prose, or absorb quiz/status/routing directives.
+- Prior Outcome revisions stay under Versions; ordinary messages, phase notes, Journey/status authority, expanded history, and Quest Quiz metadata remain separate and unchanged.
+- Completing a quest seals the exact current revision as its authoritative Outcome. Refresh it before completion when the accepted result materially changed; cancellation does not present an unfinished draft as delivered.
+- The completed view collapses activity through final reporting, while the first later direct-user turn starts visible clarification activity below the Outcome.
+- After completion, edit the Outcome only for presentation corrections or to incorporate later clarification. Material changes to delivered scope or claims require reopening the quest into Work first. The sealed Outcome is projected into legacy final-debrief fields so Quest Detail has one user-facing result authority. Completion fails closed if supplied debrief fields disagree; update the Outcome first or submit matching compatibility metadata.
 
 ## Quest Link Guidance
 

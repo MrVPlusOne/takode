@@ -28,6 +28,7 @@ import { appendOwnershipEvent, archivedOwnerTakeoverEvent } from "./quest-owners
 import { appendQuestRecoveryEvent } from "./quest-recovery.js";
 import { normalizeQuestSessionSpaceSlug } from "./quest-session-space.js";
 import { normalizeLiveQuest } from "./quest-store-normalize.js";
+import { currentQuestOutcomeRevision, finalizeQuestOutcome, reopenQuestOutcome } from "./quest-outcome.js";
 import {
   getPreviousQuestOwners,
   getQuestOwner,
@@ -148,6 +149,12 @@ export function buildTransitionedQuest(
   const currentQuizItems = normalizeQuestQuizItems(current.quizItems);
   const inputQuizItems = normalizeQuestQuizItems(input.quizItems);
   const quizItems = inputQuizItems ?? currentQuizItems;
+  const activeOutcome =
+    targetStatus === "in_progress" && current.status === "done" && current.cancelled !== true
+      ? reopenQuestOutcome(current.outcome, now)
+      : current.outcome;
+  const outcome =
+    targetStatus === "done" && !input.cancelled ? finalizeQuestOutcome(activeOutcome, now) : activeOutcome;
   const currentActiveOwner = getQuestOwner(current);
   const previousOwners = getPreviousQuestOwners(current);
   const retainCanonicalHistory = Array.isArray(current.previousOwners);
@@ -181,6 +188,7 @@ export function buildTransitionedQuest(
     ...(recoveryEvents?.length ? { recoveryEvents } : {}),
     ...(currentJourneyRuns?.length ? { journeyRuns: currentJourneyRuns } : {}),
     ...(quizItems ? { quizItems } : {}),
+    ...(outcome ? { outcome } : {}),
     ...(currentFeedback?.length ? { feedback: currentFeedback } : {}),
   };
   if ((input.commitShas !== undefined || input.memoryCommitShas !== undefined) && targetStatus !== "done") {
@@ -255,17 +263,40 @@ export function buildTransitionedQuest(
       if (input.cancelled && (input.debrief !== undefined || input.debriefTldr !== undefined)) {
         throw new Error("Final debrief metadata is only supported for completed quests, not cancelled quests");
       }
+      const finalizedOutcome =
+        !input.cancelled && outcome?.finalizedRevisionId === outcome?.currentRevisionId
+          ? currentQuestOutcomeRevision(outcome)
+          : null;
+      if (finalizedOutcome && input.debrief !== undefined) {
+        const suppliedDebrief = input.debrief.replace(/\r\n?/g, "\n").trim();
+        if (suppliedDebrief !== finalizedOutcome.markdown) {
+          throw new Error(
+            "Final debrief conflicts with the sealed Quest Outcome; update the Outcome first or submit matching compatibility metadata.",
+          );
+        }
+      }
+      if (finalizedOutcome && input.debriefTldr !== undefined) {
+        const suppliedTldr = normalizeTldr(input.debriefTldr)?.replace(/\r\n?/g, "\n");
+        if (suppliedTldr !== finalizedOutcome.summaryMarkdown) {
+          throw new Error(
+            "Final debrief TLDR conflicts with the sealed Quest Outcome summary; update the Outcome first or submit matching compatibility metadata.",
+          );
+        }
+      }
       const currentDebrief = current.status === "done" && !input.cancelled ? (current as QuestDone).debrief : undefined;
-      const debrief = input.debrief !== undefined && !input.cancelled ? input.debrief.trim() : currentDebrief;
+      const debrief =
+        finalizedOutcome?.markdown ??
+        (input.debrief !== undefined && !input.cancelled ? input.debrief.trim() : currentDebrief);
       const notes =
         input.notes ?? (current.status === "done" && !input.cancelled ? (current as QuestDone).notes : undefined);
       const debriefTldr = input.cancelled
         ? undefined
-        : input.debriefTldr !== undefined
-          ? normalizeTldr(input.debriefTldr)
-          : current.status === "done"
-            ? normalizeTldr((current as QuestDone).debriefTldr)
-            : undefined;
+        : (finalizedOutcome?.summaryMarkdown ??
+          (input.debriefTldr !== undefined
+            ? normalizeTldr(input.debriefTldr)
+            : current.status === "done"
+              ? normalizeTldr((current as QuestDone).debriefTldr)
+              : undefined));
       const completedOwner =
         currentActiveOwner ?? normalizeQuestOwnerRef({ kind: input.ownerKind ?? "takode", sessionId: input.sessionId });
       appendQuestOwner(previousOwners, completedOwner);
@@ -319,6 +350,7 @@ export function buildCancelledQuest(
   const cancelFeedback = current.feedback;
   const cancelJourneyRuns = current.journeyRuns;
   const cancelQuizItems = normalizeQuestQuizItems(current.quizItems);
+  const cancelOutcome = current.outcome;
   const quest: QuestDone = {
     id: liveStore ? current.questId : nextVersionId(current.questId, current.version),
     questId: current.questId,
@@ -350,6 +382,7 @@ export function buildCancelledQuest(
     ...(current.commitShas?.length ? { commitShas: current.commitShas } : {}),
     ...(cancelJourneyRuns?.length ? { journeyRuns: cancelJourneyRuns } : {}),
     ...(cancelQuizItems ? { quizItems: cancelQuizItems } : {}),
+    ...(cancelOutcome ? { outcome: cancelOutcome } : {}),
     status: "done",
     ...(description ? { description } : {}),
     claimedAt: "claimedAt" in current ? (current as QuestInProgress).claimedAt : now,

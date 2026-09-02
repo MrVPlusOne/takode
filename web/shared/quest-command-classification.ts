@@ -8,6 +8,7 @@ const STDIN_FILE_FLAGS = new Set([
   "--debrief-tldr-file",
   "--notes-file",
   "--text-file",
+  "--summary-file",
 ]);
 const VALUE_FLAGS = new Set([
   "--author",
@@ -42,6 +43,12 @@ const VALUE_FLAGS = new Set([
   "--session",
   "--session-space",
   "--status",
+  "--summary",
+  "--summary-file",
+  "--base",
+  "--message",
+  "--history-index",
+  "--advance-through",
   "--tag",
   "--tags",
   "--text",
@@ -64,6 +71,13 @@ export function classifyQuestCommand(args: readonly string[]): QuestCommandClass
   const command = args[0];
   if (!command || READ_ONLY_COMMANDS.has(command)) return { kind: "read" };
   if (command === "feedback") return classifyFeedbackCommand(args);
+  if (command === "outcome") {
+    const positionals = questCommandPositionals(args);
+    if (positionals[0] === "show") return { kind: "read" };
+    if (positionals[0] !== "set" && positionals[0] !== "use") return { kind: "unknown" };
+    const questId = normalizedQuestId(positionals[1]);
+    return { kind: "mutation", ...(questId ? { questId } : {}) };
+  }
   if (command === "quiz") {
     const positionals = questCommandPositionals(args);
     if (positionals[0] === "show") return { kind: "read" };

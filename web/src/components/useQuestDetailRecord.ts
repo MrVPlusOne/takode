@@ -14,6 +14,10 @@ export interface QuestDetailRecord {
 export function useQuestDetailRecord(questOverlayId: string | null): QuestDetailRecord {
   const quests = useStore((s) => s.quests);
   const questDetails = useStore((s) => s.questDetails);
+  const questPreviewRevision = useStore((s) => {
+    const preview = questOverlayId ? s.questTitlePreviews.get(questOverlayId.toLowerCase()) : null;
+    return preview ? `${preview.updatedAt ?? 0}:${preview.outcomeRevision ?? 0}` : "";
+  });
   const storeQuest = useMemo(
     () =>
       questOverlayId
@@ -63,7 +67,7 @@ export function useQuestDetailRecord(questOverlayId: string | null): QuestDetail
     const controller = new AbortController();
     void revalidateQuest({ showLoading: true, signal: controller.signal });
     return () => controller.abort();
-  }, [questOverlayId, revalidateQuest]);
+  }, [questOverlayId, questPreviewRevision, revalidateQuest]);
 
   useEffect(() => {
     if (!questOverlayId) return;

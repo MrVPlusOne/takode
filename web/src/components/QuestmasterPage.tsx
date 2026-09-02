@@ -28,7 +28,7 @@ import {
   CopyableQuestId,
 } from "../utils/quest-helpers.js";
 import { buildQuestJourneyContextByQuestId, type QuestJourneyContext } from "../utils/quest-journey-context.js";
-import { getQuestDebriefTldr } from "../utils/quest-editor-helpers.js";
+import { getQuestDebriefTldr, getQuestOutcomeSummary } from "../utils/quest-editor-helpers.js";
 import { QuestPhaseScanLines } from "./QuestPhaseScanLines.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestmasterCreateForm } from "./QuestmasterCreateForm.js";
@@ -159,6 +159,12 @@ function mergeUniqueQuestPage(
 function questPreviewFromTask(quest: QuestmasterTask): QuestListPreview {
   const verificationItems = "verificationItems" in quest ? (quest.verificationItems ?? []) : [];
   const humanFeedback = liveQuestFeedbackEntries(quest.feedback).filter((entry) => entry.author === "human");
+  const outcomeRevision = quest.outcome?.revisions.find(
+    (revision) => revision.revisionId === quest.outcome?.currentRevisionId,
+  );
+  const outcomePreviewAllowed =
+    quest.status !== "done" ||
+    (quest.cancelled !== true && quest.outcome?.finalizedRevisionId === outcomeRevision?.revisionId);
   const phasePreviewLines = compactPhaseDocumentationGroups(summarizeQuestPhaseDocumentation(quest), 2).flatMap(
     (group) => {
       const latestEntry = group.entries.at(-1);
@@ -199,6 +205,18 @@ function questPreviewFromTask(quest: QuestmasterTask): QuestListPreview {
       : {}),
     ...("cancelled" in quest && quest.cancelled === true ? { cancelled: true } : {}),
     ...("debriefTldr" in quest && quest.debriefTldr ? { debriefTldr: quest.debriefTldr } : {}),
+    ...(outcomeRevision && outcomePreviewAllowed
+      ? {
+          outcomePreview: {
+            currentRevisionId: outcomeRevision.revisionId,
+            ...(quest.outcome?.finalizedRevisionId ? { finalizedRevisionId: quest.outcome.finalizedRevisionId } : {}),
+            summaryMarkdown: outcomeRevision.summaryMarkdown,
+            updatedAt: outcomeRevision.createdAt,
+            revisionCount: quest.outcome?.revisions.length ?? 1,
+            ...(quest.outcome?.reopenedAt !== undefined ? { reopenedAt: quest.outcome.reopenedAt } : {}),
+          },
+        }
+      : {}),
     ...(quest.relationships ? { relationships: quest.relationships } : {}),
     ...(quest.relatedQuests ? { relatedQuests: quest.relatedQuests } : {}),
     ...(quest.journeyRuns ? { journeyRuns: quest.journeyRuns } : {}),
@@ -263,7 +281,7 @@ function questMatchesCurrentPageCorpus(
   const query = searchText.trim();
   if (!query) return true;
   return multiWordMatch(
-    `${quest.questId}\n${quest.title}\n${(quest.tags ?? []).join("\n")}\n${quest.tldr ?? ""}\n${quest.debriefTldr ?? ""}\n${(quest.phasePreviewLines ?? []).map((line) => line.text).join("\n")}`,
+    `${quest.questId}\n${quest.title}\n${(quest.tags ?? []).join("\n")}\n${quest.tldr ?? ""}\n${getQuestOutcomeSummary(quest) ?? ""}\n${quest.debriefTldr ?? ""}\n${(quest.phasePreviewLines ?? []).map((line) => line.text).join("\n")}`,
     query,
   );
 }

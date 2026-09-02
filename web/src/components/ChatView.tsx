@@ -1646,6 +1646,7 @@ export function ChatView({
                 projectThreadRoutes={isLeaderSession}
                 onSelectThread={isLeaderSession ? handleSelectThread : undefined}
                 showCodexSubagentControl={!preview}
+                questId={!preview && showQuestThreadBanner ? selectedThreadKey : undefined}
               />
             </div>
             {!preview && selectedSideChat && (

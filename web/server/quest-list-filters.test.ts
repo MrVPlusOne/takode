@@ -452,6 +452,44 @@ describe("applyQuestListFilters", () => {
     ).toEqual(["q-66", "q-67"]);
   });
 
+  it("omits unsealed completed Outcomes from bounded list previews", () => {
+    const quest = makeQuest({
+      questId: "q-68",
+      title: "Completed preview authority",
+      status: "done",
+      verificationInboxUnread: false,
+    }) as QuestDone;
+    quest.outcome = {
+      currentRevisionId: "r2",
+      finalizedRevisionId: "r1",
+      revisions: [
+        {
+          revisionId: "r2",
+          markdown: "Unsealed draft detail.",
+          summaryMarkdown: "Unsealed draft summary.",
+          summarySource: "derived",
+          contentHash: "hash-r2",
+          createdAt: 10,
+          actor: { kind: "human" },
+          sources: [],
+        },
+      ],
+    };
+
+    // The compact producer and server search corpus must both fail closed on stale draft text.
+    expect(buildQuestListPreview(quest).outcomePreview).toBeUndefined();
+    expect(applyQuestListFilters([quest], { text: "unsealed draft summary" })).toEqual([]);
+    quest.outcome = { ...quest.outcome, finalizedRevisionId: "r2" };
+    expect(applyQuestListFilters([quest], { text: "unsealed draft summary" }).map((item) => item.questId)).toEqual([
+      "q-68",
+    ]);
+    expect(buildQuestListPreview(quest).outcomePreview).toMatchObject({
+      currentRevisionId: "r2",
+      finalizedRevisionId: "r2",
+      summaryMarkdown: "Unsealed draft summary.",
+    });
+  });
+
   it("filters completed quests by final debrief text and debrief TLDR", () => {
     const quest = makeQuest({
       questId: "q-7",

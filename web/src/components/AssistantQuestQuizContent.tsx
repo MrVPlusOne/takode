@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { createContext, useContext, useEffect, useMemo } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
@@ -13,6 +13,7 @@ export type AssistantQuestQuizSegment = { kind: "text"; text: string } | { kind:
 
 const questQuizDetailFetches = new Map<string, Promise<void>>();
 const resolvedEmptyQuestQuizDetailKeys = new Set<string>();
+export const SuppressedQuestQuizIdsContext = createContext<ReadonlySet<string>>(new Set());
 
 interface AssistantQuestQuizContentProps {
   text: string;
@@ -171,11 +172,15 @@ export function AssistantQuestQuizContent({
   enableChatSelectionMenu = false,
   questLinkSurface = "legacy",
 }: AssistantQuestQuizContentProps) {
+  const suppressedQuestQuizIds = useContext(SuppressedQuestQuizIdsContext);
   const segments = useMemo(() => parseQuestQuizContentSegments(text), [text]);
   const quests = useStore((state) => state.quests);
   const questDetails = useStore((state) => state.questDetails);
   const questDetailEtags = useStore((state) => state.questDetailEtags);
-  const quizQuestIds = useMemo(() => uniqueQuestQuizIds(segments), [segments]);
+  const quizQuestIds = useMemo(
+    () => uniqueQuestQuizIds(segments).filter((questId) => !suppressedQuestQuizIds.has(questId)),
+    [segments, suppressedQuestQuizIds],
+  );
 
   useEffect(() => {
     for (const questId of quizQuestIds) {
@@ -205,6 +210,7 @@ export function AssistantQuestQuizContent({
           );
         }
 
+        if (suppressedQuestQuizIds.has(segment.questId)) return null;
         const quest = findRenderableQuest(questDetails, quests, segment.questId);
         if (!quest || (quest.quizItems?.length ?? 0) === 0) return null;
         return (

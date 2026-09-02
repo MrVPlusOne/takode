@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 // Shared styles for menu containers and items, extracted to avoid duplication.
 const MENU_STYLES = {
   container: "fixed z-50 bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-visible",
-  submenuContainer: "fixed z-[60] w-fit min-w-[120px] bg-cc-card border border-cc-border rounded-lg shadow-lg py-1",
-  item: "w-full px-2.5 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer whitespace-nowrap",
+  submenuContainer:
+    "fixed z-[60] w-fit min-w-[120px] max-w-[calc(100vw-1rem)] max-h-[calc(100vh-1rem)] overflow-y-auto bg-cc-card border border-cc-border rounded-lg shadow-lg py-1",
+  item: "w-full max-w-[calc(100vw-1rem)] sm:max-w-80 truncate px-2.5 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer whitespace-nowrap",
   disabledItem:
     "w-full max-w-72 whitespace-normal break-words px-2.5 py-1.5 text-left text-[11px] text-cc-muted font-mono-code leading-relaxed",
 } as const;
@@ -156,6 +157,7 @@ export function ContextMenu({
                 }}
                 onMouseEnter={() => setExpandedSubmenu(null)}
                 className={`${MENU_STYLES.item} ${itemClassName}`}
+                title={item.label}
               >
                 {item.label}
               </button>
@@ -187,23 +189,19 @@ function SubmenuItem({
   const rowRef = useRef<HTMLDivElement>(null);
   const subRef = useRef<HTMLDivElement>(null);
 
-  // Position the submenu to the right, clamping to viewport
+  // Position from the rendered submenu dimensions so long quest titles and
+  // dense target lists remain inside narrow mobile viewports.
   const [subStyle, setSubStyle] = useState<React.CSSProperties>({});
-  useEffect(() => {
-    if (!isOpen || !rowRef.current) return;
-    const rect = rowRef.current.getBoundingClientRect();
-    let left = rect.right + 2;
-    let top = rect.top;
-    // Clamp right edge
-    if (left + 140 > window.innerWidth) {
-      left = rect.left - 142;
+  useLayoutEffect(() => {
+    if (!isOpen || !rowRef.current || !subRef.current) return;
+    const rowRect = rowRef.current.getBoundingClientRect();
+    const subRect = subRef.current.getBoundingClientRect();
+    let left = rowRect.right + 2;
+    if (left + subRect.width > window.innerWidth - 8) {
+      left = Math.max(8, rowRect.left - subRect.width - 2);
     }
-    // Clamp bottom -- estimate ~28px per child item
-    const estimatedHeight = (item.children?.length ?? 0) * 28 + 8;
-    if (top + estimatedHeight > window.innerHeight) {
-      top = window.innerHeight - estimatedHeight - 8;
-    }
-    setSubStyle({ position: "fixed" as const, left, top });
+    const top = Math.max(8, Math.min(rowRect.top, window.innerHeight - subRect.height - 8));
+    setSubStyle({ position: "fixed", left, top });
   }, [isOpen, item.children?.length]);
 
   return (
@@ -220,6 +218,9 @@ function SubmenuItem({
       <button
         onClick={onOpen}
         className={`${MENU_STYLES.item} ${itemClassName ?? ""} flex items-center justify-between`}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        title={item.label}
       >
         <span>{item.label}</span>
         <svg
@@ -239,6 +240,7 @@ function SubmenuItem({
               key={`${child.label}-${ci}`}
               onClick={() => onAction(child)}
               className={`${MENU_STYLES.item} ${itemClassName ?? ""}`}
+              title={child.label}
             >
               {child.label}
             </button>
