@@ -693,33 +693,33 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(onSelectThread).toHaveBeenCalledWith("q-1742");
   });
 
-  it("hides approval notice rows but keeps Journey notices when a turn is collapsed", () => {
-    // Notification-sourced approval ledger records are collapsed-turn detail,
-    // while Journey lifecycle records stay visible as orientation markers.
+  it("hides approval and Journey lifecycle notice rows when a turn is collapsed", () => {
+    // Lifecycle records remain in server-owned attention state, but ordinary
+    // feeds no longer turn them into standalone rows.
     const sid = "test-collapsed-approval-notices-hidden";
     seedAttentionNoticeTurn(sid);
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("Journey started")).toBeTruthy();
-    expect(screen.getByText("Journey finished")).toBeTruthy();
+    expect(screen.queryByText("Journey started")).toBeNull();
+    expect(screen.queryByText("Journey finished")).toBeNull();
     expect(screen.getByText("Collapsed turn final response")).toBeTruthy();
     expect(screen.queryByText("approve q-1268 latency instrumentation rework plan")).toBeNull();
     expect(screen.queryByText("approve q-1210 thread-title voice context rework plan")).toBeNull();
     expect(screen.queryByRole("button", { name: "Answer" })).toBeNull();
   });
 
-  it("shows approval notice rows again when the same turn is expanded", () => {
-    // Expanded inspection remains the audit path for the same attention records;
-    // the collapsed policy must not delete or globally suppress them.
+  it("keeps Journey lifecycle rows hidden while expanded approval details remain available", () => {
+    // Expanding a turn restores ordinary approval detail, but does not bypass
+    // the lifecycle-row projection policy.
     const sid = "test-expanded-approval-notices-visible";
     seedAttentionNoticeTurn(sid);
     setStoreTurnOverrides(sid, [["u1", true]]);
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("Journey started")).toBeTruthy();
-    expect(screen.getByText("Journey finished")).toBeTruthy();
+    expect(screen.queryByText("Journey started")).toBeNull();
+    expect(screen.queryByText("Journey finished")).toBeNull();
     expect(screen.getByText("approve q-1268 latency instrumentation rework plan")).toBeTruthy();
     expect(screen.getByText("approve q-1210 thread-title voice context rework plan")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Answer" })).toHaveLength(2);

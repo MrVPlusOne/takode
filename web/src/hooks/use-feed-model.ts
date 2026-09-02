@@ -630,8 +630,8 @@ function entryIsCollapsedVisible(
 
 function shouldShowAttentionRecordInCollapsedTurn(record: SessionAttentionRecord | undefined): boolean {
   if (!record) return false;
-  // Approval prompts are details of the turn; Journey lifecycle records remain
-  // collapsed-visible orientation markers.
+  // Journey lifecycle records are filtered before turn-model construction.
+  // Of the remaining rows, notification-sourced approval prompts stay turn detail.
   return !(record.type === "needs_input" && record.source.kind === "notification");
 }
 

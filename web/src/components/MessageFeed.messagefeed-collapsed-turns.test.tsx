@@ -1080,7 +1080,7 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.getAllByText("Approve the implementation direction")).toHaveLength(1);
   });
 
-  it("keeps resolved attention ledger rows visible with resolved state", () => {
+  it("hides resolved Journey-finished review records from Main", () => {
     const sid = "test-main-attention-ledger-resolved";
     setStoreMessages(sid, [makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests" })]);
     setStoreNotifications(sid, [
@@ -1098,18 +1098,12 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    const row = screen.getByTestId("attention-ledger-row");
-    expect(row.getAttribute("data-attention-state")).toBe("resolved");
-    expect(screen.getByText("Journey finished")).toBeTruthy();
-    expect(row.className).toContain("bg-emerald-500/10");
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+    expect(screen.queryByText("Journey finished")).toBeNull();
     expect(screen.queryByText(/ready for review/i)).toBeNull();
-    expect(row.textContent).not.toContain("Needs attention");
-    expect(row.textContent).not.toContain("Resolved");
-    expect(screen.getByRole("button", { name: "Open thread:q-983" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Review" })).toBeNull();
   });
 
-  it("renders review ledger rows with compact finished copy and no duplicate summary", () => {
+  it("hides active Journey-finished review records from Main", () => {
     const sid = "test-main-attention-ledger-review-finished";
     setStoreMessages(sid, [makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests" })]);
     setStoreNotifications(sid, [
@@ -1125,30 +1119,15 @@ describe("MessageFeed - collapsed turns", () => {
       },
     ]);
 
-    const onSelectThread = vi.fn();
-    render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
+    render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
 
-    const row = screen.getByTestId("attention-ledger-row");
-    expect(row.textContent).toContain("Journey finished");
-    expect(row.className).toContain("border-emerald-400/30");
-    expect(row.className).toContain("bg-emerald-500/10");
-    expect(row.textContent).toContain("Compact notification cards");
-    const questLink = within(row).getByRole("link", { name: "q-983" });
-    expect(questLink.getAttribute("href")).toBe("#/?quest=q-983");
-    fireEvent.click(questLink);
-    expect(mockOpenQuestOverlay).toHaveBeenCalledWith("q-983");
-    expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
-    fireEvent.click(within(row).getByRole("button", { name: "Open thread:q-983" }));
-    expect(onSelectThread).toHaveBeenCalledWith("q-983");
-    expect(row.textContent).not.toContain("Needs attention");
-    expect(row.textContent?.match(/Compact notification cards/g)).toHaveLength(1);
-    expect(screen.queryByText(/ready for review/i)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Review" })).toBeNull();
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+    expect(screen.queryByText("Journey finished")).toBeNull();
+    expect(screen.queryByText("Compact notification cards")).toBeNull();
   });
 
-  it("renders Journey start ledger rows with inline quest and thread navigation", () => {
+  it("hides Journey-start records from Main", () => {
     const sid = "test-main-attention-ledger-journey-start";
-    const onSelectThread = vi.fn();
     setStoreMessages(sid, [makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests" })]);
     setStoreAttentionRecords(sid, [
       {
@@ -1174,20 +1153,11 @@ describe("MessageFeed - collapsed turns", () => {
       },
     ]);
 
-    render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
+    render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
 
-    const row = screen.getByTestId("attention-ledger-row");
-    expect(row.getAttribute("data-attention-type")).toBe("quest_journey_started");
-    expect(row.getAttribute("data-attention-event")).toBe("true");
-    expect(row.className).toContain("cc-attention-row-journey-started");
-    expect(row.textContent).toContain("Journey started");
-    expect(row.textContent).toContain("Show lifecycle chips");
-    expect(row.textContent).toContain("Lifecycle chips now include concise quest context.");
-    expect(within(row).getByRole("link", { name: "q-1033" })).toBeTruthy();
-    fireEvent.click(within(row).getByRole("button", { name: "Open thread:q-1033" }));
-    expect(onSelectThread).toHaveBeenCalledWith("q-1033");
-    expect(row.textContent).not.toContain("Resolved");
-    expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+    expect(screen.queryByText("Journey started")).toBeNull();
+    expect(screen.queryByText("Show lifecycle chips")).toBeNull();
   });
 
   it("suppresses persisted thread-created ledger rows", () => {
@@ -1222,7 +1192,7 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.queryByText("Thread opened")).toBeNull();
   });
 
-  it("renders server-authoritative attention lifecycle records from the live store", () => {
+  it("renders server-authoritative attention state records from the live store", () => {
     // `seen`, `dismissed`, and `superseded` are not notification states. Main
     // must render them from the shared server-authoritative record collection.
     const sid = "test-main-attention-ledger-live-records";

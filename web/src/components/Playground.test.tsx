@@ -767,18 +767,22 @@ describe("Playground", () => {
     expect(screen.getAllByLabelText("1 waiting session with scheduled timer").length).toBeGreaterThan(0);
   });
 
-  it("documents Journey finished as green while completed Journey starts stay quiet", () => {
+  it("documents Journey lifecycle rows as audit-only while banners retain status", () => {
     render(<Playground />);
 
-    const rows = screen.getAllByTestId("attention-ledger-row");
-    const finishedRow = rows.find((row) => row.textContent?.includes("Journey finished"));
-    const completedStartRow = rows.find((row) => row.textContent?.includes("Completed Journey start is quiet"));
-
-    expect(finishedRow).toBeTruthy();
-    expect(finishedRow).toHaveClass("border-emerald-400/30", "bg-emerald-500/10");
-    expect(completedStartRow).toBeTruthy();
-    expect(completedStartRow).toHaveClass("border-cc-border/70", "bg-cc-card/35");
-    expect(completedStartRow).not.toHaveClass("bg-emerald-500/10");
+    const ledger = screen.getByTestId("playground-attention-ledger-records");
+    expect(within(ledger).getByTestId("playground-lifecycle-feed-policy")).toHaveTextContent(
+      "retained for audit but intentionally omitted from ordinary feeds",
+    );
+    expect(within(ledger).queryByText("Journey started")).toBeNull();
+    expect(within(ledger).queryByText("Journey finished")).toBeNull();
+    expect(
+      within(ledger)
+        .getAllByTestId("attention-ledger-row")
+        .some((row) => ["quest_journey_started", "quest_completed_recent"].includes(row.dataset.attentionType ?? "")),
+    ).toBe(false);
+    const banner = screen.getAllByTestId("quest-thread-banner")[0];
+    expect(within(banner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Work");
   });
 
   it("documents Work Board Bar tab shrinking, phase legend, and shared quest hover states", async () => {

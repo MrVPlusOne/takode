@@ -83,7 +83,7 @@ describe("attention records", () => {
     });
   });
 
-  it("converts ready-for-review notification copy into compact finished ledger display", () => {
+  it("normalizes ready-for-review notification copy into retained completion records", () => {
     const records = buildAttentionRecords({
       leaderSessionId: "leader-1",
       notifications: [
@@ -446,7 +446,7 @@ describe("attention records", () => {
     expect(records).toHaveLength(0);
   });
 
-  it("uses server-authoritative Journey finish records instead of duplicating matching review notifications", () => {
+  it("keeps server-authoritative Journey finish records without projecting standalone feed rows", () => {
     const records = buildAttentionRecords({
       leaderSessionId: "leader-1",
       records: [
@@ -480,7 +480,12 @@ describe("attention records", () => {
       ],
     });
 
-    expect(selectMainLedgerRecords(records)).toHaveLength(1);
+    expect(records.find((record) => record.id === "board-journey-finished:q-984:200")).toMatchObject({
+      type: "quest_completed_recent",
+      ledgerEligible: true,
+    });
+    expect(selectMainLedgerRecords(records)).toHaveLength(0);
+    expect(buildAttentionLedgerMessages(records, "q-984")).toHaveLength(0);
     expect(records.find((record) => record.id === "notification:n-review")).toMatchObject({
       type: "quest_completed_recent",
       ledgerEligible: false,
@@ -549,7 +554,7 @@ describe("attention records", () => {
     });
   });
 
-  it("projects Journey lifecycle ledger rows into Main and the exact owner thread", () => {
+  it("preserves Journey lifecycle records while omitting them from ordinary feed ledgers", () => {
     const records = buildAttentionRecords({
       leaderSessionId: "leader-1",
       records: [
@@ -604,9 +609,10 @@ describe("attention records", () => {
     const recordIds = (threadKey: string) =>
       buildAttentionLedgerMessages(records, threadKey).map((message) => message.metadata?.attentionRecord?.id);
 
-    expect(recordIds("main")).toEqual(["started:q-984", "finished:q-984", "started:q-985"]);
-    expect(recordIds("q-984")).toEqual(["started:q-984", "finished:q-984"]);
-    expect(recordIds("q-985")).toEqual(["started:q-985"]);
+    expect(records.map((record) => record.id)).toEqual(["started:q-984", "finished:q-984", "started:q-985"]);
+    expect(recordIds("main")).toEqual([]);
+    expect(recordIds("q-984")).toEqual([]);
+    expect(recordIds("q-985")).toEqual([]);
     expect(recordIds("all")).toEqual([]);
   });
 

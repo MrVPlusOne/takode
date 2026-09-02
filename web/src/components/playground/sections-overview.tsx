@@ -25,6 +25,7 @@ import { YarnBallDot } from "../CatIcons.js";
 import { BuildMismatchNotice } from "../BuildMismatchNotice.js";
 import { getShortcutTitle } from "../../shortcuts.js";
 import { useStore } from "../../store.js";
+import { selectMainLedgerRecords } from "../../utils/attention-records.js";
 import {
   MOCK_MCP_SERVERS,
   MOCK_PR_DRAFT,
@@ -184,8 +185,8 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     questId: "q-9002",
     threadKey: "q-9002",
     title: "Journey started",
-    summary: "Show compact start and finish chips",
-    questTldr: "Start chips now foreground the quest title and include the quest TLDR when available.",
+    summary: "Lifecycle start audit record",
+    questTldr: "Lifecycle start evidence remains available to authoritative audit and status projections.",
     actionLabel: "Open",
     priority: "created",
     state: "resolved",
@@ -205,8 +206,8 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     questId: "q-9005",
     threadKey: "q-9005",
     title: "Journey started",
-    summary: "Completed Journey start is quiet",
-    questTldr: "Completed start rows keep the same title/TLDR structure while the lifecycle shell stays quiet.",
+    summary: "Earlier lifecycle start audit record",
+    questTldr: "Completed-run evidence remains available in backing attention state.",
     actionLabel: "Open",
     priority: "created",
     state: "resolved",
@@ -227,7 +228,7 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     questId: "q-9005",
     threadKey: "q-9005",
     title: "Journey finished",
-    summary: "Compact notification cards",
+    summary: "Lifecycle finish audit record",
     actionLabel: "Open",
     priority: "review",
     state: "unresolved",
@@ -280,6 +281,7 @@ const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
     dedupeKey: "playground-attention-reopened",
   },
 ];
+const VISIBLE_ATTENTION_LEDGER_RECORDS = selectMainLedgerRecords(ATTENTION_LEDGER_RECORDS);
 
 export function PlaygroundOverviewSections() {
   const [codexPendingThreadKey, setCodexPendingThreadKey] = useState("q-1958");
@@ -691,11 +693,14 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Attention Ledger Rows"
-        description="Main attention rows keep active, resolved, dismissed, and reopened user-actionable events visible without turning routine hidden activity into a timeline."
+        description="Ordinary feeds keep eligible attention rows while Journey lifecycle records remain audit data and current status stays in the quest banner and timeline."
       >
-        <Card label="Main ledger states">
-          <div className="space-y-2">
-            {ATTENTION_LEDGER_RECORDS.map((record) => (
+        <Card label="Ordinary Main ledger states">
+          <div className="space-y-2" data-testid="playground-attention-ledger-records">
+            <p className="text-xs text-cc-muted" data-testid="playground-lifecycle-feed-policy">
+              Journey start and finish records are retained for audit but intentionally omitted from ordinary feeds.
+            </p>
+            {VISIBLE_ATTENTION_LEDGER_RECORDS.map((record) => (
               <AttentionLedgerRow
                 key={record.id}
                 record={record}

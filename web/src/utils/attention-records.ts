@@ -41,6 +41,10 @@ const PRIORITY_ORDER = new Map<AttentionRecord["priority"], number>([
   ["completed", 5],
 ]);
 
+function isJourneyLifecycleFeedRecord(record: Pick<AttentionRecord, "type">): boolean {
+  return record.type === "quest_journey_started" || record.type === "quest_completed_recent";
+}
+
 export function buildAttentionRecords(input: BuildAttentionRecordsInput): AttentionRecord[] {
   const messageRecords = collectMessageAttentionRecords(input.leaderSessionId, input.messages ?? []);
   return buildProjectionAttentionRecords({
@@ -63,6 +67,7 @@ export function selectMainLedgerRecords(
     .filter(
       (record) =>
         record.ledgerEligible &&
+        !isJourneyLifecycleFeedRecord(record) &&
         record.type !== "quest_thread_created" &&
         !isThreadReadyReviewRecord(record) &&
         !isRedundantActiveNotification(record, options.availableMessageIds),
@@ -134,16 +139,7 @@ function shouldRenderOwnerThreadLedgerRecord(
   threadKey: string,
   availableMessageIds?: ReadonlySet<string>,
 ): boolean {
-  if (shouldRenderOwnerThreadLifecycleRecord(record, threadKey)) return true;
   return shouldRenderOwnerThreadNotificationRecord(record, threadKey, availableMessageIds);
-}
-
-function shouldRenderOwnerThreadLifecycleRecord(record: AttentionRecord, threadKey: string): boolean {
-  if (!record.ledgerEligible) return false;
-  if (record.type !== "quest_journey_started" && record.type !== "quest_completed_recent") return false;
-
-  const targetThreadKey = normalizeThreadKey(record.route.threadKey || record.threadKey);
-  return targetThreadKey === threadKey;
 }
 
 function shouldRenderOwnerThreadNotificationRecord(

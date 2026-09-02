@@ -115,27 +115,26 @@ function makePhasedAssistant(
   });
 }
 
-function makeJourneyFinishedRecord(overrides: Partial<SessionAttentionRecord> = {}): SessionAttentionRecord {
+function makeReworkMilestoneRecord(overrides: Partial<SessionAttentionRecord> = {}): SessionAttentionRecord {
   const createdAt = overrides.createdAt ?? 4;
   return {
-    id: "notification:n-journey-finished",
+    id: "message-rework:q-1151",
     leaderSessionId: "leader-1",
-    type: "quest_completed_recent",
-    source: { kind: "notification", id: "n-journey-finished", questId: "q-1151" },
+    type: "quest_reopened_or_rework",
+    source: { kind: "message", id: "rework-message", questId: "q-1151" },
     questId: "q-1151",
     threadKey: "q-1151",
-    title: "Journey finished",
-    summary: "Keep Journey chips anchored",
+    title: "Rework requested",
+    summary: "Keep attention milestones ordered",
     actionLabel: "Open",
-    priority: "review",
-    state: "unresolved",
+    priority: "milestone",
+    state: "reopened",
     createdAt,
     updatedAt: createdAt,
     route: { threadKey: "q-1151", questId: "q-1151" },
     chipEligible: false,
     ledgerEligible: true,
-    dedupeKey: "notification:n-journey-finished",
-    journeyLifecycleStatus: "completed",
+    dedupeKey: "message-rework:q-1151",
     ...overrides,
   };
 }
@@ -350,30 +349,40 @@ describe("leader mode collapsed preview without deprecated metadata", () => {
     expect(turn.stats.messageCount).toBe(1);
   });
 
-  it("keeps Journey-finished ledger rows in chronological collapsed-turn order", () => {
+  it("keeps attention milestones in chronological collapsed-turn order", () => {
     const messages: ChatMessage[] = [
-      makeMessage({ id: "u1", role: "user", content: "coordinate Journey work", timestamp: 1 }),
+      makeMessage({ id: "u1", role: "user", content: "coordinate rework", timestamp: 1 }),
       makeMessage({
         id: "a-visible-before",
         role: "assistant",
-        content: "Visible leader update before the Journey finishes.",
+        content: "Visible leader update before the rework milestone.",
         timestamp: 2,
         metadata: { leaderUserMessage: true },
       }),
-      makeMessage({ id: "a-private-before", role: "assistant", content: "private work before finish", timestamp: 3 }),
       makeMessage({
-        id: "journey-finished",
+        id: "a-private-before",
+        role: "assistant",
+        content: "private work before the milestone",
+        timestamp: 3,
+      }),
+      makeMessage({
+        id: "rework-milestone",
         role: "system",
-        content: "Open: Journey finished",
+        content: "Open: Rework requested",
         timestamp: 4,
         variant: "info",
-        metadata: { attentionRecord: makeJourneyFinishedRecord({ createdAt: 4, updatedAt: 4 }) },
+        metadata: { attentionRecord: makeReworkMilestoneRecord({ createdAt: 4, updatedAt: 4 }) },
       }),
-      makeMessage({ id: "a-private-after", role: "assistant", content: "private work after finish", timestamp: 5 }),
+      makeMessage({
+        id: "a-private-after",
+        role: "assistant",
+        content: "private work after the milestone",
+        timestamp: 5,
+      }),
       makeMessage({
         id: "a-visible-after",
         role: "assistant",
-        content: "Visible leader update after the Journey finishes.",
+        content: "Visible leader update after the rework milestone.",
         timestamp: 6,
         metadata: { leaderUserMessage: true },
       }),
@@ -382,12 +391,12 @@ describe("leader mode collapsed preview without deprecated metadata", () => {
     const model = buildFeedModel(messages, true);
     const turn = model.turns[0];
 
-    expect(entryIds(turn.systemEntries)).not.toContain("journey-finished");
-    expect(entryIds(turn.notificationEntries)).toEqual(["a-visible-before", "journey-finished", "a-visible-after"]);
+    expect(entryIds(turn.systemEntries)).not.toContain("rework-milestone");
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-visible-before", "rework-milestone", "a-visible-after"]);
     expect(collapsedEntryIds(turn)).toEqual([
       "a-visible-before",
       "activity",
-      "journey-finished",
+      "rework-milestone",
       "activity",
       "a-visible-after",
     ]);

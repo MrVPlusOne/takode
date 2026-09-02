@@ -550,7 +550,7 @@ describe("feed render model builders", () => {
     ]);
   });
 
-  it("keeps active Journey-finished ledger rows anchored to the selected Main window", () => {
+  it("keeps Journey-finished records hidden across selected Main windows", () => {
     const olderWindowStart = makeMessage({
       id: "a-older-window-start",
       role: "assistant",
@@ -602,12 +602,12 @@ describe("feed render model builders", () => {
 
     expect(olderModel.attentionLedgerMessages).toHaveLength(0);
     expect(olderModel.messages.map((message) => message.id)).toEqual(["a-older-window-start", "a-older-window-end"]);
-    expect(journeyModel.attentionLedgerMessages.map((message) => message.id)).toEqual([
-      "attention-ledger:notification:n-journey-finished",
+    expect(journeyModel.attentionRecords).toEqual([
+      expect.objectContaining({ id: "notification:n-journey-finished", ledgerEligible: true }),
     ]);
+    expect(journeyModel.attentionLedgerMessages).toHaveLength(0);
     expect(journeyModel.messages.map((message) => message.id)).toEqual([
       "a-journey-window-start",
-      "attention-ledger:notification:n-journey-finished",
       "a-journey-window-end",
     ]);
   });
@@ -960,7 +960,7 @@ describe("feed render model builders", () => {
     expect(model.messages.map((message) => message.id)).toContain("attention-ledger:notification:n-q1237");
   });
 
-  it("projects producer Journey lifecycle records into Main and the owner quest thread only", () => {
+  it("retains producer Journey lifecycle records without projecting standalone feed rows", () => {
     const journeyStarted = makeAttentionRecord({
       id: "board-journey-started:q-1353:100",
       type: "quest_journey_started",
@@ -994,6 +994,15 @@ describe("feed render model builders", () => {
       chipEligible: false,
       dedupeKey: "board-journey-finished:q-1353:200",
     });
+    const journeyRestarted = makeAttentionRecord({
+      ...journeyStarted,
+      id: "board-journey-started:q-1353:300",
+      source: { kind: "board", id: "q-1353", questId: "q-1353", signature: "started:300" },
+      createdAt: 300,
+      updatedAt: 300,
+      resolvedAt: 300,
+      dedupeKey: "board-journey-started:q-1353:300",
+    });
     const commonInput = {
       allMessages: [
         makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests", timestamp: 50 }),
@@ -1008,7 +1017,7 @@ describe("feed render model builders", () => {
         }),
       ],
       sessionNotifications: [],
-      sessionAttentionRecords: [journeyStarted, journeyFinished],
+      sessionAttentionRecords: [journeyStarted, journeyFinished, journeyRestarted],
     };
 
     const main = buildMessageModel({ ...commonInput, threadKey: "main", selectedFeedWindowEnabled: false });
@@ -1027,12 +1036,17 @@ describe("feed render model builders", () => {
     const ledgerIds = (model: ReturnType<typeof buildMessageModel>) =>
       model.attentionLedgerMessages.map((message) => message.metadata?.attentionRecord?.id);
 
-    expect(ledgerIds(main)).toEqual(["board-journey-started:q-1353:100", "board-journey-finished:q-1353:200"]);
-    expect(ledgerIds(ownerThread)).toEqual(["board-journey-started:q-1353:100", "board-journey-finished:q-1353:200"]);
-    expect(ownerThread.attentionLedgerMessages[0]?.metadata?.attentionRecord?.journeyLifecycleStatus).toBe("completed");
-    expect(ownerThread.attentionLedgerMessages[1]?.metadata?.attentionRecord?.journeyLifecycleStatus).toBe("completed");
+    expect(main.attentionRecords.map((record) => [record.id, record.journeyLifecycleStatus])).toEqual([
+      ["board-journey-started:q-1353:100", "completed"],
+      ["board-journey-finished:q-1353:200", "completed"],
+      ["board-journey-started:q-1353:300", "active"],
+    ]);
+    expect(ledgerIds(main)).toEqual([]);
+    expect(ledgerIds(ownerThread)).toEqual([]);
     expect(ledgerIds(otherThread)).toEqual([]);
     expect(ledgerIds(allThreads)).toEqual([]);
+    expect(ownerThread.messages.map((message) => message.id)).toContain("a-q1353");
+    expect(ownerThread.messages.some((message) => message.id.startsWith("attention-ledger:"))).toBe(false);
   });
 
   it("derives bounded local section metadata separately from scroll/runtime behavior", () => {

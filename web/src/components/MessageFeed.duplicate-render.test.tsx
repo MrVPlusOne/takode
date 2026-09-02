@@ -159,27 +159,26 @@ function setStoreNotifications(sessionId: string, notifications: Array<Record<st
   mockStoreValues.sessionNotifications = new Map([[sessionId, notifications]]);
 }
 
-function makeJourneyFinishedRecord(overrides: Partial<SessionAttentionRecord> = {}): SessionAttentionRecord {
+function makeReworkMilestoneRecord(overrides: Partial<SessionAttentionRecord> = {}): SessionAttentionRecord {
   const createdAt = overrides.createdAt ?? Date.now();
   return {
-    id: "notification:n-journey-finished",
+    id: "message-rework:q-1151",
     leaderSessionId: "leader-1",
-    type: "quest_completed_recent",
-    source: { kind: "notification", id: "n-journey-finished", questId: "q-1151" },
+    type: "quest_reopened_or_rework",
+    source: { kind: "message", id: "rework-message", questId: "q-1151" },
     questId: "q-1151",
     threadKey: "q-1151",
-    title: "Journey finished",
-    summary: "Keep Journey chips anchored",
+    title: "Rework requested",
+    summary: "Keep attention milestones ordered",
     actionLabel: "Open",
-    priority: "review",
-    state: "unresolved",
+    priority: "milestone",
+    state: "reopened",
     createdAt,
     updatedAt: createdAt,
     route: { threadKey: "q-1151", questId: "q-1151" },
     chipEligible: false,
     ledgerEligible: true,
-    dedupeKey: "notification:n-journey-finished",
-    journeyLifecycleStatus: "completed",
+    dedupeKey: "message-rework:q-1151",
     ...overrides,
   };
 }
@@ -247,46 +246,46 @@ describe("MessageFeed duplicate rendering regression", () => {
     expect(screen.getAllByText("q-521 can be dispatched now")).toHaveLength(1);
   });
 
-  it("keeps a Journey-finished chip in chronological order inside a collapsed turn", () => {
-    const sid = "test-collapsed-journey-finished-order";
+  it("keeps an attention milestone in chronological order inside a collapsed turn", () => {
+    const sid = "test-collapsed-attention-milestone-order";
     setStoreMessages(sid, [
-      makeMessage({ id: "u1", role: "user", content: "Coordinate the Journey" }),
+      makeMessage({ id: "u1", role: "user", content: "Coordinate the rework" }),
       makeMessage({
         id: "a-before",
         role: "assistant",
-        content: "Priority update before the Journey finished",
-        notification: { category: "review", timestamp: Date.now(), summary: "q-1150 ready for review" },
+        content: "Priority update before the rework milestone",
+        notification: { category: "review", timestamp: Date.now(), summary: "q-1150 needs rework" },
       }),
-      makeMessage({ id: "a-private-before", role: "assistant", content: "Hidden private activity before finish" }),
+      makeMessage({ id: "a-private-before", role: "assistant", content: "Hidden private activity before milestone" }),
       makeMessage({
-        id: "journey-finished",
+        id: "rework-milestone",
         role: "system",
-        content: "Open: Journey finished",
+        content: "Open: Rework requested",
         variant: "info",
-        metadata: { attentionRecord: makeJourneyFinishedRecord() },
+        metadata: { attentionRecord: makeReworkMilestoneRecord() },
       }),
-      makeMessage({ id: "a-private-after", role: "assistant", content: "Hidden private activity after finish" }),
-      makeMessage({ id: "a-after", role: "assistant", content: "Visible final update after the Journey finished" }),
+      makeMessage({ id: "a-private-after", role: "assistant", content: "Hidden private activity after milestone" }),
+      makeMessage({ id: "a-after", role: "assistant", content: "Visible final update after the rework milestone" }),
       makeMessage({ id: "u2", role: "user", content: "Next request" }),
     ]);
 
     render(<MessageFeed sessionId={sid} />);
 
-    const before = screen.getByText("Priority update before the Journey finished");
-    const journey = screen.getByText("Journey finished");
-    const after = screen.getByText("Visible final update after the Journey finished");
+    const before = screen.getByText("Priority update before the rework milestone");
+    const milestone = screen.getByText("Rework requested");
+    const after = screen.getByText("Visible final update after the rework milestone");
     const collapsedCard = after.closest(".rounded-xl");
 
     expect(collapsedCard).toBeTruthy();
     expect(before.closest(".rounded-xl")).toBe(collapsedCard);
-    expect(journey.closest(".rounded-xl")).toBe(collapsedCard);
-    expect(screen.queryByText("Hidden private activity before finish")).toBeNull();
-    expect(screen.queryByText("Hidden private activity after finish")).toBeNull();
+    expect(milestone.closest(".rounded-xl")).toBe(collapsedCard);
+    expect(screen.queryByText("Hidden private activity before milestone")).toBeNull();
+    expect(screen.queryByText("Hidden private activity after milestone")).toBeNull();
 
     const text = collapsedCard?.textContent ?? "";
-    expect(text.indexOf("Priority update before the Journey finished")).toBeLessThan(text.indexOf("Journey finished"));
-    expect(text.indexOf("Journey finished")).toBeLessThan(
-      text.indexOf("Visible final update after the Journey finished"),
+    expect(text.indexOf("Priority update before the rework milestone")).toBeLessThan(text.indexOf("Rework requested"));
+    expect(text.indexOf("Rework requested")).toBeLessThan(
+      text.indexOf("Visible final update after the rework milestone"),
     );
   });
 
