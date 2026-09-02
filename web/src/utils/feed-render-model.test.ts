@@ -65,6 +65,35 @@ function makeRawUserMessage(overrides: {
   };
 }
 
+function makeRawNeedsInputReminder(overrides: {
+  id: string;
+  timestamp: number;
+  totalCount: number;
+  entries: Array<{ id: string; summary: string }>;
+}): Extract<BrowserIncomingMessage, { type: "user_message" }> {
+  return {
+    type: "user_message",
+    id: overrides.id,
+    content: [
+      "[Needs-input reminder]",
+      `Unresolved same-session same-thread needs-input notifications (main): ${overrides.totalCount}.${
+        overrides.totalCount > overrides.entries.length ? ` Showing newest ${overrides.entries.length}.` : ""
+      }`,
+      ...overrides.entries.map((entry) => `  ${entry.id}. ${entry.summary}`),
+      "Review or resolve these before assuming the user's latest message answered them.",
+    ].join("\n"),
+    timestamp: overrides.timestamp,
+    agentSource: {
+      sessionId: "system:needs-input-reminder",
+      sessionLabel: "Needs Input Reminder",
+    },
+  };
+}
+
+function normalizeRawUserMessage(message: Extract<BrowserIncomingMessage, { type: "user_message" }>): ChatMessage {
+  return normalizeHistoryMessageToChatMessages(message, 0)[0]!;
+}
+
 function makeAttentionRecord(overrides: Partial<SessionAttentionRecord> & { id: string }): SessionAttentionRecord {
   const createdAt = overrides.createdAt ?? 1;
   return {
@@ -357,6 +386,127 @@ describe("feed render model builders", () => {
 
     expect(model.messages.map((message) => message.id)).toEqual(["root-window-row"]);
     expect(model.attentionLedgerMessages).toEqual([]);
+  });
+
+  it("hides a fully resolved producer-shaped reminder from leader Main while retaining its decision record", () => {
+    // The reminder is durable history, but ordinary Main should show only the
+    // real resolved needs-input record. All Threads must retain the raw row.
+    const timestamp = 100;
+    const reminder = normalizeRawUserMessage(
+      makeRawNeedsInputReminder({
+        id: "needs-input-reminder-resolved",
+        timestamp,
+        totalCount: 1,
+        entries: [{ id: "17", summary: "Choose rollout scope" }],
+      }),
+    );
+    const resolvedNotification = makeNotification({
+      id: "n-17",
+      messageId: null,
+      timestamp,
+      summary: "Choose rollout scope",
+      threadKey: "q-2028",
+      questId: "q-2028",
+      done: true,
+    });
+
+    const main = buildMessageModel({
+      allMessages: [reminder],
+      selectedFeedWindow: makeWindow({
+        from_item: 0,
+        item_count: 1,
+        total_items: 1,
+        source_history_length: 1,
+      }),
+      selectedFeedWindowMessages: [reminder],
+      sessionNotifications: [resolvedNotification],
+    });
+    const all = buildMessageModel({
+      allMessages: [reminder],
+      threadKey: "all",
+      selectedFeedWindowEnabled: false,
+      selectedFeedWindow: null,
+      selectedFeedWindowMessages: [],
+      sessionNotifications: [resolvedNotification],
+    });
+
+    expect(main.messagesAvailableForDerivation.map((message) => message.id)).toEqual([reminder.id]);
+    expect(main.baseMessages.map((message) => message.id)).toEqual([reminder.id]);
+    expect(main.visibleBaseMessages).toEqual([]);
+    expect(main.attentionLedgerMessages).toEqual([
+      expect.objectContaining({
+        id: "attention-ledger:notification:n-17",
+        metadata: expect.objectContaining({
+          attentionRecord: expect.objectContaining({ type: "needs_input", state: "resolved" }),
+        }),
+      }),
+    ]);
+    expect(main.messages.map((message) => message.id)).toEqual(["attention-ledger:notification:n-17"]);
+    expect(all.messages.map((message) => message.id)).toEqual([reminder.id]);
+  });
+
+  it("keeps active, partial, unavailable, and resolution-notice rows outside the narrow Main filter", () => {
+    // Current producer headers include same-thread routing. Truncated reminders
+    // must stay visible when an unlisted prompt is active, and the separate
+    // resolution-notice source must never be swept into this cleanup.
+    const activeReminder = normalizeRawUserMessage(
+      makeRawNeedsInputReminder({
+        id: "needs-input-reminder-active",
+        timestamp: 200,
+        totalCount: 1,
+        entries: [{ id: "18", summary: "Active question" }],
+      }),
+    );
+    const partialReminder = normalizeRawUserMessage(
+      makeRawNeedsInputReminder({
+        id: "needs-input-reminder-partial",
+        timestamp: 400,
+        totalCount: 4,
+        entries: [
+          { id: "6", summary: "Newest resolved question" },
+          { id: "5", summary: "Second resolved question" },
+          { id: "3", summary: "Third resolved question" },
+        ],
+      }),
+    );
+    const unavailableReminder = normalizeRawUserMessage(
+      makeRawNeedsInputReminder({
+        id: "needs-input-reminder-unavailable",
+        timestamp: 500,
+        totalCount: 1,
+        entries: [{ id: "99", summary: "Unavailable question" }],
+      }),
+    );
+    const resolutionNotice = makeMessage({
+      id: "needs-input-resolution-notice",
+      role: "user",
+      content: "[Needs-input resolution notice]\nResolved same-session same-thread needs-input (main): 1.",
+      timestamp: 600,
+      agentSource: {
+        sessionId: "system:needs-input-resolution",
+        sessionLabel: "Needs Input Resolution",
+      },
+    });
+    const model = buildMessageModel({
+      allMessages: [activeReminder, partialReminder, unavailableReminder, resolutionNotice],
+      selectedFeedWindowEnabled: false,
+      selectedFeedWindow: null,
+      selectedFeedWindowMessages: [],
+      sessionNotifications: [
+        makeNotification({ id: "n-18", messageId: null, timestamp: 180, summary: "Active question" }),
+        makeNotification({ id: "n-6", messageId: null, timestamp: 360, done: true }),
+        makeNotification({ id: "n-5", messageId: null, timestamp: 350, done: true }),
+        makeNotification({ id: "n-3", messageId: null, timestamp: 330, done: true }),
+        makeNotification({ id: "n-1", messageId: null, timestamp: 300, summary: "Hidden active question" }),
+      ],
+    });
+
+    expect(model.visibleBaseMessages.map((message) => message.id)).toEqual([
+      activeReminder.id,
+      partialReminder.id,
+      unavailableReminder.id,
+      resolutionNotice.id,
+    ]);
   });
 
   it("keeps an active Main notification source visible when the selected window would otherwise omit it", () => {

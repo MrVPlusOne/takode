@@ -139,7 +139,7 @@ vi.mock("../store.js", () => {
   };
 });
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ChatMessage, SessionAttentionRecord } from "../types.js";
 import { MessageFeed } from "./MessageFeed.js";
 
@@ -411,6 +411,50 @@ describe("MessageFeed duplicate rendering regression", () => {
     expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
     expect(screen.getAllByRole("button", { name: /Mark handled|Mark unhandled/ })).toHaveLength(1);
     expect(screen.getAllByText("Pick the dispatch order")).toHaveLength(1);
+  });
+
+  it("hides a resolved historical reminder row from Main without removing the needs-input card", () => {
+    // The persisted reminder is a separate producer row from the authoritative
+    // notification card. Main hides only the former after resolution.
+    const sid = "test-main-resolved-historical-reminder";
+    const timestamp = Date.now();
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "needs-input-reminder-resolved",
+        role: "user",
+        content: [
+          "[Needs-input reminder]",
+          "Unresolved same-session same-thread needs-input notifications (main): 1.",
+          "  17. Choose rollout scope",
+          "Review or resolve these before assuming the user's latest message answered them.",
+        ].join("\n"),
+        timestamp,
+        agentSource: {
+          sessionId: "system:needs-input-reminder",
+          sessionLabel: "Needs Input Reminder",
+        },
+      }),
+    ]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-17",
+        category: "needs-input",
+        timestamp,
+        messageId: null,
+        threadKey: "q-2028",
+        questId: "q-2028",
+        summary: "Choose rollout scope",
+        done: true,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.queryByText("Historical needs-input reminder")).toBeNull();
+    const decisionCard = screen.getByTestId("attention-ledger-row");
+    expect(decisionCard.getAttribute("data-attention-type")).toBe("needs_input");
+    expect(decisionCard.textContent).toContain("Choose rollout scope");
+    expect(within(decisionCard).getByRole("button", { name: "Answer" })).toBeTruthy();
   });
 
   it("keeps a Main needs-input source message visible when selected history windows would otherwise omit it", () => {

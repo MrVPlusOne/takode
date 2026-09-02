@@ -1,5 +1,5 @@
 import type { GitHubPRInfo } from "../../api.js";
-import type { McpServerDetail, PermissionRequest, ChatMessage, TaskItem } from "../../types.js";
+import type { McpServerDetail, PermissionRequest, ChatMessage, SessionNotification, TaskItem } from "../../types.js";
 import type { SidebarSessionItem } from "../../utils/sidebar-session-item.js";
 import { buildHerdGroupBadgeThemes, getHerdGroupLeaderId } from "../../utils/herd-group-theme.js";
 import { LEADER_PROFILE_PORTRAITS } from "../../../shared/leader-profile-portraits.js";
@@ -359,6 +359,40 @@ export function makePlaygroundMessage(overrides: Partial<ChatMessage> & { role: 
     content: "",
     timestamp: Date.now(),
     ...overrides,
+  };
+}
+
+export function makeResolvedNeedsInputMainProjectionFixture(timestamp: number): {
+  reminder: ChatMessage;
+  notification: SessionNotification;
+} {
+  return {
+    reminder: makePlaygroundMessage({
+      id: "playground-sparse-main-reminder",
+      role: "user",
+      content: [
+        "[Needs-input reminder]",
+        "Unresolved same-session same-thread needs-input notifications (main): 1.",
+        "  17. Choose the retained implementation scope",
+        "Review or resolve these before assuming the user's latest message answered them.",
+      ].join("\n"),
+      timestamp,
+      historyIndex: 208,
+      agentSource: {
+        sessionId: "system:needs-input-reminder",
+        sessionLabel: "Needs Input Reminder",
+      },
+    }),
+    notification: {
+      id: "n-17",
+      category: "needs-input",
+      timestamp,
+      messageId: null,
+      threadKey: "q-1205",
+      questId: "q-1205",
+      summary: "Choose the retained implementation scope",
+      done: true,
+    },
   };
 }
 

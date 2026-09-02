@@ -41,6 +41,7 @@ import {
   PERM_BASH,
   PERM_DYNAMIC,
   makePlaygroundMessage,
+  makeResolvedNeedsInputMainProjectionFixture,
   makePlaygroundSectionedMessages,
 } from "./fixtures.js";
 import { buildPlaygroundAutoPauseRecoveryMessage } from "./AutoPausePlaygroundStates.js";
@@ -480,6 +481,7 @@ export function usePlaygroundSeed() {
     store.setConnectionStatus(PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID, "connected");
     store.setCliConnected(PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID, true);
     store.setSessionStatus(PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID, "idle");
+    const sparseNeedsInputFixture = makeResolvedNeedsInputMainProjectionFixture(Date.now() - 86_400_000);
     store.setThreadWindow(
       PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID,
       "main",
@@ -494,22 +496,9 @@ export function usePlaygroundSeed() {
         section_item_count: 10,
         visible_item_count: 3,
       },
-      [
-        makePlaygroundMessage({
-          id: "playground-sparse-main-reminder",
-          role: "assistant",
-          content: "Historical needs-input reminder",
-          timestamp: Date.now() - 86_400_000,
-          historyIndex: 208,
-          notification: {
-            category: "needs-input",
-            timestamp: Date.now() - 86_400_000,
-            summary: "Historical needs-input reminder",
-          },
-          metadata: { threadKey: "q-1205", questId: "q-1205" },
-        }),
-      ],
+      [sparseNeedsInputFixture.reminder],
     );
+    store.setSessionNotifications(PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID, [sparseNeedsInputFixture.notification]);
 
     const loadingSession: SessionState = {
       ...session,

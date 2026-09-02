@@ -774,6 +774,17 @@ describe("Playground", () => {
     expect(screen.getAllByLabelText("1 waiting session with scheduled timer").length).toBeGreaterThan(0);
   });
 
+  it("documents resolved reminder suppression while retaining the needs-input card in Main", () => {
+    render(<Playground />);
+
+    const mainProjection = screen.getByTestId("playground-resolved-reminder-main-projection");
+    expect(within(mainProjection).queryByText("Historical needs-input reminder")).toBeNull();
+    const decisionCard = within(mainProjection).getByTestId("attention-ledger-row");
+    expect(decisionCard).toHaveAttribute("data-attention-type", "needs_input");
+    expect(decisionCard).toHaveTextContent("Choose the retained implementation scope");
+    expect(within(decisionCard).getByRole("button", { name: "Answer" })).toBeTruthy();
+  });
+
   it("documents Journey lifecycle rows as audit-only while banners retain status", () => {
     render(<Playground />);
 

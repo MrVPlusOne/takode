@@ -35,6 +35,7 @@ import {
 import { composeSelectedFeedMessages } from "./thread-window-messages.js";
 import { sanitizeNotificationMessageTargets } from "./notification-targets.js";
 import { filterRootAgentFeedMessages } from "./root-agent-feed-message.js";
+import { isFullyResolvedNeedsInputReminder } from "./needs-input-reminder.js";
 
 export interface BuildFeedMessageModelInput {
   leaderSessionId: string;
@@ -119,7 +120,12 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     attentionRecordsWithThreadMovement,
     normalizedThreadKey,
   );
-  const visibleBaseMessages = removeMergedThreadAttachmentMarkers(baseMessages, mergedThreadAttachmentKeys);
+  const visibleBaseMessages = removeMergedThreadAttachmentMarkers(baseMessages, mergedThreadAttachmentKeys).filter(
+    (message) =>
+      !input.projectThreadRoutes ||
+      !isMainThreadKey(normalizedThreadKey) ||
+      !isFullyResolvedNeedsInputReminder(message, sanitizedNotifications),
+  );
   const baseMessageIds = new Set(visibleBaseMessages.map((message) => message.id));
   const isWindowedMainFeed = input.selectedFeedWindowEnabled && isMainThreadKey(normalizedThreadKey);
   const mainWindowTimestampRange =

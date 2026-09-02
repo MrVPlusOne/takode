@@ -720,8 +720,11 @@ export function PlaygroundOverviewSections() {
           <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[620px]">
             <MessageFeed sessionId={PLAYGROUND_SECTIONED_SESSION_ID} />
           </div>
-          <Card label="Sparse selected Main">
-            <div className="h-[360px] overflow-hidden rounded-xl border border-cc-border bg-cc-card">
+          <Card label="Sparse selected Main (historical reminder filtered)">
+            <div
+              className="h-[360px] overflow-hidden rounded-xl border border-cc-border bg-cc-card"
+              data-testid="playground-resolved-reminder-main-projection"
+            >
               <MessageFeed sessionId={PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID} threadKey="main" />
             </div>
           </Card>

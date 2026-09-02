@@ -60,7 +60,7 @@ function makeTruncatedNeedsInputReminderMessage(): ChatMessage {
     role: "user",
     content: [
       "[Needs-input reminder]",
-      "Unresolved same-session needs-input notifications: 4. Showing newest 3.",
+      "Unresolved same-session same-thread needs-input notifications (main): 4. Showing newest 3.",
       "  6. Newest pending question",
       "  5. Second newest pending question",
       "  3. Third newest pending question",

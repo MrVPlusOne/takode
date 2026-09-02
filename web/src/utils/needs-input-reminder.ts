@@ -43,7 +43,9 @@ function normalizeReminderNotificationId(rawId: string): string | null {
 function parseNeedsInputReminderContent(content: string): ParsedNeedsInputReminder | null {
   const lines = content.split(/\r?\n/);
   if (lines[0]?.trim() !== "[Needs-input reminder]") return null;
-  const totalMatch = lines[1]?.match(/^Unresolved same-session needs-input notifications: (\d+)\./);
+  const totalMatch = lines[1]?.match(
+    /^Unresolved same-session(?: same-thread)? needs-input notifications(?: \([^)]+\))?: (\d+)\./,
+  );
   const totalCount = totalMatch ? Number.parseInt(totalMatch[1], 10) : null;
 
   const entries: ParsedNeedsInputReminderEntry[] = [];
@@ -200,4 +202,18 @@ export function buildNeedsInputReminderViewModel(
       totalCount: parsed?.totalCount ?? null,
     }),
   };
+}
+
+export function isFullyResolvedNeedsInputReminder(
+  message: Pick<ChatMessage, "agentSource" | "content" | "timestamp">,
+  notifications: ReadonlyArray<SessionNotification> | undefined,
+): boolean {
+  const reminder = buildNeedsInputReminderViewModel(message, notifications);
+  if (!reminder) return false;
+
+  // Fail closed when any referenced or truncated notification state is
+  // unavailable. Those reminders can still represent an unresolved prompt.
+  return (
+    reminder.activeCount === 0 && reminder.resolvedCount > 0 && reminder.unknownCount === 0 && !reminder.hasPartialState
+  );
 }
