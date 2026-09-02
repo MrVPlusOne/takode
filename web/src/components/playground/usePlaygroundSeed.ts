@@ -22,6 +22,7 @@ import {
   PLAYGROUND_TURN_RECOVERY_ACTIVE_SESSION_ID,
   PLAYGROUND_TURN_RECOVERY_PENDING_SESSION_ID,
   PLAYGROUND_TURN_RECOVERY_RECOVERING_SESSION_ID,
+  PLAYGROUND_TURN_RECOVERY_REPLAY_SESSION_ID,
   PLAYGROUND_RESUMING_SESSION_ID,
   PLAYGROUND_SECTIONED_SESSION_ID,
   PLAYGROUND_SIDE_CHAT_CHILD_SESSION_ID,
@@ -48,7 +49,7 @@ import { buildPlaygroundAutoPauseRecoveryMessage } from "./AutoPausePlaygroundSt
 import { createSyntheticLargeLeaderFeedFixture } from "../../test-fixtures/large-leader-feed-fixture.js";
 import { buildLeaderActivePhaseSummary } from "../../../shared/leader-active-phase-summary.js";
 import { LEADER_THREAD_TABS_PROJECTION } from "../../../shared/leader-thread-tabs-projection.js";
-import { buildPlaygroundActionRequiredRecoveryMessages } from "./CodexRecoveryPlaygroundMessages.js";
+import { seedCodexTurnRecoveryPlaygroundStates } from "./CodexTurnRecoveryPlaygroundSeed.js";
 import { buildPlaygroundProjectedJourney } from "./leader-thread-tabs-projection-fixtures.js";
 
 const EMPTY_PROJECTED_ATTENTION = { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 };
@@ -80,6 +81,7 @@ export function usePlaygroundSeed() {
       PLAYGROUND_BROKEN_SESSION_ID,
       PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID,
       PLAYGROUND_TURN_RECOVERY_RECOVERING_SESSION_ID,
+      PLAYGROUND_TURN_RECOVERY_REPLAY_SESSION_ID,
       PLAYGROUND_TURN_RECOVERY_PENDING_SESSION_ID,
       PLAYGROUND_TURN_RECOVERY_ACTIVE_SESSION_ID,
       PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID,
@@ -1666,105 +1668,7 @@ export function usePlaygroundSeed() {
     store.setCliDisconnectReason(PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID, "recovery_suppressed");
     store.setSessionStatus(PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID, null);
 
-    const interruptedTurnRecoveryBase = {
-      recoveryId: "playground-interrupted-turn",
-      originalOwnerId: "playground-interrupted-owner",
-      originalProviderTurnId: "playground-provider-turn",
-      originalHistoryIndex: 42,
-      threadKey: "q-9010",
-      questId: "q-9010",
-      maxAttempts: 1 as const,
-      createdAt: Date.now() - 75_000,
-    };
-
-    store.addSession({
-      ...session,
-      session_id: PLAYGROUND_TURN_RECOVERY_RECOVERING_SESSION_ID,
-      backend_type: "codex",
-      backend_state: "recovering",
-      backend_error: null,
-      backend_reconnect: { attempt: 1, maxAttempts: 5, cycleStartedAt: Date.now() - 15_000 },
-      codex_turn_recovery: {
-        ...interruptedTurnRecoveryBase,
-        continuationOwnerId: null,
-        status: "recovering",
-        reason: "adapter_disconnect",
-        attempt: 0,
-        updatedAt: Date.now() - 15_000,
-      },
-      model: "gpt-5.3-codex",
-    });
-    store.setConnectionStatus(PLAYGROUND_TURN_RECOVERY_RECOVERING_SESSION_ID, "connected");
-    store.setCliConnected(PLAYGROUND_TURN_RECOVERY_RECOVERING_SESSION_ID, false);
-    store.setCliEverConnected(PLAYGROUND_TURN_RECOVERY_RECOVERING_SESSION_ID);
-    store.setSessionStatus(PLAYGROUND_TURN_RECOVERY_RECOVERING_SESSION_ID, null);
-
-    store.addSession({
-      ...session,
-      session_id: PLAYGROUND_TURN_RECOVERY_PENDING_SESSION_ID,
-      backend_type: "codex",
-      backend_state: "connected",
-      backend_error: null,
-      codex_turn_recovery: {
-        ...interruptedTurnRecoveryBase,
-        continuationOwnerId: "playground-continuation-pending",
-        status: "continuation_pending",
-        reason: "interrupted_after_activity",
-        attempt: 1,
-        updatedAt: Date.now() - 8_000,
-      },
-      model: "gpt-5.3-codex",
-    });
-    store.setConnectionStatus(PLAYGROUND_TURN_RECOVERY_PENDING_SESSION_ID, "connected");
-    store.setCliConnected(PLAYGROUND_TURN_RECOVERY_PENDING_SESSION_ID, true);
-    store.setCliEverConnected(PLAYGROUND_TURN_RECOVERY_PENDING_SESSION_ID);
-    store.setSessionStatus(PLAYGROUND_TURN_RECOVERY_PENDING_SESSION_ID, null);
-
-    store.addSession({
-      ...session,
-      session_id: PLAYGROUND_TURN_RECOVERY_ACTIVE_SESSION_ID,
-      backend_type: "codex",
-      backend_state: "connected",
-      backend_error: null,
-      codex_turn_recovery: {
-        ...interruptedTurnRecoveryBase,
-        continuationOwnerId: "playground-continuation-active",
-        status: "continuation_active",
-        reason: "interrupted_after_activity",
-        attempt: 1,
-        updatedAt: Date.now() - 4_000,
-      },
-      model: "gpt-5.3-codex",
-    });
-    store.setConnectionStatus(PLAYGROUND_TURN_RECOVERY_ACTIVE_SESSION_ID, "connected");
-    store.setCliConnected(PLAYGROUND_TURN_RECOVERY_ACTIVE_SESSION_ID, true);
-    store.setCliEverConnected(PLAYGROUND_TURN_RECOVERY_ACTIVE_SESSION_ID);
-    store.setSessionStatus(PLAYGROUND_TURN_RECOVERY_ACTIVE_SESSION_ID, null);
-
-    store.addSession({
-      ...session,
-      session_id: PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID,
-      backend_type: "codex",
-      backend_state: "connected",
-      backend_error: null,
-      codex_turn_recovery: {
-        ...interruptedTurnRecoveryBase,
-        continuationOwnerId: "playground-continuation-action-required",
-        status: "action_required",
-        reason: "continuation_interrupted",
-        attempt: 1,
-        updatedAt: Date.now() - 1_000,
-      },
-      model: "gpt-5.3-codex",
-    });
-    store.setConnectionStatus(PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID, "connected");
-    store.setCliConnected(PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID, true);
-    store.setCliEverConnected(PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID);
-    store.setSessionStatus(PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID, null);
-    store.setMessages(
-      PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID,
-      buildPlaygroundActionRequiredRecoveryMessages(interruptedTurnRecoveryBase.recoveryId),
-    );
+    seedCodexTurnRecoveryPlaygroundStates(store, session);
 
     // Seed claimed-quest state used by non-sidebar playground surfaces.
     store.addSession({ ...session, session_id: questInProgressId, claimedQuestStatus: "in_progress" });

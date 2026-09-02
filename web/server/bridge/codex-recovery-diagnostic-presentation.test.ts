@@ -126,6 +126,7 @@ function deps(session: CodexRecoveryOrchestratorSessionLike): CodexRecoveryOrche
         threadKey: route.threadKey,
         ...(route.questId ? { questId: route.questId } : {}),
       } as (typeof session.pendingCodexInputs)[number]);
+      options.afterAccepted?.();
       return "sent";
     }),
     setAttentionError: vi.fn(),
@@ -273,7 +274,7 @@ describe("Codex recovered-turn diagnostic presentation", () => {
     );
   });
 
-  it("does not let route presence alone hide a synthetic leader recovery", () => {
+  it("uses a verification-first continuation for a routed automatic recovery owner", () => {
     const session = sessionWithRoutedPartial();
     const source = { sessionId: "system:herd-delivery", sessionLabel: "Herd Delivery" };
     const original = session.messageHistory[0];
@@ -284,17 +285,23 @@ describe("Codex recovered-turn diagnostic presentation", () => {
 
     reconcileCodexResumedTurn(session, interruptedSnapshot(), recoveryDeps);
 
-    expect(recoveryDeps.injectUserMessage).not.toHaveBeenCalled();
-    expect(recoveryDiagnostics(session)).toHaveLength(1);
+    expect(recoveryDeps.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(recoveryDiagnostics(session)).toHaveLength(0);
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      originalOwnerId: "user-1",
+      continuationOwnerId: "recovery-continuation-1",
+      continuationMode: "verify_then_continue",
+      status: "continuation_pending",
+    });
     expect(recoveryDeps.broadcastToBrowsers).not.toHaveBeenCalledWith(
       session,
       expect.objectContaining({ type: "error" }),
     );
     expect(logCodexRecoveryDiagnostic).toHaveBeenCalledWith(
       expect.objectContaining({
-        presentation: "routed_fallback",
-        continuationQueued: false,
-        diagnosticAppended: true,
+        presentation: "continuation_queued",
+        continuationQueued: true,
+        diagnosticAppended: false,
         browserErrorBroadcast: false,
         routeThreadKey: "main",
       }),

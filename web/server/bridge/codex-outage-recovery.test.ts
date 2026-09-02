@@ -436,6 +436,68 @@ describe("persistent Codex outage recovery", () => {
     });
   });
 
+  it("keeps recovery-only delivery and queue policy out of cancellation responses", () => {
+    const session = makeSession();
+    session.messageHistory = [];
+    session.pendingCodexInputs = [
+      {
+        id: "recovery-input",
+        content: "Visible recovery status",
+        deliveryContent: "PRIVATE VERIFICATION INSTRUCTION",
+        timestamp: 1,
+        cancelable: true,
+        agentSource: { sessionId: "system:codex-turn-recovery:owner", sessionLabel: "Recovery" },
+        threadKey: "q-1",
+        questId: "q-1",
+        historyFollowUps: [{ content: "PRIVATE FOLLOW-UP" }],
+        autoPauseRecoveries: [{ summaryId: "summary", groupId: "group" }],
+        queueBeforeOwnerId: "later-owner",
+        requireFreshSuccessor: true,
+      },
+    ];
+    const sendToBrowser = vi.fn();
+
+    handleCodexPendingInputAction(session, { type: "cancel_pending_codex_input", id: "recovery-input" }, {}, {
+      broadcastToBrowsers: vi.fn(),
+      clearQueuedTurnLifecycleEntries: vi.fn(),
+      getCancelablePendingCodexInputs: (target: any) =>
+        target.pendingCodexInputs.filter((input: any) => input.cancelable),
+      isCodexWorkerV2DeliveryFrozen: () => false,
+      markRunningFromUserDispatch: vi.fn(),
+      persistSession: vi.fn(),
+      queueCodexPendingStartBatch: vi.fn(),
+      rebuildQueuedCodexPendingStartBatch: vi.fn(),
+      removePendingCodexInput: (target: any, id: string) => {
+        const index = target.pendingCodexInputs.findIndex((input: any) => input.id === id);
+        return index < 0 ? null : target.pendingCodexInputs.splice(index, 1)[0];
+      },
+      requestCodexAutoRecovery: vi.fn(),
+      sendToBrowser,
+      trySteerPendingCodexInputs: vi.fn(),
+    } as any);
+
+    expect(sendToBrowser).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        type: "codex_pending_input_cancelled",
+        input: expect.objectContaining({
+          id: "recovery-input",
+          content: "Visible recovery status",
+          agentSource: { sessionId: "system:codex-turn-recovery:owner", sessionLabel: "Recovery" },
+          threadKey: "q-1",
+          questId: "q-1",
+        }),
+      }),
+    );
+    const payload = sendToBrowser.mock.calls[0]?.[1]?.input;
+    expect(JSON.stringify(payload)).not.toContain("PRIVATE");
+    expect(payload).not.toHaveProperty("deliveryContent");
+    expect(payload).not.toHaveProperty("historyFollowUps");
+    expect(payload).not.toHaveProperty("autoPauseRecoveries");
+    expect(payload).not.toHaveProperty("queueBeforeOwnerId");
+    expect(payload).not.toHaveProperty("requireFreshSuccessor");
+  });
+
   it("clears retry presentation immediately when the user pauses delivery", () => {
     const session = makeSession();
     session.state.backend_state = "recovering";

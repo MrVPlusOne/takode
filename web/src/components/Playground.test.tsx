@@ -474,14 +474,19 @@ describe("Playground", () => {
         detail: "reconnecting this session so it can finish the interrupted work",
       },
       {
+        testId: "playground-codex-turn-recovery-replay",
+        label: "Retrying interrupted input",
+        detail: "proved the original input never entered Codex history and is replaying it once",
+      },
+      {
         testId: "playground-codex-turn-recovery-continuation-pending",
-        label: "Interrupted work queued",
-        detail: "queued one follow-up to finish the interrupted work without repeating actions",
+        label: "Interrupted-work check queued",
+        detail: "queued one follow-up to inspect prior work before finishing what is missing",
       },
       {
         testId: "playground-codex-turn-recovery-continuation-active",
-        label: "Finishing interrupted work",
-        detail: "finishing the interrupted work without repeating actions",
+        label: "Finishing interrupted response",
+        detail: "finishing the interrupted response",
       },
       {
         testId: "playground-codex-turn-recovery-action-required",

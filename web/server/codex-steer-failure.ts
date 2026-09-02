@@ -39,5 +39,5 @@ export function classifyCodexTurnSteerFailure(
     }
   }
 
-  return { kind: "other", expectedTurnId };
+  return { kind: "other", expectedTurnId, message: errorMessage(error) };
 }

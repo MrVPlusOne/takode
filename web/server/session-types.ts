@@ -70,6 +70,8 @@ export type {
   BackendReconnectProgress,
   CodexAutoPauseInputSourceKind,
   CodexAutoPauseRecoveryProgress,
+  CodexHistoryIncorporationState,
+  CodexHistoryPresence,
   CodexOutboundTurnStatus,
   CodexPendingDeliveryProofKind,
   CodexPendingDeliveryProofSignal,
@@ -79,6 +81,7 @@ export type {
   CodexProviderRetryState,
   CodexResultErrorFamily,
   CodexTurnRecoveryReason,
+  CodexTurnRecoveryContinuationMode,
   CodexTurnRecoveryState,
   CodexTurnRecoveryStatus,
 } from "./codex-outbound-turn-types.js";
@@ -637,12 +640,16 @@ export type BrowserOutgoingMessage =
       type: "codex_start_pending";
       pendingInputIds: string[];
       inputs: CodexPendingBatchInput[];
+      /** Stable opaque identity echoed by Codex when this exact ordered batch enters history. */
+      clientUserMessageId?: string;
     }
   | {
       type: "codex_steer_pending";
       pendingInputIds: string[];
       expectedTurnId: string;
       inputs: CodexPendingBatchInput[];
+      /** Stable opaque identity echoed by Codex when this exact ordered batch enters history. */
+      clientUserMessageId?: string;
     }
   | {
       type: "vscode_selection_update";

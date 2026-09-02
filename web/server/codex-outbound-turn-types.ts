@@ -2,6 +2,7 @@ import type { CodexAutoPauseRecoveryLink } from "./codex-auto-pause-types.js";
 
 export type CodexOutboundTurnStatus =
   | "queued"
+  | "recovery_pending"
   | "dispatched"
   | "backend_acknowledged"
   | "completed"
@@ -19,6 +20,15 @@ export type CodexProviderRecoveryFamily = "model_backend_stream_error" | CodexPr
 export type CodexOutageRecoveryFamily = "process_transport" | "model_backend_stream_error";
 
 export type CodexTurnRecoveryStatus = "recovering" | "continuation_pending" | "continuation_active" | "action_required";
+export type CodexHistoryPresence = "present" | "absent" | "unknown";
+export type CodexTurnRecoveryContinuationMode = "finish_response" | "verify_then_continue";
+export interface CodexTerminalHistoryReconciliation {
+  presence: CodexHistoryPresence;
+  reason: string;
+  action: "complete" | "replay" | "continue" | "action_required";
+  continuationMode: CodexTurnRecoveryContinuationMode | null;
+  classifiedAt: number;
+}
 export type CodexTurnRecoveryReason =
   | "adapter_disconnect"
   | "interrupted_after_activity"
@@ -38,6 +48,10 @@ export interface CodexTurnRecoveryState {
   questId?: string;
   status: CodexTurnRecoveryStatus;
   reason: CodexTurnRecoveryReason;
+  /** Payload-free evidence class used to choose replay versus continuation. */
+  historyPresence?: CodexHistoryPresence;
+  /** Recovery instruction shape; null while history evidence is still being reconciled. */
+  continuationMode?: CodexTurnRecoveryContinuationMode | null;
   raisedAttention?: boolean;
   attempt: number;
   maxAttempts: 1;
@@ -60,6 +74,7 @@ export interface BackendReconnectProgress {
 
 export type CodexPendingDeliveryProofKind =
   | "resume_snapshot"
+  | "history_milestone"
   | "turn_started"
   | "turn_steered"
   | "turn_steer_failed"
@@ -73,6 +88,14 @@ export interface CodexPendingDeliveryProofSignal {
   turnStatus?: string | null;
   classification?: string | null;
   pendingInputCount?: number;
+  ownerId?: string;
+  batchId?: string;
+  milestone?: string;
+  historyPresence?: CodexHistoryPresence;
+  attempt?: number;
+  recordedSource?: CodexHistoryIncorporationState["recordedSource"];
+  continuationMode?: CodexTurnRecoveryContinuationMode | null;
+  activityObserved?: boolean;
 }
 
 export interface CodexProviderFailureContext {
@@ -110,6 +133,29 @@ export interface CodexOutboundTurnBase<TAdapterMessage> {
   autoPauseRecoveryTestingRetired?: boolean;
   providerRecoveryAttempts?: number;
   providerRecoveryFamily?: CodexProviderRecoveryFamily;
-  /** Durable proof that this provider turn emitted model/tool/permission/stream activity. */
+  /** Durable proof that this batch emitted model/tool/permission/stream activity after its history receipt. */
   providerReplayUnsafeActivityObserved?: boolean;
+  /** Owner/batch-specific Codex history-incorporation evidence, distinct from RPC acceptance. */
+  historyIncorporation?: CodexHistoryIncorporationState;
+  /** Persisted fail-closed marker for submitted legacy or malformed tracking state. */
+  historyTrackingUnknown?: boolean;
+  /** Terminal per-owner decision drained in FIFO order before unrelated work. */
+  terminalHistoryReconciliation?: CodexTerminalHistoryReconciliation;
+  /** This turn must finish before later pending input may be steered. */
+  requiresFreshSuccessor?: boolean;
+}
+
+export interface CodexHistoryIncorporationState {
+  batchId: string;
+  inputIds: string[];
+  /** Browser-history ownership aligned with inputIds; null until the exact batch receipt is recorded. */
+  historyIndexes: Array<number | null>;
+  attempt: 0 | 1;
+  clientUserMessageId: string;
+  providerTurnId: string | null;
+  rpcAcceptedAt: number | null;
+  recordedAt: number | null;
+  recordedSource: "live" | "resume_snapshot" | null;
+  /** First absolute Takode history index eligible as activity after a live receipt. */
+  activityStartHistoryIndex: number | null;
 }

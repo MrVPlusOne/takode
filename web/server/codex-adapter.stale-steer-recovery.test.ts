@@ -121,6 +121,7 @@ describe("CodexAdapter stale turn/steer recovery", () => {
       pendingInputIds: ["pending-follow-up"],
       expectedTurnId: "turn_active",
       inputs: [{ content: "follow-up" }],
+      clientUserMessageId: "client-follow-up:0",
     });
     await tick();
 
@@ -133,10 +134,11 @@ describe("CodexAdapter stale turn/steer recovery", () => {
     await tick();
 
     expect(adapter.getCurrentTurnId()).toBeNull();
-    expect(steerFailed).toHaveBeenCalledWith(["pending-follow-up"], {
-      kind: "no_active_turn",
-      expectedTurnId: "turn_active",
-    });
+    expect(steerFailed).toHaveBeenCalledWith(
+      ["pending-follow-up"],
+      { kind: "no_active_turn", expectedTurnId: "turn_active" },
+      "client-follow-up:0",
+    );
     expect(emitted).not.toContainEqual(
       expect.objectContaining({
         type: "error",
@@ -216,7 +218,11 @@ describe("CodexAdapter stale turn/steer recovery", () => {
     await tick();
 
     expect(adapter.getCurrentTurnId()).toBe("turn_active");
-    expect(steerFailed).toHaveBeenCalledWith(["pending-follow-up"], { kind: "other", expectedTurnId: "turn_active" });
+    expect(steerFailed).toHaveBeenCalledWith(["pending-follow-up"], {
+      kind: "other",
+      expectedTurnId: "turn_active",
+      message: "input must not be empty",
+    });
     expect(emitted).toContainEqual(
       expect.objectContaining({
         type: "error",
@@ -303,7 +309,11 @@ describe("CodexAdapter stale turn/steer recovery", () => {
     await tick();
 
     expect(adapter.getCurrentTurnId()).toBe("turn_new");
-    expect(steerFailed).toHaveBeenCalledWith(["pending-follow-up"], { kind: "other", expectedTurnId: "turn_old" });
+    expect(steerFailed).toHaveBeenCalledWith(["pending-follow-up"], {
+      kind: "other",
+      expectedTurnId: "turn_old",
+      message: "no active turn to steer",
+    });
     expect(emitted).toContainEqual(
       expect.objectContaining({
         type: "error",

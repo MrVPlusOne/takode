@@ -1,5 +1,3 @@
-import { normalizeCodexMessagePhase } from "../../shared/codex-message-phase.js";
-import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot } from "../codex-adapter.js";
 import type { TurnStartFailureInfo, TurnSteerFailureInfo } from "./adapter-interface.js";
 import type {
@@ -48,16 +46,17 @@ import {
 import { requestCodexAutoRecovery as requestCodexAutoRecoveryController } from "./session-registry-controller.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import { isSessionPaused } from "../session-pause.js";
-import {
-  buildCodexRecoveredAssistantRouteSegments,
-  codexRecoveredAssistantModel,
-  recoverAgentMessagesFromResumedTurn,
-} from "./codex-recovered-assistant-routing.js";
+import { recoverAgentMessagesFromResumedTurn } from "./codex-recovered-assistant-routing.js";
 import { consumeCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 import { buildCodexRecoveryDiagnosticLogContext } from "./codex-recovery-diagnostic-log.js";
 import { completeRecoveredCodexTurnWithDiagnostic } from "./codex-recovered-turn-diagnostic.js";
 import { handleTerminalTurnStartFailure } from "./codex-terminal-turn-start-failure.js";
-import { codexInitRecoveryRetryDelayMs } from "./codex-provider-result-recovery.js";
+import { reconcileRecoverableCodexTurnStartFailure } from "./codex-turn-start-history-failure.js";
+import {
+  blocksAutomaticCodexTerminalHistoryContinuation,
+  codexInitRecoveryRetryDelayMs,
+  decideCodexProviderResultRecovery,
+} from "./codex-provider-result-recovery.js";
 import {
   canContinueCodexOutageRecovery,
   clearCodexRecoveryRuntimeState,
@@ -74,6 +73,7 @@ import {
   markCodexAutoPauseRecoveryDelivered,
 } from "./codex-auto-pause-recovery-summary.js";
 import {
+  recordCodexHistoryMilestoneProof,
   recordCodexReplaySuppressedProof,
   recordCodexResumeSnapshotProof,
   recordCodexTurnResultProof,
@@ -107,16 +107,49 @@ import { recordCodexAcceptedDispatchActivity } from "./codex-model-switch-dispat
 import { retireProvenInactiveCodexTurnAfterSteerFailure } from "./codex-steer-failure-recovery.js";
 import { recoverNonDrainableCodexHeadTurn } from "./codex-nondrainable-turn-recovery.js";
 import {
+  absoluteHistoryEnd,
+  createCodexHistoryIncorporation,
+  createCodexHistoryIncorporationForClient,
+  markCodexHistoryRecorded,
+  prepareCodexHistoryTrackingForDispatch,
+  markCodexHistoryRpcAccepted,
+  mergeCodexHistoryIncorporation,
+  stageCodexTerminalHistoryReconciliation,
+} from "./codex-history-incorporation.js";
+import { reconcileEvidenceAwareCodexResume } from "./codex-evidence-aware-resume.js";
+import {
+  advanceCodexTerminalHistoryReconciliation,
+  reconcileRestoredUnknownCodexTurn,
+  reconcileUnknownCodexTurnBeforeDispatch,
+} from "./codex-terminal-history-reconciliation.js";
+import {
   buildCodexBatchMessageInputs,
   buildCodexPendingBatchRecoveryText,
   findQueuedCodexPendingStartBatchTurn,
   getQueuedCodexPendingBatchInputs,
 } from "./codex-pending-start-batch.js";
 import {
+  addPendingCodexInput,
+  commitPendingCodexInputs,
+  finalizeCodexBatchBrowserHistory,
+  getCancelablePendingCodexInputs,
+  getPendingCodexInputsByIds,
+  recordCodexHistoryIncorporationReceipt,
+  recordCodexHistoryReceiptObservation,
+  recordSteeredCodexTurn,
+  recordSubmittedCodexSteerTurn,
+  reconcileSubmittedCodexSteerFailure,
+  removePendingCodexInput,
+  setPendingCodexInputCancelable,
+  setPendingCodexInputsCancelable,
+} from "./codex-pending-input-history.js";
+import {
   clearCodexTurnRecoveryForOwner,
+  beginCodexTurnRecoveryContinuation,
   hasFinalCodexOutcomeEvidence,
   hasIncompleteCodexActivityWithoutTerminalEvidence,
   isCodexLeaderRecycleRecoveryInjectionPending,
+  isCodexTurnRecoveryContinuationInjectionPending,
   isRecoveryContinuationTurn,
   markCodexTurnRecoveryActionRequired,
   markCodexTurnRecoveryContinuationActive,
@@ -127,6 +160,18 @@ import {
   type CodexTurnRecoveryDeliveryStatus,
 } from "./codex-interrupted-turn-recovery.js";
 export { extractUserTextFromResumedTurn, normalizeResumedUserText };
+export { advanceCodexTerminalHistoryReconciliation };
+export {
+  addPendingCodexInput,
+  commitPendingCodexInputs,
+  getCancelablePendingCodexInputs,
+  getPendingCodexInputsByIds,
+  recordSteeredCodexTurn,
+  recordCodexHistoryReceiptObservation,
+  removePendingCodexInput,
+  setPendingCodexInputCancelable,
+  setPendingCodexInputsCancelable,
+};
 export {
   clearCodexIntentionalRelaunch,
   markCodexIntentionalRelaunch,
@@ -204,6 +249,7 @@ export interface CodexRecoveryOrchestratorDeps {
     updatedAt?: number,
     interrupted?: boolean,
   ) => boolean;
+  armCodexFreshTurnRequirement: (session: CodexRecoveryOrchestratorSessionLike, turnId: string, reason: string) => void;
   clearCodexFreshTurnRequirement: (
     session: CodexRecoveryOrchestratorSessionLike,
     reason: string,
@@ -240,7 +286,11 @@ export interface CodexRecoveryOrchestratorDeps {
     content: string,
     agentSource: { sessionId: string; sessionLabel?: string },
     threadRoute: ThreadRouteMetadata,
-    options: { deliveryContent: string },
+    options: {
+      deliveryContent: string;
+      afterAccepted?: () => void;
+      afterRejected?: (reason: "dropped" | "route_rejected" | "route_failed") => void;
+    },
   ) => CodexTurnRecoveryDeliveryStatus;
   setAttentionError?: (session: CodexRecoveryOrchestratorSessionLike) => void;
 }
@@ -274,7 +324,7 @@ export interface CodexAdapterRecoveryLifecycleDeps extends CodexRecoveryOrchestr
     session: CodexRecoveryOrchestratorSessionLike,
     turnId: string,
     steeredInputs: PendingCodexInput[],
-    committedHistoryIndexes: number[],
+    clientUserMessageId: string,
   ) => void;
   setPendingCodexInputsCancelable: (
     session: CodexRecoveryOrchestratorSessionLike,
@@ -385,117 +435,12 @@ export function attachCodexAdapterLifecycle(
   console.log(`[ws-bridge] Codex adapter attached for session ${sessionTag(sessionId)}`);
 }
 
-export function addPendingCodexInput(
-  session: CodexRecoveryOrchestratorSessionLike,
-  input: PendingCodexInput,
-  deps: Pick<CodexRecoveryOrchestratorDeps, "touchUserMessage" | "broadcastPendingCodexInputs">,
-): void {
-  session.pendingCodexInputs.push(input);
-  session.lastUserMessage = formatReplyContentForPreview(input.content || "", input.replyContext).slice(0, 80);
-  session.lastMessagePreviewAt = input.timestamp;
-  if (isActualHumanUserInput(input)) {
-    deps.touchUserMessage(session.id, input.timestamp);
-  }
-  deps.broadcastPendingCodexInputs(session);
-}
-
-export function hydrateCodexResumedHistory(
-  session: CodexRecoveryOrchestratorSessionLike,
-  snapshot: CodexResumeSnapshot,
-  deps: Pick<CodexRecoveryOrchestratorDeps, "broadcastToBrowsers" | "persistSession">,
-): number {
-  if (session.messageHistory.length > 0 || session.pendingCodexTurns.length > 0) return 0;
-  if (!Array.isArray(snapshot.turns) || snapshot.turns.length === 0) return 0;
-
-  const totalEntries = snapshot.turns.reduce((count, turn) => {
-    let turnCount = 0;
-    for (const item of turn.items) {
-      if (item.type === "userMessage" || item.type === "agentMessage") turnCount += 1;
-    }
-    return count + turnCount;
-  }, 0);
-  if (totalEntries === 0) return 0;
-
-  let hydrated = 0;
-  let syntheticTimestamp = Math.max(1, Date.now() - totalEntries - 1);
-  for (const turn of snapshot.turns) {
-    for (let i = 0; i < turn.items.length; i++) {
-      const item = turn.items[i];
-      if (item.type === "userMessage") {
-        const text = extractUserTextFromResumedTurn({ ...turn, items: [item] });
-        if (!text.trim()) continue;
-        const userMessage: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
-          type: "user_message",
-          content: text,
-          timestamp: ++syntheticTimestamp,
-          id: `codex-resume-user-${turn.id || "turn"}-${i}`,
-        };
-        session.messageHistory.push(userMessage);
-        session.lastUserMessage = formatReplyContentForPreview(text).slice(0, 80);
-        session.lastMessagePreviewAt = syntheticTimestamp;
-        deps.broadcastToBrowsers(session, userMessage);
-        hydrated += 1;
-        continue;
-      }
-
-      if (item.type !== "agentMessage") continue;
-      const text = typeof item.text === "string" ? item.text : "";
-      if (!text.trim()) continue;
-      const itemId = typeof item.id === "string" ? item.id : `${turn.id || "turn"}-${i}`;
-      const assistantId = `codex-agent-${itemId}`;
-      const alreadyExists = session.messageHistory.some(
-        (msg) => msg.type === "assistant" && msg.message?.id === assistantId,
-      );
-      if (alreadyExists) continue;
-
-      for (const [segmentIndex, routed] of buildCodexRecoveredAssistantRouteSegments(session, text).entries()) {
-        const assistant: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
-          type: "assistant",
-          message: {
-            id: segmentIndex === 0 ? assistantId : `${assistantId}:route-${segmentIndex}`,
-            type: "message",
-            role: "assistant",
-            model: codexRecoveredAssistantModel(session),
-            content: routed.content,
-            stop_reason: null,
-            usage: {
-              input_tokens: 0,
-              output_tokens: 0,
-              cache_creation_input_tokens: 0,
-              cache_read_input_tokens: 0,
-            },
-          },
-          parent_tool_use_id: null,
-          codexMessagePhase: normalizeCodexMessagePhase(item.phase),
-          timestamp: ++syntheticTimestamp,
-          ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
-          ...(routed.questId ? { questId: routed.questId } : {}),
-          ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
-          ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
-        };
-        session.messageHistory.push(assistant);
-        deps.broadcastToBrowsers(session, assistant);
-        hydrated += 1;
-      }
-    }
-  }
-
-  if (hydrated > 0) {
-    console.log(
-      `[ws-bridge] Hydrated ${hydrated} resumed Codex history message(s) for session ${sessionTag(session.id)} from thread ${snapshot.threadId}`,
-    );
-    deps.persistSession(session);
-  }
-  return hydrated;
-}
+export { hydrateCodexResumedHistory } from "./codex-resumed-history-hydration.js";
 
 export function completeCodexTurnsForResult(
   session: CodexRecoveryOrchestratorSessionLike,
   msg: CLIResultMessage,
-  deps: Pick<
-    CodexRecoveryOrchestratorDeps,
-    "getCodexHeadTurn" | "broadcastToBrowsers" | "persistSession" | "setAttentionError"
-  >,
+  deps: CodexRecoveryOrchestratorDeps,
   updatedAt = Date.now(),
   interrupted = false,
 ): boolean {
@@ -503,12 +448,86 @@ export function completeCodexTurnsForResult(
   const completedTurns = resultTurnId
     ? session.pendingCodexTurns.filter((turn) => turn.turnId === resultTurnId)
     : [deps.getCodexHeadTurn(session)].filter((turn): turn is CodexOutboundTurn => turn !== null);
+  const providerRecovery = decideCodexProviderResultRecovery(session, msg, completedTurns[0] ?? null);
+  const blockAutomaticContinuation =
+    interrupted ||
+    providerRecovery.kind === "terminal_model_not_supported" ||
+    providerRecovery.kind === "exhausted" ||
+    blocksAutomaticCodexTerminalHistoryContinuation(msg);
   const outcome = completeCodexTurnsForResultState(session, msg, updatedAt);
+  if (providerRecovery.kind === "recover" && !providerRecovery.retryTurn) {
+    const recordedRecoveryTurns = completedTurns.filter(
+      (turn) =>
+        turn.status === "completed" &&
+        turn.historyIncorporation?.recordedAt != null &&
+        !isRecoveryContinuationTurn(session, turn),
+    );
+    for (const turn of [...recordedRecoveryTurns].reverse()) {
+      stageCodexTerminalHistoryReconciliation(turn, {
+        presence: "present",
+        reason: "recoverable_provider_result_after_recorded_activity",
+        action: "continue",
+        continuationMode: "verify_then_continue",
+        classifiedAt: updatedAt,
+      });
+      if (!session.pendingCodexTurns.includes(turn)) session.pendingCodexTurns.unshift(turn);
+      recordCodexHistoryMilestoneProof(session, turn, "continuation_selected", {
+        historyPresence: "present",
+        classification: "recoverable_provider_result_after_recorded_activity",
+        continuationMode: "verify_then_continue",
+      });
+    }
+  }
+  const actuallyCompletedTurns = completedTurns.filter((turn) => turn.status === "completed");
+  const unresolvedTrackedTurns = completedTurns.filter(
+    (turn) =>
+      turn.status !== "completed" &&
+      (turn.terminalHistoryReconciliation != null ||
+        turn.historyTrackingUnknown === true ||
+        (turn.historyIncorporation != null && turn.historyIncorporation.recordedAt == null)),
+  );
+  for (const turn of unresolvedTrackedTurns) {
+    finalizeCodexBatchBrowserHistory(session, turn, deps, false);
+    if (isRecoveryContinuationTurn(session, turn)) {
+      recordCodexHistoryMilestoneProof(session, turn, "automatic_recovery_blocked", {
+        historyPresence: "unknown",
+        classification: "terminal_recovery_continuation_without_history_receipt",
+      });
+      deps.completeCodexTurn(session, turn);
+      markCodexTurnRecoveryActionRequired(
+        session,
+        interrupted ? "continuation_interrupted" : "continuation_failed",
+        deps,
+      );
+      continue;
+    }
+    const existingTerminalPlan = turn.terminalHistoryReconciliation;
+    if (existingTerminalPlan?.action === "action_required" || (existingTerminalPlan && !blockAutomaticContinuation)) {
+      continue;
+    }
+    stageCodexTerminalHistoryReconciliation(turn, {
+      presence: "unknown",
+      reason: "terminal_result_without_history_receipt",
+      action: blockAutomaticContinuation ? "action_required" : "continue",
+      continuationMode: blockAutomaticContinuation ? null : "verify_then_continue",
+      classifiedAt: updatedAt,
+    });
+    recordCodexHistoryMilestoneProof(session, turn, "classified", {
+      historyPresence: "unknown",
+      classification: "terminal_result_without_history_receipt",
+      continuationMode: blockAutomaticContinuation ? null : "verify_then_continue",
+    });
+  }
+  if (blockAutomaticContinuation && unresolvedTrackedTurns.length > 0) {
+    advanceCodexTerminalHistoryReconciliation(session, deps);
+  }
   if (outcome.codexTurnId) {
     if (outcome.matched) {
       recordCodexTurnResultProof(session, outcome.codexTurnId);
       reconcileRecoveredQueuedTurnLifecycle(session, "codex_result_turn_id_completed", deps);
-      settleCodexTurnRecoveryFromResult(session, completedTurns, msg, deps, interrupted);
+      if (actuallyCompletedTurns.length > 0) {
+        settleCodexTurnRecoveryFromResult(session, actuallyCompletedTurns, msg, deps, interrupted);
+      }
       return true;
     }
     console.warn(
@@ -516,7 +535,9 @@ export function completeCodexTurnsForResult(
     );
     return false;
   }
-  if (outcome.matched) settleCodexTurnRecoveryFromResult(session, completedTurns, msg, deps, interrupted);
+  if (outcome.matched && actuallyCompletedTurns.length > 0) {
+    settleCodexTurnRecoveryFromResult(session, actuallyCompletedTurns, msg, deps, interrupted);
+  }
   return outcome.matched;
 }
 
@@ -554,27 +575,27 @@ export function markSessionRelaunchPending(session: CodexRecoveryOrchestratorSes
 export function dispatchQueuedCodexTurns(
   session: CodexRecoveryOrchestratorSessionLike,
   reason: string,
-  deps: Pick<
-    CodexAdapterRecoveryLifecycleDeps,
-    | "broadcastPendingCodexInputs"
-    | "broadcastToBrowsers"
-    | "pruneStalePendingCodexHerdInputs"
-    | "setPendingCodexInputsCancelable"
-    | "persistSession"
-    | "isCodexWorkerV2DeliveryFrozen"
-  >,
+  deps: CodexRecoveryOrchestratorDeps,
 ): void {
   if (
     isSessionPaused(session as any) ||
     deps.isCodexWorkerV2DeliveryFrozen(session.id) ||
-    isCodexLeaderRecycleRecoveryInjectionPending(session)
+    isCodexTurnRecoveryContinuationInjectionPending(session)
   )
     return;
+  if (advanceCodexTerminalHistoryReconciliation(session, deps)) return;
+  const head =
+    typeof deps.getCodexHeadTurn === "function"
+      ? deps.getCodexHeadTurn(session)
+      : (session.pendingCodexTurns[0] ?? null);
+  if (reconcileUnknownCodexTurnBeforeDispatch(session, head, deps)) return;
+  const receiptAware = typeof (session.codexAdapter as any)?.onUserMessageRecorded === "function";
+  if (prepareCodexHistoryTrackingForDispatch(head, receiptAware)) deps.persistSession(session);
   holdCodexAutoPausedQueuedBacklog(session as any, deps);
   const outcome = dispatchQueuedCodexTurnsState(session, reason, {
     pruneStalePendingCodexHerdInputs: (dispatchReason) =>
       deps.pruneStalePendingCodexHerdInputs(session, dispatchReason),
-    setPendingCodexInputsCancelable: (ids) => deps.setPendingCodexInputsCancelable(session, ids, false),
+    setPendingCodexInputsCancelable: (ids) => setPendingCodexInputsCancelable(session, ids, false, deps),
     persistSession: () => deps.persistSession(session),
   });
   const recoveryTurn =
@@ -589,99 +610,10 @@ export function dispatchQueuedCodexTurns(
     broadcastCodexAutoPauseRecoveryTesting(session, deps);
   }
   if (outcome.status !== "dispatched" || !outcome.head) return;
+  recordCodexHistoryMilestoneProof(session, outcome.head, "submitted");
   recordCodexAcceptedDispatchActivity(session, deps.persistSession, "turn", reason, outcome.head.dispatchCount);
 }
 
-export function setPendingCodexInputCancelable(
-  session: CodexRecoveryOrchestratorSessionLike,
-  id: string,
-  cancelable: boolean,
-  deps: CodexRecoveryOrchestratorDeps,
-): void {
-  const pending = session.pendingCodexInputs.find((item) => item.id === id);
-  if (!pending || pending.cancelable === cancelable) return;
-  pending.cancelable = cancelable;
-  deps.broadcastPendingCodexInputs(session);
-  deps.persistSession(session);
-}
-export function setPendingCodexInputsCancelable(
-  session: CodexRecoveryOrchestratorSessionLike,
-  ids: string[],
-  cancelable: boolean,
-  deps: CodexRecoveryOrchestratorDeps,
-): void {
-  let changed = false;
-  const idSet = new Set(ids);
-  for (const pending of session.pendingCodexInputs) {
-    if (!idSet.has(pending.id) || pending.cancelable === cancelable) continue;
-    pending.cancelable = cancelable;
-    changed = true;
-  }
-  if (!changed) return;
-  deps.broadcastPendingCodexInputs(session);
-  deps.persistSession(session);
-}
-export function getCancelablePendingCodexInputs(
-  session: Pick<CodexRecoveryOrchestratorSessionLike, "pendingCodexInputs">,
-): PendingCodexInput[] {
-  return session.pendingCodexInputs.filter((item) => item.cancelable && item.deliveryState !== "failed");
-}
-export function commitPendingCodexInputs(
-  session: CodexRecoveryOrchestratorSessionLike,
-  ids: string[],
-  deps: CodexRecoveryOrchestratorDeps,
-): number[] {
-  const indexes: number[] = [];
-  for (const id of ids) {
-    const idx = commitPendingCodexInput(session, id, deps);
-    if (typeof idx === "number" && idx >= 0) indexes.push(idx);
-  }
-  return indexes;
-}
-export function getPendingCodexInputsByIds(
-  session: Pick<CodexRecoveryOrchestratorSessionLike, "pendingCodexInputs">,
-  ids: string[],
-): PendingCodexInput[] {
-  const idSet = new Set(ids);
-  return session.pendingCodexInputs.filter((input) => idSet.has(input.id));
-}
-export function recordSteeredCodexTurn(
-  session: CodexRecoveryOrchestratorSessionLike,
-  turnId: string,
-  inputs: PendingCodexInput[],
-  committedHistoryIndexes: number[],
-  deps: CodexRecoveryOrchestratorDeps,
-): void {
-  if (inputs.length === 0) return;
-  const now = Date.now();
-  const pendingInputIds = inputs.map((input) => input.id);
-  deps.enqueueCodexTurn(session, {
-    adapterMsg: {
-      type: "codex_start_pending",
-      pendingInputIds,
-      inputs: buildCodexBatchMessageInputs(inputs),
-    },
-    userMessageId: pendingInputIds[0]!,
-    pendingInputIds,
-    userContent: buildCodexPendingBatchRecoveryText(inputs, deps),
-    historyIndex: committedHistoryIndexes[0] ?? -1,
-    status: "backend_acknowledged",
-    dispatchCount: 1,
-    createdAt: now,
-    updatedAt: now,
-    acknowledgedAt: now,
-    turnTarget: "queued",
-    lastError: null,
-    turnId,
-    disconnectedAt: null,
-    resumeConfirmedAt: null,
-    autoPauseSourceKind: determineCodexTurnSourceKind(inputs),
-    autoPauseRecoveryLinks: collectCodexAutoPauseRecoveryLinks(inputs),
-  });
-  for (const idx of committedHistoryIndexes) {
-    deps.trackUserMessageForTurn(session, idx, "queued");
-  }
-}
 export { buildCodexBatchMessageInputs, buildCodexPendingBatchRecoveryText } from "./codex-pending-start-batch.js";
 export function rebuildQueuedCodexPendingStartBatch(
   session: CodexRecoveryOrchestratorSessionLike,
@@ -690,8 +622,12 @@ export function rebuildQueuedCodexPendingStartBatch(
   holdCodexAutoPausedQueuedBacklog(session as any, deps);
   const head = deps.getCodexHeadTurn(session);
   const headBlocksQueuedFollowUps = !!head && head.status === "blocked_broken_session";
-  const deliverable = getQueuedCodexPendingBatchInputs(session.pendingCodexInputs, head);
   const existingQueuedTurn = findQueuedCodexPendingStartBatchTurn(session.pendingCodexTurns);
+  const deliverable = getQueuedCodexPendingBatchInputs(
+    session.pendingCodexInputs,
+    session.pendingCodexTurns,
+    existingQueuedTurn,
+  );
   if (headBlocksQueuedFollowUps || deliverable.length === 0) {
     if (!existingQueuedTurn) return;
     const idx = session.pendingCodexTurns.indexOf(existingQueuedTurn);
@@ -702,30 +638,46 @@ export function rebuildQueuedCodexPendingStartBatch(
     return;
   }
   if (existingQueuedTurn) {
+    const inputIds = deliverable.map((input) => input.id);
+    if (
+      !existingQueuedTurn.historyIncorporation ||
+      existingQueuedTurn.historyIncorporation.inputIds.length !== inputIds.length ||
+      existingQueuedTurn.historyIncorporation.inputIds.some((id, index) => id !== inputIds[index])
+    ) {
+      existingQueuedTurn.historyIncorporation = createCodexHistoryIncorporation(inputIds);
+    }
+    const clientUserMessageId = existingQueuedTurn.historyIncorporation.clientUserMessageId;
     existingQueuedTurn.adapterMsg = {
       type: "codex_start_pending",
-      pendingInputIds: deliverable.map((input) => input.id),
+      pendingInputIds: inputIds,
       inputs: buildCodexBatchMessageInputs(deliverable),
+      clientUserMessageId,
     };
     existingQueuedTurn.userMessageId = deliverable[0].id;
-    existingQueuedTurn.pendingInputIds = deliverable.map((input) => input.id);
+    existingQueuedTurn.pendingInputIds = inputIds;
     existingQueuedTurn.userContent = buildCodexPendingBatchRecoveryText(deliverable, deps);
     existingQueuedTurn.updatedAt = Date.now();
     existingQueuedTurn.lastError = null;
     existingQueuedTurn.autoPauseSourceKind = determineCodexTurnSourceKind(deliverable);
     existingQueuedTurn.autoPauseRecoveryLinks = collectCodexAutoPauseRecoveryLinks(deliverable);
+    existingQueuedTurn.requiresFreshSuccessor = deliverable.some((input) => input.requireFreshSuccessor) || undefined;
+    moveQueuedTurnBeforeRequestedOwner(session.pendingCodexTurns, existingQueuedTurn, deliverable);
     deps.persistSession(session);
     return;
   }
   const now = Date.now();
-  session.pendingCodexTurns.push({
+  const inputIds = deliverable.map((input) => input.id);
+  const historyIncorporation = createCodexHistoryIncorporation(inputIds);
+  const clientUserMessageId = historyIncorporation.clientUserMessageId;
+  const queuedTurn: CodexOutboundTurn = {
     adapterMsg: {
       type: "codex_start_pending",
-      pendingInputIds: deliverable.map((input) => input.id),
+      pendingInputIds: inputIds,
       inputs: buildCodexBatchMessageInputs(deliverable),
+      clientUserMessageId,
     },
     userMessageId: deliverable[0].id,
-    pendingInputIds: deliverable.map((input) => input.id),
+    pendingInputIds: inputIds,
     userContent: buildCodexPendingBatchRecoveryText(deliverable, deps),
     historyIndex: -1,
     status:
@@ -746,8 +698,34 @@ export function rebuildQueuedCodexPendingStartBatch(
     resumeConfirmedAt: null,
     autoPauseSourceKind: determineCodexTurnSourceKind(deliverable),
     autoPauseRecoveryLinks: collectCodexAutoPauseRecoveryLinks(deliverable),
-  });
+    historyIncorporation,
+    requiresFreshSuccessor: deliverable.some((input) => input.requireFreshSuccessor) || undefined,
+  };
+  const beforeOwnerId = deliverable.find((input) => input.queueBeforeOwnerId)?.queueBeforeOwnerId;
+  const beforeTurnIndex = beforeOwnerId
+    ? session.pendingCodexTurns.findIndex((turn) =>
+        (turn.pendingInputIds ?? [turn.userMessageId]).includes(beforeOwnerId),
+      )
+    : -1;
+  if (beforeTurnIndex >= 0) session.pendingCodexTurns.splice(beforeTurnIndex, 0, queuedTurn);
+  else session.pendingCodexTurns.push(queuedTurn);
   deps.persistSession(session);
+}
+
+function moveQueuedTurnBeforeRequestedOwner(
+  turns: CodexOutboundTurn[],
+  queuedTurn: CodexOutboundTurn,
+  deliverable: PendingCodexInput[],
+): void {
+  const beforeOwnerId = deliverable.find((input) => input.queueBeforeOwnerId)?.queueBeforeOwnerId;
+  if (!beforeOwnerId) return;
+  const currentIndex = turns.indexOf(queuedTurn);
+  const beforeIndex = turns.findIndex(
+    (turn, index) => index !== currentIndex && (turn.pendingInputIds ?? [turn.userMessageId]).includes(beforeOwnerId),
+  );
+  if (currentIndex < 0 || beforeIndex < 0 || currentIndex < beforeIndex) return;
+  turns.splice(currentIndex, 1);
+  turns.splice(beforeIndex, 0, queuedTurn);
 }
 export function queueCodexPendingStartBatch(
   session: CodexRecoveryOrchestratorSessionLike,
@@ -761,7 +739,12 @@ export function queueCodexPendingStartBatch(
 }
 
 function codexPendingInputGroupKey(turn: CodexOutboundTurn): string {
-  return [...(turn.pendingInputIds ?? [turn.userMessageId])].sort().join("\u0000");
+  const orderedInputs = (turn.pendingInputIds ?? [turn.userMessageId]).join("\u0000");
+  const history = turn.historyIncorporation;
+  const identity = history
+    ? `tracked:${history.batchId}:${history.attempt}:${history.clientUserMessageId}`
+    : "untracked";
+  return `${orderedInputs}\u0001${identity}`;
 }
 
 function codexPendingTurnRecoveryRank(turn: CodexOutboundTurn): number {
@@ -795,6 +778,8 @@ function mergeCodexPendingTurnRecoveryState(keeper: CodexOutboundTurn, duplicate
     { autoPauseRecoveries: keeper.autoPauseRecoveryLinks },
     { autoPauseRecoveries: duplicate.autoPauseRecoveryLinks },
   ]);
+  keeper.requiresFreshSuccessor ||= duplicate.requiresFreshSuccessor;
+  mergeCodexHistoryIncorporation(keeper, duplicate);
 }
 
 export function reconcileDuplicateCodexPendingTurns(
@@ -848,7 +833,7 @@ export function pokeStaleCodexPendingDelivery(
 ): boolean {
   const adapter = session.codexAdapter;
   if (session.backendType !== "codex") return false;
-  if (deps.isCodexWorkerV2DeliveryFrozen(session.id) || isCodexLeaderRecycleRecoveryInjectionPending(session))
+  if (deps.isCodexWorkerV2DeliveryFrozen(session.id) || isCodexTurnRecoveryContinuationInjectionPending(session))
     return false;
   if (session.pendingCodexInputs.length === 0) return false;
   if (session.isGenerating) return false;
@@ -899,7 +884,7 @@ export function trySteerPendingCodexInputs(
   reason: string,
   deps: CodexRecoveryOrchestratorDeps,
 ): boolean {
-  if (deps.isCodexWorkerV2DeliveryFrozen(session.id) || isCodexLeaderRecycleRecoveryInjectionPending(session))
+  if (deps.isCodexWorkerV2DeliveryFrozen(session.id) || isCodexTurnRecoveryContinuationInjectionPending(session))
     return false;
   const adapter = session.codexAdapter;
   const expectedTurnId = adapter?.getCurrentTurnId() ?? null;
@@ -923,17 +908,24 @@ export function trySteerPendingCodexInputs(
   const deliverable = getCancelablePendingCodexInputs(session);
   if (deliverable.length === 0) return false;
   const ids = deliverable.map((input) => input.id);
+  const clientUserMessageId = createCodexHistoryIncorporation(ids).clientUserMessageId;
   setPendingCodexInputsCancelable(session, ids, false, deps);
   const accepted = adapter.sendBrowserMessage({
     type: "codex_steer_pending",
     pendingInputIds: ids,
     expectedTurnId,
     inputs: buildCodexBatchMessageInputs(deliverable),
+    clientUserMessageId,
   });
   if (!accepted) {
     setPendingCodexInputsCancelable(session, ids, true, deps);
     return false;
   }
+  const receiptAware = typeof (adapter as any).onUserMessageRecorded === "function";
+  const submitted = receiptAware
+    ? recordSubmittedCodexSteerTurn(session, expectedTurnId, deliverable, clientUserMessageId, deps)
+    : null;
+  if (submitted) recordCodexHistoryMilestoneProof(session, submitted, "submitted");
   recordCodexAcceptedDispatchActivity(session, deps.persistSession, "steer", reason, ids.length);
   return true;
 }
@@ -1080,6 +1072,7 @@ export function registerCodexAdapterRecoveryLifecycle(
   adapter: CodexRecoveryAdapterLike,
   deps: CodexAdapterRecoveryLifecycleDeps,
 ): void {
+  const receiptAwareAdapter = typeof adapter.onUserMessageRecorded === "function";
   adapter.onSessionMeta((meta: any) => {
     const continueSessionMetaLifecycle = () => {
       if (session.codexAdapter !== adapter) return;
@@ -1214,24 +1207,15 @@ export function registerCodexAdapterRecoveryLifecycle(
       }
       return;
     }
-    const committedHistoryIndexes = commitPendingCodexInputs(
-      session,
-      pending.pendingInputIds ?? [pending.userMessageId],
-      deps,
-    );
-    if (committedHistoryIndexes.length > 0) {
-      pending.historyIndex = committedHistoryIndexes[0];
-    }
-    const trackedHistoryIndexes =
-      committedHistoryIndexes.length > 0
-        ? committedHistoryIndexes
-        : pending.historyIndex >= 0
-          ? [pending.historyIndex]
-          : [];
     pending.turnId = turnId;
     pending.status = "backend_acknowledged";
     pending.acknowledgedAt = Date.now();
+    markCodexHistoryRpcAccepted(pending, turnId, pending.acknowledgedAt);
+    recordCodexHistoryMilestoneProof(session, pending, "rpc_accepted");
     pending.updatedAt = pending.acknowledgedAt;
+    if (pending.requiresFreshSuccessor) {
+      armCodexFreshTurnRequirement(session, turnId, "codex_recovery_continuation_successor", deps);
+    }
     markCodexTurnRecoveryContinuationActive(session, pending, deps);
     if (pending.turnTarget === "queued" && !session.isGenerating) {
       rearmRecoveredQueuedHeadTurn(session, pending, "codex_turn_started_recovered", deps);
@@ -1239,48 +1223,91 @@ export function registerCodexAdapterRecoveryLifecycle(
     if (pending.turnTarget === null) {
       const target = session.isGenerating ? "current" : deps.markRunningFromUserDispatch(session, "codex_turn_started");
       pending.turnTarget = target;
-      for (const idx of trackedHistoryIndexes) {
-        deps.trackUserMessageForTurn(session, idx, target);
-      }
-    } else if (trackedHistoryIndexes.length > 0) {
-      for (const idx of trackedHistoryIndexes) {
-        deps.trackUserMessageForTurn(session, idx, pending.turnTarget);
-      }
+    }
+    if (!receiptAwareAdapter) {
+      finalizeCodexBatchBrowserHistory(session, pending, deps, true);
+      pending.historyIncorporation = undefined;
     }
     broadcastCodexAutoPauseRecoveryTesting(session, deps);
     deps.persistSession(session);
     trySteerPendingCodexInputs(session, "codex_turn_started", deps);
   });
 
-  adapter.onTurnSteered((turnId: string, pendingInputIds: string[]) => {
+  adapter.onTurnSteered((turnId: string, pendingInputIds: string[], clientUserMessageId?: string) => {
     if (session.codexAdapter !== adapter) return;
     recordCodexTurnSteeredProof(session, turnId, pendingInputIds.length);
     const steeredInputs = deps.getPendingCodexInputsByIds(session, pendingInputIds);
-    const committedHistoryIndexes = commitPendingCodexInputs(session, pendingInputIds, deps);
-    deps.recordSteeredCodexTurn(session, turnId, steeredInputs, committedHistoryIndexes);
+    const trackedClientId = clientUserMessageId ?? createCodexHistoryIncorporation(pendingInputIds).clientUserMessageId;
+    deps.recordSteeredCodexTurn(session, turnId, steeredInputs, trackedClientId);
+    const trackedTurn = session.pendingCodexTurns.find(
+      (turn) => turn.turnId === turnId && turn.historyIncorporation?.clientUserMessageId === trackedClientId,
+    );
+    if (trackedTurn) recordCodexHistoryMilestoneProof(session, trackedTurn, "rpc_accepted");
+    if (!receiptAwareAdapter) {
+      const recorded = session.pendingCodexTurns.find(
+        (turn) => turn.turnId === turnId && turn.historyIncorporation?.clientUserMessageId === trackedClientId,
+      );
+      if (recorded) {
+        finalizeCodexBatchBrowserHistory(session, recorded, deps, true);
+        const recordedIds = recorded.pendingInputIds ?? [recorded.userMessageId];
+        for (const turn of session.pendingCodexTurns) {
+          const candidateIds = turn.pendingInputIds ?? [turn.userMessageId];
+          if (
+            candidateIds.length === recordedIds.length &&
+            candidateIds.every((id, index) => id === recordedIds[index])
+          ) {
+            turn.historyIncorporation = undefined;
+          }
+        }
+      }
+    }
     reconcileDuplicateCodexPendingTurns(session, "codex_turn_steered", deps);
     deps.persistSession(session);
     trySteerPendingCodexInputs(session, "codex_turn_steered", deps);
   });
 
-  adapter.onTurnSteerFailed((pendingInputIds: string[], failure?: TurnSteerFailureInfo) => {
+  adapter.onUserMessageRecorded?.((receipt: { turnId: string; clientUserMessageId: string; observedAt?: number }) => {
     if (session.codexAdapter !== adapter) return;
-    recordCodexTurnSteerFailedProof(session, adapter.getCurrentTurnId?.() ?? null, pendingInputIds.length);
-    deps.setPendingCodexInputsCancelable(session, pendingInputIds, true);
-    const retiredInactiveTurn = retireProvenInactiveCodexTurnAfterSteerFailure(session, pendingInputIds, failure, deps);
-    reconcileDuplicateCodexPendingTurns(session, "codex_turn_steer_failed", deps);
-    retryNonDrainableCodexHeadTurn(session, "codex_turn_steer_failed_stale_ack_head", deps);
-    deps.rebuildQueuedCodexPendingStartBatch(session);
-    if (adapter.getCurrentTurnId?.()) {
-      deps.persistSession(session);
-      return;
-    }
-    deps.dispatchQueuedCodexTurns(session, "codex_turn_steer_failed");
-    if (retiredInactiveTurn && deps.getCodexHeadTurn(session)?.status === "dispatched") {
-      deps.promoteNextQueuedTurn(session);
-      deps.persistSession(session);
-    }
+    recordCodexHistoryIncorporationReceipt(session, receipt, deps);
   });
+  adapter.onUserMessageReceiptObserved?.(
+    (receipt: { turnId: string; clientUserMessageId: string; observedAt?: number }) => {
+      if (session.codexAdapter !== adapter) return;
+      recordCodexHistoryReceiptObservation(session, receipt, deps);
+    },
+  );
+
+  adapter.onTurnSteerFailed(
+    (pendingInputIds: string[], failure?: TurnSteerFailureInfo, clientUserMessageId?: string) => {
+      if (session.codexAdapter !== adapter) return;
+      recordCodexTurnSteerFailedProof(session, adapter.getCurrentTurnId?.() ?? null, pendingInputIds.length);
+      const attempt = reconcileSubmittedCodexSteerFailure(session, pendingInputIds, clientUserMessageId, failure, deps);
+      if (attempt !== "retained") deps.setPendingCodexInputsCancelable(session, pendingInputIds, true);
+      if (attempt === "terminal" && failure?.kind === "other") {
+        deps.setBackendState(session, "broken", `Codex could not steer this turn: ${failure.message}`);
+        deps.setAttentionError(session);
+      }
+      const retiredInactiveTurn = retireProvenInactiveCodexTurnAfterSteerFailure(
+        session,
+        pendingInputIds,
+        failure,
+        deps,
+      );
+      reconcileDuplicateCodexPendingTurns(session, "codex_turn_steer_failed", deps);
+      retryNonDrainableCodexHeadTurn(session, "codex_turn_steer_failed_stale_ack_head", deps);
+      deps.rebuildQueuedCodexPendingStartBatch(session);
+      if (adapter.getCurrentTurnId?.()) {
+        deps.persistSession(session);
+        return;
+      }
+      if (attempt === "terminal") deps.setGenerating(session, false, "codex_turn_steer_terminal_failure");
+      deps.dispatchQueuedCodexTurns(session, "codex_turn_steer_failed");
+      if (retiredInactiveTurn && deps.getCodexHeadTurn(session)?.status === "dispatched") {
+        deps.promoteNextQueuedTurn(session);
+        deps.persistSession(session);
+      }
+    },
+  );
 
   adapter.onInitError((error: string) => {
     handleCodexAdapterInitError(sessionId, session, adapter, error, deps);
@@ -1432,6 +1459,10 @@ export function registerCodexAdapterRecoveryLifecycle(
   });
 
   adapter.onTurnStartFailed((msg: any, info?: TurnStartFailureInfo) => {
+    if (session.codexAdapter !== adapter) {
+      console.warn(`[ws-bridge] Ignoring stale-adapter turn/start failure for session ${sessionTag(sessionId)}`);
+      return;
+    }
     if (info?.recoverable === false) {
       handleTerminalTurnStartFailure(session, adapter, msg, info, deps);
       return;
@@ -1446,6 +1477,7 @@ export function registerCodexAdapterRecoveryLifecycle(
             JSON.stringify(turn.adapterMsg) === JSON.stringify(msg) &&
             turn.status !== "completed",
         );
+      if (pending && reconcileRecoverableCodexTurnStartFailure(session, pending, deps)) return;
       if (pending) {
         pending.status = "queued";
         pending.turnId = null;
@@ -1461,107 +1493,7 @@ export function registerCodexAdapterRecoveryLifecycle(
         (session as any).pendingMessages.push(raw);
       }
     }
-
-    const activeAdapter = session.codexAdapter;
-    if (activeAdapter && activeAdapter !== adapter) {
-      deps.dispatchQueuedCodexTurns(session, "stale_adapter_turn_start_failed");
-      deps.flushQueuedMessagesToCodexAdapter(session, activeAdapter, "stale_adapter_turn_start_failed");
-    }
   });
-}
-function commitPendingCodexInput(
-  session: CodexRecoveryOrchestratorSessionLike,
-  id: string,
-  deps: CodexRecoveryOrchestratorDeps,
-): number | null {
-  const idx = session.pendingCodexInputs.findIndex((item) => item.id === id);
-  if (idx < 0) return null;
-  const pending = session.pendingCodexInputs[idx];
-  session.pendingCodexInputs.splice(idx, 1);
-  markCodexAutoPauseRecoveryDelivered(session, pending.autoPauseRecoveries, Date.now(), deps);
-  if (
-    pending.needsInputReminderText &&
-    shouldCommitNeedsInputReminderHistoryEntry(pending.needsInputReminderText, session.notifications)
-  ) {
-    const reminderHistoryEntry = buildNeedsInputReminderHistoryEntry(
-      pending.needsInputReminderText,
-      pending.timestamp,
-      pending.id,
-    );
-    session.messageHistory.push(reminderHistoryEntry);
-    deps.broadcastToBrowsers(session, reminderHistoryEntry);
-  }
-  commitQueuedNeedsInputResolutionNoticeHistoryEntry(session, pending, deps);
-  const takodeHerdEvents = getTakodeHerdEventBrowserMetadata(pending.takodeHerdBatch);
-  const userHistoryEntry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
-    type: "user_message",
-    content: pending.content,
-    timestamp: pending.timestamp,
-    id: pending.id,
-    ...(pending.imageRefs?.length ? { images: pending.imageRefs } : {}),
-    ...(pending.replyContext ? { replyContext: pending.replyContext } : {}),
-    ...(pending.clientMsgId ? { client_msg_id: pending.clientMsgId } : {}),
-    ...(pending.vscodeSelection ? { vscodeSelection: pending.vscodeSelection } : {}),
-    ...(pending.agentSource ? { agentSource: pending.agentSource } : {}),
-    ...(pending.threadKey ? { threadKey: pending.threadKey } : {}),
-    ...(pending.questId ? { questId: pending.questId } : {}),
-    ...(pending.threadRefs ? { threadRefs: pending.threadRefs } : {}),
-    ...(pending.takodeHerdBatch?.eventKeys?.length ? { takodeHerdEventKeys: pending.takodeHerdBatch.eventKeys } : {}),
-    ...(takodeHerdEvents?.length ? { takodeHerdEvents } : {}),
-    ...(pending.recentAskBoundaryBefore ? { recentAskBoundaryBefore: pending.recentAskBoundaryBefore } : {}),
-  };
-  session.messageHistory.push(userHistoryEntry);
-  const userMsgHistoryIdx = session.messageHistory.length - 1;
-  session.lastUserMessage = formatReplyContentForPreview(pending.content || "", pending.replyContext).slice(0, 80);
-  session.lastMessagePreviewAt = pending.timestamp;
-  if (isActualHumanUserMessage(userHistoryEntry)) {
-    deps.touchUserMessage(session.id, pending.timestamp);
-  }
-  deps.broadcastToBrowsers(session, userHistoryEntry);
-  appendPendingInputHistoryFollowUps(session, pending, userHistoryEntry, deps);
-  deps.broadcastPendingCodexInputs(session);
-  deps.onUserMessage?.(session.id, [...session.messageHistory], session.state.cwd, session.isGenerating);
-  deps.persistSession(session);
-  return userMsgHistoryIdx;
-}
-
-function appendPendingInputHistoryFollowUps(
-  session: CodexRecoveryOrchestratorSessionLike,
-  pending: PendingCodexInput,
-  baseEntry: Extract<BrowserIncomingMessage, { type: "user_message" }>,
-  deps: CodexRecoveryOrchestratorDeps,
-): void {
-  if (!pending.historyFollowUps?.length) return;
-  pending.historyFollowUps.forEach((followUp, index) => {
-    const entry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
-      type: "user_message",
-      content: followUp.content,
-      timestamp: pending.timestamp,
-      id: `${pending.id}-followup-${index}`,
-      ...(followUp.agentSource ? { agentSource: followUp.agentSource } : {}),
-      ...((followUp.threadKey ?? baseEntry.threadKey) ? { threadKey: followUp.threadKey ?? baseEntry.threadKey } : {}),
-      ...((followUp.questId ?? baseEntry.questId) ? { questId: followUp.questId ?? baseEntry.questId } : {}),
-      ...(followUp.threadRefs?.length ? { threadRefs: followUp.threadRefs } : {}),
-    };
-    session.messageHistory.push(entry);
-    deps.broadcastToBrowsers(session, entry);
-  });
-}
-export function removePendingCodexInput(
-  session: CodexRecoveryOrchestratorSessionLike,
-  id: string,
-  deps: Pick<CodexRecoveryOrchestratorDeps, "broadcastPendingCodexInputs" | "persistSession">,
-): PendingCodexInput | null {
-  const idx = session.pendingCodexInputs.findIndex((item) => item.id === id);
-  if (idx < 0) return null;
-  const [removed] = session.pendingCodexInputs.splice(idx, 1);
-  if (removed) restoreQueuedNeedsInputResolutionNotices(session, removed.id);
-  if (removed && session.lastMessagePreviewAt === removed.timestamp) {
-    restoreSessionMessagePreview(session);
-  }
-  deps.broadcastPendingCodexInputs(session);
-  deps.persistSession(session);
-  return removed;
 }
 export function reconcileCodexResumedTurn(
   session: CodexRecoveryOrchestratorSessionLike,
@@ -1590,6 +1522,27 @@ export function reconcileCodexResumedTurn(
           `has status=${lastTurn.status} but no pending turn; skipping automatic retry`,
       );
     }
+    return;
+  }
+  if (pending.status === "recovery_pending" && pending.terminalHistoryReconciliation) {
+    advanceCodexTerminalHistoryReconciliation(session, deps);
+    return;
+  }
+  if (reconcileRestoredUnknownCodexTurn(session, pending, snapshot, deps)) return;
+  if (
+    pending.historyIncorporation &&
+    (pending.dispatchCount > 0 ||
+      pending.historyIncorporation.rpcAcceptedAt != null ||
+      pending.historyIncorporation.recordedAt != null) &&
+    reconcileEvidenceAwareCodexResume(session, pending, snapshot, deps, {
+      retryPendingTurn: (turn, options) => retryPendingCodexTurn(session, turn, deps, options),
+      finalizeBatchHistory: (turn, deliveryConfirmed) => {
+        finalizeCodexBatchBrowserHistory(session, turn, deps, deliveryConfirmed);
+      },
+      recordHistoryMilestone: (turn, milestone, details) =>
+        recordCodexHistoryMilestoneProof(session, turn, milestone, details),
+    })
+  ) {
     return;
   }
   if (!lastTurn) {
@@ -1966,6 +1919,9 @@ export function retryNonDrainableCodexHeadTurn(
 ): boolean {
   return recoverNonDrainableCodexHeadTurn(session, reason, {
     getHead: () => deps.getCodexHeadTurn(session),
+    retire: (head) => {
+      deps.completeCodexTurn(session, head);
+    },
     settleObservedActivity: (head, activity) =>
       suppressCodexReplayForObservedActivity(session, head, "stale_ack_local_activity", activity, deps),
     retry: (head) => retryPendingCodexTurn(session, head, deps),

@@ -54,6 +54,10 @@ export interface PendingCodexInput {
   autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
   /** Server-only correlation for a held input released into normal Codex delivery. */
   autoPauseRecoveries?: CodexAutoPauseRecoveryLink[];
+  /** Server-only FIFO insertion target for a separately owned recovery continuation. */
+  queueBeforeOwnerId?: string;
+  /** Server-only boundary that keeps later work out of the recovery continuation turn. */
+  requireFreshSuccessor?: boolean;
   /** Persisted terminal delivery state; absence means the input is still deliverable. */
   deliveryState?: CodexPendingInputDeliveryState;
   failureReason?: Extract<CodexPendingInputFailureReason, "nonrecoverable_turn_start">;

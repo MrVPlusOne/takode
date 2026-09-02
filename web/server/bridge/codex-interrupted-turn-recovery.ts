@@ -10,6 +10,7 @@ import type {
   BrowserIncomingMessage,
   CLIResultMessage,
   CodexOutboundTurn,
+  CodexTurnRecoveryContinuationMode,
   CodexTurnRecoveryReason,
   PendingCodexInput,
   SessionState,
@@ -29,6 +30,12 @@ import {
   type CodexLocalDeliveryActivitySummary,
 } from "./codex-delivery-ownership.js";
 import { reconcileRecoveredQueuedTurnLifecycle } from "./codex-queued-turn-lifecycle.js";
+import {
+  createCodexHistoryIncorporation,
+  isCodexTurnProvablyNeverDispatched,
+  summarizeHistoryCorrelatedLocalActivity,
+} from "./codex-history-incorporation.js";
+import { withTrustedCodexRecoveryRoute } from "./codex-recovery-routing-context.js";
 
 export type CodexTurnRecoveryDeliveryStatus = "sent" | "queued" | "paused_queued" | "dropped" | "no_session";
 
@@ -70,8 +77,15 @@ export interface CodexInterruptedTurnRecoveryDeps {
     content: string,
     agentSource: { sessionId: string; sessionLabel?: string },
     threadRoute: ThreadRouteMetadata,
-    options: { deliveryContent: string },
+    options: {
+      deliveryContent: string;
+      afterAccepted?: () => void;
+      afterRejected?: (reason: "dropped" | "route_rejected" | "route_failed") => void;
+    },
   ) => CodexTurnRecoveryDeliveryStatus;
+  rebuildQueuedCodexPendingStartBatch?: (session: any) => void;
+  dispatchQueuedCodexTurns?: (session: any, reason: string) => void;
+  queueCodexPendingStartBatch?: (session: any, reason: string) => void;
   setAttentionError?: (session: any) => void;
 }
 
@@ -112,6 +126,14 @@ export function normalizeCodexTurnRecoveryState(value: unknown): SessionState["c
   const attemptValid = raw.attempt === 0 || raw.attempt === 1;
   const continuationStatus = status === "continuation_pending" || status === "continuation_active";
   const failClosed = !attemptValid || (continuationStatus && raw.attempt !== 1);
+  const historyPresence =
+    raw.historyPresence === "present" || raw.historyPresence === "absent" ? raw.historyPresence : "unknown";
+  const continuationMode =
+    raw.continuationMode === "finish_response" || raw.continuationMode === "verify_then_continue"
+      ? raw.continuationMode
+      : raw.attempt === 1 || continuationStatus
+        ? "verify_then_continue"
+        : null;
   return {
     recoveryId: raw.recoveryId,
     originalOwnerId: raw.originalOwnerId,
@@ -126,6 +148,8 @@ export function normalizeCodexTurnRecoveryState(value: unknown): SessionState["c
     ...(typeof raw.questId === "string" && raw.questId.trim() ? { questId: raw.questId } : {}),
     status: failClosed ? "action_required" : (status as NonNullable<SessionState["codex_turn_recovery"]>["status"]),
     reason: failClosed ? "recovery_failed" : (reason as CodexTurnRecoveryReason),
+    historyPresence,
+    continuationMode,
     ...(typeof raw.raisedAttention === "boolean" ? { raisedAttention: raw.raisedAttention } : {}),
     attempt: failClosed ? 1 : (raw.attempt as number),
     maxAttempts: 1,
@@ -316,25 +340,19 @@ export function selectCodexTurnRecoveryOwner(
   return coOwners.find((turn) => isDirectHumanTurn(session, turn)) ?? pending;
 }
 
-export function markCodexTurnRecoveryOnDisconnect(
+export function markCodexTurnRecoveryHistoryPresence(
   session: CodexInterruptedTurnRecoverySessionLike,
   pending: CodexOutboundTurn,
+  historyPresence: "present" | "absent" | "unknown",
   deps: Pick<CodexInterruptedTurnRecoveryDeps, "broadcastToBrowsers" | "persistSession">,
-): void {
-  const recoveryOwner = selectCodexTurnRecoveryOwner(session, pending);
-  pending = recoveryOwner;
+): boolean {
   const current = session.state.codex_turn_recovery ?? null;
-  if (current && isRecoveryContinuationTurn(session, pending, current.recoveryId)) {
-    setRecoveryState(
-      session,
-      { ...current, status: "recovering", reason: "adapter_disconnect", updatedAt: Date.now() },
-      deps,
-    );
-    return;
+  if (current && current.originalOwnerId !== pending.userMessageId) return false;
+  if (current?.historyPresence === historyPresence) return false;
+  if (current) {
+    setRecoveryState(session, { ...current, historyPresence, updatedAt: Date.now() }, deps);
+    return true;
   }
-  if (current || session.state.isOrchestrator !== true || !isDirectHumanTurn(session, pending)) return;
-  const activity = summarizeLocalCodexDeliveryActivity(session, pending);
-  if (activity.count === 0) return;
   const now = Date.now();
   const route = resolveCodexTurnRecoveryRoute(session, pending);
   setRecoveryState(
@@ -349,6 +367,61 @@ export function markCodexTurnRecoveryOnDisconnect(
       ...(route.questId ? { questId: route.questId } : {}),
       status: "recovering",
       reason: "adapter_disconnect",
+      historyPresence,
+      continuationMode: null,
+      attempt: 0,
+      maxAttempts: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+    deps,
+  );
+  return true;
+}
+
+export function markCodexTurnRecoveryOnDisconnect(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  pending: CodexOutboundTurn,
+  deps: Pick<CodexInterruptedTurnRecoveryDeps, "broadcastToBrowsers" | "persistSession">,
+): void {
+  const recoveryOwner = pending.historyIncorporation ? pending : selectCodexTurnRecoveryOwner(session, pending);
+  pending = recoveryOwner;
+  const current = session.state.codex_turn_recovery ?? null;
+  if (current && isRecoveryContinuationTurn(session, pending, current.recoveryId)) {
+    setRecoveryState(
+      session,
+      { ...current, status: "recovering", reason: "adapter_disconnect", updatedAt: Date.now() },
+      deps,
+    );
+    return;
+  }
+  if (current) return;
+  const trackedHistory = pending.historyIncorporation?.rpcAcceptedAt != null;
+  const activity = trackedHistory
+    ? summarizeHistoryCorrelatedLocalActivity(session, pending)
+    : summarizeLocalCodexDeliveryActivity(session, pending);
+  if (
+    !trackedHistory &&
+    (session.state.isOrchestrator !== true || !isDirectHumanTurn(session, pending) || activity.count === 0)
+  ) {
+    return;
+  }
+  const now = Date.now();
+  const route = resolveCodexTurnRecoveryRoute(session, pending);
+  setRecoveryState(
+    session,
+    {
+      recoveryId: pending.userMessageId,
+      originalOwnerId: pending.userMessageId,
+      originalProviderTurnId: pending.turnId,
+      originalHistoryIndex: pending.historyIndex,
+      continuationOwnerId: null,
+      threadKey: route.threadKey,
+      ...(route.questId ? { questId: route.questId } : {}),
+      status: "recovering",
+      reason: "adapter_disconnect",
+      historyPresence: pending.historyIncorporation?.recordedAt != null ? "present" : "unknown",
+      continuationMode: null,
       attempt: 0,
       maxAttempts: 1,
       createdAt: now,
@@ -363,11 +436,14 @@ export function isCodexLeaderRecycleRecoveryInjectionPending(
 ): boolean {
   const recovery = session.state.codex_turn_recovery ?? null;
   const recycle = session.codexLeaderRecycleContinuation ?? null;
-  return (
-    recovery?.status === "continuation_pending" &&
-    recovery.continuationOwnerId == null &&
-    recycle?.recoveryId === recovery.recoveryId
-  );
+  return isCodexTurnRecoveryContinuationInjectionPending(session) && recycle?.recoveryId === recovery?.recoveryId;
+}
+
+export function isCodexTurnRecoveryContinuationInjectionPending(
+  session: CodexInterruptedTurnRecoverySessionLike,
+): boolean {
+  const recovery = session.state.codex_turn_recovery ?? null;
+  return recovery?.status === "continuation_pending" && recovery.continuationOwnerId == null;
 }
 
 export function prepareCodexLeaderRecycleRecoveryInjection(
@@ -459,13 +535,13 @@ export function beginCodexTurnRecoveryContinuation(
   pending: CodexOutboundTurn,
   route: ThreadRouteMetadata,
   deps: CodexInterruptedTurnRecoveryDeps,
+  continuationMode: CodexTurnRecoveryContinuationMode = "verify_then_continue",
 ): boolean {
   const existing = session.state.codex_turn_recovery ?? null;
   if (isRecoveryContinuationTurn(session, pending, existing?.recoveryId)) {
     markCodexTurnRecoveryActionRequired(session, "continuation_interrupted", deps);
     return false;
   }
-  if (session.state.isOrchestrator !== true || !isDirectHumanTurn(session, pending)) return false;
   if (existing && existing.originalOwnerId !== pending.userMessageId) return false;
   if (existing?.attempt === 1) {
     if (existing.status === "action_required") return false;
@@ -475,13 +551,22 @@ export function beginCodexTurnRecoveryContinuation(
       markCodexTurnRecoveryActionRequired(session, "continuation_dispatch_failed", deps);
       return false;
     }
-    setRecoveryState(session, { ...existing, continuationOwnerId, updatedAt: Date.now() }, deps);
+    setRecoveryState(
+      session,
+      {
+        ...existing,
+        continuationOwnerId,
+        continuationMode: existing.continuationMode ?? continuationMode,
+        updatedAt: Date.now(),
+      },
+      deps,
+    );
     return true;
   }
 
   const now = Date.now();
   const recoveryId = pending.userMessageId;
-  const next = {
+  const next: NonNullable<SessionState["codex_turn_recovery"]> = {
     recoveryId,
     originalOwnerId: pending.userMessageId,
     originalProviderTurnId: pending.turnId,
@@ -491,48 +576,101 @@ export function beginCodexTurnRecoveryContinuation(
     ...(route.questId ? { questId: route.questId } : {}),
     status: "continuation_pending" as const,
     reason: "interrupted_after_activity" as const,
+    historyPresence: pending.historyIncorporation?.recordedAt != null ? "present" : "unknown",
+    continuationMode,
     attempt: 1,
     maxAttempts: 1 as const,
     createdAt: existing?.originalOwnerId === pending.userMessageId ? existing.createdAt : now,
     updatedAt: now,
   };
   setRecoveryState(session, next, deps);
-  const laterTurnExists = session.pendingCodexTurns.some(
-    (turn) => turn !== pending && turn.status !== "completed" && (!pending.turnId || turn.turnId !== pending.turnId),
-  );
-  if (laterTurnExists || session.state.pause?.pausedAt || session.state.codex_result_error_auto_pause?.pausedAt) {
+  if (session.state.pause?.pausedAt || session.state.codex_result_error_auto_pause?.pausedAt) {
     markCodexTurnRecoveryActionRequired(session, "continuation_dispatch_failed", deps);
     return false;
   }
 
   const sourceId = codexTurnRecoverySourceId(recoveryId);
-  const delivery = deps.injectUserMessage(
-    session.id,
-    "Takode is resuming this interrupted work without repeating actions that already completed.",
-    { sessionId: sourceId, sessionLabel: CODEX_TURN_RECOVERY_SOURCE_LABEL },
-    route,
-    { deliveryContent: buildContinuationPrompt(session, pending) },
-  );
-  if (delivery === "dropped" || delivery === "no_session" || delivery === "paused_queued") {
+  const queueBeforeOwnerId = session.pendingCodexTurns.find((turn) => turn.status !== "completed")?.userMessageId;
+  const visibleContent =
+    continuationMode === "verify_then_continue"
+      ? "Takode added a separate follow-up to check prior work before finishing what is missing. The original input was not replayed."
+      : "Takode added a separate follow-up to finish the interrupted response. The original input was not replayed.";
+  const deliveryContent = buildContinuationPrompt(session, pending, continuationMode);
+  const acceptContinuation = () => {
+    bindAcceptedCodexTurnRecoveryContinuation(session, recoveryId, sourceId, deps);
+  };
+  const rejectContinuation = () => {
+    if (session.state.codex_turn_recovery?.recoveryId !== recoveryId) return;
     markCodexTurnRecoveryActionRequired(session, "continuation_dispatch_failed", deps);
+  };
+  let delivery: CodexTurnRecoveryDeliveryStatus;
+  try {
+    delivery = withTrustedCodexRecoveryRoute(
+      session,
+      {
+        recoveryId,
+        sourceId,
+        visibleContent,
+        deliveryContent,
+        threadKey: route.threadKey,
+        ...(route.questId ? { questId: route.questId } : {}),
+        ...(queueBeforeOwnerId ? { queueBeforeOwnerId } : {}),
+      },
+      () =>
+        deps.injectUserMessage(
+          session.id,
+          visibleContent,
+          { sessionId: sourceId, sessionLabel: CODEX_TURN_RECOVERY_SOURCE_LABEL },
+          route,
+          { deliveryContent, afterAccepted: acceptContinuation, afterRejected: rejectContinuation },
+        ),
+    );
+  } catch {
+    rejectContinuation();
     return false;
   }
-
-  const continuationOwnerId = findContinuationOwnerId(session, sourceId);
-  setRecoveryState(
-    session,
-    {
-      ...next,
-      continuationOwnerId,
-      updatedAt: Date.now(),
-    },
-    deps,
-  );
+  if (delivery === "dropped" || delivery === "no_session" || delivery === "paused_queued") {
+    rejectContinuation();
+    return false;
+  }
+  const continuationOwnerId = session.state.codex_turn_recovery?.continuationOwnerId ?? null;
   console.log(
-    `[ws-bridge] Queued exact-owner Codex leader continuation for session ${sessionTag(session.id)} ` +
-      `(recovery=${recoveryId}, owner=${continuationOwnerId ?? "pending"}, route=${route.threadKey})`,
+    `[ws-bridge] Queued exact-owner Codex continuation for session ${sessionTag(session.id)} ` +
+      `(recovery=${recoveryId}, owner=${continuationOwnerId ?? "pending"}, route=${route.threadKey}, mode=${continuationMode})`,
   );
   return true;
+}
+
+function bindAcceptedCodexTurnRecoveryContinuation(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  recoveryId: string,
+  sourceId: string,
+  deps: CodexInterruptedTurnRecoveryDeps,
+): void {
+  const current = session.state.codex_turn_recovery ?? null;
+  if (!current || current.recoveryId !== recoveryId || current.status === "action_required") return;
+  const continuationOwnerId = findContinuationOwnerId(session, sourceId);
+  if (!continuationOwnerId) {
+    markCodexTurnRecoveryActionRequired(session, "continuation_dispatch_failed", deps);
+    return;
+  }
+  const continuationInput = session.pendingCodexInputs.find((input) => input.id === continuationOwnerId);
+  if (continuationInput && !continuationInput.queueBeforeOwnerId) {
+    const laterTurnOwner = session.pendingCodexTurns.find(
+      (turn) => turn.status !== "completed" && sourceIdForPendingTurn(session, turn) !== sourceId,
+    )?.userMessageId;
+    const laterInputOwner = session.pendingCodexInputs.find(
+      (input) => input.id !== continuationOwnerId && input.deliveryState !== "failed",
+    )?.id;
+    continuationInput.queueBeforeOwnerId = laterTurnOwner ?? laterInputOwner;
+  }
+  setRecoveryState(
+    session,
+    { ...current, continuationOwnerId, status: "continuation_pending", updatedAt: Date.now() },
+    deps,
+  );
+  deps.rebuildQueuedCodexPendingStartBatch?.(session);
+  deps.dispatchQueuedCodexTurns?.(session, "codex_turn_recovery_continuation_accepted");
 }
 
 export function markCodexTurnRecoveryContinuationActive(
@@ -568,25 +706,10 @@ function retireCodexTurnRecoveryOwners(
     if (input.agentSource?.sessionId === sourceId) ownerIds.add(input.id);
   }
 
-  const providerTurnIds = new Set<string>();
-  if (current.originalProviderTurnId) providerTurnIds.add(current.originalProviderTurnId);
-  for (const turn of session.pendingCodexTurns) {
-    const ids = turn.pendingInputIds ?? [turn.userMessageId];
-    const ownsTurn =
-      ownerIds.has(turn.userMessageId) ||
-      ids.some((id) => ownerIds.has(id)) ||
-      sourceIdForPendingTurn(session, turn) === sourceId;
-    if (ownsTurn && turn.turnId) providerTurnIds.add(turn.turnId);
-  }
-  for (const turn of session.pendingCodexTurns) {
-    if (!turn.turnId || !providerTurnIds.has(turn.turnId)) continue;
-    for (const id of turn.pendingInputIds ?? [turn.userMessageId]) ownerIds.add(id);
-  }
-
   const previousTurnCount = session.pendingCodexTurns.length;
   let splitMixedTurn = false;
   session.pendingCodexTurns = session.pendingCodexTurns.flatMap((turn) => {
-    if (turn.turnId != null && providerTurnIds.has(turn.turnId)) return [];
+    if (turn.status === "completed") return [];
     const ids = turn.pendingInputIds ?? [turn.userMessageId];
     const remainingIds = ids.filter((id) => !ownerIds.has(id));
     const sourceOwned = sourceIdForPendingTurn(session, turn) === sourceId;
@@ -610,7 +733,14 @@ function retireCodexTurnRecoveryOwners(
         ...(pending?.vscodeSelection ? { vscodeSelection: pending.vscodeSelection } : {}),
       };
     });
-    turn.adapterMsg = { ...batchMessage, pendingInputIds: remainingIds, inputs: remainingInputs };
+    const canRegenerateTracking = isCodexTurnProvablyNeverDispatched(turn);
+    const historyIncorporation = canRegenerateTracking ? createCodexHistoryIncorporation(remainingIds) : undefined;
+    turn.adapterMsg = {
+      ...batchMessage,
+      pendingInputIds: remainingIds,
+      inputs: remainingInputs,
+      ...(historyIncorporation ? { clientUserMessageId: historyIncorporation.clientUserMessageId } : {}),
+    };
     turn.pendingInputIds = remainingIds;
     turn.userMessageId = remainingIds[0]!;
     turn.userContent = remainingInputs
@@ -618,6 +748,19 @@ function retireCodexTurnRecoveryOwners(
       .filter(Boolean)
       .join("\n\n");
     if (turn.historyIndex === current.originalHistoryIndex || sourceOwned) turn.historyIndex = -1;
+    turn.historyIncorporation = historyIncorporation;
+    turn.historyTrackingUnknown = canRegenerateTracking ? undefined : true;
+    if (!canRegenerateTracking) {
+      turn.status = "recovery_pending";
+      turn.turnTarget = null;
+      turn.terminalHistoryReconciliation = {
+        presence: "unknown",
+        reason: "recovery_owner_split",
+        action: "continue",
+        continuationMode: "verify_then_continue",
+        classifiedAt: Date.now(),
+      };
+    }
     splitMixedTurn = true;
     return [turn];
   });
@@ -681,18 +824,67 @@ export function markCodexTurnRecoveryActionRequired(
   );
 }
 
+export function markCodexTurnRecoveryOwnerActionRequired(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  pending: CodexOutboundTurn,
+  reason: CodexTurnRecoveryReason,
+  deps: Pick<
+    CodexInterruptedTurnRecoveryDeps,
+    | "broadcastToBrowsers"
+    | "persistSession"
+    | "persistHistoryMetadataRepair"
+    | "refreshBrowserConversationViews"
+    | "setAttentionError"
+  >,
+): void {
+  const current = session.state.codex_turn_recovery ?? null;
+  if (!current) {
+    const now = Date.now();
+    const route = resolveCodexTurnRecoveryRoute(session, pending);
+    setRecoveryState(
+      session,
+      {
+        recoveryId: pending.userMessageId,
+        originalOwnerId: pending.userMessageId,
+        originalProviderTurnId: pending.turnId,
+        originalHistoryIndex: pending.historyIndex,
+        continuationOwnerId: null,
+        threadKey: route.threadKey,
+        ...(route.questId ? { questId: route.questId } : {}),
+        status: "recovering",
+        reason: "adapter_disconnect",
+        historyPresence: pending.historyIncorporation?.recordedAt != null ? "present" : "unknown",
+        continuationMode: null,
+        attempt: 0,
+        maxAttempts: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+      deps,
+    );
+  }
+  if (session.state.codex_turn_recovery?.originalOwnerId === pending.userMessageId) {
+    markCodexTurnRecoveryActionRequired(session, reason, deps);
+  }
+}
+
 export function resolveCodexTurnRecoveryAction(
   session: CodexInterruptedTurnRecoverySessionLike,
   recoveryId: string,
   deps: Pick<
     CodexInterruptedTurnRecoveryDeps,
-    "broadcastToBrowsers" | "persistSession" | "persistHistoryMetadataRepair" | "refreshBrowserConversationViews"
+    | "broadcastToBrowsers"
+    | "persistSession"
+    | "persistHistoryMetadataRepair"
+    | "refreshBrowserConversationViews"
+    | "queueCodexPendingStartBatch"
   >,
 ): boolean {
   const current = session.state.codex_turn_recovery ?? null;
   if (!current || current.status !== "action_required" || current.recoveryId !== recoveryId) return false;
   retireCodexTurnRecoveryOwners(session, current, deps);
   clearCodexTurnRecoveryState(session, current, deps);
+  deps.queueCodexPendingStartBatch?.(session, "codex_turn_recovery_resolved");
   console.log(
     `[ws-bridge] User resolved Codex interrupted-turn recovery for session ${sessionTag(session.id)} ` +
       `(recovery=${current.recoveryId}, route=${current.threadKey})`,
@@ -970,7 +1162,11 @@ function findContinuationOwnerId(session: CodexInterruptedTurnRecoverySessionLik
   return pendingTurn?.userMessageId ?? null;
 }
 
-function buildContinuationPrompt(session: CodexInterruptedTurnRecoverySessionLike, pending: CodexOutboundTurn): string {
+function buildContinuationPrompt(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  pending: CodexOutboundTurn,
+  continuationMode: CodexTurnRecoveryContinuationMode,
+): string {
   const sessionRef = String(getKnownSessionNum(session.id) ?? session.sessionNum ?? session.id);
   const historyIndex = pending.historyIndex;
   const inspectCommands =
@@ -978,10 +1174,14 @@ function buildContinuationPrompt(session: CodexInterruptedTurnRecoverySessionLik
       ? `Start with \`takode peek ${sessionRef} --turn-containing ${historyIndex}\`, then use \`takode read ${sessionRef} ${historyIndex}\` and other targeted inspection only as needed.`
       : `Start with \`takode scan ${sessionRef}\`, then inspect the most recent interrupted turn with \`takode peek\` or \`takode read\` as needed.`;
   return [
-    "Takode detected that the previous leader turn ended after model/tool activity but before a final response.",
-    "This message is a separate recovery continuation. The original user payload was already delivered and must not be replayed.",
+    "Takode detected that the previous turn ended before its response was complete.",
+    continuationMode === "verify_then_continue"
+      ? "This is a separately owned verification-first continuation. The original user payload was not replayed because its history or effect evidence is incomplete."
+      : "This is a separately owned recovery continuation. The original user payload is recorded in Codex history and must not be replayed.",
     inspectCommands,
-    "Treat completed tool calls and durable side effects as already performed. Verify existing quest, board, notification, file, and external state before repeating any action.",
+    continuationMode === "verify_then_continue"
+      ? "Tool or external effects may already have occurred. Inspect current quest, board, notification, file, and external state before repeating any action."
+      : "No effect-capable activity was proven after this input. Inspect the original request and partial response, then finish only the missing response.",
     "Continue only the missing work within the original authorization and thread route. If safe continuation remains unclear, report the unfinished/action-required state instead of guessing or claiming completion.",
   ].join("\n\n");
 }

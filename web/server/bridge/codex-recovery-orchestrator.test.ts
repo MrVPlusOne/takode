@@ -1035,10 +1035,10 @@ describe("reconcileCodexResumedTurn", () => {
     expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_interrupted_turn_continuation");
     expect(deps.injectUserMessage).toHaveBeenCalledWith(
       session.id,
-      expect.stringContaining("resuming this interrupted work"),
+      expect.stringContaining("separate follow-up"),
       expect.objectContaining({ sessionId: expect.stringMatching(/^system:codex-turn-recovery:/) }),
       { threadKey: "main" },
-      expect.objectContaining({ deliveryContent: expect.stringContaining("must not be replayed") }),
+      expect.objectContaining({ deliveryContent: expect.stringContaining("verification-first continuation") }),
     );
     expect(session.state.codex_turn_recovery).toMatchObject({
       status: "continuation_pending",
@@ -1148,10 +1148,10 @@ describe("reconcileCodexResumedTurn", () => {
     expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_interrupted_turn_continuation");
     expect(deps.injectUserMessage).toHaveBeenCalledWith(
       session.id,
-      expect.stringContaining("resuming this interrupted work"),
+      expect.stringContaining("separate follow-up"),
       expect.objectContaining({ sessionId: expect.stringMatching(/^system:codex-turn-recovery:/) }),
       { threadKey: "main" },
-      expect.objectContaining({ deliveryContent: expect.stringContaining("takode") }),
+      expect.objectContaining({ deliveryContent: expect.stringContaining("takode peek") }),
     );
     expect(session.state.codex_turn_recovery).toMatchObject({ threadKey: "main", status: "continuation_pending" });
   });

@@ -22,6 +22,7 @@ export type CodexPendingDeliveryBlockerReason =
   | "backend_recovering"
   | "active_turn_id_present"
   | "fresh_turn_required"
+  | "history_recovery_pending"
   | "stale_backend_ack_head"
   | "dispatched_head_pending_ack"
   | "queued_head_ready"
@@ -30,6 +31,7 @@ export type CodexPendingDeliveryBlockerReason =
 
 export type CodexPendingDeliveryProofKind =
   | "resume_snapshot"
+  | "history_milestone"
   | "turn_started"
   | "turn_steered"
   | "turn_steer_failed"
@@ -43,6 +45,14 @@ export interface CodexPendingDeliveryProofSignal {
   turnStatus?: string | null;
   classification?: string | null;
   pendingInputCount?: number;
+  ownerId?: string;
+  batchId?: string;
+  milestone?: string;
+  historyPresence?: import("./codex-outbound-turn-types.js").CodexHistoryPresence;
+  attempt?: number;
+  recordedSource?: import("./codex-outbound-turn-types.js").CodexHistoryIncorporationState["recordedSource"];
+  continuationMode?: import("./codex-outbound-turn-types.js").CodexTurnRecoveryContinuationMode | null;
+  activityObserved?: boolean;
 }
 
 export interface CodexPendingDeliveryHeadSummary {
@@ -160,6 +170,7 @@ function classifyBlocker(input: {
   if (!head) return "none";
   if (head.status === "backend_acknowledged") return "stale_backend_ack_head";
   if (head.status === "dispatched") return "dispatched_head_pending_ack";
+  if (head.status === "recovery_pending") return "history_recovery_pending";
   if (head.status === "queued") return "queued_head_ready";
   return "unknown_head_state";
 }

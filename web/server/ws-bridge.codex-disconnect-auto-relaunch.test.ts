@@ -840,6 +840,9 @@ describe("Codex disconnect auto-relaunch", () => {
     reconnect.send.mockClear();
     emitCodexSessionReady(replacement, { cliSessionId: "thread-after-terminal-disconnect" });
     expect(getPendingCodexTurn(session)).toBeNull();
+    expect(replacement.sendBrowserMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "codex_start_pending" }),
+    );
     expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
     const reconnectEvents = reconnect.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
     expect(

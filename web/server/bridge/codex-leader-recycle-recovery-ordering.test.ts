@@ -766,10 +766,12 @@ describe("Codex resumed-turn co-owner canonicalization", () => {
         _content: string,
         agentSource: { sessionId: string; sessionLabel?: string },
         threadRoute: { threadKey: string; questId?: string },
+        options: { afterAccepted?: () => void },
       ) => {
         session.pendingCodexInputs.push(pendingInput("continuation-owner", agentSource));
         session.pendingCodexInputs[0]!.threadKey = threadRoute.threadKey;
         session.pendingCodexInputs[0]!.questId = threadRoute.questId;
+        options.afterAccepted?.();
         return "sent" as const;
       },
     );
@@ -834,10 +836,10 @@ describe("Codex resumed-turn co-owner canonicalization", () => {
     expect(injectUserMessage).toHaveBeenCalledTimes(1);
     expect(injectUserMessage).toHaveBeenCalledWith(
       session.id,
-      expect.stringContaining("resuming this interrupted work"),
+      expect.stringContaining("separate follow-up to check prior work"),
       expect.objectContaining({ sessionId: codexTurnRecoverySourceId("human-owner") }),
       expect.objectContaining({ threadKey: "q-9010", questId: "q-9010" }),
-      expect.objectContaining({ deliveryContent: expect.stringContaining("already delivered") }),
+      expect.objectContaining({ deliveryContent: expect.stringContaining("verification-first continuation") }),
     );
     expect(session.state.codex_turn_recovery).toMatchObject({
       recoveryId: "human-owner",

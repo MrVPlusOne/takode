@@ -1609,6 +1609,7 @@ export class WsBridge {
     const session = this.sessions.get(sessionId);
     if (!session) {
       console.error(`[ws-bridge] Cannot inject message: session ${sessionId} not found`);
+      options?.afterRejected?.("route_rejected");
       return "no_session";
     }
     return deliverProgrammaticUserMessage(session, content, agentSource, takodeHerdBatch, threadRoute, options, {

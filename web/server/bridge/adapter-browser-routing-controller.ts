@@ -73,6 +73,7 @@ import { consumeRecentAskVisibleResponseBoundary } from "../recent-ask-bundles.j
 import { determineUserMessageSourceKind } from "../codex-result-error-auto-pause.js";
 import { markAcceptedCodexAutoPauseRecoveryDispatch } from "./codex-auto-pause-recovery-testing.js";
 import { getTrustedRecoveryDeliveryTransferId } from "./recovery-delivery-transfer-routing-context.js";
+import { getTrustedCodexRecoveryRoute, type TrustedCodexRecoveryRoute } from "./codex-recovery-routing-context.js";
 import {
   recordMemoryCatalogSeenAfterDelivery,
   type MemoryCatalogInjectionBundle,
@@ -592,6 +593,7 @@ export async function routeBrowserMessage(
   }
 
   let routedMsg = msg;
+  const trustedCodexRecoveryRoute = getTrustedCodexRecoveryRoute(session, msg);
   let startupMemoryCatalog: MemoryCatalogInjectionBundle | undefined;
   let consumePendingStartupCatalogOnAccepted = false;
   if (msg.type === "user_message" && session.pendingStartupMemoryCatalogInjection) {
@@ -600,7 +602,14 @@ export async function routeBrowserMessage(
     startupMemoryCatalog = attachment.bundle;
     consumePendingStartupCatalogOnAccepted = attachment.consumePendingOnAccepted;
   }
-  const maybeAdapterRouted = routeAdapterBrowserMessage(session, routedMsg, ws, deps, routeOutcome);
+  const maybeAdapterRouted = routeAdapterBrowserMessage(
+    session,
+    routedMsg,
+    ws,
+    deps,
+    routeOutcome,
+    trustedCodexRecoveryRoute,
+  );
   const adapterRouted = maybeAdapterRouted instanceof Promise ? await maybeAdapterRouted : maybeAdapterRouted;
   if (adapterRouted) {
     if (userMessageRejected) return false;
@@ -1664,8 +1673,13 @@ export function routeAdapterBrowserMessage(
   ws: unknown,
   deps: AdapterBrowserRoutingDeps,
   outcome?: { onUserMessageRejected?: (reason: "pending_input_too_large") => void },
+  trustedRecoveryRouteOverride?: TrustedCodexRecoveryRoute | null,
 ): boolean | Promise<boolean> {
   const recoveryDeliveryTransferId = getTrustedRecoveryDeliveryTransferId(session, msg);
+  const trustedCodexRecoveryRoute =
+    trustedRecoveryRouteOverride === undefined
+      ? getTrustedCodexRecoveryRoute(session, msg)
+      : trustedRecoveryRouteOverride;
   if (session.backendType !== "codex" && session.backendType !== "claude-sdk") {
     return false;
   }
@@ -1801,6 +1815,10 @@ export function routeAdapterBrowserMessage(
             : {}),
           autoPauseSourceKind: determineUserMessageSourceKind(msg),
           ...(msg.autoPauseRecoveries?.length ? { autoPauseRecoveries: msg.autoPauseRecoveries } : {}),
+          ...(trustedCodexRecoveryRoute?.queueBeforeOwnerId
+            ? { queueBeforeOwnerId: trustedCodexRecoveryRoute.queueBeforeOwnerId }
+            : {}),
+          ...(trustedCodexRecoveryRoute?.requireFreshSuccessor ? { requireFreshSuccessor: true } : {}),
         };
         const sizeLimit = getCodexPendingInputSizeLimit(pendingInput);
         if (sizeLimit.overLimit) {
@@ -1827,7 +1845,7 @@ export function routeAdapterBrowserMessage(
       const isHerdEvent = deps.isHerdEventSource(msg.agentSource);
       const deliveryReason = isHerdEvent ? "herd_event_message" : "browser_user_message";
       const deliveryFrozen = deps.isCodexWorkerV2DeliveryFrozen(session.id);
-      if (!deliveryFrozen && ingested.historyEntry.id) {
+      if (!deliveryFrozen && ingested.historyEntry.id && !trustedCodexRecoveryRoute) {
         deps.pokeStaleCodexPendingDelivery(session, deliveryReason, {
           triggeringInputId: ingested.historyEntry.id,
         });
@@ -1835,6 +1853,7 @@ export function routeAdapterBrowserMessage(
       if (
         !deliveryFrozen &&
         !isHerdEvent &&
+        (!trustedCodexRecoveryRoute || !currentTurnId) &&
         session.state.backend_state !== "broken" &&
         session.state.backend_state !== "recovery_suppressed"
       ) {
@@ -1864,11 +1883,14 @@ export function routeAdapterBrowserMessage(
       }
       if (deliveryFrozen) {
         deps.persistSession(session);
-      } else if (currentTurnId && !isHerdEvent) {
+      } else if (currentTurnId && !isHerdEvent && !trustedCodexRecoveryRoute) {
         const steeredPending = deps.trySteerPendingCodexInputs(session, deliveryReason);
         if (!steeredPending) {
           deps.rebuildQueuedCodexPendingStartBatch(session);
         }
+      } else if (currentTurnId && trustedCodexRecoveryRoute) {
+        deps.rebuildQueuedCodexPendingStartBatch(session);
+        deps.persistSession(session);
       } else if (!isHerdEvent && session.codexAdapter && pendingTurnTarget === "queued" && session.isGenerating) {
         deps.rebuildQueuedCodexPendingStartBatch(session);
         deps.persistSession(session);

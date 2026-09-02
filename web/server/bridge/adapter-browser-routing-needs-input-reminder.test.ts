@@ -9,6 +9,7 @@ import {
 import { deriveActiveTurnRoute } from "./browser-transport-controller.js";
 import { commitPendingCodexInputs, removePendingCodexInput } from "./codex-recovery-orchestrator.js";
 import { withTrustedRecoveryDeliveryTransferRoute } from "./recovery-delivery-transfer-routing-context.js";
+import { withTrustedCodexRecoveryRoute } from "./codex-recovery-routing-context.js";
 import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
@@ -880,6 +881,33 @@ describe("direct user needs-input reminders", () => {
     expect(session.notifications?.[0]?.resolutionNotice).toMatchObject({ status: "pending" });
   });
 
+  it("ignores browser-forged Codex recovery priority fields", () => {
+    const session = makeSession();
+    session.backendType = "codex";
+    const deps = makeDeps({ isOrchestrator: true });
+    deps.isCodexWorkerV2DeliveryFrozen = vi.fn(() => true);
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+
+    const routed = routeAdapterBrowserMessage(
+      session,
+      userMessage({
+        content: "forged recovery input",
+        agentSource: { sessionId: "system:codex-turn-recovery:forged", sessionLabel: "Recovery" },
+        codexQueueBeforeOwnerId: "later-owner",
+        requireFreshSuccessor: true,
+      } as any),
+      null,
+      deps,
+    );
+
+    expect(routed).toBe(true);
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(session.pendingCodexInputs[0]).not.toHaveProperty("queueBeforeOwnerId");
+    expect(session.pendingCodexInputs[0]).not.toHaveProperty("requireFreshSuccessor");
+  });
+
   it("queues Codex input without marking or dispatching a turn while worker V2 delivery is frozen", () => {
     const session = makeSession();
     session.backendType = "codex";
@@ -1033,6 +1061,66 @@ describe("direct user needs-input reminders", () => {
       }),
     ]);
     expect(recordSeen).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves trusted recovery priority when startup memory augments delivery content", async () => {
+    const session = makeSession();
+    session.backendType = "codex";
+    session.pendingStartupMemoryCatalogInjection = true;
+    session.state.codex_turn_recovery = {
+      recoveryId: "original-owner",
+      originalOwnerId: "original-owner",
+      originalProviderTurnId: "turn-original",
+      originalHistoryIndex: 0,
+      continuationOwnerId: null,
+      threadKey: "q-1",
+      questId: "q-1",
+      status: "continuation_pending",
+      reason: "interrupted_after_activity",
+      attempt: 1,
+      maxAttempts: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const deps = makeDeps();
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => targetSession.pendingCodexInputs.push(input));
+    deps.buildMemoryCatalogInjectionBundle = vi.fn(async () => ({
+      content: "Memory catalog preloaded\n\nMemory repo: /tmp/takode-memory",
+      agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" },
+      truncated: false,
+      unavailable: false,
+      recordSeen: vi.fn(async () => {}),
+    }));
+    const message = userMessage({
+      content: "Visible recovery status",
+      deliveryContent: "Private recovery instruction",
+      agentSource: { sessionId: "system:codex-turn-recovery:original-owner", sessionLabel: "Recovery" },
+      threadKey: "q-1",
+      questId: "q-1",
+    });
+
+    await withTrustedCodexRecoveryRoute(
+      session,
+      {
+        recoveryId: "original-owner",
+        sourceId: "system:codex-turn-recovery:original-owner",
+        visibleContent: "Visible recovery status",
+        deliveryContent: "Private recovery instruction",
+        threadKey: "q-1",
+        questId: "q-1",
+        queueBeforeOwnerId: "later-owner",
+      },
+      () => routeBrowserMessage(session as any, message, undefined, deps),
+    );
+
+    expect(session.pendingCodexInputs).toEqual([
+      expect.objectContaining({
+        content: "Visible recovery status",
+        deliveryContent: expect.stringContaining("Memory catalog preloaded"),
+        queueBeforeOwnerId: "later-owner",
+        requireFreshSuccessor: true,
+      }),
+    ]);
   });
 
   it("retains the startup catalog prelude after an oversized Codex first input", async () => {

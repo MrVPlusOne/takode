@@ -149,6 +149,16 @@ function makeCodexAdapterMock() {
   };
 }
 
+function makeReceiptAwareCodexAdapterMock() {
+  const adapter = makeCodexAdapterMock() as ReturnType<typeof makeCodexAdapterMock> & {
+    onUserMessageRecorded: ReturnType<typeof vi.fn>;
+    onUserMessageReceiptObserved: ReturnType<typeof vi.fn>;
+  };
+  adapter.onUserMessageRecorded = vi.fn();
+  adapter.onUserMessageReceiptObserved = vi.fn();
+  return adapter;
+}
+
 function emitCodexSessionReady(
   adapter: ReturnType<typeof makeCodexAdapterMock>,
   overrides: Record<string, unknown> = {},
@@ -609,9 +619,8 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Codex turn-start failure re-queue", () => {
-  // When the Codex transport closes during turn/start, the adapter fires
-  // onTurnStartFailed. The bridge should re-queue the failed message so it
-  // gets flushed to the next adapter after relaunch.
+  // When Codex cannot confirm turn/start, history-aware owners must not be replayed
+  // blindly. Takode continues verification-first unless a terminal boundary applies.
 
   it("registers onTurnStartFailed callback during adapter attachment", () => {
     const adapter = makeCodexAdapterMock();
@@ -619,26 +628,32 @@ describe("Codex turn-start failure re-queue", () => {
     expect(adapter.onTurnStartFailed).toHaveBeenCalledOnce();
   });
 
-  it("re-queues the failed message to the Codex outbound-turn queue", () => {
-    const adapter = makeCodexAdapterMock();
+  it("queues verification-first continuation when turn/start acceptance is uncertain", async () => {
+    // Receipt callbacks opt this production-shaped adapter into evidence-aware tracking.
+    const adapter = makeReceiptAwareCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
     emitCodexSessionReady(adapter);
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    void bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "hello" }));
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "hello" }));
 
     const failedMsg = { type: "user_message", content: "hello" };
     const sessionBeforeFailure = bridge.getSession("s1")!;
     installReleasedRecoveryReceipt(sessionBeforeFailure, sessionBeforeFailure.pendingCodexInputs[0]);
     adapter.emitTurnStartFailed(failedMsg);
+    await flushAsync();
 
     const session = bridge.getSession("s1")!;
     expect(session.pendingMessages).toHaveLength(0);
     expectCodexStartPendingTurnLike(getPendingCodexTurn(session), {
-      firstContent: "hello",
+      firstContentContaining: "verification-first continuation",
       status: "dispatched",
-      dispatchCount: 2,
+      dispatchCount: 1,
+    });
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      status: "continuation_pending",
+      continuationMode: "verify_then_continue",
     });
     expect(
       (session.messageHistory.find((entry: any) => entry.type === "codex_auto_pause_recovery_summary") as any).recovery
@@ -804,7 +819,7 @@ describe("Codex turn-start failure re-queue", () => {
       { sessionId: "system:codex-turn-recovery:original-owner", sessionLabel: "Interrupted Turn Recovery" },
       undefined,
       { threadKey: "main" },
-      { deliveryContent: "Inspect existing side effects and continue only missing work." },
+      { deliveryContent: "verification-first continuation and continue only missing work." },
     );
     expect(delivery).toBe("sent");
     const session = bridge.getSession(sid)!;
@@ -865,7 +880,7 @@ describe("Codex turn-start failure re-queue", () => {
         { sessionId: "system:codex-turn-recovery:original-owner", sessionLabel: "Interrupted Turn Recovery" },
         undefined,
         { threadKey: "main" },
-        { deliveryContent: "Inspect existing side effects and continue only missing work." },
+        { deliveryContent: "verification-first continuation and continue only missing work." },
       );
       expect(delivery).toBe("sent");
       const session = bridge.getSession(sid)!;
@@ -914,7 +929,221 @@ describe("Codex turn-start failure re-queue", () => {
     expect(restored.getSession(sid)?.pendingCodexTurns).toHaveLength(0);
   });
 
-  it("dispatches a later queued owner after an earlier owner fails terminally", async () => {
+  it("hard-stops a terminal failure of the one allowed original-input replay", async () => {
+    const sid = "s-terminal-original-replay";
+    const adapter = makeReceiptAwareCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "replay once" }));
+    const session = bridge.getSession(sid)!;
+    const pending = getPendingCodexTurn(session);
+    const history = pending.historyIncorporation;
+    expect(history).toBeTruthy();
+    history.attempt = 1;
+    history.clientUserMessageId = `${history.batchId}:1`;
+    pending.adapterMsg.clientUserMessageId = history.clientUserMessageId;
+    session.state.codex_turn_recovery = {
+      recoveryId: pending.userMessageId,
+      originalOwnerId: pending.userMessageId,
+      originalProviderTurnId: "turn-original",
+      originalHistoryIndex: pending.historyIndex,
+      continuationOwnerId: null,
+      threadKey: "main",
+      status: "recovering",
+      reason: "adapter_disconnect",
+      historyPresence: "absent",
+      continuationMode: null,
+      attempt: 0,
+      maxAttempts: 1,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const replayMessage = structuredClone(pending.adapterMsg);
+
+    adapter.emitTurnStartFailed(replayMessage, {
+      recoverable: false,
+      message: "input_too_large: max_chars=1048576",
+    });
+    await Promise.resolve();
+
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      originalOwnerId: pending.userMessageId,
+      status: "action_required",
+      reason: "recovery_failed",
+    });
+    expect(session.pendingCodexTurns).toHaveLength(0);
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(session.attentionReason).toBe("error");
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains an attempt-1 receipt through recoverable ACK loss and settles from resumed history", async () => {
+    const sid = "s-replay-ack-loss";
+    const relaunch = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunch);
+    const adapter1 = makeReceiptAwareCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+    emitCodexSessionReady(adapter1);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "replay once" }));
+    const session = bridge.getSession(sid)!;
+    const replay = getPendingCodexTurn(session);
+    const history = replay.historyIncorporation;
+    history.attempt = 1;
+    history.clientUserMessageId = `${history.batchId}:1`;
+    replay.adapterMsg.clientUserMessageId = history.clientUserMessageId;
+    session.state.codex_turn_recovery = {
+      recoveryId: replay.userMessageId,
+      originalOwnerId: replay.userMessageId,
+      originalProviderTurnId: "turn-original",
+      originalHistoryIndex: replay.historyIndex,
+      continuationOwnerId: null,
+      threadKey: "main",
+      status: "recovering",
+      reason: "adapter_disconnect",
+      historyPresence: "absent",
+      continuationMode: null,
+      attempt: 0,
+      maxAttempts: 1,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const clientUserMessageId = history.clientUserMessageId;
+
+    adapter1.emitTurnStartFailed(structuredClone(replay.adapterMsg));
+    await Promise.resolve();
+
+    expect(relaunch).toHaveBeenCalledWith(sid);
+    expect(getPendingCodexTurn(session)).toBe(replay);
+    expect(replay).toMatchObject({
+      status: "recovery_pending",
+      historyIncorporation: { attempt: 1, clientUserMessageId },
+    });
+    expect(session.state).toMatchObject({
+      backend_state: "recovering",
+      codex_turn_recovery: { originalOwnerId: replay.userMessageId, status: "recovering" },
+    });
+
+    const adapter2 = makeReceiptAwareCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    const completed = {
+      id: "turn-replayed",
+      status: "completed",
+      error: null,
+      itemsView: "full" as const,
+      items: [
+        { type: "userMessage", clientId: clientUserMessageId, content: [] },
+        { type: "agentMessage", text: "Recovered final response." },
+      ],
+    };
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-replayed",
+      model: "gpt-5.3-codex",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-replayed",
+        threadStatus: "idle",
+        turnCount: 1,
+        turns: [completed],
+        lastTurn: completed,
+      },
+    });
+    await flushAsync();
+
+    expect(session.pendingCodexTurns).toHaveLength(0);
+    expect(session.state.codex_turn_recovery).toBeNull();
+  });
+
+  it("retains a one-shot continuation receipt through recoverable ACK loss", async () => {
+    const sid = "s-continuation-ack-loss";
+    const relaunch = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunch);
+    const adapter1 = makeReceiptAwareCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+    emitCodexSessionReady(adapter1);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    expect(
+      bridge.injectUserMessage(
+        sid,
+        "Takode is continuing interrupted work.",
+        { sessionId: "system:codex-turn-recovery:original-owner", sessionLabel: "Interrupted Turn Recovery" },
+        undefined,
+        { threadKey: "main" },
+        { deliveryContent: "verification-first continuation and continue only missing work." },
+      ),
+    ).toBe("sent");
+    const session = bridge.getSession(sid)!;
+    const continuation = getPendingCodexTurn(session);
+    const continuationOwnerId = continuation.userMessageId;
+    session.state.codex_turn_recovery = {
+      recoveryId: "original-owner",
+      originalOwnerId: "original-owner",
+      originalProviderTurnId: "turn-original",
+      originalHistoryIndex: 0,
+      continuationOwnerId,
+      threadKey: "main",
+      status: "continuation_pending",
+      reason: "interrupted_after_activity",
+      continuationMode: "verify_then_continue",
+      attempt: 1,
+      maxAttempts: 1,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const clientUserMessageId = continuation.historyIncorporation!.clientUserMessageId;
+
+    adapter1.emitTurnStartFailed(structuredClone(continuation.adapterMsg));
+    await Promise.resolve();
+
+    expect(relaunch).toHaveBeenCalledWith(sid);
+    expect(getPendingCodexTurn(session)).toBe(continuation);
+    expect(continuation).toMatchObject({
+      status: "recovery_pending",
+      historyIncorporation: { clientUserMessageId },
+    });
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      originalOwnerId: "original-owner",
+      continuationOwnerId,
+      status: "recovering",
+    });
+
+    const adapter2 = makeReceiptAwareCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    const completed = {
+      id: "turn-continuation-recovered",
+      status: "completed",
+      error: null,
+      itemsView: "full" as const,
+      items: [
+        { type: "userMessage", clientId: clientUserMessageId, content: [] },
+        { type: "agentMessage", text: "Finished the interrupted response." },
+      ],
+    };
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-continuation-recovered",
+      model: "gpt-5.3-codex",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-continuation-recovered",
+        threadStatus: "idle",
+        turnCount: 1,
+        turns: [completed],
+        lastTurn: completed,
+      },
+    });
+    await flushAsync();
+
+    expect(session.pendingCodexTurns).toHaveLength(0);
+    expect(session.state.codex_turn_recovery).toBeNull();
+  });
+
+  it("dispatches a later queued owner after an owner-local payload rejection", async () => {
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
     emitCodexSessionReady(adapter);
@@ -949,6 +1178,44 @@ describe("Codex turn-start failure re-queue", () => {
     expect(
       session.messageHistory.filter((entry: any) => entry.type === "user_message" && entry.content === "must continue"),
     ).toHaveLength(1);
+  });
+
+  it.each([
+    ["authentication", "HTTP 401 Unauthorized"],
+    ["certificate", "HTTP 403 Forbidden: invalid peer certificate"],
+    ["unsupported model", "model_not_supported: requested model is not supported"],
+    ["explicit cancellation", "cancelled by user"],
+  ])("hard-stops later queued owners after a terminal %s turn/start failure", async (_label, message) => {
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter("s1", adapter as any);
+    emitCodexSessionReady(adapter);
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "will fail" }));
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "must wait" }));
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
+
+    adapter.emitTurnStartFailed(
+      { type: "user_message", content: "will fail" },
+      { recoverable: false, message: message as string },
+    );
+    await Promise.resolve();
+
+    const session = bridge.getSession("s1")!;
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
+    expect(session.state).toMatchObject({
+      backend_state: "broken",
+      backend_error: expect.stringContaining(message as string),
+    });
+    expect(session.pendingCodexInputs).toEqual([
+      expect.objectContaining({ content: "will fail", deliveryState: "failed", cancelable: true }),
+      expect.objectContaining({ content: "must wait" }),
+    ]);
+    expect(session.pendingCodexTurns).toEqual([
+      expect.objectContaining({ userContent: "must wait", status: "queued" }),
+    ]);
+    expect(session.isGenerating).toBe(false);
   });
 
   it("fails closed for stale retry ids and cancels the exact failed owner", async () => {
@@ -1002,31 +1269,41 @@ describe("Codex turn-start failure re-queue", () => {
     expect(session.processedClientMessageIdSet.has("cancel-failed-owner-action")).toBe(true);
   });
 
-  it("flushes re-queued message to a new adapter on reattach", () => {
-    // First adapter: simulate turn-start failure
-    const adapter1 = makeCodexAdapterMock();
+  it("flushes verification-first continuation to a new adapter on reattach", async () => {
+    // First adapter: simulate receipt-aware turn-start failure.
+    const adapter1 = makeReceiptAwareCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter1 as any);
     emitCodexSessionReady(adapter1);
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    void bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "hello" }));
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "hello" }));
+    const original = adapter1.sendBrowserMessage.mock.calls[0]?.[0] as any;
+    adapter1.emitTurnStartFailed(original);
+    await flushAsync();
+    const queuedContinuation = getPendingCodexTurn(bridge.getSession("s1")!);
+    expectCodexStartPendingTurnLike(queuedContinuation, {
+      firstContentContaining: "verification-first continuation",
+      status: "dispatched",
+    });
+    // Model the already-authored continuation being returned to the queue when its adapter closes.
+    queuedContinuation.status = "queued";
     adapter1.emitDisconnect();
-    adapter1.emitTurnStartFailed({ type: "user_message", content: "hello" });
 
-    // Second adapter: should receive the re-queued message
-    const adapter2 = makeCodexAdapterMock();
+    // Second adapter: should receive the already-authoritative queued continuation.
+    const adapter2 = makeReceiptAwareCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter2 as any);
     emitCodexSessionReady(adapter2, { cliSessionId: "thread-reattach" });
+    await flushAsync();
 
     expect(adapter2.sendBrowserMessage).toHaveBeenCalled();
     const reattachedCalls = adapter2.sendBrowserMessage.mock.calls as any[];
     const reattachedMsg = reattachedCalls[0]?.[0] as any;
     expect(reattachedMsg).toBeDefined();
-    expect(getCodexStartPendingInputs(reattachedMsg)[0]?.content).toBe("hello");
+    expect(getCodexStartPendingInputs(reattachedMsg)[0]?.content).toContain("verification-first continuation");
     const session = bridge.getSession("s1")!;
     expect(session.pendingMessages).toHaveLength(0);
     expectCodexStartPendingTurnLike(getPendingCodexTurn(session), {
-      firstContent: "hello",
+      firstContentContaining: "verification-first continuation",
       status: "dispatched",
     });
   });
@@ -1172,31 +1449,37 @@ describe("Codex turn-start failure re-queue", () => {
     expect(session.messageHistory).toEqual([]);
   });
 
-  it("flushes stale adapter turn-start failures to the active adapter", () => {
-    const adapter1 = makeCodexAdapterMock();
+  it("ignores a late receipt-aware turn/start failure from a stale adapter", async () => {
+    const adapter1 = makeReceiptAwareCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter1 as any);
     emitCodexSessionReady(adapter1);
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    void bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "replay me" }));
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "replay me" }));
 
-    // Attach a replacement adapter before the old adapter reports failure.
-    const adapter2 = makeCodexAdapterMock();
+    // Simulate authoritative reconnect work being dispatched through adapter2 before adapter1's
+    // delayed failure arrives. The stale callback must not mutate or duplicate adapter2's live owner.
+    const adapter2 = makeReceiptAwareCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter2 as any);
-    emitCodexSessionReady(adapter2, { cliSessionId: "thread-active" });
-
-    adapter1.emitTurnStartFailed({ type: "user_message", content: "replay me" });
-
-    expect(adapter2.sendBrowserMessage).toHaveBeenCalled();
-    const replayedCalls = adapter2.sendBrowserMessage.mock.calls as any[];
-    const replayedMsg = replayedCalls[0]?.[0] as any;
-    expect(replayedMsg).toBeDefined();
-    expect(getCodexStartPendingInputs(replayedMsg)[0]?.content).toBe("replay me");
     const session = bridge.getSession("s1")!;
+    const activeHead = getPendingCodexTurn(session);
+    activeHead.status = "queued";
+    activeHead.turnId = null;
+    emitCodexSessionReady(adapter2, { cliSessionId: "thread-active" });
+    expect(adapter2.sendBrowserMessage).toHaveBeenCalledOnce();
+    expect(activeHead).toMatchObject({ status: "dispatched", dispatchCount: 2 });
+    const recoveryBefore = structuredClone(session.state.codex_turn_recovery ?? null);
+    const historyBefore = structuredClone(activeHead.historyIncorporation);
+    adapter2.sendBrowserMessage.mockClear();
+
+    adapter1.emitTurnStartFailed(structuredClone(activeHead.adapterMsg));
+    await flushAsync();
+
+    expect(adapter2.sendBrowserMessage).not.toHaveBeenCalled();
+    expect(getPendingCodexTurn(session)).toBe(activeHead);
+    expect(activeHead).toMatchObject({ status: "dispatched", dispatchCount: 2 });
+    expect(activeHead.historyIncorporation).toEqual(historyBefore);
+    expect(session.state.codex_turn_recovery ?? null).toEqual(recoveryBefore);
     expect(session.pendingMessages).toHaveLength(0);
-    expectCodexStartPendingTurnLike(getPendingCodexTurn(session), {
-      firstContent: "replay me",
-      status: "dispatched",
-    });
   });
 });

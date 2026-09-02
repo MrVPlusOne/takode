@@ -35,8 +35,16 @@ export function summarizeLocalCodexDeliveryActivity(
   turn: Pick<CodexOutboundTurn, "historyIndex" | "userMessageId">,
 ): CodexLocalDeliveryActivitySummary {
   if (turn.historyIndex < 0) return emptySummary();
+  return summarizeLocalCodexDeliveryActivityFrom(session, turn.historyIndex + 1, turn.userMessageId);
+}
+
+export function summarizeLocalCodexDeliveryActivityFrom(
+  session: CodexDeliveryHistoryLike,
+  startHistoryIndex: number,
+  ownerId: string,
+): CodexLocalDeliveryActivitySummary {
   const frozenCount = session._frozenCount ?? 0;
-  const firstLocalIndex = Math.max(0, turn.historyIndex + 1 - frozenCount);
+  const firstLocalIndex = Math.max(0, startHistoryIndex - frozenCount);
   const kinds = new Set<CodexLocalDeliveryActivityKind>();
   let count = 0;
   let firstHistoryIndex: number | null = null;
@@ -45,7 +53,7 @@ export function summarizeLocalCodexDeliveryActivity(
   for (let localIndex = firstLocalIndex; localIndex < session.messageHistory.length; localIndex++) {
     const message = session.messageHistory[localIndex];
     if (!message) continue;
-    if (message.type === "result" && message.data.codex_provider_retry?.ownerId === turn.userMessageId) continue;
+    if (message.type === "result" && message.data.codex_provider_retry?.ownerId === ownerId) continue;
     const messageKinds = classifyLocalActivity(message);
     if (messageKinds.length === 0) continue;
     const absoluteIndex = frozenCount + localIndex;

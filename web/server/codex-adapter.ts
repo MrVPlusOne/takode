@@ -69,6 +69,12 @@ import {
 import { CodexApprovalManager } from "./codex-approval-manager.js";
 import { CodexAsyncDispatchQueue } from "./codex-async-dispatch-queue.js";
 import { CodexItemEventManager } from "./codex-item-event-manager.js";
+import {
+  buildCodexBatchInput,
+  CodexUserMessageReceiptObserver,
+  resolveCodexClientUserMessageId,
+  type CodexUserMessageReceipt,
+} from "./codex-user-message-receipt-observer.js";
 import { JsonRpcTransport, isPidAlive } from "./codex-jsonrpc-transport.js";
 import {
   CodexNativeSubagentAdapterController,
@@ -137,8 +143,11 @@ export class CodexAdapter
   private initErrorCbs = new Set<(error: string) => void>();
   private turnStartFailedCb: ((msg: BrowserOutgoingMessage, info?: TurnStartFailureInfo) => void) | null = null;
   private turnStartedCb: ((turnId: string, source?: "local" | "codex_goal_continuation") => void) | null = null;
-  private turnSteeredCb: ((turnId: string, pendingInputIds: string[]) => void) | null = null;
-  private turnSteerFailedCb: ((pendingInputIds: string[], info?: TurnSteerFailureInfo) => void) | null = null;
+  private turnSteeredCb: ((turnId: string, pendingInputIds: string[], clientUserMessageId?: string) => void) | null =
+    null;
+  private turnSteerFailedCb:
+    | ((pendingInputIds: string[], info?: TurnSteerFailureInfo, clientUserMessageId?: string) => void)
+    | null = null;
 
   // State
   private threadId: string | null = null;
@@ -180,6 +189,7 @@ export class CodexAdapter
   skillRefreshStats: CodexSkillRefreshStats = { coalesced: 0, deferred: 0, executed: 0, failed: 0, suppressed: 0 };
 
   private itemEventManager: CodexItemEventManager;
+  private userMessageReceiptObserver = new CodexUserMessageReceiptObserver();
   private mcpManager: CodexMcpManager;
 
   // Resolve when the current turn ends (used by interruptAndWaitForTurnEnd)
@@ -820,12 +830,22 @@ export class CodexAdapter
     this.turnStartedCb = cb;
   }
 
-  onTurnSteered(cb: (turnId: string, pendingInputIds: string[]) => void): void {
+  onTurnSteered(cb: (turnId: string, pendingInputIds: string[], clientUserMessageId?: string) => void): void {
     this.turnSteeredCb = cb;
   }
 
-  onTurnSteerFailed(cb: (pendingInputIds: string[], info?: TurnSteerFailureInfo) => void): void {
+  onTurnSteerFailed(
+    cb: (pendingInputIds: string[], info?: TurnSteerFailureInfo, clientUserMessageId?: string) => void,
+  ): void {
     this.turnSteerFailedCb = cb;
+  }
+
+  onUserMessageRecorded(cb: (receipt: CodexUserMessageReceipt) => void): void {
+    this.userMessageReceiptObserver.setCallback(cb);
+  }
+
+  onUserMessageReceiptObserved(cb: (receipt: CodexUserMessageReceipt) => void): void {
+    this.userMessageReceiptObserver.setObservationCallback(cb);
   }
 
   isConnected(): boolean {
@@ -1197,8 +1217,7 @@ export class CodexAdapter
       const result = (await this.transport.call("turn/start", turnStartParams, TURN_START_ACK_TIMEOUT_MS)) as {
         turn: { id: string };
       };
-      this.currentTurnId = result.turn.id;
-      this.turnStartedCb?.(result.turn.id);
+      this.handleTurnStartAcknowledged(result.turn.id, null);
     } catch (err) {
       // Older Codex builds may reject collaborationMode. If so, retry once
       // without it and remember to skip it for future turns.
@@ -1210,14 +1229,12 @@ export class CodexAdapter
           const retry = (await this.transport.call("turn/start", turnStartParams, TURN_START_ACK_TIMEOUT_MS)) as {
             turn: { id: string };
           };
-          this.currentTurnId = retry.turn.id;
-          this.turnStartedCb?.(retry.turn.id);
+          this.handleTurnStartAcknowledged(retry.turn.id, null);
           return;
         } catch (retryErr) {
           const serviceTierRetry = await this.retryTurnStartWithoutServiceTier(turnStartParams, retryErr);
           if (serviceTierRetry) {
-            this.currentTurnId = serviceTierRetry;
-            this.turnStartedCb?.(serviceTierRetry);
+            this.handleTurnStartAcknowledged(serviceTierRetry, null);
             return;
           }
           const requeued = this.handleTurnStartDispatchFailure(msg, retryErr);
@@ -1234,8 +1251,7 @@ export class CodexAdapter
 
       const serviceTierRetry = await this.retryTurnStartWithoutServiceTier(turnStartParams, err);
       if (serviceTierRetry) {
-        this.currentTurnId = serviceTierRetry;
-        this.turnStartedCb?.(serviceTierRetry);
+        this.handleTurnStartAcknowledged(serviceTierRetry, null);
         return;
       }
       const requeued = this.handleTurnStartDispatchFailure(msg, err);
@@ -1249,30 +1265,9 @@ export class CodexAdapter
     }
   }
 
-  private buildCodexBatchInput(
-    entries: Array<{
-      content: string;
-      vscodeSelection?: import("./session-types.js").VsCodeSelectionMetadata;
-    }>,
-  ): Array<{ type: string; text?: string; path?: string; text_elements?: unknown[] }> {
-    const input: Array<{ type: string; text?: string; path?: string; text_elements?: unknown[] }> = [];
-    for (const entry of entries) {
-      input.push({ type: "text", text: entry.content, text_elements: [] });
-      if (entry.vscodeSelection) {
-        input.push({ type: "text", text: formatVsCodeSelectionPrompt(entry.vscodeSelection), text_elements: [] });
-      }
-    }
-    return input;
-  }
-
-  private async handleOutgoingPendingBatchStart(msg: {
-    type: "codex_start_pending";
-    pendingInputIds: string[];
-    inputs: Array<{
-      content: string;
-      vscodeSelection?: import("./session-types.js").VsCodeSelectionMetadata;
-    }>;
-  }): Promise<void> {
+  private async handleOutgoingPendingBatchStart(
+    msg: Extract<BrowserOutgoingMessage, { type: "codex_start_pending" }>,
+  ): Promise<void> {
     if (!this.threadId) {
       this.emit({ type: "error", message: "No Codex thread started yet" });
       return;
@@ -1284,12 +1279,14 @@ export class CodexAdapter
       await this.interruptAndWaitForTurnEnd();
     }
 
-    const input = this.buildCodexBatchInput(msg.inputs);
+    const input = buildCodexBatchInput(msg.inputs, formatVsCodeSelectionPrompt);
+    const clientUserMessageId = resolveCodexClientUserMessageId(msg);
     const turnStartParams: Record<string, unknown> = {
       threadId: this.threadId,
       input,
       cwd: this.options.cwd,
       serviceTier: normalizeCodexServiceTier(this.options.serviceTier),
+      ...(clientUserMessageId ? { clientUserMessageId } : {}),
     };
     if (this.options.reasoningSummary) {
       turnStartParams.summary = this.options.reasoningSummary;
@@ -1303,8 +1300,7 @@ export class CodexAdapter
       const result = (await this.transport.call("turn/start", turnStartParams, TURN_START_ACK_TIMEOUT_MS)) as {
         turn: { id: string };
       };
-      this.currentTurnId = result.turn.id;
-      this.turnStartedCb?.(result.turn.id);
+      this.handleTurnStartAcknowledged(result.turn.id, clientUserMessageId);
     } catch (err) {
       if (collaborationMode && isCodexCollaborationModeUnsupportedError(err)) {
         this.collaborationModeSupported = false;
@@ -1313,14 +1309,12 @@ export class CodexAdapter
           const retry = (await this.transport.call("turn/start", turnStartParams, TURN_START_ACK_TIMEOUT_MS)) as {
             turn: { id: string };
           };
-          this.currentTurnId = retry.turn.id;
-          this.turnStartedCb?.(retry.turn.id);
+          this.handleTurnStartAcknowledged(retry.turn.id, clientUserMessageId);
           return;
         } catch (retryErr) {
           const serviceTierRetry = await this.retryTurnStartWithoutServiceTier(turnStartParams, retryErr);
           if (serviceTierRetry) {
-            this.currentTurnId = serviceTierRetry;
-            this.turnStartedCb?.(serviceTierRetry);
+            this.handleTurnStartAcknowledged(serviceTierRetry, clientUserMessageId);
             return;
           }
           const requeued = this.handleTurnStartDispatchFailure(msg, retryErr);
@@ -1331,8 +1325,7 @@ export class CodexAdapter
       }
       const serviceTierRetry = await this.retryTurnStartWithoutServiceTier(turnStartParams, err);
       if (serviceTierRetry) {
-        this.currentTurnId = serviceTierRetry;
-        this.turnStartedCb?.(serviceTierRetry);
+        this.handleTurnStartAcknowledged(serviceTierRetry, clientUserMessageId);
         return;
       }
       const requeued = this.handleTurnStartDispatchFailure(msg, err);
@@ -1341,33 +1334,34 @@ export class CodexAdapter
     }
   }
 
-  private async handleOutgoingPendingBatchSteer(msg: {
-    type: "codex_steer_pending";
-    pendingInputIds: string[];
-    expectedTurnId: string;
-    inputs: Array<{
-      content: string;
-      vscodeSelection?: import("./session-types.js").VsCodeSelectionMetadata;
-    }>;
-  }): Promise<void> {
+  private async handleOutgoingPendingBatchSteer(
+    msg: Extract<BrowserOutgoingMessage, { type: "codex_steer_pending" }>,
+  ): Promise<void> {
     if (!this.threadId) {
       this.emit({ type: "error", message: "No Codex thread started yet" });
       return;
     }
-    const input = this.buildCodexBatchInput(msg.inputs);
+    const input = buildCodexBatchInput(msg.inputs, formatVsCodeSelectionPrompt);
+    const clientUserMessageId = resolveCodexClientUserMessageId(msg);
     try {
       const result = (await this.transport.call("turn/steer", {
         threadId: this.threadId,
         input,
         expectedTurnId: msg.expectedTurnId,
+        ...(clientUserMessageId ? { clientUserMessageId } : {}),
       })) as { turnId: string };
-      this.turnSteeredCb?.(result.turnId, msg.pendingInputIds);
+      this.turnSteeredCb?.(result.turnId, msg.pendingInputIds, clientUserMessageId ?? undefined);
+      this.userMessageReceiptObserver.acknowledge(clientUserMessageId);
     } catch (err) {
       const failure = classifyCodexTurnSteerFailure(msg.expectedTurnId, this.currentTurnId, err);
       const recoveredStaleTurn =
         failure.kind === "active_turn_mismatch" ||
         (failure.kind === "no_active_turn" && this.recoverStaleTurnSteerFailure(msg.expectedTurnId));
-      this.turnSteerFailedCb?.(msg.pendingInputIds, failure);
+      if (msg.clientUserMessageId) {
+        this.turnSteerFailedCb?.(msg.pendingInputIds, failure, msg.clientUserMessageId);
+      } else {
+        this.turnSteerFailedCb?.(msg.pendingInputIds, failure);
+      }
       if (failure.kind === "active_turn_mismatch") {
         this.reconcileActiveTurnMismatch(msg.expectedTurnId, failure.foundTurnId);
       }
@@ -1492,6 +1486,7 @@ export class CodexAdapter
       if (nativeDisposition.suppressDefault) return;
       switch (method) {
         case "item/started":
+          this.userMessageReceiptObserver.observe(params);
           this.itemEventManager.handleItemStarted(params);
           break;
         case "codex/event/patch_apply_begin":
@@ -1542,6 +1537,7 @@ export class CodexAdapter
           this.itemEventManager.handleItemUpdated(params);
           break;
         case "item/completed":
+          this.userMessageReceiptObserver.observe(params);
           this.itemEventManager.handleItemCompleted(params);
           break;
         case "rawResponseItem/completed":
@@ -1912,6 +1908,12 @@ export class CodexAdapter
     const source = this.nativeSubagents.getCurrentMessageSource();
     if (source && this.nativeSubagents.emitOwnedBrowserMessage(msg, source)) return;
     this.browserMessageCb?.(msg);
+  }
+
+  private handleTurnStartAcknowledged(turnId: string, clientUserMessageId: string | null): void {
+    this.currentTurnId = turnId;
+    this.turnStartedCb?.(turnId);
+    this.userMessageReceiptObserver.acknowledge(clientUserMessageId);
   }
 
   private buildThreadParams(extra?: Record<string, unknown>): Record<string, unknown> {

@@ -77,6 +77,7 @@ describe("recoverNonDrainableCodexHeadTurn", () => {
     expect(
       recoverNonDrainableCodexHeadTurn(session, "session_meta_stale_ack_head", {
         getHead: () => turns.find((turn) => turn.status !== "completed") ?? null,
+        retire: vi.fn(),
         settleObservedActivity,
         retry,
       }),
@@ -89,6 +90,95 @@ describe("recoverNonDrainableCodexHeadTurn", () => {
     ]);
     expect(retry).not.toHaveBeenCalled();
     expect(turns[3]).toMatchObject({ userMessageId: "queued-owner", status: "queued" });
+  });
+
+  it("retires an expired manual recovery owner without replaying or blocking successors", () => {
+    const turn = acknowledgedTurn("retired-owner", 0, "turn");
+    turn.autoPauseRecoveryTestingRetired = true;
+    const session = {
+      id: "session",
+      isGenerating: false,
+      state: { backend_state: "connected" },
+      codexAdapter: { getCurrentTurnId: () => null, isConnected: () => true },
+      messageHistory: [user("retired-owner", "expired recovery", 1)],
+    };
+    const retire = vi.fn((head: CodexOutboundTurn) => {
+      head.status = "completed";
+    });
+    const settleObservedActivity = vi.fn();
+    const retry = vi.fn();
+
+    expect(
+      recoverNonDrainableCodexHeadTurn(session, "session_meta_retired_recovery", {
+        getHead: () => (turn.status === "completed" ? null : turn),
+        retire,
+        settleObservedActivity,
+        retry,
+      }),
+    ).toBe(true);
+
+    expect(retire).toHaveBeenCalledOnce();
+    expect(retire).toHaveBeenCalledWith(turn);
+    expect(settleObservedActivity).not.toHaveBeenCalled();
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it("does not replay restored unknown tracking without owner activity", () => {
+    const turn = acknowledgedTurn("unknown-owner", 0, "turn");
+    turn.historyTrackingUnknown = true;
+    const session = {
+      id: "session",
+      isGenerating: false,
+      state: { backend_state: "connected" },
+      codexAdapter: { getCurrentTurnId: () => null, isConnected: () => true },
+      messageHistory: [user("unknown-owner", "delivery is uncertain", 1)],
+    };
+    const settleObservedActivity = vi.fn();
+    const retry = vi.fn();
+
+    expect(
+      recoverNonDrainableCodexHeadTurn(session, "stale_unknown_tracking", {
+        getHead: () => turn,
+        retire: vi.fn(),
+        settleObservedActivity,
+        retry,
+      }),
+    ).toBe(false);
+
+    expect(retry).not.toHaveBeenCalled();
+    expect(settleObservedActivity).not.toHaveBeenCalled();
+  });
+
+  it("settles restored unknown tracking when exact-owner activity proves replay unsafe", () => {
+    const turn = acknowledgedTurn("unknown-owner", 0, "turn");
+    turn.historyTrackingUnknown = true;
+    const session = {
+      id: "session",
+      isGenerating: false,
+      state: { backend_state: "connected" },
+      codexAdapter: { getCurrentTurnId: () => null, isConnected: () => true },
+      messageHistory: [
+        user("unknown-owner", "delivery is uncertain", 1),
+        assistant("unknown-assistant", "recorded activity", 2),
+      ],
+    };
+    const settleObservedActivity = vi.fn((head: CodexOutboundTurn) => {
+      head.status = "completed";
+    });
+    const retry = vi.fn();
+
+    expect(
+      recoverNonDrainableCodexHeadTurn(session, "stale_unknown_tracking", {
+        getHead: () => (turn.status === "completed" ? null : turn),
+        retire: vi.fn(),
+        settleObservedActivity,
+        retry,
+      }),
+    ).toBe(true);
+
+    expect(settleObservedActivity).toHaveBeenCalledOnce();
+    expect(settleObservedActivity).toHaveBeenCalledWith(turn, expect.objectContaining({ count: 1 }));
+    expect(retry).not.toHaveBeenCalled();
   });
 
   it("retries only the first acknowledged owner when no delivery activity exists", () => {
@@ -106,6 +196,7 @@ describe("recoverNonDrainableCodexHeadTurn", () => {
     expect(
       recoverNonDrainableCodexHeadTurn(session, "stale_ack", {
         getHead: () => turn,
+        retire: vi.fn(),
         settleObservedActivity,
         retry,
       }),

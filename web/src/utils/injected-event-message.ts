@@ -48,7 +48,7 @@ export function buildInjectedEventMessageViewModel(message: EventCandidate): Inj
   if (isCodexTurnRecoverySourceId(sourceId)) {
     return withRawContent(message, {
       title: CODEX_TURN_RECOVERY_SOURCE_LABEL,
-      description: "Takode added one follow-up to finish work interrupted by a disconnect.",
+      description: "Takode added one recovery follow-up without replaying the original input.",
     });
   }
 

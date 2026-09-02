@@ -7,6 +7,8 @@ export interface CodexResumeTurnSnapshot {
   status: string | null;
   error: unknown;
   items: Array<Record<string, unknown>>;
+  /** Whether thread/resume returned complete turn items. Missing values remain unknown. */
+  itemsView?: "full" | "summary" | "notLoaded";
 }
 
 export interface CodexResumeSnapshot {
@@ -277,6 +279,7 @@ export function buildCodexResumeSnapshot(thread: Record<string, unknown> & { id:
       status,
       error: turn.error ?? null,
       items,
+      itemsView: normalizeCodexItemsView(turn.itemsView),
     } satisfies CodexResumeTurnSnapshot;
   });
   const last = normalizedTurns.length > 0 ? normalizedTurns[normalizedTurns.length - 1] : null;
@@ -305,6 +308,10 @@ export function buildCodexResumeSnapshot(thread: Record<string, unknown> & { id:
     lastTurn: last,
     threadStatus,
   };
+}
+
+function normalizeCodexItemsView(value: unknown): CodexResumeTurnSnapshot["itemsView"] {
+  return value === "full" || value === "summary" || value === "notLoaded" ? value : undefined;
 }
 
 function firstNonEmptyStringValue(...values: unknown[]): string {

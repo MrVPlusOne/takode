@@ -695,6 +695,39 @@ describe("MessageFeed - floating status pill", () => {
     expect(screen.getByTestId("recoverable-connection-chip")).toHaveTextContent("Reconnecting (1 of 5)");
   });
 
+  it("labels a proven-absent one-shot replay separately from reconnect and continuation", () => {
+    const sid = "test-feed-turn-replay";
+    setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Recovery evidence ready" })]);
+    setStoreSessionState(sid, {
+      backend_state: "connected",
+      codex_turn_recovery: {
+        recoveryId: "original-owner",
+        originalOwnerId: "original-owner",
+        originalProviderTurnId: "turn-original",
+        originalHistoryIndex: 7,
+        continuationOwnerId: null,
+        threadKey: "main",
+        status: "recovering",
+        reason: "adapter_disconnect",
+        historyPresence: "absent",
+        continuationMode: null,
+        attempt: 0,
+        maxAttempts: 1,
+        createdAt: 100,
+        updatedAt: 110,
+      },
+    });
+    setStoreConnectionState(sid, { cliConnected: true });
+
+    render(<MessageFeed sessionId={sid} />);
+    const chip = screen.getByTestId("codex-turn-recovery-chip");
+    expect(chip).toHaveTextContent("Retrying interrupted input");
+    fireEvent.click(chip);
+    expect(screen.getByTestId("codex-turn-recovery-detail")).toHaveTextContent(
+      "proved the original input never entered Codex history and is replaying it once",
+    );
+  });
+
   it("explains that a separate queued continuation will not replay the original request", () => {
     const sid = "test-feed-turn-continuation";
     setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Partial tool work" })]);
@@ -710,6 +743,7 @@ describe("MessageFeed - floating status pill", () => {
         questId: "q-1987",
         status: "continuation_pending",
         reason: "interrupted_after_activity",
+        continuationMode: "verify_then_continue",
         attempt: 1,
         maxAttempts: 1,
         createdAt: 100,
@@ -723,7 +757,7 @@ describe("MessageFeed - floating status pill", () => {
     fireEvent.click(screen.getByTestId("codex-turn-recovery-chip"));
 
     expect(screen.getByTestId("codex-turn-recovery-detail")).toHaveTextContent(
-      "queued one follow-up to finish the interrupted work without repeating actions that already completed",
+      "queued one follow-up to inspect prior work before finishing what is missing. The original input will not be replayed",
     );
     fireEvent.click(screen.getByRole("button", { name: "Open affected thread" }));
     expect(onSelectThread).toHaveBeenCalledWith("q-1987");

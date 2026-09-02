@@ -18,6 +18,7 @@ export function recoverNonDrainableCodexHeadTurn(
   reason: string,
   deps: {
     getHead(): CodexOutboundTurn | null;
+    retire(head: CodexOutboundTurn): void;
     settleObservedActivity(head: CodexOutboundTurn, activity: CodexLocalDeliveryActivitySummary): void;
     retry(head: CodexOutboundTurn): void;
   },
@@ -31,8 +32,19 @@ export function recoverNonDrainableCodexHeadTurn(
   while (!session.isGenerating) {
     const head = deps.getHead();
     if (!head || head.status !== "backend_acknowledged") return handled;
-
+    if (head.autoPauseRecoveryTestingRetired === true) {
+      deps.retire(head);
+      handled = true;
+      continue;
+    }
     const activity = summarizeLocalCodexDeliveryActivity(session, head);
+    // Receipt-tracked turns require the explicit full-snapshot present/absent/
+    // unknown decision. This legacy fallback must not replay or settle them.
+    if (head.historyIncorporation) return handled;
+    // A malformed restored turn cannot prove that a replay is safe, but exact-owner
+    // activity can still prove that the original payload must not be replayed.
+    if (head.historyTrackingUnknown && activity.count === 0) return handled;
+
     if (activity.count === 0) {
       console.warn(
         `[ws-bridge] Retrying non-drainable Codex turn ${head.turnId ?? "<untracked>"} ` +

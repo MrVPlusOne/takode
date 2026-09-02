@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BrowserIncomingMessage, CLIResultMessage, CodexOutboundTurn } from "../session-types.js";
+import { injectUserMessage as injectProgrammaticUserMessage } from "./browser-transport-controller.js";
 import {
   beginCodexTurnRecoveryContinuation,
   hasIncompleteCodexActivityWithoutTerminalEvidence,
+  isCodexTurnRecoveryContinuationInjectionPending,
   isRecoveryContinuationTurn,
   markCodexTurnRecoveryActionRequired,
   markCodexTurnRecoveryContinuationActive,
@@ -87,7 +89,13 @@ function deps(session: CodexInterruptedTurnRecoverySessionLike) {
   const persistHistoryMetadataRepair = vi.fn(async () => {});
   const setAttentionError = vi.fn();
   const injectUserMessage = vi.fn(
-    (_: string, __: string, agentSource: { sessionId: string }, ___: unknown, ____: { deliveryContent: string }) => {
+    (
+      _: string,
+      __: string,
+      agentSource: { sessionId: string },
+      ___: unknown,
+      options: { deliveryContent: string; afterAccepted?: () => void },
+    ) => {
       session.pendingCodexInputs.push({
         id: "continuation-owner",
         content: "visible recovery",
@@ -97,6 +105,7 @@ function deps(session: CodexInterruptedTurnRecoverySessionLike) {
         threadKey: "q-1987",
         questId: "q-1987",
       });
+      options.afterAccepted?.();
       return "sent" as const;
     },
   );
@@ -182,6 +191,87 @@ describe("Codex interrupted turn recovery classification", () => {
 });
 
 describe("Codex interrupted turn recovery state", () => {
+  it("reserves recovery ordering until a genuinely queued programmatic route is accepted", async () => {
+    const session = Object.assign(makeSession(), {
+      backendType: "codex" as const,
+      browserSockets: new Set(),
+      nextEventSeq: 1,
+      lastAckSeq: 0,
+      pendingPermissions: new Map(),
+      taskHistory: [],
+      eventBuffer: [],
+      lastReadAt: 0,
+      generationStartedAt: null,
+      notifications: [],
+      attentionRecords: [],
+      processedClientMessageIds: [],
+      processedClientMessageIdSet: new Set<string>(),
+    });
+    session.pendingCodexTurns = [
+      turn({ userMessageId: "later-owner", pendingInputIds: ["later-owner"], turnId: null }),
+    ];
+    let releaseRoute!: () => void;
+    const blocker = new Promise<void>((resolve) => (releaseRoute = resolve));
+    const routeState: { current?: Promise<void> } = { current: blocker };
+    const routeBrowserMessage = vi.fn(async (_target: unknown, message: any) => {
+      session.pendingCodexInputs.push({
+        id: "continuation-owner",
+        content: message.content,
+        deliveryContent: message.deliveryContent,
+        timestamp: 5,
+        cancelable: true,
+        agentSource: message.agentSource,
+        threadKey: message.threadKey,
+        questId: message.questId,
+        requireFreshSuccessor: true,
+      });
+      return true;
+    });
+    const browserDeps = {
+      routeBrowserMessage,
+      backendConnected: vi.fn(() => true),
+      getLauncherSessionInfo: vi.fn(() => ({ archived: false })),
+      idempotentMessageTypes: new Set<string>(),
+      processedClientMsgIdLimit: 100,
+      persistSession: vi.fn(),
+      getRouteChain: vi.fn(() => routeState.current),
+      setRouteChain: vi.fn((_sessionId: string, route: Promise<void>) => (routeState.current = route)),
+      clearRouteChain: vi.fn((_sessionId: string, route: Promise<void>) => {
+        if (routeState.current === route) routeState.current = undefined;
+      }),
+      notifyImageSendFailure: vi.fn(),
+      broadcastError: vi.fn(),
+    } as any;
+    const rebuildQueuedCodexPendingStartBatch = vi.fn();
+    const dispatchQueuedCodexTurns = vi.fn();
+    const recoveryDeps = {
+      ...deps(session),
+      rebuildQueuedCodexPendingStartBatch,
+      dispatchQueuedCodexTurns,
+      injectUserMessage: (sessionId: string, content: string, agentSource: any, route: any, options: any) =>
+        injectProgrammaticUserMessage(session as any, content, agentSource, undefined, browserDeps, route, options),
+    };
+
+    expect(
+      beginCodexTurnRecoveryContinuation(session, turn(), { threadKey: "q-1987", questId: "q-1987" }, recoveryDeps),
+    ).toBe(true);
+    expect(routeBrowserMessage).not.toHaveBeenCalled();
+    expect(isCodexTurnRecoveryContinuationInjectionPending(session)).toBe(true);
+    expect(dispatchQueuedCodexTurns).not.toHaveBeenCalled();
+
+    const drain = routeState.current;
+    releaseRoute();
+    await drain;
+
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      status: "continuation_pending",
+      continuationOwnerId: "continuation-owner",
+    });
+    expect(session.pendingCodexInputs[0]).toMatchObject({ queueBeforeOwnerId: "later-owner" });
+    expect(rebuildQueuedCodexPendingStartBatch).toHaveBeenCalledWith(session);
+    expect(dispatchQueuedCodexTurns).toHaveBeenCalledWith(session, "codex_turn_recovery_continuation_accepted");
+  });
+
   it("queues one separately owned routed continuation and clears only on its success", () => {
     const session = makeSession();
     const original = turn();
@@ -192,7 +282,10 @@ describe("Codex interrupted turn recovery state", () => {
     ).toBe(true);
     expect(recoveryDeps.injectUserMessage).toHaveBeenCalledTimes(1);
     expect(recoveryDeps.injectUserMessage.mock.calls[0]?.[4]?.deliveryContent).toContain(
-      "original user payload was already delivered",
+      "separately owned verification-first continuation",
+    );
+    expect(recoveryDeps.injectUserMessage.mock.calls[0]?.[4]?.deliveryContent).toContain(
+      "Tool or external effects may already have occurred",
     );
     expect(session.state.codex_turn_recovery).toMatchObject({
       originalOwnerId: "original-owner",
@@ -258,6 +351,53 @@ describe("Codex interrupted turn recovery state", () => {
     expect(session.state.codex_turn_recovery?.status).toBe("action_required");
     expect(session.state.codex_turn_recovery?.reason).toBe("continuation_interrupted");
     expect(recoveryDeps.setAttentionError).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps later same-provider-turn owners queued when one recovery becomes action-required", () => {
+    const session = makeSession();
+    const recoveryDeps = deps(session);
+    expect(
+      beginCodexTurnRecoveryContinuation(session, turn(), { threadKey: "q-1987", questId: "q-1987" }, recoveryDeps),
+    ).toBe(true);
+    session.pendingCodexInputs.push({
+      id: "owner-b",
+      content: "later independently tracked owner",
+      timestamp: 6,
+      cancelable: false,
+      threadKey: "q-1988",
+      questId: "q-1988",
+    });
+    session.pendingCodexTurns.push(
+      turn({
+        userMessageId: "owner-b",
+        pendingInputIds: ["owner-b"],
+        userContent: "later independently tracked owner",
+        historyIndex: -1,
+        status: "recovery_pending",
+        terminalHistoryReconciliation: {
+          presence: "unknown",
+          reason: "terminal_result_without_history_receipt",
+          action: "continue",
+          continuationMode: "verify_then_continue",
+          classifiedAt: 6,
+        },
+      }),
+    );
+
+    markCodexTurnRecoveryActionRequired(session, "continuation_failed", recoveryDeps);
+
+    expect(session.pendingCodexInputs.map((input) => input.id)).toEqual(["owner-b"]);
+    expect(session.pendingCodexTurns).toEqual([
+      expect.objectContaining({ userMessageId: "owner-b", status: "recovery_pending" }),
+    ]);
+    const queueCodexPendingStartBatch = vi.fn();
+    expect(
+      resolveCodexTurnRecoveryAction(session, "original-owner", {
+        ...recoveryDeps,
+        queueCodexPendingStartBatch,
+      }),
+    ).toBe(true);
+    expect(queueCodexPendingStartBatch).toHaveBeenCalledWith(session, "codex_turn_recovery_resolved");
   });
 
   it("fails original-owner results closed and honors canonical interruption for continuation results", () => {
@@ -375,16 +515,19 @@ describe("Codex interrupted turn recovery state", () => {
     });
   });
 
-  it("does not queue automatic continuation behind later work or while delivery is paused", () => {
+  it("queues a priority continuation despite later work but fails closed while delivery is paused", () => {
     const session = makeSession();
     const recoveryDeps = deps(session);
     session.pendingCodexTurns = [turn({ userMessageId: "later", pendingInputIds: ["later"], turnId: null })];
     expect(
       beginCodexTurnRecoveryContinuation(session, turn(), { threadKey: "q-1987", questId: "q-1987" }, recoveryDeps),
-    ).toBe(false);
-    expect(recoveryDeps.injectUserMessage).not.toHaveBeenCalled();
+    ).toBe(true);
+    expect(recoveryDeps.injectUserMessage).toHaveBeenCalledTimes(1);
     expect(session.pendingCodexTurns.map((pending) => pending.userMessageId)).toEqual(["later"]);
-    expect(session.state.codex_turn_recovery).toMatchObject({ status: "action_required" });
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      status: "continuation_pending",
+      continuationOwnerId: "continuation-owner",
+    });
 
     const paused = makeSession();
     paused.state.pause = { pausedAt: 10, queuedMessages: [] };

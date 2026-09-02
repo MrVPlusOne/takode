@@ -1,4 +1,5 @@
 import type { PendingCodexInput } from "./session-types.js";
+import { isCodexTurnRecoverySourceId } from "../shared/injected-event-message.js";
 
 const DEFAULT_MAX_DELIVERY_BYTES = 1_048_576;
 const DEFAULT_BROWSER_PREVIEW_BYTES = 16_384;
@@ -42,6 +43,19 @@ export function compactPendingCodexInputsForBrowser(inputs: PendingCodexInput[])
   return inputs.map((input) => compactPendingCodexInputForBrowser(input, maxPreviewBytes));
 }
 
+/** Browser cancellation payload: preserves composer restoration data but omits delivery and server policy fields. */
+export function projectCancelledCodexInputForBrowser(input: PendingCodexInput): PendingCodexInput {
+  const {
+    deliveryContent: _deliveryContent,
+    historyFollowUps: _historyFollowUps,
+    autoPauseRecoveries: _autoPauseRecoveries,
+    queueBeforeOwnerId: _queueBeforeOwnerId,
+    requireFreshSuccessor: _requireFreshSuccessor,
+    ...browserInput
+  } = input;
+  return browserInput;
+}
+
 /** Bounded origin-correlation metadata for pre-admission rejection; never includes image paths or bytes. */
 export function compactRejectedCodexInputForBrowser(input: PendingCodexInput): PendingCodexInput {
   const compacted = compactPendingCodexInputsForBrowser([input])[0]!;
@@ -65,11 +79,17 @@ function compactPendingCodexInputForBrowser(input: PendingCodexInput, maxPreview
     historyFollowUps: _historyFollowUps,
     autoPauseRecoveries: _autoPauseRecoveries,
     draftImages: _draftImages,
+    queueBeforeOwnerId: _queueBeforeOwnerId,
+    requireFreshSuccessor: _requireFreshSuccessor,
     ...browserInput
   } = input;
+  const recoveryInput = isCodexTurnRecoverySourceId(input.agentSource?.sessionId);
+  if (recoveryInput) delete browserInput.deliveryContent;
   const content = compactText(input.content, maxPreviewBytes);
   const deliveryContent =
-    typeof input.deliveryContent === "string" ? compactText(input.deliveryContent, maxPreviewBytes) : undefined;
+    !recoveryInput && typeof input.deliveryContent === "string"
+      ? compactText(input.deliveryContent, maxPreviewBytes)
+      : undefined;
   if (!content.truncated && (!deliveryContent || !deliveryContent.truncated)) return browserInput;
   return {
     ...browserInput,

@@ -237,7 +237,7 @@ type CodexTurnRecovery = NonNullable<SessionState["codex_turn_recovery"]>;
 
 function actionRequiredRecoveryDetail(reason: CodexTurnRecovery["reason"]): string {
   const nextStep =
-    'Takode will not retry automatically because that could repeat actions that may already have run. Open the affected thread and send a new instruction if work is still missing. If it is already complete, choose "Work is complete."';
+    'Takode could not safely start another automatic recovery turn. Open the affected thread and send a new instruction if work is still missing. If it is already complete, choose "Work is complete."';
 
   switch (reason) {
     case "continuation_dispatch_failed":
@@ -276,23 +276,37 @@ export function CodexTurnRecoveryChip({
   const destination = normalizeThreadKey(recovery?.threadKey || "main");
   const current = normalizeThreadKey(currentThreadKey || "main");
   const canNavigate = !!recovery && !!onSelectThread && destination !== current;
+  const verificationFirst = recovery?.continuationMode !== "finish_response";
+  const replayingOriginal = recovery?.status === "recovering" && recovery.historyPresence === "absent";
   const label = recovery
     ? recovery.status === "recovering"
-      ? "Reconnecting interrupted work"
+      ? replayingOriginal
+        ? "Retrying interrupted input"
+        : "Reconnecting interrupted work"
       : recovery.status === "continuation_active"
-        ? "Finishing interrupted work"
+        ? verificationFirst
+          ? "Checking interrupted work"
+          : "Finishing interrupted response"
         : recovery.status === "continuation_pending"
-          ? "Interrupted work queued"
+          ? verificationFirst
+            ? "Interrupted-work check queued"
+            : "Response continuation queued"
           : "Check interrupted work"
     : "";
   const detail = recovery
     ? recovery.status === "action_required"
       ? actionRequiredRecoveryDetail(recovery.reason)
       : recovery.status === "recovering"
-        ? "Takode is reconnecting this session so it can finish the interrupted work. No action is needed yet."
+        ? replayingOriginal
+          ? "Takode proved the original input never entered Codex history and is replaying it once. No action is needed yet."
+          : "Takode is reconnecting this session so it can finish the interrupted work. No action is needed yet."
         : recovery.status === "continuation_pending"
-          ? "Takode queued one follow-up to finish the interrupted work without repeating actions that already completed."
-          : "Takode is finishing the interrupted work without repeating actions that already completed."
+          ? verificationFirst
+            ? "Takode queued one follow-up to inspect prior work before finishing what is missing. The original input will not be replayed."
+            : "Takode queued one follow-up to finish the interrupted response. The original input will not be replayed."
+          : verificationFirst
+            ? "Takode is checking prior work before finishing what is missing. The original input was not replayed."
+            : "Takode is finishing the interrupted response. The original input was not replayed."
     : "";
   const warning = recovery?.status === "action_required";
   const detailVisible = !!recovery && detailOpen;

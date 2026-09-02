@@ -173,13 +173,15 @@ describe("startup memory catalog route serialization", () => {
     const session = makeSession();
     const routeState: { current?: Promise<void> } = {};
     const afterAccepted = vi.fn();
+    const afterRejected = vi.fn();
     const deps = makeRoutingDeps(
       vi.fn(async () => false),
       routeState,
     );
 
-    injectUserMessage(session, "rejected", undefined, undefined, deps, undefined, { afterAccepted });
+    injectUserMessage(session, "rejected", undefined, undefined, deps, undefined, { afterAccepted, afterRejected });
     await routeState.current;
     expect(afterAccepted).not.toHaveBeenCalled();
+    expect(afterRejected).toHaveBeenCalledWith("route_rejected");
   });
 });

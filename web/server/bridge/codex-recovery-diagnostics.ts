@@ -1,6 +1,7 @@
 import type { CodexResumeSnapshot } from "../codex-adapter.js";
 import { recordCodexPendingDeliveryProofSignal } from "../codex-pending-delivery-diagnostics.js";
 import type { BrowserIncomingMessage, CodexOutboundTurn, PendingCodexInput } from "../session-types.js";
+import { codexHistoryMilestone } from "./codex-history-incorporation.js";
 import {
   getMessageAtAbsoluteHistoryIndex,
   type CodexLocalDeliveryActivitySummary,
@@ -58,6 +59,34 @@ export function recordCodexTurnSteerFailedProof(
   });
 }
 
+export function recordCodexHistoryMilestoneProof(
+  session: ProofSignalSession,
+  turn: CodexOutboundTurn,
+  milestone: string,
+  details: {
+    historyPresence?: import("../session-types.js").CodexHistoryPresence;
+    classification?: string;
+    continuationMode?: import("../session-types.js").CodexTurnRecoveryContinuationMode | null;
+  } = {},
+): void {
+  const state = turn.historyIncorporation;
+  if (!state) return;
+  recordCodexPendingDeliveryProofSignal(session, {
+    kind: "history_milestone",
+    turnId: turn.turnId ?? state?.providerTurnId ?? null,
+    pendingInputCount: turn.pendingInputIds?.length ?? 1,
+    ownerId: turn.userMessageId,
+    ...(state?.batchId ? { batchId: state.batchId } : {}),
+    milestone,
+    ...(details.historyPresence ? { historyPresence: details.historyPresence } : {}),
+    ...(details.classification ? { classification: details.classification } : {}),
+    ...(typeof state?.attempt === "number" ? { attempt: state.attempt } : {}),
+    ...(state?.recordedSource ? { recordedSource: state.recordedSource } : {}),
+    ...(details.continuationMode !== undefined ? { continuationMode: details.continuationMode } : {}),
+    activityObserved: turn.providerReplayUnsafeActivityObserved === true,
+  });
+}
+
 export function summarizePendingCodexInputs(inputs: PendingCodexInput[]): Array<Record<string, unknown>> {
   return inputs.map((input) => ({
     id: input.id,
@@ -79,6 +108,17 @@ export function summarizePendingCodexTurns(turns: CodexOutboundTurn[]): Array<Re
     disconnectedAt: turn.disconnectedAt ?? null,
     resumeConfirmedAt: turn.resumeConfirmedAt ?? null,
     updatedAt: turn.updatedAt,
+    historyMilestone: codexHistoryMilestone(turn),
+    historyAttempt: turn.historyIncorporation?.attempt ?? null,
+    historyRecordedSource: turn.historyIncorporation?.recordedSource ?? null,
+    historyActivityObserved: turn.providerReplayUnsafeActivityObserved === true,
+    terminalHistoryReconciliation: turn.terminalHistoryReconciliation
+      ? {
+          presence: turn.terminalHistoryReconciliation.presence,
+          action: turn.terminalHistoryReconciliation.action,
+          continuationMode: turn.terminalHistoryReconciliation.continuationMode,
+        }
+      : null,
   }));
 }
 

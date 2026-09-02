@@ -18,6 +18,8 @@ import type {
   PausedInboundSource,
   SessionState,
 } from "./session-types.js";
+import { collectCodexAutoPauseRecoveryLinks } from "./bridge/codex-auto-pause-recovery-summary.js";
+import { createCodexHistoryIncorporation } from "./bridge/codex-history-incorporation.js";
 
 type BrowserUserMessage = Extract<BrowserOutgoingMessage, { type: "user_message" }>;
 
@@ -376,8 +378,28 @@ export function sweepCodexAutoPausedQueuedBacklog(
 
   const heldInputIds: string[] = [];
   const remainingInputs: PendingCodexInput[] = [];
+  const recoverySensitiveInputIds = new Set(
+    session.pendingCodexTurns
+      .filter(
+        (turn) =>
+          turn.historyTrackingUnknown === true ||
+          turn.requiresFreshSuccessor === true ||
+          turn.historyIncorporation?.attempt === 1 ||
+          turn.dispatchCount > 0 ||
+          turn.acknowledgedAt != null ||
+          turn.historyIncorporation?.rpcAcceptedAt != null ||
+          turn.historyIncorporation?.recordedAt != null ||
+          turn.status === "recovery_pending" ||
+          turn.terminalHistoryReconciliation != null,
+      )
+      .flatMap((turn) => turn.pendingInputIds ?? [turn.userMessageId]),
+  );
   for (const input of session.pendingCodexInputs) {
-    if (isEligibleQueuedAutomaticCodexInput(input)) {
+    if (
+      isEligibleQueuedAutomaticCodexInput(input) &&
+      !input.requireFreshSuccessor &&
+      !recoverySensitiveInputIds.has(input.id)
+    ) {
       queueCodexAutoPausedInput(session, "programmatic", pendingCodexInputToAutoPauseMessage(input), now);
       heldInputIds.push(input.id);
       continue;
@@ -525,15 +547,22 @@ function pruneHeldQueuedCodexStartPendingTurns(session: CodexAutoPausedQueuedBac
       continue;
     }
 
+    const inputIds = retainedInputs.map((input) => input.id);
+    const historyIncorporation = createCodexHistoryIncorporation(inputIds);
     turn.adapterMsg = {
       type: "codex_start_pending",
-      pendingInputIds: retainedInputs.map((input) => input.id),
+      pendingInputIds: inputIds,
       inputs: buildQueuedCodexBatchMessageInputs(retainedInputs),
+      clientUserMessageId: historyIncorporation.clientUserMessageId,
     };
     turn.userMessageId = retainedInputs[0].id;
-    turn.pendingInputIds = retainedInputs.map((input) => input.id);
+    turn.pendingInputIds = inputIds;
     turn.userContent = buildQueuedCodexPendingBatchText(retainedInputs);
     turn.autoPauseSourceKind = determineCodexTurnSourceKind(retainedInputs);
+    turn.autoPauseRecoveryLinks = collectCodexAutoPauseRecoveryLinks(retainedInputs);
+    turn.historyIncorporation = historyIncorporation;
+    turn.historyTrackingUnknown = undefined;
+    turn.requiresFreshSuccessor = retainedInputs.some((input) => input.requireFreshSuccessor) || undefined;
     turn.updatedAt = Date.now();
     turn.lastError = null;
   }
@@ -544,9 +573,14 @@ function pruneHeldQueuedCodexStartPendingTurns(session: CodexAutoPausedQueuedBac
 function isQueuedCodexStartPendingTurn(turn: CodexOutboundTurn): boolean {
   return (
     (turn.status === "queued" || turn.status === "blocked_broken_session") &&
+    turn.historyTrackingUnknown !== true &&
+    turn.dispatchCount === 0 &&
+    turn.acknowledgedAt == null &&
     turn.turnId == null &&
     turn.adapterMsg.type === "codex_start_pending" &&
-    !turn.providerRecoveryFamily
+    !turn.providerRecoveryFamily &&
+    turn.historyIncorporation?.rpcAcceptedAt == null &&
+    turn.historyIncorporation?.recordedAt == null
   );
 }
 

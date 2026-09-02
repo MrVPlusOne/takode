@@ -1,5 +1,6 @@
 import type { BrowserOutgoingMessage } from "../session-types.js";
 import { clearCodexOutageRecoveryState } from "../codex-process-reconnect.js";
+import { projectCancelledCodexInputForBrowser } from "../codex-pending-input-safety.js";
 import { markCodexAutoPauseRecoveryDiscarded } from "./codex-auto-pause-recovery-summary.js";
 import { resolveCodexTurnRecoveryAction } from "./codex-interrupted-turn-recovery.js";
 import { retryFailedCodexPendingInput } from "./codex-pending-input-retry.js";
@@ -64,7 +65,11 @@ export function handleCodexPendingInputAction(
   if (!pendingInput?.cancelable) return true;
   if (pendingInput.deliveryState === "failed") {
     const removed = deps.removePendingCodexInput(session, msg.id);
-    if (removed && ws) deps.sendToBrowser(ws, { type: "codex_pending_input_cancelled", input: removed });
+    if (removed && ws)
+      deps.sendToBrowser(ws, {
+        type: "codex_pending_input_cancelled",
+        input: projectCancelledCodexInputForBrowser(removed),
+      });
     deps.persistSession(session);
     return true;
   }
@@ -87,7 +92,11 @@ export function handleCodexPendingInputAction(
       deps.rebuildQueuedCodexPendingStartBatch(session);
     }
   }
-  if (removed && ws) deps.sendToBrowser(ws, { type: "codex_pending_input_cancelled", input: removed });
+  if (removed && ws)
+    deps.sendToBrowser(ws, {
+      type: "codex_pending_input_cancelled",
+      input: projectCancelledCodexInputForBrowser(removed),
+    });
   const recoveryUpdate = clearCodexOutageRecoveryState(session, { onlyIfTrackedOwnerMissing: true });
   if (recoveryUpdate) {
     if (session.state.backend_state === "recovering") {

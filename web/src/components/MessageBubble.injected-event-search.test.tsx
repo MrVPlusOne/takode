@@ -71,9 +71,9 @@ describe("MessageBubble injected event search highlighting", () => {
 
     expect(event).toMatchObject({
       title: "Resuming Interrupted Work",
-      description: "Takode added one follow-up to finish work interrupted by a disconnect.",
+      description: "Takode added one recovery follow-up without replaying the original input.",
     });
-    expect(event?.description).not.toMatch(/one-shot|exact owner|payload|replay/i);
+    expect(event?.description).not.toMatch(/one-shot|exact owner|payload/i);
   });
 
   it("builds injected event view models with raw character sizes and memory catalog source guidance", () => {

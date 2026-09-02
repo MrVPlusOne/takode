@@ -122,6 +122,8 @@ export interface ProgrammaticUserMessageOptions {
   autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
   /** Runs only after the routed message is accepted without throwing. */
   afterAccepted?: () => void;
+  /** Runs when routing is dropped, rejected, or throws before acceptance. */
+  afterRejected?: (reason: "dropped" | "route_rejected" | "route_failed") => void;
 }
 
 export interface BrowserTransportSocketLike {
@@ -743,15 +745,40 @@ export function injectUserMessage(
       );
     }
   };
-  const routeAndNotifyAccepted = (): Promise<void> | void => {
-    const routed = routeHerdMessage();
-    if (routed === dropped) return;
-    if (routed instanceof Promise) {
-      return routed.then((accepted) => {
-        if (accepted !== false) notifyAccepted();
-      });
+  const notifyRejected = (reason: "dropped" | "route_rejected" | "route_failed") => {
+    try {
+      options?.afterRejected?.(reason);
+    } catch (error) {
+      console.warn(
+        `[ws-bridge] Programmatic message rejection callback failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
-    if (routed !== false) notifyAccepted();
+  };
+  const routeAndNotifyAccepted = (): Promise<void> | void => {
+    try {
+      const routed = routeHerdMessage();
+      if (routed === dropped) {
+        notifyRejected("dropped");
+        return;
+      }
+      if (routed instanceof Promise) {
+        return routed.then(
+          (accepted) => {
+            if (accepted === false) notifyRejected("route_rejected");
+            else notifyAccepted();
+          },
+          (error) => {
+            notifyRejected("route_failed");
+            throw error;
+          },
+        );
+      }
+      if (routed === false) notifyRejected("route_rejected");
+      else notifyAccepted();
+    } catch (error) {
+      notifyRejected("route_failed");
+      throw error;
+    }
   };
 
   if (hadRouteInFlight || serializeForStartupCatalog) {

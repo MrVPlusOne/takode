@@ -1,4 +1,5 @@
 import type { CodexOutboundTurn, CodexPendingBatchInput, PendingCodexInput } from "../session-types.js";
+import { isCodexTurnProvablyNeverDispatched } from "./codex-history-incorporation.js";
 
 export function buildCodexBatchMessageInputs(inputs: PendingCodexInput[]): CodexPendingBatchInput[] {
   return inputs.map((input) => ({
@@ -28,28 +29,25 @@ export function findQueuedCodexPendingStartBatchTurn(turns: CodexOutboundTurn[])
     turns.find(
       (turn) =>
         !turn.providerRecoveryFamily &&
-        turn.status === "queued" &&
-        turn.turnId == null &&
-        turn.adapterMsg.type === "codex_start_pending",
+        turn.adapterMsg.type === "codex_start_pending" &&
+        isCodexTurnProvablyNeverDispatched(turn),
     ) ?? null
   );
 }
 
 export function getQueuedCodexPendingBatchInputs(
   pendingInputs: PendingCodexInput[],
-  head: CodexOutboundTurn | null,
+  turns: CodexOutboundTurn[],
+  mutableQueuedBatch: CodexOutboundTurn | null,
 ): PendingCodexInput[] {
   const coveredIds = new Set<string>();
-  const mutableQueuedBatch =
-    head &&
-    !head.providerRecoveryFamily &&
-    head.status === "queued" &&
-    head.turnId == null &&
-    head.adapterMsg.type === "codex_start_pending";
-  if (head && !mutableQueuedBatch) {
-    for (const id of head.pendingInputIds ?? [head.userMessageId]) coveredIds.add(id);
+  for (const turn of turns) {
+    if (turn === mutableQueuedBatch || turn.status === "completed") continue;
+    for (const id of turn.pendingInputIds ?? [turn.userMessageId]) coveredIds.add(id);
   }
-  return pendingInputs.filter(
+  const deliverable = pendingInputs.filter(
     (input) => input.cancelable && input.deliveryState !== "failed" && !coveredIds.has(input.id),
   );
+  const priority = deliverable.find((input) => input.queueBeforeOwnerId);
+  return priority ? [priority] : deliverable;
 }

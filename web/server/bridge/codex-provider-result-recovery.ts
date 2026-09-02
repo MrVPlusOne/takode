@@ -5,6 +5,7 @@ import {
   isCodexPersistentOutageRecoveryReason,
 } from "../codex-process-reconnect.js";
 import type { BrowserIncomingMessage, CLIResultMessage, CodexOutboundTurn } from "../session-types.js";
+import { createCodexHistoryIncorporation } from "./codex-history-incorporation.js";
 
 export const CODEX_PROVIDER_RESULT_RECOVERY_MAX_ATTEMPTS = 2;
 
@@ -29,6 +30,7 @@ export type CodexProviderResultRecoveryDecision =
 export interface CodexProviderResultRecoverySessionLike {
   messageHistory: BrowserIncomingMessage[];
   pendingCodexTurns?: CodexOutboundTurn[];
+  _frozenCount?: number;
 }
 
 export function decideCodexProviderResultRecovery(
@@ -64,20 +66,42 @@ export function decideCodexProviderResultRecovery(
   return {
     kind: "recover",
     family: classified.family,
-    retryTurn:
-      coOwners.length > 0 && coOwners.every((turn) => isCodexTurnReplayProvablySafe(session.messageHistory, turn)),
+    retryTurn: coOwners.length > 0 && coOwners.every((turn) => isCodexTurnReplayProvablySafe(session, turn)),
     attempt: Math.min(Number.MAX_SAFE_INTEGER, priorAttempts + 1),
     maxAttempts: persistentNetworkOutage ? null : CODEX_PROVIDER_RESULT_RECOVERY_MAX_ATTEMPTS,
   };
 }
 
+export function blocksAutomaticCodexTerminalHistoryContinuation(msg: CLIResultMessage): boolean {
+  const classified = classifyCodexResultError(msg);
+  if (classified?.family === "model_not_supported" || classified?.family === "copilot_auth_refresh_exhausted") {
+    return true;
+  }
+  return hasNonRetryableProviderFailureEvidence(msg);
+}
+
+export function blocksAutomaticCodexResumeTurnRecovery(turn: { error: unknown }): boolean {
+  const text = providerFailureEvidenceText(turn.error);
+  if (!text) return false;
+  return (
+    hasNonRetryableProviderFailureText(text) ||
+    /model_not_supported|requested model is not supported/i.test(text) ||
+    /\bcancel(?:led|ed) by (?:the )?(?:user|operator)\b/i.test(text)
+  );
+}
+
 export function isCodexTurnReplayProvablySafe(
-  history: readonly BrowserIncomingMessage[],
+  session: Pick<CodexProviderResultRecoverySessionLike, "messageHistory" | "_frozenCount">,
   turn: CodexOutboundTurn | null,
 ): boolean {
+  if (turn?.historyTrackingUnknown) return false;
   if (turn?.providerReplayUnsafeActivityObserved) return false;
-  if (!turn || turn.historyIndex < 0 || turn.historyIndex >= history.length) return false;
-  for (const entry of history.slice(turn.historyIndex + 1)) {
+  if (!turn || turn.historyIndex < 0) return false;
+  const localIndex = turn.historyIndex - Math.max(0, session._frozenCount ?? 0);
+  if (localIndex < 0 || localIndex >= session.messageHistory.length) return false;
+  const anchor = session.messageHistory[localIndex];
+  if (anchor?.type !== "user_message" || anchor.id !== turn.userMessageId) return false;
+  for (const entry of session.messageHistory.slice(localIndex + 1)) {
     if (entry.type === "assistant" || entry.type === "codex_reasoning_detail" || entry.type === "stream_event")
       return false;
     if (entry.type === "tool_result_preview" || entry.type === "tool_progress") return false;
@@ -123,10 +147,12 @@ export function prepareCodexTurnsForProviderRecovery(
     (link) => `${link.summaryId}\u0000${link.groupId}`,
   );
 
+  const historyIncorporation = createCodexHistoryIncorporation(pendingInputIds);
   canonical.adapterMsg = {
     type: "codex_start_pending",
     pendingInputIds,
     inputs,
+    clientUserMessageId: historyIncorporation.clientUserMessageId,
   };
   canonical.userMessageId = pendingInputIds[0] ?? canonical.userMessageId;
   canonical.pendingInputIds = pendingInputIds;
@@ -146,6 +172,7 @@ export function prepareCodexTurnsForProviderRecovery(
     ? "manual"
     : "automatic";
   canonical.autoPauseRecoveryLinks = recoveryLinks.length > 0 ? recoveryLinks : undefined;
+  canonical.historyIncorporation = historyIncorporation;
 
   prepareCodexTurnForProviderRecovery(canonical, family, attempt, now);
   const coOwnerSet = new Set(coOwners);
@@ -190,13 +217,27 @@ export function codexInitRecoveryRetryDelayMs(autoRecoveryReason: string, failur
 }
 
 function hasNonRetryableProviderFailureEvidence(msg: CLIResultMessage): boolean {
-  const text = [msg.result, ...(msg.errors ?? [])].filter(Boolean).join("\n");
+  return hasNonRetryableProviderFailureText([msg.result, ...(msg.errors ?? [])].filter(Boolean).join("\n"));
+}
+
+function hasNonRetryableProviderFailureText(text: string): boolean {
   return [
     /\b(?:http\s*)?401\b|\bunauthorized\b/i,
     /\b(?:http\s*)?403\b|\bforbidden\b/i,
     /invalid[_ -]?grant|tokenrefreshfailed|token[_ -]?expired|authentication(?:error| failed)/i,
     /invalid peer certificate|certificate (?:verify|verification) failed|tls certificate|ssl certificate/i,
   ].some((pattern) => pattern.test(text));
+}
+
+function providerFailureEvidenceText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Error) return value.message;
+  if (value == null) return "";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function getProviderTurnCoOwners(

@@ -35,7 +35,10 @@ export function deliverProgrammaticUserMessage(
   if (agentSource?.sessionId === "herd-events" && deliveryBatch) {
     const pruned = deps.pruneStaleBoardStalledHerdBatch(session, deliveryBatch);
     if (pruned.changed) {
-      if (!pruned.content || !pruned.batch) return "dropped";
+      if (!pruned.content || !pruned.batch) {
+        notifyProgrammaticMessageRejected(options, "dropped");
+        return "dropped";
+      }
       deliveryContent = pruned.content;
       deliveryBatch = pruned.batch;
     }
@@ -90,6 +93,19 @@ function notifyProgrammaticMessageAccepted(options: ProgrammaticUserMessageOptio
   } catch (error) {
     console.warn(
       `[ws-bridge] Programmatic message acceptance callback failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function notifyProgrammaticMessageRejected(
+  options: ProgrammaticUserMessageOptions | undefined,
+  reason: "dropped" | "route_rejected" | "route_failed",
+): void {
+  try {
+    options?.afterRejected?.(reason);
+  } catch (error) {
+    console.warn(
+      `[ws-bridge] Programmatic message rejection callback failed: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }

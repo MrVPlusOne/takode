@@ -1706,6 +1706,8 @@ export function getCodexRecoveryOrchestratorDeps(host: any) {
       interrupted?: boolean,
     ) =>
       completeCodexTurnsForResultController(targetSession as Session, msg, codexRecoveryDeps, updatedAt, interrupted),
+    armCodexFreshTurnRequirement: (targetSession: unknown, turnId: string, reason: string) =>
+      armCodexFreshTurnRequirementController(targetSession as Session, turnId, reason, codexRecoveryDeps),
     clearCodexFreshTurnRequirement: (
       targetSession: unknown,
       reason: string,
@@ -1775,13 +1777,13 @@ export function getCodexRecoveryOrchestratorDeps(host: any) {
       targetSession: unknown,
       turnId: string,
       steeredInputs: unknown[],
-      committedHistoryIndexes: number[],
+      clientUserMessageId: string,
     ) =>
       recordSteeredCodexTurnController(
         targetSession as Session,
         turnId,
         steeredInputs as PendingCodexInput[],
-        committedHistoryIndexes,
+        clientUserMessageId,
         codexRecoveryDeps,
       ),
     setPendingCodexInputsCancelable: (targetSession: unknown, inputIds: string[], cancelable: boolean) =>
@@ -1802,7 +1804,11 @@ export function getCodexRecoveryOrchestratorDeps(host: any) {
       content: string,
       agentSource: { sessionId: string; sessionLabel?: string },
       threadRoute: import("./thread-routing-metadata.js").ThreadRouteMetadata,
-      options: { deliveryContent: string },
+      options: {
+        deliveryContent: string;
+        afterAccepted?: () => void;
+        afterRejected?: (reason: "dropped" | "route_rejected" | "route_failed") => void;
+      },
     ) => host.injectUserMessage(sessionId, content, agentSource, undefined, threadRoute, options),
   };
   return codexRecoveryDeps;

@@ -26,6 +26,7 @@ export function getCodexTurnInRecovery(session: CodexTurnQueueSessionLike): Code
   if (!head) return null;
   if (
     head.status === "queued" ||
+    head.status === "recovery_pending" ||
     head.status === "dispatched" ||
     head.status === "backend_acknowledged" ||
     head.status === "blocked_broken_session"
@@ -55,15 +56,15 @@ export function completeCodexTurn(
   updatedAt = Date.now(),
 ): boolean {
   if (!turn) return false;
-  // Multiple logical inputs can be accepted into one provider turn through
-  // turn/steer. A terminal provider result or resume proof settles every
-  // owner of that exact turn id, while different-turn follow-ups stay queued.
-  const coOwners = turn.turnId
-    ? session.pendingCodexTurns.filter((candidate) => candidate.turnId === turn.turnId)
-    : [turn];
-  for (const owner of coOwners) {
-    owner.status = "completed";
-    owner.updatedAt = updatedAt;
+  const completedTurns =
+    !turn.historyIncorporation && turn.turnId
+      ? session.pendingCodexTurns.filter(
+          (candidate) => !candidate.historyIncorporation && candidate.turnId === turn.turnId,
+        )
+      : [turn];
+  for (const completed of completedTurns) {
+    completed.status = "completed";
+    completed.updatedAt = updatedAt;
   }
   return removeCompletedCodexTurns(session);
 }
@@ -78,9 +79,16 @@ export function completeCodexTurnsForResult(
     let matched = false;
     for (const turn of session.pendingCodexTurns) {
       if (turn.turnId !== codexTurnId) continue;
+      matched = true;
+      if (
+        turn.terminalHistoryReconciliation ||
+        turn.historyTrackingUnknown ||
+        (turn.historyIncorporation && turn.historyIncorporation.recordedAt == null)
+      ) {
+        continue;
+      }
       turn.status = "completed";
       turn.updatedAt = updatedAt;
-      matched = true;
     }
     if (matched) {
       removeCompletedCodexTurns(session);
@@ -88,7 +96,8 @@ export function completeCodexTurnsForResult(
     return { matched, codexTurnId };
   }
 
-  completeCodexTurn(session, getCodexHeadTurn(session), updatedAt);
+  const head = getCodexHeadTurn(session);
+  if (head) completeCodexTurn(session, head, updatedAt);
   return { matched: true, codexTurnId: null };
 }
 
@@ -143,6 +152,7 @@ export function dispatchQueuedCodexTurns(
   if (head.status === "backend_acknowledged" || head.status === "dispatched") {
     return { status: "noop", head };
   }
+  if (head.status === "recovery_pending") return { status: "noop", head };
 
   const now = Date.now();
   const accepted = adapter.sendBrowserMessage(head.adapterMsg);

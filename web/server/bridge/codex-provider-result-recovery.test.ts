@@ -68,7 +68,7 @@ describe("Codex provider result recovery", () => {
       attempt: 1,
       maxAttempts: null,
     });
-    expect(isCodexTurnReplayProvablySafe([userMessage], pending)).toBe(true);
+    expect(isCodexTurnReplayProvablySafe({ messageHistory: [userMessage] }, pending)).toBe(true);
   });
 
   it("continues proof-gated network retries beyond the former result cap", () => {
@@ -100,17 +100,69 @@ describe("Codex provider result recovery", () => {
     });
     expect(
       isCodexTurnReplayProvablySafe(
-        [
-          userMessage,
-          {
-            ...transientResult,
-            data: {
-              ...transientResult.data,
-              codex_provider_retry: { ...transientResult.data.codex_provider_retry!, ownerId: "different-input" },
+        {
+          messageHistory: [
+            userMessage,
+            {
+              ...transientResult,
+              data: {
+                ...transientResult.data,
+                codex_provider_retry: { ...transientResult.data.codex_provider_retry!, ownerId: "different-input" },
+              },
             },
-          },
-        ],
+          ],
+        },
         pending,
+      ),
+    ).toBe(false);
+  });
+
+  it("maps absolute history indexes into the hot tail before authorizing replay", () => {
+    const pending = turn({ historyIndex: 101 });
+    const assistant = {
+      type: "assistant",
+      parent_tool_use_id: null,
+      timestamp: 2,
+      message: {
+        id: "effect-after-owner",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6-sol",
+        content: [{ type: "tool_use", id: "tool-1", name: "Bash", input: { command: "echo effect" } }],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    } as BrowserIncomingMessage;
+    const trailing = Array.from({ length: 8 }, (_, index) => ({
+      type: "compact_marker" as const,
+      timestamp: 3 + index,
+    }));
+
+    expect(
+      decideCodexProviderResultRecovery(
+        { messageHistory: [userMessage, assistant, ...trailing], _frozenCount: 101 },
+        result(),
+        pending,
+      ),
+    ).toMatchObject({ kind: "recover", retryTurn: false });
+    expect(
+      isCodexTurnReplayProvablySafe(
+        { messageHistory: [userMessage, assistant, ...trailing], _frozenCount: 101 },
+        pending,
+      ),
+    ).toBe(false);
+  });
+
+  it("fails replay proof closed when the absolute anchor is not the exact owner", () => {
+    expect(
+      isCodexTurnReplayProvablySafe(
+        {
+          messageHistory: [
+            { type: "user_message", id: "other-owner", content: "continue", timestamp: 1 } as BrowserIncomingMessage,
+          ],
+          _frozenCount: 0,
+        },
+        turn(),
       ),
     ).toBe(false);
   });
@@ -273,6 +325,7 @@ describe("Codex provider result recovery", () => {
       type: "codex_start_pending",
       pendingInputIds: ["input-1", "input-2"],
       inputs: [{ content: "continue" }, { content: "follow-up" }],
+      clientUserMessageId: expect.any(String),
     });
   });
 });

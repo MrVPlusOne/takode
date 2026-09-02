@@ -1444,7 +1444,11 @@ describe("Codex pending input delivery", () => {
       autoPauseSourceKind: "manual",
     });
 
-    adapter.emitTurnSteerFailed(steer.pendingInputIds);
+    adapter.emitTurnSteerFailed(steer.pendingInputIds, {
+      kind: "active_turn_mismatch",
+      expectedTurnId: "turn-d3a1",
+      foundTurnId: "turn-c014",
+    });
     adapter.setCurrentTurnIdForTest("turn-c014");
     await Promise.resolve();
 

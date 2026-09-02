@@ -1,9 +1,15 @@
-import type { BrowserIncomingMessage, CodexOutboundTurn, CodexTurnRecoveryReason } from "../session-types.js";
+import type {
+  BrowserIncomingMessage,
+  CodexOutboundTurn,
+  CodexTurnRecoveryContinuationMode,
+  CodexTurnRecoveryReason,
+} from "../session-types.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
 import { appendCodexLeaderRecoveryDiagnostic } from "./codex-leader-recovery-diagnostic.js";
 import {
   beginCodexTurnRecoveryContinuation,
+  isCodexTurnRecoveryContinuationInjectionPending,
   markCodexTurnRecoveryActionRequired,
   type CodexInterruptedTurnRecoveryDeps,
   type CodexInterruptedTurnRecoverySessionLike,
@@ -45,6 +51,7 @@ export interface CompleteRecoveredCodexTurnOptions {
   leaderContinuationRoute?: ThreadRouteMetadata | null;
   recoveryOwner?: CodexOutboundTurn;
   turnRecoveryActionRequired?: CodexTurnRecoveryReason;
+  continuationMode?: CodexTurnRecoveryContinuationMode;
   interruptSource?: "user" | "leader" | "system";
   diagnosticLog?: CodexRecoveryDiagnosticLogContext;
 }
@@ -66,13 +73,10 @@ export function completeRecoveredCodexTurnWithDiagnostic<Session extends CodexRe
   deps: CodexRecoveredTurnDiagnosticDeps<Session>,
   options: CompleteRecoveredCodexTurnOptions = {},
 ): CodexRecoveryDiagnosticOutcome {
-  deps.completeCodexTurn(session, pending);
+  deps.completeCodexTurn(session, options.recoveryOwner ?? pending);
   if (options.interruptSource) deps.markTurnInterrupted(session, options.interruptSource);
   const generationReason = options.leaderContinuationRoute ? "codex_interrupted_turn_continuation" : reason;
   deps.setGenerating(session, false, generationReason);
-  const successor = deps.getCodexHeadTurn(session);
-  if (successor) rearmRecoveredQueuedHeadTurn(session, successor, `${reason}_successor`, deps);
-  reconcileRecoveredQueuedTurnLifecycle(session, reason, deps);
 
   let continuationQueued = false;
   if (options.turnRecoveryActionRequired) {
@@ -83,8 +87,15 @@ export function completeRecoveredCodexTurnWithDiagnostic<Session extends CodexRe
       options.recoveryOwner ?? pending,
       options.leaderContinuationRoute,
       deps,
+      options.continuationMode,
     );
   }
+
+  const successor = deps.getCodexHeadTurn(session);
+  if (successor && !isCodexTurnRecoveryContinuationInjectionPending(session)) {
+    rearmRecoveredQueuedHeadTurn(session, successor, `${reason}_successor`, deps);
+  }
+  reconcileRecoveredQueuedTurnLifecycle(session, reason, deps);
 
   let diagnosticRecorded = false;
   if (!continuationQueued && options.leaderDiagnosticRoute) {
@@ -99,7 +110,7 @@ export function completeRecoveredCodexTurnWithDiagnostic<Session extends CodexRe
     diagnosticRecorded = appendResult === "appended" || appendResult === "existing_unresolved";
   }
   const diagnosticAppended = diagnosticRecorded;
-  deps.dispatchQueuedCodexTurns(session, reason);
+  if (!continuationQueued) deps.dispatchQueuedCodexTurns(session, reason);
   reconcileRecoveredQueuedTurnLifecycle(session, `${reason}_dispatched`, deps);
   deps.maybeFlushQueuedCodexMessages(session, reason);
 

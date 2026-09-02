@@ -18,6 +18,7 @@ export const PLAYGROUND_DISCONNECTED_SESSION_ID = "playground-chat-disconnected"
 export const PLAYGROUND_BROKEN_SESSION_ID = "playground-chat-broken";
 export const PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID = "playground-chat-recovery-suppressed";
 export const PLAYGROUND_TURN_RECOVERY_RECOVERING_SESSION_ID = "playground-turn-recovery-recovering";
+export const PLAYGROUND_TURN_RECOVERY_REPLAY_SESSION_ID = "playground-turn-recovery-replay";
 export const PLAYGROUND_TURN_RECOVERY_PENDING_SESSION_ID = "playground-turn-recovery-pending";
 export const PLAYGROUND_TURN_RECOVERY_ACTIVE_SESSION_ID = "playground-turn-recovery-active";
 export const PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID = "playground-turn-recovery-action-required";

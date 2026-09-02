@@ -93,7 +93,7 @@ function makeCodexAdapterMock() {
   let onInitErrorCb: ((error: string) => void) | undefined;
   let onTurnStartFailedCb: ((msg: any) => void) | undefined;
   let onTurnStartedCb: ((turnId: string) => void) | undefined;
-  let onTurnSteeredCb: ((turnId: string, pendingInputIds: string[]) => void) | undefined;
+  let onTurnSteeredCb: ((turnId: string, pendingInputIds: string[], clientUserMessageId?: string) => void) | undefined;
   let onTurnSteerFailedCb: ((pendingInputIds: string[]) => void) | undefined;
   let currentTurnId: string | null = null;
   const rollbackTurns = vi.fn(async (_numTurns: number) => {});
@@ -117,7 +117,7 @@ function makeCodexAdapterMock() {
     onTurnStarted: vi.fn((cb: (turnId: string) => void) => {
       onTurnStartedCb = cb;
     }),
-    onTurnSteered: vi.fn((cb: (turnId: string, pendingInputIds: string[]) => void) => {
+    onTurnSteered: vi.fn((cb: (turnId: string, pendingInputIds: string[], clientUserMessageId?: string) => void) => {
       onTurnSteeredCb = cb;
     }),
     onTurnSteerFailed: vi.fn((cb: (pendingInputIds: string[]) => void) => {
@@ -145,13 +145,26 @@ function makeCodexAdapterMock() {
       currentTurnId = turnId;
       onTurnStartedCb?.(turnId);
     },
-    emitTurnSteered: (turnId: string, pendingInputIds: string[]) => {
-      onTurnSteeredCb?.(turnId, pendingInputIds);
+    emitTurnSteered: (turnId: string, pendingInputIds: string[], clientUserMessageId?: string) => {
+      onTurnSteeredCb?.(turnId, pendingInputIds, clientUserMessageId);
     },
     emitTurnSteerFailed: (pendingInputIds: string[]) => {
       onTurnSteerFailedCb?.(pendingInputIds);
     },
   };
+}
+
+function makeReceiptAwareCodexAdapterMock() {
+  const adapter = makeCodexAdapterMock() as ReturnType<typeof makeCodexAdapterMock> & {
+    onUserMessageRecorded: ReturnType<typeof vi.fn>;
+    emitUserMessageRecorded: (receipt: { turnId: string; clientUserMessageId: string; itemId?: string }) => void;
+  };
+  let receiptCb: ((receipt: { turnId: string; clientUserMessageId: string; itemId?: string }) => void) | undefined;
+  adapter.onUserMessageRecorded = vi.fn((cb) => {
+    receiptCb = cb;
+  });
+  adapter.emitUserMessageRecorded = (receipt) => receiptCb?.(receipt);
+  return adapter;
 }
 
 function emitCodexSessionReady(
@@ -174,6 +187,27 @@ function getCodexStartPendingInputs(msg: any) {
   expect(msg?.type).toBe("codex_start_pending");
   expect(Array.isArray(msg?.inputs)).toBe(true);
   return msg.inputs as Array<{ content: string }>;
+}
+
+function successResult(sessionId: string, turnId: string, result = "completed") {
+  return {
+    type: "result",
+    data: {
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result,
+      duration_ms: 10,
+      duration_api_ms: 10,
+      num_turns: 1,
+      total_cost_usd: 0,
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      uuid: `result-${turnId}`,
+      session_id: sessionId,
+      codex_turn_id: turnId,
+      stop_reason: "completed",
+    },
+  } as any;
 }
 
 function getNotificationTestDeps(bridge: WsBridge) {
@@ -1058,6 +1092,91 @@ describe("Codex resumed-turn recovery", () => {
     expect(resumedSession.pendingCodexInputs).toHaveLength(0);
   });
 
+  it("uses a verification-first continuation for a recorded input with uncertain tool effects", async () => {
+    const sid = "s-recover-recorded-tool";
+    const adapter1 = makeReceiptAwareCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+    emitCodexSessionReady(adapter1, { cliSessionId: "thread-recorded-tool" });
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    await subscribeCurrentBrowser(bridge, browser);
+    bridge.getSession(sid)!.state.isOrchestrator = true;
+
+    const request = "apply the change and report the result";
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: request, threadKey: "q-9002", questId: "q-9002" }),
+    );
+    const start = adapter1.sendBrowserMessage.mock.calls
+      .map((args: any[]) => args[0])
+      .find((message: any) => message?.type === "codex_start_pending");
+    const clientUserMessageId = start.clientUserMessageId as string;
+    adapter1.emitTurnStarted("turn-recorded-tool");
+    adapter1.emitUserMessageRecorded({ turnId: "turn-recorded-tool", clientUserMessageId });
+    adapter1.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "tool-start",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6-sol",
+        content: [{ type: "tool_use", id: "tool-1", name: "Bash", input: { command: "touch output" } }],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: Date.now(),
+    } as any);
+    adapter1.emitDisconnect("turn-recorded-tool");
+
+    const adapter2 = makeReceiptAwareCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    const interruptedTurn = {
+      id: "turn-recorded-tool",
+      status: "interrupted",
+      error: null,
+      itemsView: "full" as const,
+      items: [
+        { type: "userMessage", clientId: clientUserMessageId, content: [{ type: "text", text: request }] },
+        { type: "functionCall", id: "tool-1", name: "exec_command", status: "inProgress" },
+      ],
+    };
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-recorded-tool",
+      model: "gpt-5.6-sol",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-recorded-tool",
+        threadStatus: "idle",
+        turnCount: 1,
+        turns: [interruptedTurn],
+        lastTurn: interruptedTurn,
+      },
+    });
+    await flushAsync();
+
+    const recovery = bridge.getSession(sid)!.state.codex_turn_recovery;
+    expect(recovery).toMatchObject({
+      status: "continuation_pending",
+      historyPresence: "present",
+      continuationMode: "verify_then_continue",
+      threadKey: "q-9002",
+    });
+    const recoveryStarts = adapter2.sendBrowserMessage.mock.calls
+      .map((args: any[]) => args[0])
+      .filter((message: any) => message?.type === "codex_start_pending");
+    expect(recoveryStarts).toHaveLength(1);
+    const recoveryContent = getCodexStartPendingInputs(recoveryStarts[0])[0]?.content ?? "";
+    expect(recoveryContent).toContain("Tool or external effects may already have occurred");
+    expect(recoveryContent).not.toBe(request);
+    expect(adapter2.sendBrowserMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "codex_start_pending",
+        inputs: expect.arrayContaining([expect.objectContaining({ content: request })]),
+      }),
+    );
+  });
+
   it("continues the retained eight-tool leader shape once without replaying completed work", async () => {
     // Producer-shaped regression for #2489 turn 412: five tool calls completed,
     // three more were omitted from an interrupted resume, and no final answer
@@ -1176,8 +1295,8 @@ describe("Codex resumed-turn recovery", () => {
       .filter((message: any) => message?.type === "codex_start_pending");
     expect(outboundStarts).toHaveLength(1);
     const continuationContent = getCodexStartPendingInputs(outboundStarts[0])[0]?.content ?? "";
-    expect(continuationContent).toContain("original user payload was already delivered");
-    expect(continuationContent).toContain("must not be replayed");
+    expect(continuationContent).toContain("separately owned verification-first continuation");
+    expect(continuationContent).toContain("Tool or external effects may already have occurred");
     expect(continuationContent).not.toBe(request);
     expect(adapter2.sendBrowserMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({

@@ -51,6 +51,7 @@ import {
   decideCodexProviderResultRecovery,
   prepareCodexTurnsForProviderRecovery,
 } from "./codex-provider-result-recovery.js";
+import { recordCodexHistoryMilestoneProof } from "./codex-recovery-diagnostics.js";
 import { isCodexLeaderRecycleMode } from "../../shared/codex-leader-compaction-mode.js";
 import {
   clearCodexReasoningPreviewForRoute,
@@ -101,8 +102,10 @@ function markCodexProviderReplayUnsafeActivity(
       ) ?? []);
   let changed = false;
   for (const owner of owners) {
+    if (owner.historyIncorporation && owner.historyIncorporation.recordedAt == null) continue;
     if (owner.providerReplayUnsafeActivityObserved) continue;
     owner.providerReplayUnsafeActivityObserved = true;
+    recordCodexHistoryMilestoneProof(session, owner, "activity_observed");
     changed = true;
   }
   return changed;

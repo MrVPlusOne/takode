@@ -12,6 +12,7 @@ import {
   PLAYGROUND_TURN_RECOVERY_ACTIVE_SESSION_ID,
   PLAYGROUND_TURN_RECOVERY_PENDING_SESSION_ID,
   PLAYGROUND_TURN_RECOVERY_RECOVERING_SESSION_ID,
+  PLAYGROUND_TURN_RECOVERY_REPLAY_SESSION_ID,
 } from "./fixtures.js";
 import { Card, Section } from "./shared.js";
 
@@ -51,13 +52,18 @@ export function PlaygroundChatViewRecoveryStates() {
   return (
     <Section
       title="ChatView Recovery States"
-      description="Interrupted-work recovery stays distinct from message retries and session reconnect status. Takode may run one follow-up without repeating completed actions, while unfinished work remains visible with a clear next step."
+      description="Interrupted-work recovery stays distinct from session reconnect status. Takode may replay proven-absent input once or run one follow-up without repeating completed actions, while unfinished work remains visible with a clear next step."
     >
       <div className="grid gap-4 lg:grid-cols-2">
         <ChatStateCard
           label="Interrupted work: reconnecting"
           sessionId={PLAYGROUND_TURN_RECOVERY_RECOVERING_SESSION_ID}
           testId="playground-codex-turn-recovery-recovering"
+        />
+        <ChatStateCard
+          label="Interrupted work: proven-absent replay"
+          sessionId={PLAYGROUND_TURN_RECOVERY_REPLAY_SESSION_ID}
+          testId="playground-codex-turn-recovery-replay"
         />
         <ChatStateCard
           label="Interrupted work: follow-up queued"

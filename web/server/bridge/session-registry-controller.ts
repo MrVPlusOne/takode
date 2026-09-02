@@ -15,6 +15,8 @@ import {
   withCodexOutageRecoveryDescriptor,
 } from "../codex-process-reconnect.js";
 import { normalizeCodexTurnRecoveryState, repairRestoredCodexTurnRecovery } from "./codex-interrupted-turn-recovery.js";
+import { normalizePersistedCodexTurn } from "./codex-persisted-turn-normalization.js";
+export { normalizePersistedCodexTurn };
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import { getLastActualHumanInputTimestamp, restoreSessionMessagePreview } from "../user-message-classification.js";
 import type { PersistedSession } from "../session-store.js";
@@ -520,24 +522,6 @@ export function beginCodexRollback(
     deps.persistSession(session);
   });
   return { promise, requiresRelaunch: true };
-}
-
-function normalizePersistedCodexTurn(turn: any, now = Date.now()): any {
-  return {
-    ...turn,
-    pendingInputIds:
-      Array.isArray(turn.pendingInputIds) && turn.pendingInputIds.length > 0
-        ? turn.pendingInputIds
-        : [turn.userMessageId],
-    historyIndex: turn.historyIndex ?? -1,
-    status: turn.status ?? "queued",
-    dispatchCount: turn.dispatchCount ?? 0,
-    createdAt: turn.createdAt ?? now,
-    updatedAt: turn.updatedAt ?? now,
-    acknowledgedAt: turn.acknowledgedAt ?? null,
-    turnTarget: null,
-    lastError: turn.lastError ?? null,
-  };
 }
 
 function normalizePersistedCodexLeaderRecycleContinuation(value: unknown): CodexLeaderRecycleContinuation | null {
