@@ -61,6 +61,7 @@ import { PlaygroundSideChatStates } from "./playground/SideChatPlaygroundStates.
 import { PlaygroundReasoningDetailStates } from "./playground/ReasoningDetailStates.js";
 import { PlaygroundCodexSubagentStates } from "./playground/CodexSubagentPlaygroundStates.js";
 import { PlaygroundChatViewRecoveryStates } from "./playground/ChatViewRecoveryPlaygroundStates.js";
+import { PlaygroundDiffViewerSection } from "./playground/DiffViewerPlaygroundSection.js";
 import { PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY } from "./playground/AutoPausePlaygroundStates.js";
 import { MOCK_SESSION_ID } from "./playground/fixtures.js";
 import { PlaygroundUniversalSearchStates } from "./playground/search-sidebar-states.js";
@@ -601,7 +602,7 @@ describe("Playground", () => {
   });
 
   it("documents the quest commit diff slot with a flush sticky file header", () => {
-    render(<Playground />);
+    render(<PlaygroundDiffViewerSection />);
 
     const diffSlot = screen.getByTestId("playground-quest-commit-diff-slot");
     const loadingSlot = screen.getByTestId("playground-quest-commit-loading-slot");
@@ -610,8 +611,14 @@ describe("Playground", () => {
     expect(loadingSlot).toHaveClass("h-64", "min-h-0", "pt-0", "px-4", "pb-4");
     expect(within(loadingSlot).getByText("Loading commit diff...")).toBeTruthy();
     expect(diffContent?.firstElementChild).toHaveClass("diff-viewer");
-    expect(within(diffSlot).getByRole("button", { name: "Collapse file" })).toBeTruthy();
-    expect(within(diffSlot).getByText("quest-cli-memory-commit-flags.test.ts")).toBeTruthy();
+    expect(within(diffSlot).getAllByRole("button", { name: "Collapse file" })).toHaveLength(2);
+    expect(screen.getByLabelText("Overall changes: 3 additions, 1 deletions")).toBeTruthy();
+    expect(screen.getByLabelText("Code changes: 2 additions, 1 deletions")).toBeTruthy();
+    expect(screen.getByLabelText("Tests changes: 1 additions, 0 deletions")).toBeTruthy();
+    expect([...diffSlot.querySelectorAll<HTMLElement>(".diff-file-header")].map((header) => header.title)).toEqual([
+      "web/server/quest-cli-memory-commit-flags.ts",
+      "web/server/quest-cli-memory-commit-flags.test.ts",
+    ]);
   });
 
   it("documents leader thread routing and full Main activity", () => {

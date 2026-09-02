@@ -160,9 +160,19 @@ describe("QuestDetailPanel commit evidence", () => {
         ...base,
         additions: sha === firstSha ? 12 : 3,
         deletions: sha === firstSha ? 4 : 1,
+        splitStats:
+          sha === firstSha
+            ? {
+                code: { additions: 8, deletions: 2 },
+                tests: { additions: 4, deletions: 2 },
+              }
+            : {
+                code: { additions: 3, deletions: 1 },
+                tests: { additions: 0, deletions: 0 },
+              },
         diff:
           sha === firstSha
-            ? `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n`
+            ? `diff --git a/file.test.ts b/file.test.ts\n--- a/file.test.ts\n+++ b/file.test.ts\n@@ -1 +1 @@\n-old test\n+new test\ndiff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old code\n+new code\n`
             : `diff --git a/other.ts b/other.ts\n--- a/other.ts\n+++ b/other.ts\n@@ -1 +1 @@\n-before\n+after\n`,
       });
     });
@@ -187,8 +197,14 @@ describe("QuestDetailPanel commit evidence", () => {
     expect(screen.getAllByText("First ported commit").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("+12 additions")).toBeTruthy();
     expect(screen.getByText("-4 deletions")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Collapse file" })).toBeTruthy();
+    expect(screen.getByLabelText("Code changes: 8 additions, 2 deletions")).toBeTruthy();
+    expect(screen.getByLabelText("Tests changes: 4 additions, 2 deletions")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Collapse file" })).toHaveLength(2);
     const modal = screen.getByTestId("quest-commit-modal");
+    expect([...modal.querySelectorAll<HTMLElement>(".diff-file-header")].map((header) => header.title)).toEqual([
+      "file.ts",
+      "file.test.ts",
+    ]);
     const diffScroll = modal.querySelector(".quest-commit-diff-scroll");
     const diffContent = modal.querySelector(".quest-commit-diff-content");
     expect(diffScroll).toHaveClass("pt-0", "px-4", "pb-4");
@@ -204,7 +220,7 @@ describe("QuestDetailPanel commit evidence", () => {
     expect(screen.getByText("+3 additions")).toBeTruthy();
     expect(screen.getByText("-1 deletions")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Collapse file" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Collapse file" })[0]);
     expect(screen.queryByText("before")).toBeNull();
     expect(screen.getByRole("button", { name: "Expand file" })).toBeTruthy();
   });

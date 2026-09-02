@@ -268,27 +268,40 @@ diff --git a/src/b.ts b/src/b.ts
     expect(screen.getByTitle(longPath)).toBeTruthy();
   });
 
-  it("handles multi-file unified diff", () => {
-    const multiDiff = `diff --git a/a.ts b/a.ts
---- a/a.ts
-+++ b/a.ts
-@@ -1,2 +1,2 @@
--const a = 1;
-+const a = 2;
- const b = 1;
-diff --git a/b.ts b/b.ts
---- a/b.ts
-+++ b/b.ts
-@@ -1,2 +1,2 @@
- const x = 1;
--const y = 2;
-+const y = 3;`;
+  it("stably renders code files before test files in a multi-file unified diff", () => {
+    // The input is deliberately interleaved. The shared viewer must keep every
+    // file, preserve order within each category, and recover deleted-file names
+    // from the old path so deleted tests do not fall into the code group.
+    const multiDiff = `diff --git a/src/a.test.ts b/src/a.test.ts
+--- a/src/a.test.ts
++++ b/src/a.test.ts
+@@ -1 +1 @@
+-old test a
++new test a
+diff --git a/src/b.ts b/src/b.ts
+--- a/src/b.ts
++++ b/src/b.ts
+@@ -1 +1 @@
+-old code b
++new code b
+diff --git a/tests/c.ts b/tests/c.ts
+--- a/tests/c.ts
++++ /dev/null
+@@ -1 +0,0 @@
+-deleted test c
+diff --git a/docs/d.md b/docs/d.md
+--- a/docs/d.md
++++ b/docs/d.md
+@@ -1 +1 @@
+-old code d
++new code d`;
 
     const { container } = render(<DiffViewer unifiedDiff={multiDiff} />);
-    const files = container.querySelectorAll(".diff-file");
-    expect(files.length).toBe(2);
-    expect(screen.getByText("a.ts")).toBeTruthy();
-    expect(screen.getByText("b.ts")).toBeTruthy();
+    const headers = [...container.querySelectorAll<HTMLElement>(".diff-file-header")];
+
+    expect(headers.map((header) => header.title)).toEqual(["src/b.ts", "docs/d.md", "src/a.test.ts", "tests/c.ts"]);
+    expect(container.querySelectorAll(".diff-file")).toHaveLength(4);
+    expect(screen.getByText("deleted test c")).toBeTruthy();
   });
 
   it("does not crash when re-rendering from empty to non-empty data (hooks order)", () => {

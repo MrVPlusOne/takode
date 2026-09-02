@@ -552,6 +552,7 @@ export interface QuestCommitLookup {
   timestamp?: number;
   additions?: number;
   deletions?: number;
+  splitStats?: import("../shared/diff-file-groups.js").DiffFileGroupStats;
   diff?: string;
   sourceFiles?: MemoryUpdateDiffSourceFile[];
   truncated?: boolean;

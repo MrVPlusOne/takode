@@ -1,6 +1,7 @@
 import { memo, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import * as Diff from "diff";
+import { orderDiffFilesCodeFirst } from "../../shared/diff-file-groups.js";
 import {
   buildHighlightedLines,
   highlightCode,
@@ -189,7 +190,12 @@ function parseUnifiedDiffToFiles(diffStr: string, fallbackFileName = ""): Parsed
       currentHunk = null;
       continue;
     }
-    if (line.startsWith("--- a/") || line.startsWith("--- /dev/null")) {
+    if (line.startsWith("--- a/")) {
+      if (!currentFile) currentFile = { fileName: fallbackFileName, hunks: [] };
+      if (!currentFile.fileName) currentFile.fileName = line.slice(6);
+      continue;
+    }
+    if (line.startsWith("--- /dev/null")) {
       if (!currentFile) currentFile = { fileName: fallbackFileName, hunks: [] };
       continue;
     }
@@ -719,7 +725,10 @@ export const DiffViewer = memo(function DiffViewer({
       }
 
       if (unifiedDiff) {
-        return parseUnifiedDiffToFiles(unifiedDiff, fileName || "");
+        return orderDiffFilesCodeFirst(
+          parseUnifiedDiffToFiles(unifiedDiff, fileName || ""),
+          (file) => file.fileName || fileName || "",
+        );
       }
     } catch (err) {
       console.error("[DiffViewer] Failed to compute diff:", err);

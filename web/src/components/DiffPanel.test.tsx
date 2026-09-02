@@ -6,6 +6,7 @@ import "@testing-library/jest-dom";
 
 const mockApi = {
   getFileDiff: vi.fn().mockResolvedValue({ path: "/repo/file.ts", diff: "", baseBranch: "main" }),
+  getDiffStats: vi.fn().mockResolvedValue({ stats: {}, baseBranch: "main" }),
   listBranches: vi.fn().mockResolvedValue([]),
   getRepoInfo: vi.fn().mockResolvedValue({
     repoRoot: "/repo",
@@ -22,6 +23,7 @@ const mockApi = {
 vi.mock("../api.js", () => ({
   api: {
     getFileDiff: (...args: unknown[]) => mockApi.getFileDiff(...args),
+    getDiffStats: (...args: unknown[]) => mockApi.getDiffStats(...args),
     listBranches: (...args: unknown[]) => mockApi.listBranches(...args),
     getRepoInfo: (...args: unknown[]) => mockApi.getRepoInfo(...args),
     setDiffBase: (...args: unknown[]) => mockApi.setDiffBase(...args),
@@ -126,6 +128,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Reset to default empty diff (clearAllMocks doesn't reset implementations)
   mockApi.getFileDiff.mockResolvedValue({ path: "/repo/file.ts", diff: "", baseBranch: "main" });
+  mockApi.getDiffStats.mockResolvedValue({ stats: {}, baseBranch: "main" });
   mockApi.listBranches.mockResolvedValue([]);
   mockApi.getRepoInfo.mockResolvedValue({
     repoRoot: "/repo",
@@ -135,6 +138,7 @@ beforeEach(() => {
     isWorktree: false,
   });
   mockApi.getRecentCommits.mockResolvedValue({ commits: [] });
+  mockApi.getDiffFiles.mockResolvedValue({ files: [], repoRoot: "/repo", base: "main" });
   localStorage.clear();
   resetStore();
 });
@@ -171,19 +175,29 @@ describe("DiffPanel", () => {
     expect(commitSelect).toHaveClass("takode-native-select");
   });
 
-  it("displays changed files in file picker dropdown", () => {
-    // Changed files should appear in the file picker dropdown and as DiffViewer sections in the feed.
+  it("shows code files before tests in the feed and file picker", () => {
+    // The panel keeps its existing alphabetical order within each category,
+    // while stably moving likely test files after all non-test files.
     resetStore({
-      changedFiles: new Map([["s1", new Set(["/repo/src/app.ts", "/repo/src/utils.ts"])]]),
+      changedFiles: new Map([
+        ["s1", new Set(["/repo/src/a.test.ts", "/repo/src/b.ts", "/repo/tests/c.ts", "/repo/src/d.ts"])],
+      ]),
     });
 
     const { container } = render(<DiffPanel sessionId="s1" />);
-    // File picker button shows count
+    const expectedOrder = ["/repo/src/b.ts", "/repo/src/d.ts", "/repo/src/a.test.ts", "/repo/tests/c.ts"];
+
     const filePickerBtn = screen.getByTitle("Jump to file");
-    expect(filePickerBtn).toBeInTheDocument();
-    expect(filePickerBtn.textContent).toContain("2");
-    // Each file renders a DiffViewer section in the feed
-    expect(container.querySelectorAll("[data-file-path]")).toHaveLength(2);
+    expect(filePickerBtn).toHaveTextContent("4 files");
+    expect(
+      [...container.querySelectorAll<HTMLElement>("[data-file-path]")].map((file) => file.dataset.filePath),
+    ).toEqual(expectedOrder);
+
+    fireEvent.click(filePickerBtn);
+    const pickerLabels = [...container.querySelectorAll<HTMLElement>(".absolute button .truncate")].map(
+      (label) => label.textContent,
+    );
+    expect(pickerLabels).toEqual(["src/b.ts", "src/d.ts", "src/a.test.ts", "tests/c.ts"]);
   });
 
   it("hides changed files outside the session cwd", () => {
@@ -403,6 +417,164 @@ describe("DiffPanel", () => {
     expect(container.querySelector(".text-red-400")).toBeNull();
   });
 
+  it("shows separate code and test totals without replacing the overall summary", async () => {
+    // Hunk-aware counting must include added content whose source text begins
+    // with `++`; the resulting raw patch row begins with `+++` but is not a header.
+    mockApi.getFileDiff.mockImplementation((path: string) =>
+      Promise.resolve({
+        path,
+        baseBranch: "main",
+        diff: path.endsWith(".test.ts")
+          ? `diff --git a/src/app.test.ts b/src/app.test.ts
+--- a/src/app.test.ts
++++ b/src/app.test.ts
+@@ -1,2 +1,3 @@
+-old test one
+-old test two
++new test one
++new test two
++new test three`
+          : `diff --git a/src/app.ts b/src/app.ts
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1,2 +1,3 @@
+-old code
++new code
++++literal content
+ unchanged`,
+      }),
+    );
+
+    resetStore({
+      sessions: new Map([
+        ["s1", { cwd: "/repo", git_default_branch: "main", total_lines_added: 5, total_lines_removed: 3 }],
+      ]),
+      changedFiles: new Map([["s1", new Set(["/repo/src/app.test.ts", "/repo/src/app.ts"])]]),
+    });
+
+    render(<DiffPanel sessionId="s1" />);
+
+    expect(await screen.findByLabelText("Overall changes: 5 additions, 3 deletions")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Code changes: 2 additions, 1 deletions")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Tests changes: 3 additions, 2 deletions")).toBeInTheDocument();
+  });
+
+  it("preserves authoritative overall totals and withholds split stats for an incomplete file list", async () => {
+    mockApi.getDiffFiles.mockResolvedValue({
+      files: [{ path: "/repo/src/app.ts", status: "M" }],
+      repoRoot: "/repo",
+      base: "main",
+      truncated: true,
+    });
+    mockApi.getDiffStats.mockResolvedValue({
+      baseBranch: "main",
+      stats: { "/repo/src/app.ts": { additions: 2, deletions: 1 } },
+    });
+    mockApi.getFileDiff.mockResolvedValue({
+      path: "/repo/src/app.ts",
+      baseBranch: "main",
+      diff: `diff --git a/src/app.ts b/src/app.ts
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1 +1,2 @@
+-old code
++new code
++more code`,
+    });
+
+    resetStore({
+      sessions: new Map([
+        ["s1", { cwd: "/repo", git_default_branch: "main", total_lines_added: 5, total_lines_removed: 3 }],
+      ]),
+    });
+
+    render(<DiffPanel sessionId="s1" />);
+
+    expect(await screen.findByLabelText("Overall changes: 5 additions, 3 deletions")).toBeInTheDocument();
+    await waitFor(() => expect(mockApi.getDiffStats).toHaveBeenCalled());
+    expect(screen.queryByLabelText(/^Code changes:/)).toBeNull();
+    expect(screen.queryByLabelText(/^Tests changes:/)).toBeNull();
+  });
+
+  it("withholds split totals when a missing bulk stat only has a truncated patch", async () => {
+    mockApi.getDiffStats.mockResolvedValue({
+      baseBranch: "main",
+      stats: { "/repo/src/app.ts": { additions: 2, deletions: 1 } },
+    });
+    mockApi.getFileDiff.mockImplementation((path: string) =>
+      Promise.resolve({
+        path,
+        baseBranch: "main",
+        truncated: path.endsWith(".test.ts"),
+        diff: path.endsWith(".test.ts")
+          ? `diff --git a/src/app.test.ts b/src/app.test.ts
+--- a/src/app.test.ts
++++ b/src/app.test.ts
+@@ -1 +1 @@
+-old partial test
++new partial test`
+          : `diff --git a/src/app.ts b/src/app.ts
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1 +1,2 @@
+-old code
++new code
++more code`,
+      }),
+    );
+
+    resetStore({
+      sessions: new Map([
+        ["s1", { cwd: "/repo", git_default_branch: "main", total_lines_added: 5, total_lines_removed: 3 }],
+      ]),
+      changedFiles: new Map([["s1", new Set(["/repo/src/app.test.ts", "/repo/src/app.ts"])]]),
+    });
+
+    render(<DiffPanel sessionId="s1" />);
+
+    expect(await screen.findByText("Diff truncated (file too large to display in full)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Overall changes: 5 additions, 3 deletions")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Code changes:/)).toBeNull();
+    expect(screen.queryByLabelText(/^Tests changes:/)).toBeNull();
+  });
+
+  it("withholds split totals when a missing bulk stat comes from a failed patch request", async () => {
+    mockApi.getDiffStats.mockResolvedValue({
+      baseBranch: "main",
+      stats: { "/repo/src/app.ts": { additions: 2, deletions: 1 } },
+    });
+    mockApi.getFileDiff.mockImplementation((path: string) => {
+      if (path.endsWith(".test.ts")) return Promise.reject(new Error("diff unavailable"));
+      return Promise.resolve({
+        path,
+        baseBranch: "main",
+        diff: `diff --git a/src/app.ts b/src/app.ts
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1 +1,2 @@
+-old code
++new code
++more code`,
+      });
+    });
+
+    resetStore({
+      sessions: new Map([
+        ["s1", { cwd: "/repo", git_default_branch: "main", total_lines_added: 5, total_lines_removed: 3 }],
+      ]),
+      changedFiles: new Map([["s1", new Set(["/repo/src/app.test.ts", "/repo/src/app.ts"])]]),
+    });
+
+    render(<DiffPanel sessionId="s1" />);
+
+    await waitFor(() => {
+      expect(mockApi.getFileDiff.mock.calls.filter(([path]) => String(path).endsWith(".test.ts"))).toHaveLength(2);
+    });
+    expect(screen.getByLabelText("Overall changes: 5 additions, 3 deletions")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Code changes:/)).toBeNull();
+    expect(screen.queryByLabelText(/^Tests changes:/)).toBeNull();
+  });
+
   it("falls back to rendered diff totals when server totals are zero", async () => {
     // If server totals are temporarily stale at 0/0 but the panel has fetched
     // diffs, the header should use local per-file totals for consistency.
@@ -428,8 +600,10 @@ describe("DiffPanel", () => {
     render(<DiffPanel sessionId="s1" />);
 
     await waitFor(() => {
-      expect(screen.getByText("+1")).toBeInTheDocument();
-      expect(screen.getByText("-0")).toBeInTheDocument();
+      expect(screen.getByTestId("session-diff-stats-overall")).toHaveAttribute(
+        "aria-label",
+        "Overall changes: 1 additions, 0 deletions",
+      );
     });
   });
 

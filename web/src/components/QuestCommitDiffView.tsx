@@ -3,6 +3,7 @@ import { api, type QuestCommitLookup } from "../api.js";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { DiffViewer } from "./DiffViewer.js";
+import { DiffStatsSummary } from "./DiffStatsSummary.js";
 import {
   commitLookupKey,
   commitTitle,
@@ -394,10 +395,15 @@ export function QuestCommitDiffView({
             {activeCommitDetails?.available &&
               typeof activeCommitDetails.additions === "number" &&
               typeof activeCommitDetails.deletions === "number" && (
-                <span className="flex items-center gap-3 text-[11px]">
-                  <span className="text-green-500">+{activeCommitDetails.additions ?? 0} additions</span>
-                  <span className="text-red-400">-{activeCommitDetails.deletions ?? 0} deletions</span>
-                </span>
+                <DiffStatsSummary
+                  overall={{
+                    additions: activeCommitDetails.additions,
+                    deletions: activeCommitDetails.deletions,
+                  }}
+                  splitStats={activeCommitDetails.splitStats}
+                  verboseOverall
+                  testId="quest-commit-diff-stats"
+                />
               )}
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">

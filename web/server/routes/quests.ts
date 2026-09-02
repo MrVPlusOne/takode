@@ -53,6 +53,7 @@ import {
   getQuestDisplayOwner,
   getTakodeQuestOwnerSessionId,
 } from "../../shared/quest-owner.js";
+import { summarizeDiffFileStats, type DiffFileLineStats } from "../../shared/diff-file-groups.js";
 
 const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
 const MAX_DIFF_BYTES = 512 * 1024;
@@ -71,18 +72,36 @@ function normalizeRequestedCommitSha(value: string): string | null {
   return /^[0-9a-f]{7,40}$/.test(sha) ? sha : null;
 }
 
-function parseNumstatTotals(output: string): { additions: number; deletions: number } {
-  let additions = 0;
-  let deletions = 0;
+function parseNumstatSummary(output: string) {
+  const fileStats: DiffFileLineStats[] = [];
 
-  for (const line of output.split("\n")) {
-    const [add, del] = line.trim().split("\t");
-    if (!add || !del) continue;
-    additions += add === "-" ? 0 : Number.parseInt(add, 10) || 0;
-    deletions += del === "-" ? 0 : Number.parseInt(del, 10) || 0;
+  for (const rawLine of output.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const firstTab = line.indexOf("\t");
+    const secondTab = firstTab < 0 ? -1 : line.indexOf("\t", firstTab + 1);
+    if (firstTab < 0 || secondTab < 0) continue;
+
+    const add = line.slice(0, firstTab);
+    const del = line.slice(firstTab + 1, secondTab);
+    const path = line.slice(secondTab + 1);
+    if (!path) continue;
+    fileStats.push({
+      path,
+      additions: add === "-" ? 0 : Number.parseInt(add, 10) || 0,
+      deletions: del === "-" ? 0 : Number.parseInt(del, 10) || 0,
+    });
   }
 
-  return { additions, deletions };
+  const totals = fileStats.reduce(
+    (summary, file) => ({
+      additions: summary.additions + file.additions,
+      deletions: summary.deletions + file.deletions,
+    }),
+    { additions: 0, deletions: 0 },
+  );
+
+  return { ...totals, splitStats: summarizeDiffFileStats(fileStats) };
 }
 
 function shouldIncludeCommitDiff(c: Context): boolean {
@@ -1083,7 +1102,7 @@ export function createQuestRoutes(ctx: RouteContext) {
 
         const [resolvedSha, shortSha, message, ts] = metadata.trim().split("\0");
         if (!resolvedSha) continue;
-        const totals = parseNumstatTotals(numstat);
+        const stats = parseNumstatSummary(numstat);
         return c.json({
           sha: resolvedSha || fullSha,
           shortSha: shortSha || fullSha.slice(0, 7),
@@ -1091,8 +1110,9 @@ export function createQuestRoutes(ctx: RouteContext) {
           timestamp: Number.parseInt(ts || "0", 10) * 1000,
           ...(includeDiff
             ? {
-                additions: totals.additions,
-                deletions: totals.deletions,
+                additions: stats.additions,
+                deletions: stats.deletions,
+                splitStats: stats.splitStats,
                 diff,
               }
             : {}),

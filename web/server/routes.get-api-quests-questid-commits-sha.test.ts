@@ -629,7 +629,7 @@ describe("GET /api/quests/:questId/commits/:sha", () => {
       }
       if (cmd.includes('show --format= --numstat --no-renames "abc1234567890abcdef"')) {
         return (
-          ["12\t4\tweb/server/routes/quests.ts", "3\t0\tweb/src/components/QuestDetailPanel.tsx"].join("\n") + "\n"
+          ["12\t4\tweb/server/routes/quests.ts", "3\t0\tweb/src/components/QuestDetailPanel.test.tsx"].join("\n") + "\n"
         );
       }
       if (cmd.includes('show --format= --patch --no-color "abc1234567890abcdef"')) {
@@ -648,6 +648,10 @@ describe("GET /api/quests/:questId/commits/:sha", () => {
       message: "Attach commits to quests",
       additions: 15,
       deletions: 4,
+      splitStats: {
+        code: { additions: 12, deletions: 4 },
+        tests: { additions: 3, deletions: 0 },
+      },
       available: true,
     });
     expect(json.diff).toContain("diff --git");

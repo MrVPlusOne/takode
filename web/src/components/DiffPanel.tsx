@@ -2,7 +2,9 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { DiffViewer } from "./DiffViewer.js";
+import { DiffStatsSummary } from "./DiffStatsSummary.js";
 import { YarnBallSpinner } from "./CatIcons.js";
+import { orderDiffFilesCodeFirst, summarizeDiffFileStats } from "../../shared/diff-file-groups.js";
 
 const LINE_NUMBERS_KEY = "cc-diff-line-numbers";
 const DIFF_REQUEST_TIMEOUT_MS = 15000;
@@ -32,14 +34,26 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   });
 }
 
-/** Count additions and deletions from a unified diff string */
+/** Count additions and deletions from hunk rows in a unified diff string. */
 function countDiffStats(diff: string): { additions: number; deletions: number } {
   let additions = 0;
   let deletions = 0;
+  let inHunk = false;
+
   for (const line of diff.split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++")) additions++;
-    else if (line.startsWith("-") && !line.startsWith("---")) deletions++;
+    if (line.startsWith("diff --git") || line.startsWith("diff --cc")) {
+      inHunk = false;
+      continue;
+    }
+    if (line.startsWith("@@")) {
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) continue;
+    if (line.startsWith("+")) additions++;
+    else if (line.startsWith("-")) deletions++;
   }
+
   return { additions, deletions };
 }
 
@@ -57,6 +71,7 @@ interface DiffFileData {
   oldText?: string;
   newText?: string;
   truncated?: boolean;
+  failed?: boolean;
 }
 
 /**
@@ -144,6 +159,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
   const [fileStats, setFileStats] = useState<Map<string, FileStats>>(
     () => useStore.getState().diffFileStats?.get(sessionId) ?? new Map(),
   );
+  const [bulkFileStats, setBulkFileStats] = useState<Map<string, FileStats> | null>(null);
   const fetchedFilesRef = useRef<Set<string>>(new Set());
   // Tracks files whose full contents (oldText/newText) have been fetched.
   // Separate from fetchedFilesRef which tracks lightweight diff fetches.
@@ -209,6 +225,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
       fetchedFilesRef.current.clear();
       contentFetchedRef.current.clear();
       setFileStats(new Map());
+      setBulkFileStats(null);
       setAllDiffs(new Map());
     }
   }, [serverBaseBranch]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -261,7 +278,8 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
       }
     }
 
-    return result.sort((a, b) => a.rel.localeCompare(b.rel));
+    const sorted = result.sort((a, b) => a.rel.localeCompare(b.rel));
+    return orderDiffFilesCodeFirst(sorted, (file) => file.rel);
   }, [changedFiles, gitDiffFiles, repoRoot]);
 
   const visibleChangedFiles = useMemo(() => {
@@ -273,6 +291,34 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
       return !stats || stats.additions > 0 || stats.deletions > 0;
     });
   }, [relativeChangedFiles, fileStats]);
+
+  useEffect(() => {
+    if (!repoRoot || !effectiveBranch || relativeChangedFiles.length === 0) {
+      setBulkFileStats(new Map());
+      return;
+    }
+
+    let cancelled = false;
+    setBulkFileStats(null);
+    api
+      .getDiffStats(
+        relativeChangedFiles.map((file) => file.abs),
+        repoRoot,
+        effectiveBranch,
+        sessionId,
+      )
+      .then((response) => {
+        if (cancelled) return;
+        setBulkFileStats(new Map(Object.entries(response.stats)));
+      })
+      .catch(() => {
+        if (!cancelled) setBulkFileStats(new Map());
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveBranch, relativeChangedFiles, repoRoot, sessionId]);
 
   // Track which files are near the viewport for lazy rendering + deferred content fetch.
   // Files within ~1 viewport height above/below are considered "visible".
@@ -335,6 +381,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
       fetchedFilesRef.current.clear();
       contentFetchedRef.current.clear();
       setFileStats(new Map());
+      setBulkFileStats(null);
       setAllDiffs(new Map());
       useStore.getState().setDiffFileStats(sessionId, new Map());
     },
@@ -376,12 +423,14 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
                   diff: res.diff,
                   truncated: res.truncated,
                   stats: countDiffStats(res.diff),
+                  failed: false,
                 }))
                 .catch(() => ({
                   abs,
                   diff: "",
                   truncated: false,
-                  stats: { additions: 0, deletions: 0 },
+                  stats: null,
+                  failed: true,
                 })),
             ),
           );
@@ -389,7 +438,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
           setFileStats((prev) => {
             const next = new Map(prev);
             for (const { abs, stats } of results) {
-              next.set(abs, stats);
+              if (stats) next.set(abs, stats);
               fetchedFilesRef.current.add(abs);
             }
             return next;
@@ -399,7 +448,11 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
             for (const result of results) {
               // Only set lightweight diff if we don't already have full contents
               if (!prev.get(result.abs)?.oldText && !prev.get(result.abs)?.newText) {
-                next.set(result.abs, { diff: result.diff, truncated: result.truncated });
+                next.set(result.abs, {
+                  diff: result.diff,
+                  truncated: result.truncated,
+                  failed: result.failed,
+                });
               }
             }
             return next;
@@ -510,15 +563,49 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
     return { additions, deletions, complete: true };
   }, [visibleChangedFiles, fileStats]);
 
+  const computedSplitStats = useMemo(() => {
+    if (!bulkFileStats) return null;
+    if (relativeChangedFiles.some((file) => allDiffs.get(file.abs)?.failed)) return null;
+
+    const statsByFile = [];
+    for (const file of visibleChangedFiles) {
+      let stats = bulkFileStats.get(file.abs);
+      if (!stats) {
+        const diffData = allDiffs.get(file.abs);
+        if (!diffData?.diff.trim() || diffData.truncated) return null;
+        stats = countDiffStats(diffData.diff);
+      }
+      statsByFile.push({ path: file.rel, ...stats });
+    }
+    return statsByFile.length > 0 ? summarizeDiffFileStats(statsByFile) : null;
+  }, [allDiffs, bulkFileStats, relativeChangedFiles, visibleChangedFiles]);
+
+  const splitStats = useMemo(() => {
+    if (!computedSplitStats) return null;
+    if (serverTotals.additions === 0 && serverTotals.deletions === 0) return computedSplitStats;
+
+    const splitAdditions = computedSplitStats.code.additions + computedSplitStats.tests.additions;
+    const splitDeletions = computedSplitStats.code.deletions + computedSplitStats.tests.deletions;
+    return splitAdditions === serverTotals.additions && splitDeletions === serverTotals.deletions
+      ? computedSplitStats
+      : null;
+  }, [computedSplitStats, serverTotals]);
+
   const totalStats = useMemo(() => {
     if (serverTotals.additions > 0 || serverTotals.deletions > 0) {
       return serverTotals;
+    }
+    if (splitStats) {
+      return {
+        additions: splitStats.code.additions + splitStats.tests.additions,
+        deletions: splitStats.code.deletions + splitStats.tests.deletions,
+      };
     }
     if (localTotals.complete && (localTotals.additions > 0 || localTotals.deletions > 0)) {
       return { additions: localTotals.additions, deletions: localTotals.deletions };
     }
     return serverTotals;
-  }, [serverTotals, localTotals]);
+  }, [serverTotals, localTotals, splitStats]);
 
   // Sync fileStats to store for TopBar badge
   useEffect(() => {
@@ -637,7 +724,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
     <div className="h-full flex flex-col bg-cc-bg">
       {/* Top bar: branch selector, total stats, file picker, line numbers toggle */}
       <div className="shrink-0 px-3 py-1.5 bg-cc-card border-b border-cc-border">
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
           {/* Branch selector */}
           <select
             value={selectedBranch ?? ""}
@@ -691,12 +778,17 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
             </select>
           )}
 
-          <div data-testid="diff-header-controls" className="ml-auto flex items-center gap-1.5 shrink-0">
+          <div
+            data-testid="diff-header-controls"
+            className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5"
+          >
             {(totalStats.additions > 0 || totalStats.deletions > 0) && (
-              <span className="text-[11px] font-mono-code shrink-0 flex items-center gap-1">
-                <span className="text-green-500">+{totalStats.additions}</span>
-                <span className="text-red-400">-{totalStats.deletions}</span>
-              </span>
+              <DiffStatsSummary
+                overall={totalStats}
+                splitStats={splitStats}
+                className="justify-end"
+                testId="session-diff-stats"
+              />
             )}
 
             {/* File picker dropdown */}
