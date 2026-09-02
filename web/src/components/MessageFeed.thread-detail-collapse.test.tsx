@@ -807,8 +807,8 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.getByText("Alignment approved; authorizing focused Work.")).toBeTruthy();
     expect(screen.getByText("The worker resumed after recovery and is finishing closure.")).toBeTruthy();
     expect(screen.getByText("The screenshot-shaped regression is fixed.")).toBeTruthy();
-    expect(screen.getByText("3 worker events · includes 3× Work interrupted")).toBeTruthy();
-    expect(screen.getByText("2 worker events · includes Work failed")).toBeTruthy();
+    expect(screen.getByText("3 worker events")).toBeTruthy();
+    expect(screen.getByText("2 worker events")).toBeTruthy();
     expect(screen.queryByText("#2455")).toBeNull();
     expect(screen.queryByText("turn_end")).toBeNull();
     expect(screen.queryByText("session_error")).toBeNull();

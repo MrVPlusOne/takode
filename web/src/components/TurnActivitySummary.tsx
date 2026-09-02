@@ -42,7 +42,7 @@ export function TurnSummaryStats({ stats, durationMs, separatorClass }: TurnSumm
       {hasHerdEvents && (
         <>
           {(hasMessages || hasTools || hasAgents) && <span className={separatorClass}>·</span>}
-          <span>{summarizeWorkerEventActivity(stats.herdEventCount, stats.herdEventLifecycle ?? [])}</span>
+          <span>{summarizeWorkerEventActivity(stats.herdEventCount)}</span>
         </>
       )}
       {hasDuration && (

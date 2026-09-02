@@ -127,7 +127,7 @@ afterEach(() => {
 });
 
 describe("CompactFeedActivity", () => {
-  it("keeps lifecycle categories visible while preserving the compact worker-event group", () => {
+  it("keeps lifecycle detail behind a count-only compact worker-event group", () => {
     render(
       <CompactFeedActivity
         segments={[{ kind: "worker_event", messages: LIFECYCLE_MESSAGES }]}
@@ -138,15 +138,18 @@ describe("CompactFeedActivity", () => {
       />,
     );
 
-    const summary = screen.getByText(
-      "3 worker events · includes waiting for decision; Work preserved, same Work resumed after decision wait, context compacted; same Work continued",
-    );
-    expect(summary).toBeTruthy();
-    expect(summary.className).toContain("whitespace-normal");
+    const summary = screen.getByText("3 worker events");
+    expect(summary.className).toContain("truncate");
+    expect(screen.queryByText(/waiting for decision; Work preserved/)).toBeNull();
+    expect(screen.queryByText(/same Work resumed after decision wait/)).toBeNull();
+    expect(screen.queryByText(/context compacted; same Work continued/)).toBeNull();
     expect(screen.queryByText(/#2485/)).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Show 3 activity items/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Show 3 activity items: 3 worker events" }));
     expect(screen.getAllByText(/#2485/)).toHaveLength(3);
+    expect(screen.getByText(/waiting for decision; Work preserved/)).toBeTruthy();
+    expect(screen.getByText(/same Work resumed after decision wait/)).toBeTruthy();
+    expect(screen.getByText(/context compacted; same Work continued/)).toBeTruthy();
   });
 
   it("keeps producer-shaped worker-event counts beside a large tool-call fallback", () => {

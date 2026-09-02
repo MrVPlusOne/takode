@@ -1,9 +1,5 @@
 import type { ChatMessage } from "../types.js";
-import {
-  HERD_EVENT_LIFECYCLE_LABELS,
-  HERD_EVENT_LIFECYCLE_ORDER,
-  type TakodeHerdEventLifecycle,
-} from "../../shared/herd-event-lifecycle.js";
+import { HERD_EVENT_LIFECYCLE_LABELS, type TakodeHerdEventLifecycle } from "../../shared/herd-event-lifecycle.js";
 import { parseHerdEvents } from "./herd-event-parser.js";
 
 const ROUTINE_STRUCTURED_EVENT_TYPES = new Set(["turn_end", "worker_stream", "board_stalled"]);
@@ -108,39 +104,23 @@ export function isCompactableHerdEventMessage(message: ChatMessage): boolean {
 }
 
 export function makeWorkerEventActivityItems(messages: ChatMessage[]) {
-  return messages.flatMap((message) => {
-    const count = Math.max(getHerdEventCount(message), 1);
-    return Array.from({ length: count }, (_, index) => {
-      const lifecycle = message.takodeHerdEvents?.[index]?.lifecycle;
-      return {
-        id: `${message.id}:worker-event:${index}`,
-        name: "SendMessage",
-        kind: "worker_event" as const,
-        input: lifecycle?.length ? { herdEventLifecycle: lifecycle } : {},
-        messageId: message.id,
-      };
-    });
-  });
+  return messages.flatMap((message) =>
+    Array.from({ length: Math.max(getHerdEventCount(message), 1) }, (_, index) => ({
+      id: `${message.id}:worker-event:${index}`,
+      name: "SendMessage",
+      kind: "worker_event" as const,
+      input: {},
+      messageId: message.id,
+    })),
+  );
 }
 
 export function getHerdEventLifecycles(message: ChatMessage): TakodeHerdEventLifecycle[] {
   return message.takodeHerdEvents?.flatMap((event) => event.lifecycle ?? []) ?? [];
 }
 
-export function summarizeWorkerEventActivity(count: number, lifecycles: readonly TakodeHerdEventLifecycle[]): string {
-  const lifecycleCounts = new Map<TakodeHerdEventLifecycle, number>();
-  for (const lifecycle of lifecycles) {
-    lifecycleCounts.set(lifecycle, (lifecycleCounts.get(lifecycle) ?? 0) + 1);
-  }
-  const lifecycleLabels = HERD_EVENT_LIFECYCLE_ORDER.flatMap((lifecycle) => {
-    const lifecycleCount = lifecycleCounts.get(lifecycle) ?? 0;
-    if (lifecycleCount === 0) return [];
-    const label = HERD_EVENT_LIFECYCLE_LABELS[lifecycle];
-    return [lifecycleCount === 1 ? label : `${lifecycleCount}× ${label}`];
-  });
-  if (lifecycleLabels.length === 0) return `${count} worker event${count === 1 ? "" : "s"}`;
-  const label = lifecycleLabels.join(", ");
-  return count === 1 ? label : `${count} worker events · includes ${label}`;
+export function summarizeWorkerEventActivity(count: number): string {
+  return `${count} worker event${count === 1 ? "" : "s"}`;
 }
 
 export function getHerdEventHeaderSummary(header: string): string {

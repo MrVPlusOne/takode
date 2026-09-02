@@ -456,10 +456,21 @@ describe("Playground", () => {
     expect(realChat.getByRole("region", { name: "Automatic input recovery summary" })).toBeTruthy();
     expect(realChat.getByText("Herd Events · turn_end")).toBeTruthy();
     expect(realChat.getByText("Herd Events · board_stalled")).toBeTruthy();
-    expect(screen.getByText(/waiting for decision; Work preserved/)).toBeTruthy();
-    expect(screen.getByText(/same Work resumed after decision wait/)).toBeTruthy();
-    expect(screen.getByText(/context compacted; same Work continued/)).toBeTruthy();
-    expect(screen.getByText(/Work interrupted/)).toBeTruthy();
+
+    const lifecycleCard = screen.getByText("Lifecycle detail behind count-only grouping").closest(".border");
+    expect(lifecycleCard).toBeTruthy();
+    const lifecycle = within(lifecycleCard as HTMLElement);
+    expect(lifecycle.getByText("4 worker events")).toBeTruthy();
+    expect(lifecycle.queryByText(/waiting for decision; Work preserved/)).toBeNull();
+    expect(lifecycle.queryByText(/same Work resumed after decision wait/)).toBeNull();
+    expect(lifecycle.queryByText(/context compacted; same Work continued/)).toBeNull();
+    expect(lifecycle.queryByText(/Work interrupted/)).toBeNull();
+
+    fireEvent.click(lifecycle.getByRole("button", { name: "Show 4 activity items: 4 worker events" }));
+    expect(lifecycle.getByText(/waiting for decision; Work preserved/)).toBeTruthy();
+    expect(lifecycle.getByText(/same Work resumed after decision wait/)).toBeTruthy();
+    expect(lifecycle.getByText(/context compacted; same Work continued/)).toBeTruthy();
+    expect(lifecycle.getByText(/Work interrupted/)).toBeTruthy();
   });
 
   it("documents every exact-owner Codex interrupted-turn recovery state", () => {

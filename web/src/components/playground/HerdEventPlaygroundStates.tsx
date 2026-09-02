@@ -118,7 +118,7 @@ export function PlaygroundHerdEventStates() {
   return (
     <Section
       title="Herd Event Chips"
-      description="Routine worker events can collapse into compact activity, while individual chips keep session navigation and reveal full details when expanded."
+      description="Worker events collapse to count-only activity, while expansion preserves lifecycle labels, navigation, and full original details."
     >
       <div className="space-y-4 max-w-3xl">
         <Card label="Routine worker events grouped as activity">
@@ -130,7 +130,7 @@ export function PlaygroundHerdEventStates() {
             onOpenCodexTerminal={() => {}}
           />
         </Card>
-        <Card label="Lifecycle boundaries remain distinct when grouped">
+        <Card label="Lifecycle detail behind count-only grouping">
           <CompactFeedActivity
             segments={[{ kind: "worker_event", messages: LIFECYCLE_HERD_MESSAGES }]}
             sessionId={MOCK_SESSION_ID}

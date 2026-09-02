@@ -924,7 +924,8 @@ describe("MessageFeed - message rendering", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("2 worker events · includes Work interrupted")).toBeTruthy();
+    expect(screen.getByText("2 worker events")).toBeTruthy();
+    expect(screen.queryByText(/^Work interrupted$/)).toBeNull();
     expect(screen.getByText(/permission_request/)).toBeTruthy();
     expect(screen.getAllByText(/waiting for decision; Work preserved/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);

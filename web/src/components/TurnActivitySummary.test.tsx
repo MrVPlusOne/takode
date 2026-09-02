@@ -20,7 +20,27 @@ describe("TurnActivitySummary root-only tool scope", () => {
     expect(screen.getByRole("button")).not.toHaveAccessibleName(/nested Codex subagent activity/i);
   });
 
-  it("keeps uncommon herd lifecycle meaning in collapsed activity summaries", () => {
+  it("uses count-only copy for a single lifecycle worker event", () => {
+    render(
+      <CollapsedActivityBar
+        stats={{
+          messageCount: 0,
+          toolCount: 0,
+          subagentCount: 0,
+          herdEventCount: 1,
+          herdEventLifecycle: ["failed"],
+        }}
+        durationMs={null}
+        leaderMode
+        onClick={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("button")).toHaveAccessibleName("Leader activity·1 worker event");
+    expect(screen.getByRole("button")).not.toHaveAccessibleName(/Work failed/);
+  });
+
+  it("keeps uncommon herd lifecycle detail out of collapsed activity summaries", () => {
     render(
       <CollapsedActivityBar
         stats={{
@@ -36,8 +56,7 @@ describe("TurnActivitySummary root-only tool scope", () => {
       />,
     );
 
-    expect(screen.getByRole("button")).toHaveAccessibleName(
-      "Leader activity·2 worker events · includes Work interrupted, context compacted; same Work continued",
-    );
+    expect(screen.getByRole("button")).toHaveAccessibleName("Leader activity·2 worker events");
+    expect(screen.getByRole("button")).not.toHaveAccessibleName(/Work interrupted|context compacted/);
   });
 });
