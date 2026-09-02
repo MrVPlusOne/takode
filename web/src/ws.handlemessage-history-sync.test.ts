@@ -286,6 +286,137 @@ describe("handleMessage: history_sync", () => {
     expect(useStore.getState().messageFrozenHashes.get("s1")).toBe("server-frozen-hash");
   });
 
+  it("rehydrates a live same-ID TodoWrite from authoritative full history", () => {
+    // The browser may have already processed the live tool use before reconnect.
+    // Full replacement must rebuild tasks from the server snapshot and retain
+    // that snapshot as the dedup baseline for an identical later live replay.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    const todoMessage = {
+      type: "assistant",
+      message: {
+        id: "todo-full-assistant",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6-sol",
+        content: [
+          {
+            type: "tool_use",
+            id: "todo-full-tool",
+            name: "TodoWrite",
+            input: {
+              todos: [
+                { content: "Inspect state", status: "completed", activeForm: "Inspecting state" },
+                { content: "Run checks", status: "in_progress", activeForm: "Running checks" },
+              ],
+            },
+          },
+        ],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 5, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: 1500,
+    };
+
+    fireMessage(todoMessage);
+    fireMessage({
+      type: "history_sync",
+      frozen_base_count: 0,
+      frozen_base_history_index: 0,
+      frozen_delta: [],
+      hot_messages: [todoMessage],
+      frozen_count: 0,
+      expected_frozen_hash: "todo-full-frozen",
+      expected_full_hash: "todo-full-history",
+    });
+
+    const hydratedTasks = useStore.getState().sessionTasks.get("s1");
+    expect(hydratedTasks).toEqual([
+      expect.objectContaining({ subject: "Inspect state", status: "completed" }),
+      expect.objectContaining({ subject: "Run checks", status: "in_progress" }),
+    ]);
+    expect(useStore.getState().sessionTaskPreview.get("s1")?.text).toBe("Running checks");
+
+    fireMessage(todoMessage);
+    expect(useStore.getState().sessionTasks.get("s1")).toBe(hydratedTasks);
+  });
+
+  it("keeps reused frozen-prefix task IDs deduplicated after a result clears tasks", () => {
+    // Incremental full history does not normalize its retained prefix again.
+    // Seed those IDs only after replaying the authoritative delta/hot tail so a
+    // delayed duplicate cannot resurrect a checklist cleared by the result.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    const todoMessage = {
+      type: "assistant",
+      message: {
+        id: "todo-frozen-assistant",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6-sol",
+        content: [
+          {
+            type: "tool_use",
+            id: "todo-frozen-tool",
+            name: "TodoWrite",
+            input: {
+              todos: [{ content: "Finish work", status: "in_progress", activeForm: "Finishing work" }],
+            },
+          },
+        ],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 5, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: 1500,
+    };
+    const resultMessage = {
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        duration_ms: 10,
+        duration_api_ms: 5,
+        num_turns: 1,
+        total_cost_usd: 0,
+        session_id: "s1",
+      },
+    };
+
+    fireMessage({
+      type: "history_sync",
+      frozen_base_count: 0,
+      frozen_base_history_index: 0,
+      frozen_delta: [todoMessage, resultMessage],
+      hot_messages: [],
+      frozen_count: 2,
+      expected_frozen_hash: "todo-prefix-frozen",
+      expected_full_hash: "todo-prefix-history",
+    });
+    expect(useStore.getState().sessionTasks.get("s1")).toEqual([]);
+    expect(useStore.getState().messageFrozenCounts.get("s1")).toBe(1);
+
+    fireMessage({
+      type: "history_sync",
+      frozen_base_count: 1,
+      frozen_base_history_index: 2,
+      frozen_delta: [],
+      hot_messages: [],
+      frozen_count: 2,
+      expected_frozen_hash: "todo-prefix-frozen",
+      expected_full_hash: "todo-prefix-history",
+    });
+
+    const clearedTasks = useStore.getState().sessionTasks.get("s1");
+    expect(clearedTasks).toEqual([]);
+    fireMessage(todoMessage);
+    expect(useStore.getState().sessionTasks.get("s1")).toBe(clearedTasks);
+  });
+
   it("uses the raw frozen base index when normalizing an incremental delta", () => {
     // The rendered prefix count can be smaller than its raw index when an earlier Codex thinking row was suppressed.
     wsModule.connectSession("s1");

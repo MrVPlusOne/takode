@@ -58,6 +58,7 @@ import {
   retainCodexReasoningPreview,
 } from "./codex-reasoning-preview-state.js";
 import { upsertCodexReasoningDetail } from "./codex-reasoning-detail-state.js";
+import { prepareCodexPlanAssistantReplay } from "./codex-assistant-replay-dedup.js";
 import {
   clearCodexProviderRetryState,
   clearOrphanedCodexProviderRetryState,
@@ -919,9 +920,13 @@ async function handleCodexSubagentOwnedMessage(
             } as AssistantBrowserMessage)
           : null;
     }
-    if (outgoing && !deps.isDuplicateCodexAssistantReplay(session, outgoing)) {
-      session.messageHistory.push(outgoing);
-      deps.broadcastToBrowsers(session, outgoing);
+    if (outgoing) {
+      const planReplay = prepareCodexPlanAssistantReplay(session, outgoing);
+      outgoing = planReplay.message;
+      if (!planReplay.isDuplicate && !deps.isDuplicateCodexAssistantReplay(session, outgoing)) {
+        session.messageHistory.push(outgoing);
+        deps.broadcastToBrowsers(session, outgoing);
+      }
     }
     deps.persistSession(session);
     deps.syncSideChatParent?.(session);
@@ -1316,7 +1321,9 @@ export async function handleCodexAdapterBrowserMessage(
       deps.broadcastToBrowsers(session, enrichedWebSearch);
       return;
     }
-    if (deps.isDuplicateCodexAssistantReplay(session, normalizedAssistant)) {
+    const planReplay = prepareCodexPlanAssistantReplay(session, normalizedAssistant);
+    normalizedAssistant = planReplay.message;
+    if (planReplay.isDuplicate || deps.isDuplicateCodexAssistantReplay(session, normalizedAssistant)) {
       deps.syncSideChatParent?.(session);
       return;
     }

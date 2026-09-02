@@ -269,6 +269,95 @@ describe("handleMessage: history_window_sync", () => {
     });
   });
 
+  it("rehydrates a live same-ID TodoWrite from each authoritative history window", () => {
+    // Authoritative replacement clears derived task state first. Replaying the
+    // same persisted tool-use ID must rebuild it, while a later live duplicate
+    // stays idempotent and a terminal result still clears the checklist.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    const todoMessage = {
+      type: "assistant",
+      message: {
+        id: "todo-window-assistant",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6-sol",
+        content: [
+          {
+            type: "tool_use",
+            id: "todo-window-tool",
+            name: "TodoWrite",
+            input: {
+              todos: [
+                { content: "Inspect state", status: "in_progress", activeForm: "Inspecting state" },
+                { content: "Run checks", status: "pending", activeForm: "Running checks" },
+              ],
+            },
+          },
+        ],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 5, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: 1500,
+    };
+    const window = {
+      from_turn: 0,
+      turn_count: 1,
+      total_turns: 1,
+      has_older_items: false,
+      has_newer_items: false,
+      start_index: 0,
+      section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+    };
+
+    fireMessage(todoMessage);
+    expect(
+      useStore
+        .getState()
+        .sessionTasks.get("s1")
+        ?.map((task) => task.subject),
+    ).toEqual(["Inspect state", "Run checks"]);
+
+    fireMessage({ type: "history_window_sync", messages: [todoMessage], window });
+
+    const hydratedTasks = useStore.getState().sessionTasks.get("s1");
+    expect(hydratedTasks).toEqual([
+      expect.objectContaining({ subject: "Inspect state", status: "in_progress" }),
+      expect.objectContaining({ subject: "Run checks", status: "pending" }),
+    ]);
+    expect(useStore.getState().sessionTaskPreview.get("s1")?.text).toBe("Inspecting state");
+
+    fireMessage(todoMessage);
+    expect(useStore.getState().sessionTasks.get("s1")).toBe(hydratedTasks);
+
+    fireMessage({
+      type: "history_window_sync",
+      messages: [
+        todoMessage,
+        {
+          type: "result",
+          data: {
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            duration_ms: 10,
+            duration_api_ms: 5,
+            num_turns: 1,
+            total_cost_usd: 0,
+            session_id: "s1",
+          },
+        },
+      ],
+      window,
+    });
+
+    expect(useStore.getState().sessionTasks.get("s1")).toEqual([]);
+    expect(useStore.getState().sessionTaskPreview.has("s1")).toBe(false);
+  });
+
   it("reuses cached history window messages only after a server-validated cache hit", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

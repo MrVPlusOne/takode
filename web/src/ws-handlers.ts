@@ -166,6 +166,11 @@ function getProcessedSet(sessionId: string): Set<string> {
   return set;
 }
 
+function resetTaskExtractionTracking(sessionId: string): void {
+  processedToolUseIds.delete(sessionId);
+  taskCounters.delete(sessionId);
+}
+
 function extractTasksFromBlocks(sessionId: string, blocks: ContentBlock[]) {
   const store = useStore.getState();
   const processed = getProcessedSet(sessionId);
@@ -1629,12 +1634,19 @@ function handleParsedMessage(
       const preservedToolStateIds = collectRetainedToolUseIds(frozenPrefix);
       snapshotThreadViewportBeforeHistoryReplacement(sessionId);
       resetAuthoritativeHistoryState(sessionId, { preserveToolStateIds: preservedToolStateIds });
+      // The replacement just cleared sessionTasks. Forget live-delivery IDs before
+      // replaying the authoritative payload so the same TodoWrite can rehydrate it.
+      resetTaskExtractionTracking(sessionId);
       const { chatMessages: frozenDeltaMessages } = normalizeHistoryMessages(
         sessionId,
         data.frozen_delta,
         data.frozen_base_history_index,
       );
       const { chatMessages: hotMessages } = normalizeHistoryMessages(sessionId, data.hot_messages, data.frozen_count);
+      // The retained prefix was not normalized again, so restore its IDs only
+      // after the changed delta/hot payload had a chance to apply.
+      const processed = getProcessedSet(sessionId);
+      for (const toolUseId of preservedToolStateIds) processed.add(toolUseId);
       const mergedMessages = [...frozenPrefix, ...frozenDeltaMessages, ...hotMessages];
       const nextFrozenCount = Math.max(
         frozenPrefix.length,
@@ -1651,8 +1663,6 @@ function handleParsedMessage(
       if (mergedMessages.length > 0) {
         store.setCliEverConnected(sessionId);
       }
-      processedToolUseIds.delete(sessionId);
-      taskCounters.delete(sessionId);
       resolvePendingMessageScroll(sessionId, mergedMessages);
       break;
     }
@@ -1665,6 +1675,9 @@ function handleParsedMessage(
         break;
       }
       resetAuthoritativeHistoryState(sessionId);
+      // A window replacement is authoritative for tasks too. Clear live dedup
+      // markers before replay so a same-ID TodoWrite is applied after the reset.
+      resetTaskExtractionTracking(sessionId);
       const { chatMessages, frozenCount } = normalizeHistoryMessages(
         sessionId,
         sourceMessages,
@@ -1678,8 +1691,6 @@ function handleParsedMessage(
       if (chatMessages.length > 0) {
         store.setCliEverConnected(sessionId);
       }
-      processedToolUseIds.delete(sessionId);
-      taskCounters.delete(sessionId);
       resolvePendingMessageScroll(sessionId, chatMessages);
       if (data.cache_hit !== true) {
         cacheHistoryWindow(sessionId, data.window, data.messages);

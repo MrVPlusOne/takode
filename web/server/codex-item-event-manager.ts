@@ -432,13 +432,16 @@ export class CodexItemEventManager {
     const signature = JSON.stringify(todos);
     const previousSignature = this.planSignatureByKey.get(key);
     if (previousSignature === signature) return;
-    if (todos.length === 0) {
-      if (previousSignature == null) return;
-      this.planSignatureByKey.delete(key);
-    } else {
-      this.planSignatureByKey.set(key, signature);
-    }
+    // A fresh manager has no local signature memory after reconnect. An
+    // authoritative empty turn plan still needs to clear a checklist emitted
+    // by the prior adapter, while an unparseable first prose delta remains a
+    // no-op. Retain the empty signature so repeats deduplicate locally too.
+    if (todos.length === 0 && previousSignature == null && source === "item_plan_delta") return;
+    this.planSignatureByKey.set(key, signature);
 
+    // The bridge reconciles this adapter-local sequence with persisted plan
+    // history after reconnect, preserving normal uninterrupted A -> B -> A
+    // transitions while rekeying only sequence collisions from recreation.
     const toolUseId = `codex-plan-${key}-${++this.planToolUseSeq}`;
     this.emitToolUseTracked(
       toolUseId,
