@@ -1,4 +1,4 @@
-import { DiffStatsSummary } from "../DiffStatsSummary.js";
+import { DiffStatsSummary, DiffTotalStats } from "../DiffStatsSummary.js";
 import { DiffViewer } from "../DiffViewer.js";
 import { Card, Section } from "./shared.js";
 
@@ -92,16 +92,31 @@ diff --git a/src/routes/summary.ts b/src/routes/summary.ts
             </div>
           </Card>
           <Card label="Code commit modal: code first with split stats">
-            <DiffStatsSummary
-              overall={{ additions: 3, deletions: 1 }}
-              splitStats={{
-                code: { additions: 2, deletions: 1 },
-                tests: { additions: 1, deletions: 0 },
-              }}
-              verboseOverall
-              className="mb-2"
-              testId="playground-quest-commit-diff-stats"
-            />
+            <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <DiffTotalStats
+                stats={{ additions: 3, deletions: 1 }}
+                verbose
+                className="gap-3"
+                testId="playground-quest-commit-diff-stats-overall"
+              />
+              <DiffStatsSummary
+                splitStats={{
+                  code: { additions: 2, deletions: 1 },
+                  tests: { additions: 1, deletions: 0 },
+                }}
+                testId="playground-quest-commit-diff-stats"
+              />
+            </div>
+            <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1" data-testid="playground-code-only-stats">
+              <span className="text-[10px] text-cc-muted">Code-only grouped statistics</span>
+              <DiffStatsSummary
+                splitStats={{
+                  code: { additions: 7, deletions: 0 },
+                  tests: { additions: 0, deletions: 0 },
+                }}
+                testId="playground-code-only-diff-stats"
+              />
+            </div>
             <div
               data-testid="playground-quest-commit-diff-slot"
               className="quest-commit-diff-scroll h-64 min-h-0 overflow-auto bg-cc-bg/40 px-4 pb-4 pt-0"

@@ -417,7 +417,7 @@ describe("DiffPanel", () => {
     expect(container.querySelector(".text-red-400")).toBeNull();
   });
 
-  it("shows separate code and test totals without replacing the overall summary", async () => {
+  it("shows separate code and test totals alongside the existing aggregate", async () => {
     // Hunk-aware counting must include added content whose source text begins
     // with `++`; the resulting raw patch row begins with `+++` but is not a header.
     mockApi.getFileDiff.mockImplementation((path: string) =>
@@ -457,6 +457,8 @@ describe("DiffPanel", () => {
     expect(await screen.findByLabelText("Overall changes: 5 additions, 3 deletions")).toBeInTheDocument();
     expect(await screen.findByLabelText("Code changes: 2 additions, 1 deletions")).toBeInTheDocument();
     expect(await screen.findByLabelText("Tests changes: 3 additions, 2 deletions")).toBeInTheDocument();
+    expect(screen.getByTestId("session-diff-stats-overall")).not.toHaveTextContent("Overall");
+    expect(screen.getByTestId("session-diff-stats")).not.toHaveTextContent("Overall");
   });
 
   it("preserves authoritative overall totals and withholds split stats for an incomplete file list", async () => {
@@ -605,6 +607,8 @@ describe("DiffPanel", () => {
         "Overall changes: 1 additions, 0 deletions",
       );
     });
+    expect(await screen.findByLabelText("Code changes: 1 additions, 0 deletions")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Tests changes:/)).toBeNull();
   });
 
   it("reselects when selected file is outside cwd scope", async () => {

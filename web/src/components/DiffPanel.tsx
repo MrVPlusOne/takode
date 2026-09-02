@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { DiffViewer } from "./DiffViewer.js";
-import { DiffStatsSummary } from "./DiffStatsSummary.js";
+import { DiffStatsSummary, DiffTotalStats } from "./DiffStatsSummary.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import { orderDiffFilesCodeFirst, summarizeDiffFileStats } from "../../shared/diff-file-groups.js";
 
@@ -783,12 +783,14 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
             className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5"
           >
             {(totalStats.additions > 0 || totalStats.deletions > 0) && (
-              <DiffStatsSummary
-                overall={totalStats}
-                splitStats={splitStats}
-                className="justify-end"
-                testId="session-diff-stats"
-              />
+              <>
+                <DiffTotalStats
+                  stats={totalStats}
+                  className="gap-1 font-mono-code shrink-0"
+                  testId="session-diff-stats-overall"
+                />
+                <DiffStatsSummary splitStats={splitStats} className="justify-end" testId="session-diff-stats" />
+              </>
             )}
 
             {/* File picker dropdown */}

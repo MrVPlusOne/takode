@@ -195,10 +195,13 @@ describe("QuestDetailPanel commit evidence", () => {
     });
     expect(screen.getByTestId("quest-commit-modal")).toBeTruthy();
     expect(screen.getAllByText("First ported commit").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("+12 additions")).toBeTruthy();
-    expect(screen.getByText("-4 deletions")).toBeTruthy();
+    const firstAggregate = screen.getByLabelText("Overall changes: 12 additions, 4 deletions");
+    expect(firstAggregate).toHaveTextContent("+12 additions");
+    expect(firstAggregate).toHaveTextContent("-4 deletions");
+    expect(firstAggregate).not.toHaveTextContent("Overall");
     expect(screen.getByLabelText("Code changes: 8 additions, 2 deletions")).toBeTruthy();
     expect(screen.getByLabelText("Tests changes: 4 additions, 2 deletions")).toBeTruthy();
+    expect(screen.getByTestId("quest-commit-diff-stats")).not.toHaveTextContent("Overall");
     expect(screen.getAllByRole("button", { name: "Collapse file" })).toHaveLength(2);
     const modal = screen.getByTestId("quest-commit-modal");
     expect([...modal.querySelectorAll<HTMLElement>(".diff-file-header")].map((header) => header.title)).toEqual([
@@ -217,8 +220,11 @@ describe("QuestDetailPanel commit evidence", () => {
       expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", secondSha);
     });
     expect(screen.getAllByText("Second ported commit").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("+3 additions")).toBeTruthy();
-    expect(screen.getByText("-1 deletions")).toBeTruthy();
+    const secondAggregate = screen.getByLabelText("Overall changes: 3 additions, 1 deletions");
+    expect(secondAggregate).toHaveTextContent("+3 additions");
+    expect(secondAggregate).toHaveTextContent("-1 deletions");
+    expect(await screen.findByLabelText("Code changes: 3 additions, 1 deletions")).toBeTruthy();
+    expect(screen.queryByLabelText(/^Tests changes:/)).toBeNull();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Collapse file" })[0]);
     expect(screen.queryByText("before")).toBeNull();

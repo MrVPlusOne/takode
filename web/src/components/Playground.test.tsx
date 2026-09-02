@@ -612,9 +612,15 @@ describe("Playground", () => {
     expect(within(loadingSlot).getByText("Loading commit diff...")).toBeTruthy();
     expect(diffContent?.firstElementChild).toHaveClass("diff-viewer");
     expect(within(diffSlot).getAllByRole("button", { name: "Collapse file" })).toHaveLength(2);
-    expect(screen.getByLabelText("Overall changes: 3 additions, 1 deletions")).toBeTruthy();
+    const aggregate = screen.getByLabelText("Overall changes: 3 additions, 1 deletions");
+    expect(aggregate).toBeTruthy();
+    expect(aggregate).not.toHaveTextContent("Overall");
     expect(screen.getByLabelText("Code changes: 2 additions, 1 deletions")).toBeTruthy();
     expect(screen.getByLabelText("Tests changes: 1 additions, 0 deletions")).toBeTruthy();
+    expect(screen.getByTestId("playground-quest-commit-diff-stats")).not.toHaveTextContent("Overall");
+    const codeOnlyStats = screen.getByTestId("playground-code-only-stats");
+    expect(within(codeOnlyStats).getByLabelText("Code changes: 7 additions, 0 deletions")).toBeTruthy();
+    expect(within(codeOnlyStats).queryByLabelText(/^Tests changes:/)).toBeNull();
     expect([...diffSlot.querySelectorAll<HTMLElement>(".diff-file-header")].map((header) => header.title)).toEqual([
       "web/server/quest-cli-memory-commit-flags.ts",
       "web/server/quest-cli-memory-commit-flags.test.ts",
