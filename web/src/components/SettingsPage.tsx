@@ -13,7 +13,12 @@ import {
   type InterruptRestartBlockersResponse,
 } from "../api.js";
 import { useStore, COLOR_THEMES } from "../store.js";
-import { beginBuildIdentityObservation, observeServerBuildIdentity } from "../build-compatibility.js";
+import {
+  beginBuildIdentityObservation,
+  getBuildCompatibilitySnapshot,
+  observeServerBuildIdentity,
+} from "../build-compatibility.js";
+import { createInitiatingTabRestartIntent, type InitiatingTabRestartIntent } from "../server-restart-auto-reload.js";
 import { createShortcutGestureRecorder, type ShortcutActionId } from "../shortcuts.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
 import { CollapsibleSection, isCollapsibleSectionCollapsed } from "./CollapsibleSection.js";
@@ -60,9 +65,18 @@ const DEFAULT_PUSHOVER_EVENT_FILTERS: PushoverEventFilters = {
 interface SettingsPageProps {
   embedded?: boolean;
   isActive?: boolean;
+  onReloadAfterRestart?: () => void;
 }
 
-export function SettingsPage({ embedded = false, isActive = true }: SettingsPageProps) {
+function reloadCurrentPage(): void {
+  window.location.reload();
+}
+
+export function SettingsPage({
+  embedded = false,
+  isActive = true,
+  onReloadAfterRestart = reloadCurrentPage,
+}: SettingsPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const colorTheme = useStore((s) => s.colorTheme);
@@ -190,6 +204,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [serverSlugError, setServerSlugError] = useState("");
   const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const healthTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restartAttemptSequenceRef = useRef(0);
+  const restartIntentRef = useRef<InitiatingTabRestartIntent | null>(null);
 
   // Auto-approval state
   const [aaEnabled, setAaEnabled] = useState(false);
@@ -324,6 +340,19 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       .finally(() => setLoading(false));
     loadAutoApprovalConfigs();
   }, [isActive]);
+
+  useEffect(() => {
+    return () => {
+      restartAttemptSequenceRef.current += 1;
+      restartIntentRef.current?.cancel();
+      restartIntentRef.current = null;
+      if (healthPollRef.current) clearInterval(healthPollRef.current);
+      if (healthTimeoutRef.current) clearTimeout(healthTimeoutRef.current);
+      healthPollRef.current = null;
+      healthTimeoutRef.current = null;
+      useStore.getState().setServerRestarting(false);
+    };
+  }, []);
 
   useEffect(() => {
     const handleSessionDefaultsUpdate = (event: Event) => {
@@ -616,13 +645,52 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
     if (!confirm("Restart server? Browsers briefly disconnect. Sessions reconnect on demand when work needs backend."))
       return;
 
+    restartAttemptSequenceRef.current += 1;
+    const attemptSequence = restartAttemptSequenceRef.current;
+    restartIntentRef.current?.cancel();
+    restartIntentRef.current = null;
+    if (healthPollRef.current) clearInterval(healthPollRef.current);
+    if (healthTimeoutRef.current) clearTimeout(healthTimeoutRef.current);
+    healthPollRef.current = null;
+    healthTimeoutRef.current = null;
+    const preRestartCompatibility = getBuildCompatibilitySnapshot();
+    const previousServerBuildId =
+      preRestartCompatibility.backendBuildId !== null &&
+      preRestartCompatibility.backendBuildId === preRestartCompatibility.servedFrontendBuildId
+        ? preRestartCompatibility.backendBuildId
+        : null;
+
+    const finishRestartAttempt = (serverIsReady = false): boolean => {
+      if (restartAttemptSequenceRef.current !== attemptSequence) return false;
+      restartAttemptSequenceRef.current += 1;
+      restartIntentRef.current?.cancel();
+      restartIntentRef.current = null;
+      if (healthPollRef.current) clearInterval(healthPollRef.current);
+      if (healthTimeoutRef.current) clearTimeout(healthTimeoutRef.current);
+      healthPollRef.current = null;
+      healthTimeoutRef.current = null;
+      const store = useStore.getState();
+      store.setServerRestarting(false);
+      if (serverIsReady && !store.serverReachable) store.setServerReachable(true);
+      setRestarting(false);
+      return true;
+    };
+
     setRestarting(true);
     setRestartError("");
     setRestartPrepResult(null);
     useStore.getState().setServerRestarting(true);
 
     try {
-      await api.restartServer();
+      const result = await api.restartServer();
+      if (restartAttemptSequenceRef.current !== attemptSequence) return;
+      const replacementBuildId =
+        result.restartRequested === true && typeof result.replacementBuildId === "string"
+          ? result.replacementBuildId.trim()
+          : "";
+      if (replacementBuildId) {
+        restartIntentRef.current = createInitiatingTabRestartIntent(replacementBuildId, previousServerBuildId);
+      }
     } catch (e: unknown) {
       // Typed API failures came from the still-running server and must remain
       // visible even when build tooling includes words such as "Failed". Only
@@ -634,45 +702,40 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
           setRestartPrepResult(result);
         }
         setRestartError(msg);
-        setRestarting(false);
-        useStore.getState().setServerRestarting(false);
+        finishRestartAttempt();
         return;
       }
       const isNetworkError = !msg || msg.includes("fetch") || msg.includes("Failed") || msg.includes("ECONNREFUSED");
       if (!isNetworkError) {
         setRestartError(msg);
-        setRestarting(false);
-        useStore.getState().setServerRestarting(false);
+        finishRestartAttempt();
         return;
       }
     }
 
     // Wait for both the backend and its production frontend to become usable.
-    // A new backend build is surfaced through the persistent global Reload
-    // notice; never replace the page while the user may be typing or reading.
+    // Only the initiating tab receives the exact prepared build ID. Other tabs,
+    // transport-only failures, and unrelated restarts retain the manual notice.
     healthPollRef.current = setInterval(async () => {
+      if (restartAttemptSequenceRef.current !== attemptSequence) return;
       const observationSequence = beginBuildIdentityObservation();
       const readiness = await checkReadinessStatus();
-      if (readiness.ok) {
-        observeServerBuildIdentity(readiness.buildId, readiness.servedFrontendBuildId, observationSequence);
-        if (healthPollRef.current) clearInterval(healthPollRef.current);
-        if (healthTimeoutRef.current) clearTimeout(healthTimeoutRef.current);
-        healthPollRef.current = null;
-        healthTimeoutRef.current = null;
-        const store = useStore.getState();
-        store.setServerRestarting(false);
-        if (!store.serverReachable) store.setServerReachable(true);
-        setRestarting(false);
-      }
+      if (restartAttemptSequenceRef.current !== attemptSequence || !readiness.ok) return;
+
+      const compatibility = observeServerBuildIdentity(
+        readiness.buildId,
+        readiness.servedFrontendBuildId,
+        observationSequence,
+      );
+      const decision = restartIntentRef.current?.observe(readiness, compatibility) ?? "stop";
+      if (decision === "wait") return;
+      if (!finishRestartAttempt(true)) return;
+      if (decision === "reload") onReloadAfterRestart();
     }, 2000);
 
     // Timeout after 120s
     healthTimeoutRef.current = setTimeout(() => {
-      if (healthPollRef.current) clearInterval(healthPollRef.current);
-      healthPollRef.current = null;
-      healthTimeoutRef.current = null;
-      useStore.getState().setServerRestarting(false);
-      setRestarting(false);
+      if (!finishRestartAttempt()) return;
       setRestartError("Server did not come back within 120 seconds. Check your terminal.");
     }, 120_000);
   }

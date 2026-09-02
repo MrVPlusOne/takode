@@ -255,6 +255,11 @@ describe("server restart controls", () => {
     releasePreparation();
     const firstResponse = await firstRequest;
     expect(firstResponse.status).toBe(200);
+    await expect(firstResponse.json()).resolves.toMatchObject({
+      ok: true,
+      restartRequested: true,
+      replacementBuildId: "build-next",
+    });
     expect(publishPreparedRestart).toHaveBeenCalledOnce();
     expect(requestRestart).toHaveBeenCalledOnce();
   });
@@ -276,7 +281,7 @@ describe("server restart controls", () => {
     const res = await devApp.request("/api/server/restart", { method: "POST" });
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ ok: true, restartRequested: true });
+    await expect(res.json()).resolves.toEqual({ ok: true, restartRequested: true, replacementBuildId: null });
     expect(devRequestRestart).toHaveBeenCalledOnce();
   });
 
@@ -445,6 +450,7 @@ describe("server restart controls", () => {
       ok: true,
       mode: "restart",
       restartRequested: true,
+      replacementBuildId: "build-next",
       interrupted: [{ sessionId: "worker", label: "Worker session", reasons: ["running"] }],
     });
 

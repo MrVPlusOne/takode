@@ -26,6 +26,11 @@ import { getMemoryCatalog, getMemoryRecord, getMemoryUpdateDiff, listMemorySpace
 import type { MemoryUpdateDiffSourceFile } from "./api/memory.js";
 import { transcribe } from "./api/transcription.js";
 import { todoApi } from "./api/todos.js";
+import {
+  isInterruptRestartBlockersResponse,
+  type InterruptRestartBlockersResponse,
+  type RestartServerResponse,
+} from "./api/server-restart.js";
 import type {
   TranscriptionLogEntry,
   TranscriptionLogIndexEntry,
@@ -85,6 +90,13 @@ export type {
   TranscriptionLogIndexEntry,
   TranscriptionReplayVariant,
 } from "./api/transcription-debug-types.js";
+export { isInterruptRestartBlockersResponse } from "./api/server-restart.js";
+export type {
+  InterruptRestartBlockersResponse,
+  RestartPrepAttemptResult,
+  RestartServerResponse,
+  ServerInterruptResultItem,
+} from "./api/server-restart.js";
 
 export type {
   TodoState,
@@ -941,73 +953,6 @@ export async function createSessionStream(
   return result;
 }
 
-export interface ServerInterruptResultItem {
-  sessionId: string;
-  label: string;
-  reasons: string[];
-  detail?: string;
-  diagnostics?: Record<string, string | number | boolean | null>;
-}
-
-export interface RestartPrepAttemptResult {
-  attempt: number;
-  interrupted: ServerInterruptResultItem[];
-  skipped: ServerInterruptResultItem[];
-  failures: ServerInterruptResultItem[];
-  remainingBlockers: ServerInterruptResultItem[];
-  timedOut: boolean;
-}
-
-export interface InterruptRestartBlockersResponse {
-  ok: boolean;
-  operationId: string | null;
-  mode: "standalone" | "restart";
-  restartRequested: boolean;
-  timedOut: boolean;
-  retryAttempts: RestartPrepAttemptResult[];
-  interrupted: ServerInterruptResultItem[];
-  skipped: ServerInterruptResultItem[];
-  failures: ServerInterruptResultItem[];
-  fallbacks: ServerInterruptResultItem[];
-  protectedLeaders: Array<{ sessionId: string; label: string }>;
-  unresolvedBlockers: ServerInterruptResultItem[];
-  herdDelivery: {
-    suppressed: number;
-    held: number;
-    trackingActive: boolean;
-    countsFinal: boolean;
-    detail?: string;
-  };
-}
-
-export function isInterruptRestartBlockersResponse(value: unknown): value is InterruptRestartBlockersResponse {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<InterruptRestartBlockersResponse>;
-  const herdDelivery =
-    candidate.herdDelivery && typeof candidate.herdDelivery === "object"
-      ? (candidate.herdDelivery as Partial<InterruptRestartBlockersResponse["herdDelivery"]>)
-      : null;
-  return (
-    typeof candidate.ok === "boolean" &&
-    (candidate.operationId === null || typeof candidate.operationId === "string") &&
-    (candidate.mode === "standalone" || candidate.mode === "restart") &&
-    typeof candidate.restartRequested === "boolean" &&
-    typeof candidate.timedOut === "boolean" &&
-    Array.isArray(candidate.retryAttempts) &&
-    Array.isArray(candidate.interrupted) &&
-    Array.isArray(candidate.skipped) &&
-    Array.isArray(candidate.failures) &&
-    Array.isArray(candidate.fallbacks) &&
-    Array.isArray(candidate.protectedLeaders) &&
-    Array.isArray(candidate.unresolvedBlockers) &&
-    herdDelivery !== null &&
-    typeof herdDelivery.suppressed === "number" &&
-    typeof herdDelivery.held === "number" &&
-    typeof herdDelivery.trackingActive === "boolean" &&
-    typeof herdDelivery.countsFinal === "boolean"
-  );
-}
-
 export const api = {
   createSession: (opts?: CreateSessionOpts) =>
     post<{ sessionId: string; state: string; cwd: string }>("/sessions/create", opts),
@@ -1406,7 +1351,7 @@ export const api = {
   getBaseImageStatus: () => get<{ exists: boolean; tag: string }>("/docker/base-image"),
 
   // Server control
-  restartServer: () => post<{ ok: boolean }>("/server/restart", {}),
+  restartServer: () => post<RestartServerResponse>("/server/restart", {}),
   interruptRestartBlockers: () => post<InterruptRestartBlockersResponse>("/server/interrupt-all", {}),
 
   openVsCodeRemoteFile: (target: VsCodeRemoteOpenFileTarget) =>

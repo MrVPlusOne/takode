@@ -166,10 +166,17 @@ vi.mock("./FolderPicker.js", () => ({
 }));
 
 import { SettingsPage } from "./SettingsPage.js";
-import { getBuildCompatibilitySnapshot, resetBuildCompatibilityForTest } from "../build-compatibility.js";
+import {
+  beginBuildIdentityObservation,
+  getBuildCompatibilitySnapshot,
+  observeServerBuildIdentity,
+  resetBuildCompatibilityForTest,
+} from "../build-compatibility.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockApi.restartServer.mockReset();
+  mockCheckReadinessStatus.mockReset();
   Element.prototype.scrollIntoView = vi.fn();
   mockState = createMockState();
   window.location.hash = "#/settings";
@@ -201,7 +208,7 @@ beforeEach(() => {
     sessionDefaults: DEFAULT_SESSION_DEFAULTS,
   });
   mockApi.getBackendModels.mockResolvedValue([]);
-  mockApi.restartServer.mockResolvedValue({ ok: true });
+  mockApi.restartServer.mockResolvedValue({ ok: true, restartRequested: true, replacementBuildId: null });
   mockCheckReadinessStatus.mockResolvedValue({
     ok: true,
     buildId: "development",
@@ -312,8 +319,14 @@ describe("SettingsPage", () => {
     await waitForSettingsPage();
   });
 
-  it("clears the restart overlay without auto-reloading and surfaces a new backend build", async () => {
+  it("auto-reloads the initiating tab after its exact prepared replacement becomes ready", async () => {
     vi.useFakeTimers();
+    const onReloadAfterRestart = vi.fn();
+    mockApi.restartServer.mockResolvedValue({
+      ok: true,
+      restartRequested: true,
+      replacementBuildId: "backend-after-restart",
+    });
     mockCheckReadinessStatus.mockResolvedValue({
       ok: true,
       buildId: "backend-after-restart",
@@ -322,7 +335,7 @@ describe("SettingsPage", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
 
     try {
-      render(<SettingsPage />);
+      render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
       await act(async () => {
         await Promise.resolve();
       });
@@ -339,11 +352,304 @@ describe("SettingsPage", () => {
       expect(mockState.setServerRestarting).toHaveBeenNthCalledWith(1, true);
       expect(mockState.setServerRestarting).toHaveBeenLastCalledWith(false);
       expect(screen.getByRole("button", { name: "Restart Server" })).toBeEnabled();
+      expect(onReloadAfterRestart).toHaveBeenCalledOnce();
       expect(getBuildCompatibilitySnapshot()).toMatchObject({
         backendBuildId: "backend-after-restart",
         servedFrontendBuildId: "backend-after-restart",
         status: "reload-required",
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits through the old ready pair before reloading the exact replacement", async () => {
+    vi.useFakeTimers();
+    const onReloadAfterRestart = vi.fn();
+    observeServerBuildIdentity("development", "development", beginBuildIdentityObservation());
+    mockApi.restartServer.mockResolvedValue({
+      ok: true,
+      restartRequested: true,
+      replacementBuildId: "build-target",
+    });
+    mockCheckReadinessStatus
+      .mockResolvedValueOnce({
+        ok: true,
+        buildId: "development",
+        servedFrontendBuildId: "development",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        buildId: "build-target",
+        servedFrontendBuildId: "build-target",
+      });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    try {
+      render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+
+      await act(async () => {
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(mockCheckReadinessStatus).toHaveBeenCalledTimes(1);
+      expect(onReloadAfterRestart).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Restarting..." })).toBeDisabled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(onReloadAfterRestart).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits through a captured pre-existing reload-required pair before the exact replacement", async () => {
+    vi.useFakeTimers();
+    const onReloadAfterRestart = vi.fn();
+    observeServerBuildIdentity("build-current", "build-current", beginBuildIdentityObservation());
+    mockApi.restartServer.mockResolvedValue({
+      ok: true,
+      restartRequested: true,
+      replacementBuildId: "build-target",
+    });
+    mockCheckReadinessStatus
+      .mockResolvedValueOnce({
+        ok: true,
+        buildId: "build-current",
+        servedFrontendBuildId: "build-current",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        buildId: "build-target",
+        servedFrontendBuildId: "build-target",
+      });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    try {
+      render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+
+      await act(async () => {
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(onReloadAfterRestart).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(onReloadAfterRestart).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not reload when a different coherent restart supersedes the initiating attempt", async () => {
+    vi.useFakeTimers();
+    const onReloadAfterRestart = vi.fn();
+    mockApi.restartServer.mockResolvedValue({
+      ok: true,
+      restartRequested: true,
+      replacementBuildId: "build-target",
+    });
+    mockCheckReadinessStatus.mockResolvedValue({
+      ok: true,
+      buildId: "build-other",
+      servedFrontendBuildId: "build-other",
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    try {
+      render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+
+      await act(async () => {
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+
+      expect(onReloadAfterRestart).not.toHaveBeenCalled();
+      expect(getBuildCompatibilitySnapshot()).toMatchObject({
+        backendBuildId: "build-other",
+        servedFrontendBuildId: "build-other",
+        status: "reload-required",
+      });
+      expect(screen.getByRole("button", { name: "Restart Server" })).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves the restart-required diagnosis instead of forcing a reload", async () => {
+    vi.useFakeTimers();
+    const onReloadAfterRestart = vi.fn();
+    mockApi.restartServer.mockResolvedValue({
+      ok: true,
+      restartRequested: true,
+      replacementBuildId: "build-target",
+    });
+    mockCheckReadinessStatus.mockResolvedValue({
+      ok: true,
+      buildId: "build-target",
+      servedFrontendBuildId: "build-stale",
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    try {
+      render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+
+      await act(async () => {
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+
+      expect(onReloadAfterRestart).not.toHaveBeenCalled();
+      expect(getBuildCompatibilitySnapshot()).toMatchObject({
+        backendBuildId: "build-target",
+        servedFrontendBuildId: "build-stale",
+        status: "restart-required",
+        reason: "server-pair-mismatch",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not guess at auto-reload when the successful restart response was lost", async () => {
+    vi.useFakeTimers();
+    const onReloadAfterRestart = vi.fn();
+    mockApi.restartServer.mockRejectedValue(new TypeError("Failed to fetch"));
+    mockCheckReadinessStatus.mockResolvedValue({
+      ok: true,
+      buildId: "build-after-transport-loss",
+      servedFrontendBuildId: "build-after-transport-loss",
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    try {
+      render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+
+      await act(async () => {
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+
+      expect(onReloadAfterRestart).not.toHaveBeenCalled();
+      expect(getBuildCompatibilitySnapshot()).toMatchObject({
+        backendBuildId: "build-after-transport-loss",
+        servedFrontendBuildId: "build-after-transport-loss",
+        status: "reload-required",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("consumes restart intent before overlapping readiness probes can reload twice", async () => {
+    vi.useFakeTimers();
+    const onReloadAfterRestart = vi.fn();
+    const firstProbe = deferred<{ ok: boolean; buildId: string; servedFrontendBuildId: string }>();
+    const secondProbe = deferred<{ ok: boolean; buildId: string; servedFrontendBuildId: string }>();
+    mockApi.restartServer.mockResolvedValue({
+      ok: true,
+      restartRequested: true,
+      replacementBuildId: "build-target",
+    });
+    mockCheckReadinessStatus
+      .mockImplementationOnce(() => firstProbe.promise)
+      .mockImplementationOnce(() => secondProbe.promise);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    try {
+      render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+
+      await act(async () => {
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(4_000);
+      });
+      expect(mockCheckReadinessStatus).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        secondProbe.resolve({ ok: true, buildId: "build-target", servedFrontendBuildId: "build-target" });
+        await Promise.resolve();
+      });
+      expect(onReloadAfterRestart).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        firstProbe.resolve({ ok: true, buildId: "build-target", servedFrontendBuildId: "build-target" });
+        await Promise.resolve();
+      });
+      expect(onReloadAfterRestart).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels a pending initiating-tab reload when Settings unmounts", async () => {
+    vi.useFakeTimers();
+    const onReloadAfterRestart = vi.fn();
+    const pendingProbe = deferred<{ ok: boolean; buildId: string; servedFrontendBuildId: string }>();
+    observeServerBuildIdentity("development", "development", beginBuildIdentityObservation());
+    mockApi.restartServer.mockResolvedValue({
+      ok: true,
+      restartRequested: true,
+      replacementBuildId: "build-target",
+    });
+    mockCheckReadinessStatus.mockImplementationOnce(() => pendingProbe.promise);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    try {
+      const { unmount } = render(<SettingsPage onReloadAfterRestart={onReloadAfterRestart} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+
+      await act(async () => {
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(mockCheckReadinessStatus).toHaveBeenCalledOnce();
+
+      unmount();
+      expect(mockState.setServerRestarting).toHaveBeenLastCalledWith(false);
+
+      await act(async () => {
+        pendingProbe.resolve({ ok: true, buildId: "build-target", servedFrontendBuildId: "build-target" });
+        await Promise.resolve();
+      });
+      expect(onReloadAfterRestart).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

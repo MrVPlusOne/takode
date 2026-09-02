@@ -648,7 +648,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
 
         options.requestRestart();
         restartScheduled = true;
-        return c.json(result);
+        return c.json({ ...result, replacementBuildId: preparedRestart?.buildId ?? null });
       }
 
       try {
@@ -661,7 +661,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       }
       options.requestRestart();
       restartScheduled = true;
-      return c.json({ ok: true, restartRequested: true });
+      return c.json({ ok: true, restartRequested: true, replacementBuildId: preparedRestart?.buildId ?? null });
     } catch (error) {
       const [preparedCleanupError, continuationCleanupError] = await Promise.all([
         discardPreparedRestart(),
