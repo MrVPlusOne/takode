@@ -63,10 +63,19 @@ function SelectionHarness({
 // jsdom selection support is too limited for this hook path, so these tests use
 // a controlled mock that lets us model the cloned range and native clear behavior.
 function createSelectionMock(state: MockSelectionState) {
-  const range = {
-    cloneRange: () => range,
-    getBoundingClientRect: () => state.rect,
-  } as unknown as Range;
+  const boundaryNode = state.anchorNode;
+  if (!boundaryNode) throw new Error("Selection mock requires an anchor node");
+  const range = boundaryNode.ownerDocument?.createRange() ?? document.createRange();
+  if (boundaryNode.nodeType === Node.TEXT_NODE && state.focusNode === boundaryNode) {
+    range.setStart(boundaryNode, 0);
+    range.setEnd(boundaryNode, boundaryNode.textContent?.length ?? 0);
+  } else {
+    range.selectNodeContents(boundaryNode);
+  }
+  Object.defineProperty(range, "getBoundingClientRect", {
+    configurable: true,
+    value: () => state.rect,
+  });
 
   const removeAllRanges = vi.fn(() => {
     state.text = "";
@@ -75,6 +84,7 @@ function createSelectionMock(state: MockSelectionState) {
   });
 
   const selection = {
+    rangeCount: 1,
     get isCollapsed() {
       return state.text.length === 0;
     },
@@ -295,6 +305,7 @@ describe("useTextSelection", () => {
 
     const selection = {
       isCollapsed: false,
+      rangeCount: 1,
       anchorNode: textNode,
       focusNode: textNode,
       toString: () => "x^2x2",

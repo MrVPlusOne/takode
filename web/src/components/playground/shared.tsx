@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { api } from "../../api.js";
 import { useStore } from "../../store.js";
+import { useTextSelection } from "../../hooks/useTextSelection.js";
 import type { ChatMessage, McpServerDetail, TaskItem } from "../../types.js";
 import { BoardBlock } from "../BoardBlock.js";
 import { CatPawAvatar, YarnBallSpinner } from "../CatIcons.js";
@@ -9,8 +10,8 @@ import { FolderPicker } from "../FolderPicker.js";
 import { Lightbox } from "../Lightbox.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { MessageBubble, NotificationMarker, HerdEventMessage } from "../MessageBubble.js";
-import { ContextMenu, type ContextMenuItem } from "../ContextMenu.js";
 import { PawTrailAvatar } from "../PawTrail.js";
+import { SelectionContextMenu } from "../SelectionContextMenu.js";
 import { StatusCountDots } from "../SessionItem.js";
 import { CodexRateLimitsSection, CodexTokenDetailsSection } from "../TaskPanel.js";
 import { TimerModal } from "../TimerWidget.js";
@@ -1715,64 +1716,43 @@ export function PlaygroundLightboxDemo() {
 }
 
 /**
- * Playground demo for the Selection Context Menu.
- * Shows a mock assistant message with simulated highlighted text and a static context menu.
+ * Live screenshot-shaped fixture for the Selection Context Menu.
+ * Drag across every block or start inside the paragraph to compare both controls.
  */
 export function PlaygroundSelectionContextMenu() {
-  const [menuOpen, setMenuOpen] = useState(true);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [, setMounted] = useState(false);
+  const selection = useTextSelection(containerRef);
 
-  // Static menu items matching the real SelectionContextMenu
-  const menuItems: ContextMenuItem[] = [
-    { label: "Quote selected", onClick: () => setMenuOpen(false) },
-    {
-      label: "Copy",
-      onClick: () => {},
-      children: [
-        { label: "Rich text", onClick: () => {} },
-        { label: "Markdown", onClick: () => {} },
-        { label: "Plain text", onClick: () => {} },
-      ],
-    },
-  ];
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  const sessionId = "playground-full-block-selection";
+  const quotedDraft = useStore((state) => state.composerDrafts.get(sessionId)?.text ?? "");
+  const demoText = [
+    "Yes. The leader conflated three visually similar boundaries:",
+    "",
+    "- Normal context compaction.",
+    "- Intentional approval pauses.",
+    "- One genuine transport interruption.",
+  ].join("\n");
 
   return (
-    <div className="relative" style={{ minHeight: 180 }}>
-      {/* Mock assistant message with simulated text selection */}
-      <div className="flex items-start gap-3">
-        <PawTrailAvatar />
-        <div className="flex-1 min-w-0">
-          <div className="markdown-body text-[14px] text-cc-fg leading-relaxed">
-            <p className="mb-3">Here are the key design principles for the new architecture:</p>
-            <p className="mb-3">
-              1.{" "}
-              <mark
-                style={{
-                  background: "rgba(56, 132, 244, 0.3)",
-                  borderRadius: 2,
-                  padding: "1px 0",
-                }}
-              >
-                Leader has zero extra indentation -- no toggle arrow before it. It looks exactly like a standalone
-                session.
-              </mark>
-            </p>
-            <p className="mb-3 last:mb-0">2. Herd summary bar sits directly below the leader.</p>
-          </div>
-        </div>
+    <div ref={containerRef} className="space-y-3" data-testid="playground-full-block-selection">
+      <p className="text-xs text-cc-muted">
+        Select the complete paragraph and list, or begin inside the paragraph and select later bullets. Both should open
+        the same menu without clearing the highlight.
+      </p>
+      <div data-message-id="playground-full-block-selection-message" data-message-role="assistant">
+        <MarkdownContent text={demoText} enableChatSelectionMenu data-testid="playground-full-block-selection-source" />
       </div>
-
-      {/* Static context menu positioned above the "selected" text */}
-      {menuOpen && <ContextMenu x={100} y={4} items={menuItems} onClose={() => setMenuOpen(false)} />}
-
-      {/* Re-open button if closed */}
-      {!menuOpen && (
-        <button
-          onClick={() => setMenuOpen(true)}
-          className="mt-3 text-xs text-cc-primary hover:underline cursor-pointer"
-        >
-          Show menu again
-        </button>
-      )}
+      <div
+        data-testid="playground-full-block-selection-quote"
+        className="min-h-8 rounded-md border border-cc-border bg-cc-bg px-2 py-1.5 font-mono-code text-xs text-cc-muted whitespace-pre-wrap"
+      >
+        {quotedDraft || "Quoted selection appears here."}
+      </div>
+      <SelectionContextMenu selection={selection} sessionId={sessionId} onClose={selection.dismiss} />
     </div>
   );
 }

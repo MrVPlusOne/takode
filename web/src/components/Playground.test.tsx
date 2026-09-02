@@ -69,6 +69,7 @@ import {
   PlaygroundDelegateTaskPendingLiveActivityGroup,
   PlaygroundDelegateTaskPendingNoHandoffGroup,
   PlaygroundHerdSummaryBar,
+  PlaygroundSelectionContextMenu,
 } from "./playground/shared.js";
 import { usePlaygroundSeed } from "./playground/usePlaygroundSeed.js";
 import { useStore } from "../store.js";
@@ -210,6 +211,21 @@ describe("Playground", () => {
     fireEvent.click(within(realChat).getByRole("button", { name: "Expand Thread routing reminder" }));
     expect(within(realChat).getByText(/^\[Thread routing reminder\]/)).toBeTruthy();
   }, 20_000);
+
+  it("documents the live full-block and partial chat selection controls", () => {
+    // The fixture mirrors the failing and working screenshots with the real hook
+    // and menu, so browser validation can exercise element-boundary selections.
+    render(<PlaygroundSelectionContextMenu />);
+
+    expect(screen.getByTestId("playground-full-block-selection")).toBeTruthy();
+    expect(screen.getByTestId("playground-full-block-selection-source").textContent).toContain(
+      "The leader conflated three visually similar boundaries",
+    );
+    expect(screen.getByText(/Select the complete paragraph and list/)).toBeTruthy();
+    expect(screen.getByTestId("playground-full-block-selection-quote").textContent).toBe(
+      "Quoted selection appears here.",
+    );
+  });
 
   it("documents inline, display, malformed, wide, and streaming math states", () => {
     // The Playground is the browser-validation fixture for every message-flow

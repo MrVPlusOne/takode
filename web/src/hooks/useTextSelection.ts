@@ -6,7 +6,7 @@ export interface TextSelectionState {
   isActive: boolean;
   /** The plain text of the selection */
   plainText: string;
-  /** The Selection Range object (for extracting HTML) */
+  /** The selected Range clipped to eligible chat content for extracting HTML */
   range: Range | null;
   /** Position for the floating menu (x, y relative to viewport) */
   position: { x: number; y: number } | null;
@@ -35,16 +35,140 @@ function findMessageAncestor(node: Node | null): HTMLElement | null {
   return null;
 }
 
-/** Walk up from a node to find an explicit chat-selection Markdown scope. */
-function findChatSelectionScope(node: Node | null): HTMLElement | null {
+interface SelectedTextBoundaryNodes {
+  first: Text;
+  last: Text;
+}
+
+/** Return the intersection between a Range and one node's contents. */
+function intersectRangeWithNodeContents(range: Range, node: Node): Range | null {
+  if (!range.intersectsNode(node)) return null;
+
+  const document = node.nodeType === Node.DOCUMENT_NODE ? (node as Document) : node.ownerDocument;
+  if (!document) return null;
+  const nodeRange = document.createRange();
+  nodeRange.selectNodeContents(node);
+
+  const intersection = range.cloneRange();
+  if (intersection.compareBoundaryPoints(Range.START_TO_START, nodeRange) < 0) {
+    intersection.setStart(nodeRange.startContainer, nodeRange.startOffset);
+  }
+  if (intersection.compareBoundaryPoints(Range.END_TO_END, nodeRange) > 0) {
+    intersection.setEnd(nodeRange.endContainer, nodeRange.endOffset);
+  }
+
+  return intersection.collapsed ? null : intersection;
+}
+
+/** Return the portion of one text node that is actually covered by a Range. */
+function selectedTextWithinNode(range: Range, textNode: Text): string {
+  return intersectRangeWithNodeContents(range, textNode)?.toString() ?? "";
+}
+
+function nextNodeWithin(root: Node, node: Node): Node | null {
+  if (node.firstChild) return node.firstChild;
+
   let current: Node | null = node;
-  while (current) {
-    if (current instanceof HTMLElement && current.dataset.chatSelectionScope === "true") {
-      return current;
-    }
+  while (current && current !== root) {
+    if (current.nextSibling) return current.nextSibling;
     current = current.parentNode;
   }
   return null;
+}
+
+function previousNodeWithin(root: Node, node: Node): Node | null {
+  if (node.previousSibling) {
+    let current = node.previousSibling;
+    while (current.lastChild) current = current.lastChild;
+    return current;
+  }
+
+  const parent = node.parentNode;
+  return parent && parent !== root ? parent : null;
+}
+
+function firstNodeAtRangeStart(range: Range, root: Node): Node | null {
+  if (range.startContainer.nodeType === Node.TEXT_NODE) return range.startContainer;
+  return range.startContainer.childNodes[range.startOffset] ?? nextNodeWithin(root, range.startContainer);
+}
+
+function lastNodeAtRangeEnd(range: Range, root: Node): Node | null {
+  if (range.endContainer.nodeType === Node.TEXT_NODE) return range.endContainer;
+
+  let current = range.endContainer.childNodes[range.endOffset - 1] ?? null;
+  if (!current) return previousNodeWithin(root, range.endContainer);
+  while (current.lastChild) current = current.lastChild;
+  return current;
+}
+
+function findSubstantiveTextNode(range: Range, root: Node, fromStart: boolean): Text | null {
+  let node = fromStart ? firstNodeAtRangeStart(range, root) : lastNodeAtRangeEnd(range, root);
+  while (node) {
+    if (node.nodeType === Node.TEXT_NODE && selectedTextWithinNode(range, node as Text).trim()) {
+      return node as Text;
+    }
+    node = fromStart ? nextNodeWithin(root, node) : previousNodeWithin(root, node);
+  }
+  return null;
+}
+
+/**
+ * Resolve the first and last substantive text nodes selected by a canonical Range.
+ *
+ * Browser selection endpoints may sit on a wrapper element when the user selects a
+ * complete paragraph/list block. Whitespace-only edge slices are ignored for scope
+ * ownership, but the original Range and Selection text remain unchanged. Walking
+ * inward from each boundary avoids scanning unrelated feed content for invalid spans.
+ */
+function findSelectedTextBoundaryNodes(range: Range): SelectedTextBoundaryNodes | null {
+  const root = range.commonAncestorContainer;
+  if (!root || !root.isConnected) return null;
+
+  try {
+    const first = findSubstantiveTextNode(range, root, true);
+    const last = findSubstantiveTextNode(range, root, false);
+    return first && last ? { first, last } : null;
+  } catch {
+    // Delayed touch evaluation can race with a Markdown subtree replacement.
+    return null;
+  }
+}
+
+function findSelectionMessage(selection: Selection, range: Range, container: HTMLElement): HTMLElement | null {
+  const anchorMessage = findMessageAncestor(selection.anchorNode);
+  const focusMessage = findMessageAncestor(selection.focusNode);
+  let message = anchorMessage && anchorMessage === focusMessage ? anchorMessage : null;
+
+  if (!message) {
+    const boundaries = findSelectedTextBoundaryNodes(range);
+    if (!boundaries) return null;
+    const firstMessage = findMessageAncestor(boundaries.first);
+    const lastMessage = findMessageAncestor(boundaries.last);
+    message = firstMessage && firstMessage === lastMessage ? firstMessage : null;
+  }
+
+  if (!message || !container.contains(message) || message.dataset.messageRole !== "assistant") return null;
+  return message;
+}
+
+/**
+ * Find the one explicit chat Markdown scope that owns all substantive selected text.
+ *
+ * The returned Range is clipped to that scope so wrapper-level endpoints can include
+ * textless message controls or images without leaking them into rich/Markdown copy.
+ */
+function findOwnedChatSelectionRange(sourceRange: Range, message: HTMLElement): Range | null {
+  let ownedRange: Range | null = null;
+
+  for (const scope of message.querySelectorAll<HTMLElement>('[data-chat-selection-scope="true"]')) {
+    const intersection = intersectRangeWithNodeContents(sourceRange, scope);
+    if (!intersection?.toString().trim()) continue;
+    if (ownedRange) return null;
+    ownedRange = intersection;
+  }
+
+  if (!ownedRange || sourceRange.toString().trim() !== ownedRange.toString().trim()) return null;
+  return ownedRange;
 }
 
 /** Calculate menu position: above the selection on desktop, below on touch
@@ -126,36 +250,50 @@ export function useTextSelection(containerRef: RefObject<HTMLElement | null>): T
         return;
       }
 
-      const anchorScope = findChatSelectionScope(sel.anchorNode);
-      const focusScope = findChatSelectionScope(sel.focusNode);
-
-      if (!anchorScope || !focusScope || anchorScope !== focusScope) {
+      if (sel.rangeCount !== 1) {
         setState(EMPTY_STATE);
         return;
       }
 
-      const anchorMsg = findMessageAncestor(anchorScope);
-      const focusMsg = findMessageAncestor(focusScope);
-
-      if (!anchorMsg || !focusMsg || anchorMsg !== focusMsg) {
+      let sourceRange: Range;
+      try {
+        sourceRange = sel.getRangeAt(0);
+      } catch {
         setState(EMPTY_STATE);
         return;
       }
 
-      if (!container!.contains(anchorMsg)) {
+      let ownedRange: Range | null;
+      try {
+        const message = findSelectionMessage(sel, sourceRange, container!);
+        ownedRange = message ? findOwnedChatSelectionRange(sourceRange, message) : null;
+      } catch {
+        setState(EMPTY_STATE);
+        return;
+      }
+      if (!ownedRange) {
         setState(EMPTY_STATE);
         return;
       }
 
-      if (anchorMsg.dataset.messageRole !== "assistant") {
+      let containsMath: boolean;
+      let range: Range;
+      let rect: DOMRect;
+      let plainText: string;
+      try {
+        containsMath = rangeContainsMath(ownedRange);
+        range = containsMath ? normalizeMathSelectionRange(ownedRange) : ownedRange.cloneRange();
+        rect =
+          typeof ownedRange.getBoundingClientRect === "function"
+            ? ownedRange.getBoundingClientRect()
+            : sourceRange.getBoundingClientRect();
+        plainText = containsMath ? htmlFragmentToPlainText(range) : sel.toString();
+      } catch {
+        // A delayed evaluation may observe a Range whose rendered nodes were replaced.
         setState(EMPTY_STATE);
         return;
       }
 
-      const sourceRange = sel.getRangeAt(0);
-      const containsMath = rangeContainsMath(sourceRange);
-      const range = containsMath ? normalizeMathSelectionRange(sourceRange) : sourceRange.cloneRange();
-      const rect = sourceRange.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) {
         setState(EMPTY_STATE);
         return;
@@ -163,7 +301,7 @@ export function useTextSelection(containerRef: RefObject<HTMLElement | null>): T
 
       const nextState = {
         isActive: true,
-        plainText: containsMath ? htmlFragmentToPlainText(range) : sel.toString(),
+        plainText,
         range,
         position: computeMenuPosition(rect, isTouchInteractionRef.current),
       };

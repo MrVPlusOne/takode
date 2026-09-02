@@ -1061,7 +1061,7 @@ export function PlaygroundInteractiveSections() {
         description="Floating context menu shown when the user selects text within an assistant message. Offers quoting and copy options."
       >
         <div className="max-w-3xl">
-          <Card label="Menu above selected text">
+          <Card label="Live full-block and partial-selection controls">
             <PlaygroundSelectionContextMenu />
           </Card>
         </div>
