@@ -1,4 +1,4 @@
-import type { ChatMessage, ImageRef, LocalImageAttachment } from "../types.js";
+import type { ChatMessage, ImageRef, LocalImageAttachment, QuestImage } from "../types.js";
 import { api } from "../api.js";
 import { buildFileLinkImageVariantUrl } from "../api/file-link-actions.js";
 
@@ -112,6 +112,20 @@ export function buildUserImagePreviewItems(message: ChatMessage, sessionId?: str
 
 export function buildStoredImagePreviewItems(images: ImageRef[], sessionId: string): ImagePreviewItem[] {
   return imagePreviewItemsFromStoredRefs(images, sessionId);
+}
+
+export function buildQuestImagePreviewItems(images: QuestImage[]): ImagePreviewItem[] {
+  return images.map((image) => {
+    const url = api.questImageUrl(image.id);
+    return {
+      id: `quest:${image.id}`,
+      filename: image.filename,
+      thumbnailUrl: url,
+      fullUrl: url,
+      title: image.filename,
+      expectedAttachment: true,
+    };
+  });
 }
 
 export function dedupePreviewItems(items: ImagePreviewItem[]): ImagePreviewItem[] {

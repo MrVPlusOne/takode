@@ -5,6 +5,7 @@ import { extractMentionedLocalImagePaths, QuestPhaseNoteImages } from "./QuestPh
 
 vi.mock("../api.js", () => ({
   api: {
+    questImageUrl: (id: string) => `/api/quests/_images/${id}`,
     getFsImageUrl: (path: string, variant?: "thumbnail" | "full") => {
       const params = new URLSearchParams({ path });
       if (variant) params.set("variant", variant);
@@ -95,6 +96,37 @@ describe("QuestPhaseNoteImages", () => {
 
     fireEvent.keyDown(document, { key: "ArrowLeft" });
     expect(screen.getByRole("dialog", { name: "Image preview: one.png" })).toBeVisible();
+  });
+
+  it("keeps attached images authoritative and first when note text mentions the same stored path", () => {
+    render(
+      <QuestPhaseNoteImages
+        text="Evidence: /tmp/attached.png and /tmp/distinct.png"
+        images={[
+          {
+            id: "attached",
+            filename: "attached.png",
+            mimeType: "image/png",
+            path: "/tmp/attached.png",
+          },
+        ]}
+      />,
+    );
+
+    const thumbnailStrip = screen.getByTestId("phase-note-image-thumbnails");
+    expect(within(thumbnailStrip).getByRole("button", { name: "Loading image attached.png" })).toBeDisabled();
+    const speculativePreloads = screen.getAllByTestId("image-preview-preload");
+    expect(speculativePreloads).toHaveLength(1);
+    expect(speculativePreloads[0]).toHaveAttribute("src", "/api/fs/image?path=%2Ftmp%2Fdistinct.png&variant=thumbnail");
+
+    fireEvent.load(within(thumbnailStrip).getByTestId("image-preview-thumbnail-image"));
+    fireEvent.load(speculativePreloads[0]!);
+
+    expect(
+      within(thumbnailStrip)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["Open image attached.png", "Open image distinct.png"]);
   });
 
   it("keeps the modal filename centered separately from the right-aligned navigation controls", () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ChatMessage } from "../types.js";
 import {
   buildAssistantImagePreviewItems,
+  buildQuestImagePreviewItems,
   buildStoredImagePreviewItems,
   buildUserImagePreviewItems,
 } from "./image-preview-utils.js";
@@ -41,6 +42,32 @@ describe("image preview item provenance", () => {
         thumbnailUrl: "/api/images/session-1/image-2/thumb",
         fullUrl: "/api/images/session-1/image-2/full",
         title: "image-2",
+        expectedAttachment: true,
+      },
+    ]);
+  });
+
+  it("marks quest feedback images as ordered expected attachments", () => {
+    const items = buildQuestImagePreviewItems([
+      { id: "desktop", filename: "desktop.png", mimeType: "image/png", path: "/tmp/desktop.png" },
+      { id: "mobile", filename: "mobile.jpeg", mimeType: "image/jpeg", path: "/tmp/mobile.jpeg" },
+    ]);
+
+    expect(items).toEqual([
+      {
+        id: "quest:desktop",
+        filename: "desktop.png",
+        thumbnailUrl: "/api/quests/_images/desktop",
+        fullUrl: "/api/quests/_images/desktop",
+        title: "desktop.png",
+        expectedAttachment: true,
+      },
+      {
+        id: "quest:mobile",
+        filename: "mobile.jpeg",
+        thumbnailUrl: "/api/quests/_images/mobile",
+        fullUrl: "/api/quests/_images/mobile",
+        title: "mobile.jpeg",
         expectedAttachment: true,
       },
     ]);

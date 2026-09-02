@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { QuestmasterTask } from "../types.js";
 import { useStore } from "../store.js";
@@ -61,7 +61,13 @@ function makeFeedbackQuest(): QuestmasterTask {
     createdAt: 1,
     journeyRuns: [journeyRun("run-1", 1), journeyRun("run-2", 2)],
     feedback: [
-      feedback("run-1", "Older Work feedback body"),
+      {
+        ...feedback("run-1", "Older Work feedback body"),
+        images: [
+          { id: "desktop", filename: "desktop.png", mimeType: "image/png", path: "/tmp/desktop.png" },
+          { id: "mobile", filename: "mobile.jpeg", mimeType: "image/jpeg", path: "/tmp/mobile.jpeg" },
+        ],
+      },
       feedback("run-2", "Latest Work feedback body"),
       { author: "agent", text: "Unscoped agent feedback", ts: 3 },
     ],
@@ -116,7 +122,31 @@ describe("QuestDetailPanel feedback navigation lifecycle", () => {
     await waitFor(() => expect(document.querySelector('[data-feedback-index="0"]')).toBeInTheDocument());
     const target = document.querySelector<HTMLElement>('[data-feedback-index="0"]')!;
     expect(target).toHaveAttribute("data-feedback-highlighted", "true");
+    expect(target.querySelector("details")).toHaveAttribute("open");
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
+
+    // Producer-proven feedback attachments stay associated with the exact
+    // target, reserve slots immediately, and preserve source order.
+    const imageGroup = within(target).getByTestId("phase-note-image-thumbnails");
+    expect(within(imageGroup).getByRole("button", { name: "Loading image desktop.png" })).toBeDisabled();
+    expect(within(imageGroup).getByRole("button", { name: "Loading image mobile.jpeg" })).toBeDisabled();
+    const thumbnails = within(imageGroup).getAllByTestId("image-preview-thumbnail-image");
+    expect(thumbnails.map((image) => image.getAttribute("src"))).toEqual([
+      "/api/quests/_images/desktop",
+      "/api/quests/_images/mobile",
+    ]);
+    fireEvent.load(thumbnails[1]!);
+    fireEvent.load(thumbnails[0]!);
+    const imageButtons = within(imageGroup).getAllByRole("button");
+    expect(imageButtons.map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Open image desktop.png",
+      "Open image mobile.jpeg",
+    ]);
+
+    fireEvent.click(imageButtons[0]!);
+    expect(screen.getByRole("dialog", { name: "Image preview: desktop.png" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Next image" }));
+    expect(screen.getByRole("dialog", { name: "Image preview: mobile.jpeg" })).toBeVisible();
   });
 
   it("reopens the same target and expires only its highlight without shifting or collapsing it", async () => {

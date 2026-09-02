@@ -438,7 +438,7 @@ function PhaseDocumentationEntry({
           onSessionNavigate={onSessionNavigate}
         />
       </div>
-      <QuestPhaseNoteImages text={entry.text} sessionId={sessionId} />
+      <QuestPhaseNoteImages text={entry.text} images={entry.images} sessionId={sessionId} />
       <details open={isTarget || undefined} className="mt-1 min-w-0 max-w-full overflow-hidden text-xs text-cc-muted">
         <summary className="cursor-pointer select-none">Full phase detail</summary>
         <div className="mt-1 min-w-0 max-w-full overflow-hidden text-cc-fg">
