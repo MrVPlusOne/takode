@@ -128,7 +128,7 @@ function nearestSourceCenter(sourceRects: readonly PreviewRect[], pointer?: Prev
   return rectCenter(nearest);
 }
 
-type Candidate = PreviewPlacement & { rect: PreviewRect };
+type Candidate = PreviewPlacement & { rect: PreviewRect; slideDistance?: number };
 
 function placementCandidates(triggerRect: PreviewRect, width: number, height: number, gap: number): Candidate[] {
   const candidates: Candidate[] = [];
@@ -145,6 +145,92 @@ function placementCandidates(triggerRect: PreviewRect, width: number, height: nu
   add(triggerRect.right + gap, triggerRect.bottom - height, "inline-end");
   add(triggerRect.left - width - gap, triggerRect.top, "inline-start");
   add(triggerRect.left - width - gap, triggerRect.bottom - height, "inline-start");
+  return candidates;
+}
+
+function expandedPlacementExclusions({
+  sourceRects,
+  triggerRect,
+  interactiveRects,
+  sourceInset,
+  interactiveInset,
+}: {
+  sourceRects: readonly PreviewRect[];
+  triggerRect: PreviewRect;
+  interactiveRects: readonly PreviewRect[];
+  sourceInset: number;
+  interactiveInset: number;
+}): PreviewRect[] {
+  return [
+    ...sourceRects.map((rect) => expandPreviewRect(rect, sourceInset)),
+    expandPreviewRect(triggerRect, interactiveInset),
+    ...interactiveRects.map((rect) => expandPreviewRect(rect, interactiveInset)),
+  ];
+}
+
+function titleSlidingCandidates({
+  triggerRect,
+  layerSize,
+  exclusions,
+  viewport,
+}: {
+  triggerRect: PreviewRect;
+  layerSize: { width: number; height: number };
+  exclusions: readonly PreviewRect[];
+  viewport: PreviewViewport;
+}): Candidate[] {
+  // The normal eight positions remain the first choice. These candidates are
+  // only a no-fit fallback, aligned to viewport or exclusion boundaries so the
+  // title can move around dense controls without being clamped across them.
+  const { width, height } = layerSize;
+  const viewportInset = 8;
+  const gap = 6;
+  const maxSlideDistance = height + triggerRect.width;
+  const candidates: Candidate[] = [];
+  const add = (left: number, top: number, direction: PreviewPlacement["direction"], slideDistance: number) => {
+    // A compact hover should stay recognizably attached to its source rather
+    // than escaping a dense local cage by jumping across the viewport.
+    if (slideDistance > maxSlideDistance) return;
+    const duplicate = candidates.find(
+      (candidate) => candidate.left === left && candidate.top === top && candidate.direction === direction,
+    );
+    if (duplicate) {
+      duplicate.slideDistance = Math.min(duplicate.slideDistance ?? slideDistance, slideDistance);
+      return;
+    }
+    candidates.push({ left, top, direction, slideDistance, rect: candidateRect(left, top, width, height) });
+  };
+
+  const blockLefts = [
+    viewport.left + viewportInset,
+    viewport.right - viewportInset - width,
+    ...exclusions.flatMap((rect) => [rect.left - width, rect.right]),
+  ];
+  const blockStarts = [triggerRect.left, triggerRect.right - width];
+  for (const { top, direction } of [
+    { top: triggerRect.bottom + gap, direction: "block-end" as const },
+    { top: triggerRect.top - height - gap, direction: "block-start" as const },
+  ]) {
+    for (const left of blockLefts) {
+      add(left, top, direction, Math.min(...blockStarts.map((start) => Math.abs(left - start))));
+    }
+  }
+
+  const inlineTops = [
+    viewport.top + viewportInset,
+    viewport.bottom - viewportInset - height,
+    ...exclusions.flatMap((rect) => [rect.top - height, rect.bottom]),
+  ];
+  const inlineStarts = [triggerRect.top, triggerRect.bottom - height];
+  for (const { left, direction } of [
+    { left: triggerRect.right + gap, direction: "inline-end" as const },
+    { left: triggerRect.left - width - gap, direction: "inline-start" as const },
+  ]) {
+    for (const top of inlineTops) {
+      add(left, top, direction, Math.min(...inlineStarts.map((start) => Math.abs(top - start))));
+    }
+  }
+
   return candidates;
 }
 
@@ -173,11 +259,13 @@ function chooseLegalPlacement({
     ? [nearestSourceCenter(sourceRects, pointer)]
     : sourceRects.map((rect) => rectCenter(rect));
   const triggerCenter = rectCenter(triggerRect);
-  const exclusions = [
-    ...sourceRects.map((rect) => expandPreviewRect(rect, sourceInset)),
-    expandPreviewRect(triggerRect, interactiveInset),
-    ...interactiveRects.map((rect) => expandPreviewRect(rect, interactiveInset)),
-  ];
+  const exclusions = expandedPlacementExclusions({
+    sourceRects,
+    triggerRect,
+    interactiveRects,
+    sourceInset,
+    interactiveInset,
+  });
 
   const legal = candidates.filter((candidate) => {
     if (!previewRectInsideViewport(candidate.rect, viewport, viewportInset)) return false;
@@ -188,6 +276,10 @@ function chooseLegalPlacement({
   if (legal.length === 0) return null;
 
   legal.sort((a, b) => {
+    // Sliding fallback candidates should perturb the accepted eye-relative
+    // geometry as little as possible before applying the normal proximity score.
+    const slideDistanceDelta = (a.slideDistance ?? 0) - (b.slideDistance ?? 0);
+    if (slideDistanceDelta !== 0) return slideDistanceDelta;
     const aCenter = rectCenter(a.rect);
     const bCenter = rectCenter(b.rect);
     const aSourceScore = Math.min(...sourceCenters.map((center) => pointDistanceSquared(aCenter, center)));
@@ -216,8 +308,32 @@ export function chooseQuestTitlePlacement({
   pointer?: PreviewPoint | null;
 }): PreviewPlacement | null {
   if (sourceRects.length === 0 || layerSize.width <= 0 || layerSize.height <= 0) return null;
-  return chooseLegalPlacement({
+  const primary = chooseLegalPlacement({
     candidates: placementCandidates(triggerRect, layerSize.width, layerSize.height, 6),
+    sourceRects,
+    triggerRect,
+    interactiveRects,
+    viewport,
+    pointer,
+    viewportInset: 8,
+    sourceInset: 6,
+    interactiveInset: 4,
+  });
+  if (primary) return primary;
+
+  return chooseLegalPlacement({
+    candidates: titleSlidingCandidates({
+      triggerRect,
+      layerSize,
+      exclusions: expandedPlacementExclusions({
+        sourceRects,
+        triggerRect,
+        interactiveRects,
+        sourceInset: 6,
+        interactiveInset: 4,
+      }),
+      viewport,
+    }),
     sourceRects,
     triggerRect,
     interactiveRects,

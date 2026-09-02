@@ -6,7 +6,7 @@ import { QuestFeedInlineLink } from "../QuestFeedInlineLink.js";
 import { QuestQuizSection } from "../QuestQuizSection.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
-type PreviewFixtureState = "idle" | "title" | "no-fit" | "rich" | "error" | "keyboard" | "coarse";
+type PreviewFixtureState = "idle" | "title" | "no-fit" | "rich" | "error" | "keyboard" | "coarse" | "dense";
 
 const PREVIEW_LEADER_SESSION_ID = "playground-inline-preview-leader";
 
@@ -80,6 +80,15 @@ const PREVIEW_FIXTURES: readonly PreviewFixtureDefinition[] = [
     title: "Use a separate eye touch target and a modal bottom sheet",
     description:
       "A first-touch eye activation opens the real modal sheet and forces the 44 px Playground target style.",
+  },
+  {
+    id: "dense",
+    label: "Dense feed / link hover",
+    buttonLabel: "Show dense-feed link-hover title preview",
+    questId: "q-9417",
+    title: "Slide compact link details around dense feed controls",
+    description:
+      "Fine-pointer hover keeps the two-row compact preview visible by sliding it past nearby transition controls.",
   },
 ] as const;
 
@@ -245,18 +254,19 @@ function dispatchTouchActivation(button: HTMLButtonElement) {
   button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
 }
 
-function dispatchFinePointerEnter(button: HTMLButtonElement) {
+function dispatchFinePointerEnter(element: HTMLElement) {
   // React synthesizes onPointerEnter from a bubbling pointerover event.
+  const rect = element.getClientRects()[0] ?? element.getBoundingClientRect();
   const pointerOver = new Event("pointerover", {
     bubbles: true,
     cancelable: true,
   });
   Object.defineProperties(pointerOver, {
     pointerType: { configurable: true, value: "mouse" },
-    clientX: { configurable: true, value: 280 },
-    clientY: { configurable: true, value: 210 },
+    clientX: { configurable: true, value: rect.left + rect.width / 2 },
+    clientY: { configurable: true, value: rect.top + rect.height / 2 },
   });
-  button.dispatchEvent(pointerOver);
+  element.dispatchEvent(pointerOver);
 }
 
 function dispatchKeyboardActivation(button: HTMLButtonElement) {
@@ -292,6 +302,10 @@ function LivePreviewFixture({ state, revision }: { state: PreviewFixtureState; r
 
       if (state === "title" || state === "no-fit") {
         link.focus({ preventScroll: true });
+        return;
+      }
+      if (state === "dense") {
+        dispatchFinePointerEnter(link);
         return;
       }
       if (state === "coarse") {
@@ -334,8 +348,10 @@ function LivePreviewFixture({ state, revision }: { state: PreviewFixtureState; r
     <button
       type="button"
       tabIndex={-1}
-      data-preview-geometry-exclusion="true"
-      className="h-full w-full rounded border border-dashed border-cc-border bg-cc-bg/80 px-2 py-1 text-[10px] leading-tight text-cc-muted"
+      data-preview-geometry-exclusion={position}
+      className={`h-full w-full rounded border border-dashed border-cc-border bg-cc-bg/80 px-2 py-1 text-[10px] leading-tight text-cc-muted ${
+        state === "no-fit" ? (position === "above" || position === "below" ? "min-h-20" : "min-h-36") : ""
+      }`}
     >
       Dense neighbor {position}
     </button>
@@ -360,6 +376,18 @@ function LivePreviewFixture({ state, revision }: { state: PreviewFixtureState; r
           <div>{exactTarget}</div>
           {geometryControl("after")}
           <div className="col-span-3">{geometryControl("below")}</div>
+        </div>
+      ) : state === "dense" ? (
+        <div className="max-w-[38rem] space-y-1">
+          <div className="flex justify-center gap-2">
+            <div className="w-44">{geometryControl("above")}</div>
+            <div className="w-20">{geometryControl("before")}</div>
+          </div>
+          <div className="pl-24">{exactTarget}</div>
+          <div className="flex justify-center gap-2">
+            <div className="w-20">{geometryControl("after")}</div>
+            <div className="w-[24rem]">{geometryControl("below")}</div>
+          </div>
         </div>
       ) : (
         <div>{exactTarget}</div>

@@ -75,6 +75,42 @@ describe("quest feed preview geometry", () => {
     expect(previewRectContainsPoint(layer, pointer)).toBe(false);
   });
 
+  it("slides a compact title past dense feed controls when every eye-aligned candidate is blocked", () => {
+    // Reproduces the reported dense leader-feed geometry: routing controls immediately
+    // above and below the link blocked all eight original eye-aligned candidates.
+    const sourceRects = [rect(598.9, 716.9, 44.9, 16.2)];
+    const triggerRect = rect(645.6, 715.2, 23.4, 23.4);
+    const interactiveRects = [
+      rect(488.7, 655.3, 171.7, 23.4),
+      rect(640.3, 689.5, 77.5, 14.9),
+      rect(640.3, 749.4, 77.5, 14.8),
+      rect(521.1, 776.8, 658.8, 23.9),
+    ];
+    const viewport = rect(0, 0, 1440, 1000);
+    const layerSize = { width: 288, height: 47.6 };
+    const pointer = { x: 620, y: 725 };
+
+    const placement = chooseQuestTitlePlacement({
+      sourceRects,
+      triggerRect,
+      interactiveRects,
+      pointer,
+      viewport,
+      layerSize,
+    });
+
+    expect(placement).not.toBeNull();
+    expect(placement?.direction).toBe("inline-end");
+    expect(placement?.left).toBeCloseTo(675, 1);
+    expect(placement?.top).toBeCloseTo(637.9, 1);
+    const layer = placedRect(placement!, layerSize.width, layerSize.height);
+    expect(previewRectInsideViewport(layer, viewport, 8)).toBe(true);
+    expect(sourceRects.some((source) => previewRectsIntersect(layer, expandPreviewRect(source, 6)))).toBe(false);
+    expect(previewRectsIntersect(layer, expandPreviewRect(triggerRect, 4))).toBe(false);
+    expect(interactiveRects.some((control) => previewRectsIntersect(layer, expandPreviewRect(control, 4)))).toBe(false);
+    expect(previewRectContainsPoint(layer, pointer)).toBe(false);
+  });
+
   it("scores focus placement against each asymmetric source fragment", () => {
     const sourceRects = [rect(24, 40, 44, 18), rect(220, 118, 120, 18), rect(220, 136, 36, 18)];
     const triggerRect = rect(264, 132, 70, 28);
@@ -108,6 +144,24 @@ describe("quest feed preview geometry", () => {
       viewport: rect(0, 0, 220, 120),
       layerSize: { width: 200, height: 64 },
       pointer: { x: 110, y: 64 },
+    });
+
+    expect(placement).toBeNull();
+  });
+
+  it("keeps a compact title local instead of escaping a dense cage across the viewport", () => {
+    const placement = chooseQuestTitlePlacement({
+      sourceRects: [rect(184, 200, 240, 20), rect(184, 220, 150, 20)],
+      triggerRect: rect(338, 217, 28, 28),
+      interactiveRects: [
+        rect(100, 100, 544, 80),
+        rect(100, 184, 80, 140),
+        rect(370, 184, 274, 140),
+        rect(100, 249, 544, 159),
+      ],
+      viewport: rect(0, 0, 1200, 800),
+      layerSize: { width: 320, height: 58 },
+      pointer: { x: 260, y: 225 },
     });
 
     expect(placement).toBeNull();

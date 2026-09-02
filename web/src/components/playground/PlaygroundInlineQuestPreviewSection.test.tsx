@@ -12,13 +12,42 @@ function domRect(x: number, y: number, width: number, height: number): DOMRect {
 function installDeterministicGeometry() {
   vi.spyOn(Element.prototype, "getClientRects").mockImplementation(function getClientRects(this: Element) {
     const element = this as HTMLElement;
-    if (element.dataset.previewGeometryExclusion === "true") {
+    const fixtureState = element.closest<HTMLElement>("[data-preview-fixture-state]")?.dataset.previewFixtureState;
+    if (element.dataset.previewGeometryExclusion) {
+      if (fixtureState === "no-fit") {
+        const noFitRects = {
+          above: domRect(100, 100, 544, 80),
+          before: domRect(100, 184, 80, 140),
+          after: domRect(370, 184, 274, 140),
+          below: domRect(100, 249, 544, 159),
+        } as const;
+        return [
+          noFitRects[element.dataset.previewGeometryExclusion as keyof typeof noFitRects],
+        ] as unknown as DOMRectList;
+      }
+      if (fixtureState === "dense") {
+        const denseRects = {
+          above: domRect(488.7, 655.3, 171.7, 23.4),
+          before: domRect(640.3, 689.5, 77.5, 14.9),
+          after: domRect(640.3, 749.4, 77.5, 14.8),
+          below: domRect(521.1, 776.8, 658.8, 23.9),
+        } as const;
+        return [
+          denseRects[element.dataset.previewGeometryExclusion as keyof typeof denseRects],
+        ] as unknown as DOMRectList;
+      }
       return [domRect(0, 0, 1200, 800)] as unknown as DOMRectList;
     }
     if (element.dataset.testid === "quest-feed-preview-button") {
+      if (fixtureState === "no-fit") return [domRect(338, 217, 28, 28)] as unknown as DOMRectList;
+      if (fixtureState === "dense") return [domRect(645.6, 715.2, 23.4, 23.4)] as unknown as DOMRectList;
       return [domRect(260, 200, 28, 28)] as unknown as DOMRectList;
     }
     if (element.matches("a.cc-quest-link")) {
+      if (fixtureState === "no-fit") {
+        return [domRect(184, 200, 240, 20), domRect(184, 220, 150, 20)] as unknown as DOMRectList;
+      }
+      if (fixtureState === "dense") return [domRect(598.9, 716.9, 44.9, 16.2)] as unknown as DOMRectList;
       return [domRect(100, 200, 150, 20)] as unknown as DOMRectList;
     }
     return [] as unknown as DOMRectList;
@@ -27,7 +56,10 @@ function installDeterministicGeometry() {
     this: Element,
   ) {
     const element = this as HTMLElement;
-    if (element.dataset.testid === "quest-feed-title-preview") return domRect(0, 0, 320, 58);
+    if (element.dataset.testid === "quest-feed-title-preview") {
+      if (document.querySelector("[data-preview-fixture-state='dense']")) return domRect(0, 0, 288, 47.6);
+      return domRect(0, 0, 320, 58);
+    }
     if (element.dataset.testid === "quest-feed-rich-preview") return domRect(0, 0, 460, 260);
     return domRect(0, 0, 0, 0);
   });
@@ -95,7 +127,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     const controls = within(section).getByRole("group", {
       name: "Inline quest preview fixture state",
     });
-    expect(within(controls).getAllByRole("button")).toHaveLength(7);
+    expect(within(controls).getAllByRole("button")).toHaveLength(8);
     expect(within(section).getByText(/small adjacent eye/)).toBeInTheDocument();
 
     let live = await within(section).findByTestId("playground-inline-quest-preview-live");
@@ -108,6 +140,18 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     expect(idleEye.querySelector("svg")).toBeInTheDocument();
     expect(idleEye).not.toHaveTextContent("Preview");
     expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(
+      within(controls).getByRole("button", {
+        name: "Show dense-feed link-hover title preview",
+      }),
+    );
+    const denseTitleLayer = await screen.findByTestId("quest-feed-title-preview");
+    await waitFor(() => {
+      expect(denseTitleLayer).not.toHaveAttribute("data-placement", "no-fit");
+      expect(denseTitleLayer).toHaveStyle({ visibility: "visible" });
+    });
+    expect(denseTitleLayer).toHaveTextContent("Slide compact link details around dense feed controls");
 
     fireEvent.click(
       within(controls).getByRole("button", {
