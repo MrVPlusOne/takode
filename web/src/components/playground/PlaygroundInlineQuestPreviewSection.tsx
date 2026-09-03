@@ -414,7 +414,12 @@ function ScopeBoundaryFixture() {
         data-testid="playground-inline-quest-preview-feed-boundary"
       >
         <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-cc-muted/70">Parsed chat feed</div>
-        <MarkdownContent text="[q-9410 feedback #4](quest:q-9410:feedback:4)" questLinkSurface="chat-feed" />
+        <div className="max-w-[13rem]" data-testid="playground-inline-quest-preview-narrow-wrap">
+          <MarkdownContent
+            text="Narrow lead-in keeps [q-9410 feedback #4](quest:q-9410:feedback:4) together before the next words."
+            questLinkSurface="chat-feed"
+          />
+        </div>
       </div>
       <div
         className="rounded-lg border border-cc-border/70 bg-cc-bg p-3 text-sm"
@@ -440,7 +445,7 @@ function ColorParityFixture() {
         <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-cc-muted/70">Standard feed link</div>
         <MarkdownContent text="[q-9410](quest:q-9410)" questLinkSurface="chat-feed" />
       </div>
-      <div data-testid="playground-inline-quest-preview-orange-color">
+      <div className="max-w-[15rem]" data-testid="playground-inline-quest-preview-orange-color">
         <QuestQuizSection
           variant="inline"
           questId="q-9410"
@@ -474,7 +479,7 @@ export function PlaygroundInlineQuestPreviewSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Inline Quest Preview"
-        description="Chat-feed-only quest links keep native navigation, show title-only link hover/focus, and put rich details behind a small adjacent eye. Select any state to drive the real component deterministically."
+        description="Chat-feed-only quest links keep native navigation and a distinct rich-preview eye in one cohesive fixed-gap unit. Select any state to drive the real compact and rich preview behavior deterministically."
       >
         <div className="grid gap-4 xl:grid-cols-2">
           <Card label="Deterministic state controls">
@@ -523,21 +528,21 @@ export function PlaygroundInlineQuestPreviewSection() {
           </Card>
 
           <div className="xl:col-span-2">
-            <Card label="Scope boundary — real parsed Markdown">
+            <Card label="Fixed adjacency and scope boundary — real parsed Markdown">
               <ScopeBoundaryFixture />
               <p className="mt-3 text-xs text-cc-muted">
-                Only the explicit chat-feed producer adds the eye. The same shared Markdown link keeps legacy behavior
-                in the adjacent non-feed surface.
+                The narrow feed fixture keeps the link and eye together while surrounding prose wraps. Only the explicit
+                chat-feed producer adds the eye; the adjacent non-feed surface keeps legacy behavior.
               </p>
             </Card>
           </div>
 
           <div className="xl:col-span-2">
-            <Card label="Adjacent link-color parity">
+            <Card label="Fixed quiz adjacency and link-color parity">
               <ColorParityFixture />
               <p className="mt-3 text-xs text-cc-muted">
-                Each eye derives the exact rendered color of its own adjacent anchor: standard feed links stay blue,
-                while the inline quiz link and eye stay orange.
+                Each eye remains fixed beside its anchor and derives that exact rendered color: standard feed links stay
+                blue, while the constrained inline quiz link and eye stay orange.
               </p>
             </Card>
           </div>

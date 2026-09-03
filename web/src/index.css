@@ -91,6 +91,19 @@ html, body {
   color: var(--color-cc-quest-link-hover);
 }
 
+.cc-feed-quest-link-pair {
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+  flex-shrink: 0;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.cc-feed-quest-link-pair > .cc-quest-link {
+  white-space: normal;
+}
+
 .cc-feed-quest-preview-trigger {
   display: inline-flex;
   width: 26px;

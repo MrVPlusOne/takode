@@ -75,6 +75,14 @@ describe("structured chat-feed quest-link producers", () => {
     expectPreview("q-202");
     const quizQuestLink = screen.getByRole("link", { name: "q-202" });
     const quizQuestEye = screen.getByRole("button", { name: /Preview q-202/ });
+    const quizQuestPair = quizQuestLink.closest<HTMLElement>(".cc-feed-quest-link-pair");
+    // The quiz header is a flex layout. The wrapper must be its one cohesive
+    // child so wrapping or available width cannot distribute the link and eye
+    // as independent flex items with variable whitespace between them.
+    expect(quizQuestPair).not.toBeNull();
+    expect(quizQuestPair).toContainElement(quizQuestLink);
+    expect(quizQuestPair).toContainElement(quizQuestEye);
+    expect(quizQuestPair?.nextElementSibling).toBe(screen.getByText("Structured quiz"));
     // The actual inline-quiz producer uses its orange primary link color, so
     // the adjacent eye must derive that rendered value rather than quest blue.
     expect(quizQuestEye.style.getPropertyValue("--cc-feed-preview-link-color")).toBe(

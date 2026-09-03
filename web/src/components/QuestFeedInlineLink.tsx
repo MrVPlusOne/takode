@@ -1049,75 +1049,77 @@ export function QuestFeedInlineLink({
     : `Preview ${targetLabel}`;
   return (
     <>
-      <a
-        ref={linkRef}
-        href={questHash}
-        onClick={handleLinkClick}
-        onPointerEnter={(event) => {
-          syncPreviewColor();
-          handlePointerEnter("link", event);
-        }}
-        onPointerLeave={(event) => {
-          handlePointerLeave("link", event);
-          schedulePreviewColorSync();
-        }}
-        onPointerMove={handlePointerMove}
-        onPointerDown={(event) => handlePointerDown("link", event)}
-        onFocus={() => {
-          syncPreviewColor();
-          handleFocus("link");
-        }}
-        onBlur={(event) => {
-          handleBlur("link", event);
-          schedulePreviewColorSync();
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && dismissTransientWithEscape()) event.preventDefault();
-        }}
-        className={className}
-      >
-        {children ?? questId}
-      </a>
-      <button
-        ref={previewRef}
-        type="button"
-        className="cc-feed-quest-preview-trigger"
-        aria-label={previewAccessibleLabel}
-        aria-haspopup="dialog"
-        aria-expanded={richOpen}
-        aria-controls={dialogId}
-        data-rich-open-mode={richOpenMode ?? undefined}
-        data-testid="quest-feed-preview-button"
-        data-quest-id={normalizedQuestId}
-        onPointerEnter={(event) => {
-          syncPreviewColor();
-          handlePointerEnter("preview", event);
-        }}
-        onPointerLeave={(event) => handlePointerLeave("preview", event)}
-        onPointerMove={handlePointerMove}
-        onPointerDown={(event) => {
-          syncPreviewColor();
-          handlePointerDown("preview", event);
-        }}
-        onPointerCancel={() => {
-          pendingPreviewPointerTypeRef.current = null;
-        }}
-        onFocus={() => {
-          syncPreviewColor();
-          handleFocus("preview");
-        }}
-        onBlur={(event) => handleBlur("preview", event)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") pendingPreviewPointerTypeRef.current = null;
-          if (event.key === "Escape" && dismissTransientWithEscape()) event.preventDefault();
-        }}
-        onClick={activateRichPreview}
-      >
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
-          <path d="M1.5 8s2.2-3.75 6.5-3.75S14.5 8 14.5 8 12.3 11.75 8 11.75 1.5 8 1.5 8Z" />
-          <circle cx="8" cy="8" r="1.6" />
-        </svg>
-      </button>
+      <span className="cc-feed-quest-link-pair" data-testid="quest-feed-link-pair">
+        <a
+          ref={linkRef}
+          href={questHash}
+          onClick={handleLinkClick}
+          onPointerEnter={(event) => {
+            syncPreviewColor();
+            handlePointerEnter("link", event);
+          }}
+          onPointerLeave={(event) => {
+            handlePointerLeave("link", event);
+            schedulePreviewColorSync();
+          }}
+          onPointerMove={handlePointerMove}
+          onPointerDown={(event) => handlePointerDown("link", event)}
+          onFocus={() => {
+            syncPreviewColor();
+            handleFocus("link");
+          }}
+          onBlur={(event) => {
+            handleBlur("link", event);
+            schedulePreviewColorSync();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && dismissTransientWithEscape()) event.preventDefault();
+          }}
+          className={className}
+        >
+          {children ?? questId}
+        </a>
+        <button
+          ref={previewRef}
+          type="button"
+          className="cc-feed-quest-preview-trigger"
+          aria-label={previewAccessibleLabel}
+          aria-haspopup="dialog"
+          aria-expanded={richOpen}
+          aria-controls={dialogId}
+          data-rich-open-mode={richOpenMode ?? undefined}
+          data-testid="quest-feed-preview-button"
+          data-quest-id={normalizedQuestId}
+          onPointerEnter={(event) => {
+            syncPreviewColor();
+            handlePointerEnter("preview", event);
+          }}
+          onPointerLeave={(event) => handlePointerLeave("preview", event)}
+          onPointerMove={handlePointerMove}
+          onPointerDown={(event) => {
+            syncPreviewColor();
+            handlePointerDown("preview", event);
+          }}
+          onPointerCancel={() => {
+            pendingPreviewPointerTypeRef.current = null;
+          }}
+          onFocus={() => {
+            syncPreviewColor();
+            handleFocus("preview");
+          }}
+          onBlur={(event) => handleBlur("preview", event)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") pendingPreviewPointerTypeRef.current = null;
+            if (event.key === "Escape" && dismissTransientWithEscape()) event.preventDefault();
+          }}
+          onClick={activateRichPreview}
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+            <path d="M1.5 8s2.2-3.75 6.5-3.75S14.5 8 14.5 8 12.3 11.75 8 11.75 1.5 8 1.5 8Z" />
+            <circle cx="8" cy="8" r="1.6" />
+          </svg>
+        </button>
+      </span>
       {richOpenMode === "hover" &&
         richPlacement?.kind === "popover" &&
         richPlacement.hoverActivationRect &&

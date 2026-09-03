@@ -128,7 +128,7 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
       name: "Inline quest preview fixture state",
     });
     expect(within(controls).getAllByRole("button")).toHaveLength(8);
-    expect(within(section).getByText(/small adjacent eye/)).toBeInTheDocument();
+    expect(within(section).getByText(/cohesive fixed-gap unit/)).toBeInTheDocument();
 
     let live = await within(section).findByTestId("playground-inline-quest-preview-live");
     expect(live).toHaveAttribute("data-preview-fixture-state", "idle");
@@ -296,10 +296,16 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
 
     const feed = screen.getByTestId("playground-inline-quest-preview-feed-boundary");
     const legacy = screen.getByTestId("playground-inline-quest-preview-legacy-boundary");
-    expect(within(feed).getByRole("link", { name: "q-9410 feedback #4" })).toBeInTheDocument();
+    const feedLink = within(feed).getByRole("link", { name: "q-9410 feedback #4" });
     const feedEye = within(feed).getByRole("button", {
       name: /Preview q-9410 feedback #4/,
     });
+    const feedPair = feedLink.closest<HTMLElement>(".cc-feed-quest-link-pair");
+    // This constrained real-Markdown fixture is the browser-visible wrapping
+    // proof: the pair stays one layout unit without merging either control.
+    expect(feedPair).not.toBeNull();
+    expect(feedPair).toContainElement(feedLink);
+    expect(feedPair).toContainElement(feedEye);
     expect(feedEye.querySelector("svg")).toBeInTheDocument();
     expect(feedEye).not.toHaveTextContent("Preview");
     expect(within(legacy).getByRole("link", { name: "q-9410 feedback #4" })).toBeInTheDocument();
@@ -325,7 +331,13 @@ describe("PlaygroundInlineQuestPreviewSection", () => {
     const blueEye = within(bluePair).getByRole("button", { name: /Preview q-9410/ });
     const orangeLink = within(orangePair).getByRole("link", { name: "q-9410" });
     const orangeEye = within(orangePair).getByRole("button", { name: /Preview q-9410/ });
+    const orangeLinkPair = orangeLink.closest<HTMLElement>(".cc-feed-quest-link-pair");
 
+    // The screenshot-shaped constrained quiz host must see one pair child,
+    // while the native link and eye remain independently accessible inside it.
+    expect(orangeLinkPair).not.toBeNull();
+    expect(orangeLinkPair).toContainElement(orangeLink);
+    expect(orangeLinkPair).toContainElement(orangeEye);
     expect(blueEye.style.getPropertyValue("--cc-feed-preview-link-color")).toBe(getComputedStyle(blueLink).color);
     expect(orangeEye.style.getPropertyValue("--cc-feed-preview-link-color")).toBe(getComputedStyle(orangeLink).color);
     expect(blueEye.style.getPropertyValue("--cc-feed-preview-link-color")).not.toBe(

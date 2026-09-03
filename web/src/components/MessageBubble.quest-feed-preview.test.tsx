@@ -235,6 +235,11 @@ describe("producer-shaped chat feed quest preview", () => {
     expect(title).toHaveTextContent("Dense transition hover title");
     expect(within(markdown).getByRole("link", { name: "q-67 feedback #4" })).toBe(anchor);
     expect(anchor).toHaveAttribute("href", "#/session/s1?quest=q-67&feedback=4");
+    const pair = anchor.closest<HTMLElement>(".cc-feed-quest-link-pair");
+    // Dense producer controls must route around the preview layer without
+    // splitting the source link and eye back into independent layout items.
+    expect(pair).not.toBeNull();
+    expect(pair).toContainElement(anchor);
     expect(anchor.nextElementSibling).toBe(eye);
     expect(selection.toString()).toBe(selectedText);
     selection.removeAllRanges();

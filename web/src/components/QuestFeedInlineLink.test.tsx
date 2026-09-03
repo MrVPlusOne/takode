@@ -172,15 +172,20 @@ describe("QuestInlineLink chat-feed preview", () => {
     vi.restoreAllMocks();
   });
 
-  it("keeps the exact native anchor first and adds one icon-only adjacent Preview control", () => {
+  it("keeps the native link and icon-only Preview control in one fixed-gap inline unit", () => {
     renderFeedLink("q-42", { feedbackIndex: 5, title: "Stable exact target", nextControl: true });
 
     const link = screen.getByRole("link", { name: "q-42 feedback #5" });
     const preview = screen.getByRole("button", { name: "Preview q-42 feedback #5: Stable exact target" });
     const next = screen.getByRole("button", { name: "Next control" });
+    const pair = screen.getByTestId("quest-feed-link-pair");
+    // The neutral wrapper is the fixed-spacing boundary seen by surrounding
+    // flex/inline layouts; the native link and eye remain separate controls.
     expect(link.getAttribute("href")).toBe("#/session/s1?quest=q-42&feedback=5");
+    expect(pair).toHaveClass("cc-feed-quest-link-pair");
+    expect(pair.firstElementChild).toBe(link);
     expect(link.nextElementSibling).toBe(preview);
-    expect(preview.nextElementSibling).toBe(next);
+    expect(pair.nextElementSibling).toBe(next);
     expect(preview).toHaveAttribute("aria-haspopup", "dialog");
     expect(preview).toHaveAttribute("aria-expanded", "false");
     expect(preview).toHaveTextContent("");
