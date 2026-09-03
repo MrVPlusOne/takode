@@ -140,12 +140,13 @@ describe("Codex result interruption ownership", () => {
 });
 
 describe("Codex leader thread status activity invalidation", () => {
-  it("persists same-id commentary followed by an explicit final with identical prose", async () => {
+  it("persists same-id commentary followed by an explicit answer with identical prose", async () => {
     const session = makeSession();
     session.activeTurnRoute = { threadKey: "main" };
     session.messageHistory.push({
       type: "user_message",
       id: "same-id-user",
+      leaderUserMessageId: "u1",
       content: "Please answer.",
       timestamp: 10,
       threadKey: "main",
@@ -162,7 +163,7 @@ describe("Codex leader thread status activity invalidation", () => {
       session as any,
       {
         ...base,
-        message: { ...base.message, content: [{ type: "text", text: "[thread:main:F]\nSame prose." }] },
+        message: { ...base.message, content: [{ type: "text", text: "[thread:main:A:u1]\nSame prose." }] },
       },
       deps,
     );
@@ -171,7 +172,7 @@ describe("Codex leader thread status activity invalidation", () => {
       (entry): entry is Extract<BrowserIncomingMessage, { type: "assistant" }> => entry.type === "assistant",
     );
     expect(accepted).toHaveLength(2);
-    expect(accepted.map((entry) => entry.leaderThreadRole)).toEqual(["commentary", "response"]);
+    expect(accepted.map((entry) => entry.leaderThreadRole)).toEqual(["commentary", "answer"]);
     expect(broadcasts.filter((entry) => entry.type === "assistant")).toHaveLength(2);
   });
 

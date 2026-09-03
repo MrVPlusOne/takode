@@ -1,20 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { buildFeedModel } from "../hooks/use-feed-model.js";
-import type { ChatMessage, LeaderThreadResponseProjection } from "../types.js";
+import type { ChatMessage, LeaderThreadResponseProjection, LeaderThreadResponseState } from "../types.js";
 import { buildFeedSections } from "./message-feed-sections.js";
 import { resolveThreadResponses } from "./thread-response-presentation.js";
 
 const THREAD_KEY = "q-2024";
 
-function user(id: string, historyIndex: number): ChatMessage {
+function user(answerId: string, historyIndex: number): ChatMessage {
   return {
-    id,
+    id: `raw-${answerId}`,
     role: "user",
-    content: id,
+    content: answerId,
     timestamp: historyIndex,
     historyIndex,
     metadata: {
       leaderResponseCoverageVersion: 1,
+      leaderUserMessageId: answerId,
       threadKey: THREAD_KEY,
       questId: THREAD_KEY,
       threadRefs: [{ threadKey: THREAD_KEY, questId: THREAD_KEY, source: "explicit" }],
@@ -22,16 +23,7 @@ function user(id: string, historyIndex: number): ChatMessage {
   };
 }
 
-function response(input: {
-  id: string;
-  logicalResponseId: string;
-  revisionId: string;
-  revisionNumber: number;
-  batchId: string;
-  covered: string[];
-  historyIndex: number;
-  content?: string;
-}): ChatMessage {
+function answer(input: { id: string; answerIds: string[]; historyIndex: number; content?: string }): ChatMessage {
   return {
     id: input.id,
     role: "assistant",
@@ -39,62 +31,60 @@ function response(input: {
     timestamp: input.historyIndex,
     historyIndex: input.historyIndex,
     metadata: {
-      leaderThreadRole: "response",
+      leaderThreadRole: "answer",
       threadKey: THREAD_KEY,
       questId: THREAD_KEY,
       threadRefs: [{ threadKey: THREAD_KEY, questId: THREAD_KEY, source: "explicit" }],
-      threadResponse: {
-        logicalResponseId: input.logicalResponseId,
-        revisionId: input.revisionId,
-        revisionNumber: input.revisionNumber,
-        batchId: input.batchId,
-        batchObservedHistoryLength: 20,
-        coveredUserMessageIds: input.covered,
-        contentHash: `hash-${input.revisionId}`,
+      threadAnswer: {
+        version: 2,
+        answerUserMessageIds: input.answerIds,
+        observedHistoryLength: input.historyIndex,
       },
     },
   };
 }
 
+function answerState(input: {
+  id: string;
+  answerIds: string[];
+  referencedIds: string[];
+  coveredAnswerIds?: string[];
+  coveredIds?: string[];
+  historyIndex: number;
+  source?: "explicit" | "legacy";
+}): LeaderThreadResponseState {
+  return {
+    version: 2,
+    threadKey: THREAD_KEY,
+    questId: THREAD_KEY,
+    answerUserMessageIds: input.answerIds,
+    referencedUserMessageIds: input.referencedIds,
+    coveredAnswerUserMessageIds: input.coveredAnswerIds ?? input.answerIds,
+    coveredUserMessageIds: input.coveredIds ?? input.referencedIds,
+    currentMessageId: input.id,
+    currentHistoryIndex: input.historyIndex,
+    createdAt: input.historyIndex,
+    updatedAt: input.historyIndex,
+    source: input.source ?? "explicit",
+  };
+}
+
 function projection(overrides: Partial<LeaderThreadResponseProjection> = {}): LeaderThreadResponseProjection {
   return {
-    version: 1,
+    version: 2,
     threadKey: THREAD_KEY,
     cutoverHistoryIndex: 10,
     pendingMessageCount: 0,
-    pendingBatches: [],
+    pendingMessages: [],
     ready: true,
-    currentResponses: [
-      {
-        version: 1,
-        logicalResponseId: "logical-a",
-        threadKey: THREAD_KEY,
-        questId: THREAD_KEY,
-        batchId: "batch-a",
-        batchObservedHistoryLength: 20,
-        coveredUserMessageIds: ["u1", "u2"],
-        currentRevisionId: "a-r2",
-        currentMessageId: "a-current",
-        currentHistoryIndex: 14,
-        revisionCount: 2,
-        createdAt: 13,
-        updatedAt: 14,
-      },
-      {
-        version: 1,
-        logicalResponseId: "logical-b",
-        threadKey: THREAD_KEY,
-        questId: THREAD_KEY,
-        batchId: "batch-b",
-        batchObservedHistoryLength: 20,
-        coveredUserMessageIds: ["u3"],
-        currentRevisionId: "b-r1",
-        currentMessageId: "b-current",
-        currentHistoryIndex: 16,
-        revisionCount: 1,
-        createdAt: 16,
-        updatedAt: 16,
-      },
+    currentAnswers: [
+      answerState({
+        id: "a-current",
+        answerIds: ["u1", "u2"],
+        referencedIds: ["raw-u1", "raw-u2"],
+        historyIndex: 14,
+      }),
+      answerState({ id: "b-current", answerIds: ["u3"], referencedIds: ["raw-u3"], historyIndex: 16 }),
     ],
     ...overrides,
   };
@@ -108,110 +98,138 @@ function validMessages(): ChatMessage[] {
   return [
     user("u1", 10),
     user("u2", 11),
-    response({
-      id: "a-old",
-      logicalResponseId: "logical-a",
-      revisionId: "a-r1",
-      revisionNumber: 1,
-      batchId: "batch-a",
-      covered: ["u1", "u2"],
-      historyIndex: 13,
-    }),
-    response({
-      id: "a-current",
-      logicalResponseId: "logical-a",
-      revisionId: "a-r2",
-      revisionNumber: 2,
-      batchId: "batch-a",
-      covered: ["u1", "u2"],
-      historyIndex: 14,
-    }),
+    answer({ id: "a-old", answerIds: ["u1", "u2"], historyIndex: 13 }),
+    answer({ id: "a-current", answerIds: ["u1", "u2"], historyIndex: 14 }),
     user("u3", 15),
-    response({
+    answer({
       id: "b-current",
-      logicalResponseId: "logical-b",
-      revisionId: "b-r1",
-      revisionNumber: 1,
-      batchId: "batch-b",
-      covered: ["u3"],
+      answerIds: ["u3"],
       historyIndex: 16,
-      content: "Final response\n\n{[(Quest Quiz: q-2024)]}",
+      content: "Answer response\n\n{[(Quest Quiz: q-2024)]}",
     }),
   ];
 }
 
-describe("pending-batch thread response presentation", () => {
-  it("maps each current response after its batch's last prompt and separates Quiz", () => {
+describe("explicit answer presentation", () => {
+  it("maps each current answer after its last effective prompt and separates Quiz", () => {
     const result = resolveThreadResponses(sections(validMessages()), projection(), THREAD_KEY);
 
-    expect(result?.currentResponses.map((item) => [item.response.logicalResponseId, item.anchorUserMessageId])).toEqual(
-      [
-        ["logical-a", "u2"],
-        ["logical-b", "u3"],
-      ],
-    );
-    expect(result?.currentResponses[1]?.collapsedMessageEntry.msg.content).toBe("Final response");
-    expect(result?.quizQuestIds).toEqual(["q-2024"]);
-    expect(result?.quizHostTurnId).toBe("u3");
+    expect(result?.currentResponses.map((item) => [item.response.currentMessageId, item.anchorUserMessageId])).toEqual([
+      ["a-current", "raw-u2"],
+      ["b-current", "raw-u3"],
+    ]);
+    expect(result?.currentResponses[1]?.collapsedMessageEntry.msg.content).toBe("Answer response");
+    expect(result?.quizGroups).toEqual([{ hostTurnId: "raw-u3", questIds: ["q-2024"] }]);
   });
 
-  it("fails closed for overlapping coverage or a mismatched current revision", () => {
+  it("keeps a Quiz with the earlier turn that actually contains its directive", () => {
+    const messages = validMessages();
+    messages.find((message) => message.id === "a-current")!.content += "\n\n{[(Quest Quiz: q-2024)]}";
+    messages.find((message) => message.id === "b-current")!.content = "Later answer without a Quiz";
+
+    const result = resolveThreadResponses(sections(messages), projection(), THREAD_KEY);
+
+    expect(result?.quizGroups).toEqual([{ hostTurnId: "raw-u2", questIds: ["q-2024"] }]);
+    expect(result?.currentResponses[0]?.collapsedMessageEntry.msg.content).toBe("a-current");
+    expect(result?.currentResponses[1]?.collapsedMessageEntry.msg.content).toBe("Later answer without a Quiz");
+  });
+
+  it("supports partial supersession with effective coverage distinct from original references", () => {
+    const messages = [
+      user("u1", 10),
+      user("u2", 11),
+      answer({ id: "a-current", answerIds: ["u1", "u2"], historyIndex: 14 }),
+      answer({ id: "b-current", answerIds: ["u2"], historyIndex: 16 }),
+    ];
+    const state = projection({
+      currentAnswers: [
+        answerState({
+          id: "a-current",
+          answerIds: ["u1", "u2"],
+          referencedIds: ["raw-u1", "raw-u2"],
+          coveredAnswerIds: ["u1"],
+          coveredIds: ["raw-u1"],
+          historyIndex: 14,
+        }),
+        answerState({ id: "b-current", answerIds: ["u2"], referencedIds: ["raw-u2"], historyIndex: 16 }),
+      ],
+    });
+
+    const result = resolveThreadResponses(sections(messages), state, THREAD_KEY);
+    expect(result?.currentResponses.map((item) => [item.response.currentMessageId, item.anchorUserMessageId])).toEqual([
+      ["a-current", "raw-u1"],
+      ["b-current", "raw-u2"],
+    ]);
+  });
+
+  it("fails closed for overlapping effective coverage or mismatched answer proof", () => {
     const overlap = projection({
-      currentResponses: [
-        ...projection().currentResponses,
-        {
-          ...projection().currentResponses[1]!,
-          logicalResponseId: "logical-c",
-          currentMessageId: "b-current",
-          coveredUserMessageIds: ["u2"],
-        },
+      currentAnswers: [
+        ...projection().currentAnswers,
+        answerState({ id: "b-current", answerIds: ["u2"], referencedIds: ["raw-u2"], historyIndex: 16 }),
       ],
     });
     expect(resolveThreadResponses(sections(validMessages()), overlap, THREAD_KEY)).toBeNull();
 
     const mismatch = projection({
-      currentResponses: [
-        { ...projection().currentResponses[0]!, currentRevisionId: "wrong" },
-        projection().currentResponses[1]!,
+      currentAnswers: [
+        { ...projection().currentAnswers[0]!, answerUserMessageIds: ["u9"] },
+        projection().currentAnswers[1]!,
       ],
     });
     expect(resolveThreadResponses(sections(validMessages()), mismatch, THREAD_KEY)).toBeNull();
   });
 
-  it("retains current response identity while newer user input is pending", () => {
+  it("retains current answer identity while an older request remains pending", () => {
     const messages = [...validMessages(), user("u4", 17)];
     const active = projection({
       ready: false,
       pendingMessageCount: 1,
-      pendingBatches: [
-        {
-          userMessageIds: ["u4"],
-          messageCount: 1,
-          firstHistoryIndex: 17,
-          lastHistoryIndex: 17,
-          firstAskedAt: 17,
-          lastAskedAt: 17,
-        },
-      ],
+      pendingMessages: [{ userMessageId: "u4", historyMessageId: "raw-u4", historyIndex: 17, askedAt: 17 }],
     });
 
     const result = resolveThreadResponses(sections(messages), active, THREAD_KEY);
-
     expect(result?.ready).toBe(false);
     expect(result?.currentResponses.map((item) => item.response.currentMessageId)).toEqual(["a-current", "b-current"]);
   });
 
-  it("accepts legacy response rows but rejects commentary with response metadata", () => {
+  it("accepts validated legacy rows but rejects commentary carrying legacy metadata", () => {
     const messages = validMessages();
     const legacy = messages.find((message) => message.id === "a-current")!;
-    legacy.metadata = { ...legacy.metadata, leaderThreadRole: undefined, leaderUserMessage: true };
-    expect(resolveThreadResponses(sections(messages), projection(), THREAD_KEY)).not.toBeNull();
+    legacy.metadata = {
+      ...legacy.metadata,
+      leaderThreadRole: undefined,
+      leaderUserMessage: true,
+      threadAnswer: undefined,
+      threadResponse: {
+        logicalResponseId: "legacy",
+        revisionId: "legacy-r1",
+        revisionNumber: 1,
+        batchId: "legacy-batch",
+        batchObservedHistoryLength: 14,
+        coveredUserMessageIds: ["raw-u1", "raw-u2"],
+        contentHash: "legacy-hash",
+      },
+    };
+    const legacyState = projection({
+      currentAnswers: [
+        answerState({
+          id: "a-current",
+          answerIds: ["u1", "u2"],
+          referencedIds: ["raw-u1", "raw-u2"],
+          historyIndex: 14,
+          source: "legacy",
+        }),
+        projection().currentAnswers[1]!,
+      ],
+    });
+    expect(resolveThreadResponses(sections(messages), legacyState, THREAD_KEY)).not.toBeNull();
 
     legacy.metadata = { ...legacy.metadata, leaderUserMessage: false, leaderThreadRole: "commentary" };
-    expect(resolveThreadResponses(sections(messages), projection(), THREAD_KEY)).toBeNull();
+    expect(resolveThreadResponses(sections(messages), legacyState, THREAD_KEY)).toBeNull();
   });
 
-  it("does not transfer Main response authority through a quest backfill reference", () => {
+  it("keeps backfill visibility separate and preserves normal fallbacks", () => {
     const backfilledMain: ChatMessage = {
       id: "main-backfill",
       role: "user",
@@ -228,9 +246,6 @@ describe("pending-batch thread response presentation", () => {
     expect(
       resolveThreadResponses(sections([...validMessages(), backfilledMain]), projection(), THREAD_KEY),
     ).not.toBeNull();
-  });
-
-  it("keeps pre-cutover, unsupported, and All Threads states on the normal fallback", () => {
     expect(
       resolveThreadResponses(sections(validMessages()), projection({ cutoverHistoryIndex: 12 }), THREAD_KEY),
     ).toBeNull();

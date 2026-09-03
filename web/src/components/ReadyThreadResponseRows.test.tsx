@@ -35,19 +35,18 @@ function presentation(coveredUserMessageIds = ["u1", "u2"]): ThreadResponsePrese
     currentResponses: [
       {
         response: {
-          version: 1,
-          logicalResponseId: "logical-response",
+          version: 2,
           threadKey: "q-2",
           questId: "q-2",
-          batchId: "batch-1",
-          batchObservedHistoryLength: 5,
+          answerUserMessageIds: coveredUserMessageIds,
+          referencedUserMessageIds: coveredUserMessageIds,
+          coveredAnswerUserMessageIds: coveredUserMessageIds,
           coveredUserMessageIds,
-          currentRevisionId: "r1",
           currentMessageId: "response-current",
           currentHistoryIndex: 4,
-          revisionCount: 1,
           createdAt: 4,
           updatedAt: 4,
+          source: "explicit",
         },
         anchorUserMessageId: coveredUserMessageIds.at(-1)!,
         anchorTurnId: "u2",
@@ -58,8 +57,7 @@ function presentation(coveredUserMessageIds = ["u1", "u2"]): ThreadResponsePrese
       },
     ],
     currentResponseMessageIds: new Set(["response-current"]),
-    quizQuestIds: [],
-    quizHostTurnId: "u2",
+    quizGroups: [],
     layoutSignature: "response:r1",
   };
 }
@@ -81,11 +79,11 @@ describe("ReadyThreadResponseRows", () => {
 
     expect(screen.getByText("Current polished response")).toBeVisible();
     expect(screen.getByTestId("thread-response-group-provenance")).toHaveTextContent("Answers 2 messages");
-    expect(screen.queryByText("Current response")).not.toBeInTheDocument();
+    expect(screen.queryByText("Current answer")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Edit|Save new version|Versions/i })).not.toBeInTheDocument();
   });
 
-  it("omits grouped provenance for the normal singleton batch", () => {
+  it("omits grouped provenance for the normal singleton answer", () => {
     const current = presentation(["u2"]);
     render(
       <ReadyThreadResponseRows

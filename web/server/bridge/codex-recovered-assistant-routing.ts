@@ -4,6 +4,7 @@ import type { ParsedThreadStatusMarker } from "../../shared/thread-status-marker
 import type { CodexResumeTurnSnapshot } from "../codex-adapter.js";
 import type { BrowserIncomingMessage, CodexOutboundTurn, ContentBlock, SessionState } from "../session-types.js";
 import {
+  buildLeaderThreadResponseState,
   finalizeRoutedLeaderResponseMessage,
   isCurrentValidRoutedLeaderResponseMessage,
 } from "../leader-thread-response.js";
@@ -18,9 +19,18 @@ import {
 
 type AssistantHistoryEntry = Extract<BrowserIncomingMessage, { type: "assistant" }>;
 
+type CanonicalRecoveredAssistant = {
+  text: string;
+  routeKey: string;
+  role: NonNullable<AssistantHistoryEntry["leaderThreadRole"]>;
+  answerUserMessageIds: string;
+};
+
+const LEGACY_FINAL_THREAD_MARKER_RE = /^(\s*)\[thread:(main|q-\d+):F\](?=$|[ \t]|\r?\n)/i;
+
 export type CodexRecoveredAssistantRouteFields = Pick<
   AssistantHistoryEntry,
-  "threadKey" | "questId" | "threadRefs" | "threadRoutingError" | "leaderThreadRole"
+  "threadKey" | "questId" | "threadRefs" | "threadRoutingError" | "leaderThreadRole" | "leaderAnswerUserMessageIds"
 > & {
   content: ContentBlock[];
   threadStatusMarkers?: import("../../shared/thread-status-marker.js").ParsedThreadStatusMarker[];
@@ -52,6 +62,37 @@ export function buildCodexRecoveredAssistantRouteSegments(
   );
 }
 
+/**
+ * Retired `:F` syntax is parsed only as a replay candidate. The returned
+ * route fields never enter the recovered-message authoring path; callers must
+ * additionally prove that the candidate matches an already-persisted valid
+ * legacy response row.
+ */
+function buildLegacyFinalReplayRouteSegments(
+  session: CodexRecoveredAssistantRoutingSessionLike,
+  text: string,
+): CodexRecoveredAssistantRouteFields[] | null {
+  if (!isLeaderSessionForRecoveredAssistantRouting(session)) return null;
+  const segments = splitLeaderAssistantContentAtThreadRouteBoundaries(true, [{ type: "text", text }], null);
+  const routed = segments.map((contentSegment) => {
+    const firstTextIndex = contentSegment.findIndex((block) => block.type === "text" && block.text.trim());
+    if (firstTextIndex < 0) return null;
+    const firstText = contentSegment[firstTextIndex] as Extract<ContentBlock, { type: "text" }>;
+    const marker = LEGACY_FINAL_THREAD_MARKER_RE.exec(firstText.text);
+    if (!marker) return null;
+
+    const rewritten = contentSegment.slice();
+    rewritten[firstTextIndex] = {
+      ...firstText,
+      text: `${marker[1]}[thread:${marker[2]}:C]${firstText.text.slice(marker[0].length)}`,
+    };
+    const normalized = normalizeLeaderAssistantRouting(true, rewritten, null);
+    if (normalized.threadRoutingError || normalized.leaderThreadRole !== "commentary") return null;
+    return { ...normalized, leaderThreadRole: "response" as const };
+  });
+  return routed.every(Boolean) ? (routed as CodexRecoveredAssistantRouteFields[]) : null;
+}
+
 export function codexRecoveredAssistantModel(session: CodexRecoveredAssistantRoutingSessionLike): string {
   return session.state.model || getDefaultModelForBackend("codex");
 }
@@ -72,9 +113,15 @@ function canonicalRecoveredAssistantFromRouteFields(
   routed: CodexRecoveredAssistantRouteFields,
   entry: Pick<
     AssistantHistoryEntry,
-    "threadKey" | "questId" | "threadRefs" | "threadRoutingError" | "leaderThreadRole"
+    | "threadKey"
+    | "questId"
+    | "threadRefs"
+    | "threadRoutingError"
+    | "leaderThreadRole"
+    | "leaderAnswerUserMessageIds"
+    | "threadAnswer"
   > = {},
-): { text: string; routeKey: string; role: NonNullable<AssistantHistoryEntry["leaderThreadRole"]> } | null {
+): CanonicalRecoveredAssistant | null {
   const textBlocks = routed.content.filter((block) => block.type === "text");
   if (textBlocks.length !== 1) return null;
   const normalizedText = normalizeCodexRecoveredAssistantText(textBlocks[0].text || "");
@@ -83,6 +130,12 @@ function canonicalRecoveredAssistantFromRouteFields(
     text: normalizedText,
     routeKey: canonicalRouteKeyForRecoveredAssistant(entry, routed),
     role: routed.leaderThreadRole ?? entry.leaderThreadRole ?? "commentary",
+    answerUserMessageIds: (
+      routed.leaderAnswerUserMessageIds ??
+      entry.threadAnswer?.answerUserMessageIds ??
+      entry.leaderAnswerUserMessageIds ??
+      []
+    ).join(","),
   };
 }
 
@@ -90,7 +143,7 @@ function canonicalRecoveredAssistant(
   session: CodexRecoveredAssistantRoutingSessionLike,
   text: string,
   entry: Pick<AssistantHistoryEntry, "threadKey" | "questId" | "threadRefs" | "threadRoutingError"> = {},
-): { text: string; routeKey: string; role: NonNullable<AssistantHistoryEntry["leaderThreadRole"]> } | null {
+): CanonicalRecoveredAssistant | null {
   const segments = buildCodexRecoveredAssistantRouteSegments(session, text);
   if (segments.length !== 1) return null;
   return canonicalRecoveredAssistantFromRouteFields(segments[0]!, entry);
@@ -99,33 +152,78 @@ function canonicalRecoveredAssistant(
 function canonicalRecoveredAssistantSegments(
   session: CodexRecoveredAssistantRoutingSessionLike,
   text: string,
-): Array<{ text: string; routeKey: string; role: NonNullable<AssistantHistoryEntry["leaderThreadRole"]> }> | null {
+): CanonicalRecoveredAssistant[] | null {
   const canonical = buildCodexRecoveredAssistantRouteSegments(session, text).map((segment) =>
     canonicalRecoveredAssistantFromRouteFields(segment),
   );
-  return canonical.every(Boolean)
-    ? (canonical as Array<{
-        text: string;
-        routeKey: string;
-        role: NonNullable<AssistantHistoryEntry["leaderThreadRole"]>;
-      }>)
-    : null;
+  return canonical.every(Boolean) ? (canonical as CanonicalRecoveredAssistant[]) : null;
 }
 
 function canonicalExistingRecoveredAssistant(
   session: CodexRecoveredAssistantRoutingSessionLike,
   existing: AssistantHistoryEntry,
-): { text: string; routeKey: string; role: NonNullable<AssistantHistoryEntry["leaderThreadRole"]> } | null {
+): CanonicalRecoveredAssistant | null {
   const textBlocks = existing.message.content.filter((block) => block.type === "text");
   if (textBlocks.length !== 1) return null;
   return canonicalRecoveredAssistant(session, textBlocks[0].text || "", existing);
 }
 
 function sameCanonicalRecoveredAssistant(
-  left: { text: string; routeKey: string; role: NonNullable<AssistantHistoryEntry["leaderThreadRole"]> } | null,
-  right: { text: string; routeKey: string; role: NonNullable<AssistantHistoryEntry["leaderThreadRole"]> } | null,
+  left: CanonicalRecoveredAssistant | null,
+  right: CanonicalRecoveredAssistant | null,
 ): boolean {
-  return !!left && !!right && left.text === right.text && left.routeKey === right.routeKey && left.role === right.role;
+  return (
+    !!left &&
+    !!right &&
+    left.text === right.text &&
+    left.routeKey === right.routeKey &&
+    left.role === right.role &&
+    left.answerUserMessageIds === right.answerUserMessageIds
+  );
+}
+
+function canonicalLegacyFinalReplaySegments(
+  session: CodexRecoveredAssistantRoutingSessionLike,
+  text: string,
+): CanonicalRecoveredAssistant[] | null {
+  const routed = buildLegacyFinalReplayRouteSegments(session, text);
+  if (!routed) return null;
+  const canonical = routed.map((segment) => canonicalRecoveredAssistantFromRouteFields(segment));
+  return canonical.every(Boolean) ? (canonical as CanonicalRecoveredAssistant[]) : null;
+}
+
+function isHistoricallyValidLegacyAssistantResponse(
+  session: CodexRecoveredAssistantRoutingSessionLike,
+  entry: AssistantHistoryEntry,
+): boolean {
+  if (!session.id || entry.leaderThreadRole !== "response" || !entry.threadResponse) return false;
+  const historyIndex = session.messageHistory.indexOf(entry);
+  if (historyIndex < 0) return false;
+  const threadKey = entry.threadKey?.trim().toLowerCase();
+  if (threadKey !== "main" && !/^q-\d+$/.test(threadKey ?? "")) return false;
+
+  const historical = buildLeaderThreadResponseState(
+    { id: session.id, messageHistory: session.messageHistory.slice(0, historyIndex + 1) },
+    threadKey!,
+  );
+  return historical.responses.some(
+    (response) =>
+      response.source === "legacy" &&
+      response.currentHistoryIndex === historyIndex &&
+      response.currentMessageId === entry.message.id,
+  );
+}
+
+function matchesRecoveredAssistantCandidate(
+  session: CodexRecoveredAssistantRoutingSessionLike,
+  existingEntry: AssistantHistoryEntry,
+  incoming: CanonicalRecoveredAssistant | null,
+  legacyIncoming: CanonicalRecoveredAssistant | null,
+): boolean {
+  const existing = canonicalExistingRecoveredAssistant(session, existingEntry);
+  if (sameCanonicalRecoveredAssistant(existing, incoming)) return true;
+  if (!sameCanonicalRecoveredAssistant(existing, legacyIncoming)) return false;
+  return isHistoricallyValidLegacyAssistantResponse(session, existingEntry);
 }
 
 export function findMatchingRecoveredCodexAssistantReplay(
@@ -136,6 +234,7 @@ export function findMatchingRecoveredCodexAssistantReplay(
 ): AssistantHistoryEntry[] | null {
   const incoming = canonicalRecoveredAssistantSegments(session, text);
   if (!incoming?.length) return null;
+  const legacyIncoming = canonicalLegacyFinalReplaySegments(session, text);
 
   const recentAssistants: AssistantHistoryEntry[] = [];
   for (let i = session.messageHistory.length - 1; i >= 0 && recentAssistants.length < limit; i--) {
@@ -151,8 +250,8 @@ export function findMatchingRecoveredCodexAssistantReplay(
   for (let start = 0; start <= recentAssistants.length - incoming.length; start++) {
     let matches = true;
     for (let offset = 0; offset < incoming.length; offset++) {
-      const existing = canonicalExistingRecoveredAssistant(session, recentAssistants[start + offset]!);
-      if (!sameCanonicalRecoveredAssistant(existing, incoming[offset]!)) {
+      const existing = recentAssistants[start + offset]!;
+      if (!matchesRecoveredAssistantCandidate(session, existing, incoming[offset]!, legacyIncoming?.[offset] ?? null)) {
         matches = false;
         break;
       }
@@ -177,24 +276,25 @@ function reconcileCompletedRecoveredAssistantControls(
   session: CodexRecoveredAssistantRoutingSessionLike,
   entry: AssistantHistoryEntry,
   routed: CodexRecoveredAssistantRouteFields,
-  responseObservationHistoryLength: number | undefined,
+  answerObservationHistoryLength: number | undefined,
 ): boolean {
   let changed = false;
-  // Canonical matching already includes the role. Preserve legacy roleless
-  // commentary rows instead of turning history replay into fresh activity;
-  // a recovered final without persisted response role cannot match and is
-  // therefore appended as a new authoritative response row.
+  // Canonical matching includes route, role, and answer IDs. Preserve legacy
+  // roleless commentary instead of promoting replay into fresh authority.
   if (
-    routed.leaderThreadRole === "response" &&
-    responseObservationHistoryLength !== undefined &&
-    !isCurrentValidRoutedLeaderResponseMessage(
-      { id: session.id ?? "", messageHistory: session.messageHistory },
-      entry,
-    ) &&
-    entry.leaderResponseObservedHistoryLength !== responseObservationHistoryLength
+    routed.leaderThreadRole === "answer" &&
+    routed.leaderAnswerUserMessageIds?.length &&
+    answerObservationHistoryLength !== undefined &&
+    !isCurrentValidRoutedLeaderResponseMessage({ id: session.id ?? "", messageHistory: session.messageHistory }, entry)
   ) {
-    entry.leaderResponseObservedHistoryLength = responseObservationHistoryLength;
-    changed = true;
+    if (entry.leaderAnswerObservedHistoryLength !== answerObservationHistoryLength) {
+      entry.leaderAnswerObservedHistoryLength = answerObservationHistoryLength;
+      changed = true;
+    }
+    if (entry.leaderAnswerUserMessageIds?.join(",") !== routed.leaderAnswerUserMessageIds.join(",")) {
+      entry.leaderAnswerUserMessageIds = [...routed.leaderAnswerUserMessageIds];
+      changed = true;
+    }
   }
   const incomingMarkers = (routed.threadStatusMarkers ?? []).filter(
     (marker) =>
@@ -293,7 +393,9 @@ export function recoverAgentMessagesFromResumedTurn<S extends CodexRecoveredAssi
   const queueControlCandidate = (entry: AssistantHistoryEntry, metadataChanged = false) => {
     if (
       metadataChanged ||
-      entry.leaderThreadRole === "response" ||
+      entry.leaderThreadRole === "answer" ||
+      entry.leaderAnswerObservedHistoryLength !== undefined ||
+      entry.leaderAnswerUserMessageIds !== undefined ||
       entry.leaderResponseObservedHistoryLength !== undefined ||
       entry.deferredThreadStatusMarkers?.length
     ) {
@@ -346,9 +448,11 @@ export function recoverAgentMessagesFromResumedTurn<S extends CodexRecoveredAssi
         : undefined;
     const incomingSingle =
       routedSegments.length === 1 ? canonicalRecoveredAssistantFromRouteFields(routedSegments[0]!) : null;
+    const legacyIncoming = canonicalLegacyFinalReplaySegments(session, text);
+    const legacyIncomingSingle = legacyIncoming?.length === 1 ? legacyIncoming[0]! : null;
     const exactExisting =
       existing?.type === "assistant" &&
-      sameCanonicalRecoveredAssistant(canonicalExistingRecoveredAssistant(session, existing), incomingSingle)
+      matchesRecoveredAssistantCandidate(session, existing, incomingSingle, legacyIncomingSingle)
         ? existing
         : null;
     if (exactExisting) {
@@ -394,8 +498,11 @@ export function recoverAgentMessagesFromResumedTurn<S extends CodexRecoveredAssi
         ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
         ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
         ...(routed.leaderThreadRole ? { leaderThreadRole: routed.leaderThreadRole } : {}),
-        ...(routed.leaderThreadRole === "response" && responseObservationHistoryLength !== undefined
-          ? { leaderResponseObservedHistoryLength: responseObservationHistoryLength }
+        ...(routed.leaderAnswerUserMessageIds?.length
+          ? { leaderAnswerUserMessageIds: routed.leaderAnswerUserMessageIds }
+          : {}),
+        ...(routed.leaderThreadRole === "answer" && responseObservationHistoryLength !== undefined
+          ? { leaderAnswerObservedHistoryLength: responseObservationHistoryLength }
           : {}),
         ...(routed.threadStatusMarkers?.length ? { deferredThreadStatusMarkers: routed.threadStatusMarkers } : {}),
       };
@@ -409,35 +516,45 @@ export function recoverAgentMessagesFromResumedTurn<S extends CodexRecoveredAssi
 
   let conversationChanged = false;
   let projectionChanged = false;
-  for (const [candidate, metadataChanged] of controlCandidates) {
-    let candidateChanged = metadataChanged;
-    let responseCanAnchorReady = candidate.leaderThreadRole !== "response";
-    if (completed && session.id && candidate.leaderThreadRole === "response") {
+  const answerCanAnchorReady = new Map<AssistantHistoryEntry, boolean>();
+
+  // Finalize every recovered answer before applying any Ready marker from a
+  // sibling segment in the same completed provider turn.
+  if (completed && session.id) {
+    for (const candidate of controlCandidates.keys()) {
+      if (candidate.leaderThreadRole !== "answer") continue;
       const finalized = finalizeRoutedLeaderResponseMessage(
         { id: session.id, messageHistory: session.messageHistory },
         candidate,
       );
-      candidateChanged ||= finalized.finalized;
-      projectionChanged ||= finalized.finalized;
-      responseCanAnchorReady =
+      if (finalized.finalized) {
+        controlCandidates.set(candidate, true);
+        projectionChanged = true;
+      }
+      answerCanAnchorReady.set(
+        candidate,
         finalized.finalized ||
-        isCurrentValidRoutedLeaderResponseMessage(
-          { id: session.id, messageHistory: session.messageHistory },
-          candidate,
-        );
+          isCurrentValidRoutedLeaderResponseMessage(
+            { id: session.id, messageHistory: session.messageHistory },
+            candidate,
+          ),
+      );
     }
+  }
+
+  for (const [candidate, metadataChanged] of controlCandidates) {
+    let candidateChanged = metadataChanged;
+    const answerIsInvalid = candidate.leaderThreadRole === "answer" && answerCanAnchorReady.get(candidate) !== true;
     if (completed && candidate.deferredThreadStatusMarkers?.length) {
-      const authorityRejectedReadyThreadKeys =
-        candidate.leaderThreadRole === "response" && !responseCanAnchorReady
-          ? candidate.deferredThreadStatusMarkers
-              .filter((marker) => marker.kind === "ready")
-              .map((marker) => marker.target.threadKey)
-          : [];
+      const authorityRejectedReadyThreadKeys = answerIsInvalid
+        ? candidate.deferredThreadStatusMarkers
+            .filter((marker) => marker.kind === "ready")
+            .map((marker) => marker.target.threadKey)
+        : [];
       deferRecoveredRejectedReadyThreads(session, authorityRejectedReadyThreadKeys);
-      const markersToApply =
-        candidate.leaderThreadRole === "response" && !responseCanAnchorReady
-          ? candidate.deferredThreadStatusMarkers.filter((marker) => marker.kind !== "ready")
-          : candidate.deferredThreadStatusMarkers;
+      const markersToApply = answerIsInvalid
+        ? candidate.deferredThreadStatusMarkers.filter((marker) => marker.kind !== "ready")
+        : candidate.deferredThreadStatusMarkers;
       const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(session, markersToApply, {
         messageId: candidate.message.id,
         timestamp: typeof candidate.timestamp === "number" ? candidate.timestamp : baseTs,
@@ -451,6 +568,14 @@ export function recoverAgentMessagesFromResumedTurn<S extends CodexRecoveredAssi
         session,
         (statusUpdate.rejectedReadyRoutes ?? []).map((route) => route.threadKey),
       );
+    }
+    if (candidate.leaderAnswerObservedHistoryLength !== undefined) {
+      delete candidate.leaderAnswerObservedHistoryLength;
+      candidateChanged = true;
+    }
+    if (candidate.leaderAnswerUserMessageIds !== undefined) {
+      delete candidate.leaderAnswerUserMessageIds;
+      candidateChanged = true;
     }
     if (candidate.leaderResponseObservedHistoryLength !== undefined) {
       delete candidate.leaderResponseObservedHistoryLength;

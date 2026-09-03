@@ -624,7 +624,7 @@ describe("getOrchestratorGuardrails", () => {
       "publish the detailed question, options, or confirmation text with the appropriate role-bearing marker",
     );
     expect(guardrails).toContain("`[thread:main:C]`");
-    expect(guardrails).toContain("`[thread:q-N:F]`");
+    expect(guardrails).toContain("`[thread:q-N:A:u1,u2]`");
     expect(guardrails).toContain("standalone `---` line immediately before each later role-bearing marker");
     expect(guardrails).toContain("then call `takode notify needs-input`");
     expect(guardrails).toContain("The visible thread text is the decision surface");
@@ -761,7 +761,7 @@ describe("getOrchestratorGuardrails", () => {
       "publish the detailed question, options, or confirmation text with the appropriate role-bearing marker",
     );
     expect(guardrails).toContain("`[thread:main:C]`");
-    expect(guardrails).toContain("`[thread:q-N:F]`");
+    expect(guardrails).toContain("`[thread:q-N:A:u1,u2]`");
     expect(guardrails).toContain("standalone `---` line immediately before each later role-bearing marker");
     expect(guardrails).toContain("then call `takode notify needs-input`");
     expect(guardrails).toContain("never as the only place options or tradeoffs appear");

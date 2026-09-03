@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage } from "../session-types.js";
-import { finalizeRoutedLeaderResponseMessage } from "../leader-thread-response.js";
+import { buildLeaderThreadResponseState, finalizeRoutedLeaderResponseMessage } from "../leader-thread-response.js";
 import { THREAD_WINDOW_SUPPORT_RECORD_LIMIT } from "../../shared/thread-window.js";
 import { sendThreadWindowSync } from "./browser-transport-controller.js";
 
-function human(id: string, timestamp: number, threadKey = "main"): BrowserIncomingMessage {
+function human(id: string, timestamp: number, threadKey = "main", userMessageId?: string): BrowserIncomingMessage {
   return {
     type: "user_message",
     id,
+    ...(userMessageId ? { leaderUserMessageId: userMessageId } : {}),
     content: id,
     timestamp,
     threadKey,
@@ -56,8 +57,11 @@ function createResponse(
     observedHistoryLength + 10,
     threadKey,
   );
-  response.leaderThreadRole = "response";
-  response.leaderResponseObservedHistoryLength = observedHistoryLength;
+  const pendingId = buildLeaderThreadResponseState(session, threadKey).projection.pendingMessages.at(-1)?.userMessageId;
+  if (!pendingId) throw new Error(`No pending user message for ${threadKey}`);
+  response.leaderThreadRole = "answer";
+  response.leaderAnswerUserMessageIds = [pendingId];
+  response.leaderAnswerObservedHistoryLength = observedHistoryLength;
   session.messageHistory.push(response);
   expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
   return response;
@@ -91,7 +95,7 @@ function deliveredIds(message: Extract<BrowserIncomingMessage, { type: "thread_w
   });
 }
 
-describe("pending-batch response selected-window authority", () => {
+describe("explicit answer selected-window authority", () => {
   it("retains every current response and covered prompt anchor for a bounded Ready projection", () => {
     const session = { id: "leader", messageHistory: [human("u1", 1, "q-42")] };
     const first = createResponse(session, "q-42", "First answer.");
@@ -106,7 +110,7 @@ describe("pending-batch response selected-window authority", () => {
       threadKey: "q-42",
       pendingMessageCount: 0,
       ready: true,
-      currentResponses: [
+      currentAnswers: [
         { currentMessageId: first.message.id, coveredUserMessageIds: ["u1"] },
         { currentMessageId: second.message.id, coveredUserMessageIds: ["u2"] },
         { currentMessageId: third.message.id, coveredUserMessageIds: ["u3"] },
@@ -162,7 +166,7 @@ describe("pending-batch response selected-window authority", () => {
   it("fails closed to the ordinary bounded window when response support exceeds the cap", () => {
     const session = { id: "leader", messageHistory: [] as BrowserIncomingMessage[] };
     for (let index = 0; index <= THREAD_WINDOW_SUPPORT_RECORD_LIMIT / 2; index += 1) {
-      session.messageHistory.push(human(`u${index}`, index * 2 + 1, "q-42"));
+      session.messageHistory.push(human(`raw-${index}`, index * 2 + 1, "q-42", `u${index + 1}`));
       createResponse(session, "q-42", `Answer ${index}.`);
     }
 
@@ -186,17 +190,17 @@ describe("pending-batch response selected-window authority", () => {
 
     expect(cached.cache_hit).toBe(true);
     expect(cached.entries).toEqual([]);
-    expect(cached.response_state?.currentResponses[0]).toMatchObject({ currentMessageId: response.message.id });
+    expect(cached.response_state?.currentAnswers[0]).toMatchObject({ currentMessageId: response.message.id });
   });
 
   it("omits malformed response authority and leaves its covered prompt pending", () => {
     const session = { id: "leader", messageHistory: [human("u1", 1)] };
     const response = createResponse(session, "main", "Answer.");
-    response.message.content = [{ type: "text", text: "Tampered." }];
+    response.threadAnswer = { ...response.threadAnswer!, answerUserMessageIds: ["u999"] };
 
     expect(sendLatest(session, "main").response_state).toMatchObject({
       pendingMessageCount: 1,
-      currentResponses: [],
+      currentAnswers: [],
       ready: false,
     });
   });

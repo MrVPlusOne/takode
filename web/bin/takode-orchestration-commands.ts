@@ -20,7 +20,6 @@ import {
   getCliDefaultModelForBackend,
   parseFlags,
   readOptionalRichTextOption,
-  readOptionTextFile,
   readStdinText,
   resolveBooleanToggleFlag,
   resolveSessionInfoJsonOptions,
@@ -30,11 +29,6 @@ import {
   type TakodeSessionInfo,
 } from "./takode-core.js";
 import { printSessionLine } from "./takode-session-commands.js";
-
-const USER_MESSAGE_HELP = `Usage: takode user-message --text-file <path|-> [--json]
-
-Deprecated compatibility command. Publish a user-visible Markdown message from a text file or stdin.
-`;
 
 const THREAD_HELP = `Usage: takode thread attach <quest-id> --message <index> [more-indices...] [--json]
        takode thread attach <quest-id> --message 174 175 --json
@@ -253,43 +247,6 @@ export async function handleUnpause(base: string, args: string[]): Promise<void>
   console.log(
     `[${formatTime(Date.now())}] ✓ Resumed other input sources for session ${formatInlineText(sessionRef)} (${result.resumed ?? 0} held inputs released)`,
   );
-}
-
-export async function handleUserMessage(base: string, args: string[]): Promise<void> {
-  const flags = parseFlags(args);
-  assertKnownFlags(flags, new Set(["json", "text-file"]), USER_MESSAGE_HELP.trim());
-  const positional: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--text-file") {
-      i++;
-      continue;
-    }
-    if (arg === "--json") continue;
-    if (arg.startsWith("--")) continue;
-    positional.push(arg);
-  }
-  if (positional.length > 0) {
-    err(`${USER_MESSAGE_HELP.trim()}\n\nDo not pass message text positionally. Use --text-file <path|->.`);
-  }
-
-  const textFile = flags["text-file"];
-  if (textFile === undefined) {
-    err(`${USER_MESSAGE_HELP.trim()}\n\n--text-file is required.`);
-  }
-  if (textFile === true) {
-    err(`${USER_MESSAGE_HELP.trim()}\n\n--text-file requires a path or '-' for stdin.`);
-  }
-  const content = await readOptionTextFile(textFile, "--text-file");
-  if (!content.trim()) err("User-visible message content is required.");
-
-  const selfId = getCallerSessionId();
-  const result = await apiPost(base, `/sessions/${encodeURIComponent(selfId)}/user-message`, { content });
-  if (flags.json === true) {
-    console.log(JSON.stringify(result, null, 2));
-    return;
-  }
-  console.log(`[${formatTime(Date.now())}] \u2713 User-visible message published`);
 }
 
 export async function handleThread(base: string, args: string[]): Promise<void> {

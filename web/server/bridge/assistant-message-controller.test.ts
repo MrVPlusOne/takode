@@ -8,11 +8,7 @@ import {
 } from "./claude-message-controller.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { BrowserIncomingMessage, CLIAssistantMessage, ContentBlock } from "../session-types.js";
-import {
-  buildLeaderThreadResponseState,
-  finalizeRoutedLeaderResponseMessage,
-  leaderThreadResponseContentHash,
-} from "../leader-thread-response.js";
+import { buildLeaderThreadResponseState, finalizeRoutedLeaderResponseMessage } from "../leader-thread-response.js";
 
 function makeSession(): AssistantMessageSessionLike {
   return {
@@ -122,7 +118,7 @@ describe("assistant-message-controller", () => {
     expect(seenToolUseIds.has("tool-2")).toBe(true);
   });
 
-  it("keeps one routed-final intent across cumulative same-id chunks and hashes the final accumulated text", () => {
+  it("keeps one explicit answer intent across cumulative same-id chunks", () => {
     const session = makeSession() as AssistantMessageSessionLike & {
       userMessageIdsThisTurn: number[];
       messageCountAtTurnStart: number;
@@ -130,7 +126,8 @@ describe("assistant-message-controller", () => {
     session.state.isOrchestrator = true;
     session.messageHistory.push({
       type: "user_message",
-      id: "u1",
+      id: "raw-u1",
+      leaderUserMessageId: "u1",
       content: "Please answer.",
       timestamp: 1,
       threadKey: "main",
@@ -143,10 +140,10 @@ describe("assistant-message-controller", () => {
       broadcastToBrowsers: () => {},
       persistSession: () => {},
     };
-    const first = makeAssistant([{ type: "text", text: "[thread:main:F]\nFirst half." }], "chunked-final");
+    const first = makeAssistant([{ type: "text", text: "[thread:main:A:u1]\nFirst half." }], "chunked-final");
     const second = makeAssistant(
       [
-        { type: "text", text: "[thread:main:F]\nFirst half." },
+        { type: "text", text: "[thread:main:A:u1]\nFirst half." },
         { type: "text", text: "Second half." },
       ],
       "chunked-final",
@@ -160,16 +157,17 @@ describe("assistant-message-controller", () => {
         entry.type === "assistant" && entry.message.id === "chunked-final",
     )!;
     expect(response).toMatchObject({
-      leaderThreadRole: "response",
-      leaderResponseObservedHistoryLength: 1,
+      leaderThreadRole: "answer",
+      leaderAnswerUserMessageIds: ["u1"],
+      leaderAnswerObservedHistoryLength: 1,
     });
-    expect(response.threadResponse).toBeUndefined();
+    expect(response.threadAnswer).toBeUndefined();
     expect(response.message.content).toEqual([
       { type: "text", text: "First half." },
       { type: "text", text: "Second half." },
     ]);
     expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
-    expect(response.threadResponse?.contentHash).toBe(leaderThreadResponseContentHash("First half.\nSecond half."));
+    expect(response.threadAnswer).toEqual({ version: 2, answerUserMessageIds: ["u1"], observedHistoryLength: 1 });
   });
 
   // Covers the two supported task-preview sources so push-notification context
@@ -292,6 +290,24 @@ describe("assistant-message-controller", () => {
     );
 
     expect(session.messageHistory).toHaveLength(0);
+  });
+
+  it("keeps explicit answer syntax leader-only", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = false;
+
+    handleAssistantMessage(
+      session,
+      makeAssistant([{ type: "text", text: "[thread:main:A:u1] Ordinary standalone prose." }], "non-leader-answer"),
+      { hasAssistantReplay: () => false, broadcastToBrowsers: () => {}, persistSession: () => {} },
+    );
+
+    const message = session.messageHistory.find(
+      (entry): entry is Extract<BrowserIncomingMessage, { type: "assistant" }> => entry.type === "assistant",
+    )!;
+    expect(message.leaderThreadRole).toBeUndefined();
+    expect(message.threadAnswer).toBeUndefined();
+    expect(message.message.content).toEqual([{ type: "text", text: "[thread:main:A:u1] Ordinary standalone prose." }]);
   });
 
   it("strips leader thread text prefixes and persists quest thread metadata", () => {
@@ -994,10 +1010,10 @@ describe("assistant-message-controller", () => {
 
   it.each([
     ["divider / invalid role", ["---"], "[thread:q-1693:X] Invalid role.", "invalid_role", undefined],
-    ["divider / unknown target", ["---"], "[thread:side:F] Unknown target.", "invalid", undefined],
+    ["divider / unknown target", ["---"], "[thread:side:A:u1] Unknown target.", "invalid", undefined],
     ["divider / missing role", ["---"], "[thread:q-1693] Missing role.", "missing_role", "q-1693"],
     ["quiz / invalid role", ["{[(Quest Quiz: q-1695)]}"], "[thread:q-1693:X] Invalid role.", "invalid_role", undefined],
-    ["quiz / unknown target", ["{[(Quest Quiz: q-1695)]}"], "[thread:side:F] Unknown target.", "invalid", undefined],
+    ["quiz / unknown target", ["{[(Quest Quiz: q-1695)]}"], "[thread:side:A:u1] Unknown target.", "invalid", undefined],
     ["quiz / missing role", ["{[(Quest Quiz: q-1695)]}"], "[thread:q-1693] Missing role.", "missing_role", "q-1693"],
   ] as const)("splits malformed secondary routing into an independently invalid row: %s", (_, boundary, marker, reason, threadKey) => {
     const session = makeSession() as AssistantMessageSessionLike & {
@@ -1009,6 +1025,7 @@ describe("assistant-message-controller", () => {
       {
         type: "user_message",
         id: "u-q-1695",
+        leaderUserMessageId: "u1",
         content: "Answer q-1695.",
         timestamp: 1,
         threadKey: "q-1695",
@@ -1019,6 +1036,7 @@ describe("assistant-message-controller", () => {
       {
         type: "user_message",
         id: "u-q-1693",
+        leaderUserMessageId: "u2",
         content: "Answer q-1693.",
         timestamp: 2,
         threadKey: "q-1693",
@@ -1037,7 +1055,7 @@ describe("assistant-message-controller", () => {
         [
           {
             type: "text",
-            text: ["[thread:q-1695:F]", "Valid first answer.", ...boundary, marker].join("\n"),
+            text: ["[thread:q-1695:A:u1]", "Valid first answer.", ...boundary, marker].join("\n"),
           },
         ],
         `malformed-secondary-${reason}-${boundary[0] === "---" ? "divider" : "quiz"}`,
@@ -1056,14 +1074,14 @@ describe("assistant-message-controller", () => {
     expect(assistantBroadcasts[0]).toMatchObject({
       threadKey: "q-1695",
       questId: "q-1695",
-      leaderThreadRole: "response",
+      leaderThreadRole: "answer",
     });
     expect(assistantBroadcasts[1]).toMatchObject({
       ...(threadKey ? { threadKey, questId: threadKey } : {}),
       threadRoutingError: { reason, source: "visible_text" },
     });
     expect(assistantBroadcasts[1]?.leaderThreadRole).toBeUndefined();
-    expect(assistantBroadcasts[1]?.threadResponse).toBeUndefined();
+    expect(assistantBroadcasts[1]?.threadAnswer).toBeUndefined();
     expect(JSON.stringify(assistantBroadcasts[0]?.message.content)).not.toContain(marker);
 
     expect(finalizeRoutedLeaderResponseMessage(session, assistantBroadcasts[0]!)).toMatchObject({ finalized: true });
@@ -1184,6 +1202,7 @@ describe("assistant-message-controller", () => {
     session.messageHistory.push({
       type: "user_message",
       id: "fenced-example-user",
+      leaderUserMessageId: "u1",
       content: "Show the literal routing example.",
       timestamp: 1,
       threadKey: "q-1695",
@@ -1202,7 +1221,7 @@ describe("assistant-message-controller", () => {
           {
             type: "text",
             text: [
-              "[thread:q-1695:F]",
+              "[thread:q-1695:A:u1]",
               "Literal example:",
               opening,
               "---",
@@ -1224,7 +1243,11 @@ describe("assistant-message-controller", () => {
       (entry): entry is Extract<BrowserIncomingMessage, { type: "assistant" }> => entry.type === "assistant",
     )!;
     expect(broadcasts.filter((entry) => entry.type === "assistant")).toHaveLength(1);
-    expect(response).toMatchObject({ threadKey: "q-1695", leaderThreadRole: "response" });
+    expect(response).toMatchObject({
+      threadKey: "q-1695",
+      leaderThreadRole: "answer",
+      leaderAnswerUserMessageIds: ["u1"],
+    });
     expect(response.message.content).toEqual([
       {
         type: "text",

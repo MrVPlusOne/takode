@@ -519,6 +519,7 @@ function coveredHumanMessage(id: string, timestamp: number, threadKey = "main"):
   return {
     type: "user_message",
     id,
+    leaderUserMessageId: /^u[1-9]\d*$/.test(id) ? id : undefined,
     content: `Ask ${id}`,
     timestamp,
     threadKey,
@@ -529,7 +530,7 @@ function coveredHumanMessage(id: string, timestamp: number, threadKey = "main"):
   };
 }
 
-describe("pending-batch thread response reminders", () => {
+describe("explicit answer reminders", () => {
   it("reminds after a post-cutover direct user message is left uncovered", () => {
     const session = {
       id: "leader",
@@ -544,12 +545,14 @@ describe("pending-batch thread response reminders", () => {
     expect(result).toEqual({ checked: true, missing: ["q-42"], injected: true });
     expect(deps.injectUserMessage).toHaveBeenCalledWith(
       "leader",
-      expect.stringContaining("Pending response batches: q-42 (1 pending)."),
+      expect.stringContaining("Pending answer IDs: q-42 (u1)."),
       expect.objectContaining({ sessionId: THREAD_RESPONSE_REMINDER_SOURCE_ID }),
       expect.objectContaining({ threadKey: "q-42" }),
     );
-    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("- q-42: Ask u1");
-    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("[thread:q-N:F]");
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("[thread:q-N:A:u1,u2]");
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("takode read leader u1");
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).not.toContain("Ask u1");
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).not.toContain("batch");
     expect(deps.injectUserMessage.mock.calls[0]?.[1]).not.toContain("response-batch-v1");
   });
 
@@ -579,9 +582,10 @@ describe("pending-batch thread response reminders", () => {
       injected: true,
     });
     const reminder = deps.injectUserMessage.mock.calls.at(-1)?.[1] ?? "";
-    expect(reminder).toContain("Please compare the two deployment options");
-    expect(reminder).toContain("(+1 image)");
-    expect(reminder).not.toContain("u1");
+    expect(reminder).toContain("Pending answer IDs: q-42 (u1)");
+    expect(reminder).toContain("takode read leader u1");
+    expect(reminder).not.toContain("Please compare the two deployment options");
+    expect(reminder).not.toContain("option.png");
   });
 
   it("forces the pending-response reminder when rejected Ready is followed by fresh Waiting", () => {
@@ -606,8 +610,8 @@ describe("pending-batch thread response reminders", () => {
       missing: ["q-42"],
       injected: true,
     });
-    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("Final-response reminder");
-    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("q-42 (1 pending)");
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("Answer reminder");
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("q-42 (u1)");
   });
 
   it("defers recovered Ready rejection until the next normal validation boundary", () => {
@@ -646,11 +650,62 @@ describe("pending-batch thread response reminders", () => {
       missing: ["q-42"],
       injected: true,
     });
-    expect(deps.injectUserMessage.mock.calls.at(-1)?.[1]).toContain("Final-response reminder");
+    expect(deps.injectUserMessage.mock.calls.at(-1)?.[1]).toContain("Answer reminder");
     expect(session.pendingLeaderRejectedReadyThreadKeys).toEqual([]);
   });
 
-  it("allows a pending batch to remain open behind a fresh Waiting marker", () => {
+  it("lists accepted uncommitted Codex IDs when a queued request blocks Ready", () => {
+    // The reminder can name queued uN obligations but must not advertise history-only read retrieval yet.
+    const session = {
+      id: "leader",
+      messageHistory: [
+        assistantMessage({ id: "ready-attempt", text: "Completed earlier work.", timestamp: 20, threadKey: "q-42" }),
+      ],
+      pendingCodexInputs: [
+        {
+          id: "raw-u2",
+          content: "Queued direct request",
+          timestamp: 30,
+          cancelable: true,
+          leaderResponseCoverageVersion: 1 as const,
+          leaderUserMessageId: "u2",
+          threadKey: "q-42",
+          questId: "q-42",
+          threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" as const }],
+        },
+      ],
+      notifications: [],
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps, { rejectedReadyThreadKeys: ["q-42"] })).toEqual({
+      checked: true,
+      missing: ["q-42"],
+      injected: true,
+    });
+    const reminder = deps.injectUserMessage.mock.calls[0]?.[1] ?? "";
+    expect(reminder).toContain("Pending answer IDs: q-42 (u2)");
+    expect(reminder).not.toContain("takode read leader u2");
+  });
+
+  it("repairs persisted Ready state when a same-thread needs-input remains unresolved", () => {
+    // Restored sessions may carry pre-fix Ready state that conflicts with durable notification authority.
+    const session = {
+      id: "leader",
+      messageHistory: [assistantMessage({ id: "already-validated", text: "Earlier answer.", timestamp: 20 })],
+      notifications: [notification({ category: "needs-input", timestamp: 25 })],
+      state: { leaderThreadStatuses: { main: threadStatus({ kind: "ready", timestamp: 30 }) } },
+      leaderThreadOutcomeValidatedHistoryLength: 1,
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: false, reason: "no_new_history" });
+    expect(session.state.leaderThreadStatuses.main).toBeUndefined();
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
+  });
+
+  it("allows a pending answer to remain open behind a fresh Waiting marker", () => {
     const session = {
       id: "leader",
       messageHistory: [
@@ -667,7 +722,7 @@ describe("pending-batch thread response reminders", () => {
     expect(deps.injectUserMessage).not.toHaveBeenCalled();
   });
 
-  it("does not let Ready or review state cover a still-pending batch", () => {
+  it("does not let Ready or review state cover a still-pending answer", () => {
     const session = {
       id: "leader",
       messageHistory: [coveredHumanMessage("u1", 10)],
@@ -697,11 +752,11 @@ describe("pending-batch thread response reminders", () => {
     expect(reminder).toContain("Needs-input notification reminder");
     expect(reminder).toContain("[thread:main:C]");
     expect(reminder).toContain("[thread:q-N:C]");
-    expect(reminder).toContain("later `[thread:main:F]` or `[thread:q-N:F]` final response");
+    expect(reminder).toContain("later explicit `[thread:main:A:u1]` or `[thread:q-N:A:u1]` answer");
     expect(reminder).not.toContain("Publish or revise the covering thread response");
   });
 
-  it("accepts Ready after the exact pending batch has a current response", () => {
+  it("accepts Ready after the exact pending answer has a current response", () => {
     const session = {
       id: "leader",
       messageHistory: [coveredHumanMessage("u1", 10)] as BrowserIncomingMessage[],
@@ -713,8 +768,9 @@ describe("pending-batch thread response reminders", () => {
       BrowserIncomingMessage,
       { type: "assistant" }
     >;
-    response.leaderThreadRole = "response";
-    response.leaderResponseObservedHistoryLength = 1;
+    response.leaderThreadRole = "answer";
+    response.leaderAnswerUserMessageIds = ["u1"];
+    response.leaderAnswerObservedHistoryLength = 1;
     session.messageHistory.push(response);
     expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
     session.state.leaderThreadStatuses.main = threadStatus({

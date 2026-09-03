@@ -9,7 +9,7 @@ describe("buildThreadRoutingReminderContent", () => {
     expect(content).toContain("Missing thread marker on visible leader text");
     expect(content).toContain("previous visible leader message");
     expect(content).toContain("`[thread:main:C]` / `[thread:q-N:C]`");
-    expect(content).toContain("`[thread:main:F]` / `[thread:q-N:F]`");
+    expect(content).toContain("`[thread:main:A:u1]` / `[thread:q-N:A:u1,u2]`");
     expect(content).toContain("standalone `---` line immediately before the next role-bearing marker");
     expect(content).toContain("`# thread:main` or `# thread:q-N`");
     expect(content).not.toContain("previous leader response");
@@ -23,7 +23,7 @@ describe("buildThreadRoutingReminderContent", () => {
     expect(content).toContain("previous leader shell command");
     expect(content).toContain("`# thread:main` or `# thread:q-N`");
     expect(content).toContain("`[thread:main:C]` / `[thread:q-N:C]`");
-    expect(content).toContain("`[thread:main:F]` / `[thread:q-N:F]`");
+    expect(content).toContain("`[thread:main:A:u1]` / `[thread:q-N:A:u1,u2]`");
     expect(content).toContain("standalone `---` line immediately before each later role-bearing marker");
     expect(content).not.toContain("previous leader response");
   });

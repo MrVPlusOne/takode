@@ -647,7 +647,7 @@ function messageText(msg: ChatMessage): string {
 
 function messagePresentationPhase(msg: ChatMessage): "commentary" | "final_answer" | null {
   if (msg.metadata?.leaderThreadRole === "commentary") return "commentary";
-  if (msg.metadata?.leaderThreadRole === "response") return "final_answer";
+  if (msg.metadata?.leaderThreadRole === "answer") return "final_answer";
   return normalizeCodexMessagePhase(msg.metadata?.codexMessagePhase) ?? null;
 }
 
@@ -1160,8 +1160,8 @@ function makeTurn(
   const agentEntries = presentationAgentEntries.filter((entry) => !collapsedVisibleEntryKeys.has(getEntryId(entry)));
 
   // Extract sub-conclusions for normal sessions only. In leader sessions,
-  // ordinary assistant text is private activity and should not be promoted
-  // into the user-visible left panel unless it came through `user-message`.
+  // ordinary assistant text is private activity unless server metadata marks
+  // it as a routed response or a preserved leader-visible history row.
   const subConclusions = leaderMode ? [] : extractSubConclusions(presentationEntries, collapsedVisibleMessageIds);
 
   // Stable ID: prefer user message ID, fall back to first agent entry ID, then synthetic

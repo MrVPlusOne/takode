@@ -179,7 +179,7 @@ describe("Playground", () => {
     render(<Playground />);
 
     expect(screen.getByText("Component Playground")).toBeTruthy();
-    const routedFinalSection = document.getElementById("overview-routed-final-responses");
+    const routedFinalSection = document.getElementById("overview-routed-answers");
     expect(routedFinalSection).toBeTruthy();
     const routedFinalStates = within(routedFinalSection!);
     expect(routedFinalStates.getByRole("button", { name: "Expand this turn" })).toHaveAttribute(
@@ -192,7 +192,7 @@ describe("Playground", () => {
     );
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);
     scrollIntoView.mockClear();
-    fireEvent.click(screen.getByRole("button", { name: "Routed Final Responses" }));
+    fireEvent.click(screen.getByRole("button", { name: "Routed Answers" }));
     expect(scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "smooth" });
     expect(screen.getByRole("heading", { name: "Inline Quest Preview" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Show idle state" })).toHaveAttribute("aria-pressed", "true");

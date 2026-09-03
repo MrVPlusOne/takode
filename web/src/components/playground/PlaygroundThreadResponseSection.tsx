@@ -10,18 +10,29 @@ const SESSION_ID = "playground-thread-responses";
 function assistantEntry(
   id: string,
   content: string,
-  leaderThreadRole?: "commentary" | "response",
+  leaderThreadRole?: "commentary" | "answer" | "response",
 ): Extract<FeedEntry, { kind: "message" }> {
   return {
     kind: "message",
-    msg: { id, role: "assistant", content, timestamp: 1, metadata: { leaderThreadRole } },
+    msg: {
+      id,
+      role: "assistant",
+      content,
+      timestamp: 1,
+      metadata: {
+        leaderThreadRole,
+        ...(leaderThreadRole === "answer"
+          ? { threadAnswer: { version: 2 as const, answerUserMessageIds: ["u1", "u2"], observedHistoryLength: 7 } }
+          : {}),
+      },
+    },
   };
 }
 
 const CURRENT_RESPONSE = assistantEntry(
   "playground-response-current",
   "The responsive feed now foregrounds one polished response for this two-message batch. Earlier working notes and tools remain available when the turn is expanded.",
-  "response",
+  "answer",
 );
 const INTERMEDIATE = assistantEntry(
   "playground-response-intermediate",
@@ -56,19 +67,18 @@ const PRESENTATION: ThreadResponsePresentation = {
   currentResponses: [
     {
       response: {
-        version: 1,
-        logicalResponseId: "playground-logical-response",
+        version: 2,
         threadKey: "q-2042",
         questId: "q-2042",
-        batchId: "playground-batch",
-        batchObservedHistoryLength: 8,
+        answerUserMessageIds: ["u1", "u2"],
+        referencedUserMessageIds: ["playground-user-first", "playground-user-second"],
+        coveredAnswerUserMessageIds: ["u1", "u2"],
         coveredUserMessageIds: ["playground-user-first", "playground-user-second"],
-        currentRevisionId: "playground-r2",
         currentMessageId: CURRENT_RESPONSE.msg.id,
         currentHistoryIndex: 7,
-        revisionCount: 2,
-        createdAt: 6,
+        createdAt: 7,
         updatedAt: 7,
+        source: "explicit",
       },
       anchorUserMessageId: "playground-user-second",
       anchorTurnId: READY_TURN.id,
@@ -79,8 +89,7 @@ const PRESENTATION: ThreadResponsePresentation = {
     },
   ],
   currentResponseMessageIds: new Set([CURRENT_RESPONSE.msg.id]),
-  quizQuestIds: ["q-8"],
-  quizHostTurnId: READY_TURN.id,
+  quizGroups: [{ hostTurnId: READY_TURN.id, questIds: ["q-8"] }],
   layoutSignature: "playground-response-r2",
 };
 const ACTIVE_PRESENTATION: ThreadResponsePresentation = {
@@ -109,11 +118,11 @@ export function PlaygroundThreadResponseSection() {
   return (
     <PlaygroundSectionGroup groupId="overview">
       <Section
-        title="Routed Final Responses"
-        description="Ready threads foreground current routed final responses, while expanded active history distinguishes the current final and preserves commentary plus superseded finals."
+        title="Routed Answers"
+        description="Current routed answers stay visible even while other work remains pending; Ready still controls automatic whole-thread collapse, and expanded history preserves commentary plus superseded answers."
       >
         <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-          <Card label="Collapsed Ready · grouped response plus Quiz">
+          <Card label="Collapsed Ready · grouped answer plus Quiz">
             <div className="min-w-0 max-w-[430px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20">
               <ReadyThreadResponseRows
                 turn={READY_TURN}
@@ -131,11 +140,7 @@ export function PlaygroundThreadResponseSection() {
             <div className="min-w-0 max-w-[430px] space-y-3 rounded-xl border border-cc-border/30 bg-cc-card/20 p-3">
               <FeedEntries
                 entries={[
-                  assistantEntry(
-                    "playground-response-old",
-                    "Earlier final wording for the same request batch.",
-                    "response",
-                  ),
+                  assistantEntry("playground-response-old", "Earlier answer wording for the same requests.", "answer"),
                   INTERMEDIATE,
                   CURRENT_RESPONSE,
                 ]}

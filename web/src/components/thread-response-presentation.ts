@@ -16,14 +16,18 @@ export interface CurrentThreadResponsePresentationItem {
   collapsedMessageEntry: Extract<FeedEntry, { kind: "message" }>;
 }
 
+export interface ThreadResponseQuizGroup {
+  hostTurnId: string;
+  questIds: readonly string[];
+}
+
 export interface ThreadResponsePresentation {
   ready: boolean;
   cutoverHistoryIndex: number;
   pendingMessageCount: number;
   currentResponses: readonly CurrentThreadResponsePresentationItem[];
   currentResponseMessageIds: ReadonlySet<string>;
-  quizQuestIds: readonly string[];
-  quizHostTurnId: string | null;
+  quizGroups: readonly ThreadResponseQuizGroup[];
   layoutSignature: string;
 }
 
@@ -44,38 +48,41 @@ function stringArraysEqual(left: readonly string[], right: readonly string[]): b
 
 function isAuthoritativeCurrentResponseMessage(
   message: ChatMessage,
-  response: LeaderThreadResponseState,
+  answer: LeaderThreadResponseState,
   threadKey: string,
 ): boolean {
   const metadata = message.metadata;
-  const revision = metadata?.threadResponse;
-  const isResponseMessage =
-    metadata?.leaderThreadRole === "response" ||
-    (metadata?.leaderUserMessage === true && metadata.leaderThreadRole == null);
+  const explicitProof =
+    answer.source === "explicit" &&
+    metadata?.leaderThreadRole === "answer" &&
+    metadata.threadAnswer?.version === answer.version &&
+    stringArraysEqual(metadata.threadAnswer.answerUserMessageIds, answer.answerUserMessageIds);
+  const legacyProof =
+    answer.source === "legacy" &&
+    (metadata?.leaderThreadRole === "response" ||
+      (metadata?.leaderUserMessage === true && metadata.leaderThreadRole == null)) &&
+    stringArraysEqual(metadata?.threadResponse?.coveredUserMessageIds ?? [], answer.referencedUserMessageIds);
   if (
     message.role !== "assistant" ||
-    !isResponseMessage ||
+    (!explicitProof && !legacyProof) ||
     metadata?.codexSubagent ||
-    message.parentToolUseId != null ||
-    !revision ||
-    revision.logicalResponseId !== response.logicalResponseId ||
-    revision.revisionId !== response.currentRevisionId ||
-    revision.revisionNumber !== response.revisionCount ||
-    revision.batchId !== response.batchId ||
-    revision.batchObservedHistoryLength !== response.batchObservedHistoryLength ||
-    !stringArraysEqual(revision.coveredUserMessageIds, response.coveredUserMessageIds)
+    message.parentToolUseId != null
   ) {
     return false;
   }
-  if (typeof message.historyIndex === "number" && message.historyIndex !== response.currentHistoryIndex) return false;
+  if (typeof message.historyIndex === "number" && message.historyIndex !== answer.currentHistoryIndex) return false;
   return filterMessagesForThread([message], threadKey).some((candidate) => candidate.id === message.id);
 }
 
-function collectQuestQuizIds(sections: readonly FeedSection[], cutoverHistoryIndex: number): string[] {
-  const ids: string[] = [];
+function collectQuestQuizGroups(
+  sections: readonly FeedSection[],
+  cutoverHistoryIndex: number,
+): ThreadResponseQuizGroup[] {
+  const groups: ThreadResponseQuizGroup[] = [];
   const seen = new Set<string>();
   for (const section of sections) {
     for (const turn of section.turns) {
+      const questIds: string[] = [];
       for (const entry of presentationEntries(turn)) {
         if (
           entry.kind !== "message" ||
@@ -87,16 +94,26 @@ function collectQuestQuizIds(sections: readonly FeedSection[], cutoverHistoryInd
         for (const questId of extractQuestQuizMarkerIds(entry.msg.content)) {
           if (seen.has(questId)) continue;
           seen.add(questId);
-          ids.push(questId);
+          questIds.push(questId);
         }
       }
+      // Ready collapse may relocate current responses to their covered prompt, but a Quiz
+      // remains owned by the turn that actually carried its hidden directive.
+      if (questIds.length > 0) groups.push({ hostTurnId: turn.id, questIds });
     }
   }
-  return ids;
+  return groups;
 }
 
 function entryHistoryIndex(entry: FeedEntry | null | undefined): number | null {
   return entry?.kind === "message" && Number.isInteger(entry.msg.historyIndex) ? entry.msg.historyIndex! : null;
+}
+
+export function threadResponsePresentationTouchesTurn(turn: Turn, presentation: ThreadResponsePresentation): boolean {
+  return (
+    presentation.currentResponses.some((item) => item.anchorTurnId === turn.id || item.sourceTurnId === turn.id) ||
+    presentation.quizGroups.some((group) => group.hostTurnId === turn.id)
+  );
 }
 
 export function readyThreadResponseAppliesToTurn(turn: Turn, presentation: ThreadResponsePresentation): boolean {
@@ -123,7 +140,7 @@ export function resolveThreadResponses(
     !Number.isInteger(state.cutoverHistoryIndex) ||
     state.cutoverHistoryIndex < 0 ||
     normalizeThreadKey(state.threadKey) !== normalizedThreadKey ||
-    state.currentResponses.length === 0
+    state.currentAnswers.length === 0
   ) {
     return null;
   }
@@ -163,30 +180,30 @@ export function resolveThreadResponses(
   if (duplicateVisibleDirectUser) return null;
 
   const pendingIds = new Set<string>();
-  let pendingMessageCount = 0;
-  for (const batch of state.pendingBatches) {
+  const pendingAnswerIds = new Set<string>();
+  for (const pending of state.pendingMessages) {
     if (
-      batch.messageCount !== batch.userMessageIds.length ||
-      batch.messageCount === 0 ||
-      batch.firstHistoryIndex > batch.lastHistoryIndex
+      pendingIds.has(pending.historyMessageId) ||
+      pendingAnswerIds.has(pending.userMessageId) ||
+      !directUsers.has(pending.historyMessageId)
     ) {
       return null;
     }
-    pendingMessageCount += batch.messageCount;
-    for (const messageId of batch.userMessageIds) {
-      if (pendingIds.has(messageId)) return null;
-      pendingIds.add(messageId);
-    }
+    pendingIds.add(pending.historyMessageId);
+    pendingAnswerIds.add(pending.userMessageId);
   }
-  if (pendingMessageCount !== state.pendingMessageCount) return null;
+  if (state.pendingMessages.length !== state.pendingMessageCount) return null;
 
   const coveredIds = new Set<string>();
   const currentResponses: CurrentThreadResponsePresentationItem[] = [];
-  for (const response of state.currentResponses) {
+  for (const response of state.currentAnswers) {
     if (
       normalizeThreadKey(response.threadKey) !== normalizedThreadKey ||
+      response.referencedUserMessageIds.length === 0 ||
       response.coveredUserMessageIds.length === 0 ||
-      new Set(response.coveredUserMessageIds).size !== response.coveredUserMessageIds.length
+      new Set(response.referencedUserMessageIds).size !== response.referencedUserMessageIds.length ||
+      new Set(response.coveredUserMessageIds).size !== response.coveredUserMessageIds.length ||
+      response.coveredUserMessageIds.some((messageId) => !response.referencedUserMessageIds.includes(messageId))
     ) {
       return null;
     }
@@ -194,6 +211,8 @@ export function resolveThreadResponses(
     if (!located || !isAuthoritativeCurrentResponseMessage(located.entry.msg, response, normalizedThreadKey))
       return null;
 
+    const referencedAnchors = response.referencedUserMessageIds.map((messageId) => directUsers.get(messageId));
+    if (referencedAnchors.some((anchor) => !anchor || anchor.historyIndex < state.cutoverHistoryIndex)) return null;
     const anchors = response.coveredUserMessageIds.map((messageId) => directUsers.get(messageId));
     if (anchors.some((anchor) => !anchor || anchor.historyIndex < state.cutoverHistoryIndex)) return null;
     for (let index = 1; index < anchors.length; index += 1) {
@@ -220,20 +239,18 @@ export function resolveThreadResponses(
   }
 
   currentResponses.sort((left, right) => left.anchorOrder - right.anchorOrder);
-  const quizQuestIds = collectQuestQuizIds(sections, state.cutoverHistoryIndex);
-  const lastResponse = currentResponses.at(-1) ?? null;
-  const pendingSignature = state.pendingBatches
-    .map(
-      (batch) =>
-        `${batch.userMessageIds.join(",")}:${batch.messageCount}:${batch.firstHistoryIndex}:${batch.lastHistoryIndex}`,
-    )
+  const quizGroups = collectQuestQuizGroups(sections, state.cutoverHistoryIndex);
+  const pendingSignature = state.pendingMessages
+    .map((pending) => `${pending.userMessageId}:${pending.historyMessageId}:${pending.historyIndex}`)
     .join("|");
   const responseSignature = currentResponses
     .map(
       ({ response }) =>
-        `${response.logicalResponseId}:${response.currentRevisionId}:${response.currentMessageId}:${response.revisionCount}:${response.coveredUserMessageIds.join(",")}`,
+        `${response.currentMessageId}:${response.answerUserMessageIds.join(",")}:${response.coveredAnswerUserMessageIds.join(",")}:${response.source}`,
     )
     .join("|");
+
+  const quizSignature = quizGroups.map((group) => `${group.hostTurnId}:${group.questIds.join(",")}`).join("|");
 
   return {
     ready: state.ready,
@@ -241,8 +258,7 @@ export function resolveThreadResponses(
     pendingMessageCount: state.pendingMessageCount,
     currentResponses,
     currentResponseMessageIds: new Set(currentResponses.map(({ response }) => response.currentMessageId)),
-    quizQuestIds,
-    quizHostTurnId: lastResponse?.anchorTurnId ?? null,
-    layoutSignature: `${state.cutoverHistoryIndex}:${state.ready ? "ready" : "active"}:${state.pendingMessageCount}:${responseSignature}:${pendingSignature}`,
+    quizGroups,
+    layoutSignature: `${state.cutoverHistoryIndex}:${state.ready ? "ready" : "active"}:${state.pendingMessageCount}:${responseSignature}:${pendingSignature}:${quizSignature}`,
   };
 }

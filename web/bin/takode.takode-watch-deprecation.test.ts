@@ -110,6 +110,21 @@ describe("takode watch deprecation", () => {
   });
 
   it.each([
+    "user-message",
+    "thread-response",
+  ])("fails with unknown command for removed leader authoring command %s", async (command) => {
+    const result = await runTakode([command], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`Unknown command: ${command}`);
+    expect(result.stdout).toContain("Usage: takode <command>");
+  });
+
+  it.each([
     [["list", "--help"], "Usage: takode list"],
     [["search", "--help"], "Usage: takode search"],
     [["info", "--help"], "Usage: takode info"],

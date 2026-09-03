@@ -51,6 +51,7 @@ export interface PendingCodexInput {
   slackThreadId?: string;
   recentAskBoundaryBefore?: "visible_response";
   leaderResponseCoverageVersion?: 1;
+  leaderUserMessageId?: string;
   /** Server-only source classification used by Codex result-error auto-pause. */
   autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
   /** Server-only correlation for a held input released into normal Codex delivery. */

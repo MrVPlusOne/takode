@@ -1246,6 +1246,7 @@ function handleParsedMessage(
         ...(data.leaderResponseCoverageVersion
           ? { leaderResponseCoverageVersion: data.leaderResponseCoverageVersion }
           : {}),
+        ...(data.leaderUserMessageId ? { leaderUserMessageId: data.leaderUserMessageId } : {}),
       };
       const modelDeliveryContent = getRecoveryModelDeliveryContent(data);
       const userMsg: ChatMessage = {

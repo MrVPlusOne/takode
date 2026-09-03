@@ -460,6 +460,7 @@ function commitPendingCodexInput(
     ...(pending.leaderResponseCoverageVersion
       ? { leaderResponseCoverageVersion: pending.leaderResponseCoverageVersion }
       : {}),
+    ...(pending.leaderUserMessageId ? { leaderUserMessageId: pending.leaderUserMessageId } : {}),
   };
   session.messageHistory.push(userHistoryEntry);
   if (clearLeaderThreadStatusForCoveredUserMessage(session, userHistoryEntry)) {

@@ -17,6 +17,7 @@ describe("Codex pending-input thread response coverage", () => {
       questId: "q-42",
       threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" }],
       leaderResponseCoverageVersion: 1,
+      leaderUserMessageId: "u1",
     };
     const session = {
       id: "leader",
@@ -54,7 +55,11 @@ describe("Codex pending-input thread response coverage", () => {
 
     commitPendingCodexInputs(session, [input.id], deps);
 
-    expect(session.messageHistory[0]).toMatchObject({ id: input.id, leaderResponseCoverageVersion: 1 });
+    expect(session.messageHistory[0]).toMatchObject({
+      id: input.id,
+      leaderResponseCoverageVersion: 1,
+      leaderUserMessageId: "u1",
+    });
     expect(session.state.leaderThreadStatuses?.["q-42"]).toBeUndefined();
     expect(invalidateLeaderThreadTabsForSession).toHaveBeenCalledWith(session.id);
     expect(refreshBrowserConversationViews).toHaveBeenCalledWith(session);

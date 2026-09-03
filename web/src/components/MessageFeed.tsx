@@ -625,7 +625,7 @@ export function MessageFeed({
   );
   const responseStateHasTrackedWork =
     threadResponseState != null &&
-    (threadResponseState.pendingMessageCount > 0 || threadResponseState.currentResponses.length > 0);
+    (threadResponseState.pendingMessageCount > 0 || threadResponseState.currentAnswers.length > 0);
   const validatedReadyCollapse = threadResponsePresentation?.ready === true;
   const legacyQuestReadyCollapse = collapseLeaderThreadActivity && !responseStateHasTrackedWork;
   const isLoadingOlderSection = pendingSectionLoadDirection === "older";

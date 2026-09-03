@@ -1042,9 +1042,8 @@ export type BrowserIncomingMessageBase =
       threadOutcomeReminder?: ThreadOutcomeReminderSatisfaction;
       /** Server-authored durable grouping boundary when visible streamed response text preceded this human input. */
       recentAskBoundaryBefore?: "visible_response";
-      /** Post-cutover direct-human messages participate in leader response coverage. */
-      leaderResponseCoverageVersion?: 1;
-    } & CodexTurnRecoveryDiagnosticMetadata)
+    } & CodexTurnRecoveryDiagnosticMetadata &
+      import("./leader-thread-response-types.js").LeaderAnswerTrackedUserMetadata)
   | import("./leader-thread-response-types.js").LegacyLeaderThreadResponseMessage<
       TakodeNotificationPayload,
       ThreadRef,

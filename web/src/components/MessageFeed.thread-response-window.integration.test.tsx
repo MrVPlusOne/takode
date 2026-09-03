@@ -73,13 +73,32 @@ function routedFields() {
   return { threadKey: QUEST_ID, questId: QUEST_ID, threadRefs: [THREAD_REF] };
 }
 
+function answerIdForRawUserMessage(id: string): string {
+  const ids: Record<string, string> = {
+    "user-first": "u1",
+    "user-second": "u2",
+    "user-third": "u3",
+    "user-live": "u4",
+    "user-quiz-owner": "u1",
+    "user-later": "u2",
+    "user-only": "u1",
+    "user-older-pending": "u1",
+    "user-later-answered": "u2",
+  };
+  const answerId = ids[id];
+  if (!answerId) throw new Error(`Missing answer ID fixture for ${id}`);
+  return answerId;
+}
+
 function userMessage(id: string, text: string, timestamp: number, responseCoverage = true): BrowserIncomingMessage {
   return {
     type: "user_message",
     id,
     content: text,
     timestamp,
-    ...(responseCoverage ? { leaderResponseCoverageVersion: 1 as const } : {}),
+    ...(responseCoverage
+      ? { leaderResponseCoverageVersion: 1 as const, leaderUserMessageId: answerIdForRawUserMessage(id) }
+      : {}),
     ...routedFields(),
   };
 }
@@ -89,7 +108,7 @@ function assistantMessage(
   text: string,
   timestamp: number,
   codexMessagePhase?: "commentary" | "final_answer",
-  leaderThreadRole?: "commentary" | "response",
+  leaderThreadRole?: "commentary" | "answer" | "response",
 ): Extract<BrowserIncomingMessage, { type: "assistant" }> {
   return {
     type: "assistant",
@@ -112,31 +131,35 @@ function assistantMessage(
 
 function responseMessage(input: {
   id: string;
-  logicalResponseId: string;
-  revisionId: string;
-  revisionNumber: number;
-  batchId: string;
   coveredUserMessageIds: string[];
   content: string;
   timestamp: number;
-  batchObservedHistoryLength?: number;
-  parentRevisionId?: string;
+  observedHistoryLength?: number;
 }): Extract<BrowserIncomingMessage, { type: "assistant" }> {
   return {
     type: "assistant",
     timestamp: input.timestamp,
     parent_tool_use_id: null,
-    leaderThreadRole: "response",
+    leaderThreadRole: "answer",
     ...routedFields(),
-    threadResponse: {
-      logicalResponseId: input.logicalResponseId,
-      revisionId: input.revisionId,
-      ...(input.parentRevisionId ? { parentRevisionId: input.parentRevisionId } : {}),
-      revisionNumber: input.revisionNumber,
-      batchId: input.batchId,
-      batchObservedHistoryLength: input.batchObservedHistoryLength ?? 47,
-      coveredUserMessageIds: input.coveredUserMessageIds,
-      contentHash: `hash-${input.revisionId}`,
+    threadAnswer: {
+      version: 2,
+      answerUserMessageIds: input.coveredUserMessageIds.map(answerIdForRawUserMessage),
+      observedHistoryLength:
+        input.observedHistoryLength ??
+        Math.max(
+          ...input.coveredUserMessageIds.map(
+            (id) =>
+              ({
+                "user-first": 41,
+                "user-second": 42,
+                "user-third": 45,
+                "user-quiz-owner": 41,
+                "user-later": 44,
+                "user-only": 41,
+              })[id] ?? 0,
+          ),
+        ),
     },
     message: {
       id: input.id,
@@ -175,54 +198,50 @@ function responseState(
   ready = true,
 ): NonNullable<Extract<BrowserIncomingMessage, { type: "thread_window_sync" }>["response_state"]> {
   return {
-    version: 1,
+    version: 2,
     threadKey: QUEST_ID,
     cutoverHistoryIndex: 40,
     pendingMessageCount: ready ? 0 : 1,
-    pendingBatches: ready
+    pendingMessages: ready
       ? []
       : [
           {
-            userMessageIds: ["user-third"],
-            messageCount: 1,
-            firstHistoryIndex: 44,
-            lastHistoryIndex: 44,
-            firstAskedAt: 1_700_000_005_000,
-            lastAskedAt: 1_700_000_005_000,
+            userMessageId: "u3",
+            historyMessageId: "user-third",
+            historyIndex: 44,
+            askedAt: 1_700_000_005_000,
           },
         ],
-    currentResponses: [
+    currentAnswers: [
       {
-        version: 1,
-        logicalResponseId: "response-grouped",
+        version: 2,
         threadKey: QUEST_ID,
         questId: QUEST_ID,
-        batchId: "batch-grouped",
-        batchObservedHistoryLength: 47,
+        answerUserMessageIds: ["u1", "u2"],
+        referencedUserMessageIds: ["user-first", "user-second"],
+        coveredAnswerUserMessageIds: ["u1", "u2"],
         coveredUserMessageIds: ["user-first", "user-second"],
-        currentRevisionId: "grouped-r2",
         currentMessageId: "response-grouped-r2",
         currentHistoryIndex: 43,
-        revisionCount: 2,
-        createdAt: 1_700_000_003_000,
+        createdAt: 1_700_000_004_000,
         updatedAt: 1_700_000_004_000,
+        source: "explicit",
       },
       ...(ready
         ? [
             {
-              version: 1 as const,
-              logicalResponseId: "response-single",
+              version: 2 as const,
               threadKey: QUEST_ID,
               questId: QUEST_ID,
-              batchId: "batch-single",
-              batchObservedHistoryLength: 47,
+              answerUserMessageIds: ["u3"],
+              referencedUserMessageIds: ["user-third"],
+              coveredAnswerUserMessageIds: ["u3"],
               coveredUserMessageIds: ["user-third"],
-              currentRevisionId: "single-r1",
               currentMessageId: "response-single-r1",
               currentHistoryIndex: 46,
-              revisionCount: 1,
               createdAt: 1_700_000_007_000,
               updatedAt: 1_700_000_007_000,
+              source: "explicit" as const,
             },
           ]
         : []),
@@ -239,10 +258,6 @@ function producerThreadWindow(ready = true): Extract<BrowserIncomingMessage, { t
       history_index: 42,
       message: responseMessage({
         id: "response-grouped-r1",
-        logicalResponseId: "response-grouped",
-        revisionId: "grouped-r1",
-        revisionNumber: 1,
-        batchId: "batch-grouped",
         coveredUserMessageIds: ["user-first", "user-second"],
         content: "Earlier grouped response",
         timestamp: 1_700_000_003_000,
@@ -252,11 +267,6 @@ function producerThreadWindow(ready = true): Extract<BrowserIncomingMessage, { t
       history_index: 43,
       message: responseMessage({
         id: "response-grouped-r2",
-        logicalResponseId: "response-grouped",
-        revisionId: "grouped-r2",
-        parentRevisionId: "grouped-r1",
-        revisionNumber: 2,
-        batchId: "batch-grouped",
         coveredUserMessageIds: ["user-first", "user-second"],
         content: "Current grouped response",
         timestamp: 1_700_000_004_000,
@@ -279,10 +289,6 @@ function producerThreadWindow(ready = true): Extract<BrowserIncomingMessage, { t
             history_index: 46,
             message: responseMessage({
               id: "response-single-r1",
-              logicalResponseId: "response-single",
-              revisionId: "single-r1",
-              revisionNumber: 1,
-              batchId: "batch-single",
               coveredUserMessageIds: ["user-third"],
               content: "Current singleton response",
               timestamp: 1_700_000_007_000,
@@ -344,7 +350,7 @@ function producerThreadWindowWithSeparateReady(): Extract<BrowserIncomingMessage
   };
   const readyMessage = assistantMessage(
     "assistant-ready",
-    "Ready status published after the final response.",
+    "Ready status published after the answer.",
     readyStatus.timestamp,
     undefined,
     "commentary",
@@ -362,6 +368,248 @@ function producerThreadWindowWithSeparateReady(): Extract<BrowserIncomingMessage
   };
 }
 
+function producerEarlierQuizThenLaterReadyResponse(): Extract<BrowserIncomingMessage, { type: "thread_window_sync" }> {
+  const firstResponseTimestamp = 1_700_000_002_000;
+  const laterResponseTimestamp = 1_700_000_005_000;
+  const observedHistoryLength = 45;
+  const entries = [
+    {
+      history_index: 40,
+      message: userMessage("user-quiz-owner", "Request whose response owns the Quiz", 1_700_000_001_000),
+    },
+    {
+      history_index: 41,
+      message: responseMessage({
+        id: "response-quiz-owner-r1",
+        observedHistoryLength: 41,
+        coveredUserMessageIds: ["user-quiz-owner"],
+        content: "Earlier response with a same-turn Quiz",
+        timestamp: firstResponseTimestamp,
+      }),
+    },
+    {
+      history_index: 42,
+      message: assistantMessage(
+        "assistant-earlier-quiz",
+        `{[(Quest Quiz: ${QUEST_ID})]}`,
+        1_700_000_003_000,
+        undefined,
+        "commentary",
+      ),
+    },
+    { history_index: 43, message: userMessage("user-later", "Later request without a Quiz", 1_700_000_004_000) },
+    {
+      history_index: 44,
+      message: responseMessage({
+        id: "response-later-r1",
+        observedHistoryLength: 44,
+        coveredUserMessageIds: ["user-later"],
+        content: "Later current response without a Quiz",
+        timestamp: laterResponseTimestamp,
+      }),
+    },
+  ];
+
+  return {
+    type: "thread_window_sync",
+    thread_key: QUEST_ID,
+    entries,
+    window: {
+      thread_key: QUEST_ID,
+      from_item: 0,
+      item_count: entries.length,
+      total_items: entries.length,
+      has_older_items: false,
+      has_newer_items: false,
+      source_history_length: observedHistoryLength,
+      section_item_count: 30,
+      visible_item_count: entries.length,
+    },
+    response_state: {
+      version: 2,
+      threadKey: QUEST_ID,
+      cutoverHistoryIndex: 40,
+      pendingMessageCount: 0,
+      pendingMessages: [],
+      currentAnswers: [
+        {
+          version: 2,
+          threadKey: QUEST_ID,
+          questId: QUEST_ID,
+          answerUserMessageIds: ["u1"],
+          referencedUserMessageIds: ["user-quiz-owner"],
+          coveredAnswerUserMessageIds: ["u1"],
+          coveredUserMessageIds: ["user-quiz-owner"],
+          currentMessageId: "response-quiz-owner-r1",
+          currentHistoryIndex: 41,
+          createdAt: firstResponseTimestamp,
+          updatedAt: firstResponseTimestamp,
+          source: "explicit",
+        },
+        {
+          version: 2,
+          threadKey: QUEST_ID,
+          questId: QUEST_ID,
+          answerUserMessageIds: ["u2"],
+          referencedUserMessageIds: ["user-later"],
+          coveredAnswerUserMessageIds: ["u2"],
+          coveredUserMessageIds: ["user-later"],
+          currentMessageId: "response-later-r1",
+          currentHistoryIndex: 44,
+          createdAt: laterResponseTimestamp,
+          updatedAt: laterResponseTimestamp,
+          source: "explicit",
+        },
+      ],
+      ready: true,
+    },
+  };
+}
+
+function producerLaterAnswerWhileOlderPending(): Extract<BrowserIncomingMessage, { type: "thread_window_sync" }> {
+  const entries = [
+    {
+      history_index: 40,
+      message: userMessage("user-older-pending", "Older implementation request", 1_700_000_001_000),
+    },
+    { history_index: 41, message: userMessage("user-later-answered", "Later clarification", 1_700_000_002_000) },
+    {
+      history_index: 42,
+      message: responseMessage({
+        id: "answer-later-clarification",
+        observedHistoryLength: 42,
+        coveredUserMessageIds: ["user-later-answered"],
+        content: "The clarification is fully answered while implementation continues.",
+        timestamp: 1_700_000_003_000,
+      }),
+    },
+  ];
+  return {
+    type: "thread_window_sync",
+    thread_key: QUEST_ID,
+    entries,
+    window: {
+      thread_key: QUEST_ID,
+      from_item: 0,
+      item_count: entries.length,
+      total_items: entries.length,
+      has_older_items: false,
+      has_newer_items: false,
+      source_history_length: 43,
+      section_item_count: 30,
+      visible_item_count: entries.length,
+    },
+    response_state: {
+      version: 2,
+      threadKey: QUEST_ID,
+      cutoverHistoryIndex: 40,
+      pendingMessageCount: 1,
+      pendingMessages: [
+        { userMessageId: "u1", historyMessageId: "user-older-pending", historyIndex: 40, askedAt: 1_700_000_001_000 },
+      ],
+      currentAnswers: [
+        {
+          version: 2,
+          threadKey: QUEST_ID,
+          questId: QUEST_ID,
+          answerUserMessageIds: ["u2"],
+          referencedUserMessageIds: ["user-later-answered"],
+          coveredAnswerUserMessageIds: ["u2"],
+          coveredUserMessageIds: ["user-later-answered"],
+          currentMessageId: "answer-later-clarification",
+          currentHistoryIndex: 42,
+          createdAt: 1_700_000_003_000,
+          updatedAt: 1_700_000_003_000,
+          source: "explicit",
+        },
+      ],
+      ready: false,
+    },
+  };
+}
+
+function producerAsynchronousAnswerFromLaterTurn(): Extract<BrowserIncomingMessage, { type: "thread_window_sync" }> {
+  const answerText = "The earlier request is complete after asynchronous work.";
+  const answerTimestamp = 1_700_000_004_000;
+  const entries = [
+    {
+      history_index: 40,
+      message: userMessage("user-older-pending", "Earlier asynchronous request", 1_700_000_001_000),
+    },
+    {
+      history_index: 41,
+      message: assistantMessage(
+        "async-work-progress",
+        "The earlier request is still running.",
+        1_700_000_002_000,
+        undefined,
+        "commentary",
+      ),
+    },
+    {
+      history_index: 42,
+      message: userMessage("user-later-answered", "Later request that triggered completion", 1_700_000_003_000),
+    },
+    {
+      history_index: 43,
+      message: responseMessage({
+        id: "answer-earlier-from-later-turn",
+        observedHistoryLength: 43,
+        coveredUserMessageIds: ["user-older-pending"],
+        content: `${answerText}\n\n{[(Quest Quiz: ${QUEST_ID})]}`,
+        timestamp: answerTimestamp,
+      }),
+    },
+  ];
+  return {
+    type: "thread_window_sync",
+    thread_key: QUEST_ID,
+    entries,
+    window: {
+      thread_key: QUEST_ID,
+      from_item: 0,
+      item_count: entries.length,
+      total_items: entries.length,
+      has_older_items: false,
+      has_newer_items: false,
+      source_history_length: 44,
+      section_item_count: 30,
+      visible_item_count: entries.length,
+    },
+    response_state: {
+      version: 2,
+      threadKey: QUEST_ID,
+      cutoverHistoryIndex: 40,
+      pendingMessageCount: 1,
+      pendingMessages: [
+        {
+          userMessageId: "u2",
+          historyMessageId: "user-later-answered",
+          historyIndex: 42,
+          askedAt: 1_700_000_003_000,
+        },
+      ],
+      currentAnswers: [
+        {
+          version: 2,
+          threadKey: QUEST_ID,
+          questId: QUEST_ID,
+          answerUserMessageIds: ["u1"],
+          referencedUserMessageIds: ["user-older-pending"],
+          coveredAnswerUserMessageIds: ["u1"],
+          coveredUserMessageIds: ["user-older-pending"],
+          currentMessageId: "answer-earlier-from-later-turn",
+          currentHistoryIndex: 43,
+          createdAt: answerTimestamp,
+          updatedAt: answerTimestamp,
+          source: "explicit",
+        },
+      ],
+      ready: false,
+    },
+  };
+}
+
 function producerFinalResponseOnlyThreadWindow(): Extract<BrowserIncomingMessage, { type: "thread_window_sync" }> {
   const responseTimestamp = 1_700_000_004_000;
   const entries = [
@@ -370,11 +618,7 @@ function producerFinalResponseOnlyThreadWindow(): Extract<BrowserIncomingMessage
       history_index: 41,
       message: responseMessage({
         id: "response-only-r1",
-        logicalResponseId: "response-only",
-        revisionId: "only-r1",
-        revisionNumber: 1,
-        batchId: "batch-only",
-        batchObservedHistoryLength: 42,
+        observedHistoryLength: 42,
         coveredUserMessageIds: ["user-only"],
         content: "Only current response",
         timestamp: responseTimestamp,
@@ -397,26 +641,25 @@ function producerFinalResponseOnlyThreadWindow(): Extract<BrowserIncomingMessage
       visible_item_count: 10,
     },
     response_state: {
-      version: 1,
+      version: 2,
       threadKey: QUEST_ID,
       cutoverHistoryIndex: 40,
       pendingMessageCount: 0,
-      pendingBatches: [],
-      currentResponses: [
+      pendingMessages: [],
+      currentAnswers: [
         {
-          version: 1,
-          logicalResponseId: "response-only",
+          version: 2,
           threadKey: QUEST_ID,
           questId: QUEST_ID,
-          batchId: "batch-only",
-          batchObservedHistoryLength: 42,
+          answerUserMessageIds: ["u1"],
+          referencedUserMessageIds: ["user-only"],
+          coveredAnswerUserMessageIds: ["u1"],
           coveredUserMessageIds: ["user-only"],
-          currentRevisionId: "only-r1",
           currentMessageId: "response-only-r1",
           currentHistoryIndex: 41,
-          revisionCount: 1,
           createdAt: responseTimestamp,
           updatedAt: responseTimestamp,
+          source: "explicit",
         },
       ],
       ready: true,
@@ -507,7 +750,7 @@ function installReadyStatus(timestamp = 1_700_000_010_000, messageId = "response
   );
 }
 
-describe("MessageFeed pending-batch response selected-window integration", () => {
+describe("MessageFeed explicit answer selected-window integration", () => {
   beforeEach(() => {
     useStore.getState().reset();
     apiMocks.getQuestValidated.mockClear();
@@ -558,7 +801,7 @@ describe("MessageFeed pending-batch response selected-window integration", () =>
     expect(screen.getAllByTestId("thread-response-current")).toHaveLength(2);
   });
 
-  it("shows each current batch response once after its last prompt and one Quiz when Ready", () => {
+  it("shows each current answer once after its last prompt and one Quiz when Ready", () => {
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
 
     const first = screen.getByText("First pending request");
@@ -589,7 +832,9 @@ describe("MessageFeed pending-batch response selected-window integration", () =>
       .getByText("Current singleton response")
       .closest<HTMLElement>("[data-testid='thread-response-current-expanded']")!;
     expect(singletonFrame).toBeInTheDocument();
-    expect(within(singletonFrame).getByText("Current response")).toBeVisible();
+    expect(singletonFrame).toHaveClass("border-cc-primary/25");
+    expect(singletonFrame).not.toHaveClass("bg-cc-primary/[0.045]");
+    expect(within(singletonFrame).getByText("Current answer")).toBeVisible();
     expect(within(singletonFrame).queryByTestId("thread-response-group-provenance")).not.toBeInTheDocument();
     expect(screen.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
 
@@ -602,7 +847,7 @@ describe("MessageFeed pending-batch response selected-window integration", () =>
     expect(earlier.closest("[data-testid='thread-response-current-expanded']")).toBeNull();
     const groupedFrame = current.closest<HTMLElement>("[data-testid='thread-response-current-expanded']")!;
     expect(groupedFrame).toBeInTheDocument();
-    expect(within(groupedFrame).getByText("Current response")).toBeVisible();
+    expect(within(groupedFrame).getByText("Current answer")).toBeVisible();
     expect(within(groupedFrame).getByTestId("thread-response-group-provenance")).toHaveTextContent(
       "Answers 2 messages",
     );
@@ -620,7 +865,7 @@ describe("MessageFeed pending-batch response selected-window integration", () =>
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
 
     expect(screen.getByText("Current singleton response")).toBeVisible();
-    expect(screen.queryByText("Ready status published after the final response.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ready status published after the answer.")).not.toBeInTheDocument();
 
     const thirdTurn = screen.getByText("Third pending request").closest<HTMLElement>("[data-turn-id]")!;
     const quiz = within(thirdTurn).getByRole("region", { name: "Quest quiz" });
@@ -630,14 +875,14 @@ describe("MessageFeed pending-batch response selected-window integration", () =>
 
     expand.focus();
     fireEvent.click(expand);
-    expect(screen.getByText("Ready status published after the final response.")).toBeVisible();
+    expect(screen.getByText("Ready status published after the answer.")).toBeVisible();
     expect(screen.getByText("Current singleton response")).toBeVisible();
     const collapse = within(thirdTurn).getByRole("button", { name: "Collapse this turn" });
     expect(collapse).toHaveAttribute("aria-expanded", "true");
     expect(document.activeElement).toBe(collapse);
 
     fireEvent.click(collapse);
-    expect(screen.queryByText("Ready status published after the final response.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ready status published after the answer.")).not.toBeInTheDocument();
     expect(screen.getByText("Current singleton response")).toBeVisible();
     expect(screen.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
     const restoredExpand = within(thirdTurn).getByRole("button", { name: "Expand this turn" });
@@ -645,7 +890,105 @@ describe("MessageFeed pending-batch response selected-window integration", () =>
     expect(document.activeElement).toBe(restoredExpand);
   });
 
-  it("keeps both explicit toggle states for a final-response-only Ready turn", () => {
+  it("keeps an earlier Quiz with its producing turn when a later Ready turn collapses", () => {
+    act(() => {
+      useStore.getState().reset();
+      handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
+      useStore.getState().upsertQuestDetail(quest(), { etag: '"response-detail"' });
+      handleMessage(SESSION_ID, producerEarlierQuizThenLaterReadyResponse());
+      installReadyStatus(1_700_000_006_000, "response-later-r1");
+    });
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+
+    const quizOwnerTurn = screen
+      .getByText("Request whose response owns the Quiz")
+      .closest<HTMLElement>("[data-turn-id]")!;
+    const laterTurn = screen.getByText("Later request without a Quiz").closest<HTMLElement>("[data-turn-id]")!;
+    const quiz = within(quizOwnerTurn).getByRole("region", { name: "Quest quiz" });
+
+    expect(quiz).toBeVisible();
+    expect(within(laterTurn).queryByRole("region", { name: "Quest quiz" })).not.toBeInTheDocument();
+    expect(quiz.compareDocumentPosition(laterTurn) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+
+    fireEvent.click(within(laterTurn).getByRole("button", { name: "Expand this turn" }));
+    expect(within(laterTurn).getByText("Later current response without a Quiz")).toBeVisible();
+    expect(within(laterTurn).queryByRole("region", { name: "Quest quiz" })).not.toBeInTheDocument();
+    fireEvent.click(within(laterTurn).getByRole("button", { name: "Collapse this turn" }));
+    expect(within(laterTurn).queryByRole("region", { name: "Quest quiz" })).not.toBeInTheDocument();
+
+    fireEvent.click(within(quizOwnerTurn).getByRole("button", { name: "Expand this turn" }));
+    expect(within(quizOwnerTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
+    expect(screen.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
+    fireEvent.click(within(quizOwnerTurn).getByRole("button", { name: "Collapse this turn" }));
+    expect(within(quizOwnerTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
+  });
+
+  it("keeps a later clarification answer visible while an older request remains pending", () => {
+    act(() => {
+      useStore.getState().reset();
+      handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
+      handleMessage(SESSION_ID, producerLaterAnswerWhileOlderPending());
+    });
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+
+    expect(screen.getByText("Older implementation request")).toBeVisible();
+    expect(screen.getByText("Later clarification")).toBeVisible();
+    expect(screen.getByText("The clarification is fully answered while implementation continues.")).toBeVisible();
+    const laterTurn = screen.getByText("Later clarification").closest<HTMLElement>("[data-turn-id]")!;
+    fireEvent.click(within(laterTurn).getByRole("button", { name: "Collapse this turn" }));
+    expect(within(laterTurn).getByTestId("thread-response-current")).toBeVisible();
+    expect(
+      within(laterTurn).getByText("The clarification is fully answered while implementation continues."),
+    ).toBeVisible();
+    expect(useStore.getState().threadWindowResponseStates.get(SESSION_ID)?.get(QUEST_ID)).toMatchObject({
+      ready: false,
+      pendingMessages: [{ userMessageId: "u1" }],
+    });
+  });
+
+  it("shows one asynchronous answer while its distinct source turn expands and collapses", () => {
+    // Relocation is presentation-only: expanding the real source swaps hosts instead of duplicating DOM identity.
+    act(() => {
+      useStore.getState().reset();
+      handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
+      useStore.getState().upsertQuestDetail(quest(), { etag: '"response-detail"' });
+      handleMessage(SESSION_ID, producerAsynchronousAnswerFromLaterTurn());
+    });
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+
+    const answerText = "The earlier request is complete after asynchronous work.";
+    const anchorTurn = screen.getByText("Earlier asynchronous request").closest<HTMLElement>("[data-turn-id]")!;
+    const sourceTurn = screen
+      .getByText("Later request that triggered completion")
+      .closest<HTMLElement>("[data-turn-id]")!;
+
+    expect(screen.getAllByText(answerText)).toHaveLength(1);
+    expect(within(sourceTurn).getByText(answerText)).toBeVisible();
+    expect(within(sourceTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
+
+    expect(within(anchorTurn).getByRole("button", { name: "Expand this turn" })).toBeVisible();
+    expect(within(anchorTurn).queryByTestId("thread-response-current")).not.toBeInTheDocument();
+
+    fireEvent.click(within(sourceTurn).getByRole("button", { name: "Collapse this turn" }));
+    expect(screen.getAllByText(answerText)).toHaveLength(1);
+    expect(within(anchorTurn).getByTestId("thread-response-current")).toBeVisible();
+    expect(within(anchorTurn).getByText(answerText)).toBeVisible();
+    expect(within(sourceTurn).queryByText(answerText)).not.toBeInTheDocument();
+    expect(within(sourceTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
+
+    fireEvent.click(within(sourceTurn).getByRole("button", { name: "Expand this turn" }));
+    expect(screen.getAllByText(answerText)).toHaveLength(1);
+    expect(within(anchorTurn).queryByTestId("thread-response-current")).not.toBeInTheDocument();
+    expect(within(sourceTurn).getByText(answerText)).toBeVisible();
+    expect(within(sourceTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
+
+    fireEvent.click(within(sourceTurn).getByRole("button", { name: "Collapse this turn" }));
+    expect(screen.getAllByText(answerText)).toHaveLength(1);
+    expect(within(anchorTurn).getByTestId("thread-response-current")).toBeVisible();
+    expect(within(sourceTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
+  });
+
+  it("keeps both explicit toggle states for an answer-only Ready turn", () => {
     act(() => {
       useStore.getState().reset();
       handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
@@ -685,7 +1028,7 @@ describe("MessageFeed pending-batch response selected-window integration", () =>
     });
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
 
-    expect(screen.queryByTestId("thread-response-current")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("thread-response-current")).toHaveLength(1);
     expect(screen.getByText("Intermediate leader and tool activity")).toBeVisible();
     expect(screen.getByText("Current singleton response")).toBeVisible();
     expect(
@@ -693,12 +1036,13 @@ describe("MessageFeed pending-batch response selected-window integration", () =>
     ).toBeInTheDocument();
   });
 
-  it("keeps prior current-final identity while newer coverage is pending despite a stale Ready marker", () => {
+  it("keeps prior current-answer identity visible while newer coverage is pending", () => {
     act(() => handleMessage(SESSION_ID, producerThreadWindow(false)));
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
 
     expect(useStore.getState().threadWindowResponseStates.get(SESSION_ID)?.get(QUEST_ID)?.ready).toBe(false);
-    expect(screen.queryByTestId("thread-response-current")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("thread-response-current")).toHaveLength(1);
+    expect(screen.getByText("Current grouped response")).toBeVisible();
     expect(screen.getByText("Intermediate leader and tool activity")).toBeVisible();
     const secondTurn = screen.getByText("Second pending request").closest<HTMLElement>("[data-turn-id]")!;
     fireEvent.click(within(secondTurn).getByRole("button", { name: /Leader activity/i }));

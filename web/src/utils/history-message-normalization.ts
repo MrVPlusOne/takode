@@ -26,6 +26,7 @@ type ExistingThreadMetadataSource = {
   codexMessagePhase?: NonNullable<ChatMessage["metadata"]>["codexMessagePhase"];
   codexSubagent?: NonNullable<ChatMessage["metadata"]>["codexSubagent"];
   leaderThreadRole?: NonNullable<ChatMessage["metadata"]>["leaderThreadRole"];
+  threadAnswer?: NonNullable<ChatMessage["metadata"]>["threadAnswer"];
   threadResponse?: NonNullable<ChatMessage["metadata"]>["threadResponse"];
 };
 
@@ -143,6 +144,7 @@ function existingThreadMetadataFromMessage(msg: ExistingThreadMetadataSource): C
     msg.codexMessagePhase === undefined &&
     !msg.codexSubagent &&
     !msg.leaderThreadRole &&
+    !msg.threadAnswer &&
     !msg.threadResponse
   ) {
     return undefined;
@@ -157,6 +159,7 @@ function existingThreadMetadataFromMessage(msg: ExistingThreadMetadataSource): C
     ...(msg.codexMessagePhase !== undefined ? { codexMessagePhase: msg.codexMessagePhase } : {}),
     ...(msg.codexSubagent ? { codexSubagent: msg.codexSubagent } : {}),
     ...(msg.leaderThreadRole ? { leaderThreadRole: msg.leaderThreadRole } : {}),
+    ...(msg.threadAnswer ? { threadAnswer: msg.threadAnswer } : {}),
     ...(msg.threadResponse ? { threadResponse: msg.threadResponse } : {}),
   };
 }
@@ -286,6 +289,7 @@ export function normalizeHistoryMessageToChatMessages(
       ...(histMsg.leaderResponseCoverageVersion
         ? { leaderResponseCoverageVersion: histMsg.leaderResponseCoverageVersion }
         : {}),
+      ...(histMsg.leaderUserMessageId ? { leaderUserMessageId: histMsg.leaderUserMessageId } : {}),
     };
     const localImages =
       typeof histMsg.client_msg_id === "string"

@@ -191,6 +191,7 @@ describe("system-message-controller", () => {
       {
         type: "user_message",
         id: "user-final",
+        leaderUserMessageId: "u1",
         content: "Please answer.",
         timestamp: 10,
         threadKey: "main",
@@ -208,7 +209,7 @@ describe("system-message-controller", () => {
         type: "message",
         role: "assistant",
         model: "test",
-        content: [{ type: "text", text: "[thread:main:F]\nFinal answer." }],
+        content: [{ type: "text", text: "[thread:main:A:u1]\nFinal answer." }],
         stop_reason: "end_turn",
         usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },

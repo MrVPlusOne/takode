@@ -2,7 +2,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { RefObject } from "react";
-import { vi } from "vitest";
 import { useStore } from "../store.js";
 import type { ChatMessage } from "../types.js";
 import { AssistantMessageMenu } from "./MessageActionMenus.js";
@@ -15,7 +14,6 @@ function message(threadKey = "q-42"): ChatMessage {
     timestamp: 10,
     historyIndex: 7,
     metadata: {
-      leaderUserMessage: true,
       threadKey,
       ...(threadKey === "main"
         ? {}
@@ -23,20 +21,11 @@ function message(threadKey = "q-42"): ChatMessage {
             questId: threadKey,
             threadRefs: [{ threadKey, questId: threadKey, source: "explicit" as const }],
           }),
-      threadResponse: {
-        logicalResponseId: "response-42",
-        revisionId: "summary-42-r1",
-        revisionNumber: 1,
-        batchId: "batch-42",
-        batchObservedHistoryLength: 8,
-        coveredUserMessageIds: ["user-42"],
-        contentHash: "hash-r1",
-      },
     },
   };
 }
 
-describe("AssistantMessageMenu leader response authority", () => {
+describe("AssistantMessageMenu", () => {
   beforeEach(() => {
     useStore.getState().reset();
     useStore.setState({
@@ -45,7 +34,7 @@ describe("AssistantMessageMenu leader response authority", () => {
     });
   });
 
-  it("does not expose human mutation actions for a leader-managed summary revision", () => {
+  it("keeps copy actions available for routed assistant messages", () => {
     render(
       <AssistantMessageMenu
         message={message()}
@@ -58,14 +47,14 @@ describe("AssistantMessageMenu leader response authority", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Message options" }));
 
-    expect(screen.queryByRole("button", { name: /Outcome/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy as Markdown" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copy as Plain Text" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Copy message link" })).toBeVisible();
   });
 
-  it("does not expose the rejected Main-thread quest picker even when board quests exist", () => {
+  it("keeps reply actions available in Main even when the leader board has quests", () => {
     useStore.setState({
-      sessionBoards: new Map([["leader", [{ questId: "q-42", title: "Leader summaries", status: "WORKING" } as any]]]),
+      sessionBoards: new Map([["leader", [{ questId: "q-42", title: "Leader work", status: "WORKING" } as any]]]),
     });
 
     render(
@@ -80,25 +69,7 @@ describe("AssistantMessageMenu leader response authority", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Message options" }));
 
-    expect(screen.queryByRole("button", { name: /quest Outcome/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reply to this message" })).toBeVisible();
-  });
-
-  it("keeps ordinary message actions available for non-summary assistant prose", () => {
-    const ordinary = { ...message(), metadata: { threadKey: "q-42" } };
-    render(
-      <AssistantMessageMenu
-        message={ordinary}
-        contentRef={{ current: null } as RefObject<HTMLDivElement | null>}
-        sessionId="leader"
-        currentThreadKey="q-42"
-        showSideChatActions={false}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Message options" }));
-
-    expect(screen.getByRole("button", { name: "Reply to this message" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Copy as Plain Text" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copy message link" })).toBeVisible();
   });
 });

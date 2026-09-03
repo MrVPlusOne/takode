@@ -123,11 +123,12 @@ describe("leader thread status clear projection invalidation", () => {
     applyOnlyUpdate(socket, value);
   });
 
-  it("publishes a Main Ready clear when an ordinary routed final is completed", async () => {
+  it("publishes a Main Ready clear when an ordinary routed answer is completed", async () => {
     const session = leaderSession([
       {
         type: "user_message",
         id: "pending-main-input",
+        leaderUserMessageId: "u1",
         content: "Please handle this.",
         timestamp: 2,
         threadKey: "main",
@@ -150,8 +151,9 @@ describe("leader thread status clear projection invalidation", () => {
       parent_tool_use_id: null,
       timestamp: 20,
       threadKey: "main",
-      leaderThreadRole: "response",
-      leaderResponseObservedHistoryLength: 1,
+      leaderThreadRole: "answer",
+      leaderAnswerUserMessageIds: ["u1"],
+      leaderAnswerObservedHistoryLength: 1,
     };
     session.messageHistory.push(response);
     expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });

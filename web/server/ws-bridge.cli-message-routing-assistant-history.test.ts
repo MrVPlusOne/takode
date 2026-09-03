@@ -866,7 +866,7 @@ describe("CLI message routing", () => {
     const reminder = session.messageHistory.find(
       (m: any) => m.type === "user_message" && m.agentSource?.sessionId === THREAD_OUTCOME_REMINDER_SOURCE_ID,
     ) as any;
-    expect(reminder?.content).toContain("Pending response batches: Main (1 pending).");
+    expect(reminder?.content).toContain("Pending answer IDs: Main (u1).");
     expect(reminder?.threadKey).toBe("main");
   });
 

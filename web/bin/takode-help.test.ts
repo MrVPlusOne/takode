@@ -6,24 +6,26 @@ describe("takode help", () => {
     vi.restoreAllMocks();
   });
 
-  it("removes the retired thread-response command from public help", () => {
+  it("omits superseded leader authoring commands from public help", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     printUsage();
 
     const output = log.mock.calls.map((call) => String(call[0])).join("\n");
     expect(output).not.toContain("thread-response");
-    expect(output).toContain("user-message  Deprecated compatibility publisher");
+    expect(output).not.toContain("user-message");
     expect(printCommandHelp("thread-response", [])).toBe(false);
+    expect(printCommandHelp("user-message", [])).toBe(false);
   });
 
-  it("points deprecated user-message callers to role-bearing routed text", () => {
+  it("documents session-scoped user-message retrieval on the existing read command", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    expect(printCommandHelp("user-message", [])).toBe(true);
+    expect(printCommandHelp("read", [])).toBe(true);
 
     const output = log.mock.calls.map((call) => String(call[0])).join("\n");
-    expect(output).toContain("[thread:main:C] / [thread:q-N:C] for commentary");
-    expect(output).toContain("[thread:main:F] / [thread:q-N:F] for final responses");
+    expect(output).toContain("takode read <session> <history-index|user-id>");
+    expect(output).toContain("Leader source-envelope IDs such as u12");
+    expect(output).toContain("session-scoped");
   });
 });

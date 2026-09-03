@@ -1,17 +1,32 @@
 import type { LeaderThreadTextRole } from "../shared/thread-routing.js";
 import type { ParsedThreadStatusMarker } from "../shared/thread-status-marker.js";
 
-export const LEADER_THREAD_RESPONSE_VERSION = 1 as const;
+export const LEADER_THREAD_RESPONSE_VERSION = 2 as const;
+export const LEGACY_LEADER_THREAD_RESPONSE_VERSION = 1 as const;
+
+export type LeaderStoredThreadRole = LeaderThreadTextRole | "response";
+
+export type LeaderAnswerTrackedUserMetadata = {
+  /** Post-cutover direct-human messages participate in leader answer coverage. */
+  leaderResponseCoverageVersion?: 1;
+  /** Concise stable session-scoped ID exposed only in leader source envelopes. */
+  leaderUserMessageId?: string;
+};
 
 /** Control metadata retained on ordinary routed leader assistant rows until turn settlement. */
 export type LeaderRoutedAssistantMetadata = {
-  leaderThreadRole?: LeaderThreadTextRole;
+  leaderThreadRole?: LeaderStoredThreadRole;
+  leaderAnswerUserMessageIds?: string[];
+  leaderAnswerObservedHistoryLength?: number;
+  /** Read-only in-flight compatibility for turns created by the former `:F` model. */
   leaderResponseObservedHistoryLength?: number;
   deferredThreadStatusMarkers?: ParsedThreadStatusMarker[];
-  threadResponse?: LeaderThreadResponseRevisionMetadata;
+  threadAnswer?: LeaderThreadAnswerMetadata;
+  /** Read-only compatibility for persisted server-defined response batches. */
+  threadResponse?: LegacyLeaderThreadResponseRevisionMetadata;
 };
 
-/** Read-only compatibility shape for dedicated response rows persisted before routed finals. */
+/** Read-only compatibility shape for dedicated response rows persisted before routed answers. */
 export interface LegacyLeaderThreadResponseMessage<Notification, ThreadReference, RoutingError> {
   type: "leader_user_message";
   content: string;
@@ -22,11 +37,11 @@ export interface LegacyLeaderThreadResponseMessage<Notification, ThreadReference
   questId?: string;
   threadRefs?: ThreadReference[];
   threadRoutingError?: RoutingError;
-  threadResponse?: LeaderThreadResponseRevisionMetadata;
+  threadResponse?: LegacyLeaderThreadResponseRevisionMetadata;
 }
 
-/** Immutable audit metadata stored on each append-only leader response revision message. */
-export interface LeaderThreadResponseRevisionMetadata {
+/** Persisted metadata for the rejected server-defined batch/revision design. Never authored anew. */
+export interface LegacyLeaderThreadResponseRevisionMetadata {
   logicalResponseId: string;
   revisionId: string;
   parentRevisionId?: string;
@@ -37,56 +52,39 @@ export interface LeaderThreadResponseRevisionMetadata {
   contentHash: string;
 }
 
-export interface LeaderThreadResponseRevision {
-  revisionId: string;
-  parentRevisionId?: string;
-  revisionNumber: number;
-  messageId: string;
-  historyIndex: number;
-  markdown: string;
-  batchId: string;
-  batchObservedHistoryLength: number;
-  coveredUserMessageIds: string[];
-  contentHash: string;
-  createdAt: number;
+/** Immutable proof stored on one explicit routed leader answer. */
+export interface LeaderThreadAnswerMetadata {
+  version: typeof LEADER_THREAD_RESPONSE_VERSION;
+  answerUserMessageIds: string[];
+  observedHistoryLength: number;
 }
 
-/** Compact current pointer for one logical response to one server-defined pending batch. */
+/** Compact current answer pointer used by selected-thread presentation. */
 export interface LeaderThreadResponseState {
   version: typeof LEADER_THREAD_RESPONSE_VERSION;
-  logicalResponseId: string;
   threadKey: string;
   questId?: string;
-  batchId: string;
-  batchObservedHistoryLength: number;
+  /** Complete concise ID list written in the answer marker. */
+  answerUserMessageIds: string[];
+  /** Complete raw history IDs originally referenced by this answer. */
+  referencedUserMessageIds: string[];
+  /** Concise IDs for which this answer is still current after supersession. */
+  coveredAnswerUserMessageIds: string[];
+  /** Raw history IDs for which this answer is still current. */
   coveredUserMessageIds: string[];
-  currentRevisionId: string;
   currentMessageId: string;
   currentHistoryIndex: number;
-  revisionCount: number;
   createdAt: number;
   updatedAt: number;
+  source: "explicit" | "legacy";
 }
 
-export interface LeaderThreadResponseDetail extends LeaderThreadResponseState {
-  revisions: LeaderThreadResponseRevision[];
-}
-
-export interface LeaderThreadPendingBatchMemberPreview {
-  timestamp: number;
-  preview: string;
-  truncated: boolean;
-  imageCount: number;
-}
-
-/** Browser-only exact pending batch projection used for fail-closed presentation support. */
-export interface LeaderThreadPendingBatchProjection {
-  userMessageIds: string[];
-  messageCount: number;
-  firstHistoryIndex: number;
-  lastHistoryIndex: number;
-  firstAskedAt: number;
-  lastAskedAt: number;
+/** Browser-only exact pending-message projection used for fail-closed presentation support. */
+export interface LeaderThreadPendingMessageProjection {
+  userMessageId: string;
+  historyMessageId: string;
+  historyIndex: number;
+  askedAt: number;
 }
 
 export interface LeaderThreadResponseProjection {
@@ -94,7 +92,7 @@ export interface LeaderThreadResponseProjection {
   threadKey: string;
   cutoverHistoryIndex: number;
   pendingMessageCount: number;
-  pendingBatches: LeaderThreadPendingBatchProjection[];
-  currentResponses: LeaderThreadResponseState[];
+  pendingMessages: LeaderThreadPendingMessageProjection[];
+  currentAnswers: LeaderThreadResponseState[];
   ready: boolean;
 }

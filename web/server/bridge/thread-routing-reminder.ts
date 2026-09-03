@@ -1,4 +1,10 @@
-import type { BrowserIncomingMessage, ContentBlock, ThreadRef, ThreadRoutingError } from "../session-types.js";
+import type {
+  BrowserIncomingMessage,
+  ContentBlock,
+  SessionNotification,
+  ThreadRef,
+  ThreadRoutingError,
+} from "../session-types.js";
 import {
   buildThreadRoutingReminderContent,
   THREAD_ROUTING_REMINDER_SOURCE_ID,
@@ -21,7 +27,12 @@ import {
   type LeaderThreadStatus,
   type ParsedThreadStatusMarker,
 } from "../../shared/thread-status-marker.js";
-import { buildLeaderThreadResponseState, leaderResponseThreadKeyForUserMessage } from "../leader-thread-response.js";
+import {
+  buildLeaderThreadResponseState,
+  leaderResponseThreadKeyForUserMessage,
+  pendingLeaderAnswerInputsForThread,
+  type LeaderThreadResponseSession,
+} from "../leader-thread-response.js";
 import {
   inferRecentKnownQuestThreadRoute,
   routeFromHistoryEntry,
@@ -32,7 +43,7 @@ import {
 import { extractQuestThreadRemindersFromContent } from "./quest-thread-reminder.js";
 
 const THREAD_ROUTING_EXPECTED =
-  "Start visible leader text with [thread:main:C], [thread:main:F], [thread:q-N:C], or [thread:q-N:F]. Bash commands must start with # thread:main or # thread:q-N.";
+  "Start visible leader text with [thread:main:C], [thread:q-N:C], or an explicit answer marker such as [thread:main:A:u1] / [thread:q-N:A:u1,u2]. Bash commands must start with # thread:main or # thread:q-N.";
 const QUEST_QUIZ_DIRECTIVE_LINE_RE = /^\s*\{\[\(Quest Quiz:\s*q-\d+\)\]\}\s*$/i;
 
 export interface LeaderAssistantRouteResult {
@@ -42,6 +53,7 @@ export interface LeaderAssistantRouteResult {
   threadRefs?: ThreadRef[];
   threadRoutingError?: ThreadRoutingError;
   leaderThreadRole?: LeaderThreadTextRole;
+  leaderAnswerUserMessageIds?: string[];
   questThreadReminders?: string[];
   threadStatusMarkers?: ParsedThreadStatusMarker[];
 }
@@ -74,17 +86,23 @@ export function leaderTurnObservedHistoryLength(session: ThreadRoutingReminderSe
 
 export function leaderAssistantControlMetadata(
   session: ThreadRoutingReminderSessionLike,
-  routed: Pick<LeaderAssistantRouteResult, "leaderThreadRole" | "threadStatusMarkers">,
+  routed: Pick<LeaderAssistantRouteResult, "leaderThreadRole" | "leaderAnswerUserMessageIds" | "threadStatusMarkers">,
   hasStableMessageId: boolean,
 ): Pick<
   BrowserIncomingMessage,
-  "leaderThreadRole" | "leaderResponseObservedHistoryLength" | "deferredThreadStatusMarkers"
+  | "leaderThreadRole"
+  | "leaderAnswerUserMessageIds"
+  | "leaderAnswerObservedHistoryLength"
+  | "deferredThreadStatusMarkers"
 > {
   const observedHistoryLength =
-    routed.leaderThreadRole === "response" && hasStableMessageId ? leaderTurnObservedHistoryLength(session) : undefined;
+    routed.leaderThreadRole === "answer" && hasStableMessageId ? leaderTurnObservedHistoryLength(session) : undefined;
   return {
     ...(routed.leaderThreadRole ? { leaderThreadRole: routed.leaderThreadRole } : {}),
-    ...(observedHistoryLength !== undefined ? { leaderResponseObservedHistoryLength: observedHistoryLength } : {}),
+    ...(routed.leaderAnswerUserMessageIds?.length
+      ? { leaderAnswerUserMessageIds: routed.leaderAnswerUserMessageIds }
+      : {}),
+    ...(observedHistoryLength !== undefined ? { leaderAnswerObservedHistoryLength: observedHistoryLength } : {}),
     ...(routed.threadStatusMarkers?.length ? { deferredThreadStatusMarkers: routed.threadStatusMarkers } : {}),
   };
 }
@@ -92,10 +110,17 @@ export function leaderAssistantControlMetadata(
 export interface LeaderThreadStatusSessionLike {
   id?: string;
   messageHistory?: BrowserIncomingMessage[];
+  pendingCodexInputs?: LeaderThreadResponseSession["pendingCodexInputs"];
+  notifications?: SessionNotification[];
   state: {
     leaderThreadStatuses?: Record<string, LeaderThreadStatus>;
   };
 }
+
+type LeaderReadyBlockerSessionLike = Pick<
+  LeaderThreadStatusSessionLike,
+  "notifications" | "pendingCodexInputs" | "state"
+>;
 
 export interface LeaderThreadStatusUpdateResult {
   records: LeaderThreadStatus[];
@@ -158,7 +183,10 @@ function normalizedMidMessageRouteMarkerLine(line: string): string | null {
   if (!isThreadTextMarkerLikeAtLineStart(line)) return null;
   const parsed = parseThreadTextLineStartMarker(line);
   if (!parsed.ok) return line;
-  return formatThreadMarker(parsed.target.threadKey, parsed.role) + (parsed.body ? " " + parsed.body : "");
+  return (
+    formatThreadMarker(parsed.target.threadKey, parsed.role, parsed.answerUserMessageIds) +
+    (parsed.body ? " " + parsed.body : "")
+  );
 }
 
 export function splitLeaderAssistantContentAtThreadRouteBoundaries(
@@ -345,6 +373,7 @@ export function normalizeLeaderAssistantRouting(
       ...(parsed.target.questId ? { questId: parsed.target.questId } : {}),
       ...(refs ? { threadRefs: refs } : {}),
       ...(parsed.role ? { leaderThreadRole: parsed.role } : {}),
+      ...(parsed.answerUserMessageIds?.length ? { leaderAnswerUserMessageIds: parsed.answerUserMessageIds } : {}),
       ...(!parsed.role
         ? { threadRoutingError: threadRoutingErrorForMissingRole(formatThreadMarker(parsed.target.threadKey), content) }
         : {}),
@@ -452,6 +481,41 @@ export function clearLeaderThreadStatusForCoveredUserMessage(
     : false;
 }
 
+export function hasUnresolvedLeaderNeedsInputForThread(
+  session: Pick<LeaderReadyBlockerSessionLike, "notifications">,
+  requestedThreadKey: string,
+): boolean {
+  const threadKey = threadStatusKey(requestedThreadKey);
+  return (session.notifications ?? []).some(
+    (notification) =>
+      notification.category === "needs-input" &&
+      !notification.done &&
+      leaderResponseThreadKeyForUserMessage({
+        type: "user_message",
+        content: "",
+        timestamp: notification.timestamp,
+        id: notification.id,
+        threadKey: notification.threadKey,
+        questId: notification.questId,
+        threadRefs: notification.threadRefs,
+      }) === threadKey,
+  );
+}
+
+export function clearLeaderReadyStatusesBlockedByNeedsInput(session: LeaderReadyBlockerSessionLike): boolean {
+  const statuses = session.state.leaderThreadStatuses;
+  if (!statuses) return false;
+  let next: Record<string, LeaderThreadStatus> | null = null;
+  for (const [key, status] of Object.entries(statuses)) {
+    if (status.kind !== "ready" || !hasUnresolvedLeaderNeedsInputForThread(session, status.threadKey || key)) continue;
+    next ??= { ...statuses };
+    delete next[key];
+  }
+  if (!next) return false;
+  session.state.leaderThreadStatuses = next;
+  return true;
+}
+
 export function recordLeaderThreadStatusMarkers(
   session: LeaderThreadStatusSessionLike,
   markers: ParsedThreadStatusMarker[] | undefined,
@@ -475,15 +539,17 @@ export function updateLeaderThreadStatusesForAssistantOutput(
   let changed = false;
   for (const marker of markers ?? []) {
     const key = threadStatusKey(marker.target.threadKey);
-    if (
+    const blockedReady =
       marker.kind === "ready" &&
       session.id &&
       session.messageHistory &&
-      buildLeaderThreadResponseState(
+      (buildLeaderThreadResponseState(
         { id: session.id, messageHistory: session.messageHistory },
         marker.target.threadKey,
-      ).projection.pendingMessageCount > 0
-    ) {
+      ).projection.pendingMessageCount > 0 ||
+        pendingLeaderAnswerInputsForThread(session, marker.target.threadKey).count > 0 ||
+        hasUnresolvedLeaderNeedsInputForThread(session, marker.target.threadKey));
+    if (blockedReady) {
       rejectedReadyRoutes.push(threadRouteForTarget(marker.target.threadKey));
       if (statuses[key]) {
         delete statuses[key];

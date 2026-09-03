@@ -21,6 +21,7 @@ import {
   threadMetadataParticipatesInThread,
 } from "../takode-messages.js";
 import { buildLeaderContextResume } from "../takode-leader-context-resume.js";
+import { findLeaderUserMessageById, isCanonicalLeaderUserMessageId } from "../leader-user-message-id.js";
 import {
   getHerdDiagnostics as getHerdDiagnosticsController,
   markNotificationDone as markNotificationDoneController,
@@ -745,8 +746,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const sessionId = resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
 
-    const idx = parseInt(c.req.param("idx"), 10);
-    if (isNaN(idx)) return c.json({ error: "Invalid message index" }, 400);
+    const messageRef = c.req.param("idx").trim().toLowerCase();
 
     const offset = parseInt(c.req.query("offset") ?? "0", 10);
     const limit = parseInt(c.req.query("limit") ?? "200", 10);
@@ -758,6 +758,20 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
     const history = wsBridge.getSession(sessionId)?.messageHistory ?? null;
     if (!history) return c.json({ error: "Session not found in bridge" }, 404);
+
+    let idx: number;
+    if (/^\d+$/.test(messageRef)) {
+      idx = Number(messageRef);
+    } else if (isCanonicalLeaderUserMessageId(messageRef)) {
+      if (launcher.getSession(sessionId)?.isOrchestrator !== true) {
+        return c.json({ error: "Session is not a leader session" }, 400);
+      }
+      const resolved = findLeaderUserMessageById(history, messageRef);
+      if (!resolved) return c.json({ error: `User message ${messageRef} not found in leader session` }, 404);
+      idx = resolved.historyIndex;
+    } else {
+      return c.json({ error: "Message reference must be a history index or session-scoped user ID like u12" }, 400);
+    }
 
     const result = buildReadResponse(
       history,
@@ -912,40 +926,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
     );
     if (delivery === "no_session") return c.json({ error: "Session not found in bridge" }, 404);
     return c.json({ ok: true, sessionId: id, delivery });
-  });
-
-  api.post("/sessions/:id/user-message", async (c) => {
-    const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
-    if ("response" in auth) return auth.response;
-
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-    if (id !== auth.callerId) {
-      return c.json({ error: "Can only publish a user-visible message from your own session" }, 403);
-    }
-    const launcherSession = launcher.getSession(id);
-    if (!launcherSession) return c.json({ error: "Session not found" }, 404);
-    if (!launcherSession.isOrchestrator) {
-      return c.json({ error: "Session is not an orchestrator" }, 403);
-    }
-    const session = wsBridge.getSession(id);
-    if (!session) return c.json({ error: "Session not found in bridge" }, 404);
-    const body = await c.req.json().catch(() => ({}));
-    if (typeof body.content !== "string" || !body.content.trim()) {
-      return c.json({ error: "content is required" }, 400);
-    }
-
-    const timestamp = Date.now();
-    const message: BrowserIncomingMessage = {
-      type: "leader_user_message",
-      id: `leader-user-${timestamp}-${session.messageHistory.length}`,
-      content: body.content,
-      timestamp,
-    };
-    session.messageHistory.push(message);
-    wsBridge.broadcastToSession(id, message);
-    wsBridge.persistSessionById(id);
-    return c.json({ ok: true, sessionId: id, messageId: message.id });
   });
 
   api.post("/sessions/:id/thread/attach", async (c) => {

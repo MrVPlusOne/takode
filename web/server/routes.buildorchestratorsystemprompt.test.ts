@@ -612,7 +612,8 @@ describe("buildOrchestratorSystemPrompt", () => {
     expect(prompt).toContain("ask the user in a commentary-routed leader response");
     expect(prompt).toContain("then call `takode notify needs-input` after that user-visible text exists");
     expect(prompt).toContain("`[thread:main:C]` / `[thread:q-N:C]` for commentary");
-    expect(prompt).toContain("`[thread:main:F]` / `[thread:q-N:F]` for a self-contained final response");
+    expect(prompt).toContain("`[thread:main:A:u1]` / `[thread:q-N:A:u1,u2]` for a self-contained answer");
+    expect(prompt).not.toContain("takode user-message");
     expect(prompt).toContain(
       "Use the orchestration instructions already loaded in this session as your source of truth",
     );

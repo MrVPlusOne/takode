@@ -3,10 +3,16 @@ export type ThreadRouteTarget = {
   questId?: string;
 };
 
-export type LeaderThreadTextRole = "commentary" | "response";
+export type LeaderThreadTextRole = "commentary" | "answer";
 
 export type ThreadRouteParseResult =
-  | { ok: true; target: ThreadRouteTarget; role?: LeaderThreadTextRole; body: string }
+  | {
+      ok: true;
+      target: ThreadRouteTarget;
+      role?: LeaderThreadTextRole;
+      answerUserMessageIds?: string[];
+      body: string;
+    }
   | {
       ok: false;
       reason: "missing" | "invalid" | "invalid_role";
@@ -14,8 +20,8 @@ export type ThreadRouteParseResult =
       body: string;
     };
 
-const TEXT_THREAD_MARKER_RE = /^\[thread:(main|q-\d+)(?::([FC]))?\](?=$|[ \t]|\r?\n)/i;
-const TEXT_THREAD_MARKER_AT_LINE_START_RE = /^\[thread:(main|q-\d+)(?::([FC]))?\]/i;
+const TEXT_THREAD_MARKER_RE = /^\[thread:(main|q-\d+)(?::(C)|:A:(u[1-9]\d*(?:,u[1-9]\d*)*))?\](?=$|[ \t]|\r?\n)/i;
+const TEXT_THREAD_MARKER_AT_LINE_START_RE = /^\[thread:(main|q-\d+)(?::(C)|:A:(u[1-9]\d*(?:,u[1-9]\d*)*))?\]/i;
 const TEXT_THREAD_DESTINATION_PREFIX_RE = /^\[thread:(main|q-\d+):/i;
 const MARKDOWN_FENCE_RE = /^\s*(`{3,}|~{3,})/;
 const COMMAND_THREAD_COMMENT_RE = /^#\s*thread:(main|q-\d+)\s*$/;
@@ -67,8 +73,22 @@ export function inferThreadTargetFromTextContent(text: string): ThreadRouteTarge
   return normalizeThreadTarget(leadingQuestIds[0]);
 }
 
-export function formatThreadMarker(threadKey: string, role?: LeaderThreadTextRole): string {
-  const suffix = role === "response" ? ":F" : role === "commentary" ? ":C" : "";
+export function formatThreadMarker(
+  threadKey: string,
+  role?: LeaderThreadTextRole,
+  answerUserMessageIds: readonly string[] = [],
+): string {
+  if (role === "answer") {
+    if (
+      answerUserMessageIds.length === 0 ||
+      answerUserMessageIds.some((id) => !/^u[1-9]\d*$/.test(id)) ||
+      new Set(answerUserMessageIds).size !== answerUserMessageIds.length
+    ) {
+      throw new Error("Answer thread markers require one or more canonical user-message IDs.");
+    }
+    return `[thread:${threadKey}:A:${answerUserMessageIds.join(",")}]`;
+  }
+  const suffix = role === "commentary" ? ":C" : "";
   return `[thread:${threadKey}${suffix}]`;
 }
 
@@ -101,10 +121,16 @@ export function parseThreadTextPrefix(text: string): ThreadRouteParseResult {
   if (conflictingMarker) {
     return { ok: false, reason: "invalid_role", marker: conflictingMarker, body: text };
   }
+  const role = normalizeThreadTextRole(match[2], match[3]);
+  const answerUserMessageIds = normalizeAnswerUserMessageIds(match[3]);
+  if (match[3] && !answerUserMessageIds) {
+    return { ok: false, reason: "invalid_role", marker: extractThreadMarkerLike(candidate), body: text };
+  }
   return {
     ok: true,
     target,
-    ...(normalizeThreadTextRole(match[2]) ? { role: normalizeThreadTextRole(match[2]) } : {}),
+    ...(role ? { role } : {}),
+    ...(answerUserMessageIds ? { answerUserMessageIds } : {}),
     body,
   };
 }
@@ -126,17 +152,32 @@ export function parseThreadTextLineStartMarker(text: string): ThreadRouteParseRe
   if (conflictingMarker) {
     return { ok: false, reason: "invalid_role", marker: conflictingMarker, body: text };
   }
+  const role = normalizeThreadTextRole(match[2], match[3]);
+  const answerUserMessageIds = normalizeAnswerUserMessageIds(match[3]);
+  if (match[3] && !answerUserMessageIds) {
+    return { ok: false, reason: "invalid_role", marker: extractThreadMarkerLike(text), body: text };
+  }
   return {
     ok: true,
     target,
-    ...(normalizeThreadTextRole(match[2]) ? { role: normalizeThreadTextRole(match[2]) } : {}),
+    ...(role ? { role } : {}),
+    ...(answerUserMessageIds ? { answerUserMessageIds } : {}),
     body,
   };
 }
 
-function normalizeThreadTextRole(value: string | undefined): LeaderThreadTextRole | undefined {
+function normalizeThreadTextRole(
+  commentaryMarker: string | undefined,
+  answerIds: string | undefined,
+): LeaderThreadTextRole | undefined {
+  if (answerIds) return "answer";
+  return commentaryMarker?.toUpperCase() === "C" ? "commentary" : undefined;
+}
+
+function normalizeAnswerUserMessageIds(value: string | undefined): string[] | undefined {
   if (!value) return undefined;
-  return value.toUpperCase() === "F" ? "response" : value.toUpperCase() === "C" ? "commentary" : undefined;
+  const ids = value.toLowerCase().split(",");
+  return new Set(ids).size === ids.length ? ids : undefined;
 }
 
 function firstUnfencedThreadTextMarkerLike(text: string): string | null {

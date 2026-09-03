@@ -9,7 +9,7 @@ import { CollapsedActivityBar } from "./TurnActivitySummary.js";
 
 export function readyThreadResponseTurnHasContent(turn: Turn, presentation: ThreadResponsePresentation): boolean {
   if (presentation.currentResponses.some((item) => item.anchorTurnId === turn.id)) return true;
-  if (presentation.quizHostTurnId === turn.id && presentation.quizQuestIds.length > 0) return true;
+  if (presentation.quizGroups.some((group) => group.hostTurnId === turn.id && group.questIds.length > 0)) return true;
   return (
     turn.systemEntries.length > 0 ||
     (turn.presentationEntries ?? turn.allEntries).some(
@@ -41,7 +41,7 @@ export function ReadyThreadResponseRows({
     (turn.presentationEntries ?? turn.allEntries).some(
       (entry) => !(entry.kind === "message" && presentation.currentResponseMessageIds.has(entry.msg.id)),
     );
-  const showQuiz = presentation.quizHostTurnId === turn.id && presentation.quizQuestIds.length > 0;
+  const quizGroup = presentation.quizGroups.find((group) => group.hostTurnId === turn.id);
 
   return (
     <>
@@ -50,7 +50,7 @@ export function ReadyThreadResponseRows({
       )}
       {responses.map((item) => (
         <div
-          key={item.response.logicalResponseId}
+          key={item.response.currentMessageId}
           className="min-w-0 px-2.5 py-2 sm:px-3"
           data-testid="thread-response-current"
         >
@@ -58,10 +58,10 @@ export function ReadyThreadResponseRows({
           <HidePawContext.Provider value={true}>{renderEntry(item.collapsedMessageEntry)}</HidePawContext.Provider>
         </div>
       ))}
-      {showQuiz && (
+      {quizGroup && quizGroup.questIds.length > 0 && (
         <div className="min-w-0 px-2.5 pb-2 sm:px-3" data-testid="thread-response-quiz">
           <AssistantQuestQuizContent
-            text={presentation.quizQuestIds.map((questId) => `{[(Quest Quiz: ${questId})]}`).join("\n")}
+            text={quizGroup.questIds.map((questId) => `{[(Quest Quiz: ${questId})]}`).join("\n")}
             sessionId={sessionId}
             questLinkSurface={questLinkSurface}
           />

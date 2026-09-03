@@ -309,7 +309,7 @@ describe("direct user needs-input reminders", () => {
     );
     expect(sdkAdapter.sendBrowserMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.stringContaining("[thread:q-941]"),
+        content: expect.stringMatching(/^\[User .*? id:u1\] \[thread:q-941\]/),
       }),
     );
     expect(sdkAdapter.sendBrowserMessage).not.toHaveBeenCalledWith(
@@ -569,8 +569,9 @@ describe("direct user needs-input reminders", () => {
       type: "user_message",
       content: "Main reply",
       threadKey: "main",
+      leaderUserMessageId: "u1",
     });
-    expect(sentCliContent(deps)).toMatch(/^\[User .*?\] \[thread:main\] Main reply$/);
+    expect(sentCliContent(deps)).toMatch(/^\[User .*? id:u1\] \[thread:main\] Main reply$/);
   });
 
   it("annotates quest-thread-origin leader user messages in metadata and Claude CLI delivery", async () => {
@@ -595,8 +596,9 @@ describe("direct user needs-input reminders", () => {
       threadKey: "q-941",
       questId: "q-941",
       threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+      leaderUserMessageId: "u1",
     });
-    expect(sentCliContent(deps)).toMatch(/^\[User .*?\] \[thread:q-941\] Quest-thread reply$/);
+    expect(sentCliContent(deps)).toMatch(/^\[User .*? id:u1\] \[thread:q-941\] Quest-thread reply$/);
   });
 
   it("stops listing notifications after they are resolved", async () => {
@@ -1418,6 +1420,23 @@ describe("direct user needs-input reminders", () => {
     expect(session.lastUserMessage).toBe("[reply] Continue the work");
   });
 
+  it("allocates distinct stable source-envelope IDs across multiple uncommitted Codex inputs", () => {
+    const session = makeSession();
+    session.backendType = "codex";
+    const deps = makeDeps({ isOrchestrator: true });
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+
+    expect(routeAdapterBrowserMessage(session, userMessage({ content: "First queued ask" }), null, deps)).toBe(true);
+    expect(routeAdapterBrowserMessage(session, userMessage({ content: "Second queued ask" }), null, deps)).toBe(true);
+
+    expect(session.pendingCodexInputs).toMatchObject([
+      { leaderUserMessageId: "u1", deliveryContent: expect.stringMatching(/^\[User .*? id:u1\]/) },
+      { leaderUserMessageId: "u2", deliveryContent: expect.stringMatching(/^\[User .*? id:u2\]/) },
+    ]);
+  });
+
   it("preserves quest-thread metadata through queued Codex pending input commit", () => {
     // Messages composed from a selected quest thread are queued for Codex before
     // becoming durable history, so the pending input must carry projection metadata.
@@ -1442,7 +1461,8 @@ describe("direct user needs-input reminders", () => {
     expect(routed).toBe(true);
     expect(session.pendingCodexInputs[0]).toMatchObject({
       content: "Follow up from the q-941 thread",
-      deliveryContent: expect.stringMatching(/^\[User .*?\] \[thread:q-941\] Follow up from the q-941 thread$/),
+      leaderUserMessageId: "u1",
+      deliveryContent: expect.stringMatching(/^\[User .*? id:u1\] \[thread:q-941\] Follow up from the q-941 thread$/),
       threadKey: "q-941",
       questId: "q-941",
       threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
@@ -1459,6 +1479,7 @@ describe("direct user needs-input reminders", () => {
     expect(session.messageHistory[0]).toMatchObject({
       type: "user_message",
       content: "Follow up from the q-941 thread",
+      leaderUserMessageId: "u1",
       threadKey: "q-941",
       questId: "q-941",
       threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],

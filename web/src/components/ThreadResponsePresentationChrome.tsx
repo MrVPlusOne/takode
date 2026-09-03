@@ -27,7 +27,7 @@ export function ExpandedCurrentThreadResponse({
 }) {
   return (
     <div
-      className="rounded-xl border border-cc-primary/25 bg-cc-primary/[0.045] px-2.5 py-2 sm:px-3"
+      className="rounded-xl border border-cc-primary/25 px-2.5 py-2 sm:px-3"
       data-testid="thread-response-current-expanded"
     >
       <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
@@ -35,7 +35,7 @@ export function ExpandedCurrentThreadResponse({
           className="inline-flex items-center rounded-full border border-cc-primary/20 bg-cc-primary/5 px-2 py-0.5 text-[10px] font-medium text-cc-primary"
           data-testid="thread-response-current-label"
         >
-          Current response
+          Current answer
         </span>
         <ThreadResponseCoverageBadge messageCount={messageCount} />
       </div>

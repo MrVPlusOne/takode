@@ -1,25 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { SessionStore, type PersistedSession } from "./session-store.js";
 
-describe("SessionStore routed-final search excerpts", () => {
-  it("preserves routed-final authority on ordinary assistant rows", () => {
-    const threadResponse = {
-      logicalResponseId: "routed-response-search",
-      revisionId: "routed-response-search-r1",
-      revisionNumber: 1,
-      batchId: "routed-response-batch-v1.search",
-      batchObservedHistoryLength: 1,
-      coveredUserMessageIds: ["u1"],
-      contentHash: "a".repeat(64),
+describe("SessionStore routed-answer search excerpts", () => {
+  it("preserves routed-answer authority on ordinary assistant rows", () => {
+    const threadAnswer = {
+      version: 2 as const,
+      answerUserMessageIds: ["u1"],
+      observedHistoryLength: 1,
     };
     const messages = [
       {
         type: "assistant",
         message: {
-          id: "routed-final",
+          id: "routed-answer",
           role: "assistant",
           model: "test",
-          content: [{ type: "text", text: "Final answer for search." }],
+          content: [{ type: "text", text: "Answer for search." }],
           stop_reason: "end_turn",
           usage: {},
         },
@@ -28,21 +24,21 @@ describe("SessionStore routed-final search excerpts", () => {
         threadKey: "q-42",
         questId: "q-42",
         threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" }],
-        leaderThreadRole: "response",
-        threadResponse,
+        leaderThreadRole: "answer",
+        threadAnswer,
       },
     ] as PersistedSession["messageHistory"];
 
     expect(SessionStore.extractSearchExcerpts(messages)).toEqual([
       {
         type: "assistant",
-        content: "Final answer for search.",
+        content: "Answer for search.",
         timestamp: 1500,
-        id: "routed-final",
+        id: "routed-answer",
         threadKey: "q-42",
         questId: "q-42",
         threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" }],
-        threadResponse,
+        threadAnswer,
       },
     ]);
   });

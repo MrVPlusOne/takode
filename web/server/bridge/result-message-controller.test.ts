@@ -83,6 +83,7 @@ function directUser(id: string, content = id): Extract<BrowserIncomingMessage, {
   return {
     type: "user_message",
     id,
+    leaderUserMessageId: /^u[1-9]\d*$/.test(id) ? id : undefined,
     content,
     timestamp: 1,
     threadKey: "main",
@@ -93,9 +94,9 @@ function directUser(id: string, content = id): Extract<BrowserIncomingMessage, {
 function routedFinal(
   id: string,
   observedHistoryLength: number,
-  options: { role?: "commentary" | "response"; ready?: boolean; text?: string } = {},
+  options: { role?: "commentary" | "answer"; ready?: boolean; text?: string; answerIds?: string[] } = {},
 ): Extract<BrowserIncomingMessage, { type: "assistant" }> {
-  const role = options.role ?? "response";
+  const role = options.role ?? "answer";
   return {
     type: "assistant",
     message: {
@@ -111,7 +112,12 @@ function routedFinal(
     timestamp: 20,
     threadKey: "main",
     leaderThreadRole: role,
-    ...(role === "response" ? { leaderResponseObservedHistoryLength: observedHistoryLength } : {}),
+    ...(role === "answer"
+      ? {
+          leaderAnswerUserMessageIds: options.answerIds ?? ["u1"],
+          leaderAnswerObservedHistoryLength: observedHistoryLength,
+        }
+      : {}),
     ...(options.ready
       ? {
           deferredThreadStatusMarkers: [
@@ -216,7 +222,7 @@ describe("result-message-controller", () => {
     expect(deps.onTurnCompleted).toHaveBeenCalledWith(session);
   });
 
-  it("stamps a routed final before accepting Ready from the same assistant row", () => {
+  it("stamps a routed answer before accepting Ready from the same assistant row", () => {
     const session = makeSession();
     session.messageHistory.push(directUser("u1"));
     const response = routedFinal("final-ready", 1, { ready: true });
@@ -227,7 +233,7 @@ describe("result-message-controller", () => {
 
     handleResultMessage(session, makeResult({ uuid: "final-ready-result" }), deps);
 
-    expect(response.threadResponse).toMatchObject({ coveredUserMessageIds: ["u1"], revisionNumber: 1 });
+    expect(response.threadAnswer).toEqual({ version: 2, answerUserMessageIds: ["u1"], observedHistoryLength: 1 });
     expect(session.state.leaderThreadStatuses?.main).toMatchObject({ kind: "ready", messageId: "final-ready" });
     expect(buildLeaderThreadResponseState(session, "main").projection).toMatchObject({
       ready: true,
@@ -236,6 +242,34 @@ describe("result-message-controller", () => {
     expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user");
     expect(deps.invalidateLeaderThreadTabsForSession).toHaveBeenCalledWith(session.id);
     expect(deps.refreshSessionConversation).toHaveBeenCalledWith(session.id);
+  });
+
+  it("finalizes all sibling answer segments before applying an earlier Ready commentary marker", () => {
+    const session = makeSession();
+    session.messageHistory.push(directUser("u1"), directUser("u2"));
+    const readyCommentary = routedFinal("ready-commentary", 2, {
+      role: "commentary",
+      ready: true,
+      text: "All requested answers are complete.",
+    });
+    const answer = routedFinal("combined-answer", 2, { answerIds: ["u1", "u2"] });
+    session.messageHistory.push(readyCommentary, answer);
+    session.userMessageIdsThisTurn = [0, 1];
+    session.messageCountAtTurnStart = 2;
+    const deps = makeDeps();
+
+    handleResultMessage(session, makeResult({ uuid: "multi-segment-ready" }), deps);
+
+    expect(answer.threadAnswer).toEqual({
+      version: 2,
+      answerUserMessageIds: ["u1", "u2"],
+      observedHistoryLength: 2,
+    });
+    expect(buildLeaderThreadResponseState(session, "main").projection.ready).toBe(true);
+    expect(session.state.leaderThreadStatuses?.main).toMatchObject({
+      kind: "ready",
+      messageId: readyCommentary.message.id,
+    });
   });
 
   it("keeps later queued input pending when completing the current turn", () => {
@@ -251,10 +285,12 @@ describe("result-message-controller", () => {
 
     handleResultMessage(session, makeResult({ uuid: "queued-later-result" }), deps);
 
-    expect(response.threadResponse?.coveredUserMessageIds).toEqual(["u1"]);
-    expect(buildLeaderThreadResponseState(session, "main").pendingBatches.map((batch) => batch.userMessageIds)).toEqual(
-      [["u2"]],
-    );
+    expect(response.threadAnswer?.answerUserMessageIds).toEqual(["u1"]);
+    expect(
+      buildLeaderThreadResponseState(session, "main").projection.pendingMessages.map(
+        (message) => message.historyMessageId,
+      ),
+    ).toEqual(["u2"]);
   });
 
   it("rejects a commentary Ready attempt and forwards the target to the pending-response validator", () => {
@@ -267,7 +303,7 @@ describe("result-message-controller", () => {
 
     handleResultMessage(session, makeResult({ uuid: "invalid-ready-result" }), deps);
 
-    expect(commentary.threadResponse).toBeUndefined();
+    expect(commentary.threadAnswer).toBeUndefined();
     expect(session.state.leaderThreadStatuses?.main).toBeUndefined();
     expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", ["main"]);
   });
@@ -276,29 +312,26 @@ describe("result-message-controller", () => {
     "unproven",
     "invalid-control",
     "corrupt-metadata",
-  ] as const)("does not let a %s response revision anchor Ready after prior coverage is complete", (failure) => {
+  ] as const)("does not let a %s answer anchor Ready after prior coverage is complete", (failure) => {
     const session = makeSession();
     session.messageHistory.push(directUser("u1"));
     const prior = routedFinal("prior-final", 1);
     session.messageHistory.push(prior);
     expect(finalizeRoutedLeaderResponseMessage(session, prior)).toMatchObject({ finalized: true });
-    delete prior.leaderResponseObservedHistoryLength;
+    delete prior.leaderAnswerObservedHistoryLength;
+    delete prior.leaderAnswerUserMessageIds;
     session.messageHistory.push({ type: "result", data: makeResult({ uuid: "prior-result" }) });
 
     const attempted = routedFinal("attempted-revision", 1, {
       ready: true,
-      text: failure === "invalid-control" ? "Polish.\n[thread:side:F]\nInvalid route." : "Polished answer.",
+      text: failure === "invalid-control" ? "Polish.\n[thread:side:A:u1]\nInvalid route." : "Polished answer.",
     });
-    if (failure === "unproven") delete attempted.leaderResponseObservedHistoryLength;
+    if (failure === "unproven") delete attempted.leaderAnswerObservedHistoryLength;
     if (failure === "corrupt-metadata") {
-      attempted.threadResponse = {
-        logicalResponseId: "corrupt-response",
-        revisionId: "corrupt-response-r1",
-        revisionNumber: 1,
-        batchId: "routed-response-batch-v1.corrupt",
-        batchObservedHistoryLength: 1,
-        coveredUserMessageIds: ["u1"],
-        contentHash: "0".repeat(64),
+      attempted.threadAnswer = {
+        version: 2,
+        answerUserMessageIds: ["u999"],
+        observedHistoryLength: 1,
       };
     }
     session.messageHistory.push(attempted);
@@ -312,7 +345,7 @@ describe("result-message-controller", () => {
     expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", ["main"]);
   });
 
-  it("does not finalize a routed response or Ready marker from an interrupted turn", () => {
+  it("does not finalize a routed answer or Ready marker from an interrupted turn", () => {
     const session = makeSession();
     session.messageHistory.push(directUser("u1"));
     const response = routedFinal("partial-final", 1, { ready: true });
@@ -322,7 +355,7 @@ describe("result-message-controller", () => {
 
     handleResultMessage(session, makeResult({ uuid: "interrupted-final", stop_reason: "interrupted" }), deps);
 
-    expect(response.threadResponse).toBeUndefined();
+    expect(response.threadAnswer).toBeUndefined();
     expect(response.deferredThreadStatusMarkers).toBeUndefined();
     expect(buildLeaderThreadResponseState(session, "main").projection.pendingMessageCount).toBe(1);
     expect(deps.validateLeaderThreadOutcomes).not.toHaveBeenCalled();

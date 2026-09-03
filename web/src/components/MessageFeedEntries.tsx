@@ -64,7 +64,11 @@ import { CodexReasoningDetailGroup } from "./CodexReasoningDetail.js";
 import { collectTimerMessageBatch, TimerMessageGroup } from "./TimerMessage.js";
 import { MinuteBoundaryTimestamp } from "./MinuteBoundaryTimestamp.js";
 import { SubagentSectionHeader } from "./SubagentSectionHeader.js";
-import { readyThreadResponseAppliesToTurn, type ThreadResponsePresentation } from "./thread-response-presentation.js";
+import {
+  readyThreadResponseAppliesToTurn,
+  threadResponsePresentationTouchesTurn,
+  type ThreadResponsePresentation,
+} from "./thread-response-presentation.js";
 import { ReadyThreadResponseRows, readyThreadResponseTurnHasContent } from "./ReadyThreadResponseRows.js";
 import { ExpandedCurrentThreadResponse } from "./ThreadResponsePresentationChrome.js";
 import { getTurnSummaryDurationMs } from "./message-feed-turn-duration.js";
@@ -262,6 +266,22 @@ function latestStatusHostTurnId(sections: FeedSection[]): string | null {
     }
   }
   return latestTurnId;
+}
+
+function suppressRelocatedAnswersFromExpandedSourceTurns(
+  presentation: ThreadResponsePresentation | null | undefined,
+  expandedTurnIds: ReadonlySet<string>,
+): ThreadResponsePresentation | null {
+  if (!presentation) return null;
+  const currentResponses = presentation.currentResponses.filter(
+    (item) => item.anchorTurnId === item.sourceTurnId || !expandedTurnIds.has(item.sourceTurnId),
+  );
+  if (currentResponses.length === presentation.currentResponses.length) return presentation;
+  return {
+    ...presentation,
+    currentResponses,
+    currentResponseMessageIds: new Set(currentResponses.map((item) => item.response.currentMessageId)),
+  };
 }
 
 function formatHerdBatchTimeRange(messages: ChatMessage[]): string {
@@ -1700,6 +1720,14 @@ export const TurnEntries = memo(function TurnEntries({
   onThreadStatusLayoutContributionChange?: (height: number) => void;
 }) {
   const turns = useMemo(() => sections.flatMap((section) => section.turns), [sections]);
+  const expandedTurnIds = useMemo(
+    () => new Set(turns.flatMap((turn, index) => (turnStates[index]?.isActivityExpanded === true ? [turn.id] : []))),
+    [turns, turnStates],
+  );
+  const collapsedAnswerPresentation = useMemo(
+    () => suppressRelocatedAnswersFromExpandedSourceTurns(threadResponsePresentation, expandedTurnIds),
+    [expandedTurnIds, threadResponsePresentation],
+  );
   const latestThreadResponseUpdatedAt = Math.max(
     0,
     ...(threadResponsePresentation?.currentResponses.map((item) => item.response.updatedAt) ?? []),
@@ -1749,11 +1777,19 @@ export const TurnEntries = memo(function TurnEntries({
                 threadResponsePresentation && readyThreadResponseAppliesToTurn(turn, threadResponsePresentation)
                   ? threadResponsePresentation
                   : null;
+              const currentAnswerBelongsToTurn =
+                collapsedAnswerPresentation != null &&
+                threadResponsePresentationTouchesTurn(turn, collapsedAnswerPresentation);
               const collapsedThreadResponsePresentation =
                 readyThreadResponsePresentation &&
+                collapsedAnswerPresentation &&
                 readyThreadResponseAppliesToTurn(turn, readyThreadResponsePresentation)
-                  ? readyThreadResponsePresentation
-                  : null;
+                  ? collapsedAnswerPresentation
+                  : collapsedAnswerPresentation &&
+                      currentAnswerBelongsToTurn &&
+                      readyThreadResponseAppliesToTurn(turn, collapsedAnswerPresentation)
+                    ? collapsedAnswerPresentation
+                    : null;
               const hasCollapsedContent = collapsedThreadResponsePresentation
                 ? readyThreadResponseTurnHasContent(turn, collapsedThreadResponsePresentation)
                 : (turn.collapsedEntries?.length ?? 0) > 0 || turn.subConclusions.length > 0;

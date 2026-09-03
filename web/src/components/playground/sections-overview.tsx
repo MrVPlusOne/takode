@@ -923,7 +923,7 @@ export function PlaygroundOverviewSections() {
           <Card label="Assistant message (image preview group)">
             <MessageBubble message={MSG_ASSISTANT_IMAGE_PREVIEW} sessionId="playground" />
           </Card>
-          <Card label="Assistant message (explicit leader user-message)">
+          <Card label="Assistant message (legacy leader-visible row)">
             <MessageBubble message={MSG_ASSISTANT_LEADER_USER} />
           </Card>
           <Card label="Assistant message (with tool calls)">

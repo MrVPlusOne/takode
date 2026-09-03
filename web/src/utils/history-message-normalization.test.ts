@@ -118,7 +118,7 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     expect(unknown.metadata?.codexMessagePhase).toBeUndefined();
   });
 
-  it("preserves routed final-response role and internal revision authority on ordinary assistant rows", () => {
+  it("preserves legacy routed-response authority on ordinary assistant rows", () => {
     const [message] = normalizeHistoryMessageToChatMessages(
       {
         type: "assistant",
@@ -154,6 +154,48 @@ describe("normalizeHistoryMessageToChatMessages", () => {
       leaderThreadRole: "response",
       threadResponse: { revisionId: "response-1-r1", coveredUserMessageIds: ["user-1"] },
     });
+  });
+
+  it("preserves explicit routed-answer proof and concise user-message identity", () => {
+    const [answer] = normalizeHistoryMessageToChatMessages(
+      {
+        type: "assistant",
+        timestamp: 210,
+        parent_tool_use_id: null,
+        leaderThreadRole: "answer",
+        threadKey: "q-2024",
+        questId: "q-2024",
+        threadRefs: [{ threadKey: "q-2024", questId: "q-2024", source: "explicit" }],
+        threadAnswer: { version: 2, answerUserMessageIds: ["u7"], observedHistoryLength: 9 },
+        message: {
+          id: "assistant-answer-1",
+          type: "message",
+          role: "assistant",
+          model: "claude-test",
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          content: [{ type: "text", text: "Explicit answer" }],
+        },
+      },
+      8,
+    );
+    const [user] = normalizeHistoryMessageToChatMessages(
+      {
+        type: "user_message",
+        id: "raw-user-7",
+        content: "Question seven",
+        timestamp: 200,
+        leaderResponseCoverageVersion: 1,
+        leaderUserMessageId: "u7",
+      },
+      7,
+    );
+
+    expect(answer.metadata).toMatchObject({
+      leaderThreadRole: "answer",
+      threadAnswer: { version: 2, answerUserMessageIds: ["u7"], observedHistoryLength: 9 },
+    });
+    expect(user.metadata).toMatchObject({ leaderResponseCoverageVersion: 1, leaderUserMessageId: "u7" });
   });
 
   it("preserves exact recovery model content while discarding ordinary delivery content", () => {

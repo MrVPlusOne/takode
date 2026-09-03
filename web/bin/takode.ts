@@ -40,7 +40,6 @@ import {
   handleThread,
   handleUnpause,
   handleUnherd,
-  handleUserMessage,
   handleWorkerStream,
 } from "./takode-orchestration-commands.js";
 import { handlePermission } from "./takode-permission-commands.js";
@@ -91,7 +90,6 @@ try {
     ["pause", { requireOrchestrator: true }],
     ["unpause", { requireOrchestrator: true }],
     ["goal", { requireOrchestrator: true }],
-    ["user-message", { requireOrchestrator: true }],
     ["thread", { requireOrchestrator: true }],
     ["rename", { requireOrchestrator: true }],
     ["herd", { requireOrchestrator: true }],
@@ -209,9 +207,6 @@ try {
       break;
     case "goal":
       await handleGoal(base, args);
-      break;
-    case "user-message":
-      await handleUserMessage(base, args);
       break;
     case "thread":
       await handleThread(base, args);

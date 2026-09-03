@@ -4,7 +4,7 @@ import {
   findMatchingRecoveredCodexAssistantReplay,
   recoverAgentMessagesFromResumedTurn,
 } from "./codex-recovered-assistant-routing.js";
-import { buildLeaderThreadResponseState } from "../leader-thread-response.js";
+import { buildLeaderThreadResponseState, leaderThreadResponseContentHash } from "../leader-thread-response.js";
 
 describe("Codex recovered assistant routing", () => {
   it("recovers the routed owner from a generic replay match without duplicating the assistant row", () => {
@@ -190,11 +190,12 @@ describe("Codex recovered assistant routing", () => {
   });
 });
 
-describe("Codex recovered routed final responses", () => {
+describe("Codex recovered routed answers", () => {
   function pendingHuman(): Extract<BrowserIncomingMessage, { type: "user_message" }> {
     return {
       type: "user_message",
       id: "current-user",
+      leaderUserMessageId: "u1",
       content: "Please finish the answer.",
       timestamp: 20,
       threadKey: "main",
@@ -202,7 +203,45 @@ describe("Codex recovered routed final responses", () => {
     };
   }
 
-  it("finalizes a completed recovered final against the exact pending owner", () => {
+  function legacyBatchId(sessionId: string): string {
+    const encoded = Buffer.from(JSON.stringify({ v: 1, t: "main", h: 1, ids: ["current-user"] })).toString("base64url");
+    const checksum = leaderThreadResponseContentHash(`${sessionId}\n${encoded}`).slice(0, 24);
+    return `response-batch-v1.${encoded}.${checksum}`;
+  }
+
+  function persistedLegacyAssistant(
+    sessionId: string,
+    text = "Persisted legacy answer.",
+    messageId = "persisted-legacy-response",
+  ): Extract<BrowserIncomingMessage, { type: "assistant" }> {
+    return {
+      type: "assistant",
+      message: {
+        id: messageId,
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6-sol",
+        content: [{ type: "text", text }],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: 25,
+      threadKey: "main",
+      leaderThreadRole: "response",
+      threadResponse: {
+        logicalResponseId: "legacy-response",
+        revisionId: "legacy-response-r1",
+        revisionNumber: 1,
+        batchId: legacyBatchId(sessionId),
+        batchObservedHistoryLength: 1,
+        coveredUserMessageIds: ["current-user"],
+        contentHash: leaderThreadResponseContentHash(text),
+      },
+    };
+  }
+
+  it("finalizes a completed recovered answer against the exact pending owner", () => {
     const session = {
       id: "leader-recovered",
       state: { isOrchestrator: true, model: "gpt-5.6-sol", leaderThreadStatuses: {} as Record<string, any> },
@@ -222,7 +261,7 @@ describe("Codex recovered routed final responses", () => {
           {
             type: "agentMessage",
             id: "final-item",
-            text: "[thread:main:F] Completed recovered answer.\n{[(Thread Ready: main | recovered answer complete)]}",
+            text: "[thread:main:A:u1] Completed recovered answer.\n{[(Thread Ready: main | recovered answer complete)]}",
           },
         ],
       },
@@ -239,16 +278,16 @@ describe("Codex recovered routed final responses", () => {
       (message): message is Extract<BrowserIncomingMessage, { type: "assistant" }> => message.type === "assistant",
     )!;
     expect(response).toMatchObject({
-      leaderThreadRole: "response",
-      threadResponse: { coveredUserMessageIds: ["current-user"], revisionNumber: 1 },
+      leaderThreadRole: "answer",
+      threadAnswer: { version: 2, answerUserMessageIds: ["u1"], observedHistoryLength: 1 },
     });
-    expect(response.leaderResponseObservedHistoryLength).toBeUndefined();
+    expect(response.leaderAnswerObservedHistoryLength).toBeUndefined();
     expect(session.state.leaderThreadStatuses?.main).toMatchObject({ kind: "ready", messageId: response.message.id });
     expect(refreshBrowserConversationViews).toHaveBeenCalledWith(session);
     expect(invalidateLeaderThreadTabsForSession).toHaveBeenCalledWith(session.id);
   });
 
-  it("restores completed replay-matched final controls exactly once after retry cleanup", () => {
+  it("restores completed replay-matched answer controls exactly once after retry cleanup", () => {
     const response: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
       type: "assistant",
       message: {
@@ -263,7 +302,8 @@ describe("Codex recovered routed final responses", () => {
       parent_tool_use_id: null,
       timestamp: 25,
       threadKey: "main",
-      leaderThreadRole: "response",
+      leaderThreadRole: "answer",
+      leaderAnswerUserMessageIds: ["u1"],
     };
     const session = {
       id: "leader-replay-match",
@@ -278,7 +318,7 @@ describe("Codex recovered routed final responses", () => {
         {
           type: "agentMessage" as const,
           id: "item-1",
-          text: "[thread:main:F] Recovered final answer.\n{[(Thread Ready: main | recovered replay complete)]}",
+          text: "[thread:main:A:u1] Recovered final answer.\n{[(Thread Ready: main | recovered replay complete)]}",
         },
       ],
     };
@@ -303,11 +343,11 @@ describe("Codex recovered routed final responses", () => {
 
     expect(session.messageHistory).toHaveLength(2);
     expect(response).toMatchObject({
-      leaderThreadRole: "response",
-      threadResponse: { coveredUserMessageIds: ["current-user"], revisionNumber: 1 },
+      leaderThreadRole: "answer",
+      threadAnswer: { version: 2, answerUserMessageIds: ["u1"], observedHistoryLength: 1 },
       threadStatusMarkers: [expect.objectContaining({ kind: "ready", messageId: response.message.id })],
     });
-    expect(response.leaderResponseObservedHistoryLength).toBeUndefined();
+    expect(response.leaderAnswerObservedHistoryLength).toBeUndefined();
     expect(response.deferredThreadStatusMarkers).toBeUndefined();
     expect(buildLeaderThreadResponseState(session, "main").projection.ready).toBe(true);
     expect(session.state.leaderThreadStatuses.main).toMatchObject({
@@ -337,8 +377,10 @@ describe("Codex recovered routed final responses", () => {
   it("matches recovery only after the latest exact member of a merged owner batch", () => {
     const first = pendingHuman();
     first.id = "merged-user-1";
+    first.leaderUserMessageId = "u1";
     const second = pendingHuman();
     second.id = "merged-user-2";
+    second.leaderUserMessageId = "u2";
     second.timestamp = 30;
     const unrelated: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
       type: "assistant",
@@ -354,7 +396,8 @@ describe("Codex recovered routed final responses", () => {
       parent_tool_use_id: null,
       timestamp: 25,
       threadKey: "main",
-      leaderThreadRole: "response",
+      leaderThreadRole: "answer",
+      leaderAnswerUserMessageIds: ["u1", "u2"],
     };
     const session = {
       id: "leader-merged-owner",
@@ -368,7 +411,7 @@ describe("Codex recovered routed final responses", () => {
         id: "turn-merged-owner",
         status: "completed",
         error: null,
-        items: [{ type: "agentMessage", id: "item-1", text: "[thread:main:F] Shared final wording." }],
+        items: [{ type: "agentMessage", id: "item-1", text: "[thread:main:A:u1,u2] Shared final wording." }],
       },
       {
         disconnectedAt: 40,
@@ -387,10 +430,10 @@ describe("Codex recovered routed final responses", () => {
       (entry): entry is Extract<BrowserIncomingMessage, { type: "assistant" }> => entry.type === "assistant",
     );
     expect(responses).toHaveLength(2);
-    expect(unrelated.threadResponse).toBeUndefined();
+    expect(unrelated.threadAnswer).toBeUndefined();
     expect(responses[1]).toMatchObject({
       message: { id: "codex-agent-turn-merged-owner-item-1" },
-      threadResponse: { coveredUserMessageIds: ["merged-user-1", "merged-user-2"] },
+      threadAnswer: { version: 2, answerUserMessageIds: ["u1", "u2"], observedHistoryLength: 3 },
     });
   });
 
@@ -409,7 +452,8 @@ describe("Codex recovered routed final responses", () => {
       parent_tool_use_id: null,
       timestamp: 25,
       threadKey: "main",
-      leaderThreadRole: "response",
+      leaderThreadRole: "answer",
+      leaderAnswerUserMessageIds: ["u1"],
     };
     const session = {
       id: "leader-unproven-replay",
@@ -429,7 +473,7 @@ describe("Codex recovered routed final responses", () => {
           {
             type: "agentMessage",
             id: "item-1",
-            text: "[thread:main:F] Unproven recovered answer.\n{[(Thread Ready: main | should be rejected)]}",
+            text: "[thread:main:A:u1] Unproven recovered answer.\n{[(Thread Ready: main | should be rejected)]}",
           },
         ],
       },
@@ -437,7 +481,7 @@ describe("Codex recovered routed final responses", () => {
       { codexAssistantReplayScanLimit: 10, broadcastToBrowsers: vi.fn(), invalidateLeaderThreadTabsForSession },
     );
 
-    expect(response.threadResponse).toBeUndefined();
+    expect(response.threadAnswer).toBeUndefined();
     expect(response.threadStatusMarkers).toBeUndefined();
     expect(session.state.leaderThreadStatuses.main).toBeUndefined();
     expect(buildLeaderThreadResponseState(session, "main").projection.pendingMessageCount).toBe(1);
@@ -447,7 +491,7 @@ describe("Codex recovered routed final responses", () => {
     expect(invalidateLeaderThreadTabsForSession).not.toHaveBeenCalled();
   });
 
-  it("keeps an interrupted recovered final non-authoritative", () => {
+  it("keeps an interrupted recovered answer non-authoritative", () => {
     const session = {
       id: "leader-interrupted",
       state: { isOrchestrator: true, model: "gpt-5.6-sol" },
@@ -460,7 +504,7 @@ describe("Codex recovered routed final responses", () => {
         id: "turn-interrupted",
         status: "interrupted",
         error: null,
-        items: [{ type: "agentMessage", id: "partial-item", text: "[thread:main:F] Partial recovered answer." }],
+        items: [{ type: "agentMessage", id: "partial-item", text: "[thread:main:A:u1] Partial recovered answer." }],
       },
       { disconnectedAt: 30, historyIndex: 0, userMessageId: "current-user" },
       { codexAssistantReplayScanLimit: 10, broadcastToBrowsers: vi.fn() },
@@ -469,12 +513,125 @@ describe("Codex recovered routed final responses", () => {
     const response = session.messageHistory.find(
       (message): message is Extract<BrowserIncomingMessage, { type: "assistant" }> => message.type === "assistant",
     )!;
-    expect(response.leaderThreadRole).toBe("response");
-    expect(response.threadResponse).toBeUndefined();
-    expect(response.leaderResponseObservedHistoryLength).toBeUndefined();
+    expect(response.leaderThreadRole).toBe("answer");
+    expect(response.threadAnswer).toBeUndefined();
+    expect(response.leaderAnswerObservedHistoryLength).toBeUndefined();
   });
 
-  it("does not replay-dedupe a final marker onto an older roleless commentary row", () => {
+  it("deduplicates a completed raw legacy :F replay only against its persisted valid response proof", () => {
+    // Replay-only compatibility prevents resume hot-tail growth without re-enabling fresh :F authoring.
+    const sessionId = "leader-legacy-completed";
+    const response = persistedLegacyAssistant(sessionId);
+    const session = {
+      id: sessionId,
+      state: { isOrchestrator: true, model: "gpt-5.6-sol", leaderThreadStatuses: {} as Record<string, any> },
+      messageHistory: [pendingHuman(), response] as BrowserIncomingMessage[],
+    };
+    const replayText = "[thread:main:F] Persisted legacy answer.";
+
+    expect(findMatchingRecoveredCodexAssistantReplay(session, replayText, 10, 0)).toEqual([response]);
+    const broadcastToBrowsers = vi.fn();
+    expect(
+      recoverAgentMessagesFromResumedTurn(
+        session,
+        {
+          id: "turn-legacy-completed",
+          status: "completed",
+          error: null,
+          items: [{ type: "agentMessage", id: "item-1", text: replayText }],
+        },
+        { disconnectedAt: 30, historyIndex: 0, userMessageId: "current-user" },
+        { codexAssistantReplayScanLimit: 10, broadcastToBrowsers },
+      ),
+    ).toEqual({ count: 1, latestLeaderRoute: { threadKey: "main" } });
+
+    expect(session.messageHistory).toEqual([expect.objectContaining({ type: "user_message" }), response]);
+    expect(response.threadResponse).toBeDefined();
+    expect(response.threadAnswer).toBeUndefined();
+    expect(response.leaderAnswerUserMessageIds).toBeUndefined();
+    expect(buildLeaderThreadResponseState(session, "main").responses).toEqual([
+      expect.objectContaining({ currentMessageId: response.message.id, source: "legacy" }),
+    ]);
+    expect(broadcastToBrowsers).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates an interrupted raw legacy :F replay without promoting or rewriting the persisted response", () => {
+    // Interrupted provider history may repeat the row, but cannot revise its legacy authority.
+    const sessionId = "leader-legacy-interrupted";
+    const response = persistedLegacyAssistant(
+      sessionId,
+      "Persisted legacy answer.",
+      "codex-agent-legacy-provider-item",
+    );
+    const originalProof = structuredClone(response.threadResponse);
+    const session = {
+      id: sessionId,
+      state: { isOrchestrator: true, model: "gpt-5.6-sol", leaderThreadStatuses: {} as Record<string, any> },
+      messageHistory: [pendingHuman(), response] as BrowserIncomingMessage[],
+    };
+    const broadcastToBrowsers = vi.fn();
+
+    expect(
+      recoverAgentMessagesFromResumedTurn(
+        session,
+        {
+          id: "turn-legacy-interrupted",
+          status: "interrupted",
+          error: null,
+          items: [
+            { type: "agentMessage", id: "legacy-provider-item", text: "[thread:main:F] Persisted legacy answer." },
+          ],
+        },
+        { disconnectedAt: 30, historyIndex: 0, userMessageId: "current-user" },
+        { codexAssistantReplayScanLimit: 10, broadcastToBrowsers },
+      ),
+    ).toEqual({ count: 1, latestLeaderRoute: { threadKey: "main" } });
+
+    expect(session.messageHistory).toHaveLength(2);
+    expect(response.threadResponse).toEqual(originalProof);
+    expect(response.threadAnswer).toBeUndefined();
+    expect(response.leaderResponseObservedHistoryLength).toBeUndefined();
+    expect(broadcastToBrowsers).not.toHaveBeenCalled();
+  });
+
+  it("keeps fresh :F invalid when the same-looking persisted row lacks valid historical proof", () => {
+    // Text similarity alone is insufficient; corrupted legacy proof must fail closed and remain invalid.
+    const sessionId = "leader-invalid-legacy-proof";
+    const response = persistedLegacyAssistant(sessionId);
+    response.threadResponse!.contentHash = leaderThreadResponseContentHash("Different text.");
+    const session = {
+      id: sessionId,
+      state: { isOrchestrator: true, model: "gpt-5.6-sol", leaderThreadStatuses: {} as Record<string, any> },
+      messageHistory: [pendingHuman(), response] as BrowserIncomingMessage[],
+    };
+    const replayText = "[thread:main:F] Persisted legacy answer.";
+
+    expect(findMatchingRecoveredCodexAssistantReplay(session, replayText, 10, 0)).toBeNull();
+    const broadcastToBrowsers = vi.fn();
+    recoverAgentMessagesFromResumedTurn(
+      session,
+      {
+        id: "turn-invalid-legacy-proof",
+        status: "completed",
+        error: null,
+        items: [{ type: "agentMessage", id: "item-1", text: replayText }],
+      },
+      { disconnectedAt: 30, historyIndex: 0, userMessageId: "current-user" },
+      { codexAssistantReplayScanLimit: 10, broadcastToBrowsers },
+    );
+
+    expect(session.messageHistory).toHaveLength(3);
+    expect(session.messageHistory[2]).toMatchObject({
+      type: "assistant",
+      threadRoutingError: { reason: "invalid_role", marker: "[thread:main:F]" },
+    });
+    expect(session.messageHistory[2]).not.toHaveProperty("leaderThreadRole");
+    expect(session.messageHistory[2]).not.toHaveProperty("threadResponse");
+    expect(session.messageHistory[2]).not.toHaveProperty("threadAnswer");
+    expect(broadcastToBrowsers).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not replay-dedupe a answer marker onto an older roleless commentary row", () => {
     const existing: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
       type: "assistant",
       message: {
@@ -492,7 +649,7 @@ describe("Codex recovered routed final responses", () => {
     };
     const session = { state: { isOrchestrator: true, model: "gpt-5.6-sol" }, messageHistory: [existing] };
 
-    expect(findMatchingRecoveredCodexAssistantReplay(session, "[thread:main:F] Same body.", 10)).toBeNull();
+    expect(findMatchingRecoveredCodexAssistantReplay(session, "[thread:main:A:u1] Same body.", 10)).toBeNull();
     expect(findMatchingRecoveredCodexAssistantReplay(session, "[thread:main:C] Same body.", 10)).toEqual([existing]);
   });
 });

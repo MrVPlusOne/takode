@@ -1,7 +1,12 @@
 import type { BrowserIncomingMessage, SessionNotification, ThreadRef } from "../session-types.js";
 import { isRootAgentHistoryMessage } from "../root-agent-feed-message.js";
 import { isActualHumanUserMessage } from "../user-message-classification.js";
-import { buildLeaderThreadResponseState, leaderResponseThreadKeyForUserMessage } from "../leader-thread-response.js";
+import {
+  buildLeaderThreadResponseState,
+  leaderResponseThreadKeyForUserMessage,
+  pendingLeaderAnswerInputsForThread,
+  type LeaderThreadResponseSession,
+} from "../leader-thread-response.js";
 import {
   routeFromHistoryEntry,
   routeKey,
@@ -13,6 +18,7 @@ import {
   THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
 } from "../../shared/thread-outcome-reminder.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import { clearLeaderReadyStatusesBlockedByNeedsInput } from "./thread-routing-reminder.js";
 
 export const THREAD_RESPONSE_REMINDER_SOURCE_ID = THREAD_OUTCOME_REMINDER_SOURCE_ID;
 export const THREAD_RESPONSE_REMINDER_SOURCE_LABEL = THREAD_OUTCOME_REMINDER_SOURCE_LABEL;
@@ -20,6 +26,7 @@ export const THREAD_RESPONSE_REMINDER_SOURCE_LABEL = THREAD_OUTCOME_REMINDER_SOU
 type LeaderThreadOutcomeSession = {
   id: string;
   messageHistory: BrowserIncomingMessage[];
+  pendingCodexInputs?: LeaderThreadResponseSession["pendingCodexInputs"];
   notifications?: SessionNotification[];
   state?: { leaderThreadStatuses?: Record<string, LeaderThreadStatus> };
   leaderThreadOutcomeValidatedHistoryLength?: number;
@@ -69,8 +76,15 @@ export function validateLeaderThreadOutcomes(
   if (!deps.isLeaderSession(session.id)) return { checked: false, reason: "not_leader" };
 
   const history = session.messageHistory ?? [];
+  const clearedBlockedReady = clearLeaderReadyStatusesBlockedByNeedsInput({
+    notifications: session.notifications,
+    state: session.state ?? {},
+  });
   const startIndex = clampHistoryIndex(session.leaderThreadOutcomeValidatedHistoryLength, history.length);
-  if (startIndex >= history.length) return { checked: false, reason: "no_new_history" };
+  if (startIndex >= history.length) {
+    if (clearedBlockedReady) deps.persistSession?.(session);
+    return { checked: false, reason: "no_new_history" };
+  }
   if (deps.getTurnSource?.(session) === "system") {
     session.leaderThreadOutcomeValidatedHistoryLength = history.length;
     deps.persistSession?.(session);
@@ -118,7 +132,9 @@ export function validateLeaderThreadOutcomes(
   const outcomeMissing: TouchedThread[] = [];
   for (const thread of touchedThreads) {
     const outcome = freshOutcomeKind(thread, session.notifications ?? [], session.state?.leaderThreadStatuses);
-    const pending = buildLeaderThreadResponseState(session, thread.key).projection.pendingMessageCount;
+    const pending =
+      buildLeaderThreadResponseState(session, thread.key).projection.pendingMessageCount +
+      pendingLeaderAnswerInputsForThread(session, thread.key).count;
     if (pending > 0) {
       if (rejectedReadyThreadKeys.has(thread.key) || (outcome !== "waiting" && outcome !== "needs-input")) {
         pendingResponseMissing.push(thread);
@@ -333,43 +349,43 @@ function buildPendingResponseReminderContent(
   pendingMissing: TouchedThread[],
   outcomeMissing: TouchedThread[],
 ): string {
-  const pendingStates = pendingMissing.map((thread) => ({
-    thread,
-    state: buildLeaderThreadResponseState(session, thread.key),
-  }));
-  const pendingLabels = pendingStates.map(
-    ({ thread, state }) => `${formatThreadLabel(thread.key)} (${state.projection.pendingMessageCount} pending)`,
-  );
+  const pendingStates = pendingMissing.map((thread) => {
+    const state = buildLeaderThreadResponseState(session, thread.key);
+    const queued = pendingLeaderAnswerInputsForThread(session, thread.key);
+    const userMessageIds = [
+      ...new Set([
+        ...state.projection.pendingMessages.map((message) => message.userMessageId),
+        ...queued.userMessageIds,
+      ]),
+    ];
+    return { thread, state, queued, userMessageIds };
+  });
+  const pendingLabels = pendingStates.map(({ thread, state, queued, userMessageIds }) => {
+    const unresolvedCount = state.projection.pendingMessageCount + queued.count;
+    const unavailableCount = Math.max(0, unresolvedCount - userMessageIds.length);
+    const label = [
+      ...userMessageIds,
+      ...(unavailableCount > 0 ? [`${unavailableCount} unavailable-ID input${unavailableCount === 1 ? "" : "s"}`] : []),
+    ].join(",");
+    return `${formatThreadLabel(thread.key)} (${label})`;
+  });
+  const firstPendingId = pendingStates
+    .flatMap(({ state }) => state.projection.pendingMessages.map((message) => message.userMessageId))
+    .at(0);
   return [
-    "Final-response reminder: direct user messages still need an explicit routed final response before the thread can be Ready.",
-    `Pending response batches: ${pendingLabels.join(", ")}.`,
-    ...formatPendingMessagePreviews(pendingStates),
-    "Answer with `[thread:main:F]` or `[thread:q-N:F]`; Takode snapshots the server-owned pending batch, so do not manage message IDs or batch tokens.",
+    "Answer reminder: direct user messages still need explicit routed answer coverage before the thread can be Ready.",
+    `Pending answer IDs: ${pendingLabels.join("; ")}.`,
+    "Answer with `[thread:main:A:u1]` or `[thread:q-N:A:u1,u2]`, listing the exact earlier IDs covered by that answer.",
+    ...(firstPendingId
+      ? [
+          `Retrieve an exact earlier message with \`takode read ${session.id} ${firstPendingId}\`; both the leader session and session-scoped user-message ID are required.`,
+        ]
+      : []),
     "If work is not complete, use a fresh Thread Waiting marker or same-thread needs-input notification instead of Thread Ready.",
     ...(outcomeMissing.length > 0
       ? [`Also missing a normal Waiting/Ready/notification outcome for: ${formatThreadLabels(outcomeMissing)}.`]
       : []),
   ].join("\n");
-}
-
-function formatPendingMessagePreviews(
-  pendingStates: Array<{ thread: TouchedThread; state: ReturnType<typeof buildLeaderThreadResponseState> }>,
-): string[] {
-  const limit = 5;
-  const previewLength = 180;
-  const entries = pendingStates.flatMap(({ thread, state }) =>
-    state.pendingBatches.flatMap((batch) => batch.members.map((member) => ({ threadKey: thread.key, member }))),
-  );
-  if (entries.length === 0) return [];
-  const lines = entries.slice(0, limit).map(({ threadKey, member }) => {
-    const compact = member.preview.replace(/\s+/g, " ").trim();
-    const preview = compact.length > previewLength ? `${compact.slice(0, previewLength - 1)}…` : compact;
-    const imageLabel =
-      member.imageCount > 0 ? ` (+${member.imageCount} image${member.imageCount === 1 ? "" : "s"})` : "";
-    return `- ${formatThreadLabel(threadKey)}: ${preview || "[image-only message]"}${imageLabel}`;
-  });
-  if (entries.length > limit) lines.push(`- ${entries.length - limit} more pending message(s) not shown.`);
-  return ["Pending user messages:", ...lines];
 }
 
 function buildOutcomeReminderContent(missing: TouchedThread[]): string {
@@ -387,7 +403,7 @@ function buildNeedsInputPromptReminderContent(missing: TouchedThread[]): string 
     "Needs-input notification reminder: this leader response appears to ask for a blocking user decision, but no fresh same-thread `takode notify needs-input` notification was created.",
     `Blocking prompt detected for: ${formatThreadLabels(missing)}.`,
     "This is about a missing same-thread needs-input notification after routed leader output; it is not diagnosing missing `[thread:...]` visible-text markers or `# thread:...` shell-command markers.",
-    "Send the blocking prompt as routed commentary with `[thread:main:C]` or `[thread:q-N:C]`, then create the fresh same-thread needs-input notification. After the user answers, use a later `[thread:main:F]` or `[thread:q-N:F]` final response.",
+    "Send the blocking prompt as routed commentary with `[thread:main:C]` or `[thread:q-N:C]`, then create the fresh same-thread needs-input notification. After the user answers, use a later explicit `[thread:main:A:u1]` or `[thread:q-N:A:u1]` answer.",
     "Existing unresolved needs-input prompts do not cover a new approval or decision prompt.",
   ].join("\n");
 }

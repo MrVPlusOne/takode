@@ -7,6 +7,7 @@ import type {
   LeaderThreadResponseProjection,
 } from "../server/session-types.js";
 import { leaderResponseOwnerThreadKey } from "./leader-thread-response-routing.js";
+import { assignSessionScopedLeaderUserMessageIds } from "./leader-user-message-id.js";
 import { deriveWindowAvailability } from "./window-availability.js";
 import { isCodexLeaderRecoveryDiagnosticSourceId } from "./injected-event-message.js";
 import { toolRelationKey } from "./tool-relation-key.js";
@@ -44,7 +45,9 @@ interface ConversationRange {
   endItem: number;
 }
 
-function isConversationStartingUserMessage(message: BrowserIncomingMessage | undefined): boolean {
+function isConversationStartingUserMessage(
+  message: BrowserIncomingMessage | undefined,
+): message is Extract<BrowserIncomingMessage, { type: "user_message" }> {
   return message?.type === "user_message" && !isCodexLeaderRecoveryDiagnosticSourceId(message.agentSource?.sessionId);
 }
 
@@ -223,19 +226,26 @@ function addCurrentThreadResponseSupport(
     return { items: selectedItems, complete: true };
   }
 
-  const referencedIds = new Set<string>();
-  for (const response of projection.currentResponses) {
-    referencedIds.add(response.currentMessageId);
-    response.coveredUserMessageIds.forEach((id) => referencedIds.add(id));
+  if (
+    projection.pendingMessages.length !== projection.pendingMessageCount ||
+    projection.ready !== (projection.pendingMessageCount === 0)
+  ) {
+    return { items: selectedItems, complete: false };
   }
-  projection.pendingBatches.forEach((batch) => batch.userMessageIds.forEach((id) => referencedIds.add(id)));
+
+  const referencedIds = new Set<string>();
+  for (const answer of projection.currentAnswers) {
+    referencedIds.add(answer.currentMessageId);
+    answer.referencedUserMessageIds.forEach((id) => referencedIds.add(id));
+  }
+  projection.pendingMessages.forEach((pending) => referencedIds.add(pending.historyMessageId));
   if (referencedIds.size > THREAD_WINDOW_SUPPORT_RECORD_LIMIT) return { items: selectedItems, complete: false };
-  if (projection.currentResponses.length === 0) return { items: selectedItems, complete: true };
 
   const usersById = new Map<string, { message: BrowserIncomingMessage; historyIndex: number }>();
   messages.forEach((message, historyIndex) => {
     if (message.type === "user_message" && message.id) usersById.set(message.id, { message, historyIndex });
   });
+  const userMessageIdsByHistoryId = projectedLeaderUserMessageIdsByHistoryId(messages);
   const required = new Map<string, FeedItem>();
   const addRequired = (message: BrowserIncomingMessage, historyIndex: number): boolean => {
     if (includeMessage && !includeMessage(message, historyIndex)) return false;
@@ -244,58 +254,169 @@ function addCurrentThreadResponseSupport(
     return true;
   };
 
-  for (const response of projection.currentResponses) {
-    const historyIndex = response.currentHistoryIndex;
+  const pendingHistoryIds = new Set<string>();
+  const pendingUserIds = new Set<string>();
+  const pendingHistoryIndexes = new Set<number>();
+  for (const pending of projection.pendingMessages) {
+    const historyIndex = pending.historyIndex;
+    const message = Number.isInteger(historyIndex) ? messages[historyIndex] : undefined;
+    if (
+      pendingHistoryIds.has(pending.historyMessageId) ||
+      pendingUserIds.has(pending.userMessageId) ||
+      pendingHistoryIndexes.has(historyIndex) ||
+      !pendingProjectionMatchesMessage(
+        message,
+        pending,
+        threadKey,
+        userMessageIdsByHistoryId.get(pending.historyMessageId),
+      ) ||
+      !addRequired(message, historyIndex)
+    ) {
+      return { items: selectedItems, complete: false };
+    }
+    pendingHistoryIds.add(pending.historyMessageId);
+    pendingUserIds.add(pending.userMessageId);
+    pendingHistoryIndexes.add(historyIndex);
+  }
+
+  if (projection.currentAnswers.length === 0) {
+    if (required.size > THREAD_WINDOW_SUPPORT_RECORD_LIMIT) return { items: selectedItems, complete: false };
+    return { items: [...selectedItems, ...required.values()], complete: true };
+  }
+
+  for (const answer of projection.currentAnswers) {
+    const historyIndex = answer.currentHistoryIndex;
     const message = messages[historyIndex];
     const messageId =
       message?.type === "leader_user_message"
         ? message.id
         : message?.type === "assistant" &&
             message.parent_tool_use_id === null &&
-            message.leaderThreadRole === "response" &&
             !message.message.content.some((block) => block.type === "tool_use" || block.type === "tool_result")
           ? message.message.id
           : null;
-    const revision = message?.threadResponse;
+    const explicitProof =
+      answer.source === "explicit" &&
+      message?.type === "assistant" &&
+      message.leaderThreadRole === "answer" &&
+      message.threadAnswer?.version === projection.version &&
+      sameStringArray(message.threadAnswer.answerUserMessageIds, answer.answerUserMessageIds);
+    const legacyProof =
+      answer.source === "legacy" &&
+      (message?.type === "leader_user_message" ||
+        (message?.type === "assistant" && message.leaderThreadRole === "response")) &&
+      sameStringArray(message.threadResponse?.coveredUserMessageIds ?? [], answer.referencedUserMessageIds);
     if (
       !message ||
       (message.type !== "leader_user_message" && message.type !== "assistant") ||
-      messageId !== response.currentMessageId ||
-      revision?.logicalResponseId !== response.logicalResponseId ||
-      revision.revisionId !== response.currentRevisionId ||
-      revision.revisionNumber !== response.revisionCount ||
-      revision.batchId !== response.batchId ||
-      revision.batchObservedHistoryLength !== response.batchObservedHistoryLength ||
-      revision.coveredUserMessageIds.length !== response.coveredUserMessageIds.length ||
-      !revision.coveredUserMessageIds.every((id, index) => id === response.coveredUserMessageIds[index]) ||
+      messageId !== answer.currentMessageId ||
+      (!explicitProof && !legacyProof) ||
       normalizeSelectedFeedThreadKey(message.threadKey ?? "") !== threadKey ||
       !addRequired(message, historyIndex)
-    )
+    ) {
       return { items: selectedItems, complete: false };
+    }
 
-    for (const coveredId of response.coveredUserMessageIds) {
-      const covered = usersById.get(coveredId);
+    for (const referencedId of answer.referencedUserMessageIds) {
+      const referenced = usersById.get(referencedId);
       if (
-        !covered ||
-        leaderResponseOwnerThreadKey(covered.message) !== threadKey ||
-        !addRequired(covered.message, covered.historyIndex)
-      )
+        !referenced ||
+        leaderResponseOwnerThreadKey(referenced.message) !== threadKey ||
+        !addRequired(referenced.message, referenced.historyIndex)
+      ) {
         return { items: selectedItems, complete: false };
+      }
     }
   }
 
-  if (projection.ready) {
-    for (const item of latestQuestQuizSupportItems(
-      messages,
-      threadKey,
-      projection.cutoverHistoryIndex,
-      includeMessage,
-    )) {
-      required.set(entryKey(item.entry), item);
+  const quizItems = latestQuestQuizSupportItems(messages, threadKey, projection.cutoverHistoryIndex, includeMessage);
+  for (const item of quizItems) required.set(entryKey(item.entry), item);
+
+  if (threadKey === MAIN_THREAD_KEY) {
+    const sourceHistoryIndexes = [
+      ...projection.currentAnswers.map((answer) => answer.currentHistoryIndex),
+      ...quizItems.map((item) => item.entry.history_index),
+    ];
+    const sourceBoundaryItems = mainResponseSourceBoundarySupportItems(messages, sourceHistoryIndexes);
+    for (const item of sourceBoundaryItems) {
+      if (!addRequired(item.entry.message, item.entry.history_index)) {
+        return { items: selectedItems, complete: false };
+      }
     }
   }
+
   if (required.size > THREAD_WINDOW_SUPPORT_RECORD_LIMIT) return { items: selectedItems, complete: false };
   return { items: [...selectedItems, ...required.values()], complete: true };
+}
+
+function pendingProjectionMatchesMessage(
+  message: BrowserIncomingMessage | undefined,
+  pending: LeaderThreadResponseProjection["pendingMessages"][number],
+  threadKey: string,
+  expectedUserMessageId: string | undefined,
+): message is Extract<BrowserIncomingMessage, { type: "user_message" }> {
+  return (
+    message?.type === "user_message" &&
+    message.id === pending.historyMessageId &&
+    expectedUserMessageId === pending.userMessageId &&
+    message.leaderResponseCoverageVersion === 1 &&
+    leaderResponseOwnerThreadKey(message) === threadKey
+  );
+}
+
+function projectedLeaderUserMessageIdsByHistoryId(
+  messages: ReadonlyArray<BrowserIncomingMessage>,
+): Map<string, string> {
+  const eligible = messages.flatMap((message) =>
+    message.type === "user_message" && message.id && message.leaderResponseCoverageVersion === 1 ? [message] : [],
+  );
+  const assignedIds = assignSessionScopedLeaderUserMessageIds(eligible.map((message) => message.leaderUserMessageId));
+  return new Map(eligible.map((message, index) => [message.id!, assignedIds[index]!]));
+}
+
+/**
+ * Main leader windows do not know which upstream session is the worker's
+ * `herdedBy` source. Preserve every user-shaped boundary that could therefore
+ * own an answer or Quiz source turn, back to the latest direct-human boundary.
+ * The caller's support cap keeps this conservative closure bounded.
+ */
+function mainResponseSourceBoundarySupportItems(
+  messages: ReadonlyArray<BrowserIncomingMessage>,
+  sourceHistoryIndexes: readonly number[],
+): FeedItem[] {
+  const sourceIndexes = new Set(
+    sourceHistoryIndexes.filter((historyIndex) => Number.isInteger(historyIndex) && historyIndex >= 0),
+  );
+  if (sourceIndexes.size === 0) return [];
+
+  const latestSourceIndex = Math.max(...sourceIndexes);
+  const candidateBoundaryIndexes: number[] = [];
+  const requiredBoundaryIndexes = new Set<number>();
+  for (let historyIndex = 0; historyIndex <= latestSourceIndex; historyIndex += 1) {
+    if (sourceIndexes.has(historyIndex)) {
+      candidateBoundaryIndexes.forEach((candidateIndex) => requiredBoundaryIndexes.add(candidateIndex));
+    }
+
+    const message = messages[historyIndex];
+    if (
+      !message ||
+      !isConversationStartingUserMessage(message) ||
+      leaderResponseOwnerThreadKey(message) !== MAIN_THREAD_KEY
+    ) {
+      continue;
+    }
+    if (message.agentSource?.sessionId == null) candidateBoundaryIndexes.length = 0;
+    candidateBoundaryIndexes.push(historyIndex);
+  }
+
+  return [...requiredBoundaryIndexes].map((historyIndex) => ({
+    order: historyIndex,
+    entry: { message: messages[historyIndex]!, history_index: historyIndex },
+  }));
+}
+
+function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 const QUEST_QUIZ_DIRECTIVE_RE = /^\s*\{\[\(Quest Quiz:\s*(q-\d+)\)\]\}\s*$/i;

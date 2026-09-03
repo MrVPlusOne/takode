@@ -103,9 +103,10 @@ Examples:
   takode peek 1 --detail --turns 3
 `;
 
-const READ_HELP = `Usage: takode read <session> <msg-id> [--offset N] [--limit N] [--thread main|q-N] [--json]
+const READ_HELP = `Usage: takode read <session> <history-index|user-id> [--offset N] [--limit N] [--thread main|q-N] [--json]
 
-Read one full message from a session.
+Read one full message from a session. Leader source-envelope IDs such as u12
+require the leader session argument because they are session-scoped.
 `;
 
 const GREP_HELP = `Usage: takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--thread main|q-N] [--json]
@@ -159,15 +160,6 @@ const GOAL_HELP = `Usage: takode goal <session> show|refresh|pause|resume|clear 
        takode goal <session> set --text-file <path|-> [--budget <tokens>] [--replace] [--json]
 
 Show or manually control Codex Goal state for a Codex-backed session.
-`;
-
-const USER_MESSAGE_HELP = `Usage: takode user-message --text-file <path|-> [--json]
-
-Deprecated compatibility command. New leader text uses [thread:main:C] / [thread:q-N:C] for commentary and [thread:main:F] / [thread:q-N:F] for final responses.
-
-Options:
-  --text-file <path|->  Read the complete Markdown message from a file, or '-' for stdin
-  --json                Output JSON
 `;
 
 const THREAD_HELP = `Usage: takode thread attach <quest-id> --message <index> [more-indices...] [--json]
@@ -398,9 +390,6 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "goal":
       console.log(GOAL_HELP);
       return true;
-    case "user-message":
-      console.log(USER_MESSAGE_HELP);
-      return true;
     case "thread":
       console.log(THREAD_HELP);
       return true;
@@ -567,7 +556,6 @@ Commands:
   unpause  Resume a paused session and release held work
   goal     Show or manually control Codex Goal state
   thread          Associate Main history entries with quest threads
-  user-message  Deprecated compatibility publisher
   rename   Rename a session (e.g. takode rename 5 My Session Name)
   herd     Herd sessions (e.g. takode herd 5,6,7 or takode herd --force 5)
   unherd   Release a session from your herd (e.g. takode unherd 5)

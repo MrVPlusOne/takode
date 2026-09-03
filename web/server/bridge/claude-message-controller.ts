@@ -805,26 +805,35 @@ function finalizeLeaderTurnResponseControls(
 ): { changed: boolean; rejectedReadyThreadKeys: string[] } {
   let changed = false;
   const rejectedReadyThreadKeys = new Set<string>();
-  for (const entry of currentTurnAssistantEntries(session)) {
-    let entryChanged = false;
-    let responseCanAnchorReady = entry.leaderThreadRole !== "response";
-    if (apply && entry.leaderThreadRole === "response") {
+  const entries = currentTurnAssistantEntries(session);
+  const answerCanAnchorReady = new Map<Extract<BrowserIncomingMessage, { type: "assistant" }>, boolean>();
+
+  // Finalize every answer before applying any Ready marker. A multi-section
+  // leader output may put the status segment before the answer segment.
+  if (apply) {
+    for (const entry of entries) {
+      if (entry.leaderThreadRole !== "answer") continue;
       const finalized = finalizeRoutedLeaderResponseMessage(session, entry);
-      entryChanged ||= finalized.finalized;
-      responseCanAnchorReady =
+      const authoritative =
         finalized.finalized ||
         isCurrentValidRoutedLeaderResponseMessage({ id: session.id, messageHistory: session.messageHistory }, entry);
+      answerCanAnchorReady.set(entry, authoritative);
+      if (finalized.finalized) changed = true;
     }
+  }
+
+  for (const entry of entries) {
+    let entryChanged = false;
+    const answerIsInvalid = entry.leaderThreadRole === "answer" && answerCanAnchorReady.get(entry) !== true;
     const deferredMarkers = entry.deferredThreadStatusMarkers;
     if (apply && deferredMarkers?.length) {
-      const markersToApply =
-        entry.leaderThreadRole === "response" && !responseCanAnchorReady
-          ? deferredMarkers.filter((marker) => {
-              if (marker.kind !== "ready") return true;
-              rejectedReadyThreadKeys.add(threadRouteForTarget(marker.target.threadKey).threadKey);
-              return false;
-            })
-          : deferredMarkers;
+      const markersToApply = answerIsInvalid
+        ? deferredMarkers.filter((marker) => {
+            if (marker.kind !== "ready") return true;
+            rejectedReadyThreadKeys.add(threadRouteForTarget(marker.target.threadKey).threadKey);
+            return false;
+          })
+        : deferredMarkers;
       const route = routeFromHistoryEntry(entry) ?? undefined;
       const timestamp = typeof entry.timestamp === "number" ? entry.timestamp : Date.now();
       const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
@@ -846,11 +855,19 @@ function finalizeLeaderTurnResponseControls(
       delete entry.deferredThreadStatusMarkers;
       entryChanged = true;
     }
+    if (entry.leaderAnswerObservedHistoryLength !== undefined) {
+      delete entry.leaderAnswerObservedHistoryLength;
+      entryChanged = true;
+    }
+    if (entry.leaderAnswerUserMessageIds !== undefined) {
+      delete entry.leaderAnswerUserMessageIds;
+      entryChanged = true;
+    }
     if (entry.leaderResponseObservedHistoryLength !== undefined) {
       delete entry.leaderResponseObservedHistoryLength;
       entryChanged = true;
     }
-    if (entryChanged) {
+    if (entryChanged || (apply && entry.leaderThreadRole === "answer" && answerCanAnchorReady.get(entry) === true)) {
       changed = true;
       deps.broadcastToBrowsers(session, entry, { skipBuffer: true });
     }

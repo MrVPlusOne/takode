@@ -119,7 +119,7 @@ function makeRoutedLeaderAssistant(
   id: string,
   content: string,
   timestamp: number,
-  role: "commentary" | "response",
+  role: "commentary" | "answer",
 ): ChatMessage {
   return makeMessage({
     id,
@@ -343,7 +343,7 @@ describe("leader mode collapsed preview without deprecated metadata", () => {
     expect(entryIds(turn.agentEntries)).toContain("a-final");
   });
 
-  it("shows explicit leader user-message entries in collapsed-visible entries", () => {
+  it("shows preserved leader-visible history rows in collapsed-visible entries", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "go", timestamp: 1 }),
       makeMessage({ id: "a-private", role: "assistant", content: "private coordination", timestamp: 2 }),
@@ -974,10 +974,10 @@ describe("leader mode model-only reminder collapsed preview selection", () => {
 });
 
 describe("explicit routed and Codex phase representative selection", () => {
-  it("uses routed leader response roles while keeping commentary as activity", () => {
+  it("uses routed leader answer roles while keeping commentary as activity", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "summarize the result", timestamp: 1 }),
-      makeRoutedLeaderAssistant("a-response", "Self-contained final response", 2, "response"),
+      makeRoutedLeaderAssistant("a-response", "Self-contained answer", 2, "answer"),
       makeRoutedLeaderAssistant("a-commentary", "Operational follow-up", 3, "commentary"),
     ];
 
@@ -990,7 +990,7 @@ describe("explicit routed and Codex phase representative selection", () => {
     expect(entryIds(selectedTurn.agentEntries)).toContain("a-commentary");
   });
 
-  it("chooses the last explicit final answer over later commentary in ordinary turns", () => {
+  it("chooses the last explicit answer over later commentary in ordinary turns", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "summarize the result", timestamp: 1 }),
       makePhasedAssistant("a-final-1", "First user-facing result", 2, "final_answer"),

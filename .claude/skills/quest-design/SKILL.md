@@ -115,4 +115,4 @@ If you are creating another approval surface while an older prompt is still unre
 If the user corrects the understanding and ambiguity remains, repeat the same structure with the updated understanding. If the user clarifies enough to remove the ambiguity, draft the quest and Journey/scheduling plan together instead of sending a separate restated-understanding-only round.
 
 Only after the user confirms, or when the direct low-risk case above clearly applies, should you create or refine the quest.
-When you create or refine the quest, keep subsequent quest-specific activity in `[thread:q-N:C]`; use `[thread:q-N:F]` only for a polished self-contained final answer. Attach clearly quest-specific prior discussion with `takode thread attach`.
+When you create or refine the quest, keep subsequent quest-specific activity in `[thread:q-N:C]`; use `[thread:q-N:A:u1]` for a polished self-contained answer to the applicable earlier user-message ID or IDs. Attach clearly quest-specific prior discussion with `takode thread attach`.

@@ -635,6 +635,65 @@ describe("Takode server-authoritative auth", () => {
     expect(workerJson).toHaveLength(3);
   });
 
+  it("reads exact leader user messages by session-scoped source-envelope ID", async () => {
+    launcher.getSession.mockImplementation((id: string) => ({
+      sessionId: id,
+      isOrchestrator: id === "leader-a" || id === "leader-b",
+    }));
+    bridge._sessions["leader-a"] = {
+      id: "leader-a",
+      messageHistory: [
+        {
+          type: "user_message",
+          id: "raw-a",
+          leaderUserMessageId: "u1",
+          leaderResponseCoverageVersion: 1,
+          content: "Exact message from leader A",
+          timestamp: 10,
+        },
+      ],
+    };
+    bridge._sessions["leader-b"] = {
+      id: "leader-b",
+      messageHistory: [
+        {
+          type: "user_message",
+          id: "raw-b",
+          leaderUserMessageId: "u1",
+          leaderResponseCoverageVersion: 1,
+          content: "Different message from leader B",
+          timestamp: 20,
+        },
+      ],
+    };
+    bridge._sessions.worker = {
+      id: "worker",
+      messageHistory: [
+        {
+          type: "user_message",
+          id: "raw-worker",
+          leaderUserMessageId: "u1",
+          leaderResponseCoverageVersion: 1,
+          content: "Worker message",
+          timestamp: 30,
+        },
+      ],
+    };
+
+    const leaderA = await app.request("/api/sessions/leader-a/messages/u1");
+    const leaderB = await app.request("/api/sessions/leader-b/messages/u1");
+    const worker = await app.request("/api/sessions/worker/messages/u1");
+    const missing = await app.request("/api/sessions/leader-a/messages/u2");
+
+    expect(leaderA.status).toBe(200);
+    expect((await leaderA.json()).content).toBe("Exact message from leader A");
+    expect(leaderB.status).toBe(200);
+    expect((await leaderB.json()).content).toBe("Different message from leader B");
+    expect(worker.status).toBe(400);
+    expect(await worker.json()).toEqual({ error: "Session is not a leader session" });
+    expect(missing.status).toBe(404);
+  });
+
   it("attaches existing Main history entries to a quest thread without moving history", async () => {
     // Backfill must only add projection metadata. Main remains the flat
     // authoritative transcript, while quest threads filter over threadRefs.

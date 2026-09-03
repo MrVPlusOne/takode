@@ -292,52 +292,21 @@ describe("takode needs-input notification response routing", () => {
   });
 });
 
-describe("takode user-message", () => {
-  it("appends and broadcasts an explicit leader-visible message for the caller session", async () => {
-    const { app, broadcastToSession, persistSessionById, session } = createTestApp();
-    const now = vi.spyOn(Date, "now").mockReturnValue(123456);
-
-    try {
-      const res = await app.request("/api/sessions/orch-1/user-message", {
-        method: "POST",
-        body: JSON.stringify({ content: "Visible **leader** update" }),
-      });
-
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({
-        ok: true,
-        sessionId: "orch-1",
-        messageId: "leader-user-123456-1",
-      });
-      const expected = {
-        type: "leader_user_message",
-        id: "leader-user-123456-1",
-        content: "Visible **leader** update",
-        timestamp: 123456,
-      };
-      expect(session.messageHistory.at(-1)).toEqual(expected);
-      expect(broadcastToSession).toHaveBeenCalledWith("orch-1", expected);
-      expect(persistSessionById).toHaveBeenCalledWith("orch-1");
-    } finally {
-      now.mockRestore();
-    }
-  });
-
-  it("rejects publishing a user-visible message for another session", async () => {
+describe("removed leader publication route", () => {
+  it("does not expose the superseded user-message authoring endpoint", async () => {
     const { app } = createTestApp();
 
-    const res = await app.request("/api/sessions/worker-1/user-message", {
+    const res = await app.request("/api/sessions/orch-1/user-message", {
       method: "POST",
-      body: JSON.stringify({ content: "Wrong target" }),
+      body: JSON.stringify({ content: "Superseded publication path" }),
     });
 
-    expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "Can only publish a user-visible message from your own session" });
+    expect(res.status).toBe(404);
   });
 });
 
 describe("takode notify needs-input left-panel visibility", () => {
-  it("creates a visible fallback message when no explicit leader user-message exists", async () => {
+  it("creates a visible fallback message when no leader-visible anchor exists", async () => {
     const { app, broadcastToSession, session } = createTestApp();
     const now = vi.spyOn(Date, "now").mockReturnValue(223344);
 

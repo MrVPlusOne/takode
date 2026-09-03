@@ -73,6 +73,7 @@ describe("leader direct-user response cutover ingestion", () => {
       threadKey: "q-42",
       questId: "q-42",
       leaderResponseCoverageVersion: 1,
+      leaderUserMessageId: "u1",
     });
     expect(target.state.leaderThreadStatuses?.["q-42"]).toBeUndefined();
     expect(runtime.broadcastToBrowsers).toHaveBeenCalledWith(target, target.messageHistory[0]);
@@ -94,6 +95,10 @@ describe("leader direct-user response cutover ingestion", () => {
 
     expect(ingested).not.toBeInstanceOf(Promise);
     expect(target.messageHistory).toEqual([]);
+    expect((ingested as Exclude<typeof ingested, Promise<unknown>>).historyEntry).toMatchObject({
+      leaderResponseCoverageVersion: 1,
+      leaderUserMessageId: "u1",
+    });
     expect(target.state.leaderThreadStatuses?.["q-42"]).toBeUndefined();
     expect(runtime.refreshBrowserConversationViews).not.toHaveBeenCalled();
     expect(runtime.invalidateLeaderThreadTabsForSession).toHaveBeenCalledWith(target.id);
@@ -112,6 +117,7 @@ describe("leader direct-user response cutover ingestion", () => {
     ingestUserMessage(target, message, runtime);
 
     expect(target.messageHistory[0]).not.toHaveProperty("leaderResponseCoverageVersion");
+    expect(target.messageHistory[0]).not.toHaveProperty("leaderUserMessageId");
     expect(target.state.leaderThreadStatuses?.["q-42"]?.kind).toBe("ready");
     expect(runtime.refreshBrowserConversationViews).not.toHaveBeenCalled();
     expect(runtime.invalidateLeaderThreadTabsForSession).not.toHaveBeenCalled();

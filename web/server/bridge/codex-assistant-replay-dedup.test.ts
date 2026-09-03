@@ -8,7 +8,12 @@ type AssistantMessage = Extract<BrowserIncomingMessage, { type: "assistant" }>;
 function assistant(
   id: string,
   role: AssistantMessage["leaderThreadRole"],
-  options: { phase?: AssistantMessage["codexMessagePhase"]; timestamp?: number; plan?: boolean } = {},
+  options: {
+    phase?: AssistantMessage["codexMessagePhase"];
+    timestamp?: number;
+    plan?: boolean;
+    answerIds?: string[];
+  } = {},
 ): AssistantMessage {
   const content = options.plan
     ? [
@@ -35,6 +40,7 @@ function assistant(
     timestamp: options.timestamp ?? 100,
     threadKey: "main",
     ...(role ? { leaderThreadRole: role } : {}),
+    ...(role === "answer" ? { leaderAnswerUserMessageIds: options.answerIds ?? ["u1"] } : {}),
     ...(options.phase ? { codexMessagePhase: options.phase } : {}),
   };
 }
@@ -44,10 +50,10 @@ function sessionWith(message: AssistantMessage): Session {
 }
 
 describe("Codex assistant replay role identity", () => {
-  it("keeps commentary and final responses distinct in both same-id and fallback replay checks", () => {
+  it("keeps commentary and answers distinct in both same-id and fallback replay checks", () => {
     const commentary = assistant("shared-id", "commentary", { phase: "final_answer", timestamp: 100 });
-    const sameIdFinal = assistant("shared-id", "response", { phase: "final_answer", timestamp: 100 });
-    const fallbackFinal = assistant("different-id", "response", { phase: "final_answer", timestamp: 100 });
+    const sameIdFinal = assistant("shared-id", "answer", { phase: "final_answer", timestamp: 100 });
+    const fallbackFinal = assistant("different-id", "answer", { phase: "final_answer", timestamp: 100 });
 
     expect(isDuplicateCodexAssistantReplay(sessionWith(commentary), sameIdFinal)).toBe(false);
     expect(isDuplicateCodexAssistantReplay(sessionWith(commentary), fallbackFinal)).toBe(false);
@@ -57,6 +63,13 @@ describe("Codex assistant replay role identity", () => {
         assistant("different-id", "commentary", { phase: "final_answer", timestamp: 100 }),
       ),
     ).toBe(true);
+  });
+
+  it("does not dedupe identical answer prose aimed at different user-message IDs", () => {
+    const existing = assistant("existing", "answer", { answerIds: ["u1"], timestamp: 100 });
+    const incoming = assistant("incoming", "answer", { answerIds: ["u2"], timestamp: 100 });
+
+    expect(isDuplicateCodexAssistantReplay(sessionWith(existing), incoming)).toBe(false);
   });
 
   it("continues to compare provider phase independently from the routed leader role", () => {
@@ -70,14 +83,14 @@ describe("Codex assistant replay role identity", () => {
     ).toBe(false);
   });
 
-  it("does not collapse a same-plan final into prior commentary with the same restarted sequence", () => {
+  it("does not collapse a same-plan answer into prior commentary with the same restarted sequence", () => {
     const commentary = assistant("codex-tool_use-codex-plan-turn-1-1", "commentary", { plan: true });
-    const final = assistant("codex-tool_use-codex-plan-turn-1-1", "response", { plan: true });
+    const final = assistant("codex-tool_use-codex-plan-turn-1-1", "answer", { plan: true });
 
     const prepared = prepareCodexPlanAssistantReplay(sessionWith(commentary), final);
 
     expect(prepared.isDuplicate).toBe(false);
-    expect(prepared.message.leaderThreadRole).toBe("response");
+    expect(prepared.message.leaderThreadRole).toBe("answer");
     expect(prepared.message.message.id).toBe("codex-tool_use-codex-plan-turn-1-2");
     expect(prepared.message.message.content).toEqual([
       expect.objectContaining({ type: "tool_use", id: "codex-plan-turn-1-2" }),

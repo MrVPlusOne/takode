@@ -9,13 +9,14 @@ import {
 } from "./thread-routing.js";
 
 describe("thread-routing", () => {
-  it("round-trips compact commentary and final-response roles", () => {
-    expect(formatThreadMarker("main", "response")).toBe("[thread:main:F]");
+  it("round-trips compact commentary and explicit answer roles", () => {
+    expect(formatThreadMarker("main", "answer", ["u1", "u2"])).toBe("[thread:main:A:u1,u2]");
     expect(formatThreadMarker("q-941", "commentary")).toBe("[thread:q-941:C]");
-    expect(parseThreadTextPrefix("[thread:main:F]\nFinal answer")).toEqual({
+    expect(parseThreadTextPrefix("[thread:main:A:u1,u2]\nFinal answer")).toEqual({
       ok: true,
       target: { threadKey: "main" },
-      role: "response",
+      role: "answer",
+      answerUserMessageIds: ["u1", "u2"],
       body: "Final answer",
     });
     expect(parseThreadTextPrefix("[thread:q-941:C] Progress update")).toEqual({
@@ -28,14 +29,24 @@ describe("thread-routing", () => {
       ok: false,
       reason: "invalid_role",
     });
+    for (const invalid of [
+      "[thread:q-941:F] Retired role",
+      "[thread:q-941:A] Missing IDs",
+      "[thread:q-941:A:u1,] Trailing comma",
+      "[thread:q-941:A:u01] Leading zero",
+      "[thread:q-941:A:u1,u1] Duplicate",
+      "[thread:q-941:C:u1] Commentary IDs",
+    ]) {
+      expect(parseThreadTextPrefix(invalid)).toMatchObject({ ok: false, reason: "invalid_role" });
+    }
   });
 
   it("fails closed when one segment composes conflicting role-bearing markers", () => {
     for (const [text, marker] of [
-      ["[thread:q-941:F] [thread:q-941:C] Conflicting", "[thread:q-941:C]"],
-      ["[thread:q-941:F]\n[thread:q-941]\nMissing role", "[thread:q-941]"],
-      ["[thread:q-941:F]\nAnswer.\n[thread:q-941:X]\nUnknown role", "[thread:q-941:X]"],
-      ["[thread:q-941:F]\nAnswer.\n[thread:side:F]\nUnknown target", "[thread:side:F]"],
+      ["[thread:q-941:A:u1] [thread:q-941:C] Conflicting", "[thread:q-941:C]"],
+      ["[thread:q-941:A:u1]\n[thread:q-941]\nMissing role", "[thread:q-941]"],
+      ["[thread:q-941:A:u1]\nAnswer.\n[thread:q-941:X]\nUnknown role", "[thread:q-941:X]"],
+      ["[thread:q-941:A:u1]\nAnswer.\n[thread:side:A:u1]\nUnknown target", "[thread:side:A:u1]"],
     ] as const) {
       expect(parseThreadTextPrefix(text)).toMatchObject({
         ok: false,
@@ -51,10 +62,11 @@ describe("thread-routing", () => {
     ["indented longer backticks", "  ````text", "  `````"],
   ] as const)("allows marker-like examples inside %s fences", (_, opening, closing) => {
     const body = ["Example:", opening, "---", "[thread:q-942:X]", closing].join("\n");
-    expect(parseThreadTextPrefix(`[thread:q-941:F]\n${body}`)).toEqual({
+    expect(parseThreadTextPrefix(`[thread:q-941:A:u1]\n${body}`)).toEqual({
       ok: true,
       target: { threadKey: "q-941", questId: "q-941" },
-      role: "response",
+      role: "answer",
+      answerUserMessageIds: ["u1"],
       body,
     });
   });
@@ -148,10 +160,11 @@ describe("thread-routing", () => {
       target: { threadKey: "q-941", questId: "q-941" },
       body: "No separator",
     });
-    expect(parseThreadTextLineStartMarker("[thread:q-941:F]No separator")).toEqual({
+    expect(parseThreadTextLineStartMarker("[thread:q-941:A:u1]No separator")).toEqual({
       ok: true,
       target: { threadKey: "q-941", questId: "q-941" },
-      role: "response",
+      role: "answer",
+      answerUserMessageIds: ["u1"],
       body: "No separator",
     });
     expect(parseThreadTextLineStartMarker("> [thread:q-941] quoted")).toMatchObject({

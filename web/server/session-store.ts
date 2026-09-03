@@ -26,7 +26,8 @@ import type {
   SessionAttentionRecord,
   CodexPendingDeliveryProofSignal,
   ContextUsageHistoryEntry,
-  LeaderThreadResponseRevisionMetadata,
+  LeaderThreadAnswerMetadata,
+  LegacyLeaderThreadResponseRevisionMetadata,
   ThreadRef,
 } from "./session-types.js";
 
@@ -39,7 +40,8 @@ export interface SearchExcerpt {
   threadKey?: string;
   questId?: string;
   threadRefs?: ThreadRef[];
-  threadResponse?: LeaderThreadResponseRevisionMetadata;
+  threadAnswer?: LeaderThreadAnswerMetadata;
+  threadResponse?: LegacyLeaderThreadResponseRevisionMetadata;
 }
 
 // ─── Two-Tier Persistence Design ────────────────────────────────────────────
@@ -744,6 +746,7 @@ export class SessionStore {
           ...(msg.threadKey ? { threadKey: msg.threadKey } : {}),
           ...(msg.questId ? { questId: msg.questId } : {}),
           ...(msg.threadRefs?.length ? { threadRefs: msg.threadRefs } : {}),
+          ...(msg.threadAnswer ? { threadAnswer: msg.threadAnswer } : {}),
           ...(msg.threadResponse ? { threadResponse: msg.threadResponse } : {}),
         });
       }

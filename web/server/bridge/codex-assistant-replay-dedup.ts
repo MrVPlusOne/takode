@@ -40,12 +40,18 @@ function extractSyntheticPlan(message: AssistantMessage): SyntheticPlanState | n
   };
 }
 
+function leaderAnswerIdsKey(message: AssistantMessage): string {
+  if (message.leaderThreadRole !== "answer") return "";
+  return (message.threadAnswer?.answerUserMessageIds ?? message.leaderAnswerUserMessageIds ?? []).join(",");
+}
+
 function samePlanReplayScope(existing: AssistantMessage, incoming: AssistantMessage): boolean {
   return (
     sameCodexNativeSubagentOwnership(existing.codexSubagent, incoming.codexSubagent) &&
     existing.parent_tool_use_id === incoming.parent_tool_use_id &&
     sameThreadRoute(routeFromHistoryEntry(existing), routeFromHistoryEntry(incoming)) &&
     existing.leaderThreadRole === incoming.leaderThreadRole &&
+    leaderAnswerIdsKey(existing) === leaderAnswerIdsKey(incoming) &&
     normalizeCodexMessagePhase(existing.codexMessagePhase) === normalizeCodexMessagePhase(incoming.codexMessagePhase)
   );
 }
@@ -139,13 +145,15 @@ export function isDuplicateCodexAssistantReplay(
       incomingId &&
       existing.message?.id === incomingId &&
       sameOwnership &&
-      existing.leaderThreadRole === msg.leaderThreadRole
+      existing.leaderThreadRole === msg.leaderThreadRole &&
+      leaderAnswerIdsKey(existing) === leaderAnswerIdsKey(msg)
     )
       return true;
     if (!sameOwnership) continue;
     if (existing.parent_tool_use_id !== incomingParentToolUseId) continue;
     if (!sameThreadRoute(routeFromHistoryEntry(existing), routeFromHistoryEntry(msg))) continue;
     if (existing.leaderThreadRole !== msg.leaderThreadRole) continue;
+    if (leaderAnswerIdsKey(existing) !== leaderAnswerIdsKey(msg)) continue;
     if (normalizeCodexMessagePhase(existing.codexMessagePhase) !== normalizeCodexMessagePhase(msg.codexMessagePhase)) {
       continue;
     }

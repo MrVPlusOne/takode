@@ -11,7 +11,8 @@ import {
 function human(): Extract<BrowserIncomingMessage, { type: "user_message" }> {
   return {
     type: "user_message",
-    id: "u1",
+    id: "raw-u1",
+    leaderUserMessageId: "u1",
     content: "Please finish this.",
     timestamp: 10,
     threadKey: "q-42",
@@ -38,8 +39,9 @@ function finalResponse(): Extract<BrowserIncomingMessage, { type: "assistant" }>
     threadKey: "q-42",
     questId: "q-42",
     threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" }],
-    leaderThreadRole: "response",
-    leaderResponseObservedHistoryLength: 1,
+    leaderThreadRole: "answer",
+    leaderAnswerUserMessageIds: ["u1"],
+    leaderAnswerObservedHistoryLength: 1,
   };
 }
 
@@ -67,7 +69,7 @@ function oldReady(): LeaderThreadStatus {
   };
 }
 
-describe("Thread Ready response coverage gate", () => {
+describe("Thread Ready answer coverage gate", () => {
   it("uses the active turn owner boundary for asynchronous completions without absorbing later queued input", () => {
     const history = [
       human(),
@@ -138,7 +140,75 @@ describe("Thread Ready response coverage gate", () => {
     expect(session.state.leaderThreadStatuses["q-42"]).toBeUndefined();
   });
 
-  it("accepts Waiting while pending and Ready after the same routed final is stamped", () => {
+  it("rejects Ready after restart while a later direct Codex input remains accepted but uncommitted", () => {
+    // Persisted pending Codex input is authoritative work even before provider history commits it.
+    const session = {
+      id: "leader",
+      messageHistory: [human()] as BrowserIncomingMessage[],
+      pendingCodexInputs: [
+        {
+          id: "raw-u2",
+          content: "A later queued request",
+          timestamp: 40,
+          cancelable: true,
+          leaderResponseCoverageVersion: 1 as const,
+          leaderUserMessageId: "u2",
+          threadKey: "q-42",
+          questId: "q-42",
+          threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" as const }],
+        },
+      ],
+      state: { leaderThreadStatuses: { "q-42": oldReady() } },
+    };
+    const response = finalResponse();
+    session.messageHistory.push(response);
+    expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
+    expect(buildLeaderThreadResponseState(session, "q-42").projection.ready).toBe(true);
+
+    const update = updateLeaderThreadStatusesForAssistantOutput(session, [marker("ready")], {
+      messageId: response.message.id,
+      timestamp: response.timestamp!,
+    });
+
+    expect(update.records).toEqual([]);
+    expect(update.rejectedReadyRoutes).toEqual([expect.objectContaining({ threadKey: "q-42" })]);
+    expect(session.state.leaderThreadStatuses["q-42"]).toBeUndefined();
+  });
+
+  it("rejects Ready while a same-thread needs-input notification remains unresolved", () => {
+    // Answer coverage does not override the separate scoped user-decision gate.
+    const session = {
+      id: "leader",
+      messageHistory: [human()] as BrowserIncomingMessage[],
+      notifications: [
+        {
+          id: "n-1",
+          category: "needs-input" as const,
+          summary: "Choose rollout",
+          timestamp: 25,
+          messageId: null,
+          done: false,
+          threadKey: "q-42",
+          questId: "q-42",
+        },
+      ],
+      state: { leaderThreadStatuses: {} as Record<string, LeaderThreadStatus> },
+    };
+    const response = finalResponse();
+    session.messageHistory.push(response);
+    expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
+
+    const update = updateLeaderThreadStatusesForAssistantOutput(session, [marker("ready")], {
+      messageId: response.message.id,
+      timestamp: response.timestamp!,
+    });
+
+    expect(update.records).toEqual([]);
+    expect(update.rejectedReadyRoutes).toEqual([expect.objectContaining({ threadKey: "q-42" })]);
+    expect(session.state.leaderThreadStatuses["q-42"]).toBeUndefined();
+  });
+
+  it("accepts Waiting while pending and Ready after the same routed answer is stamped", () => {
     const session = {
       id: "leader",
       messageHistory: [human()] as BrowserIncomingMessage[],

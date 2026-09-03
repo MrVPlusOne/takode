@@ -216,7 +216,7 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("material-detail necessity filter");
     expect(result).toContain("Then publish the detailed question, decision options, or confirmation text");
     expect(result).toContain("`[thread:main:C]` or `[thread:q-N:C]`");
-    expect(result).toContain("`[thread:main:F]` or `[thread:q-N:F]`");
+    expect(result).toContain("`[thread:main:A:u1]` or `[thread:q-N:A:u1,u2]`");
     expect(result).toContain("standalone `---` line immediately before each later role-bearing marker");
     expect(result).toContain("normal worker and reviewer sessions use ordinary assistant text");
     expect(result).toContain("After the detailed text is visible, call `takode notify needs-input`");
@@ -633,25 +633,27 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).not.toContain("Every quest goes through the full journey");
   });
 
-  it("teaches leader-only routed commentary and final-response roles", () => {
+  it("teaches leader-only routed commentary and explicit answer roles", () => {
     const leader = buildInjectedSystemPromptForDebug({ sessionNum: 7, backend: "codex", isOrchestrator: true });
     const worker = buildInjectedSystemPromptForDebug({ sessionNum: 8, backend: "codex" });
 
     expect(leader).toContain("## Leader Thread Routing");
     expect(leader).toContain("`[thread:main:C]`");
-    expect(leader).toContain("`[thread:q-N:F]`");
+    expect(leader).toContain("`[thread:q-N:A:u1,u2]`");
     expect(leader).toContain(
       "Commentary includes dispatch, progress, recovery, verification, waiting, User Checkpoints, and asynchronous Memory work",
     );
-    expect(leader).toContain("cannot satisfy a pending response batch");
-    expect(leader).toContain("A final response is the polished, self-contained direct answer");
-    expect(leader).toContain("automatically assigns it to the current pending same-thread user batch");
-    expect(leader).toContain("Another final response before newer user input supersedes the prior current final");
-    expect(leader).toContain("A newer direct user message creates a new pending requirement");
-    expect(leader).toContain("Thread Ready fails and injects a reminder");
-    expect(leader).toContain("do not copy or choose user-message IDs, batch tokens, response IDs, or revision IDs");
+    expect(leader).toContain("cannot satisfy answer coverage");
+    expect(leader).toContain("Every direct human message delivered to a leader has an `id:uN` source-envelope field");
+    expect(leader).toContain("`takode read <leader-session> <user-message-id>`");
+    expect(leader).toContain("Answers may cover multiple consecutive IDs");
+    expect(leader).toContain("supersedes earlier answers only for IDs it repeats");
+    expect(leader).toContain("every currently thread-owned direct user message has valid answer coverage");
+    expect(leader).not.toContain("pending same-thread user batch");
+    expect(leader).not.toContain("batch tokens, response IDs, or revision IDs");
     expect(leader).toContain("Quest Quiz directives and Thread Waiting/Ready markers stay separate");
     expect(leader).not.toContain("takode thread-response");
+    expect(leader).not.toContain("takode user-message");
     expect(worker).not.toContain("## Leader Thread Routing");
   });
 

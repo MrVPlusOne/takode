@@ -29,12 +29,7 @@ import {
   handleSetModel,
   handleSetPermissionMode,
 } from "./adapter-browser-routing-runtime-settings.js";
-import {
-  getInterruptSourceFromActorSessionId,
-  isSystemSourceTag,
-  isTimerReminderContent,
-  isTimerSourceTag,
-} from "./adapter-browser-routing-source-tags.js";
+import { getInterruptSourceFromActorSessionId, isSystemSourceTag } from "./adapter-browser-routing-source-tags.js";
 import {
   activeTurnRouteFromIngestedUserMessage,
   maybeRequestAdapterRelaunchForUserMessage,
@@ -60,7 +55,7 @@ import { clearCodexReasoningPreviewForRoute } from "./codex-reasoning-preview-st
 import { extractAskUserAnswers } from "./compaction-recovery.js";
 import { LONG_SLEEP_REMINDER_TEXT } from "./bash-sleep-policy.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
-import { formatThreadMarker, normalizeThreadTarget } from "../../shared/thread-routing.js";
+import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 import { emitStoredUserMessageTakodeEvent, type UserMessageTakodeTurnTarget } from "./user-message-takode-event.js";
 import {
   browserMessageRoute,
@@ -69,6 +64,7 @@ import {
   type ThreadRouteMetadata,
 } from "../thread-routing-metadata.js";
 import { isActualHumanUserMessage } from "../user-message-classification.js";
+import { nextLeaderUserMessageId } from "../leader-user-message-id.js";
 import { clearLeaderThreadStatusForCoveredUserMessage } from "./thread-routing-reminder.js";
 import { consumeRecentAskVisibleResponseBoundary } from "../recent-ask-bundles.js";
 import { determineUserMessageSourceKind } from "../codex-result-error-auto-pause.js";
@@ -90,6 +86,7 @@ import type {
   PermissionResponseMessage,
 } from "./adapter-browser-routing-message-types.js";
 import { attachStartupMemoryCatalogPrelude } from "./startup-memory-catalog-prelude.js";
+import { buildAdapterUserMessageSourcePrefix } from "./adapter-browser-routing-source-prefix.js";
 export {
   hasPendingForceCompact,
   isCliSlashCommand,
@@ -283,51 +280,6 @@ function maybeAutoAnswerPendingQuestionForUserMessage(
   }
   handlePermissionResponse(session, approval, deps, actorSessionId);
   return true;
-}
-
-function localDateKey(ts: number): string {
-  const d = new Date(ts);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function buildTimestampTag(
-  session: AdapterBrowserRoutingSessionLike,
-  ts: number,
-  getLauncherSessionInfo: AdapterBrowserRoutingDeps["getLauncherSessionInfo"],
-  agentSource?: BrowserUserMessage["agentSource"],
-  content?: string,
-  sourceThreadKey?: string,
-): string {
-  const d = new Date(ts);
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const dateKey = localDateKey(ts);
-  const includeDate = !session.lastUserMessageDateTag || dateKey !== session.lastUserMessageDateTag;
-  session.lastUserMessageDateTag = dateKey;
-  const dateStr = includeDate
-    ? d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }) + " "
-    : "";
-  const timeWithDate = dateStr + time;
-  const sessionInfo = getLauncherSessionInfo(session.id);
-  const threadTag = sessionInfo?.isOrchestrator && sourceThreadKey ? `${formatThreadMarker(sourceThreadKey)} ` : "";
-  if (isTimerSourceTag(agentSource)) {
-    return isTimerReminderContent(content)
-      ? `[Timer reminder ${timeWithDate}] ${threadTag}`
-      : `[Timer event ${timeWithDate}] ${threadTag}`;
-  }
-  if (sessionInfo?.isOrchestrator) {
-    if (isSystemSourceTag(agentSource)) return `[System ${timeWithDate}] ${threadTag}`;
-    if (agentSource?.sessionId === "herd-events") return `[Herd ${timeWithDate}] ${threadTag}`;
-    if (agentSource) {
-      const label = agentSource.sessionLabel || agentSource.sessionId.slice(0, 8);
-      return `[Agent ${label} ${timeWithDate}] ${threadTag}`;
-    }
-    return `[User ${timeWithDate}] ${threadTag}`;
-  }
-  if (sessionInfo?.herdedBy && agentSource) {
-    const label = agentSource.sessionLabel || agentSource.sessionId.slice(0, 8);
-    return `[Leader ${label} ${timeWithDate}] `;
-  }
-  return `[User ${timeWithDate}] `;
 }
 
 export function buildPermissionPreview(request: PermissionRequest): Record<string, unknown> {
@@ -1259,6 +1211,10 @@ export function ingestUserMessage(
     };
     if (isLeaderSession && isActualHumanUserMessage(userHistoryEntry)) {
       userHistoryEntry.leaderResponseCoverageVersion = 1;
+      userHistoryEntry.leaderUserMessageId = nextLeaderUserMessageId(
+        session.messageHistory,
+        session.pendingCodexInputs.map((input) => input.leaderUserMessageId),
+      );
       if (clearLeaderThreadStatusForCoveredUserMessage(session, userHistoryEntry)) {
         deps.invalidateLeaderThreadTabsForSession?.(session.id);
       }
@@ -1320,13 +1276,14 @@ function buildUserMessageDeliveryPrefix(
   contentPreview: string | undefined,
   deps: Pick<AdapterBrowserRoutingDeps, "getLauncherSessionInfo">,
 ): string {
-  return buildTimestampTag(
+  return buildAdapterUserMessageSourcePrefix(
     session,
     ingested.timestamp,
     deps.getLauncherSessionInfo,
     msg.agentSource,
     contentPreview,
     ingested.historyEntry.threadKey,
+    ingested.historyEntry.leaderUserMessageId,
   );
 }
 
@@ -1824,6 +1781,9 @@ export function routeAdapterBrowserMessage(
           ...(ingested.historyEntry.leaderResponseCoverageVersion
             ? { leaderResponseCoverageVersion: ingested.historyEntry.leaderResponseCoverageVersion }
             : {}),
+          ...(ingested.historyEntry.leaderUserMessageId
+            ? { leaderUserMessageId: ingested.historyEntry.leaderUserMessageId }
+            : {}),
           autoPauseSourceKind: determineUserMessageSourceKind(msg),
           ...(msg.autoPauseRecoveries?.length ? { autoPauseRecoveries: msg.autoPauseRecoveries } : {}),
           ...(trustedCodexRecoveryRoute?.queueBeforeOwnerId
@@ -1953,13 +1913,14 @@ export function routeAdapterBrowserMessage(
       adapterMsg = {
         ...adapterMsg,
         content:
-          buildTimestampTag(
+          buildAdapterUserMessageSourcePrefix(
             session,
             msgTs,
             deps.getLauncherSessionInfo,
             msg.agentSource,
             contentWithReminder,
             sourceThreadKey,
+            ingested?.historyEntry.leaderUserMessageId,
           ) + contentWithReminder,
       } as BrowserOutgoingMessage;
     }
