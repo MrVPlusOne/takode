@@ -1022,6 +1022,8 @@ export type BrowserIncomingMessageBase =
   | ({
       type: "user_message";
       content: string;
+      /** Exact model-bound content retained only for committed Codex turn-recovery events. */
+      modelDeliveryContent?: string;
       timestamp: number;
       id?: string;
       client_msg_id?: string;

@@ -324,6 +324,8 @@ export interface ChatMessage {
   };
   /** Present when this user message was injected programmatically (e.g. via takode CLI or cron). */
   agentSource?: { sessionId: string; sessionLabel?: string };
+  /** Exact model-bound payload retained only for committed interrupted-turn recovery events. */
+  modelDeliveryContent?: string;
   /** Structured herd-event keys preserved from server delivery metadata. */
   takodeHerdEventKeys?: string[];
   /** Minimal browser-facing herd-event metadata for UI classification. */

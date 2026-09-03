@@ -3,6 +3,7 @@
 import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage } from "./types.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
+import { codexTurnRecoverySourceId } from "../shared/injected-event-message.js";
 
 const getDiffStatsMock = vi.fn().mockResolvedValue({ stats: {} });
 const listSessionsMock = vi.fn().mockResolvedValue([]);
@@ -684,6 +685,57 @@ describe("handleMessage: history_window_sync", () => {
 });
 
 describe("handleMessage: thread_window_sync", () => {
+  it("preserves exact recovery model content in selected thread windows", () => {
+    // This producer-shaped window proves the selected-feed path carries the same
+    // recovery-only audit payload as live and full-history hydration.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    const exactRecoveryContent = [
+      "[Source: Resuming Interrupted Work]",
+      "[Thread: q-9010]",
+      "",
+      "Verify current state before continuing missing work.",
+    ].join("\n");
+
+    fireMessage({
+      type: "thread_window_sync",
+      thread_key: "q-9010",
+      entries: [
+        {
+          history_index: 120,
+          message: {
+            type: "user_message",
+            id: "recovery-thread-window",
+            content: "Takode queued one recovery follow-up.",
+            modelDeliveryContent: exactRecoveryContent,
+            timestamp: 2000,
+            threadKey: "q-9010",
+            questId: "q-9010",
+            agentSource: {
+              sessionId: codexTurnRecoverySourceId("owner-thread-window"),
+              sessionLabel: "Resuming Interrupted Work",
+            },
+          },
+        },
+      ],
+      window: {
+        thread_key: "q-9010",
+        from_item: 0,
+        item_count: 1,
+        total_items: 1,
+        has_older_items: false,
+        has_newer_items: false,
+        source_history_length: 121,
+        section_item_count: 10,
+        visible_item_count: 1,
+      },
+    });
+
+    expect(useStore.getState().threadWindowMessages.get("s1")?.get("q-9010")?.[0]?.modelDeliveryContent).toBe(
+      exactRecoveryContent,
+    );
+  });
+
   it("stores selected-feed window messages without replacing raw history state", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

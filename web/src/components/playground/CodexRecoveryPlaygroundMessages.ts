@@ -7,6 +7,20 @@ import {
 import type { ChatMessage } from "../../types.js";
 import { makePlaygroundMessage } from "./fixtures.js";
 
+export const PLAYGROUND_RECOVERY_MODEL_DELIVERY_CONTENT = [
+  "[System 11:04 AM] [thread:q-9010] Takode could not confirm that the previous turn completed its response.",
+  "",
+  "This is a separately owned verification-first continuation. The original user payload was not replayed because its history or effect evidence is incomplete.",
+  "",
+  "Start with `takode peek 901 --turn-containing 42`, then use `takode read 901 42` and other targeted inspection only as needed.",
+  "",
+  "Takode history and these commands expose only Takode's persisted observations; they may be incomplete and do not prove all Codex-internal progress, partial tool execution, or external effects.",
+  "",
+  "Tool or external effects may already have occurred. Inspect current quest, board, notification, file, and external state before repeating any action.",
+  "",
+  "Continue only the missing work within the original authorization and thread route. If safe continuation remains unclear, report the unfinished/action-required state instead of guessing or claiming completion.",
+].join("\n");
+
 export function buildPlaygroundActionRequiredRecoveryMessages(recoveryId: string): ChatMessage[] {
   return [
     makePlaygroundMessage({
@@ -19,6 +33,7 @@ export function buildPlaygroundActionRequiredRecoveryMessages(recoveryId: string
       id: "playground-continuation-action-required",
       role: "user",
       content: "Takode is resuming this interrupted work without repeating actions that already completed.",
+      modelDeliveryContent: PLAYGROUND_RECOVERY_MODEL_DELIVERY_CONTENT,
       timestamp: Date.now() - 6_000,
       agentSource: {
         sessionId: codexTurnRecoverySourceId(recoveryId),

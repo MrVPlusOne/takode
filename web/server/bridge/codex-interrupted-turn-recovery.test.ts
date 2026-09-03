@@ -287,6 +287,15 @@ describe("Codex interrupted turn recovery state", () => {
     expect(recoveryDeps.injectUserMessage.mock.calls[0]?.[4]?.deliveryContent).toContain(
       "Tool or external effects may already have occurred",
     );
+    expect(recoveryDeps.injectUserMessage.mock.calls[0]?.[4]?.deliveryContent).toContain(
+      "Takode could not confirm that the previous turn completed its response",
+    );
+    expect(recoveryDeps.injectUserMessage.mock.calls[0]?.[4]?.deliveryContent).toContain(
+      "Takode history and these commands expose only Takode's persisted observations",
+    );
+    expect(recoveryDeps.injectUserMessage.mock.calls[0]?.[4]?.deliveryContent).toContain(
+      "may be incomplete and do not prove all Codex-internal progress, partial tool execution, or external effects",
+    );
     expect(session.state.codex_turn_recovery).toMatchObject({
       originalOwnerId: "original-owner",
       continuationOwnerId: "continuation-owner",
@@ -318,6 +327,42 @@ describe("Codex interrupted turn recovery state", () => {
 
     settleCodexTurnRecoveryFromResult(session, [continuation], result(), recoveryDeps);
     expect(session.state.codex_turn_recovery).toBeNull();
+  });
+
+  it("keeps incomplete-observation guidance without broadening finish-response authority", () => {
+    const session = makeSession();
+    const recoveryDeps = deps(session);
+
+    expect(
+      beginCodexTurnRecoveryContinuation(
+        session,
+        turn(),
+        { threadKey: "q-1987", questId: "q-1987" },
+        recoveryDeps,
+        "finish_response",
+      ),
+    ).toBe(true);
+
+    const deliveryContent = recoveryDeps.injectUserMessage.mock.calls[0]?.[4]?.deliveryContent;
+    expect(deliveryContent).toContain(
+      "The original user payload is recorded in Codex history and must not be replayed",
+    );
+    expect(deliveryContent).toContain("Takode could not confirm that the previous turn completed its response");
+    expect(deliveryContent).toContain("Takode history and these commands expose only Takode's persisted observations");
+    expect(deliveryContent).toContain(
+      "Takode's available observations did not show effect-capable activity after this input",
+    );
+    expect(deliveryContent).toContain(
+      "that absence is not proof that no partial tool execution or external effect occurred",
+    );
+    expect(deliveryContent).toContain("finish only the missing response without repeating already-taken actions");
+    expect(deliveryContent).not.toContain("verification-first continuation");
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      continuationMode: "finish_response",
+      status: "continuation_pending",
+      attempt: 1,
+      maxAttempts: 1,
+    });
   });
 
   it("fails closed after the one continuation is interrupted instead of recursively injecting", () => {

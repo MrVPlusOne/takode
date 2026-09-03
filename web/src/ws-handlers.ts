@@ -10,6 +10,7 @@ import type {
   TaskItem,
 } from "./types.js";
 import { playNotificationSound } from "./utils/notification-sound.js";
+import { getRecoveryModelDeliveryContent } from "./utils/injected-event-message.js";
 import {
   extractTextFromBlocks,
   normalizeCodexReasoningDetailMessage,
@@ -1246,6 +1247,7 @@ function handleParsedMessage(
           ? { leaderResponseCoverageVersion: data.leaderResponseCoverageVersion }
           : {}),
       };
+      const modelDeliveryContent = getRecoveryModelDeliveryContent(data);
       const userMsg: ChatMessage = {
         id: data.id || nextId(),
         role: "user",
@@ -1265,6 +1267,7 @@ function handleParsedMessage(
         ...(data.history_index !== undefined ? { historyIndex: data.history_index } : {}),
         ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
         ...(data.agentSource ? { agentSource: data.agentSource } : {}),
+        ...(modelDeliveryContent !== undefined ? { modelDeliveryContent } : {}),
         ...(data.takodeHerdEventKeys?.length ? { takodeHerdEventKeys: data.takodeHerdEventKeys } : {}),
         ...(data.takodeHerdEvents?.length ? { takodeHerdEvents: data.takodeHerdEvents } : {}),
       };

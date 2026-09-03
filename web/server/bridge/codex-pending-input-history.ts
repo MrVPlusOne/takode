@@ -1,3 +1,4 @@
+import { isCodexTurnRecoverySourceId } from "../../shared/injected-event-message.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { BrowserIncomingMessage, CodexOutboundTurn, PendingCodexInput } from "../session-types.js";
 import {
@@ -433,9 +434,16 @@ function commitPendingCodexInput(
   }
   commitQueuedNeedsInputResolutionNoticeHistoryEntry(session, pending, deps);
   const takodeHerdEvents = getTakodeHerdEventBrowserMetadata(pending.takodeHerdBatch);
+  const modelDeliveryContent =
+    isCodexTurnRecoverySourceId(pending.agentSource?.sessionId) &&
+    pending.requireFreshSuccessor === true &&
+    typeof pending.deliveryContent === "string"
+      ? pending.deliveryContent
+      : undefined;
   const userHistoryEntry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
     type: "user_message",
     content: pending.content,
+    ...(modelDeliveryContent !== undefined ? { modelDeliveryContent } : {}),
     timestamp: pending.timestamp,
     id: pending.id,
     ...(pending.imageRefs?.length ? { images: pending.imageRefs } : {}),

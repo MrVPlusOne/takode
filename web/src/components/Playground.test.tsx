@@ -61,6 +61,7 @@ import { PlaygroundSideChatStates } from "./playground/SideChatPlaygroundStates.
 import { PlaygroundReasoningDetailStates } from "./playground/ReasoningDetailStates.js";
 import { PlaygroundCodexSubagentStates } from "./playground/CodexSubagentPlaygroundStates.js";
 import { PlaygroundChatViewRecoveryStates } from "./playground/ChatViewRecoveryPlaygroundStates.js";
+import { PLAYGROUND_RECOVERY_MODEL_DELIVERY_CONTENT } from "./playground/CodexRecoveryPlaygroundMessages.js";
 import { PlaygroundDiffViewerSection } from "./playground/DiffViewerPlaygroundSection.js";
 import { PLAYGROUND_AUTO_PAUSE_RECOVERY_ENTRY } from "./playground/AutoPausePlaygroundStates.js";
 import { MOCK_SESSION_ID } from "./playground/fixtures.js";
@@ -536,6 +537,20 @@ describe("Playground", () => {
     const actionRequired = within(screen.getByTestId("playground-codex-turn-recovery-action-required"));
     expect(actionRequired.getByTestId("codex-turn-recovery-chip")).toHaveClass("border-cc-attention/55");
     expect(actionRequired.getByText(/verified the already-completed side effects/)).toBeInTheDocument();
+
+    const recoveryEventChip = actionRequired.getByRole("button", { name: "Expand Resuming Interrupted Work" });
+    expect(recoveryEventChip).toHaveAttribute("aria-expanded", "false");
+    expect(actionRequired.queryByText(/persisted observations; they may be incomplete/)).toBeNull();
+    fireEvent.click(recoveryEventChip);
+    const recoveryEventDetail = actionRequired.getByRole("region", { name: "Resuming Interrupted Work details" });
+    expect(recoveryEventDetail).toHaveTextContent(/does not by itself prove Codex received or completed/);
+    expect(recoveryEventDetail).toHaveTextContent(
+      `Message size: ${PLAYGROUND_RECOVERY_MODEL_DELIVERY_CONTENT.length.toLocaleString()} characters`,
+    );
+    expect(within(recoveryEventDetail).getByTestId("markdown").textContent).toBe(
+      PLAYGROUND_RECOVERY_MODEL_DELIVERY_CONTENT,
+    );
+
     const diagnosticChip = actionRequired.getByRole("button", { name: "Expand Why Automatic Retry Stopped" });
     expect(diagnosticChip).not.toHaveClass("border-cc-attention/55");
     expect(actionRequired.queryByText(/send a new instruction in this thread/)).toBeNull();

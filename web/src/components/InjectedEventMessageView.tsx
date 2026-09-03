@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { ChatMessage } from "../types.js";
 import { buildInjectedEventMessageViewModel } from "../utils/injected-event-message.js";
 import { HighlightedText } from "./HighlightedText.js";
@@ -50,6 +50,7 @@ export function InjectedEventMessageView({
   questLinkSurface?: QuestLinkSurface;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const detailId = useId();
   const renderedTitle = searchHighlight?.query ? (
     <HighlightedText
       text={event.title}
@@ -77,6 +78,7 @@ export function InjectedEventMessageView({
               type="button"
               onClick={() => setExpanded((value) => !value)}
               aria-expanded={expanded}
+              aria-controls={detailId}
               aria-label={`${expanded ? "Collapse" : "Expand"} ${event.title}`}
               className={chipClassName}
               data-testid="injected-event-message-chip"
@@ -110,7 +112,13 @@ export function InjectedEventMessageView({
               </span>
             </button>
             {expanded && (
-              <div className={expandedClassName}>
+              <div
+                id={detailId}
+                role="region"
+                aria-label={`${event.title} details`}
+                className={expandedClassName}
+                data-testid="injected-event-message-detail"
+              >
                 <p className={`mb-1.5 text-[11px] leading-snug ${warningTone ? "text-red-100/85" : "text-cc-muted"}`}>
                   {event.description}
                 </p>

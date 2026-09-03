@@ -7,6 +7,7 @@ import {
 } from "../../shared/injected-event-message.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
 import { sendThreadWindowSync, type BrowserTransportSessionLike } from "./browser-transport-controller.js";
+import { commitPendingCodexInputs } from "./codex-recovery-orchestrator.js";
 
 function assistant(id: string, text: string, threadKey: string): BrowserIncomingMessage {
   return {
@@ -26,6 +27,69 @@ function assistant(id: string, text: string, threadKey: string): BrowserIncoming
 }
 
 describe("browser thread windows for Codex recovery", () => {
+  it("preserves exact committed recovery delivery content in the authoritative thread window", () => {
+    const threadKey = "q-2033";
+    const exactModelDeliveryContent =
+      "[System Thu, Sep 3 11:20 AM] [thread:q-2033] Private recovery instruction\n\nMemory catalog preloaded";
+    const session = {
+      id: "leader-session",
+      state: { backend_state: "connected", cwd: "/tmp" },
+      messageHistory: [
+        { type: "user_message", id: "original-owner", content: "Original request", timestamp: 1, threadKey },
+      ],
+      notifications: [],
+      pendingCodexInputs: [
+        {
+          id: "continuation-owner",
+          content: "Takode added a separate follow-up.",
+          deliveryContent: exactModelDeliveryContent,
+          timestamp: 2,
+          cancelable: false,
+          agentSource: {
+            sessionId: codexTurnRecoverySourceId("original-owner"),
+            sessionLabel: CODEX_TURN_RECOVERY_SOURCE_LABEL,
+          },
+          threadKey,
+          questId: threadKey,
+          requireFreshSuccessor: true,
+        },
+      ],
+      pendingCodexTurns: [],
+      isGenerating: false,
+    } as any;
+
+    commitPendingCodexInputs(session, ["continuation-owner"], {
+      broadcastPendingCodexInputs: vi.fn(),
+      broadcastToBrowsers: vi.fn(),
+      persistSession: vi.fn(),
+      touchUserMessage: vi.fn(),
+      onUserMessage: vi.fn(),
+    } as any);
+    expect(session.messageHistory[1]).toMatchObject({
+      type: "user_message",
+      content: "Takode added a separate follow-up.",
+      modelDeliveryContent: exactModelDeliveryContent,
+    });
+
+    const send = vi.fn();
+    sendThreadWindowSync(
+      session,
+      { send },
+      {
+        threadKey,
+        fromItem: 0,
+        itemCount: 2,
+        sectionItemCount: 2,
+        visibleItemCount: 2,
+      },
+    );
+
+    const payload = JSON.parse(send.mock.calls[0]?.[0] as string);
+    const recoveryEntry = payload.entries.find((entry: any) => entry.message.id === "continuation-owner");
+    expect(recoveryEntry.message.content).toBe("Takode added a separate follow-up.");
+    expect(recoveryEntry.message.modelDeliveryContent).toBe(exactModelDeliveryContent);
+  });
+
   it("hydrates one owner-scoped fallback with its separately owned continuation", () => {
     const threadKey = "main";
     const diagnostic: BrowserIncomingMessage = {

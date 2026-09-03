@@ -1,6 +1,7 @@
 import type { BrowserIncomingMessage, ContentBlock, ChatMessage, ToolResultPreview } from "../types.js";
 import { formatThreadAttachmentMarkerSummary, formatThreadTransitionMarkerSummary } from "./thread-projection.js";
 import { isTerminalResultInterrupted } from "../../shared/result-interruption.js";
+import { getRecoveryModelDeliveryContent } from "./injected-event-message.js";
 import {
   parseCommandThreadComment,
   parseThreadTextPrefix,
@@ -296,6 +297,7 @@ export function normalizeHistoryMessageToChatMessages(
       ...(stableMessageId ? {} : { starStableMessageId: false }),
       ...threadMetadata,
     };
+    const modelDeliveryContent = getRecoveryModelDeliveryContent(histMsg);
     return [
       {
         id: stableMessageId ?? `hist-user-${historyIndex}`,
@@ -308,6 +310,7 @@ export function normalizeHistoryMessageToChatMessages(
         ...(typeof histMsg.client_msg_id === "string" ? { clientMsgId: histMsg.client_msg_id } : {}),
         ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
         ...(histMsg.agentSource ? { agentSource: histMsg.agentSource } : {}),
+        ...(modelDeliveryContent !== undefined ? { modelDeliveryContent } : {}),
         ...(histMsg.takodeHerdEventKeys?.length ? { takodeHerdEventKeys: histMsg.takodeHerdEventKeys } : {}),
         ...(histMsg.takodeHerdEvents?.length ? { takodeHerdEvents: histMsg.takodeHerdEvents } : {}),
         ...(histMsg.threadOutcomeReminder ? { threadOutcomeReminder: histMsg.threadOutcomeReminder } : {}),

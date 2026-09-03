@@ -3,6 +3,7 @@
 import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage } from "./types.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
+import { codexTurnRecoverySourceId } from "../shared/injected-event-message.js";
 
 // Mock the names utility before any imports
 vi.mock("./utils/names.js", () => ({
@@ -164,6 +165,43 @@ describe("agentSource propagation", () => {
       sessionId: "abc123",
       sessionLabel: "#3 orchestrator",
     });
+  });
+
+  it("preserves exact model-bound content only for live Codex recovery events", () => {
+    // The short visible row and the exact model-bound instructions have different
+    // audiences. Retain the latter only for the recovery event shape emitted by the server.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    const exactRecoveryContent = [
+      "[Source: Resuming Interrupted Work]",
+      "[Thread: q-9010]",
+      "",
+      "Inspect Takode's persisted observations before continuing.",
+    ].join("\n");
+
+    fireMessage({
+      type: "user_message",
+      content: "Takode added a separate recovery follow-up.",
+      modelDeliveryContent: exactRecoveryContent,
+      timestamp: 1000,
+      id: "recovery-live",
+      agentSource: {
+        sessionId: codexTurnRecoverySourceId("owner-live"),
+        sessionLabel: "Resuming Interrupted Work",
+      },
+    });
+    fireMessage({
+      type: "user_message",
+      content: "Ordinary injected reminder",
+      modelDeliveryContent: "PRIVATE ORDINARY DELIVERY CONTENT",
+      timestamp: 1001,
+      id: "ordinary-live",
+      agentSource: { sessionId: "timer:ordinary", sessionLabel: "Timer" },
+    });
+
+    const messages = useStore.getState().messages.get("s1")!;
+    expect(messages[0].modelDeliveryContent).toBe(exactRecoveryContent);
+    expect(messages[1].modelDeliveryContent).toBeUndefined();
   });
 
   it("does not set agentSource when absent from live user_message", () => {

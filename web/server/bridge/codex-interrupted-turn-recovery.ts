@@ -1174,14 +1174,15 @@ function buildContinuationPrompt(
       ? `Start with \`takode peek ${sessionRef} --turn-containing ${historyIndex}\`, then use \`takode read ${sessionRef} ${historyIndex}\` and other targeted inspection only as needed.`
       : `Start with \`takode scan ${sessionRef}\`, then inspect the most recent interrupted turn with \`takode peek\` or \`takode read\` as needed.`;
   return [
-    "Takode detected that the previous turn ended before its response was complete.",
+    "Takode could not confirm that the previous turn completed its response.",
     continuationMode === "verify_then_continue"
       ? "This is a separately owned verification-first continuation. The original user payload was not replayed because its history or effect evidence is incomplete."
       : "This is a separately owned recovery continuation. The original user payload is recorded in Codex history and must not be replayed.",
     inspectCommands,
+    "Takode history and these commands expose only Takode's persisted observations; they may be incomplete and do not prove all Codex-internal progress, partial tool execution, or external effects.",
     continuationMode === "verify_then_continue"
       ? "Tool or external effects may already have occurred. Inspect current quest, board, notification, file, and external state before repeating any action."
-      : "No effect-capable activity was proven after this input. Inspect the original request and partial response, then finish only the missing response.",
+      : "Takode's available observations did not show effect-capable activity after this input; that absence is not proof that no partial tool execution or external effect occurred. Inspect the original request, partial response, and current state, then finish only the missing response without repeating already-taken actions.",
     "Continue only the missing work within the original authorization and thread route. If safe continuation remains unclear, report the unfinished/action-required state instead of guessing or claiming completion.",
   ].join("\n\n");
 }

@@ -60,20 +60,73 @@ function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role
 }
 
 describe("MessageBubble injected event search highlighting", () => {
-  it("describes interrupted-work follow-ups without internal delivery jargon", () => {
+  it("uses the exact model-bound recovery payload while legacy events fall back to visible content", () => {
+    const visibleContent = "Takode added a separate recovery follow-up.";
+    const modelDeliveryContent = [
+      "[System 11:04 AM] [thread:q-9010] Takode could not confirm that the previous turn completed its response.",
+      "",
+      "Treat Takode history as observed evidence, not omniscient proof.",
+    ].join("\n");
     const event = buildInjectedEventMessageViewModel({
-      content: "Takode is resuming interrupted work.",
+      content: visibleContent,
+      modelDeliveryContent,
       agentSource: {
         sessionId: codexTurnRecoverySourceId("recovery-1"),
+        sessionLabel: CODEX_TURN_RECOVERY_SOURCE_LABEL,
+      },
+    });
+    const legacyEvent = buildInjectedEventMessageViewModel({
+      content: visibleContent,
+      agentSource: {
+        sessionId: codexTurnRecoverySourceId("legacy-recovery"),
         sessionLabel: CODEX_TURN_RECOVERY_SOURCE_LABEL,
       },
     });
 
     expect(event).toMatchObject({
       title: "Resuming Interrupted Work",
-      description: "Takode added one recovery follow-up without replaying the original input.",
+      description:
+        "Exact model-bound recovery instructions recorded by Takode for this follow-up. This does not by itself prove Codex received or completed them.",
+      rawContent: modelDeliveryContent,
+      messageSizeChars: modelDeliveryContent.length,
     });
-    expect(event?.description).not.toMatch(/one-shot|exact owner|payload/i);
+    expect(legacyEvent).toMatchObject({
+      description: "Takode added one recovery follow-up without replaying the original input.",
+      rawContent: visibleContent,
+      messageSizeChars: visibleContent.length,
+    });
+  });
+
+  it("keeps rich recovery instructions out of the collapsed chip and reveals them on expansion", () => {
+    const modelDeliveryContent = [
+      "[System 11:04 AM] [thread:q-9010] Takode could not confirm that the previous turn completed its response.",
+      "",
+      "Start with `takode peek 901 --turn-containing 4108`.",
+      "Takode history exposes persisted observations only and may be incomplete.",
+    ].join("\n");
+    const msg = makeMessage({
+      role: "user",
+      content: "Takode added a separate recovery follow-up.",
+      modelDeliveryContent,
+      agentSource: {
+        sessionId: codexTurnRecoverySourceId("recovery-render"),
+        sessionLabel: CODEX_TURN_RECOVERY_SOURCE_LABEL,
+      },
+    });
+
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    const chip = screen.getByRole("button", { name: `Expand ${CODEX_TURN_RECOVERY_SOURCE_LABEL}` });
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    expect(chip.textContent).not.toContain("takode peek");
+    expect(screen.queryByText(/persisted observations only/)).toBeNull();
+
+    fireEvent.click(chip);
+
+    const detail = screen.getByRole("region", { name: `${CODEX_TURN_RECOVERY_SOURCE_LABEL} details` });
+    expect(detail.textContent).toContain(`Message size: ${modelDeliveryContent.length.toLocaleString()} characters`);
+    expect(screen.getByTestId("markdown").textContent).toBe(modelDeliveryContent);
+    expect(detail.textContent).toMatch(/does not by itself prove Codex received or completed/);
   });
 
   it("builds injected event view models with raw character sizes and memory catalog source guidance", () => {

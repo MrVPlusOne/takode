@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BrowserIncomingMessage } from "../types.js";
+import { codexTurnRecoverySourceId } from "../../shared/injected-event-message.js";
 import { normalizeHistoryMessageToChatMessages } from "./history-message-normalization.js";
 
 describe("normalizeHistoryMessageToChatMessages", () => {
@@ -153,6 +154,41 @@ describe("normalizeHistoryMessageToChatMessages", () => {
       leaderThreadRole: "response",
       threadResponse: { revisionId: "response-1-r1", coveredUserMessageIds: ["user-1"] },
     });
+  });
+
+  it("preserves exact recovery model content while discarding ordinary delivery content", () => {
+    // Authoritative history and selected-thread windows share this normalizer.
+    // Only the server-produced recovery event retains the separately recorded payload.
+    const exactRecoveryContent = [
+      "[Source: Resuming Interrupted Work]",
+      "[Thread: q-9010]",
+      "",
+      "Treat Takode history as observed evidence, not omniscient proof.",
+    ].join("\n");
+    const [recovery] = normalizeHistoryMessageToChatMessages(
+      {
+        type: "user_message",
+        id: "recovery-history",
+        content: "Takode queued one recovery follow-up.",
+        modelDeliveryContent: exactRecoveryContent,
+        timestamp: 100,
+        agentSource: { sessionId: codexTurnRecoverySourceId("owner-history") },
+      },
+      3,
+    );
+    const [ordinary] = normalizeHistoryMessageToChatMessages(
+      {
+        type: "user_message",
+        id: "ordinary-history",
+        content: "Ordinary user message",
+        modelDeliveryContent: "PRIVATE ORDINARY DELIVERY CONTENT",
+        timestamp: 101,
+      },
+      4,
+    );
+
+    expect(recovery.modelDeliveryContent).toBe(exactRecoveryContent);
+    expect(ordinary.modelDeliveryContent).toBeUndefined();
   });
 
   it("preserves explicit reply metadata on user messages", () => {

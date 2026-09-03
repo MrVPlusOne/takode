@@ -28,17 +28,23 @@ export interface InjectedEventMessageViewModel {
   tone?: "warning";
 }
 
-type EventCandidate = Pick<ChatMessage, "agentSource" | "content">;
+type EventCandidate = Pick<ChatMessage, "agentSource" | "content" | "modelDeliveryContent">;
 
 function withRawContent(
   message: EventCandidate,
   event: Omit<InjectedEventMessageViewModel, "rawContent" | "messageSizeChars">,
+  rawContent = message.content,
 ): InjectedEventMessageViewModel {
   return {
     ...event,
-    rawContent: message.content,
-    messageSizeChars: message.content.length,
+    rawContent,
+    messageSizeChars: rawContent.length,
   };
+}
+
+export function getRecoveryModelDeliveryContent(message: EventCandidate): string | undefined {
+  if (!isCodexTurnRecoverySourceId(message.agentSource?.sessionId)) return undefined;
+  return typeof message.modelDeliveryContent === "string" ? message.modelDeliveryContent : undefined;
 }
 
 export function buildInjectedEventMessageViewModel(message: EventCandidate): InjectedEventMessageViewModel | null {
@@ -46,10 +52,18 @@ export function buildInjectedEventMessageViewModel(message: EventCandidate): Inj
   const sourceId = message.agentSource?.sessionId;
 
   if (isCodexTurnRecoverySourceId(sourceId)) {
-    return withRawContent(message, {
-      title: CODEX_TURN_RECOVERY_SOURCE_LABEL,
-      description: "Takode added one recovery follow-up without replaying the original input.",
-    });
+    const modelDeliveryContent = getRecoveryModelDeliveryContent(message);
+    return withRawContent(
+      message,
+      {
+        title: CODEX_TURN_RECOVERY_SOURCE_LABEL,
+        description:
+          modelDeliveryContent !== undefined
+            ? "Exact model-bound recovery instructions recorded by Takode for this follow-up. This does not by itself prove Codex received or completed them."
+            : "Takode added one recovery follow-up without replaying the original input.",
+      },
+      modelDeliveryContent ?? message.content,
+    );
   }
 
   if (

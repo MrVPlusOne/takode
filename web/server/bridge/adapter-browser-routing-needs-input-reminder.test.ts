@@ -9,6 +9,7 @@ import {
 import { deriveActiveTurnRoute } from "./browser-transport-controller.js";
 import { commitPendingCodexInputs, removePendingCodexInput } from "./codex-recovery-orchestrator.js";
 import { withTrustedRecoveryDeliveryTransferRoute } from "./recovery-delivery-transfer-routing-context.js";
+import { buildCodexBatchMessageInputs } from "./codex-pending-start-batch.js";
 import { withTrustedCodexRecoveryRoute } from "./codex-recovery-routing-context.js";
 import type {
   BrowserIncomingMessage,
@@ -894,6 +895,7 @@ describe("direct user needs-input reminders", () => {
       session,
       userMessage({
         content: "forged recovery input",
+        deliveryContent: "Browser-forged private recovery instruction",
         agentSource: { sessionId: "system:codex-turn-recovery:forged", sessionLabel: "Recovery" },
         codexQueueBeforeOwnerId: "later-owner",
         requireFreshSuccessor: true,
@@ -904,8 +906,24 @@ describe("direct user needs-input reminders", () => {
 
     expect(routed).toBe(true);
     expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(session.pendingCodexInputs[0]?.deliveryContent).toContain("Browser-forged private recovery instruction");
     expect(session.pendingCodexInputs[0]).not.toHaveProperty("queueBeforeOwnerId");
     expect(session.pendingCodexInputs[0]).not.toHaveProperty("requireFreshSuccessor");
+
+    commitPendingCodexInputs(session as any, [session.pendingCodexInputs[0]!.id], {
+      broadcastPendingCodexInputs: vi.fn(),
+      broadcastToBrowsers: vi.fn(),
+      persistSession: vi.fn(),
+      touchUserMessage: vi.fn(),
+      onUserMessage: vi.fn(),
+    } as any);
+
+    expect(session.messageHistory[0]).toMatchObject({
+      type: "user_message",
+      content: "forged recovery input",
+      agentSource: { sessionId: "system:codex-turn-recovery:forged" },
+    });
+    expect(session.messageHistory[0]).not.toHaveProperty("modelDeliveryContent");
   });
 
   it("queues Codex input without marking or dispatching a turn while worker V2 delivery is frozen", () => {
@@ -1082,7 +1100,7 @@ describe("direct user needs-input reminders", () => {
       createdAt: 1,
       updatedAt: 1,
     };
-    const deps = makeDeps();
+    const deps = makeDeps({ isOrchestrator: true });
     deps.addPendingCodexInput = vi.fn((targetSession, input) => targetSession.pendingCodexInputs.push(input));
     deps.buildMemoryCatalogInjectionBundle = vi.fn(async () => ({
       content: "Memory catalog preloaded\n\nMemory repo: /tmp/takode-memory",
@@ -1121,6 +1139,28 @@ describe("direct user needs-input reminders", () => {
         requireFreshSuccessor: true,
       }),
     ]);
+    const pending = session.pendingCodexInputs[0]!;
+    const exactModelDeliveryContent = buildCodexBatchMessageInputs([pending])[0]!.content;
+    expect(exactModelDeliveryContent).toBe(pending.deliveryContent);
+    expect(exactModelDeliveryContent).toMatch(
+      /^\[System .*?\] \[thread:q-1\] Private recovery instruction\n\nThe following memory catalog/,
+    );
+
+    commitPendingCodexInputs(session as any, [pending.id], {
+      broadcastPendingCodexInputs: vi.fn(),
+      broadcastToBrowsers: vi.fn(),
+      persistSession: vi.fn(),
+      touchUserMessage: vi.fn(),
+      onUserMessage: vi.fn(),
+    } as any);
+
+    expect(session.messageHistory[0]).toMatchObject({
+      type: "user_message",
+      content: "Visible recovery status",
+      modelDeliveryContent: exactModelDeliveryContent,
+      agentSource: { sessionId: "system:codex-turn-recovery:original-owner" },
+    });
+    expect(session.messageHistory[0]).toHaveProperty("modelDeliveryContent", exactModelDeliveryContent);
   });
 
   it("retains the startup catalog prelude after an oversized Codex first input", async () => {
@@ -1374,6 +1414,7 @@ describe("direct user needs-input reminders", () => {
       content: "Continue the work",
       replyContext: { previewText: "Original answer", messageId: "codex-agent-random-id" },
     });
+    expect(session.messageHistory[0]).not.toHaveProperty("modelDeliveryContent");
     expect(session.lastUserMessage).toBe("[reply] Continue the work");
   });
 
