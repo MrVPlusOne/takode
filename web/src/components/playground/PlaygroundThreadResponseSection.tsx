@@ -169,7 +169,7 @@ export function PlaygroundThreadResponseSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Routed Answers"
-        description="Current routed answers stay visible even while other work remains pending; Ready still controls automatic whole-thread collapse, and expanded history preserves commentary plus superseded answers."
+        description="Each routed answer uses one coverage chip without a decorative assistant rail; answers stay visible while work remains pending, Ready controls whole-thread collapse, and expanded history preserves commentary plus superseded answers."
       >
         <div className="grid min-w-0 gap-4 xl:grid-cols-3">
           <Card label="Collapsed Ready · grouped answer plus Quiz">

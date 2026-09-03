@@ -63,7 +63,7 @@ function presentation(coveredUserMessageIds = ["u1", "u2"]): ThreadResponsePrese
 }
 
 describe("ReadyThreadResponseRows", () => {
-  it("renders a grouped response as normal prose with concise provenance and no editor controls", () => {
+  it("renders a grouped response as normal prose with a concise coverage count and no editor controls", () => {
     const current = presentation();
     render(
       <ReadyThreadResponseRows
@@ -76,12 +76,12 @@ describe("ReadyThreadResponseRows", () => {
     );
 
     expect(screen.getByText("Current polished response")).toBeVisible();
-    expect(screen.getByTestId("thread-response-group-provenance")).toHaveTextContent("Answers 2 messages");
+    expect(screen.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 2 messages");
     expect(screen.queryByText("Current answer")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Edit|Save new version|Versions/i })).not.toBeInTheDocument();
   });
 
-  it("omits grouped provenance for the normal singleton answer", () => {
+  it("renders singular coverage for a one-message answer", () => {
     const current = presentation(["u2"]);
     render(
       <ReadyThreadResponseRows
@@ -94,7 +94,7 @@ describe("ReadyThreadResponseRows", () => {
     );
 
     expect(screen.getByText("Current polished response")).toBeVisible();
-    expect(screen.queryByTestId("thread-response-group-provenance")).not.toBeInTheDocument();
+    expect(screen.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
   });
 
   it("leaves intermediate activity hidden for the parent turn footer to reveal", () => {

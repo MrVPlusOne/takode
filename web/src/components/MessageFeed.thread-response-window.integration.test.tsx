@@ -862,8 +862,23 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(second.compareDocumentPosition(grouped) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(third.compareDocumentPosition(singleton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
-    expect(screen.getByTestId("thread-response-group-provenance")).toHaveTextContent("Answers 2 messages");
+    const answerCounts = screen.getAllByTestId("thread-response-answer-count");
+    expect(answerCounts).toHaveLength(2);
+    expect(answerCounts[0]).toHaveTextContent("Answers 2 messages");
+    expect(answerCounts[1]).toHaveTextContent("Answers 1 message");
+    expect(screen.queryByText("Current answer")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("thread-response-current")).toHaveLength(2);
+    for (const answer of [grouped, singleton]) {
+      const shell = answer.closest<HTMLElement>("[data-testid='thread-response-collapsed-shell']")!;
+      expect(shell).toBeInTheDocument();
+      expect(shell).not.toHaveClass("gap-2", "sm:gap-3");
+      expect(shell.children).toHaveLength(1);
+      const messageRow = answer.closest<HTMLElement>("[class~='group/msg']")!;
+      expect(messageRow).toBeInTheDocument();
+      expect(messageRow).not.toHaveClass("gap-2", "sm:gap-3");
+      expect(messageRow.children).toHaveLength(1);
+      expect(within(shell).getByRole("button", { name: "Message options" })).toBeVisible();
+    }
     expect(screen.queryByText("Earlier grouped response")).not.toBeInTheDocument();
     expect(screen.queryByText("Intermediate leader and tool activity")).not.toBeInTheDocument();
     expect(screen.queryByText("Hidden compact marker")).not.toBeInTheDocument();
@@ -884,8 +899,15 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(singletonFrame).toBeInTheDocument();
     expect(singletonFrame).toHaveClass("border-cc-primary/25");
     expect(singletonFrame).not.toHaveClass("bg-cc-primary/[0.045]");
-    expect(within(singletonFrame).getByText("Current answer")).toBeVisible();
-    expect(within(singletonFrame).queryByTestId("thread-response-group-provenance")).not.toBeInTheDocument();
+    expect(within(singletonFrame).queryByText("Current answer")).not.toBeInTheDocument();
+    expect(within(singletonFrame).getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
+    const singletonMessageRow = within(singletonFrame)
+      .getByText("Current singleton response")
+      .closest<HTMLElement>("[class~='group/msg']")!;
+    expect(singletonMessageRow).toBeInTheDocument();
+    expect(singletonMessageRow).not.toHaveClass("gap-2", "sm:gap-3");
+    expect(singletonMessageRow.children).toHaveLength(1);
+    expect(within(singletonFrame).getByRole("button", { name: "Message options" })).toBeVisible();
     expect(screen.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
 
     const secondTurn = screen.getByText("Second pending request").closest<HTMLElement>("[data-turn-id]")!;
@@ -897,10 +919,15 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(earlier.closest("[data-testid='thread-response-current-expanded']")).toBeNull();
     const groupedFrame = current.closest<HTMLElement>("[data-testid='thread-response-current-expanded']")!;
     expect(groupedFrame).toBeInTheDocument();
-    expect(within(groupedFrame).getByText("Current answer")).toBeVisible();
-    expect(within(groupedFrame).getByTestId("thread-response-group-provenance")).toHaveTextContent(
-      "Answers 2 messages",
-    );
+    expect(within(groupedFrame).queryByText("Current answer")).not.toBeInTheDocument();
+    expect(within(groupedFrame).getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 2 messages");
+    const groupedMessageRow = within(groupedFrame)
+      .getByText("Current grouped response")
+      .closest<HTMLElement>("[class~='group/msg']")!;
+    expect(groupedMessageRow).toBeInTheDocument();
+    expect(groupedMessageRow).not.toHaveClass("gap-2", "sm:gap-3");
+    expect(groupedMessageRow.children).toHaveLength(1);
+    expect(within(groupedFrame).getByRole("button", { name: "Message options" })).toBeVisible();
     expect(earlier.compareDocumentPosition(current) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
   });
 
@@ -1130,6 +1157,6 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     const current = screen.getByText("Current grouped response");
     const frame = current.closest<HTMLElement>("[data-testid='thread-response-current-expanded']")!;
     expect(frame).toBeInTheDocument();
-    expect(within(frame).getByTestId("thread-response-group-provenance")).toHaveTextContent("Answers 2 messages");
+    expect(within(frame).getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 2 messages");
   });
 });

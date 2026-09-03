@@ -182,13 +182,42 @@ describe("Playground", () => {
     const routedFinalSection = document.getElementById("overview-routed-answers");
     expect(routedFinalSection).toBeTruthy();
     const routedFinalStates = within(routedFinalSection!);
-    const withTools = within(routedFinalStates.getByTestId("playground-unified-footer-with-tools"));
+    const withToolsCard = routedFinalStates.getByTestId("playground-unified-footer-with-tools");
+    expect(withToolsCard).toHaveClass("min-w-0", "max-w-[430px]", "overflow-hidden");
+    const withTools = within(withToolsCard);
     expect(withTools.getByRole("button", { name: "Expand turn · 2 tools" })).toHaveAttribute("aria-expanded", "false");
-    const withoutTools = within(routedFinalStates.getByTestId("playground-unified-footer-without-tools"));
+    expect(withTools.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 2 messages");
+    expect(withTools.getByRole("button", { name: "Message options" })).toBeVisible();
+
+    const withoutToolsCard = routedFinalStates.getByTestId("playground-unified-footer-without-tools");
+    expect(withoutToolsCard).toHaveClass("min-w-0", "w-full", "max-w-[320px]", "overflow-hidden");
+    const withoutTools = within(withoutToolsCard);
     expect(withoutTools.getByRole("button", { name: "Expand turn" })).toHaveAttribute("aria-expanded", "false");
+    expect(withoutTools.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
+    expect(withoutTools.getByRole("button", { name: "Message options" })).toBeVisible();
     expect(withoutTools.queryByText(/tools?/i)).not.toBeInTheDocument();
-    const expanded = within(routedFinalStates.getByTestId("playground-unified-footer-expanded"));
+
+    const expandedCard = routedFinalStates.getByTestId("playground-unified-footer-expanded");
+    expect(expandedCard).toHaveClass("min-w-0", "max-w-[430px]");
+    const expanded = within(expandedCard);
     expect(expanded.getByRole("button", { name: "Collapse turn" })).toHaveAttribute("aria-expanded", "true");
+    expect(expanded.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 2 messages");
+    const expandedCurrent = expanded
+      .getByText(
+        "The responsive feed now foregrounds one polished response for this two-message batch. Earlier working notes and tools remain available when the turn is expanded.",
+      )
+      .closest<HTMLElement>("[data-testid='thread-response-current-expanded']")!;
+    expect(expandedCurrent).toBeInTheDocument();
+    expect(within(expandedCurrent).getByRole("button", { name: "Message options" })).toBeVisible();
+    const expandedMessageRow = within(expandedCurrent)
+      .getByTestId("markdown")
+      .closest<HTMLElement>("[class~='group/msg']")!;
+    expect(expandedMessageRow).toBeInTheDocument();
+    expect(expandedMessageRow).not.toHaveClass("gap-2", "sm:gap-3");
+    expect(expandedMessageRow.children).toHaveLength(1);
+
+    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(3);
+    expect(routedFinalStates.queryByText("Current answer")).not.toBeInTheDocument();
     expect(routedFinalStates.queryByText("Leader activity")).not.toBeInTheDocument();
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);
     scrollIntoView.mockClear();

@@ -991,7 +991,7 @@ export const FeedEntries = memo(function FeedEntries({
             {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
             {currentResponse ? (
               <ExpandedCurrentThreadResponse messageCount={currentResponse.response.coveredUserMessageIds.length}>
-                {bubble}
+                <HidePawContext.Provider value={true}>{bubble}</HidePawContext.Provider>
               </ExpandedCurrentThreadResponse>
             ) : (
               bubble
@@ -1775,6 +1775,9 @@ export const TurnEntries = memo(function TurnEntries({
                 ? readyThreadResponseTurnHasContent(turn, collapsedThreadResponsePresentation)
                 : (turn.collapsedEntries?.some((row) => row.kind === "entry") ?? false) ||
                   turn.subConclusions.length > 0;
+              const hasCollapsedCurrentAnswer =
+                collapsedThreadResponsePresentation?.currentResponses.some((item) => item.anchorTurnId === turn.id) ??
+                false;
               const turnSummaryDuration = getTurnSummaryDurationMs(turn, turns[turnIndex + 1] ?? null, leaderMode);
               const showThreadStatusFooter = turn.id === threadStatusFooterTurnId;
               const threadStatusFooter = showThreadStatusFooter ? (
@@ -1848,8 +1851,15 @@ export const TurnEntries = memo(function TurnEntries({
                           />
                         )}
                         {hasCollapsedContent && (
-                          <div className="flex items-start gap-2 sm:gap-3">
-                            <PawTrailAvatar />
+                          <div
+                            className={
+                              hasCollapsedCurrentAnswer
+                                ? "flex min-w-0 items-start"
+                                : "flex min-w-0 items-start gap-2 sm:gap-3"
+                            }
+                            data-testid={hasCollapsedCurrentAnswer ? "thread-response-collapsed-shell" : undefined}
+                          >
+                            {!hasCollapsedCurrentAnswer && <PawTrailAvatar />}
                             <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
                               {!collapsedThreadResponsePresentation && turn.subConclusions.length > 0 && (
                                 <div className="px-3 pt-2 space-y-1.5">
