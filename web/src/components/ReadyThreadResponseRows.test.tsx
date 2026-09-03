@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 import type { ThreadResponsePresentation } from "./thread-response-presentation.js";
 import { ReadyThreadResponseRows } from "./ReadyThreadResponseRows.js";
@@ -69,8 +69,6 @@ describe("ReadyThreadResponseRows", () => {
       <ReadyThreadResponseRows
         turn={turn([current.currentResponses[0]!.messageEntry])}
         presentation={current}
-        durationMs={null}
-        onExpand={() => {}}
         sessionId="leader"
         questLinkSurface="chat-feed"
         renderEntry={(item) => <div>{item.kind === "message" ? item.msg.content : "activity"}</div>}
@@ -89,8 +87,6 @@ describe("ReadyThreadResponseRows", () => {
       <ReadyThreadResponseRows
         turn={turn([current.currentResponses[0]!.messageEntry])}
         presentation={current}
-        durationMs={null}
-        onExpand={() => {}}
         sessionId="leader"
         questLinkSurface="chat-feed"
         renderEntry={(item) => <div>{item.kind === "message" ? item.msg.content : "activity"}</div>}
@@ -101,16 +97,13 @@ describe("ReadyThreadResponseRows", () => {
     expect(screen.queryByTestId("thread-response-group-provenance")).not.toBeInTheDocument();
   });
 
-  it("keeps intermediate activity behind an explicit expansion control", () => {
-    const onExpand = vi.fn();
+  it("leaves intermediate activity hidden for the parent turn footer to reveal", () => {
     const current = presentation();
     const intermediate = entry("intermediate", "Hidden intermediate prose");
     render(
       <ReadyThreadResponseRows
         turn={turn([intermediate, current.currentResponses[0]!.messageEntry])}
         presentation={current}
-        durationMs={2_000}
-        onExpand={onExpand}
         sessionId="leader"
         questLinkSurface="chat-feed"
         renderEntry={(item) => <div>{item.kind === "message" ? item.msg.content : "activity"}</div>}
@@ -118,12 +111,11 @@ describe("ReadyThreadResponseRows", () => {
     );
 
     expect(screen.queryByText("Hidden intermediate prose")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Leader activity/i }));
-    expect(onExpand).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Current polished response")).toBeVisible();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("keeps collapsed system activity behind the same explicit expansion control", () => {
-    const onExpand = vi.fn();
+  it("leaves collapsed system activity hidden without creating a competing control", () => {
     const current = presentation();
     const system = entry("system", "Hidden system detail");
     const targetTurn = turn([current.currentResponses[0]!.messageEntry]);
@@ -132,8 +124,6 @@ describe("ReadyThreadResponseRows", () => {
       <ReadyThreadResponseRows
         turn={targetTurn}
         presentation={current}
-        durationMs={null}
-        onExpand={onExpand}
         sessionId="leader"
         questLinkSurface="chat-feed"
         renderEntry={(item) => <div>{item.kind === "message" ? item.msg.content : "activity"}</div>}
@@ -141,7 +131,7 @@ describe("ReadyThreadResponseRows", () => {
     );
 
     expect(screen.queryByText("Hidden system detail")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Leader activity/i }));
-    expect(onExpand).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Current polished response")).toBeVisible();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

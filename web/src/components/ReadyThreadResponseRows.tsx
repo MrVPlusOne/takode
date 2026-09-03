@@ -5,49 +5,31 @@ import { AssistantQuestQuizContent } from "./AssistantQuestQuizContent.js";
 import { HidePawContext } from "./PawTrail.js";
 import type { ThreadResponsePresentation } from "./thread-response-presentation.js";
 import { ThreadResponseCoverageBadge } from "./ThreadResponsePresentationChrome.js";
-import { CollapsedActivityBar } from "./TurnActivitySummary.js";
 
 export function readyThreadResponseTurnHasContent(turn: Turn, presentation: ThreadResponsePresentation): boolean {
   if (presentation.currentResponses.some((item) => item.anchorTurnId === turn.id)) return true;
   if (presentation.quizGroups.some((group) => group.hostTurnId === turn.id && group.questIds.length > 0)) return true;
-  return (
-    turn.systemEntries.length > 0 ||
-    (turn.presentationEntries ?? turn.allEntries).some(
-      (entry) => !(entry.kind === "message" && presentation.currentResponseMessageIds.has(entry.msg.id)),
-    )
-  );
+  return false;
 }
 
 export function ReadyThreadResponseRows({
   turn,
   presentation,
-  durationMs,
-  onExpand,
   renderEntry,
   sessionId,
   questLinkSurface,
 }: {
   turn: Turn;
   presentation: ThreadResponsePresentation;
-  durationMs: number | null;
-  onExpand: () => void;
   renderEntry: (entry: FeedEntry) => ReactNode;
   sessionId: string;
   questLinkSurface: QuestLinkSurface;
 }) {
   const responses = presentation.currentResponses.filter((item) => item.anchorTurnId === turn.id);
-  const hasHiddenActivity =
-    turn.systemEntries.length > 0 ||
-    (turn.presentationEntries ?? turn.allEntries).some(
-      (entry) => !(entry.kind === "message" && presentation.currentResponseMessageIds.has(entry.msg.id)),
-    );
   const quizGroup = presentation.quizGroups.find((group) => group.hostTurnId === turn.id);
 
   return (
     <>
-      {hasHiddenActivity && (
-        <CollapsedActivityBar stats={turn.stats} durationMs={durationMs} leaderMode onClick={onExpand} />
-      )}
       {responses.map((item) => (
         <div
           key={item.response.currentMessageId}

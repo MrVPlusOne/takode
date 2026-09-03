@@ -807,8 +807,10 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.getByText("Alignment approved; authorizing focused Work.")).toBeTruthy();
     expect(screen.getByText("The worker resumed after recovery and is finishing closure.")).toBeTruthy();
     expect(screen.getByText("The screenshot-shaped regression is fixed.")).toBeTruthy();
-    expect(screen.getByText("3 worker events")).toBeTruthy();
-    expect(screen.getByText("2 worker events")).toBeTruthy();
+    const turn = screen.getByText("Resume q-1799").closest<HTMLElement>("[data-turn-id]")!;
+    expect(within(turn).getAllByRole("button", { name: "Expand turn" })).toHaveLength(1);
+    expect(screen.queryByText("3 worker events")).toBeNull();
+    expect(screen.queryByText("2 worker events")).toBeNull();
     expect(screen.queryByText("#2455")).toBeNull();
     expect(screen.queryByText("turn_end")).toBeNull();
     expect(screen.queryByText("session_error")).toBeNull();
@@ -896,7 +898,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
 
     expect(screen.getByText(/Recover lost Responses API state/)).toBeTruthy();
     expect(screen.getByLabelText("Thread Ready for thread:q-1874: shareable reviewer table ready")).toBeTruthy();
-    expect(screen.getAllByText("Leader activity").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Expand turn/i }).length).toBeGreaterThan(0);
     expect(screen.queryByText(/formatting the reviewer assignments/)).toBeNull();
     expect(screen.queryByText("Marking quest readiness")).toBeNull();
     expect(screen.queryByText("Unrelated cache preparation detail")).toBeNull();
@@ -974,7 +976,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     render(<MessageFeed sessionId={sid} threadKey="q-1814" />);
 
     expect(screen.getByText(/use the failure-inclusive average-score table/)).toBeTruthy();
-    expect(screen.getAllByText("Leader activity").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Expand turn/i }).length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Thread Ready for thread:q-1814: revised Slack draft ready")).toBeTruthy();
     expect(screen.queryByText(/use failure-inclusive average score in the main post/)).toBeNull();
   });
@@ -1027,11 +1029,11 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
 
     expect(screen.getByText(/\[q-1636\]\(quest:q-1636\) is complete and off the board/)).toBeTruthy();
     expect(screen.getByLabelText("Thread Ready for thread:q-1636: Copilot feedback and CI resolved")).toBeTruthy();
-    expect(screen.getAllByText("Leader activity").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Expand turn/i }).length).toBeGreaterThan(0);
     expect(screen.queryByText(/checking final status metadata/)).toBeNull();
     expect(screen.queryByText("quest status q-1636")).toBeNull();
 
-    fireEvent.click(screen.getAllByText("Leader activity")[0]!.closest("button")!);
+    fireEvent.click(screen.getAllByRole("button", { name: /Expand turn/i })[0]!);
     expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "u1", false);
   });
 

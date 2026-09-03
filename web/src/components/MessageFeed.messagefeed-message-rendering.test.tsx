@@ -678,7 +678,7 @@ describe("MessageFeed - message rendering", () => {
     render(<MessageFeed sessionId={sid} threadKey="q-1791" />);
 
     expect(screen.getByText("q-1791 Work is ready for review after focused validation.")).toBeTruthy();
-    expect(screen.getByText("Leader activity")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Expand turn/i })).toBeTruthy();
     expect(screen.queryByText("Handled the reminder and refreshed the thread status.")).toBeNull();
     expect(screen.getByText("Continuing with the next step.")).toBeTruthy();
   });
@@ -718,7 +718,8 @@ describe("MessageFeed - message rendering", () => {
 
     render(<MessageFeed sessionId={sid} threadKey="q-1799" />);
 
-    expect(screen.getByText("1 worker event")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Expand turn · 2 tools" })).toBeTruthy();
+    expect(screen.queryByText("1 worker event")).toBeNull();
     expect(screen.getByText("The herd-event grouping and compact chip UI is implemented.")).toBeTruthy();
     expect(screen.queryByText("#2455")).toBeNull();
     expect(screen.queryByText("turn_end")).toBeNull();
@@ -1378,7 +1379,7 @@ describe("MessageFeed - message rendering", () => {
 
     const chip = screen.getByLabelText("Thread Ready for thread:q-1320: memory audit dispatched");
     const statusFooter = screen.getByTestId("turn-thread-status-footer");
-    const collapseFooter = screen.getAllByTitle("Collapse this turn").at(-1);
+    const collapseFooter = screen.getByRole("button", { name: "Collapse turn" });
     const feedEndSlack = document.querySelector("[data-feed-end-slack]");
 
     expect(screen.getByText("Your memory-audit follow-up is now represented by q-1322.")).toBeTruthy();

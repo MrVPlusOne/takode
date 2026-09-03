@@ -1,28 +1,22 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { CollapsedActivityBar, TurnCollapseBar } from "./TurnActivitySummary.js";
+import { TurnCollapseBar } from "./TurnActivitySummary.js";
 
 const STATS = { messageCount: 1, toolCount: 3, subagentCount: 0, herdEventCount: 0 };
 
 describe("TurnActivitySummary root-only tool scope", () => {
-  it("describes only the tool rows present in the ordinary feed projection", () => {
-    render(<CollapsedActivityBar stats={STATS} durationMs={null} leaderMode={false} onClick={() => {}} />);
-
-    expect(screen.getByRole("button")).toHaveAccessibleName("1 message·3 tools");
-    expect(screen.getByRole("button")).not.toHaveAccessibleName(/nested Codex subagent activity/i);
-  });
-
   it("keeps expanded summaries on the same root-only count contract", () => {
     render(<TurnCollapseBar stats={STATS} durationMs={null} onClick={() => {}} />);
 
-    expect(screen.getByRole("button")).toHaveAccessibleName(/1 message·3 tools/i);
+    expect(screen.getByRole("button", { name: "Collapse turn from top" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button")).toHaveTextContent("1 message·3 tools");
     expect(screen.getByRole("button")).not.toHaveAccessibleName(/nested Codex subagent activity/i);
   });
 
-  it("uses count-only copy for a single lifecycle worker event", () => {
+  it("uses count-only copy for a single lifecycle worker event in the top shortcut", () => {
     render(
-      <CollapsedActivityBar
+      <TurnCollapseBar
         stats={{
           messageCount: 0,
           toolCount: 0,
@@ -31,18 +25,17 @@ describe("TurnActivitySummary root-only tool scope", () => {
           herdEventLifecycle: ["failed"],
         }}
         durationMs={null}
-        leaderMode
         onClick={() => {}}
       />,
     );
 
-    expect(screen.getByRole("button")).toHaveAccessibleName("Leader activity·1 worker event");
-    expect(screen.getByRole("button")).not.toHaveAccessibleName(/Work failed/);
+    expect(screen.getByRole("button")).toHaveTextContent("1 worker event");
+    expect(screen.getByRole("button")).not.toHaveTextContent(/Work failed/);
   });
 
   it("keeps uncommon herd lifecycle detail out of collapsed activity summaries", () => {
     render(
-      <CollapsedActivityBar
+      <TurnCollapseBar
         stats={{
           messageCount: 0,
           toolCount: 0,
@@ -51,12 +44,11 @@ describe("TurnActivitySummary root-only tool scope", () => {
           herdEventLifecycle: ["context_continued", "interrupted"],
         }}
         durationMs={null}
-        leaderMode
         onClick={() => {}}
       />,
     );
 
-    expect(screen.getByRole("button")).toHaveAccessibleName("Leader activity·2 worker events");
-    expect(screen.getByRole("button")).not.toHaveAccessibleName(/Work interrupted|context compacted/);
+    expect(screen.getByRole("button")).toHaveTextContent("2 worker events");
+    expect(screen.getByRole("button")).not.toHaveTextContent(/Work interrupted|context compacted/);
   });
 });

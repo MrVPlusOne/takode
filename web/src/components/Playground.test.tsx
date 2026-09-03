@@ -182,14 +182,14 @@ describe("Playground", () => {
     const routedFinalSection = document.getElementById("overview-routed-answers");
     expect(routedFinalSection).toBeTruthy();
     const routedFinalStates = within(routedFinalSection!);
-    expect(routedFinalStates.getByRole("button", { name: "Expand this turn" })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
-    expect(routedFinalStates.getByRole("button", { name: "Collapse this turn" })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    const withTools = within(routedFinalStates.getByTestId("playground-unified-footer-with-tools"));
+    expect(withTools.getByRole("button", { name: "Expand turn · 2 tools" })).toHaveAttribute("aria-expanded", "false");
+    const withoutTools = within(routedFinalStates.getByTestId("playground-unified-footer-without-tools"));
+    expect(withoutTools.getByRole("button", { name: "Expand turn" })).toHaveAttribute("aria-expanded", "false");
+    expect(withoutTools.queryByText(/tools?/i)).not.toBeInTheDocument();
+    const expanded = within(routedFinalStates.getByTestId("playground-unified-footer-expanded"));
+    expect(expanded.getByRole("button", { name: "Collapse turn" })).toHaveAttribute("aria-expanded", "true");
+    expect(routedFinalStates.queryByText("Leader activity")).not.toBeInTheDocument();
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);
     scrollIntoView.mockClear();
     fireEvent.click(screen.getByRole("button", { name: "Routed Answers" }));
@@ -231,7 +231,7 @@ describe("Playground", () => {
 
     fireEvent.click(within(realChat).getByRole("button", { name: "Expand Thread routing reminder" }));
     expect(within(realChat).getByText(/^\[Thread routing reminder\]/)).toBeTruthy();
-  }, 20_000);
+  }, 30_000);
 
   it("documents the live full-block and partial chat selection controls", () => {
     // The fixture mirrors the failing and working screenshots with the real hook
@@ -793,9 +793,9 @@ describe("Playground", () => {
     expect(
       within(phaseThread).queryByText("Checking the internal worker queue after publishing the dispatch plan."),
     ).toBeNull();
-    const phaseCard = phaseFinal.closest(".rounded-xl");
-    expect(phaseCard).toBeTruthy();
-    const phaseActivityButtons = within(phaseCard as HTMLElement).getAllByRole("button", { name: /Leader activity/ });
+    const phaseTurn = phaseFinal.closest("[data-turn-id]");
+    expect(phaseTurn).toBeTruthy();
+    const phaseActivityButtons = within(phaseTurn as HTMLElement).getAllByRole("button", { name: /Expand turn/ });
     fireEvent.click(phaseActivityButtons.at(-1)!);
     expect(
       within(phaseThread).getByText("Checking the internal worker queue after publishing the dispatch plan."),

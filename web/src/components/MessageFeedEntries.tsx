@@ -1,5 +1,5 @@
 import { CodexSubagentTurnSegment } from "./CodexSubagentTurnSegment.js";
-import { CollapsedActivityBar, TurnCollapseBar } from "./TurnActivitySummary.js";
+import { TurnCollapseBar } from "./TurnActivitySummary.js";
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
@@ -1029,28 +1029,22 @@ function CollapsedTurnRows({
   turn,
   sessionId,
   currentThreadKey,
-  durationMs,
-  leaderMode,
   minuteBoundaryLabels,
   isCodexSession,
   activeCodexTerminalIds,
   onOpenCodexTerminal,
   onSelectThread,
-  onExpand,
   questLinkSurface,
   threadResponsePresentation,
 }: {
   turn: Turn;
   sessionId: string;
   currentThreadKey: string;
-  durationMs: number | null;
-  leaderMode: boolean;
   minuteBoundaryLabels: Map<string, string>;
   isCodexSession: boolean;
   activeCodexTerminalIds: Set<string>;
   onOpenCodexTerminal: (toolUseId: string) => void;
   onSelectThread?: (threadKey: string) => void;
-  onExpand: () => void;
   questLinkSurface: QuestLinkSurface;
   threadResponsePresentation?: ThreadResponsePresentation | null;
 }) {
@@ -1060,8 +1054,6 @@ function CollapsedTurnRows({
       <ReadyThreadResponseRows
         turn={turn}
         presentation={threadResponsePresentation}
-        durationMs={durationMs}
-        onExpand={onExpand}
         sessionId={sessionId}
         questLinkSurface={questLinkSurface}
         renderEntry={(entry) => (
@@ -1081,21 +1073,10 @@ function CollapsedTurnRows({
       />
     );
   }
-  const activityRowCount = collapsedEntries.filter((row) => row.kind === "activity").length;
   return (
     <>
       {collapsedEntries.map((row) => {
-        if (row.kind === "activity") {
-          return (
-            <CollapsedActivityBar
-              key={row.key}
-              stats={row.stats}
-              durationMs={activityRowCount === 1 ? durationMs : null}
-              leaderMode={leaderMode}
-              onClick={onExpand}
-            />
-          );
-        }
+        if (row.kind === "activity") return null;
 
         return (
           <div key={row.key} className="px-2.5 py-2 sm:px-3">
@@ -1792,7 +1773,8 @@ export const TurnEntries = memo(function TurnEntries({
                     : null;
               const hasCollapsedContent = collapsedThreadResponsePresentation
                 ? readyThreadResponseTurnHasContent(turn, collapsedThreadResponsePresentation)
-                : (turn.collapsedEntries?.length ?? 0) > 0 || turn.subConclusions.length > 0;
+                : (turn.collapsedEntries?.some((row) => row.kind === "entry") ?? false) ||
+                  turn.subConclusions.length > 0;
               const turnSummaryDuration = getTurnSummaryDurationMs(turn, turns[turnIndex + 1] ?? null, leaderMode);
               const showThreadStatusFooter = turn.id === threadStatusFooterTurnId;
               const threadStatusFooter = showThreadStatusFooter ? (
@@ -1892,14 +1874,11 @@ export const TurnEntries = memo(function TurnEntries({
                                 turn={turn}
                                 sessionId={sessionId}
                                 currentThreadKey={currentThreadKey}
-                                durationMs={turnSummaryDuration}
-                                leaderMode={leaderMode}
                                 minuteBoundaryLabels={minuteBoundaryLabels}
                                 isCodexSession={isCodexSession}
                                 activeCodexTerminalIds={activeCodexTerminalIds}
                                 onOpenCodexTerminal={onOpenCodexTerminal}
                                 onSelectThread={onSelectThread}
-                                onExpand={() => toggleTurn(turn.id)}
                                 questLinkSurface={questLinkSurface}
                                 threadResponsePresentation={collapsedThreadResponsePresentation}
                               />
@@ -1910,7 +1889,11 @@ export const TurnEntries = memo(function TurnEntries({
                     )}
                     {(!isActivityExpanded || turnPresentationEntries(turn).length === 0) && threadStatusFooter}
                     {!isActivityExpanded && turnPresentationEntries(turn).length > 0 && (
-                      <TurnToggleFooter expanded={false} onToggle={() => toggleTurn(turn.id)} />
+                      <TurnToggleFooter
+                        expanded={false}
+                        onToggle={() => toggleTurn(turn.id)}
+                        toolCount={turn.stats.toolCount}
+                      />
                     )}
                   </div>
                 </div>

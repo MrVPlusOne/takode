@@ -129,6 +129,29 @@ function assistantMessage(
   };
 }
 
+function toolMessage(
+  id: string,
+  toolUseId: string,
+  timestamp: number,
+): Extract<BrowserIncomingMessage, { type: "assistant" }> {
+  return {
+    type: "assistant",
+    timestamp,
+    parent_tool_use_id: null,
+    leaderThreadRole: "commentary",
+    ...routedFields(),
+    message: {
+      id,
+      type: "message",
+      role: "assistant",
+      model: "claude-opus-4-20250514",
+      content: [{ type: "tool_use", id: toolUseId, name: "Bash", input: { command: "quest show q-2024" } }],
+      stop_reason: "tool_use",
+      usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    },
+  };
+}
+
 function responseMessage(input: {
   id: string;
   coveredUserMessageIds: string[];
@@ -667,6 +690,33 @@ function producerFinalResponseOnlyThreadWindow(): Extract<BrowserIncomingMessage
   };
 }
 
+function producerFinalResponseWithToolThreadWindow(): Extract<BrowserIncomingMessage, { type: "thread_window_sync" }> {
+  const sync = producerFinalResponseOnlyThreadWindow();
+  const response = sync.entries[1]!;
+  const responseState = sync.response_state!;
+  return {
+    ...sync,
+    entries: [
+      sync.entries[0]!,
+      { history_index: 41, message: toolMessage("assistant-tool", "tool-show-quest", 1_700_000_003_500) },
+      { ...response, history_index: 42 },
+    ],
+    window: {
+      ...sync.window,
+      item_count: 3,
+      total_items: 3,
+      source_history_length: 43,
+    },
+    response_state: {
+      ...responseState,
+      currentAnswers: responseState.currentAnswers.map((answer) => ({
+        ...answer,
+        currentHistoryIndex: 42,
+      })),
+    },
+  };
+}
+
 function producerMixedCutoverThreadWindow(
   options: { includePreCutoverQuiz?: boolean; includePostCutoverQuiz?: boolean } = {},
 ): Extract<BrowserIncomingMessage, { type: "thread_window_sync" }> {
@@ -824,7 +874,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
   it("reveals superseded revisions and intermediate activity in unchanged expanded chronology", () => {
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
     const thirdTurn = screen.getByText("Third pending request").closest<HTMLElement>("[data-turn-id]")!;
-    fireEvent.click(within(thirdTurn).getByRole("button", { name: /Leader activity/i }));
+    fireEvent.click(within(thirdTurn).getByRole("button", { name: /Expand turn/i }));
 
     expect(screen.getByText("Intermediate leader and tool activity")).toBeVisible();
     expect(screen.getByText("Current singleton response")).toBeVisible();
@@ -839,7 +889,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(screen.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
 
     const secondTurn = screen.getByText("Second pending request").closest<HTMLElement>("[data-turn-id]")!;
-    fireEvent.click(within(secondTurn).getByRole("button", { name: /Leader activity/i }));
+    fireEvent.click(within(secondTurn).getByRole("button", { name: /Expand turn/i }));
     const earlier = screen.getByText("Earlier grouped response");
     const current = screen.getByText("Current grouped response");
     expect(earlier).toBeVisible();
@@ -869,7 +919,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
 
     const thirdTurn = screen.getByText("Third pending request").closest<HTMLElement>("[data-turn-id]")!;
     const quiz = within(thirdTurn).getByRole("region", { name: "Quest quiz" });
-    const expand = within(thirdTurn).getByRole("button", { name: "Expand this turn" });
+    const expand = within(thirdTurn).getByRole("button", { name: /Expand turn/ });
     expect(expand).toHaveAttribute("aria-expanded", "false");
     expect(quiz.compareDocumentPosition(expand) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
 
@@ -877,7 +927,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     fireEvent.click(expand);
     expect(screen.getByText("Ready status published after the answer.")).toBeVisible();
     expect(screen.getByText("Current singleton response")).toBeVisible();
-    const collapse = within(thirdTurn).getByRole("button", { name: "Collapse this turn" });
+    const collapse = within(thirdTurn).getByRole("button", { name: "Collapse turn" });
     expect(collapse).toHaveAttribute("aria-expanded", "true");
     expect(document.activeElement).toBe(collapse);
 
@@ -885,7 +935,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(screen.queryByText("Ready status published after the answer.")).not.toBeInTheDocument();
     expect(screen.getByText("Current singleton response")).toBeVisible();
     expect(screen.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
-    const restoredExpand = within(thirdTurn).getByRole("button", { name: "Expand this turn" });
+    const restoredExpand = within(thirdTurn).getByRole("button", { name: /Expand turn/ });
     expect(restoredExpand).toBeVisible();
     expect(document.activeElement).toBe(restoredExpand);
   });
@@ -910,16 +960,16 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(within(laterTurn).queryByRole("region", { name: "Quest quiz" })).not.toBeInTheDocument();
     expect(quiz.compareDocumentPosition(laterTurn) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
 
-    fireEvent.click(within(laterTurn).getByRole("button", { name: "Expand this turn" }));
+    fireEvent.click(within(laterTurn).getByRole("button", { name: /Expand turn/ }));
     expect(within(laterTurn).getByText("Later current response without a Quiz")).toBeVisible();
     expect(within(laterTurn).queryByRole("region", { name: "Quest quiz" })).not.toBeInTheDocument();
-    fireEvent.click(within(laterTurn).getByRole("button", { name: "Collapse this turn" }));
+    fireEvent.click(within(laterTurn).getByRole("button", { name: "Collapse turn" }));
     expect(within(laterTurn).queryByRole("region", { name: "Quest quiz" })).not.toBeInTheDocument();
 
-    fireEvent.click(within(quizOwnerTurn).getByRole("button", { name: "Expand this turn" }));
+    fireEvent.click(within(quizOwnerTurn).getByRole("button", { name: /Expand turn/ }));
     expect(within(quizOwnerTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
     expect(screen.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
-    fireEvent.click(within(quizOwnerTurn).getByRole("button", { name: "Collapse this turn" }));
+    fireEvent.click(within(quizOwnerTurn).getByRole("button", { name: "Collapse turn" }));
     expect(within(quizOwnerTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
   });
 
@@ -935,7 +985,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(screen.getByText("Later clarification")).toBeVisible();
     expect(screen.getByText("The clarification is fully answered while implementation continues.")).toBeVisible();
     const laterTurn = screen.getByText("Later clarification").closest<HTMLElement>("[data-turn-id]")!;
-    fireEvent.click(within(laterTurn).getByRole("button", { name: "Collapse this turn" }));
+    fireEvent.click(within(laterTurn).getByRole("button", { name: "Collapse turn" }));
     expect(within(laterTurn).getByTestId("thread-response-current")).toBeVisible();
     expect(
       within(laterTurn).getByText("The clarification is fully answered while implementation continues."),
@@ -966,23 +1016,23 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(within(sourceTurn).getByText(answerText)).toBeVisible();
     expect(within(sourceTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
 
-    expect(within(anchorTurn).getByRole("button", { name: "Expand this turn" })).toBeVisible();
+    expect(within(anchorTurn).getByRole("button", { name: /Expand turn/ })).toBeVisible();
     expect(within(anchorTurn).queryByTestId("thread-response-current")).not.toBeInTheDocument();
 
-    fireEvent.click(within(sourceTurn).getByRole("button", { name: "Collapse this turn" }));
+    fireEvent.click(within(sourceTurn).getByRole("button", { name: "Collapse turn" }));
     expect(screen.getAllByText(answerText)).toHaveLength(1);
     expect(within(anchorTurn).getByTestId("thread-response-current")).toBeVisible();
     expect(within(anchorTurn).getByText(answerText)).toBeVisible();
     expect(within(sourceTurn).queryByText(answerText)).not.toBeInTheDocument();
     expect(within(sourceTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
 
-    fireEvent.click(within(sourceTurn).getByRole("button", { name: "Expand this turn" }));
+    fireEvent.click(within(sourceTurn).getByRole("button", { name: /Expand turn/ }));
     expect(screen.getAllByText(answerText)).toHaveLength(1);
     expect(within(anchorTurn).queryByTestId("thread-response-current")).not.toBeInTheDocument();
     expect(within(sourceTurn).getByText(answerText)).toBeVisible();
     expect(within(sourceTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
 
-    fireEvent.click(within(sourceTurn).getByRole("button", { name: "Collapse this turn" }));
+    fireEvent.click(within(sourceTurn).getByRole("button", { name: "Collapse turn" }));
     expect(screen.getAllByText(answerText)).toHaveLength(1);
     expect(within(anchorTurn).getByTestId("thread-response-current")).toBeVisible();
     expect(within(sourceTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
@@ -999,13 +1049,43 @@ describe("MessageFeed explicit answer selected-window integration", () => {
 
     const turn = screen.getByText("Only pending request").closest<HTMLElement>("[data-turn-id]")!;
     expect(within(turn).queryByRole("button", { name: /Leader activity/i })).not.toBeInTheDocument();
-    fireEvent.click(within(turn).getByRole("button", { name: "Expand this turn" }));
+    const expand = within(turn).getByRole("button", { name: "Expand turn" });
+    expect(within(turn).getAllByRole("button", { name: /Expand turn/ })).toHaveLength(1);
+    fireEvent.click(expand);
 
     expect(screen.getByText("Only current response")).toBeVisible();
-    const collapse = within(turn).getByRole("button", { name: "Collapse this turn" });
+    const collapse = within(turn).getByRole("button", { name: "Collapse turn" });
     expect(collapse).toBeVisible();
     fireEvent.click(collapse);
-    expect(within(turn).getByRole("button", { name: "Expand this turn" })).toBeVisible();
+    expect(within(turn).getByRole("button", { name: /Expand turn/ })).toBeVisible();
+  });
+
+  it("unifies hidden tool activity into the one collapsed Ready footer", () => {
+    act(() => {
+      useStore.getState().reset();
+      handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
+      handleMessage(SESSION_ID, producerFinalResponseWithToolThreadWindow());
+      installReadyStatus(1_700_000_005_000, "response-only-r1");
+    });
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+
+    const turn = screen.getByText("Only pending request").closest<HTMLElement>("[data-turn-id]")!;
+    expect(within(turn).queryByText("Leader activity")).not.toBeInTheDocument();
+    const expand = within(turn).getByRole("button", { name: "Expand turn · 1 tool" });
+    expect(within(turn).getAllByRole("button", { name: /Expand turn/ })).toHaveLength(1);
+    expect(expand).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(expand);
+    const toolDisclosure = within(turn).getByRole("button", { name: /Show 1 tool call: Ran command/ });
+    fireEvent.click(toolDisclosure);
+    expect(within(turn).getByText("quest show q-2024")).toBeVisible();
+    expect(within(turn).getByRole("button", { name: "Collapse turn" })).toHaveAttribute("aria-expanded", "true");
+
+    const topCollapse = within(turn).getByRole("button", { name: "Collapse turn from top" });
+    topCollapse.focus();
+    fireEvent.click(topCollapse);
+    const restoredExpand = within(turn).getByRole("button", { name: "Expand turn · 1 tool" });
+    expect(document.activeElement).toBe(restoredExpand);
   });
 
   it("fails closed immediately when a new live covered user message outruns the cached response state", () => {
@@ -1045,7 +1125,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(screen.getByText("Current grouped response")).toBeVisible();
     expect(screen.getByText("Intermediate leader and tool activity")).toBeVisible();
     const secondTurn = screen.getByText("Second pending request").closest<HTMLElement>("[data-turn-id]")!;
-    fireEvent.click(within(secondTurn).getByRole("button", { name: /Leader activity/i }));
+    fireEvent.click(within(secondTurn).getByRole("button", { name: /Expand turn/i }));
     expect(screen.getByText("Earlier grouped response")).toBeVisible();
     const current = screen.getByText("Current grouped response");
     const frame = current.closest<HTMLElement>("[data-testid='thread-response-current-expanded']")!;
