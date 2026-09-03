@@ -20,7 +20,6 @@ import {
   type QuestRecoveryEventDraft,
   type QuestStoreMigrationReport,
 } from "./quest-types.js";
-import { appendQuestOutcomeRevision, type QuestOutcomeRevisionInput } from "./quest-outcome.js";
 import {
   commitShaField,
   getActiveSessionId,
@@ -1311,32 +1310,6 @@ export async function patchQuest(
   if (patch.lastModifiedBy) updated.lastModifiedBy = patch.lastModifiedBy;
   await writeQuest(updated);
   return updated;
-}
-
-/** Atomically append one immutable Quest Outcome revision under compare-and-swap. */
-export async function updateQuestOutcome(
-  questId: string,
-  input: QuestOutcomeRevisionInput,
-): Promise<QuestmasterTask | null> {
-  const liveStore = await readLiveQuestStore();
-  if (liveStore) {
-    return mutateLiveQuestStore(async (store) => {
-      const current = stripDerivedQuestRelationships(getLiveQuestById(store, questId));
-      if (!current) return { store, result: null, write: false };
-      const updated = appendQuestOutcomeRevision(current, input);
-      if (updated === current) return { store, result: current, write: false };
-      return { store: upsertLiveQuest(store, updated), result: normalizeLiveQuest(updated) };
-    });
-  }
-
-  return withCreateLock(async () => {
-    const current = stripDerivedQuestRelationships(await getQuest(questId));
-    if (!current) return null;
-    const updated = appendQuestOutcomeRevision(current, input);
-    if (updated === current) return current;
-    await writeQuest(updated);
-    return updated;
-  });
 }
 
 /** Atomically patch an unowned quest or one owned by the exact provider-aware owner. */

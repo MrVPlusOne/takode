@@ -46,6 +46,7 @@ function makeDeps(): CodexRecoveryOrchestratorDeps {
     broadcastPendingCodexInputs: vi.fn(),
     broadcastToBrowsers: vi.fn(),
     persistSession: vi.fn(),
+    refreshBrowserConversationViews: vi.fn(),
     touchUserMessage: vi.fn(),
     onUserMessage: vi.fn(),
     enqueueCodexTurn: vi.fn(),

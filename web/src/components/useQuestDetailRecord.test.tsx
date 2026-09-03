@@ -39,7 +39,6 @@ describe("useQuestDetailRecord live invalidation", () => {
             title: "Outcome refresh",
             version: 2,
             updatedAt: 1,
-            outcomeRevision: 1,
           } as import("../types.js").QuestTitlePreview,
         ],
       ]),
@@ -61,7 +60,7 @@ describe("useQuestDetailRecord live invalidation", () => {
     await waitFor(() => expect(getQuest).toHaveBeenCalledTimes(2));
   });
 
-  it("revalidates same-millisecond Outcome revisions when only the monotonic token advances", async () => {
+  it("revalidates same-millisecond quest updates when the canonical version advances", async () => {
     const getQuest = vi.spyOn(api, "getQuestValidated").mockResolvedValue({ status: "not-modified", etag: '"same"' });
     render(<Harness />);
     await waitFor(() => expect(getQuest).toHaveBeenCalledTimes(1));
@@ -69,10 +68,9 @@ describe("useQuestDetailRecord live invalidation", () => {
     useStore.getState().upsertQuestTitlePreview({
       questId: "q-42",
       title: "Outcome refresh",
-      version: 2,
+      version: 3,
       updatedAt: 1,
-      outcomeRevision: 2,
-    } as import("../types.js").QuestTitlePreview);
+    });
 
     await waitFor(() => expect(getQuest).toHaveBeenCalledTimes(2));
   });

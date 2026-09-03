@@ -21,6 +21,9 @@ import type {
   LeaderProjectionSnapshot,
   LeaderProjectionThreadRow,
   LeaderProjectionThreadSummary,
+  LeaderThreadResponseProjection,
+  LeaderThreadResponseRevisionMetadata,
+  LeaderThreadResponseState,
   PendingCodexInput,
   PendingCodexInputImageDraft,
   CodexAutoPauseHeldInput,
@@ -88,16 +91,6 @@ import type {
   QuestStatus,
   QuestVerificationItem,
   QuestQuizItem,
-  QuestOutcomeActor,
-  QuestOutcomeAnchor,
-  QuestOutcomeMessageSource,
-  QuestOutcomeManualSource,
-  QuestOutcomeSource,
-  QuestOutcomeRevision,
-  QuestOutcomeState,
-  QuestOutcomePreview,
-  QuestOutcomeUpdateRequest,
-  QuestOutcomeResponse,
   QuestFeedbackEntry,
   QuestRelatedQuest,
   QuestRelatedQuestKind,
@@ -131,6 +124,9 @@ export type {
   LeaderProjectionSnapshot,
   LeaderProjectionThreadRow,
   LeaderProjectionThreadSummary,
+  LeaderThreadResponseProjection,
+  LeaderThreadResponseRevisionMetadata,
+  LeaderThreadResponseState,
   PendingCodexInput,
   PendingCodexInputImageDraft,
   ImageRef,
@@ -208,16 +204,6 @@ export type {
   QuestStatus,
   QuestVerificationItem,
   QuestQuizItem,
-  QuestOutcomeActor,
-  QuestOutcomeAnchor,
-  QuestOutcomeMessageSource,
-  QuestOutcomeManualSource,
-  QuestOutcomeSource,
-  QuestOutcomeRevision,
-  QuestOutcomeState,
-  QuestOutcomePreview,
-  QuestOutcomeUpdateRequest,
-  QuestOutcomeResponse,
   QuestFeedbackEntry,
   QuestRelatedQuest,
   QuestRelatedQuestKind,
@@ -274,6 +260,10 @@ export interface ChatMessage {
     autoApprovalReason?: string;
     /** Explicit leader-to-user publication created by `takode user-message`. */
     leaderUserMessage?: boolean;
+    /** Post-cutover direct-human messages participate in leader response coverage. */
+    leaderResponseCoverageVersion?: 1;
+    /** Immutable metadata for one append-only leader-managed thread-response revision. */
+    threadResponse?: LeaderThreadResponseRevisionMetadata;
     /** False when the UI id is a history fallback id rather than a raw stable protocol id. */
     starStableMessageId?: boolean;
     /** Optional quest/thread memberships. Main is implicit for every message. */

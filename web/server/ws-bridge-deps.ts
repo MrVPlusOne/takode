@@ -750,6 +750,8 @@ export function getCommonCodexRuntimeDeps(host: any) {
     broadcastToBrowsers: (targetSession: unknown, browserMsg: BrowserIncomingMessage) =>
       host.broadcastToBrowsers(targetSession as Session, browserMsg),
     persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),
+    invalidateLeaderThreadTabsForSession: (sessionId: string) =>
+      host.getSyncedProjectionController().invalidateLeaderThreadTabsForSession(sessionId),
     touchUserMessage: (sessionId: string, timestamp?: number) => host.launcher?.touchUserMessage(sessionId, timestamp),
     onUserMessage: host.onUserMessage
       ? (sessionId: string, history: Session["messageHistory"], cwd: string, wasGenerating: boolean) =>
@@ -1468,6 +1470,8 @@ export function getBrowserRoutingDeps(host: any) {
     },
     refreshBrowserConversationViews: (targetSession: unknown) =>
       host.refreshBrowserConversation(targetSession as Session),
+    invalidateLeaderThreadTabsForSession: (sessionId: string) =>
+      host.getSyncedProjectionController().invalidateLeaderThreadTabsForSession(sessionId),
     promoteLeaderThreadTabForMessageAttention: (
       sessionId: string,
       message: Extract<BrowserIncomingMessage, { type: "user_message" }>,

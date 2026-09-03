@@ -7,6 +7,7 @@ import {
 } from "../../shared/history-sync-hash.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
 import { getLeaderMessageVisualInputs } from "../leader-thread-tabs-projection.js";
+import { buildLeaderThreadResponseState } from "../leader-thread-response.js";
 import { buildBackendStateSnapshot } from "./backend-state-snapshot.js";
 import { attachRecentHistoryIndex } from "./browser-history-index.js";
 import {
@@ -166,6 +167,7 @@ export interface BrowserTransportSessionLike {
 }
 
 export interface BrowserConversationRefreshSessionLike {
+  id: string;
   browserSockets: Set<unknown>;
   messageHistory: BrowserIncomingMessage[];
   nextEventSeq: number;
@@ -1213,7 +1215,7 @@ export function sendHistoryWindowSync(
 }
 
 export function sendThreadWindowSync(
-  session: Pick<BrowserTransportSessionLike, "messageHistory">,
+  session: Pick<BrowserTransportSessionLike, "id" | "messageHistory">,
   ws: BrowserTransportSocketLike,
   options: {
     threadKey: string;
@@ -1232,9 +1234,11 @@ export function sendThreadWindowSync(
     1,
     Math.floor(options.itemCount || getThreadWindowItemCount(normalizedVisibleItemCount, normalizedSectionItemCount)),
   );
+  const threadKey = normalizeSelectedFeedThreadKey(options.threadKey);
+  const responseState = buildLeaderThreadResponseState(session, threadKey);
   const sync = buildThreadWindowSync({
     messageHistory: session.messageHistory,
-    threadKey: options.threadKey,
+    threadKey,
     fromItem: options.fromItem,
     itemCount: normalizedItemCount,
     sectionItemCount: normalizedSectionItemCount,
@@ -1242,6 +1246,7 @@ export function sendThreadWindowSync(
     targetMessageId: options.targetMessageId,
     targetHistoryIndex: options.targetHistoryIndex,
     includeMessage: isRootAgentHistoryMessage,
+    currentThreadResponseProjection: responseState.projection,
   });
   const windowHash = computeHistoryPayloadSyncHash({
     threadKey: sync.threadKey,
@@ -1259,12 +1264,13 @@ export function sendThreadWindowSync(
     thread_key: sync.threadKey,
     entries: cacheHit ? [] : sync.entries,
     window,
+    ...(sync.threadResponseSupportComplete ? { response_state: responseState.projection } : {}),
     ...(cacheHit ? { cache_hit: true } : {}),
   } as BrowserIncomingMessage);
 }
 
 function sendBoundedConversationView(
-  session: Pick<BrowserTransportSessionLike, "messageHistory">,
+  session: Pick<BrowserTransportSessionLike, "id" | "messageHistory">,
   ws: BrowserTransportSocketLike,
   view: BoundedConversationView,
 ): void {

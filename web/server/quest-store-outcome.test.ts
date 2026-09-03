@@ -1,145 +1,127 @@
 import { describe, expect, it } from "vitest";
 import type { QuestDone, QuestInProgress } from "./quest-types.js";
-import { buildTransitionedQuest } from "./quest-store-mutations.js";
+import { buildCancelledQuest, buildTransitionedQuest } from "./quest-store-mutations.js";
 import { normalizeLiveQuest } from "./quest-store-normalize.js";
 
-const outcome = {
-  currentRevisionId: "r1",
+const legacyOutcome = {
+  currentRevisionId: "legacy-r1",
   revisions: [
     {
-      revisionId: "r1",
-      markdown: "Final outcome.",
-      summaryMarkdown: "Final outcome.",
-      summarySource: "derived" as const,
-      contentHash: "hash",
-      createdAt: 10,
-      actor: { kind: "human" as const },
-      sources: [],
+      revisionId: "legacy-r1",
+      markdown: "Human-authored legacy document.",
+      actor: { kind: "human" },
+      futureField: { preserve: [1, 2, 3] },
     },
   ],
+  unknownTopLevel: { nested: true },
 };
 
-describe("Quest Outcome status transitions", () => {
-  it("seals the exact current Outcome revision when a quest completes", () => {
-    const active: QuestInProgress = {
-      id: "q-1",
-      questId: "q-1",
-      version: 2,
-      title: "Outcome",
-      description: "Test",
-      status: "in_progress",
-      sessionId: "worker",
-      claimedAt: 1,
-      createdAt: 1,
-      outcome,
-    };
+function active(outcome: unknown = legacyOutcome): QuestInProgress {
+  return {
+    id: "q-1",
+    questId: "q-1",
+    version: 2,
+    title: "Legacy outcome",
+    description: "Test",
+    status: "in_progress",
+    sessionId: "worker",
+    claimedAt: 1,
+    createdAt: 1,
+    outcome,
+  };
+}
+
+describe("legacy Quest Outcome status compatibility", () => {
+  it("preserves opaque legacy data unchanged when a quest completes", () => {
     const done = buildTransitionedQuest(
-      active,
+      active(),
       {
         status: "done",
         verificationItems: [],
-        debrief: "Final outcome.",
-        debriefTldr: "Final outcome.",
+        debrief: "Corrected leader-thread result.",
+        debriefTldr: "Corrected summary.",
       },
       { liveStore: true, now: 20 },
     );
-    expect(done.outcome).toEqual({ ...outcome, finalizedRevisionId: "r1", finalizedAt: 20 });
-    expect(done).toMatchObject({ debrief: "Final outcome.", debriefTldr: "Final outcome." });
+
+    expect(done.outcome).toBe(legacyOutcome);
+    expect(done).toMatchObject({
+      debrief: "Corrected leader-thread result.",
+      debriefTldr: "Corrected summary.",
+    });
+    expect(done.outcome).not.toHaveProperty("finalizedRevisionId");
   });
 
-  it("rejects completion metadata that conflicts with the sealed Outcome", () => {
-    const active: QuestInProgress = {
-      id: "q-1",
-      questId: "q-1",
-      version: 2,
-      title: "Outcome",
-      description: "Test",
-      status: "in_progress",
-      sessionId: "worker",
-      claimedAt: 1,
-      createdAt: 1,
-      outcome,
-    };
-    expect(() =>
-      buildTransitionedQuest(
-        active,
-        {
-          status: "done",
-          verificationItems: [],
-          debrief: "Different lifecycle debrief.",
-          debriefTldr: "Different lifecycle TLDR.",
-        },
-        { liveStore: true, now: 20 },
-      ),
-    ).toThrow(/conflicts with the sealed Quest Outcome/);
+  it("lets debrief metadata remain independent from rejected legacy content", () => {
+    const done = buildTransitionedQuest(
+      active(),
+      {
+        status: "done",
+        verificationItems: [],
+        debrief: "Different authoritative debrief.",
+        debriefTldr: "Different authoritative TLDR.",
+      },
+      { liveStore: true, now: 20 },
+    );
+
+    expect(done).toMatchObject({
+      debrief: "Different authoritative debrief.",
+      debriefTldr: "Different authoritative TLDR.",
+      outcome: legacyOutcome,
+    });
   });
 
-  it("repairs legacy debrief compatibility from the sealed Outcome", () => {
+  it("does not normalize unknown fields or overwrite debriefs from legacy state", () => {
     const normalized = normalizeLiveQuest({
       id: "q-1",
       questId: "q-1",
       version: 3,
-      title: "Outcome",
+      title: "Legacy outcome",
       description: "Test",
       status: "done",
       completedAt: 20,
       createdAt: 1,
       verificationItems: [],
-      debrief: "Stale debrief.",
-      debriefTldr: "Stale TLDR.",
-      outcome: { ...outcome, finalizedRevisionId: "r1", finalizedAt: 20 },
+      debrief: "Trusted debrief.",
+      debriefTldr: "Trusted TLDR.",
+      outcome: legacyOutcome,
     });
-    expect(normalized).toMatchObject({ debrief: "Final outcome.", debriefTldr: "Final outcome." });
+
+    expect(normalized.outcome).toBe(legacyOutcome);
+    expect(normalized).toMatchObject({ debrief: "Trusted debrief.", debriefTldr: "Trusted TLDR." });
   });
 
-  it("does not promote a cancelled draft into a previous finalized Outcome", () => {
-    const cancelled: QuestDone = {
-      id: "q-1",
-      questId: "q-1",
-      version: 3,
-      title: "Outcome",
-      description: "Test",
-      status: "done",
-      completedAt: 20,
-      claimedAt: 1,
-      createdAt: 1,
-      verificationItems: [],
-      cancelled: true,
-      outcome,
-    };
-    const reopened = buildTransitionedQuest(
-      cancelled,
-      { status: "in_progress", sessionId: "worker" },
-      { liveStore: true, now: 30 },
-    );
-    expect(reopened.outcome).toEqual(outcome);
-  });
-
-  it("marks the former final revision as Previous outcome on real reopen", () => {
+  it("preserves the same opaque payload when completed work reopens", () => {
     const done: QuestDone = {
       id: "q-1",
       questId: "q-1",
       version: 3,
-      title: "Outcome",
+      title: "Legacy outcome",
       description: "Test",
       status: "done",
       completedAt: 20,
       claimedAt: 1,
       createdAt: 1,
       verificationItems: [],
-      debrief: "Final outcome.",
-      debriefTldr: "Final outcome.",
-      outcome: { ...outcome, finalizedRevisionId: "r1", finalizedAt: 20 },
+      debrief: "Trusted debrief.",
+      debriefTldr: "Trusted TLDR.",
+      outcome: legacyOutcome,
     };
     const reopened = buildTransitionedQuest(
       done,
       { status: "in_progress", sessionId: "worker" },
       { liveStore: true, now: 30 },
     );
-    expect(reopened.outcome).toMatchObject({
-      currentRevisionId: "r1",
-      previousFinalRevisionId: "r1",
-      reopenedAt: 30,
-    });
+
+    expect(reopened.outcome).toBe(legacyOutcome);
+    expect(reopened.outcome).not.toHaveProperty("reopenedAt");
+    expect(reopened.outcome).not.toHaveProperty("previousFinalRevisionId");
+  });
+
+  it("preserves even falsey or unfamiliar legacy payloads through cancellation", () => {
+    const cancelled = buildCancelledQuest(active(null), "Cancelled", true);
+
+    expect(Object.prototype.hasOwnProperty.call(cancelled, "outcome")).toBe(true);
+    expect(cancelled.outcome).toBeNull();
   });
 });

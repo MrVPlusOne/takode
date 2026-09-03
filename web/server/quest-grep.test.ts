@@ -176,12 +176,12 @@ describe("grepQuests", () => {
     });
   });
 
-  it("does not grep an unsealed completed Outcome as a delivered result", () => {
+  it("never greps opaque legacy Outcome content as a delivered result", () => {
     const quest: QuestmasterTask = {
       id: "q-10-v2",
       questId: "q-10",
       version: 2,
-      title: "Completed Outcome grep guard",
+      title: "Completed legacy grep guard",
       createdAt: 1,
       status: "done",
       description: "Initial request.",
@@ -191,30 +191,14 @@ describe("grepQuests", () => {
       debriefTldr: "Trusted final summary.",
       outcome: {
         currentRevisionId: "r2",
-        finalizedRevisionId: "r1",
-        revisions: [
-          {
-            revisionId: "r2",
-            markdown: "Unsealed-only-needle draft detail.",
-            summaryMarkdown: "Unsealed-only-needle draft summary.",
-            summarySource: "derived",
-            contentHash: "hash-r2",
-            createdAt: 2,
-            actor: { kind: "human" },
-            sources: [],
-          },
-        ],
+        finalizedRevisionId: "r2",
+        revisions: [{ markdown: "legacy-only-needle", summaryMarkdown: "legacy-only-needle" }],
       },
     };
 
-    // Grep must agree with list/hover fallback instead of labeling a stale draft as Outcome.
-    expect(grepQuests([quest], "unsealed-only-needle")).toMatchObject({ totalMatches: 0, matches: [] });
-    const sealed = {
-      ...quest,
-      outcome: { ...quest.outcome!, finalizedRevisionId: "r2" },
-    } as QuestmasterTask;
-    expect(grepQuests([sealed], "unsealed-only-needle").matches).toEqual([
-      expect.objectContaining({ questId: "q-10", matchedField: "outcome.tldr" }),
+    expect(grepQuests([quest], "legacy-only-needle")).toMatchObject({ totalMatches: 0, matches: [] });
+    expect(grepQuests([quest], "trusted final summary").matches).toEqual([
+      expect.objectContaining({ questId: "q-10", matchedField: "debrief.tldr" }),
     ]);
   });
 

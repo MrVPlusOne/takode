@@ -16,7 +16,7 @@ export function useQuestDetailRecord(questOverlayId: string | null): QuestDetail
   const questDetails = useStore((s) => s.questDetails);
   const questPreviewRevision = useStore((s) => {
     const preview = questOverlayId ? s.questTitlePreviews.get(questOverlayId.toLowerCase()) : null;
-    return preview ? `${preview.updatedAt ?? 0}:${preview.outcomeRevision ?? 0}` : "";
+    return preview ? `${preview.version}:${preview.updatedAt ?? 0}` : "";
   });
   const storeQuest = useMemo(
     () =>

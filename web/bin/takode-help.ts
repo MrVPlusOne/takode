@@ -22,6 +22,7 @@ import {
   BOARD_WORK_TO_MEMORY_HELP,
 } from "./takode-board.js";
 import { SPAWN_FLAG_USAGE } from "./takode-orchestration-commands.js";
+import { THREAD_RESPONSE_HELP } from "./takode-thread-response.js";
 import { PERMISSION_GET_HELP, PERMISSION_HELP, PERMISSION_SET_HELP } from "./takode-permission-commands.js";
 import { WORKTREE_CLEANUP_HELP } from "./takode-worktree-cleanup.js";
 
@@ -404,6 +405,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "thread":
       console.log(THREAD_HELP);
       return true;
+    case "thread-response":
+      console.log(THREAD_RESPONSE_HELP);
+      return true;
     case "rename":
       console.log(RENAME_HELP);
       return true;
@@ -566,7 +570,8 @@ Commands:
   pause    Emergency-hold new inbound work for a session
   unpause  Resume a paused session and release held work
   goal     Show or manually control Codex Goal state
-  thread   Associate Main history entries with quest threads
+  thread          Associate Main history entries with quest threads
+  thread-response  Show pending request batches or publish/revise a leader response
   user-message  Deprecated compatibility publisher
   rename   Rename a session (e.g. takode rename 5 My Session Name)
   herd     Herd sessions (e.g. takode herd 5,6,7 or takode herd --force 5)
@@ -645,6 +650,7 @@ Examples:
   takode board --help
   takode board advance q-12
   takode thread attach q-12 --message 42
+  printf '%s\n' 'Polished response to the current request' | takode thread-response set --thread q-12 --text-file -
   takode help timer create
   takode lease acquire dev-server:companion --purpose "Run E2E checks" --ttl 30m
   takode permission get 2

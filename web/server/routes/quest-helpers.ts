@@ -8,7 +8,6 @@ export function buildQuestTitlePreview(quest: QuestmasterTask): QuestTitlePrevie
     title: quest.title,
     version: quest.version,
     updatedAt: Math.max(quest.createdAt, quest.updatedAt ?? 0, quest.statusChangedAt ?? 0),
-    ...(quest.outcome ? { outcomeRevision: quest.outcome.revisions.length } : {}),
     commitShas: [...(quest.commitShas ?? [])],
   };
 }

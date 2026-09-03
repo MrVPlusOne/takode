@@ -387,28 +387,14 @@ describe("selectQuestPreviewProgressTldr", () => {
   });
 });
 
-describe("Quest Outcome preview priority", () => {
-  it("prefers the current Outcome summary over active phase documentation", () => {
+describe("legacy Quest Outcome preview isolation", () => {
+  it("prefers current phase documentation over opaque legacy Outcome content", () => {
     const preview = selectQuestPreviewProgressTldr({
       ...baseQuest,
       status: "in_progress",
       sessionId: "worker-1",
       claimedAt: 30,
-      outcome: {
-        currentRevisionId: "r1",
-        revisions: [
-          {
-            revisionId: "r1",
-            markdown: "Detailed current outcome.",
-            summaryMarkdown: "Current outcome summary.",
-            summarySource: "derived",
-            contentHash: "hash",
-            createdAt: 50,
-            actor: { kind: "human" },
-            sources: [],
-          },
-        ],
-      },
+      outcome: { currentRevisionId: "r1", revisions: [{ summaryMarkdown: "Rejected summary." }] },
       journeyRuns: [run()],
       feedback: [
         {
@@ -424,55 +410,31 @@ describe("Quest Outcome preview priority", () => {
       ],
     });
 
-    expect(preview).toEqual({ kind: "outcome", label: "Current Outcome", text: "Current outcome summary." });
+    expect(preview).toMatchObject({ kind: "phase", text: "Work phase TLDR." });
   });
 
-  it("falls back to the debrief when a completed full Outcome is not exactly sealed", () => {
-    const outcome = {
-      currentRevisionId: "r2",
-      revisions: [
-        {
-          revisionId: "r2",
-          markdown: "Unsealed draft detail.",
-          summaryMarkdown: "Unsealed draft summary.",
-          summarySource: "derived" as const,
-          contentHash: "hash-r2",
-          createdAt: 50,
-          actor: { kind: "human" as const },
-          sources: [],
-        },
-      ],
-    };
+  it("always uses the explicit debrief for a completed quest", () => {
     const quest = {
       ...baseQuest,
       status: "done" as const,
       completedAt: 80,
       verificationItems: [],
       debriefTldr: "Trusted final debrief.",
-      outcome,
+      outcome: {
+        currentRevisionId: "r2",
+        finalizedRevisionId: "r2",
+        revisions: [{ revisionId: "r2", summaryMarkdown: "Rejected legacy summary." }],
+      },
     };
 
-    // A partial or corrupt completion must not advertise an active draft as delivered.
     expect(selectQuestPreviewProgressTldr(quest)).toEqual({
       kind: "debrief",
       label: "Final Debrief",
       text: "Trusted final debrief.",
     });
-    expect(
-      selectQuestPreviewProgressTldr({
-        ...quest,
-        outcome: { ...outcome, finalizedRevisionId: "r1" },
-      }),
-    ).toEqual({ kind: "debrief", label: "Final Debrief", text: "Trusted final debrief." });
-    expect(
-      selectQuestPreviewProgressTldr({
-        ...quest,
-        outcome: { ...outcome, finalizedRevisionId: "r2" },
-      }),
-    ).toEqual({ kind: "outcome", label: "Outcome", text: "Unsealed draft summary." });
   });
 
-  it("requires bounded completed previews to prove the current revision is sealed", () => {
+  it("keeps bounded completed previews independent from omitted legacy payloads", () => {
     const preview = {
       preview: true as const,
       id: "q-2",
@@ -483,52 +445,24 @@ describe("Quest Outcome preview priority", () => {
       createdAt: 1,
       completedAt: 20,
       debriefTldr: "Trusted bounded debrief.",
-      outcomePreview: {
-        currentRevisionId: "r2",
-        summaryMarkdown: "Unsealed bounded draft.",
-        updatedAt: 10,
-        revisionCount: 2,
-      },
     };
 
-    // Compact data has no full revision graph, so the exact finalized pointer is required.
     expect(selectQuestPreviewProgressTldr(preview)).toEqual({
       kind: "debrief",
       label: "Final Debrief",
       text: "Trusted bounded debrief.",
     });
-    expect(
-      selectQuestPreviewProgressTldr({
-        ...preview,
-        outcomePreview: { ...preview.outcomePreview, finalizedRevisionId: "r1" },
-      }),
-    ).toEqual({ kind: "debrief", label: "Final Debrief", text: "Trusted bounded debrief." });
-    expect(
-      selectQuestPreviewProgressTldr({
-        ...preview,
-        outcomePreview: { ...preview.outcomePreview, finalizedRevisionId: "r2" },
-      }),
-    ).toEqual({ kind: "outcome", label: "Outcome", text: "Unsealed bounded draft." });
   });
 
-  it("uses bounded Outcome preview data and labels reopened work as previous", () => {
+  it("does not turn an active legacy payload into progress without phase evidence", () => {
     const preview = selectQuestPreviewProgressTldr({
-      preview: true,
-      id: "q-1",
-      questId: "q-1",
-      version: 3,
-      title: "Preview",
+      ...baseQuest,
       status: "in_progress",
-      createdAt: 1,
-      outcomePreview: {
-        currentRevisionId: "r1",
-        summaryMarkdown: "Previous finalized result.",
-        updatedAt: 10,
-        revisionCount: 1,
-        reopenedAt: 20,
-      },
+      sessionId: "worker-1",
+      claimedAt: 30,
+      outcome: { arbitrary: ["preserve", "but do not render"] },
     });
 
-    expect(preview).toEqual({ kind: "outcome", label: "Previous Outcome", text: "Previous finalized result." });
+    expect(preview).toBeNull();
   });
 });

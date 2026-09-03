@@ -29,6 +29,7 @@ import type { TurnSteerFailureInfo } from "./adapter-interface.js";
 import { blocksAutomaticCodexResumeTurnRecovery } from "./codex-provider-result-recovery.js";
 import { summarizeLocalCodexDeliveryActivityFrom } from "./codex-delivery-ownership.js";
 import { buildCodexBatchMessageInputs, buildCodexPendingBatchRecoveryText } from "./codex-pending-start-batch.js";
+import { clearLeaderThreadStatusForCoveredUserMessage } from "./thread-routing-reminder.js";
 import type {
   CodexRecoveryOrchestratorDeps,
   CodexRecoveryOrchestratorSessionLike,
@@ -448,14 +449,21 @@ function commitPendingCodexInput(
     ...(pending.takodeHerdBatch?.eventKeys?.length ? { takodeHerdEventKeys: pending.takodeHerdBatch.eventKeys } : {}),
     ...(takodeHerdEvents?.length ? { takodeHerdEvents } : {}),
     ...(pending.recentAskBoundaryBefore ? { recentAskBoundaryBefore: pending.recentAskBoundaryBefore } : {}),
+    ...(pending.leaderResponseCoverageVersion
+      ? { leaderResponseCoverageVersion: pending.leaderResponseCoverageVersion }
+      : {}),
   };
   session.messageHistory.push(userHistoryEntry);
+  if (clearLeaderThreadStatusForCoveredUserMessage(session, userHistoryEntry)) {
+    deps.invalidateLeaderThreadTabsForSession?.(session.id);
+  }
   const userMsgHistoryIdx = session.messageHistory.length - 1;
   session.lastUserMessage = formatReplyContentForPreview(pending.content || "", pending.replyContext).slice(0, 80);
   session.lastMessagePreviewAt = pending.timestamp;
   if (isActualHumanUserMessage(userHistoryEntry)) deps.touchUserMessage(session.id, pending.timestamp);
   deps.broadcastToBrowsers(session, userHistoryEntry);
   appendPendingInputHistoryFollowUps(session, pending, userHistoryEntry, deps);
+  if (userHistoryEntry.leaderResponseCoverageVersion === 1) deps.refreshBrowserConversationViews?.(session);
   deps.broadcastPendingCodexInputs(session);
   deps.onUserMessage?.(session.id, [...session.messageHistory], session.state.cwd, session.isGenerating);
   deps.persistSession(session);

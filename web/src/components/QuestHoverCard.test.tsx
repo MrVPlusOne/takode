@@ -206,23 +206,23 @@ describe("QuestHoverCard", () => {
     expect(progress.compareDocumentPosition(journey) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("prefers the Current Outcome preview over an active phase TLDR", () => {
+  it("ignores opaque legacy Outcome previews in favor of active phase progress", () => {
     const quest = {
       preview: true,
       id: "q-78",
       questId: "q-78",
       version: 2,
-      title: "Preview current outcome",
+      title: "Preview phase progress",
       status: "in_progress",
       description: "Active quest.",
       createdAt: 1,
       outcomePreview: {
-        currentRevisionId: "r1",
-        summaryMarkdown: "Outcome summary wins.",
+        currentRevisionId: "legacy",
+        summaryMarkdown: "Rejected legacy preview.",
         updatedAt: 4,
         revisionCount: 1,
       },
-      phasePreviewLines: [{ key: "work", label: "Work", text: "Phase summary loses." }],
+      phasePreviewLines: [{ key: "work", label: "Work", text: "Current phase progress." }],
     } as const;
 
     render(
@@ -230,9 +230,9 @@ describe("QuestHoverCard", () => {
     );
 
     const progress = within(screen.getByTestId("quest-hover-card")).getByTestId("quest-hover-progress-tldr");
-    expect(progress.textContent).toContain("Current Outcome");
-    expect(progress.textContent).toContain("Outcome summary wins.");
-    expect(progress.textContent).not.toContain("Phase summary loses.");
+    expect(progress.textContent).toContain("Latest Phase");
+    expect(progress.textContent).toContain("Current phase progress.");
+    expect(progress.textContent).not.toContain("Rejected legacy preview.");
   });
 
   it("shows final debrief TLDR instead of phase TLDR for completed quests", () => {

@@ -10,7 +10,6 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { MessageTimestampMenuTrigger } from "./MessageRailTimestamp.js";
 import { useSideChatActionState } from "./SideChatControls.js";
 import { useMessageStarActions } from "./use-message-star-actions.js";
-import { useQuestOutcomeMessageActions } from "./use-quest-outcome-message-actions.js";
 
 function buildCopyMessageLink(sessionId: string | undefined, message: ChatMessage, sdkSessions: SdkSessionInfo[]) {
   if (!sessionId) return null;
@@ -200,12 +199,6 @@ export function AssistantMessageMenu({
     setCopied(label);
     setTimeout(() => setCopied(null), 1500);
   }, []);
-  const outcomeActions = useQuestOutcomeMessageActions({
-    message,
-    sessionId,
-    currentThreadKey,
-    onFeedback: showFeedback,
-  });
 
   const handleCopyMarkdown = useCallback(() => {
     writeClipboardText(getMessageMarkdown(message))
@@ -286,32 +279,6 @@ export function AssistantMessageMenu({
       }
     }
     if (sessionId) list.push({ label: "Reply to this message", onClick: handleReply });
-    if (outcomeActions.available) {
-      list.push(
-        { label: "Use as Current Outcome", onClick: outcomeActions.useAsOutcome },
-        { label: "Add to Current Outcome", onClick: outcomeActions.addToOutcome },
-      );
-    }
-    if (outcomeActions.mainTargets.length > 0) {
-      list.push(
-        {
-          label: "Use as quest Outcome",
-          onClick: () => {},
-          children: outcomeActions.mainTargets.map((target) => ({
-            label: `${target.questId} ${target.title}`,
-            onClick: () => outcomeActions.useForQuest(target.questId),
-          })),
-        },
-        {
-          label: "Add to quest Outcome",
-          onClick: () => {},
-          children: outcomeActions.mainTargets.map((target) => ({
-            label: `${target.questId} ${target.title}`,
-            onClick: () => outcomeActions.addForQuest(target.questId),
-          })),
-        },
-      );
-    }
     if (starAction.actionable) list.push({ label: starAction.label, onClick: starAction.toggleStarred });
     list.push(
       { label: "Copy as Markdown", onClick: handleCopyMarkdown },
@@ -329,7 +296,6 @@ export function AssistantMessageMenu({
     sessionId,
     showSideChatActions,
     sideChatAction,
-    outcomeActions,
     starAction,
   ]);
 

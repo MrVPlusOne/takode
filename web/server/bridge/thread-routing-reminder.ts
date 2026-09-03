@@ -17,6 +17,7 @@ import {
   type LeaderThreadStatus,
   type ParsedThreadStatusMarker,
 } from "../../shared/thread-status-marker.js";
+import { buildLeaderThreadResponseState, leaderResponseThreadKeyForUserMessage } from "../leader-thread-response.js";
 import {
   inferRecentKnownQuestThreadRoute,
   routeFromHistoryEntry,
@@ -55,6 +56,8 @@ export interface ThreadRoutingReminderSessionLike {
 }
 
 export interface LeaderThreadStatusSessionLike {
+  id?: string;
+  messageHistory?: BrowserIncomingMessage[];
   state: {
     leaderThreadStatuses?: Record<string, LeaderThreadStatus>;
   };
@@ -389,6 +392,20 @@ export function clearLeaderThreadStatusForActivity(
   return true;
 }
 
+export function clearLeaderThreadStatusForCoveredUserMessage(
+  session: LeaderThreadStatusSessionLike,
+  message: Extract<BrowserIncomingMessage, { type: "user_message" }>,
+): boolean {
+  if (message.leaderResponseCoverageVersion !== 1 || !message.id) return false;
+  const threadKey = leaderResponseThreadKeyForUserMessage(message);
+  return threadKey
+    ? clearLeaderThreadStatusForActivity(session, threadRouteForTarget(threadKey), {
+        messageId: message.id,
+        timestamp: message.timestamp,
+      })
+    : false;
+}
+
 export function recordLeaderThreadStatusMarkers(
   session: LeaderThreadStatusSessionLike,
   markers: ParsedThreadStatusMarker[] | undefined,
@@ -411,6 +428,21 @@ export function updateLeaderThreadStatusesForAssistantOutput(
   let changed = false;
   for (const marker of markers ?? []) {
     const key = threadStatusKey(marker.target.threadKey);
+    if (
+      marker.kind === "ready" &&
+      session.id &&
+      session.messageHistory &&
+      buildLeaderThreadResponseState(
+        { id: session.id, messageHistory: session.messageHistory },
+        marker.target.threadKey,
+      ).projection.pendingMessageCount > 0
+    ) {
+      if (statuses[key]) {
+        delete statuses[key];
+        changed = true;
+      }
+      continue;
+    }
     markerThreadKeys.add(key);
     const record: LeaderThreadStatus = {
       kind: marker.kind,

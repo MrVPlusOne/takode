@@ -69,6 +69,7 @@ import {
   type ThreadRouteMetadata,
 } from "../thread-routing-metadata.js";
 import { isActualHumanUserMessage } from "../user-message-classification.js";
+import { clearLeaderThreadStatusForCoveredUserMessage } from "./thread-routing-reminder.js";
 import { consumeRecentAskVisibleResponseBoundary } from "../recent-ask-bundles.js";
 import { determineUserMessageSourceKind } from "../codex-result-error-auto-pause.js";
 import { markAcceptedCodexAutoPauseRecoveryDispatch } from "./codex-auto-pause-recovery-testing.js";
@@ -1256,6 +1257,12 @@ export function ingestUserMessage(
       ...(recentAskBoundaryBefore ? { recentAskBoundaryBefore } : {}),
       ...(takodeHerdEvents?.length ? { takodeHerdEvents } : {}),
     };
+    if (isLeaderSession && isActualHumanUserMessage(userHistoryEntry)) {
+      userHistoryEntry.leaderResponseCoverageVersion = 1;
+      if (clearLeaderThreadStatusForCoveredUserMessage(session, userHistoryEntry)) {
+        deps.invalidateLeaderThreadTabsForSession?.(session.id);
+      }
+    }
     let userMsgHistoryIdx = -1;
     if (commit) {
       commitNeedsInputResolutionNoticeHistoryEntry(session, resolutionNotice, ts, deps);
@@ -1279,6 +1286,7 @@ export function ingestUserMessage(
       }
       deps.broadcastToBrowsers(session, userHistoryEntry);
       appendProgrammaticHistoryFollowUps(session, msg.historyFollowUps, userHistoryEntry, ts, deps);
+      if (userHistoryEntry.leaderResponseCoverageVersion === 1) deps.refreshBrowserConversationViews?.(session);
       emitStoredUserMessageTakodeEvent(deps, session.id, userHistoryEntry, {
         historyIndex: userMsgHistoryIdx,
         turnTarget: wasGenerating ? "queued" : "current",
@@ -1812,6 +1820,9 @@ export function routeAdapterBrowserMessage(
           ...(ingested.historyEntry.slackThreadId ? { slackThreadId: ingested.historyEntry.slackThreadId } : {}),
           ...(ingested.historyEntry.recentAskBoundaryBefore
             ? { recentAskBoundaryBefore: ingested.historyEntry.recentAskBoundaryBefore }
+            : {}),
+          ...(ingested.historyEntry.leaderResponseCoverageVersion
+            ? { leaderResponseCoverageVersion: ingested.historyEntry.leaderResponseCoverageVersion }
             : {}),
           autoPauseSourceKind: determineUserMessageSourceKind(msg),
           ...(msg.autoPauseRecoveries?.length ? { autoPauseRecoveries: msg.autoPauseRecoveries } : {}),

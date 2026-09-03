@@ -4,7 +4,10 @@ const mockExecSync = vi.hoisted(() => vi.fn());
 const mockExec = vi.hoisted(() => vi.fn());
 const mockShouldSettingsRuleApprove = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec }));
-vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
+vi.mock("node:crypto", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:crypto")>()),
+  randomUUID: () => "test-uuid",
+}));
 // Mock settings rule loading so real user ~/.claude/settings.json rules don't
 // interfere with tests. Tests that need specific rules override this per-call.
 vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
@@ -812,7 +815,7 @@ describe("CLI message routing", () => {
     ).toBe(false);
   });
 
-  it("assistant: injects a Thread Outcome Reminder for completed leader output without a fresh outcome", () => {
+  it("assistant: injects a thread response reminder for completed leader output with pending coverage", () => {
     bridge.setLauncher({
       touchActivity: vi.fn(),
       touchUserMessage: vi.fn(),
@@ -832,7 +835,7 @@ describe("CLI message routing", () => {
       JSON.stringify({
         type: "assistant",
         message: {
-          id: "msg-missing-outcome",
+          id: "msg-missing-response",
           type: "message",
           role: "assistant",
           model: "claude-sonnet-4-5-20250929",
@@ -863,7 +866,7 @@ describe("CLI message routing", () => {
     const reminder = session.messageHistory.find(
       (m: any) => m.type === "user_message" && m.agentSource?.sessionId === THREAD_OUTCOME_REMINDER_SOURCE_ID,
     ) as any;
-    expect(reminder?.content).toContain("Missing outcome marker for: Main.");
+    expect(reminder?.content).toContain("Pending response batches: Main (1 pending).");
     expect(reminder?.threadKey).toBe("main");
   });
 

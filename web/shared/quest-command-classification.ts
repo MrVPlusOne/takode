@@ -73,10 +73,7 @@ export function classifyQuestCommand(args: readonly string[]): QuestCommandClass
   if (command === "feedback") return classifyFeedbackCommand(args);
   if (command === "outcome") {
     const positionals = questCommandPositionals(args);
-    if (positionals[0] === "show") return { kind: "read" };
-    if (positionals[0] !== "set" && positionals[0] !== "use") return { kind: "unknown" };
-    const questId = normalizedQuestId(positionals[1]);
-    return { kind: "mutation", ...(questId ? { questId } : {}) };
+    return positionals[0] === "show" ? { kind: "read" } : { kind: "unknown" };
   }
   if (command === "quiz") {
     const positionals = questCommandPositionals(args);

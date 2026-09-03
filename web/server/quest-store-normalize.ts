@@ -3,7 +3,6 @@ import { normalizeQuestQuizItems } from "./quest-quiz.js";
 import { normalizeQuestRecoveryEvents } from "./quest-recovery.js";
 import { normalizeQuestOwnership } from "./quest-store-helpers.js";
 import { normalizeQuestRelationships, stripDerivedQuestRelationships } from "./quest-relationships.js";
-import { normalizeQuestOutcomeState } from "./quest-outcome.js";
 
 export function normalizeLiveQuest(quest: QuestmasterTask): QuestmasterTask {
   const normalized = normalizeQuestOwnership(stripDerivedQuestRelationships({ ...quest })) as QuestmasterTask & {
@@ -28,21 +27,6 @@ export function normalizeLiveQuest(quest: QuestmasterTask): QuestmasterTask {
   const quizItems = normalizeQuestQuizItems(normalized.quizItems);
   if (quizItems) normalized.quizItems = quizItems;
   else delete normalized.quizItems;
-  const outcome = normalizeQuestOutcomeState(normalized.outcome);
-  if (outcome) {
-    normalized.outcome = outcome;
-    if (
-      normalized.status === "done" &&
-      normalized.cancelled !== true &&
-      outcome.finalizedRevisionId === outcome.currentRevisionId
-    ) {
-      const finalized = outcome.revisions.find((revision) => revision.revisionId === outcome.currentRevisionId);
-      if (finalized) {
-        normalized.debrief = finalized.markdown;
-        normalized.debriefTldr = finalized.summaryMarkdown;
-      }
-    }
-  } else delete normalized.outcome;
   const recoveryEvents = normalizeQuestRecoveryEvents((normalized as { recoveryEvents?: unknown }).recoveryEvents);
   if (recoveryEvents.length > 0) normalized.recoveryEvents = recoveryEvents;
   else delete normalized.recoveryEvents;

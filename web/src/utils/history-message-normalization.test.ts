@@ -54,7 +54,13 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     // Message links use this raw index so `#/session/123/msg/N` matches
     // Takode CLI reads even when non-rendered history entries exist.
     const user = normalizeHistoryMessageToChatMessages(
-      { type: "user_message", id: "u1", content: "Prompt", timestamp: 100 },
+      {
+        type: "user_message",
+        id: "u1",
+        content: "Prompt",
+        timestamp: 100,
+        leaderResponseCoverageVersion: 1,
+      },
       3,
     )[0]!;
     const assistant = normalizeHistoryMessageToChatMessages(
@@ -81,6 +87,7 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     )[0]!;
 
     expect(user.historyIndex).toBe(3);
+    expect(user.metadata?.leaderResponseCoverageVersion).toBe(1);
     expect(assistant.historyIndex).toBe(5);
   });
 

@@ -1,211 +1,112 @@
 import { describe, expect, it } from "vitest";
-import type { QuestInProgress, QuestOutcomeMessageSource } from "./quest-types.js";
-import {
-  QuestOutcomeConflictError,
-  QuestOutcomeIdempotencyConflictError,
-  appendQuestOutcomeRevision,
-  currentQuestOutcomeRevision,
-  deriveQuestOutcomeSummary,
-  finalizeQuestOutcome,
-  hasSubstantiveQuestOutcome,
-  normalizeQuestOutcomeMarkdown,
-  reopenQuestOutcome,
-} from "./quest-outcome.js";
+import type { QuestInProgress } from "./quest-types.js";
+import { grepQuests } from "./quest-grep.js";
+import { buildQuestListPreview } from "./quest-list-filters.js";
+import { normalizeLiveQuest } from "./quest-store-normalize.js";
+import { selectQuestPreviewProgressTldr } from "../shared/quest-phase-documentation-summary.js";
 
-function quest(): QuestInProgress {
+function quest(outcome: unknown): QuestInProgress {
   return {
     id: "q-1",
     questId: "q-1",
     version: 2,
-    title: "Test outcome",
-    description: "Test",
+    title: "Legacy outcome compatibility",
+    tldr: "Current quest metadata.",
+    description: "Current description.",
     status: "in_progress",
     sessionId: "worker-1",
     claimedAt: 1,
     createdAt: 1,
+    outcome,
   };
 }
 
-function messageSource(messageId = "a1"): QuestOutcomeMessageSource {
-  return {
-    kind: "message",
-    sessionId: "leader-1",
-    messageId,
-    historyIndex: 4,
-    targetQuestId: "q-1",
-    sourceThreadKeys: ["q-1"],
-    contentHash: "source-hash",
-  };
-}
+describe("opaque legacy Quest Outcome behavior", () => {
+  it("keeps arbitrary shipped data during live normalization", () => {
+    const outcome = { future: { fields: ["remain", 42] }, revisions: "not-an-array" };
+    const normalized = normalizeLiveQuest(quest(outcome));
 
-describe("Quest Outcome content", () => {
-  it("removes structural feed directives outside fences but preserves literal examples", () => {
-    const markdown = normalizeQuestOutcomeMarkdown(
-      [
-        "[thread:q-1]",
-        "Delivered the useful result.",
-        "{[(Quest Quiz: q-1)]}",
-        "{[(Thread Ready: q-1 | complete)]}",
-        "```text",
-        "{[(Quest Quiz: q-1)]}",
-        "```",
-      ].join("\n"),
-    );
-
-    expect(markdown).toBe("Delivered the useful result.\n```text\n{[(Quest Quiz: q-1)]}\n```");
-    expect(hasSubstantiveQuestOutcome("{[(Quest Quiz: q-1)]}")).toBe(false);
-    expect(hasSubstantiveQuestOutcome("| Result | State |\n| --- | --- |\n| Build | Green |")).toBe(true);
+    expect(normalized.outcome).toBe(outcome);
   });
 
-  it("derives a compact summary from complete opening Markdown blocks and uses the full short document", () => {
-    expect(deriveQuestOutcomeSummary("## Result\n\nEverything shipped cleanly.")).toBe(
-      "## Result\n\nEverything shipped cleanly.",
+  it("does not expose legacy content in bounded quest previews", () => {
+    const preview = buildQuestListPreview(
+      quest({ currentRevisionId: "r1", revisions: [{ revisionId: "r1", summaryMarkdown: "Legacy secret" }] }),
     );
-    const firstParagraph = "A".repeat(260);
-    const firstList = "- First complete point\n- Second complete point";
-    const later = "Later detail ".repeat(80);
-    const summary = deriveQuestOutcomeSummary(`${firstParagraph}\n\n${firstList}\n\n${later}`);
-    expect(summary).toBe(`${firstParagraph}\n\n${firstList}`);
-    expect(summary).not.toContain("Later detail");
+
+    expect(preview).not.toHaveProperty("outcomePreview");
+    expect(JSON.stringify(preview)).not.toContain("Legacy secret");
   });
 
-  it("keeps the first narrative block when an opening heading plus that block exceeds the target", () => {
-    const narrative =
-      "This deliberately long opening narrative carries the actual outcome rather than merely naming its section. ".repeat(
-        8,
-      );
-    const summary = deriveQuestOutcomeSummary(`## Result\n\n${narrative}\n\nLater implementation detail.`);
+  it("does not rank or return legacy content in quest search", () => {
+    const result = grepQuests(
+      [quest({ currentRevisionId: "r1", revisions: [{ markdown: "legacy-only-needle" }] })],
+      "legacy-only-needle",
+    );
 
-    expect(summary).toBe(`## Result\n\n${narrative.trimEnd()}`);
-    expect(summary).not.toContain("Later implementation detail");
+    expect(result.totalMatches).toBe(0);
   });
-});
 
-describe("Quest Outcome revisions", () => {
-  it("appends immutable CAS revisions with optional authored summary and exact anchors", () => {
-    const first = appendQuestOutcomeRevision(
-      quest(),
-      {
-        baseRevisionId: null,
-        markdown: "## Result\n\nFirst outcome.",
-        actor: { kind: "leader", sessionId: "leader-1" },
-        anchor: { sessionId: "leader-1", historyIndex: 4, messageId: "a1" },
-        sources: [messageSource()],
-        idempotencyKey: "operation-1",
-      },
-      { now: 10, revisionId: "r1" },
-    );
-    const second = appendQuestOutcomeRevision(
-      first,
-      {
-        baseRevisionId: "r1",
-        markdown: "## Result\n\nRefined outcome.",
-        summaryMarkdown: "Refined result.",
-        actor: { kind: "human" },
-        anchor: { sessionId: "leader-1", historyIndex: 8, messageId: "a2" },
-        sources: [messageSource("a2")],
-      },
-      { now: 20, revisionId: "r2" },
-    );
+  it("uses phase documentation rather than legacy Outcome as active preview authority", () => {
+    const withPhase = {
+      ...quest({ currentRevisionId: "r1", revisions: [{ summaryMarkdown: "Rejected summary" }] }),
+      feedback: [
+        {
+          author: "agent" as const,
+          text: "Detailed Work result.",
+          tldr: "Current Work result.",
+          ts: 10,
+          phaseId: "work" as const,
+          phasePosition: 1,
+          phaseOccurrence: 1,
+          kind: "phase_summary" as const,
+        },
+      ],
+      journeyRuns: [
+        {
+          runId: "run-1",
+          source: "board" as const,
+          phaseIds: ["work" as const],
+          status: "active" as const,
+          createdAt: 1,
+          updatedAt: 1,
+          phaseOccurrences: [
+            {
+              occurrenceId: "work-1",
+              phaseId: "work" as const,
+              phaseIndex: 0,
+              phasePosition: 1,
+              phaseOccurrence: 1,
+              status: "active" as const,
+              startedAt: 1,
+            },
+          ],
+        },
+      ],
+    };
 
-    expect(first.outcome?.revisions).toHaveLength(1);
-    expect(second.outcome?.revisions).toHaveLength(2);
-    expect(currentQuestOutcomeRevision(second.outcome)).toMatchObject({
-      revisionId: "r2",
-      parentRevisionId: "r1",
-      summaryMarkdown: "Refined result.",
-      summarySource: "authored",
-      anchor: { sessionId: "leader-1", historyIndex: 8, messageId: "a2" },
+    expect(selectQuestPreviewProgressTldr(withPhase)).toMatchObject({
+      kind: "phase",
+      text: "Current Work result.",
     });
-    expect(currentQuestOutcomeRevision(first.outcome)?.markdown).toBe("## Result\n\nFirst outcome.");
   });
 
-  it("rejects stale writes while exact idempotent retries remain no-ops", () => {
-    const first = appendQuestOutcomeRevision(
-      quest(),
-      {
-        baseRevisionId: null,
-        markdown: "First outcome.",
-        actor: { kind: "human" },
-        sources: [{ kind: "manual", targetQuestId: "q-1", contentHash: "hash" }],
-        idempotencyKey: "operation-1",
-      },
-      { now: 10, revisionId: "r1" },
-    );
-    expect(
-      appendQuestOutcomeRevision(first, {
-        baseRevisionId: null,
-        markdown: "First outcome.",
-        actor: { kind: "human" },
-        sources: [{ kind: "manual", targetQuestId: "q-1", contentHash: "hash" }],
-        idempotencyKey: "operation-1",
-      }),
-    ).toBe(first);
-    expect(() =>
-      appendQuestOutcomeRevision(first, {
-        baseRevisionId: null,
-        markdown: "Stale overwrite.",
-        actor: { kind: "human" },
-        sources: [{ kind: "manual", targetQuestId: "q-1", contentHash: "hash-2" }],
-      }),
-    ).toThrow(QuestOutcomeConflictError);
-    expect(() =>
-      appendQuestOutcomeRevision(first, {
-        baseRevisionId: null,
-        markdown: "Different payload with a reused operation key.",
-        actor: { kind: "human" },
-        sources: [{ kind: "manual", targetQuestId: "q-1", contentHash: "hash-3" }],
-        idempotencyKey: "operation-1",
-      }),
-    ).toThrow(QuestOutcomeIdempotencyConflictError);
-  });
-
-  it("seals a new revision when a completed Outcome is edited", () => {
+  it("uses the explicit final debrief for completed previews", () => {
     const completed = {
-      ...quest(),
+      ...quest({ currentRevisionId: "r1", revisions: [{ summaryMarkdown: "Rejected summary" }] }),
       status: "done" as const,
-      completedAt: 20,
-      verificationItems: [],
       sessionId: undefined,
       claimedAt: undefined,
+      completedAt: 20,
+      verificationItems: [],
+      debrief: "Trusted final debrief.",
+      debriefTldr: "Trusted final TLDR.",
     };
-    const updated = appendQuestOutcomeRevision(
-      completed,
-      {
-        baseRevisionId: null,
-        markdown: "Corrected completed result.",
-        actor: { kind: "human" },
-        sources: [{ kind: "manual", targetQuestId: "q-1", contentHash: "corrected" }],
-      },
-      { now: 30, revisionId: "r1" },
-    );
-    expect(updated.outcome).toMatchObject({
-      currentRevisionId: "r1",
-      finalizedRevisionId: "r1",
-      finalizedAt: 30,
-    });
-    expect(updated).toMatchObject({
-      debrief: "Corrected completed result.",
-      debriefTldr: "Corrected completed result.",
-    });
-  });
 
-  it("marks a previous final revision when a completed quest reopens", () => {
-    const first = appendQuestOutcomeRevision(
-      quest(),
-      {
-        baseRevisionId: null,
-        markdown: "Delivered result.",
-        actor: { kind: "human" },
-        sources: [{ kind: "manual", targetQuestId: "q-1", contentHash: "hash" }],
-      },
-      { now: 10, revisionId: "r1" },
-    );
-    const finalized = finalizeQuestOutcome(first.outcome, 20);
-    expect(reopenQuestOutcome(finalized, 30)).toMatchObject({
-      currentRevisionId: "r1",
-      previousFinalRevisionId: "r1",
-      reopenedAt: 30,
+    expect(selectQuestPreviewProgressTldr(completed)).toEqual({
+      kind: "debrief",
+      label: "Final Debrief",
+      text: "Trusted final TLDR.",
     });
   });
 });

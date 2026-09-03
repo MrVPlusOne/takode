@@ -42,11 +42,7 @@ Commands:
   feedback latest <id> [--author human|agent|all] [--unaddressed] [--full] [--json]
                                                          Show latest matching feedback entry
   feedback show <id> <index> [--json]                    Show one indexed feedback entry
-  outcome show <id> [--json]                             Show the current versioned Outcome
-  outcome set <id> [--text "..." | --text-file <path>|-] [--summary "..." | --summary-file <path>|-] [--base <revision>] [--advance-through <leader>] [--json]
-                                                         Publish a directly edited Outcome revision
-  outcome use <id> --session <leader> --message <id> [--history-index <n>] [--append] [--base <revision>] [--json]
-                                                         Promote exact routed leader prose into the Outcome
+  outcome show <id> [--json]                             Inspect preserved legacy Outcome data (read-only)
   quiz show <id> [--json]                                Show quest quiz Q/A metadata
   quiz set <id> --items-file <path|-> [--json]           Replace quest quiz Q/A metadata from JSON
   quiz clear <id> [--json]                               Clear quest quiz Q/A metadata
@@ -102,8 +98,7 @@ Safer rich-text input:
   quest feedback edit q-1 0 --text-file note.md --tldr-file note-tldr.md
   quest feedback latest q-1 --author human --unaddressed --full
   quest feedback show q-1 0
-  quest outcome use q-1 --session 7 --message assistant-message-id
-  quest outcome set q-1 --text-file outcome.md --advance-through 7
+  quest outcome show q-1
   printf '%s\\n' 'Line 1' '\`$(nope)\`' | quest feedback q-1 --text-file -
   quest complete q-1
   quest complete q-1 --items-file user-review-checks.txt

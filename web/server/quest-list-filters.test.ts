@@ -452,7 +452,7 @@ describe("applyQuestListFilters", () => {
     ).toEqual(["q-66", "q-67"]);
   });
 
-  it("omits unsealed completed Outcomes from bounded list previews", () => {
+  it("keeps all legacy Outcome payloads out of bounded previews and search", () => {
     const quest = makeQuest({
       questId: "q-68",
       title: "Completed preview authority",
@@ -461,33 +461,21 @@ describe("applyQuestListFilters", () => {
     }) as QuestDone;
     quest.outcome = {
       currentRevisionId: "r2",
-      finalizedRevisionId: "r1",
+      finalizedRevisionId: "r2",
       revisions: [
         {
           revisionId: "r2",
-          markdown: "Unsealed draft detail.",
-          summaryMarkdown: "Unsealed draft summary.",
-          summarySource: "derived",
-          contentHash: "hash-r2",
-          createdAt: 10,
-          actor: { kind: "human" },
-          sources: [],
+          markdown: "Legacy-only detail needle.",
+          summaryMarkdown: "Legacy-only summary needle.",
+          futureField: true,
         },
       ],
     };
 
-    // The compact producer and server search corpus must both fail closed on stale draft text.
-    expect(buildQuestListPreview(quest).outcomePreview).toBeUndefined();
-    expect(applyQuestListFilters([quest], { text: "unsealed draft summary" })).toEqual([]);
-    quest.outcome = { ...quest.outcome, finalizedRevisionId: "r2" };
-    expect(applyQuestListFilters([quest], { text: "unsealed draft summary" }).map((item) => item.questId)).toEqual([
-      "q-68",
-    ]);
-    expect(buildQuestListPreview(quest).outcomePreview).toMatchObject({
-      currentRevisionId: "r2",
-      finalizedRevisionId: "r2",
-      summaryMarkdown: "Unsealed draft summary.",
-    });
+    const preview = buildQuestListPreview(quest);
+    expect(preview).not.toHaveProperty("outcomePreview");
+    expect(JSON.stringify(preview)).not.toContain("Legacy-only");
+    expect(applyQuestListFilters([quest], { text: "legacy-only summary needle" })).toEqual([]);
   });
 
   it("filters completed quests by final debrief text and debrief TLDR", () => {

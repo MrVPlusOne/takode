@@ -140,6 +140,7 @@ export const useStore = create<AppState>((set, get) => ({
   historyWindows: new Map(),
   threadWindows: new Map(),
   threadWindowMessages: new Map(),
+  threadWindowResponseStates: new Map(),
   threadWindowRefreshRevisions: new Map(),
   threadWindowAppliedRevisions: new Map(),
   pendingThreadWindowRequests: new Map(),
@@ -598,32 +599,37 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }),
 
-  setThreadWindow: (sessionId, threadKey, window, msgs = []) =>
+  setThreadWindow: (sessionId, threadKey, window, msgs = [], responseState) =>
     set((s) => {
       const normalizedThreadKey = threadKey.trim().toLowerCase() || "main";
       const threadWindows = new Map(s.threadWindows);
       const threadWindowMessages = new Map(s.threadWindowMessages);
+      const threadWindowResponseStates = new Map(s.threadWindowResponseStates);
       const threadWindowAppliedRevisions = new Map(s.threadWindowAppliedRevisions);
       const nextWindows = new Map(threadWindows.get(sessionId) ?? []);
       const nextMessages = new Map(threadWindowMessages.get(sessionId) ?? []);
+      const nextResponseStates = new Map(threadWindowResponseStates.get(sessionId) ?? []);
       const nextAppliedRevisions = new Map(threadWindowAppliedRevisions.get(sessionId) ?? []);
       if (window) {
         nextWindows.set(normalizedThreadKey, window);
         nextMessages.set(normalizedThreadKey, msgs);
+        if (responseState !== undefined) nextResponseStates.set(normalizedThreadKey, responseState);
         nextAppliedRevisions.set(normalizedThreadKey, s.threadWindowRefreshRevisions.get(sessionId) ?? 0);
       } else {
         nextWindows.delete(normalizedThreadKey);
         nextMessages.delete(normalizedThreadKey);
+        nextResponseStates.delete(normalizedThreadKey);
         nextAppliedRevisions.delete(normalizedThreadKey);
       }
       if (nextWindows.size > 0) threadWindows.set(sessionId, nextWindows);
       else threadWindows.delete(sessionId);
       if (nextMessages.size > 0) threadWindowMessages.set(sessionId, nextMessages);
       else threadWindowMessages.delete(sessionId);
+      if (nextResponseStates.size > 0) threadWindowResponseStates.set(sessionId, nextResponseStates);
+      else threadWindowResponseStates.delete(sessionId);
       if (nextAppliedRevisions.size > 0) threadWindowAppliedRevisions.set(sessionId, nextAppliedRevisions);
       else threadWindowAppliedRevisions.delete(sessionId);
-      if (window) return { threadWindows, threadWindowMessages, threadWindowAppliedRevisions };
-      return { threadWindows, threadWindowMessages, threadWindowAppliedRevisions };
+      return { threadWindows, threadWindowMessages, threadWindowResponseStates, threadWindowAppliedRevisions };
     }),
   setPendingThreadWindowRequest: (sessionId, threadKey) =>
     set((s) => {
@@ -805,6 +811,8 @@ export const useStore = create<AppState>((set, get) => ({
       sessionTaskPreview.delete(sessionId);
       const historyWindows = new Map(s.historyWindows);
       historyWindows.delete(sessionId);
+      const threadWindowResponseStates = new Map(s.threadWindowResponseStates);
+      threadWindowResponseStates.delete(sessionId);
       const threadWindowRefreshRevisions = new Map(s.threadWindowRefreshRevisions);
       threadWindowRefreshRevisions.set(sessionId, (threadWindowRefreshRevisions.get(sessionId) ?? 0) + 1);
       const streaming = new Map(s.streaming);
@@ -865,6 +873,7 @@ export const useStore = create<AppState>((set, get) => ({
         sessionTasks,
         sessionTaskPreview,
         historyWindows,
+        threadWindowResponseStates,
         threadWindowRefreshRevisions,
         streaming,
         streamingByParentToolUseId,
@@ -1696,6 +1705,7 @@ export const useStore = create<AppState>((set, get) => ({
       historyWindows: new Map(),
       threadWindows: new Map(),
       threadWindowMessages: new Map(),
+      threadWindowResponseStates: new Map(),
       threadWindowRefreshRevisions: new Map(),
       threadWindowAppliedRevisions: new Map(),
       pendingThreadWindowRequests: new Map(),

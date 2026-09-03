@@ -94,6 +94,7 @@ export type { HistoryWindowState, InitialThreadWindowRequest, ThreadWindowState 
 export type { CodexAppReference, CodexSkillReference } from "./codex-reference-types.js";
 export type { ActiveCodexReasoningPreview, CodexReasoningDetailMessage } from "./codex-reasoning-types.js";
 export type { CodexMessagePhase } from "../shared/codex-message-phase.js";
+export type * from "./leader-thread-response-types.js";
 export type {
   CodexAutoCompactTokenLimitScope,
   CodexAutoCompactTokenLimitScopeSource,
@@ -1038,18 +1039,14 @@ export type BrowserIncomingMessageBase =
       threadOutcomeReminder?: ThreadOutcomeReminderSatisfaction;
       /** Server-authored durable grouping boundary when visible streamed response text preceded this human input. */
       recentAskBoundaryBefore?: "visible_response";
+      /** Post-cutover direct-human messages participate in leader response coverage. */
+      leaderResponseCoverageVersion?: 1;
     } & CodexTurnRecoveryDiagnosticMetadata)
-  | {
-      type: "leader_user_message";
-      content: string;
-      timestamp: number;
-      id: string;
-      notification?: TakodeNotificationPayload;
-      threadKey?: string;
-      questId?: string;
-      threadRefs?: ThreadRef[];
-      threadRoutingError?: ThreadRoutingError;
-    }
+  | import("./leader-thread-response-types.js").LeaderThreadResponseMessage<
+      TakodeNotificationPayload,
+      ThreadRef,
+      ThreadRoutingError
+    >
   | { type: "codex_pending_inputs"; inputs: PendingCodexInput[] }
   | { type: "codex_pending_input_cancelled"; input: PendingCodexInput }
   | {
@@ -1073,6 +1070,7 @@ export type BrowserIncomingMessageBase =
       thread_key: string;
       entries: ThreadWindowEntry[];
       window: ThreadWindowState;
+      response_state?: import("./leader-thread-response-types.js").LeaderThreadResponseProjection;
       cache_hit?: boolean;
     }
   | { type: "leader_projection_snapshot"; projection: LeaderProjectionSnapshot }

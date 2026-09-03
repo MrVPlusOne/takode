@@ -2,8 +2,6 @@ import type { QuestDone, QuestFeedbackEntry, QuestmasterTask } from "./quest-typ
 import { normalizeTldr } from "./quest-tldr.js";
 import { questRelationshipSearchText } from "./quest-relationships.js";
 import { indexedLiveQuestFeedbackEntries } from "../shared/quest-feedback.js";
-import { currentQuestOutcomeRevision } from "./quest-outcome.js";
-import { isCurrentQuestOutcomeDisplayable } from "../shared/quest-phase-documentation-summary.js";
 
 export interface QuestGrepMatch {
   questId: string;
@@ -141,22 +139,6 @@ export function grepQuests(
           matchedField: "relationships",
         },
         text: relationships,
-      });
-    }
-
-    const outcome = isCurrentQuestOutcomeDisplayable(quest) ? currentQuestOutcomeRevision(quest.outcome) : undefined;
-    if (outcome) {
-      pushContentMatch({
-        re,
-        pushMatch,
-        match: {
-          questId: quest.questId,
-          title: quest.title,
-          status: quest.status,
-          matchedField: "outcome",
-        },
-        text: outcome.markdown,
-        tldr: outcome.summaryMarkdown,
       });
     }
 

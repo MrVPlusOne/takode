@@ -90,7 +90,7 @@ import { useMessageFeedManualScrollHandlers } from "./message-feed-manual-scroll
 import * as viewportAnchor from "./message-feed-viewport-anchor.js";
 import { markHistoryReceiveRenderCommitted } from "../utils/frontend-perf-recorder.js";
 import { MessageFeedNavigationControls } from "./MessageFeedNavigationControls.js";
-import { useQuestOutcomeFeedPresentation } from "./QuestOutcomeFeed.js";
+import { resolveThreadResponses } from "./thread-response-presentation.js";
 import { MessageFeedCenteredState } from "./MessageFeedCenteredState.js";
 import { useCodexSafeFeedModel } from "../hooks/use-codex-safe-feed-model.js";
 import {
@@ -134,7 +134,6 @@ export function MessageFeed({
   onSelectThread,
   additionalAttentionRecords = EMPTY_ATTENTION_RECORDS,
   showCodexSubagentControl = true,
-  questId,
 }: {
   sessionId: string;
   threadKey?: string;
@@ -146,7 +145,6 @@ export function MessageFeed({
   onSelectThread?: (threadKey: string) => void;
   additionalAttentionRecords?: ReadonlyArray<SessionAttentionRecord>;
   showCodexSubagentControl?: boolean;
-  questId?: string;
 }) {
   const allMessages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_MESSAGES);
   const historyLoading = useStore((s) => s.historyLoading.get(sessionId) ?? false);
@@ -156,6 +154,7 @@ export function MessageFeed({
       s.sessions?.get(sessionId)?.isOrchestrator === true ||
       s.sdkSessions?.some((sdk) => sdk.sessionId === sessionId && sdk.isOrchestrator === true) === true,
   );
+  const threadResponseState = useStore((s) => s.threadWindowResponseStates?.get(sessionId)?.get(normalizedThreadKey));
   const herdingLeaderSessionId = useStore((s) => s.sdkSessions?.find((sdk) => sdk.sessionId === sessionId)?.herdedBy);
   const userNavigationSourceSessionId = herdingLeaderSessionId ?? sessionId;
   const selectedFeedWindowEnabled = useMemo(() => {
@@ -621,14 +620,12 @@ export function MessageFeed({
     hasOlderSections,
     hasNewerSections,
   } = feedWindowModel;
-  const questOutcome = useQuestOutcomeFeedPresentation({
-    questId,
-    sessionId,
-    sections: visibleSections,
-    messages,
-    hasNewerItems: hasNewerSections,
-    scrollTargetMessageIds: [scrollToMessageId, pendingScrollToMessageId, routeScrollToMessageId],
-  });
+  const threadResponsePresentation = resolveThreadResponses(
+    visibleSections,
+    threadResponseState,
+    normalizedThreadKey,
+    isLeaderSession,
+  );
   const isLoadingOlderSection = pendingSectionLoadDirection === "older";
   const isLoadingNewerSection = pendingSectionLoadDirection === "newer";
   const latestPillLabel = hasNewerSections ? "Latest section below" : "New content below";
@@ -642,7 +639,10 @@ export function MessageFeed({
     leaderProjectionSourceHistoryLength: leaderProjection?.sourceHistoryLength ?? 0,
   });
   const { turnStates, toggleTurn } = useCollapsePolicy({
-    autoCollapseReadyThreadKey: collapseLeaderThreadActivity ? normalizedThreadKey : null,
+    autoCollapseReadyThreadKey:
+      collapseLeaderThreadActivity || (isMainThreadKey(normalizedThreadKey) && threadResponsePresentation?.ready)
+        ? normalizedThreadKey
+        : null,
     sessionId,
     turns: visibleTurns,
   });
@@ -650,7 +650,7 @@ export function MessageFeed({
     () => turnStates.map((state) => `${state.turnId}:${state.isActivityExpanded ? "1" : "0"}`).join("|"),
     [turnStates],
   );
-  const viewportLayoutSignature = `${visibleWindowSignature}::${collapseLayoutSignature}::${questOutcome.layoutSignature}`;
+  const viewportLayoutSignature = `${visibleWindowSignature}::${collapseLayoutSignature}::${threadResponsePresentation?.layoutSignature ?? "no-responses"}`;
 
   const markSectionLoadPending = useCallback((direction: "older" | "newer", key: string) => {
     if (pendingSectionLoadKeyRef.current === key) return false;
@@ -1812,13 +1812,7 @@ export function MessageFeed({
     );
   }
 
-  if (
-    messages.length === 0 &&
-    pendingUserUploads.length === 0 &&
-    pendingCodexInputs.length === 0 &&
-    !streamingText &&
-    !questOutcome.presentation
-  ) {
+  if (messages.length === 0 && pendingUserUploads.length === 0 && pendingCodexInputs.length === 0 && !streamingText) {
     return (
       <MessageFeedCenteredState
         variant="empty"
@@ -1853,7 +1847,7 @@ export function MessageFeed({
           <PawScrollProvider scrollRef={containerRef}>
             <PawCounterContext.Provider value={pawCounter}>
               <div ref={contentRootRef} className="max-w-3xl mx-auto space-y-3 sm:space-y-5">
-                {hasOlderSections && !questOutcome.hideOlderControl && (
+                {hasOlderSections && (
                   <div className="flex justify-center pb-2" aria-live="polite">
                     {isLoadingOlderSection ? (
                       <div className={SECTION_BOUNDARY_CONTROL_CLASS}>
@@ -1885,7 +1879,7 @@ export function MessageFeed({
                   toggleTurn={toggleTurn}
                   userBoundarySourceSessionId={herdingLeaderSessionId ?? null}
                   questLinkSurface="chat-feed"
-                  outcomePresentation={questOutcome.presentation}
+                  threadResponsePresentation={threadResponsePresentation}
                 />
                 {hasNewerSections && (
                   <div className="flex justify-center pt-1" aria-live="polite">

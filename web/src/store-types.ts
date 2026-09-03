@@ -23,6 +23,7 @@ import type {
   TaskItem,
   ToolResultPreview,
   ThreadWindowState,
+  LeaderThreadResponseProjection,
   VsCodeSelectionState,
 } from "./types.js";
 
@@ -56,6 +57,7 @@ export interface AppState {
   historyWindows: Map<string, HistoryWindowState>;
   threadWindows: Map<string, Map<string, ThreadWindowState>>;
   threadWindowMessages: Map<string, Map<string, ChatMessage[]>>;
+  threadWindowResponseStates: Map<string, Map<string, LeaderThreadResponseProjection | null>>;
   threadWindowRefreshRevisions: Map<string, number>;
   threadWindowAppliedRevisions: Map<string, Map<string, number>>;
   pendingThreadWindowRequests: Map<string, string>;
@@ -286,6 +288,7 @@ export interface AppState {
     threadKey: string,
     window: ThreadWindowState | null,
     messages?: ChatMessage[],
+    responseState?: LeaderThreadResponseProjection | null,
   ) => void;
   setPendingThreadWindowRequest: (sessionId: string, threadKey: string | null) => void;
   setPendingCodexInputs: (sessionId: string, inputs: PendingCodexInput[]) => void;

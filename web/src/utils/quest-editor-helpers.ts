@@ -1,6 +1,5 @@
 import type React from "react";
 import type { QuestListPreview, QuestmasterTask, QuestVerificationItem, QuestFeedbackEntry } from "../types.js";
-import { isCurrentQuestOutcomeDisplayable } from "../../shared/quest-phase-documentation-summary.js";
 
 type QuestMetadata = QuestmasterTask | QuestListPreview;
 
@@ -30,25 +29,6 @@ export function getQuestDebrief(quest: QuestmasterTask): string | undefined {
 export function getQuestDebriefTldr(quest: QuestMetadata): string | undefined {
   if (quest.status !== "done" || isQuestCancelled(quest)) return undefined;
   return (quest as { debriefTldr?: string }).debriefTldr?.trim() || undefined;
-}
-
-export function getQuestOutcomeSummary(quest: QuestMetadata): string | undefined {
-  if (!isCurrentQuestOutcomeDisplayable(quest)) return undefined;
-  if ("outcomePreview" in quest) return quest.outcomePreview?.summaryMarkdown.trim() || undefined;
-  const outcome = "outcome" in quest ? quest.outcome : undefined;
-  return (
-    outcome?.revisions.find((revision) => revision.revisionId === outcome.currentRevisionId)?.summaryMarkdown.trim() ||
-    undefined
-  );
-}
-
-export function getQuestOutcomeMarkdown(quest: QuestmasterTask): string | undefined {
-  if (!isCurrentQuestOutcomeDisplayable(quest)) return undefined;
-  const outcome = quest.outcome;
-  return (
-    outcome?.revisions.find((revision) => revision.revisionId === outcome.currentRevisionId)?.markdown.trim() ||
-    undefined
-  );
 }
 
 export function getQuestFeedback(quest: QuestmasterTask): QuestFeedbackEntry[] {

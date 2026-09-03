@@ -26,6 +26,8 @@ import type {
   SessionAttentionRecord,
   CodexPendingDeliveryProofSignal,
   ContextUsageHistoryEntry,
+  LeaderThreadResponseRevisionMetadata,
+  ThreadRef,
 } from "./session-types.js";
 
 export interface SearchExcerpt {
@@ -34,6 +36,10 @@ export interface SearchExcerpt {
   timestamp: number;
   id?: string;
   markerKind?: "compaction" | "session_recycled";
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: ThreadRef[];
+  threadResponse?: LeaderThreadResponseRevisionMetadata;
 }
 
 // ─── Two-Tier Persistence Design ────────────────────────────────────────────
@@ -692,6 +698,19 @@ export class SessionStore {
           content: content.slice(0, MAX_CONTENT_LEN),
           timestamp: typeof msg.timestamp === "number" ? msg.timestamp : 0,
           id: msg.id,
+        });
+      } else if (msg.type === "leader_user_message" && msg.threadResponse) {
+        const content = (msg.content || "").trim();
+        if (!content) continue;
+        excerpts.push({
+          type: "assistant",
+          content: content.slice(0, MAX_CONTENT_LEN),
+          timestamp: typeof msg.timestamp === "number" ? msg.timestamp : 0,
+          id: msg.id,
+          ...(msg.threadKey ? { threadKey: msg.threadKey } : {}),
+          ...(msg.questId ? { questId: msg.questId } : {}),
+          ...(msg.threadRefs?.length ? { threadRefs: msg.threadRefs } : {}),
+          threadResponse: msg.threadResponse,
         });
       } else if (msg.type === "compact_marker") {
         const summary = (msg.summary || (msg.markerKind === "session_recycled" ? "Session recycled" : "")).trim();

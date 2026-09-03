@@ -217,6 +217,13 @@ export class WsBridgeSyncedProjectionController {
     this.runtime.invalidate(SESSION_NAVIGATION_PROJECTION, session.id);
   }
 
+  invalidateLeaderThreadTabsForSession(sessionId: string): boolean {
+    const session = this.deps.getSession(sessionId);
+    return !!session && this.isLeaderSession(session)
+      ? this.runtime.invalidate(LEADER_THREAD_TABS_PROJECTION, session.id)
+      : false;
+  }
+
   promoteLeaderThreadTabForAttention(
     sessionId: string,
     threadKey: string,

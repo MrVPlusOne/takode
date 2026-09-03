@@ -194,6 +194,7 @@ export interface CodexRecoveryOrchestratorSessionLike {
     | "codex_result_error_auto_pause"
     | "codex_provider_retry"
     | "codex_turn_recovery"
+    | "leaderThreadStatuses"
   >;
   messageHistory: BrowserIncomingMessage[];
   _frozenCount?: number;
@@ -230,6 +231,7 @@ export interface CodexRecoveryOrchestratorDeps {
   broadcastToBrowsers: (session: CodexRecoveryOrchestratorSessionLike, msg: BrowserIncomingMessage) => void;
   persistSession: (session: CodexRecoveryOrchestratorSessionLike) => void;
   refreshBrowserConversationViews?: (session: CodexRecoveryOrchestratorSessionLike) => void;
+  invalidateLeaderThreadTabsForSession?: (sessionId: string) => boolean;
   touchUserMessage: (sessionId: string, timestamp?: number) => void;
   emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) => void;
   injectCompactionRecovery: (session: CodexRecoveryOrchestratorSessionLike) => void;

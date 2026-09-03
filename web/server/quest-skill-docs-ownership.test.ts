@@ -89,6 +89,20 @@ describe("quest skill ownership docs", () => {
     expect(docs).toContain("Prefer targeted `--sections` reveals first.");
   });
 
+  it("keeps retired Quest Outcome data read-only and out of active completion guidance", () => {
+    const docs = readTemplate("quest-skill-docs.md");
+    const memoryCompletion = readTemplate("quest-memory-completion.md");
+
+    expect(docs).toContain("quest outcome show <id> [--json]");
+    expect(docs).toContain("preserved legacy Outcome data (read-only)");
+    expect(docs).not.toContain("quest outcome set");
+    expect(docs).not.toContain("quest outcome use");
+    expect(docs).not.toContain("## Current Outcome");
+    expect(memoryCompletion).toContain("preserved as opaque read-only recovery data");
+    expect(memoryCompletion).toContain("do not treat them as final-debrief authority");
+    expect(memoryCompletion).not.toContain("sealed Current Outcome");
+  });
+
   it("documents the canonical exact-feedback link without teaching the legacy alias", () => {
     const docs = readTemplate("quest-skill-docs.md");
 

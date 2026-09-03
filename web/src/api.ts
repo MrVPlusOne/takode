@@ -1705,12 +1705,6 @@ export const api = {
   getQuest: (id: string) => get<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`),
   getQuestValidated: (id: string, etag?: string | null) =>
     getValidated<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`, { etag }),
-  getQuestOutcome: (id: string) =>
-    get<{ questId: string; outcome: import("./types.js").QuestOutcomeState | null }>(
-      `/quests/${encodeURIComponent(id)}/outcome`,
-    ),
-  updateQuestOutcome: (id: string, input: import("./types.js").QuestOutcomeUpdateRequest) =>
-    put<import("./types.js").QuestOutcomeResponse>(`/quests/${encodeURIComponent(id)}/outcome`, input),
   getQuestQuiz: (id: string) =>
     get<{ questId: string; quizItems: import("./types.js").QuestQuizItem[] }>(`/quests/${encodeURIComponent(id)}/quiz`),
   setQuestQuiz: (id: string, quizItems: import("./types.js").QuestQuizItem[]) =>

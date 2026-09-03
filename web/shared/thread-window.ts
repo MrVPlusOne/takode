@@ -4,7 +4,9 @@ import type {
   ThreadWindowEntry,
   ThreadWindowState,
   ThreadTransitionMarker,
+  LeaderThreadResponseProjection,
 } from "../server/session-types.js";
+import { leaderResponseOwnerThreadKey } from "./leader-thread-response-routing.js";
 import { deriveWindowAvailability } from "./window-availability.js";
 import { isCodexLeaderRecoveryDiagnosticSourceId } from "./injected-event-message.js";
 import { toolRelationKey } from "./tool-relation-key.js";
@@ -29,6 +31,7 @@ export interface BuildThreadWindowInput {
   targetMessageId?: string;
   targetHistoryIndex?: number;
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean;
+  currentThreadResponseProjection?: LeaderThreadResponseProjection;
 }
 
 interface FeedItem {
@@ -62,6 +65,7 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
   threadKey: string;
   entries: ThreadWindowEntry[];
   window: ThreadWindowState;
+  threadResponseSupportComplete: boolean;
 } {
   const threadKey = normalizeSelectedFeedThreadKey(input.threadKey);
   const sectionItemCount = Math.max(1, Math.floor(input.sectionItemCount));
@@ -95,7 +99,7 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
           ? Math.max(0, totalItems - requestedItemCount)
           : Math.max(0, Math.min(requestedFromItem, Math.max(0, totalItems - 1)));
   const endItem = Math.min(totalItems, initialFromItem + requestedItemCount);
-  const entries = buildThreadWindowEntries({
+  const builtEntries = buildThreadWindowEntries({
     messageHistory: input.messageHistory,
     threadKey,
     items,
@@ -104,7 +108,9 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
     endItem,
     supportItemLimit: requestedItemCount,
     includeMessage: input.includeMessage,
+    currentThreadResponseProjection: input.currentThreadResponseProjection,
   });
+  const entries = builtEntries.entries;
   const availability = deriveThreadWindowAvailability({
     items,
     ranges,
@@ -115,6 +121,7 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
   return {
     threadKey,
     entries,
+    threadResponseSupportComplete: builtEntries.threadResponseSupportComplete,
     window: {
       thread_key: threadKey,
       from_item: initialFromItem,
@@ -160,7 +167,7 @@ export function buildProjectedThreadEntries(
     endItem: ranges.length,
     supportItemLimit: Math.max(1, items.length),
     includeMessage: options?.includeMessage,
-  });
+  }).entries;
 }
 
 function buildThreadWindowEntries(input: {
@@ -172,31 +179,157 @@ function buildThreadWindowEntries(input: {
   endItem: number;
   supportItemLimit: number;
   includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean;
-}): ThreadWindowEntry[] {
+  currentThreadResponseProjection?: LeaderThreadResponseProjection;
+}): { entries: ThreadWindowEntry[]; threadResponseSupportComplete: boolean } {
   const selectedItems = selectConversationItems(input.items, input.ranges.slice(input.fromItem, input.endItem));
   const selectedOrFallbackItems =
     selectedItems.length > 0
       ? selectedItems
       : selectRecentStandalonePreviewItems(input.items, input.ranges, input.supportItemLimit);
+  const responseSupport = addCurrentThreadResponseSupport(
+    input.messageHistory,
+    input.threadKey,
+    selectedOrFallbackItems,
+    input.currentThreadResponseProjection,
+    input.includeMessage,
+  );
   const sourceExpandedItems =
     input.threadKey === MAIN_THREAD_KEY
-      ? expandMainAttachmentSourceItems(
-          input.messageHistory,
-          input.items,
-          selectedOrFallbackItems,
-          input.includeMessage,
-        )
-      : selectedOrFallbackItems;
-  return dedupeEntries(
-    expandToolClosureItems(
-      input.messageHistory,
-      sourceExpandedItems,
-      {
-        orphanPreviewFallback: selectedItems.length === 0,
-      },
-      input.includeMessage,
+      ? expandMainAttachmentSourceItems(input.messageHistory, input.items, responseSupport.items, input.includeMessage)
+      : responseSupport.items;
+  return {
+    entries: dedupeEntries(
+      expandToolClosureItems(
+        input.messageHistory,
+        sourceExpandedItems,
+        {
+          orphanPreviewFallback: selectedItems.length === 0,
+        },
+        input.includeMessage,
+      ),
     ),
-  );
+    threadResponseSupportComplete: responseSupport.complete,
+  };
+}
+
+function addCurrentThreadResponseSupport(
+  messages: ReadonlyArray<BrowserIncomingMessage>,
+  threadKey: string,
+  selectedItems: FeedItem[],
+  projection: LeaderThreadResponseProjection | undefined,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
+): { items: FeedItem[]; complete: boolean } {
+  if (!projection || normalizeSelectedFeedThreadKey(projection.threadKey) !== threadKey) {
+    return { items: selectedItems, complete: true };
+  }
+
+  const referencedIds = new Set<string>();
+  for (const response of projection.currentResponses) {
+    referencedIds.add(response.currentMessageId);
+    response.coveredUserMessageIds.forEach((id) => referencedIds.add(id));
+  }
+  projection.pendingBatches.forEach((batch) => batch.userMessageIds.forEach((id) => referencedIds.add(id)));
+  if (referencedIds.size > THREAD_WINDOW_SUPPORT_RECORD_LIMIT) return { items: selectedItems, complete: false };
+  if (!projection.ready || projection.currentResponses.length === 0) return { items: selectedItems, complete: true };
+
+  const usersById = new Map<string, { message: BrowserIncomingMessage; historyIndex: number }>();
+  messages.forEach((message, historyIndex) => {
+    if (message.type === "user_message" && message.id) usersById.set(message.id, { message, historyIndex });
+  });
+  const required = new Map<string, FeedItem>();
+  const addRequired = (message: BrowserIncomingMessage, historyIndex: number): boolean => {
+    if (includeMessage && !includeMessage(message, historyIndex)) return false;
+    const item = { order: historyIndex, entry: { message, history_index: historyIndex } };
+    required.set(entryKey(item.entry), item);
+    return true;
+  };
+
+  for (const response of projection.currentResponses) {
+    const historyIndex = response.currentHistoryIndex;
+    const message = messages[historyIndex];
+    if (
+      !message ||
+      message.type !== "leader_user_message" ||
+      message.id !== response.currentMessageId ||
+      message.threadResponse?.logicalResponseId !== response.logicalResponseId ||
+      message.threadResponse.revisionId !== response.currentRevisionId ||
+      normalizeSelectedFeedThreadKey(message.threadKey ?? message.questId ?? MAIN_THREAD_KEY) !== threadKey ||
+      !addRequired(message, historyIndex)
+    )
+      return { items: selectedItems, complete: false };
+
+    for (const coveredId of response.coveredUserMessageIds) {
+      const covered = usersById.get(coveredId);
+      if (
+        !covered ||
+        leaderResponseOwnerThreadKey(covered.message) !== threadKey ||
+        !addRequired(covered.message, covered.historyIndex)
+      )
+        return { items: selectedItems, complete: false };
+    }
+  }
+
+  for (const item of latestQuestQuizSupportItems(messages, threadKey, projection.cutoverHistoryIndex, includeMessage)) {
+    required.set(entryKey(item.entry), item);
+  }
+  if (required.size > THREAD_WINDOW_SUPPORT_RECORD_LIMIT) return { items: selectedItems, complete: false };
+  return { items: [...selectedItems, ...required.values()], complete: true };
+}
+
+const QUEST_QUIZ_DIRECTIVE_RE = /^\s*\{\[\(Quest Quiz:\s*(q-\d+)\)\]\}\s*$/i;
+const MARKDOWN_FENCE_RE = /^\s*(`{3,}|~{3,})/;
+
+function questQuizIds(text: string): string[] {
+  const ids: string[] = [];
+  let fence: { marker: string; length: number } | null = null;
+  for (const line of text.split(/\r?\n/)) {
+    const token = line.match(MARKDOWN_FENCE_RE)?.[1];
+    if (fence) {
+      if (token && token[0] === fence.marker && token.length >= fence.length) fence = null;
+      continue;
+    }
+    if (token) {
+      fence = { marker: token[0]!, length: token.length };
+      continue;
+    }
+    const match = line.match(QUEST_QUIZ_DIRECTIVE_RE);
+    if (match) ids.push(match[1]!.toLowerCase());
+  }
+  return ids;
+}
+
+function questQuizMessageText(message: BrowserIncomingMessage): string | null {
+  if (message.type === "leader_user_message") return message.content;
+  if (message.type !== "assistant" || message.parent_tool_use_id !== null) return null;
+  return message.message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
+}
+
+function messageParticipatesInResponseThread(message: BrowserIncomingMessage, threadKey: string): boolean {
+  if (message.type === "user_message") return leaderResponseOwnerThreadKey(message) === threadKey;
+  return threadKey === MAIN_THREAD_KEY ? !hasExplicitNonMainRoute(message) : messageHasThreadRef(message, threadKey);
+}
+
+function latestQuestQuizSupportItems(
+  messages: ReadonlyArray<BrowserIncomingMessage>,
+  threadKey: string,
+  cutoverHistoryIndex: number,
+  includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean,
+): FeedItem[] {
+  const latestByQuest = new Map<string, FeedItem>();
+  messages.forEach((message, historyIndex) => {
+    const text = questQuizMessageText(message);
+    if (
+      historyIndex < cutoverHistoryIndex ||
+      !text ||
+      !messageParticipatesInResponseThread(message, threadKey) ||
+      (includeMessage && !includeMessage(message, historyIndex))
+    )
+      return;
+    for (const questId of questQuizIds(text)) {
+      latestByQuest.set(questId, { order: historyIndex, entry: { message, history_index: historyIndex } });
+    }
+  });
+  return [...latestByQuest.values()];
 }
 
 function threadWindowEntryRendersChatRow(message: BrowserIncomingMessage): boolean {

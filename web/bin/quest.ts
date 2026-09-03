@@ -24,7 +24,7 @@
  *   inbox      Move review-pending quest back to review inbox
  *   check      Toggle a verification checkbox
  *   feedback   Add, edit, or inspect quest feedback entries
- *   outcome    Show or update the versioned Current Outcome
+ *   outcome    Inspect preserved legacy Quest Outcome data
  *   quiz       Show or replace quest quiz Q/A metadata
  *   address    Toggle feedback addressed status
  *   reassign   Reassign quest ownership from a leader session
@@ -1885,12 +1885,7 @@ async function main(): Promise<void> {
       return runQuestOutcomeCommand({
         positional,
         validateFlags,
-        option,
-        flag,
-        readOptionalRichTextOption,
         getQuest,
-        companionPort,
-        companionAuthHeaders,
         jsonOutput,
         out,
         die,

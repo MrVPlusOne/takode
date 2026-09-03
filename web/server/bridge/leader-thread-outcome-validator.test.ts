@@ -6,7 +6,12 @@ import {
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { BrowserIncomingMessage, SessionNotification } from "../session-types.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
-import { validateLeaderThreadOutcomes, type LeaderThreadOutcomeTurnSource } from "./leader-thread-outcome-validator.js";
+import {
+  THREAD_RESPONSE_REMINDER_SOURCE_ID,
+  validateLeaderThreadOutcomes,
+  type LeaderThreadOutcomeTurnSource,
+} from "./leader-thread-outcome-validator.js";
+import { buildLeaderThreadResponseState, publishLeaderThreadResponse } from "../leader-thread-response.js";
 
 function assistantMessage({
   id,
@@ -507,5 +512,111 @@ describe("validateLeaderThreadOutcomes", () => {
       expect.anything(),
       expect.objectContaining({ threadKey: "main" }),
     );
+  });
+});
+
+function coveredHumanMessage(id: string, timestamp: number, threadKey = "main"): BrowserIncomingMessage {
+  return {
+    type: "user_message",
+    id,
+    content: `Ask ${id}`,
+    timestamp,
+    threadKey,
+    leaderResponseCoverageVersion: 1,
+    ...(threadKey === "main"
+      ? {}
+      : { questId: threadKey, threadRefs: [{ threadKey, questId: threadKey, source: "explicit" as const }] }),
+  };
+}
+
+describe("pending-batch thread response reminders", () => {
+  it("reminds after a post-cutover direct user message is left uncovered", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [coveredHumanMessage("u1", 10, "q-42")],
+      notifications: [],
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    const result = validateLeaderThreadOutcomes(session, deps);
+
+    expect(result).toEqual({ checked: true, missing: ["q-42"], injected: true });
+    expect(deps.injectUserMessage).toHaveBeenCalledWith(
+      "leader",
+      expect.stringContaining("Pending response batches: q-42 (1 pending)."),
+      expect.objectContaining({ sessionId: THREAD_RESPONSE_REMINDER_SOURCE_ID }),
+      expect.objectContaining({ threadKey: "q-42" }),
+    );
+  });
+
+  it("allows a pending batch to remain open behind a fresh Waiting marker", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [
+        coveredHumanMessage("u1", 10, "q-42"),
+        assistantMessage({ id: "a1", text: "Reviewer still running", timestamp: 20, threadKey: "q-42" }),
+      ],
+      notifications: [],
+      state: { leaderThreadStatuses: { "q-42": threadStatus({ kind: "waiting", timestamp: 20, threadKey: "q-42" }) } },
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: true, missing: [], injected: false });
+    expect(deps.injectUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not let Ready or review state cover a still-pending batch", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [coveredHumanMessage("u1", 10)],
+      notifications: [notification({ category: "review", timestamp: 20 })],
+      state: { leaderThreadStatuses: { main: threadStatus({ kind: "ready", timestamp: 20 }) } },
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: true, missing: ["main"], injected: true });
+  });
+
+  it("requires the needs-input notification to follow the actual blocking prompt", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [
+        coveredHumanMessage("u1", 10),
+        assistantMessage({ id: "a1", text: "Decision needed: choose the rollout.", timestamp: 30 }),
+      ],
+      notifications: [notification({ category: "needs-input", timestamp: 20 })],
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: true, missing: ["main"], injected: true });
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("Needs-input notification reminder");
+  });
+
+  it("accepts Ready after the exact pending batch has a current response", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [coveredHumanMessage("u1", 10)] as BrowserIncomingMessage[],
+      notifications: [],
+      state: { leaderThreadStatuses: {} as Record<string, ReturnType<typeof threadStatus>> },
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const token = buildLeaderThreadResponseState(session, "main").pendingBatches[0]!.token;
+    const response = publishLeaderThreadResponse(
+      session,
+      { intent: "create", threadKey: "main", pendingBatchToken: token, baseRevisionId: null, markdown: "Answer." },
+      { now: 20, randomSuffix: "ready" },
+    );
+    session.state.leaderThreadStatuses.main = threadStatus({
+      kind: "ready",
+      timestamp: 30,
+      messageId: response.message.id,
+    });
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: true, missing: [], injected: false });
   });
 });

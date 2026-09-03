@@ -618,7 +618,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("After the user answers a same-session `takode notify needs-input` prompt");
     expect(guardrails).toContain("Use this only for notifications created by your current session");
     expect(guardrails).toContain("Do not rely on deprecated leader reply suffixes");
-    expect(guardrails).toContain("use marked leader responses plus `takode notify`");
+    expect(guardrails).toContain("use marked leader responses for temporary activity");
     expect(guardrails).toContain("Every time you ask the user a question");
     expect(guardrails).toContain("First send the detailed question or decision text");
     expect(guardrails).toContain("`[thread:main]` or `[thread:q-N]`");

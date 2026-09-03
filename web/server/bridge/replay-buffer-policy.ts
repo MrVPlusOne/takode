@@ -30,6 +30,7 @@ export function isHistoryBackedEvent(msg: ReplayableBrowserIncomingMessage): boo
     msg.type === "codex_reasoning_detail" ||
     msg.type === "result" ||
     msg.type === "user_message" ||
+    msg.type === "leader_user_message" ||
     msg.type === "codex_auto_pause_recovery_summary" ||
     msg.type === "error" ||
     msg.type === "tool_result_preview" ||

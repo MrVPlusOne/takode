@@ -632,6 +632,24 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).not.toContain("Every quest goes through the full journey");
   });
 
+  it("teaches leader-only pending-batch responses without duplicate prose or copied ids", () => {
+    const leader = buildInjectedSystemPromptForDebug({ sessionNum: 7, backend: "codex", isOrchestrator: true });
+    const worker = buildInjectedSystemPromptForDebug({ sessionNum: 8, backend: "codex" });
+
+    expect(leader).toContain("## Leader Thread Responses");
+    expect(leader).toContain("takode thread-response show --thread <main|q-N>");
+    expect(leader).toContain("takode thread-response set --thread <main|q-N> --text-file <path|->");
+    expect(leader).toContain("server-owned pending user-request batches");
+    expect(leader).toContain("creates one logical response for the oldest pending batch");
+    expect(leader).toContain("if none is pending, it revises the latest logical response");
+    expect(leader).toContain("New user input that arrives concurrently is not silently absorbed");
+    expect(leader).toContain("Do not copy message IDs, response IDs, batch tokens, or revision IDs");
+    expect(leader).toContain("The command itself publishes the visible routed response");
+    expect(leader).toContain("do not repeat the same prose in a normal assistant response");
+    expect(leader).toContain("Keep Quest Quiz, Thread Waiting/Ready, and needs-input notification state separate");
+    expect(worker).not.toContain("## Leader Thread Responses");
+  });
+
   it("builds a worker prompt without orchestrator guardrails unless requested", () => {
     const result = buildInjectedSystemPromptForDebug({ sessionNum: 8, backend: "codex" });
 

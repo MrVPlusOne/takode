@@ -1,27 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { QuestInProgress, QuestTitlePreview } from "../quest-types.js";
+import type { QuestInProgress } from "../quest-types.js";
 import { buildQuestTitlePreview } from "./quest-helpers.js";
 
-function revision(revisionId: string, createdAt: number) {
-  return {
-    revisionId,
-    markdown: `${revisionId} outcome.`,
-    summaryMarkdown: `${revisionId} outcome.`,
-    summarySource: "derived" as const,
-    contentHash: `${revisionId}-hash`,
-    createdAt,
-    actor: { kind: "human" as const },
-    sources: [],
-  };
-}
-
-describe("Quest title Outcome freshness", () => {
-  it("projects a monotonic Outcome revision token even when revisions share one millisecond", () => {
+describe("legacy Quest Outcome title-preview isolation", () => {
+  it("does not expose revision data from opaque legacy payloads", () => {
     const quest: QuestInProgress = {
       id: "q-42",
       questId: "q-42",
       version: 2,
-      title: "Outcome preview",
+      title: "Legacy preview isolation",
       description: "Test",
       status: "in_progress",
       sessionId: "worker",
@@ -30,10 +17,18 @@ describe("Quest title Outcome freshness", () => {
       updatedAt: 50,
       outcome: {
         currentRevisionId: "r2",
-        revisions: [revision("r1", 50), { ...revision("r2", 50), parentRevisionId: "r1" }],
+        revisions: [{ revisionId: "r1" }, { revisionId: "r2", future: true }],
       },
     };
 
-    expect((buildQuestTitlePreview(quest) as QuestTitlePreview & { outcomeRevision?: number }).outcomeRevision).toBe(2);
+    const preview = buildQuestTitlePreview(quest);
+    expect(preview).toEqual({
+      questId: "q-42",
+      title: "Legacy preview isolation",
+      version: 2,
+      updatedAt: 50,
+      commitShas: [],
+    });
+    expect(preview).not.toHaveProperty("outcomeRevision");
   });
 });

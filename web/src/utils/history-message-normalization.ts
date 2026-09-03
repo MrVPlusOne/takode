@@ -24,6 +24,7 @@ type ExistingThreadMetadataSource = {
   threadStatusMarkers?: NonNullable<ChatMessage["metadata"]>["threadStatusMarkers"];
   codexMessagePhase?: NonNullable<ChatMessage["metadata"]>["codexMessagePhase"];
   codexSubagent?: NonNullable<ChatMessage["metadata"]>["codexSubagent"];
+  threadResponse?: NonNullable<ChatMessage["metadata"]>["threadResponse"];
 };
 
 export function extractTextFromBlocks(blocks: ContentBlock[]): string {
@@ -138,7 +139,8 @@ function existingThreadMetadataFromMessage(msg: ExistingThreadMetadataSource): C
     !msg.threadRoutingError &&
     !msg.threadStatusMarkers &&
     msg.codexMessagePhase === undefined &&
-    !msg.codexSubagent
+    !msg.codexSubagent &&
+    !msg.threadResponse
   ) {
     return undefined;
   }
@@ -151,6 +153,7 @@ function existingThreadMetadataFromMessage(msg: ExistingThreadMetadataSource): C
     ...(msg.threadStatusMarkers ? { threadStatusMarkers: msg.threadStatusMarkers } : {}),
     ...(msg.codexMessagePhase !== undefined ? { codexMessagePhase: msg.codexMessagePhase } : {}),
     ...(msg.codexSubagent ? { codexSubagent: msg.codexSubagent } : {}),
+    ...(msg.threadResponse ? { threadResponse: msg.threadResponse } : {}),
   };
 }
 
@@ -276,6 +279,9 @@ export function normalizeHistoryMessageToChatMessages(
       ...(histMsg.slackThreadId ? { slackThreadId: histMsg.slackThreadId } : {}),
       ...(histMsg.threadRoutingError ? { threadRoutingError: histMsg.threadRoutingError } : {}),
       ...(histMsg.codexSubagent ? { codexSubagent: histMsg.codexSubagent } : {}),
+      ...(histMsg.leaderResponseCoverageVersion
+        ? { leaderResponseCoverageVersion: histMsg.leaderResponseCoverageVersion }
+        : {}),
     };
     const localImages =
       typeof histMsg.client_msg_id === "string"
@@ -315,6 +321,7 @@ export function normalizeHistoryMessageToChatMessages(
       ...(histMsg.threadKey ? { threadKey: histMsg.threadKey } : {}),
       ...(histMsg.questId ? { questId: histMsg.questId } : {}),
       ...(histMsg.threadRoutingError ? { threadRoutingError: histMsg.threadRoutingError } : {}),
+      ...(histMsg.threadResponse ? { threadResponse: histMsg.threadResponse } : {}),
     };
     const repaired = repairThreadPrefixInText(histMsg.content);
     const metadata = mergeThreadMetadata(existingMetadata, repaired.metadata);

@@ -3,10 +3,8 @@ import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "./quest-types.
 import { prepareSearchQuery, type PreparedSearchQuery, tokenizeSearchText } from "../shared/search-utils.js";
 import { questRelationshipSearchText } from "./quest-relationships.js";
 import { liveQuestFeedbackEntries } from "../shared/quest-feedback.js";
-import { buildQuestOutcomePreview, currentQuestOutcomeRevision } from "./quest-outcome.js";
 import {
   compactPhaseDocumentationGroups,
-  isCurrentQuestOutcomeDisplayable,
   phaseDocumentationPreview,
   summarizeQuestPhaseDocumentation,
 } from "../shared/quest-phase-documentation-summary.js";
@@ -187,7 +185,6 @@ function buildQuestListPage(
 export function buildQuestListPreview(quest: QuestmasterTask): QuestListPreview {
   const humanFeedback = liveQuestFeedbackEntries(quest.feedback).filter((entry) => entry.author === "human");
   const verificationItems = "verificationItems" in quest ? (quest.verificationItems ?? []) : [];
-  const outcomePreview = buildQuestOutcomePreview(quest.outcome, { requireFinalized: quest.status === "done" });
   const phasePreviewLines = compactPhaseDocumentationGroups(summarizeQuestPhaseDocumentation(quest), 2).flatMap(
     (group) => {
       const latestEntry = group.entries.at(-1);
@@ -229,7 +226,6 @@ export function buildQuestListPreview(quest: QuestmasterTask): QuestListPreview 
       : {}),
     ...("cancelled" in quest && quest.cancelled === true ? { cancelled: true } : {}),
     ...("debriefTldr" in quest && quest.debriefTldr ? { debriefTldr: quest.debriefTldr } : {}),
-    ...(outcomePreview ? { outcomePreview } : {}),
     ...(quest.relationships ? { relationships: quest.relationships } : {}),
     ...(quest.relatedQuests ? { relatedQuests: quest.relatedQuests } : {}),
     ...(quest.journeyRuns ? { journeyRuns: quest.journeyRuns } : {}),
@@ -544,11 +540,8 @@ function getQuestPrimarySearchFields(quest: QuestmasterTask): Array<string | und
 }
 
 function getQuestBodySearchFields(quest: QuestmasterTask): Array<string | undefined> {
-  const outcome = isCurrentQuestOutcomeDisplayable(quest) ? currentQuestOutcomeRevision(quest.outcome) : undefined;
   return [
     quest.tldr,
-    outcome?.summaryMarkdown,
-    outcome?.markdown,
     "description" in quest ? quest.description : undefined,
     questRelationshipSearchText(quest),
     quest.status === "done" && quest.cancelled !== true ? quest.debriefTldr : undefined,

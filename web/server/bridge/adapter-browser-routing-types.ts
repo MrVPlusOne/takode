@@ -62,6 +62,7 @@ export interface AdapterBrowserRoutingSessionLike {
     | "context_used_percent"
     | "cwd"
     | "is_compacting"
+    | "leaderThreadStatuses"
     | "memorySessionSpaceSlug"
     | "model"
     | "num_turns"
@@ -123,6 +124,7 @@ export interface AdapterBrowserRoutingDeps {
     expectedFrozenCount: number,
   ) => Promise<void>;
   refreshBrowserConversationViews?: (session: AdapterBrowserRoutingSessionLike) => void;
+  invalidateLeaderThreadTabsForSession?: (sessionId: string) => boolean;
   promoteLeaderThreadTabForMessageAttention?: (
     sessionId: string,
     message: Extract<BrowserIncomingMessage, { type: "user_message" }>,

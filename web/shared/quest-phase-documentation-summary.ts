@@ -43,11 +43,6 @@ export interface QuestPhaseDocumentationSummary {
 
 export type QuestPreviewProgressTldr =
   | {
-      kind: "outcome";
-      label: "Current Outcome" | "Previous Outcome" | "Outcome";
-      text: string;
-    }
-  | {
       kind: "debrief";
       label: "Final Debrief";
       text: string;
@@ -124,38 +119,10 @@ export function phaseDocumentationPreview(entry: QuestFeedbackEntry): string {
   return normalizeTldr(entry.tldr) ?? entry.text;
 }
 
-export function isCurrentQuestOutcomeDisplayable(quest: QuestmasterTask | QuestListPreview): boolean {
-  const outcomePreview = "outcomePreview" in quest ? quest.outcomePreview : undefined;
-  const fullOutcome = "outcome" in quest ? quest.outcome : undefined;
-  const currentRevisionId = outcomePreview?.currentRevisionId ?? fullOutcome?.currentRevisionId;
-  if (!currentRevisionId) return false;
-  if (quest.status !== "done") return true;
-  if (quest.cancelled === true) return false;
-  const finalizedRevisionId = outcomePreview ? outcomePreview.finalizedRevisionId : fullOutcome?.finalizedRevisionId;
-  return finalizedRevisionId === currentRevisionId;
-}
-
 export function selectQuestPreviewProgressTldr(
   quest: QuestmasterTask | QuestListPreview,
 ): QuestPreviewProgressTldr | null {
   if (quest.status === "done" && quest.cancelled === true) return null;
-  const outcomePreview = "outcomePreview" in quest ? quest.outcomePreview : undefined;
-  const fullOutcome = "outcome" in quest ? quest.outcome : undefined;
-  const currentOutcome = fullOutcome?.revisions.find(
-    (revision) => revision.revisionId === fullOutcome.currentRevisionId,
-  );
-  const outcomeText = isCurrentQuestOutcomeDisplayable(quest)
-    ? normalizeTldr(outcomePreview?.summaryMarkdown ?? currentOutcome?.summaryMarkdown)
-    : null;
-  if (outcomeText) {
-    const reopened = outcomePreview?.reopenedAt !== undefined || fullOutcome?.reopenedAt !== undefined;
-    return {
-      kind: "outcome",
-      label: quest.status === "done" ? "Outcome" : reopened ? "Previous Outcome" : "Current Outcome",
-      text: outcomeText,
-    };
-  }
-
   if (quest.status === "done") {
     const debriefTldr = normalizeTldr(quest.debriefTldr);
     if (debriefTldr) return { kind: "debrief", label: "Final Debrief", text: debriefTldr };

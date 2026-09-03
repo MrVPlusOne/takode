@@ -84,6 +84,7 @@ import type {
   TaskItem,
   SdkSessionInfo,
   ThreadWindowState,
+  QuestmasterTask,
 } from "./types.js";
 
 function makeSession(id: string): SessionState {
@@ -335,6 +336,7 @@ describe("Session management", () => {
     useStore.setState({
       threadWindows: new Map([["s1", new Map([["main", threadWindow]])]]),
       threadWindowMessages: new Map([["s1", new Map([["main", [makeMessage({ id: "thread-msg" })]]])]]),
+      threadWindowResponseStates: new Map([["s1", new Map([["main", null]])]]),
       threadWindowRefreshRevisions: new Map([["s1", 2]]),
       threadWindowAppliedRevisions: new Map([["s1", new Map([["main", 2]])]]),
     });
@@ -347,6 +349,7 @@ describe("Session management", () => {
     expect(state.historyDelivered.has("s1")).toBe(false);
     expect(state.threadWindows.has("s1")).toBe(false);
     expect(state.threadWindowMessages.has("s1")).toBe(false);
+    expect(state.threadWindowResponseStates.has("s1")).toBe(false);
     expect(state.threadWindowRefreshRevisions.has("s1")).toBe(false);
     expect(state.threadWindowAppliedRevisions.has("s1")).toBe(false);
     expect(state.streaming.has("s1")).toBe(false);
@@ -937,74 +940,40 @@ describe("Questmaster refresh", () => {
     });
   });
 
-  it("projects the monotonic Outcome revision token from an exact quest detail", () => {
+  it("keeps opaque legacy Outcome state out of title previews", () => {
     useStore.getState().upsertQuestDetail(
       makeQuest({
         questId: "q-1932",
         title: "Stable title",
         version: 5,
         updatedAt: 50,
-        outcome: {
-          currentRevisionId: "r2",
-          revisions: [
-            {
-              revisionId: "r1",
-              markdown: "First outcome.",
-              summaryMarkdown: "First outcome.",
-              summarySource: "derived",
-              contentHash: "h1",
-              createdAt: 50,
-              actor: { kind: "human" },
-              sources: [],
-            },
-            {
-              revisionId: "r2",
-              parentRevisionId: "r1",
-              markdown: "Second outcome.",
-              summaryMarkdown: "Second outcome.",
-              summarySource: "derived",
-              contentHash: "h2",
-              createdAt: 50,
-              actor: { kind: "human" },
-              sources: [],
-            },
-          ],
-        },
-      }),
+        outcome: { currentRevisionId: "legacy", revisions: [] },
+      } as Partial<QuestmasterTask>),
     );
 
-    expect(
-      (
-        useStore.getState().questTitlePreviews.get("q-1932") as
-          | (import("./types.js").QuestTitlePreview & { outcomeRevision?: number })
-          | undefined
-      )?.outcomeRevision,
-    ).toBe(2);
+    expect(useStore.getState().questTitlePreviews.get("q-1932")).toEqual({
+      questId: "q-1932",
+      title: "Stable title",
+      version: 5,
+      updatedAt: 1000,
+    });
   });
 
-  it("uses the monotonic Outcome revision token to merge same-millisecond title previews", () => {
+  it("uses canonical quest version for same-millisecond title preview freshness", () => {
     useStore.getState().upsertQuestTitlePreview({
       questId: "q-1932",
-      title: "Stable title",
+      title: "Older title",
       version: 5,
       updatedAt: 50,
-      outcomeRevision: 1,
-    } as import("./types.js").QuestTitlePreview);
+    });
     useStore.getState().upsertQuestTitlePreview({
       questId: "q-1932",
-      title: "Stable title",
-      version: 5,
+      title: "Newer title",
+      version: 6,
       updatedAt: 50,
-      outcomeRevision: 2,
-    } as import("./types.js").QuestTitlePreview);
+    });
 
-    expect(
-      (
-        useStore.getState().questTitlePreviews.get("q-1932") as
-          | (import("./types.js").QuestTitlePreview & { outcomeRevision?: number })
-          | undefined
-      )?.outcomeRevision,
-    ).toBe(2);
+    expect(useStore.getState().questTitlePreviews.get("q-1932")?.title).toBe("Newer title");
   });
 
   it("preserves exact commit evidence across newer title-only and older detail projections", () => {

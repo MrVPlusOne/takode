@@ -1242,6 +1242,9 @@ function handleParsedMessage(
         ...(data.threadKey ? { threadKey: data.threadKey } : {}),
         ...(data.questId ? { questId: data.questId } : {}),
         ...(data.threadRoutingError ? { threadRoutingError: data.threadRoutingError } : {}),
+        ...(data.leaderResponseCoverageVersion
+          ? { leaderResponseCoverageVersion: data.leaderResponseCoverageVersion }
+          : {}),
       };
       const userMsg: ChatMessage = {
         id: data.id || nextId(),
@@ -1706,7 +1709,7 @@ function handleParsedMessage(
         break;
       }
       const chatMessages = normalizeThreadWindowEntries(sessionId, sourceEntries);
-      store.setThreadWindow(sessionId, data.thread_key, data.window, chatMessages);
+      store.setThreadWindow(sessionId, data.thread_key, data.window, chatMessages, data.response_state ?? null);
       if (sourceEntries.length > 0) store.setCliEverConnected(sessionId);
       if (store.pendingThreadWindowRequests.get(sessionId) === data.thread_key) {
         store.setPendingThreadWindowRequest(sessionId, null);
