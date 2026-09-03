@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage } from "../session-types.js";
-import { buildLeaderThreadResponseState, publishLeaderThreadResponse } from "../leader-thread-response.js";
+import { finalizeRoutedLeaderResponseMessage } from "../leader-thread-response.js";
 import { THREAD_WINDOW_SUPPORT_RECORD_LIMIT } from "../../shared/thread-window.js";
 import { sendThreadWindowSync } from "./browser-transport-controller.js";
 
@@ -18,14 +18,20 @@ function human(id: string, timestamp: number, threadKey = "main"): BrowserIncomi
   };
 }
 
-function assistant(id: string, text: string, timestamp: number, threadKey = "main"): BrowserIncomingMessage {
+function assistant(
+  id: string,
+  text: string,
+  timestamp: number,
+  threadKey = "main",
+): Extract<BrowserIncomingMessage, { type: "assistant" }> {
   return {
     type: "assistant",
     timestamp,
     parent_tool_use_id: null,
+    threadKey,
     ...(threadKey === "main"
       ? {}
-      : { threadKey, questId: threadKey, threadRefs: [{ threadKey, questId: threadKey, source: "explicit" }] }),
+      : { questId: threadKey, threadRefs: [{ threadKey, questId: threadKey, source: "explicit" }] }),
     message: {
       id,
       type: "message",
@@ -43,12 +49,18 @@ function createResponse(
   threadKey: string,
   text: string,
 ) {
-  const token = buildLeaderThreadResponseState(session, threadKey).pendingBatches[0]!.token;
-  return publishLeaderThreadResponse(
-    session,
-    { intent: "create", threadKey, pendingBatchToken: token, baseRevisionId: null, markdown: text },
-    { now: session.messageHistory.length + 10, randomSuffix: text.replace(/\W/g, "") },
+  const observedHistoryLength = session.messageHistory.length;
+  const response = assistant(
+    `response-${observedHistoryLength}-${text.replace(/\W/g, "")}`,
+    text,
+    observedHistoryLength + 10,
+    threadKey,
   );
+  response.leaderThreadRole = "response";
+  response.leaderResponseObservedHistoryLength = observedHistoryLength;
+  session.messageHistory.push(response);
+  expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
+  return response;
 }
 
 function parseLast(sent: string[]) {
@@ -180,7 +192,7 @@ describe("pending-batch response selected-window authority", () => {
   it("omits malformed response authority and leaves its covered prompt pending", () => {
     const session = { id: "leader", messageHistory: [human("u1", 1)] };
     const response = createResponse(session, "main", "Answer.");
-    response.message.content = "Tampered.";
+    response.message.content = [{ type: "text", text: "Tampered." }];
 
     expect(sendLatest(session, "main").response_state).toMatchObject({
       pendingMessageCount: 1,

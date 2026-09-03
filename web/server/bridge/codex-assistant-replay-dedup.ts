@@ -45,6 +45,7 @@ function samePlanReplayScope(existing: AssistantMessage, incoming: AssistantMess
     sameCodexNativeSubagentOwnership(existing.codexSubagent, incoming.codexSubagent) &&
     existing.parent_tool_use_id === incoming.parent_tool_use_id &&
     sameThreadRoute(routeFromHistoryEntry(existing), routeFromHistoryEntry(incoming)) &&
+    existing.leaderThreadRole === incoming.leaderThreadRole &&
     normalizeCodexMessagePhase(existing.codexMessagePhase) === normalizeCodexMessagePhase(incoming.codexMessagePhase)
   );
 }
@@ -134,10 +135,17 @@ export function isDuplicateCodexAssistantReplay(
 
     const existing = entry as Extract<BrowserIncomingMessage, { type: "assistant" }>;
     const sameOwnership = sameCodexNativeSubagentOwnership(existing.codexSubagent, msg.codexSubagent);
-    if (incomingId && existing.message?.id === incomingId && sameOwnership) return true;
+    if (
+      incomingId &&
+      existing.message?.id === incomingId &&
+      sameOwnership &&
+      existing.leaderThreadRole === msg.leaderThreadRole
+    )
+      return true;
     if (!sameOwnership) continue;
     if (existing.parent_tool_use_id !== incomingParentToolUseId) continue;
     if (!sameThreadRoute(routeFromHistoryEntry(existing), routeFromHistoryEntry(msg))) continue;
+    if (existing.leaderThreadRole !== msg.leaderThreadRole) continue;
     if (normalizeCodexMessagePhase(existing.codexMessagePhase) !== normalizeCodexMessagePhase(msg.codexMessagePhase)) {
       continue;
     }

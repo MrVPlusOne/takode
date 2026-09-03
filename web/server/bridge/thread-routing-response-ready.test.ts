@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage } from "../session-types.js";
-import { buildLeaderThreadResponseState, publishLeaderThreadResponse } from "../leader-thread-response.js";
+import { buildLeaderThreadResponseState, finalizeRoutedLeaderResponseMessage } from "../leader-thread-response.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import {
   clearLeaderThreadStatusForCoveredUserMessage,
+  leaderTurnObservedHistoryLength,
   updateLeaderThreadStatusesForAssistantOutput,
 } from "./thread-routing-reminder.js";
 
@@ -17,6 +18,28 @@ function human(): Extract<BrowserIncomingMessage, { type: "user_message" }> {
     questId: "q-42",
     threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" }],
     leaderResponseCoverageVersion: 1,
+  };
+}
+
+function finalResponse(): Extract<BrowserIncomingMessage, { type: "assistant" }> {
+  return {
+    type: "assistant",
+    message: {
+      id: "final-response",
+      type: "message",
+      role: "assistant",
+      model: "test",
+      content: [{ type: "text", text: "Done." }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    },
+    parent_tool_use_id: null,
+    timestamp: 30,
+    threadKey: "q-42",
+    questId: "q-42",
+    threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" }],
+    leaderThreadRole: "response",
+    leaderResponseObservedHistoryLength: 1,
   };
 }
 
@@ -45,6 +68,38 @@ function oldReady(): LeaderThreadStatus {
 }
 
 describe("Thread Ready response coverage gate", () => {
+  it("uses the active turn owner boundary for asynchronous completions without absorbing later queued input", () => {
+    const history = [
+      human(),
+      {
+        type: "user_message" as const,
+        id: "herd-event",
+        content: "Worker finished",
+        timestamp: 20,
+        threadKey: "q-42",
+        agentSource: { sessionId: "worker", sessionLabel: "Worker" },
+      },
+      { ...human(), id: "later-user", timestamp: 30, content: "One more request" },
+    ] as BrowserIncomingMessage[];
+
+    expect(
+      leaderTurnObservedHistoryLength({
+        messageHistory: history,
+        userMessageIdsThisTurn: [1],
+        // A promoted queued turn may start after later rows already reached the
+        // history tail, so current-turn ownership is more exact than tail size.
+        messageCountAtTurnStart: 3,
+      }),
+    ).toBe(2);
+    expect(
+      leaderTurnObservedHistoryLength({
+        messageHistory: history,
+        userMessageIdsThisTurn: [],
+        messageCountAtTurnStart: 2,
+      }),
+    ).toBe(2);
+  });
+
   it("invalidates stale Ready state as soon as a covered direct-user message commits", () => {
     const message = human();
     const session = {
@@ -57,7 +112,7 @@ describe("Thread Ready response coverage gate", () => {
     expect(session.state.leaderThreadStatuses["q-42"]).toBeUndefined();
   });
 
-  it("rejects Ready while pending and removes any prior status even for a marker-only turn", () => {
+  it("rejects Ready while pending and reports the rejected target even for a marker-only row", () => {
     const session = {
       id: "leader",
       messageHistory: [human()] as BrowserIncomingMessage[],
@@ -69,11 +124,21 @@ describe("Thread Ready response coverage gate", () => {
       timestamp: 20,
     });
 
-    expect(update).toEqual({ records: [], changed: true });
+    expect(update).toEqual({
+      records: [],
+      changed: true,
+      rejectedReadyRoutes: [
+        {
+          threadKey: "q-42",
+          questId: "q-42",
+          threadRefs: [{ threadKey: "q-42", questId: "q-42", source: "explicit" }],
+        },
+      ],
+    });
     expect(session.state.leaderThreadStatuses["q-42"]).toBeUndefined();
   });
 
-  it("accepts Waiting while pending and Ready after the batch has a valid response", () => {
+  it("accepts Waiting while pending and Ready after the same routed final is stamped", () => {
     const session = {
       id: "leader",
       messageHistory: [human()] as BrowserIncomingMessage[],
@@ -86,18 +151,17 @@ describe("Thread Ready response coverage gate", () => {
       }).records,
     ).toEqual([expect.objectContaining({ kind: "waiting", threadKey: "q-42" })]);
 
-    const token = buildLeaderThreadResponseState(session, "q-42").pendingBatches[0]!.token;
-    publishLeaderThreadResponse(
-      session,
-      { intent: "create", threadKey: "q-42", pendingBatchToken: token, baseRevisionId: null, markdown: "Done." },
-      { now: 30, randomSuffix: "done" },
-    );
+    const response = finalResponse();
+    session.messageHistory.push(response);
+    expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
+    expect(buildLeaderThreadResponseState(session, "q-42").projection.ready).toBe(true);
     const ready = updateLeaderThreadStatusesForAssistantOutput(session, [marker("ready")], {
-      messageId: "ready",
-      timestamp: 40,
+      messageId: response.message.id,
+      timestamp: response.timestamp!,
     });
 
     expect(ready.records).toEqual([expect.objectContaining({ kind: "ready", threadKey: "q-42" })]);
+    expect(ready.rejectedReadyRoutes).toBeUndefined();
     expect(session.state.leaderThreadStatuses["q-42"]?.kind).toBe("ready");
   });
 });

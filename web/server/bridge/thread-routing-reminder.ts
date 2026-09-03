@@ -5,11 +5,15 @@ import {
   THREAD_ROUTING_REMINDER_SOURCE_LABEL,
 } from "../../shared/thread-routing-reminder.js";
 import {
+  advanceThreadRoutingMarkdownFence,
   formatThreadMarker,
+  isThreadTextMarkerLikeAtLineStart,
   parseCommandThreadComment,
   parseThreadTextPrefix,
   parseThreadTextLineStartMarker,
   stripCommandThreadComment,
+  type LeaderThreadTextRole,
+  type ThreadRoutingMarkdownFenceState,
 } from "../../shared/thread-routing.js";
 import {
   extractThreadStatusMarkersFromText,
@@ -28,7 +32,7 @@ import {
 import { extractQuestThreadRemindersFromContent } from "./quest-thread-reminder.js";
 
 const THREAD_ROUTING_EXPECTED =
-  "Start with [thread:main] or [thread:q-N]. Bash commands must start with # thread:main or # thread:q-N.";
+  "Start visible leader text with [thread:main:C], [thread:main:F], [thread:q-N:C], or [thread:q-N:F]. Bash commands must start with # thread:main or # thread:q-N.";
 const QUEST_QUIZ_DIRECTIVE_LINE_RE = /^\s*\{\[\(Quest Quiz:\s*q-\d+\)\]\}\s*$/i;
 
 export interface LeaderAssistantRouteResult {
@@ -37,6 +41,7 @@ export interface LeaderAssistantRouteResult {
   questId?: string;
   threadRefs?: ThreadRef[];
   threadRoutingError?: ThreadRoutingError;
+  leaderThreadRole?: LeaderThreadTextRole;
   questThreadReminders?: string[];
   threadStatusMarkers?: ParsedThreadStatusMarker[];
 }
@@ -53,6 +58,35 @@ export interface ThreadRoutingReminderInjection {
 export interface ThreadRoutingReminderSessionLike {
   messageHistory: BrowserIncomingMessage[];
   userMessageIdsThisTurn?: number[];
+  messageCountAtTurnStart?: number;
+}
+
+export function leaderTurnObservedHistoryLength(session: ThreadRoutingReminderSessionLike): number | undefined {
+  const indexes = (session.userMessageIdsThisTurn ?? []).filter(
+    (value) => Number.isInteger(value) && value >= 0 && value < session.messageHistory.length,
+  );
+  if (indexes.length > 0) return Math.max(...indexes) + 1;
+  const turnStart = session.messageCountAtTurnStart;
+  return Number.isInteger(turnStart) && turnStart! >= 0 && turnStart! <= session.messageHistory.length
+    ? turnStart
+    : undefined;
+}
+
+export function leaderAssistantControlMetadata(
+  session: ThreadRoutingReminderSessionLike,
+  routed: Pick<LeaderAssistantRouteResult, "leaderThreadRole" | "threadStatusMarkers">,
+  hasStableMessageId: boolean,
+): Pick<
+  BrowserIncomingMessage,
+  "leaderThreadRole" | "leaderResponseObservedHistoryLength" | "deferredThreadStatusMarkers"
+> {
+  const observedHistoryLength =
+    routed.leaderThreadRole === "response" && hasStableMessageId ? leaderTurnObservedHistoryLength(session) : undefined;
+  return {
+    ...(routed.leaderThreadRole ? { leaderThreadRole: routed.leaderThreadRole } : {}),
+    ...(observedHistoryLength !== undefined ? { leaderResponseObservedHistoryLength: observedHistoryLength } : {}),
+    ...(routed.threadStatusMarkers?.length ? { deferredThreadStatusMarkers: routed.threadStatusMarkers } : {}),
+  };
 }
 
 export interface LeaderThreadStatusSessionLike {
@@ -66,6 +100,7 @@ export interface LeaderThreadStatusSessionLike {
 export interface LeaderThreadStatusUpdateResult {
   records: LeaderThreadStatus[];
   changed: boolean;
+  rejectedReadyRoutes?: ThreadRouteMetadata[];
 }
 
 function threadRefForTarget(target: { threadKey: string; questId?: string }): ThreadRef | undefined {
@@ -115,23 +150,15 @@ export function extractLeaderThreadStatusMarkersFromContent(content: ContentBloc
   return { content: nextContent, markers };
 }
 
-function isValidThreadRouteLineAfterQuiz(line: string): boolean {
-  if (!line.trim()) return false;
-  return parseThreadTextPrefix(line).ok;
-}
-
-function isTripleBacktickFenceLine(line: string): boolean {
-  return line.startsWith("```");
-}
-
 function isMidMessageRouteDividerLine(line: string): boolean {
   return line === "---";
 }
 
 function normalizedMidMessageRouteMarkerLine(line: string): string | null {
+  if (!isThreadTextMarkerLikeAtLineStart(line)) return null;
   const parsed = parseThreadTextLineStartMarker(line);
-  if (!parsed.ok) return null;
-  return formatThreadMarker(parsed.target.threadKey) + (parsed.body ? " " + parsed.body : "");
+  if (!parsed.ok) return line;
+  return formatThreadMarker(parsed.target.threadKey, parsed.role) + (parsed.body ? " " + parsed.body : "");
 }
 
 export function splitLeaderAssistantContentAtThreadRouteBoundaries(
@@ -147,7 +174,7 @@ export function splitLeaderAssistantContentAtThreadRouteBoundaries(
   let canSplitAfterQuiz = false;
   let pendingMidMessageDividerLine: string | null = null;
   let pendingMidMessageDividerBlankLines: string[] = [];
-  let insideTripleBacktickFence = false;
+  let markdownFence: ThreadRoutingMarkdownFenceState | null = null;
 
   const flushText = () => {
     if (pendingMidMessageDividerLine !== null) {
@@ -178,8 +205,13 @@ export function splitLeaderAssistantContentAtThreadRouteBoundaries(
     }
 
     for (const line of block.text.split(/\r?\n/)) {
+      const wasInsideFence = markdownFence !== null;
+      const fenceTransition = advanceThreadRoutingMarkdownFence(markdownFence, line);
+      markdownFence = fenceTransition.fence;
+      const isFenceProtectedLine = wasInsideFence || fenceTransition.isFenceLine;
+
       if (pendingMidMessageDividerLine !== null) {
-        const normalizedRouteLine = insideTripleBacktickFence ? null : normalizedMidMessageRouteMarkerLine(line);
+        const normalizedRouteLine = isFenceProtectedLine ? null : normalizedMidMessageRouteMarkerLine(line);
         if (normalizedRouteLine !== null) {
           pendingMidMessageDividerLine = null;
           pendingMidMessageDividerBlankLines = [];
@@ -188,7 +220,7 @@ export function splitLeaderAssistantContentAtThreadRouteBoundaries(
           canSplitAfterQuiz = false;
           continue;
         }
-        if (!insideTripleBacktickFence && line.trim() === "") {
+        if (!isFenceProtectedLine && line.trim() === "") {
           pendingMidMessageDividerBlankLines.push(line);
           canSplitAfterQuiz = false;
           continue;
@@ -199,23 +231,23 @@ export function splitLeaderAssistantContentAtThreadRouteBoundaries(
         pendingMidMessageDividerBlankLines = [];
       }
 
-      if (isTripleBacktickFenceLine(line)) {
+      if (isFenceProtectedLine) {
         currentTextLines.push(line);
-        insideTripleBacktickFence = !insideTripleBacktickFence;
         canSplitAfterQuiz = false;
         continue;
       }
 
-      if (!insideTripleBacktickFence && isMidMessageRouteDividerLine(line)) {
+      if (isMidMessageRouteDividerLine(line)) {
         pendingMidMessageDividerLine = line;
         pendingMidMessageDividerBlankLines = [];
         canSplitAfterQuiz = false;
         continue;
       }
 
-      if (canSplitAfterQuiz && isValidThreadRouteLineAfterQuiz(line)) {
+      const postQuizRouteLine = canSplitAfterQuiz ? normalizedMidMessageRouteMarkerLine(line) : null;
+      if (postQuizRouteLine !== null) {
         flushSegment();
-        currentTextLines.push(line);
+        currentTextLines.push(postQuizRouteLine);
         canSplitAfterQuiz = false;
         continue;
       }
@@ -254,6 +286,16 @@ function threadRoutingErrorForCommand(command: string): ThreadRoutingError {
     expected: THREAD_ROUTING_EXPECTED,
     source: "shell_command",
     rawContent: command,
+  };
+}
+
+function threadRoutingErrorForMissingRole(marker: string, content: ContentBlock[]): ThreadRoutingError {
+  return {
+    reason: "missing_role",
+    expected: THREAD_ROUTING_EXPECTED,
+    source: "visible_text",
+    marker,
+    rawContent: content.map((block) => (block.type === "text" ? block.text : "")).join("\n"),
   };
 }
 
@@ -302,6 +344,10 @@ export function normalizeLeaderAssistantRouting(
       threadKey: parsed.target.threadKey,
       ...(parsed.target.questId ? { questId: parsed.target.questId } : {}),
       ...(refs ? { threadRefs: refs } : {}),
+      ...(parsed.role ? { leaderThreadRole: parsed.role } : {}),
+      ...(!parsed.role
+        ? { threadRoutingError: threadRoutingErrorForMissingRole(formatThreadMarker(parsed.target.threadKey), content) }
+        : {}),
       ...questThreadReminders,
       ...threadStatusMarkers,
     };
@@ -424,6 +470,7 @@ export function updateLeaderThreadStatusesForAssistantOutput(
 
   const statuses = { ...(session.state.leaderThreadStatuses ?? {}) };
   const records: LeaderThreadStatus[] = [];
+  const rejectedReadyRoutes: ThreadRouteMetadata[] = [];
   const markerThreadKeys = new Set<string>();
   let changed = false;
   for (const marker of markers ?? []) {
@@ -437,6 +484,7 @@ export function updateLeaderThreadStatusesForAssistantOutput(
         marker.target.threadKey,
       ).projection.pendingMessageCount > 0
     ) {
+      rejectedReadyRoutes.push(threadRouteForTarget(marker.target.threadKey));
       if (statuses[key]) {
         delete statuses[key];
         changed = true;
@@ -471,7 +519,11 @@ export function updateLeaderThreadStatusesForAssistantOutput(
   if (changed) {
     session.state.leaderThreadStatuses = statuses;
   }
-  return { records, changed };
+  return {
+    records,
+    changed,
+    ...(rejectedReadyRoutes.length > 0 ? { rejectedReadyRoutes } : {}),
+  };
 }
 
 function findTriggeringTurnRoute(session: ThreadRoutingReminderSessionLike): ThreadRouteMetadata {

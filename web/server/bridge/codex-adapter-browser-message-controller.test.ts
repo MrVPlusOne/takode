@@ -1365,45 +1365,36 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(isDuplicateCodexAssistantReplay).not.toHaveBeenCalled();
   });
 
-  it("records Codex thread status markers only after replay duplicate detection", async () => {
+  it("defers Codex thread status markers until after replay duplicate detection", async () => {
     const session = makeSession();
     const broadcasts: BrowserIncomingMessage[] = [];
-    const deps = makeDeps(broadcasts);
-    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
 
-    try {
-      await handleCodexAdapterBrowserMessage(
-        session,
-        makeAssistant(
-          [
-            {
-              type: "text",
-              text: "[thread:q-941]\n{[(Thread Waiting: q-941 | waiting on reviewer)]}",
-            },
-          ],
-          "codex-status-live",
-        ),
-        deps,
-      );
-    } finally {
-      nowSpy.mockRestore();
-    }
+    await handleCodexAdapterBrowserMessage(
+      session,
+      makeAssistant(
+        [
+          {
+            type: "text",
+            text: "[thread:q-941:C]\n{[(Thread Waiting: q-941 | waiting on reviewer)]}",
+          },
+        ],
+        "codex-status-live",
+      ),
+      makeDeps(broadcasts),
+    );
 
-    expect(session.state.leaderThreadStatuses?.["q-941"]).toMatchObject({
-      kind: "waiting",
-      threadKey: "q-941",
-      messageId: "codex-status-live",
-      timestamp: 1,
-    });
+    expect(session.state.leaderThreadStatuses?.["q-941"]).toBeUndefined();
     expect(broadcasts).toEqual([
       expect.objectContaining({
         type: "assistant",
-        threadStatusMarkers: [expect.objectContaining({ kind: "waiting", threadKey: "q-941" })],
+        deferredThreadStatusMarkers: [
+          expect.objectContaining({ kind: "waiting", target: expect.objectContaining({ threadKey: "q-941" }) }),
+        ],
       }),
     ]);
   });
 
-  it("creates unread review attention from live Codex Thread Ready markers and dedupes replay", async () => {
+  it("defers live Codex Thread Ready attention and dedupes replay", async () => {
     const session = makeSession();
     session.attentionReason = "action";
     const broadcasts: BrowserIncomingMessage[] = [];
@@ -1411,12 +1402,13 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     const deps = {
       ...makeDeps(broadcasts),
       scheduleNotification,
+      isDuplicateCodexAssistantReplay: vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true),
     } as CodexAdapterBrowserMessageDeps & { scheduleNotification: ReturnType<typeof vi.fn> };
     const readyMessage = makeAssistant(
       [
         {
           type: "text",
-          text: "[thread:q-1539]\nDone.\n{[(Thread Ready: q-1539 | quest complete)]}",
+          text: "[thread:q-1539:C]\nDone.\n{[(Thread Ready: q-1539 | quest complete)]}",
         },
       ],
       "codex-ready-live",
@@ -1425,37 +1417,18 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     await handleCodexAdapterBrowserMessage(session, readyMessage, deps);
     await handleCodexAdapterBrowserMessage(session, readyMessage, deps);
 
-    expect(session.state.leaderThreadStatuses?.["q-1539"]).toMatchObject({
-      kind: "ready",
-      threadKey: "q-1539",
-      messageId: "codex-ready-live",
-    });
-    expect(session.notifications).toEqual([
-      expect.objectContaining({
-        id: "n-1",
-        category: "review",
-        summary: "Thread ready: q-1539 | quest complete",
-        threadKey: "q-1539",
-        questId: "q-1539",
-        messageId: "codex-ready-live",
-        done: false,
-      }),
-    ]);
+    expect(session.state.leaderThreadStatuses?.["q-1539"]).toBeUndefined();
+    expect(session.notifications).toEqual([]);
     expect(session.attentionReason).toBe("action");
     expect(scheduleNotification).not.toHaveBeenCalled();
-    expect(broadcasts.filter((msg) => msg.type === "notification_update")).toHaveLength(1);
-    expect(broadcasts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: "notification_update",
-          notifications: [expect.objectContaining({ category: "review", threadKey: "q-1539" })],
-        }),
-        expect.objectContaining({
-          type: "assistant",
-          threadStatusMarkers: [expect.objectContaining({ kind: "ready", threadKey: "q-1539" })],
-        }),
-      ]),
-    );
+    expect(broadcasts.filter((msg) => msg.type === "notification_update")).toHaveLength(0);
+    expect(broadcasts.filter((msg) => msg.type === "assistant")).toEqual([
+      expect.objectContaining({
+        deferredThreadStatusMarkers: [
+          expect.objectContaining({ kind: "ready", target: expect.objectContaining({ threadKey: "q-1539" }) }),
+        ],
+      }),
+    ]);
   });
 
   it("preserves unrelated Codex thread statuses when routed output touches a different thread", async () => {
@@ -1751,11 +1724,11 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
           {
             type: "text",
             text: [
-              "[thread:q-1567]",
+              "[thread:q-1567:C]",
               "[q-1567](quest:q-1567) is complete.",
               "",
               "{[(Quest Quiz: q-1567)]}",
-              "[thread:q-1570] [q-1570](quest:q-1570) is dispatched.",
+              "[thread:q-1570:C] [q-1570](quest:q-1570) is dispatched.",
             ].join("\n"),
           },
         ],
@@ -1785,7 +1758,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(assistantBroadcasts[1]?.type === "assistant" ? assistantBroadcasts[1].message.content : []).toEqual([
       { type: "text", text: "[q-1570](quest:q-1570) is dispatched." },
     ]);
-    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1570]");
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1570:C]");
     expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
   });
 
@@ -1800,10 +1773,10 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
           {
             type: "text",
             text: [
-              "[thread:q-1695]",
+              "[thread:q-1695:C]",
               "Approved Option A is recorded.",
               "---",
-              "[thread:q-1693]No separator still routes after the split divider.",
+              "[thread:q-1693:C]No separator still routes after the split divider.",
             ].join("\n"),
           },
         ],
@@ -1830,7 +1803,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(assistantBroadcasts[1]?.type === "assistant" ? assistantBroadcasts[1].message.content : []).toEqual([
       { type: "text", text: "No separator still routes after the split divider." },
     ]);
-    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1693]");
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1693:C]");
     expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
   });
 
@@ -1848,14 +1821,14 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
           {
             type: "text",
             text: [
-              "[thread:q-1718]",
+              "[thread:q-1718:C]",
               "[q-1718](quest:q-1718) is complete.",
               "",
               "{[(Quest Quiz: q-1718)]}",
               "",
               "---",
               "",
-              "[thread:q-1721] [q-1721](quest:q-1721) is now dispatched.",
+              "[thread:q-1721:C] [q-1721](quest:q-1721) is now dispatched.",
             ].join("\n"),
           },
         ],
@@ -1882,7 +1855,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(assistantBroadcasts[1]?.type === "assistant" ? assistantBroadcasts[1].message.content : []).toEqual([
       { type: "text", text: "[q-1721](quest:q-1721) is now dispatched." },
     ]);
-    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1721]");
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1721:C]");
     expect(JSON.stringify(session.messageHistory)).not.toContain("\n---\n");
     expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
   });

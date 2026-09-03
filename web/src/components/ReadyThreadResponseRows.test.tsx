@@ -81,6 +81,7 @@ describe("ReadyThreadResponseRows", () => {
 
     expect(screen.getByText("Current polished response")).toBeVisible();
     expect(screen.getByTestId("thread-response-group-provenance")).toHaveTextContent("Answers 2 messages");
+    expect(screen.queryByText("Current response")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Edit|Save new version|Versions/i })).not.toBeInTheDocument();
   });
 

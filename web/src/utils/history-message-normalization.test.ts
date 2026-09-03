@@ -117,6 +117,44 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     expect(unknown.metadata?.codexMessagePhase).toBeUndefined();
   });
 
+  it("preserves routed final-response role and internal revision authority on ordinary assistant rows", () => {
+    const [message] = normalizeHistoryMessageToChatMessages(
+      {
+        type: "assistant",
+        timestamp: 200,
+        parent_tool_use_id: null,
+        leaderThreadRole: "response",
+        threadKey: "q-2024",
+        questId: "q-2024",
+        threadRefs: [{ threadKey: "q-2024", questId: "q-2024", source: "explicit" }],
+        threadResponse: {
+          logicalResponseId: "response-1",
+          revisionId: "response-1-r1",
+          revisionNumber: 1,
+          batchId: "batch-1",
+          batchObservedHistoryLength: 8,
+          coveredUserMessageIds: ["user-1"],
+          contentHash: "hash-1",
+        },
+        message: {
+          id: "assistant-response-1",
+          type: "message",
+          role: "assistant",
+          model: "claude-test",
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          content: [{ type: "text", text: "Final response" }],
+        },
+      },
+      7,
+    );
+
+    expect(message.metadata).toMatchObject({
+      leaderThreadRole: "response",
+      threadResponse: { revisionId: "response-1-r1", coveredUserMessageIds: ["user-1"] },
+    });
+  });
+
   it("preserves explicit reply metadata on user messages", () => {
     const user = normalizeHistoryMessageToChatMessages(
       {

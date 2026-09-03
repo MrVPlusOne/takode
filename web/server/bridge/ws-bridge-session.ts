@@ -296,6 +296,8 @@ export interface Session {
   notifications: SessionNotification[];
   /** History length after the latest leader-thread outcome validation pass. */
   leaderThreadOutcomeValidatedHistoryLength?: number;
+  /** Recovered Ready rejections awaiting the next normal outcome-validation boundary. */
+  pendingLeaderRejectedReadyThreadKeys: string[];
   /** Server-authoritative attention records for Main ledger rows and top chips. */
   attentionRecords: SessionAttentionRecord[];
   /** Monotonic counter for notification IDs (survives deletion without collisions). */

@@ -11,7 +11,7 @@ import {
   validateLeaderThreadOutcomes,
   type LeaderThreadOutcomeTurnSource,
 } from "./leader-thread-outcome-validator.js";
-import { buildLeaderThreadResponseState, publishLeaderThreadResponse } from "../leader-thread-response.js";
+import { finalizeRoutedLeaderResponseMessage } from "../leader-thread-response.js";
 
 function assistantMessage({
   id,
@@ -548,6 +548,106 @@ describe("pending-batch thread response reminders", () => {
       expect.objectContaining({ sessionId: THREAD_RESPONSE_REMINDER_SOURCE_ID }),
       expect.objectContaining({ threadKey: "q-42" }),
     );
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("- q-42: Ask u1");
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("[thread:q-N:F]");
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).not.toContain("response-batch-v1");
+  });
+
+  it("uses an explicit rejected Ready target to remind after a marker-only turn", () => {
+    const pending = coveredHumanMessage("u1", 10, "q-42") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    pending.content = "Please compare the two deployment options before deciding.";
+    pending.images = [
+      { id: "image-1", filename: "option.png", media_type: "image/png", size: 10, created_at: 10 } as any,
+    ];
+    const session = {
+      id: "leader",
+      messageHistory: [pending] as BrowserIncomingMessage[],
+      notifications: [],
+      leaderThreadOutcomeValidatedHistoryLength: 1,
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps, { rejectedReadyThreadKeys: ["q-42"] })).toEqual({
+      checked: false,
+      reason: "no_new_history",
+    });
+
+    session.messageHistory.push(assistantMessage({ id: "marker-only", text: "", timestamp: 20, threadKey: "q-42" }));
+    expect(validateLeaderThreadOutcomes(session, deps, { rejectedReadyThreadKeys: ["q-42"] })).toEqual({
+      checked: true,
+      missing: ["q-42"],
+      injected: true,
+    });
+    const reminder = deps.injectUserMessage.mock.calls.at(-1)?.[1] ?? "";
+    expect(reminder).toContain("Please compare the two deployment options");
+    expect(reminder).toContain("(+1 image)");
+    expect(reminder).not.toContain("u1");
+  });
+
+  it("forces the pending-response reminder when rejected Ready is followed by fresh Waiting", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [
+        coveredHumanMessage("u1", 10, "q-42"),
+        assistantMessage({ id: "ready-then-waiting", text: "Still working.", timestamp: 20, threadKey: "q-42" }),
+      ],
+      notifications: [],
+      state: {
+        leaderThreadStatuses: {
+          "q-42": threadStatus({ kind: "waiting", timestamp: 20, threadKey: "q-42" }),
+        },
+      },
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps, { rejectedReadyThreadKeys: ["q-42"] })).toEqual({
+      checked: true,
+      missing: ["q-42"],
+      injected: true,
+    });
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("Final-response reminder");
+    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("q-42 (1 pending)");
+  });
+
+  it("defers recovered Ready rejection until the next normal validation boundary", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [coveredHumanMessage("u1", 10, "q-42")] as BrowserIncomingMessage[],
+      notifications: [],
+      state: {
+        leaderThreadStatuses: {
+          "q-42": threadStatus({ kind: "waiting", timestamp: 20, threadKey: "q-42" }),
+        },
+      },
+      leaderThreadOutcomeValidatedHistoryLength: 1,
+      pendingLeaderRejectedReadyThreadKeys: ["q-42"],
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: false, reason: "no_new_history" });
+    expect(deps.injectUserMessage).not.toHaveBeenCalled();
+    expect(session.pendingLeaderRejectedReadyThreadKeys).toEqual(["q-42"]);
+
+    deps.getTurnSource.mockReturnValue("system");
+    session.messageHistory.push(
+      assistantMessage({ id: "replay-boundary", text: "Recovered history.", timestamp: 25, threadKey: "q-42" }),
+    );
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: false, reason: "system_turn" });
+    expect(deps.injectUserMessage).not.toHaveBeenCalled();
+    expect(session.pendingLeaderRejectedReadyThreadKeys).toEqual(["q-42"]);
+
+    deps.getTurnSource.mockReturnValue("leader");
+    session.messageHistory.push(
+      assistantMessage({ id: "normal-boundary", text: "Still working.", timestamp: 30, threadKey: "q-42" }),
+    );
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({
+      checked: true,
+      missing: ["q-42"],
+      injected: true,
+    });
+    expect(deps.injectUserMessage.mock.calls.at(-1)?.[1]).toContain("Final-response reminder");
+    expect(session.pendingLeaderRejectedReadyThreadKeys).toEqual([]);
   });
 
   it("allows a pending batch to remain open behind a fresh Waiting marker", () => {
@@ -593,7 +693,12 @@ describe("pending-batch thread response reminders", () => {
     const deps = makeDeps();
 
     expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: true, missing: ["main"], injected: true });
-    expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("Needs-input notification reminder");
+    const reminder = deps.injectUserMessage.mock.calls[0]?.[1] ?? "";
+    expect(reminder).toContain("Needs-input notification reminder");
+    expect(reminder).toContain("[thread:main:C]");
+    expect(reminder).toContain("[thread:q-N:C]");
+    expect(reminder).toContain("later `[thread:main:F]` or `[thread:q-N:F]` final response");
+    expect(reminder).not.toContain("Publish or revise the covering thread response");
   });
 
   it("accepts Ready after the exact pending batch has a current response", () => {
@@ -604,12 +709,14 @@ describe("pending-batch thread response reminders", () => {
       state: { leaderThreadStatuses: {} as Record<string, ReturnType<typeof threadStatus>> },
       leaderThreadOutcomeValidatedHistoryLength: 0,
     };
-    const token = buildLeaderThreadResponseState(session, "main").pendingBatches[0]!.token;
-    const response = publishLeaderThreadResponse(
-      session,
-      { intent: "create", threadKey: "main", pendingBatchToken: token, baseRevisionId: null, markdown: "Answer." },
-      { now: 20, randomSuffix: "ready" },
-    );
+    const response = assistantMessage({ id: "ready-response", text: "Answer.", timestamp: 20 }) as Extract<
+      BrowserIncomingMessage,
+      { type: "assistant" }
+    >;
+    response.leaderThreadRole = "response";
+    response.leaderResponseObservedHistoryLength = 1;
+    session.messageHistory.push(response);
+    expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
     session.state.leaderThreadStatuses.main = threadStatus({
       kind: "ready",
       timestamp: 30,

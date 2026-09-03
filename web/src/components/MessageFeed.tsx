@@ -626,6 +626,15 @@ export function MessageFeed({
     normalizedThreadKey,
     isLeaderSession,
   );
+  const latestThreadResponseUpdatedAt = Math.max(
+    0,
+    ...(threadResponsePresentation?.currentResponses.map((item) => item.response.updatedAt) ?? []),
+  );
+  const responseStateHasTrackedWork =
+    threadResponseState != null &&
+    (threadResponseState.pendingMessageCount > 0 || threadResponseState.currentResponses.length > 0);
+  const validatedReadyCollapse = threadResponsePresentation?.ready === true;
+  const legacyQuestReadyCollapse = collapseLeaderThreadActivity && !responseStateHasTrackedWork;
   const isLoadingOlderSection = pendingSectionLoadDirection === "older";
   const isLoadingNewerSection = pendingSectionLoadDirection === "newer";
   const latestPillLabel = hasNewerSections ? "Latest section below" : "New content below";
@@ -639,10 +648,8 @@ export function MessageFeed({
     leaderProjectionSourceHistoryLength: leaderProjection?.sourceHistoryLength ?? 0,
   });
   const { turnStates, toggleTurn } = useCollapsePolicy({
-    autoCollapseReadyThreadKey:
-      collapseLeaderThreadActivity || (isMainThreadKey(normalizedThreadKey) && threadResponsePresentation?.ready)
-        ? normalizedThreadKey
-        : null,
+    autoCollapseReadyAfter: validatedReadyCollapse ? latestThreadResponseUpdatedAt : null,
+    autoCollapseReadyThreadKey: validatedReadyCollapse || legacyQuestReadyCollapse ? normalizedThreadKey : null,
     sessionId,
     turns: visibleTurns,
   });

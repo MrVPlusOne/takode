@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { leaderResponseOwnerThreadKey } from "../shared/leader-thread-response-routing.js";
 import { normalizeSelectedFeedThreadKey } from "../shared/thread-window.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
@@ -11,7 +11,6 @@ import type {
   LeaderThreadResponseRevision,
   LeaderThreadResponseRevisionMetadata,
   LeaderThreadResponseState,
-  ThreadRef,
 } from "./session-types.js";
 import { LEADER_THREAD_RESPONSE_VERSION } from "./leader-thread-response-types.js";
 
@@ -20,25 +19,11 @@ export type LeaderThreadResponseSession = {
   messageHistory: BrowserIncomingMessage[];
 };
 
-export type PublishLeaderThreadResponseInput =
-  | {
-      intent: "create";
-      threadKey: string;
-      pendingBatchToken: string;
-      baseRevisionId: null;
-      markdown: string;
-      idempotencyKey?: string;
-    }
-  | {
-      intent: "revise";
-      threadKey: string;
-      responseId: string;
-      baseRevisionId: string;
-      markdown: string;
-      idempotencyKey?: string;
-    };
-
 export interface LeaderThreadPendingBatchDetail extends LeaderThreadPendingBatchProjection {
+  /** New routed-final identity. It is never accepted from a caller. */
+  batchId: string;
+  /** Recomputed only so already-persisted dedicated response rows remain verifiable. */
+  legacyBatchId: string;
   members: Array<{
     messageId: string;
     historyIndex: number;
@@ -55,13 +40,6 @@ export interface LeaderThreadResponseStateDetail {
   pendingBatches: LeaderThreadPendingBatchDetail[];
 }
 
-export type PublishLeaderThreadResponseResult = {
-  created: boolean;
-  message: Extract<BrowserIncomingMessage, { type: "leader_user_message" }>;
-  response: LeaderThreadResponseDetail;
-  responseState: LeaderThreadResponseStateDetail;
-};
-
 type DirectHumanMessage = {
   message: Extract<BrowserIncomingMessage, { type: "user_message" }>;
   messageId: string;
@@ -70,8 +48,10 @@ type DirectHumanMessage = {
   threadKey: string;
 };
 
+type ResponseHistoryMessage = Extract<BrowserIncomingMessage, { type: "assistant" | "leader_user_message" }>;
+
 type ParsedRevision = {
-  message: Extract<BrowserIncomingMessage, { type: "leader_user_message" }>;
+  message: ResponseHistoryMessage;
   revision: LeaderThreadResponseRevision;
   metadata: LeaderThreadResponseRevisionMetadata;
   threadKey: string;
@@ -95,33 +75,11 @@ type PendingBatchTokenPayload = {
   ids: string[];
 };
 
-const THREAD_ROUTE_DIRECTIVE_RE = /^\s*\[thread:(?:main|q-\d+)\]/i;
-const SHELL_THREAD_ROUTE_DIRECTIVE_RE = /^\s*#\s*thread:(?:main|q-\d+)\b/i;
+const THREAD_ROUTE_DIRECTIVE_RE = /^\s*\[thread:/i;
+const SHELL_THREAD_ROUTE_DIRECTIVE_RE = /^\s*#\s*thread:/i;
 const THREAD_STATUS_DIRECTIVE_RE = /^\s*\{\[\(Thread (?:Waiting|Ready):/i;
 const FENCE_RE = /^\s*(`{3,}|~{3,})/;
 const PREVIEW_LIMIT = 240;
-
-export class LeaderThreadResponseConflictError extends Error {
-  constructor(
-    readonly currentRevisionId: string | null,
-    message?: string,
-  ) {
-    super(
-      message ??
-        (currentRevisionId
-          ? `Thread response changed; retry against current revision ${currentRevisionId}.`
-          : "Thread response changed; retry against the current empty state."),
-    );
-    this.name = "LeaderThreadResponseConflictError";
-  }
-}
-
-export class LeaderThreadResponseIdempotencyConflictError extends Error {
-  constructor() {
-    super("Thread response idempotency key was already used for a different request.");
-    this.name = "LeaderThreadResponseIdempotencyConflictError";
-  }
-}
 
 export function leaderThreadResponseContentHash(markdown: string): string {
   return createHash("sha256").update(markdown).digest("hex");
@@ -139,7 +97,7 @@ export function isSubstantiveLeaderThreadResponse(markdown: string): boolean {
   return /[\p{L}\p{N}]/u.test(readable);
 }
 
-function assertNoThreadControlDirectives(markdown: string): void {
+function hasThreadControlDirectives(markdown: string): boolean {
   let fence: { marker: string; length: number } | null = null;
   for (const line of markdown.split("\n")) {
     const token = line.match(FENCE_RE)?.[1];
@@ -156,9 +114,10 @@ function assertNoThreadControlDirectives(markdown: string): void {
       SHELL_THREAD_ROUTE_DIRECTIVE_RE.test(line) ||
       THREAD_STATUS_DIRECTIVE_RE.test(line)
     ) {
-      throw new Error("Thread response content cannot contain routing or Thread Waiting/Ready directives.");
+      return true;
     }
   }
+  return false;
 }
 
 function normalizeThreadKey(value: string): string {
@@ -167,71 +126,42 @@ function normalizeThreadKey(value: string): string {
   return threadKey;
 }
 
-function normalizedIdempotencyKey(value: string | undefined): string | undefined {
-  const key = value?.trim();
-  if (!key) return undefined;
-  if (key.length > 200) throw new Error("idempotencyKey must be 200 characters or fewer.");
-  return key;
-}
-
-function requestIdempotencyHash(input: PublishLeaderThreadResponseInput, markdown: string): string {
-  return leaderThreadResponseContentHash(
-    JSON.stringify({
-      intent: input.intent,
-      threadKey: normalizeSelectedFeedThreadKey(input.threadKey),
-      baseRevisionId: input.baseRevisionId,
-      ...(input.intent === "create"
-        ? { pendingBatchToken: input.pendingBatchToken }
-        : { responseId: input.responseId }),
-      markdown,
-    }),
-  );
-}
-
-function encodePendingBatchToken(sessionId: string, payload: PendingBatchTokenPayload): string {
+function encodeLegacyPendingBatchId(sessionId: string, payload: PendingBatchTokenPayload): string {
   const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const checksum = leaderThreadResponseContentHash(`${sessionId}\n${encoded}`).slice(0, 24);
   return `response-batch-v1.${encoded}.${checksum}`;
 }
 
-function decodePendingBatchToken(sessionId: string, token: string): PendingBatchTokenPayload | null {
-  const match = /^response-batch-v1\.([A-Za-z0-9_-]+)\.([0-9a-f]{24})$/.exec(token);
-  if (!match) return null;
-  const [, encoded, checksum] = match;
-  if (leaderThreadResponseContentHash(`${sessionId}\n${encoded}`).slice(0, 24) !== checksum) return null;
-  try {
-    const payload = JSON.parse(
-      Buffer.from(encoded!, "base64url").toString("utf8"),
-    ) as Partial<PendingBatchTokenPayload>;
-    if (
-      payload.v !== LEADER_THREAD_RESPONSE_VERSION ||
-      typeof payload.t !== "string" ||
-      !Number.isInteger(payload.h) ||
-      (payload.h ?? -1) < 0 ||
-      !Array.isArray(payload.ids) ||
-      payload.ids.length === 0 ||
-      !payload.ids.every((id) => typeof id === "string" && id.length > 0) ||
-      new Set(payload.ids).size !== payload.ids.length
-    )
-      return null;
-    return { v: LEADER_THREAD_RESPONSE_VERSION, t: payload.t, h: payload.h!, ids: [...payload.ids] };
-  } catch {
-    return null;
-  }
-}
-
-function pendingBatchToken(
+function legacyPendingBatchId(
   sessionId: string,
   threadKey: string,
   observedHistoryLength: number,
   messageIds: readonly string[],
 ): string {
-  return encodePendingBatchToken(sessionId, {
+  return encodeLegacyPendingBatchId(sessionId, {
     v: LEADER_THREAD_RESPONSE_VERSION,
     t: threadKey,
     h: observedHistoryLength,
     ids: [...messageIds],
   });
+}
+
+function routedPendingBatchId(
+  sessionId: string,
+  threadKey: string,
+  observedHistoryLength: number,
+  messageIds: readonly string[],
+): string {
+  const digest = leaderThreadResponseContentHash(
+    JSON.stringify({
+      v: LEADER_THREAD_RESPONSE_VERSION,
+      sessionId,
+      threadKey,
+      observedHistoryLength,
+      messageIds,
+    }),
+  ).slice(0, 32);
+  return `routed-response-batch-v1.${digest}`;
 }
 
 function validRevisionMetadata(value: unknown): value is LeaderThreadResponseRevisionMetadata {
@@ -257,9 +187,7 @@ function validRevisionMetadata(value: unknown): value is LeaderThreadResponseRev
   );
 }
 
-function exactResponseThreadKey(
-  message: Extract<BrowserIncomingMessage, { type: "leader_user_message" }>,
-): string | null {
+function exactResponseThreadKey(message: ResponseHistoryMessage): string | null {
   if (typeof message.threadKey !== "string" || !message.threadKey.trim()) return null;
   const threadKey = normalizeSelectedFeedThreadKey(message.threadKey);
   if (threadKey === "main") {
@@ -277,22 +205,50 @@ function exactResponseThreadKey(
   return threadKey;
 }
 
+function responseMessageId(message: ResponseHistoryMessage): string | null {
+  const value = message.type === "assistant" ? message.message.id : message.id;
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function responseMessageMarkdown(message: ResponseHistoryMessage): string {
+  if (message.type === "leader_user_message") return normalizeLeaderThreadResponseMarkdown(message.content);
+  return normalizeLeaderThreadResponseMarkdown(
+    message.message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n"),
+  );
+}
+
+function responseMessageTimestamp(message: ResponseHistoryMessage): number | null {
+  return typeof message.timestamp === "number" && Number.isFinite(message.timestamp) ? message.timestamp : null;
+}
+
+function isEligibleResponseHistoryMessage(message: ResponseHistoryMessage): boolean {
+  if (message.type === "leader_user_message") return true;
+  return (
+    message.parent_tool_use_id === null &&
+    message.leaderThreadRole === "response" &&
+    !message.message.content.some((block) => block.type === "tool_use" || block.type === "tool_result")
+  );
+}
+
 function parsedHistoryRevision(message: BrowserIncomingMessage, historyIndex: number): ParsedRevision | null {
   if (
-    message.type !== "leader_user_message" ||
+    (message.type !== "leader_user_message" && message.type !== "assistant") ||
     !isRootAgentHistoryMessage(message) ||
+    !isEligibleResponseHistoryMessage(message) ||
     !validRevisionMetadata(message.threadResponse)
   )
     return null;
   const threadKey = exactResponseThreadKey(message);
-  const markdown = normalizeLeaderThreadResponseMarkdown(message.content);
+  const markdown = responseMessageMarkdown(message);
+  const messageId = responseMessageId(message);
+  const timestamp = responseMessageTimestamp(message);
   if (
     !threadKey ||
-    !message.id ||
+    !messageId ||
     !isSubstantiveLeaderThreadResponse(markdown) ||
     message.threadResponse.contentHash !== leaderThreadResponseContentHash(markdown) ||
-    !Number.isFinite(message.timestamp) ||
-    message.timestamp < 0
+    timestamp === null ||
+    timestamp < 0
   )
     return null;
   const metadata = message.threadResponse;
@@ -304,15 +260,14 @@ function parsedHistoryRevision(message: BrowserIncomingMessage, historyIndex: nu
       revisionId: metadata.revisionId,
       ...(metadata.parentRevisionId ? { parentRevisionId: metadata.parentRevisionId } : {}),
       revisionNumber: metadata.revisionNumber,
-      messageId: message.id,
+      messageId,
       historyIndex,
       markdown,
       batchId: metadata.batchId,
       batchObservedHistoryLength: metadata.batchObservedHistoryLength,
       coveredUserMessageIds: [...metadata.coveredUserMessageIds],
       contentHash: metadata.contentHash,
-      createdAt: message.timestamp,
-      ...(metadata.idempotencyKey ? { idempotencyKey: metadata.idempotencyKey } : {}),
+      createdAt: timestamp,
     },
   };
 }
@@ -396,31 +351,30 @@ function pendingBatchesForThread(
     } else current.push(message);
   }
   if (current.length > 0) batches.push(current);
-  return batches.map((members) => ({
-    token: pendingBatchToken(
-      sessionId,
-      threadKey,
-      observedHistoryLength,
-      members.map((member) => member.messageId),
-    ),
-    userMessageIds: members.map((member) => member.messageId),
-    messageCount: members.length,
-    firstHistoryIndex: members[0]!.historyIndex,
-    lastHistoryIndex: members.at(-1)!.historyIndex,
-    firstAskedAt: members[0]!.timestamp,
-    lastAskedAt: members.at(-1)!.timestamp,
-    members: members.map((member) => {
-      const preview = member.message.content.trim();
-      return {
-        messageId: member.messageId,
-        historyIndex: member.historyIndex,
-        timestamp: member.timestamp,
-        preview: preview.slice(0, PREVIEW_LIMIT),
-        truncated: preview.length > PREVIEW_LIMIT,
-        imageCount: member.message.images?.length ?? 0,
-      };
-    }),
-  }));
+  return batches.map((members) => {
+    const userMessageIds = members.map((member) => member.messageId);
+    return {
+      batchId: routedPendingBatchId(sessionId, threadKey, observedHistoryLength, userMessageIds),
+      legacyBatchId: legacyPendingBatchId(sessionId, threadKey, observedHistoryLength, userMessageIds),
+      userMessageIds,
+      messageCount: members.length,
+      firstHistoryIndex: members[0]!.historyIndex,
+      lastHistoryIndex: members.at(-1)!.historyIndex,
+      firstAskedAt: members[0]!.timestamp,
+      lastAskedAt: members.at(-1)!.timestamp,
+      members: members.map((member) => {
+        const preview = member.message.content.trim();
+        return {
+          messageId: member.messageId,
+          historyIndex: member.historyIndex,
+          timestamp: member.timestamp,
+          preview: preview.slice(0, PREVIEW_LIMIT),
+          truncated: preview.length > PREVIEW_LIMIT,
+          imageCount: member.message.images?.length ?? 0,
+        };
+      }),
+    };
+  });
 }
 
 function sameIds(left: readonly string[], right: readonly string[]): boolean {
@@ -457,7 +411,8 @@ function evaluateResponses(
     );
     const matchedBatch = observedBatches.find(
       (batch) =>
-        batch.token === first.metadata.batchId && sameIds(batch.userMessageIds, first.metadata.coveredUserMessageIds),
+        (batch.batchId === first.metadata.batchId || batch.legacyBatchId === first.metadata.batchId) &&
+        sameIds(batch.userMessageIds, first.metadata.coveredUserMessageIds),
     );
     if (!matchedBatch || first.metadata.coveredUserMessageIds.some((id) => coveredMessageIds.has(id))) continue;
     first.metadata.coveredUserMessageIds.forEach((id) => coveredMessageIds.add(id));
@@ -490,34 +445,200 @@ function responseDetailFromChain(chain: CandidateResponseChain): LeaderThreadRes
   return { ...responseStateFromChain(chain), revisions: chain.entries.map((entry) => entry.revision) };
 }
 
-export function buildLeaderThreadResponseState(
+function buildLeaderThreadResponseStateAt(
   session: Pick<LeaderThreadResponseSession, "id" | "messageHistory">,
   requestedThreadKey: string,
+  historyLimit: number,
 ): LeaderThreadResponseStateDetail {
   const threadKey = normalizeThreadKey(requestedThreadKey);
-  const evaluation = evaluateResponses(session);
+  const boundedHistoryLimit = Math.max(0, Math.min(Math.floor(historyLimit), session.messageHistory.length));
+  const evaluation = evaluateResponses(session, boundedHistoryLimit);
   const responses = evaluation.chains
     .filter((chain) => chain.threadKey === threadKey)
     .map(responseDetailFromChain)
     .sort((left, right) => left.currentHistoryIndex - right.currentHistoryIndex);
-  const pendingBatches = pendingBatchesForThread(session.id, threadKey, evaluation, session.messageHistory.length);
+  const pendingBatches = pendingBatchesForThread(session.id, threadKey, evaluation, boundedHistoryLimit);
   const eligible = evaluation.directMessages.filter((message) => message.threadKey === threadKey);
   const projection: LeaderThreadResponseProjection = {
     version: LEADER_THREAD_RESPONSE_VERSION,
     threadKey,
     cutoverHistoryIndex: eligible[0]?.historyIndex ?? session.messageHistory.length,
     pendingMessageCount: pendingBatches.reduce((count, batch) => count + batch.messageCount, 0),
-    pendingBatches: pendingBatches.map(({ members: _members, ...batch }) => batch),
+    pendingBatches: pendingBatches.map(
+      ({ members: _members, batchId: _batchId, legacyBatchId: _legacyBatchId, ...batch }) => batch,
+    ),
     currentResponses: responses.map(({ revisions: _revisions, ...response }) => response),
     ready: pendingBatches.length === 0,
   };
   return { projection, responses, pendingBatches };
 }
 
+export function buildLeaderThreadResponseState(
+  session: Pick<LeaderThreadResponseSession, "id" | "messageHistory">,
+  requestedThreadKey: string,
+): LeaderThreadResponseStateDetail {
+  return buildLeaderThreadResponseStateAt(session, requestedThreadKey, session.messageHistory.length);
+}
+
+export type FinalizeRoutedLeaderResponseResult =
+  | { finalized: true; responseId: string; revisionId: string }
+  | {
+      finalized: false;
+      reason: "not_response" | "already_finalized" | "unproven_observation" | "invalid_message" | "stale";
+    };
+
+export function isCurrentValidRoutedLeaderResponseMessage(
+  session: LeaderThreadResponseSession,
+  message: Extract<BrowserIncomingMessage, { type: "assistant" }>,
+): boolean {
+  const historyIndex = session.messageHistory.indexOf(message);
+  if (historyIndex < 0) return false;
+  const parsed = parsedHistoryRevision(message, historyIndex);
+  if (!parsed) return false;
+  return buildLeaderThreadResponseState(session, parsed.threadKey).responses.some(
+    (response) =>
+      response.currentHistoryIndex === historyIndex &&
+      response.currentMessageId === parsed.revision.messageId &&
+      response.currentRevisionId === parsed.metadata.revisionId &&
+      response.logicalResponseId === parsed.metadata.logicalResponseId,
+  );
+}
+
+function routedLogicalResponseId(sessionId: string, messageId: string, batchId: string): string {
+  return `routed-response-${leaderThreadResponseContentHash(`${sessionId}\n${messageId}\n${batchId}`).slice(0, 24)}`;
+}
+
+function routedRevisionId(logicalResponseId: string, revisionNumber: number, messageId: string): string {
+  const messageDigest = leaderThreadResponseContentHash(messageId).slice(0, 12);
+  return `${logicalResponseId}-r${revisionNumber}-${messageDigest}`;
+}
+
+function pendingBatchesObservedByResponse(
+  session: LeaderThreadResponseSession,
+  threadKey: string,
+  observedHistoryLength: number,
+): LeaderThreadPendingBatchDetail[] {
+  const current = evaluateResponses(session);
+  return pendingBatchesForThread(
+    session.id,
+    threadKey,
+    {
+      directMessages: collectCoveredDirectMessages(session.messageHistory, observedHistoryLength),
+      coveredMessageIds: current.coveredMessageIds,
+    },
+    observedHistoryLength,
+  );
+}
+
+function latestResponseObservedByTurn(
+  session: LeaderThreadResponseSession,
+  threadKey: string,
+  observedHistoryLength: number,
+): LeaderThreadResponseDetail | null {
+  const observedMessageIds = new Set(
+    collectCoveredDirectMessages(session.messageHistory, observedHistoryLength)
+      .filter((message) => message.threadKey === threadKey)
+      .map((message) => message.messageId),
+  );
+  return (
+    buildLeaderThreadResponseState(session, threadKey).responses.findLast((response) =>
+      response.coveredUserMessageIds.every((messageId) => observedMessageIds.has(messageId)),
+    ) ?? null
+  );
+}
+
+export function finalizeRoutedLeaderResponseMessage(
+  session: LeaderThreadResponseSession,
+  message: Extract<BrowserIncomingMessage, { type: "assistant" }>,
+): FinalizeRoutedLeaderResponseResult {
+  if (message.leaderThreadRole !== "response") return { finalized: false, reason: "not_response" };
+  if (validRevisionMetadata(message.threadResponse)) return { finalized: false, reason: "already_finalized" };
+  const observedHistoryLength = message.leaderResponseObservedHistoryLength;
+  if (
+    !Number.isInteger(observedHistoryLength) ||
+    (observedHistoryLength ?? -1) < 0 ||
+    (observedHistoryLength ?? 0) > session.messageHistory.length
+  ) {
+    return { finalized: false, reason: "unproven_observation" };
+  }
+  const threadKey = exactResponseThreadKey(message);
+  const markdown = responseMessageMarkdown(message);
+  const messageId = responseMessageId(message);
+  const historyIndex = session.messageHistory.indexOf(message);
+  if (
+    !threadKey ||
+    !messageId ||
+    historyIndex < observedHistoryLength! ||
+    !isRootAgentHistoryMessage(message) ||
+    !isEligibleResponseHistoryMessage(message) ||
+    !isSubstantiveLeaderThreadResponse(markdown) ||
+    hasThreadControlDirectives(markdown)
+  ) {
+    return { finalized: false, reason: "invalid_message" };
+  }
+  if (message.threadResponse !== undefined) return { finalized: false, reason: "invalid_message" };
+
+  const currentBefore = buildLeaderThreadResponseState(session, threadKey);
+  if (
+    currentBefore.responses.some((response) => response.revisions.some((revision) => revision.messageId === messageId))
+  ) {
+    return { finalized: false, reason: "already_finalized" };
+  }
+
+  const observedBatch = pendingBatchesObservedByResponse(session, threadKey, observedHistoryLength!)[0];
+  let logicalResponseId: string;
+  let batchId: string;
+  let batchObservedHistoryLength: number;
+  let coveredUserMessageIds: string[];
+  let parentRevisionId: string | undefined;
+  let revisionNumber: number;
+
+  if (observedBatch) {
+    logicalResponseId = routedLogicalResponseId(session.id, messageId, observedBatch.batchId);
+    batchId = observedBatch.batchId;
+    batchObservedHistoryLength = observedHistoryLength!;
+    coveredUserMessageIds = [...observedBatch.userMessageIds];
+    revisionNumber = 1;
+  } else {
+    const currentResponse = latestResponseObservedByTurn(session, threadKey, observedHistoryLength!);
+    if (!currentResponse) return { finalized: false, reason: "invalid_message" };
+    logicalResponseId = currentResponse.logicalResponseId;
+    batchId = currentResponse.batchId;
+    batchObservedHistoryLength = currentResponse.batchObservedHistoryLength;
+    coveredUserMessageIds = [...currentResponse.coveredUserMessageIds];
+    parentRevisionId = currentResponse.currentRevisionId;
+    revisionNumber = currentResponse.revisionCount + 1;
+  }
+
+  const revisionId = routedRevisionId(logicalResponseId, revisionNumber, messageId);
+  message.threadResponse = {
+    logicalResponseId,
+    revisionId,
+    ...(parentRevisionId ? { parentRevisionId } : {}),
+    revisionNumber,
+    batchId,
+    batchObservedHistoryLength,
+    coveredUserMessageIds,
+    contentHash: leaderThreadResponseContentHash(markdown),
+  };
+  const finalizedState = buildLeaderThreadResponseState(session, threadKey);
+  const finalizedResponse = finalizedState.responses.find(
+    (response) =>
+      response.logicalResponseId === logicalResponseId &&
+      response.currentRevisionId === revisionId &&
+      response.currentMessageId === messageId,
+  );
+  if (!finalizedResponse) {
+    delete message.threadResponse;
+    return { finalized: false, reason: "stale" };
+  }
+  return { finalized: true, responseId: logicalResponseId, revisionId };
+}
+
 export function currentLeaderThreadResponseMessage(
   history: ReadonlyArray<BrowserIncomingMessage>,
   response: LeaderThreadResponseState,
-): Extract<BrowserIncomingMessage, { type: "leader_user_message" }> | null {
+): ResponseHistoryMessage | null {
   const candidate = history[response.currentHistoryIndex];
   const parsed = candidate ? parsedHistoryRevision(candidate, response.currentHistoryIndex) : null;
   return parsed &&
@@ -527,134 +648,4 @@ export function currentLeaderThreadResponseMessage(
     parsed.revision.messageId === response.currentMessageId
     ? parsed.message
     : null;
-}
-
-function resolveObservedPendingBatch(
-  session: LeaderThreadResponseSession,
-  threadKey: string,
-  token: string,
-): LeaderThreadPendingBatchDetail | null {
-  const payload = decodePendingBatchToken(session.id, token);
-  if (!payload || payload.t !== threadKey || payload.h > session.messageHistory.length) return null;
-  const observed = evaluateResponses(session, payload.h);
-  const observedBatch = pendingBatchesForThread(session.id, threadKey, observed, payload.h).find(
-    (batch) => batch.token === token && sameIds(batch.userMessageIds, payload.ids),
-  );
-  if (!observedBatch) return null;
-  const current = buildLeaderThreadResponseState(session, threadKey);
-  const currentBatch = current.pendingBatches.find(
-    (batch) =>
-      batch.userMessageIds.length >= payload.ids.length &&
-      sameIds(batch.userMessageIds.slice(0, payload.ids.length), payload.ids),
-  );
-  if (!currentBatch) return null;
-  return observedBatch;
-}
-
-function findIdempotentRevision(session: LeaderThreadResponseSession, key: string): ParsedRevision | null {
-  for (let historyIndex = 0; historyIndex < session.messageHistory.length; historyIndex += 1) {
-    const parsed = parsedHistoryRevision(session.messageHistory[historyIndex]!, historyIndex);
-    if (parsed?.metadata.idempotencyKey === key) return parsed;
-  }
-  return null;
-}
-
-export function publishLeaderThreadResponse(
-  session: LeaderThreadResponseSession,
-  input: PublishLeaderThreadResponseInput,
-  options: { now?: number; randomSuffix?: string } = {},
-): PublishLeaderThreadResponseResult {
-  const threadKey = normalizeThreadKey(input.threadKey);
-  const markdown = normalizeLeaderThreadResponseMarkdown(input.markdown);
-  assertNoThreadControlDirectives(markdown);
-  if (!isSubstantiveLeaderThreadResponse(markdown)) {
-    throw new Error("Thread response must contain substantive renderable Markdown.");
-  }
-  const idempotencyKey = normalizedIdempotencyKey(input.idempotencyKey);
-  const idempotencyHash = requestIdempotencyHash(input, markdown);
-  if (idempotencyKey) {
-    const duplicate = findIdempotentRevision(session, idempotencyKey);
-    if (duplicate) {
-      if (duplicate.metadata.idempotencyHash !== idempotencyHash) {
-        throw new LeaderThreadResponseIdempotencyConflictError();
-      }
-      const responseState = buildLeaderThreadResponseState(session, threadKey);
-      const response = responseState.responses.find(
-        (candidate) => candidate.logicalResponseId === duplicate.metadata.logicalResponseId,
-      );
-      if (!response) throw new Error("Thread response history is inconsistent.");
-      return { created: false, message: duplicate.message, response, responseState };
-    }
-  }
-
-  const before = buildLeaderThreadResponseState(session, threadKey);
-  let logicalResponseId: string;
-  let batchId: string;
-  let batchObservedHistoryLength: number;
-  let coveredUserMessageIds: string[];
-  let parentRevisionId: string | undefined;
-  let revisionNumber: number;
-  if (input.intent === "create") {
-    if (input.baseRevisionId !== null) throw new Error("Creating a response requires baseRevisionId null.");
-    const batch = resolveObservedPendingBatch(session, threadKey, input.pendingBatchToken);
-    if (!batch) {
-      throw new LeaderThreadResponseConflictError(
-        null,
-        "Pending response batch changed or is no longer an uncovered prefix; refresh before creating the response.",
-      );
-    }
-    const payload = decodePendingBatchToken(session.id, batch.token)!;
-    const now = options.now ?? Date.now();
-    const suffix = options.randomSuffix ?? randomBytes(4).toString("hex");
-    logicalResponseId = `thread-response-${now}-${suffix}`;
-    batchId = batch.token;
-    batchObservedHistoryLength = payload.h;
-    coveredUserMessageIds = [...batch.userMessageIds];
-    revisionNumber = 1;
-  } else {
-    const current = before.responses.find((response) => response.logicalResponseId === input.responseId);
-    if (!current) throw new Error("Thread response was not found in the requested thread.");
-    if (input.baseRevisionId !== current.currentRevisionId) {
-      throw new LeaderThreadResponseConflictError(current.currentRevisionId);
-    }
-    logicalResponseId = current.logicalResponseId;
-    batchId = current.batchId;
-    batchObservedHistoryLength = current.batchObservedHistoryLength;
-    coveredUserMessageIds = [...current.coveredUserMessageIds];
-    parentRevisionId = current.currentRevisionId;
-    revisionNumber = current.revisionCount + 1;
-  }
-
-  const now = options.now ?? Date.now();
-  const revisionId = `${logicalResponseId}-r${revisionNumber}`;
-  const messageId = `${revisionId}-${session.messageHistory.length}`;
-  const contentHash = leaderThreadResponseContentHash(markdown);
-  const metadata: LeaderThreadResponseRevisionMetadata = {
-    logicalResponseId,
-    revisionId,
-    ...(parentRevisionId ? { parentRevisionId } : {}),
-    revisionNumber,
-    batchId,
-    batchObservedHistoryLength,
-    coveredUserMessageIds,
-    contentHash,
-    ...(idempotencyKey ? { idempotencyKey, idempotencyHash } : {}),
-  };
-  const threadRefs: ThreadRef[] | undefined =
-    threadKey === "main" ? undefined : [{ threadKey, questId: threadKey, source: "explicit" }];
-  const message: Extract<BrowserIncomingMessage, { type: "leader_user_message" }> = {
-    type: "leader_user_message",
-    id: messageId,
-    content: markdown,
-    timestamp: now,
-    threadKey,
-    ...(threadKey === "main" ? {} : { questId: threadKey }),
-    ...(threadRefs ? { threadRefs } : {}),
-    threadResponse: metadata,
-  };
-  session.messageHistory.push(message);
-  const responseState = buildLeaderThreadResponseState(session, threadKey);
-  const response = responseState.responses.find((candidate) => candidate.logicalResponseId === logicalResponseId);
-  if (!response) throw new Error("Failed to publish thread response.");
-  return { created: true, message, response, responseState };
 }

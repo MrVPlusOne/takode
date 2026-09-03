@@ -6,6 +6,7 @@ import {
   QUEST_THREAD_REMINDER_SOURCE_ID,
   QUEST_THREAD_REMINDER_SOURCE_LABEL,
 } from "../../shared/quest-thread-reminder.js";
+import { buildLeaderThreadResponseState, finalizeRoutedLeaderResponseMessage } from "../leader-thread-response.js";
 
 function makeState(): ResultMessageSessionLike["state"] {
   return {
@@ -31,6 +32,7 @@ function makeSession(): ResultMessageSessionLike {
     state: makeState(),
     diffStatsDirty: false,
     generationStartedAt: undefined,
+    messageCountAtTurnStart: 0,
     interruptedDuringTurn: false,
     queuedTurnStarts: 0,
     queuedTurnInterruptSources: [],
@@ -77,6 +79,56 @@ function makeAssistant(id: string): BrowserIncomingMessage {
   };
 }
 
+function directUser(id: string, content = id): Extract<BrowserIncomingMessage, { type: "user_message" }> {
+  return {
+    type: "user_message",
+    id,
+    content,
+    timestamp: 1,
+    threadKey: "main",
+    leaderResponseCoverageVersion: 1,
+  };
+}
+
+function routedFinal(
+  id: string,
+  observedHistoryLength: number,
+  options: { role?: "commentary" | "response"; ready?: boolean; text?: string } = {},
+): Extract<BrowserIncomingMessage, { type: "assistant" }> {
+  const role = options.role ?? "response";
+  return {
+    type: "assistant",
+    message: {
+      id,
+      type: "message",
+      role: "assistant",
+      model: "gpt-5.5",
+      content: [{ type: "text", text: options.text ?? "Polished answer." }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    },
+    parent_tool_use_id: null,
+    timestamp: 20,
+    threadKey: "main",
+    leaderThreadRole: role,
+    ...(role === "response" ? { leaderResponseObservedHistoryLength: observedHistoryLength } : {}),
+    ...(options.ready
+      ? {
+          deferredThreadStatusMarkers: [
+            {
+              kind: "ready",
+              label: "Thread Ready",
+              target: { threadKey: "main" },
+              summary: "answer complete",
+              raw: "{[(Thread Ready: main | answer complete)]}",
+              lineIndex: 1,
+            },
+          ],
+        }
+      : {}),
+  };
+}
+
 function makeDeps() {
   return {
     hasResultReplay: vi.fn(() => false),
@@ -96,6 +148,8 @@ function makeDeps() {
     validateLeaderThreadOutcomes: vi.fn(),
     onTurnCompleted: vi.fn(),
     injectUserMessage: vi.fn(),
+    refreshSessionConversation: vi.fn(),
+    invalidateLeaderThreadTabsForSession: vi.fn(),
   };
 }
 
@@ -160,6 +214,118 @@ describe("result-message-controller", () => {
     expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user");
     expect(deps.onResultAttentionAndNotifications).toHaveBeenCalled();
     expect(deps.onTurnCompleted).toHaveBeenCalledWith(session);
+  });
+
+  it("stamps a routed final before accepting Ready from the same assistant row", () => {
+    const session = makeSession();
+    session.messageHistory.push(directUser("u1"));
+    const response = routedFinal("final-ready", 1, { ready: true });
+    session.messageHistory.push(response);
+    session.userMessageIdsThisTurn = [0];
+    session.messageCountAtTurnStart = 1;
+    const deps = makeDeps();
+
+    handleResultMessage(session, makeResult({ uuid: "final-ready-result" }), deps);
+
+    expect(response.threadResponse).toMatchObject({ coveredUserMessageIds: ["u1"], revisionNumber: 1 });
+    expect(session.state.leaderThreadStatuses?.main).toMatchObject({ kind: "ready", messageId: "final-ready" });
+    expect(buildLeaderThreadResponseState(session, "main").projection).toMatchObject({
+      ready: true,
+      pendingMessageCount: 0,
+    });
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user");
+    expect(deps.invalidateLeaderThreadTabsForSession).toHaveBeenCalledWith(session.id);
+    expect(deps.refreshSessionConversation).toHaveBeenCalledWith(session.id);
+  });
+
+  it("keeps later queued input pending when completing the current turn", () => {
+    const session = makeSession();
+    session.messageHistory.push(directUser("u1"), directUser("u2", "queued later"));
+    const response = routedFinal("final-current", 1);
+    session.messageHistory.push(response);
+    session.userMessageIdsThisTurn = [0];
+    // Queued promotion can see the later row in the tail; the persisted
+    // response observation still proves that only u1 belonged to this turn.
+    session.messageCountAtTurnStart = 2;
+    const deps = makeDeps();
+
+    handleResultMessage(session, makeResult({ uuid: "queued-later-result" }), deps);
+
+    expect(response.threadResponse?.coveredUserMessageIds).toEqual(["u1"]);
+    expect(buildLeaderThreadResponseState(session, "main").pendingBatches.map((batch) => batch.userMessageIds)).toEqual(
+      [["u2"]],
+    );
+  });
+
+  it("rejects a commentary Ready attempt and forwards the target to the pending-response validator", () => {
+    const session = makeSession();
+    session.messageHistory.push(directUser("u1"));
+    const commentary = routedFinal("commentary-ready", 1, { role: "commentary", ready: true, text: "Still working." });
+    session.messageHistory.push(commentary);
+    session.userMessageIdsThisTurn = [0];
+    const deps = makeDeps();
+
+    handleResultMessage(session, makeResult({ uuid: "invalid-ready-result" }), deps);
+
+    expect(commentary.threadResponse).toBeUndefined();
+    expect(session.state.leaderThreadStatuses?.main).toBeUndefined();
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", ["main"]);
+  });
+
+  it.each([
+    "unproven",
+    "invalid-control",
+    "corrupt-metadata",
+  ] as const)("does not let a %s response revision anchor Ready after prior coverage is complete", (failure) => {
+    const session = makeSession();
+    session.messageHistory.push(directUser("u1"));
+    const prior = routedFinal("prior-final", 1);
+    session.messageHistory.push(prior);
+    expect(finalizeRoutedLeaderResponseMessage(session, prior)).toMatchObject({ finalized: true });
+    delete prior.leaderResponseObservedHistoryLength;
+    session.messageHistory.push({ type: "result", data: makeResult({ uuid: "prior-result" }) });
+
+    const attempted = routedFinal("attempted-revision", 1, {
+      ready: true,
+      text: failure === "invalid-control" ? "Polish.\n[thread:side:F]\nInvalid route." : "Polished answer.",
+    });
+    if (failure === "unproven") delete attempted.leaderResponseObservedHistoryLength;
+    if (failure === "corrupt-metadata") {
+      attempted.threadResponse = {
+        logicalResponseId: "corrupt-response",
+        revisionId: "corrupt-response-r1",
+        revisionNumber: 1,
+        batchId: "routed-response-batch-v1.corrupt",
+        batchObservedHistoryLength: 1,
+        coveredUserMessageIds: ["u1"],
+        contentHash: "0".repeat(64),
+      };
+    }
+    session.messageHistory.push(attempted);
+    session.userMessageIdsThisTurn = [];
+    const deps = makeDeps();
+
+    handleResultMessage(session, makeResult({ uuid: `failed-ready-${failure}` }), deps);
+
+    expect(session.state.leaderThreadStatuses?.main).toBeUndefined();
+    expect(attempted.deferredThreadStatusMarkers).toBeUndefined();
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", ["main"]);
+  });
+
+  it("does not finalize a routed response or Ready marker from an interrupted turn", () => {
+    const session = makeSession();
+    session.messageHistory.push(directUser("u1"));
+    const response = routedFinal("partial-final", 1, { ready: true });
+    session.messageHistory.push(response);
+    session.userMessageIdsThisTurn = [0];
+    const deps = makeDeps();
+
+    handleResultMessage(session, makeResult({ uuid: "interrupted-final", stop_reason: "interrupted" }), deps);
+
+    expect(response.threadResponse).toBeUndefined();
+    expect(response.deferredThreadStatusMarkers).toBeUndefined();
+    expect(buildLeaderThreadResponseState(session, "main").projection.pendingMessageCount).toBe(1);
+    expect(deps.validateLeaderThreadOutcomes).not.toHaveBeenCalled();
   });
 
   it("keeps transient provider retries out of durable history and terminal hooks", () => {

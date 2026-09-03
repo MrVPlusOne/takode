@@ -23,7 +23,6 @@ import { handleLease } from "./takode-lease.js";
 import { handleExport, handleGrep, handleLogs, handlePeek, handleRead, handleScan } from "./takode-message-commands.js";
 import { handleBranch, handleRefreshBranch, handleTimer } from "./takode-misc-commands.js";
 import { handleTodo } from "./takode-todo-commands.js";
-import { handleThreadResponse } from "./takode-thread-response.js";
 import {
   handleAnswer,
   handleArchive,
@@ -94,7 +93,6 @@ try {
     ["goal", { requireOrchestrator: true }],
     ["user-message", { requireOrchestrator: true }],
     ["thread", { requireOrchestrator: true }],
-    ["thread-response", { requireOrchestrator: true }],
     ["rename", { requireOrchestrator: true }],
     ["herd", { requireOrchestrator: true }],
     ["unherd", { requireOrchestrator: true }],
@@ -217,9 +215,6 @@ try {
       break;
     case "thread":
       await handleThread(base, args);
-      break;
-    case "thread-response":
-      await handleThreadResponse(base, args);
       break;
     case "rename":
       await handleRename(base, args);

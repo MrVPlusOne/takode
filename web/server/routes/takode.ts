@@ -64,7 +64,6 @@ import { getPauseState, isSessionPaused } from "../session-pause.js";
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
 import { normalizeNotifyThreadRoute } from "./takode-route-thread-helpers.js";
 import { registerTakodeReconnectRoute } from "./takode-reconnect.js";
-import { registerTakodeThreadResponseRoutes } from "./takode-thread-response.js";
 import { buildTakodeCodexPendingDeliveryFields, buildTakodeInfoSafeSession } from "./session-detail-response.js";
 import {
   buildThreadAttachmentBoundError,
@@ -428,7 +427,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
   registerTakodeReconnectRoute(api, ctx);
   registerTakodeNotificationResponseRoute(api, ctx, notificationPersistDeps);
   registerTakodeNotificationInboxRoutes(api, ctx, notificationPersistDeps);
-  registerTakodeThreadResponseRoutes(api, ctx);
 
   api.get("/takode/me", (c) => {
     const auth = authenticateTakodeCaller(c);

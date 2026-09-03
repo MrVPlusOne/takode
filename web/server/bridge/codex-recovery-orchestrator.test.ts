@@ -605,7 +605,7 @@ describe("hydrateCodexResumedHistory", () => {
             id: "turn-1",
             status: "completed",
             error: null,
-            items: [{ type: "agentMessage", id: "agent-1", text: "[thread:q-1119] Created quest notes" }],
+            items: [{ type: "agentMessage", id: "agent-1", text: "[thread:q-1119:C] Created quest notes" }],
           },
         ],
         lastTurn: null,
@@ -644,10 +644,10 @@ describe("hydrateCodexResumedHistory", () => {
                 type: "agentMessage",
                 id: "agent-1",
                 text: [
-                  "[thread:q-1695]",
+                  "[thread:q-1695:C]",
                   "Approved Option A is recorded.",
                   "---",
-                  "[thread:q-1693]No separator still routes after recovery.",
+                  "[thread:q-1693:C]No separator still routes after recovery.",
                 ].join("\n"),
               },
             ],
@@ -692,14 +692,14 @@ describe("hydrateCodexResumedHistory", () => {
                 type: "agentMessage",
                 id: "agent-1",
                 text: [
-                  "[thread:q-1718]",
+                  "[thread:q-1718:C]",
                   "[q-1718](quest:q-1718) is complete.",
                   "",
                   "{[(Quest Quiz: q-1718)]}",
                   "",
                   "---",
                   "",
-                  "[thread:q-1721] [q-1721](quest:q-1721) is now dispatched.",
+                  "[thread:q-1721:C] [q-1721](quest:q-1721) is now dispatched.",
                 ].join("\n"),
               },
             ],
@@ -719,7 +719,7 @@ describe("hydrateCodexResumedHistory", () => {
       { type: "text", text: "[q-1718](quest:q-1718) is complete.\n\n{[(Quest Quiz: q-1718)]}" },
     ]);
     expect(second.message.content).toEqual([{ type: "text", text: "[q-1721](quest:q-1721) is now dispatched." }]);
-    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1721]");
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1721:C]");
     expect(JSON.stringify(session.messageHistory)).not.toContain("\n---\n");
   });
 });
@@ -892,7 +892,7 @@ describe("reconcileCodexResumedTurn", () => {
   it("dedupes routed recovered assistant replay against an already stored stripped leader row", () => {
     // This matches the observed replay shape: the original Main assistant row
     // is already stored without the leader marker, then Codex resume replays
-    // the same text as an item-* agentMessage with [thread:main] still attached.
+    // the same text as an item-* agentMessage with [thread:main:C] still attached.
     const session = makeSession([
       {
         id: "input-1",
@@ -954,7 +954,7 @@ describe("reconcileCodexResumedTurn", () => {
           error: null,
           items: [
             { type: "userMessage", content: [{ type: "text", text: "continue" }] },
-            { type: "agentMessage", id: "item-1", text: "[thread:main] Approved with the Mental Simulation." },
+            { type: "agentMessage", id: "item-1", text: "[thread:main:C] Approved with the Mental Simulation." },
           ],
         },
       } as CodexResumeSnapshot,
@@ -971,7 +971,7 @@ describe("reconcileCodexResumedTurn", () => {
     // This matches the lost /confirm shape: a partial assistant sentence was
     // already visible, a later tool finished, and resume had no final answer.
     const request = "confirm the navigation work";
-    const partial = "[thread:main] I'm using the confirm workflow because your request includes /confirm.";
+    const partial = "[thread:main:C] I'm using the confirm workflow because your request includes /confirm.";
     const session = makeSession([
       {
         id: "input-1",
@@ -1053,7 +1053,7 @@ describe("reconcileCodexResumedTurn", () => {
     // Exact-once delivery: partial assistant output proves the user payload reached
     // the model, so recovery must not inject the same payload as a fresh turn.
     const request = "prepare cartoon portrait icon variants from my reference images";
-    const partial = "[thread:main] I read all three references and will frame this as a separate quest.";
+    const partial = "[thread:main:C] I read all three references and will frame this as a separate quest.";
     const session = makeSession([{ id: "input-1", content: request, timestamp: 1_000, cancelable: false }]);
     session.state.isOrchestrator = true;
     session.isGenerating = true;
@@ -1102,7 +1102,7 @@ describe("reconcileCodexResumedTurn", () => {
 
   it("preserves the routed leader thread on automatic continuation", () => {
     const request = "prepare cartoon portrait icon variants from my reference images";
-    const partial = "[thread:main] I read all three references and will frame this as a separate quest.";
+    const partial = "[thread:main:C] I read all three references and will frame this as a separate quest.";
     const session = makeSession([
       {
         id: "input-1",

@@ -1,4 +1,5 @@
 import type { ReplyContext } from "../shared/reply-context.js";
+export type { LeaderThreadTextRole } from "../shared/thread-routing.js";
 import type { McpServerConfig, McpServerDetail } from "./mcp-types.js";
 export type { McpServerConfig, McpServerDetail } from "./mcp-types.js";
 import type { CodexMessagePhase } from "../shared/codex-message-phase.js";
@@ -545,7 +546,7 @@ export type SlackThreadRecord = SideChatRecord;
 export type SlackThreadChildState = SideChatChildState;
 
 export interface ThreadRoutingError {
-  reason: "missing" | "invalid";
+  reason: "missing" | "invalid" | "missing_role" | "invalid_role";
   expected: string;
   source?: "visible_text" | "shell_command";
   rawContent?: string;
@@ -1042,7 +1043,7 @@ export type BrowserIncomingMessageBase =
       /** Post-cutover direct-human messages participate in leader response coverage. */
       leaderResponseCoverageVersion?: 1;
     } & CodexTurnRecoveryDiagnosticMetadata)
-  | import("./leader-thread-response-types.js").LeaderThreadResponseMessage<
+  | import("./leader-thread-response-types.js").LegacyLeaderThreadResponseMessage<
       TakodeNotificationPayload,
       ThreadRef,
       ThreadRoutingError
@@ -1282,7 +1283,7 @@ export type BrowserIncomingMessageBase =
       treeNodeOrder: Record<string, string[]>;
     };
 
-type BrowserIncomingMessageMetadata = {
+type BrowserIncomingMessageMetadata = import("./leader-thread-response-types.js").LeaderRoutedAssistantMetadata & {
   seq?: number;
   /** Raw messageHistory index when this live event is already durably persisted. */
   history_index?: number;

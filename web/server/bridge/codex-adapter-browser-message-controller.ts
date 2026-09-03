@@ -15,17 +15,16 @@ import type {
   ThreadTransitionMarker,
 } from "../session-types.js";
 import { createLogger } from "../server-logger.js";
-import type { LeaderThreadStatus, ParsedThreadStatusMarker } from "../../shared/thread-status-marker.js";
 import { sessionTag } from "../session-tag.js";
 import {
   applyRecentThreadFallbackToLeaderAssistantRouting,
   clearLeaderThreadStatusForActivity,
   hasLeaderRoutedActivityContent,
+  leaderAssistantControlMetadata,
   normalizeLeaderAssistantRouting,
   splitLeaderAssistantContentAtThreadRouteBoundaries,
   updateLeaderThreadStatusesForAssistantOutput,
 } from "./thread-routing-reminder.js";
-import { recordThreadReadyUnreadNotifications } from "./session-notification-controller.js";
 import { queueQuestThreadRemindersForCompletedTurn } from "./quest-thread-reminder.js";
 import { recordCompactionFinished, recordCompactionStarted } from "./session-lifecycle-events.js";
 import {
@@ -711,6 +710,7 @@ export interface CodexAdapterBrowserMessageDeps {
     toolResults: Extract<ContentBlock, { type: "tool_result" }>[],
   ) => unknown[];
   broadcastToBrowsers: (session: CodexBrowserMessageSessionLike, msg: BrowserIncomingMessage) => void;
+  invalidateLeaderThreadTabsForSession?: (sessionId: string) => boolean | void;
   promoteLeaderThreadTabForTransition?: (sessionId: string, marker: ThreadTransitionMarker) => boolean;
   finalizeSupersededCodexTerminalTools: (
     session: CodexBrowserMessageSessionLike,
@@ -968,10 +968,11 @@ export async function handleCodexAdapterBrowserMessage(
         hasCurrentThreadStatus &&
         isLeaderSessionForAssistantRouting(session, launcherInfo)
       ) {
-        clearLeaderThreadStatusForActivity(session, routed, {
+        const statusChanged = clearLeaderThreadStatusForActivity(session, routed, {
           messageId: routed.id,
           timestamp: routed.timestamp,
         });
+        if (statusChanged) deps.invalidateLeaderThreadTabsForSession?.(session.id);
       }
       deps.persistSession(session);
       deps.syncSideChatParent?.(session);
@@ -994,8 +995,6 @@ export async function handleCodexAdapterBrowserMessage(
 
   let outgoing: BrowserIncomingMessage | null = msg;
   let activeRouteFromAssistant: ThreadRouteMetadata | undefined;
-  let pendingThreadStatusMarkers: ParsedThreadStatusMarker[] | undefined;
-  let threadStatusRecordsForUnread: LeaderThreadStatus[] = [];
 
   if (msg.type === "session_init") {
     const sanitized = deps.sanitizeCodexSessionPatch(msg.session as unknown as Record<string, unknown>);
@@ -1178,6 +1177,7 @@ export async function handleCodexAdapterBrowserMessage(
           ...(routed.questId ? { questId: routed.questId } : {}),
           ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
           ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
+          ...leaderAssistantControlMetadata(session, routed, Boolean(msg.message.id ?? msg.uuid)),
         };
         const content: ContentBlock[] = normalizedAssistant.message.content || [];
         const now = Date.now();
@@ -1197,31 +1197,21 @@ export async function handleCodexAdapterBrowserMessage(
         if (hasVisibleTopLevelNonReasoningActivity(normalizedAssistant)) {
           clearCodexReasoningPreviewForVisibleActivity(session, segmentRoute, deps);
         }
-        const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
-          session,
-          routed.threadStatusMarkers,
-          {
-            messageId: normalizedAssistant.message.id,
-            timestamp,
-          },
-          hasLeaderRoutedActivityContent(normalizedAssistant.message.content) ? segmentRoute : undefined,
-        );
-        const threadStatusRecords = statusUpdate.records;
-        if (threadStatusRecords.length > 0) {
-          normalizedAssistant = {
-            ...normalizedAssistant,
-            threadStatusMarkers: threadStatusRecords,
-          };
-        }
         const transitionMarker = appendThreadTransitionMarkerForRouteSwitch(
           session.messageHistory,
           normalizeThreadRoute(normalizedAssistant.threadKey, normalizedAssistant.questId),
         );
         publishThreadTransitionMarker(session, transitionMarker, deps);
         session.messageHistory.push(normalizedAssistant);
+        const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
+          session,
+          undefined,
+          { messageId: normalizedAssistant.message.id, timestamp },
+          hasLeaderRoutedActivityContent(normalizedAssistant.message.content) ? segmentRoute : undefined,
+        );
+        if (statusUpdate.changed) deps.invalidateLeaderThreadTabsForSession?.(session.id);
         deps.persistSession(session);
         deps.syncSideChatParent?.(session);
-        recordThreadReadyUnreadNotifications(session, threadStatusRecords, deps);
         deps.broadcastToBrowsers(session, normalizedAssistant);
         updateActiveTurnRouteFromLeaderAssistant(session, segmentRoute, deps);
       }
@@ -1239,7 +1229,6 @@ export async function handleCodexAdapterBrowserMessage(
     }
     const timestamp = typeof msg.timestamp === "number" ? msg.timestamp : Date.now();
     const resolvedMessageId = msg.message.id ?? msg.uuid ?? `assistant-${timestamp}-${session.messageHistory.length}`;
-    pendingThreadStatusMarkers = routed.threadStatusMarkers;
     const routedMsg = {
       ...msg,
       message: {
@@ -1252,6 +1241,7 @@ export async function handleCodexAdapterBrowserMessage(
       ...(routed.questId ? { questId: routed.questId } : {}),
       ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
       ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
+      ...leaderAssistantControlMetadata(session, routed, Boolean(msg.message.id ?? msg.uuid)),
     };
     msg = routedMsg;
     outgoing = routedMsg;
@@ -1333,23 +1323,6 @@ export async function handleCodexAdapterBrowserMessage(
     if (hasVisibleTopLevelNonReasoningActivity(normalizedAssistant)) {
       clearCodexReasoningPreviewForVisibleActivity(session, activeRouteFromAssistant, deps);
     }
-    const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
-      session,
-      pendingThreadStatusMarkers,
-      {
-        messageId: normalizedAssistant.message.id,
-        timestamp: assistantTimestamp,
-      },
-      hasLeaderRoutedActivityContent(normalizedAssistant.message.content) ? activeRouteFromAssistant : undefined,
-    );
-    const threadStatusRecords = statusUpdate.records;
-    if (threadStatusRecords.length > 0) {
-      normalizedAssistant = {
-        ...normalizedAssistant,
-        threadStatusMarkers: threadStatusRecords,
-      };
-    }
-    threadStatusRecordsForUnread = threadStatusRecords;
     outgoing = normalizedAssistant;
   }
 
@@ -1360,9 +1333,15 @@ export async function handleCodexAdapterBrowserMessage(
     );
     publishThreadTransitionMarker(session, transitionMarker, deps);
     session.messageHistory.push(outgoing);
+    const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
+      session,
+      undefined,
+      { messageId: outgoing.message.id, timestamp: outgoing.timestamp || Date.now() },
+      hasLeaderRoutedActivityContent(outgoing.message.content) ? activeRouteFromAssistant : undefined,
+    );
+    if (statusUpdate.changed) deps.invalidateLeaderThreadTabsForSession?.(session.id);
     deps.persistSession(session);
     deps.syncSideChatParent?.(session);
-    recordThreadReadyUnreadNotifications(session, threadStatusRecordsForUnread, deps);
   } else if (outgoing?.type === "result") {
     if (await maybeRecycleCodexLeaderForContextWindowExhaustion(session, outgoing, deps)) {
       return;

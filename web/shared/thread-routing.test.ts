@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatThreadMarker,
   inferThreadTargetFromTextContent,
   parseCommandThreadComment,
   parseThreadTextPrefix,
@@ -8,6 +9,56 @@ import {
 } from "./thread-routing.js";
 
 describe("thread-routing", () => {
+  it("round-trips compact commentary and final-response roles", () => {
+    expect(formatThreadMarker("main", "response")).toBe("[thread:main:F]");
+    expect(formatThreadMarker("q-941", "commentary")).toBe("[thread:q-941:C]");
+    expect(parseThreadTextPrefix("[thread:main:F]\nFinal answer")).toEqual({
+      ok: true,
+      target: { threadKey: "main" },
+      role: "response",
+      body: "Final answer",
+    });
+    expect(parseThreadTextPrefix("[thread:q-941:C] Progress update")).toEqual({
+      ok: true,
+      target: { threadKey: "q-941", questId: "q-941" },
+      role: "commentary",
+      body: "Progress update",
+    });
+    expect(parseThreadTextPrefix("[thread:q-941:X] Invalid role")).toMatchObject({
+      ok: false,
+      reason: "invalid_role",
+    });
+  });
+
+  it("fails closed when one segment composes conflicting role-bearing markers", () => {
+    for (const [text, marker] of [
+      ["[thread:q-941:F] [thread:q-941:C] Conflicting", "[thread:q-941:C]"],
+      ["[thread:q-941:F]\n[thread:q-941]\nMissing role", "[thread:q-941]"],
+      ["[thread:q-941:F]\nAnswer.\n[thread:q-941:X]\nUnknown role", "[thread:q-941:X]"],
+      ["[thread:q-941:F]\nAnswer.\n[thread:side:F]\nUnknown target", "[thread:side:F]"],
+    ] as const) {
+      expect(parseThreadTextPrefix(text)).toMatchObject({
+        ok: false,
+        reason: "invalid_role",
+        marker,
+      });
+    }
+  });
+
+  it.each([
+    ["triple backticks", "```text", "```"],
+    ["tildes", "~~~text", "~~~~"],
+    ["indented longer backticks", "  ````text", "  `````"],
+  ] as const)("allows marker-like examples inside %s fences", (_, opening, closing) => {
+    const body = ["Example:", opening, "---", "[thread:q-942:X]", closing].join("\n");
+    expect(parseThreadTextPrefix(`[thread:q-941:F]\n${body}`)).toEqual({
+      ok: true,
+      target: { threadKey: "q-941", questId: "q-941" },
+      role: "response",
+      body,
+    });
+  });
+
   it("parses and strips mandatory leader text prefixes", () => {
     // Leader text routing is explicit per message so stale hidden current-thread
     // state cannot silently route a response to the wrong quest.
@@ -95,6 +146,12 @@ describe("thread-routing", () => {
     expect(parseThreadTextLineStartMarker("[thread:q-941]No separator")).toEqual({
       ok: true,
       target: { threadKey: "q-941", questId: "q-941" },
+      body: "No separator",
+    });
+    expect(parseThreadTextLineStartMarker("[thread:q-941:F]No separator")).toEqual({
+      ok: true,
+      target: { threadKey: "q-941", questId: "q-941" },
+      role: "response",
       body: "No separator",
     });
     expect(parseThreadTextLineStartMarker("> [thread:q-941] quoted")).toMatchObject({

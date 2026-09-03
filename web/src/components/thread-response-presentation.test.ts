@@ -39,7 +39,7 @@ function response(input: {
     timestamp: input.historyIndex,
     historyIndex: input.historyIndex,
     metadata: {
-      leaderUserMessage: true,
+      leaderThreadRole: "response",
       threadKey: THREAD_KEY,
       questId: THREAD_KEY,
       threadRefs: [{ threadKey: THREAD_KEY, questId: THREAD_KEY, source: "explicit" }],
@@ -176,6 +176,39 @@ describe("pending-batch thread response presentation", () => {
       ],
     });
     expect(resolveThreadResponses(sections(validMessages()), mismatch, THREAD_KEY)).toBeNull();
+  });
+
+  it("retains current response identity while newer user input is pending", () => {
+    const messages = [...validMessages(), user("u4", 17)];
+    const active = projection({
+      ready: false,
+      pendingMessageCount: 1,
+      pendingBatches: [
+        {
+          userMessageIds: ["u4"],
+          messageCount: 1,
+          firstHistoryIndex: 17,
+          lastHistoryIndex: 17,
+          firstAskedAt: 17,
+          lastAskedAt: 17,
+        },
+      ],
+    });
+
+    const result = resolveThreadResponses(sections(messages), active, THREAD_KEY);
+
+    expect(result?.ready).toBe(false);
+    expect(result?.currentResponses.map((item) => item.response.currentMessageId)).toEqual(["a-current", "b-current"]);
+  });
+
+  it("accepts legacy response rows but rejects commentary with response metadata", () => {
+    const messages = validMessages();
+    const legacy = messages.find((message) => message.id === "a-current")!;
+    legacy.metadata = { ...legacy.metadata, leaderThreadRole: undefined, leaderUserMessage: true };
+    expect(resolveThreadResponses(sections(messages), projection(), THREAD_KEY)).not.toBeNull();
+
+    legacy.metadata = { ...legacy.metadata, leaderUserMessage: false, leaderThreadRole: "commentary" };
+    expect(resolveThreadResponses(sections(messages), projection(), THREAD_KEY)).toBeNull();
   });
 
   it("does not transfer Main response authority through a quest backfill reference", () => {

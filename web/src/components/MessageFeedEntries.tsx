@@ -68,6 +68,7 @@ import { MinuteBoundaryTimestamp } from "./MinuteBoundaryTimestamp.js";
 import { SubagentSectionHeader } from "./SubagentSectionHeader.js";
 import { readyThreadResponseAppliesToTurn, type ThreadResponsePresentation } from "./thread-response-presentation.js";
 import { ReadyThreadResponseRows, readyThreadResponseTurnHasContent } from "./ReadyThreadResponseRows.js";
+import { ExpandedCurrentThreadResponse } from "./ThreadResponsePresentationChrome.js";
 import { getTurnSummaryDurationMs } from "./message-feed-turn-duration.js";
 
 function useExpandForScrollTarget(
@@ -750,6 +751,7 @@ export const FeedEntries = memo(function FeedEntries({
   toolResultOverrides,
   toolResultScope = "session",
   questLinkSurface = "legacy",
+  threadResponsePresentation,
 }: {
   entries: FeedEntry[];
   sessionId: string;
@@ -764,6 +766,7 @@ export const FeedEntries = memo(function FeedEntries({
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope?: ToolResultScope;
   questLinkSurface?: QuestLinkSurface;
+  threadResponsePresentation?: ThreadResponsePresentation | null;
 }) {
   const compactToolActivity = useStore((state) => state.compactToolActivity);
   const notifications = useStore((state) => state.sessionNotifications?.get(sessionId));
@@ -1042,9 +1045,26 @@ export const FeedEntries = memo(function FeedEntries({
             questLinkSurface={questLinkSurface}
           />,
         );
-      } else if (isTimedChatMessage(entry.msg)) {
-        const markerLabel = minuteBoundaryLabels?.get(entry.msg.id);
-        const showTimestamp = entry.msg.role === "assistant" && typeof entry.msg.turnDurationMs === "number";
+      } else {
+        const isTimed = isTimedChatMessage(entry.msg);
+        const markerLabel = isTimed ? minuteBoundaryLabels?.get(entry.msg.id) : undefined;
+        const currentResponse = threadResponsePresentation?.currentResponses.find(
+          (item) => item.response.currentMessageId === entry.msg.id,
+        );
+        const bubble = (
+          <MessageBubble
+            message={entry.msg}
+            sessionId={sessionId}
+            showTimestamp={isTimed && entry.msg.role === "assistant" && typeof entry.msg.turnDurationMs === "number"}
+            currentThreadKey={currentThreadKey}
+            onSelectThread={onSelectThread}
+            interactionMode={interactionMode}
+            backendType={isCodexSession ? "codex" : undefined}
+            toolResultOverrides={entryToolResults}
+            toolResultScope={entryToolResultScope}
+            questLinkSurface={questLinkSurface}
+          />
+        );
         result.push(
           <div
             key={entry.msg.id}
@@ -1054,40 +1074,13 @@ export const FeedEntries = memo(function FeedEntries({
             data-feed-block-id={getMessageFeedBlockId(entry.msg.id)}
           >
             {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
-            <MessageBubble
-              message={entry.msg}
-              sessionId={sessionId}
-              showTimestamp={showTimestamp}
-              currentThreadKey={currentThreadKey}
-              onSelectThread={onSelectThread}
-              interactionMode={interactionMode}
-              backendType={isCodexSession ? "codex" : undefined}
-              toolResultOverrides={entryToolResults}
-              toolResultScope={entryToolResultScope}
-              questLinkSurface={questLinkSurface}
-            />
-          </div>,
-        );
-      } else {
-        result.push(
-          <div
-            key={entry.msg.id}
-            data-message-id={entry.msg.id}
-            data-message-role={entry.msg.role}
-            data-message-variant={entry.msg.variant}
-            data-feed-block-id={getMessageFeedBlockId(entry.msg.id)}
-          >
-            <MessageBubble
-              message={entry.msg}
-              sessionId={sessionId}
-              currentThreadKey={currentThreadKey}
-              onSelectThread={onSelectThread}
-              interactionMode={interactionMode}
-              backendType={isCodexSession ? "codex" : undefined}
-              toolResultOverrides={entryToolResults}
-              toolResultScope={entryToolResultScope}
-              questLinkSurface={questLinkSurface}
-            />
+            {currentResponse ? (
+              <ExpandedCurrentThreadResponse messageCount={currentResponse.response.coveredUserMessageIds.length}>
+                {bubble}
+              </ExpandedCurrentThreadResponse>
+            ) : (
+              bubble
+            )}
           </div>,
         );
       }
@@ -1108,6 +1101,7 @@ export const FeedEntries = memo(function FeedEntries({
     questLinkSurface,
     sessionId,
     suppressThreadSystemMarkers,
+    threadResponsePresentation,
     toolResultOverrides,
     toolResultScope,
     visibleAssistantChildMessageIds,
@@ -1235,6 +1229,7 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   onOpenCodexTerminal,
   onSelectThread,
   questLinkSurface,
+  threadResponsePresentation,
 }: {
   turn: Turn;
   sessionId: string;
@@ -1248,6 +1243,7 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   onOpenCodexTerminal: (toolUseId: string) => void;
   onSelectThread?: (threadKey: string) => void;
   questLinkSurface: QuestLinkSurface;
+  threadResponsePresentation?: ThreadResponsePresentation | null;
 }) {
   const headerRef = useRef<HTMLButtonElement>(null);
   return (
@@ -1265,6 +1261,7 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
         onOpenCodexTerminal={onOpenCodexTerminal}
         onSelectThread={onSelectThread}
         questLinkSurface={questLinkSurface}
+        threadResponsePresentation={threadResponsePresentation}
       />
       {threadStatusFooter}
       {turn.agentEntries.length > 0 && <TurnCollapseFooter headerRef={headerRef} onCollapse={onCollapse} />}
@@ -1854,13 +1851,17 @@ export const TurnEntries = memo(function TurnEntries({
             {section.turns.map((turn) => {
               const turnIndex = globalIndex++;
               const isActivityExpanded = turnStates[turnIndex]?.isActivityExpanded ?? false;
-              const turnThreadResponsePresentation =
+              const expandedThreadResponsePresentation =
+                threadResponsePresentation && readyThreadResponseAppliesToTurn(turn, threadResponsePresentation)
+                  ? threadResponsePresentation
+                  : null;
+              const collapsedThreadResponsePresentation =
                 readyThreadResponsePresentation &&
                 readyThreadResponseAppliesToTurn(turn, readyThreadResponsePresentation)
                   ? readyThreadResponsePresentation
                   : null;
-              const hasCollapsedContent = turnThreadResponsePresentation
-                ? readyThreadResponseTurnHasContent(turn, turnThreadResponsePresentation)
+              const hasCollapsedContent = collapsedThreadResponsePresentation
+                ? readyThreadResponseTurnHasContent(turn, collapsedThreadResponsePresentation)
                 : (turn.collapsedEntries?.length ?? 0) > 0 || turn.subConclusions.length > 0;
               const turnSummaryDuration = getTurnSummaryDurationMs(turn, turns[turnIndex + 1] ?? null, leaderMode);
               const showThreadStatusFooter = turn.id === threadStatusFooterTurnId;
@@ -1896,7 +1897,7 @@ export const TurnEntries = memo(function TurnEntries({
                       />
                     )}
 
-                    {!isActivityExpanded && !turnThreadResponsePresentation && (
+                    {!isActivityExpanded && !collapsedThreadResponsePresentation && (
                       <CodexSubagentTurnSegment sessionId={sessionId} turnId={turn.id} />
                     )}
                     {isActivityExpanded ? (
@@ -1914,11 +1915,12 @@ export const TurnEntries = memo(function TurnEntries({
                           onSelectThread={onSelectThread}
                           onCollapse={() => toggleTurn(turn.id)}
                           questLinkSurface={questLinkSurface}
+                          threadResponsePresentation={expandedThreadResponsePresentation}
                         />
                       )
                     ) : (
                       <>
-                        {!turnThreadResponsePresentation && turn.systemEntries.length > 0 && (
+                        {!collapsedThreadResponsePresentation && turn.systemEntries.length > 0 && (
                           <FeedEntries
                             entries={turn.systemEntries}
                             sessionId={sessionId}
@@ -1936,7 +1938,7 @@ export const TurnEntries = memo(function TurnEntries({
                           <div className="flex items-start gap-2 sm:gap-3">
                             <PawTrailAvatar />
                             <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
-                              {!turnThreadResponsePresentation && turn.subConclusions.length > 0 && (
+                              {!collapsedThreadResponsePresentation && turn.subConclusions.length > 0 && (
                                 <div className="px-3 pt-2 space-y-1.5">
                                   <HidePawContext.Provider value={true}>
                                     {turn.subConclusions.map((sc, scIdx) => (
@@ -1968,7 +1970,7 @@ export const TurnEntries = memo(function TurnEntries({
                                 onSelectThread={onSelectThread}
                                 onExpand={() => toggleTurn(turn.id)}
                                 questLinkSurface={questLinkSurface}
-                                threadResponsePresentation={turnThreadResponsePresentation}
+                                threadResponsePresentation={collapsedThreadResponsePresentation}
                               />
                             </div>
                           </div>

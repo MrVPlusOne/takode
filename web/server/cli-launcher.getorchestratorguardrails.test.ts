@@ -618,15 +618,16 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("After the user answers a same-session `takode notify needs-input` prompt");
     expect(guardrails).toContain("Use this only for notifications created by your current session");
     expect(guardrails).toContain("Do not rely on deprecated leader reply suffixes");
-    expect(guardrails).toContain("use marked leader responses for temporary activity");
+    expect(guardrails).toContain("use role-bearing routed leader responses");
     expect(guardrails).toContain("Every time you ask the user a question");
-    expect(guardrails).toContain("First send the detailed question or decision text");
-    expect(guardrails).toContain("`[thread:main]` or `[thread:q-N]`");
     expect(guardrails).toContain(
-      "standalone `---` line immediately before each later `[thread:main]` or `[thread:q-N]`",
+      "publish the detailed question, options, or confirmation text with the appropriate role-bearing marker",
     );
+    expect(guardrails).toContain("`[thread:main:C]`");
+    expect(guardrails).toContain("`[thread:q-N:F]`");
+    expect(guardrails).toContain("standalone `---` line immediately before each later role-bearing marker");
     expect(guardrails).toContain("then call `takode notify needs-input`");
-    expect(guardrails).toContain("The marked response must be self-contained enough to answer");
+    expect(guardrails).toContain("The visible thread text is the decision surface");
     expect(guardrails).toContain("New blocking prompt -> new `needs-input` notification");
     expect(guardrails).toContain(
       "existing unresolved prompts in the same thread or quest do not cover a separate approval or decision",
@@ -756,11 +757,12 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Work still produces the accepted artifact or finding");
     expect(guardrails).toContain("sync/push when authorized");
     expect(guardrails).toContain("Every time you ask the user a question");
-    expect(guardrails).toContain("First send the detailed question or decision text");
-    expect(guardrails).toContain("`[thread:main]` or `[thread:q-N]`");
     expect(guardrails).toContain(
-      "standalone `---` line immediately before each later `[thread:main]` or `[thread:q-N]`",
+      "publish the detailed question, options, or confirmation text with the appropriate role-bearing marker",
     );
+    expect(guardrails).toContain("`[thread:main:C]`");
+    expect(guardrails).toContain("`[thread:q-N:F]`");
+    expect(guardrails).toContain("standalone `---` line immediately before each later role-bearing marker");
     expect(guardrails).toContain("then call `takode notify needs-input`");
     expect(guardrails).toContain("never as the only place options or tradeoffs appear");
     expect(guardrails).toContain("so the user never misses it");

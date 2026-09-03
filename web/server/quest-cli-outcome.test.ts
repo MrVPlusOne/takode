@@ -105,39 +105,4 @@ describe("quest outcome CLI legacy compatibility", () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
-
-  it("keeps legacy set recognized only to return explicit thread-response migration guidance", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "quest-cli-legacy-outcome-set-"));
-    seedLiveQuest(tmp, baseQuest({ retained: true }));
-
-    try {
-      const result = await runQuest(["outcome", "set", "q-7", "--text-file", "ignored.md"], baseEnv(tmp), tmp);
-
-      expect(result.status).toBe(1);
-      expect(result.stderr).toContain("quest outcome set was removed");
-      expect(result.stderr).toContain("preserved legacy data, not user-editable summaries");
-      expect(result.stderr).toContain("takode thread-response set --thread q-7 --text-file <path|->");
-    } finally {
-      rmSync(tmp, { recursive: true, force: true });
-    }
-  });
-
-  it("keeps legacy use recognized but refuses to promote routed prose into opaque Outcome data", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "quest-cli-legacy-outcome-use-"));
-    seedLiveQuest(tmp, baseQuest({ retained: true }));
-
-    try {
-      const result = await runQuest(
-        ["outcome", "use", "q-7", "--session", "leader-7", "--message", "assistant-12"],
-        baseEnv(tmp),
-        tmp,
-      );
-
-      expect(result.status).toBe(1);
-      expect(result.stderr).toContain("quest outcome use was removed");
-      expect(result.stderr).toContain("takode thread-response set --thread q-7 --text-file <path|->");
-    } finally {
-      rmSync(tmp, { recursive: true, force: true });
-    }
-  });
 });

@@ -23,6 +23,7 @@ type LeaderThreadOutcomeSession = {
   notifications?: SessionNotification[];
   state?: { leaderThreadStatuses?: Record<string, LeaderThreadStatus> };
   leaderThreadOutcomeValidatedHistoryLength?: number;
+  pendingLeaderRejectedReadyThreadKeys?: string[];
 };
 
 export type LeaderThreadOutcomeTurnSource = "user" | "leader" | "system" | "unknown";
@@ -63,6 +64,7 @@ const BLOCKING_PROMPT_PATTERNS = [
 export function validateLeaderThreadOutcomes(
   session: LeaderThreadOutcomeSession,
   deps: LeaderThreadOutcomeValidationDeps,
+  options: { rejectedReadyThreadKeys?: string[] } = {},
 ): LeaderThreadOutcomeValidationResult {
   if (!deps.isLeaderSession(session.id)) return { checked: false, reason: "not_leader" };
 
@@ -75,7 +77,15 @@ export function validateLeaderThreadOutcomes(
     return { checked: false, reason: "system_turn" };
   }
 
+  const deferredRejectedReadyThreadKeys = normalizedRejectedReadyThreadKeys(
+    session.pendingLeaderRejectedReadyThreadKeys,
+  );
+  const rejectedReadyThreadKeys = normalizedRejectedReadyThreadKeys([
+    ...(options.rejectedReadyThreadKeys ?? []),
+    ...deferredRejectedReadyThreadKeys,
+  ]);
   const touchedThreads = collectTouchedLeaderThreads(history, startIndex);
+  addRejectedReadyThreads(touchedThreads, [...rejectedReadyThreadKeys], history);
   session.leaderThreadOutcomeValidatedHistoryLength = history.length;
 
   const missingNeedsInputPrompts = touchedThreads.filter(
@@ -89,6 +99,12 @@ export function validateLeaderThreadOutcomes(
       { sessionId: THREAD_RESPONSE_REMINDER_SOURCE_ID, sessionLabel: THREAD_RESPONSE_REMINDER_SOURCE_LABEL },
       firstMissingPrompt.route,
     );
+    if (delivery !== "dropped" && delivery !== "no_session") {
+      clearPendingRejectedReadyThreadKeys(
+        session,
+        missingNeedsInputPrompts.map((thread) => thread.key),
+      );
+    }
     settleValidatedHistoryLength(session, history);
     deps.persistSession?.(session);
     return {
@@ -104,13 +120,16 @@ export function validateLeaderThreadOutcomes(
     const outcome = freshOutcomeKind(thread, session.notifications ?? [], session.state?.leaderThreadStatuses);
     const pending = buildLeaderThreadResponseState(session, thread.key).projection.pendingMessageCount;
     if (pending > 0) {
-      if (outcome !== "waiting" && outcome !== "needs-input") pendingResponseMissing.push(thread);
+      if (rejectedReadyThreadKeys.has(thread.key) || (outcome !== "waiting" && outcome !== "needs-input")) {
+        pendingResponseMissing.push(thread);
+      }
     } else if (!outcome) {
       outcomeMissing.push(thread);
     }
   }
 
   if (pendingResponseMissing.length === 0 && outcomeMissing.length === 0) {
+    clearPendingRejectedReadyThreadKeys(session, deferredRejectedReadyThreadKeys);
     deps.persistSession?.(session);
     return { checked: true, missing: [], injected: false };
   }
@@ -124,6 +143,9 @@ export function validateLeaderThreadOutcomes(
     { sessionId: THREAD_RESPONSE_REMINDER_SOURCE_ID, sessionLabel: THREAD_RESPONSE_REMINDER_SOURCE_LABEL },
     primary.route,
   );
+  if (delivery !== "dropped" && delivery !== "no_session") {
+    clearPendingRejectedReadyThreadKeys(session, deferredRejectedReadyThreadKeys);
+  }
   settleValidatedHistoryLength(session, history);
   deps.persistSession?.(session);
   return {
@@ -131,6 +153,51 @@ export function validateLeaderThreadOutcomes(
     missing: [...pendingResponseMissing, ...outcomeMissing].map((thread) => thread.route.threadKey),
     injected: delivery !== "dropped" && delivery !== "no_session",
   };
+}
+
+function clearPendingRejectedReadyThreadKeys(
+  session: LeaderThreadOutcomeSession,
+  handledThreadKeys: Iterable<string>,
+): void {
+  if (!session.pendingLeaderRejectedReadyThreadKeys?.length) return;
+  const handled = new Set(handledThreadKeys);
+  session.pendingLeaderRejectedReadyThreadKeys = session.pendingLeaderRejectedReadyThreadKeys.filter(
+    (threadKey) => !handled.has(threadKey),
+  );
+}
+
+function normalizedRejectedReadyThreadKeys(threadKeys: string[] | undefined): Set<string> {
+  return new Set(
+    (threadKeys ?? [])
+      .map((threadKey) => threadKey.trim().toLowerCase())
+      .filter((threadKey) => threadKey === "main" || /^q-\d+$/.test(threadKey)),
+  );
+}
+
+function addRejectedReadyThreads(
+  touchedThreads: TouchedThread[],
+  rejectedReadyThreadKeys: string[] | undefined,
+  history: BrowserIncomingMessage[],
+): void {
+  const existing = new Set(touchedThreads.map((thread) => thread.key));
+  const latestIndex = Math.max(0, history.length - 1);
+  const latestTimestamp = history.length > 0 ? getHistoryTimestamp(history.at(-1)!) : 0;
+  for (const rawThreadKey of rejectedReadyThreadKeys ?? []) {
+    const threadKey = rawThreadKey.trim().toLowerCase();
+    if (threadKey !== "main" && !/^q-\d+$/.test(threadKey)) continue;
+    const key = routeKey({ threadKey });
+    if (existing.has(key)) continue;
+    existing.add(key);
+    touchedThreads.push({
+      route: threadRouteForTarget(threadKey),
+      key,
+      earliestTimestamp: latestTimestamp,
+      latestTimestamp,
+      latestIndex,
+      textEvents: [],
+    });
+  }
+  touchedThreads.sort((left, right) => left.latestIndex - right.latestIndex);
 }
 
 function settleValidatedHistoryLength(session: LeaderThreadOutcomeSession, history: BrowserIncomingMessage[]): void {
@@ -266,19 +333,43 @@ function buildPendingResponseReminderContent(
   pendingMissing: TouchedThread[],
   outcomeMissing: TouchedThread[],
 ): string {
-  const pendingLabels = pendingMissing.map((thread) => {
-    const pending = buildLeaderThreadResponseState(session, thread.key).projection;
-    return `${formatThreadLabel(thread.key)} (${pending.pendingMessageCount} pending)`;
-  });
+  const pendingStates = pendingMissing.map((thread) => ({
+    thread,
+    state: buildLeaderThreadResponseState(session, thread.key),
+  }));
+  const pendingLabels = pendingStates.map(
+    ({ thread, state }) => `${formatThreadLabel(thread.key)} (${state.projection.pendingMessageCount} pending)`,
+  );
   return [
-    "Thread response reminder: direct user messages still need an explicit revisable leader response before the thread can be Ready.",
+    "Final-response reminder: direct user messages still need an explicit routed final response before the thread can be Ready.",
     `Pending response batches: ${pendingLabels.join(", ")}.`,
-    "Use `takode thread-response set --thread <main|q-N>` when the answer is ready; Takode snapshots the server-owned batch, so do not duplicate the same prose in a normal response.",
+    ...formatPendingMessagePreviews(pendingStates),
+    "Answer with `[thread:main:F]` or `[thread:q-N:F]`; Takode snapshots the server-owned pending batch, so do not manage message IDs or batch tokens.",
     "If work is not complete, use a fresh Thread Waiting marker or same-thread needs-input notification instead of Thread Ready.",
     ...(outcomeMissing.length > 0
       ? [`Also missing a normal Waiting/Ready/notification outcome for: ${formatThreadLabels(outcomeMissing)}.`]
       : []),
   ].join("\n");
+}
+
+function formatPendingMessagePreviews(
+  pendingStates: Array<{ thread: TouchedThread; state: ReturnType<typeof buildLeaderThreadResponseState> }>,
+): string[] {
+  const limit = 5;
+  const previewLength = 180;
+  const entries = pendingStates.flatMap(({ thread, state }) =>
+    state.pendingBatches.flatMap((batch) => batch.members.map((member) => ({ threadKey: thread.key, member }))),
+  );
+  if (entries.length === 0) return [];
+  const lines = entries.slice(0, limit).map(({ threadKey, member }) => {
+    const compact = member.preview.replace(/\s+/g, " ").trim();
+    const preview = compact.length > previewLength ? `${compact.slice(0, previewLength - 1)}…` : compact;
+    const imageLabel =
+      member.imageCount > 0 ? ` (+${member.imageCount} image${member.imageCount === 1 ? "" : "s"})` : "";
+    return `- ${formatThreadLabel(threadKey)}: ${preview || "[image-only message]"}${imageLabel}`;
+  });
+  if (entries.length > limit) lines.push(`- ${entries.length - limit} more pending message(s) not shown.`);
+  return ["Pending user messages:", ...lines];
 }
 
 function buildOutcomeReminderContent(missing: TouchedThread[]): string {
@@ -296,7 +387,7 @@ function buildNeedsInputPromptReminderContent(missing: TouchedThread[]): string 
     "Needs-input notification reminder: this leader response appears to ask for a blocking user decision, but no fresh same-thread `takode notify needs-input` notification was created.",
     `Blocking prompt detected for: ${formatThreadLabels(missing)}.`,
     "This is about a missing same-thread needs-input notification after routed leader output; it is not diagnosing missing `[thread:...]` visible-text markers or `# thread:...` shell-command markers.",
-    "Publish or revise the covering thread response, then create the fresh same-thread needs-input notification.",
+    "Send the blocking prompt as routed commentary with `[thread:main:C]` or `[thread:q-N:C]`, then create the fresh same-thread needs-input notification. After the user answers, use a later `[thread:main:F]` or `[thread:q-N:F]` final response.",
     "Existing unresolved needs-input prompts do not cover a new approval or decision prompt.",
   ].join("\n");
 }

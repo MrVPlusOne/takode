@@ -136,6 +136,8 @@ function makeSdkDeps() {
     validateLeaderThreadOutcomes: vi.fn(),
     onTurnCompleted: vi.fn(),
     injectUserMessage: vi.fn(),
+    refreshSessionConversation: vi.fn(),
+    invalidateLeaderThreadTabsForSession: vi.fn(),
     hasUserPromptReplay: vi.fn(() => false),
     hasToolResultPreviewReplay: vi.fn(() => false),
     nextUserMessageId: vi.fn(() => "msg-1"),
@@ -149,6 +151,87 @@ function makeSdkDeps() {
 }
 
 describe("system-message-controller", () => {
+  it("forwards thread-tab invalidation and conversation refresh through composed handlers", () => {
+    const session = makeSdkSession();
+    session.state.isOrchestrator = true;
+    session.state.leaderThreadStatuses = {
+      main: {
+        kind: "ready",
+        label: "Thread Ready",
+        threadKey: "main",
+        summary: "old result",
+        messageId: "old-ready",
+        timestamp: 1,
+        updatedAt: 1,
+      },
+    };
+    const allDeps = makeSdkDeps();
+    const handlers = createClaudeMessageHandlers(allDeps);
+
+    handlers.handleAssistantMessage(session as any, {
+      type: "assistant",
+      parent_tool_use_id: null,
+      uuid: "commentary-uuid",
+      session_id: session.id,
+      message: {
+        id: "commentary",
+        type: "message",
+        role: "assistant",
+        model: "test",
+        content: [{ type: "text", text: "[thread:main:C]\nFresh activity." }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+
+    expect(allDeps.invalidateLeaderThreadTabsForSession).toHaveBeenCalledWith(session.id);
+
+    allDeps.invalidateLeaderThreadTabsForSession.mockClear();
+    session.messageHistory = [
+      {
+        type: "user_message",
+        id: "user-final",
+        content: "Please answer.",
+        timestamp: 10,
+        threadKey: "main",
+        leaderResponseCoverageVersion: 1,
+      },
+    ];
+    session.userMessageIdsThisTurn = [0];
+    handlers.handleAssistantMessage(session as any, {
+      type: "assistant",
+      parent_tool_use_id: null,
+      uuid: "final-uuid",
+      session_id: session.id,
+      message: {
+        id: "final",
+        type: "message",
+        role: "assistant",
+        model: "test",
+        content: [{ type: "text", text: "[thread:main:F]\nFinal answer." }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    handlers.handleResultMessage(session as any, {
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "",
+      duration_ms: 1,
+      duration_api_ms: 1,
+      num_turns: 1,
+      total_cost_usd: 0,
+      stop_reason: "end_turn",
+      usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      uuid: "final-result",
+      session_id: session.id,
+    });
+
+    expect(allDeps.invalidateLeaderThreadTabsForSession).toHaveBeenCalledWith(session.id);
+    expect(allDeps.refreshSessionConversation).toHaveBeenCalledWith(session.id);
+  });
+
   // Verifies the live system.status path updates both permissionMode and the derived
   // uiMode, while still emitting the current backend status to subscribed browsers.
   it("broadcasts uiMode and status changes for live system.status updates", () => {

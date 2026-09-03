@@ -143,6 +143,8 @@ export interface PersistedSession {
   notifications?: SessionNotification[];
   /** History length after the latest leader-thread outcome validation pass. */
   leaderThreadOutcomeValidatedHistoryLength?: number;
+  /** Recovered Ready rejections awaiting the next normal outcome-validation boundary. */
+  pendingLeaderRejectedReadyThreadKeys?: string[];
   /** Server-authoritative attention records for Main ledger rows and top chips */
   attentionRecords?: SessionAttentionRecord[];
   /** Monotonic status version for ordering notification summary updates. */
@@ -739,6 +741,10 @@ export class SessionStore {
           content: text.slice(0, MAX_CONTENT_LEN),
           timestamp: typeof msg.timestamp === "number" ? msg.timestamp : 0,
           id: msg.message?.id,
+          ...(msg.threadKey ? { threadKey: msg.threadKey } : {}),
+          ...(msg.questId ? { questId: msg.questId } : {}),
+          ...(msg.threadRefs?.length ? { threadRefs: msg.threadRefs } : {}),
+          ...(msg.threadResponse ? { threadResponse: msg.threadResponse } : {}),
         });
       }
     }

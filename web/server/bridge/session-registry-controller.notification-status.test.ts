@@ -971,10 +971,12 @@ describe("session notification status metadata", () => {
       makeSession({
         messageHistory: [visibleLeaderMessage("a-before-restart", 1000)],
         leaderThreadOutcomeValidatedHistoryLength: 1,
+        pendingLeaderRejectedReadyThreadKeys: ["q-42"],
       }),
     );
     expect(persisted).toMatchObject({
       leaderThreadOutcomeValidatedHistoryLength: 1,
+      pendingLeaderRejectedReadyThreadKeys: ["q-42"],
     });
 
     const sessions = new Map<string, any>();
@@ -988,6 +990,7 @@ describe("session notification status metadata", () => {
     const restored = sessions.get("s1");
     expect(restored).toMatchObject({
       leaderThreadOutcomeValidatedHistoryLength: 1,
+      pendingLeaderRejectedReadyThreadKeys: ["q-42"],
     });
 
     const validationDeps = {
@@ -1002,6 +1005,7 @@ describe("session notification status metadata", () => {
     });
     expect(validationDeps.injectUserMessage).not.toHaveBeenCalled();
     expect(validationDeps.persistSession).not.toHaveBeenCalled();
+    expect(restored.pendingLeaderRejectedReadyThreadKeys).toEqual(["q-42"]);
   });
 
   it("bootstraps missing leader outcome cursors to restored history length", async () => {

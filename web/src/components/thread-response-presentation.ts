@@ -47,11 +47,15 @@ function isAuthoritativeCurrentResponseMessage(
   response: LeaderThreadResponseState,
   threadKey: string,
 ): boolean {
-  const revision = message.metadata?.threadResponse;
+  const metadata = message.metadata;
+  const revision = metadata?.threadResponse;
+  const isResponseMessage =
+    metadata?.leaderThreadRole === "response" ||
+    (metadata?.leaderUserMessage === true && metadata.leaderThreadRole == null);
   if (
     message.role !== "assistant" ||
-    message.metadata?.leaderUserMessage !== true ||
-    message.metadata?.codexSubagent ||
+    !isResponseMessage ||
+    metadata?.codexSubagent ||
     message.parentToolUseId != null ||
     !revision ||
     revision.logicalResponseId !== response.logicalResponseId ||
@@ -116,7 +120,6 @@ export function resolveThreadResponses(
   if (!enabled || normalizedThreadKey === "all") return null;
   if (
     !state ||
-    !state.ready ||
     !Number.isInteger(state.cutoverHistoryIndex) ||
     state.cutoverHistoryIndex < 0 ||
     normalizeThreadKey(state.threadKey) !== normalizedThreadKey ||
@@ -220,7 +223,10 @@ export function resolveThreadResponses(
   const quizQuestIds = collectQuestQuizIds(sections, state.cutoverHistoryIndex);
   const lastResponse = currentResponses.at(-1) ?? null;
   const pendingSignature = state.pendingBatches
-    .map((batch) => `${batch.token}:${batch.messageCount}:${batch.firstHistoryIndex}:${batch.lastHistoryIndex}`)
+    .map(
+      (batch) =>
+        `${batch.userMessageIds.join(",")}:${batch.messageCount}:${batch.firstHistoryIndex}:${batch.lastHistoryIndex}`,
+    )
     .join("|");
   const responseSignature = currentResponses
     .map(

@@ -8,8 +8,9 @@ describe("buildThreadRoutingReminderContent", () => {
 
     expect(content).toContain("Missing thread marker on visible leader text");
     expect(content).toContain("previous visible leader message");
-    expect(content).toContain("`[thread:main]` or `[thread:q-N]` as the first line");
-    expect(content).toContain("standalone `---` line immediately before the next `[thread:main]` or `[thread:q-N]`");
+    expect(content).toContain("`[thread:main:C]` / `[thread:q-N:C]`");
+    expect(content).toContain("`[thread:main:F]` / `[thread:q-N:F]`");
+    expect(content).toContain("standalone `---` line immediately before the next role-bearing marker");
     expect(content).toContain("`# thread:main` or `# thread:q-N`");
     expect(content).not.toContain("previous leader response");
   });
@@ -21,8 +22,9 @@ describe("buildThreadRoutingReminderContent", () => {
     expect(content).toContain("Missing thread marker on leader shell command");
     expect(content).toContain("previous leader shell command");
     expect(content).toContain("`# thread:main` or `# thread:q-N`");
-    expect(content).toContain("`[thread:main]` or `[thread:q-N]` as the first line");
-    expect(content).toContain("standalone `---` line immediately before each later `[thread:main]` or `[thread:q-N]`");
+    expect(content).toContain("`[thread:main:C]` / `[thread:q-N:C]`");
+    expect(content).toContain("`[thread:main:F]` / `[thread:q-N:F]`");
+    expect(content).toContain("standalone `---` line immediately before each later role-bearing marker");
     expect(content).not.toContain("previous leader response");
   });
 
@@ -31,8 +33,8 @@ describe("buildThreadRoutingReminderContent", () => {
     const content = buildThreadRoutingReminderContent({ reason: "missing" });
 
     expect(content).toContain("output type is unavailable");
-    expect(content).toContain("If it was user-visible leader text");
-    expect(content).toContain("standalone `---` line immediately before each later `[thread:main]` or `[thread:q-N]`");
+    expect(content).toContain("If it was visible leader text");
+    expect(content).toContain("standalone `---` line immediately before each later role-bearing marker");
     expect(content).toContain("If it was a leader shell command");
     expect(content).not.toContain("previous leader response");
   });

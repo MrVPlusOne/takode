@@ -178,6 +178,12 @@ describe("Playground", () => {
     render(<Playground />);
 
     expect(screen.getByText("Component Playground")).toBeTruthy();
+    const routedFinalSection = document.getElementById("overview-routed-final-responses");
+    expect(routedFinalSection).toBeTruthy();
+    const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);
+    scrollIntoView.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Routed Final Responses" }));
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "smooth" });
     expect(screen.getByRole("heading", { name: "Inline Quest Preview" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Show idle state" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Inline Quest Preview" })).toBeTruthy();

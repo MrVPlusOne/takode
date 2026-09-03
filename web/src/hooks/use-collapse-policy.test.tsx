@@ -70,10 +70,15 @@ function installLeaderProjection(threadStatuses: LeaderThreadTabsProjectionValue
   storeMocks.syncedProjectionKeys.add(entryId);
 }
 
-function getLeaderCollapseStates(messages: ChatMessage[], autoCollapseReadyThreadKey?: string | null) {
+function getLeaderCollapseStates(
+  messages: ChatMessage[],
+  autoCollapseReadyThreadKey?: string | null,
+  autoCollapseReadyAfter?: number | null,
+) {
   const model = buildFeedModel(messages, true);
   const { result } = renderHook(() =>
     useCollapsePolicy({
+      autoCollapseReadyAfter,
       autoCollapseReadyThreadKey,
       sessionId: "leader-session",
       turns: model.turns,
@@ -177,6 +182,40 @@ describe("useCollapsePolicy", () => {
 
     expect(states).toEqual([{ turnId: "u1", defaultExpanded: false, isActivityExpanded: false }]);
   });
+
+  it("ignores stale Ready status while accepting manual expansion after a fresh Ready", () => {
+    const readyStatus = {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: "q-1636",
+      questId: "q-1636",
+      summary: "complete",
+      messageId: "a-ready",
+      timestamp: 3,
+      updatedAt: 3,
+    } as const;
+    installLeaderProjection({ "q-1636": readyStatus });
+    const messages = [
+      makeMessage({ id: "u1", role: "user", content: "close q-1636", timestamp: 1 }),
+      makeMessage({
+        id: "a-ready",
+        role: "assistant",
+        content: "q-1636 is complete.",
+        timestamp: 3,
+        metadata: { threadStatusMarkers: [readyStatus] },
+      }),
+    ];
+
+    expect(getLeaderCollapseStates(messages, "q-1636", 4)).toEqual([
+      { turnId: "u1", defaultExpanded: true, isActivityExpanded: true },
+    ]);
+
+    storeMocks.overridesBySession.set("leader-session", new Map([["u1", true]]));
+    expect(getLeaderCollapseStates(messages, "q-1636", 3)).toEqual([
+      { turnId: "u1", defaultExpanded: false, isActivityExpanded: true },
+    ]);
+  });
+
   it("correlates a compacted Ready status through its full message ID hash", () => {
     const fullMessageId = `ready-${"m".repeat(190)}`;
     const projectedStatus = {

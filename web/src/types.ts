@@ -24,6 +24,7 @@ import type {
   LeaderThreadResponseProjection,
   LeaderThreadResponseRevisionMetadata,
   LeaderThreadResponseState,
+  LeaderThreadTextRole,
   PendingCodexInput,
   PendingCodexInputImageDraft,
   CodexAutoPauseHeldInput,
@@ -264,6 +265,8 @@ export interface ChatMessage {
     leaderResponseCoverageVersion?: 1;
     /** Immutable metadata for one append-only leader-managed thread-response revision. */
     threadResponse?: LeaderThreadResponseRevisionMetadata;
+    /** Explicit commentary/final-response role for normal routed leader text. */
+    leaderThreadRole?: LeaderThreadTextRole;
     /** False when the UI id is a history fallback id rather than a raw stable protocol id. */
     starStableMessageId?: boolean;
     /** Optional quest/thread memberships. Main is implicit for every message. */

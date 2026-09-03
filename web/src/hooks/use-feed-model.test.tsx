@@ -115,6 +115,22 @@ function makePhasedAssistant(
   });
 }
 
+function makeRoutedLeaderAssistant(
+  id: string,
+  content: string,
+  timestamp: number,
+  role: "commentary" | "response",
+): ChatMessage {
+  return makeMessage({
+    id,
+    role: "assistant",
+    content,
+    timestamp,
+    contentBlocks: [{ type: "text", text: content }],
+    metadata: { leaderThreadRole: role },
+  });
+}
+
 function makeReworkMilestoneRecord(overrides: Partial<SessionAttentionRecord> = {}): SessionAttentionRecord {
   const createdAt = overrides.createdAt ?? 4;
   return {
@@ -957,7 +973,23 @@ describe("leader mode model-only reminder collapsed preview selection", () => {
   });
 });
 
-describe("Codex message phase collapsed representative selection", () => {
+describe("explicit routed and Codex phase representative selection", () => {
+  it("uses routed leader response roles while keeping commentary as activity", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "summarize the result", timestamp: 1 }),
+      makeRoutedLeaderAssistant("a-response", "Self-contained final response", 2, "response"),
+      makeRoutedLeaderAssistant("a-commentary", "Operational follow-up", 3, "commentary"),
+    ];
+
+    const mainTurn = buildFeedModel(messages, false, 0, undefined, undefined, undefined, true).turns[0];
+    const selectedTurn = buildFeedModel(messages, true).turns[0];
+
+    expect(mainTurn.responseEntry).toMatchObject({ kind: "message", msg: { id: "a-response" } });
+    expect(entryIds(mainTurn.agentEntries)).toContain("a-commentary");
+    expect(entryIds(selectedTurn.notificationEntries)).toEqual(["a-response"]);
+    expect(entryIds(selectedTurn.agentEntries)).toContain("a-commentary");
+  });
+
   it("chooses the last explicit final answer over later commentary in ordinary turns", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "summarize the result", timestamp: 1 }),

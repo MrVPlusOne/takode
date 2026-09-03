@@ -69,22 +69,6 @@ describe("legacy Quest Outcome routes", () => {
     expect(await response.json()).toEqual({ questId: "q-42", legacy: true, present: true, outcome: null });
   });
 
-  it("fails closed for all legacy mutation requests", async () => {
-    store.getQuest.mockResolvedValue(quest({ manual: "do not rewrite" }));
-
-    const response = await app().request("/api/quests/q-42/outcome", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ baseRevisionId: null, markdown: "replacement" }),
-    });
-
-    expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({
-      error: expect.stringContaining("takode thread-response set"),
-    });
-    expect(store.getQuest).not.toHaveBeenCalled();
-  });
-
   it("keeps missing-quest recovery inspection explicit", async () => {
     store.getQuest.mockResolvedValue(null);
 

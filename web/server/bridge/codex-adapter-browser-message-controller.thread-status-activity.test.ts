@@ -5,6 +5,8 @@ import {
   handleCodexAdapterBrowserMessage,
   type CodexAdapterBrowserMessageDeps,
 } from "./codex-adapter-browser-message-controller.js";
+import { isDuplicateCodexAssistantReplay } from "./codex-assistant-replay-dedup.js";
+import type { Session } from "./ws-bridge-session.js";
 
 type TestSession = {
   id: string;
@@ -52,7 +54,7 @@ function status(threadKey: string, kind: LeaderThreadStatus["kind"] = "ready"): 
   };
 }
 
-function assistant(content: ContentBlock[], id: string): BrowserIncomingMessage {
+function assistant(content: ContentBlock[], id: string): Extract<BrowserIncomingMessage, { type: "assistant" }> {
   return {
     type: "assistant",
     parent_tool_use_id: null,
@@ -88,6 +90,7 @@ function makeDeps(broadcasts: BrowserIncomingMessage[]): CodexAdapterBrowserMess
     buildToolResultPreviews: vi.fn(() => []),
     projectToolResultPreviews: vi.fn(() => []),
     broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+    invalidateLeaderThreadTabsForSession: vi.fn(),
     finalizeSupersededCodexTerminalTools: vi.fn(),
     isDuplicateCodexAssistantReplay: () => false,
     completeCodexTurnsForResult: vi.fn(() => true),
@@ -137,6 +140,41 @@ describe("Codex result interruption ownership", () => {
 });
 
 describe("Codex leader thread status activity invalidation", () => {
+  it("persists same-id commentary followed by an explicit final with identical prose", async () => {
+    const session = makeSession();
+    session.activeTurnRoute = { threadKey: "main" };
+    session.messageHistory.push({
+      type: "user_message",
+      id: "same-id-user",
+      content: "Please answer.",
+      timestamp: 10,
+      threadKey: "main",
+      leaderResponseCoverageVersion: 1,
+    });
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+    deps.isDuplicateCodexAssistantReplay = (target, message) =>
+      isDuplicateCodexAssistantReplay(target as Session, message);
+    const base = assistant([{ type: "text", text: "[thread:main:C]\nSame prose." }], "same-codex-id");
+
+    await handleCodexAdapterBrowserMessage(session as any, base, deps);
+    await handleCodexAdapterBrowserMessage(
+      session as any,
+      {
+        ...base,
+        message: { ...base.message, content: [{ type: "text", text: "[thread:main:F]\nSame prose." }] },
+      },
+      deps,
+    );
+
+    const accepted = session.messageHistory.filter(
+      (entry): entry is Extract<BrowserIncomingMessage, { type: "assistant" }> => entry.type === "assistant",
+    );
+    expect(accepted).toHaveLength(2);
+    expect(accepted.map((entry) => entry.leaderThreadRole)).toEqual(["commentary", "response"]);
+    expect(broadcasts.filter((entry) => entry.type === "assistant")).toHaveLength(2);
+  });
+
   it("preserves an official message phase across leader route splitting and persistence", async () => {
     const session = makeSession();
     const broadcasts: BrowserIncomingMessage[] = [];
@@ -192,13 +230,14 @@ describe("Codex leader thread status activity invalidation", () => {
     });
     const broadcasts: BrowserIncomingMessage[] = [];
 
+    const deps = makeDeps(broadcasts);
     await handleCodexAdapterBrowserMessage(
       session as any,
       assistant(
         [{ type: "tool_use", id: "view-1", name: "view_image", input: { path: "/tmp/live.png" } }],
         "tool-activity",
       ),
-      makeDeps(broadcasts),
+      deps,
     );
 
     expect(session.state.leaderThreadStatuses).toEqual({});
@@ -208,6 +247,7 @@ describe("Codex leader thread status activity invalidation", () => {
     expect(broadcasts).toEqual([
       expect.objectContaining({ type: "assistant", threadKey: "q-1850", questId: "q-1850" }),
     ]);
+    expect(deps.invalidateLeaderThreadTabsForSession).toHaveBeenCalledWith(session.id);
   });
 
   it("does not clear status for duplicate tool-only assistant replay", async () => {
@@ -238,6 +278,7 @@ describe("Codex leader thread status activity invalidation", () => {
       "q-1850": expect.objectContaining({ kind: "ready", messageId: "old-status" }),
     });
     expect(broadcasts).toEqual([]);
+    expect(deps.invalidateLeaderThreadTabsForSession).not.toHaveBeenCalled();
   });
 
   it("keeps child-owned audit rows out of root leader and quest side effects", async () => {

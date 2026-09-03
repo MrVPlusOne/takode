@@ -1,6 +1,18 @@
+import type { LeaderThreadTextRole } from "../shared/thread-routing.js";
+import type { ParsedThreadStatusMarker } from "../shared/thread-status-marker.js";
+
 export const LEADER_THREAD_RESPONSE_VERSION = 1 as const;
 
-export interface LeaderThreadResponseMessage<Notification, ThreadReference, RoutingError> {
+/** Control metadata retained on ordinary routed leader assistant rows until turn settlement. */
+export type LeaderRoutedAssistantMetadata = {
+  leaderThreadRole?: LeaderThreadTextRole;
+  leaderResponseObservedHistoryLength?: number;
+  deferredThreadStatusMarkers?: ParsedThreadStatusMarker[];
+  threadResponse?: LeaderThreadResponseRevisionMetadata;
+};
+
+/** Read-only compatibility shape for dedicated response rows persisted before routed finals. */
+export interface LegacyLeaderThreadResponseMessage<Notification, ThreadReference, RoutingError> {
   type: "leader_user_message";
   content: string;
   timestamp: number;
@@ -23,8 +35,6 @@ export interface LeaderThreadResponseRevisionMetadata {
   batchObservedHistoryLength: number;
   coveredUserMessageIds: string[];
   contentHash: string;
-  idempotencyKey?: string;
-  idempotencyHash?: string;
 }
 
 export interface LeaderThreadResponseRevision {
@@ -39,7 +49,6 @@ export interface LeaderThreadResponseRevision {
   coveredUserMessageIds: string[];
   contentHash: string;
   createdAt: number;
-  idempotencyKey?: string;
 }
 
 /** Compact current pointer for one logical response to one server-defined pending batch. */
@@ -70,9 +79,8 @@ export interface LeaderThreadPendingBatchMemberPreview {
   imageCount: number;
 }
 
-/** Browser-only exact pending batch projection; tokens replace message IDs in normal leader authoring APIs. */
+/** Browser-only exact pending batch projection used for fail-closed presentation support. */
 export interface LeaderThreadPendingBatchProjection {
-  token: string;
   userMessageIds: string[];
   messageCount: number;
   firstHistoryIndex: number;

@@ -879,7 +879,7 @@ function handleParsedMessage(
             : {}),
           ...(typeof data.turn_duration_ms === "number" ? { turnDurationMs: data.turn_duration_ms } : {}),
         });
-      } else if (contentBlocks.length > 0 || data.notification) {
+      } else if (contentBlocks.length > 0 || data.notification || normalized.metadata?.threadStatusMarkers?.length) {
         store.appendMessage(sessionId, chatMsg);
       }
       // Native child rows are audit content only. They must not mutate the

@@ -3,15 +3,44 @@ export type ThreadRouteTarget = {
   questId?: string;
 };
 
-export type ThreadRouteParseResult =
-  | { ok: true; target: ThreadRouteTarget; body: string }
-  | { ok: false; reason: "missing" | "invalid"; marker?: string; body: string };
+export type LeaderThreadTextRole = "commentary" | "response";
 
-const TEXT_THREAD_MARKER_RE = /^\[thread:(main|q-\d+)\](?=$|[ \t]|\r?\n)/;
-const TEXT_THREAD_MARKER_AT_LINE_START_RE = /^\[thread:(main|q-\d+)\]/;
+export type ThreadRouteParseResult =
+  | { ok: true; target: ThreadRouteTarget; role?: LeaderThreadTextRole; body: string }
+  | {
+      ok: false;
+      reason: "missing" | "invalid" | "invalid_role";
+      marker?: string;
+      body: string;
+    };
+
+const TEXT_THREAD_MARKER_RE = /^\[thread:(main|q-\d+)(?::([FC]))?\](?=$|[ \t]|\r?\n)/i;
+const TEXT_THREAD_MARKER_AT_LINE_START_RE = /^\[thread:(main|q-\d+)(?::([FC]))?\]/i;
+const TEXT_THREAD_DESTINATION_PREFIX_RE = /^\[thread:(main|q-\d+):/i;
+const MARKDOWN_FENCE_RE = /^\s*(`{3,}|~{3,})/;
 const COMMAND_THREAD_COMMENT_RE = /^#\s*thread:(main|q-\d+)\s*$/;
 const QUEST_MENTION_RE = /\bq-\d+\b/gi;
 const LEADING_QUEST_TARGET_RE = /^(?:work on|advance|review|reopen)\b/i;
+
+export type ThreadRoutingMarkdownFenceState = {
+  marker: string;
+  length: number;
+};
+
+export function advanceThreadRoutingMarkdownFence(
+  fence: ThreadRoutingMarkdownFenceState | null,
+  line: string,
+): { fence: ThreadRoutingMarkdownFenceState | null; isFenceLine: boolean } {
+  const token = line.match(MARKDOWN_FENCE_RE)?.[1];
+  if (!token) return { fence, isFenceLine: false };
+  if (fence) {
+    return {
+      fence: token[0] === fence.marker && token.length >= fence.length ? null : fence,
+      isFenceLine: true,
+    };
+  }
+  return { fence: { marker: token[0]!, length: token.length }, isFenceLine: true };
+}
 
 export function isQuestThreadKey(threadKey: string): boolean {
   return /^q-\d+$/.test(threadKey);
@@ -38,8 +67,13 @@ export function inferThreadTargetFromTextContent(text: string): ThreadRouteTarge
   return normalizeThreadTarget(leadingQuestIds[0]);
 }
 
-export function formatThreadMarker(threadKey: string): string {
-  return `[thread:${threadKey}]`;
+export function formatThreadMarker(threadKey: string, role?: LeaderThreadTextRole): string {
+  const suffix = role === "response" ? ":F" : role === "commentary" ? ":C" : "";
+  return `[thread:${threadKey}${suffix}]`;
+}
+
+export function isThreadTextMarkerLikeAtLineStart(text: string): boolean {
+  return /^\[thread:/i.test(text);
 }
 
 export function parseThreadTextPrefix(text: string): ThreadRouteParseResult {
@@ -49,27 +83,75 @@ export function parseThreadTextPrefix(text: string): ThreadRouteParseResult {
   const candidate = text.slice(markerStart);
   const match = TEXT_THREAD_MARKER_RE.exec(candidate);
   if (!match) {
-    const markerLike = candidate.toLowerCase().startsWith("[thread:") ? extractThreadMarkerLike(candidate) : undefined;
-    return { ok: false, reason: markerLike ? "invalid" : "missing", marker: markerLike, body: text };
+    const markerLike = isThreadTextMarkerLikeAtLineStart(candidate) ? extractThreadMarkerLike(candidate) : undefined;
+    const reason =
+      markerLike && TEXT_THREAD_DESTINATION_PREFIX_RE.test(candidate)
+        ? "invalid_role"
+        : markerLike
+          ? "invalid"
+          : "missing";
+    return { ok: false, reason, marker: markerLike, body: text };
   }
 
   const target = normalizeThreadTarget(match[1]);
   const marker = match[0];
   if (!target) return { ok: false, reason: "invalid", marker, body: text };
-  return { ok: true, target, body: removeSingleThreadMarkerSeparator(candidate.slice(marker.length)) };
+  const body = removeSingleThreadMarkerSeparator(candidate.slice(marker.length));
+  const conflictingMarker = firstUnfencedThreadTextMarkerLike(body);
+  if (conflictingMarker) {
+    return { ok: false, reason: "invalid_role", marker: conflictingMarker, body: text };
+  }
+  return {
+    ok: true,
+    target,
+    ...(normalizeThreadTextRole(match[2]) ? { role: normalizeThreadTextRole(match[2]) } : {}),
+    body,
+  };
 }
 
 export function parseThreadTextLineStartMarker(text: string): ThreadRouteParseResult {
   const match = TEXT_THREAD_MARKER_AT_LINE_START_RE.exec(text);
   if (!match) {
-    const markerLike = text.toLowerCase().startsWith("[thread:") ? extractThreadMarkerLike(text) : undefined;
-    return { ok: false, reason: markerLike ? "invalid" : "missing", marker: markerLike, body: text };
+    const markerLike = isThreadTextMarkerLikeAtLineStart(text) ? extractThreadMarkerLike(text) : undefined;
+    const reason =
+      markerLike && TEXT_THREAD_DESTINATION_PREFIX_RE.test(text) ? "invalid_role" : markerLike ? "invalid" : "missing";
+    return { ok: false, reason, marker: markerLike, body: text };
   }
 
   const target = normalizeThreadTarget(match[1]);
   const marker = match[0];
   if (!target) return { ok: false, reason: "invalid", marker, body: text };
-  return { ok: true, target, body: removeSingleThreadMarkerSeparator(text.slice(marker.length)) };
+  const body = removeSingleThreadMarkerSeparator(text.slice(marker.length));
+  const conflictingMarker = firstUnfencedThreadTextMarkerLike(body);
+  if (conflictingMarker) {
+    return { ok: false, reason: "invalid_role", marker: conflictingMarker, body: text };
+  }
+  return {
+    ok: true,
+    target,
+    ...(normalizeThreadTextRole(match[2]) ? { role: normalizeThreadTextRole(match[2]) } : {}),
+    body,
+  };
+}
+
+function normalizeThreadTextRole(value: string | undefined): LeaderThreadTextRole | undefined {
+  if (!value) return undefined;
+  return value.toUpperCase() === "F" ? "response" : value.toUpperCase() === "C" ? "commentary" : undefined;
+}
+
+function firstUnfencedThreadTextMarkerLike(text: string): string | null {
+  let fence: ThreadRoutingMarkdownFenceState | null = null;
+  for (const line of text.split(/\r?\n/)) {
+    const wasInsideFence = fence !== null;
+    const transition = advanceThreadRoutingMarkdownFence(fence, line);
+    fence = transition.fence;
+    if (wasInsideFence || transition.isFenceLine) {
+      continue;
+    }
+    const candidate = line.trimStart();
+    if (isThreadTextMarkerLikeAtLineStart(candidate)) return extractThreadMarkerLike(candidate);
+  }
+  return null;
 }
 
 export function parseCommandThreadComment(command: string): ThreadRouteTarget | null {

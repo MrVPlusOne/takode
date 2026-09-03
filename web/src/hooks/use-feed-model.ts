@@ -570,7 +570,7 @@ function extractSubConclusions(entries: FeedEntry[], excludedMessageIds: Set<str
       entry.msg.role === "assistant" &&
       entry.msg.content?.trim() &&
       !isCodexReasoningDetailMessage(entry.msg) &&
-      !isExplicitCodexCommentary(entry.msg)
+      !isExplicitCommentary(entry.msg)
     ) {
       // Messages already promoted into another collapsed-visible slot (for
       // example notificationEntries or responseEntry) must not also become a
@@ -645,16 +645,18 @@ function messageText(msg: ChatMessage): string {
     .join("\n");
 }
 
-function codexMessagePhase(msg: ChatMessage): "commentary" | "final_answer" | null {
+function messagePresentationPhase(msg: ChatMessage): "commentary" | "final_answer" | null {
+  if (msg.metadata?.leaderThreadRole === "commentary") return "commentary";
+  if (msg.metadata?.leaderThreadRole === "response") return "final_answer";
   return normalizeCodexMessagePhase(msg.metadata?.codexMessagePhase) ?? null;
 }
 
-function isExplicitCodexCommentary(msg: ChatMessage): boolean {
-  return codexMessagePhase(msg) === "commentary";
+function isExplicitCommentary(msg: ChatMessage): boolean {
+  return messagePresentationPhase(msg) === "commentary";
 }
 
-function isExplicitCodexFinalAnswer(msg: ChatMessage): boolean {
-  return codexMessagePhase(msg) === "final_answer";
+function isExplicitFinalAnswer(msg: ChatMessage): boolean {
+  return messagePresentationPhase(msg) === "final_answer";
 }
 
 function isAssistantTextResponseEntry(entry: FeedEntry): entry is Extract<FeedEntry, { kind: "message" }> {
@@ -666,10 +668,10 @@ function isAssistantTextResponseEntry(entry: FeedEntry): entry is Extract<FeedEn
   );
 }
 
-function findLastExplicitCodexFinalAnswer(entries: FeedEntry[]): FeedEntry | null {
+function findLastExplicitFinalAnswer(entries: FeedEntry[]): FeedEntry | null {
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index];
-    if (isAssistantTextResponseEntry(entry) && isExplicitCodexFinalAnswer(entry.msg)) return entry;
+    if (isAssistantTextResponseEntry(entry) && isExplicitFinalAnswer(entry.msg)) return entry;
   }
   return null;
 }
@@ -739,7 +741,7 @@ function isSubstantiveLeaderUserMessage(msg: ChatMessage): boolean {
     msg.role === "assistant" &&
     msg.metadata?.leaderUserMessage === true &&
     !isCodexReasoningDetailMessage(msg) &&
-    !isExplicitCodexCommentary(msg) &&
+    !isExplicitCommentary(msg) &&
     messageText(msg).trim().length > 0
   );
 }
@@ -748,7 +750,7 @@ function isThreadStatusSummaryMessage(msg: ChatMessage): boolean {
   return (
     msg.role === "assistant" &&
     (msg.metadata?.threadStatusMarkers?.length ?? 0) > 0 &&
-    !isExplicitCodexCommentary(msg) &&
+    !isExplicitCommentary(msg) &&
     messageText(msg).trim().length > 0
   );
 }
@@ -760,7 +762,7 @@ function isSubstantiveLeaderResponseEntry(entry: FeedEntry): boolean {
     !entry.msg.notification &&
     !entry.msg.metadata?.attentionRecord &&
     !isCodexReasoningDetailMessage(entry.msg) &&
-    codexMessagePhase(entry.msg) === null &&
+    messagePresentationPhase(entry.msg) === null &&
     messageText(entry.msg).trim().length > 0
   );
 }
@@ -798,9 +800,9 @@ function collectLeaderSegmentResponseRepresentatives(
     }
 
     if (segmentKind !== "eligible" || !isAssistantTextResponseEntry(entry)) continue;
-    if (isExplicitCodexFinalAnswer(entry.msg)) {
+    if (isExplicitFinalAnswer(entry.msg)) {
       lastExplicitFinalAnswer = entry;
-    } else if (codexMessagePhase(entry.msg) === null && isSubstantiveLeaderResponseEntry(entry)) {
+    } else if (messagePresentationPhase(entry.msg) === null && isSubstantiveLeaderResponseEntry(entry)) {
       lastUnknownResponse = entry;
     }
   }
@@ -815,7 +817,7 @@ function isPlainLeaderCollapsedSummaryEntry(entry: FeedEntry): boolean {
     entry.msg.role === "assistant" &&
     (isSubstantiveLeaderUserMessage(entry.msg) ||
       isThreadStatusSummaryMessage(entry.msg) ||
-      isExplicitCodexFinalAnswer(entry.msg)) &&
+      isExplicitFinalAnswer(entry.msg)) &&
     !entry.msg.notification &&
     !entry.msg.metadata?.attentionRecord
   );
@@ -851,7 +853,7 @@ function filterCollapsedVisibleEntriesForModelOnlyReminderSegments(
 
 function scoreNeedsInputPreviewCandidate(entry: FeedEntry): number {
   if (entry.kind !== "message" || entry.msg.role !== "assistant") return Number.NEGATIVE_INFINITY;
-  if (isCodexReasoningDetailMessage(entry.msg) || isExplicitCodexCommentary(entry.msg)) {
+  if (isCodexReasoningDetailMessage(entry.msg) || isExplicitCommentary(entry.msg)) {
     return Number.NEGATIVE_INFINITY;
   }
 
@@ -1076,9 +1078,9 @@ function makeTurn(
 
   const s = countEntryStats(presentationAgentEntries);
 
-  // Existing priority rows remain collapsed-visible. Official Codex final-answer
-  // metadata selects one response per eligible leader segment; final answers
-  // inside model-only reminder segments remain activity. The q-1875 structural
+  // Existing priority rows remain collapsed-visible. Explicit routed-response
+  // or Codex final-answer metadata selects one response per eligible leader
+  // segment; finals inside model-only reminder segments remain activity. The q-1875 structural
   // fallback applies only to unannotated pre-reminder output.
   const leaderSegmentRepresentativeKeys =
     leaderMode || leaderSessionMode
@@ -1104,7 +1106,7 @@ function makeTurn(
     leaderMode,
   );
 
-  // Ordinary/Main/All turns prefer the last official Codex final answer. Only
+  // Ordinary/Main/All turns prefer the last explicit routed/Codex final answer. Only
   // when no final answer exists do unannotated messages use the legacy last-text
   // fallback; explicit commentary stays activity. Selected leader threads use
   // the segment-aware representatives above instead.
@@ -1121,16 +1123,16 @@ function makeTurn(
         }
       }
     } else {
-      const explicitFinalAnswerEntry = findLastExplicitCodexFinalAnswer(presentationAgentEntries);
+      const explicitFinalAnswerEntry = findLastExplicitFinalAnswer(presentationAgentEntries);
       if (explicitFinalAnswerEntry && !notificationEntryKeys.has(getEntryId(explicitFinalAnswerEntry))) {
         responseEntry = explicitFinalAnswerEntry;
       }
     }
-    if (!responseEntry && !leaderSessionMode && !findLastExplicitCodexFinalAnswer(presentationAgentEntries)) {
+    if (!responseEntry && !leaderSessionMode && !findLastExplicitFinalAnswer(presentationAgentEntries)) {
       for (let i = presentationAgentEntries.length - 1; i >= 0; i--) {
         const entry = presentationAgentEntries[i];
         if (notificationEntryKeys.has(getEntryId(entry))) continue;
-        if (isAssistantTextResponseEntry(entry) && !isExplicitCodexCommentary(entry.msg)) {
+        if (isAssistantTextResponseEntry(entry) && !isExplicitCommentary(entry.msg)) {
           responseEntry = entry;
           break;
         }

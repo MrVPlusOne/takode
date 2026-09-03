@@ -1,4 +1,3 @@
-import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import {
   applyLeaderThreadTabsProjectionPatch,
@@ -7,9 +6,10 @@ import {
 } from "../shared/leader-thread-tabs-projection.js";
 import { ingestUserMessage } from "./bridge/adapter-browser-routing-controller.js";
 import type { AdapterBrowserRoutingDeps } from "./bridge/adapter-browser-routing-types.js";
-import { registerTakodeThreadResponseRoutes } from "./routes/takode-thread-response.js";
-import type { RouteContext } from "./routes/context.js";
+import { updateLeaderThreadStatusesForAssistantOutput } from "./bridge/thread-routing-reminder.js";
+import { finalizeRoutedLeaderResponseMessage } from "./leader-thread-response.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage } from "./session-types.js";
+import { threadRouteForTarget } from "./thread-routing-metadata.js";
 import { WsBridgeSyncedProjectionController } from "./ws-bridge-synced-projections.js";
 
 function mainReadyStatus() {
@@ -123,7 +123,7 @@ describe("leader thread status clear projection invalidation", () => {
     applyOnlyUpdate(socket, value);
   });
 
-  it("publishes a Main Ready clear when a response revision is created without any quest reference", async () => {
+  it("publishes a Main Ready clear when an ordinary routed final is completed", async () => {
     const session = leaderSession([
       {
         type: "user_message",
@@ -136,37 +136,34 @@ describe("leader thread status clear projection invalidation", () => {
     ]);
     const controller = projectionController(session);
     const { socket, value } = subscribe(controller, session.id);
-    const app = new Hono();
-    registerTakodeThreadResponseRoutes(app, {
-      resolveId: (raw: string) => (raw === session.id ? raw : null),
-      authenticateTakodeCaller: vi.fn(() => ({
-        callerId: session.id,
-        caller: { sessionId: session.id, isOrchestrator: true },
-      })),
-      wsBridge: {
-        getSession: (sessionId: string) => (sessionId === session.id ? session : undefined),
-        getSyncedProjectionController: () => controller,
-        broadcastToSession: vi.fn(),
-        persistSessionById: vi.fn(),
-        refreshSessionConversation: vi.fn(),
+    const response: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
+      type: "assistant",
+      message: {
+        id: "main-final",
+        type: "message",
+        role: "assistant",
+        model: "test",
+        content: [{ type: "text", text: "Handled." }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },
-    } as unknown as RouteContext);
-    const stateResponse = await app.request(`/sessions/${session.id}/thread-responses/main`);
-    const state = (await stateResponse.json()) as any;
-
-    const response = await app.request(`/sessions/${session.id}/thread-responses/main`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        intent: "create",
-        pendingBatchToken: state.responseState.pendingBatches[0].token,
-        baseRevisionId: null,
-        markdown: "Handled.",
-      }),
-    });
+      parent_tool_use_id: null,
+      timestamp: 20,
+      threadKey: "main",
+      leaderThreadRole: "response",
+      leaderResponseObservedHistoryLength: 1,
+    };
+    session.messageHistory.push(response);
+    expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
+    updateLeaderThreadStatusesForAssistantOutput(
+      session,
+      undefined,
+      { messageId: response.message.id, timestamp: response.timestamp! },
+      threadRouteForTarget("main"),
+    );
+    controller.invalidateLeaderThreadTabsForSession(session.id);
     await controller.flushForTest();
 
-    expect(response.status).toBe(200);
     expect(session.state.leaderThreadStatuses.main).toBeUndefined();
     applyOnlyUpdate(socket, value);
   });

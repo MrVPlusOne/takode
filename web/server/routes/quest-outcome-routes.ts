@@ -22,15 +22,5 @@ export function createQuestOutcomeRoutes(_ctx: RouteContext) {
     });
   });
 
-  api.put("/quests/:questId/outcome", (c) =>
-    c.json(
-      {
-        error:
-          "Quest Outcome mutation is retired. Leader sessions publish current thread responses with `takode thread-response set --thread <main|q-N> --text-file <path|->`.",
-      },
-      410,
-    ),
-  );
-
   return api;
 }

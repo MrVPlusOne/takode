@@ -166,6 +166,7 @@ type SessionRuntimeOptions = {
   completedBoard?: Map<any, any>;
   notifications?: SessionNotification[];
   leaderThreadOutcomeValidatedHistoryLength?: number;
+  pendingLeaderRejectedReadyThreadKeys?: string[];
   attentionRecords?: SessionAttentionRecord[];
   notificationCounter?: number;
   notificationStatusVersion?: number;
@@ -274,6 +275,7 @@ function createSessionRuntime(
     boardDispatchStates: new Map(),
     notifications,
     leaderThreadOutcomeValidatedHistoryLength: options.leaderThreadOutcomeValidatedHistoryLength ?? 0,
+    pendingLeaderRejectedReadyThreadKeys: options.pendingLeaderRejectedReadyThreadKeys ?? [],
     attentionRecords: options.attentionRecords ?? [],
     notificationCounter: options.notificationCounter ?? 0,
     notificationStatusVersion,
@@ -704,6 +706,12 @@ export async function restorePersistedSessions(
         normalizeStatusNumber(p.leaderThreadOutcomeValidatedHistoryLength, (p.messageHistory || []).length),
         (p.messageHistory || []).length,
       ),
+      pendingLeaderRejectedReadyThreadKeys: Array.isArray(p.pendingLeaderRejectedReadyThreadKeys)
+        ? p.pendingLeaderRejectedReadyThreadKeys.filter(
+            (threadKey: unknown): threadKey is string =>
+              typeof threadKey === "string" && (threadKey === "main" || /^q-\d+$/.test(threadKey)),
+          )
+        : [],
       attentionRecords: Array.isArray(p.attentionRecords) ? p.attentionRecords : [],
       notificationStatusVersion: normalizeStatusNumber(p.notificationStatusVersion, 0),
       notificationStatusUpdatedAt:
@@ -863,6 +871,7 @@ export function buildPersistedSessionPayload(session: SessionLike): PersistedSes
     completedBoard: Array.from(session.completedBoard.values()),
     notifications: session.notifications,
     leaderThreadOutcomeValidatedHistoryLength: session.leaderThreadOutcomeValidatedHistoryLength,
+    pendingLeaderRejectedReadyThreadKeys: session.pendingLeaderRejectedReadyThreadKeys,
     attentionRecords: session.attentionRecords,
     notificationStatusVersion: session.notificationStatusVersion,
     notificationStatusUpdatedAt: session.notificationStatusUpdatedAt,

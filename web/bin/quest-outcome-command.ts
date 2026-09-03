@@ -26,20 +26,12 @@ function printLegacyOutcome(deps: QuestOutcomeCommandDeps, questId: string, pres
 export async function runQuestOutcomeCommand(deps: QuestOutcomeCommandDeps): Promise<void> {
   const subcommand = deps.positional(0);
   const questId = deps.positional(1);
-  if (!subcommand || !questId || !["show", "set", "use"].includes(subcommand)) {
+  if (subcommand !== "show" || !questId) {
     deps.die("Usage: quest outcome show <id> [--json] (read-only legacy inspection)");
   }
 
-  if (subcommand === "show") {
-    deps.validateFlags(["json"]);
-    const quest = await deps.getQuest(questId);
-    if (!quest) deps.die(`Quest ${questId} not found`);
-    printLegacyOutcome(deps, questId, Object.prototype.hasOwnProperty.call(quest, "outcome"), quest.outcome);
-    return;
-  }
-
-  deps.die(
-    `quest outcome ${subcommand} was removed because Quest Outcomes are preserved legacy data, not user-editable summaries. ` +
-      `Use \`takode thread-response set --thread ${questId.toLowerCase()} --text-file <path|->\` from the owning leader session.`,
-  );
+  deps.validateFlags(["json"]);
+  const quest = await deps.getQuest(questId);
+  if (!quest) deps.die(`Quest ${questId} not found`);
+  printLegacyOutcome(deps, questId, Object.prototype.hasOwnProperty.call(quest, "outcome"), quest.outcome);
 }

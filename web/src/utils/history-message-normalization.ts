@@ -24,6 +24,7 @@ type ExistingThreadMetadataSource = {
   threadStatusMarkers?: NonNullable<ChatMessage["metadata"]>["threadStatusMarkers"];
   codexMessagePhase?: NonNullable<ChatMessage["metadata"]>["codexMessagePhase"];
   codexSubagent?: NonNullable<ChatMessage["metadata"]>["codexSubagent"];
+  leaderThreadRole?: NonNullable<ChatMessage["metadata"]>["leaderThreadRole"];
   threadResponse?: NonNullable<ChatMessage["metadata"]>["threadResponse"];
 };
 
@@ -140,6 +141,7 @@ function existingThreadMetadataFromMessage(msg: ExistingThreadMetadataSource): C
     !msg.threadStatusMarkers &&
     msg.codexMessagePhase === undefined &&
     !msg.codexSubagent &&
+    !msg.leaderThreadRole &&
     !msg.threadResponse
   ) {
     return undefined;
@@ -153,6 +155,7 @@ function existingThreadMetadataFromMessage(msg: ExistingThreadMetadataSource): C
     ...(msg.threadStatusMarkers ? { threadStatusMarkers: msg.threadStatusMarkers } : {}),
     ...(msg.codexMessagePhase !== undefined ? { codexMessagePhase: msg.codexMessagePhase } : {}),
     ...(msg.codexSubagent ? { codexSubagent: msg.codexSubagent } : {}),
+    ...(msg.leaderThreadRole ? { leaderThreadRole: msg.leaderThreadRole } : {}),
     ...(msg.threadResponse ? { threadResponse: msg.threadResponse } : {}),
   };
 }

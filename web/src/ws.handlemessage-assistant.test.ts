@@ -349,6 +349,51 @@ describe("handleMessage: assistant", () => {
     expect(useStore.getState().messages.get("s1")).toEqual([]);
   });
 
+  it("retains a control-only Ready assistant row for turn-collapse correlation", () => {
+    // Routed status directives are stripped from visible text. The invisible
+    // source row still anchors the authoritative Ready message identity.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    const readyStatus = {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: "q-2024",
+      questId: "q-2024",
+      summary: "complete",
+      messageId: "ready-control-only",
+      timestamp: 300,
+      updatedAt: 300,
+    };
+
+    fireMessage({
+      type: "assistant",
+      timestamp: 300,
+      threadKey: "q-2024",
+      questId: "q-2024",
+      threadRefs: [{ threadKey: "q-2024", questId: "q-2024", source: "explicit" }],
+      leaderThreadRole: "commentary",
+      threadStatusMarkers: [readyStatus],
+      message: {
+        id: "ready-control-only",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-4-20250514",
+        content: [],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 10, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+    });
+
+    expect(useStore.getState().messages.get("s1")).toEqual([
+      expect.objectContaining({
+        id: "ready-control-only",
+        content: "",
+        metadata: expect.objectContaining({ leaderThreadRole: "commentary", threadStatusMarkers: [readyStatus] }),
+      }),
+    ]);
+  });
+
   it("removes stale root Codex thinking when merging a same-ID assistant update", () => {
     // A live update can merge with pre-fix browser state, so the merge boundary must sanitize both sides.
     wsModule.connectSession("s1");

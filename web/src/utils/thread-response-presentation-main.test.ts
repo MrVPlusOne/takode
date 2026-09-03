@@ -23,7 +23,7 @@ function mainResponse(): ChatMessage {
     timestamp: 12,
     historyIndex: 12,
     metadata: {
-      leaderUserMessage: true,
+      leaderThreadRole: "response",
       threadKey: "main",
       threadResponse: {
         logicalResponseId: "main-logical",

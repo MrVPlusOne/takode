@@ -45,10 +45,12 @@ function turnHasReadyStatusMarker(
 }
 
 export function useCollapsePolicy({
+  autoCollapseReadyAfter = null,
   autoCollapseReadyThreadKey = null,
   sessionId,
   turns,
 }: {
+  autoCollapseReadyAfter?: number | null;
   autoCollapseReadyThreadKey?: string | null;
   sessionId: string;
   turns: Turn[];
@@ -65,13 +67,16 @@ export function useCollapsePolicy({
     }
     const normalizedThreadKey = normalizeThreadKey(autoCollapseReadyThreadKey);
     const statuses = Object.values(currentThreadStatuses).filter(
-      (status) => status.kind === "ready" && threadStatusKey(status.threadKey) === normalizedThreadKey,
+      (status) =>
+        status.kind === "ready" &&
+        threadStatusKey(status.threadKey) === normalizedThreadKey &&
+        (autoCollapseReadyAfter == null || status.timestamp >= autoCollapseReadyAfter),
     );
     return {
       exact: new Set(statuses.map((status) => status.messageId).filter(Boolean)),
       hashes: new Set(statuses.map((status) => status.messageIdHash).filter((hash): hash is string => !!hash)),
     };
-  }, [autoCollapseReadyThreadKey, currentThreadStatuses]);
+  }, [autoCollapseReadyAfter, autoCollapseReadyThreadKey, currentThreadStatuses]);
 
   const turnStates = useMemo(() => {
     return turns.map((turn, index) => {

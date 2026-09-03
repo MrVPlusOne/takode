@@ -732,6 +732,9 @@ export function getCommonClaudeRuntimeDeps(host: any) {
       options: { notifyPoller?: boolean; broadcastUpdate?: boolean },
     ) => host.refreshGitInfoThenRecomputeDiff(targetSession as Session, options),
     persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),
+    refreshSessionConversation: (sessionId: string) => host.refreshSessionConversation(sessionId),
+    invalidateLeaderThreadTabsForSession: (sessionId: string) =>
+      host.getSyncedProjectionController().invalidateLeaderThreadTabsForSession(sessionId),
     markTurnInterrupted: (targetSession: unknown, source: InterruptSource) =>
       host.markTurnInterrupted(targetSession as Session, source),
     setGenerating: (targetSession: unknown, generating: boolean, reason: string) =>
@@ -750,6 +753,7 @@ export function getCommonCodexRuntimeDeps(host: any) {
     broadcastToBrowsers: (targetSession: unknown, browserMsg: BrowserIncomingMessage) =>
       host.broadcastToBrowsers(targetSession as Session, browserMsg),
     persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),
+    refreshSessionConversation: (sessionId: string) => host.refreshSessionConversation(sessionId),
     invalidateLeaderThreadTabsForSession: (sessionId: string) =>
       host.getSyncedProjectionController().invalidateLeaderThreadTabsForSession(sessionId),
     touchUserMessage: (sessionId: string, timestamp?: number) => host.launcher?.touchUserMessage(sessionId, timestamp),
@@ -882,16 +886,24 @@ export function getClaudeMessageHandlers(host: any) {
             : undefined,
         },
       ),
-    validateLeaderThreadOutcomes: (targetSession: unknown, turnTriggerSource: unknown) => {
-      validateLeaderThreadOutcomesController(targetSession as Session, {
-        isLeaderSession: (sessionId) => readLauncherSession(host, sessionId)?.isOrchestrator === true,
-        getTurnSource: () => turnTriggerSource as "user" | "leader" | "system" | "unknown",
-        injectUserMessage: (sessionId, content, agentSource, threadRoute) => {
-          const delivery = host.injectUserMessage(sessionId, content, agentSource, undefined, threadRoute);
-          return delivery === "paused_queued" ? "queued" : delivery;
+    validateLeaderThreadOutcomes: (
+      targetSession: unknown,
+      turnTriggerSource: unknown,
+      rejectedReadyThreadKeys?: string[],
+    ) => {
+      validateLeaderThreadOutcomesController(
+        targetSession as Session,
+        {
+          isLeaderSession: (sessionId) => readLauncherSession(host, sessionId)?.isOrchestrator === true,
+          getTurnSource: () => turnTriggerSource as "user" | "leader" | "system" | "unknown",
+          injectUserMessage: (sessionId, content, agentSource, threadRoute) => {
+            const delivery = host.injectUserMessage(sessionId, content, agentSource, undefined, threadRoute);
+            return delivery === "paused_queued" ? "queued" : delivery;
+          },
+          persistSession: (concreteSession) => host.persistSession(concreteSession as Session),
         },
-        persistSession: (concreteSession) => host.persistSession(concreteSession as Session),
-      });
+        { rejectedReadyThreadKeys },
+      );
     },
     onTurnCompleted: (targetSession: unknown) => {
       const concreteSession = targetSession as Session;

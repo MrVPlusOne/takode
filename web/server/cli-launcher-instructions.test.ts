@@ -214,11 +214,12 @@ describe("buildCompanionInstructions", () => {
     // the notification chip; otherwise the user sees an alert without context.
     expect(result).toContain("apply the `leader-decision-communication` skill first");
     expect(result).toContain("material-detail necessity filter");
-    expect(result).toContain("Then send the detailed question, decision options, or confirmation text");
-    expect(result).toContain("`[thread:main]` or `[thread:q-N]`");
-    expect(result).toContain("standalone `---` line immediately before each later `[thread:main]` or `[thread:q-N]`");
+    expect(result).toContain("Then publish the detailed question, decision options, or confirmation text");
+    expect(result).toContain("`[thread:main:C]` or `[thread:q-N:C]`");
+    expect(result).toContain("`[thread:main:F]` or `[thread:q-N:F]`");
+    expect(result).toContain("standalone `---` line immediately before each later role-bearing marker");
     expect(result).toContain("normal worker and reviewer sessions use ordinary assistant text");
-    expect(result).toContain("After that text is visible, call `takode notify needs-input`");
+    expect(result).toContain("After the detailed text is visible, call `takode notify needs-input`");
     expect(result).toContain("Do not fire the notification before the detailed text is visible");
     expect(result).toContain("The visible thread text is the decision surface");
     expect(result).toContain("complete context needed to answer, including options and tradeoffs when relevant");
@@ -632,22 +633,26 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).not.toContain("Every quest goes through the full journey");
   });
 
-  it("teaches leader-only pending-batch responses without duplicate prose or copied ids", () => {
+  it("teaches leader-only routed commentary and final-response roles", () => {
     const leader = buildInjectedSystemPromptForDebug({ sessionNum: 7, backend: "codex", isOrchestrator: true });
     const worker = buildInjectedSystemPromptForDebug({ sessionNum: 8, backend: "codex" });
 
-    expect(leader).toContain("## Leader Thread Responses");
-    expect(leader).toContain("takode thread-response show --thread <main|q-N>");
-    expect(leader).toContain("takode thread-response set --thread <main|q-N> --text-file <path|->");
-    expect(leader).toContain("server-owned pending user-request batches");
-    expect(leader).toContain("creates one logical response for the oldest pending batch");
-    expect(leader).toContain("if none is pending, it revises the latest logical response");
-    expect(leader).toContain("New user input that arrives concurrently is not silently absorbed");
-    expect(leader).toContain("Do not copy message IDs, response IDs, batch tokens, or revision IDs");
-    expect(leader).toContain("The command itself publishes the visible routed response");
-    expect(leader).toContain("do not repeat the same prose in a normal assistant response");
-    expect(leader).toContain("Keep Quest Quiz, Thread Waiting/Ready, and needs-input notification state separate");
-    expect(worker).not.toContain("## Leader Thread Responses");
+    expect(leader).toContain("## Leader Thread Routing");
+    expect(leader).toContain("`[thread:main:C]`");
+    expect(leader).toContain("`[thread:q-N:F]`");
+    expect(leader).toContain(
+      "Commentary includes dispatch, progress, recovery, verification, waiting, User Checkpoints, and asynchronous Memory work",
+    );
+    expect(leader).toContain("cannot satisfy a pending response batch");
+    expect(leader).toContain("A final response is the polished, self-contained direct answer");
+    expect(leader).toContain("automatically assigns it to the current pending same-thread user batch");
+    expect(leader).toContain("Another final response before newer user input supersedes the prior current final");
+    expect(leader).toContain("A newer direct user message creates a new pending requirement");
+    expect(leader).toContain("Thread Ready fails and injects a reminder");
+    expect(leader).toContain("do not copy or choose user-message IDs, batch tokens, response IDs, or revision IDs");
+    expect(leader).toContain("Quest Quiz directives and Thread Waiting/Ready markers stay separate");
+    expect(leader).not.toContain("takode thread-response");
+    expect(worker).not.toContain("## Leader Thread Routing");
   });
 
   it("builds a worker prompt without orchestrator guardrails unless requested", () => {

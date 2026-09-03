@@ -230,7 +230,7 @@ function addCurrentThreadResponseSupport(
   }
   projection.pendingBatches.forEach((batch) => batch.userMessageIds.forEach((id) => referencedIds.add(id)));
   if (referencedIds.size > THREAD_WINDOW_SUPPORT_RECORD_LIMIT) return { items: selectedItems, complete: false };
-  if (!projection.ready || projection.currentResponses.length === 0) return { items: selectedItems, complete: true };
+  if (projection.currentResponses.length === 0) return { items: selectedItems, complete: true };
 
   const usersById = new Map<string, { message: BrowserIncomingMessage; historyIndex: number }>();
   messages.forEach((message, historyIndex) => {
@@ -247,13 +247,28 @@ function addCurrentThreadResponseSupport(
   for (const response of projection.currentResponses) {
     const historyIndex = response.currentHistoryIndex;
     const message = messages[historyIndex];
+    const messageId =
+      message?.type === "leader_user_message"
+        ? message.id
+        : message?.type === "assistant" &&
+            message.parent_tool_use_id === null &&
+            message.leaderThreadRole === "response" &&
+            !message.message.content.some((block) => block.type === "tool_use" || block.type === "tool_result")
+          ? message.message.id
+          : null;
+    const revision = message?.threadResponse;
     if (
       !message ||
-      message.type !== "leader_user_message" ||
-      message.id !== response.currentMessageId ||
-      message.threadResponse?.logicalResponseId !== response.logicalResponseId ||
-      message.threadResponse.revisionId !== response.currentRevisionId ||
-      normalizeSelectedFeedThreadKey(message.threadKey ?? message.questId ?? MAIN_THREAD_KEY) !== threadKey ||
+      (message.type !== "leader_user_message" && message.type !== "assistant") ||
+      messageId !== response.currentMessageId ||
+      revision?.logicalResponseId !== response.logicalResponseId ||
+      revision.revisionId !== response.currentRevisionId ||
+      revision.revisionNumber !== response.revisionCount ||
+      revision.batchId !== response.batchId ||
+      revision.batchObservedHistoryLength !== response.batchObservedHistoryLength ||
+      revision.coveredUserMessageIds.length !== response.coveredUserMessageIds.length ||
+      !revision.coveredUserMessageIds.every((id, index) => id === response.coveredUserMessageIds[index]) ||
+      normalizeSelectedFeedThreadKey(message.threadKey ?? "") !== threadKey ||
       !addRequired(message, historyIndex)
     )
       return { items: selectedItems, complete: false };
@@ -269,8 +284,15 @@ function addCurrentThreadResponseSupport(
     }
   }
 
-  for (const item of latestQuestQuizSupportItems(messages, threadKey, projection.cutoverHistoryIndex, includeMessage)) {
-    required.set(entryKey(item.entry), item);
+  if (projection.ready) {
+    for (const item of latestQuestQuizSupportItems(
+      messages,
+      threadKey,
+      projection.cutoverHistoryIndex,
+      includeMessage,
+    )) {
+      required.set(entryKey(item.entry), item);
+    }
   }
   if (required.size > THREAD_WINDOW_SUPPORT_RECORD_LIMIT) return { items: selectedItems, complete: false };
   return { items: [...selectedItems, ...required.values()], complete: true };

@@ -8,6 +8,11 @@ import {
 } from "./claude-message-controller.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { BrowserIncomingMessage, CLIAssistantMessage, ContentBlock } from "../session-types.js";
+import {
+  buildLeaderThreadResponseState,
+  finalizeRoutedLeaderResponseMessage,
+  leaderThreadResponseContentHash,
+} from "../leader-thread-response.js";
 
 function makeSession(): AssistantMessageSessionLike {
   return {
@@ -115,6 +120,56 @@ describe("assistant-message-controller", () => {
       { type: "tool_use", id: "tool-2", name: "Read", input: { file_path: "a.ts" } },
     ]);
     expect(seenToolUseIds.has("tool-2")).toBe(true);
+  });
+
+  it("keeps one routed-final intent across cumulative same-id chunks and hashes the final accumulated text", () => {
+    const session = makeSession() as AssistantMessageSessionLike & {
+      userMessageIdsThisTurn: number[];
+      messageCountAtTurnStart: number;
+    };
+    session.state.isOrchestrator = true;
+    session.messageHistory.push({
+      type: "user_message",
+      id: "u1",
+      content: "Please answer.",
+      timestamp: 1,
+      threadKey: "main",
+      leaderResponseCoverageVersion: 1,
+    });
+    session.userMessageIdsThisTurn = [0];
+    session.messageCountAtTurnStart = 1;
+    const deps = {
+      hasAssistantReplay: () => false,
+      broadcastToBrowsers: () => {},
+      persistSession: () => {},
+    };
+    const first = makeAssistant([{ type: "text", text: "[thread:main:F]\nFirst half." }], "chunked-final");
+    const second = makeAssistant(
+      [
+        { type: "text", text: "[thread:main:F]\nFirst half." },
+        { type: "text", text: "Second half." },
+      ],
+      "chunked-final",
+    );
+
+    handleAssistantMessage(session, first, deps);
+    handleAssistantMessage(session, second, deps);
+
+    const response = session.messageHistory.find(
+      (entry): entry is Extract<BrowserIncomingMessage, { type: "assistant" }> =>
+        entry.type === "assistant" && entry.message.id === "chunked-final",
+    )!;
+    expect(response).toMatchObject({
+      leaderThreadRole: "response",
+      leaderResponseObservedHistoryLength: 1,
+    });
+    expect(response.threadResponse).toBeUndefined();
+    expect(response.message.content).toEqual([
+      { type: "text", text: "First half." },
+      { type: "text", text: "Second half." },
+    ]);
+    expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
+    expect(response.threadResponse?.contentHash).toBe(leaderThreadResponseContentHash("First half.\nSecond half."));
   });
 
   // Covers the two supported task-preview sources so push-notification context
@@ -245,7 +300,7 @@ describe("assistant-message-controller", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;
 
-    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nRouted update" }]);
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941:C]\nRouted update" }]);
 
     expect(msg).toMatchObject({
       type: "assistant",
@@ -259,7 +314,7 @@ describe("assistant-message-controller", () => {
     expect(session.messageHistory[0]).toMatchObject(msg);
   });
 
-  it("strips valid inline thread status markers and stores current server status", () => {
+  it("strips valid inline thread status markers and defers status until turn completion", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;
     const broadcasts: BrowserIncomingMessage[] = [];
@@ -270,7 +325,7 @@ describe("assistant-message-controller", () => {
         {
           type: "text",
           text: [
-            "[thread:q-941]",
+            "[thread:q-941:C]",
             "Dispatched reviewer.",
             "{[(Thread Waiting: q-941 | waiting on reviewer pass)]}",
           ].join("\n"),
@@ -288,12 +343,11 @@ describe("assistant-message-controller", () => {
       type: "assistant",
       threadKey: "q-941",
       questId: "q-941",
-      threadStatusMarkers: [
+      deferredThreadStatusMarkers: [
         {
           kind: "waiting",
           label: "Thread Waiting",
-          threadKey: "q-941",
-          questId: "q-941",
+          target: { threadKey: "q-941", questId: "q-941" },
           summary: "waiting on reviewer pass",
         },
       ],
@@ -301,11 +355,7 @@ describe("assistant-message-controller", () => {
     expect(assistant?.type === "assistant" ? assistant.message.content : []).toEqual([
       { type: "text", text: "Dispatched reviewer." },
     ]);
-    expect(session.state.leaderThreadStatuses?.["q-941"]).toMatchObject({
-      kind: "waiting",
-      threadKey: "q-941",
-      summary: "waiting on reviewer pass",
-    });
+    expect(session.state.leaderThreadStatuses?.["q-941"]).toBeUndefined();
     expect(broadcasts.some((message) => message.type === "session_update")).toBe(false);
   });
 
@@ -335,12 +385,11 @@ describe("assistant-message-controller", () => {
     const assistant = broadcasts.find((msg) => msg.type === "assistant");
     expect(assistant).toMatchObject({
       type: "assistant",
-      threadStatusMarkers: [
+      deferredThreadStatusMarkers: [
         {
           kind: "ready",
           label: "Thread Ready",
-          threadKey: "q-1259",
-          questId: "q-1259",
+          target: { threadKey: "q-1259", questId: "q-1259" },
           summary: "clarified routing markers are separate from Thread Waiting/Ready status markers",
         },
       ],
@@ -348,14 +397,10 @@ describe("assistant-message-controller", () => {
     expect(assistant?.type === "assistant" ? assistant.message.content : []).toEqual([]);
     expect(assistant?.type === "assistant" ? assistant.threadRefs : undefined).toBeUndefined();
     expect(assistant?.type === "assistant" ? assistant.threadKey : undefined).toBeUndefined();
-    expect(session.state.leaderThreadStatuses?.["q-1259"]).toMatchObject({
-      kind: "ready",
-      threadKey: "q-1259",
-      summary: "clarified routing markers are separate from Thread Waiting/Ready status markers",
-    });
+    expect(session.state.leaderThreadStatuses?.["q-1259"]).toBeUndefined();
   });
 
-  it("creates unread review attention from Thread Ready markers on the authoritative server path", () => {
+  it("defers Thread Ready unread attention until the turn result is successful", () => {
     const session = makeSession() as AssistantMessageSessionLike & {
       notifications: any[];
       notificationCounter: number;
@@ -372,7 +417,7 @@ describe("assistant-message-controller", () => {
       makeAssistant([
         {
           type: "text",
-          text: "[thread:q-1539]\nDone.\n{[(Thread Ready: q-1539 | quest complete)]}",
+          text: "[thread:q-1539:C]\nDone.\n{[(Thread Ready: q-1539 | quest complete)]}",
         },
       ]),
       {
@@ -382,24 +427,15 @@ describe("assistant-message-controller", () => {
       },
     );
 
-    expect(session.notifications).toEqual([
-      expect.objectContaining({
-        category: "review",
-        summary: "Thread ready: q-1539 | quest complete",
-        threadKey: "q-1539",
-        questId: "q-1539",
-        done: false,
-      }),
-    ]);
-    expect(session.attentionReason).toBe("review");
-    expect(broadcasts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          type: "notification_update",
-          notifications: [expect.objectContaining({ category: "review", threadKey: "q-1539" })],
-        }),
-      ]),
-    );
+    expect(session.notifications).toEqual([]);
+    expect(session.attentionReason).toBeNull();
+    expect(broadcasts.find((message) => message.type === "assistant")).toMatchObject({
+      type: "assistant",
+      deferredThreadStatusMarkers: [
+        expect.objectContaining({ kind: "ready", target: expect.objectContaining({ threadKey: "q-1539" }) }),
+      ],
+    });
+    expect(broadcasts.some((message) => message.type === "notification_update")).toBe(false);
   });
 
   it("does not let cross-thread status markers route ordinary Main-thread prose", () => {
@@ -430,10 +466,10 @@ describe("assistant-message-controller", () => {
 
     expect(msg!).toMatchObject({
       type: "assistant",
-      threadStatusMarkers: [
+      deferredThreadStatusMarkers: [
         expect.objectContaining({
           kind: "waiting",
-          threadKey: "q-1262",
+          target: { threadKey: "q-1262", questId: "q-1262" },
           summary: "rework Implement queued to worker",
         }),
       ],
@@ -487,16 +523,12 @@ describe("assistant-message-controller", () => {
 
     const assistant = broadcasts.find((msg) => msg.type === "assistant");
     expect(
-      assistant?.type === "assistant" ? assistant.threadStatusMarkers?.map((status) => status.threadKey) : [],
+      assistant?.type === "assistant"
+        ? assistant.deferredThreadStatusMarkers?.map((status) => status.target.threadKey)
+        : [],
     ).toEqual(["q-941", "q-942", "q-941"]);
-    expect(session.state.leaderThreadStatuses?.["q-941"]).toMatchObject({
-      kind: "ready",
-      summary: "review accepted",
-    });
-    expect(session.state.leaderThreadStatuses?.["q-942"]).toMatchObject({
-      kind: "ready",
-      summary: "implementation complete",
-    });
+    expect(session.state.leaderThreadStatuses?.["q-941"]).toBeUndefined();
+    expect(session.state.leaderThreadStatuses?.["q-942"]).toBeUndefined();
     expect(assistant?.type === "assistant" ? assistant.threadRefs : undefined).toBeUndefined();
     expect(assistant?.type === "assistant" ? assistant.threadKey : undefined).toBeUndefined();
   });
@@ -508,7 +540,7 @@ describe("assistant-message-controller", () => {
     session.state.leaderThreadStatuses = { "q-941": existing };
     const broadcasts: BrowserIncomingMessage[] = [];
 
-    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-942]\nReviewer dispatched." }]), {
+    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-942:C]\nReviewer dispatched." }]), {
       hasAssistantReplay: () => false,
       broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
       persistSession: () => {},
@@ -588,14 +620,21 @@ describe("assistant-message-controller", () => {
       "q-941": makeThreadStatus({ threadKey: "q-941", summary: "old status" }),
     };
     const broadcasts: BrowserIncomingMessage[] = [];
+    const invalidateLeaderThreadTabsForSession = vi.fn();
 
-    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-941]\nImplementation update." }]), {
-      hasAssistantReplay: () => false,
-      broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
-      persistSession: () => {},
-    });
+    handleAssistantMessage(
+      session,
+      makeAssistant([{ type: "text", text: "[thread:q-941:C]\nImplementation update." }]),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+        invalidateLeaderThreadTabsForSession,
+      },
+    );
 
     expect(session.state.leaderThreadStatuses?.["q-941"]).toBeUndefined();
+    expect(invalidateLeaderThreadTabsForSession).toHaveBeenCalledWith(session.id);
     expect(broadcasts.some((message) => message.type === "session_update")).toBe(false);
   });
 
@@ -613,7 +652,7 @@ describe("assistant-message-controller", () => {
     handleAssistantMessage(
       session,
       makeAssistant([
-        { type: "text", text: "[thread:q-941]\nChecking q-941.\n---\n[thread:q-942]" },
+        { type: "text", text: "[thread:q-941:C]\nChecking q-941.\n---\n[thread:q-942:C]" },
         { type: "tool_use", id: "view-split", name: "view_image", input: { path: "/tmp/q-942.png" } },
       ]),
       {
@@ -644,7 +683,7 @@ describe("assistant-message-controller", () => {
       makeAssistant([
         {
           type: "text",
-          text: "[thread:q-941]\nImplementation complete.\n{[(Thread Ready: q-941 | ready for review)]}",
+          text: "[thread:q-941:C]\nImplementation complete.\n{[(Thread Ready: q-941 | ready for review)]}",
         },
       ]),
       {
@@ -654,14 +693,12 @@ describe("assistant-message-controller", () => {
       },
     );
 
-    expect(session.state.leaderThreadStatuses?.["q-941"]).toMatchObject({
-      kind: "ready",
-      summary: "ready for review",
-      threadKey: "q-941",
-    });
+    expect(session.state.leaderThreadStatuses?.["q-941"]).toBeUndefined();
     expect(broadcasts.find((msg) => msg.type === "assistant")).toMatchObject({
       type: "assistant",
-      threadStatusMarkers: [expect.objectContaining({ kind: "ready", threadKey: "q-941" })],
+      deferredThreadStatusMarkers: [
+        expect.objectContaining({ kind: "ready", target: { threadKey: "q-941", questId: "q-941" } }),
+      ],
     });
   });
 
@@ -672,7 +709,7 @@ describe("assistant-message-controller", () => {
     session.activeTurnRoute = { threadKey: "main" };
     const broadcasts: BrowserIncomingMessage[] = [];
 
-    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-941]\nRouted update" }]), {
+    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-941:C]\nRouted update" }]), {
       hasAssistantReplay: () => false,
       broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
       persistSession: () => {},
@@ -708,7 +745,7 @@ describe("assistant-message-controller", () => {
     const broadcasts: BrowserIncomingMessage[] = [];
     const promoteLeaderThreadTabForTransition = vi.fn();
 
-    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-941]\nDispatching worker" }]), {
+    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-941:C]\nDispatching worker" }]), {
       hasAssistantReplay: () => false,
       broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
       persistSession: () => {},
@@ -767,7 +804,7 @@ describe("assistant-message-controller", () => {
     });
     const broadcasts: BrowserIncomingMessage[] = [];
 
-    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-948]\nContinuing there" }]), {
+    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-948:C]\nContinuing there" }]), {
       hasAssistantReplay: () => false,
       broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
       persistSession: () => {},
@@ -807,7 +844,7 @@ describe("assistant-message-controller", () => {
     });
     const broadcasts: BrowserIncomingMessage[] = [];
 
-    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-948]\nContinuing there" }]), {
+    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-948:C]\nContinuing there" }]), {
       hasAssistantReplay: () => false,
       broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
       persistSession: () => {},
@@ -835,7 +872,7 @@ describe("assistant-message-controller", () => {
     });
 
     routeAssistantMessage(session, [{ type: "text", text: "Global Main update" }]);
-    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nSeparate quest update" }]);
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941:C]\nSeparate quest update" }]);
 
     expect(msg).toMatchObject({ type: "assistant", threadKey: "q-941", questId: "q-941" });
     expect(session.messageHistory).toHaveLength(3);
@@ -846,7 +883,7 @@ describe("assistant-message-controller", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;
 
-    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941] Same-line routed update" }]);
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941:C] Same-line routed update" }]);
 
     expect(msg).toMatchObject({
       type: "assistant",
@@ -871,11 +908,11 @@ describe("assistant-message-controller", () => {
           {
             type: "text",
             text: [
-              "[thread:q-1567]",
+              "[thread:q-1567:C]",
               "[q-1567](quest:q-1567) is complete.",
               "",
               "{[(Quest Quiz: q-1567)]}",
-              "[thread:q-1570] [q-1570](quest:q-1570) is dispatched.",
+              "[thread:q-1570:C] [q-1570](quest:q-1570) is dispatched.",
             ].join("\n"),
           },
         ],
@@ -909,7 +946,7 @@ describe("assistant-message-controller", () => {
     expect(assistantBroadcasts[1]?.type === "assistant" ? assistantBroadcasts[1].message.content : []).toEqual([
       { type: "text", text: "[q-1570](quest:q-1570) is dispatched." },
     ]);
-    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1570]");
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1570:C]");
     expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
   });
 
@@ -925,10 +962,10 @@ describe("assistant-message-controller", () => {
           {
             type: "text",
             text: [
-              "[thread:q-1695]",
+              "[thread:q-1695:C]",
               "Approved Option A is recorded.",
               "---",
-              "[thread:q-1693]No separator still routes after the split divider.",
+              "[thread:q-1693:C]No separator still routes after the split divider.",
             ].join("\n"),
           },
         ],
@@ -951,8 +988,87 @@ describe("assistant-message-controller", () => {
     expect(assistantBroadcasts[1]?.type === "assistant" ? assistantBroadcasts[1].message.content : []).toEqual([
       { type: "text", text: "No separator still routes after the split divider." },
     ]);
-    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1693]");
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1693:C]");
     expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
+  });
+
+  it.each([
+    ["divider / invalid role", ["---"], "[thread:q-1693:X] Invalid role.", "invalid_role", undefined],
+    ["divider / unknown target", ["---"], "[thread:side:F] Unknown target.", "invalid", undefined],
+    ["divider / missing role", ["---"], "[thread:q-1693] Missing role.", "missing_role", "q-1693"],
+    ["quiz / invalid role", ["{[(Quest Quiz: q-1695)]}"], "[thread:q-1693:X] Invalid role.", "invalid_role", undefined],
+    ["quiz / unknown target", ["{[(Quest Quiz: q-1695)]}"], "[thread:side:F] Unknown target.", "invalid", undefined],
+    ["quiz / missing role", ["{[(Quest Quiz: q-1695)]}"], "[thread:q-1693] Missing role.", "missing_role", "q-1693"],
+  ] as const)("splits malformed secondary routing into an independently invalid row: %s", (_, boundary, marker, reason, threadKey) => {
+    const session = makeSession() as AssistantMessageSessionLike & {
+      userMessageIdsThisTurn: number[];
+      messageCountAtTurnStart: number;
+    };
+    session.state.isOrchestrator = true;
+    session.messageHistory.push(
+      {
+        type: "user_message",
+        id: "u-q-1695",
+        content: "Answer q-1695.",
+        timestamp: 1,
+        threadKey: "q-1695",
+        questId: "q-1695",
+        threadRefs: [{ threadKey: "q-1695", questId: "q-1695", source: "explicit" }],
+        leaderResponseCoverageVersion: 1,
+      },
+      {
+        type: "user_message",
+        id: "u-q-1693",
+        content: "Answer q-1693.",
+        timestamp: 2,
+        threadKey: "q-1693",
+        questId: "q-1693",
+        threadRefs: [{ threadKey: "q-1693", questId: "q-1693", source: "explicit" }],
+        leaderResponseCoverageVersion: 1,
+      },
+    );
+    session.userMessageIdsThisTurn = [0, 1];
+    session.messageCountAtTurnStart = 2;
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(
+      session,
+      makeAssistant(
+        [
+          {
+            type: "text",
+            text: ["[thread:q-1695:F]", "Valid first answer.", ...boundary, marker].join("\n"),
+          },
+        ],
+        `malformed-secondary-${reason}-${boundary[0] === "---" ? "divider" : "quiz"}`,
+      ),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    const assistantBroadcasts = broadcasts.filter(
+      (entry): entry is Extract<BrowserIncomingMessage, { type: "assistant" }> => entry.type === "assistant",
+    );
+    expect(assistantBroadcasts).toHaveLength(2);
+    expect(assistantBroadcasts[0]).toMatchObject({
+      threadKey: "q-1695",
+      questId: "q-1695",
+      leaderThreadRole: "response",
+    });
+    expect(assistantBroadcasts[1]).toMatchObject({
+      ...(threadKey ? { threadKey, questId: threadKey } : {}),
+      threadRoutingError: { reason, source: "visible_text" },
+    });
+    expect(assistantBroadcasts[1]?.leaderThreadRole).toBeUndefined();
+    expect(assistantBroadcasts[1]?.threadResponse).toBeUndefined();
+    expect(JSON.stringify(assistantBroadcasts[0]?.message.content)).not.toContain(marker);
+
+    expect(finalizeRoutedLeaderResponseMessage(session, assistantBroadcasts[0]!)).toMatchObject({ finalized: true });
+    expect(buildLeaderThreadResponseState(session, "q-1695").projection.pendingMessageCount).toBe(0);
+    expect(buildLeaderThreadResponseState(session, "q-1693").projection.pendingMessageCount).toBe(1);
   });
 
   it("splits post-quiz leader routes when markdown spacing leaves a blank line after the divider", () => {
@@ -970,14 +1086,14 @@ describe("assistant-message-controller", () => {
           {
             type: "text",
             text: [
-              "[thread:q-1718]",
+              "[thread:q-1718:C]",
               "[q-1718](quest:q-1718) is complete.",
               "",
               "{[(Quest Quiz: q-1718)]}",
               "",
               "---",
               "",
-              "[thread:q-1721] [q-1721](quest:q-1721) is now dispatched.",
+              "[thread:q-1721:C] [q-1721](quest:q-1721) is now dispatched.",
             ].join("\n"),
           },
         ],
@@ -1000,7 +1116,7 @@ describe("assistant-message-controller", () => {
     expect(assistantBroadcasts[1]?.type === "assistant" ? assistantBroadcasts[1].message.content : []).toEqual([
       { type: "text", text: "[q-1721](quest:q-1721) is now dispatched." },
     ]);
-    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1721]");
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:q-1721:C]");
     expect(JSON.stringify(session.messageHistory)).not.toContain("\n---\n");
     expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(true);
   });
@@ -1017,14 +1133,14 @@ describe("assistant-message-controller", () => {
           {
             type: "text",
             text: [
-              "[thread:q-1695]",
+              "[thread:q-1695:C]",
               "Example:",
               "```text",
               "---",
-              "[thread:q-1693] literal example",
+              "[thread:q-1693:C] literal example",
               "```",
               "---",
-              "> [thread:q-1694] quoted marker stays in the original segment",
+              "> [thread:q-1694:C] quoted marker stays in the original segment",
             ].join("\n"),
           },
         ],
@@ -1047,13 +1163,75 @@ describe("assistant-message-controller", () => {
           "Example:",
           "```text",
           "---",
-          "[thread:q-1693] literal example",
+          "[thread:q-1693:C] literal example",
           "```",
           "---",
-          "> [thread:q-1694] quoted marker stays in the original segment",
+          "> [thread:q-1694:C] quoted marker stays in the original segment",
         ].join("\n"),
       },
     ]);
+  });
+
+  it.each([
+    ["tilde", "~~~text", "~~~~"],
+    ["indented longer backtick", "  ````text", "  `````"],
+  ] as const)("does not split route-like examples inside %s fences", (_, opening, closing) => {
+    const session = makeSession() as AssistantMessageSessionLike & {
+      userMessageIdsThisTurn: number[];
+      messageCountAtTurnStart: number;
+    };
+    session.state.isOrchestrator = true;
+    session.messageHistory.push({
+      type: "user_message",
+      id: "fenced-example-user",
+      content: "Show the literal routing example.",
+      timestamp: 1,
+      threadKey: "q-1695",
+      questId: "q-1695",
+      threadRefs: [{ threadKey: "q-1695", questId: "q-1695", source: "explicit" }],
+      leaderResponseCoverageVersion: 1,
+    });
+    session.userMessageIdsThisTurn = [0];
+    session.messageCountAtTurnStart = 1;
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(
+      session,
+      makeAssistant(
+        [
+          {
+            type: "text",
+            text: [
+              "[thread:q-1695:F]",
+              "Literal example:",
+              opening,
+              "---",
+              "[thread:q-1693:X] not a real route",
+              closing,
+            ].join("\n"),
+          },
+        ],
+        `fenced-route-${opening[0]}`,
+      ),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    const response = broadcasts.find(
+      (entry): entry is Extract<BrowserIncomingMessage, { type: "assistant" }> => entry.type === "assistant",
+    )!;
+    expect(broadcasts.filter((entry) => entry.type === "assistant")).toHaveLength(1);
+    expect(response).toMatchObject({ threadKey: "q-1695", leaderThreadRole: "response" });
+    expect(response.message.content).toEqual([
+      {
+        type: "text",
+        text: ["Literal example:", opening, "---", "[thread:q-1693:X] not a real route", closing].join("\n"),
+      },
+    ]);
+    expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
   });
 
   it("does not append raw split-route content from same-id cumulative snapshots", () => {
@@ -1064,11 +1242,11 @@ describe("assistant-message-controller", () => {
       {
         type: "text",
         text: [
-          "[thread:q-1567]",
+          "[thread:q-1567:C]",
           "[q-1567](quest:q-1567) is complete.",
           "",
           "{[(Quest Quiz: q-1567)]}",
-          "[thread:q-1570] [q-1570](quest:q-1570) is dispatched.",
+          "[thread:q-1570:C] [q-1570](quest:q-1570) is dispatched.",
         ].join("\n"),
       },
     ];
@@ -1117,7 +1295,7 @@ describe("assistant-message-controller", () => {
 
     const msg = routeAssistantMessage(
       session,
-      [{ type: "text", text: "[thread:q-966] Launcher-derived Claude route" }],
+      [{ type: "text", text: "[thread:q-966:C] Launcher-derived Claude route" }],
       { getLauncherSessionInfo: () => ({ isOrchestrator: true }) },
     );
 
@@ -1141,7 +1319,7 @@ describe("assistant-message-controller", () => {
       {
         type: "text",
         text: [
-          "[thread:main]",
+          "[thread:main:C]",
           "Created q-1025 with the approved scope.",
           "",
           "Thread reminder: attach any prior messages that clearly belong to q-1025 with `takode thread attach`.",
@@ -1198,14 +1376,14 @@ describe("assistant-message-controller", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;
 
-    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]No separator" }]);
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941:C]No separator" }]);
 
     expect(msg).toMatchObject({
       type: "assistant",
-      threadRoutingError: { reason: "invalid", source: "visible_text", marker: "[thread:q-941]" },
+      threadRoutingError: { reason: "invalid_role", source: "visible_text", marker: "[thread:q-941:C]" },
     });
     const content = msg.type === "assistant" ? msg.message.content : [];
-    expect(content[0].type === "text" ? content[0].text : "").toBe("[thread:q-941]No separator");
+    expect(content[0].type === "text" ? content[0].text : "").toBe("[thread:q-941:C]No separator");
   });
 
   it("strips Bash command thread comments and persists command thread metadata", () => {
@@ -1230,7 +1408,7 @@ describe("assistant-message-controller", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;
 
-    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nInspecting the attached screenshot." }]);
+    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941:C]\nInspecting the attached screenshot." }]);
     const msg = routeAssistantMessage(session, [
       { type: "tool_use", id: "tool-view-image", name: "view_image", input: { path: "/tmp/screenshot.png" } },
     ]);
@@ -1248,7 +1426,7 @@ describe("assistant-message-controller", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;
 
-    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nPreparing to inspect the file." }]);
+    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941:C]\nPreparing to inspect the file." }]);
     const msg = routeAssistantMessage(session, [
       { type: "text", text: "Reading the relevant file now." },
       { type: "tool_use", id: "tool-read", name: "Read", input: { file_path: "web/server/example.ts" } },
@@ -1272,7 +1450,7 @@ describe("assistant-message-controller", () => {
     session.state.isOrchestrator = true;
     const broadcasts: BrowserIncomingMessage[] = [];
 
-    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nPreparing to inspect the file." }]);
+    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941:C]\nPreparing to inspect the file." }]);
     handleAssistantMessage(
       session,
       makeAssistant([{ type: "text", text: "Reading the relevant file now." }], "mixed-cumulative"),
@@ -1337,8 +1515,8 @@ describe("assistant-message-controller", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;
 
-    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nQuest-local work." }]);
-    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:main]\nGlobal status update." }]);
+    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941:C]\nQuest-local work." }]);
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:main:C]\nGlobal status update." }]);
 
     expect(msg).toMatchObject({ type: "assistant", threadKey: "main" });
     expect(msg.type === "assistant" ? msg.questId : undefined).toBeUndefined();
@@ -1352,7 +1530,7 @@ describe("assistant-message-controller", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;
 
-    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nQuest-local work." }]);
+    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941:C]\nQuest-local work." }]);
     const msg = routeAssistantMessage(session, [
       { type: "tool_use", id: "tool-global", name: "Bash", input: { command: "# thread:main\npwd" } },
     ]);
@@ -1404,7 +1582,7 @@ describe("assistant-message-controller", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;
 
-    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nQuest-local work." }]);
+    routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941:C]\nQuest-local work." }]);
     const msg = routeAssistantMessage(session, [
       { type: "tool_use", id: "tool-bash", name: "Bash", input: { command: "pwd" } },
     ]);

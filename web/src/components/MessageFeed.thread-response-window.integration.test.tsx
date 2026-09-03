@@ -89,12 +89,14 @@ function assistantMessage(
   text: string,
   timestamp: number,
   codexMessagePhase?: "commentary" | "final_answer",
-): BrowserIncomingMessage {
+  leaderThreadRole?: "commentary" | "response",
+): Extract<BrowserIncomingMessage, { type: "assistant" }> {
   return {
     type: "assistant",
     timestamp,
     parent_tool_use_id: null,
     ...(codexMessagePhase ? { codexMessagePhase } : {}),
+    ...(leaderThreadRole ? { leaderThreadRole } : {}),
     ...routedFields(),
     message: {
       id,
@@ -118,12 +120,12 @@ function responseMessage(input: {
   content: string;
   timestamp: number;
   parentRevisionId?: string;
-}): BrowserIncomingMessage {
+}): Extract<BrowserIncomingMessage, { type: "assistant" }> {
   return {
-    type: "leader_user_message",
-    id: input.id,
-    content: input.content,
+    type: "assistant",
     timestamp: input.timestamp,
+    parent_tool_use_id: null,
+    leaderThreadRole: "response",
     ...routedFields(),
     threadResponse: {
       logicalResponseId: input.logicalResponseId,
@@ -134,6 +136,15 @@ function responseMessage(input: {
       batchObservedHistoryLength: 47,
       coveredUserMessageIds: input.coveredUserMessageIds,
       contentHash: `hash-${input.revisionId}`,
+    },
+    message: {
+      id: input.id,
+      type: "message",
+      role: "assistant",
+      model: "claude-opus-4-20250514",
+      content: [{ type: "text", text: input.content }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
     },
   };
 }
@@ -171,7 +182,6 @@ function responseState(
       ? []
       : [
           {
-            token: "pending-1",
             userMessageIds: ["user-third"],
             messageCount: 1,
             firstHistoryIndex: 44,
@@ -254,25 +264,41 @@ function producerThreadWindow(ready = true): Extract<BrowserIncomingMessage, { t
     { history_index: 44, message: userMessage("user-third", "Third pending request", 1_700_000_005_000) },
     {
       history_index: 45,
-      message: assistantMessage("assistant-intermediate", "Intermediate leader and tool activity", 1_700_000_006_000),
+      message: assistantMessage(
+        "assistant-intermediate",
+        "Intermediate leader and tool activity",
+        1_700_000_006_000,
+        undefined,
+        "commentary",
+      ),
     },
-    {
-      history_index: 46,
-      message: responseMessage({
-        id: "response-single-r1",
-        logicalResponseId: "response-single",
-        revisionId: "single-r1",
-        revisionNumber: 1,
-        batchId: "batch-single",
-        coveredUserMessageIds: ["user-third"],
-        content: "Current singleton response",
-        timestamp: 1_700_000_007_000,
-      }),
-    },
-    {
-      history_index: 47,
-      message: assistantMessage("assistant-quiz", `{[(Quest Quiz: ${QUEST_ID})]}`, 1_700_000_008_000),
-    },
+    ...(ready
+      ? [
+          {
+            history_index: 46,
+            message: responseMessage({
+              id: "response-single-r1",
+              logicalResponseId: "response-single",
+              revisionId: "single-r1",
+              revisionNumber: 1,
+              batchId: "batch-single",
+              coveredUserMessageIds: ["user-third"],
+              content: "Current singleton response",
+              timestamp: 1_700_000_007_000,
+            }),
+          },
+          {
+            history_index: 47,
+            message: assistantMessage(
+              "assistant-quiz",
+              `{[(Quest Quiz: ${QUEST_ID})]}`,
+              1_700_000_008_000,
+              undefined,
+              "commentary",
+            ),
+          },
+        ]
+      : []),
     {
       history_index: 48,
       message: {
@@ -300,6 +326,38 @@ function producerThreadWindow(ready = true): Extract<BrowserIncomingMessage, { t
       visible_item_count: 10,
     },
     response_state: responseState(ready),
+  };
+}
+
+function producerThreadWindowWithSeparateReady(): Extract<BrowserIncomingMessage, { type: "thread_window_sync" }> {
+  const sync = producerThreadWindow();
+  const readyStatus = {
+    kind: "ready" as const,
+    label: "Thread Ready" as const,
+    threadKey: QUEST_ID,
+    questId: QUEST_ID,
+    summary: "responses complete",
+    messageId: "assistant-ready",
+    timestamp: 1_700_000_009_000,
+    updatedAt: 1_700_000_009_000,
+  };
+  const readyMessage = assistantMessage(
+    "assistant-ready",
+    "Ready status published after the final response.",
+    readyStatus.timestamp,
+    undefined,
+    "commentary",
+  );
+  readyMessage.threadStatusMarkers = [readyStatus];
+  const entries = [
+    ...sync.entries.filter((entry) => entry.history_index !== 48),
+    { history_index: 48, message: readyMessage },
+    ...sync.entries.filter((entry) => entry.history_index === 48).map((entry) => ({ ...entry, history_index: 49 })),
+  ];
+  return {
+    ...sync,
+    entries,
+    window: { ...sync.window, item_count: entries.length, total_items: entries.length, source_history_length: 50 },
   };
 }
 
@@ -361,7 +419,7 @@ function producerMixedCutoverThreadWindow(
   };
 }
 
-function installReadyStatus(timestamp = 1_700_000_010_000) {
+function installReadyStatus(timestamp = 1_700_000_010_000, messageId = "response-single-r1") {
   useStore.getState().applySyncedProjectionSnapshot(
     createLeaderThreadTabsProjectionEnvelope({
       key: SESSION_ID,
@@ -376,7 +434,7 @@ function installReadyStatus(timestamp = 1_700_000_010_000) {
             threadKey: QUEST_ID,
             questId: QUEST_ID,
             summary: "responses complete",
-            messageId: "response-single-r1",
+            messageId,
             timestamp,
             updatedAt: timestamp,
           },
@@ -464,12 +522,47 @@ describe("MessageFeed pending-batch response selected-window integration", () =>
 
     expect(screen.getByText("Intermediate leader and tool activity")).toBeVisible();
     expect(screen.getByText("Current singleton response")).toBeVisible();
+    const singletonFrame = screen
+      .getByText("Current singleton response")
+      .closest<HTMLElement>("[data-testid='thread-response-current-expanded']")!;
+    expect(singletonFrame).toBeInTheDocument();
+    expect(within(singletonFrame).getByText("Current response")).toBeVisible();
+    expect(within(singletonFrame).queryByTestId("thread-response-group-provenance")).not.toBeInTheDocument();
     expect(screen.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
 
     const secondTurn = screen.getByText("Second pending request").closest<HTMLElement>("[data-turn-id]")!;
     fireEvent.click(within(secondTurn).getByRole("button", { name: /Leader activity/i }));
-    expect(screen.getByText("Earlier grouped response")).toBeVisible();
-    expect(screen.getByText("Current grouped response")).toBeVisible();
+    const earlier = screen.getByText("Earlier grouped response");
+    const current = screen.getByText("Current grouped response");
+    expect(earlier).toBeVisible();
+    expect(current).toBeVisible();
+    expect(earlier.closest("[data-testid='thread-response-current-expanded']")).toBeNull();
+    const groupedFrame = current.closest<HTMLElement>("[data-testid='thread-response-current-expanded']")!;
+    expect(groupedFrame).toBeInTheDocument();
+    expect(within(groupedFrame).getByText("Current response")).toBeVisible();
+    expect(within(groupedFrame).getByTestId("thread-response-group-provenance")).toHaveTextContent(
+      "Answers 2 messages",
+    );
+    expect(earlier.compareDocumentPosition(current) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  });
+
+  it("collapses on a separate fresh Ready commentary row and restores it through manual expansion", () => {
+    act(() => {
+      useStore.getState().reset();
+      handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
+      useStore.getState().upsertQuestDetail(quest(), { etag: '"response-detail"' });
+      handleMessage(SESSION_ID, producerThreadWindowWithSeparateReady());
+      installReadyStatus(1_700_000_009_000, "assistant-ready");
+    });
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+
+    expect(screen.getByText("Current singleton response")).toBeVisible();
+    expect(screen.queryByText("Ready status published after the final response.")).not.toBeInTheDocument();
+
+    const thirdTurn = screen.getByText("Third pending request").closest<HTMLElement>("[data-turn-id]")!;
+    fireEvent.click(within(thirdTurn).getByRole("button", { name: /Leader activity/i }));
+    expect(screen.getByText("Ready status published after the final response.")).toBeVisible();
+    expect(screen.getByText("Current singleton response")).toBeVisible();
   });
 
   it("fails closed immediately when a new live covered user message outruns the cached response state", () => {
@@ -493,15 +586,26 @@ describe("MessageFeed pending-batch response selected-window integration", () =>
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
 
     expect(screen.queryByTestId("thread-response-current")).not.toBeInTheDocument();
-    expect(screen.getByText("Earlier grouped response")).toBeVisible();
+    expect(screen.getByText("Intermediate leader and tool activity")).toBeVisible();
+    expect(screen.getByText("Current singleton response")).toBeVisible();
+    expect(
+      screen.getByText("Current singleton response").closest("[data-testid='thread-response-current-expanded']"),
+    ).toBeInTheDocument();
   });
 
-  it("keeps the phase-aware fallback when coverage is pending even if a stale Ready marker exists", () => {
+  it("keeps prior current-final identity while newer coverage is pending despite a stale Ready marker", () => {
     act(() => handleMessage(SESSION_ID, producerThreadWindow(false)));
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
 
     expect(useStore.getState().threadWindowResponseStates.get(SESSION_ID)?.get(QUEST_ID)?.ready).toBe(false);
-    expect(screen.queryByTestId("thread-response-group-provenance")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("thread-response-current")).not.toBeInTheDocument();
+    expect(screen.getByText("Intermediate leader and tool activity")).toBeVisible();
+    const secondTurn = screen.getByText("Second pending request").closest<HTMLElement>("[data-turn-id]")!;
+    fireEvent.click(within(secondTurn).getByRole("button", { name: /Leader activity/i }));
     expect(screen.getByText("Earlier grouped response")).toBeVisible();
+    const current = screen.getByText("Current grouped response");
+    const frame = current.closest<HTMLElement>("[data-testid='thread-response-current-expanded']")!;
+    expect(frame).toBeInTheDocument();
+    expect(within(frame).getByTestId("thread-response-group-provenance")).toHaveTextContent("Answers 2 messages");
   });
 });
