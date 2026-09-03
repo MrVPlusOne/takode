@@ -199,6 +199,10 @@ describe("Playground", () => {
     expect(screen.getByRole("button", { name: "Inline Quest Preview" })).toBeTruthy();
     expect(screen.getByText("Real Chat Stack")).toBeTruthy();
     expect(screen.getByText("Leader Session Return Stability")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show activity chip" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show thread status" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show both status chips" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show needs-input pill" })).toBeTruthy();
     expect(screen.getByTestId("playground-leader-session-return")).toBeTruthy();
     expect(screen.getByText("Shortcut Hints")).toBeTruthy();
     expect(screen.getByText("Timer Messages")).toBeTruthy();

@@ -34,6 +34,7 @@ export function ElapsedTimer({
   currentThreadKey = "main",
   onSelectThread,
   onVisibleHeightChange,
+  preserveFloatingRowWhenHidden = false,
 }: {
   sessionId: string;
   latestIndicatorVisible?: boolean;
@@ -42,6 +43,7 @@ export function ElapsedTimer({
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   onVisibleHeightChange?: (height: number) => void;
+  preserveFloatingRowWhenHidden?: boolean;
 }) {
   const streamingStartedAt = useStore((s) => s.streamingStartedAt.get(sessionId));
   const streamingOutputTokens = useStore((s) => s.streamingOutputTokens.get(sessionId));
@@ -65,6 +67,7 @@ export function ElapsedTimer({
   const isLeaderSession = bridgeIsOrchestrator || sdkIsOrchestrator;
   const [elapsed, setElapsed] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
+  const measuredFloatingRowRef = useRef<{ sessionId: string; height: number } | null>(null);
 
   useEffect(() => {
     if (!streamingStartedAt && sessionStatus !== "running") {
@@ -93,16 +96,33 @@ export function ElapsedTimer({
     const root = rootRef.current;
     if (!root) return;
     const reportHeight = () => {
-      onVisibleHeightChange(Math.ceil(root.getBoundingClientRect().height));
+      const height = Math.ceil(root.getBoundingClientRect().height);
+      if (variant === "floating" && height > 0) {
+        measuredFloatingRowRef.current = { sessionId, height };
+      }
+      onVisibleHeightChange(height);
     };
     reportHeight();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(reportHeight);
     observer.observe(root);
     return () => observer.disconnect();
-  }, [onVisibleHeightChange, showTimer, streamingOutputTokens, variant]);
+  }, [onVisibleHeightChange, sessionId, showTimer, streamingOutputTokens, variant]);
 
-  if (!showTimer) return null;
+  if (!showTimer) {
+    const reservedHeight =
+      variant === "floating" && preserveFloatingRowWhenHidden && measuredFloatingRowRef.current?.sessionId === sessionId
+        ? measuredFloatingRowRef.current.height
+        : 0;
+    return reservedHeight > 0 ? (
+      <div
+        aria-hidden="true"
+        className="pointer-events-none w-0 shrink-0"
+        data-feed-activity-reservation="true"
+        style={{ height: `${reservedHeight}px` }}
+      />
+    ) : null;
+  }
 
   const handleRelaunch = () => {
     api.relaunchSession(sessionId).catch(() => {});
@@ -156,7 +176,7 @@ export function ElapsedTimer({
     if (canNavigateActiveTurn && onSelectThread && activeTurnNavigationTarget) {
       const targetThreadKey = activeTurnNavigationTarget;
       return (
-        <div ref={rootRef} className="pointer-events-auto relative">
+        <div ref={rootRef} className="pointer-events-auto relative" data-feed-activity-row="true">
           <button
             type="button"
             onClick={() => onSelectThread(targetThreadKey)}
@@ -172,7 +192,7 @@ export function ElapsedTimer({
     }
 
     return (
-      <div ref={rootRef} className="pointer-events-auto">
+      <div ref={rootRef} className="pointer-events-auto" data-feed-activity-row="true">
         <div className={`${FLOATING_FEED_CHIP_CLASS} cursor-default`} data-active-turn-target="">
           {floatingChipContents}
         </div>
@@ -606,24 +626,33 @@ export function FeedStatusPill({
   sessionId,
   currentThreadKey = "main",
   onVisibleHeightChange,
+  onRunwayHeightChange,
   onSelectThread,
 }: {
   sessionId: string;
   currentThreadKey?: string;
   onVisibleHeightChange?: (height: number) => void;
+  onRunwayHeightChange?: (height: number) => void;
   onSelectThread?: (threadKey: string) => void;
 }) {
   const leftStackRef = useRef<HTMLDivElement>(null);
   const rightStackRef = useRef<HTMLDivElement>(null);
+  const [activityVisibleHeight, setActivityVisibleHeight] = useState(0);
 
   useLayoutEffect(() => {
-    if (!onVisibleHeightChange) return;
+    if (!onVisibleHeightChange && !onRunwayHeightChange) return;
     const reportHeight = () => {
-      const visibleHeight = Math.max(
-        Math.ceil(leftStackRef.current?.getBoundingClientRect().height ?? 0),
-        Math.ceil(rightStackRef.current?.getBoundingClientRect().height ?? 0),
-      );
-      onVisibleHeightChange(visibleHeight);
+      const leftStack = leftStackRef.current;
+      const leftHeight = leftStack?.getBoundingClientRect().height ?? 0;
+      const rightHeight = rightStackRef.current?.getBoundingClientRect().height ?? 0;
+      const reservation = leftStack?.querySelector<HTMLElement>(':scope > [data-feed-activity-reservation="true"]');
+      const reservationHeight = reservation?.getBoundingClientRect().height ?? 0;
+      const rowGap = leftStack ? Number.parseFloat(getComputedStyle(leftStack).rowGap) || 0 : 0;
+      const visibleLeftHeight = reservation
+        ? Math.max(0, leftHeight - reservationHeight - (leftHeight > reservationHeight ? rowGap : 0))
+        : leftHeight;
+      onVisibleHeightChange?.(Math.ceil(Math.max(visibleLeftHeight, rightHeight)));
+      onRunwayHeightChange?.(Math.ceil(Math.max(leftHeight, rightHeight)));
     };
 
     reportHeight();
@@ -633,13 +662,14 @@ export function FeedStatusPill({
     if (leftStackRef.current) observer.observe(leftStackRef.current);
     if (rightStackRef.current) observer.observe(rightStackRef.current);
     return () => observer.disconnect();
-  }, [onVisibleHeightChange, sessionId]);
+  }, [activityVisibleHeight, onRunwayHeightChange, onVisibleHeightChange, sessionId]);
 
   return (
     <>
       <div
         ref={leftStackRef}
         data-testid="feed-status-pill-left"
+        data-feed-floating-stack="left"
         className="pointer-events-none absolute bottom-2 left-2 z-10 flex max-w-[calc(100vw-1rem)] flex-col items-start gap-1.5 sm:bottom-3 sm:left-3"
       >
         <CodexTurnRecoveryChip
@@ -654,11 +684,14 @@ export function FeedStatusPill({
           variant="floating"
           currentThreadKey={currentThreadKey}
           onSelectThread={onSelectThread}
+          onVisibleHeightChange={setActivityVisibleHeight}
+          preserveFloatingRowWhenHidden
         />
       </div>
       <div
         ref={rightStackRef}
         data-testid="feed-status-pill-right"
+        data-feed-floating-stack="right"
         className="pointer-events-none absolute bottom-2 right-2 z-10 flex flex-row items-end gap-1.5 sm:bottom-3 sm:right-3"
       >
         <TimerChip sessionId={sessionId} />

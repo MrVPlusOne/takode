@@ -125,6 +125,55 @@ If a full browser replay harness would be substantial, do not build it as part
 of a small feed fix. Instead, add a generated fixture or document the missing
 coverage in the quest handoff.
 
+## Bounded Viewport Transition Probe
+
+For an intermittent feed jump that cannot be disambiguated from a screenshot,
+use the opt-in browser probe in
+`web/scripts/capture-feed-viewport-transitions.js`. It records at most 200
+deduplicated geometry samples and no message text or status summaries. It keeps
+one initially visible ordinary message as the stable anchor and records its ID
+and pixel offset together with scroll range, real/physical bottom gaps, trailing
+slack, activity/reservation heights, thread-status contribution/compensation,
+mounted-window identity, route, and a small metadata-only frontend-performance
+tail.
+
+Install and start it only while reproducing the symptom:
+
+```bash
+cat web/scripts/capture-feed-viewport-transitions.js | agent-browser eval --stdin
+agent-browser eval 'window.__TAKODE_FEED_VIEWPORT_PROBE__.start()'
+```
+
+If more than one feed is visible, pass a unique container selector instead of
+letting the probe guess. The Playground leader-return fixture uses:
+
+```bash
+agent-browser eval 'window.__TAKODE_FEED_VIEWPORT_PROBE__.start({containerSelector:"[data-testid=playground-leader-session-return] [data-testid=message-feed-scroll-container]"})'
+```
+
+After the transition, read or explicitly sample the bounded trace, then stop it:
+
+```bash
+agent-browser eval 'window.__TAKODE_FEED_VIEWPORT_PROBE__.sample("after-transition")'
+agent-browser eval 'window.__TAKODE_FEED_VIEWPORT_PROBE__.read()'
+agent-browser eval 'window.__TAKODE_FEED_VIEWPORT_PROBE__.stop()'
+```
+
+Interpret the fields together rather than naming a chip from correlation alone:
+
+- changing trailing slack or physical-bottom range with a stable mounted window
+  points to overlay runway or native scroll clamping;
+- changing thread-status contribution with matching compensation isolates the
+  in-flow footer path;
+- a changed mounted-window signature or missing anchor points to window/route
+  ownership instead of local chip geometry;
+- a stable window with a changed content bottom points to late layout settlement
+  or intentional true-bottom following.
+
+Clear the trace between separate scenarios with `clear()`. The probe is a
+diagnostic pasted into the current page; it does not enable persistent telemetry
+or write to the server.
+
 ## Renderer-Freeze Triage
 
 When the browser appears frozen, gather evidence that does not depend on the

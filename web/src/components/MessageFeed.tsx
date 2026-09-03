@@ -92,6 +92,8 @@ import { MessageFeedNavigationControls } from "./MessageFeedNavigationControls.j
 import { resolveThreadResponses } from "./thread-response-presentation.js";
 import { MessageFeedCenteredState } from "./MessageFeedCenteredState.js";
 import { useCodexSafeFeedModel } from "../hooks/use-codex-safe-feed-model.js";
+import { useMessageFeedStatusContentBottomSync, useMessageFeedStatusLayout } from "./use-message-feed-status-layout.js";
+import { MessageFeedEndSlack } from "./MessageFeedEndSlack.js";
 import {
   isUserBoundaryEntry,
   type FeedEntry,
@@ -111,12 +113,6 @@ export {
   findVisibleSectionStartIndex,
 } from "./message-feed-sections.js";
 const LIVE_ACTIVITY_RAIL_DWELL_MS = 5_000;
-const FEED_EXTRA_SCROLL_SLACK_PX = 12;
-const FLOATING_STATUS_SPACER_MARGIN_PX = 4;
-const CENTERED_FEED_STATUS_CLEARANCE_GAP_PX = 64;
-const FLOATING_STATUS_MOBILE_BOTTOM_PX = 8;
-const MOBILE_NAV_BASE_BOTTOM_PX = 12;
-const MOBILE_NAV_STATUS_CLEARANCE_GAP_PX = 8;
 const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 const SECTION_WINDOW_TRIGGER_PX = 96;
 const SECTION_BOUNDARY_CONTROL_CLASS =
@@ -163,6 +159,18 @@ export function MessageFeed({
   const collapseLeaderThreadActivity =
     isLeaderSession && !isMainThreadKey(normalizedThreadKey) && !isAllThreadsKey(normalizedThreadKey);
   const viewportKey = useMemo(() => getFeedViewportKey(sessionId, threadKey), [sessionId, threadKey]);
+  const {
+    feedEndScrollSlack,
+    feedEndSlackProps,
+    centeredFeedStatusClearancePx,
+    floatingStatusHeight,
+    mobileNavBottomOffsetPx,
+    setFloatingStatusHeight,
+    setFloatingStatusRunwayHeight,
+    handleThreadStatusLayoutContributionChange,
+    visibleThreadStatuses,
+    threadStatusLayoutKey,
+  } = useMessageFeedStatusLayout(sessionId, normalizedThreadKey);
   const savedScrollPos = readSavedViewportPosition({
     sessionId,
     viewportKey,
@@ -250,6 +258,8 @@ export function MessageFeed({
   const containerRef = useRef<HTMLDivElement>(null);
   const textSelection = useTextSelection(containerRef);
   const contentRootRef = useRef<HTMLDivElement>(null);
+  const feedEndScrollSlackRef = useRef(feedEndScrollSlack);
+  feedEndScrollSlackRef.current = feedEndScrollSlack;
   const autoFollowEnabledRef = useRef(savedScrollPos ? savedScrollPos.isAtBottom : true);
   const isNearBottom = useRef(savedScrollPos ? savedScrollPos.isAtBottom : true);
   const lastScrollTopRef = useRef(savedScrollPos?.scrollTop ?? 0);
@@ -265,7 +275,6 @@ export function MessageFeed({
   const [showScrollButton, setShowScrollButton] = useIdempotentState(false);
   const [showLatestPill, setShowLatestPill] = useIdempotentState(false);
   const [isScrolling, setIsScrolling] = useState(false);
-  const [floatingStatusHeight, setFloatingStatusHeight] = useState(0);
   const [sectionWindowStart, setSectionWindowStart] = useState<number | null>(null);
   const [pendingSectionLoadDirection, setPendingSectionLoadDirection] = useState<"older" | "newer" | null>(null);
   const [selectedCodexTerminalId, setSelectedCodexTerminalId] = useState<string | null>(null);
@@ -392,21 +401,6 @@ export function MessageFeed({
     [codexTerminalEntries, selectedCodexTerminalId],
   );
   const latestMessage = messages[messages.length - 1] ?? null;
-  const mobileNavBottomOffsetPx = useMemo(
-    () =>
-      Math.max(
-        MOBILE_NAV_BASE_BOTTOM_PX,
-        floatingStatusHeight > 0
-          ? FLOATING_STATUS_MOBILE_BOTTOM_PX + floatingStatusHeight + MOBILE_NAV_STATUS_CLEARANCE_GAP_PX
-          : 0,
-      ),
-    [floatingStatusHeight],
-  );
-  const feedEndScrollSlack = Math.max(
-    FEED_EXTRA_SCROLL_SLACK_PX,
-    floatingStatusHeight > 0 ? floatingStatusHeight + FLOATING_STATUS_SPACER_MARGIN_PX : 0,
-  );
-
   useEffect(() => {
     if (!selectedCodexTerminalId) return;
     if (codexTerminalEntries.some((entry) => entry.toolUseId === selectedCodexTerminalId)) return;
@@ -476,7 +470,7 @@ export function MessageFeed({
     const container = containerRef.current;
     const contentRoot = contentRootRef.current;
     if (!container) return null;
-    const fallbackBottom = Math.max(0, Math.round(container.scrollHeight - feedEndScrollSlack));
+    const fallbackBottom = Math.max(0, Math.round(container.scrollHeight - feedEndScrollSlackRef.current));
     if (!contentRoot) return fallbackBottom;
     const blocks = contentRoot.querySelectorAll<HTMLElement>("[data-feed-block-id]");
     if (blocks.length === 0) {
@@ -490,7 +484,7 @@ export function MessageFeed({
       return fallbackBottom;
     }
     return Math.max(0, Math.min(fallbackBottom, Math.round(maxBottom)));
-  }, [feedEndScrollSlack, getFeedBlockBottom]);
+  }, [getFeedBlockBottom]);
 
   const getLowestFeedBlockBottom = useCallback(
     (blockIds: Iterable<string>, fallbackToLatestBlock = false) => {
@@ -1221,6 +1215,13 @@ export function MessageFeed({
     },
     [hasNewerSections],
   );
+  useMessageFeedStatusContentBottomSync(
+    threadStatusLayoutKey,
+    getRealContentBottom,
+    lastObservedContentBottomRef,
+    lastSeenContentBottomRef,
+    setShowLatestPill,
+  );
 
   function handleScroll() {
     const el = containerRef.current;
@@ -1788,8 +1789,6 @@ export function MessageFeed({
     normalizedThreadKey,
   });
 
-  const centeredFeedStatusClearancePx =
-    floatingStatusHeight > 0 ? floatingStatusHeight + CENTERED_FEED_STATUS_CLEARANCE_GAP_PX : 0;
   const feedTopControls = (
     <MessageFeedTopControls
       sessionId={sessionId}
@@ -1847,12 +1846,18 @@ export function MessageFeed({
           onTouchMove={handleTouchMove}
           onPointerDown={handlePointerDown}
           data-testid="message-feed-scroll-container"
+          data-feed-session-id={sessionId}
+          data-feed-thread-key={normalizedThreadKey}
           className="message-feed-scroll-surface mobile-scroll-stable-surface h-full overflow-y-auto overflow-x-hidden px-2 sm:px-4 py-4 sm:py-6"
           style={{ overscrollBehavior: "contain" }}
         >
           <PawScrollProvider scrollRef={containerRef}>
             <PawCounterContext.Provider value={pawCounter}>
-              <div ref={contentRootRef} className="max-w-3xl mx-auto space-y-3 sm:space-y-5">
+              <div
+                ref={contentRootRef}
+                className="max-w-3xl mx-auto space-y-3 sm:space-y-5"
+                data-feed-content-root="true"
+              >
                 {hasOlderSections && (
                   <div className="flex justify-center pb-2" aria-live="polite">
                     {isLoadingOlderSection ? (
@@ -1886,6 +1891,8 @@ export function MessageFeed({
                   userBoundarySourceSessionId={herdingLeaderSessionId ?? null}
                   questLinkSurface="chat-feed"
                   threadResponsePresentation={threadResponsePresentation}
+                  visibleThreadStatuses={visibleThreadStatuses}
+                  onThreadStatusLayoutContributionChange={handleThreadStatusLayoutContributionChange}
                 />
                 {hasNewerSections && (
                   <div className="flex justify-center pt-1" aria-live="polite">
@@ -1917,12 +1924,7 @@ export function MessageFeed({
                   <PendingCodexInputList sessionId={sessionId} inputs={pendingCodexInputs} />
                 )}
                 <FeedFooter sessionId={sessionId} visibleToolUseIds={visibleToolUseIds} questLinkSurface="chat-feed" />
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none"
-                  data-feed-end-slack="true"
-                  style={{ height: `${feedEndScrollSlack}px` }}
-                />
+                <MessageFeedEndSlack {...feedEndSlackProps} />
               </div>
             </PawCounterContext.Provider>
           </PawScrollProvider>
@@ -1931,6 +1933,7 @@ export function MessageFeed({
         <FeedStatusPill
           sessionId={sessionId}
           onVisibleHeightChange={setFloatingStatusHeight}
+          onRunwayHeightChange={setFloatingStatusRunwayHeight}
           currentThreadKey={threadKey}
           onSelectThread={onSelectThread}
         />
