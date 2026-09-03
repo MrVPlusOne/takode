@@ -76,6 +76,16 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
   };
 }
 
+vi.mock("./ViewportHandoffEntryGate.js", () => ({
+  ViewportHandoffThreadEntryGate: ({ children }: any) => children,
+  ViewportHandoffSessionEntryGate: ({ children }: any) => children,
+}));
+
+vi.mock("../utils/viewport-handoff-client.js", () => ({
+  createViewportHandoffEntryId: () => "test-viewport-entry",
+  noteViewportSelectionActivity: vi.fn(),
+}));
+
 vi.mock("../store.js", () => {
   const useStore = (selector: (s: MockStoreState) => unknown) => selector(mockState);
   useStore.getState = () => mockState;

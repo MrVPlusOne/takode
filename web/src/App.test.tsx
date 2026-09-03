@@ -5,6 +5,10 @@ import "@testing-library/jest-dom";
 
 const mockConnectSession = vi.fn();
 const mockDisconnectSession = vi.fn();
+const mockViewportHandoffGates = vi.hoisted(() => ({
+  session: vi.fn(),
+  thread: vi.fn(),
+}));
 
 interface MockStoreState {
   colorTheme: string;
@@ -61,6 +65,7 @@ interface MockStoreState {
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
   sessionSortMode: "created" | "activity";
   messages: Map<string, Array<{ id: string; historyIndex?: number }>>;
+  feedScrollPosition: Map<string, unknown>;
   sidebarOpen: boolean;
   taskPanelOpen: boolean;
   activeTab: "chat" | "diff";
@@ -131,6 +136,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
         ],
       ],
     ]),
+    feedScrollPosition: new Map(),
     sidebarOpen: false,
     taskPanelOpen: false,
     activeTab: "chat",
@@ -178,6 +184,17 @@ function setMockQuestOverlay(questId: string | null, feedbackIndex?: number) {
   mockState.questOverlayFeedbackTarget =
     questId && feedbackIndex !== undefined ? { index: feedbackIndex, requestId: 1 } : null;
 }
+
+vi.mock("./components/ViewportHandoffEntryGate.js", () => ({
+  ViewportHandoffThreadEntryGate: ({ children, entryId, sessionId, threadKey }: any) => {
+    mockViewportHandoffGates.thread({ entryId, sessionId, threadKey });
+    return children;
+  },
+  ViewportHandoffSessionEntryGate: ({ children, entryId, sessionId }: any) => {
+    mockViewportHandoffGates.session({ entryId, sessionId });
+    return children;
+  },
+}));
 
 vi.mock("./store.js", () => {
   const useStore: any = (selector: (state: MockStoreState) => unknown) => selector(mockState);
@@ -390,6 +407,13 @@ beforeEach(() => {
   window.location.hash = "#/session/s1";
 });
 
+function latestViewportSessionEntryId(sessionId: string): string | undefined {
+  const calls = mockViewportHandoffGates.session.mock.calls
+    .map(([value]) => value as { entryId?: string; sessionId?: string })
+    .filter((value) => value.sessionId === sessionId);
+  return calls.at(-1)?.entryId;
+}
+
 describe("App quest overlay routes", () => {
   it("keeps an initial routed target authoritative across StrictMode effect replay", async () => {
     window.location.hash = "#/questmaster?quest=q-1966&feedback=5";
@@ -482,6 +506,43 @@ describe("App quest overlay routes", () => {
 });
 
 describe("App hidden panels", () => {
+  it("reuses one session entry across Chat to Diff to Chat but refreshes a true A to B to A return", async () => {
+    resetStore({
+      sdkSessions: [
+        { sessionId: "s1", createdAt: 1, archived: false, cwd: "/repo/s1", backendType: "claude" },
+        { sessionId: "s2", createdAt: 2, archived: false, cwd: "/repo/s2", backendType: "claude" },
+      ],
+    });
+    history.replaceState(null, "", "#/session/s1");
+    const view = render(<App />);
+
+    await waitFor(() => expect(latestViewportSessionEntryId("s1")).toBeTruthy());
+    const firstS1EntryId = latestViewportSessionEntryId("s1");
+
+    mockState.activeTab = "diff";
+    view.rerender(<App />);
+    expect(screen.getByTestId("diff-panel")).toBeInTheDocument();
+
+    mockState.activeTab = "chat";
+    view.rerender(<App />);
+    await waitFor(() => expect(screen.getByTestId("chat-view")).toHaveAttribute("data-session-id", "s1"));
+    expect(latestViewportSessionEntryId("s1")).toBe(firstS1EntryId);
+
+    act(() => {
+      history.pushState(null, "", "#/session/s2");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await waitFor(() => expect(latestViewportSessionEntryId("s2")).toBeTruthy());
+    const s2EntryId = latestViewportSessionEntryId("s2");
+    expect(s2EntryId).not.toBe(firstS1EntryId);
+
+    act(() => {
+      history.pushState(null, "", "#/session/s1");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await waitFor(() => expect(latestViewportSessionEntryId("s1")).not.toBe(firstS1EntryId));
+    expect(latestViewportSessionEntryId("s1")).not.toBe(s2EntryId);
+  });
   it("does not mount the desktop sidebar while it is closed", () => {
     resetStore({ sidebarOpen: false, taskPanelOpen: false });
 

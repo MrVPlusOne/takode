@@ -64,6 +64,8 @@ import {
   readLeaderSelectedThreadKey,
   requestThreadViewportSnapshot,
 } from "../utils/thread-viewport.js";
+import { ViewportHandoffThreadEntryGate } from "./ViewportHandoffEntryGate.js";
+import { createViewportHandoffEntryId, noteViewportSelectionActivity } from "../utils/viewport-handoff-client.js";
 import { resolveInitialLeaderThreadKey } from "../utils/initial-leader-thread.js";
 import { applyCanonicalQuestTitles, buildCanonicalQuestTitleIndex } from "../utils/quest-title-index.js";
 import {
@@ -1028,11 +1030,13 @@ export function ChatView({
   preview = false,
   routeThreadKey,
   hasThreadRoute,
+  viewportHandoffThreadEntryScopeId,
 }: {
   sessionId: string;
   preview?: boolean;
   routeThreadKey?: string | null;
   hasThreadRoute?: boolean;
+  viewportHandoffThreadEntryScopeId?: string;
 }) {
   const {
     sessionPerms,
@@ -1113,6 +1117,28 @@ export function ChatView({
   );
   const selectedThreadKeyRef = useRef(selectedThreadKey);
   selectedThreadKeyRef.current = selectedThreadKey;
+  const generatedViewportHandoffThreadEntryScopeId = useMemo(createViewportHandoffEntryId, [sessionId]);
+  const viewportHandoffThreadEntryScope =
+    viewportHandoffThreadEntryScopeId ?? generatedViewportHandoffThreadEntryScopeId;
+  const normalizedViewportHandoffThreadKey = normalizeThreadKey(isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY);
+  const viewportHandoffThreadEntryRef = useRef({
+    scopeId: viewportHandoffThreadEntryScope,
+    threadKey: normalizedViewportHandoffThreadKey,
+    entryId: `${viewportHandoffThreadEntryScope}:${normalizedViewportHandoffThreadKey}`,
+  });
+  if (viewportHandoffThreadEntryRef.current.scopeId !== viewportHandoffThreadEntryScope) {
+    viewportHandoffThreadEntryRef.current = {
+      scopeId: viewportHandoffThreadEntryScope,
+      threadKey: normalizedViewportHandoffThreadKey,
+      entryId: `${viewportHandoffThreadEntryScope}:${normalizedViewportHandoffThreadKey}`,
+    };
+  } else if (viewportHandoffThreadEntryRef.current.threadKey !== normalizedViewportHandoffThreadKey) {
+    viewportHandoffThreadEntryRef.current = {
+      scopeId: viewportHandoffThreadEntryScope,
+      threadKey: normalizedViewportHandoffThreadKey,
+      entryId: `${viewportHandoffThreadEntryScope}:${normalizedViewportHandoffThreadKey}:${createViewportHandoffEntryId()}`,
+    };
+  }
   const passiveRestoreThreadKeyRef = useRef(hasThreadRoute ? null : readLeaderSelectedThreadKey(sessionId));
   const wasLeaderSessionRef = useRef(isLeaderSession);
   if (isLeaderSession) wasLeaderSessionRef.current = true;
@@ -1354,7 +1380,14 @@ export function ChatView({
         persistLeaderSelectedThreadKey(sessionId, nextThreadKey);
       }
       if (nextThreadKey === currentThreadKey) return;
-      requestThreadViewportSnapshot(sessionId);
+      if (!preview) noteViewportSelectionActivity(sessionId, nextThreadKey);
+      void requestThreadViewportSnapshot(sessionId, {
+        threadKey: currentThreadKey,
+        selectedThreadKey: nextThreadKey,
+        publishHandoff: true,
+        keepalive: true,
+        reason: "thread-departure",
+      });
       setSelectedThreadKey(nextThreadKey);
       if (!preview) {
         locallySelectedRouteThreadKeyRef.current = nextThreadKey;
@@ -1639,14 +1672,25 @@ export function ChatView({
                   currentSessionId={sessionId}
                 />
               )}
-              <MessageFeed
+              <ViewportHandoffThreadEntryGate
                 key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY)}`}
-                sessionId={sessionId}
+                sessionId={preview ? null : sessionId}
                 threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
-                projectThreadRoutes={isLeaderSession}
-                onSelectThread={isLeaderSession ? handleSelectThread : undefined}
-                showCodexSubagentControl={!preview}
-              />
+                entryId={viewportHandoffThreadEntryRef.current.entryId}
+                fallback={
+                  <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-cc-muted">
+                    Loading conversation...
+                  </div>
+                }
+              >
+                <MessageFeed
+                  sessionId={sessionId}
+                  threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
+                  projectThreadRoutes={isLeaderSession}
+                  onSelectThread={isLeaderSession ? handleSelectThread : undefined}
+                  showCodexSubagentControl={!preview}
+                />
+              </ViewportHandoffThreadEntryGate>
             </div>
             {!preview && selectedSideChat && (
               <SideChatPanel

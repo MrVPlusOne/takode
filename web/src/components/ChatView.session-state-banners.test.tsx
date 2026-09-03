@@ -98,6 +98,16 @@ function currentLeaderTabsProjection(sessionId: string): LeaderThreadTabsProject
     : null;
 }
 
+vi.mock("./ViewportHandoffEntryGate.js", () => ({
+  ViewportHandoffThreadEntryGate: ({ children }: any) => children,
+  ViewportHandoffSessionEntryGate: ({ children }: any) => children,
+}));
+
+vi.mock("../utils/viewport-handoff-client.js", () => ({
+  createViewportHandoffEntryId: () => "test-viewport-entry",
+  noteViewportSelectionActivity: vi.fn(),
+}));
+
 vi.mock("../store.js", () => ({
   useStore: (selector: (s: ChatViewMockStoreState) => unknown) => {
     // Simulates the useSyncExternalStore stability check so selectors do not

@@ -61,6 +61,8 @@ import { installAppViewportSizing } from "./utils/app-viewport.js";
 import { getLastSessionCreationContext } from "./utils/new-session-defaults.js";
 import { buildSidebarVisibleSessions } from "./utils/sidebar-visible-sessions.js";
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
+import { ViewportHandoffSessionEntryGate } from "./components/ViewportHandoffEntryGate.js";
+import { createViewportHandoffEntryId } from "./utils/viewport-handoff-client.js";
 import { resolveDiffTarget } from "./utils/diff-target.js";
 import { requestAutoSessionGitStatusRefresh } from "./utils/session-git-status-auto-refresh.js";
 import {
@@ -288,7 +290,15 @@ export default function App() {
     () => (route.page === "session" ? resolveSessionIdFromRoute(route.sessionId, sdkSessions) : null),
     [route, sdkSessions],
   );
-  const displayedSessionId = searchPreviewSessionId ?? (route.page === "session" ? routeSessionId : currentSessionId);
+  const primarySessionId = route.page === "session" ? routeSessionId : currentSessionId;
+  const displayedSessionId = searchPreviewSessionId ?? primarySessionId;
+  const viewportSessionEntryIdentity =
+    isSessionView && primarySessionId && !isPendingId(primarySessionId) ? primarySessionId : null;
+  const viewportSessionEntryId = useMemo(createViewportHandoffEntryId, [viewportSessionEntryIdentity]);
+  const viewportThreadEntryScopeId = useMemo(createViewportHandoffEntryId, [
+    viewportSessionEntryIdentity,
+    threadRoute.hasThreadParam ? (threadRoute.threadKey ?? "main") : "bare",
+  ]);
   const currentMessages = useStore((s) =>
     currentSessionId ? (s.messages.get(currentSessionId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES,
   );
@@ -893,13 +903,24 @@ export default function App() {
                   isPendingId(displayedSessionId) ? (
                   <SessionCreationView pendingId={displayedSessionId} />
                 ) : displayedSessionId ? (
-                  <ChatView
-                    key={displayedSessionId}
-                    sessionId={displayedSessionId}
-                    preview={searchPreviewSessionId === displayedSessionId}
-                    routeThreadKey={threadRoute.threadKey}
-                    hasThreadRoute={threadRoute.hasThreadParam}
-                  />
+                  <ViewportHandoffSessionEntryGate
+                    key={`${displayedSessionId}:${searchPreviewSessionId === displayedSessionId ? "preview" : "active"}`}
+                    sessionId={searchPreviewSessionId === displayedSessionId ? null : displayedSessionId}
+                    entryId={viewportSessionEntryId}
+                    fallback={
+                      <div className="flex h-full items-center justify-center text-sm text-cc-muted">
+                        Loading conversation...
+                      </div>
+                    }
+                  >
+                    <ChatView
+                      sessionId={displayedSessionId}
+                      preview={searchPreviewSessionId === displayedSessionId}
+                      routeThreadKey={threadRoute.threadKey}
+                      hasThreadRoute={threadRoute.hasThreadParam}
+                      viewportHandoffThreadEntryScopeId={viewportThreadEntryScopeId}
+                    />
+                  </ViewportHandoffSessionEntryGate>
                 ) : (
                   <EmptyState />
                 )}

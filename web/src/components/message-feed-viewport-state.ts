@@ -2,6 +2,7 @@ import { useCallback, useRef, useState, type Dispatch, type SetStateAction } fro
 import { useStore } from "../store.js";
 import type { FeedViewportPosition } from "../utils/thread-viewport.js";
 import { readLeaderViewportPosition } from "../utils/thread-viewport.js";
+import { noteViewportDeliberateActivity } from "../utils/viewport-handoff-client.js";
 import { retireSessionMessageRoute } from "../utils/routing.js";
 
 export interface PendingExactViewportRestore {
@@ -28,6 +29,7 @@ export function useUserViewportNavigationIntent(
   threadKey: string,
 ) {
   return useCallback(() => {
+    noteViewportDeliberateActivity(sessionId, threadKey);
     cancelPendingRestore();
     if (!retireSessionMessageRoute(sessionId, threadKey)) return;
     const store = useStore.getState();

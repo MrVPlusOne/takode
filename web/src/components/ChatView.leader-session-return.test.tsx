@@ -13,6 +13,10 @@ const OTHER_SESSION_ID = "leader-b";
 
 let mockState: ReturnType<typeof createMockState>;
 const mockSendToSession = vi.fn((_sessionId: string, _message: unknown) => true);
+const mockViewportHandoffGates = vi.hoisted(() => ({
+  session: vi.fn(),
+  thread: vi.fn(),
+}));
 
 function createMockState() {
   const sessions = new Map([
@@ -82,6 +86,7 @@ function createMockState() {
       [LEADER_SESSION_ID, [threadMessage(QUEST_ID, 10)]],
       [OTHER_SESSION_ID, []],
     ]),
+    feedScrollPosition: new Map(),
     historyLoading: new Map([
       [LEADER_SESSION_ID, false],
       [OTHER_SESSION_ID, false],
@@ -103,6 +108,17 @@ function createMockState() {
     zoomLevel: 1,
   };
 }
+
+vi.mock("./ViewportHandoffEntryGate.js", () => ({
+  ViewportHandoffThreadEntryGate: ({ children, entryId, sessionId, threadKey }: any) => {
+    mockViewportHandoffGates.thread({ entryId, sessionId, threadKey });
+    return children;
+  },
+  ViewportHandoffSessionEntryGate: ({ children, entryId, sessionId }: any) => {
+    mockViewportHandoffGates.session({ entryId, sessionId });
+    return children;
+  },
+}));
 
 vi.mock("../store.js", () => ({
   useStore: Object.assign((selector: (state: typeof mockState) => unknown) => selector(mockState), {
@@ -133,7 +149,7 @@ vi.mock("./Composer.js", () => ({
 }));
 vi.mock("./PermissionBanner.js", () => ({
   PermissionBanner: () => null,
-  PlanReviewOverlay: () => null,
+  PlanReviewOverlay: () => <div data-testid="plan-review-overlay" />,
   PlanCollapsedChip: () => null,
   PermissionsCollapsedChip: () => null,
 }));
@@ -230,12 +246,65 @@ beforeEach(() => {
   installChatViewLeaderProjection(mockState, LEADER_SESSION_ID, [QUEST_ID]);
   installChatViewLeaderProjection(mockState, OTHER_SESSION_ID, []);
   mockSendToSession.mockClear();
+  mockViewportHandoffGates.session.mockClear();
+  mockViewportHandoffGates.thread.mockClear();
   localStorage.clear();
   localStorage.setItem("cc-server-id", "test-server");
   history.replaceState(null, "", `#/session/${LEADER_SESSION_ID}?thread=${QUEST_ID}`);
 });
 
+function latestViewportThreadEntryId(sessionId: string, threadKey: string): string | undefined {
+  const calls = mockViewportHandoffGates.thread.mock.calls
+    .map(([value]) => value as { entryId?: string; sessionId?: string; threadKey?: string })
+    .filter((value) => value.sessionId === sessionId && value.threadKey === threadKey);
+  return calls.at(-1)?.entryId;
+}
+
 describe("ChatView passive leader-session returns", () => {
+  it("reuses one thread entry across a plan overlay but refreshes a true Main to quest to Main return", async () => {
+    persistLeaderSelectedThreadKey(LEADER_SESSION_ID, "main");
+    history.replaceState(null, "", `#/session/${LEADER_SESSION_ID}`);
+    const view = render(
+      <ChatView sessionId={LEADER_SESSION_ID} viewportHandoffThreadEntryScopeId="session-entry-scope" />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+    const firstMainEntryId = latestViewportThreadEntryId(LEADER_SESSION_ID, "main");
+    expect(firstMainEntryId).toBeTruthy();
+
+    mockState.pendingPermissions = new Map([
+      [
+        LEADER_SESSION_ID,
+        new Map([
+          [
+            "plan-1",
+            {
+              request_id: "plan-1",
+              tool_name: "ExitPlanMode",
+            },
+          ],
+        ]),
+      ],
+    ]);
+    view.rerender(<ChatView sessionId={LEADER_SESSION_ID} viewportHandoffThreadEntryScopeId="session-entry-scope" />);
+    await waitFor(() => expect(screen.getByTestId("plan-review-overlay")).toBeInTheDocument());
+
+    mockState.pendingPermissions = new Map();
+    view.rerender(<ChatView sessionId={LEADER_SESSION_ID} viewportHandoffThreadEntryScopeId="session-entry-scope" />);
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+    expect(latestViewportThreadEntryId(LEADER_SESSION_ID, "main")).toBe(firstMainEntryId);
+
+    fireEvent.click(screen.getByTestId(`thread-button-${QUEST_ID}`));
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", QUEST_ID));
+    const questEntryId = latestViewportThreadEntryId(LEADER_SESSION_ID, QUEST_ID);
+    expect(questEntryId).toBeTruthy();
+    expect(questEntryId).not.toBe(firstMainEntryId);
+
+    fireEvent.click(screen.getByRole("button", { name: "Main" }));
+    await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+    expect(latestViewportThreadEntryId(LEADER_SESSION_ID, "main")).not.toBe(firstMainEntryId);
+    expect(latestViewportThreadEntryId(LEADER_SESSION_ID, "main")).not.toBe(questEntryId);
+  });
   it("checkpoints the actual Main selection across A to B to A and ignores late completed-thread hydration", async () => {
     // Regression: a completed quest tab stays server-open for inspection. If a
     // stale local writer races after the user chooses Main, leaving the session

@@ -6,13 +6,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { ElapsedTimer, FeedStatusPill, PendingCodexInputList, PendingUserUploadList } from "./MessageFeedStatus.js";
 import { FeedFooter, TurnEntries } from "./MessageFeedEntries.js";
 import { MessageFeedTopControls } from "./MessageFeedTopControls.js";
-import {
-  SAVE_THREAD_VIEWPORT_EVENT,
-  type FeedViewportPosition,
-  getFeedViewportKey,
-  persistLeaderViewportPosition,
-  readLeaderViewportPosition,
-} from "../utils/thread-viewport.js";
+import { type FeedViewportPosition, getFeedViewportKey } from "../utils/thread-viewport.js";
 import {
   CodexTerminalInspector,
   LiveCodexTerminalStub,
@@ -94,6 +88,8 @@ import { MessageFeedCenteredState } from "./MessageFeedCenteredState.js";
 import { useCodexSafeFeedModel } from "../hooks/use-codex-safe-feed-model.js";
 import { useMessageFeedStatusContentBottomSync, useMessageFeedStatusLayout } from "./use-message-feed-status-layout.js";
 import { MessageFeedEndSlack } from "./MessageFeedEndSlack.js";
+import { useMessageFeedViewportPersistence } from "./use-message-feed-viewport-persistence.js";
+import { noteViewportDeliberateActivity } from "../utils/viewport-handoff-client.js";
 import {
   isUserBoundaryEntry,
   type FeedEntry,
@@ -295,6 +291,7 @@ export function MessageFeed({
   } | null>(null);
   const pendingSectionLoadKeyRef = useRef<string | null>(null);
   const pendingTargetWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
+  const notedDeliberateMessageTargetRef = useRef<string | null>(null);
   const pendingViewportAnchorWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
   const [exactRestoreRef, cancelExactRestore] = useExactViewportRestore(restoredViewportRef, containerRef);
   const handleUserNavigationIntent = useUserViewportNavigationIntent(
@@ -513,63 +510,21 @@ export function MessageFeed({
     [getFeedBlockBottom],
   );
 
-  const persistFeedViewport = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const pendingExactRestore = exactRestoreRef.current;
-    if (pendingExactRestore) {
-      if (!viewportAnchor.isViewportAnchorAtSavedOffset(container, pendingExactRestore.position)) return;
-      exactRestoreRef.current = null;
-    }
-    const previousPosition =
-      (isLeaderSession ? readLeaderViewportPosition(sessionId, normalizedThreadKey) : null) ??
-      useStore.getState().feedScrollPosition.get(viewportKey);
-    const currentRouteTargetId = getRouteMessageTargetForThread(normalizedThreadKey);
-    const anchor =
-      viewportAnchor.findVisiblePreviousAnchorForPersistence({
-        container,
-        previousAnchorId: previousPosition?.anchorMessageId ?? null,
-        explicitTargetId: scrollToMessageId ?? pendingScrollToMessageId ?? currentRouteTargetId,
-      }) ?? findVisibleFeedAnchor(container);
-    const position = {
-      scrollTop: container.scrollTop,
-      scrollHeight: container.scrollHeight,
-      isAtBottom: autoFollowEnabledRef.current && isNearBottom.current,
-      anchorMessageId: anchor?.messageId ?? null,
-      anchorTurnId: anchor?.turnId ?? null,
-      anchorOffsetTop: anchor?.offsetTop,
-      lastSeenContentBottom: lastSeenContentBottomRef.current ?? getRealContentBottom(),
-    };
-    useStore.getState().setFeedScrollPosition(viewportKey, position);
-    if (isLeaderSession) {
-      persistLeaderViewportPosition(sessionId, normalizedThreadKey, position);
-    }
-  }, [
+  useMessageFeedViewportPersistence({
+    autoFollowEnabledRef,
+    containerRef,
+    exactRestoreRef,
     findVisibleFeedAnchor,
     getRealContentBottom,
     isLeaderSession,
+    isNearBottom,
+    lastSeenContentBottomRef,
     normalizedThreadKey,
     pendingScrollToMessageId,
     scrollToMessageId,
     sessionId,
     viewportKey,
-  ]);
-
-  useLayoutEffect(() => {
-    return () => {
-      persistFeedViewport();
-    };
-  }, [persistFeedViewport]);
-
-  useEffect(() => {
-    const handleSnapshotRequest = (event: Event) => {
-      const detail = (event as CustomEvent<{ sessionId?: string | null }>).detail;
-      if (!detail?.sessionId || detail.sessionId !== sessionId) return;
-      persistFeedViewport();
-    };
-    window.addEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshotRequest as EventListener);
-    return () => window.removeEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshotRequest as EventListener);
-  }, [persistFeedViewport, sessionId]);
+  });
 
   const feedWindowModel = useMemo(
     () =>
@@ -817,36 +772,6 @@ export function MessageFeed({
     [restoreFeedAnchor, restoreTurnAnchor],
   );
 
-  const requestViewportAnchorWindowIfMissing = useCallback(
-    (pos: FeedViewportPosition, restoreKey: string) => {
-      if (!selectedFeedWindowEnabled || !activeThreadWindow) return false;
-      const targetMessageId = pos.anchorMessageId ?? pos.anchorTurnId;
-      if (!targetMessageId) return false;
-
-      const requestKey = `${normalizedThreadKey}:${restoreKey}:${targetMessageId}`;
-      const action = getMissingScrollTargetWindowAction({
-        pending: pendingViewportAnchorWindowRequestRef.current,
-        requestKey,
-        revision: selectedThreadWindowRevision,
-      });
-      if (action.kind === "request") {
-        if (!requestThreadWindow(-1, undefined, targetMessageId)) return false;
-        pendingViewportAnchorWindowRequestRef.current = action.pending;
-        return true;
-      }
-      if (action.kind === "wait") return true;
-      pendingViewportAnchorWindowRequestRef.current = null;
-      return false;
-    },
-    [
-      activeThreadWindow,
-      normalizedThreadKey,
-      requestThreadWindow,
-      selectedFeedWindowEnabled,
-      selectedThreadWindowRevision,
-    ],
-  );
-
   const snapshotViewportAnchor = useCallback(
     (container: HTMLDivElement) => {
       lastViewportAnchorRef.current = {
@@ -923,6 +848,51 @@ export function MessageFeed({
     selectedFeedWindowEnabled,
     sessionId,
   });
+
+  const requestViewportAnchorWindowIfMissing = useCallback(
+    (pos: FeedViewportPosition, restoreKey: string) => {
+      const targetMessageId = pos.anchorMessageId ?? pos.anchorTurnId;
+      const useThreadWindow = selectedFeedWindowEnabled && activeThreadWindow;
+      const useHistoryWindow = !selectedFeedWindowEnabled && activeHistoryWindow;
+      if (!targetMessageId || (!useThreadWindow && !useHistoryWindow)) return false;
+
+      const revision = useThreadWindow ? selectedThreadWindowRevision : historyWindowRevision;
+      const requestKey = `${normalizedThreadKey}:${restoreKey}:${targetMessageId}`;
+      const action = getMissingScrollTargetWindowAction({
+        pending: pendingViewportAnchorWindowRequestRef.current,
+        requestKey,
+        revision,
+      });
+      if (action.kind === "request") {
+        const requested = useThreadWindow
+          ? requestThreadWindow(-1, undefined, targetMessageId)
+          : requestHistoryWindow(
+              -1,
+              activeHistoryWindow?.turn_count || sectionTurnCount * DEFAULT_VISIBLE_SECTION_COUNT,
+              activeHistoryWindow?.section_turn_count ?? sectionTurnCount,
+              activeHistoryWindow?.visible_section_count ?? DEFAULT_VISIBLE_SECTION_COUNT,
+              targetMessageId,
+            );
+        if (!requested) return false;
+        pendingViewportAnchorWindowRequestRef.current = action.pending;
+        return true;
+      }
+      if (action.kind === "wait") return true;
+      pendingViewportAnchorWindowRequestRef.current = null;
+      return false;
+    },
+    [
+      activeHistoryWindow,
+      activeThreadWindow,
+      historyWindowRevision,
+      normalizedThreadKey,
+      requestHistoryWindow,
+      requestThreadWindow,
+      sectionTurnCount,
+      selectedFeedWindowEnabled,
+      selectedThreadWindowRevision,
+    ],
+  );
 
   const { handleLoadNewerSection, handleLoadOlderSection, explicitSectionLoad } = useMessageFeedSectionWindowLoaders({
     activeThreadWindow,
@@ -1300,6 +1270,7 @@ export function MessageFeed({
     }
     if (pos && !pos.isAtBottom && (pos.anchorMessageId || pos.anchorTurnId)) {
       if (selectedFeedWindowEnabled && !activeThreadWindow) return;
+      if (!selectedFeedWindowEnabled && !activeHistoryWindow && historyLoading) return;
       const pendingExactRestore = { restoreKey, position: pos };
       exactRestoreRef.current = pendingExactRestore;
       lastViewportAnchorRef.current = null;
@@ -1347,9 +1318,11 @@ export function MessageFeed({
     }
     restoredViewportRef.current = { key: restoreKey, container: containerRef.current };
   }, [
+    activeHistoryWindow,
     activeThreadWindow,
     getSectionWindowStartForTurnId,
     hasNewerSections,
+    historyLoading,
     isLeaderSession,
     isWindowedFeed,
     messages.length,
@@ -1570,7 +1543,14 @@ export function MessageFeed({
   const clearPendingScrollToMessageId = useStore((s) => s.clearPendingScrollToMessageId);
   const clearExpandAllInTurn = useStore((s) => s.clearExpandAllInTurn);
   useEffect(() => {
-    if (!scrollToMessageId) return;
+    if (!scrollToMessageId) {
+      notedDeliberateMessageTargetRef.current = null;
+      return;
+    }
+    if (notedDeliberateMessageTargetRef.current !== scrollToMessageId) {
+      notedDeliberateMessageTargetRef.current = scrollToMessageId;
+      noteViewportDeliberateActivity(sessionId, normalizedThreadKey);
+    }
     cancelExactRestore();
     autoFollowEnabledRef.current = false;
 

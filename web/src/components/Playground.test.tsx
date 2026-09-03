@@ -49,6 +49,12 @@ function getWorkBoardBarSection() {
 }
 
 // Mock markdown renderer used by MessageBubble/PermissionBanner
+
+vi.mock("./ViewportHandoffEntryGate.js", () => ({
+  ViewportHandoffThreadEntryGate: ({ children }: any) => children,
+  ViewportHandoffSessionEntryGate: ({ children }: any) => children,
+}));
+
 vi.mock("react-markdown", () => ({
   default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
 }));

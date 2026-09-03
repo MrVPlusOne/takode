@@ -733,7 +733,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Conversation Loading State"
-        description="When a cold session is selected before its authoritative history arrives, the feed shows an explicit loading conversation state instead of an empty chat."
+        description="When a cold session is selected before its authoritative history or viewport handoff arrives, the chat shows an explicit loading conversation state instead of mounting an empty or stale feed."
       >
         <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
           <MessageFeed sessionId={PLAYGROUND_LOADING_SESSION_ID} />

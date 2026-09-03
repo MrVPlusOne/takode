@@ -51,8 +51,8 @@ vi.mock("../store.js", () => {
       messages: mockStoreValues.messages ?? new Map(),
       messageFrozenCounts: new Map(),
       messageFrozenRevisions: new Map(),
-      historyLoading: new Map(),
-      historyWindows: new Map(),
+      historyLoading: mockStoreValues.historyLoading ?? new Map(),
+      historyWindows: mockStoreValues.historyWindows ?? new Map(),
       streaming: new Map(),
       streamingByParentToolUseId: new Map(),
       streamingThinking: new Map(),
@@ -178,6 +178,8 @@ beforeEach(() => {
   localStorage.clear();
   localStorage.setItem("cc-server-id", "test-server");
   mockStoreValues.messages = new Map();
+  mockStoreValues.historyLoading = new Map();
+  mockStoreValues.historyWindows = new Map();
   mockStoreValues.feedScrollPosition = new Map();
   mockStoreValues.sessions = new Map();
   mockStoreValues.sdkSessions = [];
@@ -1543,6 +1545,73 @@ describe("MessageFeed thread viewport restoration", () => {
       if (originalScrollTop) Object.defineProperty(HTMLDivElement.prototype, "scrollTop", originalScrollTop);
       else delete (HTMLDivElement.prototype as { scrollTop?: unknown }).scrollTop;
     }
+  });
+
+  it.each([
+    { label: "normal Main", isLeader: false, threadKey: "main" },
+    { label: "leader All Threads", isLeader: true, threadKey: "all" },
+  ])("waits for the history window before requesting a saved off-window anchor in $label", async ({
+    isLeader,
+    threadKey,
+  }) => {
+    // Current-build normal and All feeds receive authoritative history windows. Cached
+    // rows must not consume an off-window saved anchor before that window arrives.
+    const sid = `test-delayed-history-anchor-${threadKey}`;
+    const savedPosition = {
+      scrollTop: 2_400,
+      scrollHeight: 6_400,
+      isAtBottom: false,
+      anchorMessageId: "target-answer",
+      anchorTurnId: "target-request",
+      anchorOffsetTop: 96,
+    };
+    setStoreMessages(sid, [
+      makeMessage({ id: "cached-request", role: "user", content: "Cached earlier request", historyIndex: 10 }),
+      makeMessage({ id: "cached-answer", role: "assistant", content: "Cached earlier answer", historyIndex: 11 }),
+    ]);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: isLeader }]]);
+    mockStoreValues.historyLoading = new Map([[sid, true]]);
+    if (isLeader) {
+      persistLeaderViewportPosition(sid, threadKey, savedPosition);
+    } else {
+      mockStoreValues.feedScrollPosition = new Map([[getFeedViewportKey(sid, threadKey), savedPosition]]);
+    }
+
+    const view = render(<MessageFeed sessionId={sid} threadKey={threadKey} />);
+    await Promise.resolve();
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({ type: "history_window_request", target_message_id: "target-answer" }),
+    );
+
+    mockStoreValues.historyLoading = new Map();
+    mockStoreValues.historyWindows = new Map([
+      [
+        sid,
+        {
+          from_turn: 10,
+          turn_count: 30,
+          total_turns: 100,
+          has_older_items: true,
+          has_newer_items: true,
+          start_index: 10,
+          section_turn_count: 10,
+          visible_section_count: 3,
+        },
+      ],
+    ]);
+    view.rerender(<MessageFeed sessionId={sid} threadKey={threadKey} />);
+
+    await waitFor(() =>
+      expect(mockSendToSession).toHaveBeenCalledWith(
+        sid,
+        expect.objectContaining({
+          type: "history_window_request",
+          from_turn: -1,
+          target_message_id: "target-answer",
+        }),
+      ),
+    );
   });
 
   it("keeps All Threads scroll independent from Main", () => {

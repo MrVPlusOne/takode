@@ -180,7 +180,7 @@ const transport = createWsTransport({
     }
   },
   onDisconnected: (sessionId) => {
-    requestThreadViewportSnapshot(sessionId);
+    void requestThreadViewportSnapshot(sessionId);
     const store = useStore.getState();
     store.setPendingThreadWindowRequest(sessionId, null);
     store.setConnectionStatus(sessionId, "disconnected");
@@ -292,7 +292,7 @@ function ensureActiveSessionConnection(options?: { forceReconnect?: boolean }) {
 
   const socketState = transport.getSocketState(currentSessionId);
   if (options?.forceReconnect) {
-    requestThreadViewportSnapshot(currentSessionId);
+    void requestThreadViewportSnapshot(currentSessionId);
     transport.reconnectSession(currentSessionId);
     return;
   }
@@ -311,7 +311,11 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
       hiddenAt = Date.now();
-      requestThreadViewportSnapshot(useStore.getState().currentSessionId);
+      void requestThreadViewportSnapshot(useStore.getState().currentSessionId, {
+        publishHandoff: true,
+        keepalive: true,
+        reason: "background",
+      });
       return;
     }
 
@@ -327,7 +331,13 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
     ensureActiveSessionConnection({ forceReconnect: persisted });
   });
 
-  window.addEventListener("pagehide", () => requestThreadViewportSnapshot(useStore.getState().currentSessionId));
+  window.addEventListener("pagehide", () => {
+    void requestThreadViewportSnapshot(useStore.getState().currentSessionId, {
+      publishHandoff: true,
+      keepalive: true,
+      reason: "pagehide",
+    });
+  });
 
   window.addEventListener("online", () => {
     ensureActiveSessionConnection({ forceReconnect: true });
@@ -340,7 +350,11 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
 // on beforeunload forces Safari to open fresh TCP connections on the next load.
 if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", () => {
-    requestThreadViewportSnapshot(useStore.getState().currentSessionId);
+    void requestThreadViewportSnapshot(useStore.getState().currentSessionId, {
+      publishHandoff: true,
+      keepalive: true,
+      reason: "unload",
+    });
     transport.closeAllForUnload();
   });
 }

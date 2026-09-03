@@ -9,6 +9,11 @@ const mockDisconnectSession = vi.fn();
 const mockRefreshSessionGitStatus = vi.fn().mockResolvedValue({ ok: true });
 const mockQuestCommitCounts = vi.hoisted(() => new Map<string, number>());
 
+vi.mock("./components/ViewportHandoffEntryGate.js", () => ({
+  ViewportHandoffThreadEntryGate: ({ children }: any) => children,
+  ViewportHandoffSessionEntryGate: ({ children }: any) => children,
+}));
+
 vi.mock("./api.js", () => ({
   api: {
     markSessionRead: vi.fn().mockResolvedValue({ ok: true }),

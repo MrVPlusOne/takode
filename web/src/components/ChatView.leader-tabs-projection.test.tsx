@@ -13,6 +13,16 @@ import {
 const mockSendToSession = vi.hoisted(() => vi.fn((_sessionId: string, _message: unknown) => true));
 const mockGetQuestTitles = vi.hoisted(() => vi.fn().mockResolvedValue({ quests: [], missingQuestIds: ["q-1"] }));
 
+vi.mock("./ViewportHandoffEntryGate.js", () => ({
+  ViewportHandoffThreadEntryGate: ({ children }: any) => children,
+  ViewportHandoffSessionEntryGate: ({ children }: any) => children,
+}));
+
+vi.mock("../utils/viewport-handoff-client.js", () => ({
+  createViewportHandoffEntryId: () => "test-viewport-entry",
+  noteViewportSelectionActivity: vi.fn(),
+}));
+
 vi.mock("../ws.js", () => ({
   connectSession: vi.fn(),
   sendToSession: mockSendToSession,

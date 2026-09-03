@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useStore } from "../store.js";
 import {
   getFeedViewportKey,
   persistLeaderSelectedThreadKey,
   persistLeaderViewportPosition,
   readLeaderSelectedThreadKey,
   readLeaderViewportPosition,
+  registerViewportHandoffPublisher,
+  requestThreadViewportSnapshot,
+  SAVE_THREAD_VIEWPORT_EVENT,
 } from "./thread-viewport.js";
 
 beforeEach(() => {
@@ -101,6 +105,66 @@ describe("leader session viewport storage", () => {
     });
     expect(migrated.viewports).not.toHaveProperty(staleMainViewportKey);
     expect(migrated.viewports[safeBottomViewportKey]).toMatchObject({ isAtBottom: true });
+  });
+
+  it("publishes a saved fallback when the feed listener is already unmounted", async () => {
+    const publish = vi.fn(async () => null);
+    const position = {
+      scrollTop: 420,
+      scrollHeight: 2_000,
+      isAtBottom: false,
+      anchorMessageId: "message-42",
+      anchorTurnId: "turn-42",
+      anchorOffsetTop: 64,
+    };
+    useStore.setState({ feedScrollPosition: new Map([[getFeedViewportKey("s1", "q-941"), position]]) });
+    registerViewportHandoffPublisher(
+      publish,
+      (sessionId, threadKey) =>
+        useStore.getState().feedScrollPosition.get(getFeedViewportKey(sessionId, threadKey)) ?? null,
+    );
+
+    await requestThreadViewportSnapshot("s1", {
+      threadKey: "q-941",
+      selectedThreadKey: "main",
+      publishHandoff: true,
+      keepalive: true,
+      reason: "session-departure",
+    });
+
+    expect(publish).toHaveBeenCalledWith("s1", "q-941", position, {
+      selectedThreadKey: "main",
+      keepalive: true,
+      reason: "session-departure",
+    });
+  });
+
+  it("forwards the selected destination through mounted snapshot listeners", async () => {
+    let observed: unknown = null;
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      observed = detail;
+      detail.pending.push(Promise.resolve());
+    };
+    window.addEventListener(SAVE_THREAD_VIEWPORT_EVENT, listener);
+    try {
+      await requestThreadViewportSnapshot("s1", {
+        threadKey: "main",
+        selectedThreadKey: "q-941",
+        publishHandoff: true,
+        reason: "thread-departure",
+      });
+    } finally {
+      window.removeEventListener(SAVE_THREAD_VIEWPORT_EVENT, listener);
+    }
+
+    expect(observed).toMatchObject({
+      sessionId: "s1",
+      threadKey: "main",
+      selectedThreadKey: "q-941",
+      publishHandoff: true,
+      reason: "thread-departure",
+    });
   });
 
   it("uses safely migrated state even when rewriting browser storage fails", () => {
