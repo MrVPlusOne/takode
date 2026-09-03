@@ -27,7 +27,7 @@ import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon, type ToolResultScope } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
-import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
+import { CollapseFooter, TurnToggleFooter } from "./CollapseFooter.js";
 import { LiveCodexTerminalStub, LiveDurationBadge } from "./MessageFeedLiveActivity.js";
 import {
   appendTimedMessagesFromEntries,
@@ -1264,7 +1264,7 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
         threadResponsePresentation={threadResponsePresentation}
       />
       {threadStatusFooter}
-      {turn.agentEntries.length > 0 && <TurnCollapseFooter headerRef={headerRef} onCollapse={onCollapse} />}
+      <TurnToggleFooter expanded headerRef={headerRef} onToggle={onCollapse} />
     </>
   );
 });
@@ -1978,6 +1978,9 @@ export const TurnEntries = memo(function TurnEntries({
                       </>
                     )}
                     {(!isActivityExpanded || turnPresentationEntries(turn).length === 0) && threadStatusFooter}
+                    {!isActivityExpanded && turnPresentationEntries(turn).length > 0 && (
+                      <TurnToggleFooter expanded={false} onToggle={() => toggleTurn(turn.id)} />
+                    )}
                   </div>
                 </div>
               );

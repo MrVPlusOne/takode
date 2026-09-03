@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { flushSync } from "react-dom";
+import { isTouchDevice } from "../utils/mobile.js";
 
 /**
  * Minimum distance (px) between header and footer to show the collapse button.
@@ -88,26 +89,43 @@ export function CollapseFooter({
 }
 
 /**
- * A variant for turn-level collapse (matches the TurnCollapseBar style).
- * Always visible at the bottom of expanded turn entries.
+ * An explicit bottom-of-turn toggle. Expanded turns snap their header into
+ * place when collapsed; collapsed turns expand in place without changing the
+ * existing activity-disclosure behavior.
  */
-export function TurnCollapseFooter({
+export function TurnToggleFooter({
+  expanded,
   headerRef,
-  onCollapse,
+  onToggle,
 }: {
-  headerRef: RefObject<HTMLElement | null>;
-  onCollapse: () => void;
+  expanded: boolean;
+  headerRef?: RefObject<HTMLElement | null>;
+  onToggle: () => void;
 }) {
+  const action = expanded ? "Collapse" : "Expand";
+  const heightClass = isTouchDevice() ? "min-h-11" : "min-h-11 sm:min-h-8";
   return (
     <button
-      onClick={(e) => collapseAndSnap(e, headerRef, onCollapse)}
-      className="w-full flex items-center justify-center gap-1 py-0.5 px-2 rounded hover:bg-cc-hover/40 transition-colors cursor-pointer text-[10px] text-cc-muted/40 hover:text-cc-muted font-mono-code"
-      title="Collapse this turn"
+      type="button"
+      onClick={(event) => {
+        const turnContainer = event.currentTarget.closest<HTMLElement>("[data-turn-id]");
+        if (expanded && headerRef) {
+          collapseAndSnap(event, headerRef, onToggle);
+        } else {
+          flushSync(onToggle);
+        }
+        turnContainer?.querySelector<HTMLButtonElement>("[data-turn-toggle]")?.focus({ preventScroll: true });
+      }}
+      aria-expanded={expanded}
+      aria-label={`${action} this turn`}
+      className={`mt-1 flex ${heightClass} w-full touch-manipulation items-center justify-center gap-1.5 rounded-md border border-cc-border/25 bg-cc-card/15 px-3 py-2 text-xs font-medium text-cc-muted/75 transition-colors hover:bg-cc-hover/45 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cc-primary/45 sm:py-1.5`}
+      data-turn-toggle
+      title={`${action} this turn`}
     >
-      <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0">
-        <path d="M4 10l4-4 4 4" />
+      <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0" aria-hidden="true">
+        <path d={expanded ? "M4 10l4-4 4 4" : "M4 6l4 4 4-4"} />
       </svg>
-      <span>Collapse</span>
+      <span>{action}</span>
     </button>
   );
 }

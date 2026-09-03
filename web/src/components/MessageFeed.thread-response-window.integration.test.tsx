@@ -119,6 +119,7 @@ function responseMessage(input: {
   coveredUserMessageIds: string[];
   content: string;
   timestamp: number;
+  batchObservedHistoryLength?: number;
   parentRevisionId?: string;
 }): Extract<BrowserIncomingMessage, { type: "assistant" }> {
   return {
@@ -133,7 +134,7 @@ function responseMessage(input: {
       ...(input.parentRevisionId ? { parentRevisionId: input.parentRevisionId } : {}),
       revisionNumber: input.revisionNumber,
       batchId: input.batchId,
-      batchObservedHistoryLength: 47,
+      batchObservedHistoryLength: input.batchObservedHistoryLength ?? 47,
       coveredUserMessageIds: input.coveredUserMessageIds,
       contentHash: `hash-${input.revisionId}`,
     },
@@ -361,6 +362,68 @@ function producerThreadWindowWithSeparateReady(): Extract<BrowserIncomingMessage
   };
 }
 
+function producerFinalResponseOnlyThreadWindow(): Extract<BrowserIncomingMessage, { type: "thread_window_sync" }> {
+  const responseTimestamp = 1_700_000_004_000;
+  const entries = [
+    { history_index: 40, message: userMessage("user-only", "Only pending request", 1_700_000_003_000) },
+    {
+      history_index: 41,
+      message: responseMessage({
+        id: "response-only-r1",
+        logicalResponseId: "response-only",
+        revisionId: "only-r1",
+        revisionNumber: 1,
+        batchId: "batch-only",
+        batchObservedHistoryLength: 42,
+        coveredUserMessageIds: ["user-only"],
+        content: "Only current response",
+        timestamp: responseTimestamp,
+      }),
+    },
+  ];
+  return {
+    type: "thread_window_sync",
+    thread_key: QUEST_ID,
+    entries,
+    window: {
+      thread_key: QUEST_ID,
+      from_item: 0,
+      item_count: entries.length,
+      total_items: entries.length,
+      has_older_items: false,
+      has_newer_items: false,
+      source_history_length: 42,
+      section_item_count: 30,
+      visible_item_count: 10,
+    },
+    response_state: {
+      version: 1,
+      threadKey: QUEST_ID,
+      cutoverHistoryIndex: 40,
+      pendingMessageCount: 0,
+      pendingBatches: [],
+      currentResponses: [
+        {
+          version: 1,
+          logicalResponseId: "response-only",
+          threadKey: QUEST_ID,
+          questId: QUEST_ID,
+          batchId: "batch-only",
+          batchObservedHistoryLength: 42,
+          coveredUserMessageIds: ["user-only"],
+          currentRevisionId: "only-r1",
+          currentMessageId: "response-only-r1",
+          currentHistoryIndex: 41,
+          revisionCount: 1,
+          createdAt: responseTimestamp,
+          updatedAt: responseTimestamp,
+        },
+      ],
+      ready: true,
+    },
+  };
+}
+
 function producerMixedCutoverThreadWindow(
   options: { includePreCutoverQuiz?: boolean; includePostCutoverQuiz?: boolean } = {},
 ): Extract<BrowserIncomingMessage, { type: "thread_window_sync" }> {
@@ -560,9 +623,46 @@ describe("MessageFeed pending-batch response selected-window integration", () =>
     expect(screen.queryByText("Ready status published after the final response.")).not.toBeInTheDocument();
 
     const thirdTurn = screen.getByText("Third pending request").closest<HTMLElement>("[data-turn-id]")!;
-    fireEvent.click(within(thirdTurn).getByRole("button", { name: /Leader activity/i }));
+    const quiz = within(thirdTurn).getByRole("region", { name: "Quest quiz" });
+    const expand = within(thirdTurn).getByRole("button", { name: "Expand this turn" });
+    expect(expand).toHaveAttribute("aria-expanded", "false");
+    expect(quiz.compareDocumentPosition(expand) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+
+    expand.focus();
+    fireEvent.click(expand);
     expect(screen.getByText("Ready status published after the final response.")).toBeVisible();
     expect(screen.getByText("Current singleton response")).toBeVisible();
+    const collapse = within(thirdTurn).getByRole("button", { name: "Collapse this turn" });
+    expect(collapse).toHaveAttribute("aria-expanded", "true");
+    expect(document.activeElement).toBe(collapse);
+
+    fireEvent.click(collapse);
+    expect(screen.queryByText("Ready status published after the final response.")).not.toBeInTheDocument();
+    expect(screen.getByText("Current singleton response")).toBeVisible();
+    expect(screen.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
+    const restoredExpand = within(thirdTurn).getByRole("button", { name: "Expand this turn" });
+    expect(restoredExpand).toBeVisible();
+    expect(document.activeElement).toBe(restoredExpand);
+  });
+
+  it("keeps both explicit toggle states for a final-response-only Ready turn", () => {
+    act(() => {
+      useStore.getState().reset();
+      handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
+      handleMessage(SESSION_ID, producerFinalResponseOnlyThreadWindow());
+      installReadyStatus(1_700_000_004_000, "response-only-r1");
+    });
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+
+    const turn = screen.getByText("Only pending request").closest<HTMLElement>("[data-turn-id]")!;
+    expect(within(turn).queryByRole("button", { name: /Leader activity/i })).not.toBeInTheDocument();
+    fireEvent.click(within(turn).getByRole("button", { name: "Expand this turn" }));
+
+    expect(screen.getByText("Only current response")).toBeVisible();
+    const collapse = within(turn).getByRole("button", { name: "Collapse this turn" });
+    expect(collapse).toBeVisible();
+    fireEvent.click(collapse);
+    expect(within(turn).getByRole("button", { name: "Expand this turn" })).toBeVisible();
   });
 
   it("fails closed immediately when a new live covered user message outruns the cached response state", () => {

@@ -180,6 +180,15 @@ describe("Playground", () => {
     expect(screen.getByText("Component Playground")).toBeTruthy();
     const routedFinalSection = document.getElementById("overview-routed-final-responses");
     expect(routedFinalSection).toBeTruthy();
+    const routedFinalStates = within(routedFinalSection!);
+    expect(routedFinalStates.getByRole("button", { name: "Expand this turn" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(routedFinalStates.getByRole("button", { name: "Collapse this turn" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);
     scrollIntoView.mockClear();
     fireEvent.click(screen.getByRole("button", { name: "Routed Final Responses" }));

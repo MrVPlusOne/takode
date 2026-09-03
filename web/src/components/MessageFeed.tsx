@@ -3,7 +3,6 @@ import { useStore } from "../store.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils/herd-event-parser.js";
 import { ToolBlock, getPreview, getToolIcon, getToolLabel, ToolIcon, formatDuration } from "./ToolBlock.js";
 import { MarkdownContent } from "./MarkdownContent.js";
-import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
 import { ElapsedTimer, FeedStatusPill, PendingCodexInputList, PendingUserUploadList } from "./MessageFeedStatus.js";
 import { FeedFooter, TurnEntries } from "./MessageFeedEntries.js";
 import { MessageFeedTopControls } from "./MessageFeedTopControls.js";

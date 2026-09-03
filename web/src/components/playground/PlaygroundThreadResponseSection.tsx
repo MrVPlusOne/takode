@@ -2,6 +2,7 @@ import type { FeedEntry, Turn } from "../../hooks/use-feed-model.js";
 import type { ThreadResponsePresentation } from "../thread-response-presentation.js";
 import { FeedEntries } from "../MessageFeedEntries.js";
 import { ReadyThreadResponseRows } from "../ReadyThreadResponseRows.js";
+import { TurnToggleFooter } from "../CollapseFooter.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 
 const SESSION_ID = "playground-thread-responses";
@@ -123,6 +124,7 @@ export function PlaygroundThreadResponseSection() {
                 sessionId={SESSION_ID}
                 questLinkSurface="chat-feed"
               />
+              <TurnToggleFooter expanded={false} onToggle={NOOP} />
             </div>
           </Card>
           <Card label="Expanded active thread · complete chronology">
@@ -145,6 +147,7 @@ export function PlaygroundThreadResponseSection() {
                 questLinkSurface="chat-feed"
                 threadResponsePresentation={ACTIVE_PRESENTATION}
               />
+              <TurnToggleFooter expanded onToggle={NOOP} />
             </div>
           </Card>
         </div>
