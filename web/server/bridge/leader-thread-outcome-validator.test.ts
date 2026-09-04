@@ -5,9 +5,12 @@ import {
 } from "../../shared/thread-outcome-reminder.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { BrowserIncomingMessage, SessionNotification } from "../session-types.js";
+import type { LeaderThreadOutcomeReminderGuard } from "../leader-thread-response-types.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import {
   THREAD_RESPONSE_REMINDER_SOURCE_ID,
+  refreshLeaderThreadOutcomeReminder,
+  shouldDeliverLeaderThreadOutcomeReminder,
   validateLeaderThreadOutcomes,
   type LeaderThreadOutcomeTurnSource,
 } from "./leader-thread-outcome-validator.js";
@@ -136,6 +139,7 @@ function makeDeps(isLeaderSession = true, turnSource: LeaderThreadOutcomeTurnSou
         _content: string,
         _agentSource: { sessionId: string; sessionLabel?: string },
         _threadRoute?: ThreadRouteMetadata,
+        _options?: { leaderThreadOutcomeReminderGuard?: LeaderThreadOutcomeReminderGuard },
       ) => "sent" as const,
     ),
     persistSession: vi.fn(),
@@ -220,6 +224,7 @@ describe("validateLeaderThreadOutcomes", () => {
         sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
       }),
       expect.objectContaining({ threadKey: "q-1474" }),
+      expect.objectContaining({ leaderThreadOutcomeReminderGuard: expect.objectContaining({ version: 1 }) }),
     );
     expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain(
       "Existing unresolved needs-input prompts do not cover a new approval or decision prompt.",
@@ -388,6 +393,7 @@ describe("validateLeaderThreadOutcomes", () => {
         sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
       }),
       expect.objectContaining({ threadKey: "q-42" }),
+      expect.objectContaining({ leaderThreadOutcomeReminderGuard: expect.objectContaining({ version: 1 }) }),
     );
     expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain(
       "This is about outcome status for already routed leader output",
@@ -511,6 +517,7 @@ describe("validateLeaderThreadOutcomes", () => {
       expect.stringContaining("Missing outcome marker for: Main."),
       expect.anything(),
       expect.objectContaining({ threadKey: "main" }),
+      expect.objectContaining({ leaderThreadOutcomeReminderGuard: expect.objectContaining({ version: 1 }) }),
     );
   });
 });
@@ -548,6 +555,7 @@ describe("explicit answer reminders", () => {
       expect.stringContaining("Pending answer IDs: q-42 (u1)."),
       expect.objectContaining({ sessionId: THREAD_RESPONSE_REMINDER_SOURCE_ID }),
       expect.objectContaining({ threadKey: "q-42" }),
+      expect.objectContaining({ leaderThreadOutcomeReminderGuard: expect.objectContaining({ version: 1 }) }),
     );
     expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("[thread:q-N:A:u1,u2]");
     expect(deps.injectUserMessage.mock.calls[0]?.[1]).toContain("takode read leader u1");
@@ -687,6 +695,213 @@ describe("explicit answer reminders", () => {
     const reminder = deps.injectUserMessage.mock.calls[0]?.[1] ?? "";
     expect(reminder).toContain("Pending answer IDs: q-42 (u2)");
     expect(reminder).not.toContain("takode read leader u2");
+  });
+
+  it("keeps a queued answer reminder until authoritative coverage exists, not merely answer-role metadata", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [coveredHumanMessage("u1", 10)] as BrowserIncomingMessage[],
+      notifications: [],
+      state: { leaderThreadStatuses: {} as Record<string, LeaderThreadStatus> },
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: true, missing: ["main"], injected: true });
+    const guard = deps.injectUserMessage.mock.calls[0]?.[4]?.leaderThreadOutcomeReminderGuard;
+    expect(guard).toBeTruthy();
+
+    const response = assistantMessage({
+      id: "answer-u1",
+      text: "Answer prose already emitted.",
+      timestamp: 20,
+    }) as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    response.leaderThreadRole = "answer";
+    session.messageHistory.push(response);
+    expect(shouldDeliverLeaderThreadOutcomeReminder(session, guard!)).toBe(true);
+
+    response.leaderAnswerUserMessageIds = ["u1"];
+    response.leaderAnswerObservedHistoryLength = 1;
+    expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
+    session.state = { leaderThreadStatuses: { main: threadStatus({ kind: "ready", timestamp: 20 }) } };
+    expect(shouldDeliverLeaderThreadOutcomeReminder(session, guard!)).toBe(false);
+  });
+
+  it("drops a prebuilt answer reminder when the pending identity changes before delivery", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [coveredHumanMessage("u1", 10)] as BrowserIncomingMessage[],
+      notifications: [],
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: true, missing: ["main"], injected: true });
+    const guard = deps.injectUserMessage.mock.calls[0]?.[4]?.leaderThreadOutcomeReminderGuard;
+    expect(guard).toBeTruthy();
+
+    const response = assistantMessage({ id: "answer-u1", text: "Answered u1.", timestamp: 20 }) as Extract<
+      BrowserIncomingMessage,
+      { type: "assistant" }
+    >;
+    response.leaderThreadRole = "answer";
+    response.leaderAnswerUserMessageIds = ["u1"];
+    response.leaderAnswerObservedHistoryLength = 1;
+    session.messageHistory.push(response);
+    expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
+    session.messageHistory.push(coveredHumanMessage("u2", 30));
+
+    const refreshed = refreshLeaderThreadOutcomeReminder(session, guard!);
+    expect(refreshed).not.toBeNull();
+    expect(refreshed?.content).toContain("Main (u2)");
+    expect(refreshed?.content).not.toContain("Main (u1)");
+    expect(refreshed?.content).not.toContain("Do not regenerate the full explanation");
+    expect(refreshed?.guard.pendingResponseTargets[0]).toMatchObject({
+      pendingAnswerCount: 1,
+      pendingAnswerUserMessageIds: ["u2"],
+    });
+  });
+
+  it("does not carry a rejected-Ready override onto a new pending ID with fresh Waiting", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [coveredHumanMessage("u1", 10)] as BrowserIncomingMessage[],
+      notifications: [],
+      state: { leaderThreadStatuses: {} as Record<string, LeaderThreadStatus> },
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps, { rejectedReadyThreadKeys: ["main"] })).toEqual({
+      checked: true,
+      missing: ["main"],
+      injected: true,
+    });
+    const guard = deps.injectUserMessage.mock.calls[0]?.[4]?.leaderThreadOutcomeReminderGuard;
+    const response = assistantMessage({ id: "answer-u1", text: "Answered u1.", timestamp: 20 }) as Extract<
+      BrowserIncomingMessage,
+      { type: "assistant" }
+    >;
+    response.leaderThreadRole = "answer";
+    response.leaderAnswerUserMessageIds = ["u1"];
+    response.leaderAnswerObservedHistoryLength = 1;
+    session.messageHistory.push(response);
+    expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
+    session.messageHistory.push(coveredHumanMessage("u2", 30));
+    session.state.leaderThreadStatuses.main = threadStatus({ kind: "waiting", timestamp: 30 });
+
+    expect(refreshLeaderThreadOutcomeReminder(session, guard!)).toBeNull();
+  });
+
+  it("prunes resolved targets while rebuilding a bundled reminder for remaining targets", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [
+        coveredHumanMessage("u1", 10),
+        coveredHumanMessage("u2", 11, "q-42"),
+      ] as BrowserIncomingMessage[],
+      notifications: [],
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+      state: { leaderThreadStatuses: {} as Record<string, LeaderThreadStatus> },
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({
+      checked: true,
+      missing: ["main", "q-42"],
+      injected: true,
+    });
+    const guard = deps.injectUserMessage.mock.calls[0]?.[4]?.leaderThreadOutcomeReminderGuard;
+    const response = assistantMessage({ id: "answer-u1", text: "Answered u1.", timestamp: 20 }) as Extract<
+      BrowserIncomingMessage,
+      { type: "assistant" }
+    >;
+    response.leaderThreadRole = "answer";
+    response.leaderAnswerUserMessageIds = ["u1"];
+    response.leaderAnswerObservedHistoryLength = 2;
+    session.messageHistory.push(response);
+    expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
+    session.state.leaderThreadStatuses.main = threadStatus({ kind: "ready", timestamp: 20, messageId: "answer-u1" });
+
+    const refreshed = refreshLeaderThreadOutcomeReminder(session, guard!);
+    expect(refreshed?.route.threadKey).toBe("q-42");
+    expect(refreshed?.content).toContain("q-42 (u2)");
+    expect(refreshed?.content).not.toContain("Main (u1)");
+    expect(refreshed?.guard.pendingResponseTargets).toHaveLength(1);
+    expect(refreshed?.guard.pendingResponseTargets[0]?.threadKey).toBe("q-42");
+  });
+
+  it("treats an answered needs-input notification as proof the prompt notification was created", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [],
+      notifications: [notification({ category: "needs-input", timestamp: 20, done: true })],
+    };
+    const guard: LeaderThreadOutcomeReminderGuard = {
+      version: 1,
+      pendingResponseTargets: [],
+      missingOutcomeTargets: [],
+      missingNeedsInputTargets: [{ threadKey: "main", earliestTimestamp: 10, promptTimestamp: 10 }],
+    };
+
+    expect(refreshLeaderThreadOutcomeReminder(session, guard)).toBeNull();
+  });
+
+  it("fails closed instead of throwing for malformed persisted reminder guards", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [coveredHumanMessage("u1", 10)] as BrowserIncomingMessage[],
+      notifications: [],
+    };
+    const malformedTarget = {
+      version: 1,
+      pendingResponseTargets: [null],
+      missingOutcomeTargets: [],
+      missingNeedsInputTargets: [],
+    } as unknown as LeaderThreadOutcomeReminderGuard;
+    const invalidBoolean = {
+      version: 1,
+      pendingResponseTargets: [
+        {
+          threadKey: "main",
+          earliestTimestamp: 10,
+          pendingAnswerCount: 1,
+          pendingAnswerUserMessageIds: ["u1"],
+          rejectedReady: "yes",
+        },
+      ],
+      missingOutcomeTargets: [],
+      missingNeedsInputTargets: [],
+    } as unknown as LeaderThreadOutcomeReminderGuard;
+
+    expect(() => shouldDeliverLeaderThreadOutcomeReminder(session, malformedTarget)).not.toThrow();
+    expect(shouldDeliverLeaderThreadOutcomeReminder(session, undefined)).toBe(false);
+    expect(shouldDeliverLeaderThreadOutcomeReminder(session, null)).toBe(false);
+    expect(shouldDeliverLeaderThreadOutcomeReminder(session, malformedTarget)).toBe(false);
+    expect(shouldDeliverLeaderThreadOutcomeReminder(session, invalidBoolean)).toBe(false);
+  });
+
+  it("asks for a concise marker and ID correction without regenerating retained answer prose", () => {
+    const rejected = assistantMessage({
+      id: "rejected-answer",
+      text: "The full substantive explanation is already here.",
+      timestamp: 20,
+    }) as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    rejected.leaderThreadRole = "answer";
+    const session = {
+      id: "leader",
+      messageHistory: [coveredHumanMessage("u1", 10), rejected],
+      notifications: [],
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: true, missing: ["main"], injected: true });
+    const reminder = deps.injectUserMessage.mock.calls[0]?.[1] ?? "";
+    expect(reminder).toContain("retained the prior answer prose");
+    expect(reminder).toContain("Do not regenerate the full explanation");
+    expect(reminder).toContain("[thread:main:A:u1]");
+    expect(reminder).not.toContain("Answer with `[thread:main:A:u1]`");
   });
 
   it("repairs persisted Ready state when a same-thread needs-input remains unresolved", () => {

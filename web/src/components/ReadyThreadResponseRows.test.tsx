@@ -6,8 +6,11 @@ import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 import type { ThreadResponsePresentation } from "./thread-response-presentation.js";
 import { ReadyThreadResponseRows } from "./ReadyThreadResponseRows.js";
 
-function entry(id: string, content: string): Extract<FeedEntry, { kind: "message" }> {
-  return { kind: "message", msg: { id, role: "assistant", content, timestamp: 1 } };
+function entry(id: string, content: string, historyIndex?: number): Extract<FeedEntry, { kind: "message" }> {
+  return {
+    kind: "message",
+    msg: { id, role: "assistant", content, timestamp: 1, ...(historyIndex === undefined ? {} : { historyIndex }) },
+  };
 }
 
 function turn(entries: FeedEntry[]): Turn {
@@ -133,5 +136,90 @@ describe("ReadyThreadResponseRows", () => {
     expect(screen.queryByText("Hidden system detail")).not.toBeInTheDocument();
     expect(screen.getByText("Current polished response")).toBeVisible();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+  it("keeps exact unresolved needs-input anchors beside current responses in source order without duplication", () => {
+    const current = presentation(["u2"]);
+    current.currentResponses[0]!.messageEntry.msg.historyIndex = 4;
+    current.currentResponses[0]!.collapsedMessageEntry.msg.historyIndex = 4;
+    const firstPrompt = entry("prompt-first", "First unresolved decision", 5);
+    const secondPrompt = entry("prompt-second", "Second unresolved decision", 6);
+    const targetTurn = turn([current.currentResponses[0]!.messageEntry, firstPrompt, firstPrompt, secondPrompt]);
+
+    const { container } = render(
+      <ReadyThreadResponseRows
+        turn={targetTurn}
+        presentation={current}
+        sessionId="leader"
+        questLinkSurface="chat-feed"
+        activeNeedsInputAnchorMessageIds={new Set(["prompt-first", "prompt-second"])}
+        renderEntry={(item) =>
+          item.kind === "message" ? <div data-message-id={item.msg.id}>{item.msg.content}</div> : <div>activity</div>
+        }
+      />,
+    );
+
+    expect(container.textContent?.indexOf("Current polished response")).toBeLessThan(
+      container.textContent?.indexOf("First unresolved decision") ?? -1,
+    );
+    expect(container.textContent?.indexOf("First unresolved decision")).toBeLessThan(
+      container.textContent?.indexOf("Second unresolved decision") ?? -1,
+    );
+    expect(container.querySelectorAll('[data-message-id="prompt-first"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-message-id="prompt-second"]')).toHaveLength(1);
+    expect(screen.getAllByTestId("thread-response-needs-input-prompt")).toHaveLength(2);
+    expect(screen.getAllByTestId("thread-response-answer-count")).toHaveLength(1);
+  });
+
+  it("does not duplicate an unresolved anchor that is already the current response", () => {
+    const current = presentation(["u2"]);
+    const currentEntry = current.currentResponses[0]!.messageEntry;
+    const { container } = render(
+      <ReadyThreadResponseRows
+        turn={turn([currentEntry])}
+        presentation={current}
+        sessionId="leader"
+        questLinkSurface="chat-feed"
+        activeNeedsInputAnchorMessageIds={new Set(["response-current"])}
+        renderEntry={(item) =>
+          item.kind === "message" ? <div data-message-id={item.msg.id}>{item.msg.content}</div> : <div>activity</div>
+        }
+      />,
+    );
+
+    expect(container.querySelectorAll('[data-message-id="response-current"]')).toHaveLength(1);
+    expect(screen.queryByTestId("thread-response-needs-input-prompt")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("thread-response-answer-count")).toHaveLength(1);
+  });
+
+  it("releases special prompt pinning when the authoritative active-anchor set clears", () => {
+    const current = presentation(["u2"]);
+    const prompt = entry("prompt", "Decision no longer unresolved", 5);
+    const targetTurn = turn([current.currentResponses[0]!.messageEntry, prompt]);
+    const renderEntry = (item: FeedEntry) => <div>{item.kind === "message" ? item.msg.content : "activity"}</div>;
+    const view = render(
+      <ReadyThreadResponseRows
+        turn={targetTurn}
+        presentation={current}
+        sessionId="leader"
+        questLinkSurface="chat-feed"
+        activeNeedsInputAnchorMessageIds={new Set(["prompt"])}
+        renderEntry={renderEntry}
+      />,
+    );
+
+    expect(screen.getByText("Decision no longer unresolved")).toBeVisible();
+    view.rerender(
+      <ReadyThreadResponseRows
+        turn={targetTurn}
+        presentation={current}
+        sessionId="leader"
+        questLinkSurface="chat-feed"
+        activeNeedsInputAnchorMessageIds={new Set()}
+        renderEntry={renderEntry}
+      />,
+    );
+
+    expect(screen.queryByText("Decision no longer unresolved")).not.toBeInTheDocument();
+    expect(screen.getByText("Current polished response")).toBeVisible();
   });
 });

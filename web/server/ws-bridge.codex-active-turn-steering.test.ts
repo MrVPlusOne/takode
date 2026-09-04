@@ -92,7 +92,7 @@ function makeCodexAdapterMock() {
   let onInitErrorCb: ((error: string) => void) | undefined;
   let onTurnStartFailedCb: ((msg: any) => void) | undefined;
   let onTurnStartedCb: ((turnId: string) => void) | undefined;
-  let onTurnSteeredCb: ((turnId: string, pendingInputIds: string[]) => void) | undefined;
+  let onTurnSteeredCb: ((turnId: string, pendingInputIds: string[], clientUserMessageId?: string) => void) | undefined;
   let onTurnSteerFailedCb: ((pendingInputIds: string[]) => void) | undefined;
   let currentTurnId: string | null = null;
   const rollbackTurns = vi.fn(async (_numTurns: number) => {});
@@ -116,7 +116,7 @@ function makeCodexAdapterMock() {
     onTurnStarted: vi.fn((cb: (turnId: string) => void) => {
       onTurnStartedCb = cb;
     }),
-    onTurnSteered: vi.fn((cb: (turnId: string, pendingInputIds: string[]) => void) => {
+    onTurnSteered: vi.fn((cb: (turnId: string, pendingInputIds: string[], clientUserMessageId?: string) => void) => {
       onTurnSteeredCb = cb;
     }),
     onTurnSteerFailed: vi.fn((cb: (pendingInputIds: string[]) => void) => {
@@ -140,13 +140,33 @@ function makeCodexAdapterMock() {
       currentTurnId = turnId;
       onTurnStartedCb?.(turnId);
     },
-    emitTurnSteered: (turnId: string, pendingInputIds: string[]) => {
-      onTurnSteeredCb?.(turnId, pendingInputIds);
+    emitTurnSteered: (turnId: string, pendingInputIds: string[], clientUserMessageId?: string) => {
+      onTurnSteeredCb?.(turnId, pendingInputIds, clientUserMessageId);
     },
     emitTurnSteerFailed: (pendingInputIds: string[]) => {
       onTurnSteerFailedCb?.(pendingInputIds);
     },
   };
+}
+
+function makeReceiptAwareCodexAdapterMock() {
+  const adapter = makeCodexAdapterMock() as ReturnType<typeof makeCodexAdapterMock> & {
+    onUserMessageRecorded: ReturnType<typeof vi.fn>;
+    onUserMessageReceiptObserved: ReturnType<typeof vi.fn>;
+    emitUserMessageRecorded(receipt: { turnId: string; clientUserMessageId: string; observedAt?: number }): void;
+    emitUserMessageReceiptObserved(receipt: { turnId: string; clientUserMessageId: string; observedAt?: number }): void;
+  };
+  let recorded: ((receipt: { turnId: string; clientUserMessageId: string; observedAt?: number }) => void) | undefined;
+  let observed: ((receipt: { turnId: string; clientUserMessageId: string; observedAt?: number }) => void) | undefined;
+  adapter.onUserMessageRecorded = vi.fn((callback) => {
+    recorded = callback;
+  });
+  adapter.onUserMessageReceiptObserved = vi.fn((callback) => {
+    observed = callback;
+  });
+  adapter.emitUserMessageRecorded = (receipt) => recorded?.(receipt);
+  adapter.emitUserMessageReceiptObserved = (receipt) => observed?.(receipt);
+  return adapter;
 }
 
 function emitCodexSessionReady(
@@ -614,6 +634,142 @@ describe("Codex active-turn steering", () => {
         expectedTurnId: "turn-initial",
       }),
     );
+  });
+
+  it("finalizes a receipt-proven same-turn steered leader answer without injecting a stale reminder", async () => {
+    const sid = "codex-steer-same-turn-leader-answer";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeReceiptAwareCodexAdapterMock();
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ isOrchestrator: true, backendType: "codex", cwd: "/test" })),
+      getHerdedSessions: vi.fn(() => []),
+      getSessionNum: vi.fn(() => 1),
+    } as any);
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-steer-leader-answer" });
+    bridge.handleBrowserOpen(browser, sid);
+    const session = bridge.getSession(sid)!;
+    session.state.isOrchestrator = true;
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "Background worker update",
+        agentSource: { sessionId: "worker-session", sessionLabel: "Worker" },
+        threadKey: "q-42",
+        questId: "q-42",
+      }),
+    );
+    await Promise.resolve();
+    const initialStart = adapter.sendBrowserMessage.mock.calls
+      .map((args: any[]) => args[0])
+      .find((message: any) => message?.type === "codex_start_pending");
+    expect(initialStart?.clientUserMessageId).toBeTruthy();
+    adapter.emitTurnStarted("turn-shared");
+    adapter.emitUserMessageReceiptObserved({
+      turnId: "turn-shared",
+      clientUserMessageId: initialStart.clientUserMessageId,
+      observedAt: 10,
+    });
+    adapter.emitUserMessageRecorded({
+      turnId: "turn-shared",
+      clientUserMessageId: initialStart.clientUserMessageId,
+      observedAt: 10,
+    });
+
+    adapter.sendBrowserMessage.mockClear();
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "Please answer this direct follow-up.",
+        threadKey: "main",
+      }),
+    );
+    await Promise.resolve();
+    const steer = adapter.sendBrowserMessage.mock.calls
+      .map((args: any[]) => args[0])
+      .find((message: any) => message?.type === "codex_steer_pending");
+    expect(steer).toMatchObject({ expectedTurnId: "turn-shared" });
+    const directInputId = steer.pendingInputIds[0];
+    adapter.emitUserMessageReceiptObserved({
+      turnId: "turn-shared",
+      clientUserMessageId: steer.clientUserMessageId,
+      observedAt: 20,
+    });
+    adapter.emitTurnSteered("turn-shared", [directInputId], steer.clientUserMessageId);
+    adapter.emitUserMessageRecorded({
+      turnId: "turn-shared",
+      clientUserMessageId: steer.clientUserMessageId,
+      observedAt: 20,
+    });
+
+    const direct = session.messageHistory.find(
+      (entry: any) => entry.type === "user_message" && entry.id === directInputId,
+    ) as any;
+    expect(direct).toMatchObject({ leaderResponseCoverageVersion: 1, leaderUserMessageId: "u1" });
+    expect(session.userMessageIdsThisTurn).toContain(session.messageHistory.indexOf(direct));
+
+    adapter.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "answer-steered-u1",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.6-sol",
+        content: [
+          {
+            type: "text",
+            text: "[thread:main:A:u1]\nThe direct follow-up is answered.\n\n{[(Thread Ready: main | answer complete)]}",
+          },
+        ],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      codexMessagePhase: "final_answer",
+      timestamp: 30,
+    });
+    await Promise.resolve();
+    adapter.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "",
+        duration_ms: 100,
+        duration_api_ms: 100,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "completed",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        uuid: "codex-result-steered-answer",
+        session_id: sid,
+        codex_turn_id: "turn-shared",
+      },
+    });
+    await flushAsync();
+
+    const answer = session.messageHistory.find(
+      (entry: any) => entry.type === "assistant" && entry.message?.id === "answer-steered-u1",
+    ) as any;
+    expect(answer.threadAnswer).toEqual({ version: 2, answerUserMessageIds: ["u1"], observedHistoryLength: 2 });
+    expect(session.state.leaderThreadStatuses?.main).toMatchObject({ kind: "ready", messageId: "answer-steered-u1" });
+    expect(
+      session.messageHistory.some(
+        (entry: any) =>
+          entry.type === "user_message" && entry.agentSource?.sessionId === "system:leader-thread-outcome-reminder",
+      ),
+    ).toBe(false);
+    expect(
+      session.pendingCodexInputs.some(
+        (input: any) => input.agentSource?.sessionId === "system:leader-thread-outcome-reminder",
+      ),
+    ).toBe(false);
   });
 
   it("keeps a denied ExitPlanMode follow-up out of the old Codex turn and dispatches a fresh turn after completion", async () => {

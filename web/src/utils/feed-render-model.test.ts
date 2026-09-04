@@ -543,6 +543,115 @@ describe("feed render model builders", () => {
     expect(model.attentionLedgerMessages).toHaveLength(0);
   });
 
+  it("derives exact unresolved needs-input anchors from sanitized owner-local notification state", () => {
+    const questPrompt = makeMessage({
+      id: "q-prompt",
+      role: "assistant",
+      content: "Quest decision prompt",
+      timestamp: 100,
+      historyIndex: 4,
+    });
+    const mutedQuestPrompt = makeMessage({
+      id: "q-muted-prompt",
+      role: "assistant",
+      content: "Muted but unresolved quest prompt",
+      timestamp: 110,
+      historyIndex: 5,
+    });
+    const doneQuestPrompt = makeMessage({
+      id: "q-done-prompt",
+      role: "assistant",
+      content: "Resolved quest prompt",
+      timestamp: 120,
+      historyIndex: 6,
+    });
+    const staleHerdAnchor = makeMessage({
+      id: "stale-herd-anchor",
+      role: "user",
+      content: "1 event from 1 session\n\n#2594 | turn_end | complete",
+      timestamp: 130,
+      historyIndex: 7,
+      agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+      metadata: { threadRefs: [{ threadKey: "q-2040", questId: "q-2040", source: "explicit" }] },
+    });
+    const mainPrompt = makeMessage({
+      id: "main-prompt",
+      role: "assistant",
+      content: "Main decision prompt",
+      timestamp: 140,
+      historyIndex: 8,
+    });
+    const selectedTail = makeMessage({
+      id: "q-tail",
+      role: "assistant",
+      content: "Selected quest tail",
+      timestamp: 200,
+      historyIndex: 25,
+      metadata: { threadRefs: [{ threadKey: "q-2040", questId: "q-2040", source: "explicit" }] },
+    });
+    const notifications = [
+      makeNotification({ id: "n-q", messageId: questPrompt.id, threadKey: "q-2040", questId: "q-2040" }),
+      makeNotification({
+        id: "n-q-duplicate",
+        messageId: questPrompt.id,
+        threadKey: "q-2040",
+        questId: "q-2040",
+      }),
+      makeNotification({
+        id: "n-q-muted",
+        messageId: mutedQuestPrompt.id,
+        threadKey: "q-2040",
+        questId: "q-2040",
+        muted: true,
+      }),
+      makeNotification({
+        id: "n-q-done",
+        messageId: doneQuestPrompt.id,
+        threadKey: "q-2040",
+        questId: "q-2040",
+        done: true,
+      }),
+      makeNotification({
+        id: "n-stale-herd",
+        messageId: staleHerdAnchor.id,
+        threadKey: "q-2040",
+        questId: "q-2040",
+      }),
+      makeNotification({ id: "n-main", messageId: mainPrompt.id, threadKey: "main" }),
+      makeNotification({ id: "n-missing", messageId: "missing-q-anchor", threadKey: "q-2040", questId: "q-2040" }),
+    ];
+
+    const questModel = buildMessageModel({
+      threadKey: "q-2040",
+      allMessages: [questPrompt, mutedQuestPrompt, doneQuestPrompt, staleHerdAnchor, mainPrompt, selectedTail],
+      selectedFeedWindow: makeWindow({ thread_key: "q-2040" }),
+      selectedFeedWindowMessages: [selectedTail],
+      sessionNotifications: notifications,
+    });
+
+    expect([...questModel.activeNeedsInputAnchorMessageIds]).toEqual([
+      questPrompt.id,
+      mutedQuestPrompt.id,
+      "missing-q-anchor",
+    ]);
+    expect(questModel.visibleBaseMessages.map((message) => message.id)).toEqual([
+      questPrompt.id,
+      mutedQuestPrompt.id,
+      selectedTail.id,
+    ]);
+
+    const mainModel = buildMessageModel({
+      threadKey: "main",
+      allMessages: [questPrompt, mutedQuestPrompt, doneQuestPrompt, staleHerdAnchor, mainPrompt, selectedTail],
+      selectedFeedWindow: makeWindow({ thread_key: "main" }),
+      selectedFeedWindowMessages: [],
+      sessionNotifications: notifications,
+    });
+
+    expect([...mainModel.activeNeedsInputAnchorMessageIds]).toEqual([mainPrompt.id]);
+    expect(mainModel.visibleBaseMessages.map((message) => message.id)).toEqual([mainPrompt.id]);
+  });
+
   it("keeps an active Main review notification source as a normal feed event", () => {
     const reviewSource = makeMessage({
       id: "a-review-ready",

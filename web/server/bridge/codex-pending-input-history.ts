@@ -42,6 +42,24 @@ interface PendingReceiptObservation {
   activityStartHistoryIndex: number;
 }
 
+function promoteReceiptProvenSameTurnSteerToCurrent(
+  session: CodexRecoveryOrchestratorSessionLike,
+  turn: CodexOutboundTurn,
+  providerTurnId: string,
+): boolean {
+  if (turn.turnTarget !== "queued" || !session.isGenerating) return false;
+  const hasCurrentSameTurnOwner = session.pendingCodexTurns.some(
+    (candidate) =>
+      candidate !== turn &&
+      candidate.status !== "completed" &&
+      candidate.turnTarget === "current" &&
+      candidate.turnId === providerTurnId,
+  );
+  if (!hasCurrentSameTurnOwner) return false;
+  turn.turnTarget = "current";
+  return true;
+}
+
 const pendingReceiptObservations = new WeakMap<object, Map<string, PendingReceiptObservation>>();
 const PENDING_RECEIPT_OBSERVATION_LIMIT = 512;
 
@@ -81,7 +99,8 @@ export function recordCodexHistoryReceiptObservation(
   turn.turnId ??= receipt.turnId;
   turn.historyIncorporation!.providerTurnId ??= receipt.turnId;
   const observation = observations.get(receipt.clientUserMessageId)!;
-  let changed = finalizeCodexBatchBrowserHistory(session, turn, deps, true);
+  let changed = promoteReceiptProvenSameTurnSteerToCurrent(session, turn, receipt.turnId);
+  changed = finalizeCodexBatchBrowserHistory(session, turn, deps, true) || changed;
   if (markCodexHistoryRecorded(turn, "live", observation.activityStartHistoryIndex, observation.observedAt)) {
     recordCodexHistoryMilestoneProof(session, turn, "recorded");
     changed = true;
@@ -337,7 +356,8 @@ export function recordCodexHistoryIncorporationReceipt(
   const observation = pendingReceiptObservations.get(session)?.get(receipt.clientUserMessageId);
   pendingReceiptObservations.get(session)?.delete(receipt.clientUserMessageId);
   const activityStartHistoryIndex = observation?.activityStartHistoryIndex ?? absoluteHistoryEnd(session);
-  let changed = finalizeCodexBatchBrowserHistory(session, turn, deps, true);
+  let changed = promoteReceiptProvenSameTurnSteerToCurrent(session, turn, receipt.turnId);
+  changed = finalizeCodexBatchBrowserHistory(session, turn, deps, true) || changed;
   const recorded = markCodexHistoryRecorded(
     turn,
     "live",

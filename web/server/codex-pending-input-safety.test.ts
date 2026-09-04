@@ -22,6 +22,12 @@ function recoveryInput(overrides: Partial<PendingCodexInput> = {}): PendingCodex
     agentSource: { sessionId: "system:codex-turn-recovery:original-owner", sessionLabel: "Recovery" },
     queueBeforeOwnerId: "later-owner",
     requireFreshSuccessor: true,
+    leaderThreadOutcomeReminderGuard: {
+      version: 1,
+      pendingResponseTargets: [],
+      missingOutcomeTargets: [{ threadKey: "main", earliestTimestamp: 1 }],
+      missingNeedsInputTargets: [],
+    },
     ...overrides,
   };
 }
@@ -34,6 +40,7 @@ describe("Codex pending input browser projection", () => {
     expect(projected).not.toHaveProperty("deliveryContent");
     expect(projected).not.toHaveProperty("queueBeforeOwnerId");
     expect(projected).not.toHaveProperty("requireFreshSuccessor");
+    expect(projected).not.toHaveProperty("leaderThreadOutcomeReminderGuard");
   });
 
   it("keeps recovery-only fields omitted when the visible preview is truncated", () => {
@@ -75,6 +82,7 @@ describe("Codex pending input browser projection", () => {
     expect(projected).not.toHaveProperty("autoPauseRecoveries");
     expect(projected).not.toHaveProperty("queueBeforeOwnerId");
     expect(projected).not.toHaveProperty("requireFreshSuccessor");
+    expect(projected).not.toHaveProperty("leaderThreadOutcomeReminderGuard");
   });
 
   it("retains bounded delivery content for ordinary non-recovery pending input", () => {

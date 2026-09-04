@@ -3,6 +3,7 @@ import { GlobalNeedsInputMenu } from "../GlobalNeedsInputMenu.js";
 import { MessageFeed } from "../MessageFeed.js";
 import { TimerChip } from "../TimerWidget.js";
 import { useStore } from "../../store.js";
+import type { ChatMessage, LeaderThreadResponseProjection } from "../../types.js";
 import { Card, Section } from "./shared.js";
 
 function seedNotificationData() {
@@ -233,6 +234,186 @@ function seedGlobalNeedsInputData() {
   ]);
 }
 
+const COLLAPSED_PROMPT_SESSION_ID = "playground-collapsed-needs-input";
+const COLLAPSED_PROMPT_THREAD_KEY = "q-9004";
+
+function seedCollapsedAnswerNeedsInputPrompt() {
+  const now = Date.now();
+  const route = {
+    threadKey: COLLAPSED_PROMPT_THREAD_KEY,
+    questId: COLLAPSED_PROMPT_THREAD_KEY,
+    source: "explicit" as const,
+  };
+  const messages: ChatMessage[] = [
+    {
+      id: "playground-collapsed-pending-user",
+      role: "user",
+      content: "Prepare the rollout and stop for my final environment choice.",
+      timestamp: now - 60_000,
+      historyIndex: 0,
+      metadata: {
+        threadKey: COLLAPSED_PROMPT_THREAD_KEY,
+        questId: COLLAPSED_PROMPT_THREAD_KEY,
+        threadRefs: [route],
+        leaderResponseCoverageVersion: 1,
+        leaderUserMessageId: "u1",
+      },
+    },
+    {
+      id: "playground-collapsed-answered-user",
+      role: "user",
+      content: "Also confirm which checks already passed.",
+      timestamp: now - 50_000,
+      historyIndex: 1,
+      metadata: {
+        threadKey: COLLAPSED_PROMPT_THREAD_KEY,
+        questId: COLLAPSED_PROMPT_THREAD_KEY,
+        threadRefs: [route],
+        leaderResponseCoverageVersion: 1,
+        leaderUserMessageId: "u2",
+      },
+    },
+    {
+      id: "playground-collapsed-answer",
+      role: "assistant",
+      content: "The rollout preparation is complete and the remaining implementation evidence is verified.",
+      timestamp: now - 40_000,
+      historyIndex: 2,
+      metadata: {
+        threadKey: COLLAPSED_PROMPT_THREAD_KEY,
+        questId: COLLAPSED_PROMPT_THREAD_KEY,
+        threadRefs: [route],
+        leaderThreadRole: "answer",
+        threadAnswer: { version: 2, answerUserMessageIds: ["u2"], observedHistoryLength: 2 },
+      },
+    },
+    {
+      id: "playground-collapsed-prompt",
+      role: "assistant",
+      content:
+        "**Choose the final rollout boundary**\n\n- **Staged:** validate with the internal cohort first.\n- **Direct:** publish immediately after the current checks.\n\nReply with the option you want and any timing constraint.",
+      timestamp: now - 30_000,
+      historyIndex: 3,
+      metadata: {
+        threadKey: COLLAPSED_PROMPT_THREAD_KEY,
+        questId: COLLAPSED_PROMPT_THREAD_KEY,
+        threadRefs: [route],
+        leaderThreadRole: "commentary",
+      },
+    },
+    {
+      id: "playground-collapsed-tool",
+      role: "assistant",
+      content: "",
+      timestamp: now - 20_000,
+      historyIndex: 4,
+      contentBlocks: [
+        {
+          type: "tool_use",
+          id: "playground-collapsed-notify-tool",
+          name: "Bash",
+          input: { command: 'takode notify needs-input "Choose final rollout boundary"' },
+        },
+      ],
+      metadata: {
+        threadKey: COLLAPSED_PROMPT_THREAD_KEY,
+        questId: COLLAPSED_PROMPT_THREAD_KEY,
+        threadRefs: [route],
+        leaderThreadRole: "commentary",
+      },
+    },
+    {
+      id: "playground-collapsed-quiz",
+      role: "assistant",
+      content: `{[(Quest Quiz: ${COLLAPSED_PROMPT_THREAD_KEY})]}`,
+      timestamp: now - 10_000,
+      historyIndex: 5,
+      metadata: {
+        threadKey: COLLAPSED_PROMPT_THREAD_KEY,
+        questId: COLLAPSED_PROMPT_THREAD_KEY,
+        threadRefs: [route],
+        leaderThreadRole: "commentary",
+      },
+    },
+  ];
+  const responseState: LeaderThreadResponseProjection = {
+    version: 2,
+    threadKey: COLLAPSED_PROMPT_THREAD_KEY,
+    cutoverHistoryIndex: 0,
+    pendingMessageCount: 1,
+    pendingMessages: [
+      {
+        userMessageId: "u1",
+        historyMessageId: "playground-collapsed-pending-user",
+        historyIndex: 0,
+        askedAt: now - 60_000,
+      },
+    ],
+    ready: false,
+    currentAnswers: [
+      {
+        version: 2,
+        threadKey: COLLAPSED_PROMPT_THREAD_KEY,
+        questId: COLLAPSED_PROMPT_THREAD_KEY,
+        answerUserMessageIds: ["u2"],
+        referencedUserMessageIds: ["playground-collapsed-answered-user"],
+        coveredAnswerUserMessageIds: ["u2"],
+        coveredUserMessageIds: ["playground-collapsed-answered-user"],
+        currentMessageId: "playground-collapsed-answer",
+        currentHistoryIndex: 2,
+        createdAt: now - 40_000,
+        updatedAt: now - 40_000,
+        source: "explicit",
+      },
+    ],
+  };
+  const store = useStore.getState();
+  store.setSdkSessions([
+    ...store.sdkSessions.filter((session) => session.sessionId !== COLLAPSED_PROMPT_SESSION_ID),
+    {
+      sessionId: COLLAPSED_PROMPT_SESSION_ID,
+      state: "connected",
+      cwd: "/playground",
+      createdAt: now,
+      archived: false,
+      isOrchestrator: true,
+      name: "Collapsed prompt leader",
+    },
+  ]);
+  store.setMessages(COLLAPSED_PROMPT_SESSION_ID, messages);
+  store.setThreadWindow(
+    COLLAPSED_PROMPT_SESSION_ID,
+    COLLAPSED_PROMPT_THREAD_KEY,
+    {
+      thread_key: COLLAPSED_PROMPT_THREAD_KEY,
+      from_item: 0,
+      item_count: messages.length,
+      total_items: messages.length,
+      has_older_items: false,
+      has_newer_items: false,
+      source_history_length: messages.length,
+      section_item_count: 10,
+      visible_item_count: messages.length,
+    },
+    messages,
+    responseState,
+  );
+  store.setSessionNotifications(COLLAPSED_PROMPT_SESSION_ID, [
+    {
+      id: "playground-collapsed-needs-input",
+      category: "needs-input",
+      summary: "Choose final rollout boundary",
+      suggestedAnswers: ["Staged", "Direct"],
+      timestamp: now - 25_000,
+      messageId: "playground-collapsed-prompt",
+      threadKey: COLLAPSED_PROMPT_THREAD_KEY,
+      questId: COLLAPSED_PROMPT_THREAD_KEY,
+      done: false,
+    },
+  ]);
+  store.collapseAllTurnActivity(COLLAPSED_PROMPT_SESSION_ID, ["playground-collapsed-answered-user"]);
+}
+
 function seedOwnerThreadNeedsInputPanel() {
   const now = Date.now();
   useStore.setState({
@@ -315,6 +496,26 @@ export function PlaygroundNotificationInboxSection() {
             <p className="text-[10px] text-cc-muted">
               Shows the top-bar aggregate for unresolved needs-input notifications, with quiet source-context navigation
               and review or unread-style activity excluded. Muted prompts appear as a secondary backlog.
+            </p>
+          </div>
+        </Card>
+
+        <Card label="Collapsed answer with unresolved prompt">
+          <div className="p-3 space-y-2">
+            <button
+              type="button"
+              onClick={seedCollapsedAnswerNeedsInputPrompt}
+              className="text-xs font-medium px-3 py-1.5 rounded-md border border-cc-attention-border bg-cc-attention-bg hover:bg-cc-attention-bg/80 text-cc-attention transition-colors cursor-pointer"
+            >
+              Seed collapsed prompt
+            </button>
+            <div className="h-96 overflow-hidden rounded-lg border border-cc-border bg-cc-bg">
+              <MessageFeed sessionId={COLLAPSED_PROMPT_SESSION_ID} threadKey={COLLAPSED_PROMPT_THREAD_KEY} />
+            </div>
+            <p className="text-[10px] text-cc-muted">
+              A collapsed response turn keeps the one answer-coverage chip, the complete unresolved decision prompt and
+              its amber reply card, the actual-turn Quiz, and one unified expansion footer. Resolving the notification
+              releases the prompt from this special collapsed slot.
             </p>
           </div>
         </Card>

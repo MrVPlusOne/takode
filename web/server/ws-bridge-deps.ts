@@ -183,6 +183,7 @@ import {
   routeCLIMessage as routeCLIMessageController,
 } from "./bridge/claude-message-controller.js";
 import { validateLeaderThreadOutcomes as validateLeaderThreadOutcomesController } from "./bridge/leader-thread-outcome-validator.js";
+import type { LeaderThreadOutcomeReminderGuard } from "./leader-thread-response-types.js";
 import {
   handleCodexPermissionRequest as handleCodexPermissionRequestController,
   handleControlRequest as handleControlRequestController,
@@ -896,8 +897,14 @@ export function getClaudeMessageHandlers(host: any) {
         {
           isLeaderSession: (sessionId) => readLauncherSession(host, sessionId)?.isOrchestrator === true,
           getTurnSource: () => turnTriggerSource as "user" | "leader" | "system" | "unknown",
-          injectUserMessage: (sessionId, content, agentSource, threadRoute) => {
-            const delivery = host.injectUserMessage(sessionId, content, agentSource, undefined, threadRoute);
+          injectUserMessage: (
+            sessionId,
+            content,
+            agentSource,
+            threadRoute,
+            options?: { leaderThreadOutcomeReminderGuard?: LeaderThreadOutcomeReminderGuard },
+          ) => {
+            const delivery = host.injectUserMessage(sessionId, content, agentSource, undefined, threadRoute, options);
             return delivery === "paused_queued" ? "queued" : delivery;
           },
           persistSession: (concreteSession) => host.persistSession(concreteSession as Session),

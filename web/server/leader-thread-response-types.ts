@@ -59,6 +59,28 @@ export interface LeaderThreadAnswerMetadata {
   observedHistoryLength: number;
 }
 
+export interface LeaderThreadOutcomeReminderGuardTarget {
+  threadKey: string;
+  earliestTimestamp: number;
+  /** Pending-answer reminders retain the exact unresolved identity snapshot they describe. */
+  pendingAnswerCount?: number;
+  pendingAnswerUserMessageIds?: string[];
+  /** Pending-answer reminders retain a rejected-Ready override for this target. */
+  rejectedReady?: boolean;
+  /** Pending-answer reminders retain correction-only wording for already-emitted rejected prose. */
+  rejectedAnswerObserved?: boolean;
+  /** Missing-needs-input reminders retain their exact detected prompt boundary. */
+  promptTimestamp?: number;
+}
+
+/** Persisted server-only freshness proof for deferred Thread Outcome Reminder delivery. */
+export interface LeaderThreadOutcomeReminderGuard {
+  version: 1;
+  pendingResponseTargets: LeaderThreadOutcomeReminderGuardTarget[];
+  missingOutcomeTargets: LeaderThreadOutcomeReminderGuardTarget[];
+  missingNeedsInputTargets: LeaderThreadOutcomeReminderGuardTarget[];
+}
+
 /** Compact current answer pointer used by selected-thread presentation. */
 export interface LeaderThreadResponseState {
   version: typeof LEADER_THREAD_RESPONSE_VERSION;

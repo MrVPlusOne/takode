@@ -452,6 +452,12 @@ describe("Codex result-error auto-pause", () => {
       timestamp: 125,
       cancelable: true,
       autoPauseSourceKind: "automatic",
+      leaderThreadOutcomeReminderGuard: {
+        version: 1,
+        pendingResponseTargets: [],
+        missingOutcomeTargets: [{ threadKey: "main", earliestTimestamp: 10 }],
+        missingNeedsInputTargets: [],
+      },
     } as PendingCodexInput;
     const target = {
       state: paused.state,
@@ -466,6 +472,9 @@ describe("Codex result-error auto-pause", () => {
     expect(target.pendingCodexTurns).toEqual([retryOwner]);
     expect(target.pendingCodexInputs).toHaveLength(0);
     expect(target.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
+    expect(
+      target.state.codex_result_error_auto_pause?.heldInputs[0]?.message.leaderThreadOutcomeReminderGuard,
+    ).toMatchObject({ version: 1 });
   });
 
   it("derives testing and active progress only from the exact current manual owner", () => {

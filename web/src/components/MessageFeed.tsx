@@ -234,7 +234,8 @@ export function MessageFeed({
       threadKey,
     ],
   );
-  const { messages, visibleToolUseIds, hasFilteredNativeChildMessages } = feedMessageModel;
+  const { messages, visibleToolUseIds, hasFilteredNativeChildMessages, activeNeedsInputAnchorMessageIds } =
+    feedMessageModel;
   const { pendingUserUploads, pendingCodexInputs } = useMessageFeedPending(sessionId, normalizedThreadKey);
   const frozenCount = useStore((s) => s.messageFrozenCounts.get(sessionId) ?? 0);
   const frozenRevision = useStore((s) => s.messageFrozenRevisions.get(sessionId) ?? 0);
@@ -607,7 +608,8 @@ export function MessageFeed({
     () => turnStates.map((state) => `${state.turnId}:${state.isActivityExpanded ? "1" : "0"}`).join("|"),
     [turnStates],
   );
-  const viewportLayoutSignature = `${visibleWindowSignature}::${collapseLayoutSignature}::${threadResponsePresentation?.layoutSignature ?? "no-responses"}`;
+  const activeNeedsInputAnchorSignature = [...activeNeedsInputAnchorMessageIds].sort().join(",");
+  const viewportLayoutSignature = `${visibleWindowSignature}::${collapseLayoutSignature}::${threadResponsePresentation?.layoutSignature ?? "no-responses"}::${activeNeedsInputAnchorSignature}`;
 
   const markSectionLoadPending = useCallback((direction: "older" | "newer", key: string) => {
     if (pendingSectionLoadKeyRef.current === key) return false;
@@ -1873,6 +1875,7 @@ export function MessageFeed({
                   userBoundarySourceSessionId={herdingLeaderSessionId ?? null}
                   questLinkSurface="chat-feed"
                   threadResponsePresentation={threadResponsePresentation}
+                  activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
                   visibleThreadStatuses={visibleThreadStatuses}
                   onThreadStatusLayoutContributionChange={handleThreadStatusLayoutContributionChange}
                 />

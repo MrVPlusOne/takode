@@ -627,6 +627,8 @@ export type BrowserOutgoingMessage =
       autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
       /** Server-only correlation for an automatic input released after a successful manual probe. */
       autoPauseRecoveries?: CodexAutoPauseRecoveryLink[];
+      /** Server-only freshness proof for a deferred Thread Outcome Reminder. */
+      leaderThreadOutcomeReminderGuard?: import("./leader-thread-response-types.js").LeaderThreadOutcomeReminderGuard;
       /** UI-only thread routing metadata. Main is implicit; quest threads are optional projections. */
       threadKey?: string;
       questId?: string;

@@ -121,6 +121,8 @@ export interface ProgrammaticUserMessageOptions {
   bypassPause?: boolean;
   /** Server-only source classification for Codex result-error auto-pause. */
   autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
+  /** Persisted server-only freshness proof for a deferred Thread Outcome Reminder. */
+  leaderThreadOutcomeReminderGuard?: ProgrammaticUserMessage["leaderThreadOutcomeReminderGuard"];
   /** Runs only after the routed message is accepted without throwing. */
   afterAccepted?: () => void;
   /** Runs when routing is dropped, rejected, or throws before acceptance. */
@@ -717,6 +719,9 @@ export function injectUserMessage(
     ...(options?.sessionId ? { session_id: options.sessionId } : {}),
     ...(options?.vscodeSelection ? { vscodeSelection: options.vscodeSelection } : {}),
     ...(options?.autoPauseSourceKind ? { autoPauseSourceKind: options.autoPauseSourceKind } : {}),
+    ...(options?.leaderThreadOutcomeReminderGuard
+      ? { leaderThreadOutcomeReminderGuard: options.leaderThreadOutcomeReminderGuard }
+      : {}),
     ...(agentSource ? { agentSource } : {}),
     ...(takodeHerdBatch ? { takodeHerdBatch } : {}),
     ...(threadRoute ? { threadKey: threadRoute.threadKey } : {}),

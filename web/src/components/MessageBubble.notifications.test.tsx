@@ -46,6 +46,7 @@ vi.mock("remark-gfm", () => ({
 }));
 
 import { MessageBubble, NotificationMarker } from "./MessageBubble.js";
+import { applySessionNotifications } from "../notification-status.js";
 import { useStore } from "../store.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
@@ -501,15 +502,6 @@ describe("MessageBubble notification markers", () => {
     const notifications = new Map(prevNotifications);
     notifications.set("notify-session", [
       {
-        id: "n-1",
-        category: "needs-input",
-        summary: "First prompt",
-        suggestedAnswers: ["wrong"],
-        timestamp: Date.now(),
-        messageId: "asst-shared-anchor",
-        done: false,
-      },
-      {
         id: "n-2",
         category: "needs-input",
         summary: "Second prompt",
@@ -556,6 +548,146 @@ describe("MessageBubble notification markers", () => {
         composerDrafts: prevDrafts,
         replyContexts: prevReplyContexts,
       });
+    }
+  });
+
+  it("fails closed instead of reviving an embedded snapshot when authoritative targets are ambiguous", () => {
+    const prevNotifications = useStore.getState().sessionNotifications;
+    const notifications = new Map(prevNotifications);
+    notifications.set("notify-session", [
+      {
+        id: "n-first",
+        category: "needs-input",
+        summary: "First live prompt",
+        timestamp: Date.now(),
+        messageId: "asst-ambiguous-anchor",
+        done: false,
+      },
+      {
+        id: "n-second",
+        category: "needs-input",
+        summary: "Second live prompt",
+        timestamp: Date.now(),
+        messageId: "asst-ambiguous-anchor",
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: notifications });
+
+    try {
+      render(
+        <MessageBubble
+          sessionId="notify-session"
+          message={makeMessage({
+            id: "asst-ambiguous-anchor",
+            role: "assistant",
+            content: "Ambiguous prompt source",
+            notification: {
+              id: "n-stale",
+              category: "needs-input",
+              summary: "Stale embedded prompt",
+              timestamp: Date.now() - 1_000,
+            },
+          })}
+        />,
+      );
+
+      expect(screen.getByText("Ambiguous prompt source")).toBeTruthy();
+      expect(screen.queryByText("First live prompt")).toBeNull();
+      expect(screen.queryByText("Second live prompt")).toBeNull();
+      expect(screen.queryByText("Stale embedded prompt")).toBeNull();
+      expect(screen.queryByRole("button", { name: /Mark handled|Mark unhandled/ })).toBeNull();
+    } finally {
+      useStore.setState({ sessionNotifications: prevNotifications });
+    }
+  });
+
+  it("does not revive an embedded snapshot after authoritative notification state loads without a match", () => {
+    const prevNotifications = useStore.getState().sessionNotifications;
+    const prevSdkSessions = useStore.getState().sdkSessions;
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "notify-session",
+        state: "connected",
+        cwd: "/tmp",
+        createdAt: 1,
+        archived: false,
+      },
+    ]);
+    applySessionNotifications(
+      "notify-session",
+      [],
+      { notificationStatusVersion: 1, notificationStatusUpdatedAt: 1 },
+      { authoritativeStatus: true },
+    );
+
+    try {
+      render(
+        <MessageBubble
+          sessionId="notify-session"
+          message={makeMessage({
+            id: "asst-resolved-anchor",
+            role: "assistant",
+            content: "Resolved prompt source",
+            notification: {
+              id: "n-resolved",
+              category: "needs-input",
+              summary: "Resolved embedded prompt",
+              timestamp: Date.now() - 1_000,
+            },
+          })}
+        />,
+      );
+
+      expect(screen.getByText("Resolved prompt source")).toBeTruthy();
+      expect(screen.queryByText("Resolved embedded prompt")).toBeNull();
+      expect(screen.queryByRole("button", { name: /Mark handled|Mark unhandled/ })).toBeNull();
+    } finally {
+      useStore.setState({ sessionNotifications: prevNotifications, sdkSessions: prevSdkSessions });
+    }
+  });
+
+  it("prefers the authoritative anchored notification over a stale embedded snapshot", () => {
+    const prevNotifications = useStore.getState().sessionNotifications;
+    const notifications = new Map(prevNotifications);
+    notifications.set("notify-session", [
+      {
+        id: "n-current",
+        category: "needs-input",
+        summary: "Current deployment decision",
+        suggestedAnswers: ["ship", "hold"],
+        timestamp: Date.now(),
+        messageId: "asst-current-anchor",
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: notifications });
+
+    try {
+      render(
+        <MessageBubble
+          sessionId="notify-session"
+          message={makeMessage({
+            id: "asst-current-anchor",
+            role: "assistant",
+            content: "Choose the deployment boundary.",
+            notification: {
+              id: "n-stale",
+              category: "needs-input",
+              summary: "Outdated embedded decision",
+              suggestedAnswers: ["old option"],
+              timestamp: Date.now() - 1_000,
+            },
+          })}
+        />,
+      );
+
+      expect(screen.getByText("Current deployment decision")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Use suggested answer: ship" })).toBeTruthy();
+      expect(screen.queryByText("Outdated embedded decision")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Use suggested answer: old option" })).toBeNull();
+    } finally {
+      useStore.setState({ sessionNotifications: prevNotifications });
     }
   });
 

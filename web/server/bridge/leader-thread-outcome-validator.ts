@@ -18,6 +18,11 @@ import {
   THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
 } from "../../shared/thread-outcome-reminder.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import { isCanonicalLeaderUserMessageId } from "../leader-user-message-id.js";
+import type {
+  LeaderThreadOutcomeReminderGuard,
+  LeaderThreadOutcomeReminderGuardTarget,
+} from "../leader-thread-response-types.js";
 import { clearLeaderReadyStatusesBlockedByNeedsInput } from "./thread-routing-reminder.js";
 
 export const THREAD_RESPONSE_REMINDER_SOURCE_ID = THREAD_OUTCOME_REMINDER_SOURCE_ID;
@@ -47,6 +52,7 @@ export interface LeaderThreadOutcomeValidationDeps {
     content: string,
     agentSource: { sessionId: string; sessionLabel?: string },
     threadRoute?: ThreadRouteMetadata,
+    options?: { leaderThreadOutcomeReminderGuard?: LeaderThreadOutcomeReminderGuard },
   ) => "sent" | "queued" | "dropped" | "no_session";
   persistSession?: (session: LeaderThreadOutcomeSession) => void;
 }
@@ -58,6 +64,7 @@ type TouchedThread = {
   latestTimestamp: number;
   latestIndex: number;
   textEvents: Array<{ text: string; timestamp: number }>;
+  rejectedAnswerObserved: boolean;
 };
 
 type FreshOutcomeKind = "waiting" | "ready" | "needs-input" | "review";
@@ -112,6 +119,18 @@ export function validateLeaderThreadOutcomes(
       buildNeedsInputPromptReminderContent(missingNeedsInputPrompts),
       { sessionId: THREAD_RESPONSE_REMINDER_SOURCE_ID, sessionLabel: THREAD_RESPONSE_REMINDER_SOURCE_LABEL },
       firstMissingPrompt.route,
+      {
+        leaderThreadOutcomeReminderGuard: {
+          version: 1,
+          pendingResponseTargets: [],
+          missingOutcomeTargets: [],
+          missingNeedsInputTargets: missingNeedsInputPrompts.map((thread) => ({
+            threadKey: thread.key,
+            earliestTimestamp: thread.earliestTimestamp,
+            promptTimestamp: blockingPromptTimestamp(thread)!,
+          })),
+        },
+      },
     );
     if (delivery !== "dropped" && delivery !== "no_session") {
       clearPendingRejectedReadyThreadKeys(
@@ -132,9 +151,7 @@ export function validateLeaderThreadOutcomes(
   const outcomeMissing: TouchedThread[] = [];
   for (const thread of touchedThreads) {
     const outcome = freshOutcomeKind(thread, session.notifications ?? [], session.state?.leaderThreadStatuses);
-    const pending =
-      buildLeaderThreadResponseState(session, thread.key).projection.pendingMessageCount +
-      pendingLeaderAnswerInputsForThread(session, thread.key).count;
+    const pending = pendingLeaderAnswerCount(session, thread.key);
     if (pending > 0) {
       if (rejectedReadyThreadKeys.has(thread.key) || (outcome !== "waiting" && outcome !== "needs-input")) {
         pendingResponseMissing.push(thread);
@@ -158,6 +175,27 @@ export function validateLeaderThreadOutcomes(
       : buildOutcomeReminderContent(outcomeMissing),
     { sessionId: THREAD_RESPONSE_REMINDER_SOURCE_ID, sessionLabel: THREAD_RESPONSE_REMINDER_SOURCE_LABEL },
     primary.route,
+    {
+      leaderThreadOutcomeReminderGuard: {
+        version: 1,
+        pendingResponseTargets: pendingResponseMissing.map((thread) => {
+          const pending = pendingLeaderAnswerSnapshot(session, thread.key);
+          return {
+            threadKey: thread.key,
+            earliestTimestamp: thread.earliestTimestamp,
+            pendingAnswerCount: pending.count,
+            pendingAnswerUserMessageIds: pending.userMessageIds,
+            ...(rejectedReadyThreadKeys.has(thread.key) ? { rejectedReady: true } : {}),
+            ...(thread.rejectedAnswerObserved ? { rejectedAnswerObserved: true } : {}),
+          };
+        }),
+        missingOutcomeTargets: outcomeMissing.map((thread) => ({
+          threadKey: thread.key,
+          earliestTimestamp: thread.earliestTimestamp,
+        })),
+        missingNeedsInputTargets: [],
+      },
+    },
   );
   if (delivery !== "dropped" && delivery !== "no_session") {
     clearPendingRejectedReadyThreadKeys(session, deferredRejectedReadyThreadKeys);
@@ -169,6 +207,194 @@ export function validateLeaderThreadOutcomes(
     missing: [...pendingResponseMissing, ...outcomeMissing].map((thread) => thread.route.threadKey),
     injected: delivery !== "dropped" && delivery !== "no_session",
   };
+}
+
+function pendingLeaderAnswerSnapshot(
+  session: LeaderThreadOutcomeSession,
+  threadKey: string,
+): { count: number; userMessageIds: string[] } {
+  const state = buildLeaderThreadResponseState(session, threadKey);
+  const queued = pendingLeaderAnswerInputsForThread(session, threadKey);
+  return {
+    count: state.projection.pendingMessageCount + queued.count,
+    userMessageIds: [
+      ...new Set([
+        ...state.projection.pendingMessages.map((message) => message.userMessageId),
+        ...queued.userMessageIds,
+      ]),
+    ],
+  };
+}
+
+function pendingLeaderAnswerCount(session: LeaderThreadOutcomeSession, threadKey: string): number {
+  return pendingLeaderAnswerSnapshot(session, threadKey).count;
+}
+
+function touchedThreadFromGuardTarget(target: LeaderThreadOutcomeReminderGuardTarget): TouchedThread | null {
+  if (!target || typeof target !== "object" || typeof target.threadKey !== "string") return null;
+  const threadKey = target.threadKey.trim().toLowerCase();
+  if (
+    (threadKey !== "main" && !/^q-\d+$/.test(threadKey)) ||
+    !Number.isFinite(target.earliestTimestamp) ||
+    target.earliestTimestamp < 0
+  ) {
+    return null;
+  }
+  const route = threadRouteForTarget(threadKey);
+  return {
+    route,
+    key: routeKey(route),
+    earliestTimestamp: target.earliestTimestamp,
+    latestTimestamp: target.earliestTimestamp,
+    latestIndex: -1,
+    textEvents: [],
+    rejectedAnswerObserved: false,
+  };
+}
+
+export interface RefreshedLeaderThreadOutcomeReminder {
+  content: string;
+  guard: LeaderThreadOutcomeReminderGuard;
+  route: ThreadRouteMetadata;
+}
+
+function validPendingGuardSnapshot(target: LeaderThreadOutcomeReminderGuardTarget): boolean {
+  return (
+    Number.isInteger(target.pendingAnswerCount) &&
+    target.pendingAnswerCount! > 0 &&
+    Array.isArray(target.pendingAnswerUserMessageIds) &&
+    target.pendingAnswerUserMessageIds.every(isCanonicalLeaderUserMessageId) &&
+    new Set(target.pendingAnswerUserMessageIds).size === target.pendingAnswerUserMessageIds.length &&
+    target.pendingAnswerUserMessageIds.length <= target.pendingAnswerCount! &&
+    (target.rejectedReady === undefined || typeof target.rejectedReady === "boolean") &&
+    (target.rejectedAnswerObserved === undefined || typeof target.rejectedAnswerObserved === "boolean")
+  );
+}
+
+export function refreshLeaderThreadOutcomeReminder(
+  session: LeaderThreadOutcomeSession,
+  guard: LeaderThreadOutcomeReminderGuard | null | undefined,
+): RefreshedLeaderThreadOutcomeReminder | null {
+  if (
+    !guard ||
+    typeof guard !== "object" ||
+    guard.version !== 1 ||
+    !Array.isArray(guard.pendingResponseTargets) ||
+    !Array.isArray(guard.missingOutcomeTargets) ||
+    !Array.isArray(guard.missingNeedsInputTargets)
+  ) {
+    return null;
+  }
+  const allTargets = [
+    ...guard.pendingResponseTargets,
+    ...guard.missingOutcomeTargets,
+    ...guard.missingNeedsInputTargets,
+  ];
+  if (allTargets.length === 0) return null;
+  const normalized = new Map<LeaderThreadOutcomeReminderGuardTarget, TouchedThread>();
+  const seenThreadKeys = new Set<string>();
+  for (const target of allTargets) {
+    const thread = touchedThreadFromGuardTarget(target);
+    if (!thread || seenThreadKeys.has(thread.key)) return null;
+    seenThreadKeys.add(thread.key);
+    normalized.set(target, thread);
+  }
+
+  const notifications = session.notifications ?? [];
+  const statuses = session.state?.leaderThreadStatuses;
+  if (guard.missingNeedsInputTargets.length > 0) {
+    if (guard.pendingResponseTargets.length > 0 || guard.missingOutcomeTargets.length > 0) return null;
+    const missingNeedsInput: TouchedThread[] = [];
+    const refreshedTargets: LeaderThreadOutcomeReminderGuardTarget[] = [];
+    for (const target of guard.missingNeedsInputTargets) {
+      const thread = normalized.get(target)!;
+      if (!Number.isFinite(target.promptTimestamp) || target.promptTimestamp! < 0) return null;
+      const notificationExists = notifications.some(
+        (notification) =>
+          sameThread(thread, notification) &&
+          notification.timestamp >= target.promptTimestamp! &&
+          notification.category === "needs-input",
+      );
+      if (notificationExists) continue;
+      missingNeedsInput.push(thread);
+      refreshedTargets.push({
+        threadKey: thread.key,
+        earliestTimestamp: thread.earliestTimestamp,
+        promptTimestamp: target.promptTimestamp,
+      });
+    }
+    if (missingNeedsInput.length === 0) return null;
+    return {
+      content: buildNeedsInputPromptReminderContent(missingNeedsInput),
+      guard: {
+        version: 1,
+        pendingResponseTargets: [],
+        missingOutcomeTargets: [],
+        missingNeedsInputTargets: refreshedTargets,
+      },
+      route: missingNeedsInput[0]!.route,
+    };
+  }
+
+  const pendingResponseMissing: TouchedThread[] = [];
+  const pendingTargets: LeaderThreadOutcomeReminderGuardTarget[] = [];
+  const outcomeMissing: TouchedThread[] = [];
+  const outcomeTargets: LeaderThreadOutcomeReminderGuardTarget[] = [];
+  const candidates = [
+    ...guard.pendingResponseTargets.map((target) => ({ target, wasPending: true })),
+    ...guard.missingOutcomeTargets.map((target) => ({ target, wasPending: false })),
+  ];
+  for (const { target, wasPending } of candidates) {
+    if (wasPending && !validPendingGuardSnapshot(target)) return null;
+    const thread = normalized.get(target)!;
+    const pending = pendingLeaderAnswerSnapshot(session, thread.key);
+    const pendingSnapshotUnchanged =
+      wasPending &&
+      pending.count === target.pendingAnswerCount &&
+      pending.userMessageIds.length === target.pendingAnswerUserMessageIds?.length &&
+      pending.userMessageIds.every((id, index) => id === target.pendingAnswerUserMessageIds?.[index]);
+    thread.rejectedAnswerObserved = target.rejectedAnswerObserved === true && pendingSnapshotUnchanged;
+    const rejectedReady = target.rejectedReady === true && pendingSnapshotUnchanged;
+    const outcome = freshOutcomeKind(thread, notifications, statuses);
+    if (pending.count > 0) {
+      if (rejectedReady || (outcome !== "waiting" && outcome !== "needs-input")) {
+        pendingResponseMissing.push(thread);
+        pendingTargets.push({
+          threadKey: thread.key,
+          earliestTimestamp: thread.earliestTimestamp,
+          pendingAnswerCount: pending.count,
+          pendingAnswerUserMessageIds: pending.userMessageIds,
+          ...(rejectedReady ? { rejectedReady: true } : {}),
+          ...(thread.rejectedAnswerObserved ? { rejectedAnswerObserved: true } : {}),
+        });
+      }
+    } else if (!outcome) {
+      outcomeMissing.push(thread);
+      outcomeTargets.push({ threadKey: thread.key, earliestTimestamp: thread.earliestTimestamp });
+    }
+  }
+  if (pendingResponseMissing.length === 0 && outcomeMissing.length === 0) return null;
+  const primary = pendingResponseMissing[0] ?? outcomeMissing[0]!;
+  return {
+    content:
+      pendingResponseMissing.length > 0
+        ? buildPendingResponseReminderContent(session, pendingResponseMissing, outcomeMissing)
+        : buildOutcomeReminderContent(outcomeMissing),
+    guard: {
+      version: 1,
+      pendingResponseTargets: pendingTargets,
+      missingOutcomeTargets: outcomeTargets,
+      missingNeedsInputTargets: [],
+    },
+    route: primary.route,
+  };
+}
+
+export function shouldDeliverLeaderThreadOutcomeReminder(
+  session: LeaderThreadOutcomeSession,
+  guard: LeaderThreadOutcomeReminderGuard | null | undefined,
+): boolean {
+  return refreshLeaderThreadOutcomeReminder(session, guard) !== null;
 }
 
 function clearPendingRejectedReadyThreadKeys(
@@ -211,6 +437,7 @@ function addRejectedReadyThreads(
       latestTimestamp,
       latestIndex,
       textEvents: [],
+      rejectedAnswerObserved: false,
     });
   }
   touchedThreads.sort((left, right) => left.latestIndex - right.latestIndex);
@@ -230,7 +457,13 @@ function clampHistoryIndex(value: number | undefined, historyLength: number): nu
 
 function collectTouchedLeaderThreads(history: BrowserIncomingMessage[], startIndex: number): TouchedThread[] {
   const byThread = new Map<string, TouchedThread>();
-  const touch = (route: ThreadRouteMetadata, timestamp: number, index: number, text?: string) => {
+  const touch = (
+    route: ThreadRouteMetadata,
+    timestamp: number,
+    index: number,
+    text?: string,
+    rejectedAnswerObserved = false,
+  ) => {
     const key = routeKey(route);
     const existing = byThread.get(key);
     if (!existing) {
@@ -241,6 +474,7 @@ function collectTouchedLeaderThreads(history: BrowserIncomingMessage[], startInd
         latestTimestamp: timestamp,
         latestIndex: index,
         textEvents: text ? [{ text, timestamp }] : [],
+        rejectedAnswerObserved,
       });
       return;
     }
@@ -254,6 +488,7 @@ function collectTouchedLeaderThreads(history: BrowserIncomingMessage[], startInd
       existing.latestIndex = index;
     }
     if (text) existing.textEvents.push({ text, timestamp });
+    existing.rejectedAnswerObserved ||= rejectedAnswerObserved;
   };
 
   for (let index = startIndex; index < history.length; index += 1) {
@@ -270,7 +505,11 @@ function collectTouchedLeaderThreads(history: BrowserIncomingMessage[], startInd
     }
     const text = getLeaderVisibleOutputText(entry);
     const route = text ? routeFromHistoryEntry(entry) : null;
-    if (text && route) touch(route, timestamp, index, text);
+    if (text && route) {
+      const rejectedAnswerObserved =
+        entry.type === "assistant" && entry.leaderThreadRole === "answer" && entry.threadAnswer === undefined;
+      touch(route, timestamp, index, text, rejectedAnswerObserved);
+    }
   }
   return [...byThread.values()].sort((left, right) => left.latestIndex - right.latestIndex);
 }
@@ -352,12 +591,7 @@ function buildPendingResponseReminderContent(
   const pendingStates = pendingMissing.map((thread) => {
     const state = buildLeaderThreadResponseState(session, thread.key);
     const queued = pendingLeaderAnswerInputsForThread(session, thread.key);
-    const userMessageIds = [
-      ...new Set([
-        ...state.projection.pendingMessages.map((message) => message.userMessageId),
-        ...queued.userMessageIds,
-      ]),
-    ];
+    const { userMessageIds } = pendingLeaderAnswerSnapshot(session, thread.key);
     return { thread, state, queued, userMessageIds };
   });
   const pendingLabels = pendingStates.map(({ thread, state, queued, userMessageIds }) => {
@@ -372,10 +606,17 @@ function buildPendingResponseReminderContent(
   const firstPendingId = pendingStates
     .flatMap(({ state }) => state.projection.pendingMessages.map((message) => message.userMessageId))
     .at(0);
+  const rejectedAnswer = pendingStates.find(({ thread }) => thread.rejectedAnswerObserved);
+  const correction = rejectedAnswer ? buildRejectedAnswerCorrection(rejectedAnswer) : [];
   return [
     "Answer reminder: direct user messages still need explicit routed answer coverage before the thread can be Ready.",
     `Pending answer IDs: ${pendingLabels.join("; ")}.`,
-    "Answer with `[thread:main:A:u1]` or `[thread:q-N:A:u1,u2]`, listing the exact earlier IDs covered by that answer.",
+    ...correction,
+    ...(rejectedAnswer
+      ? []
+      : [
+          "Answer with `[thread:main:A:u1]` or `[thread:q-N:A:u1,u2]`, listing the exact earlier IDs covered by that answer.",
+        ]),
     ...(firstPendingId
       ? [
           `Retrieve an exact earlier message with \`takode read ${session.id} ${firstPendingId}\`; both the leader session and session-scoped user-message ID are required.`,
@@ -386,6 +627,17 @@ function buildPendingResponseReminderContent(
       ? [`Also missing a normal Waiting/Ready/notification outcome for: ${formatThreadLabels(outcomeMissing)}.`]
       : []),
   ].join("\n");
+}
+
+function buildRejectedAnswerCorrection(rejected: { thread: TouchedThread; userMessageIds: string[] }): string[] {
+  const marker =
+    rejected.userMessageIds.length > 0
+      ? `[thread:${rejected.thread.route.threadKey}:A:${rejected.userMessageIds.join(",")}]`
+      : `[thread:${rejected.thread.route.threadKey}:A:<pending-id>]`;
+  return [
+    `Takode retained the prior answer prose, but its explicit marker or listed IDs did not establish current coverage for ${formatThreadLabel(rejected.thread.key)}.`,
+    `Do not regenerate the full explanation. Send a brief corrected answer using ${marker} and only the exact pending IDs shown above.`,
+  ];
 }
 
 function buildOutcomeReminderContent(missing: TouchedThread[]): string {

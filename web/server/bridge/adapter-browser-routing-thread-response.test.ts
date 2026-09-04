@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { BrowserOutgoingMessage } from "../session-types.js";
-import { ingestUserMessage } from "./adapter-browser-routing-controller.js";
+import type { BrowserIncomingMessage, BrowserOutgoingMessage } from "../session-types.js";
+import { ingestUserMessage, routeBrowserMessage } from "./adapter-browser-routing-controller.js";
+import { finalizeRoutedLeaderResponseMessage } from "../leader-thread-response.js";
+import { THREAD_RESPONSE_REMINDER_SOURCE_ID } from "./leader-thread-outcome-validator.js";
 import type { AdapterBrowserRoutingDeps, AdapterBrowserRoutingSessionLike } from "./adapter-browser-routing-types.js";
 
 function session(): AdapterBrowserRoutingSessionLike {
@@ -121,5 +123,106 @@ describe("leader direct-user response cutover ingestion", () => {
     expect(target.state.leaderThreadStatuses?.["q-42"]?.kind).toBe("ready");
     expect(runtime.refreshBrowserConversationViews).not.toHaveBeenCalled();
     expect(runtime.invalidateLeaderThreadTabsForSession).not.toHaveBeenCalled();
+  });
+  it("fails closed when an outcome-reminder source lacks its structured guard", async () => {
+    const target = session();
+    const runtime = deps();
+    const historyLength = target.messageHistory.length;
+
+    const accepted = await routeBrowserMessage(
+      target as AdapterBrowserRoutingSessionLike &
+        import("./browser-transport-controller.js").BrowserTransportSessionLike,
+      {
+        type: "user_message",
+        content: "unguarded reminder",
+        agentSource: { sessionId: THREAD_RESPONSE_REMINDER_SOURCE_ID, sessionLabel: "Thread Outcome Reminder" },
+        threadKey: "main",
+      },
+      undefined,
+      runtime,
+    );
+
+    expect(accepted).toBe(false);
+    expect(target.messageHistory).toHaveLength(historyLength);
+    expect(target.pendingCodexInputs).toEqual([]);
+  });
+
+  it("drops a stale persisted outcome reminder before user-history or pending-input ingestion", async () => {
+    const target = session();
+    const runtime = deps();
+    const direct = {
+      type: "user_message",
+      id: "direct-u1",
+      content: "Please answer this.",
+      timestamp: 10,
+      threadKey: "main",
+      leaderResponseCoverageVersion: 1,
+      leaderUserMessageId: "u1",
+    } satisfies BrowserIncomingMessage;
+    const answer = {
+      type: "assistant",
+      message: {
+        id: "answer-u1",
+        type: "message",
+        role: "assistant",
+        model: "test",
+        content: [{ type: "text", text: "The answer is complete." }],
+        stop_reason: "end_turn",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
+      parent_tool_use_id: null,
+      timestamp: 20,
+      threadKey: "main",
+      leaderThreadRole: "answer",
+      leaderAnswerUserMessageIds: ["u1"],
+      leaderAnswerObservedHistoryLength: 1,
+    } satisfies BrowserIncomingMessage;
+    target.messageHistory.push(direct, answer);
+    expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: true });
+    target.state.leaderThreadStatuses!.main = {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: "main",
+      summary: "answer complete",
+      messageId: "answer-u1",
+      timestamp: 20,
+      updatedAt: 20,
+    };
+    const historyLength = target.messageHistory.length;
+
+    const accepted = await routeBrowserMessage(
+      target as AdapterBrowserRoutingSessionLike &
+        import("./browser-transport-controller.js").BrowserTransportSessionLike,
+      {
+        type: "user_message",
+        content: "stale answer reminder",
+        agentSource: { sessionId: THREAD_RESPONSE_REMINDER_SOURCE_ID, sessionLabel: "Thread Outcome Reminder" },
+        threadKey: "main",
+        leaderThreadOutcomeReminderGuard: {
+          version: 1,
+          pendingResponseTargets: [
+            {
+              threadKey: "main",
+              earliestTimestamp: 10,
+              pendingAnswerCount: 1,
+              pendingAnswerUserMessageIds: ["u1"],
+            },
+          ],
+          missingOutcomeTargets: [],
+          missingNeedsInputTargets: [],
+        },
+      },
+      undefined,
+      runtime,
+    );
+
+    expect(accepted).toBe(false);
+    expect(target.messageHistory).toHaveLength(historyLength);
+    expect(target.pendingCodexInputs).toEqual([]);
   });
 });

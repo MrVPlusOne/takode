@@ -1093,11 +1093,26 @@ function AssistantMessage({
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
-  const inboxAnchoredNotification = useStore((s) => {
-    if (!sessionId || message.notification || !message.id) return null;
-    return getSingleAnchoredNotification(s.sessionNotifications?.get(sessionId), message.id);
+  const authoritativeNotifications = useStore((s) => (sessionId ? s.sessionNotifications?.get(sessionId) : undefined));
+  const notificationStateLoaded = useStore((s) => {
+    if (!sessionId) return false;
+    if (s.sessionNotifications.has(sessionId)) return true;
+    const session = s.sdkSessions.find((candidate) => candidate.sessionId === sessionId);
+    return (
+      session?.notificationUrgency !== undefined ||
+      session?.activeNotificationCount !== undefined ||
+      session?.activeNeedsInputNotificationCount !== undefined ||
+      session?.activeReviewNotificationCount !== undefined ||
+      session?.mutedNeedsInputNotificationCount !== undefined ||
+      session?.notificationStatusVersion !== undefined ||
+      session?.notificationStatusUpdatedAt !== undefined
+    );
   });
-  const resolvedNotification = message.notification ?? inboxAnchoredNotification;
+  const inboxAnchoredNotification = useMemo(
+    () => (message.id ? getSingleAnchoredNotification(authoritativeNotifications, message.id) : null),
+    [authoritativeNotifications, message.id],
+  );
+  const resolvedNotification = notificationStateLoaded ? inboxAnchoredNotification : message.notification;
   const compactToolActivity = useStore((state) => state.compactToolActivity);
   const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
   const starred = useFeedStarredMessage(sessionId, message);

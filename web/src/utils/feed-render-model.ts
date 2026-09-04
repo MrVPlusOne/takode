@@ -21,6 +21,7 @@ import {
   type AttentionBoardRowSource,
 } from "./attention-records.js";
 import {
+  collectActiveNeedsInputAnchorMessageIds,
   collectMessageToolUseIds,
   collectRetainedNotificationSourceMessageIds,
   filterMessagesForThread,
@@ -67,6 +68,7 @@ export interface FeedMessageModel {
   attentionLedgerMessages: ChatMessage[];
   messages: ChatMessage[];
   visibleToolUseIds?: Set<string>;
+  activeNeedsInputAnchorMessageIds: Set<string>;
 }
 
 export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMessageModel {
@@ -77,6 +79,10 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     ...input.selectedFeedWindowMessages,
   ]);
   const retainedMessageIds = collectRetainedNotificationSourceMessageIds(sanitizedNotifications, input.threadKey);
+  const activeNeedsInputAnchorMessageIds = collectActiveNeedsInputAnchorMessageIds(
+    sanitizedNotifications,
+    input.threadKey,
+  );
   const messagesAvailableForDerivation = composeSelectedFeedMessages({
     allMessages: input.allMessages,
     historyLoading: input.historyLoading,
@@ -161,6 +167,7 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     attentionLedgerMessages,
     messages,
     visibleToolUseIds,
+    activeNeedsInputAnchorMessageIds,
   };
 }
 

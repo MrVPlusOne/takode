@@ -2,6 +2,7 @@ import type { ImageRef } from "./image-store.js";
 import type { ReplyContext } from "../shared/reply-context.js";
 import type { CodexAutoPauseRecoveryLink } from "./codex-auto-pause-types.js";
 import type { CodexAutoPauseInputSourceKind } from "./codex-outbound-turn-types.js";
+import type { LeaderThreadOutcomeReminderGuard } from "./leader-thread-response-types.js";
 import type { TakodeHerdBatchSnapshot, ThreadRef, VsCodeSelectionMetadata } from "./session-types.js";
 
 export interface PendingCodexInputImageDraft {
@@ -56,6 +57,8 @@ export interface PendingCodexInput {
   autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
   /** Server-only correlation for a held input released into normal Codex delivery. */
   autoPauseRecoveries?: CodexAutoPauseRecoveryLink[];
+  /** Server-only freshness proof for a deferred Thread Outcome Reminder. */
+  leaderThreadOutcomeReminderGuard?: LeaderThreadOutcomeReminderGuard;
   /** Server-only FIFO insertion target for a separately owned recovery continuation. */
   queueBeforeOwnerId?: string;
   /** Server-only boundary that keeps later work out of the recovery continuation turn. */

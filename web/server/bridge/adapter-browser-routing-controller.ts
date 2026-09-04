@@ -87,6 +87,10 @@ import type {
 } from "./adapter-browser-routing-message-types.js";
 import { attachStartupMemoryCatalogPrelude } from "./startup-memory-catalog-prelude.js";
 import { buildAdapterUserMessageSourcePrefix } from "./adapter-browser-routing-source-prefix.js";
+import {
+  refreshLeaderThreadOutcomeReminder,
+  THREAD_RESPONSE_REMINDER_SOURCE_ID,
+} from "./leader-thread-outcome-validator.js";
 export {
   hasPendingForceCompact,
   isCliSlashCommand,
@@ -467,6 +471,22 @@ export async function routeBrowserMessage(
   ws: BrowserTransportSocketLike | undefined,
   deps: AdapterBrowserRoutingDeps,
 ): Promise<boolean | void> {
+  if (msg.type === "user_message") {
+    const isThreadOutcomeReminder = msg.agentSource?.sessionId === THREAD_RESPONSE_REMINDER_SOURCE_ID;
+    const reminderGuard = msg.leaderThreadOutcomeReminderGuard;
+    if (isThreadOutcomeReminder || reminderGuard !== undefined) {
+      const refreshed = isThreadOutcomeReminder ? refreshLeaderThreadOutcomeReminder(session, reminderGuard) : null;
+      if (!refreshed) return false;
+      const { questId: _questId, threadRefs: _threadRefs, ...messageWithoutRoute } = msg;
+      msg = {
+        ...messageWithoutRoute,
+        content: refreshed.content,
+        leaderThreadOutcomeReminderGuard: refreshed.guard,
+        ...refreshed.route,
+      };
+    }
+  }
+
   let userMessageRejected = false;
   const routeOutcome = {
     onUserMessageRejected: () => {
@@ -1786,6 +1806,9 @@ export function routeAdapterBrowserMessage(
             : {}),
           autoPauseSourceKind: determineUserMessageSourceKind(msg),
           ...(msg.autoPauseRecoveries?.length ? { autoPauseRecoveries: msg.autoPauseRecoveries } : {}),
+          ...(msg.leaderThreadOutcomeReminderGuard
+            ? { leaderThreadOutcomeReminderGuard: msg.leaderThreadOutcomeReminderGuard }
+            : {}),
           ...(trustedCodexRecoveryRoute?.queueBeforeOwnerId
             ? { queueBeforeOwnerId: trustedCodexRecoveryRoute.queueBeforeOwnerId }
             : {}),

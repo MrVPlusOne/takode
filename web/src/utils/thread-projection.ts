@@ -188,6 +188,25 @@ export function recoverRoutedNotificationSourceMessages(
   return changed ? recovered : messages;
 }
 
+export function collectActiveNeedsInputAnchorMessageIds(
+  notifications: ReadonlyArray<SessionNotification> | undefined,
+  threadKey: string,
+): Set<string> {
+  const normalizedThreadKey = normalizeThreadKey(threadKey);
+  const ids = new Set<string>();
+  if (isAllThreadsKey(normalizedThreadKey) || !notifications?.length) return ids;
+
+  for (const notification of notifications) {
+    if (notification.done || notification.category !== "needs-input" || !notification.messageId) continue;
+    const route = routeFromNotification(notification);
+    const belongsToSelectedThread = isMainThreadKey(normalizedThreadKey)
+      ? route === null
+      : route?.threadKey === normalizedThreadKey;
+    if (belongsToSelectedThread) ids.add(notification.messageId);
+  }
+  return ids;
+}
+
 export function collectRetainedNotificationSourceMessageIds(
   notifications: ReadonlyArray<SessionNotification> | undefined,
   threadKey: string,

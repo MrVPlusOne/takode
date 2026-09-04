@@ -22,18 +22,32 @@ describe("programmatic user message acceptance callbacks", () => {
       state: { pause: { pausedAt: 100, queuedMessages: [] } },
     } as any;
 
+    const guard = {
+      version: 1 as const,
+      pendingResponseTargets: [
+        {
+          threadKey: "main",
+          earliestTimestamp: 10,
+          pendingAnswerCount: 1,
+          pendingAnswerUserMessageIds: ["u1"],
+        },
+      ],
+      missingOutcomeTargets: [],
+      missingNeedsInputTargets: [],
+    };
     const status = deliverProgrammaticUserMessage(
       session,
       "compaction recovery",
       { sessionId: "system:compaction-recovery", sessionLabel: "Compaction Recovery" },
       undefined,
       undefined,
-      { afterAccepted: () => order.push("accepted") },
+      { leaderThreadOutcomeReminderGuard: guard, afterAccepted: () => order.push("accepted") },
       deliveryDeps(order),
     );
 
     expect(status).toBe("paused_queued");
     expect(session.state.pause.queuedMessages).toHaveLength(1);
+    expect(session.state.pause.queuedMessages[0]?.message.leaderThreadOutcomeReminderGuard).toEqual(guard);
     expect(order).toEqual(["persist", "accepted"]);
   });
 
@@ -68,6 +82,19 @@ describe("programmatic user message acceptance callbacks", () => {
       undefined,
       {
         autoPauseSourceKind: "automatic",
+        leaderThreadOutcomeReminderGuard: {
+          version: 1,
+          pendingResponseTargets: [
+            {
+              threadKey: "main",
+              earliestTimestamp: 10,
+              pendingAnswerCount: 1,
+              pendingAnswerUserMessageIds: ["u1"],
+            },
+          ],
+          missingOutcomeTargets: [],
+          missingNeedsInputTargets: [],
+        },
         afterAccepted: () => order.push("accepted"),
       },
       deliveryDeps(order),
@@ -75,6 +102,9 @@ describe("programmatic user message acceptance callbacks", () => {
 
     expect(status).toBe("paused_queued");
     expect(session.state.codex_result_error_auto_pause.heldInputs).toHaveLength(1);
+    expect(
+      session.state.codex_result_error_auto_pause.heldInputs[0]?.message.leaderThreadOutcomeReminderGuard,
+    ).toMatchObject({ version: 1 });
     expect(order).toEqual(["persist", "accepted"]);
   });
 });

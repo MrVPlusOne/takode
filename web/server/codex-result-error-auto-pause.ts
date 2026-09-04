@@ -514,6 +514,9 @@ function pendingCodexInputToAutoPauseMessage(input: PendingCodexInput): BrowserU
     ...(input.threadRefs ? { threadRefs: input.threadRefs } : {}),
     ...(input.autoPauseSourceKind ? { autoPauseSourceKind: input.autoPauseSourceKind } : {}),
     ...(input.autoPauseRecoveries?.length ? { autoPauseRecoveries: input.autoPauseRecoveries } : {}),
+    ...(input.leaderThreadOutcomeReminderGuard
+      ? { leaderThreadOutcomeReminderGuard: input.leaderThreadOutcomeReminderGuard }
+      : {}),
   };
 }
 

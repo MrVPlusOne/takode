@@ -226,6 +226,34 @@ describe("direct user needs-input reminders", () => {
     expect(session.recentAskVisibleResponseThreads).toEqual(new Set());
   });
 
+  it("persists a Thread Outcome Reminder guard on the Codex pending input", () => {
+    const session = makeSession();
+    session.backendType = "codex";
+    session.isGenerating = true;
+    const deps = makeDeps({ isOrchestrator: true });
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => targetSession.pendingCodexInputs.push(input));
+    const guard = {
+      version: 1 as const,
+      pendingResponseTargets: [],
+      missingOutcomeTargets: [{ threadKey: "main", earliestTimestamp: 10 }],
+      missingNeedsInputTargets: [],
+    };
+
+    routeAdapterBrowserMessage(
+      session,
+      userMessage({
+        content: "Thread outcome reminder",
+        agentSource: { sessionId: "system:leader-thread-outcome-reminder" },
+        threadKey: "main",
+        leaderThreadOutcomeReminderGuard: guard,
+      }),
+      null,
+      deps,
+    );
+
+    expect(session.pendingCodexInputs[0]?.leaderThreadOutcomeReminderGuard).toEqual(guard);
+  });
+
   it("carries the streamed-response boundary through Codex pending input commit", () => {
     const session = makeSession();
     session.backendType = "codex";

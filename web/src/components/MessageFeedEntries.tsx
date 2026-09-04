@@ -1036,6 +1036,7 @@ function CollapsedTurnRows({
   onSelectThread,
   questLinkSurface,
   threadResponsePresentation,
+  activeNeedsInputAnchorMessageIds,
 }: {
   turn: Turn;
   sessionId: string;
@@ -1047,6 +1048,7 @@ function CollapsedTurnRows({
   onSelectThread?: (threadKey: string) => void;
   questLinkSurface: QuestLinkSurface;
   threadResponsePresentation?: ThreadResponsePresentation | null;
+  activeNeedsInputAnchorMessageIds: ReadonlySet<string>;
 }) {
   const collapsedEntries = turn.collapsedEntries ?? [];
   if (threadResponsePresentation) {
@@ -1056,6 +1058,7 @@ function CollapsedTurnRows({
         presentation={threadResponsePresentation}
         sessionId={sessionId}
         questLinkSurface={questLinkSurface}
+        activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
         renderEntry={(entry) => (
           <FeedEntries
             entries={[entry]}
@@ -1681,6 +1684,7 @@ export const TurnEntries = memo(function TurnEntries({
   userBoundarySourceSessionId,
   questLinkSurface,
   threadResponsePresentation,
+  activeNeedsInputAnchorMessageIds,
   visibleThreadStatuses,
   onThreadStatusLayoutContributionChange,
 }: {
@@ -1697,6 +1701,7 @@ export const TurnEntries = memo(function TurnEntries({
   userBoundarySourceSessionId?: string | null;
   questLinkSurface: QuestLinkSurface;
   threadResponsePresentation?: ThreadResponsePresentation | null;
+  activeNeedsInputAnchorMessageIds: ReadonlySet<string>;
   visibleThreadStatuses: LeaderThreadStatus[];
   onThreadStatusLayoutContributionChange?: (height: number) => void;
 }) {
@@ -1774,7 +1779,11 @@ export const TurnEntries = memo(function TurnEntries({
                     ? collapsedAnswerPresentation
                     : null;
               const hasCollapsedContent = collapsedThreadResponsePresentation
-                ? readyThreadResponseTurnHasContent(turn, collapsedThreadResponsePresentation)
+                ? readyThreadResponseTurnHasContent(
+                    turn,
+                    collapsedThreadResponsePresentation,
+                    activeNeedsInputAnchorMessageIds,
+                  )
                 : (turn.collapsedEntries?.some((row) => row.kind === "entry") ?? false) ||
                   turn.subConclusions.length > 0;
               const hasCollapsedCurrentAnswer =
@@ -1893,6 +1902,7 @@ export const TurnEntries = memo(function TurnEntries({
                                 onSelectThread={onSelectThread}
                                 questLinkSurface={questLinkSurface}
                                 threadResponsePresentation={collapsedThreadResponsePresentation}
+                                activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
                               />
                             </div>
                           </div>

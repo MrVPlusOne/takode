@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionState } from "./session-types.js";
-import { pauseSessionState, queuePausedUserMessage, unpauseSessionState } from "./session-pause.js";
+import {
+  buildProgrammaticUserMessage,
+  pauseSessionState,
+  queuePausedUserMessage,
+  unpauseSessionState,
+} from "./session-pause.js";
 
 function makeSession() {
   return {
@@ -28,5 +33,28 @@ describe("session pause state", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+  it("persists outcome-reminder freshness guards across paused delivery", () => {
+    const guard = {
+      version: 1 as const,
+      pendingResponseTargets: [
+        {
+          threadKey: "main",
+          earliestTimestamp: 10,
+          pendingAnswerCount: 1,
+          pendingAnswerUserMessageIds: ["u1"],
+        },
+      ],
+      missingOutcomeTargets: [],
+      missingNeedsInputTargets: [],
+    };
+
+    const message = buildProgrammaticUserMessage({
+      content: "deferred reminder",
+      agentSource: { sessionId: "system:leader-thread-outcome-reminder" },
+      options: { leaderThreadOutcomeReminderGuard: guard },
+    });
+
+    expect(message.leaderThreadOutcomeReminderGuard).toEqual(guard);
   });
 });

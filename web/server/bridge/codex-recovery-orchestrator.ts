@@ -129,6 +129,10 @@ import {
   getQueuedCodexPendingBatchInputs,
 } from "./codex-pending-start-batch.js";
 import {
+  refreshDispatchableCodexStartTurn,
+  refreshPendingCodexThreadOutcomeReminders,
+} from "./codex-outcome-reminder-delivery.js";
+import {
   addPendingCodexInput,
   commitPendingCodexInputs,
   finalizeCodexBatchBrowserHistory,
@@ -586,11 +590,26 @@ export function dispatchQueuedCodexTurns(
   )
     return;
   if (advanceCodexTerminalHistoryReconciliation(session, deps)) return;
-  const head =
+  let head =
     typeof deps.getCodexHeadTurn === "function"
       ? deps.getCodexHeadTurn(session)
       : (session.pendingCodexTurns[0] ?? null);
   if (reconcileUnknownCodexTurnBeforeDispatch(session, head, deps)) return;
+  if (
+    head?.adapterMsg.type === "codex_start_pending" &&
+    (head.status === "queued" || head.status === "blocked_broken_session")
+  ) {
+    const inputIds = head.pendingInputIds ?? [head.userMessageId];
+    const reminderRefresh = refreshPendingCodexThreadOutcomeReminders(session, deps, { inputIds });
+    if (reminderRefresh.changed && !refreshDispatchableCodexStartTurn(session, head, deps)) {
+      dispatchQueuedCodexTurns(session, reason, deps);
+      return;
+    }
+    head =
+      typeof deps.getCodexHeadTurn === "function"
+        ? deps.getCodexHeadTurn(session)
+        : (session.pendingCodexTurns[0] ?? null);
+  }
   const receiptAware = typeof (session.codexAdapter as any)?.onUserMessageRecorded === "function";
   if (prepareCodexHistoryTrackingForDispatch(head, receiptAware)) deps.persistSession(session);
   holdCodexAutoPausedQueuedBacklog(session as any, deps);
@@ -621,6 +640,7 @@ export function rebuildQueuedCodexPendingStartBatch(
   session: CodexRecoveryOrchestratorSessionLike,
   deps: CodexRecoveryOrchestratorDeps,
 ): void {
+  refreshPendingCodexThreadOutcomeReminders(session, deps);
   holdCodexAutoPausedQueuedBacklog(session as any, deps);
   const head = deps.getCodexHeadTurn(session);
   const headBlocksQueuedFollowUps = !!head && head.status === "blocked_broken_session";
@@ -906,6 +926,7 @@ export function trySteerPendingCodexInputs(
     deps.clearCodexFreshTurnRequirement(session, `${reason}_active_turn_changed`);
   }
   deps.pruneStalePendingCodexHerdInputs(session, `${reason}_before_steer`);
+  refreshPendingCodexThreadOutcomeReminders(session, deps);
   holdCodexAutoPausedQueuedBacklog(session as any, deps);
   const deliverable = getCancelablePendingCodexInputs(session);
   if (deliverable.length === 0) return false;
