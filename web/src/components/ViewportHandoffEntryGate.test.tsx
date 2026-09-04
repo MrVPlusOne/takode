@@ -25,6 +25,14 @@ function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
   localStorage.clear();
@@ -58,6 +66,70 @@ describe("viewport handoff entry gates", () => {
 
     resolveRead!(jsonResponse({ state: emptyState(), serverNow: 5_000 }));
     await waitFor(() => expect(screen.getByText("Conversation")).toBeTruthy());
+  });
+
+  it("releases repeated same-thread entry replacements queued behind in-flight reads", async () => {
+    // A bare leader route can hydrate its selected thread, then normalize the URL
+    // while the first handoff read is still in flight. Additional route-derived
+    // entry replacements must serialize without self-resolving their queue promise.
+    const firstRead = deferred<Response>();
+    const secondRead = deferred<Response>();
+    const thirdRead = deferred<Response>();
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => firstRead.promise)
+      .mockImplementationOnce(() => secondRead.promise)
+      .mockImplementationOnce(() => thirdRead.promise);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const gate = (entryId: string) => (
+      <ViewportHandoffThreadEntryGate
+        sessionId="session-1"
+        threadKey="q-2037"
+        entryId={entryId}
+        fallback={<p>Loading thread</p>}
+      >
+        <p>Conversation</p>
+      </ViewportHandoffThreadEntryGate>
+    );
+
+    const view = render(gate("bare-entry"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    view.rerender(gate("routed-entry"));
+    view.rerender(gate("settled-route-entry"));
+
+    firstRead.resolve(
+      jsonResponse({
+        state: { ...emptyState(1), selectedThreadKey: "q-2037" },
+        threadKey: "q-2037",
+        record: null,
+        serverNow: 5_001,
+      }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    secondRead.resolve(
+      jsonResponse({
+        state: { ...emptyState(2), selectedThreadKey: "q-2037" },
+        threadKey: "q-2037",
+        record: null,
+        serverNow: 5_002,
+      }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    thirdRead.resolve(
+      jsonResponse({
+        state: { ...emptyState(3), selectedThreadKey: "q-2037" },
+        threadKey: "q-2037",
+        record: null,
+        serverNow: 5_003,
+      }),
+    );
+
+    await waitFor(() => expect(screen.getByText("Conversation")).toBeTruthy());
+    expect(screen.queryByText("Loading thread")).toBeNull();
   });
 
   it("falls through safely when a thread read fails", async () => {

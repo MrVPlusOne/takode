@@ -605,10 +605,22 @@ function queueReadAfterCurrent(
   if (existing) return existing;
   const current = entry.promise;
   if (!current) return load();
-  const queued = current.then(load);
+  let queued!: Promise<ViewportHandoffReadResponse | null>;
+  queued = current.then(() => {
+    // Remove this wrapper before re-entering load(). Another queued entry may
+    // already have started a newer read; keeping the wrapper registered would
+    // make this entry resolve to its own promise instead of queueing behind it.
+    if (entry.queuedPromises.get(entryId) === queued) entry.queuedPromises.delete(entryId);
+    return load();
+  });
   entry.queuedPromises.set(entryId, queued);
   void queued.finally(() => {
-    if (entry.queuedPromises.get(entryId) === queued) entry.queuedPromises.delete(entryId);
+    if (entry.queuedPromises.get(entryId) !== queued) return;
+    entry.queuedPromises.delete(entryId);
+    // The queued marker participates in entry-specific readiness. Its removal
+    // is the final state transition for this entry, so subscribers must be
+    // notified even though the underlying read already emitted its result.
+    emitChange();
   });
   return queued;
 }
