@@ -1,4 +1,8 @@
+import { createContext, useContext } from "react";
+
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+export const InlineMessageTimingVisibilityContext = createContext(true);
 
 function localDayStartMs(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
@@ -67,8 +71,9 @@ function formatTurnDuration(ms: number): string {
 }
 
 export function MessageTimestamp({ timestamp, turnDurationMs }: { timestamp: number; turnDurationMs?: number }) {
+  const isVisible = useContext(InlineMessageTimingVisibilityContext);
   const d = new Date(timestamp);
-  if (!isValidMessageTimestamp(timestamp)) return null;
+  if (!isVisible || !isValidMessageTimestamp(timestamp)) return null;
   const timestampText = formatMessageTimestamp(timestamp);
   if (!timestampText) return null;
   const durationText = typeof turnDurationMs === "number" ? formatTurnDuration(turnDurationMs) : "";

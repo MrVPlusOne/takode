@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 // Shared styles for menu containers and items, extracted to avoid duplication.
@@ -30,6 +30,7 @@ interface ContextMenuProps {
   y: number;
   items: ContextMenuItem[];
   onClose: () => void;
+  footer?: ReactNode;
   widthClassName?: string;
   itemClassName?: string;
 }
@@ -39,6 +40,7 @@ export function ContextMenu({
   y,
   items,
   onClose,
+  footer,
   widthClassName = "w-fit min-w-[120px]",
   itemClassName = "",
 }: ContextMenuProps) {
@@ -163,6 +165,7 @@ export function ContextMenu({
               </button>
             ),
           )}
+          {footer}
         </div>
       )}
     </div>,

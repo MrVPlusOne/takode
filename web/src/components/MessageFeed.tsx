@@ -1878,6 +1878,7 @@ export function MessageFeed({
                   sessionId={sessionId}
                   currentThreadKey={threadKey}
                   leaderMode={collapseLeaderThreadActivity}
+                  showInlineMessageTiming={!isLeaderSession}
                   isCodexSession={isCodexSession}
                   activeCodexTerminalIds={activeCodexTerminalIds}
                   onOpenCodexTerminal={setSelectedCodexTerminalId}
@@ -1914,6 +1915,7 @@ export function MessageFeed({
                   <PendingUserUploadList
                     sessionId={sessionId}
                     uploads={pendingUserUploads}
+                    showTimestamp={!isLeaderSession}
                     questLinkSurface="chat-feed"
                   />
                 )}

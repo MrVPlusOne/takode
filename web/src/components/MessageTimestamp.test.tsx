@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
-import { MessageTimestamp } from "./MessageTimestamp.js";
+import { InlineMessageTimingVisibilityContext, MessageTimestamp } from "./MessageTimestamp.js";
 
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], {
@@ -75,5 +75,18 @@ describe("MessageTimestamp", () => {
     render(<MessageTimestamp timestamp={timestamp} turnDurationMs={32_000} />);
 
     expect(screen.getByTestId("message-timestamp").textContent).toBe(`yesterday ${formatTime(timestamp)} · 32s`);
+  });
+
+  it("hides inline timing when the feed disables it", () => {
+    // Leader feeds suppress both the timestamp and duration without changing the shared timestamp component's default.
+    const timestamp = new Date(2026, 6, 25, 17, 22, 0).getTime();
+
+    render(
+      <InlineMessageTimingVisibilityContext.Provider value={false}>
+        <MessageTimestamp timestamp={timestamp} turnDurationMs={32_000} />
+      </InlineMessageTimingVisibilityContext.Provider>,
+    );
+
+    expect(screen.queryByTestId("message-timestamp")).toBeNull();
   });
 });

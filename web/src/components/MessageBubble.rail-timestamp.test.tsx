@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ChatMessage } from "../types.js";
 
 const unstarMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
@@ -91,19 +91,26 @@ describe("MessageBubble timestamp menu affordances", () => {
   });
 
   it("shows an unavailable menu timestamp state instead of guessing from an invalid stored time", () => {
-    // Invalid timestamps keep the menu affordance truthful without restoring a rail marker.
+    // Invalid timestamps stay truthful in both the inspection popover and the opened menu footer.
     const msg = makeMessage({ id: "user-time-invalid", role: "user", content: "Bad timestamp", timestamp: Number.NaN });
     render(<MessageBubble message={msg} />);
 
     expect(screen.queryByTestId("message-timestamp")).toBeNull();
-    fireEvent.mouseEnter(screen.getByTestId("message-time-user-menu"));
-
+    const trigger = screen.getByTestId("message-time-user-menu");
+    fireEvent.mouseEnter(trigger);
     expect(screen.getByRole("tooltip").textContent).toContain("Time unavailable");
+
+    fireEvent.click(trigger);
+
+    const metadata = screen.getByRole("note", { name: "Message time" });
+    expect(metadata.textContent).toContain("Time unavailable");
+    expect(metadata.querySelector("time")).toBeNull();
+    expect(screen.queryByRole("tooltip")).toBeNull();
     expect(screen.queryByTestId("message-time-user-rail")).toBeNull();
   });
 
-  it("preserves the user message menu click action while closing the timestamp tooltip", () => {
-    // Hover/focus is timestamp inspection; click still opens the normal message options menu.
+  it("keeps user actions and shows separated non-actionable time metadata in the opened menu", () => {
+    // Hover/focus is timestamp inspection; click still opens the normal actions plus a metadata-only footer.
     const ts = new Date(2026, 6, 25, 17, 22, 13).getTime();
     const msg = makeMessage({ id: "user-time-click", role: "user", content: "Open options", timestamp: ts });
     render(<MessageBubble message={msg} sessionId="menu-session" />);
@@ -115,7 +122,17 @@ describe("MessageBubble timestamp menu affordances", () => {
     fireEvent.click(trigger);
 
     expect(screen.queryByRole("tooltip")).toBeNull();
-    expect(screen.getByText("Copy message")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy message" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy message link" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Revert to here" })).toBeTruthy();
+
+    const metadata = screen.getByRole("note", { name: "Message time" });
+    expect(metadata).toBe(screen.getByTestId("message-time-user-menu-metadata"));
+    expect(metadata.className).toContain("border-t");
+    expect(metadata.textContent).toContain(formatExactMessageTimestamp(ts));
+    expect(metadata.tagName).toBe("DIV");
+    expect(metadata.getAttribute("tabindex")).toBeNull();
+    expect(within(metadata).queryAllByRole("button")).toHaveLength(0);
   });
 
   it("keeps starred user rail markers as unstar controls instead of timestamp triggers", () => {
@@ -141,6 +158,21 @@ describe("MessageBubble timestamp menu affordances", () => {
     expect(unstarMessageMock).toHaveBeenCalledWith("star-session", "user-star-menu");
   });
 
+  it("reveals the user options trigger and time popover for keyboard focus", () => {
+    // The parent message group owns desktop focus-within visibility, while the trigger itself exposes the tooltip.
+    const ts = new Date(2026, 6, 25, 17, 22, 13).getTime();
+    const msg = makeMessage({ id: "user-time-focus", role: "user", content: "Keyboard options", timestamp: ts });
+    render(<MessageBubble message={msg} />);
+
+    const trigger = screen.getByTestId("message-time-user-menu");
+    expect(trigger.className).toContain("sm:group-focus-within/msg:opacity-100");
+
+    fireEvent.focus(trigger);
+
+    expect(trigger.getAttribute("aria-describedby")).toBeTruthy();
+    expect(screen.getByRole("tooltip").textContent).toContain(formatExactMessageTimestamp(ts));
+  });
+
   it("shows exact timestamp details from the assistant message menu trigger on focus", () => {
     // Assistant rows keep their leading paw/star rail visuals, but the menu trigger owns the timestamp popover.
     const ts = new Date(2026, 6, 25, 17, 22, 13).getTime();
@@ -157,6 +189,37 @@ describe("MessageBubble timestamp menu affordances", () => {
     fireEvent.focus(screen.getByTestId("message-time-assistant-menu"));
 
     expect(screen.getByRole("tooltip").textContent).toContain(formatExactMessageTimestamp(ts));
+  });
+
+  it("keeps assistant actions and shows exact time metadata in the opened menu", () => {
+    // Assistant copy actions remain buttons; time is a separate role=note footer rather than a disabled action row.
+    const ts = new Date(2026, 6, 25, 17, 22, 13).getTime();
+    const msg = makeMessage({
+      id: "assistant-time-click",
+      role: "assistant",
+      content: "Timed response actions",
+      timestamp: ts,
+      historyIndex: 5,
+    });
+    render(<MessageBubble message={msg} showSideChatActions={false} />);
+
+    const trigger = screen.getByTestId("message-time-assistant-menu");
+    fireEvent.mouseEnter(trigger);
+    expect(screen.getByRole("tooltip").textContent).toContain(formatExactMessageTimestamp(ts));
+
+    fireEvent.click(trigger);
+
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(screen.getByRole("button", { name: "Copy as Markdown" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy as Rich Text" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy as Plain Text" })).toBeTruthy();
+
+    const metadata = screen.getByRole("note", { name: "Message time" });
+    expect(metadata).toBe(screen.getByTestId("message-time-assistant-menu-metadata"));
+    expect(metadata.className).toContain("border-t");
+    expect(metadata.textContent).toContain(formatExactMessageTimestamp(ts));
+    expect(metadata.getAttribute("tabindex")).toBeNull();
+    expect(within(metadata).queryAllByRole("button")).toHaveLength(0);
   });
 
   it("keeps starred assistant rail markers as unstar controls while the menu trigger shows time", () => {

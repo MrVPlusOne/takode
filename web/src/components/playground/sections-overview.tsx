@@ -14,6 +14,7 @@ import { PlaygroundMarkdownMathSection } from "./PlaygroundMarkdownMathSection.j
 import { PlaygroundSessionAttentionStates } from "./PlaygroundSessionAttentionStates.js";
 import { PlaygroundFileLinkSection } from "./PlaygroundFileLinkSection.js";
 import { PlaygroundPendingImagePreviews } from "./PlaygroundPendingImagePreviews.js";
+import { PlaygroundMessageTimingStates } from "./MessageTimingPlaygroundStates.js";
 import { PlaygroundChatViewRecoveryStates } from "./ChatViewRecoveryPlaygroundStates.js";
 import { AttentionLedgerRow } from "../AttentionLedgerRow.js";
 import { MarkdownContent } from "../MarkdownContent.js";
@@ -836,14 +837,20 @@ export function PlaygroundOverviewSections() {
         </div>
       </Section>
 
+      <PlaygroundMessageTimingStates />
+
       {/* ─── Messages ──────────────────────────────── */}
       <Section title="Messages" description="Chat message bubbles for all roles">
         <div className="space-y-4 max-w-3xl">
           <Card label="User message">
-            <MessageBubble message={MSG_USER} />
+            <div data-testid="playground-valid-message-menu">
+              <MessageBubble message={MSG_USER} />
+            </div>
           </Card>
           <Card label="User message (unavailable menu timestamp)">
-            <MessageBubble message={MSG_USER_UNAVAILABLE_TIME} />
+            <div data-testid="playground-unavailable-message-menu">
+              <MessageBubble message={MSG_USER_UNAVAILABLE_TIME} />
+            </div>
           </Card>
           <Card label="Starred user message (side rail star)">
             <MessageBubble message={MSG_STARRED_USER} sessionId={MOCK_SESSION_ID} />

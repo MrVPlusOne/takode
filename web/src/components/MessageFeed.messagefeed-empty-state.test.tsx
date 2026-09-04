@@ -658,6 +658,35 @@ describe("MessageFeed - empty state", () => {
     expect(screen.getByText(/Preserve unknown-route pending input/)).toBeTruthy();
   });
 
+  it("keeps pending-upload timing in normal feeds and hides it in Leader feeds", () => {
+    // Pending local messages follow the same Leader-only inline timing boundary as persisted messages.
+    const sid = "test-pending-upload-inline-timing";
+    const timestamp = new Date(2026, 8, 4, 11, 48).getTime();
+    setStoreMessages(sid, []);
+    setStorePendingUserUploads(sid, [
+      {
+        id: "pending-upload-timing",
+        content: "Pending timing boundary",
+        timestamp,
+        stage: "delivering",
+        images: [],
+      },
+    ]);
+
+    const normalFeed = render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByTestId("message-timestamp").textContent).toContain(
+      new Date(timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+    );
+
+    normalFeed.unmount();
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Pending timing boundary")).toBeTruthy();
+    expect(screen.queryByTestId("message-timestamp")).toBeNull();
+  });
+
   it("renders prepared local messages as pending delivery while awaiting server acknowledgement", () => {
     const sid = "test-pending-local-upload";
     setStoreMessages(sid, []);

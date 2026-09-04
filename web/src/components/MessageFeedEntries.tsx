@@ -73,6 +73,7 @@ import {
 import { ReadyThreadResponseRows, readyThreadResponseTurnHasContent } from "./ReadyThreadResponseRows.js";
 import { ExpandedCurrentThreadResponse } from "./ThreadResponsePresentationChrome.js";
 import { getTurnSummaryDurationMs } from "./message-feed-turn-duration.js";
+import { InlineMessageTimingVisibilityContext } from "./MessageTimestamp.js";
 import { TurnThreadStatusFooter } from "./MessageFeedThreadStatus.js";
 
 function useExpandForScrollTarget(
@@ -1712,6 +1713,7 @@ export const TurnEntries = memo(function TurnEntries({
   sessionId,
   currentThreadKey,
   leaderMode,
+  showInlineMessageTiming,
   isCodexSession,
   activeCodexTerminalIds,
   onOpenCodexTerminal,
@@ -1729,6 +1731,7 @@ export const TurnEntries = memo(function TurnEntries({
   sessionId: string;
   currentThreadKey: string;
   leaderMode: boolean;
+  showInlineMessageTiming: boolean;
   isCodexSession: boolean;
   activeCodexTerminalIds: Set<string>;
   onOpenCodexTerminal: (toolUseId: string) => void;
@@ -1794,7 +1797,7 @@ export const TurnEntries = memo(function TurnEntries({
     return buildMinuteBoundaryLabelMap(visibleTimedMessages);
   }, [readyThreadResponsePresentation, turns, turnStates]);
   return (
-    <>
+    <InlineMessageTimingVisibilityContext.Provider value={showInlineMessageTiming}>
       {(() => {
         let globalIndex = 0;
         return sections.map((section) => (
@@ -1968,6 +1971,6 @@ export const TurnEntries = memo(function TurnEntries({
           </div>
         ));
       })()}
-    </>
+    </InlineMessageTimingVisibilityContext.Provider>
   );
 });

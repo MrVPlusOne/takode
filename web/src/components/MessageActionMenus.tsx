@@ -7,7 +7,7 @@ import { generateReplyPreview } from "../utils/reply-preview.js";
 import { absoluteUrlForHash, routeSessionRefForId, sessionMessageHash } from "../utils/routing.js";
 import { createComposerDraftImage } from "./composer-image-utils.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
-import { MessageTimestampMenuTrigger } from "./MessageRailTimestamp.js";
+import { MessageTimeMenuMetadata, MessageTimestampMenuTrigger } from "./MessageRailTimestamp.js";
 import { useSideChatActionState } from "./SideChatControls.js";
 import { useMessageStarActions } from "./use-message-star-actions.js";
 
@@ -145,8 +145,10 @@ export function UserMessageMenu({
         ariaLabel="Message options"
         title="Message options"
         onClick={toggle}
-        className={`p-1 rounded hover:bg-cc-hover transition-all cursor-pointer ${
-          menuPos || copied ? "opacity-100" : "opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100"
+        className={`rounded p-1 transition-all cursor-pointer hover:bg-cc-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/40 ${
+          menuPos || copied
+            ? "opacity-100"
+            : "opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100 sm:group-focus-within/msg:opacity-100"
         }`}
       >
         {copied ? (
@@ -167,7 +169,16 @@ export function UserMessageMenu({
           </svg>
         )}
       </MessageTimestampMenuTrigger>
-      {menuPos && <ContextMenu x={menuPos.x} y={menuPos.y} items={items} onClose={() => setMenuPos(null)} />}
+      {menuPos && (
+        <ContextMenu
+          x={menuPos.x}
+          y={menuPos.y}
+          items={items}
+          onClose={() => setMenuPos(null)}
+          footer={<MessageTimeMenuMetadata timestamp={message.timestamp} testId="message-time-user-menu-metadata" />}
+          widthClassName="w-[248px] max-w-[calc(100vw-1rem)]"
+        />
+      )}
     </div>
   );
 }
@@ -333,7 +344,18 @@ export function AssistantMessageMenu({
           )}
         </MessageTimestampMenuTrigger>
       </span>
-      {menuPos && <ContextMenu x={menuPos.x} y={menuPos.y} items={items} onClose={() => setMenuPos(null)} />}
+      {menuPos && (
+        <ContextMenu
+          x={menuPos.x}
+          y={menuPos.y}
+          items={items}
+          onClose={() => setMenuPos(null)}
+          footer={
+            <MessageTimeMenuMetadata timestamp={message.timestamp} testId="message-time-assistant-menu-metadata" />
+          }
+          widthClassName="w-[248px] max-w-[calc(100vw-1rem)]"
+        />
+      )}
     </>
   );
 }

@@ -900,10 +900,12 @@ export function PendingCodexInputList({ sessionId, inputs }: { sessionId: string
 export function PendingUserUploadList({
   sessionId,
   uploads,
+  showTimestamp = true,
   questLinkSurface = "legacy",
 }: {
   sessionId: string;
   uploads: PendingUserUpload[];
+  showTimestamp?: boolean;
   questLinkSurface?: QuestLinkSurface;
 }) {
   if (uploads.length === 0) return null;
@@ -979,7 +981,7 @@ export function PendingUserUploadList({
               <MessageBubble
                 message={msg}
                 sessionId={sessionId}
-                showTimestamp={true}
+                showTimestamp={showTimestamp}
                 questLinkSurface={questLinkSurface}
               />
               <div className="flex justify-end gap-2 pr-10 text-xs">

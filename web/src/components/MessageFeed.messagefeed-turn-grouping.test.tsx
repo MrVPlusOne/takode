@@ -519,17 +519,58 @@ describe("MessageFeed - turn grouping", () => {
     expect(screen.getByText("Second answer")).toBeTruthy();
   });
 
-  it("shows assistant turn duration in the feed for completed turns", () => {
-    // Validates that completed assistant turns surface total turn duration in feed UI.
+  it("shows assistant message time and turn duration in a normal-session feed", () => {
+    // The Leader-only simplification must not change normal-session inline timing.
     const sid = "test-turn-duration";
+    const timestamp = new Date(2026, 8, 4, 11, 48).getTime();
     setStoreMessages(sid, [
-      makeMessage({ id: "u1", role: "user", content: "First question" }),
-      makeMessage({ id: "a1", role: "assistant", content: "First answer", turnDurationMs: 4200 }),
+      makeMessage({ id: "u1", role: "user", content: "First question", timestamp: timestamp - 4_200 }),
+      makeMessage({ id: "a1", role: "assistant", content: "First answer", timestamp, turnDurationMs: 4200 }),
     ]);
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByTestId("message-timestamp").textContent).toContain("4.2s");
+    const timing = screen.getByTestId("message-timestamp");
+    expect(timing.textContent).toContain(
+      new Date(timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+    );
+    expect(timing.textContent).toContain("· 4.2s");
+  });
+
+  it("hides inline message timing in Leader feeds while preserving date dividers", () => {
+    // Leader feeds remove only the per-message time/duration line; calendar boundaries remain visible.
+    const sid = "test-leader-inline-timing";
+    const firstDay = new Date(2026, 8, 3, 17, 10).getTime();
+    const secondDay = new Date(2026, 8, 4, 9, 15).getTime();
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "First day question", timestamp: firstDay }),
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "First day answer",
+        timestamp: firstDay + 20_000,
+        turnDurationMs: 20_000,
+      }),
+      makeMessage({ id: "u2", role: "user", content: "Second day question", timestamp: secondDay }),
+      makeMessage({
+        id: "a2",
+        role: "assistant",
+        content: "Second day answer",
+        timestamp: secondDay + 35_000,
+        turnDurationMs: 35_000,
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("First day answer")).toBeTruthy();
+    expect(screen.getByText("Second day answer")).toBeTruthy();
+    expect(screen.queryByTestId("message-timestamp")).toBeNull();
+    expect(screen.getAllByTestId("minute-boundary-timestamp").map((item) => item.textContent)).toEqual([
+      new Date(firstDay).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }),
+      new Date(secondDay).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }),
+    ]);
   });
 
   it("renders agent activity before first user message", () => {

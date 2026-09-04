@@ -181,6 +181,36 @@ describe("Playground", () => {
     expect(within(inspector).getByText("child-only tool result")).toBeInTheDocument();
   });
 
+  it("documents Leader-only inline timing suppression without losing menu time metadata", () => {
+    useStore.getState().reset();
+    render(<PlaygroundOverviewOnly />);
+
+    const normalTiming = within(screen.getByTestId("playground-normal-inline-timing"));
+    expect(normalTiming.getByTestId("message-timestamp")).toHaveTextContent("· 42s");
+
+    const leaderTiming = within(screen.getByTestId("playground-leader-inline-timing"));
+    expect(leaderTiming.queryByTestId("message-timestamp")).not.toBeInTheDocument();
+    fireEvent.click(leaderTiming.getByRole("button", { name: "Message options" }));
+    const leaderMetadata = screen.getByTestId("message-time-assistant-menu-metadata");
+    expect(leaderMetadata).toHaveAttribute("role", "note");
+    expect(leaderMetadata).toHaveTextContent("Message time");
+    expect(within(leaderMetadata).getByRole("time")).toBeInTheDocument();
+    expect(leaderMetadata).not.toHaveTextContent("Time unavailable");
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    const validMenu = within(screen.getByTestId("playground-valid-message-menu"));
+    fireEvent.click(validMenu.getByRole("button", { name: "Message options" }));
+    expect(screen.getByTestId("message-time-user-menu-metadata")).not.toHaveTextContent("Time unavailable");
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    const unavailableMenu = within(screen.getByTestId("playground-unavailable-message-menu"));
+    fireEvent.click(unavailableMenu.getByRole("button", { name: "Message options" }));
+    const unavailableMetadata = screen.getByTestId("message-time-user-menu-metadata");
+    expect(unavailableMetadata).toHaveTextContent("Message time");
+    expect(unavailableMetadata).toHaveTextContent("Time unavailable");
+    expect(within(unavailableMetadata).queryByRole("button")).not.toBeInTheDocument();
+  });
+
   it("renders the real chat stack section with integrated chat components", () => {
     render(<Playground />);
 

@@ -24,6 +24,31 @@ function getPopoverPosition(anchor: HTMLElement): PopoverPosition {
   return { left, top: Math.max(rect.top - gutter, gutter), placement: "above" };
 }
 
+export function MessageTimeMenuMetadata({ timestamp, testId }: { timestamp: number; testId: string }) {
+  const valid = isValidMessageTimestamp(timestamp);
+  const compactText = valid ? formatMessageTimestamp(timestamp) : "";
+  const exactText = valid ? formatExactMessageTimestamp(timestamp) : "";
+
+  return (
+    <div
+      role="note"
+      aria-label="Message time"
+      data-testid={testId}
+      className="mt-1 border-t border-cc-border/70 px-2.5 py-2 text-left"
+    >
+      <span className="block text-[9px] font-medium uppercase tracking-wider text-cc-muted/70">Message time</span>
+      {valid ? (
+        <time dateTime={new Date(timestamp).toISOString()} className="mt-0.5 block break-words">
+          <span className="block text-[11px] font-medium leading-snug text-cc-fg">{compactText}</span>
+          <span className="block text-[10px] leading-snug text-cc-muted">{exactText}</span>
+        </time>
+      ) : (
+        <span className="mt-0.5 block text-[11px] leading-snug text-cc-muted">Time unavailable</span>
+      )}
+    </div>
+  );
+}
+
 export function MessageTimestampMenuTrigger({
   timestamp,
   className,
