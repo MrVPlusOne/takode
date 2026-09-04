@@ -326,6 +326,7 @@ function addCurrentThreadResponseSupport(
       leaderResponseExactAnswerThreadKey(message) !== answerThreadKey ||
       answer.referencedUserMessageIds.length !== answer.answerUserMessageIds.length ||
       answer.coveredUserMessageIds.length !== answer.coveredAnswerUserMessageIds.length ||
+      (answer.coveredUserMessageIds.length === 0 && answer.source !== "explicit") ||
       !addRequired(message, historyIndex)
     ) {
       return { items: selectedItems, complete: false };

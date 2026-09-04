@@ -207,6 +207,8 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(work.leaderBrief).toContain("before telling the user a feature is implemented, available, or ready to test");
     expect(work.leaderBrief).toContain("When accepted scope still includes implementation");
     expect(work.leaderBrief).toContain("promptly report the main accepted answer, finding, or outcome");
+    expect(work.leaderBrief).toContain("normally carries the substantive `:A:<ids>` answer");
+    expect(work.leaderBrief).toContain("canonical answer-quality rule in `takode-orchestration`");
     expect(work.leaderBrief).toContain("do not describe the still-open quest as technically complete");
     expect(work.leaderBrief).toContain("The user-facing thread may be Ready");
     expect(work.leaderBrief).toContain("Every transition must supply exactly one fresh evidence mode");
@@ -263,6 +265,8 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(memory.leaderBrief).toContain("report it now from the current Work note");
     expect(memory.leaderBrief).toContain("ordinary read-only follow-up questions during Memory");
     expect(memory.leaderBrief).toContain("without reopening the quest");
+    expect(memory.leaderBrief).toContain("Report routine Memory completion as routed commentary/status");
+    expect(memory.leaderBrief).toContain("materially completes, corrects, or changes the prior response");
     expect(memory.nextLeaderAction).toContain("report the accepted outcome if it is not already visible");
     expect(memory.leaderBrief).toContain("normal same-worker Memory owner");
     expect(memory.leaderBrief).toContain("route the assigned Work worker back to Work");
@@ -311,6 +315,8 @@ describe("Quest Journey v2 phase directory loading", () => {
     expect(lifecycle).toContain("Repeated plans may also use `board advance --skip-optional-checkpoint`");
     expect(lifecycle).toContain('--skip-optional-checkpoint "Work confirmed the approved skip condition."');
     expect(lifecycle).toContain("without waiting for Memory closure");
+    expect(lifecycle).toContain("accepted-Work report normally carries the substantive answer");
+    expect(lifecycle).toContain("Routine completion is commentary/status");
     expect(lifecycle).toContain("Ordinary read-only follow-up questions during Memory");
     expect(lifecycle).toContain("do not reopen the quest");
   });

@@ -121,6 +121,31 @@ describe("explicit answer selected-window authority", () => {
     );
   });
 
+  it("retains every same-ID explicit answer row while only the latest owns coverage", () => {
+    // Producer-shaped transport coverage for the live regression: a detailed
+    // Work answer and a later complementary answer share one prompt anchor.
+    const session = { id: "leader", messageHistory: [human("raw-u1", 1, "q-42", "u1")] };
+    const earlier = createResponse(session, "q-42", "Detailed accepted Work answer.");
+    const later = assistant("later-same-id-answer", "Complementary Memory finding.", 20, "q-42");
+    later.leaderThreadRole = "answer";
+    later.leaderAnswerUserMessageIds = ["u1"];
+    later.leaderAnswerObservedHistoryLength = session.messageHistory.length;
+    session.messageHistory.push(later);
+    expect(finalizeRoutedLeaderResponseMessage(session, later)).toMatchObject({ finalized: true });
+
+    const message = sendLatest(session, "q-42");
+
+    expect(message.response_state).toMatchObject({
+      pendingMessageCount: 0,
+      ready: true,
+      currentAnswers: [
+        { currentMessageId: earlier.message.id, coveredUserMessageIds: [] },
+        { currentMessageId: later.message.id, coveredUserMessageIds: ["raw-u1"] },
+      ],
+    });
+    expect(deliveredIds(message)).toEqual(expect.arrayContaining(["raw-u1", earlier.message.id, later.message.id]));
+  });
+
   it("retains old Main prompt anchors with their current responses", () => {
     const session = { id: "leader", messageHistory: [human("main-u1", 1)] };
     const response = createResponse(session, "main", "Main answer.");

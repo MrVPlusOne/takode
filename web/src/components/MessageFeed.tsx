@@ -579,7 +579,11 @@ export function MessageFeed({
   const latestThreadResponseUpdatedAt = Math.max(
     0,
     ...(threadResponsePresentation?.currentResponses
-      .filter((item) => normalizeThreadKey(item.response.threadKey) === normalizedThreadKey)
+      .filter(
+        (item) =>
+          item.response.coveredUserMessageIds.length > 0 &&
+          normalizeThreadKey(item.response.threadKey) === normalizedThreadKey,
+      )
       .map((item) => item.response.updatedAt) ?? []),
   );
   const responseStateHasTrackedWork =

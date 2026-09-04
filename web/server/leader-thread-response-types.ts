@@ -81,7 +81,7 @@ export interface LeaderThreadOutcomeReminderGuard {
   missingNeedsInputTargets: LeaderThreadOutcomeReminderGuardTarget[];
 }
 
-/** Compact current answer pointer used by selected-thread presentation. */
+/** Compact answer-row pointer used by selected-thread presentation and coverage authority. */
 export interface LeaderThreadResponseState {
   version: typeof LEADER_THREAD_RESPONSE_VERSION;
   /** Authoritative source/owner route of the stored answer row. */
@@ -91,9 +91,9 @@ export interface LeaderThreadResponseState {
   answerUserMessageIds: string[];
   /** Complete raw history IDs originally referenced by this answer. */
   referencedUserMessageIds: string[];
-  /** Concise IDs for which this answer remains current after per-ID supersession. */
+  /** Concise IDs for which this answer remains current after per-ID supersession. Empty only for retained explicit rows. */
   coveredAnswerUserMessageIds: string[];
-  /** Raw history IDs matching the answer's current per-ID coverage. */
+  /** Raw history IDs matching the answer's current per-ID coverage. Empty only for retained explicit rows. */
   coveredUserMessageIds: string[];
   currentMessageId: string;
   currentHistoryIndex: number;
@@ -117,6 +117,11 @@ export interface LeaderThreadResponseProjection {
   cutoverHistoryIndex: number;
   pendingMessageCount: number;
   pendingMessages: LeaderThreadPendingMessageProjection[];
+  /**
+   * Chronological answer rows. Non-empty `covered*` fields are the sole
+   * current coverage/Ready authority; fully superseded explicit rows remain
+   * with empty `covered*` fields for presentation only.
+   */
   currentAnswers: LeaderThreadResponseState[];
   ready: boolean;
 }

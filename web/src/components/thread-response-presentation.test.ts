@@ -118,7 +118,7 @@ describe("explicit answer presentation", () => {
       ["a-current", "raw-u2"],
       ["b-current", "raw-u3"],
     ]);
-    expect(result?.currentResponses[0]?.coveredUserMessages).toEqual([
+    expect(result?.currentResponses[0]?.referencedUserMessages).toEqual([
       { historyMessageId: "raw-u1", userMessageId: "u1", content: "u1" },
       { historyMessageId: "raw-u2", userMessageId: "u2", content: "u2" },
     ]);
@@ -202,14 +202,95 @@ describe("explicit answer presentation", () => {
 
     const result = resolveThreadResponses(sections(messages), state, THREAD_KEY);
     expect(result?.currentResponses.map((item) => [item.response.currentMessageId, item.anchorUserMessageId])).toEqual([
-      ["a-current", "raw-u1"],
+      ["a-current", "raw-u2"],
       ["b-current", "raw-u2"],
     ]);
-    expect(result?.currentResponses[0]?.coveredUserMessages).toEqual([
+    expect(result?.currentResponses[0]?.referencedUserMessages).toEqual([
       { historyMessageId: "raw-u1", userMessageId: "u1", content: "u1" },
-    ]);
-    expect(result?.currentResponses[1]?.coveredUserMessages).toEqual([
       { historyMessageId: "raw-u2", userMessageId: "u2", content: "u2" },
+    ]);
+    expect(result?.currentResponses[1]?.referencedUserMessages).toEqual([
+      { historyMessageId: "raw-u2", userMessageId: "u2", content: "u2" },
+    ]);
+  });
+
+  it("keeps fully superseded explicit rows paired with their original prompts in source chronology", () => {
+    // The later answer owns coverage, but the earlier exact row remains part of
+    // the collapsed answer set so a shorter lifecycle recap cannot displace it.
+    const messages = [
+      user("u1", 10),
+      user("u2", 11),
+      answer({ id: "answer-earlier", answerIds: ["u1", "u2"], historyIndex: 14, content: "Detailed answer" }),
+      answer({ id: "answer-later", answerIds: ["u1", "u2"], historyIndex: 16, content: "Complementary answer" }),
+    ];
+    const state = projection({
+      currentAnswers: [
+        answerState({
+          id: "answer-earlier",
+          answerIds: ["u1", "u2"],
+          referencedIds: ["raw-u1", "raw-u2"],
+          coveredAnswerIds: [],
+          coveredIds: [],
+          historyIndex: 14,
+        }),
+        answerState({
+          id: "answer-later",
+          answerIds: ["u1", "u2"],
+          referencedIds: ["raw-u1", "raw-u2"],
+          historyIndex: 16,
+        }),
+      ],
+    });
+
+    const result = resolveThreadResponses(sections(messages), state, THREAD_KEY);
+
+    expect(result?.currentResponses.map((item) => [item.response.currentMessageId, item.anchorUserMessageId])).toEqual([
+      ["answer-earlier", "raw-u2"],
+      ["answer-later", "raw-u2"],
+    ]);
+    expect(result?.currentResponses.map((item) => item.messageEntry.msg.content)).toEqual([
+      "Detailed answer",
+      "Complementary answer",
+    ]);
+    expect(result?.currentResponses[0]?.messageEntry.msg.id).toBe("answer-earlier");
+    expect(result?.currentResponses[0]?.collapsedMessageEntry).toBe(result?.currentResponses[0]?.messageEntry);
+    expect(result?.currentResponses[0]?.referencedUserMessages).toEqual([
+      { historyMessageId: "raw-u1", userMessageId: "u1", content: "u1" },
+      { historyMessageId: "raw-u2", userMessageId: "u2", content: "u2" },
+    ]);
+  });
+
+  it("keeps overlapping answer sets chronological when later coverage points to an earlier prompt", () => {
+    // Without shared-set anchoring, the later u1 answer would render before
+    // the earlier grouped answer merely because u1 appears before u2.
+    const messages = [
+      user("u1", 10),
+      user("u2", 11),
+      answer({ id: "answer-earlier-group", answerIds: ["u1", "u2"], historyIndex: 14 }),
+      answer({ id: "answer-later-u1", answerIds: ["u1"], historyIndex: 16 }),
+    ];
+    const state = projection({
+      currentAnswers: [
+        answerState({
+          id: "answer-earlier-group",
+          answerIds: ["u1", "u2"],
+          referencedIds: ["raw-u1", "raw-u2"],
+          coveredAnswerIds: ["u2"],
+          coveredIds: ["raw-u2"],
+          historyIndex: 14,
+        }),
+        answerState({ id: "answer-later-u1", answerIds: ["u1"], referencedIds: ["raw-u1"], historyIndex: 16 }),
+      ],
+    });
+
+    expect(
+      resolveThreadResponses(sections(messages), state, THREAD_KEY)?.currentResponses.map((item) => [
+        item.response.currentMessageId,
+        item.anchorUserMessageId,
+      ]),
+    ).toEqual([
+      ["answer-earlier-group", "raw-u2"],
+      ["answer-later-u1", "raw-u2"],
     ]);
   });
 
@@ -229,6 +310,22 @@ describe("explicit answer presentation", () => {
       ],
     });
     expect(resolveThreadResponses(sections(validMessages()), mismatch, THREAD_KEY)).toBeNull();
+
+    const emptyLegacy = projection({
+      currentAnswers: [
+        answerState({
+          id: "a-current",
+          answerIds: ["u1", "u2"],
+          referencedIds: ["raw-u1", "raw-u2"],
+          coveredAnswerIds: [],
+          coveredIds: [],
+          historyIndex: 14,
+          source: "legacy",
+        }),
+        projection().currentAnswers[1]!,
+      ],
+    });
+    expect(resolveThreadResponses(sections(validMessages()), emptyLegacy, THREAD_KEY)).toBeNull();
   });
 
   it("retains current answer identity while an older request remains pending", () => {

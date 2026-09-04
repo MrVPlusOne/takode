@@ -248,6 +248,20 @@ function responseState(
         questId: QUEST_ID,
         answerUserMessageIds: ["u1", "u2"],
         referencedUserMessageIds: ["user-first", "user-second"],
+        coveredAnswerUserMessageIds: [],
+        coveredUserMessageIds: [],
+        currentMessageId: "response-grouped-r1",
+        currentHistoryIndex: 42,
+        createdAt: 1_700_000_003_000,
+        updatedAt: 1_700_000_003_000,
+        source: "explicit",
+      },
+      {
+        version: 2,
+        threadKey: QUEST_ID,
+        questId: QUEST_ID,
+        answerUserMessageIds: ["u1", "u2"],
+        referencedUserMessageIds: ["user-first", "user-second"],
         coveredAnswerUserMessageIds: ["u1", "u2"],
         coveredUserMessageIds: ["user-first", "user-second"],
         currentMessageId: "response-grouped-r2",
@@ -1506,7 +1520,8 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     const legacyResponse = screen.getByText("Phase-aware response before response coverage");
     expect(legacyResponse).toBeVisible();
     expect(screen.queryByText("Pre-cutover commentary stays behind expansion")).not.toBeInTheDocument();
-    expect(screen.getAllByTestId("thread-response-current")).toHaveLength(2);
+    expect(screen.getAllByTestId("thread-response-current")).toHaveLength(3);
+    expect(screen.getByText("Earlier grouped response")).toBeVisible();
     expect(screen.getByText("Current grouped response")).toBeVisible();
     expect(screen.getByText("Current singleton response")).toBeVisible();
   });
@@ -1527,27 +1542,30 @@ describe("MessageFeed explicit answer selected-window integration", () => {
 
     expect(screen.getByText("Phase-aware response before response coverage")).toBeVisible();
     expect(screen.queryByRole("region", { name: "Quest quiz" })).not.toBeInTheDocument();
-    expect(screen.getAllByTestId("thread-response-current")).toHaveLength(2);
+    expect(screen.getAllByTestId("thread-response-current")).toHaveLength(3);
   });
 
-  it("shows each current answer once after its last prompt and one Quiz when Ready", () => {
+  it("shows every valid answer in chronology after its original prompts and one Quiz when Ready", () => {
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
 
     const first = screen.getByText("First pending request");
     const second = screen.getByText("Second pending request");
     const third = screen.getByText("Third pending request");
+    const earlierGrouped = screen.getByText("Earlier grouped response");
     const grouped = screen.getByText("Current grouped response");
     const singleton = screen.getByText("Current singleton response");
     expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
-    expect(second.compareDocumentPosition(grouped) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(second.compareDocumentPosition(earlierGrouped) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(earlierGrouped.compareDocumentPosition(grouped) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(third.compareDocumentPosition(singleton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     const answerCounts = screen.getAllByTestId("thread-response-answer-count");
-    expect(answerCounts).toHaveLength(2);
+    expect(answerCounts).toHaveLength(3);
     expect(answerCounts[0]).toHaveTextContent("Answers 2 messages");
-    expect(answerCounts[1]).toHaveTextContent("Answers 1 message");
+    expect(answerCounts[1]).toHaveTextContent("Answers 2 messages");
+    expect(answerCounts[2]).toHaveTextContent("Answers 1 message");
     expect(screen.queryByText("Current answer")).not.toBeInTheDocument();
-    expect(screen.getAllByTestId("thread-response-current")).toHaveLength(2);
-    for (const answer of [grouped, singleton]) {
+    expect(screen.getAllByTestId("thread-response-current")).toHaveLength(3);
+    for (const answer of [earlierGrouped, grouped, singleton]) {
       const shell = answer.closest<HTMLElement>("[data-testid='thread-response-collapsed-shell']")!;
       expect(shell).toBeInTheDocument();
       expect(shell).not.toHaveClass("gap-2", "sm:gap-3");
@@ -1556,9 +1574,8 @@ describe("MessageFeed explicit answer selected-window integration", () => {
       expect(messageRow).toBeInTheDocument();
       expect(messageRow).not.toHaveClass("gap-2", "sm:gap-3");
       expect(messageRow.children).toHaveLength(1);
-      expect(within(shell).getByRole("button", { name: "Message options" })).toBeVisible();
+      expect(within(messageRow).getByRole("button", { name: "Message options" })).toBeVisible();
     }
-    expect(screen.queryByText("Earlier grouped response")).not.toBeInTheDocument();
     expect(screen.queryByText("Intermediate leader and tool activity")).not.toBeInTheDocument();
     expect(screen.queryByText("Hidden compact marker")).not.toBeInTheDocument();
     expect(screen.getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
@@ -1946,7 +1963,8 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     });
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
 
-    expect(screen.getAllByTestId("thread-response-current")).toHaveLength(1);
+    expect(screen.getAllByTestId("thread-response-current")).toHaveLength(2);
+    expect(screen.getByText("Earlier grouped response")).toBeVisible();
     expect(screen.getByText("Intermediate leader and tool activity")).toBeVisible();
     expect(screen.getByText("Current singleton response")).toBeVisible();
     expect(
@@ -1959,7 +1977,8 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
 
     expect(useStore.getState().threadWindowResponseStates.get(SESSION_ID)?.get(QUEST_ID)?.ready).toBe(false);
-    expect(screen.getAllByTestId("thread-response-current")).toHaveLength(1);
+    expect(screen.getAllByTestId("thread-response-current")).toHaveLength(2);
+    expect(screen.getByText("Earlier grouped response")).toBeVisible();
     expect(screen.getByText("Current grouped response")).toBeVisible();
     expect(screen.getByText("Intermediate leader and tool activity")).toBeVisible();
     const secondTurn = screen.getByText("Second pending request").closest<HTMLElement>("[data-turn-id]")!;

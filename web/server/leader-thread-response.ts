@@ -564,7 +564,11 @@ function projectCurrentAnswers(
     const coveredUserMessageIds = candidate.referencedUserMessageIds.filter(
       (messageId) => latestByUserMessageId.get(messageId) === candidate,
     );
-    if (coveredUserMessageIds.length === 0) return [];
+    // Current coverage remains last-answer-wins per user message. Explicit
+    // answers are also presentation history, so retain a structurally valid
+    // row even when a later answer owns every repeated ID. Legacy revisions
+    // keep their historical current-only behavior.
+    if (coveredUserMessageIds.length === 0 && candidate.source !== "explicit") return [];
     const coveredAnswerUserMessageIds = coveredUserMessageIds.map((messageId) => conciseByHistoryId.get(messageId));
     if (coveredAnswerUserMessageIds.some((id) => !id)) return [];
     return [
@@ -619,7 +623,7 @@ function projectCurrentAnswerForThread(
 ): LeaderThreadResponseState | null {
   if (
     answer.coveredUserMessageIds.length !== answer.coveredAnswerUserMessageIds.length ||
-    answer.coveredUserMessageIds.length === 0
+    (answer.coveredUserMessageIds.length === 0 && answer.source !== "explicit")
   ) {
     return null;
   }
@@ -719,7 +723,10 @@ export function isCurrentValidRoutedLeaderResponseMessage(
   const threadKey = exactResponseThreadKey(message);
   if (!threadKey) return false;
   return buildLeaderThreadResponseState(session, threadKey).responses.some(
-    (answer) => answer.currentHistoryIndex === historyIndex && answer.currentMessageId === message.message.id,
+    (answer) =>
+      answer.coveredUserMessageIds.length > 0 &&
+      answer.currentHistoryIndex === historyIndex &&
+      answer.currentMessageId === message.message.id,
   );
 }
 

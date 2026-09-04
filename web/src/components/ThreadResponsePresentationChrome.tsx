@@ -12,7 +12,7 @@ import {
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
 import { getVisualViewportRect } from "./quest-feed-preview-geometry.js";
-import type { ThreadResponseCoveredUserMessage } from "./thread-response-presentation.js";
+import type { ThreadResponseReferencedUserMessage } from "./thread-response-presentation.js";
 
 const FOCUSABLE_CONTROL_SELECTOR =
   'a[href],area[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),summary,iframe,audio[controls],video[controls],[contenteditable]:not([contenteditable="false"]),[tabindex]:not([tabindex="-1"])';
@@ -84,8 +84,8 @@ function samePosition(left: CoveragePreviewPosition | null, right: CoveragePrevi
 
 function hasCompletePreview(
   messageCount: number,
-  messages: readonly ThreadResponseCoveredUserMessage[] | undefined,
-): messages is readonly ThreadResponseCoveredUserMessage[] {
+  messages: readonly ThreadResponseReferencedUserMessage[] | undefined,
+): messages is readonly ThreadResponseReferencedUserMessage[] {
   if (!messages || messages.length !== messageCount || messageCount <= 0) return false;
   const historyIds = new Set<string>();
   const userIds = new Set<string>();
@@ -113,7 +113,7 @@ export function ThreadResponseCoverageBadge({
   className = "",
 }: {
   messageCount: number;
-  referencedMessages?: readonly ThreadResponseCoveredUserMessage[];
+  referencedMessages?: readonly ThreadResponseReferencedUserMessage[];
   className?: string;
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -402,7 +402,7 @@ export function ExpandedCurrentThreadResponse({
   children,
 }: {
   messageCount: number;
-  referencedMessages?: readonly ThreadResponseCoveredUserMessage[];
+  referencedMessages?: readonly ThreadResponseReferencedUserMessage[];
   children: ReactNode;
 }) {
   return (

@@ -44,7 +44,12 @@ const GROUPED_COVERED_USER_MESSAGES = [
 
 const CURRENT_RESPONSE = assistantEntry(
   "playground-response-current",
-  "The responsive feed now foregrounds one polished response for this two-message batch. Earlier working notes and tools remain available when the turn is expanded.",
+  "The later answer adds the final mobile result without compressing the detailed answer above it.",
+  "answer",
+);
+const EARLIER_RESPONSE = assistantEntry(
+  "playground-response-earlier",
+  "The responsive feed now keeps this detailed accepted-Work answer visible for both requests, including the reasoning and remaining uncertainty.",
   "answer",
 );
 const INTERMEDIATE = assistantEntry(
@@ -63,11 +68,11 @@ const READY_TURN: Turn = {
       timestamp: 1,
     },
   },
-  allEntries: [INTERMEDIATE, CURRENT_RESPONSE],
-  presentationEntries: [INTERMEDIATE, CURRENT_RESPONSE],
+  allEntries: [EARLIER_RESPONSE, INTERMEDIATE, CURRENT_RESPONSE],
+  presentationEntries: [EARLIER_RESPONSE, INTERMEDIATE, CURRENT_RESPONSE],
   agentEntries: [INTERMEDIATE],
   systemEntries: [],
-  notificationEntries: [CURRENT_RESPONSE],
+  notificationEntries: [EARLIER_RESPONSE, CURRENT_RESPONSE],
   responseEntry: null,
   subConclusions: [],
   collapsedEntries: [],
@@ -78,6 +83,29 @@ const PRESENTATION: ThreadResponsePresentation = {
   cutoverHistoryIndex: 0,
   pendingMessageCount: 0,
   currentResponses: [
+    {
+      response: {
+        version: 2,
+        threadKey: "q-2042",
+        questId: "q-2042",
+        answerUserMessageIds: ["u1", "u2"],
+        referencedUserMessageIds: ["playground-user-first", "playground-user-second"],
+        coveredAnswerUserMessageIds: [],
+        coveredUserMessageIds: [],
+        currentMessageId: EARLIER_RESPONSE.msg.id,
+        currentHistoryIndex: 6,
+        createdAt: 6,
+        updatedAt: 6,
+        source: "explicit",
+      },
+      anchorUserMessageId: "playground-user-second",
+      anchorTurnId: READY_TURN.id,
+      anchorOrder: 1,
+      sourceTurnId: READY_TURN.id,
+      messageEntry: EARLIER_RESPONSE,
+      collapsedMessageEntry: EARLIER_RESPONSE,
+      referencedUserMessages: GROUPED_COVERED_USER_MESSAGES,
+    },
     {
       response: {
         version: 2,
@@ -99,10 +127,10 @@ const PRESENTATION: ThreadResponsePresentation = {
       sourceTurnId: READY_TURN.id,
       messageEntry: CURRENT_RESPONSE,
       collapsedMessageEntry: CURRENT_RESPONSE,
-      coveredUserMessages: GROUPED_COVERED_USER_MESSAGES,
+      referencedUserMessages: GROUPED_COVERED_USER_MESSAGES,
     },
   ],
-  currentResponseMessageIds: new Set([CURRENT_RESPONSE.msg.id]),
+  currentResponseMessageIds: new Set([EARLIER_RESPONSE.msg.id, CURRENT_RESPONSE.msg.id]),
   quizGroups: [{ hostTurnId: READY_TURN.id, questIds: ["q-8"] }],
   layoutSignature: "playground-response-r2",
 };
@@ -156,7 +184,7 @@ const ANSWER_ONLY_PRESENTATION: ThreadResponsePresentation = {
       sourceTurnId: ANSWER_ONLY_TURN.id,
       messageEntry: ANSWER_ONLY_RESPONSE,
       collapsedMessageEntry: ANSWER_ONLY_RESPONSE,
-      coveredUserMessages: [
+      referencedUserMessages: [
         {
           historyMessageId: ANSWER_ONLY_TURN.id,
           userMessageId: "u3",
@@ -237,7 +265,7 @@ const ASSOCIATED_MAIN_PRESENTATION: ThreadResponsePresentation = {
       sourceTurnId: ASSOCIATED_MAIN_TURN.id,
       messageEntry: ASSOCIATED_MAIN_RESPONSE,
       collapsedMessageEntry: ASSOCIATED_MAIN_RESPONSE,
-      coveredUserMessages: [
+      referencedUserMessages: [
         {
           historyMessageId: ASSOCIATED_MAIN_TURN.id,
           userMessageId: "u25",
@@ -272,10 +300,10 @@ export function PlaygroundThreadResponseSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Routed Answers"
-        description="Each routed answer uses one coverage chip without a decorative assistant rail; answers stay visible while work remains pending, Ready controls whole-thread collapse, and expanded history preserves commentary plus superseded answers."
+        description="Every valid routed answer remains visible in source chronology with its original coverage preview; later answers add or correct substance, Ready controls whole-thread collapse, and expanded history preserves all commentary and answer rows."
       >
         <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-          <Card label="Collapsed Ready · grouped answer plus Quiz">
+          <Card label="Collapsed Ready · chronological answer set plus Quiz">
             <div
               className="min-w-0 max-w-[430px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"
               data-testid="playground-unified-footer-with-tools"

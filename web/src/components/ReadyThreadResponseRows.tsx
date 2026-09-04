@@ -64,25 +64,19 @@ export function ReadyThreadResponseRows({
 }) {
   const responses = presentation.currentResponses.filter((item) => item.anchorTurnId === turn.id);
   const responseMessageIds = new Set(responses.map((item) => item.response.currentMessageId));
-  const sourceOrderByMessageId = new Map<string, number>();
-  presentationEntries(turn).forEach((entry, order) => {
-    if (entry.kind === "message" && !sourceOrderByMessageId.has(entry.msg.id)) {
-      sourceOrderByMessageId.set(entry.msg.id, order);
-    }
-  });
   const promptEntries = unresolvedNeedsInputPromptEntries(turn, activeNeedsInputAnchorMessageIds, responseMessageIds);
   const rows = [
     ...responses.map((item, responseOrder) => ({
       kind: "response" as const,
       item,
-      order: sourceOrderByMessageId.get(item.response.currentMessageId) ?? Number.MAX_SAFE_INTEGER,
-      fallbackOrder: item.response.currentHistoryIndex * 2 + responseOrder,
+      order: item.response.currentHistoryIndex,
+      fallbackOrder: responseOrder,
     })),
     ...promptEntries.map(({ entry, order }) => ({
       kind: "prompt" as const,
       entry,
-      order,
-      fallbackOrder: Number.MAX_SAFE_INTEGER,
+      order: Number.isInteger(entry.msg.historyIndex) ? entry.msg.historyIndex! : Number.MAX_SAFE_INTEGER,
+      fallbackOrder: order,
     })),
   ].sort((left, right) => left.order - right.order || left.fallbackOrder - right.fallbackOrder);
   const quizGroup = presentation.quizGroups.find((group) => group.hostTurnId === turn.id);
@@ -97,8 +91,8 @@ export function ReadyThreadResponseRows({
             data-testid="thread-response-current"
           >
             <ThreadResponseCoverageBadge
-              messageCount={row.item.response.coveredUserMessageIds.length}
-              referencedMessages={row.item.coveredUserMessages}
+              messageCount={row.item.response.answerUserMessageIds.length}
+              referencedMessages={row.item.referencedUserMessages}
               className="mb-1.5"
             />
             <HidePawContext.Provider value={true}>

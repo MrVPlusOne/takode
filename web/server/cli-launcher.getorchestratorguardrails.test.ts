@@ -404,6 +404,16 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("The Work leader brief remains the complete owner of recovery behavior");
     expect(guardrails).toContain("That brief owns the complete recovery rule");
     expect(guardrails).toContain("Report accepted Work before Memory closure");
+    expect(guardrails).toContain("accepted-Work response normally carries the substantive user-facing answer");
+    expect(guardrails).toContain("Before emitting `:A:<ids>`, retrieve or reread every listed user message");
+    expect(guardrails).toContain("inspect every earlier visible valid answer");
+    expect(guardrails).toContain("Apply `explain-clearly` for substantial answers");
+    expect(guardrails).toContain("every valid answer remains visible in source chronology");
+    expect(guardrails).toContain("Routine Memory completion is routed commentary/status");
+    expect(guardrails).toContain("publish routine Memory closure with `[thread:q-N:C]`");
+    expect(guardrails).toContain("renders the quest quiz on the turn that carries the directive");
+    expect(guardrails).not.toContain("publish the polished completion answer");
+    expect(guardrails).not.toContain("actual answer-turn host");
     expect(guardrails).toContain("--work-note <feedback-index> --commit <sha>");
     expect(guardrails).toContain("Genuine zero-git-tracked-change Work uses the mutually exclusive `--no-code` mode");
     expect(guardrails).toContain("older quest commits do not replace it");
@@ -592,9 +602,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("quest metadata reconciliation");
     expect(guardrails).toContain("Final debrief TLDRs and routine user-facing summaries should describe");
     expect(guardrails).toContain("without repeating raw commit hashes already carried");
-    expect(guardrails).toContain("When telling the user a quest is complete");
-    expect(guardrails).toContain("lead with the delivered result or decision, why it matters");
-    expect(guardrails).toContain("final debrief metadata status, no-op memory statements");
+    expect(guardrails).toContain("Routine Memory completion is routed commentary/status");
+    expect(guardrails).toContain("materially completes, corrects, or changes the earlier response");
     expect(guardrails).toContain("{[(Quest Quiz: q-N)]}");
     expect(guardrails).toContain("quest metadata reconciliation");
     expect(guardrails).toContain("sync/push when authorized");

@@ -59,6 +59,15 @@ describe("leader skill preload builder", () => {
     expect(orchestration?.content).toContain("send final Memory to the normal same worker without waiting for closure");
     expect(orchestration?.content).toContain("Ordinary read-only follow-ups during Memory use accepted evidence");
     expect(orchestration?.content).toContain("Final Memory is mandatory");
+    expect(orchestration?.content).toContain("retrieve or reread every listed user message");
+    expect(orchestration?.content).toContain("inspect every earlier visible valid answer");
+    expect(orchestration?.content).toContain("apply `explain-clearly`");
+    expect(orchestration?.content).toContain(
+      "accepted-Work response normally carries the substantive user-facing answer",
+    );
+    expect(orchestration?.content).toContain("Final Memory closure is commentary by default");
+    expect(orchestration?.content).toContain("materially completes, corrects, or changes the prior response");
+    expect(orchestration?.content).not.toContain("Quest completion responses are answers");
     for (const label of Object.values(HERD_EVENT_LIFECYCLE_LABELS)) {
       expect(orchestration?.content).toContain(label);
     }

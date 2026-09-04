@@ -67,6 +67,7 @@ const TAKODE_ORCHESTRATION_QUEST_JOURNEY_PATH = join(
 );
 const WORK_LEADER_BRIEF_PATH = join(SERVER_DIR, "..", "shared", "quest-journey-phases", "work", "leader.md");
 const WORK_ASSIGNEE_BRIEF_PATH = join(SERVER_DIR, "..", "shared", "quest-journey-phases", "work", "assignee.md");
+const MEMORY_LEADER_BRIEF_PATH = join(SERVER_DIR, "..", "shared", "quest-journey-phases", "memory", "leader.md");
 const USER_CHECKPOINT_LEADER_BRIEF_PATH = join(
   SERVER_DIR,
   "..",
@@ -349,6 +350,33 @@ describe("index startup skill registration", () => {
     expect(topLevelSource).toContain("That brief owns the complete recovery rule");
     expect(topLevelSource).not.toContain("allow one short verification window");
     expect(topLevelSource).not.toContain("exact-once replay proof or recovery suppression");
+  });
+
+  it("keeps leader answer quality canonical while phase briefs own Work and Memory timing", async () => {
+    const [orchestration, workLeader, memoryLeader, launcher] = await Promise.all([
+      readFile(TAKODE_ORCHESTRATION_SKILL_PATH, "utf-8"),
+      readFile(WORK_LEADER_BRIEF_PATH, "utf-8"),
+      readFile(MEMORY_LEADER_BRIEF_PATH, "utf-8"),
+      readFile(CLI_LAUNCHER_INSTRUCTIONS_PATH, "utf-8"),
+    ]);
+
+    expect(orchestration).toContain("retrieve or reread every listed user message");
+    expect(orchestration).toContain("inspect every earlier visible valid answer");
+    expect(orchestration).toContain("apply `explain-clearly`");
+    expect(orchestration).toContain("complementary addition, correction, or material completion");
+    expect(orchestration).toContain("Final Memory closure is commentary by default");
+
+    expect(workLeader).toContain("normally carries the substantive `:A:<ids>` answer");
+    expect(workLeader).toContain("canonical answer-quality rule in `takode-orchestration`");
+    expect(memoryLeader).toContain("Report routine Memory completion as routed commentary/status");
+    expect(memoryLeader).toContain("materially completes, corrects, or changes the prior response");
+
+    expect(launcher).toContain("Before emitting \\`:A:<ids>\\`, retrieve or reread every listed user message");
+    expect(launcher).toContain("publish routine Memory closure with \\`[thread:q-N:C]\\`");
+    for (const source of [orchestration, launcher]) {
+      expect(source).not.toContain("Quest completion responses are answers");
+      expect(source).not.toContain("publish the polished completion answer");
+    }
   });
 
   it("keeps canonical design-to-build rules owned by the lifecycle guide", async () => {

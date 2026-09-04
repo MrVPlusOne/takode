@@ -11,7 +11,7 @@ import { extractQuestQuizMarkerIds, stripQuestQuizMarkers } from "./AssistantQue
 import type { FeedSection } from "./message-feed-sections.js";
 import { isUserBoundaryEntry } from "../hooks/use-feed-model.js";
 
-export interface ThreadResponseCoveredUserMessage {
+export interface ThreadResponseReferencedUserMessage {
   historyMessageId: string;
   userMessageId: string;
   content: string;
@@ -26,7 +26,7 @@ export interface CurrentThreadResponsePresentationItem {
   sourceTurnId: string;
   messageEntry: Extract<FeedEntry, { kind: "message" }>;
   collapsedMessageEntry: Extract<FeedEntry, { kind: "message" }>;
-  coveredUserMessages?: readonly ThreadResponseCoveredUserMessage[];
+  referencedUserMessages?: readonly ThreadResponseReferencedUserMessage[];
 }
 
 export interface ThreadResponseQuizGroup {
@@ -137,6 +137,48 @@ function collectQuestQuizGroups(
 
 function entryHistoryIndex(entry: FeedEntry | null | undefined): number | null {
   return entry?.kind === "message" && Number.isInteger(entry.msg.historyIndex) ? entry.msg.historyIndex! : null;
+}
+
+function alignOverlappingAnswerAnchors(responses: CurrentThreadResponsePresentationItem[]): void {
+  const parents = responses.map((_, index) => index);
+  const find = (index: number): number => {
+    let root = index;
+    while (parents[root] !== root) root = parents[root]!;
+    while (parents[index] !== index) {
+      const next = parents[index]!;
+      parents[index] = root;
+      index = next;
+    }
+    return root;
+  };
+  const union = (left: number, right: number) => {
+    const leftRoot = find(left);
+    const rightRoot = find(right);
+    if (leftRoot !== rightRoot) parents[rightRoot] = leftRoot;
+  };
+
+  const firstResponseByPrompt = new Map<string, number>();
+  responses.forEach((item, index) => {
+    for (const messageId of item.response.referencedUserMessageIds) {
+      const first = firstResponseByPrompt.get(messageId);
+      if (first === undefined) firstResponseByPrompt.set(messageId, index);
+      else union(index, first);
+    }
+  });
+
+  const latestAnchorByRoot = new Map<number, CurrentThreadResponsePresentationItem>();
+  responses.forEach((item, index) => {
+    const root = find(index);
+    const latest = latestAnchorByRoot.get(root);
+    if (!latest || item.anchorOrder > latest.anchorOrder) latestAnchorByRoot.set(root, item);
+  });
+  responses.forEach((item, index) => {
+    const anchor = latestAnchorByRoot.get(find(index));
+    if (!anchor) return;
+    item.anchorUserMessageId = anchor.anchorUserMessageId;
+    item.anchorTurnId = anchor.anchorTurnId;
+    item.anchorOrder = anchor.anchorOrder;
+  });
 }
 
 export function threadResponsePresentationTouchesTurn(turn: Turn, presentation: ThreadResponsePresentation): boolean {
@@ -282,8 +324,8 @@ export function resolveThreadResponses(
       (associationProjection && response.source !== "explicit") ||
       response.referencedUserMessageIds.length === 0 ||
       response.referencedUserMessageIds.length !== response.answerUserMessageIds.length ||
-      response.coveredUserMessageIds.length === 0 ||
       response.coveredUserMessageIds.length !== response.coveredAnswerUserMessageIds.length ||
+      (response.coveredUserMessageIds.length === 0 && response.source !== "explicit") ||
       new Set(response.referencedUserMessageIds).size !== response.referencedUserMessageIds.length ||
       new Set(response.coveredUserMessageIds).size !== response.coveredUserMessageIds.length ||
       response.coveredUserMessageIds.some((messageId) => !response.referencedUserMessageIds.includes(messageId)) ||
@@ -310,9 +352,12 @@ export function resolveThreadResponses(
     ) {
       return null;
     }
-    const anchors = response.coveredUserMessageIds.map((messageId) => directUsers.get(messageId));
+    for (let index = 1; index < referencedAnchors.length; index += 1) {
+      if (referencedAnchors[index - 1]!.order >= referencedAnchors[index]!.order) return null;
+    }
+    const coverageAnchors = response.coveredUserMessageIds.map((messageId) => directUsers.get(messageId));
     if (
-      anchors.some(
+      coverageAnchors.some(
         (anchor, index) =>
           !anchor ||
           anchor.historyIndex < state.cutoverHistoryIndex ||
@@ -322,23 +367,23 @@ export function resolveThreadResponses(
     ) {
       return null;
     }
-    for (let index = 1; index < anchors.length; index += 1) {
-      if (anchors[index - 1]!.order >= anchors[index]!.order) return null;
+    for (let index = 1; index < coverageAnchors.length; index += 1) {
+      if (coverageAnchors[index - 1]!.order >= coverageAnchors[index]!.order) return null;
     }
     for (const messageId of response.coveredUserMessageIds) {
       if (coveredIds.has(messageId) || pendingIds.has(messageId)) return null;
       coveredIds.add(messageId);
     }
-    const lastAnchor = anchors.at(-1)!;
+    const lastAnchor = referencedAnchors.at(-1)!;
     currentResponses.push({
       response,
-      anchorUserMessageId: response.coveredUserMessageIds.at(-1)!,
+      anchorUserMessageId: response.referencedUserMessageIds.at(-1)!,
       anchorTurnId: lastAnchor.turnId,
       anchorOrder: lastAnchor.order,
       sourceTurnId: located.turnId,
       messageEntry: located.entry,
       collapsedMessageEntry: collapsedResponseEntry(located.entry),
-      coveredUserMessages: anchors.map((anchor) => {
+      referencedUserMessages: referencedAnchors.map((anchor) => {
         const attachmentCount = Math.max(anchor!.message.images?.length ?? 0, anchor!.message.localImages?.length ?? 0);
         return {
           historyMessageId: anchor!.message.id,
@@ -354,7 +399,14 @@ export function resolveThreadResponses(
     if (!coveredIds.has(messageId) && !pendingIds.has(messageId)) return null;
   }
 
-  currentResponses.sort((left, right) => left.anchorOrder - right.anchorOrder);
+  // Answers sharing any original prompt form one visible answer set. Anchor
+  // that set after its latest prompt so the rows can stay in source chronology
+  // even when later per-ID coverage points back to an earlier prompt.
+  alignOverlappingAnswerAnchors(currentResponses);
+  currentResponses.sort(
+    (left, right) =>
+      left.anchorOrder - right.anchorOrder || left.response.currentHistoryIndex - right.response.currentHistoryIndex,
+  );
   const quizGroups = collectQuestQuizGroups(sections, state.cutoverHistoryIndex);
   const pendingSignature = state.pendingMessages
     .map((pending) => `${pending.userMessageId}:${pending.historyMessageId}:${pending.historyIndex}`)

@@ -4,6 +4,7 @@ import type { BrowserIncomingMessage } from "./session-types.js";
 import {
   buildLeaderThreadResponseState,
   finalizeRoutedLeaderResponseMessage,
+  isCurrentValidRoutedLeaderResponseMessage,
   leaderThreadResponseContentHash,
 } from "./leader-thread-response.js";
 
@@ -198,6 +199,38 @@ describe("explicit routed leader answers", () => {
         coveredAnswerUserMessageIds: ["u2"],
       },
     ]);
+  });
+
+  it("retains fully superseded explicit answers for presentation without restoring coverage authority", () => {
+    // Leaders may deliberately add a complementary answer for the same request.
+    // Both exact rows stay presentable, but only the latest row owns coverage/Ready.
+    const target = session();
+    target.messageHistory.push(human("u1", 1), human("u2", 2));
+    const earlier = appendAnswer(target, "answer-both-earlier", ["u1", "u2"], "Detailed accepted Work answer.", 2);
+    const later = appendAnswer(target, "answer-both-later", ["u1", "u2"], "Material Memory addition.", 3);
+
+    expect(buildLeaderThreadResponseState(target, "main").projection).toMatchObject({
+      pendingMessageCount: 0,
+      ready: true,
+      currentAnswers: [
+        {
+          currentMessageId: "answer-both-earlier",
+          answerUserMessageIds: ["u1", "u2"],
+          referencedUserMessageIds: ["raw-u1", "raw-u2"],
+          coveredAnswerUserMessageIds: [],
+          coveredUserMessageIds: [],
+        },
+        {
+          currentMessageId: "answer-both-later",
+          answerUserMessageIds: ["u1", "u2"],
+          referencedUserMessageIds: ["raw-u1", "raw-u2"],
+          coveredAnswerUserMessageIds: ["u1", "u2"],
+          coveredUserMessageIds: ["raw-u1", "raw-u2"],
+        },
+      ],
+    });
+    expect(isCurrentValidRoutedLeaderResponseMessage(target, earlier)).toBe(false);
+    expect(isCurrentValidRoutedLeaderResponseMessage(target, later)).toBe(true);
   });
 
   it("rejects unknown, unseen, cross-thread, duplicate, and out-of-order IDs atomically", () => {
@@ -396,6 +429,29 @@ describe("explicit routed leader answers", () => {
       { currentMessageId: "main-answer", coveredAnswerUserMessageIds: ["u1"] },
       { currentMessageId: "main-answer-u2", coveredAnswerUserMessageIds: ["u2"] },
     ]);
+  });
+
+  it("projects each retained answer through its own complete association proof", () => {
+    // A later grouped answer must not erase an earlier answer that is safe for
+    // this quest, and it must not leak its unassociated second prompt here.
+    const target = session();
+    const first = human("u1", 1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    const second = human("u2", 2) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    first.threadRefs = [{ threadKey: "q-42", questId: "q-42", source: "backfill", attachedAt: 3 }];
+    target.messageHistory.push(first, second);
+    appendAnswer(target, "main-answer-u1", ["u1"], "Quest-safe answer.", 2);
+    appendAnswer(target, "main-answer-grouped", ["u1", "u2"], "Grouped Main-only answer.", 3);
+
+    expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toMatchObject([
+      {
+        currentMessageId: "main-answer-u1",
+        referencedUserMessageIds: ["raw-u1"],
+        coveredUserMessageIds: [],
+      },
+    ]);
+
+    first.threadRefs = [];
+    expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toEqual([]);
   });
 
   it("does not treat a persisted Main backfill as association for a quest-owned answer", () => {

@@ -965,7 +965,7 @@ export const FeedEntries = memo(function FeedEntries({
         const isTimed = isTimedChatMessage(entry.msg);
         const markerLabel = isTimed ? minuteBoundaryLabels?.get(entry.msg.id) : undefined;
         const currentResponse = threadResponsePresentation?.currentResponses.find(
-          (item) => item.response.currentMessageId === entry.msg.id,
+          (item) => item.response.coveredUserMessageIds.length > 0 && item.response.currentMessageId === entry.msg.id,
         );
         const bubble = (
           <MessageBubble
@@ -992,8 +992,8 @@ export const FeedEntries = memo(function FeedEntries({
             {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
             {currentResponse ? (
               <ExpandedCurrentThreadResponse
-                messageCount={currentResponse.response.coveredUserMessageIds.length}
-                referencedMessages={currentResponse.coveredUserMessages}
+                messageCount={currentResponse.response.answerUserMessageIds.length}
+                referencedMessages={currentResponse.referencedUserMessages}
               >
                 <HidePawContext.Provider value={true}>{bubble}</HidePawContext.Provider>
               </ExpandedCurrentThreadResponse>
@@ -1754,7 +1754,11 @@ export const TurnEntries = memo(function TurnEntries({
   const latestThreadResponseUpdatedAt = Math.max(
     0,
     ...(threadResponsePresentation?.currentResponses
-      .filter((item) => normalizeThreadKey(item.response.threadKey) === normalizeThreadKey(currentThreadKey))
+      .filter(
+        (item) =>
+          item.response.coveredUserMessageIds.length > 0 &&
+          normalizeThreadKey(item.response.threadKey) === normalizeThreadKey(currentThreadKey),
+      )
       .map((item) => item.response.updatedAt) ?? []),
   );
   const readyThreadResponsePresentation =
