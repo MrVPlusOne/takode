@@ -17,6 +17,13 @@ import {
   THREAD_OUTCOME_REMINDER_SOURCE_ID,
   THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
 } from "../../shared/thread-outcome-reminder.js";
+import {
+  buildThreadRoutingReminderContent,
+  isLeaderAnswerRouteDiagnostic,
+  THREAD_ROUTING_REMINDER_SOURCE_ID,
+  THREAD_ROUTING_REMINDER_SOURCE_LABEL,
+  type LeaderAnswerRouteDiagnostic,
+} from "../../shared/thread-routing-reminder.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { isCanonicalLeaderUserMessageId } from "../leader-user-message-id.js";
 import type {
@@ -93,7 +100,12 @@ export function validateLeaderThreadOutcomes(
     return { checked: false, reason: "no_new_history" };
   }
   if (deps.getTurnSource?.(session) === "system") {
-    session.leaderThreadOutcomeValidatedHistoryLength = history.length;
+    // System-triggered turns must not inject routing reminders, but a semantic
+    // rejection recovered from an earlier normal turn still needs the next
+    // normal validation boundary. Keep that exact row unconsumed instead of
+    // silently losing its actionable diagnostic during recovery/preload work.
+    const deferredAnswerRouteRejection = findPersistedAnswerRouteRejection(history, startIndex);
+    session.leaderThreadOutcomeValidatedHistoryLength = deferredAnswerRouteRejection?.historyIndex ?? history.length;
     deps.persistSession?.(session);
     return { checked: false, reason: "system_turn" };
   }
@@ -108,6 +120,34 @@ export function validateLeaderThreadOutcomes(
   const touchedThreads = collectTouchedLeaderThreads(history, startIndex);
   addRejectedReadyThreads(touchedThreads, [...rejectedReadyThreadKeys], history);
   session.leaderThreadOutcomeValidatedHistoryLength = history.length;
+
+  const answerRouteRejection = findPersistedAnswerRouteRejection(history, startIndex);
+  if (answerRouteRejection) {
+    const delivery = deps.injectUserMessage(
+      session.id,
+      buildThreadRoutingReminderContent({
+        reason: "invalid_answer_route",
+        source: "answer_marker",
+        answerRouteDiagnostic: answerRouteRejection.diagnostic,
+      }),
+      {
+        sessionId: THREAD_ROUTING_REMINDER_SOURCE_ID,
+        sessionLabel: THREAD_ROUTING_REMINDER_SOURCE_LABEL,
+      },
+      threadRouteForTarget(answerRouteRejection.diagnostic.selectedThreadKey),
+    );
+    clearPendingRejectedReadyThreadKeys(session, [
+      answerRouteRejection.diagnostic.selectedThreadKey,
+      ...answerRouteRejection.diagnostic.ownerGroups.map((group) => group.threadKey),
+    ]);
+    settleValidatedHistoryLength(session, history);
+    deps.persistSession?.(session);
+    return {
+      checked: true,
+      missing: answerRouteMissingThreadKeys(answerRouteRejection.diagnostic),
+      injected: delivery !== "dropped" && delivery !== "no_session",
+    };
+  }
 
   const missingNeedsInputPrompts = touchedThreads.filter(
     (thread) => hasBlockingApprovalPrompt(thread) && !hasFreshSameThreadNeedsInput(thread, session.notifications ?? []),
@@ -207,6 +247,34 @@ export function validateLeaderThreadOutcomes(
     missing: [...pendingResponseMissing, ...outcomeMissing].map((thread) => thread.route.threadKey),
     injected: delivery !== "dropped" && delivery !== "no_session",
   };
+}
+
+function findPersistedAnswerRouteRejection(
+  history: BrowserIncomingMessage[],
+  startIndex: number,
+): { diagnostic: LeaderAnswerRouteDiagnostic; historyIndex: number } | null {
+  for (let index = startIndex; index < history.length; index += 1) {
+    const entry = history[index];
+    if (
+      entry?.type !== "assistant" ||
+      !isRootAgentHistoryMessage(entry) ||
+      entry.parent_tool_use_id !== null ||
+      entry.leaderThreadRole !== "answer" ||
+      entry.threadAnswer !== undefined ||
+      entry.threadRoutingError?.reason !== "invalid_answer_route" ||
+      entry.threadRoutingError.source !== "answer_marker" ||
+      !isLeaderAnswerRouteDiagnostic(entry.threadRoutingError.answerRouteDiagnostic)
+    ) {
+      continue;
+    }
+    return { diagnostic: entry.threadRoutingError.answerRouteDiagnostic, historyIndex: index };
+  }
+  return null;
+}
+
+function answerRouteMissingThreadKeys(diagnostic: LeaderAnswerRouteDiagnostic): string[] {
+  const ownerThreads = diagnostic.ownerGroups.map((group) => group.threadKey);
+  return ownerThreads.length > 0 ? [...new Set(ownerThreads)] : [diagnostic.selectedThreadKey];
 }
 
 function pendingLeaderAnswerSnapshot(

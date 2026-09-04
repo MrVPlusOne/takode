@@ -623,7 +623,13 @@ function findThreadRoutingErrorForCurrentTurn(session: ThreadRoutingReminderSess
     const entry = session.messageHistory[index];
     if (!entry) continue;
     if (entry.type === "result") continue;
-    if (entry.type === "assistant" && entry.threadRoutingError) return entry.threadRoutingError;
+    if (
+      entry.type === "assistant" &&
+      entry.threadRoutingError &&
+      entry.threadRoutingError.reason !== "invalid_answer_route"
+    ) {
+      return entry.threadRoutingError;
+    }
   }
   return null;
 }

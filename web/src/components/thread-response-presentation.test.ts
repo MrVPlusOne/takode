@@ -444,6 +444,135 @@ describe("explicit answer presentation", () => {
     ).toBeNull();
   });
 
+  it("keeps canonical quest-owned answers chronological in another associated quest", () => {
+    const ownerThreadKey = "q-2042";
+    const selectedThreadKey = "q-2044";
+    const prompts: ChatMessage[] = [
+      {
+        id: "raw-u37",
+        role: "user",
+        content: "Implement the approved behavior",
+        timestamp: 10,
+        historyIndex: 10,
+        metadata: {
+          leaderResponseCoverageVersion: 1,
+          leaderUserMessageId: "u37",
+          threadKey: ownerThreadKey,
+          questId: ownerThreadKey,
+          threadRefs: [
+            { threadKey: ownerThreadKey, questId: ownerThreadKey, source: "explicit" },
+            { threadKey: selectedThreadKey, questId: selectedThreadKey, source: "backfill" },
+          ],
+        },
+      },
+      {
+        id: "raw-u38",
+        role: "user",
+        content: "Proceed with Work",
+        timestamp: 11,
+        historyIndex: 11,
+        metadata: {
+          leaderResponseCoverageVersion: 1,
+          leaderUserMessageId: "u38",
+          threadKey: ownerThreadKey,
+          questId: ownerThreadKey,
+          threadRefs: [
+            { threadKey: ownerThreadKey, questId: ownerThreadKey, source: "explicit" },
+            { threadKey: selectedThreadKey, questId: selectedThreadKey, source: "backfill" },
+          ],
+        },
+      },
+    ];
+    const sourceRoute = {
+      threadKey: ownerThreadKey,
+      questId: ownerThreadKey,
+      threadRefs: [{ threadKey: ownerThreadKey, questId: ownerThreadKey, source: "explicit" as const }],
+    };
+    const earlierAnswer: ChatMessage = {
+      id: "earlier-design-answer",
+      role: "assistant",
+      content: "The approved design keeps every valid answer visible.",
+      timestamp: 14,
+      historyIndex: 14,
+      metadata: {
+        ...sourceRoute,
+        leaderThreadRole: "answer",
+        threadAnswer: { version: 2, answerUserMessageIds: ["u37", "u38"], observedHistoryLength: 12 },
+      },
+    };
+    const canonicalAnswer: ChatMessage = {
+      id: "approved-behavior-implemented",
+      role: "assistant",
+      content: "The approved behavior is now implemented.",
+      timestamp: 16,
+      historyIndex: 16,
+      metadata: {
+        ...sourceRoute,
+        threadRefs: [
+          ...sourceRoute.threadRefs,
+          { threadKey: selectedThreadKey, questId: selectedThreadKey, source: "backfill" },
+        ],
+        leaderThreadRole: "answer",
+        threadAnswer: { version: 2, answerUserMessageIds: ["u37", "u38"], observedHistoryLength: 12 },
+      },
+    };
+    const state: LeaderThreadResponseProjection = {
+      version: 2,
+      threadKey: selectedThreadKey,
+      cutoverHistoryIndex: 10,
+      pendingMessageCount: 0,
+      pendingMessages: [],
+      ready: true,
+      currentAnswers: [
+        {
+          version: 2,
+          threadKey: ownerThreadKey,
+          questId: ownerThreadKey,
+          answerUserMessageIds: ["u37", "u38"],
+          referencedUserMessageIds: ["raw-u37", "raw-u38"],
+          coveredAnswerUserMessageIds: [],
+          coveredUserMessageIds: [],
+          currentMessageId: earlierAnswer.id,
+          currentHistoryIndex: 14,
+          createdAt: 14,
+          updatedAt: 14,
+          source: "explicit",
+        },
+        {
+          version: 2,
+          threadKey: ownerThreadKey,
+          questId: ownerThreadKey,
+          answerUserMessageIds: ["u37", "u38"],
+          referencedUserMessageIds: ["raw-u37", "raw-u38"],
+          coveredAnswerUserMessageIds: ["u37", "u38"],
+          coveredUserMessageIds: ["raw-u37", "raw-u38"],
+          currentMessageId: canonicalAnswer.id,
+          currentHistoryIndex: 16,
+          createdAt: 16,
+          updatedAt: 16,
+          source: "explicit",
+        },
+      ],
+    };
+
+    const result = resolveThreadResponses(
+      sections([...prompts, earlierAnswer, canonicalAnswer]),
+      state,
+      selectedThreadKey,
+    );
+
+    expect(result?.currentResponses.map((item) => item.response.currentMessageId)).toEqual([
+      earlierAnswer.id,
+      canonicalAnswer.id,
+    ]);
+    expect(result?.currentResponses.map((item) => item.messageEntry.msg.content)).toEqual([
+      "The approved design keeps every valid answer visible.",
+      "The approved behavior is now implemented.",
+    ]);
+    expect(result?.currentResponses.every((item) => item.response.threadKey === ownerThreadKey)).toBe(true);
+    expect(result?.currentResponses.every((item) => item.anchorUserMessageId === "raw-u38")).toBe(true);
+  });
+
   it("requires every original prompt association before projecting grouped Main prose", () => {
     const attachedMainUser: ChatMessage = {
       id: "raw-u25",

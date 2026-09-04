@@ -394,6 +394,48 @@ describe("handleMessage: assistant", () => {
     ]);
   });
 
+  it("replaces provisional quest routing when a same-ID answer is canonicalized to Main", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    const message = {
+      id: "canonicalized-main-answer",
+      type: "message",
+      role: "assistant",
+      model: "claude-opus-4-20250514",
+      content: [{ type: "text", text: "Substantive answer" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    };
+    fireMessage({
+      type: "assistant",
+      message,
+      parent_tool_use_id: null,
+      threadKey: "q-2044",
+      questId: "q-2044",
+      threadRefs: [{ threadKey: "q-2044", questId: "q-2044", source: "explicit" }],
+      leaderThreadRole: "answer",
+    });
+    fireMessage({
+      type: "assistant",
+      message,
+      parent_tool_use_id: null,
+      threadKey: "main",
+      threadRefs: [{ threadKey: "q-2044", questId: "q-2044", source: "backfill" }],
+      leaderThreadRole: "answer",
+      threadAnswer: { version: 2, answerUserMessageIds: ["u39"], observedHistoryLength: 39 },
+    });
+
+    const [answer] = useStore.getState().messages.get("s1")!;
+    expect(answer.metadata).toMatchObject({
+      threadKey: "main",
+      threadRefs: [{ threadKey: "q-2044", questId: "q-2044", source: "backfill" }],
+      leaderThreadRole: "answer",
+      threadAnswer: { version: 2, answerUserMessageIds: ["u39"], observedHistoryLength: 39 },
+    });
+    expect(answer.metadata).not.toHaveProperty("questId");
+  });
+
   it("removes stale root Codex thinking when merging a same-ID assistant update", () => {
     // A live update can merge with pre-fix browser state, so the merge boundary must sanitize both sides.
     wsModule.connectSession("s1");

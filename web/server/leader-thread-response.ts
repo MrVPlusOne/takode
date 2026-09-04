@@ -3,8 +3,15 @@ import {
   leaderResponseAssociatedThreadKeys,
   leaderResponseExactAnswerThreadKey,
   leaderResponseOwnerThreadKey,
+  leaderResponseProvenCurrentOwnerThreadKey,
+  leaderResponseStableOwnerThreadKeyForRepair,
 } from "../shared/leader-thread-response-routing.js";
 import { normalizeSelectedFeedThreadKey } from "../shared/thread-window.js";
+import type {
+  LeaderAnswerRouteDiagnostic,
+  LeaderAnswerRouteDiagnosticReason,
+  LeaderAnswerRouteOwnerGroup,
+} from "../shared/thread-routing-reminder.js";
 import {
   buildLeaderUserMessageIdentities,
   isCanonicalLeaderUserMessageId,
@@ -14,6 +21,7 @@ import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
 import type {
   BrowserIncomingMessage,
   LeaderThreadAnswerMetadata,
+  ThreadRef,
   LeaderThreadResponseProjection,
   LeaderThreadResponseState,
   LegacyLeaderThreadResponseRevisionMetadata,
@@ -75,6 +83,23 @@ type Evaluation = {
   currentAnswers: LeaderThreadResponseState[];
   coveredMessageIds: Set<string>;
 };
+
+type AnswerRouteResolution =
+  | {
+      ok: true;
+      referenced: DirectHumanMessage[];
+      ownerThreadKey: string;
+    }
+  | {
+      ok: false;
+      reason: LeaderAnswerRouteDiagnosticReason;
+      ownerGroups: LeaderAnswerRouteOwnerGroup[];
+    };
+
+type AnswerRouteSnapshot = Pick<
+  Extract<BrowserIncomingMessage, { type: "assistant" }>,
+  "threadKey" | "questId" | "threadRefs"
+>;
 
 type LegacyPendingBatch = {
   batchId: string;
@@ -462,33 +487,233 @@ function sameIds(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((id, index) => id === right[index]);
 }
 
+function answerOwnerGroups(referenced: readonly DirectHumanMessage[]): {
+  groups: LeaderAnswerRouteOwnerGroup[];
+  ownerByMessage: Array<string | null>;
+} {
+  const ownerByMessage = referenced.map((message) => leaderResponseProvenCurrentOwnerThreadKey(message.message));
+  const grouped = new Map<string, string[]>();
+  for (let index = 0; index < referenced.length; index += 1) {
+    const owner = ownerByMessage[index];
+    if (!owner) continue;
+    const ids = grouped.get(owner) ?? [];
+    ids.push(referenced[index]!.userMessageId);
+    grouped.set(owner, ids);
+  }
+  return {
+    groups: [...grouped].map(([threadKey, userMessageIds]) => ({ threadKey, userMessageIds })),
+    ownerByMessage,
+  };
+}
+
+function resolveExplicitAnswerMessagesForOwner(
+  directMessages: readonly DirectHumanMessage[],
+  answerUserMessageIds: readonly string[],
+  observedHistoryLength: number,
+): AnswerRouteResolution {
+  const byId = new Map(directMessages.map((message) => [message.userMessageId, message]));
+  const unresolved = answerUserMessageIds.filter((id) => {
+    const message = byId.get(id);
+    return !message || message.historyIndex >= observedHistoryLength;
+  });
+  if (unresolved.length > 0) {
+    return { ok: false, reason: "invalid_ids", ownerGroups: [] };
+  }
+
+  const referenced = answerUserMessageIds.map((id) => byId.get(id)!) as DirectHumanMessage[];
+  const { groups: ownerGroups, ownerByMessage } = answerOwnerGroups(referenced);
+  if (ownerByMessage.some((owner) => owner === null)) {
+    // A partial owner map cannot safely describe indivisible grouped prose.
+    // Persist only the ambiguity reason so reminder validation cannot mistake
+    // the proven subset for a separately correctable answer.
+    return { ok: false, reason: "unproven_owner", ownerGroups: [] };
+  }
+  if (ownerGroups.length !== 1) {
+    return { ok: false, reason: "multiple_owners", ownerGroups };
+  }
+
+  const ownerThreadKey = ownerGroups[0]!.threadKey;
+  const threadMessages = directMessages.filter(
+    (message) => message.historyIndex < observedHistoryLength && message.threadKey === ownerThreadKey,
+  );
+  const positions = referenced.map((message) =>
+    threadMessages.findIndex((candidate) => candidate.historyMessageId === message.historyMessageId),
+  );
+  if (positions.some((position) => position < 0)) {
+    return { ok: false, reason: "invalid_ids", ownerGroups };
+  }
+  for (let index = 1; index < positions.length; index += 1) {
+    if (positions[index] !== positions[index - 1]! + 1) {
+      return { ok: false, reason: "nonconsecutive_ids", ownerGroups };
+    }
+  }
+  return { ok: true, referenced, ownerThreadKey };
+}
+
 function resolveExplicitAnswerMessages(
   directMessages: readonly DirectHumanMessage[],
   answerUserMessageIds: readonly string[],
   observedHistoryLength: number,
   threadKey: string,
 ): DirectHumanMessage[] | null {
-  const byId = new Map(directMessages.map((message) => [message.userMessageId, message]));
-  const referenced = answerUserMessageIds.map((id) => byId.get(id));
-  if (
-    referenced.some(
-      (message) => !message || message.historyIndex >= observedHistoryLength || message.threadKey !== threadKey,
-    )
-  ) {
-    return null;
-  }
-  const resolved = referenced as DirectHumanMessage[];
-  const threadMessages = directMessages.filter(
-    (message) => message.threadKey === threadKey && message.historyIndex < observedHistoryLength,
+  const resolution = resolveExplicitAnswerMessagesForOwner(directMessages, answerUserMessageIds, observedHistoryLength);
+  return resolution.ok && resolution.ownerThreadKey === threadKey ? resolution.referenced : null;
+}
+
+function answerRouteControlConflict(
+  message: Extract<BrowserIncomingMessage, { type: "assistant" }>,
+  ownerThreadKey: string,
+): boolean {
+  const deferredConflict = message.deferredThreadStatusMarkers?.some(
+    (marker) => marker.target.threadKey !== ownerThreadKey,
   );
-  const positions = resolved.map((message) =>
-    threadMessages.findIndex((candidate) => candidate.historyMessageId === message.historyMessageId),
+  const appliedConflict = message.threadStatusMarkers?.some((marker) => marker.threadKey !== ownerThreadKey);
+  return deferredConflict === true || appliedConflict === true;
+}
+
+function threadRefRouteKey(ref: ThreadRef): string | null {
+  const threadKey = ref.threadKey.trim().toLowerCase();
+  const questId = ref.questId?.trim().toLowerCase();
+  if (threadKey === "main") return questId ? null : "main";
+  if (!/^q-\d+$/.test(threadKey)) return null;
+  return questId === threadKey ? threadKey : null;
+}
+
+function hasConflictingAuthoritativeAnswerRefs(
+  message: Extract<BrowserIncomingMessage, { type: "assistant" }>,
+  selectedThreadKey: string,
+): boolean {
+  return (message.threadRefs ?? []).some(
+    (ref) => ref.source !== "backfill" && threadRefRouteKey(ref) !== selectedThreadKey,
   );
-  if (positions.some((position) => position < 0)) return null;
-  for (let index = 1; index < positions.length; index += 1) {
-    if (positions[index] !== positions[index - 1]! + 1) return null;
+}
+
+function answerRouteSnapshot(message: Extract<BrowserIncomingMessage, { type: "assistant" }>): AnswerRouteSnapshot {
+  return {
+    threadKey: message.threadKey,
+    questId: message.questId,
+    threadRefs: message.threadRefs,
+  };
+}
+
+function restoreAnswerRoute(
+  message: Extract<BrowserIncomingMessage, { type: "assistant" }>,
+  snapshot: AnswerRouteSnapshot,
+): void {
+  if (snapshot.threadKey === undefined) delete message.threadKey;
+  else message.threadKey = snapshot.threadKey;
+  if (snapshot.questId === undefined) delete message.questId;
+  else message.questId = snapshot.questId;
+  if (snapshot.threadRefs === undefined) delete message.threadRefs;
+  else message.threadRefs = snapshot.threadRefs;
+}
+
+function canonicalizeAnswerRoute(
+  message: Extract<BrowserIncomingMessage, { type: "assistant" }>,
+  ownerThreadKey: string,
+  selectedThreadKey: string,
+): void {
+  const timestamp = typeof message.timestamp === "number" && Number.isFinite(message.timestamp) ? message.timestamp : 0;
+  const refs = new Map<string, ThreadRef>();
+
+  if (ownerThreadKey !== "main") {
+    refs.set(ownerThreadKey, {
+      threadKey: ownerThreadKey,
+      questId: ownerThreadKey,
+      source: "explicit",
+      attachedAt: timestamp,
+    });
   }
-  return resolved;
+
+  for (const ref of message.threadRefs ?? []) {
+    if (ref.source !== "backfill") continue;
+    const route = threadRefRouteKey(ref);
+    if (!route || route === "main" || route === ownerThreadKey) continue;
+    refs.set(route, ref);
+  }
+
+  if (selectedThreadKey !== ownerThreadKey && selectedThreadKey !== "main") {
+    const selectedRef = (message.threadRefs ?? []).find((ref) => threadRefRouteKey(ref) === selectedThreadKey);
+    refs.set(selectedThreadKey, {
+      ...(selectedRef ?? {}),
+      threadKey: selectedThreadKey,
+      questId: selectedThreadKey,
+      source: "backfill",
+      attachedAt:
+        typeof selectedRef?.attachedAt === "number" && Number.isFinite(selectedRef.attachedAt)
+          ? selectedRef.attachedAt
+          : timestamp,
+    });
+  }
+
+  message.threadKey = ownerThreadKey;
+  if (ownerThreadKey === "main") delete message.questId;
+  else message.questId = ownerThreadKey;
+  const nextRefs = [...refs.values()];
+  if (nextRefs.length === 0) delete message.threadRefs;
+  else message.threadRefs = nextRefs;
+}
+
+const ANSWER_ROUTE_EXPECTED =
+  "Answer IDs must resolve to one proven owner; a different selected q-thread must already be visibility-associated with every referenced prompt.";
+
+function selectedThreadKeyForDiagnostic(message: Extract<BrowserIncomingMessage, { type: "assistant" }>): string {
+  const value = message.threadKey?.trim().toLowerCase();
+  return value === "main" || (value !== undefined && /^q-\d+$/.test(value)) ? value : "main";
+}
+
+function validDiagnosticAnswerIds(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(isCanonicalLeaderUserMessageId) &&
+    new Set(value).size === value.length
+  );
+}
+
+function persistAnswerRouteDiagnostic(
+  message: Extract<BrowserIncomingMessage, { type: "assistant" }>,
+  diagnostic: LeaderAnswerRouteDiagnostic,
+): void {
+  message.threadRoutingError = {
+    reason: "invalid_answer_route",
+    expected: ANSWER_ROUTE_EXPECTED,
+    source: "answer_marker",
+    answerRouteDiagnostic: diagnostic,
+  };
+}
+
+function rejectAnswerRoute(
+  message: Extract<BrowserIncomingMessage, { type: "assistant" }>,
+  reason: LeaderAnswerRouteDiagnosticReason,
+  options: {
+    selectedThreadKey?: string;
+    answerUserMessageIds?: string[];
+    ownerGroups?: LeaderAnswerRouteOwnerGroup[];
+    missingAssociationUserMessageIds?: string[];
+    resultReason?: Extract<FinalizeRoutedLeaderResponseResult, { finalized: false }>["reason"];
+  } = {},
+): FinalizeRoutedLeaderResponseResult {
+  const answerUserMessageIds = options.answerUserMessageIds ?? message.leaderAnswerUserMessageIds;
+  if (validDiagnosticAnswerIds(answerUserMessageIds)) {
+    persistAnswerRouteDiagnostic(message, {
+      reason,
+      selectedThreadKey: options.selectedThreadKey ?? selectedThreadKeyForDiagnostic(message),
+      answerUserMessageIds: [...answerUserMessageIds],
+      ownerGroups: (options.ownerGroups ?? []).map((group) => ({
+        threadKey: group.threadKey,
+        userMessageIds: [...group.userMessageIds],
+      })),
+      ...(options.missingAssociationUserMessageIds?.length
+        ? { missingAssociationUserMessageIds: [...options.missingAssociationUserMessageIds] }
+        : {}),
+    });
+  }
+  return { finalized: false, reason: options.resultReason ?? "invalid_message" };
+}
+
+function clearAnswerRouteDiagnostic(message: Extract<BrowserIncomingMessage, { type: "assistant" }>): void {
+  if (message.threadRoutingError?.reason === "invalid_answer_route") delete message.threadRoutingError;
 }
 
 function parsedExplicitCandidate(
@@ -696,7 +921,11 @@ export function buildLeaderThreadResponseState(
 }
 
 export type FinalizeRoutedLeaderResponseResult =
-  | { finalized: true; answerId: string }
+  | {
+      finalized: true;
+      answerId: string;
+      canonicalizedRoute?: { selectedThreadKey: string; ownerThreadKey: string };
+    }
   | {
       finalized: false;
       reason: "not_answer" | "already_finalized" | "unproven_observation" | "invalid_message" | "stale";
@@ -742,34 +971,101 @@ export function finalizeRoutedLeaderResponseMessage(
     (observedHistoryLength ?? -1) < 0 ||
     (observedHistoryLength ?? 0) > session.messageHistory.length
   ) {
-    return { finalized: false, reason: "unproven_observation" };
+    return rejectAnswerRoute(message, "stale", { resultReason: "unproven_observation" });
   }
-  const threadKey = exactResponseThreadKey(message);
+  const selectedThreadKey = exactResponseThreadKey(message);
   const markdown = responseMessageMarkdown(message);
   const messageId = responseMessageId(message);
   const historyIndex = session.messageHistory.indexOf(message);
   const answerUserMessageIds = message.leaderAnswerUserMessageIds;
+  if (!selectedThreadKey) {
+    return rejectAnswerRoute(message, "route_control_conflict");
+  }
+  if (hasThreadControlDirectives(markdown)) {
+    return rejectAnswerRoute(message, "route_control_conflict", { selectedThreadKey });
+  }
   if (
-    !threadKey ||
+    !Array.isArray(answerUserMessageIds) ||
+    answerUserMessageIds.length === 0 ||
+    answerUserMessageIds.some((id) => !isCanonicalLeaderUserMessageId(id)) ||
+    new Set(answerUserMessageIds).size !== answerUserMessageIds.length
+  ) {
+    return rejectAnswerRoute(message, "invalid_ids", { selectedThreadKey });
+  }
+  if (
     !messageId ||
     historyIndex < observedHistoryLength! ||
     !isRootAgentHistoryMessage(message) ||
     !eligibleAssistantAnswer(message) ||
     !isSubstantiveLeaderThreadAnswer(markdown) ||
-    hasThreadControlDirectives(markdown) ||
-    !Array.isArray(answerUserMessageIds) ||
-    answerUserMessageIds.length === 0 ||
-    answerUserMessageIds.some((id) => !isCanonicalLeaderUserMessageId(id)) ||
-    new Set(answerUserMessageIds).size !== answerUserMessageIds.length ||
     message.threadAnswer !== undefined ||
     otherStoredAnswerUsesMessageId(session, message, messageId)
   ) {
-    return { finalized: false, reason: "invalid_message" };
+    return rejectAnswerRoute(message, "invalid_answer", {
+      selectedThreadKey,
+      answerUserMessageIds,
+    });
   }
 
   const directMessages = collectDirectMessages(session.messageHistory, session.messageHistory.length);
-  if (!resolveExplicitAnswerMessages(directMessages, answerUserMessageIds, observedHistoryLength!, threadKey)) {
-    return { finalized: false, reason: "invalid_message" };
+  const resolution = resolveExplicitAnswerMessagesForOwner(
+    directMessages,
+    answerUserMessageIds,
+    observedHistoryLength!,
+  );
+  if (!resolution.ok) {
+    return rejectAnswerRoute(message, resolution.reason, {
+      selectedThreadKey,
+      answerUserMessageIds,
+      ownerGroups: resolution.ownerGroups,
+    });
+  }
+
+  const ownerThreadKey = resolution.ownerThreadKey;
+  const ownerGroups = [{ threadKey: ownerThreadKey, userMessageIds: [...answerUserMessageIds] }];
+  const routeSnapshot = answerRouteSnapshot(message);
+  const routeMismatch = selectedThreadKey !== ownerThreadKey;
+  if (routeMismatch) {
+    if (
+      resolution.referenced.some(
+        (entry) => leaderResponseStableOwnerThreadKeyForRepair(entry.message) !== ownerThreadKey,
+      )
+    ) {
+      return rejectAnswerRoute(message, "unproven_owner", {
+        selectedThreadKey,
+        answerUserMessageIds,
+        ownerGroups,
+      });
+    }
+    if (selectedThreadKey === "main") {
+      return rejectAnswerRoute(message, "disallowed_main_backfill", {
+        selectedThreadKey,
+        answerUserMessageIds,
+        ownerGroups,
+      });
+    }
+    if (
+      hasConflictingAuthoritativeAnswerRefs(message, selectedThreadKey) ||
+      answerRouteControlConflict(message, ownerThreadKey)
+    ) {
+      return rejectAnswerRoute(message, "route_control_conflict", {
+        selectedThreadKey,
+        answerUserMessageIds,
+        ownerGroups,
+      });
+    }
+    const missingAssociationUserMessageIds = resolution.referenced
+      .filter((entry) => !entry.associatedThreadKeys.includes(selectedThreadKey))
+      .map((entry) => entry.userMessageId);
+    if (missingAssociationUserMessageIds.length > 0) {
+      return rejectAnswerRoute(message, "missing_association", {
+        selectedThreadKey,
+        answerUserMessageIds,
+        ownerGroups,
+        missingAssociationUserMessageIds,
+      });
+    }
+    canonicalizeAnswerRoute(message, ownerThreadKey, selectedThreadKey);
   }
 
   message.threadAnswer = {
@@ -779,7 +1075,18 @@ export function finalizeRoutedLeaderResponseMessage(
   };
   if (!isCurrentValidRoutedLeaderResponseMessage(session, message)) {
     delete message.threadAnswer;
-    return { finalized: false, reason: "stale" };
+    if (routeMismatch) restoreAnswerRoute(message, routeSnapshot);
+    return rejectAnswerRoute(message, "stale", {
+      selectedThreadKey,
+      answerUserMessageIds,
+      ownerGroups,
+      resultReason: "stale",
+    });
   }
-  return { finalized: true, answerId: messageId };
+  clearAnswerRouteDiagnostic(message);
+  return {
+    finalized: true,
+    answerId: messageId,
+    ...(routeMismatch ? { canonicalizedRoute: { selectedThreadKey, ownerThreadKey } } : {}),
+  };
 }

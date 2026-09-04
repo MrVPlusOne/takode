@@ -12,6 +12,10 @@ import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import { hasFinalCodexOutcomeEvidence } from "./codex-interrupted-turn-recovery.js";
 import { leaderRouteFromRecoveredAssistant } from "./codex-leader-recovery-diagnostic.js";
 import {
+  displayOnlyCanonicalizedLeaderAnswerThreads,
+  type CanonicalizedLeaderAnswerRoute,
+} from "./leader-answer-ready-authority.js";
+import {
   normalizeLeaderAssistantRouting,
   splitLeaderAssistantContentAtThreadRouteBoundaries,
   updateLeaderThreadStatusesForAssistantOutput,
@@ -517,6 +521,7 @@ export function recoverAgentMessagesFromResumedTurn<S extends CodexRecoveredAssi
   let conversationChanged = false;
   let projectionChanged = false;
   const answerCanAnchorReady = new Map<AssistantHistoryEntry, boolean>();
+  const canonicalizedRoutes: CanonicalizedLeaderAnswerRoute[] = [];
 
   // Finalize every recovered answer before applying any Ready marker from a
   // sibling segment in the same completed provider turn.
@@ -530,6 +535,7 @@ export function recoverAgentMessagesFromResumedTurn<S extends CodexRecoveredAssi
       if (finalized.finalized) {
         controlCandidates.set(candidate, true);
         projectionChanged = true;
+        if (finalized.canonicalizedRoute) canonicalizedRoutes.push(finalized.canonicalizedRoute);
       }
       answerCanAnchorReady.set(
         candidate,
@@ -542,19 +548,29 @@ export function recoverAgentMessagesFromResumedTurn<S extends CodexRecoveredAssi
     }
   }
 
+  const displayOnlyReadyThreadKeys = session.id
+    ? displayOnlyCanonicalizedLeaderAnswerThreads(
+        { id: session.id, messageHistory: session.messageHistory },
+        [...controlCandidates.keys()],
+        canonicalizedRoutes,
+      )
+    : new Set<string>();
+
   for (const [candidate, metadataChanged] of controlCandidates) {
     let candidateChanged = metadataChanged;
     const answerIsInvalid = candidate.leaderThreadRole === "answer" && answerCanAnchorReady.get(candidate) !== true;
     if (completed && candidate.deferredThreadStatusMarkers?.length) {
-      const authorityRejectedReadyThreadKeys = answerIsInvalid
-        ? candidate.deferredThreadStatusMarkers
-            .filter((marker) => marker.kind === "ready")
-            .map((marker) => marker.target.threadKey)
-        : [];
+      const authorityRejectedReadyThreadKeys = candidate.deferredThreadStatusMarkers
+        .filter(
+          (marker) =>
+            marker.kind === "ready" && (answerIsInvalid || displayOnlyReadyThreadKeys.has(marker.target.threadKey)),
+        )
+        .map((marker) => marker.target.threadKey);
       deferRecoveredRejectedReadyThreads(session, authorityRejectedReadyThreadKeys);
-      const markersToApply = answerIsInvalid
-        ? candidate.deferredThreadStatusMarkers.filter((marker) => marker.kind !== "ready")
-        : candidate.deferredThreadStatusMarkers;
+      const markersToApply = candidate.deferredThreadStatusMarkers.filter(
+        (marker) =>
+          marker.kind !== "ready" || (!answerIsInvalid && !displayOnlyReadyThreadKeys.has(marker.target.threadKey)),
+      );
       const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(session, markersToApply, {
         messageId: candidate.message.id,
         timestamp: typeof candidate.timestamp === "number" ? candidate.timestamp : baseTs,

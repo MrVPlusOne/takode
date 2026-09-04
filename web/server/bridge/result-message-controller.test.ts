@@ -79,14 +79,29 @@ function makeAssistant(id: string): BrowserIncomingMessage {
   };
 }
 
-function directUser(id: string, content = id): Extract<BrowserIncomingMessage, { type: "user_message" }> {
+function directUser(
+  id: string,
+  content = id,
+  options: { threadKey?: string; associatedThreadKeys?: string[] } = {},
+): Extract<BrowserIncomingMessage, { type: "user_message" }> {
+  const threadKey = options.threadKey ?? "main";
   return {
     type: "user_message",
     id,
     leaderUserMessageId: /^u[1-9]\d*$/.test(id) ? id : undefined,
     content,
     timestamp: 1,
-    threadKey: "main",
+    threadKey,
+    ...(threadKey === "main" ? {} : { questId: threadKey }),
+    threadRefs: [
+      ...(threadKey === "main" ? [] : [{ threadKey, questId: threadKey, source: "explicit" as const, attachedAt: 1 }]),
+      ...(options.associatedThreadKeys ?? []).map((associatedThreadKey) => ({
+        threadKey: associatedThreadKey,
+        questId: associatedThreadKey,
+        source: "backfill" as const,
+        attachedAt: 2,
+      })),
+    ],
     leaderResponseCoverageVersion: 1,
   };
 }
@@ -94,9 +109,17 @@ function directUser(id: string, content = id): Extract<BrowserIncomingMessage, {
 function routedFinal(
   id: string,
   observedHistoryLength: number,
-  options: { role?: "commentary" | "answer"; ready?: boolean; text?: string; answerIds?: string[] } = {},
+  options: {
+    role?: "commentary" | "answer";
+    ready?: boolean;
+    readyThreadKey?: string;
+    text?: string;
+    answerIds?: string[];
+    threadKey?: string;
+  } = {},
 ): Extract<BrowserIncomingMessage, { type: "assistant" }> {
   const role = options.role ?? "answer";
+  const threadKey = options.threadKey ?? "main";
   return {
     type: "assistant",
     message: {
@@ -110,7 +133,13 @@ function routedFinal(
     },
     parent_tool_use_id: null,
     timestamp: 20,
-    threadKey: "main",
+    threadKey,
+    ...(threadKey === "main"
+      ? {}
+      : {
+          questId: threadKey,
+          threadRefs: [{ threadKey, questId: threadKey, source: "explicit", attachedAt: 20 }],
+        }),
     leaderThreadRole: role,
     ...(role === "answer"
       ? {
@@ -124,7 +153,13 @@ function routedFinal(
             {
               kind: "ready",
               label: "Thread Ready",
-              target: { threadKey: "main" },
+              target:
+                (options.readyThreadKey ?? threadKey) === "main"
+                  ? { threadKey: "main" }
+                  : {
+                      threadKey: options.readyThreadKey ?? threadKey,
+                      questId: options.readyThreadKey ?? threadKey,
+                    },
               summary: "answer complete",
               raw: "{[(Thread Ready: main | answer complete)]}",
               lineIndex: 1,
@@ -242,6 +277,149 @@ describe("result-message-controller", () => {
     expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user");
     expect(deps.invalidateLeaderThreadTabsForSession).toHaveBeenCalledWith(session.id);
     expect(deps.refreshSessionConversation).toHaveBeenCalledWith(session.id);
+  });
+
+  it("canonicalizes a misrouted result row before broadcasting owner-only coverage", () => {
+    // The server must reuse and rebroadcast the existing response row rather
+    // than asking the model to reproduce a long accepted-Work explanation.
+    const session = makeSession();
+    session.messageHistory.push(
+      directUser("u37", "Original request", { threadKey: "q-2042", associatedThreadKeys: ["q-2044"] }),
+      directUser("u38", "Approval", { threadKey: "q-2042", associatedThreadKeys: ["q-2044"] }),
+    );
+    const response = routedFinal("canonical-result", 2, {
+      threadKey: "q-2044",
+      answerIds: ["u37", "u38"],
+      text: "The approved behavior is implemented and synchronized.",
+    });
+    session.messageHistory.push(response);
+    session.userMessageIdsThisTurn = [];
+    session.messageCountAtTurnStart = 2;
+    const deps = makeDeps();
+
+    handleResultMessage(session, makeResult({ uuid: "canonical-result-turn" }), deps);
+
+    expect(response).toMatchObject({
+      threadKey: "q-2042",
+      questId: "q-2042",
+      threadAnswer: { answerUserMessageIds: ["u37", "u38"] },
+      threadRefs: [
+        { threadKey: "q-2042", questId: "q-2042", source: "explicit" },
+        { threadKey: "q-2044", questId: "q-2044", source: "backfill" },
+      ],
+    });
+    expect(response.threadRoutingError).toBeUndefined();
+    expect(buildLeaderThreadResponseState(session, "q-2042").projection.pendingMessageCount).toBe(0);
+    expect(buildLeaderThreadResponseState(session, "q-2044").projection.currentAnswers).toMatchObject([
+      { currentMessageId: "canonical-result", threadKey: "q-2042" },
+    ]);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, response, { skipBuffer: true });
+    expect(deps.injectUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps Ready on the owner and rejects display-thread Ready during canonicalization", () => {
+    const accepted = makeSession();
+    accepted.messageHistory.push(directUser("u1", "Request", { threadKey: "q-1", associatedThreadKeys: ["q-2"] }));
+    const ownerReady = routedFinal("owner-ready", 1, {
+      threadKey: "q-2",
+      ready: true,
+      readyThreadKey: "q-1",
+    });
+    accepted.messageHistory.push(ownerReady);
+    accepted.userMessageIdsThisTurn = [0];
+    const acceptedDeps = makeDeps();
+
+    handleResultMessage(accepted, makeResult({ uuid: "owner-ready-result" }), acceptedDeps);
+
+    expect(ownerReady.threadAnswer).toBeDefined();
+    expect(accepted.state.leaderThreadStatuses?.["q-1"]).toMatchObject({ kind: "ready" });
+    expect(accepted.state.leaderThreadStatuses?.["q-2"]).toBeUndefined();
+
+    const rejected = makeSession();
+    rejected.messageHistory.push(directUser("u1", "Request", { threadKey: "q-1", associatedThreadKeys: ["q-2"] }));
+    const displayReady = routedFinal("display-ready", 1, {
+      threadKey: "q-2",
+      ready: true,
+      readyThreadKey: "q-2",
+    });
+    rejected.messageHistory.push(displayReady);
+    rejected.userMessageIdsThisTurn = [0];
+    const rejectedDeps = makeDeps();
+
+    handleResultMessage(rejected, makeResult({ uuid: "display-ready-result" }), rejectedDeps);
+
+    expect(displayReady.threadAnswer).toBeUndefined();
+    expect(displayReady.threadRoutingError?.answerRouteDiagnostic?.reason).toBe("route_control_conflict");
+    expect(rejected.state.leaderThreadStatuses?.["q-1"]).toBeUndefined();
+    expect(rejected.state.leaderThreadStatuses?.["q-2"]).toBeUndefined();
+    expect(rejectedDeps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(rejected, "user", ["q-2"]);
+  });
+
+  it("rejects sibling Ready on a canonicalized display-only thread", () => {
+    const session = makeSession();
+    session.messageHistory.push(directUser("u1", "Request", { threadKey: "q-1", associatedThreadKeys: ["q-2"] }));
+    const displayReady = routedFinal("display-ready-commentary", 1, {
+      role: "commentary",
+      threadKey: "q-2",
+      ready: true,
+      readyThreadKey: "q-2",
+      text: "The associated quest is complete.",
+    });
+    const canonicalized = routedFinal("canonicalized-answer", 1, {
+      threadKey: "q-2",
+      answerIds: ["u1"],
+      text: "The requested implementation is complete.",
+    });
+    session.messageHistory.push(displayReady, canonicalized);
+    session.userMessageIdsThisTurn = [0];
+    const deps = makeDeps();
+
+    handleResultMessage(session, makeResult({ uuid: "sibling-display-ready-result" }), deps);
+
+    expect(canonicalized).toMatchObject({
+      threadKey: "q-1",
+      threadAnswer: { answerUserMessageIds: ["u1"] },
+    });
+    expect(session.state.leaderThreadStatuses?.["q-2"]).toBeUndefined();
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user", ["q-2"]);
+  });
+
+  it("allows sibling Ready when the selected thread also owns current answer coverage in the turn", () => {
+    const session = makeSession();
+    session.messageHistory.push(
+      directUser("u1", "Associated request", { threadKey: "q-1", associatedThreadKeys: ["q-2"] }),
+      directUser("u2", "Owned request", { threadKey: "q-2" }),
+    );
+    const ready = routedFinal("owned-ready-commentary", 2, {
+      role: "commentary",
+      threadKey: "q-2",
+      ready: true,
+      readyThreadKey: "q-2",
+      text: "Both requests are complete.",
+    });
+    const canonicalized = routedFinal("associated-answer", 2, {
+      threadKey: "q-2",
+      answerIds: ["u1"],
+      text: "The associated request is complete.",
+    });
+    const owned = routedFinal("owned-answer", 2, {
+      threadKey: "q-2",
+      answerIds: ["u2"],
+      text: "The owned request is complete.",
+    });
+    session.messageHistory.push(ready, canonicalized, owned);
+    session.userMessageIdsThisTurn = [0, 1];
+    const deps = makeDeps();
+
+    handleResultMessage(session, makeResult({ uuid: "sibling-owner-ready-result" }), deps);
+
+    expect(canonicalized.threadKey).toBe("q-1");
+    expect(owned.threadKey).toBe("q-2");
+    expect(session.state.leaderThreadStatuses?.["q-2"]).toMatchObject({
+      kind: "ready",
+      messageId: ready.message.id,
+    });
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user");
   });
 
   it("finalizes all sibling answer segments before applying an earlier Ready commentary marker", () => {

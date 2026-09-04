@@ -305,6 +305,228 @@ describe("explicit routed leader answers", () => {
     expect(buildLeaderThreadResponseState(target, "q-42").projection.pendingMessageCount).toBe(0);
   });
 
+  it("canonicalizes one q-owner route mismatch without regenerating the response row", () => {
+    // This reproduces the q-2042 -> q-2044 failure: display association is
+    // already proven, so only answer authority should move to the shared owner.
+    const target = session();
+    const first = human("u37", 1, "q-2042") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    const second = human("u38", 2, "q-2042") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    first.threadRefs = [
+      ...(first.threadRefs ?? []),
+      { threadKey: "q-2044", questId: "q-2044", source: "backfill", attachedAt: 3 },
+    ];
+    second.threadRefs = [
+      ...(second.threadRefs ?? []),
+      { threadKey: "q-2044", questId: "q-2044", source: "backfill", attachedAt: 4 },
+    ];
+    const progress = routedAssistant(
+      "dispatch-progress",
+      "Approved and dispatched; implementation is still in progress.",
+      undefined,
+      undefined,
+      "q-2042",
+      "commentary",
+    );
+    target.messageHistory.push(first, second, progress);
+    expect(buildLeaderThreadResponseState(target, "q-2042").projection.pendingMessageCount).toBe(2);
+
+    const answer = routedAssistant(
+      "implemented-answer",
+      "The approved behavior is now implemented and synchronized.",
+      ["u37", "u38"],
+      2,
+      "q-2044",
+    );
+    const originalText = answer.message.content;
+    const originalTimestamp = answer.timestamp;
+    target.messageHistory.push(answer);
+    const historyIndex = target.messageHistory.indexOf(answer);
+
+    expect(finalizeRoutedLeaderResponseMessage(target, answer)).toEqual({
+      finalized: true,
+      answerId: "implemented-answer",
+      canonicalizedRoute: { selectedThreadKey: "q-2044", ownerThreadKey: "q-2042" },
+    });
+    expect(target.messageHistory[historyIndex]).toBe(answer);
+    expect(answer.message.content).toBe(originalText);
+    expect(answer.timestamp).toBe(originalTimestamp);
+    expect(answer).toMatchObject({
+      threadKey: "q-2042",
+      questId: "q-2042",
+      threadAnswer: { version: 2, answerUserMessageIds: ["u37", "u38"], observedHistoryLength: 2 },
+      threadRefs: [
+        { threadKey: "q-2042", questId: "q-2042", source: "explicit" },
+        { threadKey: "q-2044", questId: "q-2044", source: "backfill" },
+      ],
+    });
+    expect(answer.threadRoutingError).toBeUndefined();
+
+    expect(buildLeaderThreadResponseState(target, "q-2042").projection).toMatchObject({
+      pendingMessageCount: 0,
+      ready: true,
+      currentAnswers: [{ currentMessageId: "implemented-answer", threadKey: "q-2042" }],
+    });
+    expect(buildLeaderThreadResponseState(target, "q-2044").projection.currentAnswers).toMatchObject([
+      { currentMessageId: "implemented-answer", threadKey: "q-2042" },
+    ]);
+  });
+
+  it("canonicalizes a Main-owned answer selected in an associated quest", () => {
+    // Main ownership has no authoritative quest ref. The selected quest is
+    // retained only as a backfill so live and bounded views can project it.
+    const target = session();
+    const request = human("u1", 1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    request.threadRefs = [{ threadKey: "q-42", questId: "q-42", source: "backfill", attachedAt: 2 }];
+    target.messageHistory.push(request);
+    const answer = routedAssistant("main-owner-answer", "Completed implementation.", ["u1"], 1, "q-42");
+    target.messageHistory.push(answer);
+
+    expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({
+      finalized: true,
+      canonicalizedRoute: { selectedThreadKey: "q-42", ownerThreadKey: "main" },
+    });
+    expect(answer.threadKey).toBe("main");
+    expect(answer.questId).toBeUndefined();
+    expect(answer.threadRefs).toEqual([
+      expect.objectContaining({ threadKey: "q-42", questId: "q-42", source: "backfill" }),
+    ]);
+    expect(buildLeaderThreadResponseState(target, "main").projection.currentAnswers[0]?.currentMessageId).toBe(
+      "main-owner-answer",
+    );
+    expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers[0]?.currentMessageId).toBe(
+      "main-owner-answer",
+    );
+  });
+
+  it.each([
+    "route-less",
+    "conflicting-route",
+  ] as const)("rejects exact Main coverage when the prompt owner is %s", (shape) => {
+    const target = session();
+    const request = human("u1", 1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    if (shape === "route-less") {
+      delete request.threadKey;
+    } else {
+      request.threadKey = "main";
+      request.questId = "q-42";
+    }
+    target.messageHistory.push(request);
+    const answer = routedAssistant("unproven-main-owner", "Answer.", ["u1"], 1, "main");
+    target.messageHistory.push(answer);
+
+    expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({
+      finalized: false,
+      reason: "invalid_message",
+    });
+    expect(answer.threadAnswer).toBeUndefined();
+    expect(answer.threadRoutingError?.answerRouteDiagnostic).toMatchObject({
+      reason: "unproven_owner",
+      selectedThreadKey: "main",
+      answerUserMessageIds: ["u1"],
+      ownerGroups: [],
+    });
+  });
+
+  it("fails closed with structured diagnostics when owner correction is ambiguous or unproven", () => {
+    // Grouped prose cannot be split across owners, and a selected destination
+    // cannot manufacture visibility association or a Main backfill.
+    const mixed = session();
+    mixed.messageHistory.push(human("u1", 1, "q-1"), human("u2", 2, "q-2"));
+    const mixedAnswer = routedAssistant("mixed", "Grouped answer.", ["u1", "u2"], 2, "q-3");
+    mixed.messageHistory.push(mixedAnswer);
+    expect(finalizeRoutedLeaderResponseMessage(mixed, mixedAnswer)).toMatchObject({
+      finalized: false,
+      reason: "invalid_message",
+    });
+    expect(mixedAnswer.threadRoutingError).toMatchObject({
+      reason: "invalid_answer_route",
+      source: "answer_marker",
+      answerRouteDiagnostic: {
+        reason: "multiple_owners",
+        selectedThreadKey: "q-3",
+        answerUserMessageIds: ["u1", "u2"],
+        ownerGroups: [
+          { threadKey: "q-1", userMessageIds: ["u1"] },
+          { threadKey: "q-2", userMessageIds: ["u2"] },
+        ],
+      },
+    });
+
+    const reassigned = session();
+    const reassignedRequest = human("u1", 1, "q-1") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    reassignedRequest.threadRefs = [
+      ...(reassignedRequest.threadRefs ?? []),
+      { threadKey: "q-2", questId: "q-2", source: "explicit", attachedAt: 2 },
+      { threadKey: "q-3", questId: "q-3", source: "backfill", attachedAt: 3 },
+    ];
+    reassigned.messageHistory.push(reassignedRequest);
+    const reassignedAnswer = routedAssistant("reassigned", "Answer.", ["u1"], 1, "q-3");
+    reassigned.messageHistory.push(reassignedAnswer);
+    expect(finalizeRoutedLeaderResponseMessage(reassigned, reassignedAnswer)).toMatchObject({ finalized: false });
+    expect(reassignedAnswer.threadRoutingError?.answerRouteDiagnostic).toMatchObject({
+      reason: "unproven_owner",
+      selectedThreadKey: "q-3",
+      ownerGroups: [{ threadKey: "q-2", userMessageIds: ["u1"] }],
+    });
+    expect(reassignedAnswer).toMatchObject({ threadKey: "q-3", questId: "q-3" });
+
+    const unassociated = session();
+    unassociated.messageHistory.push(human("u1", 1, "q-1"));
+    const unassociatedAnswer = routedAssistant("unassociated", "Answer.", ["u1"], 1, "q-2");
+    unassociated.messageHistory.push(unassociatedAnswer);
+    expect(finalizeRoutedLeaderResponseMessage(unassociated, unassociatedAnswer)).toMatchObject({
+      finalized: false,
+    });
+    expect(unassociatedAnswer.threadRoutingError?.answerRouteDiagnostic).toMatchObject({
+      reason: "missing_association",
+      selectedThreadKey: "q-2",
+      ownerGroups: [{ threadKey: "q-1", userMessageIds: ["u1"] }],
+      missingAssociationUserMessageIds: ["u1"],
+    });
+
+    const mainBackfill = session();
+    mainBackfill.messageHistory.push(human("u1", 1, "q-1"));
+    const mainAnswer = routedAssistant("main-backfill", "Answer.", ["u1"], 1, "main");
+    mainBackfill.messageHistory.push(mainAnswer);
+    expect(finalizeRoutedLeaderResponseMessage(mainBackfill, mainAnswer)).toMatchObject({ finalized: false });
+    expect(mainAnswer.threadRoutingError?.answerRouteDiagnostic).toMatchObject({
+      reason: "disallowed_main_backfill",
+      selectedThreadKey: "main",
+      ownerGroups: [{ threadKey: "q-1", userMessageIds: ["u1"] }],
+    });
+  });
+
+  it("rolls back route metadata and diagnoses conflicting owner-thread controls", () => {
+    const target = session();
+    const request = human("u1", 1, "q-1") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    request.threadRefs = [
+      ...(request.threadRefs ?? []),
+      { threadKey: "q-2", questId: "q-2", source: "backfill", attachedAt: 2 },
+    ];
+    target.messageHistory.push(request);
+    const answer = routedAssistant("conflicting-status", "Answer.", ["u1"], 1, "q-2");
+    answer.deferredThreadStatusMarkers = [
+      {
+        kind: "ready",
+        label: "Thread Ready",
+        target: { threadKey: "q-2", questId: "q-2" },
+        summary: "display thread complete",
+        raw: "{[(Thread Ready: q-2 | display thread complete)]}",
+        lineIndex: 1,
+      },
+    ];
+    target.messageHistory.push(answer);
+
+    expect(finalizeRoutedLeaderResponseMessage(target, answer)).toMatchObject({ finalized: false });
+    expect(answer).toMatchObject({ threadKey: "q-2", questId: "q-2" });
+    expect(answer.threadAnswer).toBeUndefined();
+    expect(answer.threadRoutingError?.answerRouteDiagnostic).toMatchObject({
+      reason: "route_control_conflict",
+      selectedThreadKey: "q-2",
+      ownerGroups: [{ threadKey: "q-1", userMessageIds: ["u1"] }],
+    });
+  });
+
   it("projects the exact Main-owned u25 answer identity into its q-2024 backfill association", () => {
     const target = session();
     const request = human("u25", 1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;

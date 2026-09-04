@@ -67,6 +67,16 @@ describe("leader skill preload builder", () => {
     );
     expect(orchestration?.content).toContain("Final Memory closure is commentary by default");
     expect(orchestration?.content).toContain("materially completes, corrects, or changes the prior response");
+    expect(orchestration?.content).toContain("implementation is still owed");
+    expect(orchestration?.content).toContain("they are answers only when setup or dispatch itself fully satisfies");
+    expect(orchestration?.content).toContain("preserves the original append-only response row");
+    expect(orchestration?.content).toContain("automatically canonicalizing coverage");
+    expect(orchestration?.content).toContain("does not require the leader to regenerate the prose");
+    expect(orchestration?.content).toContain("ownerless or mixed-owner sets, incomplete associations");
+    expect(orchestration?.content).toContain("remain non-answers and receive a precise actionable diagnostic");
+    expect(orchestration?.content).toContain(
+      "Canonicalized coverage, supersession, pending state, and Ready authority",
+    );
     expect(orchestration?.content).not.toContain("Quest completion responses are answers");
     for (const label of Object.values(HERD_EVENT_LIFECYCLE_LABELS)) {
       expect(orchestration?.content).toContain(label);

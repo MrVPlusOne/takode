@@ -642,8 +642,10 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(leader).toContain("`[thread:main:C]`");
     expect(leader).toContain("`[thread:q-N:A:u1,u2]`");
     expect(leader).toContain(
-      "Commentary includes dispatch, progress, recovery, verification, waiting, User Checkpoints, and asynchronous Memory work",
+      "Commentary includes quest creation or refinement, approval, dispatch, Alignment, progress, recovery, verification, waiting, User Checkpoints, and asynchronous Memory work",
     );
+    expect(leader).toContain("implementation is still owed");
+    expect(leader).toContain("they are answers only when setup or dispatch itself fully satisfies the request");
     expect(leader).toContain("cannot satisfy answer coverage");
     expect(leader).toContain("Every direct human message delivered to a leader has an `id:uN` source-envelope field");
     expect(leader).toContain("Before emitting `:A:<ids>`, retrieve or reread every listed user message");
@@ -653,6 +655,13 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(leader).toContain("Answers may cover multiple consecutive IDs");
     expect(leader).toContain("becomes current coverage authority only for repeated IDs");
     expect(leader).toContain("every valid answer remains visible in source chronology");
+    expect(leader).toContain("thread already server-proven visibility-associated with every covered prompt");
+    expect(leader).toContain("single authoritative owner shared by every covered ID");
+    expect(leader).toContain("preserves the original append-only response row and selected-thread visibility");
+    expect(leader).toContain("automatically canonicalizing coverage, supersession, pending state, and Ready authority");
+    expect(leader).toContain("does not ask the leader to regenerate the prose");
+    expect(leader).toContain("ownerless or mixed-owner sets, incomplete associations");
+    expect(leader).toContain("remain non-answers and receive a precise actionable diagnostic");
     expect(leader).toContain("every currently thread-owned direct user message has valid current answer coverage");
     expect(leader).toContain("publish routine Memory closure with `[thread:q-N:C]`");
     expect(leader).toContain("renders the quest quiz on the turn that carries the directive");

@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  THREAD_ROUTING_REMINDER_SOURCE_ID,
+  THREAD_ROUTING_REMINDER_SOURCE_LABEL,
+} from "../../shared/thread-routing-reminder.js";
+import {
   THREAD_OUTCOME_REMINDER_SOURCE_ID,
   THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
 } from "../../shared/thread-outcome-reminder.js";
@@ -538,6 +542,143 @@ function coveredHumanMessage(id: string, timestamp: number, threadKey = "main"):
 }
 
 describe("explicit answer reminders", () => {
+  it("delivers one precise persisted answer-route diagnostic instead of the generic correction", () => {
+    const rejected = assistantMessage({
+      id: "misrouted-answer",
+      text: "The substantive implementation result is already here.",
+      timestamp: 20,
+      threadKey: "q-2044",
+    }) as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    rejected.leaderThreadRole = "answer";
+    rejected.threadRoutingError = {
+      reason: "invalid_answer_route",
+      source: "answer_marker",
+      expected: "Use the single proven owner thread.",
+      answerRouteDiagnostic: {
+        reason: "missing_association",
+        selectedThreadKey: "q-2044",
+        answerUserMessageIds: ["u37", "u38"],
+        ownerGroups: [{ threadKey: "q-2042", userMessageIds: ["u37", "u38"] }],
+        missingAssociationUserMessageIds: ["u38"],
+      },
+    };
+    const session = {
+      id: "leader",
+      messageHistory: [coveredHumanMessage("u37", 10, "q-2042"), coveredHumanMessage("u38", 11, "q-2042"), rejected],
+      notifications: [],
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({
+      checked: true,
+      missing: ["q-2042"],
+      injected: true,
+    });
+    expect(deps.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(deps.injectUserMessage).toHaveBeenCalledWith(
+      "leader",
+      expect.stringContaining("[thread:q-2042:A:u37,u38]"),
+      {
+        sessionId: THREAD_ROUTING_REMINDER_SOURCE_ID,
+        sessionLabel: THREAD_ROUTING_REMINDER_SOURCE_LABEL,
+      },
+      expect.objectContaining({ threadKey: "q-2044", questId: "q-2044" }),
+    );
+    const reminder = deps.injectUserMessage.mock.calls[0]?.[1] ?? "";
+    expect(reminder).toContain("[Thread routing reminder]");
+    expect(reminder).toContain("original answer prose remains in append-only history");
+    expect(reminder).not.toContain("Answer reminder: direct user messages");
+    expect(reminder).not.toContain("retained the prior answer prose");
+
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: false, reason: "no_new_history" });
+    expect(deps.injectUserMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a grouped proven-plus-ownerless rejection precise without inventing a Main correction", () => {
+    const proven = coveredHumanMessage("u1", 10, "q-2042");
+    const ownerless = coveredHumanMessage("u2", 11) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    delete ownerless.threadKey;
+    const rejected = assistantMessage({
+      id: "partially-owned-answer",
+      text: "One grouped answer must remain indivisible.",
+      timestamp: 20,
+      threadKey: "q-2044",
+    }) as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    rejected.leaderThreadRole = "answer";
+    rejected.leaderAnswerUserMessageIds = ["u1", "u2"];
+    rejected.leaderAnswerObservedHistoryLength = 2;
+    const session = {
+      id: "leader",
+      messageHistory: [proven, ownerless, rejected] as BrowserIncomingMessage[],
+      notifications: [],
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+
+    expect(finalizeRoutedLeaderResponseMessage(session, rejected)).toMatchObject({
+      finalized: false,
+      reason: "invalid_message",
+    });
+    expect(rejected.threadRoutingError?.answerRouteDiagnostic).toMatchObject({
+      reason: "unproven_owner",
+      answerUserMessageIds: ["u1", "u2"],
+      ownerGroups: [],
+    });
+
+    const deps = makeDeps();
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({
+      checked: true,
+      missing: ["q-2044"],
+      injected: true,
+    });
+    expect(deps.injectUserMessage).toHaveBeenCalledTimes(1);
+    const reminder = deps.injectUserMessage.mock.calls[0]?.[1] ?? "";
+    expect(reminder).toContain("Takode could not prove one current owner for the listed IDs: u1,u2");
+    expect(reminder).toContain("No single corrected answer marker is safe from this evidence");
+    expect(reminder).not.toMatch(/\[thread:(?:main|q-\d+):A:/);
+    expect(reminder).not.toContain("Pending answer IDs:");
+    expect(reminder).not.toContain("Authoritative owner: Main");
+  });
+
+  it("does not inject a persisted semantic answer-route diagnostic from a system-triggered turn", () => {
+    const rejected = assistantMessage({
+      id: "system-misrouted-answer",
+      text: "System-triggered answer-like output.",
+      timestamp: 20,
+      threadKey: "q-2044",
+    }) as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    rejected.leaderThreadRole = "answer";
+    rejected.threadRoutingError = {
+      reason: "invalid_answer_route",
+      source: "answer_marker",
+      expected: "No automatic correction.",
+      answerRouteDiagnostic: {
+        reason: "stale",
+        selectedThreadKey: "q-2044",
+        answerUserMessageIds: ["u37"],
+        ownerGroups: [{ threadKey: "q-2042", userMessageIds: ["u37"] }],
+      },
+    };
+    const session = {
+      id: "leader",
+      messageHistory: [rejected],
+      notifications: [],
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps(true, "system");
+
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: false, reason: "system_turn" });
+    expect(deps.injectUserMessage).not.toHaveBeenCalled();
+    expect(session.leaderThreadOutcomeValidatedHistoryLength).toBe(0);
+
+    deps.getTurnSource.mockReturnValue("user");
+    expect(validateLeaderThreadOutcomes(session, deps)).toEqual({
+      checked: true,
+      missing: ["q-2042"],
+      injected: true,
+    });
+    expect(deps.injectUserMessage).toHaveBeenCalledTimes(1);
+  });
   it("reminds after a post-cutover direct user message is left uncovered", () => {
     const session = {
       id: "leader",

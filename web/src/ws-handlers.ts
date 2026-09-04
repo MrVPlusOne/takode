@@ -104,6 +104,24 @@ function isCodexSession(sessionId: string): boolean {
   return useStore.getState().sessions.get(sessionId)?.backend_type === "codex";
 }
 
+function mergeLiveAssistantMetadata(
+  existing: ChatMessage["metadata"] | undefined,
+  incoming: ChatMessage["metadata"] | undefined,
+  authoritativeAnswerRoute: boolean,
+): ChatMessage["metadata"] | undefined {
+  if (!existing && !incoming) return undefined;
+  const merged = { ...existing, ...incoming };
+  if (!authoritativeAnswerRoute) return merged;
+
+  // A completed answer rebroadcast may canonicalize a visibility-only quest
+  // route to its coverage owner. Treat that proof-bearing route as a
+  // replacement so omitted Main fields do not retain the provisional quest.
+  for (const key of ["threadKey", "questId", "threadRefs"] as const) {
+    if (!incoming || !Object.prototype.hasOwnProperty.call(incoming, key)) delete merged[key];
+  }
+  return merged;
+}
+
 function clearRecoverableCodexInitErrors(sessionId: string): void {
   const store = useStore.getState();
   const messages = store.messages.get(sessionId);
@@ -926,10 +944,11 @@ function handleParsedMessage(
           ...(data.notification ? { notification: data.notification } : {}),
           ...(normalized.metadata
             ? {
-                metadata: {
-                  ...existing.metadata,
-                  ...normalized.metadata,
-                },
+                metadata: mergeLiveAssistantMetadata(
+                  existing.metadata,
+                  normalized.metadata,
+                  data.threadAnswer !== undefined,
+                ),
               }
             : {}),
           ...(typeof data.turn_duration_ms === "number" ? { turnDurationMs: data.turn_duration_ms } : {}),

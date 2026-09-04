@@ -1,4 +1,6 @@
 import type { ReplyContext } from "../shared/reply-context.js";
+import type { ThreadRoutingError } from "../shared/thread-routing-error.js";
+export type { ThreadRoutingError } from "../shared/thread-routing-error.js";
 export type { LeaderThreadTextRole } from "../shared/thread-routing.js";
 import type { McpServerConfig, McpServerDetail } from "./mcp-types.js";
 export type { McpServerConfig, McpServerDetail } from "./mcp-types.js";
@@ -544,14 +546,6 @@ export interface SideChatChildState {
 export type SlackThreadRecord = SideChatRecord;
 /** @deprecated Legacy persisted type name. Session JSON still uses slackThread* keys. */
 export type SlackThreadChildState = SideChatChildState;
-
-export interface ThreadRoutingError {
-  reason: "missing" | "invalid" | "missing_role" | "invalid_role";
-  expected: string;
-  source?: "visible_text" | "shell_command";
-  rawContent?: string;
-  marker?: string;
-}
 
 /**
  * Format a VSCode selection into a text prompt that tells the model which file

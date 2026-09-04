@@ -287,6 +287,245 @@ describe("Codex recovered routed answers", () => {
     expect(invalidateLeaderThreadTabsForSession).toHaveBeenCalledWith(session.id);
   });
 
+  it("canonicalizes a completed recovered answer to one shared owner without replaying prose", () => {
+    // Recovery runs the same finalizer as a live result. Preserve one recovered
+    // row while changing only answer authority from q-2044 to q-2042.
+    const first = pendingHuman();
+    first.id = "owner-user-1";
+    first.leaderUserMessageId = "u1";
+    first.threadKey = "q-2042";
+    first.questId = "q-2042";
+    first.threadRefs = [
+      { threadKey: "q-2042", questId: "q-2042", source: "explicit", attachedAt: 20 },
+      { threadKey: "q-2044", questId: "q-2044", source: "backfill", attachedAt: 21 },
+    ];
+    const second = pendingHuman();
+    second.id = "owner-user-2";
+    second.leaderUserMessageId = "u2";
+    second.timestamp = 22;
+    second.threadKey = "q-2042";
+    second.questId = "q-2042";
+    second.threadRefs = [
+      { threadKey: "q-2042", questId: "q-2042", source: "explicit", attachedAt: 22 },
+      { threadKey: "q-2044", questId: "q-2044", source: "backfill", attachedAt: 23 },
+    ];
+    const session = {
+      id: "leader-recovered-canonical",
+      state: { isOrchestrator: true, model: "gpt-5.6-sol", leaderThreadStatuses: {} as Record<string, any> },
+      messageHistory: [first, second] as BrowserIncomingMessage[],
+    };
+    const broadcastToBrowsers = vi.fn();
+    const refreshBrowserConversationViews = vi.fn();
+    const invalidateLeaderThreadTabsForSession = vi.fn();
+
+    recoverAgentMessagesFromResumedTurn(
+      session,
+      {
+        id: "turn-canonical",
+        status: "completed",
+        error: null,
+        items: [
+          {
+            type: "agentMessage",
+            id: "canonical-item",
+            text: "[thread:q-2044:A:u1,u2] The approved implementation is complete.",
+          },
+        ],
+      },
+      {
+        disconnectedAt: 30,
+        historyIndex: 0,
+        userMessageId: "owner-user-1",
+        pendingInputIds: ["owner-user-1", "owner-user-2"],
+        historyIncorporation: {
+          inputIds: ["owner-user-1", "owner-user-2"],
+          historyIndexes: [0, 1],
+        } as any,
+      },
+      {
+        codexAssistantReplayScanLimit: 10,
+        broadcastToBrowsers,
+        refreshBrowserConversationViews,
+        invalidateLeaderThreadTabsForSession,
+      },
+    );
+
+    const response = session.messageHistory[2] as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    expect(response).toMatchObject({
+      message: { id: "codex-agent-canonical-item" },
+      threadKey: "q-2042",
+      questId: "q-2042",
+      threadRefs: [
+        { threadKey: "q-2042", questId: "q-2042", source: "explicit" },
+        { threadKey: "q-2044", questId: "q-2044", source: "backfill" },
+      ],
+      threadAnswer: { version: 2, answerUserMessageIds: ["u1", "u2"], observedHistoryLength: 2 },
+    });
+    expect(response.threadRoutingError).toBeUndefined();
+    expect(response.leaderAnswerUserMessageIds).toBeUndefined();
+    expect(buildLeaderThreadResponseState(session, "q-2042").projection.pendingMessageCount).toBe(0);
+    expect(buildLeaderThreadResponseState(session, "q-2044").projection.currentAnswers).toMatchObject([
+      { currentMessageId: response.message.id, threadKey: "q-2042" },
+    ]);
+    expect(broadcastToBrowsers).toHaveBeenCalledTimes(2);
+    expect(refreshBrowserConversationViews).toHaveBeenCalledWith(session);
+    expect(invalidateLeaderThreadTabsForSession).toHaveBeenCalledWith(session.id);
+  });
+
+  it("rejects recovered sibling Ready on a canonicalized display-only thread", () => {
+    const request = pendingHuman();
+    request.id = "owner-user";
+    request.threadKey = "q-2042";
+    request.questId = "q-2042";
+    request.threadRefs = [
+      { threadKey: "q-2042", questId: "q-2042", source: "explicit", attachedAt: 20 },
+      { threadKey: "q-2044", questId: "q-2044", source: "backfill", attachedAt: 21 },
+    ];
+    const session = {
+      id: "leader-recovered-display-ready",
+      state: { isOrchestrator: true, model: "gpt-5.6-sol", leaderThreadStatuses: {} as Record<string, any> },
+      messageHistory: [request] as BrowserIncomingMessage[],
+      pendingLeaderRejectedReadyThreadKeys: [] as string[],
+    };
+
+    recoverAgentMessagesFromResumedTurn(
+      session,
+      {
+        id: "turn-display-ready",
+        status: "completed",
+        error: null,
+        items: [
+          {
+            type: "agentMessage",
+            id: "display-ready-item",
+            text: "[thread:q-2044:C] Work complete.\n{[(Thread Ready: q-2044 | display complete)]}",
+          },
+          {
+            type: "agentMessage",
+            id: "canonical-answer-item",
+            text: "[thread:q-2044:A:u1] The requested implementation is complete.",
+          },
+        ],
+      },
+      { disconnectedAt: 30, historyIndex: 0, userMessageId: "owner-user" },
+      { codexAssistantReplayScanLimit: 10, broadcastToBrowsers: vi.fn() },
+    );
+
+    const answer = session.messageHistory.find(
+      (message): message is Extract<BrowserIncomingMessage, { type: "assistant" }> =>
+        message.type === "assistant" && message.leaderThreadRole === "answer",
+    )!;
+    expect(answer).toMatchObject({
+      threadKey: "q-2042",
+      threadAnswer: { answerUserMessageIds: ["u1"] },
+    });
+    expect(session.state.leaderThreadStatuses["q-2044"]).toBeUndefined();
+    expect(session.pendingLeaderRejectedReadyThreadKeys).toEqual(["q-2044"]);
+  });
+
+  it("allows recovered sibling Ready when the selected thread owns current coverage in the same turn", () => {
+    const associated = pendingHuman();
+    associated.id = "associated-user";
+    associated.threadKey = "q-1";
+    associated.questId = "q-1";
+    associated.threadRefs = [
+      { threadKey: "q-1", questId: "q-1", source: "explicit", attachedAt: 20 },
+      { threadKey: "q-2", questId: "q-2", source: "backfill", attachedAt: 21 },
+    ];
+    const owned = pendingHuman();
+    owned.id = "owned-user";
+    owned.leaderUserMessageId = "u2";
+    owned.timestamp = 22;
+    owned.threadKey = "q-2";
+    owned.questId = "q-2";
+    owned.threadRefs = [{ threadKey: "q-2", questId: "q-2", source: "explicit", attachedAt: 22 }];
+    const session = {
+      id: "leader-recovered-owner-ready",
+      state: { isOrchestrator: true, model: "gpt-5.6-sol", leaderThreadStatuses: {} as Record<string, any> },
+      messageHistory: [associated, owned] as BrowserIncomingMessage[],
+      pendingLeaderRejectedReadyThreadKeys: [] as string[],
+    };
+
+    recoverAgentMessagesFromResumedTurn(
+      session,
+      {
+        id: "turn-owner-ready",
+        status: "completed",
+        error: null,
+        items: [
+          {
+            type: "agentMessage",
+            id: "owner-ready-item",
+            text: "[thread:q-2:C] Both requests are complete.\n{[(Thread Ready: q-2 | owner complete)]}",
+          },
+          {
+            type: "agentMessage",
+            id: "associated-answer-item",
+            text: "[thread:q-2:A:u1] The associated request is complete.",
+          },
+          {
+            type: "agentMessage",
+            id: "owned-answer-item",
+            text: "[thread:q-2:A:u2] The owned request is complete.",
+          },
+        ],
+      },
+      {
+        disconnectedAt: 30,
+        historyIndex: 0,
+        userMessageId: "associated-user",
+        pendingInputIds: ["associated-user", "owned-user"],
+        historyIncorporation: {
+          inputIds: ["associated-user", "owned-user"],
+          historyIndexes: [0, 1],
+        } as any,
+      },
+      { codexAssistantReplayScanLimit: 10, broadcastToBrowsers: vi.fn() },
+    );
+
+    expect(session.state.leaderThreadStatuses["q-2"]).toMatchObject({ kind: "ready" });
+    expect(session.pendingLeaderRejectedReadyThreadKeys).toEqual([]);
+    expect(buildLeaderThreadResponseState(session, "q-1").projection.pendingMessageCount).toBe(0);
+    expect(buildLeaderThreadResponseState(session, "q-2").projection.pendingMessageCount).toBe(0);
+  });
+
+  it("persists a recovered semantic rejection for the next normal diagnostic boundary", () => {
+    const request = pendingHuman();
+    request.threadKey = "q-2042";
+    request.questId = "q-2042";
+    request.threadRefs = [{ threadKey: "q-2042", questId: "q-2042", source: "explicit", attachedAt: 20 }];
+    const session = {
+      id: "leader-recovered-rejected",
+      state: { isOrchestrator: true, model: "gpt-5.6-sol", leaderThreadStatuses: {} as Record<string, any> },
+      messageHistory: [request] as BrowserIncomingMessage[],
+    };
+
+    recoverAgentMessagesFromResumedTurn(
+      session,
+      {
+        id: "turn-rejected",
+        status: "completed",
+        error: null,
+        items: [{ type: "agentMessage", id: "rejected-item", text: "[thread:q-2044:A:u1] Completed answer." }],
+      },
+      { disconnectedAt: 30, historyIndex: 0, userMessageId: "current-user" },
+      { codexAssistantReplayScanLimit: 10, broadcastToBrowsers: vi.fn() },
+    );
+
+    const response = session.messageHistory[1] as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    expect(response.threadAnswer).toBeUndefined();
+    expect(response.leaderAnswerUserMessageIds).toBeUndefined();
+    expect(response.threadRoutingError).toMatchObject({
+      reason: "invalid_answer_route",
+      source: "answer_marker",
+      answerRouteDiagnostic: {
+        reason: "missing_association",
+        selectedThreadKey: "q-2044",
+        ownerGroups: [{ threadKey: "q-2042", userMessageIds: ["u1"] }],
+      },
+    });
+  });
+
   it("restores completed replay-matched answer controls exactly once after retry cleanup", () => {
     const response: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
       type: "assistant",

@@ -26,6 +26,49 @@ function routeThreadKey(threadKey: string | undefined, questId: string | undefin
  * human message. The newest explicit/inferred attachment transfers ownership;
  * backfill references affect visibility only.
  */
+/**
+ * Resolve the current owner only when persisted route evidence proves one.
+ * This accepts a valid authoritative reassignment, but unlike the compatibility
+ * helper it never defaults malformed or route-less rows to Main.
+ */
+export function leaderResponseProvenCurrentOwnerThreadKey(fields: LeaderResponseThreadRouteFields): string | null {
+  let attached: { threadKey: string; attachedAt: number; index: number } | null = null;
+  for (let index = 0; index < (fields.threadRefs?.length ?? 0); index += 1) {
+    const ref = fields.threadRefs![index]!;
+    if (ref.source === "backfill") continue;
+    const threadKey = routeThreadKey(ref.threadKey, ref.questId);
+    if (!threadKey) return null;
+    const attachedAt =
+      typeof ref.attachedAt === "number" && Number.isFinite(ref.attachedAt) ? ref.attachedAt : Number.NEGATIVE_INFINITY;
+    if (
+      !attached ||
+      attachedAt > attached.attachedAt ||
+      (attachedAt === attached.attachedAt && index > attached.index)
+    ) {
+      attached = { threadKey, attachedAt, index };
+    }
+  }
+  if (attached) return attached.threadKey;
+  return routeThreadKey(fields.threadKey, fields.questId);
+}
+
+/**
+ * Resolve a stable owner suitable for automatic answer-route repair. The
+ * direct stored route must be valid and every authoritative ref must agree;
+ * reassigned, malformed, or route-less rows fail closed instead of being
+ * silently canonicalized from a stale owner shape.
+ */
+export function leaderResponseStableOwnerThreadKeyForRepair(fields: LeaderResponseThreadRouteFields): string | null {
+  const direct = routeThreadKey(fields.threadKey, fields.questId);
+  if (!direct) return null;
+  for (const ref of fields.threadRefs ?? []) {
+    if (ref.source === "backfill") continue;
+    const threadKey = routeThreadKey(ref.threadKey, ref.questId);
+    if (!threadKey || threadKey !== direct) return null;
+  }
+  return direct;
+}
+
 export function leaderResponseOwnerThreadKey(fields: LeaderResponseThreadRouteFields): string | null {
   let attached: { threadKey: string; attachedAt: number; index: number } | null = null;
   for (let index = 0; index < (fields.threadRefs?.length ?? 0); index += 1) {

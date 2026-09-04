@@ -62,6 +62,10 @@ import {
 } from "./thread-routing-reminder.js";
 import { recordThreadReadyUnreadNotifications } from "./session-notification-controller.js";
 import {
+  displayOnlyCanonicalizedLeaderAnswerThreads,
+  type CanonicalizedLeaderAnswerRoute,
+} from "./leader-answer-ready-authority.js";
+import {
   consumeQuestThreadRemindersForCompletedTurn,
   extractQuestThreadRemindersFromContent,
   queueQuestThreadRemindersForCompletedTurn,
@@ -807,6 +811,7 @@ function finalizeLeaderTurnResponseControls(
   const rejectedReadyThreadKeys = new Set<string>();
   const entries = currentTurnAssistantEntries(session);
   const answerCanAnchorReady = new Map<Extract<BrowserIncomingMessage, { type: "assistant" }>, boolean>();
+  const canonicalizedRoutes: CanonicalizedLeaderAnswerRoute[] = [];
 
   // Finalize every answer before applying any Ready marker. A multi-section
   // leader output may put the status segment before the answer segment.
@@ -818,22 +823,31 @@ function finalizeLeaderTurnResponseControls(
         finalized.finalized ||
         isCurrentValidRoutedLeaderResponseMessage({ id: session.id, messageHistory: session.messageHistory }, entry);
       answerCanAnchorReady.set(entry, authoritative);
-      if (finalized.finalized) changed = true;
+      if (finalized.finalized) {
+        changed = true;
+        if (finalized.canonicalizedRoute) canonicalizedRoutes.push(finalized.canonicalizedRoute);
+      }
     }
   }
+
+  const displayOnlyReadyThreadKeys = displayOnlyCanonicalizedLeaderAnswerThreads(
+    { id: session.id, messageHistory: session.messageHistory },
+    entries,
+    canonicalizedRoutes,
+  );
 
   for (const entry of entries) {
     let entryChanged = false;
     const answerIsInvalid = entry.leaderThreadRole === "answer" && answerCanAnchorReady.get(entry) !== true;
     const deferredMarkers = entry.deferredThreadStatusMarkers;
     if (apply && deferredMarkers?.length) {
-      const markersToApply = answerIsInvalid
-        ? deferredMarkers.filter((marker) => {
-            if (marker.kind !== "ready") return true;
-            rejectedReadyThreadKeys.add(threadRouteForTarget(marker.target.threadKey).threadKey);
-            return false;
-          })
-        : deferredMarkers;
+      const markersToApply = deferredMarkers.filter((marker) => {
+        if (marker.kind !== "ready") return true;
+        const threadKey = threadRouteForTarget(marker.target.threadKey).threadKey;
+        if (!answerIsInvalid && !displayOnlyReadyThreadKeys.has(threadKey)) return true;
+        rejectedReadyThreadKeys.add(threadKey);
+        return false;
+      });
       const route = routeFromHistoryEntry(entry) ?? undefined;
       const timestamp = typeof entry.timestamp === "number" ? entry.timestamp : Date.now();
       const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
