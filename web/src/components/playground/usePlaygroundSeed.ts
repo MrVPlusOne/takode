@@ -890,26 +890,26 @@ export function usePlaygroundSeed() {
         historyIndex: 15,
       }),
       makePlaygroundMessage({
+        id: "playground-thread-q963-phase-commentary",
+        role: "assistant",
+        content: "Checking the internal worker queue before publishing the dispatch plan.",
+        timestamp: Date.now() - 10_000,
+        historyIndex: 16,
+        metadata: {
+          codexMessagePhase: "commentary",
+          threadRefs: [{ threadKey: "q-9003", questId: "q-9003", source: "explicit" }],
+        },
+      }),
+      makePlaygroundMessage({
         id: "playground-thread-q963-phase-final",
         role: "assistant",
         content: "The dispatch plan is ready with the requested worker assignment.",
-        timestamp: Date.now() - 10_000,
-        historyIndex: 16,
+        timestamp: Date.now() - 9_000,
+        historyIndex: 17,
         metadata: {
           codexMessagePhase: "final_answer",
           threadRefs: [{ threadKey: "q-9003", questId: "q-9003", source: "explicit" }],
           threadStatusMarkers: [playgroundReadyStatus],
-        },
-      }),
-      makePlaygroundMessage({
-        id: "playground-thread-q963-phase-commentary",
-        role: "assistant",
-        content: "Checking the internal worker queue after publishing the dispatch plan.",
-        timestamp: Date.now() - 9_000,
-        historyIndex: 17,
-        metadata: {
-          codexMessagePhase: "commentary",
-          threadRefs: [{ threadKey: "q-9003", questId: "q-9003", source: "explicit" }],
         },
       }),
     ]);

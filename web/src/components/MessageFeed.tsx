@@ -48,7 +48,7 @@ import { YarnBallDot, YarnBallSpinner } from "./CatIcons.js";
 import { PawTrailAvatar, PawCounterContext, PawScrollProvider, HidePawContext } from "./PawTrail.js";
 import { isTouchDevice } from "../utils/mobile.js";
 import { sendToSession } from "../ws.js";
-import { useCollapsePolicy } from "../hooks/use-collapse-policy.js";
+import { canAutoCollapseReadyThread, useCollapsePolicy } from "../hooks/use-collapse-policy.js";
 import { useTextSelection } from "../hooks/useTextSelection.js";
 import { SelectionContextMenu } from "./SelectionContextMenu.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
@@ -249,6 +249,7 @@ export function MessageFeed({
   const toolStartTimestamps = useStore((s) => s.toolStartTimestamps.get(sessionId));
   const backgroundAgentNotifs = useStore((s) => s.backgroundAgentNotifs.get(sessionId));
   const currentSessionStatus = useStore((s) => s.sessionStatus.get(sessionId) ?? null);
+  const activeTurnRoute = useStore((s) => s.activeTurnRoutes?.get(sessionId) ?? null);
   const parentStreamingByToolUseId = useStore((s) => s.streamingByParentToolUseId.get(sessionId));
   const shouldBottomAlignNextUserMessage = useStore((s) => s.bottomAlignNextUserMessage.has(sessionId));
   const pawCounter = useRef<import("./PawTrail.js").PawCounterState>({ next: 0, cache: new Map() });
@@ -584,8 +585,15 @@ export function MessageFeed({
   const responseStateHasTrackedWork =
     threadResponseState != null &&
     (threadResponseState.pendingMessageCount > 0 || threadResponseState.currentAnswers.length > 0);
-  const validatedReadyCollapse = threadResponsePresentation?.ready === true;
-  const legacyQuestReadyCollapse = collapseLeaderThreadActivity && !responseStateHasTrackedWork;
+  const readyCollapseSettled = canAutoCollapseReadyThread({
+    activeTurnThreadKey: activeTurnRoute?.threadKey,
+    currentThreadKey: normalizedThreadKey,
+    sessionStatus: currentSessionStatus,
+  });
+  const validatedReadyCollapse = readyCollapseSettled && threadResponsePresentation?.ready === true;
+  // Main owns Ready collapse too; All Threads remains aggregate and leaderMode stays quest-only.
+  const fallbackReadyCollapse =
+    readyCollapseSettled && isLeaderSession && !isAllThreadsKey(normalizedThreadKey) && !responseStateHasTrackedWork;
   const isLoadingOlderSection = pendingSectionLoadDirection === "older";
   const isLoadingNewerSection = pendingSectionLoadDirection === "newer";
   const latestPillLabel = hasNewerSections ? "Latest section below" : "New content below";
@@ -600,7 +608,7 @@ export function MessageFeed({
   });
   const { turnStates, toggleTurn } = useCollapsePolicy({
     autoCollapseReadyAfter: validatedReadyCollapse ? latestThreadResponseUpdatedAt : null,
-    autoCollapseReadyThreadKey: validatedReadyCollapse || legacyQuestReadyCollapse ? normalizedThreadKey : null,
+    autoCollapseReadyThreadKey: validatedReadyCollapse || fallbackReadyCollapse ? normalizedThreadKey : null,
     sessionId,
     turns: visibleTurns,
   });

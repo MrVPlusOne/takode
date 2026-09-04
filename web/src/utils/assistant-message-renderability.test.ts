@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessage } from "../types.js";
 import {
+  getAssistantVisibleMarkdown,
   isAssistantMessageRenderable,
   projectAssistantMessageForRendering,
 } from "./assistant-message-renderability.js";
@@ -92,6 +93,18 @@ describe("assistant message renderability", () => {
         { isCodexSession: true },
       ),
     ).toBe(false);
+  });
+
+  it("reads normalized visible Markdown from text blocks before stale fallback content", () => {
+    const message = assistant({
+      content: "stale fallback",
+      contentBlocks: [
+        { type: "text", text: "[thread:q-1888]\nVisible answer" },
+        { type: "text", text: "{[(Quest Quiz: q-1888)]}" },
+      ],
+    });
+
+    expect(getAssistantVisibleMarkdown(message)).toBe("Visible answer\n\n{[(Quest Quiz: q-1888)]}");
   });
 
   it("keeps quiz directives eligible for their dedicated rendered child", () => {

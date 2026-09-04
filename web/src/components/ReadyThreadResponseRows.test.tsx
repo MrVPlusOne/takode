@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, expect, it } from "vitest";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
@@ -57,6 +57,11 @@ function presentation(coveredUserMessageIds = ["u1", "u2"]): ThreadResponsePrese
         sourceTurnId: "u2",
         messageEntry: current,
         collapsedMessageEntry: current,
+        coveredUserMessages: coveredUserMessageIds.map((id, index) => ({
+          historyMessageId: id,
+          userMessageId: id,
+          content: `Referenced request ${index + 1}`,
+        })),
       },
     ],
     currentResponseMessageIds: new Set(["response-current"]),
@@ -79,7 +84,11 @@ describe("ReadyThreadResponseRows", () => {
     );
 
     expect(screen.getByText("Current polished response")).toBeVisible();
-    expect(screen.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 2 messages");
+    const coverage = screen.getByTestId("thread-response-answer-count");
+    expect(coverage).toHaveTextContent("Answers 2 messages");
+    fireEvent.click(coverage);
+    expect(screen.getByTestId("thread-response-coverage-preview")).toHaveTextContent("Referenced request 1");
+    expect(screen.getByTestId("thread-response-coverage-preview")).toHaveTextContent("Referenced request 2");
     expect(screen.queryByText("Current answer")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Edit|Save new version|Versions/i })).not.toBeInTheDocument();
   });
@@ -115,7 +124,7 @@ describe("ReadyThreadResponseRows", () => {
 
     expect(screen.queryByText("Hidden intermediate prose")).not.toBeInTheDocument();
     expect(screen.getByText("Current polished response")).toBeVisible();
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Answers 2 messages; preview referenced messages" })).toBeVisible();
   });
 
   it("leaves collapsed system activity hidden without creating a competing control", () => {
@@ -135,7 +144,7 @@ describe("ReadyThreadResponseRows", () => {
 
     expect(screen.queryByText("Hidden system detail")).not.toBeInTheDocument();
     expect(screen.getByText("Current polished response")).toBeVisible();
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Answers 2 messages; preview referenced messages" })).toBeVisible();
   });
   it("keeps exact unresolved needs-input anchors beside current responses in source order without duplication", () => {
     const current = presentation(["u2"]);

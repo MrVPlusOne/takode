@@ -1086,7 +1086,9 @@ function producerMixedCutoverThreadWindow(
   };
 }
 
-function producerLegacyPhaseOnlyThreadWindow(): Extract<BrowserIncomingMessage, { type: "thread_window_sync" }> {
+function producerLegacyPhaseOnlyThreadWindow(
+  options: { separateQuiz?: boolean } = {},
+): Extract<BrowserIncomingMessage, { type: "thread_window_sync" }> {
   const status = (kind: "waiting" | "ready", messageId: string, timestamp: number) => ({
     kind,
     label: kind === "ready" ? ("Thread Ready" as const) : ("Thread Waiting" as const),
@@ -1102,7 +1104,7 @@ function producerLegacyPhaseOnlyThreadWindow(): Extract<BrowserIncomingMessage, 
     text: string,
     timestamp: number,
     kind: "waiting" | "ready",
-    leaderThreadRole?: "response",
+    leaderThreadRole?: "commentary" | "response",
   ) => {
     const message = assistantMessage(id, text, timestamp, "final_answer", leaderThreadRole);
     message.threadStatusMarkers = [status(kind, id, timestamp)];
@@ -1166,14 +1168,36 @@ function producerLegacyPhaseOnlyThreadWindow(): Extract<BrowserIncomingMessage, 
     },
     {
       history_index: 18,
-      message: phaseMessage(
-        "legacy-completion",
-        `Collapsed turns now have one unified footer.\n\n{[(Quest Quiz: ${QUEST_ID})]}`,
-        1_700_000_009_000,
-        "ready",
-        "response",
-      ),
+      message: options.separateQuiz
+        ? assistantMessage(
+            "legacy-completion",
+            "Collapsed turns now have one unified footer.",
+            1_700_000_009_000,
+            "final_answer",
+            "response",
+          )
+        : phaseMessage(
+            "legacy-completion",
+            `Collapsed turns now have one unified footer.\n\n{[(Quest Quiz: ${QUEST_ID})]}`,
+            1_700_000_009_000,
+            "ready",
+            "response",
+          ),
     },
+    ...(options.separateQuiz
+      ? [
+          {
+            history_index: 19,
+            message: phaseMessage(
+              "legacy-quiz",
+              `{[(Quest Quiz: ${QUEST_ID})]}`,
+              1_700_000_010_000,
+              "ready",
+              "commentary",
+            ),
+          },
+        ]
+      : []),
   ];
   return {
     type: "thread_window_sync",
@@ -1186,7 +1210,7 @@ function producerLegacyPhaseOnlyThreadWindow(): Extract<BrowserIncomingMessage, 
       total_items: entries.length,
       has_older_items: false,
       has_newer_items: false,
-      source_history_length: 19,
+      source_history_length: options.separateQuiz ? 20 : 19,
       section_item_count: 30,
       visible_item_count: entries.length,
     },
@@ -1352,6 +1376,44 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(view.container.querySelectorAll(`[data-message-id="${ASSOCIATED_MAIN_ANSWER_ID}"]`)).toHaveLength(0);
   });
 
+  it("keeps a separate Main-owned Quiz in a fallback Ready collapse", () => {
+    act(() => {
+      useStore.getState().reset();
+      handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
+      useStore.getState().upsertQuestDetail(quest(), { etag: '"response-detail"' });
+      const sync = producerAssociatedMainAnswerWindows().main;
+      const readyStatus = {
+        kind: "ready" as const,
+        label: "Thread Ready" as const,
+        threadKey: "main",
+        summary: "Main answer complete",
+        messageId: ASSOCIATED_MAIN_ANSWER_ID,
+        timestamp: 1_700_000_026_000,
+        updatedAt: 1_700_000_026_000,
+      };
+      const answer = sync.entries.find((entry) => entry.history_index === 43)?.message;
+      if (answer?.type !== "assistant") throw new Error("Expected Main answer fixture");
+      answer.threadStatusMarkers = [readyStatus];
+      const routedQuiz = assistantMessage("main-owned-quiz", `{[(Quest Quiz: ${QUEST_ID})]}`, 1_700_000_025_000);
+      const { questId: _questId, threadRefs: _threadRefs, ...mainQuiz } = routedQuiz;
+      handleMessage(SESSION_ID, {
+        ...sync,
+        entries: [...sync.entries, { history_index: 44, message: { ...mainQuiz, threadKey: "main" } }],
+        window: { ...sync.window, item_count: 3, total_items: 3, visible_item_count: 3 },
+        response_state: undefined,
+      });
+      installAssociatedReadyStatuses();
+    });
+
+    const view = render(<MessageFeed sessionId={SESSION_ID} threadKey="main" />);
+    const turn = view.container
+      .querySelector<HTMLElement>(`[data-message-id="${ASSOCIATED_MAIN_USER_ID}"]`)!
+      .closest<HTMLElement>("[data-turn-id]")!;
+    expect(within(turn).getByText(ASSOCIATED_MAIN_ANSWER_TEXT)).toBeVisible();
+    expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
+    expect(within(turn).queryByText(/Quest Quiz:/i)).not.toBeInTheDocument();
+  });
+
   it("shows only one defensible legacy representative while preserving complete expanded chronology", () => {
     act(() => {
       useStore.getState().reset();
@@ -1393,6 +1455,41 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(within(turn).getByText("Collapsed turns now have one unified footer.")).toBeVisible();
     expect(within(turn).queryByText("Created and dispatched the follow-up quest.")).not.toBeInTheDocument();
     expect(within(turn).getAllByRole("button", { name: "Expand turn · 1 tool" })).toHaveLength(1);
+  });
+
+  it("keeps a separate Quiz on its fallback Ready turn through collapse toggles", () => {
+    act(() => {
+      useStore.getState().reset();
+      handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
+      useStore.getState().upsertQuestDetail(quest(), { etag: '"response-detail"' });
+      handleMessage(SESSION_ID, producerLegacyPhaseOnlyThreadWindow({ separateQuiz: true }));
+      const quiz = useStore
+        .getState()
+        .threadWindowMessages.get(SESSION_ID)
+        ?.get(QUEST_ID)
+        ?.find((message) => message.id === "legacy-quiz");
+      if (!quiz) throw new Error("Expected fallback Quiz fixture");
+      quiz.content = "";
+      quiz.contentBlocks = [{ type: "text", text: `{[(Quest Quiz: ${QUEST_ID})]}` }];
+      installReadyStatus(1_700_000_010_000, "legacy-quiz");
+    });
+
+    render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+    const turn = screen
+      .getByText("Legacy request before explicit answer coverage")
+      .closest<HTMLElement>("[data-turn-id]")!;
+
+    expect(within(turn).getByText("Collapsed turns now have one unified footer.")).toBeVisible();
+    expect(within(turn).queryByText("Created and dispatched the follow-up quest.")).not.toBeInTheDocument();
+    expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
+    expect(within(turn).queryByText(/Quest Quiz:/i)).not.toBeInTheDocument();
+
+    fireEvent.click(within(turn).getByRole("button", { name: "Expand turn · 1 tool" }));
+    expect(within(turn).getByText("Created and dispatched the follow-up quest.")).toBeVisible();
+    expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
+
+    fireEvent.click(within(turn).getByRole("button", { name: "Collapse turn" }));
+    expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
   });
 
   it("preserves the pre-cutover collapsed response while using response rows after cutover", () => {

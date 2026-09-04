@@ -96,6 +96,13 @@ export function projectAssistantMessageForRendering(
   };
 }
 
+export function getAssistantVisibleMarkdown(message: ChatMessage, context: AssistantMessageRenderContext = {}): string {
+  const projection = projectAssistantMessageForRendering(message, context);
+  const textBlocks = projection.blocks.flatMap((block) => (block.type === "text" ? [block.text] : []));
+  if (textBlocks.length > 0) return textBlocks.join("\n\n");
+  return projection.shouldRenderContentFallback ? projection.fallbackText : "";
+}
+
 export function isAssistantMessageRenderable(
   message: ChatMessage,
   context: AssistantMessageRenderContext = {},

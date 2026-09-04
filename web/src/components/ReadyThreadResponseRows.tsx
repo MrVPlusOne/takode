@@ -98,6 +98,7 @@ export function ReadyThreadResponseRows({
           >
             <ThreadResponseCoverageBadge
               messageCount={row.item.response.coveredUserMessageIds.length}
+              referencedMessages={row.item.coveredUserMessages}
               className="mb-1.5"
             />
             <HidePawContext.Provider value={true}>

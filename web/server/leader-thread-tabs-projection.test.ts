@@ -158,6 +158,32 @@ describe("leader thread tabs projection derivation", () => {
     expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-3", "q-4"]);
   });
 
+  it("retains a full-ID hash when normal projection compaction truncates a Codex status anchor", () => {
+    // Live Codex assistant IDs can substantially exceed the bounded wire field.
+    // Keep the compact display prefix plus a stable full-ID hash so the browser
+    // can still correlate the Ready status with the untruncated history row.
+    const fullMessageId = `codex-agent-${"Ab+/".repeat(107)}`;
+    const ready = status("main", "ready");
+    ready.questId = undefined;
+    ready.messageId = fullMessageId;
+    const session = makeSession({
+      state: {
+        isOrchestrator: true,
+        leaderThreadStatuses: { main: ready },
+      } as unknown as Session["state"],
+    });
+
+    const value = buildLeaderThreadTabsProjectionValue(session);
+
+    expect(value.threadStatuses.main).toMatchObject({
+      kind: "ready",
+      threadKey: "main",
+      messageId: fullMessageId.slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH),
+      messageIdHash: threadStatusMessageIdHash(fullMessageId),
+    });
+    expect(isLeaderThreadTabsProjectionValue(value)).toBe(true);
+  });
+
   it("derives one bounded initial candidate order before durable tab migration", () => {
     const session = makeSession({
       board: new Map([["q-1", boardRow("q-1", "WORKING")]]),

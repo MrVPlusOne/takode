@@ -192,7 +192,15 @@ describe("Playground", () => {
     expect(withToolsCard).toHaveClass("min-w-0", "max-w-[430px]", "overflow-hidden");
     const withTools = within(withToolsCard);
     expect(withTools.getByRole("button", { name: "Expand turn · 2 tools" })).toHaveAttribute("aria-expanded", "false");
-    expect(withTools.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 2 messages");
+    const groupedCoverage = withTools.getByTestId("thread-response-answer-count");
+    expect(groupedCoverage).toHaveTextContent("Answers 2 messages");
+    fireEvent.click(groupedCoverage);
+    const coveragePreview = screen.getByRole("dialog", { name: "Referenced user messages" });
+    expect(coveragePreview).toHaveTextContent("Please foreground the polished result when this work is ready.");
+    expect(coveragePreview).toHaveTextContent("Please include the mobile behavior too.");
+    expect(withTools.getByRole("button", { name: "Expand turn · 2 tools" })).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(groupedCoverage);
+    expect(screen.queryByRole("dialog", { name: "Referenced user messages" })).not.toBeInTheDocument();
     expect(withTools.getByRole("button", { name: "Message options" })).toBeVisible();
 
     const withoutToolsCard = routedFinalStates.getByTestId("playground-unified-footer-without-tools");
@@ -220,7 +228,14 @@ describe("Playground", () => {
     expect(expandedCard).toHaveClass("min-w-0", "max-w-[430px]");
     const expanded = within(expandedCard);
     expect(expanded.getByRole("button", { name: "Collapse turn" })).toHaveAttribute("aria-expanded", "true");
-    expect(expanded.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 2 messages");
+    const expandedCoverage = expanded.getByTestId("thread-response-answer-count");
+    expect(expandedCoverage).toHaveTextContent("Answers 2 messages");
+    fireEvent.click(expandedCoverage);
+    expect(screen.getByRole("dialog", { name: "Referenced user messages" })).toHaveTextContent(
+      "Please include the mobile behavior too.",
+    );
+    expect(expanded.getByRole("button", { name: "Collapse turn" })).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(expandedCoverage);
     const expandedCurrent = expanded
       .getByText(
         "The responsive feed now foregrounds one polished response for this two-message batch. Earlier working notes and tools remain available when the turn is expanded.",
@@ -839,14 +854,14 @@ describe("Playground", () => {
     );
     expect(phaseFinal).toBeTruthy();
     expect(
-      within(phaseThread).queryByText("Checking the internal worker queue after publishing the dispatch plan."),
+      within(phaseThread).queryByText("Checking the internal worker queue before publishing the dispatch plan."),
     ).toBeNull();
     const phaseTurn = phaseFinal.closest("[data-turn-id]");
     expect(phaseTurn).toBeTruthy();
     const phaseActivityButtons = within(phaseTurn as HTMLElement).getAllByRole("button", { name: /Expand turn/ });
     fireEvent.click(phaseActivityButtons.at(-1)!);
     expect(
-      within(phaseThread).getByText("Checking the internal worker queue after publishing the dispatch plan."),
+      within(phaseThread).getByText("Checking the internal worker queue before publishing the dispatch plan."),
     ).toBeTruthy();
     expect(document.querySelector('[data-message-id="playground-thread-status-batch"]')).toBeNull();
     expect(screen.getAllByText("The initial q-9001 answer is complete and remains in history.").length).toBeGreaterThan(

@@ -29,6 +29,19 @@ function assistantEntry(
   };
 }
 
+const GROUPED_COVERED_USER_MESSAGES = [
+  {
+    historyMessageId: "playground-user-first",
+    userMessageId: "u1",
+    content: "Please foreground the polished result when this work is ready.",
+  },
+  {
+    historyMessageId: "playground-user-second",
+    userMessageId: "u2",
+    content: "Please include the mobile behavior too.",
+  },
+] as const;
+
 const CURRENT_RESPONSE = assistantEntry(
   "playground-response-current",
   "The responsive feed now foregrounds one polished response for this two-message batch. Earlier working notes and tools remain available when the turn is expanded.",
@@ -86,6 +99,7 @@ const PRESENTATION: ThreadResponsePresentation = {
       sourceTurnId: READY_TURN.id,
       messageEntry: CURRENT_RESPONSE,
       collapsedMessageEntry: CURRENT_RESPONSE,
+      coveredUserMessages: GROUPED_COVERED_USER_MESSAGES,
     },
   ],
   currentResponseMessageIds: new Set([CURRENT_RESPONSE.msg.id]),
@@ -142,6 +156,13 @@ const ANSWER_ONLY_PRESENTATION: ThreadResponsePresentation = {
       sourceTurnId: ANSWER_ONLY_TURN.id,
       messageEntry: ANSWER_ONLY_RESPONSE,
       collapsedMessageEntry: ANSWER_ONLY_RESPONSE,
+      coveredUserMessages: [
+        {
+          historyMessageId: ANSWER_ONLY_TURN.id,
+          userMessageId: "u3",
+          content: "Show the answer-only collapsed state.",
+        },
+      ],
     },
   ],
   currentResponseMessageIds: new Set([ANSWER_ONLY_RESPONSE.msg.id]),
@@ -216,6 +237,13 @@ const ASSOCIATED_MAIN_PRESENTATION: ThreadResponsePresentation = {
       sourceTurnId: ASSOCIATED_MAIN_TURN.id,
       messageEntry: ASSOCIATED_MAIN_RESPONSE,
       collapsedMessageEntry: ASSOCIATED_MAIN_RESPONSE,
+      coveredUserMessages: [
+        {
+          historyMessageId: ASSOCIATED_MAIN_TURN.id,
+          userMessageId: "u25",
+          content: "Main request attached to this quest.",
+        },
+      ],
     },
   ],
   currentResponseMessageIds: new Set([ASSOCIATED_MAIN_RESPONSE.msg.id]),

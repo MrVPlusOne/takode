@@ -118,6 +118,10 @@ describe("explicit answer presentation", () => {
       ["a-current", "raw-u2"],
       ["b-current", "raw-u3"],
     ]);
+    expect(result?.currentResponses[0]?.coveredUserMessages).toEqual([
+      { historyMessageId: "raw-u1", userMessageId: "u1", content: "u1" },
+      { historyMessageId: "raw-u2", userMessageId: "u2", content: "u2" },
+    ]);
     expect(result?.currentResponses[1]?.collapsedMessageEntry.msg.content).toBe("Answer response");
     expect(result?.currentResponses[1]?.collapsedMessageEntry).not.toBe(result?.currentResponses[1]?.messageEntry);
     expect(result?.currentResponses[1]?.messageEntry.msg.content).toContain("{[(Quest Quiz: q-2024)]}");
@@ -137,6 +141,30 @@ describe("explicit answer presentation", () => {
     expect(response?.collapsedMessageEntry).toBe(response?.messageEntry);
     expect(response?.collapsedMessageEntry.msg).toBe(response?.messageEntry.msg);
     expect(response?.collapsedMessageEntry.msg.content).toBe(exactContent);
+  });
+
+  it("collects and strips a Quiz carried only in current-answer text blocks", () => {
+    const messages = validMessages();
+    const current = messages.find((message) => message.id === "b-current")!;
+    current.content = "";
+    current.contentBlocks = [
+      { type: "text", text: "Block-only answer\n\n{[(Quest Quiz: q-2024)]}" },
+      { type: "tool_use", id: "preserved-tool", name: "Read", input: { file_path: "README.md" } },
+    ];
+
+    const result = resolveThreadResponses(sections(messages), projection(), THREAD_KEY);
+    const presented = result?.currentResponses[1];
+
+    expect(presented?.messageEntry.msg.contentBlocks).toEqual([
+      { type: "text", text: "Block-only answer\n\n{[(Quest Quiz: q-2024)]}" },
+      { type: "tool_use", id: "preserved-tool", name: "Read", input: { file_path: "README.md" } },
+    ]);
+    expect(presented?.collapsedMessageEntry.msg.content).toBe("Block-only answer");
+    expect(presented?.collapsedMessageEntry.msg.contentBlocks).toEqual([
+      { type: "text", text: "Block-only answer" },
+      { type: "tool_use", id: "preserved-tool", name: "Read", input: { file_path: "README.md" } },
+    ]);
+    expect(result?.quizGroups).toEqual([{ hostTurnId: "raw-u3", questIds: ["q-2024"] }]);
   });
 
   it("keeps a Quiz with the earlier turn that actually contains its directive", () => {
@@ -176,6 +204,12 @@ describe("explicit answer presentation", () => {
     expect(result?.currentResponses.map((item) => [item.response.currentMessageId, item.anchorUserMessageId])).toEqual([
       ["a-current", "raw-u1"],
       ["b-current", "raw-u2"],
+    ]);
+    expect(result?.currentResponses[0]?.coveredUserMessages).toEqual([
+      { historyMessageId: "raw-u1", userMessageId: "u1", content: "u1" },
+    ]);
+    expect(result?.currentResponses[1]?.coveredUserMessages).toEqual([
+      { historyMessageId: "raw-u2", userMessageId: "u2", content: "u2" },
     ]);
   });
 

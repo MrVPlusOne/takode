@@ -4,6 +4,7 @@ import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LEADER_THREAD_TABS_PROJECTION,
+  LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH,
   type LeaderThreadTabsProjectionValue,
 } from "../../shared/leader-thread-tabs-projection.js";
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
@@ -11,7 +12,7 @@ import { threadStatusMessageIdHash } from "../../shared/thread-status-marker.js"
 import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
 import type { ChatMessage } from "../types.js";
 import { buildFeedModel } from "./use-feed-model.js";
-import { useCollapsePolicy } from "./use-collapse-policy.js";
+import { canAutoCollapseReadyThread, useCollapsePolicy } from "./use-collapse-policy.js";
 
 const storeMocks = vi.hoisted(() => ({
   overridesBySession: new Map<string, Map<string, boolean>>(),
@@ -90,6 +91,31 @@ function getLeaderCollapseStates(
     isActivityExpanded,
   }));
 }
+
+describe("Ready collapse generation guard", () => {
+  it("blocks only active same-thread or route-unknown generation", () => {
+    expect(
+      canAutoCollapseReadyThread({ sessionStatus: "running", activeTurnThreadKey: "main", currentThreadKey: "main" }),
+    ).toBe(false);
+    expect(
+      canAutoCollapseReadyThread({ sessionStatus: "running", activeTurnThreadKey: null, currentThreadKey: "main" }),
+    ).toBe(false);
+    expect(
+      canAutoCollapseReadyThread({
+        sessionStatus: "running",
+        activeTurnThreadKey: "q-2",
+        currentThreadKey: "main",
+      }),
+    ).toBe(true);
+  });
+
+  it("preserves Ready collapse while disconnected and blocks transition states", () => {
+    expect(canAutoCollapseReadyThread({ sessionStatus: null, currentThreadKey: "main" })).toBe(true);
+    expect(canAutoCollapseReadyThread({ sessionStatus: "idle", currentThreadKey: "main" })).toBe(true);
+    expect(canAutoCollapseReadyThread({ sessionStatus: "compacting", currentThreadKey: "main" })).toBe(false);
+    expect(canAutoCollapseReadyThread({ sessionStatus: "reverting", currentThreadKey: "main" })).toBe(false);
+  });
+});
 
 describe("useCollapsePolicy", () => {
   beforeEach(() => {
@@ -214,6 +240,138 @@ describe("useCollapsePolicy", () => {
     expect(getLeaderCollapseStates(messages, "q-1636", 3)).toEqual([
       { turnId: "u1", defaultExpanded: false, isActivityExpanded: true },
     ]);
+  });
+
+  it("correlates a truncated Main Ready anchor through its full message ID hash", () => {
+    const fullMessageId = `codex-agent-${"Ab+/".repeat(107)}`;
+    const projectedStatus = {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: "main",
+      summary: "complete",
+      messageId: fullMessageId.slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH),
+      messageIdHash: threadStatusMessageIdHash(fullMessageId),
+      timestamp: 3,
+      updatedAt: 3,
+    } as const;
+    installLeaderProjection({ main: projectedStatus });
+
+    const states = getLeaderCollapseStates(
+      [
+        makeMessage({ id: "u1", role: "user", content: "finish Main", timestamp: 1 }),
+        makeMessage({
+          id: fullMessageId,
+          role: "assistant",
+          content: "Main is complete.",
+          timestamp: 3,
+          metadata: { threadStatusMarkers: [{ ...projectedStatus, messageId: fullMessageId }] },
+        }),
+      ],
+      "main",
+    );
+
+    expect(states).toEqual([{ turnId: "u1", defaultExpanded: false, isActivityExpanded: false }]);
+  });
+
+  it("keeps the latest turn expanded when model activity follows its Ready anchor", () => {
+    const readyStatus = {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: "main",
+      summary: "complete",
+      messageId: "a-ready",
+      timestamp: 3,
+      updatedAt: 3,
+    } as const;
+    installLeaderProjection({ main: readyStatus });
+
+    const states = getLeaderCollapseStates(
+      [
+        makeMessage({ id: "u1", role: "user", content: "finish Main", timestamp: 1 }),
+        makeMessage({
+          id: "a-ready",
+          role: "assistant",
+          content: "Main is complete.",
+          timestamp: 3,
+          metadata: { threadStatusMarkers: [readyStatus] },
+        }),
+        makeMessage({
+          id: "a-later-tool",
+          role: "assistant",
+          timestamp: 4,
+          contentBlocks: [{ type: "tool_use", id: "later-tool", name: "Bash", input: { command: "echo later" } }],
+        }),
+      ],
+      "main",
+    );
+
+    expect(states).toEqual([{ turnId: "u1", defaultExpanded: true, isActivityExpanded: true }]);
+  });
+
+  it("does not treat a separate same-turn Quest Quiz directive as post-Ready model work", () => {
+    const readyStatus = {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: "main",
+      summary: "complete",
+      messageId: "a-ready",
+      timestamp: 3,
+      updatedAt: 3,
+    } as const;
+    installLeaderProjection({ main: readyStatus });
+
+    const states = getLeaderCollapseStates(
+      [
+        makeMessage({ id: "u1", role: "user", content: "finish Main", timestamp: 1 }),
+        makeMessage({
+          id: "a-ready",
+          role: "assistant",
+          content: "Main is complete.",
+          timestamp: 3,
+          metadata: { threadStatusMarkers: [readyStatus] },
+        }),
+        makeMessage({
+          id: "a-quiz",
+          role: "assistant",
+          content: "",
+          timestamp: 4,
+          contentBlocks: [{ type: "text", text: "{[(Quest Quiz: q-2041)]}" }],
+        }),
+      ],
+      "main",
+    );
+
+    expect(states).toEqual([{ turnId: "u1", defaultExpanded: false, isActivityExpanded: false }]);
+  });
+
+  it("fails closed for a truncated Main Ready anchor without a matching full-ID hash", () => {
+    const fullMessageId = `codex-agent-${"Ab+/".repeat(107)}`;
+    const projectedStatus = {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: "main",
+      summary: "complete",
+      messageId: fullMessageId.slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH),
+      timestamp: 3,
+      updatedAt: 3,
+    } as const;
+    installLeaderProjection({ main: projectedStatus });
+
+    const states = getLeaderCollapseStates(
+      [
+        makeMessage({ id: "u1", role: "user", content: "finish Main", timestamp: 1 }),
+        makeMessage({
+          id: fullMessageId,
+          role: "assistant",
+          content: "Main is complete.",
+          timestamp: 3,
+          metadata: { threadStatusMarkers: [{ ...projectedStatus, messageId: fullMessageId }] },
+        }),
+      ],
+      "main",
+    );
+
+    expect(states).toEqual([{ turnId: "u1", defaultExpanded: true, isActivityExpanded: true }]);
   });
 
   it("correlates a compacted Ready status through its full message ID hash", () => {

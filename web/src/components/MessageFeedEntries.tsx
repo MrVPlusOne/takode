@@ -26,6 +26,7 @@ import { ToolBlock, getToolIcon, getToolLabel, ToolIcon, type ToolResultScope } 
 import { MarkdownContent } from "./MarkdownContent.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { CollapseFooter, TurnToggleFooter } from "./CollapseFooter.js";
+import { AssistantQuestQuizContent, extractQuestQuizMarkerIds } from "./AssistantQuestQuizContent.js";
 import { LiveCodexTerminalStub, LiveDurationBadge } from "./MessageFeedLiveActivity.js";
 import {
   appendTimedMessagesFromEntries,
@@ -52,7 +53,7 @@ import {
 import { AttentionLedgerRow } from "./AttentionLedgerRow.js";
 import { isAttentionLedgerMessage } from "../utils/attention-records.js";
 import { collectAnchoredNotificationMessageIds } from "../utils/anchored-notifications.js";
-import { isAssistantMessageRenderable } from "../utils/assistant-message-renderability.js";
+import { getAssistantVisibleMarkdown, isAssistantMessageRenderable } from "../utils/assistant-message-renderability.js";
 import { DelegateTrace, extractDelegateId, useDelegateCommandTrace } from "./DelegateCommandTrace.js";
 import { parseSubagentResultText, SubagentResult } from "./SubagentResult.js";
 import { isCompactToolActivityItem } from "./CompactToolActivity.js";
@@ -990,7 +991,10 @@ export const FeedEntries = memo(function FeedEntries({
           >
             {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
             {currentResponse ? (
-              <ExpandedCurrentThreadResponse messageCount={currentResponse.response.coveredUserMessageIds.length}>
+              <ExpandedCurrentThreadResponse
+                messageCount={currentResponse.response.coveredUserMessageIds.length}
+                referencedMessages={currentResponse.coveredUserMessages}
+              >
                 <HidePawContext.Provider value={true}>{bubble}</HidePawContext.Provider>
               </ExpandedCurrentThreadResponse>
             ) : (
@@ -1037,6 +1041,7 @@ function CollapsedTurnRows({
   questLinkSurface,
   threadResponsePresentation,
   activeNeedsInputAnchorMessageIds,
+  preserveHostQuestQuiz,
 }: {
   turn: Turn;
   sessionId: string;
@@ -1049,6 +1054,7 @@ function CollapsedTurnRows({
   questLinkSurface: QuestLinkSurface;
   threadResponsePresentation?: ThreadResponsePresentation | null;
   activeNeedsInputAnchorMessageIds: ReadonlySet<string>;
+  preserveHostQuestQuiz: boolean;
 }) {
   const collapsedEntries = turn.collapsedEntries ?? [];
   if (threadResponsePresentation) {
@@ -1076,6 +1082,28 @@ function CollapsedTurnRows({
       />
     );
   }
+  // The fallback Ready path has no response presentation to carry a separate Quiz row.
+  // Rebuild only directives already owned by this turn, and skip any representative that renders one itself.
+  const hiddenHostQuizIds = preserveHostQuestQuiz
+    ? (() => {
+        const visibleQuizIds = new Set(
+          collapsedEntries.flatMap((row) =>
+            row.kind === "entry" && row.entry.kind === "message"
+              ? extractQuestQuizMarkerIds(getAssistantVisibleMarkdown(row.entry.msg))
+              : [],
+          ),
+        );
+        return [
+          ...new Set(
+            turnPresentationEntries(turn).flatMap((entry) =>
+              entry.kind === "message" && entry.msg.role === "assistant"
+                ? extractQuestQuizMarkerIds(getAssistantVisibleMarkdown(entry.msg))
+                : [],
+            ),
+          ),
+        ].filter((questId) => !visibleQuizIds.has(questId));
+      })()
+    : [];
   return (
     <>
       {collapsedEntries.map((row) => {
@@ -1111,6 +1139,15 @@ function CollapsedTurnRows({
           </div>
         );
       })}
+      {hiddenHostQuizIds.length > 0 && (
+        <div className="min-w-0 px-2.5 pb-2 sm:px-3" data-testid="thread-response-quiz">
+          <AssistantQuestQuizContent
+            text={hiddenHostQuizIds.map((questId) => `{[(Quest Quiz: ${questId})]}`).join("\n")}
+            sessionId={sessionId}
+            questLinkSurface={questLinkSurface}
+          />
+        </div>
+      )}
     </>
   );
 }
@@ -1696,7 +1733,7 @@ export const TurnEntries = memo(function TurnEntries({
   activeCodexTerminalIds: Set<string>;
   onOpenCodexTerminal: (toolUseId: string) => void;
   onSelectThread?: (threadKey: string) => void;
-  turnStates: Array<{ isActivityExpanded: boolean } | undefined>;
+  turnStates: Array<{ defaultExpanded: boolean; isActivityExpanded: boolean } | undefined>;
   toggleTurn: (turnId: string) => void;
   userBoundarySourceSessionId?: string | null;
   questLinkSurface: QuestLinkSurface;
@@ -1760,7 +1797,9 @@ export const TurnEntries = memo(function TurnEntries({
           <div key={section.id} data-feed-section-id={section.id} className="space-y-3 sm:space-y-5">
             {section.turns.map((turn) => {
               const turnIndex = globalIndex++;
-              const isActivityExpanded = turnStates[turnIndex]?.isActivityExpanded ?? false;
+              const turnState = turnStates[turnIndex];
+              const isActivityExpanded = turnState?.isActivityExpanded ?? false;
+              const preserveHostQuestQuiz = turnIndex === turns.length - 1 && turnState?.defaultExpanded === false;
               const expandedThreadResponsePresentation =
                 threadResponsePresentation && readyThreadResponseAppliesToTurn(turn, threadResponsePresentation)
                   ? threadResponsePresentation
@@ -1903,6 +1942,7 @@ export const TurnEntries = memo(function TurnEntries({
                                 questLinkSurface={questLinkSurface}
                                 threadResponsePresentation={collapsedThreadResponsePresentation}
                                 activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
+                                preserveHostQuestQuiz={preserveHostQuestQuiz}
                               />
                             </div>
                           </div>

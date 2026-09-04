@@ -969,14 +969,14 @@ describe("MessageFeed activity viewport stability", () => {
       setProducerThreadStatus(
         sid,
         makeThreadStatus("main", last.id, {
-          kind: "ready",
-          label: "Thread Ready",
+          kind: "waiting",
+          label: "Thread Waiting",
           summary: "new status after activity settles",
           updatedAt: 1_700_000_000_100,
         }),
       );
       view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.getByText("Thread Ready")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
       await waitFor(() => expect(Number(slack.dataset.feedThreadStatusCompensation)).toBe(0));
 
       expect(geometry.scrollHeight).toBe(before.scrollHeight);
@@ -1064,14 +1064,14 @@ describe("MessageFeed activity viewport stability", () => {
       setProducerThreadStatus(
         sid,
         makeThreadStatus("main", last.id, {
-          kind: "ready",
-          label: "Thread Ready",
+          kind: "waiting",
+          label: "Thread Waiting",
           summary: "short status",
           updatedAt: 1_700_000_000_100,
         }),
       );
       view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
-      await waitFor(() => expect(screen.getByText("Thread Ready")).toBeTruthy());
+      await waitFor(() => expect(screen.getByText("Thread Waiting")).toBeTruthy());
       await waitFor(() =>
         expect(
           Number(document.querySelector<HTMLElement>("[data-feed-end-slack]")?.dataset.feedThreadStatusCompensation),

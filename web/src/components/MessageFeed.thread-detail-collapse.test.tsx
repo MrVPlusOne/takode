@@ -29,9 +29,11 @@ beforeAll(() => {
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   LEADER_THREAD_TABS_PROJECTION,
+  LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH,
   type LeaderThreadTabsProjectionValue,
 } from "../../shared/leader-thread-tabs-projection.js";
 import { syncedProjectionEntryId } from "../../shared/synced-projection.js";
+import { threadStatusMessageIdHash } from "../../shared/thread-status-marker.js";
 import type { ChatMessage, SessionAttentionRecord, ThreadTransitionMarker } from "../types.js";
 import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
 import {
@@ -832,6 +834,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
       threadKey: "q-1874",
     });
     mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.sessionStatus = new Map([[sid, "idle"]]);
     setStoreLeaderProjection(sid, { "q-1874": readyStatus });
     mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
     setStoreMessages(sid, [
@@ -992,6 +995,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
       threadKey: "q-1636",
     });
     mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.sessionStatus = new Map([[sid, "idle"]]);
     setStoreLeaderProjection(sid, { "q-1636": readyStatus });
     mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
     setStoreMessages(sid, [
@@ -1035,6 +1039,104 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: /Expand turn/i })[0]!);
     expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "u1", false);
+  });
+
+  it("auto-collapses a long-ID Ready turn in Main but leaves All Threads expanded", () => {
+    // Producer projection compacts long Codex IDs, so Main must correlate the
+    // full history identity through its hash without enabling aggregate collapse.
+    const sid = "test-leader-main-ready-long-id-auto-collapse";
+    const fullMessageId = `codex-agent-${"Ab+/".repeat(107)}`;
+    const rawReadyStatus = {
+      kind: "ready" as const,
+      label: "Thread Ready" as const,
+      threadKey: "main",
+      summary: "Main response complete",
+      messageId: fullMessageId,
+      timestamp: 5,
+      updatedAt: 5,
+    };
+    const projectedReadyStatus = {
+      ...rawReadyStatus,
+      messageId: fullMessageId.slice(0, LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH),
+      messageIdHash: threadStatusMessageIdHash(fullMessageId),
+    };
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.sessionStatus = new Map([[sid, "idle"]]);
+    setStoreLeaderProjection(sid, { main: projectedReadyStatus });
+    mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-main", role: "user", content: "Finish the Main response", timestamp: 1 }),
+      makePhasedAssistant("a-main-commentary", "Main coordination detail", "commentary"),
+      makeMessage({
+        id: "a-main-tool",
+        role: "assistant",
+        timestamp: 3,
+        contentBlocks: [{ type: "tool_use", id: "main-tool", name: "Bash", input: { command: "quest status q-2041" } }],
+      }),
+      makeMessage({
+        id: fullMessageId,
+        role: "assistant",
+        content: "The Main response is complete.",
+        timestamp: 5,
+        metadata: { codexMessagePhase: "final_answer", threadStatusMarkers: [rawReadyStatus] },
+      }),
+    ]);
+
+    const main = render(<MessageFeed sessionId={sid} threadKey="main" />);
+
+    expect(screen.getByText("The Main response is complete.")).toBeTruthy();
+    expect(screen.getByLabelText("Thread Ready for Main: Main response complete")).toBeTruthy();
+    expect(screen.queryByText("Main coordination detail")).toBeNull();
+    expect(screen.queryByText("quest status q-2041")).toBeNull();
+    expect(screen.getByRole("button", { name: "Expand turn · 1 tool" }).getAttribute("aria-expanded")).toBe("false");
+
+    main.unmount();
+    setStoreTurnOverrides(sid, [["u-main", true]]);
+    const manuallyExpanded = render(<MessageFeed sessionId={sid} threadKey="main" />);
+    expect(screen.getByText("Main coordination detail")).toBeTruthy();
+    expect(screen.getByText("quest status q-2041")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Collapse turn" }).getAttribute("aria-expanded")).toBe("true");
+
+    manuallyExpanded.unmount();
+    setStoreTurnOverrides(sid, []);
+    render(<MessageFeed sessionId={sid} threadKey="all" />);
+    expect(screen.getByText("Main coordination detail")).toBeTruthy();
+    expect(screen.getByText("quest status q-2041")).toBeTruthy();
+    expect(screen.getByText("The Main response is complete.")).toBeTruthy();
+    expect(screen.queryByTestId("turn-thread-status-footer")).toBeNull();
+  });
+
+  it("keeps a Ready Main turn expanded until the server reports the session idle", () => {
+    const sid = "test-leader-main-ready-while-running";
+    const readyStatus = makeThreadStatus("a-ready", 3, {
+      summary: "Main response complete",
+      threadKey: "main",
+    });
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
+    mockStoreValues.sessionStatus = new Map([[sid, "running"]]);
+    setStoreLeaderProjection(sid, { main: readyStatus });
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-main", role: "user", content: "Finish Main", timestamp: 1 }),
+      makeMessage({ id: "a-work", role: "assistant", content: "Still finalizing details.", timestamp: 2 }),
+      makeMessage({
+        id: "a-ready",
+        role: "assistant",
+        content: "The answer is ready, but the result event has not arrived yet.",
+        timestamp: 3,
+        metadata: { codexMessagePhase: "final_answer", threadStatusMarkers: [readyStatus] },
+      }),
+    ]);
+
+    const view = render(<MessageFeed sessionId={sid} threadKey="main" />);
+
+    expect(screen.getByText("Still finalizing details.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Expand turn/i })).toBeNull();
+
+    mockStoreValues.sessionStatus = new Map([[sid, "idle"]]);
+    view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
+    expect(screen.queryByText("Still finalizing details.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Expand turn" }).getAttribute("aria-expanded")).toBe("false");
   });
 
   it("does not auto-collapse the latest selected leader turn for Waiting status", () => {
@@ -1276,6 +1378,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
       threadKey: "q-1979",
     });
     mockStoreValues.sessions = new Map([[sid, { backend_type: "codex", isOrchestrator: true }]]);
+    mockStoreValues.sessionStatus = new Map([[sid, "idle"]]);
     setStoreLeaderProjection(sid, { "q-1979": readyStatus });
     mockStoreValues.sdkSessions = [{ sessionId: sid, isOrchestrator: true }];
     setStoreMessages(sid, [

@@ -503,14 +503,17 @@ function compactJourney(row: BoardRow | undefined, completed: boolean): LeaderTh
 function compactStatus(source: LeaderThreadStatus, key: string): LeaderThreadStatus {
   const kind = source.kind === "waiting" ? "waiting" : "ready";
   const questId = boundedNullableText(source.questId, LEADER_THREAD_TABS_PROJECTION_MAX_THREAD_KEY_LENGTH);
+  const messageId = boundedText(source.messageId, LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH);
+  const messageIdHash =
+    source.messageIdHash ?? (messageId !== source.messageId ? threadStatusMessageIdHash(source.messageId) : undefined);
   return {
     kind,
     label: kind === "waiting" ? "Thread Waiting" : "Thread Ready",
     threadKey: key,
     ...(questId ? { questId } : {}),
     summary: boundedText(source.summary, LEADER_THREAD_TABS_PROJECTION_MAX_STATUS_SUMMARY_LENGTH),
-    messageId: boundedText(source.messageId, LEADER_THREAD_TABS_PROJECTION_MAX_MESSAGE_ID_LENGTH),
-    ...(source.messageIdHash ? { messageIdHash: source.messageIdHash } : {}),
+    messageId,
+    ...(messageIdHash ? { messageIdHash } : {}),
     timestamp: nonNegativeNumber(source.timestamp),
     updatedAt: nonNegativeNumber(source.updatedAt),
   };

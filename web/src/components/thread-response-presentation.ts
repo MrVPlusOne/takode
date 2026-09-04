@@ -5,10 +5,18 @@ import {
 } from "../../shared/leader-thread-response-routing.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 import type { ChatMessage, LeaderThreadResponseProjection, LeaderThreadResponseState } from "../types.js";
+import { getAssistantVisibleMarkdown } from "../utils/assistant-message-renderability.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { extractQuestQuizMarkerIds, stripQuestQuizMarkers } from "./AssistantQuestQuizContent.js";
 import type { FeedSection } from "./message-feed-sections.js";
 import { isUserBoundaryEntry } from "../hooks/use-feed-model.js";
+
+export interface ThreadResponseCoveredUserMessage {
+  historyMessageId: string;
+  userMessageId: string;
+  content: string;
+  attachmentCount?: number;
+}
 
 export interface CurrentThreadResponsePresentationItem {
   response: LeaderThreadResponseState;
@@ -18,6 +26,7 @@ export interface CurrentThreadResponsePresentationItem {
   sourceTurnId: string;
   messageEntry: Extract<FeedEntry, { kind: "message" }>;
   collapsedMessageEntry: Extract<FeedEntry, { kind: "message" }>;
+  coveredUserMessages?: readonly ThreadResponseCoveredUserMessage[];
 }
 
 export interface ThreadResponseQuizGroup {
@@ -42,8 +51,29 @@ function presentationEntries(turn: Turn): FeedEntry[] {
 function collapsedResponseEntry(
   entry: Extract<FeedEntry, { kind: "message" }>,
 ): Extract<FeedEntry, { kind: "message" }> {
-  const visibleContent = stripQuestQuizMarkers(entry.msg.content);
-  return visibleContent === entry.msg.content ? entry : { ...entry, msg: { ...entry.msg, content: visibleContent } };
+  const markdown = getAssistantVisibleMarkdown(entry.msg);
+  if (extractQuestQuizMarkerIds(markdown).length === 0) return entry;
+  const visibleContent = stripQuestQuizMarkers(markdown);
+  let contentBlocks: ChatMessage["contentBlocks"];
+  if (entry.msg.contentBlocks) {
+    contentBlocks = [];
+    for (const block of entry.msg.contentBlocks) {
+      if (block.type !== "text") {
+        contentBlocks.push(block);
+        continue;
+      }
+      const visibleText = stripQuestQuizMarkers(block.text);
+      if (visibleText) contentBlocks.push({ ...block, text: visibleText });
+    }
+  }
+  return {
+    ...entry,
+    msg: {
+      ...entry.msg,
+      content: visibleContent,
+      ...(contentBlocks ? { contentBlocks } : {}),
+    },
+  };
 }
 
 function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
@@ -91,7 +121,7 @@ function collectQuestQuizGroups(
           entry.msg.historyIndex! < cutoverHistoryIndex
         )
           continue;
-        for (const questId of extractQuestQuizMarkerIds(entry.msg.content)) {
+        for (const questId of extractQuestQuizMarkerIds(getAssistantVisibleMarkdown(entry.msg))) {
           if (seen.has(questId)) continue;
           seen.add(questId);
           questIds.push(questId);
@@ -166,7 +196,14 @@ export function resolveThreadResponses(
 
   const directUsers = new Map<
     string,
-    { turnId: string; order: number; historyIndex: number; userMessageId: string; ownerThreadKey: string }
+    {
+      turnId: string;
+      order: number;
+      historyIndex: number;
+      userMessageId: string;
+      ownerThreadKey: string;
+      message: ChatMessage;
+    }
   >();
   const visibleOwnedDirectUserIds = new Set<string>();
   const seenVisibleDirectUserIds = new Set<string>();
@@ -199,6 +236,7 @@ export function resolveThreadResponses(
               historyIndex: userMessage.historyIndex,
               userMessageId,
               ownerThreadKey,
+              message: userMessage,
             });
           }
         }
@@ -300,6 +338,15 @@ export function resolveThreadResponses(
       sourceTurnId: located.turnId,
       messageEntry: located.entry,
       collapsedMessageEntry: collapsedResponseEntry(located.entry),
+      coveredUserMessages: anchors.map((anchor) => {
+        const attachmentCount = Math.max(anchor!.message.images?.length ?? 0, anchor!.message.localImages?.length ?? 0);
+        return {
+          historyMessageId: anchor!.message.id,
+          userMessageId: anchor!.userMessageId,
+          content: anchor!.message.content,
+          ...(attachmentCount > 0 ? { attachmentCount } : {}),
+        };
+      }),
     });
   }
 
