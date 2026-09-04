@@ -41,27 +41,31 @@ export function ImagePreviewGroup({
   onLocalPreviewReleasedRef.current = onLocalPreviewReleased;
 
   useEffect(() => {
+    if (settledLocalImages.size === 0) return;
     const activeImagesById = new Map(images.map((image) => [image.id, image]));
+    const isStillActive = (id: string, image: ImagePreviewItem) => {
+      const active = activeImagesById.get(id);
+      return (
+        active !== undefined &&
+        (!active.localImageId ||
+          active.thumbnailUrl === image.thumbnailUrl ||
+          active.thumbnailUrl === image.fallback?.thumbnailUrl)
+      );
+    };
+    if ([...settledLocalImages].every(([id, image]) => isStillActive(id, image))) return;
+
     setSettledLocalImages((current) => {
       let changed = false;
       const next = new Map(current);
       for (const [id, image] of current) {
-        const active = activeImagesById.get(id);
-        if (
-          active &&
-          (!active.localImageId ||
-            active.thumbnailUrl === image.thumbnailUrl ||
-            active.thumbnailUrl === image.fallback?.thumbnailUrl)
-        ) {
-          continue;
-        }
+        if (isStillActive(id, image)) continue;
         changed = true;
         next.delete(id);
         settledLocalUrlsRef.current.delete(image.thumbnailUrl);
       }
       return changed ? next : current;
     });
-  }, [images]);
+  }, [images, settledLocalImages]);
 
   const activeImages = useMemo(
     () =>

@@ -19,6 +19,12 @@ describe("AssistantQuestQuizContent directive parsing", () => {
     expect(extractQuestQuizMarkerIds(text)).toEqual(["q-8"]);
   });
 
+  it("preserves marker-free source text exactly", () => {
+    const text = "\r\n  Final summary with intentional whitespace.  \r\n";
+
+    expect(stripQuestQuizMarkers(text)).toBe(text);
+  });
+
   it("only treats a directive as active when it is alone on a physical line", () => {
     const text = "This literal {[(Quest Quiz: q-8)]} should stay visible.";
 

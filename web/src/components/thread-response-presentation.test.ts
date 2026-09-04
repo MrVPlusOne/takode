@@ -119,7 +119,24 @@ describe("explicit answer presentation", () => {
       ["b-current", "raw-u3"],
     ]);
     expect(result?.currentResponses[1]?.collapsedMessageEntry.msg.content).toBe("Answer response");
+    expect(result?.currentResponses[1]?.collapsedMessageEntry).not.toBe(result?.currentResponses[1]?.messageEntry);
+    expect(result?.currentResponses[1]?.messageEntry.msg.content).toContain("{[(Quest Quiz: q-2024)]}");
     expect(result?.quizGroups).toEqual([{ hostTurnId: "raw-u3", questIds: ["q-2024"] }]);
+  });
+
+  it("preserves marker-free response content and identity, including surrounding whitespace", () => {
+    // Ready response resolution runs during feed renders. A marker-free answer must not be cloned
+    // merely because parsing normalizes whitespace, or unrelated feed updates bypass memoization.
+    const messages = validMessages();
+    const exactContent = "\nAnswer response without a Quiz\n";
+    messages.find((message) => message.id === "b-current")!.content = exactContent;
+
+    const result = resolveThreadResponses(sections(messages), projection(), THREAD_KEY);
+    const response = result?.currentResponses[1];
+
+    expect(response?.collapsedMessageEntry).toBe(response?.messageEntry);
+    expect(response?.collapsedMessageEntry.msg).toBe(response?.messageEntry.msg);
+    expect(response?.collapsedMessageEntry.msg.content).toBe(exactContent);
   });
 
   it("keeps a Quiz with the earlier turn that actually contains its directive", () => {

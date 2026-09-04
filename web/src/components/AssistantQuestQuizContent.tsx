@@ -23,7 +23,9 @@ interface AssistantQuestQuizContentProps {
 }
 
 export function stripQuestQuizMarkers(text: string): string {
-  return parseQuestQuizContentSegments(text)
+  const segments = parseQuestQuizContentSegments(text);
+  if (!segments.some((segment) => segment.kind === "quiz")) return text;
+  return segments
     .filter((segment): segment is Extract<AssistantQuestQuizSegment, { kind: "text" }> => segment.kind === "text")
     .map((segment) => segment.text)
     .join("\n\n")

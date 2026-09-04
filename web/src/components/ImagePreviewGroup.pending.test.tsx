@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import { Profiler, useLayoutEffect, useState } from "react";
 import "@testing-library/jest-dom";
 import { ImagePreviewGroup } from "./ImagePreviewGroup.js";
 import type { ImagePreviewItem } from "./image-preview-utils.js";
@@ -223,5 +224,64 @@ describe("ImagePreviewGroup pending attachments", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next image" }));
     expect(screen.getByRole("dialog", { name: "Image preview: ready-two.png" })).toBeVisible();
     expect(screen.getByTestId("image-preview-modal-index")).toHaveTextContent("2 of 2");
+  });
+  it("does not add a nested update when empty images rerender during layout work", () => {
+    // The parent contributes the two expected commits. Reconciliation for an empty image list
+    // must not dispatch a third, semantically empty state update into the same render chain.
+    let commits = 0;
+
+    function OneLayoutUpdate() {
+      const [updated, setUpdated] = useState(false);
+      useLayoutEffect(() => {
+        if (!updated) setUpdated(true);
+      }, [updated]);
+      return <ImagePreviewGroup images={[]} testId="empty-images" />;
+    }
+
+    render(
+      <Profiler id="empty-preview" onRender={() => commits++}>
+        <OneLayoutUpdate />
+      </Profiler>,
+    );
+
+    expect(commits).toBe(2);
+  });
+
+  it("does not add a nested update when an equivalent settled local image remains active", () => {
+    const image = makeImage("settled-origin", {
+      thumbnailUrl: "blob:settled-origin",
+      fullUrl: "blob:settled-origin",
+    });
+    image.immediatelyAvailable = true;
+    image.localImageId = "image-settled-origin";
+    image.fallback = {
+      thumbnailUrl: "/thumb/settled-origin.png",
+      fullUrl: "/full/settled-origin.png",
+    };
+    let commits = 0;
+
+    function OneLayoutUpdate({ armed, currentImage }: { armed: boolean; currentImage: ImagePreviewItem }) {
+      const [updated, setUpdated] = useState(false);
+      useLayoutEffect(() => {
+        if (armed && !updated) setUpdated(true);
+      }, [armed, updated]);
+      return <ImagePreviewGroup images={[currentImage]} testId="settled-origin-image" />;
+    }
+
+    const view = render(
+      <Profiler id="settled-preview" onRender={() => commits++}>
+        <OneLayoutUpdate armed={false} currentImage={image} />
+      </Profiler>,
+    );
+    fireEvent.load(thumbnailFor(screen.getByTestId("settled-origin-image"), image.id));
+
+    commits = 0;
+    view.rerender(
+      <Profiler id="settled-preview" onRender={() => commits++}>
+        <OneLayoutUpdate armed currentImage={{ ...image }} />
+      </Profiler>,
+    );
+
+    expect(commits).toBe(2);
   });
 });
