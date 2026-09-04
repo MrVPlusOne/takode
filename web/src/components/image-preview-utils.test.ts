@@ -91,6 +91,51 @@ describe("image preview item provenance", () => {
     expect(items.every((item) => item.thumbnailUrl.startsWith("data:image/png;base64,"))).toBe(true);
   });
 
+  it("overlays exact local attachments in authoritative order and keeps unmatched refs on the backend", () => {
+    const items = buildUserImagePreviewItems(
+      message({
+        localImages: [
+          {
+            imageId: "image-2",
+            name: "second.jpg",
+            mediaType: "image/jpeg",
+            previewUrl: "blob:second",
+          },
+        ],
+        images: [
+          { imageId: "image-1", media_type: "image/png", sourceName: "first.png" },
+          { imageId: "image-2", media_type: "image/jpeg", sourceName: "second.jpg" },
+        ],
+      }),
+      "session-1",
+    );
+
+    expect(items).toEqual([
+      {
+        id: "stored:session-1:image-1",
+        filename: "first.png",
+        thumbnailUrl: "/api/images/session-1/image-1/thumb",
+        fullUrl: "/api/images/session-1/image-1/full",
+        title: "first.png",
+        expectedAttachment: true,
+      },
+      {
+        id: "stored:session-1:image-2",
+        filename: "second.jpg",
+        thumbnailUrl: "blob:second",
+        fullUrl: "blob:second",
+        title: "second.jpg",
+        expectedAttachment: true,
+        immediatelyAvailable: true,
+        localImageId: "image-2",
+        fallback: {
+          thumbnailUrl: "/api/images/session-1/image-2/thumb",
+          fullUrl: "/api/images/session-1/image-2/full",
+        },
+      },
+    ]);
+  });
+
   it("does not create unresolved stored slots without a session owner", () => {
     const items = buildUserImagePreviewItems(message({ images: [{ imageId: "orphan", media_type: "image/png" }] }));
 

@@ -7,7 +7,7 @@ export function nextPendingUploadId(): string {
 }
 
 export function createComposerDraftImage(
-  image: LocalImageAttachment,
+  image: LocalImageAttachment & { base64: string },
   overrides: Partial<ComposerDraftImage> = {},
 ): ComposerDraftImage {
   return {

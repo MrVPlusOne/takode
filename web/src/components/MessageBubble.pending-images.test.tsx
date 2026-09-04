@@ -127,11 +127,83 @@ describe("MessageBubble pending image attachments", () => {
     );
 
     expect(screen.getByText("Sending…")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Loading image origin.png" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Open image origin.png" })).toHaveLength(1);
+    expect(screen.queryByTestId("image-preview-loading-placeholder")).toBeNull();
     const thumbnail = screen.getByTestId("image-preview-thumbnail-image");
     expect(thumbnail.getAttribute("src")).toBe("data:image/png;base64,ZmFrZQ==");
-    fireEvent.load(thumbnail);
-    expect(screen.getAllByRole("button", { name: "Open image origin.png" })).toHaveLength(1);
+  });
+
+  it("closes an invalid lightbox selection and does not reopen it when the same attachment returns", () => {
+    const image = { imageId: "reused", media_type: "image/png" as const, sourceName: "reused.png" };
+    const initial = userMessage({ images: [image] });
+    const { rerender } = render(<MessageBubble message={initial} sessionId="session-1" />);
+
+    let group = screen.getByTestId("user-image-preview-group");
+    fireEvent.load(within(group).getByTestId("image-preview-thumbnail-image"));
+    fireEvent.click(within(group).getByRole("button", { name: "Open image reused.png" }));
+    expect(screen.getByTestId("lightbox-image").getAttribute("src")).toBe("/api/images/session-1/reused/full");
+
+    rerender(<MessageBubble message={{ ...initial, images: [] }} sessionId="session-1" />);
+    expect(screen.queryByTestId("lightbox-backdrop")).toBeNull();
+
+    rerender(<MessageBubble message={initial} sessionId="session-1" />);
+    group = screen.getByTestId("user-image-preview-group");
+    fireEvent.load(within(group).getByTestId("image-preview-thumbnail-image"));
+    expect(screen.queryByTestId("lightbox-backdrop")).toBeNull();
+  });
+
+  it("keeps an open lightbox visible on the authoritative backend fallback after a local error", () => {
+    render(
+      <MessageBubble
+        message={userMessage({
+          localImages: [
+            {
+              imageId: "local-fallback",
+              name: "fallback.png",
+              mediaType: "image/png",
+              previewUrl: "blob:local-fallback",
+            },
+          ],
+          images: [{ imageId: "local-fallback", media_type: "image/png", sourceName: "fallback.png" }],
+        })}
+        sessionId="session-1"
+      />,
+    );
+
+    const group = screen.getByTestId("user-image-preview-group");
+    fireEvent.click(within(group).getByRole("button", { name: "Open image fallback.png" }));
+    expect(screen.getByTestId("lightbox-image").getAttribute("src")).toBe("blob:local-fallback");
+
+    fireEvent.error(within(group).getByTestId("image-preview-thumbnail-image"));
+    expect(screen.getByTestId("lightbox-image").getAttribute("src")).toBe("/api/images/session-1/local-fallback/full");
+  });
+
+  it("tracks same-ID local URL replacements without downgrading when shared local state retires", () => {
+    const storedImage = { imageId: "same-id", media_type: "image/png" as const, sourceName: "same.png" };
+    const localImage = (previewUrl: string) => ({
+      imageId: "same-id",
+      name: "same.png",
+      mediaType: "image/png",
+      previewUrl,
+    });
+    const initial = userMessage({ localImages: [localImage("blob:one")], images: [storedImage] });
+    const { rerender } = render(<MessageBubble message={initial} sessionId="session-1" />);
+
+    let group = screen.getByTestId("user-image-preview-group");
+    fireEvent.load(within(group).getByTestId("image-preview-thumbnail-image"));
+    fireEvent.click(within(group).getByRole("button", { name: "Open image same.png" }));
+    expect(screen.getByTestId("lightbox-image").getAttribute("src")).toBe("blob:one");
+
+    rerender(<MessageBubble message={{ ...initial, localImages: [localImage("blob:two")] }} sessionId="session-1" />);
+    expect(screen.getByTestId("lightbox-image").getAttribute("src")).toBe("blob:two");
+
+    group = screen.getByTestId("user-image-preview-group");
+    fireEvent.load(within(group).getByTestId("image-preview-thumbnail-image"));
+    rerender(<MessageBubble message={{ ...initial, localImages: undefined }} sessionId="session-1" />);
+    expect(screen.getByTestId("lightbox-image").getAttribute("src")).toBe("blob:two");
+
+    rerender(<MessageBubble message={{ ...initial, localImages: undefined, images: [] }} sessionId="session-1" />);
+    expect(screen.queryByTestId("lightbox-backdrop")).toBeNull();
   });
 
   it("does not invent a lasting placeholder for an unowned stored ref", () => {

@@ -13,7 +13,7 @@ import type {
 } from "../types.js";
 import { YarnBallDot } from "./CatIcons.js";
 import { ImagePreviewGroup } from "./ImagePreviewGroup.js";
-import { buildStoredImagePreviewItems } from "./image-preview-utils.js";
+import { buildUserImagePreviewItems } from "./image-preview-utils.js";
 import { MessageBubble } from "./MessageBubble.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { NotificationChip } from "./NotificationChip.js";
@@ -784,7 +784,33 @@ export function PendingCodexInputList({ sessionId, inputs }: { sessionId: string
           const preview = formatReplyContentForPreview(input.content, input.replyContext).trim().replace(/\s+/g, " ");
           const truncated = preview.length > 120 ? `${preview.slice(0, 120)}...` : preview;
           const failed = input.deliveryState === "failed";
-          const canEdit = Boolean(input.clientMsgId && restorations?.has(input.clientMsgId));
+          const restoration = input.clientMsgId ? restorations?.get(input.clientMsgId) : undefined;
+          const localImages = restoration?.images.flatMap((image) =>
+            image.prepared
+              ? [
+                  {
+                    imageId: image.prepared.imageRef.imageId,
+                    name: image.name,
+                    base64: image.base64,
+                    mediaType: image.mediaType,
+                  },
+                ]
+              : [],
+          );
+          const previewItems = input.imageRefs?.length
+            ? buildUserImagePreviewItems(
+                {
+                  id: `pending-codex-${input.id}`,
+                  role: "user",
+                  content: input.content,
+                  timestamp: input.timestamp,
+                  images: input.imageRefs,
+                  ...(localImages?.length ? { localImages } : {}),
+                },
+                sessionId,
+              )
+            : [];
+          const canEdit = Boolean(restoration);
           return (
             <div
               key={input.id}
@@ -804,9 +830,9 @@ export function PendingCodexInputList({ sessionId, inputs }: { sessionId: string
                     {input.failureMessage || "Codex rejected this input before delivery."}
                   </span>
                 )}
-                {input.imageRefs?.length ? (
+                {previewItems.length ? (
                   <ImagePreviewGroup
-                    images={buildStoredImagePreviewItems(input.imageRefs, sessionId)}
+                    images={previewItems}
                     className="!mt-1 !gap-1 !pb-0"
                     testId={`pending-codex-image-preview-group-${input.id}`}
                     size="small"

@@ -11,6 +11,37 @@ type PendingState = "pending" | "ready" | "failed";
 
 export function PlaygroundPendingImagePreviews() {
   const [pendingState, setPendingState] = useState<PendingState>("pending");
+  const originBrowserImages = useMemo<ImagePreviewItem[]>(
+    () => [
+      {
+        id: "stored:playground:origin-first",
+        filename: "origin-first.png",
+        thumbnailUrl: READY_IMAGE,
+        fullUrl: READY_IMAGE,
+        expectedAttachment: true,
+        immediatelyAvailable: true,
+        localImageId: "origin-first",
+        fallback: {
+          thumbnailUrl: "/api/images/playground/origin-first/thumb",
+          fullUrl: "/api/images/playground/origin-first/full",
+        },
+      },
+      {
+        id: "stored:playground:origin-second",
+        filename: "origin-second.png",
+        thumbnailUrl: MIXED_READY_IMAGE,
+        fullUrl: MIXED_READY_IMAGE,
+        expectedAttachment: true,
+        immediatelyAvailable: true,
+        localImageId: "origin-second",
+        fallback: {
+          thumbnailUrl: "/api/images/playground/origin-second/thumb",
+          fullUrl: "/api/images/playground/origin-second/full",
+        },
+      },
+    ],
+    [],
+  );
   const images = useMemo<ImagePreviewItem[]>(() => {
     const items: ImagePreviewItem[] = [];
     if (pendingState !== "failed") {
@@ -33,7 +64,23 @@ export function PlaygroundPendingImagePreviews() {
   }, [pendingState]);
 
   return (
-    <div className="max-w-sm space-y-3" data-testid="playground-pending-image-demo">
+    <div className="max-w-sm space-y-4" data-testid="playground-pending-image-demo">
+      <div className="space-y-1.5" data-testid="playground-origin-local-image-demo">
+        <div className="ml-auto max-w-[calc(100%_-_2rem)] rounded-[14px] rounded-br-[4px] bg-cc-user-bubble px-3 py-2.5 text-cc-fg">
+          <ImagePreviewGroup
+            images={originBrowserImages}
+            className="!mt-0 mb-1"
+            testId="playground-origin-local-image-group"
+            size="message"
+          />
+          <p className="text-[13px] sm:text-[14px]">
+            These just-uploaded previews survive an authoritative window sync.
+          </p>
+        </div>
+        <p className="text-xs text-cc-muted">
+          Origin browser: both local previews stay ready without backend loading tiles.
+        </p>
+      </div>
       <div className="ml-auto max-w-[calc(100%_-_2rem)] rounded-[14px] rounded-br-[4px] bg-cc-user-bubble px-3 py-2.5 text-cc-fg">
         <ImagePreviewGroup
           images={images}

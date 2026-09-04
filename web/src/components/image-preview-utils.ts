@@ -10,6 +10,12 @@ export interface ImagePreviewItem {
   title?: string;
   /** Explicit attachment refs reserve a visible slot while their preview loads. */
   expectedAttachment?: boolean;
+  /** Browser-local bytes/URL are already available; do not flash a loading placeholder. */
+  immediatelyAvailable?: boolean;
+  /** Exact server attachment represented by a browser-local preview. */
+  localImageId?: string;
+  /** Backend URLs to use if a browser-local preview fails. */
+  fallback?: { thumbnailUrl: string; fullUrl: string };
 }
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
@@ -103,11 +109,27 @@ export function buildAssistantImagePreviewItems(message: ChatMessage, sessionId?
 
 export function buildUserImagePreviewItems(message: ChatMessage, sessionId?: string): ImagePreviewItem[] {
   const localImages = message.localImages ?? [];
-  if (localImages.length > 0) {
+  const storedImages = message.images ?? [];
+  if (!sessionId || storedImages.length === 0) {
     return imagePreviewItemsFromLocalAttachments(localImages);
   }
-  if (!sessionId) return [];
-  return imagePreviewItemsFromStoredRefs(message.images ?? [], sessionId);
+
+  const identifiedLocalImages = localImages.filter(
+    (image): image is LocalImageAttachment & { imageId: string } => typeof image.imageId === "string",
+  );
+  if (identifiedLocalImages.length === 0) {
+    return localImages.length > 0
+      ? imagePreviewItemsFromLocalAttachments(localImages)
+      : imagePreviewItemsFromStoredRefs(storedImages, sessionId);
+  }
+
+  const localByImageId = new Map(identifiedLocalImages.map((image) => [image.imageId, image]));
+  return storedImages.map((stored, index) => {
+    const storedItem = previewItemFromStoredRef(stored, sessionId);
+    const local = localByImageId.get(stored.imageId);
+    if (!local) return storedItem;
+    return previewItemFromLocalAttachment(local, index, storedItem.id, storedItem);
+  });
 }
 
 export function buildStoredImagePreviewItems(images: ImageRef[], sessionId: string): ImagePreviewItem[] {
@@ -141,28 +163,46 @@ export function dedupePreviewItems(items: ImagePreviewItem[]): ImagePreviewItem[
 }
 
 function imagePreviewItemsFromLocalAttachments(images: LocalImageAttachment[]): ImagePreviewItem[] {
-  return images.map((image, index) => {
-    const dataUrl = `data:${image.mediaType};base64,${image.base64}`;
-    return {
-      id: `local:${image.name || "attachment"}:${index}`,
-      filename: image.name || `attachment-${index + 1}`,
-      thumbnailUrl: dataUrl,
-      fullUrl: dataUrl,
-      title: image.name || "attachment",
-      expectedAttachment: true,
-    };
+  return images.flatMap((image, index) => {
+    const item = previewItemFromLocalAttachment(image, index);
+    return item.thumbnailUrl ? [item] : [];
   });
 }
 
-function imagePreviewItemsFromStoredRefs(images: ImageRef[], sessionId: string): ImagePreviewItem[] {
-  return images.map((image) => ({
+function previewItemFromLocalAttachment(
+  image: LocalImageAttachment,
+  index: number,
+  stableId?: string,
+  fallback?: ImagePreviewItem,
+): ImagePreviewItem {
+  const dataUrl = image.base64 ? `data:${image.mediaType};base64,${image.base64}` : "";
+  const previewUrl = image.previewUrl ?? dataUrl;
+  return {
+    id: stableId ?? `local:${image.imageId ?? image.name ?? "attachment"}:${index}`,
+    filename: image.name || `attachment-${index + 1}`,
+    thumbnailUrl: previewUrl,
+    fullUrl: previewUrl,
+    title: image.name || "attachment",
+    expectedAttachment: true,
+    immediatelyAvailable: Boolean(previewUrl),
+    ...(image.imageId ? { localImageId: image.imageId } : {}),
+    ...(fallback ? { fallback: { thumbnailUrl: fallback.thumbnailUrl, fullUrl: fallback.fullUrl } } : {}),
+  };
+}
+
+function previewItemFromStoredRef(image: ImageRef, sessionId: string): ImagePreviewItem {
+  return {
     id: `stored:${sessionId}:${image.imageId}`,
     filename: image.sourceName || image.imageId,
     thumbnailUrl: `/api/images/${sessionId}/${image.imageId}/thumb`,
     fullUrl: `/api/images/${sessionId}/${image.imageId}/full`,
     title: image.sourceName || image.imageId,
     expectedAttachment: true,
-  }));
+  };
+}
+
+function imagePreviewItemsFromStoredRefs(images: ImageRef[], sessionId: string): ImagePreviewItem[] {
+  return images.map((image) => previewItemFromStoredRef(image, sessionId));
 }
 
 function assistantVisibleText(message: ChatMessage): string {

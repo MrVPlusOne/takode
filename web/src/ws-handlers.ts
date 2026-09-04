@@ -1,6 +1,7 @@
 import { useStore } from "./store.js";
 import { api } from "./api.js";
 import { createComposerDraftImage } from "./components/composer-image-utils.js";
+import { collectLocalImagePreviewSources, resolveLocalImagePreviews } from "./local-image-previews.js";
 import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
@@ -365,25 +366,9 @@ function normalizeHistoryMessages(
   sessionId: string,
   historyMessages: BrowserIncomingMessage[],
   startIndex = 0,
+  localPreviewSources = collectLocalImagePreviewSources(useStore.getState(), sessionId),
 ): { chatMessages: ChatMessage[]; frozenCount: number } {
   const store = useStore.getState();
-  const pendingUploads = store.pendingUserUploads.get(sessionId) ?? [];
-  const restorationUploads = [...(store.pendingUserUploadRestorations.get(sessionId)?.values() ?? [])];
-  const pendingLocalImagesByClientMsgId = new Map(
-    [...pendingUploads, ...restorationUploads]
-      .filter((upload) => upload.images.length > 0)
-      .map(
-        (upload) =>
-          [
-            upload.id,
-            upload.images.map(({ name, base64, mediaType }) => ({
-              name,
-              base64,
-              mediaType,
-            })),
-          ] as const,
-      ),
-  );
   const chatMessages: ChatMessage[] = [];
   const childToolResults = indexCodexSubagentToolResults(historyMessages);
   let frozenCount = 0;
@@ -427,7 +412,10 @@ function normalizeHistoryMessages(
       chatMessages.push(
         ...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, {
           fallbackTimestamp,
-          pendingLocalImagesByClientMsgId: histMsg.codexSubagent ? undefined : pendingLocalImagesByClientMsgId,
+          localImages:
+            histMsg.type === "user_message"
+              ? resolveLocalImagePreviews(sessionId, histMsg, localPreviewSources)
+              : undefined,
         }),
       );
     } else if (histMsg.type === "leader_user_message") {
@@ -472,6 +460,7 @@ function normalizeThreadWindowEntries(
   entries: Extract<BrowserIncomingMessage, { type: "thread_window_sync" }>["entries"],
 ): ChatMessage[] {
   const store = useStore.getState();
+  const localPreviewSources = collectLocalImagePreviewSources(store, sessionId);
   const chatMessages: ChatMessage[] = [];
   const childToolResults = indexCodexSubagentToolResults(entries.map((entry) => entry.message));
   const fallbackTimestamps = buildHistoryFallbackTimestamps(entries);
@@ -516,7 +505,15 @@ function normalizeThreadWindowEntries(
         });
       }
     }
-    chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp }));
+    chatMessages.push(
+      ...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, {
+        fallbackTimestamp,
+        localImages:
+          histMsg.type === "user_message"
+            ? resolveLocalImagePreviews(sessionId, histMsg, localPreviewSources)
+            : undefined,
+      }),
+    );
   }
   return chatMessages;
 }
@@ -582,6 +579,63 @@ function clearPendingUploadsCoveredByHistory(sessionId: string, historyMessages:
     (input) => !committedInputIds.has(input.id) && !committedClientMsgIds.has(input.clientMsgId ?? ""),
   );
   if (remainingInputs.length !== pendingInputs.length) store.setPendingCodexInputs(sessionId, remainingInputs);
+}
+
+function reconcileLocalPreviewCopiesWithAuthoritativeMessages(
+  sessionId: string,
+  historyMessages: readonly BrowserIncomingMessage[],
+): void {
+  type AuthoritativeUserMessage = {
+    clientMsgId?: string;
+    messageId?: string;
+    images: NonNullable<Extract<BrowserIncomingMessage, { type: "user_message" }>["images"]>;
+  };
+  const authoritativeByClientMsgId = new Map<string, AuthoritativeUserMessage>();
+  const authoritativeByMessageId = new Map<string, AuthoritativeUserMessage>();
+  for (const message of historyMessages) {
+    if (message.type !== "user_message" || message.codexSubagent) continue;
+    const authoritative: AuthoritativeUserMessage = {
+      ...(typeof message.client_msg_id === "string" ? { clientMsgId: message.client_msg_id } : {}),
+      ...(typeof message.id === "string" && message.id.trim() ? { messageId: message.id } : {}),
+      images: message.images ?? [],
+    };
+    if (authoritative.clientMsgId) authoritativeByClientMsgId.set(authoritative.clientMsgId, authoritative);
+    if (authoritative.messageId) authoritativeByMessageId.set(authoritative.messageId, authoritative);
+  }
+  if (authoritativeByClientMsgId.size === 0 && authoritativeByMessageId.size === 0) return;
+
+  const store = useStore.getState();
+  const messageLists: ChatMessage[][] = [store.messages.get(sessionId) ?? []];
+  for (const messages of store.threadWindowMessages.get(sessionId)?.values() ?? []) messageLists.push(messages);
+  const updatedMessageIds = new Set<string>();
+  for (const messages of messageLists) {
+    for (const message of messages) {
+      if (!message.localImages?.length || updatedMessageIds.has(message.id)) continue;
+      const authoritative =
+        (message.clientMsgId ? authoritativeByClientMsgId.get(message.clientMsgId) : undefined) ??
+        authoritativeByMessageId.get(message.id);
+      if (!authoritative) continue;
+      const sameMessage =
+        (!authoritative.messageId || authoritative.messageId === message.id) &&
+        (!authoritative.clientMsgId || authoritative.clientMsgId === message.clientMsgId);
+      const authoritativeImageIds = new Set(authoritative.images.map((image) => image.imageId));
+      const nextLocalImages = sameMessage
+        ? message.localImages.filter(
+            (image) => typeof image.imageId === "string" && authoritativeImageIds.has(image.imageId),
+          )
+        : [];
+      const imagesChanged =
+        sameMessage &&
+        ((message.images?.length ?? 0) !== authoritative.images.length ||
+          authoritative.images.some((image, index) => message.images?.[index]?.imageId !== image.imageId));
+      if (nextLocalImages.length === message.localImages.length && !imagesChanged) continue;
+      updatedMessageIds.add(message.id);
+      store.updateMessage(sessionId, message.id, {
+        ...(imagesChanged ? { images: authoritative.images.length > 0 ? authoritative.images : undefined } : {}),
+        localImages: nextLocalImages.length > 0 ? nextLocalImages : undefined,
+      });
+    }
+  }
 }
 
 function collectRetainedToolUseIds(messages: ChatMessage[]): Set<string> {
@@ -1228,13 +1282,11 @@ function handleParsedMessage(
     case "user_message": {
       // Server-authoritative: user messages are broadcast by the server to all
       // browsers. The browser never adds user messages to the store locally.
+      const localImages = resolveLocalImagePreviews(sessionId, data, collectLocalImagePreviewSources(store, sessionId));
       if (typeof data.client_msg_id === "string") {
         store.consumePendingUserUpload(sessionId, data.client_msg_id);
+        store.takePendingUserUploadRestoration(sessionId, data.client_msg_id);
       }
-      const pendingUpload =
-        typeof data.client_msg_id === "string"
-          ? store.takePendingUserUploadRestoration(sessionId, data.client_msg_id)
-          : null;
       clearPendingUploadsCoveredByHistory(sessionId, [data]);
       const metadata: ChatMessage["metadata"] = {
         ...(data.replyContext ? { replyContext: data.replyContext } : {}),
@@ -1255,15 +1307,7 @@ function handleParsedMessage(
         content: data.content,
         timestamp: data.timestamp || Date.now(),
         ...(data.images?.length ? { images: data.images } : {}),
-        ...(pendingUpload?.images?.length
-          ? {
-              localImages: pendingUpload.images.map(({ name, base64, mediaType }) => ({
-                name,
-                base64,
-                mediaType,
-              })),
-            }
-          : {}),
+        ...(localImages?.length ? { localImages } : {}),
         ...(typeof data.client_msg_id === "string" ? { clientMsgId: data.client_msg_id } : {}),
         ...(data.history_index !== undefined ? { historyIndex: data.history_index } : {}),
         ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
@@ -1273,6 +1317,7 @@ function handleParsedMessage(
         ...(data.takodeHerdEvents?.length ? { takodeHerdEvents: data.takodeHerdEvents } : {}),
       };
       store.appendMessage(sessionId, userMsg);
+      reconcileLocalPreviewCopiesWithAuthoritativeMessages(sessionId, [data]);
       break;
     }
 
@@ -1644,12 +1689,19 @@ function handleParsedMessage(
       // The replacement just cleared sessionTasks. Forget live-delivery IDs before
       // replaying the authoritative payload so the same TodoWrite can rehydrate it.
       resetTaskExtractionTracking(sessionId);
+      const localPreviewSources = collectLocalImagePreviewSources(store, sessionId);
       const { chatMessages: frozenDeltaMessages } = normalizeHistoryMessages(
         sessionId,
         data.frozen_delta,
         data.frozen_base_history_index,
+        localPreviewSources,
       );
-      const { chatMessages: hotMessages } = normalizeHistoryMessages(sessionId, data.hot_messages, data.frozen_count);
+      const { chatMessages: hotMessages } = normalizeHistoryMessages(
+        sessionId,
+        data.hot_messages,
+        data.frozen_count,
+        localPreviewSources,
+      );
       // The retained prefix was not normalized again, so restore its IDs only
       // after the changed delta/hot payload had a chance to apply.
       const processed = getProcessedSet(sessionId);
@@ -1663,6 +1715,7 @@ function handleParsedMessage(
         frozenCount: nextFrozenCount,
         frozenHash: data.expected_frozen_hash,
       });
+      reconcileLocalPreviewCopiesWithAuthoritativeMessages(sessionId, [...data.frozen_delta, ...data.hot_messages]);
       clearPendingUploadsCoveredByHistory(sessionId, [...data.frozen_delta, ...data.hot_messages]);
       store.setHistoryWindow(sessionId, null);
       store.markHistoryDelivered(sessionId);
@@ -1691,6 +1744,7 @@ function handleParsedMessage(
         data.window.start_index,
       );
       store.setMessages(sessionId, chatMessages, { frozenCount });
+      reconcileLocalPreviewCopiesWithAuthoritativeMessages(sessionId, sourceMessages);
       clearPendingUploadsCoveredByHistory(sessionId, sourceMessages);
       store.setHistoryWindow(sessionId, data.window);
       store.markHistoryDelivered(sessionId);
@@ -1714,6 +1768,10 @@ function handleParsedMessage(
       }
       const chatMessages = normalizeThreadWindowEntries(sessionId, sourceEntries);
       store.setThreadWindow(sessionId, data.thread_key, data.window, chatMessages, data.response_state ?? null);
+      reconcileLocalPreviewCopiesWithAuthoritativeMessages(
+        sessionId,
+        sourceEntries.map((entry) => entry.message),
+      );
       if (sourceEntries.length > 0) store.setCliEverConnected(sessionId);
       if (store.pendingThreadWindowRequests.get(sessionId) === data.thread_key) {
         store.setPendingThreadWindowRequest(sessionId, null);

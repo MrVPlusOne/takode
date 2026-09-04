@@ -12,7 +12,7 @@ interface NormalizeHistoryMessageOptions {
   includeSuccessfulResult?: boolean;
   resultRole?: ChatMessage["role"];
   fallbackTimestamp?: number;
-  pendingLocalImagesByClientMsgId?: Map<string, Array<{ name: string; base64: string; mediaType: string }>>;
+  localImages?: ChatMessage["localImages"];
   codexSubagentToolResults?: ReadonlyMap<string, ToolResultPreview>;
 }
 
@@ -251,7 +251,7 @@ export function normalizeHistoryMessageToChatMessages(
     includeSuccessfulResult = false,
     resultRole = "assistant",
     fallbackTimestamp,
-    pendingLocalImagesByClientMsgId,
+    localImages,
     codexSubagentToolResults,
   } = options;
 
@@ -291,10 +291,6 @@ export function normalizeHistoryMessageToChatMessages(
         : {}),
       ...(histMsg.leaderUserMessageId ? { leaderUserMessageId: histMsg.leaderUserMessageId } : {}),
     };
-    const localImages =
-      typeof histMsg.client_msg_id === "string"
-        ? pendingLocalImagesByClientMsgId?.get(histMsg.client_msg_id)
-        : undefined;
     const metadata: ChatMessage["metadata"] = {
       ...(histMsg.replyContext ? { replyContext: histMsg.replyContext } : {}),
       ...(histMsg.vscodeSelection ? { vscodeSelection: histMsg.vscodeSelection } : {}),

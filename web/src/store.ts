@@ -68,6 +68,11 @@ import { createQuestStoreSlice, resetQuestRefreshStateForTests } from "./store-q
 import { indexCodexReasoningPreviews } from "./utils/codex-reasoning-previews.js";
 import { attachCodexSubagentToolResultsAcrossSources, updateMessageAcrossSources } from "./store-message-updates.js";
 import { createSyncedProjectionStoreSlice } from "./store-synced-projections.js";
+import {
+  reconcileLocalImagePreviewUrls,
+  releaseAllLocalImagePreviewUrls,
+  releaseSessionLocalImagePreviewUrls,
+} from "./local-image-previews.js";
 
 // ─── Color Themes ───────────────────────────────────────────────────────────
 
@@ -514,7 +519,10 @@ export const useStore = create<AppState>((set, get) => ({
       return { sdkSessions };
     }),
 
-  removeSession: (sessionId) => set((s) => removeSessionState(s, sessionId)),
+  removeSession: (sessionId) => {
+    releaseSessionLocalImagePreviewUrls(sessionId);
+    set((s) => removeSessionState(s, sessionId));
+  },
 
   setSdkSessions: (sessions) =>
     set((s) => {
@@ -534,7 +542,7 @@ export const useStore = create<AppState>((set, get) => ({
       };
     }),
 
-  appendMessage: (sessionId, msg) =>
+  appendMessage: (sessionId, msg) => {
     set((s) => {
       const existing = s.messages.get(sessionId) || [];
       // Deduplicate: skip if a message with same ID already exists
@@ -544,9 +552,11 @@ export const useStore = create<AppState>((set, get) => ({
       const messages = new Map(s.messages);
       messages.set(sessionId, [...existing, msg]);
       return { messages };
-    }),
+    });
+    reconcileLocalImagePreviewUrls(get(), sessionId);
+  },
 
-  setMessages: (sessionId, msgs, options) =>
+  setMessages: (sessionId, msgs, options) => {
     set((s) => {
       // Deduplicate by message ID (server may send duplicates on CLI reconnect)
       const seen = new Set<string>();
@@ -569,7 +579,9 @@ export const useStore = create<AppState>((set, get) => ({
       const messageFrozenRevisions = new Map(s.messageFrozenRevisions);
       messageFrozenRevisions.set(sessionId, 0);
       return { messages, messageFrozenCounts, messageFrozenHashes, messageFrozenRevisions };
-    }),
+    });
+    reconcileLocalImagePreviewUrls(get(), sessionId);
+  },
 
   setHistoryLoading: (sessionId, loading) =>
     set((s) => {
@@ -599,7 +611,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }),
 
-  setThreadWindow: (sessionId, threadKey, window, msgs = [], responseState) =>
+  setThreadWindow: (sessionId, threadKey, window, msgs = [], responseState) => {
     set((s) => {
       const normalizedThreadKey = threadKey.trim().toLowerCase() || "main";
       const threadWindows = new Map(s.threadWindows);
@@ -630,7 +642,9 @@ export const useStore = create<AppState>((set, get) => ({
       if (nextAppliedRevisions.size > 0) threadWindowAppliedRevisions.set(sessionId, nextAppliedRevisions);
       else threadWindowAppliedRevisions.delete(sessionId);
       return { threadWindows, threadWindowMessages, threadWindowResponseStates, threadWindowAppliedRevisions };
-    }),
+    });
+    reconcileLocalImagePreviewUrls(get(), sessionId);
+  },
   setPendingThreadWindowRequest: (sessionId, threadKey) =>
     set((s) => {
       const pendingThreadWindowRequests = new Map(s.pendingThreadWindowRequests);
@@ -650,7 +664,10 @@ export const useStore = create<AppState>((set, get) => ({
       return { pendingCodexInputs };
     }),
 
-  updateMessage: (sessionId, msgId, updates) => set((s) => updateMessageAcrossSources(s, sessionId, msgId, updates)),
+  updateMessage: (sessionId, msgId, updates) => {
+    set((s) => updateMessageAcrossSources(s, sessionId, msgId, updates));
+    reconcileLocalImagePreviewUrls(get(), sessionId);
+  },
   attachCodexSubagentToolResults: (sessionId, ownership, previews) =>
     set((s) => attachCodexSubagentToolResultsAcrossSources(s, sessionId, ownership, previews)),
 
@@ -1693,6 +1710,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   reset: () => {
     resetQuestRefreshStateForTests();
+    releaseAllLocalImagePreviewUrls();
     set({
       sessions: new Map(),
       sdkSessions: [],

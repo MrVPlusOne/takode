@@ -688,7 +688,8 @@ describe("MessageFeed - empty state", () => {
     expect(screen.queryByText("Start a conversation")).toBeNull();
     expect(screen.getByText("Pending delivery")).toBeTruthy();
     expect(screen.getByText("Sending…")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Loading image attachment-1.png" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Open image attachment-1.png" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.queryByTestId("image-preview-loading-placeholder")).toBeNull();
     const image = screen.getByTestId("image-preview-thumbnail-image") as HTMLImageElement;
     expect(image.src).toContain("data:image/png;base64,ZmFrZQ==");
   });
@@ -793,6 +794,24 @@ describe("MessageFeed - empty state", () => {
         })),
       },
     ]);
+    setStorePendingUserUploadRestorations(sid, [
+      {
+        id: "pending-client-1",
+        content: "Inspect this screenshot",
+        timestamp: Date.now(),
+        stage: "delivering",
+        images: [
+          {
+            id: "draft-image-1",
+            name: "attachment-1.png",
+            base64: "ZmFrZQ==",
+            mediaType: "image/png",
+            status: "ready",
+            prepared: { imageRef: { imageId: "img-1", media_type: "image/png" }, path: "/tmp/img.png" },
+          },
+        ],
+      },
+    ]);
 
     const originBrowser = render(<MessageFeed sessionId={sid} threadKey="q-1958" />);
 
@@ -800,15 +819,17 @@ describe("MessageFeed - empty state", () => {
     expect(screen.getAllByText("Inspect this screenshot")).toHaveLength(1);
     expect(screen.queryByText("Sending…")).toBeNull();
     expect(screen.queryByAltText("attachment-1.png")).toBeNull();
-    expect(screen.getAllByRole("button", { name: /Loading image img-/ })).toHaveLength(4);
+    expect(screen.getByRole("button", { name: "Open image attachment-1.png" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getAllByRole("button", { name: /Loading image img-/ })).toHaveLength(3);
     expect(screen.getAllByTestId("image-preview-thumbnail-image")[0]?.getAttribute("src")).toBe(
-      "/api/images/test-canonical-pending-image/img-1/thumb",
+      "data:image/png;base64,ZmFrZQ==",
     );
 
     // A second browser has no origin-local preview state, but the same server
     // snapshot still produces exactly one canonical row with every image slot.
     originBrowser.unmount();
     setStorePendingUserUploads(sid, []);
+    setStorePendingUserUploadRestorations(sid, []);
     render(<MessageFeed sessionId={sid} threadKey="q-1958" />);
     expect(screen.getAllByText("Pending delivery")).toHaveLength(1);
     expect(screen.getAllByText("Inspect this screenshot")).toHaveLength(1);

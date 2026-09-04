@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { retainLocalImagePreviewUrls } from "../local-image-previews.js";
 import type { ImagePreviewItem } from "./image-preview-utils.js";
 
 interface ImagePreviewGroupProps {
@@ -8,6 +9,10 @@ interface ImagePreviewGroupProps {
   className?: string;
   testId?: string;
   onOpenImage?: (image: ImagePreviewItem) => void;
+  onImageSettled?: (image: ImagePreviewItem) => void;
+  onImageError?: (image: ImagePreviewItem) => void;
+  localPreviewSessionId?: string;
+  onLocalPreviewReleased?: (previewUrls: string[]) => void;
   size?: "standard" | "small" | "message";
 }
 
@@ -16,55 +21,190 @@ export function ImagePreviewGroup({
   className = "",
   testId = "image-preview-group",
   onOpenImage,
+  onImageSettled,
+  onImageError,
+  localPreviewSessionId,
+  onLocalPreviewReleased,
   size = "standard",
 }: ImagePreviewGroupProps) {
   const [loadedUrls, setLoadedUrls] = useState<Map<string, string>>(() => new Map());
   const [failedUrls, setFailedUrls] = useState<Map<string, string>>(() => new Map());
+  const [fallbackFromUrls, setFallbackFromUrls] = useState<Map<string, string>>(() => new Map());
+  const [settledLocalImages, setSettledLocalImages] = useState<Map<string, ImagePreviewItem>>(() => new Map());
+  const settledLocalUrlsRef = useRef<Set<string>>(new Set());
+  const retainedLocalPreviewOwnerRef = useRef<ReturnType<typeof retainLocalImagePreviewUrls> | null>(null);
+  const onImageSettledRef = useRef(onImageSettled);
+  const onLocalPreviewReleasedRef = useRef(onLocalPreviewReleased);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const isLoaded = (image: ImagePreviewItem) => loadedUrls.get(image.id) === image.thumbnailUrl;
-  const isFailed = (image: ImagePreviewItem) => failedUrls.get(image.id) === image.thumbnailUrl;
-
-  const markLoaded = (image: ImagePreviewItem) => {
-    setLoadedUrls((current) => {
-      if (current.get(image.id) === image.thumbnailUrl) return current;
-      const next = new Map(current);
-      next.set(image.id, image.thumbnailUrl);
-      return next;
-    });
-    setFailedUrls((current) => {
-      if (current.get(image.id) !== image.thumbnailUrl) return current;
-      const next = new Map(current);
-      next.delete(image.id);
-      return next;
-    });
-  };
-
-  const markFailed = (image: ImagePreviewItem) => {
-    setFailedUrls((current) => {
-      if (current.get(image.id) === image.thumbnailUrl) return current;
-      const next = new Map(current);
-      next.set(image.id, image.thumbnailUrl);
-      return next;
-    });
-    setLoadedUrls((current) => {
-      if (current.get(image.id) !== image.thumbnailUrl) return current;
-      const next = new Map(current);
-      next.delete(image.id);
-      return next;
-    });
-  };
-
-  const visibleImages = images.filter((image) => isLoaded(image) && !isFailed(image));
-  const renderedImages = images.filter(
-    (image) => !isFailed(image) && (isLoaded(image) || image.expectedAttachment === true),
-  );
-  const selectedIndex = selectedId ? visibleImages.findIndex((image) => image.id === selectedId) : -1;
-  const selectedImage = selectedIndex >= 0 ? visibleImages[selectedIndex] : null;
+  onImageSettledRef.current = onImageSettled;
+  onLocalPreviewReleasedRef.current = onLocalPreviewReleased;
 
   useEffect(() => {
-    if (selectedId && selectedIndex < 0) setSelectedId(null);
-  }, [selectedId, selectedIndex]);
+    const activeImagesById = new Map(images.map((image) => [image.id, image]));
+    setSettledLocalImages((current) => {
+      let changed = false;
+      const next = new Map(current);
+      for (const [id, image] of current) {
+        const active = activeImagesById.get(id);
+        if (
+          active &&
+          (!active.localImageId ||
+            active.thumbnailUrl === image.thumbnailUrl ||
+            active.thumbnailUrl === image.fallback?.thumbnailUrl)
+        ) {
+          continue;
+        }
+        changed = true;
+        next.delete(id);
+        settledLocalUrlsRef.current.delete(image.thumbnailUrl);
+      }
+      return changed ? next : current;
+    });
+  }, [images]);
+
+  const activeImages = useMemo(
+    () =>
+      images.map((image) => {
+        const settled = settledLocalImages.get(image.id);
+        if (settled && (!image.localImageId || image.thumbnailUrl === settled.fallback?.thumbnailUrl)) {
+          return settled;
+        }
+        if (!image.fallback || fallbackFromUrls.get(image.id) !== image.thumbnailUrl) return image;
+        return {
+          ...image,
+          thumbnailUrl: image.fallback.thumbnailUrl,
+          fullUrl: image.fallback.fullUrl,
+          immediatelyAvailable: false,
+          fallback: undefined,
+        };
+      }),
+    [fallbackFromUrls, images, settledLocalImages],
+  );
+  const retainedLocalPreviews = useMemo(() => {
+    const byUrl = new Map<string, ImagePreviewItem>();
+    // Settled insertion order keeps the retained key stable as shared local descriptors retire.
+    for (const image of [...settledLocalImages.values(), ...images]) {
+      if (image.localImageId && image.thumbnailUrl.startsWith("blob:")) byUrl.set(image.thumbnailUrl, image);
+    }
+    return { byUrl, urls: [...byUrl.keys()] };
+  }, [images, settledLocalImages]);
+  const retainedLocalPreviewKey = retainedLocalPreviews.urls.join("\u0000");
+
+  useLayoutEffect(() => {
+    if (!localPreviewSessionId || retainedLocalPreviews.urls.length === 0) return;
+    const retainedImagesByUrl = retainedLocalPreviews.byUrl;
+    const owner = retainLocalImagePreviewUrls(localPreviewSessionId, retainedLocalPreviews.urls, {
+      onAllSettled: (settledUrls) => {
+        for (const url of settledUrls) {
+          const image = retainedImagesByUrl.get(url);
+          if (image) onImageSettledRef.current?.(image);
+        }
+      },
+      onUnused: (unusedUrls) => onLocalPreviewReleasedRef.current?.(unusedUrls),
+    });
+    retainedLocalPreviewOwnerRef.current = owner;
+    for (const url of retainedLocalPreviews.urls) {
+      if (settledLocalUrlsRef.current.has(url)) owner.markSettled(url);
+    }
+    return () => {
+      if (retainedLocalPreviewOwnerRef.current === owner) retainedLocalPreviewOwnerRef.current = null;
+      owner.release();
+    };
+  }, [localPreviewSessionId, retainedLocalPreviewKey]);
+
+  const isLoaded = (image: ImagePreviewItem) =>
+    image.immediatelyAvailable === true || loadedUrls.get(image.id) === image.thumbnailUrl;
+  const isFailed = (image: ImagePreviewItem) => failedUrls.get(image.id) === image.thumbnailUrl;
+
+  const markLoaded = (image: ImagePreviewItem, originalImage: ImagePreviewItem = image) => {
+    setLoadedUrls((current) => {
+      if (current.get(image.id) === image.thumbnailUrl) return current;
+      const next = new Map(current);
+      next.set(image.id, image.thumbnailUrl);
+      return next;
+    });
+    setFailedUrls((current) => {
+      if (current.get(image.id) !== image.thumbnailUrl) return current;
+      const next = new Map(current);
+      next.delete(image.id);
+      return next;
+    });
+
+    if (originalImage.localImageId && originalImage.fallback && image.thumbnailUrl === originalImage.thumbnailUrl) {
+      const wasSettled = settledLocalUrlsRef.current.has(originalImage.thumbnailUrl);
+      if (!wasSettled) {
+        settledLocalUrlsRef.current.add(originalImage.thumbnailUrl);
+        setSettledLocalImages((current) => new Map(current).set(originalImage.id, originalImage));
+      }
+      if (originalImage.thumbnailUrl.startsWith("blob:")) {
+        retainedLocalPreviewOwnerRef.current?.markSettled(originalImage.thumbnailUrl);
+      } else if (!wasSettled) {
+        onImageSettledRef.current?.(originalImage);
+      }
+    }
+  };
+
+  const markFailed = (image: ImagePreviewItem, originalImage: ImagePreviewItem = image) => {
+    const localImage = originalImage.localImageId && originalImage.fallback ? originalImage : image;
+    if (localImage.localImageId && localImage.fallback && image.thumbnailUrl === localImage.thumbnailUrl) {
+      settledLocalUrlsRef.current.delete(localImage.thumbnailUrl);
+      setSettledLocalImages((current) => {
+        if (!current.has(localImage.id)) return current;
+        const next = new Map(current);
+        next.delete(localImage.id);
+        return next;
+      });
+      setFallbackFromUrls((current) => {
+        if (current.get(localImage.id) === localImage.thumbnailUrl) return current;
+        const next = new Map(current);
+        next.set(localImage.id, localImage.thumbnailUrl);
+        return next;
+      });
+      setLoadedUrls((current) => {
+        if (!current.has(localImage.id)) return current;
+        const next = new Map(current);
+        next.delete(localImage.id);
+        return next;
+      });
+      setFailedUrls((current) => {
+        if (!current.has(localImage.id)) return current;
+        const next = new Map(current);
+        next.delete(localImage.id);
+        return next;
+      });
+      onImageError?.(localImage);
+      return;
+    }
+    setFailedUrls((current) => {
+      if (current.get(image.id) === image.thumbnailUrl) return current;
+      const next = new Map(current);
+      next.set(image.id, image.thumbnailUrl);
+      return next;
+    });
+    setLoadedUrls((current) => {
+      if (current.get(image.id) !== image.thumbnailUrl) return current;
+      const next = new Map(current);
+      next.delete(image.id);
+      return next;
+    });
+    onImageError?.(originalImage);
+  };
+
+  const renderedImages = activeImages.filter(
+    (image) => !isFailed(image) && (isLoaded(image) || image.expectedAttachment === true),
+  );
+  const selectedImage = selectedId
+    ? (activeImages.find((image) => image.id === selectedId && !isFailed(image)) ?? null)
+    : null;
+  const modalImages = selectedImage
+    ? activeImages.filter((image) => image.id === selectedId || (isLoaded(image) && !isFailed(image)))
+    : [];
+  const selectedIndex = selectedImage ? modalImages.findIndex((image) => image.id === selectedImage.id) : -1;
+
+  useEffect(() => {
+    if (selectedId && !selectedImage) setSelectedId(null);
+  }, [selectedId, selectedImage]);
 
   if (images.length === 0) return null;
 
@@ -79,7 +219,7 @@ export function ImagePreviewGroup({
   return (
     <>
       <div className="hidden" aria-hidden="true">
-        {images
+        {activeImages
           .filter((image) => image.thumbnailUrl && !image.expectedAttachment && !isFailed(image) && !isLoaded(image))
           .map((image) => (
             <img
@@ -99,6 +239,7 @@ export function ImagePreviewGroup({
         >
           {renderedImages.map((image) => {
             const loaded = isLoaded(image);
+            const originalImage = images.find((candidate) => candidate.id === image.id) ?? image;
             return (
               <button
                 key={image.id}
@@ -121,8 +262,8 @@ export function ImagePreviewGroup({
                     draggable={false}
                     loading="lazy"
                     decoding="async"
-                    onLoad={() => markLoaded(image)}
-                    onError={() => markFailed(image)}
+                    onLoad={() => markLoaded(image, originalImage)}
+                    onError={() => markFailed(image, originalImage)}
                     data-testid="image-preview-thumbnail-image"
                   />
                 ) : null}
@@ -134,7 +275,7 @@ export function ImagePreviewGroup({
       )}
       {selectedImage && !onOpenImage && (
         <ImagePreviewModal
-          images={visibleImages}
+          images={modalImages}
           selectedIndex={selectedIndex}
           onSelect={(image) => setSelectedId(image.id)}
           onClose={() => setSelectedId(null)}

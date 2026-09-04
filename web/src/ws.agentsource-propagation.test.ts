@@ -333,7 +333,12 @@ describe("agentSource propagation", () => {
     expect(msgs).toHaveLength(1);
     expect(msgs[0].images).toEqual([{ imageId: "img-1", media_type: "image/png" }]);
     expect(msgs[0].localImages).toEqual([
-      { name: "attachment-1.png", base64: "restore-image-data", mediaType: "image/png" },
+      expect.objectContaining({
+        imageId: "img-1",
+        name: "attachment-1.png",
+        base64: "restore-image-data",
+        mediaType: "image/png",
+      }),
     ]);
     expect(msgs[0].clientMsgId).toBe("pending-upload-1");
   });
@@ -391,7 +396,12 @@ describe("agentSource propagation", () => {
     expect(msgs).toHaveLength(1);
     expect(msgs[0].images).toEqual([{ imageId: "img-2", media_type: "image/png" }]);
     expect(msgs[0].localImages).toEqual([
-      { name: "attachment-1.png", base64: "restore-image-data", mediaType: "image/png" },
+      expect.objectContaining({
+        imageId: "img-2",
+        name: "attachment-1.png",
+        base64: "restore-image-data",
+        mediaType: "image/png",
+      }),
     ]);
     expect(msgs[0].clientMsgId).toBe("pending-upload-2");
   });

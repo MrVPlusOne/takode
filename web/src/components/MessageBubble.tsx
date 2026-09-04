@@ -38,7 +38,11 @@ import { NotificationMarker } from "./NotificationMarker.js";
 import { formatThreadMarker } from "../../shared/thread-routing.js";
 import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
 import { ImagePreviewGroup } from "./ImagePreviewGroup.js";
-import { buildAssistantImagePreviewItems, buildUserImagePreviewItems } from "./image-preview-utils.js";
+import {
+  buildAssistantImagePreviewItems,
+  buildUserImagePreviewItems,
+  type ImagePreviewItem,
+} from "./image-preview-utils.js";
 import { SideChatSummary, useSideChatForMessage } from "./SideChatControls.js";
 import { AssistantMessageMenu, UserMessageMenu } from "./MessageActionMenus.js";
 import { MessageTimestamp } from "./MessageTimestamp.js";
@@ -55,6 +59,7 @@ import {
 import { isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
 import { CodexReasoningDetail } from "./CodexReasoningDetail.js";
 import { useMessageSearchHighlight, type SearchHighlightInfo } from "../hooks/use-message-search-highlight.js";
+import { reconcileLocalImagePreviewUrls } from "../local-image-previews.js";
 import { TimerMessage } from "./TimerMessage.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
@@ -795,7 +800,11 @@ function UserMessage({
   readOnly: boolean;
   questLinkSurface: QuestLinkSurface;
 }) {
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxSelection, setLightboxSelection] = useState<{
+    id: string;
+    src: string;
+    usesLocalPreview: boolean;
+  } | null>(null);
 
   const isCodex = useStore((s) => s.sessions.get(sessionId ?? "")?.backend_type === "codex");
   const starred = useFeedStarredMessage(sessionId, message);
@@ -821,6 +830,74 @@ function UserMessage({
   );
   const displayContent = replyContext ? replyContext.userMessage : message.content;
   const imagePreviewItems = useMemo(() => buildUserImagePreviewItems(message, sessionId), [message, sessionId]);
+  const retireLocalImage = useCallback(
+    (image: ImagePreviewItem) => {
+      if (!sessionId || !image.localImageId) return;
+      const state = useStore.getState();
+      const current =
+        state.messages.get(sessionId)?.find((candidate) => candidate.id === message.id) ??
+        [...(state.threadWindowMessages.get(sessionId)?.values() ?? [])]
+          .flat()
+          .find((candidate) => candidate.id === message.id);
+      if (!current?.localImages?.length) return;
+      const nextLocalImages = current.localImages.filter((local) => local.imageId !== image.localImageId);
+      state.updateMessage(sessionId, message.id, {
+        localImages: nextLocalImages.length > 0 ? nextLocalImages : undefined,
+      });
+    },
+    [message.id, sessionId],
+  );
+  const handleImageError = useCallback(
+    (image: ImagePreviewItem) => {
+      if (lightboxSelection?.id === image.id && image.fallback) {
+        setLightboxSelection({ id: image.id, src: image.fallback.fullUrl, usesLocalPreview: false });
+      }
+      retireLocalImage(image);
+    },
+    [lightboxSelection?.id, retireLocalImage],
+  );
+  const handleLocalPreviewReleased = useCallback(
+    (previewUrls: string[]) => {
+      if (!sessionId || previewUrls.length === 0) return;
+      const state = useStore.getState();
+      const previewUrlSet = new Set(previewUrls);
+      const current =
+        state.messages.get(sessionId)?.find((candidate) => candidate.id === message.id) ??
+        [...(state.threadWindowMessages.get(sessionId)?.values() ?? [])]
+          .flat()
+          .find((candidate) => candidate.id === message.id);
+      if (current?.localImages?.some((image) => image.previewUrl && previewUrlSet.has(image.previewUrl))) {
+        const nextLocalImages = current.localImages.filter(
+          (image) => !image.previewUrl || !previewUrlSet.has(image.previewUrl),
+        );
+        state.updateMessage(sessionId, message.id, {
+          localImages: nextLocalImages.length > 0 ? nextLocalImages : undefined,
+        });
+      }
+      reconcileLocalImagePreviewUrls(useStore.getState(), sessionId);
+    },
+    [message.id, sessionId],
+  );
+
+  useEffect(() => {
+    if (!lightboxSelection) return;
+    const selectedImage = imagePreviewItems.find((image) => image.id === lightboxSelection.id);
+    if (!selectedImage) {
+      setLightboxSelection(null);
+      return;
+    }
+    if (
+      lightboxSelection.usesLocalPreview &&
+      selectedImage.localImageId &&
+      selectedImage.fullUrl !== lightboxSelection.src
+    ) {
+      setLightboxSelection({ id: selectedImage.id, src: selectedImage.fullUrl, usesLocalPreview: true });
+    }
+  }, [imagePreviewItems, lightboxSelection]);
+
+  useEffect(() => {
+    setLightboxSelection(null);
+  }, [message.id]);
   const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
   const pendingLabel =
     message.pendingState === "uploading"
@@ -866,10 +943,21 @@ function UserMessage({
           </div>
         )}
         <ImagePreviewGroup
+          key={message.id}
           images={imagePreviewItems}
           className="!mt-0 mb-1"
           testId="user-image-preview-group"
-          onOpenImage={(image) => setLightboxSrc(image.fullUrl)}
+          onOpenImage={(image) =>
+            setLightboxSelection({
+              id: image.id,
+              src: image.fullUrl,
+              usesLocalPreview: Boolean(image.localImageId),
+            })
+          }
+          onImageSettled={retireLocalImage}
+          onImageError={handleImageError}
+          localPreviewSessionId={sessionId}
+          onLocalPreviewReleased={handleLocalPreviewReleased}
           size="message"
         />
         {pendingLabel && <div className="mb-2 text-[11px] text-cc-muted/80 font-mono-code">{pendingLabel}</div>}
@@ -888,7 +976,9 @@ function UserMessage({
       {!readOnly && !message.pendingState && (
         <UserMessageMenu message={message} sessionId={sessionId} canRevert={canRevert} />
       )}
-      {lightboxSrc && <Lightbox src={lightboxSrc} alt="attachment" onClose={() => setLightboxSrc(null)} />}
+      {lightboxSelection && (
+        <Lightbox src={lightboxSelection.src} alt="attachment" onClose={() => setLightboxSelection(null)} />
+      )}
     </div>
   );
 }

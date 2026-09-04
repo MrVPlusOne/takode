@@ -154,6 +154,56 @@ describe("ImagePreviewGroup pending attachments", () => {
     expect(screen.queryByTestId("image-preview-loading-placeholder")).toBeNull();
   });
 
+  it("shows an origin-local preview immediately and falls back to the backend after a local error", () => {
+    const onImageError = vi.fn();
+    const image = makeImage("origin", {
+      thumbnailUrl: "blob:origin",
+      fullUrl: "blob:origin",
+    });
+    image.immediatelyAvailable = true;
+    image.localImageId = "image-origin";
+    image.fallback = { thumbnailUrl: "/thumb/origin.png", fullUrl: "/full/origin.png" };
+    render(<ImagePreviewGroup images={[image]} testId="origin-image" onImageError={onImageError} />);
+
+    const group = screen.getByTestId("origin-image");
+    expect(within(group).getByRole("button", { name: "Open image origin.png" })).toBeEnabled();
+    expect(within(group).queryByTestId("image-preview-loading-placeholder")).toBeNull();
+    const localThumbnail = thumbnailFor(group, "origin");
+    expect(localThumbnail).toHaveAttribute("src", "blob:origin");
+
+    fireEvent.error(localThumbnail);
+
+    expect(onImageError).toHaveBeenCalledWith(image);
+    expect(within(group).getByRole("button", { name: "Loading image origin.png" })).toBeDisabled();
+    expect(thumbnailFor(group, "origin")).toHaveAttribute("src", "/thumb/origin.png");
+    fireEvent.load(thumbnailFor(group, "origin"));
+    expect(within(group).getByRole("button", { name: "Open image origin.png" })).toBeEnabled();
+  });
+
+  it("keeps an opened local modal visible while its backend fallback loads", () => {
+    const image = makeImage("origin-modal", {
+      thumbnailUrl: "blob:origin-modal",
+      fullUrl: "blob:origin-modal",
+    });
+    image.immediatelyAvailable = true;
+    image.localImageId = "image-origin-modal";
+    image.fallback = { thumbnailUrl: "/thumb/origin-modal.png", fullUrl: "/full/origin-modal.png" };
+    render(<ImagePreviewGroup images={[image]} testId="origin-modal-images" />);
+
+    const group = screen.getByTestId("origin-modal-images");
+    fireEvent.click(within(group).getByRole("button", { name: "Open image origin-modal.png" }));
+    expect(screen.getByTestId("image-preview-modal-image")).toHaveAttribute("src", "blob:origin-modal");
+
+    fireEvent.error(thumbnailFor(group, "origin-modal"));
+
+    expect(screen.getByRole("dialog", { name: "Image preview: origin-modal.png" })).toBeVisible();
+    expect(screen.getByTestId("image-preview-modal-image")).toHaveAttribute("src", "/full/origin-modal.png");
+    expect(within(group).getByRole("button", { name: "Loading image origin-modal.png" })).toBeDisabled();
+
+    fireEvent.load(thumbnailFor(group, "origin-modal"));
+    expect(screen.getByRole("dialog", { name: "Image preview: origin-modal.png" })).toBeVisible();
+  });
+
   it("keeps pending and failed attachments out of modal navigation", () => {
     const images = [makeImage("ready-one"), makeImage("pending"), makeImage("failed"), makeImage("ready-two")];
     render(<ImagePreviewGroup images={images} testId="pending-images" />);

@@ -227,11 +227,16 @@ export function isSubagentToolName(name: string): boolean {
 
 export interface LocalImageAttachment {
   name: string;
-  base64: string;
+  base64?: string;
   mediaType: string;
+  /** Stable server attachment identity once upload preparation succeeds. */
+  imageId?: string;
+  /** Browser-local blob URL; never sent to the backend or persisted. */
+  previewUrl?: string;
 }
 
 export interface ComposerDraftImage extends LocalImageAttachment {
+  base64: string;
   id: string;
   status: "reading" | "uploading" | "ready" | "failed";
   error?: string;
