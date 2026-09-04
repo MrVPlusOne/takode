@@ -8,7 +8,7 @@ import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-
 import { buildFeedModel } from "./use-feed-model.js";
 
 describe("selected-thread collapsed projection", () => {
-  it("keeps routed herd activity inspectable as worker events beside representative leader prose", () => {
+  it("keeps routed herd activity inspectable while unproven legacy prose stays behind expansion", () => {
     // The browser consumes the exact server-authored window shape rather than
     // inventing a frontend-only thread payload.
     const sync = buildThreadWindowSync({
@@ -34,6 +34,11 @@ describe("selected-thread collapsed projection", () => {
     const visibleIds = model.turns[0]?.collapsedEntries
       ?.filter((entry) => entry.kind === "entry" && entry.entry.kind === "message")
       .map((entry) => (entry.kind === "entry" && entry.entry.kind === "message" ? entry.entry.msg.id : null));
-    expect(visibleIds).toContain("leader-response-two");
+    expect(visibleIds).toEqual([]);
+    expect(
+      model.turns[0]?.agentEntries
+        .filter((entry) => entry.kind === "message")
+        .map((entry) => (entry.kind === "message" ? entry.msg.id : null)),
+    ).toEqual(expect.arrayContaining(["leader-response-one", "leader-response-two"]));
   });
 });

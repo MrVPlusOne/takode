@@ -623,7 +623,7 @@ function entryIsCollapsedVisible(
     ((entry.msg.role === "assistant" &&
       (entry.msg.notification != null ||
         anchoredNotificationMessageIds?.has(entry.msg.id) === true ||
-        (leaderMode && (isSubstantiveLeaderUserMessage(entry.msg) || isThreadStatusSummaryMessage(entry.msg))))) ||
+        (leaderMode && isLeaderNeedsInputStatusMessage(entry.msg)))) ||
       shouldShowAttentionRecordInCollapsedTurn(entry.msg.metadata?.attentionRecord))
   );
 }
@@ -657,6 +657,18 @@ function isExplicitCommentary(msg: ChatMessage): boolean {
 
 function isExplicitFinalAnswer(msg: ChatMessage): boolean {
   return messagePresentationPhase(msg) === "final_answer";
+}
+
+function isExplicitLeaderAnswer(msg: ChatMessage): boolean {
+  return msg.metadata?.leaderThreadRole === "answer";
+}
+
+function isLegacyPhaseFinalAnswer(msg: ChatMessage): boolean {
+  const role = msg.metadata?.leaderThreadRole;
+  return (
+    (role == null || role === "response") &&
+    normalizeCodexMessagePhase(msg.metadata?.codexMessagePhase) === "final_answer"
+  );
 }
 
 function isAssistantTextResponseEntry(entry: FeedEntry): entry is Extract<FeedEntry, { kind: "message" }> {
@@ -755,6 +767,10 @@ function isThreadStatusSummaryMessage(msg: ChatMessage): boolean {
   );
 }
 
+function isLeaderNeedsInputStatusMessage(msg: ChatMessage): boolean {
+  return isSubstantiveLeaderUserMessage(msg) && isNeedsInputStatusText(messageText(msg));
+}
+
 function isSubstantiveLeaderResponseEntry(entry: FeedEntry): boolean {
   return (
     entry.kind === "message" &&
@@ -762,14 +778,17 @@ function isSubstantiveLeaderResponseEntry(entry: FeedEntry): boolean {
     !entry.msg.notification &&
     !entry.msg.metadata?.attentionRecord &&
     !isCodexReasoningDetailMessage(entry.msg) &&
+    entry.msg.metadata?.leaderThreadRole == null &&
     messagePresentationPhase(entry.msg) === null &&
     messageText(entry.msg).trim().length > 0
   );
 }
 
-/** Select one explicit final answer per eligible leader segment. The q-1875
- * compatibility fallback remains limited to anchored segments closed by a
- * model-only reminder; reminder-owned segments never contribute a response. */
+/** Preserve explicit routed answers per eligible leader segment, but treat
+ * provider-phase finals and structural fallbacks as legacy evidence. Legacy
+ * history gets at most one representative for the whole direct-human turn;
+ * injected boundaries must not manufacture extra answers or anchor a partial
+ * bounded-window tail. */
 function collectLeaderSegmentResponseRepresentatives(
   rawAgentEntries: FeedEntry[],
   hasUserBoundary: boolean,
@@ -777,15 +796,19 @@ function collectLeaderSegmentResponseRepresentatives(
 ): Set<string> {
   const representativeKeys = new Set<string>();
   let segmentKind: "eligible" | "model-only" | "unknown" = hasUserBoundary ? "eligible" : "unknown";
-  let lastExplicitFinalAnswer: FeedEntry | null = null;
+  let lastExplicitLeaderAnswer: FeedEntry | null = null;
+  let lastLegacyPhaseAnswer: FeedEntry | null = null;
   let lastUnknownResponse: FeedEntry | null = null;
+  let lastLegacyRepresentative: FeedEntry | null = null;
 
   const finishSegment = (allowLegacyFallback: boolean) => {
     if (segmentKind !== "eligible") return;
-    if (lastExplicitFinalAnswer) {
-      representativeKeys.add(getEntryId(lastExplicitFinalAnswer));
+    if (lastExplicitLeaderAnswer) {
+      representativeKeys.add(getEntryId(lastExplicitLeaderAnswer));
+    } else if (lastLegacyPhaseAnswer) {
+      lastLegacyRepresentative = lastLegacyPhaseAnswer;
     } else if (allowLegacyFallback && lastUnknownResponse) {
-      representativeKeys.add(getEntryId(lastUnknownResponse));
+      lastLegacyRepresentative = lastUnknownResponse;
     }
   };
 
@@ -793,21 +816,27 @@ function collectLeaderSegmentResponseRepresentatives(
     if (entry.kind === "message" && entry.msg.role === "user" && entry.msg.agentSource?.sessionId) {
       const nextSegmentIsModelOnlyReminder = isModelOnlyReminderSource(entry.msg.agentSource.sessionId);
       finishSegment(nextSegmentIsModelOnlyReminder || allowOrdinaryLegacyFallback);
-      segmentKind = nextSegmentIsModelOnlyReminder ? "model-only" : "eligible";
-      lastExplicitFinalAnswer = null;
+      segmentKind = nextSegmentIsModelOnlyReminder ? "model-only" : hasUserBoundary ? "eligible" : "unknown";
+      lastExplicitLeaderAnswer = null;
+      lastLegacyPhaseAnswer = null;
       lastUnknownResponse = null;
       continue;
     }
 
     if (segmentKind !== "eligible" || !isAssistantTextResponseEntry(entry)) continue;
-    if (isExplicitFinalAnswer(entry.msg)) {
-      lastExplicitFinalAnswer = entry;
+    if (isExplicitLeaderAnswer(entry.msg)) {
+      lastExplicitLeaderAnswer = entry;
+    } else if (isLegacyPhaseFinalAnswer(entry.msg)) {
+      lastLegacyPhaseAnswer = entry;
     } else if (messagePresentationPhase(entry.msg) === null && isSubstantiveLeaderResponseEntry(entry)) {
       lastUnknownResponse = entry;
     }
   }
 
   finishSegment(allowOrdinaryLegacyFallback);
+  if (representativeKeys.size === 0 && lastLegacyRepresentative) {
+    representativeKeys.add(getEntryId(lastLegacyRepresentative));
+  }
   return representativeKeys;
 }
 
@@ -1078,10 +1107,11 @@ function makeTurn(
 
   const s = countEntryStats(presentationAgentEntries);
 
-  // Existing priority rows remain collapsed-visible. Explicit routed-response
-  // or Codex final-answer metadata selects one response per eligible leader
-  // segment; finals inside model-only reminder segments remain activity. The q-1875 structural
-  // fallback applies only to unannotated pre-reminder output.
+  // Existing notification and attention rows remain collapsed-visible. Explicit
+  // routed answers may represent their eligible segments, while provider-phase
+  // finals and structural unknowns are legacy evidence with at most one
+  // representative for the whole source-anchored turn. Model-only reminder
+  // output and unanchored bounded-window tails remain activity.
   const leaderSegmentRepresentativeKeys =
     leaderMode || leaderSessionMode
       ? collectLeaderSegmentResponseRepresentatives(presentationAgentEntries, userEntry !== null, !leaderMode)

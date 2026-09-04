@@ -250,7 +250,7 @@ describe("timer collapsed-turn boundaries", () => {
       role: "assistant",
       content: "The batch is healthy.",
       timestamp: 750,
-      metadata: { leaderUserMessage: true },
+      metadata: { leaderUserMessage: true, codexMessagePhase: "final_answer" },
     });
     const timers = [makeTimer("timer-1", 1_000), makeTimer("timer-2", 2_000)];
     const turn = buildFeedModel([user, response, ...timers], true).turns[0];

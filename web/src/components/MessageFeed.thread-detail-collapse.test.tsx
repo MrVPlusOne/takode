@@ -745,7 +745,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
         id: "a-align",
         role: "assistant",
         content: "Alignment approved; authorizing focused Work.",
-        metadata: { leaderUserMessage: true, threadRefs: [threadRef] },
+        metadata: { leaderUserMessage: true, codexMessagePhase: "commentary", threadRefs: [threadRef] },
       }),
       makeHerdEvent(
         "herd-interrupted-1",
@@ -778,7 +778,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
         id: "a-recovery",
         role: "assistant",
         content: "The worker resumed after recovery and is finishing closure.",
-        metadata: { leaderUserMessage: true, threadRefs: [threadRef] },
+        metadata: { leaderUserMessage: true, codexMessagePhase: "commentary", threadRefs: [threadRef] },
       }),
       makeHerdEvent(
         "herd-session-error",
@@ -797,15 +797,15 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
         id: "a-done",
         role: "assistant",
         content: "The screenshot-shaped regression is fixed.",
-        metadata: { leaderUserMessage: true, threadRefs: [threadRef] },
+        metadata: { leaderUserMessage: true, codexMessagePhase: "final_answer", threadRefs: [threadRef] },
       }),
       makeMessage({ id: "u2", role: "user", content: "Move to another task", metadata: { threadRefs: [threadRef] } }),
     ]);
 
     render(<MessageFeed sessionId={sid} threadKey="q-1799" />);
 
-    expect(screen.getByText("Alignment approved; authorizing focused Work.")).toBeTruthy();
-    expect(screen.getByText("The worker resumed after recovery and is finishing closure.")).toBeTruthy();
+    expect(screen.queryByText("Alignment approved; authorizing focused Work.")).toBeNull();
+    expect(screen.queryByText("The worker resumed after recovery and is finishing closure.")).toBeNull();
     expect(screen.getByText("The screenshot-shaped regression is fixed.")).toBeTruthy();
     const turn = screen.getByText("Resume q-1799").closest<HTMLElement>("[data-turn-id]")!;
     expect(within(turn).getAllByRole("button", { name: "Expand turn" })).toHaveLength(1);
@@ -1006,7 +1006,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
         id: "a-setup",
         role: "assistant",
         content: "[q-1636](quest:q-1636) is complete. I’m checking final status metadata.",
-        metadata: { threadRefs: [threadRef] },
+        metadata: { codexMessagePhase: "commentary", threadRefs: [threadRef] },
       }),
       makeMessage({
         id: "a-tool",
@@ -1021,7 +1021,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
         id: "a-final",
         role: "assistant",
         content: "[q-1636](quest:q-1636) is complete and off the board.\n\nMemory updated: `a4649cb`.",
-        metadata: { threadRefs: [threadRef], threadStatusMarkers: [readyStatus] },
+        metadata: { codexMessagePhase: "final_answer", threadRefs: [threadRef], threadStatusMarkers: [readyStatus] },
       }),
     ]);
 

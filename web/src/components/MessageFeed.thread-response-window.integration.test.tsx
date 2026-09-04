@@ -775,6 +775,113 @@ function producerMixedCutoverThreadWindow(
   };
 }
 
+function producerLegacyPhaseOnlyThreadWindow(): Extract<BrowserIncomingMessage, { type: "thread_window_sync" }> {
+  const status = (kind: "waiting" | "ready", messageId: string, timestamp: number) => ({
+    kind,
+    label: kind === "ready" ? ("Thread Ready" as const) : ("Thread Waiting" as const),
+    threadKey: QUEST_ID,
+    questId: QUEST_ID,
+    summary: kind === "ready" ? "legacy work complete" : "legacy work continues",
+    messageId,
+    timestamp,
+    updatedAt: timestamp,
+  });
+  const phaseMessage = (
+    id: string,
+    text: string,
+    timestamp: number,
+    kind: "waiting" | "ready",
+    leaderThreadRole?: "response",
+  ) => {
+    const message = assistantMessage(id, text, timestamp, "final_answer", leaderThreadRole);
+    message.threadStatusMarkers = [status(kind, id, timestamp)];
+    return message;
+  };
+  const herdMessage = (id: string, text: string, timestamp: number): BrowserIncomingMessage => ({
+    type: "user_message",
+    id,
+    content: text,
+    timestamp,
+    agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+    ...routedFields(),
+  });
+  const entries = [
+    {
+      history_index: 10,
+      message: userMessage(
+        "user-before-cutover",
+        "Legacy request before explicit answer coverage",
+        1_700_000_001_000,
+        false,
+      ),
+    },
+    {
+      history_index: 11,
+      message: phaseMessage(
+        "legacy-setup",
+        "Created and dispatched the follow-up quest.",
+        1_700_000_002_000,
+        "waiting",
+      ),
+    },
+    { history_index: 12, message: toolMessage("legacy-tool", "legacy-tool-use", 1_700_000_003_000) },
+    {
+      history_index: 13,
+      message: herdMessage("legacy-herd-1", "#2609 | turn_end | alignment complete", 1_700_000_004_000),
+    },
+    {
+      history_index: 14,
+      message: phaseMessage(
+        "legacy-progress",
+        "The worker is finishing the guarded transition.",
+        1_700_000_005_000,
+        "waiting",
+      ),
+    },
+    { history_index: 15, message: herdMessage("legacy-herd-2", "#2609 | turn_end | Work complete", 1_700_000_006_000) },
+    {
+      history_index: 16,
+      message: assistantMessage(
+        "legacy-transition",
+        "The transition finished; Memory is running.",
+        1_700_000_007_000,
+        undefined,
+        "response",
+      ),
+    },
+    {
+      history_index: 17,
+      message: herdMessage("legacy-herd-3", "#2609 | turn_end | Memory complete", 1_700_000_008_000),
+    },
+    {
+      history_index: 18,
+      message: phaseMessage(
+        "legacy-completion",
+        `Collapsed turns now have one unified footer.\n\n{[(Quest Quiz: ${QUEST_ID})]}`,
+        1_700_000_009_000,
+        "ready",
+        "response",
+      ),
+    },
+  ];
+  return {
+    type: "thread_window_sync",
+    thread_key: QUEST_ID,
+    entries,
+    window: {
+      thread_key: QUEST_ID,
+      from_item: 0,
+      item_count: entries.length,
+      total_items: entries.length,
+      has_older_items: false,
+      has_newer_items: false,
+      source_history_length: 19,
+      section_item_count: 30,
+      visible_item_count: entries.length,
+    },
+  };
+}
+
 function installReadyStatus(timestamp = 1_700_000_010_000, messageId = "response-single-r1") {
   useStore.getState().applySyncedProjectionSnapshot(
     createLeaderThreadTabsProjectionEnvelope({
@@ -811,6 +918,49 @@ describe("MessageFeed explicit answer selected-window integration", () => {
       handleMessage(SESSION_ID, producerThreadWindow());
       installReadyStatus();
     });
+  });
+
+  it("shows only one defensible legacy representative while preserving complete expanded chronology", () => {
+    act(() => {
+      useStore.getState().reset();
+      handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
+      useStore.getState().upsertQuestDetail(quest(), { etag: '"response-detail"' });
+      handleMessage(SESSION_ID, producerLegacyPhaseOnlyThreadWindow());
+      installReadyStatus(1_700_000_010_000, "legacy-completion");
+    });
+
+    const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+    const turn = screen
+      .getByText("Legacy request before explicit answer coverage")
+      .closest<HTMLElement>("[data-turn-id]")!;
+
+    expect(within(turn).getByText("Collapsed turns now have one unified footer.")).toBeVisible();
+    expect(within(turn).queryByText("Created and dispatched the follow-up quest.")).not.toBeInTheDocument();
+    expect(within(turn).queryByText("The worker is finishing the guarded transition.")).not.toBeInTheDocument();
+    expect(within(turn).queryByText("The transition finished; Memory is running.")).not.toBeInTheDocument();
+    expect(within(turn).queryByTestId("thread-response-answer-count")).not.toBeInTheDocument();
+    expect(within(turn).getAllByRole("button", { name: "Expand turn · 1 tool" })).toHaveLength(1);
+    expect(view.container.querySelectorAll('[data-message-id="legacy-completion"]')).toHaveLength(1);
+    expect(within(turn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
+
+    fireEvent.click(within(turn).getByRole("button", { name: "Expand turn · 1 tool" }));
+    const setup = within(turn).getByText("Created and dispatched the follow-up quest.");
+    const progress = within(turn).getByText("The worker is finishing the guarded transition.");
+    const transition = within(turn).getByText("The transition finished; Memory is running.");
+    const completion = within(turn).getByText("Collapsed turns now have one unified footer.");
+    expect(setup.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(progress.compareDocumentPosition(transition) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(transition.compareDocumentPosition(completion) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    for (const messageId of ["legacy-setup", "legacy-progress", "legacy-transition", "legacy-completion"]) {
+      expect(view.container.querySelectorAll(`[data-message-id="${messageId}"]`)).toHaveLength(1);
+    }
+    expect(within(turn).getByRole("button", { name: "Collapse turn" })).toBeVisible();
+    expect(within(turn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
+
+    fireEvent.click(within(turn).getByRole("button", { name: "Collapse turn" }));
+    expect(within(turn).getByText("Collapsed turns now have one unified footer.")).toBeVisible();
+    expect(within(turn).queryByText("Created and dispatched the follow-up quest.")).not.toBeInTheDocument();
+    expect(within(turn).getAllByRole("button", { name: "Expand turn · 1 tool" })).toHaveLength(1);
   });
 
   it("preserves the pre-cutover collapsed response while using response rows after cutover", () => {

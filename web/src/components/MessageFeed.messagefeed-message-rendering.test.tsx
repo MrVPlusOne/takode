@@ -701,7 +701,7 @@ describe("MessageFeed - message rendering", () => {
         id: "a-summary",
         role: "assistant",
         content: "The herd-event grouping and compact chip UI is implemented.",
-        metadata: { leaderUserMessage: true, threadRefs: [threadRef] },
+        metadata: { leaderUserMessage: true, codexMessagePhase: "final_answer", threadRefs: [threadRef] },
       }),
       makeMessage({
         id: "tools-memory",

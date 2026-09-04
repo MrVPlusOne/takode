@@ -686,6 +686,16 @@ export function usePlaygroundSeed() {
         content: "Coordinate the active Journey board.",
         timestamp: Date.now() - 180_000,
         historyIndex: 0,
+        metadata: {
+          threadRefs: [
+            {
+              threadKey: "q-9003",
+              questId: "q-9003",
+              source: "backfill",
+              attachedAt: Date.now() - 12_000,
+            },
+          ],
+        },
       }),
       makePlaygroundMessage({
         id: "playground-thread-attached-history",
@@ -884,6 +894,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "The dispatch plan is ready with the requested worker assignment.",
         timestamp: Date.now() - 10_000,
+        historyIndex: 16,
         metadata: {
           codexMessagePhase: "final_answer",
           threadRefs: [{ threadKey: "q-9003", questId: "q-9003", source: "explicit" }],
@@ -895,6 +906,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "Checking the internal worker queue after publishing the dispatch plan.",
         timestamp: Date.now() - 9_000,
+        historyIndex: 17,
         metadata: {
           codexMessagePhase: "commentary",
           threadRefs: [{ threadKey: "q-9003", questId: "q-9003", source: "explicit" }],
@@ -927,6 +939,36 @@ export function usePlaygroundSeed() {
         visible_item_count: 3,
       },
       questProjectionMessages,
+    );
+    const phaseProjectionMessages =
+      useStore
+        .getState()
+        .messages.get(PLAYGROUND_THREAD_PANEL_SESSION_ID)
+        ?.filter((message) =>
+          [
+            "playground-thread-main",
+            "playground-thread-q963",
+            "playground-thread-status-batch",
+            "playground-thread-q963-stale-ready",
+            "playground-thread-q963-phase-final",
+            "playground-thread-q963-phase-commentary",
+          ].includes(message.id),
+        ) ?? [];
+    store.setThreadWindow(
+      PLAYGROUND_THREAD_PANEL_SESSION_ID,
+      "q-9003",
+      {
+        thread_key: "q-9003",
+        from_item: 0,
+        item_count: phaseProjectionMessages.length,
+        total_items: phaseProjectionMessages.length,
+        has_older_items: false,
+        has_newer_items: false,
+        source_history_length: 18,
+        section_item_count: 10,
+        visible_item_count: phaseProjectionMessages.length,
+      },
+      phaseProjectionMessages,
     );
     const mainProjectionMessages =
       useStore

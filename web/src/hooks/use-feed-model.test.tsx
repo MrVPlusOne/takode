@@ -343,7 +343,7 @@ describe("leader mode collapsed preview without deprecated metadata", () => {
     expect(entryIds(turn.agentEntries)).toContain("a-final");
   });
 
-  it("shows preserved leader-visible history rows in collapsed-visible entries", () => {
+  it("keeps unproven legacy leader-visible rows behind expansion", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "go", timestamp: 1 }),
       makeMessage({ id: "a-private", role: "assistant", content: "private coordination", timestamp: 2 }),
@@ -360,9 +360,9 @@ describe("leader mode collapsed preview without deprecated metadata", () => {
     const turn = model.turns[0];
 
     expect(turn.responseEntry).toBeNull();
-    expect(entryIds(turn.notificationEntries)).toEqual(["a-visible"]);
-    expect(entryIds(turn.agentEntries)).toContain("a-private");
-    expect(turn.stats.messageCount).toBe(1);
+    expect(entryIds(turn.notificationEntries)).toEqual([]);
+    expect(entryIds(turn.agentEntries)).toEqual(["a-private", "a-visible"]);
+    expect(turn.stats.messageCount).toBe(2);
   });
 
   it("keeps attention milestones in chronological collapsed-turn order", () => {
@@ -408,20 +408,19 @@ describe("leader mode collapsed preview without deprecated metadata", () => {
     const turn = model.turns[0];
 
     expect(entryIds(turn.systemEntries)).not.toContain("rework-milestone");
-    expect(entryIds(turn.notificationEntries)).toEqual(["a-visible-before", "rework-milestone", "a-visible-after"]);
-    expect(collapsedEntryIds(turn)).toEqual([
+    expect(entryIds(turn.notificationEntries)).toEqual(["rework-milestone"]);
+    expect(collapsedEntryIds(turn)).toEqual(["activity", "rework-milestone", "activity"]);
+    expect(entryIds(turn.agentEntries)).toEqual([
       "a-visible-before",
-      "activity",
-      "rework-milestone",
-      "activity",
+      "a-private-before",
+      "a-private-after",
       "a-visible-after",
     ]);
-    expect(entryIds(turn.agentEntries)).toEqual(["a-private-before", "a-private-after"]);
   });
 });
 
 describe("leader mode segment-local needs-input preview selection", () => {
-  it("preserves normal segment summaries when no needs-input notification is present", () => {
+  it("keeps unproven legacy status prose behind expansion", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "coordinate work", timestamp: 1 }),
       makeMessage({ id: "a-private", role: "assistant", content: "Checking the board before routing.", timestamp: 2 }),
@@ -431,8 +430,9 @@ describe("leader mode segment-local needs-input preview selection", () => {
     const model = buildFeedModel(messages, true);
     const turn = model.turns[0];
 
-    expect(collapsedEntryIds(turn)).toEqual(["activity", "a-status"]);
-    expect(entryIds(turn.notificationEntries)).toEqual(["a-status"]);
+    expect(collapsedEntryIds(turn)).toEqual(["activity"]);
+    expect(entryIds(turn.notificationEntries)).toEqual([]);
+    expect(entryIds(turn.agentEntries)).toEqual(["a-private", "a-status"]);
   });
 
   it("promotes the proposal immediately before a needs-input notify call", () => {
@@ -749,9 +749,10 @@ describe("leader mode model-only reminder collapsed preview selection", () => {
     ["another agent", "agent-session-1", "#12 Worker"],
     ["herd event", "herd-events", "Herd Events"],
     ["recovery prompt", "system:restart-continuation:prep-1", "System"],
-  ])("keeps visible leader summaries after %s trigger turns", (_name, sourceId, sourceLabel) => {
-    // Non-model-only injections are legitimate requests for work, so their
-    // follow-up leader summaries must keep the normal collapsed-preview path.
+  ])("keeps unproven legacy summaries after %s trigger turns behind expansion", (_name, sourceId, sourceLabel) => {
+    // Injected sources remain part of the same direct-human UI turn. Without
+    // answer-role or phase proof, their follow-up prose cannot invent a
+    // collapsed answer merely because the backend started another turn.
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "watch the next event", timestamp: 1 }),
       makeInjectedUserMessage("u-trigger", "Legitimate request for follow-up action.", 2, sourceId, sourceLabel),
@@ -761,13 +762,14 @@ describe("leader mode model-only reminder collapsed preview selection", () => {
     const model = buildFeedModel(messages, true);
     const turn = model.turns[0];
 
-    expect(collapsedEntryIds(turn)).toEqual(["activity", "a-status"]);
-    expect(entryIds(turn.notificationEntries)).toEqual(["a-status"]);
-    expect(entryIds(turn.agentEntries)).not.toContain("a-status");
+    expect(collapsedEntryIds(turn)).toEqual(["activity"]);
+    expect(entryIds(turn.notificationEntries)).toEqual([]);
+    expect(entryIds(turn.agentEntries)).toContain("a-status");
   });
 
-  it("keeps direct user-triggered leader summaries visible in the next collapsed turn", () => {
-    // Human messages are real turn boundaries, not generated reminder activity.
+  it("keeps unproven direct-user legacy summaries behind expansion", () => {
+    // Human messages are real turn boundaries, but old leader-visible metadata
+    // alone is not answer proof after the explicit-answer cutover.
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "first request", timestamp: 1 }),
       makeVisibleLeaderMessage("a-first", "First request is complete.", 2),
@@ -778,8 +780,10 @@ describe("leader mode model-only reminder collapsed preview selection", () => {
     const model = buildFeedModel(messages, true);
 
     expect(model.turns).toHaveLength(2);
-    expect(collapsedEntryIds(model.turns[0])).toEqual(["a-first"]);
-    expect(collapsedEntryIds(model.turns[1])).toEqual(["a-second"]);
+    expect(collapsedEntryIds(model.turns[0])).toEqual(["activity"]);
+    expect(collapsedEntryIds(model.turns[1])).toEqual(["activity"]);
+    expect(entryIds(model.turns[0].agentEntries)).toContain("a-first");
+    expect(entryIds(model.turns[1].agentEntries)).toContain("a-second");
   });
 
   it.each([
@@ -1055,7 +1059,7 @@ describe("explicit routed and Codex phase representative selection", () => {
     expect(entryIds(turn.allEntries)).toContain("a-empty-final");
   });
 
-  it("promotes exactly one final answer in a selected leader turn while preserving priority rows", () => {
+  it("promotes exactly one legacy phase answer while keeping unproven prose behind expansion", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "coordinate the quest", timestamp: 1 }),
       makeAssistantMessage("a-legacy", "Legacy progress before the final", 2),
@@ -1067,9 +1071,9 @@ describe("explicit routed and Codex phase representative selection", () => {
 
     const turn = buildFeedModel(messages, true).turns[0];
 
-    expect(entryIds(turn.notificationEntries)).toEqual(["a-final-2", "a-priority"]);
-    expect(collapsedEntryIds(turn)).toEqual(["activity", "a-final-2", "activity", "a-priority"]);
-    expect(entryIds(turn.agentEntries)).toEqual(["a-legacy", "a-final-1", "a-commentary"]);
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-final-2"]);
+    expect(collapsedEntryIds(turn)).toEqual(["activity", "a-final-2", "activity"]);
+    expect(entryIds(turn.agentEntries)).toEqual(["a-legacy", "a-final-1", "a-commentary", "a-priority"]);
   });
 
   it("fails closed for selected leader finals when a bounded window omits the source boundary", () => {
@@ -1080,10 +1084,22 @@ describe("explicit routed and Codex phase representative selection", () => {
       ],
       true,
     ).turns[0];
+    const injectedTail = buildFeedModel(
+      [
+        makeHerdEvent("herd-tail", "#2609 | turn_end | completed", 1),
+        makePhasedAssistant("a-ready-tail", "Windowed Ready summary", 2, "final_answer", {
+          threadStatusMarkers: [makeThreadReadyStatus("a-ready-tail", 2)],
+        }),
+      ],
+      true,
+    ).turns[0];
     const legacy = buildFeedModel([makeAssistantMessage("a-legacy", "Unanchored legacy tail", 1)], true).turns[0];
 
     expect(entryIds(annotated.notificationEntries)).toEqual([]);
     expect(collapsedEntryIds(annotated)).toEqual(["activity"]);
+    expect(entryIds(injectedTail.notificationEntries)).toEqual([]);
+    expect(collapsedEntryIds(injectedTail)).toEqual(["activity"]);
+    expect(entryIds(injectedTail.allEntries)).toEqual(["herd-tail", "a-ready-tail"]);
     expect(entryIds(legacy.notificationEntries)).toEqual([]);
   });
 
@@ -1200,7 +1216,7 @@ describe("explicit routed and Codex phase representative selection", () => {
     expect(entryIds(turn.notificationEntries)).toEqual(["a-user-final", "a-priority-final"]);
   });
 
-  it("selects the last final answer from each eligible leader segment", () => {
+  it("selects only the last legacy phase answer across injected leader segments", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "coordinate the report", timestamp: 1 }),
       makePhasedAssistant("a-first-final", "Initial user-facing report", 2, "final_answer"),
@@ -1218,8 +1234,104 @@ describe("explicit routed and Codex phase representative selection", () => {
 
     const turn = buildFeedModel(messages, true).turns[0];
 
-    expect(entryIds(turn.notificationEntries)).toEqual(["a-first-final", "a-second-final"]);
-    expect(entryIds(turn.notificationEntries)).not.toContain("a-reminder-final");
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-second-final"]);
+    expect(entryIds(turn.agentEntries)).toEqual(expect.arrayContaining(["a-first-final", "a-reminder-final"]));
+  });
+
+  it("keeps only the last phase-aware representative for a live-shaped legacy leader turn", () => {
+    const waitingStatus = (messageId: string, timestamp: number) => ({
+      kind: "waiting" as const,
+      label: "Thread Waiting" as const,
+      threadKey: "q-2031",
+      questId: "q-2031",
+      summary: "legacy work continues",
+      messageId,
+      timestamp,
+      updatedAt: timestamp,
+    });
+    const readyStatus = {
+      ...makeThreadReadyStatus("a-complete", 8),
+      threadKey: "q-2031",
+      questId: "q-2031",
+      summary: "legacy work complete",
+    };
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "add clearer collapse controls", timestamp: 1 }),
+      makePhasedAssistant("a-setup", "Created and dispatched the follow-up quest.", 2, "final_answer", {
+        threadStatusMarkers: [waitingStatus("a-setup", 2)],
+      }),
+      makeHerdEvent("herd-alignment", "#2609 | turn_end | alignment complete", 3),
+      makePhasedAssistant("a-progress", "The worker is finishing the guarded transition.", 4, "final_answer", {
+        threadStatusMarkers: [waitingStatus("a-progress", 4)],
+      }),
+      makeHerdEvent("herd-work", "#2609 | turn_end | Work complete", 5),
+      makePhasedAssistant("a-commentary", "Checking the Memory handoff.", 6, "commentary"),
+      makeHerdEvent("herd-memory", "#2609 | turn_end | Memory complete", 7),
+      makePhasedAssistant(
+        "a-complete",
+        "Collapsed turns now have one unified footer.\n\n{[(Quest Quiz: q-2031)]}",
+        8,
+        "final_answer",
+        { leaderThreadRole: "response", threadStatusMarkers: [readyStatus] },
+      ),
+    ];
+
+    const turn = buildFeedModel(messages, true).turns[0];
+
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-complete"]);
+    expect(collapsedEntryIds(turn)).toEqual(["activity", "a-complete"]);
+    expect(entryIds(turn.agentEntries)).toEqual(expect.arrayContaining(["a-setup", "a-progress", "a-commentary"]));
+    expect(entryIds(turn.presentationEntries ?? [])).toEqual(
+      expect.arrayContaining([
+        "a-setup",
+        "herd-alignment",
+        "a-progress",
+        "herd-work",
+        "a-commentary",
+        "herd-memory",
+        "a-complete",
+      ]),
+    );
+  });
+
+  it("preserves explicit routed answers across injected leader segments", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "answer both follow-ups", timestamp: 1 }),
+      makeRoutedLeaderAssistant("a-answer-1", "First explicit answer", 2, "answer"),
+      makeHerdEvent("herd-1", "#2609 | turn_end | first follow-up", 3),
+      makeRoutedLeaderAssistant("a-answer-2", "Second explicit answer", 4, "answer"),
+    ];
+
+    const turn = buildFeedModel(messages, true).turns[0];
+
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-answer-1", "a-answer-2"]);
+    expect(collapsedEntryIds(turn)).toEqual(["a-answer-1", "activity", "a-answer-2"]);
+  });
+
+  it("does not treat an unproven legacy response role as structural fallback evidence", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "prepare the report", timestamp: 1 }),
+      makeMessage({
+        id: "a-unproven-response",
+        role: "assistant",
+        content: "Legacy response-shaped row without matching proof",
+        timestamp: 2,
+        metadata: { leaderThreadRole: "response" },
+      }),
+      makeInjectedUserMessage(
+        "u-reminder",
+        "[Thread outcome reminder] Mark the touched thread.",
+        3,
+        THREAD_OUTCOME_REMINDER_SOURCE_ID,
+        THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+      ),
+    ];
+
+    const turn = buildFeedModel(messages, true).turns[0];
+
+    expect(entryIds(turn.notificationEntries)).toEqual([]);
+    expect(collapsedEntryIds(turn)).toEqual(["activity"]);
+    expect(entryIds(turn.agentEntries)).toContain("a-unproven-response");
   });
 
   it("keeps the pre-reminder fallback unknown-only and never promotes explicit commentary", () => {
