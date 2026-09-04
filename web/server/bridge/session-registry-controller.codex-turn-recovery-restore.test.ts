@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { createSessionAttentionProjectionDefinition } from "../session-attention-projection.js";
 import { restorePersistedSessions } from "./session-registry-controller.js";
+import { setAttention } from "./session-notification-controller.js";
 import { injectCompactionRecovery } from "./compaction-recovery.js";
 
 const recovery = {
@@ -52,6 +54,16 @@ const deps = () => ({
   scheduleCodexToolResultWatchdogs: vi.fn(),
   reconcileRestoredBoardState: vi.fn(async () => {}),
 });
+
+function deriveAttention(session: any) {
+  const definition = createSessionAttentionProjectionDefinition<{}>({
+    getSession: () => session,
+    isHerdedWorkerSession: () => false,
+    authorizeSubscription: () => true,
+  });
+  const dependencies = definition.selectDependencies(session, session.id);
+  return definition.derive(session, session.id, dependencies);
+}
 
 describe("restored session activity", () => {
   it("repairs human activity while restoring the latest committed or pending preview owner", async () => {
@@ -282,15 +294,228 @@ describe("restored Codex interrupted-turn recovery", () => {
     expect(persistHistoryMetadataRepair).toHaveBeenCalledWith(restored, 2);
   });
 
-  it("fails an ownerless crash window closed and raises navigation attention", async () => {
+  it("keeps restored terminal recovery internal without reviving navigation attention", async () => {
     const sessions = new Map<string, any>();
-    await restorePersistedSessions(sessions, [persisted()], deps());
+    await restorePersistedSessions(
+      sessions,
+      [
+        persisted({
+          attentionReason: "error",
+          state: {
+            backend_type: "codex",
+            backend_state: "disconnected",
+            backend_error: null,
+            isOrchestrator: true,
+            codex_turn_recovery: {
+              ...recovery,
+              status: "action_required",
+              reason: "continuation_dispatch_failed",
+              raisedAttention: true,
+            },
+          },
+        }),
+      ],
+      deps(),
+    );
 
-    expect(sessions.get("session-recovery").state.codex_turn_recovery).toMatchObject({
+    const restored = sessions.get("session-recovery");
+    expect(restored.state.codex_turn_recovery).toMatchObject({
       status: "action_required",
       reason: "continuation_dispatch_failed",
+      raisedAttention: false,
     });
-    expect(sessions.get("session-recovery").attentionReason).toBe("error");
+    expect(restored.attentionReason).toBeNull();
+    expect(deriveAttention(restored)).toEqual({ attentionReason: null, status: null });
+
+    setAttention(restored, "error", { persistSession: vi.fn() });
+    expect(deriveAttention(restored)).toEqual({ attentionReason: "error", status: null });
+  });
+
+  it.each([
+    "connected",
+    "disconnected",
+  ] as const)("preserves a later unrelated failed-turn error across %s restart recovery repair", async (backendState) => {
+    const sessions = new Map<string, any>();
+    await restorePersistedSessions(
+      sessions,
+      [
+        persisted({
+          attentionReason: "error",
+          state: {
+            backend_type: "codex",
+            backend_state: backendState,
+            backend_error: null,
+            isOrchestrator: true,
+            codex_turn_recovery: {
+              ...recovery,
+              status: "action_required",
+              reason: "continuation_dispatch_failed",
+              raisedAttention: true,
+            },
+          },
+          messageHistory: [
+            ...persisted().messageHistory,
+            {
+              type: "user_message",
+              id: "recovery-diagnostic",
+              content: "Takode retained this recovery note for audit.",
+              timestamp: 21,
+              agentSource: { sessionId: "system:codex-leader-recovery-diagnostic" },
+              codexTurnRecoveryId: "original-owner",
+              threadKey: "q-recovery",
+              questId: "q-recovery",
+            },
+            {
+              type: "user_message",
+              id: "later-unrelated-owner",
+              content: "Run unrelated work in another thread.",
+              timestamp: 30,
+              threadKey: "q-other",
+              questId: "q-other",
+            },
+            {
+              type: "user_message",
+              id: "later-timer-co-owner",
+              content: "Timer fired while the same provider turn was active.",
+              timestamp: 31,
+              agentSource: { sessionId: "timer:later-co-owner" },
+              threadKey: "q-other",
+              questId: "q-other",
+            },
+            {
+              type: "result",
+              data: {
+                type: "result",
+                subtype: "error_during_execution",
+                is_error: true,
+                result: "Unrelated work failed",
+                duration_ms: 1,
+                duration_api_ms: 1,
+                num_turns: 1,
+                total_cost_usd: 0,
+                stop_reason: "failed",
+                usage: {
+                  input_tokens: 0,
+                  output_tokens: 0,
+                  cache_creation_input_tokens: 0,
+                  cache_read_input_tokens: 0,
+                },
+                uuid: "later-unrelated-result",
+                session_id: "session-recovery",
+              },
+              threadKey: "q-other",
+              questId: "q-other",
+            },
+          ],
+        }),
+      ],
+      deps(),
+    );
+
+    const restored = sessions.get("session-recovery");
+    expect(restored.state.codex_turn_recovery).toMatchObject({
+      status: "action_required",
+      raisedAttention: false,
+    });
+    expect(restored.attentionReason).toBe("error");
+    expect(deriveAttention(restored)).toEqual({ attentionReason: "error", status: null });
+  });
+
+  it("preserves a later direct-turn disconnect error without requiring a result row", async () => {
+    const sessions = new Map<string, any>();
+    await restorePersistedSessions(
+      sessions,
+      [
+        persisted({
+          attentionReason: "error",
+          state: {
+            backend_type: "codex",
+            backend_state: "disconnected",
+            backend_error: null,
+            isOrchestrator: true,
+            codex_turn_recovery: {
+              ...recovery,
+              status: "action_required",
+              reason: "continuation_dispatch_failed",
+              raisedAttention: true,
+            },
+          },
+          messageHistory: [
+            ...persisted().messageHistory,
+            {
+              type: "user_message",
+              id: "later-disconnected-owner",
+              content: "Run separate work while the old recovery remains auditable.",
+              timestamp: 30,
+              threadKey: "q-other",
+              questId: "q-other",
+            },
+          ],
+          pendingCodexTurns: [
+            {
+              adapterMsg: {
+                type: "codex_start_pending",
+                pendingInputIds: ["later-disconnected-owner"],
+                inputs: [{ content: "Run separate work while the old recovery remains auditable." }],
+              },
+              userMessageId: "later-disconnected-owner",
+              pendingInputIds: ["later-disconnected-owner"],
+              userContent: "Run separate work while the old recovery remains auditable.",
+              historyIndex: 1,
+              status: "backend_acknowledged",
+              dispatchCount: 1,
+              createdAt: 30,
+              updatedAt: 40,
+              acknowledgedAt: 35,
+              turnTarget: "current",
+              lastError: null,
+              turnId: "later-disconnected-turn",
+              disconnectedAt: 40,
+              resumeConfirmedAt: null,
+            },
+          ],
+        }),
+      ],
+      deps(),
+    );
+
+    const restored = sessions.get("session-recovery");
+    expect(restored.state.codex_turn_recovery).toMatchObject({
+      status: "action_required",
+      raisedAttention: false,
+    });
+    expect(restored.attentionReason).toBe("error");
+    expect(deriveAttention(restored)).toEqual({ attentionReason: "error", status: null });
+  });
+
+  it("preserves restored broken-session error attention beside terminal recovery", async () => {
+    const sessions = new Map<string, any>();
+    await restorePersistedSessions(
+      sessions,
+      [
+        persisted({
+          attentionReason: "error",
+          state: {
+            backend_type: "codex",
+            backend_state: "broken",
+            backend_error: "Terminal backend failure",
+            isOrchestrator: true,
+            codex_turn_recovery: {
+              ...recovery,
+              status: "action_required",
+              reason: "recovery_failed",
+              raisedAttention: true,
+            },
+          },
+        }),
+      ],
+      deps(),
+    );
+
+    const restored = sessions.get("session-recovery");
+    expect(restored.state.codex_turn_recovery).toMatchObject({ status: "action_required", raisedAttention: false });
+    expect(restored.attentionReason).toBe("error");
+    expect(deriveAttention(restored)).toEqual({ attentionReason: "error", status: null });
   });
 
   it("does not fabricate executable recovery for archived search-only sessions", async () => {

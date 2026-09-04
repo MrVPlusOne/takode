@@ -352,6 +352,44 @@ describe("tree_groups_update replay-buffer exclusion", () => {
     expect(session.eventBuffer[0].message.type).toBe("session_update");
   });
 
+  it("projects terminal interrupted-work attention out of live fanout and replay buffering", () => {
+    const send = vi.fn();
+    const recovery = {
+      recoveryId: "recovery-owner",
+      originalOwnerId: "recovery-owner",
+      originalProviderTurnId: "provider-turn",
+      originalHistoryIndex: 7,
+      continuationOwnerId: "continuation-owner",
+      threadKey: "q-9010",
+      questId: "q-9010",
+      status: "action_required",
+      reason: "continuation_interrupted",
+      historyPresence: "present",
+      continuationMode: "verify_then_continue",
+      attempt: 1,
+      maxAttempts: 1,
+      createdAt: 100,
+      updatedAt: 200,
+    } as const;
+    const message = {
+      type: "session_update",
+      session: { codex_turn_recovery: recovery },
+    } as BrowserIncomingMessage;
+    const session = makeSession({ browserSockets: new Set([{ send }]) });
+    const deps = makeDeps();
+
+    broadcastToBrowsers(session, message, deps);
+
+    expect(JSON.parse(String(send.mock.calls[0]?.[0]))).toMatchObject({
+      type: "session_update",
+      session: { codex_turn_recovery: null },
+    });
+    expect(session.eventBuffer).toMatchObject([
+      { message: { type: "session_update", session: { codex_turn_recovery: null } } },
+    ]);
+    expect(message).toMatchObject({ session: { codex_turn_recovery: recovery } });
+  });
+
   it("should respect skipBuffer option for any message type", () => {
     const session = makeSession();
     const deps = makeDeps();

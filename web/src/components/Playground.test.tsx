@@ -588,9 +588,9 @@ describe("Playground", () => {
     expect(lifecycle.getByText(/Work interrupted/)).toBeTruthy();
   });
 
-  it("documents every exact-owner Codex interrupted-turn recovery state", () => {
-    // These producer-shaped states keep the exact-once boundary visible: reconnect first,
-    // one separately owned continuation, then durable attention instead of recursive replay.
+  it("documents active Codex recovery progress and the audit-only terminal state", () => {
+    // Current recovery progress stays inspectable, while terminal state remains
+    // in server/audit authority without recreating the retired attention chip.
     render(<PlaygroundRecoveryStatesOnly />);
 
     const states = [
@@ -614,11 +614,6 @@ describe("Playground", () => {
         label: "Finishing interrupted response",
         detail: "finishing the interrupted response",
       },
-      {
-        testId: "playground-codex-turn-recovery-action-required",
-        label: "Check interrupted work",
-        detail: "send a new instruction if work is still missing",
-      },
     ];
 
     for (const state of states) {
@@ -633,15 +628,18 @@ describe("Playground", () => {
       fireEvent.click(chip);
     }
 
-    const actionRequired = within(screen.getByTestId("playground-codex-turn-recovery-action-required"));
-    expect(actionRequired.getByTestId("codex-turn-recovery-chip")).toHaveClass("border-cc-attention/55");
-    expect(actionRequired.getByText(/verified the already-completed side effects/)).toBeInTheDocument();
+    const terminal = within(screen.getByTestId("playground-codex-turn-recovery-action-required"));
+    expect(terminal.queryByTestId("codex-turn-recovery-chip")).toBeNull();
+    expect(terminal.queryByTestId("codex-turn-recovery-detail")).toBeNull();
+    expect(terminal.queryByRole("button", { name: "Open affected thread" })).toBeNull();
+    expect(terminal.queryByRole("button", { name: "Work is complete" })).toBeNull();
+    expect(terminal.getByText(/verified the already-completed side effects/)).toBeInTheDocument();
 
-    const recoveryEventChip = actionRequired.getByRole("button", { name: "Expand Resuming Interrupted Work" });
+    const recoveryEventChip = terminal.getByRole("button", { name: "Expand Resuming Interrupted Work" });
     expect(recoveryEventChip).toHaveAttribute("aria-expanded", "false");
-    expect(actionRequired.queryByText(/persisted observations; they may be incomplete/)).toBeNull();
+    expect(terminal.queryByText(/persisted observations; they may be incomplete/)).toBeNull();
     fireEvent.click(recoveryEventChip);
-    const recoveryEventDetail = actionRequired.getByRole("region", { name: "Resuming Interrupted Work details" });
+    const recoveryEventDetail = terminal.getByRole("region", { name: "Resuming Interrupted Work details" });
     expect(recoveryEventDetail).toHaveTextContent(/does not by itself prove Codex received or completed/);
     expect(recoveryEventDetail).toHaveTextContent(
       `Message size: ${PLAYGROUND_RECOVERY_MODEL_DELIVERY_CONTENT.length.toLocaleString()} characters`,
@@ -650,12 +648,16 @@ describe("Playground", () => {
       PLAYGROUND_RECOVERY_MODEL_DELIVERY_CONTENT,
     );
 
-    const diagnosticChip = actionRequired.getByRole("button", { name: "Expand Why Automatic Retry Stopped" });
+    const diagnosticChip = terminal.getByRole("button", { name: "Expand Why Automatic Retry Stopped" });
     expect(diagnosticChip).not.toHaveClass("border-cc-attention/55");
-    expect(actionRequired.queryByText(/send a new instruction in this thread/)).toBeNull();
+    expect(terminal.queryByText(/otherwise no action is required/)).toBeNull();
     fireEvent.click(diagnosticChip);
-    expect(actionRequired.getByText(/send a new instruction in this thread/)).toBeInTheDocument();
-    expect(actionRequired.getByText(/choose "Work is complete" to clear this notice/)).toBeInTheDocument();
+    const diagnosticDetail = terminal.getByRole("region", { name: "Why Automatic Retry Stopped details" });
+    const diagnosticText = within(diagnosticDetail).getByTestId("markdown").textContent ?? "";
+    expect(diagnosticText).toContain("Send a new instruction in this thread only if");
+    expect(diagnosticText).toContain("otherwise no action is required");
+    expect(terminal.queryByText(/Check interrupted work/)).toBeNull();
+    expect(terminal.queryByText(/Work is complete/)).toBeNull();
   });
 
   it("renders real ChatView and MessageFeed recovery fixtures without a socket", () => {

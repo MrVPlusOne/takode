@@ -122,4 +122,25 @@ describe("Codex reconnect progress snapshots", () => {
       codexProviderRetry: null,
     });
   });
+
+  it("keeps terminal interrupted-work recovery internal on reconnect snapshots", () => {
+    const socket = { send: vi.fn() };
+    const session = makeSession();
+    session.state.codex_turn_recovery = {
+      ...session.state.codex_turn_recovery!,
+      status: "action_required",
+      reason: "continuation_interrupted",
+    };
+
+    sendStateSnapshot(session, socket, makeDeps());
+
+    expect(JSON.parse(String(socket.send.mock.calls[0]?.[0]))).toMatchObject({
+      type: "state_snapshot",
+      codexTurnRecovery: null,
+    });
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      status: "action_required",
+      reason: "continuation_interrupted",
+    });
+  });
 });

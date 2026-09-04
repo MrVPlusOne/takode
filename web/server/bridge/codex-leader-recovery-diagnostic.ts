@@ -63,6 +63,6 @@ function buildCodexLeaderRecoveryDiagnosticContent(): string {
   return [
     "Takode stopped after the partial response above.",
     "Some model or tool activity had already happened, so retrying automatically could repeat actions.",
-    'Review the partial response. If the intended outcome is still missing, send a new instruction in this thread. If the work is already complete, open "Check interrupted work" and choose "Work is complete" to clear this notice.',
+    "Takode retained this recovery note for audit. Send a new instruction in this thread only if the intended outcome is still missing; otherwise no action is required.",
   ].join("\n");
 }

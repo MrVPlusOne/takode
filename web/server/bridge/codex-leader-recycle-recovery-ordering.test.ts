@@ -370,7 +370,7 @@ describe("Codex exact leader recycle recovery ordering", () => {
     expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: "codex_start_pending", pendingInputIds: ["later-input"] }),
     );
-    expect(harness.setAttentionError).toHaveBeenCalledWith(session);
+    expect(harness.setAttentionError).not.toHaveBeenCalled();
     expect(session.codexLeaderRecycleContinuation).toBeNull();
     expect(events).toEqual(["dispatch:later-input", "launcher-complete"]);
   });

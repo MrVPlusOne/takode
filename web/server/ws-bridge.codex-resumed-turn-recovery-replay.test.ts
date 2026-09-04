@@ -1492,6 +1492,9 @@ describe("Codex resumed-turn recovery", () => {
         message: expect.stringContaining("without a successful final turn"),
       }),
     );
+    expect(terminalMessages).toContainEqual(
+      expect.objectContaining({ type: "session_update", session: { codex_turn_recovery: null } }),
+    );
     const unresolvedDiagnostic = session.messageHistory.find(
       (message: any) =>
         message.type === "user_message" &&
@@ -1532,7 +1535,8 @@ describe("Codex resumed-turn recovery", () => {
     const init = reconnectBrowser.send.mock.calls
       .map(([raw]: [string]) => JSON.parse(raw))
       .find((msg: any) => msg.type === "session_init");
-    expect(init?.session.codex_turn_recovery).toMatchObject({ status: "action_required", threadKey: "main" });
+    expect(init?.session.codex_turn_recovery).toBeNull();
+    expect(session.state.codex_turn_recovery).toMatchObject({ status: "action_required", threadKey: "main" });
 
     await subscribeCurrentBrowser(bridge, reconnectBrowser);
     await bridge.handleBrowserMessage(
@@ -1605,7 +1609,9 @@ describe("Codex resumed-turn recovery", () => {
 
     expect(session.state.codex_turn_recovery).toBeNull();
     expect(unresolvedDiagnostic).toMatchObject({ codexTurnRecoveryResolvedAt: expect.any(Number) });
-    expect(session.attentionReason).toBe("error");
+    // Resolving terminal recovery must not clear the independent quest-review attention
+    // raised by the unrelated q-9999 completion above.
+    expect(session.attentionReason).toBe("review");
     for (const socket of [browser, reconnectBrowser]) {
       const updates = socket.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
       expect(updates).toContainEqual(

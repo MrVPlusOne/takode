@@ -52,7 +52,7 @@ export function PlaygroundChatViewRecoveryStates() {
   return (
     <Section
       title="ChatView Recovery States"
-      description="Interrupted-work recovery stays distinct from session reconnect status. Takode may replay proven-absent input once or run one follow-up without repeating completed actions, while unfinished work remains visible with a clear next step."
+      description="Interrupted-work recovery stays distinct from session reconnect status. Takode may replay proven-absent input once or run one follow-up without repeating completed actions, while terminal recovery remains auditable without a user-attention chip."
     >
       <div className="grid gap-4 lg:grid-cols-2">
         <ChatStateCard
@@ -76,7 +76,7 @@ export function PlaygroundChatViewRecoveryStates() {
           testId="playground-codex-turn-recovery-continuation-active"
         />
         <ChatStateCard
-          label="Interrupted work: check needed"
+          label="Interrupted work: audit retained, attention hidden"
           sessionId={PLAYGROUND_TURN_RECOVERY_ACTION_SESSION_ID}
           testId="playground-codex-turn-recovery-action-required"
         />

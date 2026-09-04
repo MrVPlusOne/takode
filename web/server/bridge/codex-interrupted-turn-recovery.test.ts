@@ -395,7 +395,8 @@ describe("Codex interrupted turn recovery state", () => {
     expect(recoveryDeps.injectUserMessage).toHaveBeenCalledTimes(1);
     expect(session.state.codex_turn_recovery?.status).toBe("action_required");
     expect(session.state.codex_turn_recovery?.reason).toBe("continuation_interrupted");
-    expect(recoveryDeps.setAttentionError).toHaveBeenCalledTimes(1);
+    expect(session.state.codex_turn_recovery?.raisedAttention).toBe(false);
+    expect(recoveryDeps.setAttentionError).not.toHaveBeenCalled();
   });
 
   it("keeps later same-provider-turn owners queued when one recovery becomes action-required", () => {

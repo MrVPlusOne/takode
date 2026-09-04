@@ -907,11 +907,12 @@ describe("Codex turn-start failure re-queue", () => {
       expect(session.state.codex_turn_recovery).toMatchObject({
         status: "action_required",
         reason: "continuation_dispatch_failed",
+        raisedAttention: false,
       });
       expect(session.pendingCodexInputs).toHaveLength(0);
       expect(session.pendingCodexTurns).toHaveLength(0);
       expect(session.isGenerating).toBe(false);
-      expect(session.attentionReason).toBe("error");
+      expect(session.attentionReason).toBeNull();
       expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
       await store.flushAll();
     } finally {

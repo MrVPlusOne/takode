@@ -758,10 +758,11 @@ describe("Codex recovery timeout (q-385)", () => {
     expect(session.state.codex_turn_recovery).toMatchObject({
       status: "action_required",
       reason: "recovery_timeout",
+      raisedAttention: false,
     });
     expect(session.pendingCodexTurns).toHaveLength(0);
     expect(session.isGenerating).toBe(false);
-    expect(session.attentionReason).toBe("error");
+    expect(session.attentionReason).toBeNull();
     expect(eventSpy.mock.calls.filter(([, event]) => event === "turn_end")).toHaveLength(0);
     vi.useRealTimers();
   });

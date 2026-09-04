@@ -253,31 +253,6 @@ export function formatActiveReasoningStatusText(text: string): string {
   return collapsePreviewWhitespace(trimmed);
 }
 
-type CodexTurnRecovery = NonNullable<SessionState["codex_turn_recovery"]>;
-
-function actionRequiredRecoveryDetail(reason: CodexTurnRecovery["reason"]): string {
-  const nextStep =
-    'Takode could not safely start another automatic recovery turn. Open the affected thread and send a new instruction if work is still missing. If it is already complete, choose "Work is complete."';
-
-  switch (reason) {
-    case "continuation_dispatch_failed":
-      return `Takode could not start the follow-up for this interrupted work. ${nextStep}`;
-    case "continuation_interrupted":
-      return `The follow-up stopped before Takode could confirm the work finished. ${nextStep}`;
-    case "continuation_failed":
-      return `The follow-up ended with an error before Takode could confirm the work finished. ${nextStep}`;
-    case "recovery_timeout":
-      return `Takode could not reconnect in time to finish this interrupted work. ${nextStep}`;
-    case "adapter_disconnect":
-      return `This work stopped when the session disconnected. ${nextStep}`;
-    case "interrupted_after_activity":
-      return `This work stopped after some actions had already run. ${nextStep}`;
-    case "recovery_failed":
-    default:
-      return `Takode could not finish reconnecting this interrupted work. ${nextStep}`;
-  }
-}
-
 export function CodexTurnRecoveryChip({
   sessionId,
   currentThreadKey = "main",
@@ -291,7 +266,8 @@ export function CodexTurnRecoveryChip({
   const [detailPosition, setDetailPosition] = useState<{ left: number; top: number; width: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const detailRef = useRef<HTMLDivElement>(null);
-  const recovery = useStore((s) => s.sessions?.get(sessionId)?.codex_turn_recovery ?? null);
+  const storedRecovery = useStore((s) => s.sessions?.get(sessionId)?.codex_turn_recovery ?? null);
+  const recovery = storedRecovery?.status === "action_required" ? null : storedRecovery;
 
   const destination = normalizeThreadKey(recovery?.threadKey || "main");
   const current = normalizeThreadKey(currentThreadKey || "main");
@@ -307,28 +283,23 @@ export function CodexTurnRecoveryChip({
         ? verificationFirst
           ? "Checking interrupted work"
           : "Finishing interrupted response"
-        : recovery.status === "continuation_pending"
-          ? verificationFirst
-            ? "Interrupted-work check queued"
-            : "Response continuation queued"
-          : "Check interrupted work"
+        : verificationFirst
+          ? "Interrupted-work check queued"
+          : "Response continuation queued"
     : "";
   const detail = recovery
-    ? recovery.status === "action_required"
-      ? actionRequiredRecoveryDetail(recovery.reason)
-      : recovery.status === "recovering"
-        ? replayingOriginal
-          ? "Takode proved the original input never entered Codex history and is replaying it once. No action is needed yet."
-          : "Takode is reconnecting this session so it can finish the interrupted work. No action is needed yet."
-        : recovery.status === "continuation_pending"
-          ? verificationFirst
-            ? "Takode queued one follow-up to inspect prior work before finishing what is missing. The original input will not be replayed."
-            : "Takode queued one follow-up to finish the interrupted response. The original input will not be replayed."
-          : verificationFirst
-            ? "Takode is checking prior work before finishing what is missing. The original input was not replayed."
-            : "Takode is finishing the interrupted response. The original input was not replayed."
+    ? recovery.status === "recovering"
+      ? replayingOriginal
+        ? "Takode proved the original input never entered Codex history and is replaying it once. No action is needed yet."
+        : "Takode is reconnecting this session so it can finish the interrupted work. No action is needed yet."
+      : recovery.status === "continuation_pending"
+        ? verificationFirst
+          ? "Takode queued one follow-up to inspect prior work before finishing what is missing. The original input will not be replayed."
+          : "Takode queued one follow-up to finish the interrupted response. The original input will not be replayed."
+        : verificationFirst
+          ? "Takode is checking prior work before finishing what is missing. The original input was not replayed."
+          : "Takode is finishing the interrupted response. The original input was not replayed."
     : "";
-  const warning = recovery?.status === "action_required";
   const detailVisible = !!recovery && detailOpen;
 
   useLayoutEffect(() => {
@@ -358,98 +329,60 @@ export function CodexTurnRecoveryChip({
     };
   }, [detailVisible, detail]);
 
-  const liveAnnouncement = warning ? `${label}. ${detail}` : "";
+  if (!recovery) return null;
 
   return (
-    <>
-      <span
-        className="sr-only"
-        role="status"
-        aria-live="assertive"
-        aria-atomic="true"
-        data-testid="codex-turn-recovery-announcement"
+    <div className="pointer-events-auto relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        className={`${FLOATING_FEED_CHIP_CLASS} cursor-pointer text-left transition-colors hover:border-white/14 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70`}
+        aria-expanded={detailOpen}
+        aria-controls={`codex-turn-recovery-detail-${sessionId}`}
+        title={detail}
+        data-testid="codex-turn-recovery-chip"
+        onClick={() => setDetailOpen((open) => !open)}
       >
-        {liveAnnouncement}
-      </span>
-      {recovery && (
-        <div className="pointer-events-auto relative">
-          <button
-            ref={buttonRef}
-            type="button"
-            className={`${FLOATING_FEED_CHIP_CLASS} cursor-pointer text-left transition-colors hover:border-white/14 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-1 ${
-              warning
-                ? "border-cc-attention/55 text-cc-attention focus-visible:ring-cc-attention/70"
-                : "focus-visible:ring-cc-primary/70"
-            }`}
-            aria-expanded={detailOpen}
-            aria-controls={`codex-turn-recovery-detail-${sessionId}`}
-            title={detail}
-            data-testid="codex-turn-recovery-chip"
-            onClick={() => setDetailOpen((open) => !open)}
+        <span className="relative h-2 w-2 shrink-0 animate-pulse rounded-full bg-cc-primary" aria-hidden="true" />
+        <span className="relative truncate text-cc-fg/90">{label}</span>
+      </button>
+      {detailVisible &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={detailRef}
+            id={`codex-turn-recovery-detail-${sessionId}`}
+            data-testid="codex-turn-recovery-detail"
+            className="fixed z-[100] overflow-y-auto rounded-lg border border-cc-border bg-cc-card p-3 text-left shadow-xl"
+            style={{
+              left: detailPosition?.left ?? 8,
+              top: detailPosition?.top ?? 8,
+              width: detailPosition?.width ?? Math.min(336, Math.max(0, window.innerWidth - 16)),
+              maxHeight: Math.max(0, window.innerHeight - 16),
+              visibility: detailPosition ? "visible" : "hidden",
+            }}
+            role="status"
           >
-            <span
-              className={`relative h-2 w-2 shrink-0 rounded-full ${
-                warning ? "bg-cc-attention" : "bg-cc-primary animate-pulse"
-              }`}
-              aria-hidden="true"
-            />
-            <span className="relative truncate text-cc-fg/90">{label}</span>
-          </button>
-          {detailVisible &&
-            typeof document !== "undefined" &&
-            createPortal(
-              <div
-                ref={detailRef}
-                id={`codex-turn-recovery-detail-${sessionId}`}
-                data-testid="codex-turn-recovery-detail"
-                className={`fixed z-[100] overflow-y-auto rounded-lg border bg-cc-card p-3 text-left shadow-xl ${
-                  warning ? "border-cc-attention/45" : "border-cc-border"
-                }`}
-                style={{
-                  left: detailPosition?.left ?? 8,
-                  top: detailPosition?.top ?? 8,
-                  width: detailPosition?.width ?? Math.min(336, Math.max(0, window.innerWidth - 16)),
-                  maxHeight: Math.max(0, window.innerHeight - 16),
-                  visibility: detailPosition ? "visible" : "hidden",
-                }}
-                role="status"
-              >
-                <div className="text-[11px] font-medium text-cc-fg">{label}</div>
-                <div className="mt-1 text-[11px] leading-snug text-cc-muted">{detail}</div>
-                <div className="mt-1.5 text-[10px] text-cc-muted/70">
-                  Work to check: {recovery.questId ?? recovery.threadKey}
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {canNavigate && onSelectThread && (
-                    <button
-                      type="button"
-                      className="rounded-full border border-cc-primary/30 px-2.5 py-1 text-[11px] text-cc-primary transition-colors hover:bg-cc-hover"
-                      onClick={() => onSelectThread(destination)}
-                    >
-                      Open affected thread
-                    </button>
-                  )}
-                  {warning && (
-                    <button
-                      type="button"
-                      className="rounded-full border border-cc-attention/35 px-2.5 py-1 text-[11px] text-cc-attention transition-colors hover:bg-cc-hover"
-                      onClick={() =>
-                        sendToSession(sessionId, {
-                          type: "resolve_codex_turn_recovery",
-                          recoveryId: recovery.recoveryId,
-                        })
-                      }
-                    >
-                      Work is complete
-                    </button>
-                  )}
-                </div>
-              </div>,
-              document.body,
+            <div className="text-[11px] font-medium text-cc-fg">{label}</div>
+            <div className="mt-1 text-[11px] leading-snug text-cc-muted">{detail}</div>
+            <div className="mt-1.5 text-[10px] text-cc-muted/70">
+              Work to check: {recovery.questId ?? recovery.threadKey}
+            </div>
+            {canNavigate && onSelectThread && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-full border border-cc-primary/30 px-2.5 py-1 text-[11px] text-cc-primary transition-colors hover:bg-cc-hover"
+                  onClick={() => onSelectThread(destination)}
+                >
+                  Open affected thread
+                </button>
+              </div>
             )}
-        </div>
-      )}
-    </>
+          </div>,
+          document.body,
+        )}
+    </div>
   );
 }
 

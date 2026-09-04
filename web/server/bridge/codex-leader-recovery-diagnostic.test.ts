@@ -7,7 +7,7 @@ import type { BrowserIncomingMessage } from "../session-types.js";
 import { appendCodexLeaderRecoveryDiagnostic } from "./codex-leader-recovery-diagnostic.js";
 
 describe("Codex leader recovery diagnostic", () => {
-  it("uses plain action-oriented copy while preserving the routed diagnostic source", () => {
+  it("uses plain audit copy without the retired attention action", () => {
     const session = { messageHistory: [] as BrowserIncomingMessage[] };
     const broadcastToBrowsers = vi.fn();
 
@@ -34,10 +34,10 @@ describe("Codex leader recovery diagnostic", () => {
     expect(entry?.type === "user_message" ? entry.content : "").toContain(
       "retrying automatically could repeat actions",
     );
-    expect(entry?.type === "user_message" ? entry.content : "").toContain("send a new instruction in this thread");
-    expect(entry?.type === "user_message" ? entry.content : "").toContain(
-      'choose "Work is complete" to clear this notice',
-    );
+    expect(entry?.type === "user_message" ? entry.content : "").toContain("Send a new instruction in this thread");
+    expect(entry?.type === "user_message" ? entry.content : "").toContain("otherwise no action is required");
+    expect(entry?.type === "user_message" ? entry.content : "").not.toContain("Check interrupted work");
+    expect(entry?.type === "user_message" ? entry.content : "").not.toContain("Work is complete");
     expect(entry?.type === "user_message" ? entry.content : "").not.toMatch(
       /proof-safe|eligible|exact owner|payload|exact-once|bounded inner cycles/i,
     );

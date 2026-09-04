@@ -57,7 +57,12 @@ export interface CodexInterruptedTurnRecoverySessionLike {
   sessionNum?: number | null;
   state: Pick<
     SessionState,
-    "backend_state" | "codex_result_error_auto_pause" | "codex_turn_recovery" | "isOrchestrator" | "pause"
+    | "backend_error"
+    | "backend_state"
+    | "codex_result_error_auto_pause"
+    | "codex_turn_recovery"
+    | "isOrchestrator"
+    | "pause"
   >;
   messageHistory: BrowserIncomingMessage[];
   frozenCount?: number;
@@ -187,17 +192,15 @@ export function repairRestoredCodexTurnRecovery(
         requiresFrozenHistoryMetadataRepair: retired.requiresFrozenHistoryMetadataRepair,
       };
     }
-    if (!session.attentionReason) {
-      session.attentionReason = "error";
-      return {
-        state: { ...current, raisedAttention: true },
-        resolvedByHistoricalSuccess: false,
-        historyMetadataChanged: false,
-        requiresFrozenHistoryMetadataRepair: false,
-      };
+    if (
+      current.raisedAttention === true &&
+      session.attentionReason === "error" &&
+      !hasIndependentRestoredErrorAttentionEvidence(session, current)
+    ) {
+      session.attentionReason = null;
     }
     return {
-      state: current,
+      state: { ...current, raisedAttention: false },
       resolvedByHistoricalSuccess: false,
       historyMetadataChanged: false,
       requiresFrozenHistoryMetadataRepair: false,
@@ -234,12 +237,10 @@ export function repairRestoredCodexTurnRecovery(
     };
   }
   if (current.attempt === 1) {
-    const raisedAttention = !session.attentionReason;
-    if (raisedAttention) session.attentionReason = "error";
     return {
       state: {
         ...current,
-        ...(raisedAttention ? { raisedAttention: true } : {}),
+        raisedAttention: false,
         status: "action_required",
         reason: "continuation_dispatch_failed",
         updatedAt: Date.now(),
@@ -264,12 +265,10 @@ export function repairRestoredCodexTurnRecovery(
       requiresFrozenHistoryMetadataRepair: false,
     };
   }
-  const raisedAttention = !session.attentionReason;
-  if (raisedAttention) session.attentionReason = "error";
   return {
     state: {
       ...current,
-      ...(raisedAttention ? { raisedAttention: true } : {}),
+      raisedAttention: false,
       status: "action_required",
       reason: "recovery_failed",
       updatedAt: Date.now(),
@@ -278,6 +277,103 @@ export function repairRestoredCodexTurnRecovery(
     historyMetadataChanged: false,
     requiresFrozenHistoryMetadataRepair: false,
   };
+}
+
+function hasIndependentRestoredErrorAttentionEvidence(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  recovery: NonNullable<SessionState["codex_turn_recovery"]>,
+): boolean {
+  if (
+    session.state.backend_state === "broken" ||
+    session.state.backend_state === "recovery_suppressed" ||
+    !!session.state.backend_error
+  ) {
+    return true;
+  }
+
+  const recoveryOwnerIds = new Set<string>(
+    [recovery.originalOwnerId, recovery.continuationOwnerId].filter((id): id is string => !!id),
+  );
+  if (
+    session.pendingCodexInputs.some((input) => {
+      const sourceId = input.agentSource?.sessionId;
+      return (
+        input.deliveryState === "failed" &&
+        (input.failedAt ?? input.timestamp) > recovery.updatedAt &&
+        !recoveryOwnerIds.has(input.id) &&
+        input.agentSource == null &&
+        !isCodexTurnRecoverySourceId(sourceId)
+      );
+    })
+  ) {
+    return true;
+  }
+
+  if (
+    session.pendingCodexTurns.some(
+      (turn) =>
+        turn.status !== "completed" &&
+        turn.disconnectedAt != null &&
+        turn.disconnectedAt > recovery.updatedAt &&
+        pendingTurnHasIndependentDirectHumanOwner(session, turn, recovery, recoveryOwnerIds),
+    )
+  ) {
+    return true;
+  }
+
+  let segmentCanOwnIndependentAttention = false;
+  for (let index = recovery.originalHistoryIndex + 1; index < session.messageHistory.length; index += 1) {
+    const message = session.messageHistory[index];
+    if (!message || message.codexSubagent != null) continue;
+    if (message.type === "user_message") {
+      const sourceId = message.agentSource?.sessionId;
+      segmentCanOwnIndependentAttention ||=
+        message.timestamp > recovery.updatedAt &&
+        !recoveryOwnerIds.has(message.id ?? "") &&
+        message.agentSource == null &&
+        !isCodexTurnRecoverySourceId(sourceId) &&
+        !isCodexLeaderRecoveryDiagnosticSourceId(sourceId);
+      continue;
+    }
+    if (message.type !== "result") continue;
+    if (segmentCanOwnIndependentAttention && message.data.is_error === true && message.interrupted !== true) {
+      return true;
+    }
+    segmentCanOwnIndependentAttention = false;
+  }
+  return false;
+}
+
+function pendingTurnHasIndependentDirectHumanOwner(
+  session: CodexInterruptedTurnRecoverySessionLike,
+  turn: CodexOutboundTurn,
+  recovery: NonNullable<SessionState["codex_turn_recovery"]>,
+  recoveryOwnerIds: ReadonlySet<string>,
+): boolean {
+  const historyIndexes = new Set<number>([
+    turn.historyIndex,
+    ...(turn.historyIncorporation?.historyIndexes.filter((index): index is number => index != null) ?? []),
+  ]);
+  for (const historyIndex of historyIndexes) {
+    const message = getMessageAtAbsoluteHistoryIndex(session, historyIndex);
+    if (
+      message?.type === "user_message" &&
+      message.agentSource == null &&
+      message.timestamp > recovery.updatedAt &&
+      !recoveryOwnerIds.has(message.id ?? "")
+    ) {
+      return true;
+    }
+  }
+
+  const pendingIds = new Set(turn.pendingInputIds ?? [turn.userMessageId]);
+  return session.pendingCodexInputs.some(
+    (input) =>
+      pendingIds.has(input.id) &&
+      input.agentSource == null &&
+      input.timestamp > recovery.updatedAt &&
+      !recoveryOwnerIds.has(input.id),
+  );
 }
 
 export function repairRestoredCodexTurnRecoveryState(
@@ -810,14 +906,11 @@ export function markCodexTurnRecoveryActionRequired(
   const current = session.state.codex_turn_recovery ?? null;
   if (!current) return;
   retireCodexTurnRecoveryOwners(session, current, deps);
-  const shouldRaiseAttention = !session.attentionReason;
-  const raisedAttention = current.raisedAttention === true || shouldRaiseAttention;
   setRecoveryState(
     session,
-    { ...current, status: "action_required", reason, raisedAttention, updatedAt: Date.now() },
+    { ...current, status: "action_required", reason, raisedAttention: false, updatedAt: Date.now() },
     deps,
   );
-  if (shouldRaiseAttention) deps.setAttentionError?.(session);
   console.warn(
     `[ws-bridge] Codex interrupted-turn recovery requires action for session ${sessionTag(session.id)} ` +
       `(recovery=${current.recoveryId}, reason=${reason}, route=${current.threadKey})`,

@@ -725,9 +725,10 @@ describe("Codex /compact passthrough", () => {
     expect(session.state.codex_turn_recovery).toMatchObject({
       status: "action_required",
       reason: "recovery_failed",
+      raisedAttention: false,
     });
     expect(session.codexLeaderRecycleContinuation).toBeNull();
-    expect(session.attentionReason).toBe("error");
+    expect(session.attentionReason).toBeNull();
   });
 
   it("forwards /compact to Codex for leaders in compaction mode", async () => {

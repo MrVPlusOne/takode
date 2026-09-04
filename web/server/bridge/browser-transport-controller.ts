@@ -23,6 +23,7 @@ import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { isHistoryBackedEvent, shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
 import { appendResolvedToolResultPreviewsForWindow } from "./history-window-tool-results.js";
+import { projectBrowserMessage } from "./browser-message-projection.js";
 import {
   completeSyncedProjectionSessionSubscribe,
   handleLeaderThreadTabsUpdate,
@@ -1465,6 +1466,7 @@ export function broadcastToBrowsers(
     Partial<Pick<BrowserTransportDeps, "getLauncherSessionInfo">>,
   options?: { skipBuffer?: boolean },
 ): void {
+  msg = projectBrowserMessage(msg);
   msg = attachRecentHistoryIndex(session.messageHistory, msg);
   if (session.browserSockets.size === 0 && msg.type === "result") {
     console.log(
@@ -1500,6 +1502,7 @@ export function broadcastToBrowsers(
 
 export function sendToBrowser(ws: BrowserTransportSocketLike, msg: BrowserIncomingMessage): boolean {
   try {
+    msg = projectBrowserMessage(msg);
     const json = JSON.stringify(msg);
     const result = ws.send(json);
     if (result === 0) return false;

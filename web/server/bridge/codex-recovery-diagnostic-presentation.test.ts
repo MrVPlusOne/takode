@@ -262,7 +262,7 @@ describe("Codex recovered-turn diagnostic presentation", () => {
       session,
       expect.objectContaining({ type: "error" }),
     );
-    expect(recoveryDeps.setAttentionError).toHaveBeenCalledWith(session);
+    expect(recoveryDeps.setAttentionError).not.toHaveBeenCalled();
     expect(logCodexRecoveryDiagnostic).toHaveBeenCalledWith(
       expect.objectContaining({
         presentation: "action_required",

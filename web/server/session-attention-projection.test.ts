@@ -75,6 +75,46 @@ describe("session attention projection", () => {
     ).toEqual({ attentionReason: null, status: { urgency: "muted-needs-input", count: 1 } });
   });
 
+  it("does not infer attention from terminal recovery state", () => {
+    const source = session({
+      attentionReason: null,
+      notificationStatusVersion: 1,
+      state: {
+        codex_turn_recovery: {
+          status: "action_required",
+          raisedAttention: true,
+        },
+      },
+    });
+
+    expect(derive(source)).toEqual({ attentionReason: null, status: null });
+
+    source.pendingPermissions.set("p1", { tool_name: "Bash" });
+    expect(derive(source)).toEqual({ attentionReason: "action", status: { urgency: "needs-input", count: 1 } });
+  });
+
+  it("preserves unrelated or nonterminal error attention beside recovery state", () => {
+    expect(
+      derive(
+        session({
+          attentionReason: "error",
+          notificationStatusVersion: 1,
+          state: { codex_turn_recovery: { status: "action_required", raisedAttention: true } },
+        }),
+      ),
+    ).toEqual({ attentionReason: "error", status: null });
+
+    expect(
+      derive(
+        session({
+          attentionReason: "error",
+          notificationStatusVersion: 1,
+          state: { codex_turn_recovery: { status: "continuation_active", raisedAttention: true } },
+        }),
+      ),
+    ).toEqual({ attentionReason: "error", status: null });
+  });
+
   it("filters read and closed leader review targets before deriving status", () => {
     const source = session({
       attentionReason: "review",

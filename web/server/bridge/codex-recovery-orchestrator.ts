@@ -1048,6 +1048,7 @@ export function handleCodexAdapterInitError(
     const diagnostic = `Codex automatic recovery is paused after ${failures} failed attempts. Use Reconnect to start a fresh cycle.`;
     markCodexTurnRecoveryActionRequired(session, "recovery_failed", deps);
     deps.setBackendState(session, "recovery_suppressed", diagnostic);
+    deps.setAttentionError(session);
     retireCodexAutoPauseRecoveryTesting(session, deps);
     deps.emitTakodeEvent(session.id, "session_error", { error: diagnostic });
     deps.setGenerating(session, false, "codex_recovery_suppressed");

@@ -14,7 +14,9 @@ import {
   clearAttentionAndMarkRead,
   markSessionUnread,
   recordThreadReadyUnreadNotifications,
+  setAttention,
 } from "./bridge/session-registry-controller.js";
+import { markCodexTurnRecoveryActionRequired } from "./bridge/codex-interrupted-turn-recovery.js";
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
 import { buildEnrichedSessionsSnapshot } from "./routes/session-list-snapshot.js";
 import { trafficStats } from "./traffic-stats.js";
@@ -255,6 +257,52 @@ describe("WsBridge synchronized projections", () => {
     expect(firstSnapshot?.generation).not.toBe(secondSnapshot?.generation);
     expect(firstSnapshot?.revision).toBe(1);
     expect(secondSnapshot?.revision).toBe(1);
+  });
+
+  it("keeps live terminal recovery quiet while publishing a later unrelated error", async () => {
+    const bridge = new WsBridge();
+    const worker = bridge.getOrCreateSession("worker");
+    worker.state.codex_turn_recovery = {
+      recoveryId: "recovery-owner",
+      originalOwnerId: "recovery-owner",
+      originalProviderTurnId: "provider-turn",
+      originalHistoryIndex: 7,
+      continuationOwnerId: "continuation-owner",
+      threadKey: "main",
+      status: "continuation_active",
+      reason: "interrupted_after_activity",
+      raisedAttention: false,
+      attempt: 1,
+      maxAttempts: 1,
+      createdAt: 100,
+      updatedAt: 200,
+    };
+    const socket = browserSocket("carrier");
+    const controller = bridge.getSyncedProjectionController();
+    const initial = controller
+      .replaceSubscriptions(socket, [{ projection: SESSION_ATTENTION_PROJECTION, key: worker.id }])
+      .find((message) => message.type === "synced_projection_snapshot");
+    expect(initial?.value).toEqual({ attentionReason: null, status: null });
+
+    const setAttentionError = vi.fn();
+    markCodexTurnRecoveryActionRequired(worker, "continuation_interrupted", {
+      broadcastToBrowsers: (session, message) => bridge.broadcastToSession(session.id, message),
+      persistSession: (session) => bridge.persistSessionById(session.id),
+      setAttentionError,
+    });
+    await controller.flushForTest();
+    expect(worker.state.codex_turn_recovery).toMatchObject({ status: "action_required", raisedAttention: false });
+    expect(worker.attentionReason).toBeNull();
+    expect(setAttentionError).not.toHaveBeenCalled();
+    expect(messages(socket)).toEqual([]);
+
+    setAttention(worker, "error", { persistSession: (session) => bridge.persistSessionById(session.id) });
+    await controller.flushForTest();
+    expect(messages(socket).at(-1)).toMatchObject({
+      type: "synced_projection_update",
+      projection: SESSION_ATTENTION_PROJECTION,
+      value: { attentionReason: "error", status: null },
+    });
   });
 
   it("acknowledges refresh subscription completeness after accepted snapshots", async () => {

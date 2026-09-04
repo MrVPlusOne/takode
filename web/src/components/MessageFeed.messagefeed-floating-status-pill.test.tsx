@@ -763,8 +763,8 @@ describe("MessageFeed - floating status pill", () => {
     expect(onSelectThread).toHaveBeenCalledWith("q-1987");
   });
 
-  it("keeps a terminal interrupted-work action visible after automatic continuation stops", () => {
-    const sid = "test-feed-turn-action-required";
+  it.each(["main", "q-1987"])("hides terminal interrupted-work attention in the %s feed", (threadKey) => {
+    const sid = `test-feed-turn-action-required-${threadKey}`;
     setStoreMessages(sid, [makeMessage({ role: "user", content: "Later unrelated input" })]);
     setStoreSessionState(sid, {
       backend_state: "connected",
@@ -774,7 +774,8 @@ describe("MessageFeed - floating status pill", () => {
         originalProviderTurnId: "turn-original",
         originalHistoryIndex: 7,
         continuationOwnerId: "continuation-owner",
-        threadKey: "main",
+        threadKey,
+        ...(threadKey !== "main" ? { questId: threadKey } : {}),
         status: "action_required",
         reason: "continuation_interrupted",
         attempt: 1,
@@ -785,18 +786,16 @@ describe("MessageFeed - floating status pill", () => {
     });
     setStoreConnectionState(sid, { cliConnected: true });
 
-    render(<MessageFeed sessionId={sid} />);
-    const chip = screen.getByTestId("codex-turn-recovery-chip");
-    expect(chip).toHaveTextContent("Check interrupted work");
-    fireEvent.click(chip);
-    expect(screen.getByTestId("codex-turn-recovery-detail")).toHaveTextContent(
-      "The follow-up stopped before Takode could confirm the work finished",
-    );
-    expect(screen.getByTestId("codex-turn-recovery-detail")).toHaveTextContent("Work to check: main");
-    fireEvent.click(screen.getByRole("button", { name: "Work is complete" }));
-    expect(mockSendToSession).toHaveBeenCalledWith(sid, {
-      type: "resolve_codex_turn_recovery",
+    render(<MessageFeed sessionId={sid} threadKey={threadKey} />);
+
+    expect(screen.queryByTestId("codex-turn-recovery-chip")).toBeNull();
+    expect(screen.queryByTestId("codex-turn-recovery-detail")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open affected thread" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Work is complete" })).toBeNull();
+    expect((mockStoreValues.sessions as Map<string, any>).get(sid)?.codex_turn_recovery).toMatchObject({
       recoveryId: "original-owner",
+      status: "action_required",
+      threadKey,
     });
   });
 
@@ -807,7 +806,7 @@ describe("MessageFeed - floating status pill", () => {
     ["adapter_disconnect", "stopped when the session disconnected"],
     ["interrupted_after_activity", "stopped after some actions had already run"],
     ["recovery_failed", "could not finish reconnecting"],
-  ] as const)("uses a concrete next-step explanation for %s", (reason, expectedReason) => {
+  ] as const)("hides the retired attention surface for %s", (reason, expectedReason) => {
     const sid = `test-feed-turn-action-${reason}`;
     setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Partial tool work" })]);
     setStoreSessionState(sid, {
@@ -830,15 +829,15 @@ describe("MessageFeed - floating status pill", () => {
     });
     setStoreConnectionState(sid, { cliConnected: true });
 
-    const { unmount } = render(<MessageFeed sessionId={sid} />);
-    const chip = screen.getByTestId("codex-turn-recovery-chip");
-    expect(chip).toHaveAttribute("title", expect.stringContaining(expectedReason));
-    expect(chip).toHaveAttribute("title", expect.stringContaining("send a new instruction if work is still missing"));
-    expect(chip).toHaveAttribute("title", expect.stringContaining('choose "Work is complete."'));
-    unmount();
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.queryByTestId("codex-turn-recovery-chip")).toBeNull();
+    expect(screen.queryByText(expectedReason)).toBeNull();
+    expect(screen.queryByText("Check interrupted work")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Work is complete" })).toBeNull();
   });
 
-  it("keeps the interrupted-work detail inside a short viewport", () => {
+  it("keeps the remaining interrupted-work progress detail inside a short viewport", () => {
     const originalInnerWidth = window.innerWidth;
     const originalInnerHeight = window.innerHeight;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 240 });
@@ -856,8 +855,9 @@ describe("MessageFeed - floating status pill", () => {
           originalHistoryIndex: 7,
           continuationOwnerId: "continuation-owner",
           threadKey: "main",
-          status: "action_required",
-          reason: "continuation_interrupted",
+          status: "continuation_pending",
+          reason: "interrupted_after_activity",
+          continuationMode: "verify_then_continue",
           attempt: 1,
           maxAttempts: 1,
           createdAt: 100,
@@ -897,7 +897,7 @@ describe("MessageFeed - floating status pill", () => {
     }
   });
 
-  it("announces an action-required transition without requiring the detail to be opened", () => {
+  it("removes recovery progress without announcing attention when the state becomes action required", () => {
     const sid = "test-feed-turn-recovery-live-announcement";
     const continuationRecovery = {
       recoveryId: "original-owner",
@@ -921,11 +921,7 @@ describe("MessageFeed - floating status pill", () => {
     setStoreConnectionState(sid, { cliConnected: true });
 
     const { rerender } = render(<MessageFeed sessionId={sid} />);
-    const announcement = screen.getByTestId("codex-turn-recovery-announcement");
-    expect(announcement).toHaveAttribute("role", "status");
-    expect(announcement).toHaveAttribute("aria-live", "assertive");
-    expect(announcement).toHaveAttribute("aria-atomic", "true");
-    expect(announcement).toBeEmptyDOMElement();
+    expect(screen.getByTestId("codex-turn-recovery-chip")).toHaveTextContent("Checking interrupted work");
 
     setStoreSessionState(sid, {
       backend_state: "connected",
@@ -938,11 +934,10 @@ describe("MessageFeed - floating status pill", () => {
     });
     rerender(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByTestId("codex-turn-recovery-announcement")).toBe(announcement);
-    expect(announcement).toHaveTextContent(
-      "Check interrupted work. The follow-up stopped before Takode could confirm the work finished",
-    );
+    expect(screen.queryByTestId("codex-turn-recovery-chip")).toBeNull();
+    expect(screen.queryByTestId("codex-turn-recovery-announcement")).toBeNull();
     expect(screen.queryByTestId("codex-turn-recovery-detail")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Work is complete" })).toBeNull();
   });
 
   it("shows message retry separately from session reconnect progress in plain language", () => {

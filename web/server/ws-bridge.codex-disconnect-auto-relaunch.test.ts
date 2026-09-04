@@ -927,10 +927,11 @@ describe("Codex disconnect auto-relaunch", () => {
       expect(session.state.codex_turn_recovery).toMatchObject({
         status: "action_required",
         reason: "recovery_failed",
+        raisedAttention: false,
       });
       expect(session.pendingCodexTurns).toHaveLength(0);
       expect(session.pendingCodexInputs).toHaveLength(0);
-      expect(session.attentionReason).toBe("error");
+      expect(session.attentionReason).toBeNull();
     } finally {
       vi.clearAllTimers();
       vi.useRealTimers();

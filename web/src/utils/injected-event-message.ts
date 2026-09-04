@@ -80,7 +80,7 @@ export function buildInjectedEventMessageViewModel(message: EventCandidate): Inj
     return withRawContent(message, {
       title: CODEX_LEADER_RECOVERY_DIAGNOSTIC_SOURCE_LABEL,
       description:
-        "Takode did not retry automatically because doing so could repeat actions. Expand to see what to check next.",
+        "Takode did not retry automatically because doing so could repeat actions. Expand to review the retained recovery note.",
     });
   }
 
