@@ -272,6 +272,169 @@ describe("explicit routed leader answers", () => {
     expect(buildLeaderThreadResponseState(target, "q-42").projection.pendingMessageCount).toBe(0);
   });
 
+  it("projects the exact Main-owned u25 answer identity into its q-2024 backfill association", () => {
+    const target = session();
+    const request = human("u25", 1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    request.threadRefs = [{ threadKey: "q-2024", questId: "q-2024", source: "backfill", attachedAt: 2 }];
+    target.messageHistory.push(request);
+    appendAnswer(target, "answer-u25", ["u25"], "Main answer for the attached request.", 1);
+
+    const main = buildLeaderThreadResponseState(target, "main").projection;
+    const quest = buildLeaderThreadResponseState(target, "q-2024").projection;
+    expect(main).toMatchObject({
+      threadKey: "main",
+      cutoverHistoryIndex: 0,
+      pendingMessageCount: 0,
+      ready: true,
+      currentAnswers: [
+        {
+          threadKey: "main",
+          answerUserMessageIds: ["u25"],
+          referencedUserMessageIds: ["raw-u25"],
+          coveredAnswerUserMessageIds: ["u25"],
+          coveredUserMessageIds: ["raw-u25"],
+          currentMessageId: "answer-u25",
+          currentHistoryIndex: 1,
+          source: "explicit",
+        },
+      ],
+    });
+    expect(quest).toMatchObject({
+      threadKey: "q-2024",
+      cutoverHistoryIndex: 0,
+      pendingMessageCount: 0,
+      ready: true,
+      currentAnswers: [
+        {
+          threadKey: "main",
+          answerUserMessageIds: ["u25"],
+          referencedUserMessageIds: ["raw-u25"],
+          coveredAnswerUserMessageIds: ["u25"],
+          coveredUserMessageIds: ["raw-u25"],
+          currentMessageId: "answer-u25",
+          currentHistoryIndex: 1,
+          source: "explicit",
+        },
+      ],
+    });
+    expect(quest.currentAnswers[0]?.currentMessageId).toBe(main.currentAnswers[0]?.currentMessageId);
+    expect(quest.currentAnswers[0]?.currentHistoryIndex).toBe(main.currentAnswers[0]?.currentHistoryIndex);
+    expect(buildLeaderThreadResponseState(target, "q-999").projection.currentAnswers).toEqual([]);
+
+    request.threadRefs = [];
+    expect(buildLeaderThreadResponseState(target, "q-2024").projection.currentAnswers).toEqual([]);
+
+    request.threadRefs = [
+      { threadKey: "q-2024", questId: "q-2024", source: "backfill", attachedAt: 2 },
+      { threadKey: "q-2030", questId: "q-2030", source: "explicit", attachedAt: 3 },
+    ];
+    expect(buildLeaderThreadResponseState(target, "main").projection.currentAnswers).toEqual([]);
+    expect(buildLeaderThreadResponseState(target, "q-2024").projection.currentAnswers).toEqual([]);
+    expect(buildLeaderThreadResponseState(target, "q-2030").projection).toMatchObject({
+      pendingMessages: [{ userMessageId: "u25" }],
+      currentAnswers: [],
+      ready: false,
+    });
+  });
+
+  it("projects one Main answer across multiple current quest associations independently", () => {
+    const target = session();
+    const request = human("u1", 1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    request.threadRefs = [
+      { threadKey: "q-42", questId: "q-42", source: "backfill", attachedAt: 2 },
+      { threadKey: "q-43", questId: "q-43", source: "backfill", attachedAt: 3 },
+    ];
+    target.messageHistory.push(request);
+    appendAnswer(target, "multi-associated-answer", ["u1"], "One Main answer.", 1);
+
+    const identity = {
+      threadKey: "main",
+      currentMessageId: "multi-associated-answer",
+      currentHistoryIndex: 1,
+      source: "explicit",
+    } as const;
+    const mainBefore = buildLeaderThreadResponseState(target, "main").projection;
+    const q42Before = buildLeaderThreadResponseState(target, "q-42").projection;
+    const q43Before = buildLeaderThreadResponseState(target, "q-43").projection;
+
+    expect(mainBefore.currentAnswers).toMatchObject([identity]);
+    expect(q42Before.currentAnswers).toMatchObject([identity]);
+    expect(q43Before.currentAnswers).toMatchObject([identity]);
+    expect(buildLeaderThreadResponseState(target, "q-44").projection.currentAnswers).toEqual([]);
+
+    request.threadRefs = request.threadRefs.filter((ref) => ref.threadKey !== "q-42");
+
+    expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toEqual([]);
+    expect(buildLeaderThreadResponseState(target, "main").projection).toEqual(mainBefore);
+    expect(buildLeaderThreadResponseState(target, "q-43").projection).toEqual(q43Before);
+  });
+
+  it("fails grouped cross-thread projection unless every original answer reference is associated", () => {
+    const target = session();
+    const first = human("u1", 1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    const second = human("u2", 2) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    first.threadRefs = [{ threadKey: "q-42", questId: "q-42", source: "backfill", attachedAt: 3 }];
+    target.messageHistory.push(first, second);
+    appendAnswer(target, "main-answer", ["u1", "u2"], "Indivisible grouped Main answer.", 2);
+
+    expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toEqual([]);
+
+    second.threadRefs = [{ threadKey: "q-42", questId: "q-42", source: "backfill", attachedAt: 4 }];
+    expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toMatchObject([
+      {
+        threadKey: "main",
+        answerUserMessageIds: ["u1", "u2"],
+        referencedUserMessageIds: ["raw-u1", "raw-u2"],
+        coveredAnswerUserMessageIds: ["u1", "u2"],
+        coveredUserMessageIds: ["raw-u1", "raw-u2"],
+        currentMessageId: "main-answer",
+      },
+    ]);
+
+    appendAnswer(target, "main-answer-u2", ["u2"], "Updated second answer.", 3);
+    expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toMatchObject([
+      { currentMessageId: "main-answer", coveredAnswerUserMessageIds: ["u1"] },
+      { currentMessageId: "main-answer-u2", coveredAnswerUserMessageIds: ["u2"] },
+    ]);
+  });
+
+  it("does not treat a persisted Main backfill as association for a quest-owned answer", () => {
+    const target = session();
+    const request = human("u1", 1, "q-42") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    request.threadRefs = [...(request.threadRefs ?? []), { threadKey: "main", source: "backfill", attachedAt: 2 }];
+    target.messageHistory.push(request);
+    appendAnswer(target, "quest-answer", ["u1"], "Quest-owned answer.", 1, "q-42");
+
+    expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toMatchObject([
+      { threadKey: "q-42", currentMessageId: "quest-answer" },
+    ]);
+    expect(buildLeaderThreadResponseState(target, "main").projection.currentAnswers).toEqual([]);
+  });
+
+  it("cross-projects deterministic fallback IDs without rewriting the source user message", () => {
+    const target = session();
+    const request = human("u1", 1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    request.leaderUserMessageId = undefined;
+    request.threadRefs = [{ threadKey: "q-42", questId: "q-42", source: "backfill", attachedAt: 2 }];
+    target.messageHistory.push(request);
+    appendAnswer(target, "fallback-id-answer", ["u1"], "Answer using the deterministic ID.", 1);
+
+    expect(request.leaderUserMessageId).toBeUndefined();
+    expect(buildLeaderThreadResponseState(target, "q-42").projection).toMatchObject({
+      cutoverHistoryIndex: 0,
+      currentAnswers: [
+        {
+          threadKey: "main",
+          answerUserMessageIds: ["u1"],
+          referencedUserMessageIds: ["raw-u1"],
+          coveredAnswerUserMessageIds: ["u1"],
+          coveredUserMessageIds: ["raw-u1"],
+          currentMessageId: "fallback-id-answer",
+        },
+      ],
+    });
+  });
+
   it("does not let commentary satisfy answer coverage", () => {
     const target = session();
     target.messageHistory.push(human("u1", 1));
@@ -287,6 +450,26 @@ describe("explicit routed leader answers", () => {
       ready: false,
       currentAnswers: [],
     });
+  });
+
+  it("rejects malformed Main and quest answer-source routes before they can project", () => {
+    const mainTarget = session();
+    mainTarget.messageHistory.push(human("u1", 1));
+    const malformedMain = routedAssistant("malformed-main", "Malformed Main answer.", ["u1"], 1);
+    malformedMain.questId = "q-42";
+    mainTarget.messageHistory.push(malformedMain);
+    expect(finalizeRoutedLeaderResponseMessage(mainTarget, malformedMain)).toMatchObject({ reason: "invalid_message" });
+    expect(buildLeaderThreadResponseState(mainTarget, "main").projection.currentAnswers).toEqual([]);
+
+    const questTarget = session();
+    questTarget.messageHistory.push(human("u1", 1, "q-42"));
+    const malformedQuest = routedAssistant("malformed-quest", "Malformed quest answer.", ["u1"], 1, "q-42");
+    malformedQuest.questId = "q-99";
+    questTarget.messageHistory.push(malformedQuest);
+    expect(finalizeRoutedLeaderResponseMessage(questTarget, malformedQuest)).toMatchObject({
+      reason: "invalid_message",
+    });
+    expect(buildLeaderThreadResponseState(questTarget, "q-42").projection.currentAnswers).toEqual([]);
   });
 
   it("fails closed on unproven, tool-bearing, conflicting-control, child, or detached answer rows", () => {
@@ -375,9 +558,13 @@ describe("explicit routed leader answers", () => {
     expect(finalizeRoutedLeaderResponseMessage(target, duplicate)).toMatchObject({ reason: "invalid_message" });
   });
 
-  it("keeps valid legacy response rows readable and rejects corrupted legacy proof", () => {
+  it("keeps valid legacy response rows source-local and rejects corrupted legacy proof", () => {
     const target = session();
-    target.messageHistory.push(human("u1", 1), human("u2", 2));
+    const first = human("u1", 1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    const second = human("u2", 2) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    first.threadRefs = [{ threadKey: "q-42", questId: "q-42", source: "backfill", attachedAt: 3 }];
+    second.threadRefs = [{ threadKey: "q-42", questId: "q-42", source: "backfill", attachedAt: 4 }];
+    target.messageHistory.push(first, second);
     const response = legacyResponse(target, "legacy-final", "Legacy answer.", ["raw-u1", "raw-u2"], 2);
 
     expect(buildLeaderThreadResponseState(target, "main").projection).toMatchObject({
@@ -392,6 +579,7 @@ describe("explicit routed leader answers", () => {
         },
       ],
     });
+    expect(buildLeaderThreadResponseState(target, "q-42").projection.currentAnswers).toEqual([]);
 
     response.content = "Tampered response.";
     expect(buildLeaderThreadResponseState(target, "main").projection).toMatchObject({

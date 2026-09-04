@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage, LeaderThreadResponseProjection } from "../server/session-types.js";
+import { buildLeaderThreadResponseState, leaderThreadResponseContentHash } from "../server/leader-thread-response.js";
 import { buildFeedSections } from "../src/components/message-feed-sections.js";
 import { resolveThreadResponses } from "../src/components/thread-response-presentation.js";
 import { buildFeedModel } from "../src/hooks/use-feed-model.js";
@@ -67,6 +68,21 @@ function mainHuman(rawId: string, answerId: string, timestamp: number): BrowserI
     timestamp,
     threadKey: "main",
   };
+}
+
+function backfilledMainHuman(
+  rawId: string,
+  answerId: string | undefined,
+  timestamp: number,
+  threadKey = THREAD_KEY,
+): BrowserIncomingMessage {
+  const message = mainHuman(rawId, answerId ?? "u1", timestamp) as Extract<
+    BrowserIncomingMessage,
+    { type: "user_message" }
+  >;
+  if (answerId === undefined) message.leaderUserMessageId = undefined;
+  message.threadRefs = [{ threadKey, questId: threadKey, source: "backfill", attachedAt: timestamp + 1 }];
+  return message;
 }
 
 function sourcedMainUser(id: string, timestamp: number, sourceSessionId: string): BrowserIncomingMessage {
@@ -147,6 +163,12 @@ function projection(ready: boolean): LeaderThreadResponseProjection {
   };
 }
 
+function legacyBatchId(sessionId: string, threadKey: string, historyLength: number, ids: string[]): string {
+  const encoded = Buffer.from(JSON.stringify({ v: 1, t: threadKey, h: historyLength, ids })).toString("base64url");
+  const checksum = leaderThreadResponseContentHash(`${sessionId}\n${encoded}`).slice(0, 24);
+  return `response-batch-v1.${encoded}.${checksum}`;
+}
+
 function deliveredIds(sync: ReturnType<typeof buildThreadWindowSync>): string[] {
   return sync.entries.flatMap(({ message }) => {
     if (message.type === "assistant") return [message.message.id];
@@ -157,6 +179,173 @@ function deliveredIds(sync: ReturnType<typeof buildThreadWindowSync>): string[] 
 }
 
 describe("selected thread-window routed answer support", () => {
+  it("backfills the exact Main-owned u25 answer and prompt into its bounded q-2024 window", () => {
+    const request = backfilledMainHuman("raw-u25", "u25", 1);
+    const answer = mainAssistant("answer-u25", "Main answer for the attached request", 2, "answer", ["u25"]);
+    const laterBoundary: BrowserIncomingMessage = {
+      type: "user_message",
+      id: "q-later-worker-event",
+      content: "Later quest activity",
+      timestamp: 3,
+      agentSource: { sessionId: "worker-1", sessionLabel: "worker-1" },
+      threadKey: THREAD_KEY,
+      questId: THREAD_KEY,
+      threadRefs: [THREAD_REF],
+    };
+    const later = assistant("q-later-commentary", "Latest quest update", 4, "commentary");
+    const messages = [
+      request,
+      answer,
+      mainAssistant("unrelated-main", "Unrelated Main row", 3, "commentary"),
+      laterBoundary,
+      later,
+    ];
+    const state = buildLeaderThreadResponseState({ id: "leader", messageHistory: messages }, THREAD_KEY).projection;
+
+    const sync = buildThreadWindowSync({
+      messageHistory: messages,
+      threadKey: THREAD_KEY,
+      fromItem: -1,
+      itemCount: 1,
+      sectionItemCount: 1,
+      visibleItemCount: 1,
+      currentThreadResponseProjection: state,
+    });
+
+    expect(state).toMatchObject({
+      threadKey: THREAD_KEY,
+      cutoverHistoryIndex: 0,
+      currentAnswers: [
+        {
+          threadKey: "main",
+          answerUserMessageIds: ["u25"],
+          referencedUserMessageIds: ["raw-u25"],
+          coveredAnswerUserMessageIds: ["u25"],
+          coveredUserMessageIds: ["raw-u25"],
+          currentMessageId: "answer-u25",
+          currentHistoryIndex: 1,
+        },
+      ],
+    });
+    expect(sync.threadResponseSupportComplete).toBe(true);
+    expect(deliveredIds(sync).filter((id) => id === "raw-u25")).toHaveLength(1);
+    expect(deliveredIds(sync).filter((id) => id === "answer-u25")).toHaveLength(1);
+    expect(deliveredIds(sync)).toEqual(expect.arrayContaining(["q-later-worker-event", "q-later-commentary"]));
+    expect(deliveredIds(sync)).not.toContain("unrelated-main");
+  });
+
+  it("omits cross-thread support on duplicate identity, include-policy rejection, or malformed answer route", () => {
+    const request = backfilledMainHuman("raw-u25", "u25", 1);
+    const answer = mainAssistant("answer-u25", "Main answer for the attached request", 2, "answer", ["u25"]);
+    const laterBoundary: BrowserIncomingMessage = {
+      type: "user_message",
+      id: "q-later-worker-event",
+      content: "Later quest activity",
+      timestamp: 3,
+      agentSource: { sessionId: "worker-1", sessionLabel: "worker-1" },
+      threadKey: THREAD_KEY,
+      questId: THREAD_KEY,
+      threadRefs: [THREAD_REF],
+    };
+    const messages = [request, answer, laterBoundary];
+    const state = buildLeaderThreadResponseState({ id: "leader", messageHistory: messages }, THREAD_KEY).projection;
+    expect(state.currentAnswers).toHaveLength(1);
+
+    const corruptions: Array<{
+      messages: BrowserIncomingMessage[];
+      state: LeaderThreadResponseProjection;
+      includeMessage?: (message: BrowserIncomingMessage, historyIndex: number) => boolean;
+    }> = [
+      {
+        messages,
+        state: { ...state, currentAnswers: [state.currentAnswers[0]!, { ...state.currentAnswers[0]! }] },
+      },
+      { messages, state, includeMessage: (_message, historyIndex) => historyIndex !== 0 },
+      { messages, state, includeMessage: (_message, historyIndex) => historyIndex !== 1 },
+      {
+        messages: [request, { ...answer, questId: "q-999" }, laterBoundary],
+        state,
+      },
+    ];
+
+    for (const corruption of corruptions) {
+      const sync = buildThreadWindowSync({
+        messageHistory: corruption.messages,
+        threadKey: THREAD_KEY,
+        fromItem: -1,
+        itemCount: 1,
+        sectionItemCount: 1,
+        visibleItemCount: 1,
+        currentThreadResponseProjection: corruption.state,
+        ...(corruption.includeMessage ? { includeMessage: corruption.includeMessage } : {}),
+      });
+      expect(sync.threadResponseSupportComplete).toBe(false);
+      expect(deliveredIds(sync)).not.toContain("answer-u25");
+    }
+  });
+
+  it("rejects a forged cross-thread legacy response projection", () => {
+    const request = backfilledMainHuman("raw-u1", "u1", 1);
+    const text = "Legacy Main response";
+    const legacy: BrowserIncomingMessage = {
+      type: "leader_user_message",
+      id: "legacy-main-answer",
+      content: text,
+      timestamp: 2,
+      threadKey: "main",
+      threadResponse: {
+        logicalResponseId: "legacy-main",
+        revisionId: "legacy-main-r1",
+        revisionNumber: 1,
+        batchId: legacyBatchId("leader", "main", 1, ["raw-u1"]),
+        batchObservedHistoryLength: 1,
+        coveredUserMessageIds: ["raw-u1"],
+        contentHash: leaderThreadResponseContentHash(text),
+      },
+    };
+    const messages = [request, legacy];
+    const sourceState = buildLeaderThreadResponseState({ id: "leader", messageHistory: messages }, "main").projection;
+    expect(sourceState.currentAnswers).toMatchObject([
+      { threadKey: "main", currentMessageId: "legacy-main-answer", source: "legacy" },
+    ]);
+
+    const forgedState: LeaderThreadResponseProjection = {
+      version: 2,
+      threadKey: THREAD_KEY,
+      cutoverHistoryIndex: 0,
+      pendingMessageCount: 0,
+      pendingMessages: [],
+      currentAnswers: [
+        {
+          version: 2,
+          threadKey: "main",
+          answerUserMessageIds: ["u1"],
+          referencedUserMessageIds: ["raw-u1"],
+          coveredAnswerUserMessageIds: ["u1"],
+          coveredUserMessageIds: ["raw-u1"],
+          currentMessageId: "legacy-main-answer",
+          currentHistoryIndex: 1,
+          createdAt: 2,
+          updatedAt: 2,
+          source: "legacy",
+        },
+      ],
+      ready: true,
+    };
+    const sync = buildThreadWindowSync({
+      messageHistory: messages,
+      threadKey: THREAD_KEY,
+      fromItem: -1,
+      itemCount: 1,
+      sectionItemCount: 1,
+      visibleItemCount: 1,
+      currentThreadResponseProjection: forgedState,
+    });
+
+    expect(sync.threadResponseSupportComplete).toBe(false);
+    expect(deliveredIds(sync)).not.toContain("legacy-main-answer");
+  });
+
   it("backfills a current answer, its proof anchor, and an actual-host Quiz while newer input is pending", () => {
     const messages: BrowserIncomingMessage[] = [
       human("raw-u1", "u1", 1),

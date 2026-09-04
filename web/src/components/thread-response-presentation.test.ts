@@ -229,6 +229,242 @@ describe("explicit answer presentation", () => {
     expect(resolveThreadResponses(sections(messages), legacyState, THREAD_KEY)).toBeNull();
   });
 
+  it("projects one Main answer into an associated quest without changing its stable identity", () => {
+    const attachedMainUser: ChatMessage = {
+      id: "raw-u25",
+      role: "user",
+      content: "Main request associated with q-2024",
+      timestamp: 10,
+      historyIndex: 10,
+      metadata: {
+        leaderResponseCoverageVersion: 1,
+        leaderUserMessageId: "u25",
+        threadKey: "main",
+        threadRefs: [{ threadKey: THREAD_KEY, questId: THREAD_KEY, source: "backfill" }],
+      },
+    };
+    const mainAnswer: ChatMessage = {
+      id: "answer-main-u25",
+      role: "assistant",
+      content: "Main answer reused by the associated quest",
+      timestamp: 11,
+      historyIndex: 11,
+      metadata: {
+        leaderThreadRole: "answer",
+        threadKey: "main",
+        threadAnswer: { version: 2, answerUserMessageIds: ["u25"], observedHistoryLength: 11 },
+      },
+    };
+    const state = projection({
+      cutoverHistoryIndex: 10,
+      currentAnswers: [
+        {
+          ...answerState({
+            id: mainAnswer.id,
+            answerIds: ["u25"],
+            referencedIds: [attachedMainUser.id],
+            historyIndex: 11,
+          }),
+          threadKey: "main",
+          questId: undefined,
+        },
+      ],
+    });
+
+    const result = resolveThreadResponses(sections([attachedMainUser, mainAnswer]), state, THREAD_KEY);
+
+    expect(result?.currentResponses).toHaveLength(1);
+    expect(result?.currentResponses[0]).toMatchObject({
+      anchorUserMessageId: attachedMainUser.id,
+      response: { threadKey: "main", currentMessageId: mainAnswer.id },
+    });
+    expect(result?.currentResponses[0]?.messageEntry.msg.id).toBe(mainAnswer.id);
+    expect(result?.currentResponses[0]?.collapsedMessageEntry.msg.id).toBe(mainAnswer.id);
+    expect(result?.currentResponseMessageIds).toEqual(new Set([mainAnswer.id]));
+
+    const conflictingRouteAnswer: ChatMessage = {
+      ...mainAnswer,
+      metadata: { ...mainAnswer.metadata, questId: THREAD_KEY },
+    };
+    expect(resolveThreadResponses(sections([attachedMainUser, conflictingRouteAnswer]), state, THREAD_KEY)).toBeNull();
+    expect(
+      resolveThreadResponses(
+        sections([attachedMainUser, { ...mainAnswer, historyIndex: undefined }]),
+        state,
+        THREAD_KEY,
+      ),
+    ).toBeNull();
+  });
+
+  it("requires every original prompt association before projecting grouped Main prose", () => {
+    const attachedMainUser: ChatMessage = {
+      id: "raw-u25",
+      role: "user",
+      content: "Attached Main request",
+      timestamp: 10,
+      historyIndex: 10,
+      metadata: {
+        leaderResponseCoverageVersion: 1,
+        leaderUserMessageId: "u25",
+        threadKey: "main",
+        threadRefs: [{ threadKey: THREAD_KEY, questId: THREAD_KEY, source: "backfill" }],
+      },
+    };
+    const groupedMainAnswer: ChatMessage = {
+      id: "answer-main-group",
+      role: "assistant",
+      content: "One Main answer covers both requests",
+      timestamp: 12,
+      historyIndex: 12,
+      metadata: {
+        leaderThreadRole: "answer",
+        threadKey: "main",
+        threadAnswer: { version: 2, answerUserMessageIds: ["u25", "u26"], observedHistoryLength: 12 },
+      },
+    };
+    const state = projection({
+      cutoverHistoryIndex: 10,
+      currentAnswers: [
+        {
+          ...answerState({
+            id: groupedMainAnswer.id,
+            answerIds: ["u25", "u26"],
+            referencedIds: [attachedMainUser.id, "raw-u26"],
+            coveredAnswerIds: ["u25"],
+            coveredIds: [attachedMainUser.id],
+            historyIndex: 12,
+          }),
+          threadKey: "main",
+          questId: undefined,
+        },
+      ],
+    });
+
+    expect(resolveThreadResponses(sections([attachedMainUser, groupedMainAnswer]), state, THREAD_KEY)).toBeNull();
+
+    const secondAssociatedMainUser: ChatMessage = {
+      id: "raw-u26",
+      role: "user",
+      content: "Second associated Main request",
+      timestamp: 11,
+      historyIndex: 11,
+      metadata: {
+        leaderResponseCoverageVersion: 1,
+        leaderUserMessageId: "u26",
+        threadKey: "main",
+        threadRefs: [{ threadKey: THREAD_KEY, questId: THREAD_KEY, source: "backfill" }],
+      },
+    };
+    const result = resolveThreadResponses(
+      sections([attachedMainUser, secondAssociatedMainUser, groupedMainAnswer]),
+      state,
+      THREAD_KEY,
+    );
+
+    expect(result?.currentResponses[0]?.response).toMatchObject({
+      answerUserMessageIds: ["u25", "u26"],
+      referencedUserMessageIds: ["raw-u25", "raw-u26"],
+      coveredAnswerUserMessageIds: ["u25"],
+      coveredUserMessageIds: ["raw-u25"],
+    });
+  });
+
+  it("fails closed when a projected Main answer loses its selected-thread association", () => {
+    const detachedMainUser: ChatMessage = {
+      id: "raw-u25",
+      role: "user",
+      content: "Detached Main request",
+      timestamp: 10,
+      historyIndex: 10,
+      metadata: {
+        leaderResponseCoverageVersion: 1,
+        leaderUserMessageId: "u25",
+        threadKey: "main",
+      },
+    };
+    const mainAnswer: ChatMessage = {
+      id: "answer-main-u25",
+      role: "assistant",
+      content: "Detached Main answer",
+      timestamp: 11,
+      historyIndex: 11,
+      metadata: {
+        leaderThreadRole: "answer",
+        threadKey: "main",
+        threadAnswer: { version: 2, answerUserMessageIds: ["u25"], observedHistoryLength: 11 },
+      },
+    };
+    const currentAnswer = {
+      ...answerState({
+        id: mainAnswer.id,
+        answerIds: ["u25"],
+        referencedIds: [detachedMainUser.id],
+        historyIndex: 11,
+      }),
+      threadKey: "main",
+      questId: undefined,
+    };
+
+    expect(
+      resolveThreadResponses(
+        sections([detachedMainUser, mainAnswer]),
+        projection({ cutoverHistoryIndex: 10, currentAnswers: [currentAnswer] }),
+        THREAD_KEY,
+      ),
+    ).toBeNull();
+    expect(
+      resolveThreadResponses(
+        sections([
+          {
+            ...detachedMainUser,
+            metadata: {
+              ...detachedMainUser.metadata,
+              threadRefs: [{ threadKey: THREAD_KEY, questId: THREAD_KEY, source: "backfill" }],
+            },
+          },
+          mainAnswer,
+        ]),
+        { ...projection({ cutoverHistoryIndex: 10, currentAnswers: [currentAnswer] }), threadKey: "q-9999" },
+        "q-9999",
+      ),
+    ).toBeNull();
+    expect(
+      resolveThreadResponses(
+        sections([
+          {
+            ...detachedMainUser,
+            metadata: {
+              ...detachedMainUser.metadata,
+              threadRefs: [{ threadKey: THREAD_KEY, questId: THREAD_KEY, source: "backfill" }],
+            },
+          },
+          {
+            ...mainAnswer,
+            metadata: {
+              ...mainAnswer.metadata,
+              leaderThreadRole: "response",
+              threadAnswer: undefined,
+              threadResponse: {
+                logicalResponseId: "legacy",
+                revisionId: "legacy-r1",
+                revisionNumber: 1,
+                batchId: "legacy-batch",
+                batchObservedHistoryLength: 11,
+                coveredUserMessageIds: [detachedMainUser.id],
+                contentHash: "legacy-hash",
+              },
+            },
+          },
+        ]),
+        projection({
+          cutoverHistoryIndex: 10,
+          currentAnswers: [{ ...currentAnswer, source: "legacy" }],
+        }),
+        THREAD_KEY,
+      ),
+    ).toBeNull();
+  });
+
   it("keeps backfill visibility separate and preserves normal fallbacks", () => {
     const backfilledMain: ChatMessage = {
       id: "main-backfill",

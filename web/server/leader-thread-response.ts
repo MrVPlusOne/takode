@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { leaderResponseOwnerThreadKey } from "../shared/leader-thread-response-routing.js";
+import {
+  leaderResponseAssociatedThreadKeys,
+  leaderResponseExactAnswerThreadKey,
+  leaderResponseOwnerThreadKey,
+} from "../shared/leader-thread-response-routing.js";
 import { normalizeSelectedFeedThreadKey } from "../shared/thread-window.js";
 import {
   buildLeaderUserMessageIdentities,
@@ -38,6 +42,7 @@ export interface PendingLeaderAnswerInputState {
 type DirectHumanMessage = LeaderUserMessageIdentity & {
   timestamp: number;
   threadKey: string;
+  associatedThreadKeys: string[];
 };
 
 type ResponseHistoryMessage = Extract<BrowserIncomingMessage, { type: "assistant" | "leader_user_message" }>;
@@ -176,16 +181,7 @@ export function pendingLeaderAnswerInputsForThread(
 }
 
 function exactResponseThreadKey(message: ResponseHistoryMessage): string | null {
-  if (typeof message.threadKey !== "string" || !message.threadKey.trim()) return null;
-  const threadKey = normalizeSelectedFeedThreadKey(message.threadKey);
-  const authoritativeRefs = (message.threadRefs ?? []).filter((ref) => ref.source !== "backfill");
-  if (threadKey === "main") {
-    if (message.questId || authoritativeRefs.length > 0) return null;
-    return leaderResponseOwnerThreadKey(message) === "main" ? threadKey : null;
-  }
-  if (!/^q-\d+$/.test(threadKey) || normalizeSelectedFeedThreadKey(message.questId ?? "") !== threadKey) return null;
-  if (authoritativeRefs.length === 0 || leaderResponseOwnerThreadKey(message) !== threadKey) return null;
-  return threadKey;
+  return leaderResponseExactAnswerThreadKey(message);
 }
 
 function responseMessageId(message: ResponseHistoryMessage): string | null {
@@ -228,6 +224,7 @@ function collectDirectMessages(
               ? entry.message.timestamp
               : 0,
           threadKey,
+          associatedThreadKeys: leaderResponseAssociatedThreadKeys(entry.message),
         },
       ];
     });
@@ -615,6 +612,38 @@ function evaluateResponses(
   };
 }
 
+function projectCurrentAnswerForThread(
+  answer: LeaderThreadResponseState,
+  directMessagesById: ReadonlyMap<string, DirectHumanMessage>,
+  threadKey: string,
+): LeaderThreadResponseState | null {
+  if (
+    answer.coveredUserMessageIds.length !== answer.coveredAnswerUserMessageIds.length ||
+    answer.coveredUserMessageIds.length === 0
+  ) {
+    return null;
+  }
+  if (answer.threadKey === threadKey) return answer;
+  if (answer.source !== "explicit") return null;
+
+  const referencedMessages = answer.referencedUserMessageIds.map((messageId) => directMessagesById.get(messageId));
+  if (
+    referencedMessages.some(
+      (message) =>
+        !message || message.threadKey !== answer.threadKey || !message.associatedThreadKeys.includes(threadKey),
+    )
+  ) {
+    return null;
+  }
+
+  // One answer is an indivisible prose row. Cross-projecting only a subset of
+  // its original references could expose content for an unrelated prompt even
+  // if the coverage chip were narrowed, so every original reference must be
+  // associated with the selected thread. Per-ID supersession still controls
+  // the unchanged effective covered subset.
+  return answer;
+}
+
 function buildLeaderThreadResponseStateAt(
   session: Pick<LeaderThreadResponseSession, "id" | "messageHistory">,
   requestedThreadKey: string,
@@ -623,9 +652,19 @@ function buildLeaderThreadResponseStateAt(
   const threadKey = normalizeThreadKey(requestedThreadKey);
   const boundedLimit = Math.max(0, Math.min(Math.floor(historyLimit), session.messageHistory.length));
   const evaluation = evaluateResponses(session, boundedLimit);
-  const currentAnswers = evaluation.currentAnswers.filter((answer) => answer.threadKey === threadKey);
-  const eligible = evaluation.directMessages.filter((message) => message.threadKey === threadKey);
-  const pendingMessages = eligible
+  const directMessagesById = new Map(
+    evaluation.directMessages.map((message) => [message.historyMessageId, message] as const),
+  );
+  const currentAnswers = evaluation.currentAnswers.flatMap((answer) => {
+    const projected = projectCurrentAnswerForThread(answer, directMessagesById, threadKey);
+    return projected ? [projected] : [];
+  });
+  const ownedMessages = evaluation.directMessages.filter((message) => message.threadKey === threadKey);
+  const supportingMessageIds = new Set(currentAnswers.flatMap((answer) => answer.referencedUserMessageIds));
+  const projectedMessages = evaluation.directMessages.filter(
+    (message) => message.threadKey === threadKey || supportingMessageIds.has(message.historyMessageId),
+  );
+  const pendingMessages = ownedMessages
     .filter((message) => !evaluation.coveredMessageIds.has(message.historyMessageId))
     .map((message) => ({
       userMessageId: message.userMessageId,
@@ -636,7 +675,7 @@ function buildLeaderThreadResponseStateAt(
   const projection: LeaderThreadResponseProjection = {
     version: LEADER_THREAD_RESPONSE_VERSION,
     threadKey,
-    cutoverHistoryIndex: eligible[0]?.historyIndex ?? session.messageHistory.length,
+    cutoverHistoryIndex: projectedMessages[0]?.historyIndex ?? session.messageHistory.length,
     pendingMessageCount: pendingMessages.length,
     pendingMessages,
     currentAnswers,

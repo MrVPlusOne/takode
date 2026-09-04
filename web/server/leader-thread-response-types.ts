@@ -62,15 +62,16 @@ export interface LeaderThreadAnswerMetadata {
 /** Compact current answer pointer used by selected-thread presentation. */
 export interface LeaderThreadResponseState {
   version: typeof LEADER_THREAD_RESPONSE_VERSION;
+  /** Authoritative source/owner route of the stored answer row. */
   threadKey: string;
   questId?: string;
   /** Complete concise ID list written in the answer marker. */
   answerUserMessageIds: string[];
   /** Complete raw history IDs originally referenced by this answer. */
   referencedUserMessageIds: string[];
-  /** Concise IDs for which this answer is still current after supersession. */
+  /** Concise IDs for which this answer remains current after per-ID supersession. */
   coveredAnswerUserMessageIds: string[];
-  /** Raw history IDs for which this answer is still current. */
+  /** Raw history IDs matching the answer's current per-ID coverage. */
   coveredUserMessageIds: string[];
   currentMessageId: string;
   currentHistoryIndex: number;
@@ -89,6 +90,7 @@ export interface LeaderThreadPendingMessageProjection {
 
 export interface LeaderThreadResponseProjection {
   version: typeof LEADER_THREAD_RESPONSE_VERSION;
+  /** Presentation target; current answer rows may retain another source route. */
   threadKey: string;
   cutoverHistoryIndex: number;
   pendingMessageCount: number;

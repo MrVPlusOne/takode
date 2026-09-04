@@ -576,7 +576,9 @@ export function MessageFeed({
   );
   const latestThreadResponseUpdatedAt = Math.max(
     0,
-    ...(threadResponsePresentation?.currentResponses.map((item) => item.response.updatedAt) ?? []),
+    ...(threadResponsePresentation?.currentResponses
+      .filter((item) => normalizeThreadKey(item.response.threadKey) === normalizedThreadKey)
+      .map((item) => item.response.updatedAt) ?? []),
   );
   const responseStateHasTrackedWork =
     threadResponseState != null &&

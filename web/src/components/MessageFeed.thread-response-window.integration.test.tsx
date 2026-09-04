@@ -27,7 +27,12 @@ vi.mock("../utils/notification-sound.js", () => ({
 
 const SESSION_ID = "leader-response-window";
 const QUEST_ID = "q-2024";
+const UNRELATED_QUEST_ID = "q-9090";
 const THREAD_REF = { threadKey: QUEST_ID, questId: QUEST_ID, source: "explicit" as const };
+const ASSOCIATED_MAIN_USER_ID = "user-main-attached";
+const ASSOCIATED_MAIN_ANSWER_ID = "answer-main-u25";
+const ASSOCIATED_MAIN_USER_TEXT = "Main request associated with q-2024";
+const ASSOCIATED_MAIN_ANSWER_TEXT = "The Main answer remains the representative in its associated quest.";
 const handleMessage = createWsMessageHandler({ disconnectSession: vi.fn(), sendToSession });
 
 beforeAll(() => {
@@ -84,6 +89,7 @@ function answerIdForRawUserMessage(id: string): string {
     "user-only": "u1",
     "user-older-pending": "u1",
     "user-later-answered": "u2",
+    [ASSOCIATED_MAIN_USER_ID]: "u25",
   };
   const answerId = ids[id];
   if (!answerId) throw new Error(`Missing answer ID fixture for ${id}`);
@@ -270,6 +276,164 @@ function responseState(
         : []),
     ],
     ready,
+  };
+}
+
+function associatedMainUserMessage(): Extract<BrowserIncomingMessage, { type: "user_message" }> {
+  return {
+    type: "user_message",
+    id: ASSOCIATED_MAIN_USER_ID,
+    content: ASSOCIATED_MAIN_USER_TEXT,
+    timestamp: 1_700_000_021_000,
+    leaderResponseCoverageVersion: 1,
+    leaderUserMessageId: "u25",
+    threadKey: "main",
+    threadRefs: [
+      {
+        threadKey: QUEST_ID,
+        questId: QUEST_ID,
+        source: "backfill",
+        attachedAt: 1_700_000_021_500,
+        attachedBy: "leader-session",
+      },
+    ],
+  };
+}
+
+function associatedMainAnswerMessage(): Extract<BrowserIncomingMessage, { type: "assistant" }> {
+  return {
+    type: "assistant",
+    timestamp: 1_700_000_024_000,
+    parent_tool_use_id: null,
+    codexMessagePhase: "final_answer",
+    leaderThreadRole: "answer",
+    threadKey: "main",
+    threadAnswer: { version: 2, answerUserMessageIds: ["u25"], observedHistoryLength: 43 },
+    message: {
+      id: ASSOCIATED_MAIN_ANSWER_ID,
+      type: "message",
+      role: "assistant",
+      model: "claude-opus-4-20250514",
+      content: [{ type: "text", text: ASSOCIATED_MAIN_ANSWER_TEXT }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    },
+  };
+}
+
+function associatedMainAnswerState(
+  projectionThreadKey: string,
+): NonNullable<Extract<BrowserIncomingMessage, { type: "thread_window_sync" }>["response_state"]> {
+  return {
+    version: 2,
+    threadKey: projectionThreadKey,
+    cutoverHistoryIndex: 40,
+    pendingMessageCount: 0,
+    pendingMessages: [],
+    ready: true,
+    currentAnswers: [
+      {
+        version: 2,
+        threadKey: "main",
+        answerUserMessageIds: ["u25"],
+        referencedUserMessageIds: [ASSOCIATED_MAIN_USER_ID],
+        coveredAnswerUserMessageIds: ["u25"],
+        coveredUserMessageIds: [ASSOCIATED_MAIN_USER_ID],
+        currentMessageId: ASSOCIATED_MAIN_ANSWER_ID,
+        currentHistoryIndex: 43,
+        createdAt: 1_700_000_024_000,
+        updatedAt: 1_700_000_024_000,
+        source: "explicit",
+      },
+    ],
+  };
+}
+
+function producerAssociatedMainAnswerWindows(): {
+  main: Extract<BrowserIncomingMessage, { type: "thread_window_sync" }>;
+  quest: Extract<BrowserIncomingMessage, { type: "thread_window_sync" }>;
+} {
+  const user = associatedMainUserMessage();
+  const answer = associatedMainAnswerMessage();
+  const questProgress = assistantMessage(
+    "associated-quest-progress",
+    "Quest-side implementation detail stays behind expansion.",
+    1_700_000_022_000,
+    "commentary",
+    "commentary",
+  );
+  const questTool = toolMessage("associated-quest-tool", "associated-tool-show-quest", 1_700_000_023_000);
+  const questQuiz = assistantMessage(
+    "associated-quest-quiz",
+    `{[(Quest Quiz: ${QUEST_ID})]}`,
+    1_700_000_025_000,
+    "commentary",
+    "commentary",
+  );
+  return {
+    main: {
+      type: "thread_window_sync",
+      thread_key: "main",
+      entries: [
+        { history_index: 40, message: user },
+        { history_index: 43, message: answer },
+      ],
+      window: {
+        thread_key: "main",
+        from_item: 0,
+        item_count: 2,
+        total_items: 2,
+        has_older_items: false,
+        has_newer_items: false,
+        source_history_length: 45,
+        section_item_count: 30,
+        visible_item_count: 2,
+      },
+      response_state: associatedMainAnswerState("main"),
+    },
+    quest: {
+      type: "thread_window_sync",
+      thread_key: QUEST_ID,
+      entries: [
+        { history_index: 40, message: user },
+        { history_index: 41, message: questProgress },
+        { history_index: 42, message: questTool },
+        { history_index: 43, message: answer },
+        { history_index: 44, message: questQuiz },
+      ],
+      window: {
+        thread_key: QUEST_ID,
+        from_item: 0,
+        item_count: 5,
+        total_items: 5,
+        has_older_items: false,
+        has_newer_items: false,
+        source_history_length: 45,
+        section_item_count: 30,
+        visible_item_count: 5,
+      },
+      response_state: associatedMainAnswerState(QUEST_ID),
+    },
+  };
+}
+
+function producerEmptyThreadWindow(threadKey: string): Extract<BrowserIncomingMessage, { type: "thread_window_sync" }> {
+  return {
+    type: "thread_window_sync",
+    thread_key: threadKey,
+    entries: [],
+    window: {
+      thread_key: threadKey,
+      from_item: 0,
+      item_count: 0,
+      total_items: 0,
+      has_older_items: false,
+      has_newer_items: false,
+      source_history_length: 46,
+      section_item_count: 30,
+      visible_item_count: 0,
+    },
+    // Omit response_state so the authoritative replacement clears cached response presentation.
   };
 }
 
@@ -882,6 +1046,40 @@ function producerLegacyPhaseOnlyThreadWindow(): Extract<BrowserIncomingMessage, 
   };
 }
 
+function installAssociatedReadyStatuses() {
+  useStore.getState().applySyncedProjectionSnapshot(
+    createLeaderThreadTabsProjectionEnvelope({
+      key: SESSION_ID,
+      value: createLeaderThreadTabsProjectionValue({
+        tabs: [],
+        mainAttention: { needsInput: false, mutedNeedsInput: false, reviewUnread: false, updatedAt: 0 },
+        activePhaseSummary: [],
+        threadStatuses: {
+          main: {
+            kind: "ready",
+            label: "Thread Ready",
+            threadKey: "main",
+            summary: "Main answer complete",
+            messageId: ASSOCIATED_MAIN_ANSWER_ID,
+            timestamp: 1_700_000_026_000,
+            updatedAt: 1_700_000_026_000,
+          },
+          [QUEST_ID]: {
+            kind: "ready",
+            label: "Thread Ready",
+            threadKey: QUEST_ID,
+            questId: QUEST_ID,
+            summary: "Associated quest view complete",
+            messageId: "associated-quest-quiz",
+            timestamp: 1_700_000_027_000,
+            updatedAt: 1_700_000_027_000,
+          },
+        },
+      }),
+    }),
+  );
+}
+
 function installReadyStatus(timestamp = 1_700_000_010_000, messageId = "response-single-r1") {
   useStore.getState().applySyncedProjectionSnapshot(
     createLeaderThreadTabsProjectionEnvelope({
@@ -918,6 +1116,93 @@ describe("MessageFeed explicit answer selected-window integration", () => {
       handleMessage(SESSION_ID, producerThreadWindow());
       installReadyStatus();
     });
+  });
+
+  it("reuses one Main answer identity across collapsed and expanded Main and associated quest projections", () => {
+    act(() => {
+      useStore.getState().reset();
+      handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
+      useStore.getState().upsertQuestDetail(quest(), { etag: '"response-detail"' });
+      const windows = producerAssociatedMainAnswerWindows();
+      handleMessage(SESSION_ID, windows.main);
+      handleMessage(SESSION_ID, windows.quest);
+      handleMessage(SESSION_ID, producerEmptyThreadWindow(UNRELATED_QUEST_ID));
+      installAssociatedReadyStatuses();
+    });
+
+    const view = render(<MessageFeed key="main" sessionId={SESSION_ID} threadKey="main" />);
+    const assertOneAnswerIdentity = () => {
+      expect(screen.getAllByText(ASSOCIATED_MAIN_ANSWER_TEXT)).toHaveLength(1);
+      expect(view.container.querySelectorAll(`[data-message-id="${ASSOCIATED_MAIN_ANSWER_ID}"]`)).toHaveLength(1);
+    };
+
+    const mainTurn = view.container
+      .querySelector<HTMLElement>(`[data-message-id="${ASSOCIATED_MAIN_USER_ID}"]`)!
+      .closest<HTMLElement>("[data-turn-id]")!;
+    assertOneAnswerIdentity();
+    expect(within(mainTurn).getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
+    expect(
+      view.container.querySelector(
+        `[data-message-id="${ASSOCIATED_MAIN_ANSWER_ID}"] [data-testid="thread-source-badge"]`,
+      ),
+    ).toBeNull();
+    expect(within(mainTurn).getAllByRole("button", { name: /Expand turn/ })).toHaveLength(1);
+
+    fireEvent.click(within(mainTurn).getByRole("button", { name: /Expand turn/ }));
+    assertOneAnswerIdentity();
+    expect(
+      screen
+        .getByText(ASSOCIATED_MAIN_ANSWER_TEXT)
+        .closest<HTMLElement>("[data-testid='thread-response-current-expanded']"),
+    ).toBeInTheDocument();
+    expect(within(mainTurn).getByRole("button", { name: "Collapse turn" })).toBeVisible();
+    fireEvent.click(within(mainTurn).getByRole("button", { name: "Collapse turn" }));
+    assertOneAnswerIdentity();
+
+    view.rerender(<MessageFeed key={QUEST_ID} sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+    const questTurn = view.container
+      .querySelector<HTMLElement>(`[data-message-id="${ASSOCIATED_MAIN_USER_ID}"]`)!
+      .closest<HTMLElement>("[data-turn-id]")!;
+    const collapsedAnswerRow = view.container.querySelector<HTMLElement>(
+      `[data-message-id="${ASSOCIATED_MAIN_ANSWER_ID}"]`,
+    )!;
+    assertOneAnswerIdentity();
+    expect(within(questTurn).getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
+    expect(within(collapsedAnswerRow).getByTestId("thread-source-badge")).toHaveTextContent("[thread:main]");
+    expect(
+      within(questTurn).queryByText("Quest-side implementation detail stays behind expansion."),
+    ).not.toBeInTheDocument();
+    expect(within(questTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
+    expect(within(questTurn).queryByText(/Quest Quiz:/i)).not.toBeInTheDocument();
+    expect(within(questTurn).getAllByRole("button", { name: "Expand turn · 1 tool" })).toHaveLength(1);
+
+    fireEvent.click(within(questTurn).getByRole("button", { name: "Expand turn · 1 tool" }));
+    assertOneAnswerIdentity();
+    expect(within(questTurn).getByText("Quest-side implementation detail stays behind expansion.")).toBeVisible();
+    const expandedAnswerRow = view.container.querySelector<HTMLElement>(
+      `[data-message-id="${ASSOCIATED_MAIN_ANSWER_ID}"]`,
+    )!;
+    expect(within(expandedAnswerRow).getByTestId("thread-source-badge")).toHaveTextContent("[thread:main]");
+    expect(
+      screen
+        .getByText(ASSOCIATED_MAIN_ANSWER_TEXT)
+        .closest<HTMLElement>("[data-testid='thread-response-current-expanded']"),
+    ).toBeInTheDocument();
+    expect(within(questTurn).getByRole("button", { name: "Collapse turn" })).toBeVisible();
+    expect(within(questTurn).getAllByRole("region", { name: "Quest quiz" })).toHaveLength(1);
+
+    fireEvent.click(within(questTurn).getByRole("button", { name: "Collapse turn" }));
+    assertOneAnswerIdentity();
+    expect(within(questTurn).getAllByRole("button", { name: "Expand turn · 1 tool" })).toHaveLength(1);
+
+    view.rerender(<MessageFeed key={UNRELATED_QUEST_ID} sessionId={SESSION_ID} threadKey={UNRELATED_QUEST_ID} />);
+    expect(screen.queryByText(ASSOCIATED_MAIN_ANSWER_TEXT)).not.toBeInTheDocument();
+    expect(view.container.querySelectorAll(`[data-message-id="${ASSOCIATED_MAIN_ANSWER_ID}"]`)).toHaveLength(0);
+
+    act(() => handleMessage(SESSION_ID, producerEmptyThreadWindow(QUEST_ID)));
+    view.rerender(<MessageFeed key={`${QUEST_ID}-detached`} sessionId={SESSION_ID} threadKey={QUEST_ID} />);
+    expect(screen.queryByText(ASSOCIATED_MAIN_ANSWER_TEXT)).not.toBeInTheDocument();
+    expect(view.container.querySelectorAll(`[data-message-id="${ASSOCIATED_MAIN_ANSWER_ID}"]`)).toHaveLength(0);
   });
 
   it("shows only one defensible legacy representative while preserving complete expanded chronology", () => {

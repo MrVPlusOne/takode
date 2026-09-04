@@ -46,3 +46,60 @@ export function leaderResponseOwnerThreadKey(fields: LeaderResponseThreadRouteFi
   if (attached) return attached.threadKey;
   return routeThreadKey(fields.threadKey, fields.questId) ?? "main";
 }
+
+/**
+ * Resolve an answer row's exact authoritative route. Unlike direct-user
+ * ownership, this must not fall malformed data back to Main: the stored answer
+ * itself is proof-bearing and therefore fails closed on incomplete or
+ * conflicting route fields.
+ */
+export function leaderResponseExactAnswerThreadKey(fields: LeaderResponseThreadRouteFields): string | null {
+  const threadKey = validThreadKey(fields.threadKey);
+  if (!threadKey) return null;
+  const authoritativeRefs = (fields.threadRefs ?? []).filter((ref) => ref.source !== "backfill");
+
+  if (threadKey === "main") {
+    if (fields.questId?.trim() || authoritativeRefs.length > 0) return null;
+    return leaderResponseOwnerThreadKey(fields) === "main" ? "main" : null;
+  }
+
+  if (
+    validThreadKey(fields.questId) !== threadKey ||
+    !authoritativeRefs.some((ref) => routeThreadKey(ref.threadKey, ref.questId) === threadKey)
+  ) {
+    return null;
+  }
+  return leaderResponseOwnerThreadKey(fields) === threadKey ? threadKey : null;
+}
+
+/**
+ * Resolve every thread where a direct human message is currently visible for
+ * answer presentation. The owning route is always included. Backfill refs add
+ * visibility without transferring ownership; a newer authoritative assignment
+ * replaces the original direct route through `leaderResponseOwnerThreadKey`.
+ */
+export function leaderResponseAssociatedThreadKeys(fields: LeaderResponseThreadRouteFields): string[] {
+  const keys = new Set<string>();
+  const ownerThreadKey = leaderResponseOwnerThreadKey(fields);
+  if (ownerThreadKey) keys.add(ownerThreadKey);
+
+  for (const ref of fields.threadRefs ?? []) {
+    if (ref.source !== "backfill") continue;
+    const threadKey = routeThreadKey(ref.threadKey, ref.questId);
+    // Backfill is the visibility-only mechanism used to attach a Main-owned
+    // request to a quest. Main visibility is already governed by ownership;
+    // accepting a persisted/corrupt Main backfill would incorrectly leak a
+    // quest-owned request back into Main.
+    if (threadKey && /^q-\d+$/.test(threadKey)) keys.add(threadKey);
+  }
+
+  return [...keys];
+}
+
+export function leaderResponseMessageIsAssociatedWithThread(
+  fields: LeaderResponseThreadRouteFields,
+  requestedThreadKey: string,
+): boolean {
+  const threadKey = validThreadKey(requestedThreadKey);
+  return threadKey !== null && leaderResponseAssociatedThreadKeys(fields).includes(threadKey);
+}

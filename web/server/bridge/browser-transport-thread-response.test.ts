@@ -132,6 +132,71 @@ describe("explicit answer selected-window authority", () => {
     expect(deliveredIds(message)).toEqual(expect.arrayContaining(["main-u1", response.message.id]));
   });
 
+  it("emits the same Main-owned u25 answer identity in Main and its associated q-2024 window", () => {
+    // Producer-shaped regression for the live failure: the request remains
+    // owned by Main while a backfill ref makes it part of q-2024.
+    const request = human("raw-u25", 1, "main", "u25") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    request.threadRefs = [{ threadKey: "q-2024", questId: "q-2024", source: "backfill", attachedAt: 2 }];
+    const session = { id: "leader", messageHistory: [request] as BrowserIncomingMessage[] };
+    const response = createResponse(session, "main", "Main answer for the attached request.");
+    session.messageHistory.push(assistant("unrelated-main", "Unrelated Main activity.", 20));
+
+    const main = sendLatest(session, "main");
+    const quest = sendLatest(session, "q-2024");
+    const unrelated = sendLatest(session, "q-999");
+    const mainAnswer = main.response_state?.currentAnswers[0];
+    const questAnswer = quest.response_state?.currentAnswers[0];
+
+    expect(mainAnswer).toMatchObject({
+      threadKey: "main",
+      answerUserMessageIds: ["u25"],
+      coveredAnswerUserMessageIds: ["u25"],
+      coveredUserMessageIds: ["raw-u25"],
+      currentMessageId: response.message.id,
+      currentHistoryIndex: 1,
+    });
+    expect(quest.response_state).toMatchObject({
+      threadKey: "q-2024",
+      cutoverHistoryIndex: 0,
+      pendingMessageCount: 0,
+      ready: true,
+    });
+    expect(questAnswer).toEqual(mainAnswer);
+    expect(deliveredIds(quest).filter((id) => id === response.message.id)).toHaveLength(1);
+    expect(deliveredIds(quest).filter((id) => id === "raw-u25")).toHaveLength(1);
+    expect(deliveredIds(quest)).not.toContain("unrelated-main");
+    const deliveredAnswer = quest.entries.find(
+      (entry) => entry.message.type === "assistant" && entry.message.message.id === response.message.id,
+    )?.message;
+    expect(deliveredAnswer).toMatchObject({ type: "assistant", threadKey: "main" });
+    expect(deliveredAnswer).not.toHaveProperty("threadRefs");
+    expect(unrelated.response_state?.currentAnswers).toEqual([]);
+    expect(deliveredIds(unrelated)).not.toContain(response.message.id);
+  });
+
+  it("keeps deterministic missing-ID compatibility for an associated Main answer", () => {
+    const request = human("raw-without-persisted-id", 1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    request.leaderUserMessageId = undefined;
+    request.threadRefs = [{ threadKey: "q-42", questId: "q-42", source: "backfill", attachedAt: 2 }];
+    const session = { id: "leader", messageHistory: [request] as BrowserIncomingMessage[] };
+    const response = createResponse(session, "main", "Answer through deterministic u1.");
+
+    const quest = sendLatest(session, "q-42");
+
+    expect(request.leaderUserMessageId).toBeUndefined();
+    expect(quest.response_state?.currentAnswers).toMatchObject([
+      {
+        threadKey: "main",
+        answerUserMessageIds: ["u1"],
+        referencedUserMessageIds: ["raw-without-persisted-id"],
+        coveredAnswerUserMessageIds: ["u1"],
+        coveredUserMessageIds: ["raw-without-persisted-id"],
+        currentMessageId: response.message.id,
+      },
+    ]);
+    expect(deliveredIds(quest)).toEqual(expect.arrayContaining(["raw-without-persisted-id", response.message.id]));
+  });
+
   it("retains a separate routed Quest Quiz directive for the collapsed Ready view", () => {
     const session = { id: "leader", messageHistory: [human("u1", 1, "q-42")] };
     const response = createResponse(session, "q-42", "Answer.");
@@ -174,6 +239,49 @@ describe("explicit answer selected-window authority", () => {
 
     expect(message.response_state).toBeUndefined();
     expect(message.entries.length).toBeLessThan(THREAD_WINDOW_SUPPORT_RECORD_LIMIT);
+  });
+
+  it("omits cross-thread response state when duplicate raw prompt identity makes support ambiguous", () => {
+    const first = human("raw-duplicate", 1, "main", "u1") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    const second = human("raw-duplicate", 2, "main", "u2") as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    for (const request of [first, second]) {
+      request.threadRefs = [{ threadKey: "q-42", questId: "q-42", source: "backfill", attachedAt: 3 }];
+    }
+    const session = { id: "leader", messageHistory: [first, second] as BrowserIncomingMessage[] };
+    const response = assistant("duplicate-anchor-answer", "Answer for the first prompt.", 10, "main");
+    response.leaderThreadRole = "answer";
+    response.leaderAnswerUserMessageIds = ["u1"];
+    response.leaderAnswerObservedHistoryLength = 2;
+    session.messageHistory.push(response);
+    expect(finalizeRoutedLeaderResponseMessage(session, response)).toMatchObject({ finalized: true });
+    expect(buildLeaderThreadResponseState(session, "q-42").projection.currentAnswers).toHaveLength(1);
+
+    const message = sendLatest(session, "q-42");
+
+    expect(message.response_state).toBeUndefined();
+    expect(deliveredIds(message)).not.toContain(response.message.id);
+  });
+
+  it("omits cross-thread response state when complete associated proof exceeds the support cap", () => {
+    const session = { id: "leader", messageHistory: [] as BrowserIncomingMessage[] };
+    const responseIds: string[] = [];
+    for (let index = 0; index <= THREAD_WINDOW_SUPPORT_RECORD_LIMIT / 2; index += 1) {
+      const request = human(`raw-main-${index}`, index * 2 + 1, "main", `u${index + 1}`) as Extract<
+        BrowserIncomingMessage,
+        { type: "user_message" }
+      >;
+      request.threadRefs = [{ threadKey: "q-42", questId: "q-42", source: "backfill", attachedAt: index + 1 }];
+      session.messageHistory.push(request);
+      responseIds.push(createResponse(session, "main", `Associated answer ${index}.`).message.id);
+    }
+    expect(buildLeaderThreadResponseState(session, "q-42").projection.currentAnswers).toHaveLength(
+      THREAD_WINDOW_SUPPORT_RECORD_LIMIT / 2 + 1,
+    );
+
+    const message = sendLatest(session, "q-42");
+
+    expect(message.response_state).toBeUndefined();
+    expect(deliveredIds(message).some((id) => responseIds.includes(id))).toBe(false);
   });
 
   it("sends response state even on a cache hit", () => {

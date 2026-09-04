@@ -203,6 +203,19 @@ describe("Playground", () => {
     expect(withoutTools.getByRole("button", { name: "Message options" })).toBeVisible();
     expect(withoutTools.queryByText(/tools?/i)).not.toBeInTheDocument();
 
+    const associatedMainCard = routedFinalStates.getByTestId("playground-associated-main-answer");
+    expect(associatedMainCard).toHaveClass("min-w-0", "w-full", "max-w-[430px]", "overflow-hidden");
+    const associatedMain = within(associatedMainCard);
+    expect(associatedMain.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
+    expect(associatedMain.getByTestId("thread-source-badge")).toHaveTextContent("[thread:main]");
+    expect(associatedMain.getByRole("button", { name: "Expand turn · 1 tool" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(associatedMainCard.querySelectorAll('[data-message-id="playground-associated-main-answer"]')).toHaveLength(
+      1,
+    );
+
     const expandedCard = routedFinalStates.getByTestId("playground-unified-footer-expanded");
     expect(expandedCard).toHaveClass("min-w-0", "max-w-[430px]");
     const expanded = within(expandedCard);
@@ -222,7 +235,7 @@ describe("Playground", () => {
     expect(expandedMessageRow).not.toHaveClass("gap-2", "sm:gap-3");
     expect(expandedMessageRow.children).toHaveLength(1);
 
-    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(3);
+    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(4);
     expect(routedFinalStates.queryByText("Current answer")).not.toBeInTheDocument();
     expect(routedFinalStates.queryByText("Leader activity")).not.toBeInTheDocument();
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);

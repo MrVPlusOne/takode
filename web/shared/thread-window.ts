@@ -6,7 +6,11 @@ import type {
   ThreadTransitionMarker,
   LeaderThreadResponseProjection,
 } from "../server/session-types.js";
-import { leaderResponseOwnerThreadKey } from "./leader-thread-response-routing.js";
+import {
+  leaderResponseExactAnswerThreadKey,
+  leaderResponseMessageIsAssociatedWithThread,
+  leaderResponseOwnerThreadKey,
+} from "./leader-thread-response-routing.js";
 import { assignSessionScopedLeaderUserMessageIds } from "./leader-user-message-id.js";
 import { deriveWindowAvailability } from "./window-availability.js";
 import { isCodexLeaderRecoveryDiagnosticSourceId } from "./injected-event-message.js";
@@ -284,9 +288,13 @@ function addCurrentThreadResponseSupport(
     return { items: [...selectedItems, ...required.values()], complete: true };
   }
 
+  const seenAnswerMessageIds = new Set<string>();
+  const seenAnswerHistoryIndexes = new Set<number>();
   for (const answer of projection.currentAnswers) {
     const historyIndex = answer.currentHistoryIndex;
     const message = messages[historyIndex];
+    const answerThreadKey = normalizeSelectedFeedThreadKey(answer.threadKey);
+    const associationProjection = answerThreadKey !== threadKey;
     const messageId =
       message?.type === "leader_user_message"
         ? message.id
@@ -309,20 +317,44 @@ function addCurrentThreadResponseSupport(
     if (
       !message ||
       (message.type !== "leader_user_message" && message.type !== "assistant") ||
+      !messageId ||
+      seenAnswerMessageIds.has(messageId) ||
+      seenAnswerHistoryIndexes.has(historyIndex) ||
       messageId !== answer.currentMessageId ||
       (!explicitProof && !legacyProof) ||
-      normalizeSelectedFeedThreadKey(message.threadKey ?? "") !== threadKey ||
+      (associationProjection && answer.source !== "explicit") ||
+      leaderResponseExactAnswerThreadKey(message) !== answerThreadKey ||
+      answer.referencedUserMessageIds.length !== answer.answerUserMessageIds.length ||
+      answer.coveredUserMessageIds.length !== answer.coveredAnswerUserMessageIds.length ||
       !addRequired(message, historyIndex)
     ) {
       return { items: selectedItems, complete: false };
     }
+    seenAnswerMessageIds.add(messageId);
+    seenAnswerHistoryIndexes.add(historyIndex);
 
-    for (const referencedId of answer.referencedUserMessageIds) {
+    for (let index = 0; index < answer.referencedUserMessageIds.length; index += 1) {
+      const referencedId = answer.referencedUserMessageIds[index]!;
       const referenced = usersById.get(referencedId);
       if (
         !referenced ||
-        leaderResponseOwnerThreadKey(referenced.message) !== threadKey ||
+        leaderResponseOwnerThreadKey(referenced.message) !== answerThreadKey ||
+        userMessageIdsByHistoryId.get(referencedId) !== answer.answerUserMessageIds[index] ||
+        (associationProjection && !leaderResponseMessageIsAssociatedWithThread(referenced.message, threadKey)) ||
         !addRequired(referenced.message, referenced.historyIndex)
+      ) {
+        return { items: selectedItems, complete: false };
+      }
+    }
+
+    for (let index = 0; index < answer.coveredUserMessageIds.length; index += 1) {
+      const coveredId = answer.coveredUserMessageIds[index]!;
+      const referencedIndex = answer.referencedUserMessageIds.indexOf(coveredId);
+      const covered = usersById.get(coveredId);
+      if (
+        referencedIndex < 0 ||
+        answer.answerUserMessageIds[referencedIndex] !== answer.coveredAnswerUserMessageIds[index] ||
+        !covered
       ) {
         return { items: selectedItems, complete: false };
       }

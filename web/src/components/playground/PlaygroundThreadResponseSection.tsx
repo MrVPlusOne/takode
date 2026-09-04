@@ -148,6 +148,81 @@ const ANSWER_ONLY_PRESENTATION: ThreadResponsePresentation = {
   quizGroups: [],
   layoutSignature: "playground-answer-only-r1",
 };
+const ASSOCIATED_MAIN_RESPONSE_BASE = assistantEntry(
+  "playground-associated-main-answer",
+  "This Main answer remains visible here because its covered request is associated with this quest.",
+  "answer",
+);
+const ASSOCIATED_MAIN_RESPONSE: Extract<FeedEntry, { kind: "message" }> = {
+  ...ASSOCIATED_MAIN_RESPONSE_BASE,
+  msg: {
+    ...ASSOCIATED_MAIN_RESPONSE_BASE.msg,
+    metadata: {
+      leaderThreadRole: "answer",
+      threadKey: "main",
+      threadAnswer: { version: 2, answerUserMessageIds: ["u25"], observedHistoryLength: 25 },
+    },
+  },
+};
+const ASSOCIATED_MAIN_TURN: Turn = {
+  id: "playground-associated-main-user",
+  userEntry: {
+    kind: "message",
+    msg: {
+      id: "playground-associated-main-user",
+      role: "user",
+      content: "Main request attached to this quest.",
+      timestamp: 1,
+      metadata: {
+        leaderResponseCoverageVersion: 1,
+        leaderUserMessageId: "u25",
+        threadKey: "main",
+        threadRefs: [{ threadKey: "q-2042", questId: "q-2042", source: "backfill" }],
+      },
+    },
+  },
+  allEntries: [ASSOCIATED_MAIN_RESPONSE],
+  presentationEntries: [ASSOCIATED_MAIN_RESPONSE],
+  agentEntries: [],
+  systemEntries: [],
+  notificationEntries: [ASSOCIATED_MAIN_RESPONSE],
+  responseEntry: ASSOCIATED_MAIN_RESPONSE,
+  subConclusions: [],
+  collapsedEntries: [
+    { kind: "entry", key: "entry:playground-associated-main-answer", entry: ASSOCIATED_MAIN_RESPONSE },
+  ],
+  stats: { messageCount: 0, toolCount: 1, subagentCount: 0, herdEventCount: 0 },
+};
+const ASSOCIATED_MAIN_PRESENTATION: ThreadResponsePresentation = {
+  ...PRESENTATION,
+  currentResponses: [
+    {
+      response: {
+        version: 2,
+        threadKey: "main",
+        answerUserMessageIds: ["u25"],
+        referencedUserMessageIds: [ASSOCIATED_MAIN_TURN.id],
+        coveredAnswerUserMessageIds: ["u25"],
+        coveredUserMessageIds: [ASSOCIATED_MAIN_TURN.id],
+        currentMessageId: ASSOCIATED_MAIN_RESPONSE.msg.id,
+        currentHistoryIndex: 25,
+        createdAt: 25,
+        updatedAt: 25,
+        source: "explicit",
+      },
+      anchorUserMessageId: ASSOCIATED_MAIN_TURN.id,
+      anchorTurnId: ASSOCIATED_MAIN_TURN.id,
+      anchorOrder: 0,
+      sourceTurnId: ASSOCIATED_MAIN_TURN.id,
+      messageEntry: ASSOCIATED_MAIN_RESPONSE,
+      collapsedMessageEntry: ASSOCIATED_MAIN_RESPONSE,
+    },
+  ],
+  currentResponseMessageIds: new Set([ASSOCIATED_MAIN_RESPONSE.msg.id]),
+  quizGroups: [],
+  layoutSignature: "playground-associated-main-answer",
+};
+
 const NOOP = () => {};
 
 function renderEntry(entry: FeedEntry) {
@@ -171,7 +246,7 @@ export function PlaygroundThreadResponseSection() {
         title="Routed Answers"
         description="Each routed answer uses one coverage chip without a decorative assistant rail; answers stay visible while work remains pending, Ready controls whole-thread collapse, and expanded history preserves commentary plus superseded answers."
       >
-        <div className="grid min-w-0 gap-4 xl:grid-cols-3">
+        <div className="grid min-w-0 gap-4 xl:grid-cols-2">
           <Card label="Collapsed Ready · grouped answer plus Quiz">
             <div
               className="min-w-0 max-w-[430px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"
@@ -200,6 +275,21 @@ export function PlaygroundThreadResponseSection() {
                 questLinkSurface="chat-feed"
               />
               <TurnToggleFooter expanded={false} onToggle={NOOP} />
+            </div>
+          </Card>
+          <Card label="Collapsed quest projection · associated Main answer">
+            <div
+              className="min-w-0 w-full max-w-[430px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"
+              data-testid="playground-associated-main-answer"
+            >
+              <ReadyThreadResponseRows
+                turn={ASSOCIATED_MAIN_TURN}
+                presentation={ASSOCIATED_MAIN_PRESENTATION}
+                renderEntry={renderEntry}
+                sessionId={SESSION_ID}
+                questLinkSurface="chat-feed"
+              />
+              <TurnToggleFooter expanded={false} onToggle={NOOP} toolCount={ASSOCIATED_MAIN_TURN.stats.toolCount} />
             </div>
           </Card>
           <Card label="Expanded active thread · complete chronology">

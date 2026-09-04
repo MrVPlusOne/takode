@@ -1711,7 +1711,9 @@ export const TurnEntries = memo(function TurnEntries({
   );
   const latestThreadResponseUpdatedAt = Math.max(
     0,
-    ...(threadResponsePresentation?.currentResponses.map((item) => item.response.updatedAt) ?? []),
+    ...(threadResponsePresentation?.currentResponses
+      .filter((item) => normalizeThreadKey(item.response.threadKey) === normalizeThreadKey(currentThreadKey))
+      .map((item) => item.response.updatedAt) ?? []),
   );
   const readyThreadResponsePresentation =
     threadResponsePresentation?.ready &&
