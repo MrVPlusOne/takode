@@ -174,3 +174,98 @@ describe("bounded frontend load diagnostics", () => {
     expect(sent).toHaveLength(before);
   });
 });
+
+// Entry timings are a document-level capture, even when several session sockets exist.
+describe("automatic standalone entry resources", () => {
+  function standalone(ready: DocumentReadyState = "loading") {
+    observer.dispose();
+    Object.defineProperty(navigator, "standalone", { value: true, configurable: true });
+    vi.spyOn(document, "readyState", "get").mockReturnValue(ready);
+    document.head.innerHTML =
+      '<script type="module" src="/entry.js"></script><link rel="stylesheet" href="/entry.css">';
+    const read = vi.spyOn(performance, "getEntriesByName").mockReturnValue([]);
+    observer = new BrowserLoadDiagnostics();
+    return read;
+  }
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "standalone");
+    document.head.innerHTML = "";
+  });
+  const resources = () => stages().filter((stage) => stage.stage === "entry_resources");
+
+  it("waits for load and identity, sends once per document, and does not repeat on reconnect", () => {
+    const read = standalone();
+    observer.connect("s1", send);
+    window.dispatchEvent(new Event("load"));
+    expect(read).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(sent).toEqual([]);
+    observer.identify("s1", "first");
+    expect(resources()).toHaveLength(1);
+    expect(resources()[0]!.entryResources?.status).toBe("incomplete");
+    observer.connect("s2", send);
+    observer.identify("s2", "second");
+    observer.connect("s1", send);
+    observer.identify("s1", "replacement");
+    window.dispatchEvent(new Event("load"));
+    vi.advanceTimersByTime(500);
+    expect(resources()).toHaveLength(1);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(
+      sent.find((message) => message.report.stages.some((stage) => stage.stage === "entry_resources"))?.connection_id,
+    ).toBe("first");
+  });
+
+  it("handles a late module after load and cancels an owned pending read on disposal", () => {
+    const read = standalone("complete");
+    observer.connect("s1", send);
+    observer.identify("s1", "first");
+    vi.advanceTimersByTime(201);
+    expect(resources()).toHaveLength(1);
+    expect(read).toHaveBeenCalledTimes(2);
+    standalone("complete");
+    observer.dispose();
+    vi.advanceTimersByTime(201);
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("never reads old startup resources as a foreground observation", () => {
+    const read = standalone();
+    visibility(true);
+    vi.advanceTimersByTime(3000);
+    visibility(false);
+    window.dispatchEvent(new Event("load"));
+    vi.advanceTimersByTime(1);
+    observer.connect("s1", send);
+    observer.identify("s1", "foreground");
+    expect(read).not.toHaveBeenCalled();
+    expect(resources()[0]!.entryResources).toEqual({ status: "expired", resources: [] });
+    expect(sent.at(-1)!.report.lifecycle).toBe("foreground");
+  });
+
+  it("reports expiry without resource data when the first identified connection is too late", () => {
+    const read = standalone("complete");
+    vi.advanceTimersByTime(BROWSER_LOAD_WINDOW_MS + 1);
+    observer.connect("s1", send);
+    observer.identify("s1", "late");
+    expect(resources()[0]!.entryResources).toEqual({ status: "expired", resources: [] });
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(sent.at(-1)!.report.lifecycle).toBe("connection");
+  });
+
+  it("preserves the existing stage cap and does not collect desktop browser entries", () => {
+    const desktopRead = vi.spyOn(performance, "getEntriesByName");
+    window.dispatchEvent(new Event("load"));
+    vi.advanceTimersByTime(1);
+    expect(desktopRead).not.toHaveBeenCalled();
+    standalone();
+    observer.connect("s1", send);
+    for (let i = 0; i < 100; i++) observer.capture("s1")("view_request");
+    observer.identify("s1", "capped");
+    window.dispatchEvent(new Event("load"));
+    vi.advanceTimersByTime(201);
+    expect(stages()).toHaveLength(64);
+    expect(resources()).toEqual([]);
+  });
+});

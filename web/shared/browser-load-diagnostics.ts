@@ -15,6 +15,7 @@ export const BROWSER_LOAD_STAGES = [
   "message_applied",
   "feed_commit",
   "feed_frame",
+  "entry_resources",
 ] as const;
 export const BROWSER_LOAD_MESSAGE_TYPES = [
   "session_init",
@@ -28,6 +29,28 @@ export const BROWSER_LOAD_MESSAGE_TYPES = [
 export const BROWSER_LOAD_WINDOW_MS = 90_000;
 export const BROWSER_LOAD_MAX_STAGES = 64;
 export const BROWSER_LOAD_BATCH_SIZE = 16;
+export const BROWSER_ENTRY_RESOURCE_LIMIT = 4;
+export const BROWSER_ENTRY_RESOURCE_MAX_BYTES = 4096;
+export const BROWSER_ENTRY_RESOURCE_FIELDS = [
+  "startTime",
+  "fetchStart",
+  "requestStart",
+  "responseStart",
+  "responseEnd",
+  "duration",
+  "transferSize",
+  "encodedBodySize",
+  "decodedBodySize",
+] as const;
+export interface BrowserEntryResource {
+  role: "entry_script" | "entry_stylesheet";
+  status: "available" | "partial" | "missing" | "ambiguous";
+  timings?: Partial<Record<(typeof BROWSER_ENTRY_RESOURCE_FIELDS)[number], number>>;
+}
+export interface BrowserEntryResourceSummary {
+  status: "complete" | "incomplete" | "ambiguous" | "unsupported" | "expired";
+  resources: BrowserEntryResource[];
+}
 
 export interface BrowserLoadStage {
   stage: (typeof BROWSER_LOAD_STAGES)[number];
@@ -40,6 +63,7 @@ export interface BrowserLoadStage {
   applyMs?: number;
   loading?: boolean;
   persisted?: boolean;
+  entryResources?: BrowserEntryResourceSummary;
 }
 
 export interface BrowserLoadReport {

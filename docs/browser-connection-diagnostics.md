@@ -161,3 +161,47 @@ foreground stages, document navigation milestones, first connection/subscribe,
 window receipt/application, and matching feed commit/frame callbacks. Activation
 and a physical-device observation are separate from source delivery and isolated
 validation; these diagnostics do not establish a cause or authorize optimization.
+
+## Automatic entry-resource summary
+
+Standalone document startups add one `entry_resources` stage after the window
+load event (or one task after initialization when the document is already
+complete). It reads browser-maintained Resource Timing for the exact same-origin
+module-script and linked-stylesheet references in that document. It issues no
+fetch, profiling request, buffer resize, or polling loop. Ordinary browser-mode
+documents do not perform this read.
+
+The summary contains at most four resource records and its complete stage is
+limited to 4 KiB of serialized UTF-8 metadata. Each record has an `entry_script`
+or `entry_stylesheet` role, an availability status, and supported numeric timing
+and size fields. URLs, names, query strings, server timing descriptions, and
+resource/page contents are not retained. Unknown/invalid numeric fields are
+absent; valid zeros remain zeros, without claiming a cache hit or zero-cost
+operation. Byte sizes are browser-reported resource accounting, not packet/TLS
+traffic.
+
+`complete` means both entry roles have uniquely matched records with the expected
+numeric fields and a positive response end. It does not mean every page resource
+or rendering task is accounted for. `incomplete` preserves missing, partial, or
+ambiguous records. Excessive entry references produce an empty `ambiguous`
+summary; an unavailable API produces `unsupported`. No fastest/latest duplicate
+resource entry is guessed.
+
+The document sends this stage at most once through its first eligible identified
+session socket; reconnects and other sockets do not repeat it. The server also
+accepts at most one summary per socket's existing 90-second budget, within the
+64-stage cap. A queued startup summary that first gets an eligible connection
+after expiry or foregrounding becomes an empty `expired` result. Old startup
+resource values are never labeled as a new foreground load. If the document
+never loads, no socket identifies, the stage cap is exhausted, or the observation
+expires without another eligible connection, evidence may be absent rather than
+an explicit expiry record. Absence is not evidence of a fast load.
+
+Compare response completion for each entry asset with the document navigation
+and module-start marks on the same performance clock. A late resource response
+locates outstanding loading; an early response leaves later startup processing
+or scheduling to investigate. Fetch and compilation can overlap, so resource
+durations must not be summed into a CPU attribution. This summary does not
+measure icon taps, pre-navigation OS work, physical screen presentation, or the
+whole blackout. A newly activated bundle can change cache state; keep that first
+new-build navigation separate from a later ordinary or long-idle return.

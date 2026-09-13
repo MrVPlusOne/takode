@@ -2,10 +2,13 @@ import {
   BROWSER_LOAD_BATCH_SIZE,
   BROWSER_LOAD_MAX_STAGES,
   BROWSER_LOAD_WINDOW_MS,
+  BROWSER_ENTRY_RESOURCE_MAX_BYTES,
+  type BrowserEntryResourceSummary,
   type BrowserLoadReport,
   type BrowserLoadReportMessage,
   type BrowserLoadStage,
 } from "../../shared/browser-load-diagnostics.js";
+import { readBrowserEntryResources } from "./browser-entry-resource-timing.js";
 
 type Lifecycle = Pick<BrowserLoadReport, "lifecycleId" | "lifecycle" | "startedAtMs" | "hiddenMs"> & {
   stages: BrowserLoadStage[];
@@ -40,6 +43,9 @@ export class BrowserLoadDiagnostics {
   private readonly observations = new Map<string, Observation>();
   private hiddenAt: number | undefined;
   private appCommitted = false;
+  private entryResources?: BrowserEntryResourceSummary;
+  private entryResourcesReported = false;
+  private entryResourceTimer?: ReturnType<typeof setTimeout>;
 
   constructor() {
     if (typeof document === "undefined") return;
@@ -47,6 +53,10 @@ export class BrowserLoadDiagnostics {
     document.addEventListener("visibilitychange", this.onVisibility);
     window.addEventListener("pageshow", this.onPageShow);
     window.addEventListener("pagehide", this.onPageHide);
+    if (isStandalone()) {
+      if (document.readyState === "complete") this.onLoad();
+      else window.addEventListener("load", this.onLoad, { once: true });
+    }
   }
 
   /** Start a socket-owned window. Replacement drops old queues and late callbacks. */
@@ -73,6 +83,7 @@ export class BrowserLoadDiagnostics {
     const observation = this.observations.get(sessionId);
     if (!observation || observation.connectionId || !connectionId) return;
     observation.connectionId = connectionId;
+    this.reportEntryResources();
     this.flush(observation);
   }
 
@@ -132,6 +143,44 @@ export class BrowserLoadDiagnostics {
     document.removeEventListener("visibilitychange", this.onVisibility);
     window.removeEventListener("pageshow", this.onPageShow);
     window.removeEventListener("pagehide", this.onPageHide);
+    window.removeEventListener("load", this.onLoad);
+    if (this.entryResourceTimer) clearTimeout(this.entryResourceTimer);
+  }
+
+  private onLoad = (): void => {
+    if (this.entryResourceTimer || this.entryResources) return;
+    // A task after load lets the browser finish that milestone; this is not a polling loop.
+    this.entryResourceTimer = setTimeout(() => {
+      this.entryResourceTimer = undefined;
+      this.entryResources =
+        this.life.lifecycle === "startup"
+          ? readBrowserEntryResources(this.moduleStartedAtMs)
+          : { status: "expired", resources: [] };
+      this.reportEntryResources();
+    }, 0);
+  };
+
+  private reportEntryResources(): void {
+    if (!this.entryResources || this.entryResourcesReported) return;
+    const now = performance.now();
+    for (const observation of this.observations.values()) {
+      if (
+        !observation.connectionId ||
+        observation.count >= BROWSER_LOAD_MAX_STAGES ||
+        now - observation.life.startedAtMs > BROWSER_LOAD_WINDOW_MS
+      )
+        continue;
+      // A later connection may report expiry, but must never relabel startup assets as foreground work.
+      const entryResources: BrowserEntryResourceSummary =
+        observation.life.lifecycle === "startup" && now - this.moduleStartedAtMs <= BROWSER_LOAD_WINDOW_MS
+          ? this.entryResources
+          : { status: "expired", resources: [] };
+      const stage: BrowserLoadStage = { stage: "entry_resources", atMs: now, entryResources };
+      if (new TextEncoder().encode(JSON.stringify(stage)).byteLength > BROWSER_ENTRY_RESOURCE_MAX_BYTES) return;
+      this.entryResourcesReported = true;
+      this.record(observation, stage);
+      return;
+    }
   }
 
   private onVisibility = (): void => {
