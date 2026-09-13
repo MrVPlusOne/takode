@@ -1,3 +1,4 @@
+import { logBrowserLoadReport } from "./browser-load-diagnostics.js";
 import { randomUUID } from "node:crypto";
 import { createLogger } from "../server-logger.js";
 
@@ -59,7 +60,7 @@ export function classifyBrowserClientPlatform(userAgent: string | null): Browser
 }
 
 /** Start a new observation for every session WebSocket, including reconnects. */
-export function openBrowserConnectionDiagnostics(ws: DiagnosticSocket, sessionId: string): void {
+export function openBrowserConnectionDiagnostics(ws: DiagnosticSocket, sessionId: string): string {
   const previous = connections.get(ws);
   if (previous) clearTimeout(previous.timer);
   const rawPlatform = (ws.data as { browserClientPlatform?: unknown } | undefined)?.browserClientPlatform;
@@ -89,6 +90,7 @@ export function openBrowserConnectionDiagnostics(ws: DiagnosticSocket, sessionId
   connection.timer.unref?.();
   connections.set(ws, connection);
   logConnection(connection, "opened");
+  return connection.id;
 }
 
 /** Preserve the transport's result/exception while observing actual send attempts. */
@@ -167,6 +169,13 @@ export function acknowledgeBrowserConnection(ws: DiagnosticSocket, connectionId:
   clearTimeout(connection.timer);
   connection.status = "client_marker_received";
   logConnection(connection, "client_marker_received");
+}
+
+/** Join frontend metadata only to the reporting physical socket, never a client-selected session. */
+export function receiveBrowserLoadReport(ws: DiagnosticSocket, connectionId: string, report: unknown): void {
+  const connection = connections.get(ws);
+  if (!connection || connection.id !== connectionId) return;
+  logBrowserLoadReport(ws, connection.sessionId, connection.id, report);
 }
 
 /** Record lifetime totals, including early disconnects, and release diagnostic state. */

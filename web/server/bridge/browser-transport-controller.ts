@@ -2,6 +2,7 @@ import { isInactiveCodexRecoverySource } from "./codex-interrupted-turn-recovery
 import { randomUUID } from "node:crypto";
 import {
   acknowledgeBrowserConnection,
+  receiveBrowserLoadReport,
   beginBrowserConnectionSubscribe,
   closeBrowserConnectionDiagnostics,
   finishBrowserConnectionSubscribe,
@@ -303,6 +304,7 @@ function isArchivedReadOnlyBrowserMessage(msg: BrowserOutgoingMessage): boolean 
   return (
     msg.type === "session_subscribe" ||
     msg.type === "browser_connection_probe_ack" ||
+    msg.type === "browser_load_report" ||
     msg.type === "history_window_request" ||
     msg.type === "thread_window_request" ||
     msg.type === "conversation_view_update" ||
@@ -319,7 +321,7 @@ export function handleBrowserOpen(
   ws: BrowserTransportSocketLike,
   deps: BrowserTransportDeps,
 ): void {
-  openBrowserConnectionDiagnostics(ws, session.id);
+  const diagnosticConnectionId = openBrowserConnectionDiagnostics(ws, session.id);
   const data = (ws.data ??= {}) as BrowserTransportSocketData;
   data.subscribed = false;
   data.lastAckSeq = 0;
@@ -337,6 +339,7 @@ export function handleBrowserOpen(
   }
   sendToBrowser(ws, {
     type: "session_init",
+    diagnosticConnectionId,
     session: {
       ...projectBrowserSessionState(session.state),
       isOrchestrator: launcherInfo?.isOrchestrator === true,
@@ -432,6 +435,10 @@ export async function handleBrowserIngressMessage(
   deps: BrowserTransportDeps,
 ): Promise<BrowserIngressOwnershipResult> {
   const msg = stripRecoveryDeliveryTransferMarker(rawMsg);
+  if (msg.type === "browser_load_report") {
+    if (ws) receiveBrowserLoadReport(ws, msg.connection_id, msg.report);
+    return { status: "ignored_no_owner", reason: "protocol_handled" };
+  }
   if (isArchivedReadOnlySession(session, deps) && !isArchivedReadOnlyBrowserMessage(msg)) {
     return {
       status: "ignored_no_owner",

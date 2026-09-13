@@ -76,3 +76,88 @@ the connection ID. Use existing frontend performance entries to distinguish
 parse/apply, replay flush, React commit, next paint, and long tasks. A fast server
 handler cannot establish a fast usable page, and a large transfer alone cannot
 establish the cause of a reported delay.
+
+## Frontend startup, foreground, and feed stages
+
+`browser-load` logs retain bounded browser-reported stage batches in the same
+rotated backend logger. Join them to the transfer records by the server-issued
+`connectionId` and server-owned session ID:
+
+```bash
+takode logs --component browser-load --since 10m --limit 100 --json
+takode logs --component browser-load --pattern <connection-id> --json
+```
+
+The browser receives its diagnostic connection ID in `session_init`, before the
+final initial-sync marker. Startup stages observed before that message are
+buffered locally and sent once that physical socket has an identity. Diagnostic
+reports are consumed independently of the model/session work queue. They do not
+enter conversation history, replay, model input, or recovery. Archived sessions
+can also report these read-only observations.
+
+Each batch identifies a randomly generated document ID, lifecycle number and
+kind (`startup`, `foreground`, or a later `connection`), frontend build ID,
+standalone/browser display mode, current visibility, and document time origin.
+The server adds its own backend build ID; missing identity remains null.
+A surviving document keeps its document ID; reload creates another one. A
+foreground lifecycle begins on an observed return from hidden/pagehide state.
+`hiddenMs` is the observed wall-clock hidden interval, subject to clock changes;
+it is not proof of OS suspension. `pageshow` records `persisted` when available.
+Display mode is a browser signal, not independent verification of the physical
+device or how the user entered it.
+
+Stage timestamps (`atMs`, `startedAtMs`, `moduleStartedAtMs`) use the document's
+monotonic performance clock in milliseconds. Compare stage differences within
+that document. `timeOrigin + atMs` provides an approximate browser wall-time
+reference; do not subtract it from server timestamps as if the clocks were
+synchronized. Server log time is receipt/processing time, not the original stage.
+
+- `module_started` marks execution of the instrumentation module, imported before
+  the application. It does not measure the icon tap or the first possible browser
+  JavaScript execution. Optional document Navigation Timing fields expose request,
+  response, DOM and load milestones without collecting URLs or resource lists.
+  Zero-valued unfinished/unavailable milestones are not zero-cost operations.
+- `app_commit` is the first root React layout effect. `app_frame` and
+  `foreground_frame` are two animation-frame callbacks later. These are scheduling
+  observations, not screenshots, compositor completion, or physical presentation.
+- `connect`, `open`, `subscribe`, and `sync_marker` locate session connection work.
+  A subscribe `view` of `history` means the generic bounded history request; it
+  does not infer that the user selected All Threads or that leader routing failed.
+- `view_request` records a browser WebSocket send for explicit history/thread
+  browsing. `message_received` / `message_applied` record selected protocol
+  categories, a numeric receive ID, parse/apply durations, and the view/window
+  digest when present. An applied callback is not proof the application accepted
+  a stale response. `state_snapshot` application includes synchronous replay work.
+- `feed_commit` samples the committed feed's view, loading state, and available
+  window digest. The loading state uses the feed's actual loading branch. Matching
+  receipt and commit digests provide stronger correlation than session identity
+  alone. A cached commit can precede receipt of its validation; preserve event
+  ordering rather than assuming every commit follows its matching receipt.
+  `feed_frame` follows two frame callbacks, only while that observed feed
+  signature, socket and lifecycle are still current. It still does not certify
+  pixels or that every asynchronous UI task is finished. A retained feed may
+  remain visible without a new React commit; absent commit timing is not a stall.
+
+Capture is limited to 64 stages in the first 90 seconds of a socket observation
+or foreground lifecycle, in batches of at most 16. Batches normally flush after
+200 ms, or when full/identified/hidden. Browser observation state is capped at 16
+sessions, contains only counters and metadata, and retires with its socket. The
+backend independently accepts at most 64 stages per socket per 90-second budget
+window, even if a client invents more lifecycle resets. Invalid fields, arbitrary
+strings, oversized batches, non-finite/negative timings, and unknown keys are
+rejected rather than logged. No conversation text, image, URL, address, user
+agent, arbitrary resource name, or credentials are collected.
+
+Telemetry is best effort. Failed sends are not retried and do not affect the
+application. A disconnected/replaced document can lose queued stages; a stalled
+frame callback produces no frame event; a cap or expired capture window can
+omit later stages. There is no global raw recording or background history upload.
+A complete stall before JavaScript or session connection remains unreported by
+this channel. Missing telemetry must not be presented as a fast load.
+
+For a future original-path observation, record a precise user opening time and
+separate black-screen, shell, and feed intervals. Inspect matched startup versus
+foreground stages, document navigation milestones, first connection/subscribe,
+window receipt/application, and matching feed commit/frame callbacks. Activation
+and a physical-device observation are separate from source delivery and isolated
+validation; these diagnostics do not establish a cause or authorize optimization.

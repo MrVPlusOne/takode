@@ -605,7 +605,7 @@ export interface VsCodeOpenFileCommand {
 
 /** Messages the browser sends to the bridge */
 export type BrowserOutgoingMessage =
-  | { type: "browser_connection_probe_ack"; connection_id: string }
+  | import("./browser-connection-message-types.js").BrowserConnectionOutgoingMessage
   | {
       type: "user_message";
       content: string;
@@ -926,8 +926,7 @@ export interface QuestLifecycleEventSnapshot {
 
 /** Messages the bridge sends to the browser */
 export type BrowserIncomingMessageBase =
-  | { type: "browser_connection_probe"; connection_id: string }
-  | { type: "session_init"; session: BrowserSessionState; nextEventSeq?: number }
+  | import("./browser-connection-message-types.js").BrowserConnectionIncomingMessage
   | { type: "session_update"; session: Partial<BrowserSessionState> }
   | {
       type: "assistant";

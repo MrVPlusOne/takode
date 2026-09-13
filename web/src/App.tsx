@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { browserLoadDiagnostics } from "./utils/browser-load-diagnostics.js";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "./store.js";
 import {
@@ -218,6 +219,7 @@ function buildSidebarOrderedShortcutSessions(state: ReturnType<typeof useStore.g
 }
 
 export default function App() {
+  useLayoutEffect(() => browserLoadDiagnostics.markAppCommitted(), []);
   const {
     colorTheme,
     darkMode,

@@ -1,3 +1,5 @@
+import { browserLoadDiagnostics, normalizeView, safeWindowHash } from "./utils/browser-load-diagnostics.js";
+import { BROWSER_LOAD_MESSAGE_TYPES, type BrowserLoadStage } from "../shared/browser-load-diagnostics.js";
 import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
@@ -397,6 +399,9 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
       syncedProjectionSubscriptionSignatures.delete(sessionId);
       pendingSyncedProjectionSubscriptionAcks.delete(sessionId);
     }
+    browserLoadDiagnostics.capture(sessionId)("subscribe", {
+      view: normalizeView(initialThreadWindow?.thread_key ?? "history"),
+    });
     recordConnectionCycle(sessionId, "subscribe", {
       lastSeq,
       forceFullHistory,
@@ -561,6 +566,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
       sockets.delete(sessionId);
     }
     if (!targetWs || currentWs === ws) {
+      browserLoadDiagnostics.close(sessionId);
       clearColdSubscribeState(sessionId);
       syncedProjectionSubscriptionSignatures.delete(sessionId);
       pendingSyncedProjectionResyncs.delete(sessionId);
@@ -587,6 +593,11 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
 
     const ws = new WebSocket(getWsUrl(sessionId));
     sockets.set(sessionId, ws);
+    browserLoadDiagnostics.connect(sessionId, (message) => {
+      if (sockets.get(sessionId) !== ws || !isSocketSendable(ws)) return false;
+      ws.send(JSON.stringify(message));
+      return true;
+    });
 
     ws.onopen = () => {
       if (sockets.get(sessionId) !== ws) {
@@ -597,6 +608,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
       callbacks.onConnected?.(sessionId);
       reconnectAttempts.delete(sessionId);
       recordConnectionCycle(sessionId, "open");
+      browserLoadDiagnostics.capture(sessionId)("open");
 
       sendSessionSubscribe(sessionId);
 
@@ -618,19 +630,34 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     ws.onmessage = (event) => {
       if (sockets.get(sessionId) !== ws) return;
       const receivedAt = perfNow();
+      const reportLoadStage = browserLoadDiagnostics.capture(sessionId);
       const receiveId = `ws-receive-${++receiveCounter}`;
       try {
         const rawData = typeof event.data === "string" ? event.data : "";
         const parseStartedAt = perfNow();
         const data = JSON.parse(event.data) as SequencedIncomingMessage;
+        const parsedAt = perfNow();
+        if (data.type === "session_init" && data.diagnosticConnectionId) {
+          browserLoadDiagnostics.identify(sessionId, data.diagnosticConnectionId);
+        }
         if (data.type === "browser_connection_probe") {
+          reportLoadStage("sync_marker", {}, receivedAt);
           // This acknowledges transport receipt after preceding sync messages.
           // It deliberately makes no claim about React commit, paint, or usability.
           ws.send(JSON.stringify({ type: "browser_connection_probe_ack", connection_id: data.connection_id }));
           return;
         }
-        const parsedAt = perfNow();
         const parseDurationMs = parsedAt - parseStartedAt;
+        const loadMessageType = BROWSER_LOAD_MESSAGE_TYPES.find((type) => type === data.type);
+        const loadDetails: Omit<BrowserLoadStage, "stage" | "atMs"> = {
+          messageType: loadMessageType,
+          receiveId: receiveCounter,
+          ...(data.type === "thread_window_sync" ? { view: normalizeView(data.thread_key) } : {}),
+          ...(data.type === "thread_window_sync" || data.type === "history_window_sync"
+            ? safeWindowHash(data.window.window_hash)
+            : {}),
+        };
+        if (loadMessageType) reportLoadStage("message_received", loadDetails, receivedAt);
         beginHistoryReceiveRenderTiming({
           receiveId,
           sessionId,
@@ -639,9 +666,20 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
           receivedAt,
           parseDurationMs,
         });
+        const applyStartedAt = perfNow();
         handleParsedMessage(sessionId, data);
         const appliedAt = perfNow();
-        const applyDurationMs = appliedAt - parsedAt;
+        const applyDurationMs = appliedAt - applyStartedAt;
+        if (loadMessageType)
+          reportLoadStage(
+            "message_applied",
+            {
+              ...loadDetails,
+              parseMs: parseDurationMs,
+              applyMs: applyDurationMs,
+            },
+            appliedAt,
+          );
         recordFrontendPerfEntry({
           kind: "ws_message",
           timestamp: Date.now(),
@@ -824,6 +862,11 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
 
     if (isSocketSendable(ws)) {
       ws.send(JSON.stringify(outgoing));
+      if (msg.type === "thread_window_request" || msg.type === "history_window_request") {
+        browserLoadDiagnostics.capture(sessionId)("view_request", {
+          view: normalizeView(msg.type === "thread_window_request" ? msg.thread_key : "history"),
+        });
+      }
       return true;
     }
 

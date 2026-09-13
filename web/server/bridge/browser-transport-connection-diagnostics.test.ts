@@ -78,7 +78,9 @@ describe("connection diagnostics in browser transport", () => {
     });
     deps.getTreeGroupState = () => tree;
     const entries: ServerLogEntry[] = [];
-    const unsubscribe = subscribeToServerLogs({ components: ["browser-connection"] }, (entry) => entries.push(entry));
+    const unsubscribe = subscribeToServerLogs({ components: ["browser-connection", "browser-load"] }, (entry) =>
+      entries.push(entry),
+    );
     const subscribe = (lastSeq: number) =>
       handleBrowserMessage(
         session,
@@ -112,7 +114,9 @@ describe("connection diagnostics in browser transport", () => {
     // path. Only the new diagnostic marker is added after the state snapshot.
     const { session, deps, socket } = fixture();
     const entries: ServerLogEntry[] = [];
-    const unsubscribe = subscribeToServerLogs({ components: ["browser-connection"] }, (entry) => entries.push(entry));
+    const unsubscribe = subscribeToServerLogs({ components: ["browser-connection", "browser-load"] }, (entry) =>
+      entries.push(entry),
+    );
     try {
       handleBrowserOpen(session, socket, deps);
       const subscribe = handleBrowserMessage(
@@ -141,6 +145,39 @@ describe("connection diagnostics in browser transport", () => {
       });
 
       const marker = messages.at(-1)!;
+      expect(messages.find((message) => message.type === "session_init")?.diagnosticConnectionId).toBe(
+        marker.connection_id,
+      );
+      // Telemetry must stay read-only, including for an archived session, and
+      // must not enter the backend route, history, or replay authority.
+      deps.getLauncherSessionInfo = () => ({
+        archived: true,
+        isOrchestrator: false,
+        state: "exited",
+        backendType: "codex",
+      });
+      await handleBrowserMessage(
+        session,
+        JSON.stringify({
+          type: "browser_load_report",
+          connection_id: marker.connection_id,
+          report: {
+            documentId: "ae8bdd9b-7338-4507-bf27-4d6e9272a41a",
+            lifecycleId: 0,
+            lifecycle: "startup",
+            timeOrigin: Date.now(),
+            startedAtMs: 0,
+            moduleStartedAtMs: 0,
+            displayMode: "standalone",
+            visibility: "visible",
+            frontendBuildId: "development",
+            stages: [{ stage: "feed_commit", atMs: 20 }],
+          },
+        }),
+        socket,
+        deps,
+      ).completion;
+      expect(entries.filter((entry) => entry.component === "browser-load")).toHaveLength(1);
       expect(shouldBufferForReplay(marker)).toBe(false);
       await handleBrowserMessage(
         session,

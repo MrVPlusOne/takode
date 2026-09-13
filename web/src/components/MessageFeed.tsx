@@ -1,3 +1,4 @@
+import { useFeedLoadTiming } from "../hooks/use-feed-load-timing.js";
 import { useEffect, useLayoutEffect, useRef, useMemo, useState, useCallback, memo } from "react";
 import { useStore } from "../store.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils/herd-event-parser.js";
@@ -1777,6 +1778,8 @@ export function MessageFeed({
     pendingInitialThreadWindowKey,
     normalizedThreadKey,
   });
+
+  useFeedLoadTiming(sessionId, normalizedThreadKey, showConversationLoading || showSelectedWindowLoading);
 
   const feedTopControls = (
     <MessageFeedTopControls
