@@ -127,6 +127,7 @@ type LeaderReadyBlockerSessionLike = Pick<
 export interface LeaderThreadStatusUpdateResult {
   records: LeaderThreadStatus[];
   changed: boolean;
+  monitoredThreadKeys?: string[];
   rejectedReadyRoutes?: ThreadRouteMetadata[];
 }
 
@@ -536,6 +537,7 @@ export function updateLeaderThreadStatusesForAssistantOutput(
 
   const statuses = { ...(session.state.leaderThreadStatuses ?? {}) };
   const records: LeaderThreadStatus[] = [];
+  const monitoredThreadKeys: string[] = [];
   const rejectedReadyRoutes: ThreadRouteMetadata[] = [];
   const markerThreadKeys = new Set<string>();
   let changed = false;
@@ -571,8 +573,11 @@ export function updateLeaderThreadStatusesForAssistantOutput(
       updatedAt: Date.now(),
     };
     statuses[key] = record;
-    if (session.messageHistory)
-      recordMonitoredThreadResult({ state: session.state, messageHistory: session.messageHistory }, record);
+    if (
+      session.messageHistory &&
+      recordMonitoredThreadResult({ state: session.state, messageHistory: session.messageHistory }, record)
+    )
+      monitoredThreadKeys.push(record.threadKey);
     records.push(record);
     changed = true;
   }
@@ -592,6 +597,7 @@ export function updateLeaderThreadStatusesForAssistantOutput(
   return {
     records,
     changed,
+    ...(monitoredThreadKeys.length > 0 ? { monitoredThreadKeys } : {}),
     ...(rejectedReadyRoutes.length > 0 ? { rejectedReadyRoutes } : {}),
   };
 }

@@ -862,6 +862,28 @@ export function getClaudeMessageHandlers(host: any) {
       host.finalizeOrphanedTerminalToolsOnResult(targetSession as Session, resultMsg),
     cancelPermissionNotification: (sessionId: string, requestId: string) =>
       host.pushoverNotifier?.cancelPermission(sessionId, requestId),
+    onMonitoredThreadResult: (targetSession: unknown, threadKey: string) => {
+      const session = targetSession as Session;
+      const result = session.state.threadMonitoring?.threads[threadKey]?.pending;
+      if (!result || !host.pushoverNotifier) return;
+      const title = session.board.get(threadKey)?.title || session.completedBoard.get(threadKey)?.title || threadKey;
+      host.pushoverNotifier.scheduleNotification(
+        session.id,
+        "monitored-result",
+        `${title}\n${result.summary}`,
+        undefined,
+        {
+          notificationId: `monitor:${threadKey}:${result.id}`,
+          monitoredResult: {
+            threadKey,
+            isPending: () =>
+              host.sessions.get(session.id) === session &&
+              !readLauncherSession(host, session.id)?.archived &&
+              session.state.threadMonitoring?.threads[threadKey]?.pending?.id === result.id,
+          },
+        },
+      );
+    },
     onResultAttentionAndNotifications: (
       targetSession: unknown,
       resultMsg: CLIResultMessage,

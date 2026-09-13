@@ -6,7 +6,7 @@
  * and per-session rate limiting.
  */
 
-export type PushoverEventType = "permission" | "question" | "completed" | "error";
+export type PushoverEventType = "permission" | "question" | "completed" | "error" | "monitored-result";
 export type PushoverNotificationCategory = "needs-input" | "review" | "error";
 
 export interface PushoverEventFilters {
@@ -44,6 +44,8 @@ export interface PushoverScheduleOptions {
   skipReadCheck?: boolean;
   /** Takode notification ID that can later cancel/revalidate this pending push. */
   notificationId?: string;
+  /** Exact monitored result ownership, rechecked after the delay independently of session reads. */
+  monitoredResult?: { threadKey: string; isPending: () => boolean };
 }
 
 interface PendingNotification {
@@ -62,6 +64,7 @@ interface PendingNotification {
   notificationDetails: Record<string, string>;
   /** When true, bypass the lastReadAt suppression check (for explicit user notifications). */
   skipReadCheck?: boolean;
+  monitoredResult?: PushoverScheduleOptions["monitoredResult"];
 }
 
 interface SessionCooldown {
@@ -88,6 +91,7 @@ const EVENT_PRIORITY: Record<PushoverEventType, number> = {
   question: 1,
   error: 1,
   completed: 0,
+  "monitored-result": 0,
 };
 
 const EVENT_TITLE: Record<PushoverEventType, string> = {
@@ -95,6 +99,7 @@ const EVENT_TITLE: Record<PushoverEventType, string> = {
   question: "Takode needs input",
   completed: "Ready for review",
   error: "Session error",
+  "monitored-result": "Notify Me result",
 };
 
 const EVENT_CATEGORY: Record<PushoverEventType, PushoverNotificationCategory> = {
@@ -102,11 +107,12 @@ const EVENT_CATEGORY: Record<PushoverEventType, PushoverNotificationCategory> = 
   question: "needs-input",
   completed: "review",
   error: "error",
+  "monitored-result": "review",
 };
 
 export class PushoverNotifier {
   private opts: PushoverNotifierOpts;
-  /** Pending notifications keyed by `${sessionId}:${eventType}` */
+  /** Pending notifications keyed by session/event, and by thread for monitored results. */
   private pending = new Map<string, PendingNotification>();
   private cooldowns = new Map<string, SessionCooldown>();
   private globalLastSent = 0;
@@ -150,9 +156,11 @@ export class PushoverNotifier {
   ): void {
     const settings = this.opts.getSettings();
     if (!this.isConfigured() || !this.isEventEnabled(eventType, settings)) return;
+    const monitoredResult = eventType === "monitored-result" ? options?.monitoredResult : undefined;
+    if (eventType === "monitored-result" && !monitoredResult) return;
 
     const isBatchable = eventType === "permission" || eventType === "question";
-    const key = `${sessionId}:${eventType}`;
+    const key = `${sessionId}:${eventType}${monitoredResult ? `:${monitoredResult.threadKey}` : ""}`;
     const existing = this.pending.get(key);
 
     const notificationId = options?.notificationId;
@@ -195,6 +203,7 @@ export class PushoverNotifier {
       requestDetails: detail && requestId ? { [requestId]: detail } : {},
       notificationDetails: detail && notificationId ? { [notificationId]: detail } : {},
       skipReadCheck: options?.skipReadCheck,
+      monitoredResult,
     };
     this.pending.set(key, pending);
   }
@@ -270,6 +279,8 @@ export class PushoverNotifier {
     const pending = this.pending.get(key);
     if (!pending) return;
     this.pending.delete(key);
+    // Acknowledgement, accepted replies, replacement, and Stop tracking retire only this result.
+    if (pending.monitoredResult && !pending.monitoredResult.isPending()) return;
 
     const settings = this.opts.getSettings();
     if (!this.isConfigured()) return;
@@ -282,7 +293,7 @@ export class PushoverNotifier {
 
     // Skip notification if the user has read the session since the event was created,
     // unless this is an explicit notification (e.g. takode notify) that should always fire.
-    if (!pending.skipReadCheck) {
+    if (!pending.skipReadCheck && !pending.monitoredResult) {
       const lastRead = this.opts.getLastReadAt(pending.sessionId);
       if (lastRead >= pending.createdAt) {
         console.log(
@@ -321,7 +332,7 @@ export class PushoverNotifier {
     }
 
     // Line 2: activity preview (if available)
-    const activity = this.opts.getSessionActivity(sessionId);
+    const activity = pending.monitoredResult ? undefined : this.opts.getSessionActivity(sessionId);
     if (activity) {
       lines.push(activity);
     }
@@ -338,10 +349,10 @@ export class PushoverNotifier {
     }
 
     const message = lines.join("\n");
-    const url = this.buildDeepLink(sessionId);
+    const url = this.buildDeepLink(sessionId, pending.monitoredResult?.threadKey);
 
     console.log(`[pushover] Sending ${eventType} notification for ${sessionId.slice(0, 8)}`);
-    await this.sendToApi(settings, title, message, EVENT_PRIORITY[eventType], url);
+    await this.sendToApi(settings, title, message, EVENT_PRIORITY[eventType], url, !pending.monitoredResult);
   }
 
   private async sendToApi(
@@ -350,6 +361,7 @@ export class PushoverNotifier {
     message: string,
     priority: number,
     url?: string,
+    html = true,
   ): Promise<{ ok: boolean; error?: string }> {
     try {
       const body = new URLSearchParams({
@@ -358,7 +370,7 @@ export class PushoverNotifier {
         title,
         message,
         priority: String(priority),
-        html: "1",
+        html: html ? "1" : "0",
       });
       if (url) {
         body.set("url", url);
@@ -420,8 +432,9 @@ export class PushoverNotifier {
     return true;
   }
 
-  private buildDeepLink(sessionId: string): string {
+  private buildDeepLink(sessionId: string, threadKey?: string): string {
     const base = this.opts.getBaseUrl().replace(/\/+$/, "");
+    if (threadKey) return `${base}/#/session/${encodeURIComponent(sessionId)}?thread=${encodeURIComponent(threadKey)}`;
     return `${base}/#/${sessionId}`;
   }
 

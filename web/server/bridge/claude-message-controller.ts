@@ -386,6 +386,7 @@ interface DrainInlineQueuedClaudeTurnsDeps {
 }
 
 interface ResultMessageDeps {
+  onMonitoredThreadResult?: (session: ResultMessageSessionLike, threadKey: string) => void;
   hasResultReplay: (session: ResultMessageSessionLike, resultUuid: string) => boolean;
   reconcileReplayState: (session: ResultMessageSessionLike) => { clearedResidualState: boolean };
   drainInlineQueuedClaudeTurns: (session: ResultMessageSessionLike, reason: string) => boolean;
@@ -854,6 +855,7 @@ function finalizeLeaderTurnResponseControls(
         entry.threadStatusMarkers = [...(entry.threadStatusMarkers ?? []), ...statusUpdate.records];
         recordThreadReadyUnreadNotifications(session, statusUpdate.records, deps);
       }
+      for (const key of statusUpdate.monitoredThreadKeys ?? []) deps.onMonitoredThreadResult?.(session, key);
       for (const route of statusUpdate.rejectedReadyRoutes ?? []) {
         rejectedReadyThreadKeys.add(route.threadKey);
       }
@@ -1312,6 +1314,7 @@ export function createClaudeMessageHandlers(
       deps.broadcastToBrowsers(session, { type: "status_change", status: "running" }),
   };
   const resultMessageDeps: ResultMessageDeps = {
+    onMonitoredThreadResult: deps.onMonitoredThreadResult,
     hasResultReplay: deps.hasResultReplay,
     reconcileReplayState: deps.reconcileReplayState,
     drainInlineQueuedClaudeTurns: deps.drainInlineQueuedClaudeTurns,
