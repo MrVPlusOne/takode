@@ -536,7 +536,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Leader Workboard Thread Navigation"
-        description="Quiet task headers retain phase/progress and direct Worker/Commits access without repeating user-input waits. Projection-backed tabs preserve ordering, attention and completed-Waiting behavior at desktop and mobile widths."
+        description="Task headers show the phase name without counts and retain the detailed Journey preview and direct Worker/Commits access. Projection-backed tabs preserve ordering, attention and completed-Waiting behavior at desktop and mobile widths."
       >
         <div className="grid max-w-5xl gap-3 lg:grid-cols-2">
           {compactQuestThreadBannerRows.map(({ label, row, threadKey }) => (

@@ -8,8 +8,8 @@ import { QuestJourneyPreviewCard, QuestJourneyTimeline } from "./QuestJourneyTim
 
 const PHASE_CYCLE: QuestJourneyPhaseId[] = ["alignment", "work", "user-checkpoint", "work", "memory"];
 
-it("keeps the exact repeated phase position and completion state in a quiet inline summary", () => {
-  // The header must use the same Journey authority as the detailed timeline, including repeated Work.
+it("shows only the phase name inline while retaining position information in other Journey views", () => {
+  // Header label refinement must not remove repeated-phase data or counts from detailed/compact views.
   const journey: QuestJourneyPlanState = {
     mode: "active",
     phaseIds: PHASE_CYCLE,
@@ -18,11 +18,20 @@ it("keeps the exact repeated phase position and completion state in a quiet inli
   };
   const { rerender } = render(<QuestJourneyTimeline journey={journey} status="WORKING" variant="inline" />);
   const summary = screen.getByTestId("quest-journey-compact-summary");
-  expect(summary).toHaveTextContent("Work4/5");
+  expect(summary).toHaveTextContent(/^Work$/);
   expect(summary).toHaveAttribute("data-presentation", "inline");
   expect(summary.querySelector('[aria-hidden="true"]')).toBeNull();
   rerender(<QuestJourneyTimeline journey={journey} status="done" variant="inline" />);
-  expect(summary).toHaveTextContent("Completed5 phases");
+  expect(summary).toHaveTextContent(/^Completed$/);
+  rerender(<QuestJourneyTimeline journey={{ ...journey, mode: "proposed" }} variant="inline" />);
+  expect(summary).toHaveTextContent(/^Proposed$/);
+  rerender(<QuestJourneyTimeline journey={journey} status="WORKING" variant="compact" />);
+  expect(summary).toHaveTextContent("Work4/5");
+  rerender(<QuestJourneyTimeline journey={journey} status="WORKING" variant="vertical" />);
+  expect(screen.getByTestId("quest-journey-timeline").querySelector('li[data-phase-index="3"]')).toHaveAttribute(
+    "data-phase-current",
+    "true",
+  );
 });
 
 function longJourney(overrides: Partial<QuestJourneyPlanState> = {}): QuestJourneyPlanState {

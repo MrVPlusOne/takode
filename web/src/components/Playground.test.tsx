@@ -1314,7 +1314,7 @@ describe("Playground", () => {
     // The checkpoint specimen keeps the phase visible while suppressing duplicate attention.
     const checkpointBanner = screen.getAllByTestId("quest-thread-banner")[4];
     expect(within(checkpointBanner).getByTestId("quest-journey-compact-summary")).toHaveTextContent(
-      "User Checkpoint3/5",
+      /^User Checkpoint$/,
     );
     expect(within(checkpointBanner).queryByTestId("quest-thread-wait-pill")).toBeNull();
     expect(within(checkpointBanner).getByLabelText("Worker #1321 Clear Mesa")).toBeTruthy();

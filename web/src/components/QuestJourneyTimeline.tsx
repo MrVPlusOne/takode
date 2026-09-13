@@ -243,7 +243,7 @@ export function QuestJourneyCompactSummary({
         />
       )}
       <span className={inline ? "shrink-0" : "shrink-0 font-medium text-cc-fg"}>{label}</span>
-      {position && <span className="shrink-0 text-[10px] text-cc-muted">{position}</span>}
+      {!inline && position && <span className="shrink-0 text-[10px] text-cc-muted">{position}</span>}
       {showNotes && notes > 0 && (
         <span className="shrink-0 text-[10px] text-cc-attention">{`${notes} note${notes === 1 ? "" : "s"}`}</span>
       )}

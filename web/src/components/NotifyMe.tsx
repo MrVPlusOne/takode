@@ -16,7 +16,13 @@ export function NotifyMeIcon({
   return (
     <span
       className={`inline-flex shrink-0 ${pending ? "text-cc-info" : "text-cc-muted"}`}
-      title={!monitored ? "Get notified about new results" : pending ? "Notify Me: result waiting" : "Notify Me is on"}
+      title={
+        !monitored
+          ? "Notify Me: get notified about new results"
+          : pending
+            ? "Notify Me: result waiting"
+            : "Notify Me is on"
+      }
       role="img"
       aria-label={!monitored ? "Notify Me" : pending ? "Monitored task has a result waiting" : "Monitored task"}
     >
@@ -60,11 +66,13 @@ export function NotifyMeControlView({
         aria-pressed={enabled}
         disabled={disabled}
         onClick={onToggle}
-        title={enabled ? "Stop tracking this task" : "Keep new results until you acknowledge or reply"}
+        title={
+          enabled ? "Notify Me: Stop tracking this task" : "Notify Me: Keep new results until you acknowledge or reply"
+        }
         className={`inline-flex h-6 shrink-0 items-center gap-1 rounded px-1 text-[11px] transition-colors cursor-pointer hover:bg-cc-hover focus-visible:outline focus-visible:outline-cc-primary disabled:opacity-50 ${enabled ? "text-cc-info" : "text-cc-muted hover:text-cc-fg"}`}
       >
         <NotifyMeIcon pending={pending} monitored={enabled} />
-        Notify Me
+        Notify
       </button>
       {pending && (
         <button

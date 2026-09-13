@@ -41,9 +41,16 @@ describe("Notify Me controls", () => {
       <NotifyMeControlView enabled pending={false} onToggle={() => {}} onAcknowledge={() => {}} />,
     );
     expect(screen.getByRole("img", { name: "Monitored task" })).toBeTruthy();
+    // The header shortens its visible label while the feature name remains available on hover and to assistive tools.
+    expect(screen.getByRole("button", { name: "Notify Me" }).textContent?.trim()).toBe("Notify");
+    expect(screen.getByRole("button", { name: "Notify Me" }).title).toContain("Notify Me");
     expect(screen.queryByText("Acknowledge")).toBeNull();
     rerender(<NotifyMeControlView enabled pending onToggle={() => {}} onAcknowledge={() => {}} />);
     expect(screen.getByRole("img", { name: "Monitored task has a result waiting" })).toBeTruthy();
+    rerender(<NotifyMeControlView enabled={false} pending={false} onToggle={() => {}} onAcknowledge={() => {}} />);
+    expect(screen.getByRole("button", { name: "Notify Me" }).textContent?.trim()).toBe("Notify");
+    expect(screen.getByRole("button", { name: "Notify Me" }).title).toContain("Notify Me");
+    expect(screen.getByRole("img", { name: "Notify Me" }).title).toContain("Notify Me");
   });
 
   it("sends the observed result token and waits for server authority instead of clearing locally", async () => {
