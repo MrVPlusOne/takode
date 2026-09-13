@@ -2,6 +2,11 @@ import { useMemo, useState } from "react";
 import { QuestCommitChip } from "../QuestCommitChip.js";
 import { Card, Section, PlaygroundSectionGroup } from "./shared.js";
 import {
+  compactDiffDeliveryFixture,
+  createCompactDiffFixtureClient,
+  type CompactDiffFixtureState,
+} from "../../test-fixtures/compact-diff-fixture.js";
+import {
   createDeliveryFixtureClient,
   deliveryFixture,
   laterDeliveryFixture,
@@ -13,12 +18,45 @@ export function PlaygroundCommitDeliverySection() {
   const [later, setLater] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const client = useMemo(() => createDeliveryFixtureClient(unavailable), [unavailable]);
+  const [compactState, setCompactState] = useState<CompactDiffFixtureState>("loaded");
+  const compactClient = useMemo(() => createCompactDiffFixtureClient(compactState), [compactState]);
   return (
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Commit delivery chips"
         description="Current batches retain exact commits with explicit parent/merge/root comparisons, preserved legacy counts, and separate review history."
       >
+        <Card label="Compact full-screen diff viewer">
+          <div className="flex flex-wrap items-center gap-3 mb-3">
+            <label className="text-xs text-cc-muted">
+              Preview state
+              <select
+                aria-label="Compact diff preview state"
+                className="ml-2 rounded border border-cc-border bg-cc-card px-2 py-1"
+                value={compactState}
+                onChange={(event) => setCompactState(event.target.value as CompactDiffFixtureState)}
+              >
+                <option value="loaded">Loaded</option>
+                <option value="loading">Loading</option>
+                <option value="error">Lookup error</option>
+                <option value="unavailable">Unavailable</option>
+              </select>
+            </label>
+            <QuestCommitChip
+              key={compactState}
+              questId={DELIVERY_FIXTURE_QUEST}
+              deliveryId={compactDiffDeliveryFixture.id}
+              sha={compactDiffDeliveryFixture.commits[0]!.sha}
+              client={compactClient}
+            >
+              Compact diff preview
+            </QuestCommitChip>
+          </div>
+          <p className="text-xs text-cc-muted">
+            Full-width code with two compact context rows, file selection, review history, and comparison details.
+            Source-backed fixtures include long lines, unchanged context, and code/test files.
+          </p>
+        </Card>
         <Card label="Recorded delivery responses">
           <div className="space-y-3">
             <div className="rounded border border-cc-border p-3 text-sm text-cc-fg">

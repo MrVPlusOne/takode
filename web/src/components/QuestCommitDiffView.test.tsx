@@ -210,7 +210,7 @@ describe("QuestCodeCommitDiffPanel", () => {
 
     await waitFor(() => expect(calls[0]).toEqual({ sha: shas[0], includeDiff: true }));
 
-    fireEvent.click(screen.getByTitle(shas[1]));
+    fireEvent.change(screen.getByRole("combobox", { name: "Select commit" }), { target: { value: `code:${shas[1]}` } });
     await waitFor(() => expect(calls).toContainEqual({ sha: shas[1], includeDiff: true }));
 
     await act(async () => {

@@ -1,5 +1,5 @@
-import { memo, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal, flushSync } from "react-dom";
 import * as Diff from "diff";
 import { orderDiffFilesCodeFirst } from "../../shared/diff-file-groups.js";
 import {
@@ -36,6 +36,8 @@ export interface DiffViewerProps {
   stickyFileHeaders?: boolean;
   /** Allow each rendered file section to be collapsed locally. */
   collapsibleFiles?: boolean;
+  /** Place file navigation in a host toolbar while retaining parsed order and collapse ownership here. */
+  fileNavigationTarget?: HTMLElement | null;
 }
 
 export interface DiffViewerSourceFile {
@@ -691,12 +693,14 @@ export const DiffViewer = memo(function DiffViewer({
   renderHeaderActions,
   stickyFileHeaders = false,
   collapsibleFiles = false,
+  fileNavigationTarget,
 }: DiffViewerProps) {
   const isCompact = mode === "compact";
   const showLineNumbers = showLineNumbersProp ?? false;
   const [expanded, setExpanded] = useState(false);
   const [expandedGaps, setExpandedGaps] = useState<Record<string, number>>({});
   const [collapsedFiles, setCollapsedFiles] = useState<Record<string, boolean>>({});
+  const fileElements = useRef(new Map<number, HTMLDivElement>());
   const toggleCollapsedFile = useCallback((key: string) => {
     setCollapsedFiles((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
@@ -881,7 +885,14 @@ export const DiffViewer = memo(function DiffViewer({
         });
 
         return (
-          <div key={fi} className={`diff-file ${isFileCollapsed ? "diff-file-collapsed" : ""}`}>
+          <div
+            key={fi}
+            ref={(element) => {
+              if (element) fileElements.current.set(fi, element);
+              else fileElements.current.delete(fi);
+            }}
+            className={`diff-file ${isFileCollapsed ? "diff-file-collapsed" : ""}`}
+          >
             {resolvedFileName && (
               <FileHeader
                 fileName={resolvedFileName}
@@ -909,6 +920,36 @@ export const DiffViewer = memo(function DiffViewer({
   return (
     <>
       {renderedDiff}
+      {!isCompact &&
+        fileNavigationTarget &&
+        createPortal(
+          <select
+            className="diff-file-picker"
+            aria-label="Jump to file"
+            value=""
+            onChange={(event) => {
+              const index = Number(event.target.value);
+              const file = data[index];
+              if (!file) return;
+              const key = `${index}:${file.fileName || fileName || ""}`;
+              // A collapsed final file may not have enough scroll range until its body is mounted.
+              flushSync(() =>
+                setCollapsedFiles((previous) => (previous[key] ? { ...previous, [key]: false } : previous)),
+              );
+              fileElements.current.get(index)?.scrollIntoView({ block: "start", inline: "nearest" });
+            }}
+          >
+            <option value="" disabled>
+              {data.length} {data.length === 1 ? "file" : "files"}
+            </option>
+            {data.map((file, index) => (
+              <option key={index} value={index}>
+                {file.fileName || fileName || "File"}
+              </option>
+            ))}
+          </select>,
+          fileNavigationTarget,
+        )}
       {isCompact &&
         expanded &&
         createPortal(

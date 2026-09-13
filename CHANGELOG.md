@@ -7,6 +7,10 @@
 - **Mobile load diagnostics** -- Bounded startup, foreground, and selected-feed timings are retained in server logs alongside the actual browser connection, with explicit limits on what browser callbacks establish.
 - **Notify Me phone alerts** -- New monitored results can send dedicated Pushover alerts using the existing review filter and delay, with direct links to their task tabs. Acknowledging, replying to, or untracking a result before delivery suppresses its pending push.
 
+### Changed
+
+- **Compact diff viewer** -- Commit modals fill the viewport with two compact context rows, visible change totals, a file picker, and on-demand comparison details. Commit and review navigation remain accessible while code keeps the full width.
+
 ### Fixed
 
 - **Comment highlights** -- Passage shading stays uniform across formatted text and overlapping comments. Attached comments keep a dim highlight that strengthens on hover or while editing, and chip navigation brings the selected passage near the top of the feed.

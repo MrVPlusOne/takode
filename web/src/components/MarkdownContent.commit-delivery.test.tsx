@@ -82,6 +82,7 @@ it("renders exact Markdown delivery links through the real API/viewer path while
   expect(requests.some((request) => request.path.includes("/commits/"))).toBe(false);
   fireEvent.click(trigger);
   expect(await screen.findByTestId("wired-diff")).toHaveTextContent("verified original patch");
+  fireEvent.click(screen.getByRole("button", { name: "Details" }));
   expect(screen.getByTestId("quest-commit-comparison")).toHaveTextContent("Vs first parent (merge)");
   await waitFor(() =>
     expect(requests).toContainEqual({

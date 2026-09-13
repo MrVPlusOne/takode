@@ -1,17 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, type QuestCommitLookup } from "../api.js";
-import { commitComparisonLabel } from "../../shared/quest-delivery.js";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { DiffViewer } from "./DiffViewer.js";
-import { DiffStatsSummary, DiffTotalStats } from "./DiffStatsSummary.js";
-import {
-  commitLookupKey,
-  commitTitle,
-  shortCommitSha,
-  sortedCommitEntries,
-  type QuestCommitEntry,
-} from "./QuestCommitEvidence.js";
+import { QuestCommitDiffHeader } from "./QuestCommitDiffHeader.js";
+import "./QuestCommitDiffView.css";
+import { commitLookupKey, sortedCommitEntries, type QuestCommitEntry } from "./QuestCommitEvidence.js";
 
 const EMPTY_CODE_COMMIT_SHAS: string[] = [];
 const BACKGROUND_COMMIT_METADATA_CONCURRENCY = 2;
@@ -345,212 +339,102 @@ export function QuestCommitDiffView({
   state,
   onClose,
   commitLabel,
+  headerContext,
+  children,
   emptyTitle = "No recorded commits yet",
   emptyMessage = "This quest does not have any recorded code commits yet.",
 }: {
   state: QuestCommitDiffState;
   onClose?: () => void;
   commitLabel?: string;
+  /** Host-specific delivery/review controls share the compact context row. */
+  headerContext?: ReactNode;
+  /** A host may show review-list loading/errors without removing the shared header. */
+  children?: ReactNode;
   emptyTitle?: string;
   emptyMessage?: string;
 }) {
+  const [fileNavigationTarget, setFileNavigationTarget] = useState<HTMLSpanElement | null>(null);
   const {
     commitEntries,
-    commitLookupByKey,
+    activeCommitEntry,
+    activeCommitKey,
+    activeCommitDetails,
     commitLookupLoadingKey,
     commitLookupError,
-    activeCommitKey,
-    activeCommitIndex,
-    activeCommitEntry,
-    activeCommitDetails,
-    setActiveCommitKey,
   } = state;
-
-  if (commitEntries.length === 0) {
-    return (
-      <div
-        className="flex h-full min-h-48 flex-col items-center justify-center gap-2 px-6 text-center"
-        data-testid="quest-commit-empty-state"
-      >
-        <div className="text-sm font-medium text-cc-fg">{emptyTitle}</div>
-        <div className="max-w-md text-sm text-cc-muted">{emptyMessage}</div>
-      </div>
-    );
-  }
-
-  if (!activeCommitEntry) {
-    return (
-      <div className="flex h-full min-h-48 items-center justify-center px-6 text-center text-sm text-cc-muted">
-        Select a recorded commit to inspect.
-      </div>
-    );
-  }
-
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden" data-testid="quest-commit-diff-view">
-      <div className="flex shrink-0 items-start justify-between gap-3 px-3 py-2 border-b border-cc-border">
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-[10px] uppercase tracking-[0.08em] text-cc-muted/60">
-              {commitLabel ?? (activeCommitEntry.kind === "memory" ? "Memory Commit" : "Code Commit")}
-            </span>
-            <span className="text-sm font-semibold text-cc-fg">
-              {commitTitle(activeCommitEntry, activeCommitDetails)}
-            </span>
-            <span className="font-mono-code text-[10px] text-cc-muted">
-              {activeCommitDetails?.shortSha || shortCommitSha(activeCommitEntry.sha)}
-            </span>
-            <span className="text-[10px] text-cc-muted">{`${activeCommitIndex + 1}/${commitEntries.length}`}</span>
-            {activeCommitDetails?.timestamp ? (
-              <span className="text-[10px] text-cc-muted">{timeAgo(activeCommitDetails.timestamp)}</span>
-            ) : null}
-            {activeCommitDetails?.available &&
-              typeof activeCommitDetails.additions === "number" &&
-              typeof activeCommitDetails.deletions === "number" && (
-                <>
-                  <DiffTotalStats
-                    stats={{
-                      additions: activeCommitDetails.additions,
-                      deletions: activeCommitDetails.deletions,
-                    }}
-                    verbose
-                    className="gap-3"
-                    testId="quest-commit-diff-stats-overall"
-                  />
-                  <DiffStatsSummary splitStats={activeCommitDetails.splitStats} testId="quest-commit-diff-stats" />
-                </>
-              )}
-          </div>
-          {activeCommitDetails?.available && activeCommitDetails.comparison && (
-            <p className="mt-1 text-[11px] text-cc-muted" data-testid="quest-commit-comparison">
-              {commitComparisonLabel(activeCommitDetails.comparison)}
-              {activeCommitDetails.comparison.baseSha && (
-                <code className="ml-1" title={activeCommitDetails.comparison.baseSha}>
-                  {shortCommitSha(activeCommitDetails.comparison.baseSha)}
-                </code>
-              )}
-              {activeCommitDetails.comparison.parentCount > 1 &&
-                ". This compares the whole merge with its first parent and may include existing layer code."}
-            </p>
-          )}
-          {activeCommitDetails?.available && activeCommitDetails.recordedStats && (
-            <p className="mt-1 text-[11px] text-cc-muted" data-testid="quest-commit-recorded-stats">
-              Saved chip counts: +{activeCommitDetails.recordedStats.additions} −
-              {activeCommitDetails.recordedStats.deletions}
-              {activeCommitDetails.recordedStats.binaryFiles > 0 &&
-                `; ${activeCommitDetails.recordedStats.binaryFiles} binary files`}
-              {` (${commitComparisonLabel(activeCommitDetails.recordedStats.comparison)}). The counts above describe the comparison shown here.`}
-            </p>
-          )}
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            {commitEntries.map((entry) => {
-              const key = commitLookupKey(entry.kind, entry.sha);
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => state.openCommit(entry)}
-                  className={`max-w-[12rem] truncate rounded-full border px-2 py-0.5 text-[10px] transition-colors cursor-pointer ${
-                    key === activeCommitKey
-                      ? "bg-cc-primary/15 text-cc-primary border-cc-primary/30"
-                      : "bg-cc-hover text-cc-fg border-cc-border hover:border-cc-primary/30 hover:text-cc-primary"
-                  }`}
-                  title={entry.sha}
-                >
-                  {entry.kind === "memory" ? "Memory" : "Code"} {shortCommitSha(entry.sha)}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              const previous = activeCommitIndex > 0 ? commitEntries[activeCommitIndex - 1] : null;
-              if (previous) setActiveCommitKey(commitLookupKey(previous.kind, previous.sha));
-            }}
-            disabled={activeCommitIndex <= 0}
-            className="px-2 py-1 text-[11px] rounded-lg bg-cc-hover text-cc-fg border border-cc-border disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const next = activeCommitIndex < commitEntries.length - 1 ? commitEntries[activeCommitIndex + 1] : null;
-              if (next) setActiveCommitKey(commitLookupKey(next.kind, next.sha));
-            }}
-            disabled={activeCommitIndex >= commitEntries.length - 1}
-            className="px-2 py-1 text-[11px] rounded-lg bg-cc-hover text-cc-fg border border-cc-border disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-          >
-            Next
-          </button>
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer"
-              aria-label="Close commit modal"
+      <QuestCommitDiffHeader
+        state={state}
+        onClose={onClose}
+        commitLabel={commitLabel}
+        context={headerContext}
+        fileNavigationRef={setFileNavigationTarget}
+      />
+      <div className="quest-commit-diff-scroll min-h-0 flex-1 overflow-auto bg-cc-bg/40">
+        {children ??
+          (commitEntries.length === 0 ? (
+            <div
+              className="flex h-full min-h-48 flex-col items-center justify-center gap-2 px-6 text-center"
+              data-testid="quest-commit-empty-state"
             >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-                <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-              </svg>
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="quest-commit-diff-scroll min-h-0 flex-1 overflow-auto bg-cc-bg/40 px-4 pb-4 pt-0">
-        {commitLookupLoadingKey === activeCommitKey &&
-        (!activeCommitDetails || (activeCommitDetails.available && typeof activeCommitDetails.diff !== "string")) ? (
-          <div className="h-full min-h-48 flex items-center justify-center text-sm text-cc-muted">
-            Loading commit diff...
-          </div>
-        ) : commitLookupError ? (
-          <div className="h-full min-h-48 flex items-center justify-center text-sm text-red-400">
-            {commitLookupError}
-          </div>
-        ) : activeCommitDetails && !activeCommitDetails.available ? (
-          <div className="h-full min-h-48 flex flex-col items-center justify-center gap-2 text-center px-6">
-            <div className="text-sm font-medium text-cc-fg">Commit not available</div>
-            <div className="text-sm text-cc-muted max-w-md">
-              {activeCommitDetails.reason === "repo_unavailable"
-                ? activeCommitEntry.kind === "memory"
-                  ? "The configured local memory repo is not available."
-                  : "The quest no longer has an available session checkout to read this commit from."
-                : "This commit is no longer available in local git history."}
+              <div className="text-sm font-medium text-cc-fg">{emptyTitle}</div>
+              <div className="max-w-md text-sm text-cc-muted">{emptyMessage}</div>
             </div>
-          </div>
-        ) : activeCommitDetails ? (
-          <div
-            className={`quest-commit-diff-content flex flex-col gap-3 ${activeCommitDetails.truncated ? "pt-4" : ""}`}
-          >
-            {activeCommitDetails.truncated && (
-              <div className="px-3 py-2 text-xs bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-300">
-                Commit diff truncated for display.
+          ) : !activeCommitEntry ? (
+            <div className="flex h-full min-h-48 items-center justify-center px-6 text-center text-sm text-cc-muted">
+              Select a recorded commit to inspect.
+            </div>
+          ) : commitLookupLoadingKey === activeCommitKey &&
+            (!activeCommitDetails ||
+              (activeCommitDetails.available && typeof activeCommitDetails.diff !== "string")) ? (
+            <div className="h-full min-h-48 flex items-center justify-center text-sm text-cc-muted">
+              Loading commit diff...
+            </div>
+          ) : commitLookupError ? (
+            <div className="h-full min-h-48 flex items-center justify-center text-sm text-red-400">
+              {commitLookupError}
+            </div>
+          ) : activeCommitDetails && !activeCommitDetails.available ? (
+            <div className="h-full min-h-48 flex flex-col items-center justify-center gap-2 text-center px-6">
+              <div className="text-sm font-medium text-cc-fg">Commit not available</div>
+              <div className="text-sm text-cc-muted max-w-md">
+                {activeCommitDetails.reason === "repo_unavailable"
+                  ? activeCommitEntry.kind === "memory"
+                    ? "The configured local memory repo is not available."
+                    : "The quest no longer has an available session checkout to read this commit from."
+                  : "This commit is no longer available in local git history."}
               </div>
-            )}
-            <DiffViewer
-              unifiedDiff={activeCommitDetails.diff}
-              sourceFiles={activeCommitDetails.sourceFiles?.map((sourceFile) => ({
-                fileName: sourceFile.path,
-                ...(sourceFile.previousPath ? { previousFileName: sourceFile.previousPath } : {}),
-                oldText: sourceFile.oldText,
-                newText: sourceFile.newText,
-              }))}
-              fileName={activeCommitDetails.shortSha}
-              mode="full"
-              showLineNumbers
-              stickyFileHeaders
-              collapsibleFiles
-            />
-          </div>
-        ) : (
-          <div className="h-full min-h-48 flex items-center justify-center text-sm text-cc-muted">
-            Loading commit metadata...
-          </div>
-        )}
+            </div>
+          ) : activeCommitDetails ? (
+            <div className="quest-commit-diff-content flex flex-col gap-3">
+              {activeCommitDetails.truncated && (
+                <div className="px-3 py-2 text-xs bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-300">
+                  Commit diff truncated for display.
+                </div>
+              )}
+              <DiffViewer
+                unifiedDiff={activeCommitDetails.diff}
+                sourceFiles={activeCommitDetails.sourceFiles?.map((sourceFile) => ({
+                  fileName: sourceFile.path,
+                  ...(sourceFile.previousPath ? { previousFileName: sourceFile.previousPath } : {}),
+                  oldText: sourceFile.oldText,
+                  newText: sourceFile.newText,
+                }))}
+                fileName={activeCommitDetails.shortSha}
+                mode="full"
+                showLineNumbers
+                stickyFileHeaders
+                collapsibleFiles
+                fileNavigationTarget={fileNavigationTarget}
+              />
+            </div>
+          ) : (
+            <div className="h-full min-h-48 flex items-center justify-center text-sm text-cc-muted">
+              Loading commit metadata...
+            </div>
+          ))}
       </div>
     </div>
   );
@@ -574,17 +458,4 @@ export function QuestCodeCommitDiffPanel({ questId }: { questId: string }) {
       emptyMessage={`${questId} does not have any recorded code commits yet.`}
     />
   );
-}
-
-function timeAgo(timestamp: number): string {
-  const now = Date.now();
-  const diff = Math.max(0, now - timestamp);
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
 }

@@ -1563,12 +1563,9 @@ export function QuestDetailPanel() {
       </div>
 
       {commitDiffState.activeCommitEntry && (
-        <div
-          className="fixed inset-0 z-[55] flex items-center justify-center bg-black/70 p-4"
-          onClick={commitDiffState.closeCommit}
-        >
+        <div className="fixed inset-0 z-[55] bg-black/70" onClick={commitDiffState.closeCommit}>
           <div
-            className="h-[90dvh] max-h-[calc(100dvh-2rem)] min-h-0 w-[min(1100px,96vw)] bg-cc-card border border-cc-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
+            className="quest-commit-modal min-h-0 bg-cc-card flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"

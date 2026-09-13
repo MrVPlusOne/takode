@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor, cleanup } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, cleanup } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QuestCommitChip } from "./QuestCommitChip.js";
@@ -111,6 +111,41 @@ describe("fixed delivery commit chips", () => {
     expect(await screen.findByText("Delivered commit")).toBeVisible();
   });
 
+  it("keeps return navigation available while review history loads and ignores its late response", async () => {
+    // Moving host controls into the compact header must preserve the escape from pending review lookup.
+    const client = createDeliveryFixtureClient();
+    let resolveReview!: (value: Awaited<ReturnType<typeof client.review>>) => void;
+    client.review = vi.fn(
+      () =>
+        new Promise<Awaited<ReturnType<typeof client.review>>>((resolve) => {
+          resolveReview = resolve;
+        }),
+    );
+    render(
+      <QuestCommitChip
+        questId={DELIVERY_FIXTURE_QUEST}
+        deliveryId={deliveryFixture.id}
+        sha={FIRST_DELIVERY_SHA}
+        client={client}
+      >
+        Commit
+      </QuestCommitChip>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Open commit/ }));
+    await screen.findByTestId("delivery-diff");
+    fireEvent.click(screen.getByRole("button", { name: "Review history" }));
+    expect(screen.getByText("Loading review history…")).toBeVisible();
+    expect(screen.getByRole("dialog")).toHaveClass("quest-commit-modal");
+    expect(screen.queryByTestId("quest-commit-diff-stats-overall")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Back to delivered commit" }));
+    await screen.findByTestId("delivery-diff");
+    await act(async () =>
+      resolveReview({ snapshots: [{ index: 0, count: 1, label: "Original" }], commitShas: [REVIEW_FIXTURE_SHA] }),
+    );
+    expect(screen.getByText("Delivered commit")).toBeVisible();
+    expect(screen.queryByText("Original review increment")).toBeNull();
+  });
+
   it("preserves earlier link identity after a later delivery and handles an empty/binary patch as loaded", async () => {
     const client = createDeliveryFixtureClient();
     const load = vi.spyOn(client, "commit");
@@ -161,6 +196,13 @@ describe("fixed delivery commit chips", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Open commit/ }));
     expect(await screen.findByText("Commit not available")).toBeVisible();
     expect(screen.queryByTestId("delivery-diff")).not.toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: /Open commit/ });
+    const focus = trigger.focus.bind(trigger);
+    vi.spyOn(trigger, "focus").mockImplementation(() => {
+      // Native modal inertness rejects background focus until close() releases it.
+      expect(document.querySelector("dialog[open]")).toBeNull();
+      focus();
+    });
     fireEvent.click(screen.getByRole("button", { name: "Close commit modal" }));
     expect(screen.getByRole("button", { name: /Open commit/ })).toHaveFocus();
   });
@@ -216,6 +258,7 @@ describe("fixed delivery commit chips", () => {
     expect(await screen.findByText("Baseline unrecorded")).toBeVisible();
     const legacy = screen.getByRole("button", { name: /Older saved commit, 9 additions, 2 deletions/ });
     fireEvent.click(legacy);
+    fireEvent.click(await screen.findByRole("button", { name: "Details · saved counts differ" }));
     expect(await screen.findByTestId("quest-commit-recorded-stats")).toHaveTextContent("Saved chip counts: +9 −2");
     expect(screen.getByTestId("quest-commit-recorded-stats")).toHaveTextContent("Baseline unrecorded");
     expect(screen.getByTestId("quest-commit-comparison")).toHaveTextContent("may include existing layer code");

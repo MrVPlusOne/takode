@@ -196,8 +196,8 @@ describe("QuestDetailPanel commit evidence", () => {
     expect(screen.getByTestId("quest-commit-modal")).toBeTruthy();
     expect(screen.getAllByText("First ported commit").length).toBeGreaterThanOrEqual(1);
     const firstAggregate = screen.getByLabelText("Overall changes: 12 additions, 4 deletions");
-    expect(firstAggregate).toHaveTextContent("+12 additions");
-    expect(firstAggregate).toHaveTextContent("-4 deletions");
+    expect(firstAggregate).toHaveTextContent("+12");
+    expect(firstAggregate).toHaveTextContent("-4");
     expect(firstAggregate).not.toHaveTextContent("Overall");
     expect(screen.getByLabelText("Code changes: 8 additions, 2 deletions")).toBeTruthy();
     expect(screen.getByLabelText("Tests changes: 4 additions, 2 deletions")).toBeTruthy();
@@ -210,19 +210,19 @@ describe("QuestDetailPanel commit evidence", () => {
     ]);
     const diffScroll = modal.querySelector(".quest-commit-diff-scroll");
     const diffContent = modal.querySelector(".quest-commit-diff-content");
-    expect(diffScroll).toHaveClass("pt-0", "px-4", "pb-4");
+    expect(diffScroll).toHaveClass("min-h-0", "flex-1", "overflow-auto");
     expect(diffContent).not.toHaveClass("pt-4");
     expect(diffContent?.firstElementChild).toHaveClass("diff-viewer");
 
-    fireEvent.click(screen.getByText("Next"));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     await waitFor(() => {
       expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", secondSha);
     });
     expect(screen.getAllByText("Second ported commit").length).toBeGreaterThanOrEqual(1);
     const secondAggregate = screen.getByLabelText("Overall changes: 3 additions, 1 deletions");
-    expect(secondAggregate).toHaveTextContent("+3 additions");
-    expect(secondAggregate).toHaveTextContent("-1 deletions");
+    expect(secondAggregate).toHaveTextContent("+3");
+    expect(secondAggregate).toHaveTextContent("-1");
     expect(await screen.findByLabelText("Code changes: 3 additions, 1 deletions")).toBeTruthy();
     expect(screen.queryByLabelText(/^Tests changes:/)).toBeNull();
 
@@ -274,16 +274,16 @@ describe("QuestDetailPanel commit evidence", () => {
     });
     const modal = screen.getByTestId("quest-commit-modal");
     const diffScroll = modal.querySelector(".quest-commit-diff-scroll");
-    expect(modal).toHaveClass("h-[90dvh]", "max-h-[calc(100dvh-2rem)]", "min-h-0");
+    expect(modal).toHaveClass("quest-commit-modal", "min-h-0");
     expect(diffScroll).toHaveClass("min-h-0", "flex-1", "overflow-auto");
 
-    fireEvent.click(screen.getByText("Next"));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     await waitFor(() => {
       expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", secondSha);
     });
     expect(screen.getByText("Loading commit diff...")).toBeTruthy();
-    expect(screen.getByTestId("quest-commit-modal")).toHaveClass("h-[90dvh]", "max-h-[calc(100dvh-2rem)]", "min-h-0");
+    expect(screen.getByTestId("quest-commit-modal")).toHaveClass("quest-commit-modal", "min-h-0");
     expect(diffScroll).toHaveClass("min-h-0", "flex-1", "overflow-auto");
 
     await act(async () => {
@@ -298,7 +298,7 @@ describe("QuestDetailPanel commit evidence", () => {
         diff: `diff --git a/other.ts b/other.ts\n--- a/other.ts\n+++ b/other.ts\n@@ -1 +1 @@\n-before\n+after\n`,
       });
     });
-    expect(await screen.findByText("+3 additions")).toBeTruthy();
+    expect(await screen.findByLabelText("Overall changes: 3 additions, 1 deletions")).toBeTruthy();
   });
 
   it("shows a graceful unavailable state when a stored commit cannot be loaded", async () => {

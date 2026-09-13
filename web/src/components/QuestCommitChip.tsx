@@ -199,10 +199,16 @@ function QuestDeliveryModal({
   });
   const activeSummary = delivery.commits.find((commit) => commit.sha === state.activeCommitEntry?.sha);
   const canReview = (activeSummary?.reviewCount ?? 0) > 0 || delivery.earlierReviewCount > 0;
+  const closeModal = () => {
+    // Release native dialog inertness before the parent restores focus to its chip.
+    dialogRef.current?.close();
+    onClose();
+  };
 
   useEffect(() => {
-    dialogRef.current?.showModal();
-    return () => dialogRef.current?.close();
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    return () => dialog?.close();
   }, []);
 
   useEffect(() => {
@@ -227,61 +233,61 @@ function QuestDeliveryModal({
     <dialog
       ref={dialogRef}
       aria-label="Recorded delivery commit"
-      onCancel={onClose}
-      className="m-auto h-[88dvh] max-h-[88dvh] w-[min(72rem,96vw)] max-w-[96vw] rounded-xl border border-cc-border bg-cc-card p-0 text-cc-fg shadow-2xl backdrop:bg-black/60"
+      onCancel={(event) => {
+        event.preventDefault();
+        closeModal();
+      }}
+      className="quest-commit-modal bg-cc-card text-cc-fg backdrop:bg-black/60"
     >
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-cc-border px-3 py-2 text-xs">
-          <span className="text-cc-muted">{delivery.branch}</span>
-          {(review || canReview) && (
-            <button
-              type="button"
-              className="rounded border border-cc-border px-2 py-1"
-              aria-expanded={review}
-              onClick={() => {
-                if (!review) {
-                  setParentSha(state.activeCommitEntry?.sha ?? initialSha);
-                  setSnapshot(0);
-                }
-                setReview((value) => !value);
-              }}
-            >
-              {review ? "Back to delivered commit" : "Review history"}
-            </button>
-          )}
-          {review && reviewList && reviewList.snapshots.length > 1 && (
-            <select
-              aria-label="Review snapshot"
-              value={snapshot}
-              className="max-w-full rounded bg-cc-hover px-2 py-1"
-              onChange={(event) => setSnapshot(Number(event.target.value))}
-            >
-              {reviewList.snapshots.map((item) => (
-                <option key={item.index} value={item.index}>
-                  {item.label} ({item.count})
-                </option>
-              ))}
-            </select>
-          )}
-          {review && <span className="text-cc-muted">Retained review evidence</span>}
-        </div>
-        <div className="min-h-0 flex-1">
-          {review && !reviewList ? (
-            <div className="p-6 text-sm text-cc-muted">
-              {reviewError ? "Review history unavailable." : "Loading review history…"}
-              <button type="button" onClick={onClose} className="ml-4 underline">
-                Close
+      <QuestCommitDiffView
+        state={state}
+        onClose={closeModal}
+        commitLabel={review ? "Review commit" : "Delivered commit"}
+        headerContext={
+          <>
+            <span className="order-first max-w-40 truncate text-[10px] text-cc-muted" title={delivery.branch}>
+              {delivery.branch}
+            </span>
+            {(review || canReview) && (
+              <button
+                type="button"
+                className="rounded border border-cc-border px-2 py-1"
+                aria-expanded={review}
+                onClick={() => {
+                  if (!review) {
+                    setParentSha(state.activeCommitEntry?.sha ?? initialSha);
+                    setSnapshot(0);
+                  }
+                  setReview((value) => !value);
+                }}
+              >
+                {review ? "Back to delivered commit" : "Review history"}
               </button>
-            </div>
-          ) : (
-            <QuestCommitDiffView
-              state={state}
-              onClose={onClose}
-              commitLabel={review ? "Review commit" : "Delivered commit"}
-            />
-          )}
-        </div>
-      </div>
+            )}
+            {review && reviewList && reviewList.snapshots.length > 1 && (
+              <select
+                aria-label="Review snapshot"
+                value={snapshot}
+                className="max-w-full rounded bg-cc-hover px-2 py-1"
+                onChange={(event) => setSnapshot(Number(event.target.value))}
+              >
+                {reviewList.snapshots.map((item) => (
+                  <option key={item.index} value={item.index}>
+                    {item.label} ({item.count})
+                  </option>
+                ))}
+              </select>
+            )}
+            {review && <span className="text-[10px] text-cc-muted">Retained review evidence</span>}
+          </>
+        }
+      >
+        {review && !reviewList ? (
+          <div className="flex h-full min-h-48 items-center justify-center text-sm text-cc-muted">
+            {reviewError ? "Review history unavailable." : "Loading review history…"}
+          </div>
+        ) : undefined}
+      </QuestCommitDiffView>
     </dialog>,
     document.body,
   );
