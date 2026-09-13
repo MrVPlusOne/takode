@@ -52,10 +52,10 @@ function setMeasuredRailWidth(width: number) {
   );
 }
 
-function getWorkBoardBarSection() {
-  const section = document.querySelector<HTMLElement>('[data-playground-section-id="interactive-work-board-bar"]');
+function getPlaygroundSection(sectionId: string) {
+  const section = document.querySelector<HTMLElement>(`[data-playground-section-id="${sectionId}"]`);
   if (!section) {
-    throw new Error("Work Board Bar Playground section was not rendered");
+    throw new Error(`Playground section ${sectionId} was not rendered`);
   }
   return within(section);
 }
@@ -513,55 +513,56 @@ describe("Playground", () => {
   });
 
   it("shows the voice mode selector before the recording label in Playground composer states", () => {
+    // Render the whole catalog, but avoid resolving labels for unrelated controls.
+    // jsdom scans the document for each control's labels, making global queries quadratic.
     render(<Playground />);
+    const composer = getPlaygroundSection("states-composer-voice-recording");
 
-    expect(screen.queryByLabelText("Current input level")).toBeNull();
-    expect(screen.queryByLabelText("Recent input level history")).toBeNull();
-    expect(screen.getAllByLabelText("Current and recent input level").length).toBeGreaterThanOrEqual(3);
+    expect(composer.queryByLabelText("Current input level")).toBeNull();
+    expect(composer.queryByLabelText("Recent input level history")).toBeNull();
+    expect(composer.getAllByLabelText("Current and recent input level").length).toBeGreaterThanOrEqual(3);
 
-    const editRow = screen.getByTestId("playground-recording-mode-row-edit");
+    const editRow = composer.getByTestId("playground-recording-mode-row-edit");
     const editToggle = within(editRow).getByTestId("playground-recording-mode-toggle-edit");
     const editRecordingLabel = within(editRow).getByText("Recording");
     expect(editToggle.compareDocumentPosition(editRecordingLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(editRow).getByLabelText("Current and recent input level")).toBeTruthy();
 
-    const appendRow = screen.getByTestId("playground-recording-mode-row-append");
+    const appendRow = composer.getByTestId("playground-recording-mode-row-append");
     const appendToggle = within(appendRow).getByTestId("playground-recording-mode-toggle-append");
     const appendRecordingLabel = within(appendRow).getByText("Recording");
     expect(appendToggle.compareDocumentPosition(appendRecordingLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(appendRow).getByLabelText("Current and recent input level")).toBeTruthy();
-    expect(screen.getByText("Rerun as append")).toBeTruthy();
-    expect(screen.getByText("Rerun as voice edit")).toBeTruthy();
-    expect(screen.getByText("Rerunning as voice edit...")).toBeTruthy();
-    expect(screen.getAllByLabelText("Dismiss alternate voice rerun offer")).toHaveLength(2);
-    expect(screen.getAllByTestId("alternate-voice-rerun-offer")).toHaveLength(2);
-    // Full Playground rendering is intentionally broad documentation coverage;
-    // aggregate jsdom contention can exceed 20s as the fixture catalog grows.
+    expect(composer.getByText("Rerun as append")).toBeTruthy();
+    expect(composer.getByText("Rerun as voice edit")).toBeTruthy();
+    expect(composer.getByText("Rerunning as voice edit...")).toBeTruthy();
+    expect(composer.getAllByLabelText("Dismiss alternate voice rerun offer")).toHaveLength(2);
+    expect(composer.getAllByTestId("alternate-voice-rerun-offer")).toHaveLength(2);
   }, 30_000);
 
   it("documents Composer backend-native permission selector states", () => {
+    // Keep accessible-name assertions within their actual Composer fixtures.
     render(<Playground />);
+    const composer = getPlaygroundSection("interactive-composer");
 
-    expect(screen.getByText("Claude permission selector menu")).toBeTruthy();
-    expect(screen.getByText("Codex permission change confirmation")).toBeTruthy();
-    expect(screen.getByTestId("composer-permission-mode-menu")).toHaveTextContent("Delegate");
-    expect(screen.getByTestId("composer-permission-mode-menu")).toHaveTextContent("Don't ask");
-    expect(screen.getByTestId("composer-permission-mode-popover")).toHaveTextContent(
+    expect(composer.getByText("Claude permission selector menu")).toBeTruthy();
+    expect(composer.getByText("Codex permission change confirmation")).toBeTruthy();
+    expect(composer.getByTestId("composer-permission-mode-menu")).toHaveTextContent("Delegate");
+    expect(composer.getByTestId("composer-permission-mode-menu")).toHaveTextContent("Don't ask");
+    expect(composer.getByTestId("composer-permission-mode-popover")).toHaveTextContent(
       "Change permissions to Full access?",
     );
-    expect(screen.getByText("Codex model and effort selector")).toBeTruthy();
-    expect(screen.getByText("Codex model selector — narrow layout")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Model and effort: 5.6 Sol Ultra" }).length).toBeGreaterThan(0);
-    expect(screen.getByTestId("composer-model-summary-menu")).toHaveTextContent("Model");
-    expect(screen.getByTestId("composer-model-summary-menu")).toHaveTextContent("Effort");
-    expect(screen.getByTestId("composer-model-summary-menu")).not.toHaveTextContent("Effective");
-    expect(screen.getByTestId("composer-model-summary-menu")).toHaveTextContent("Speed");
-    expect(screen.getByTestId("composer-model-summary-menu")).toHaveTextContent("Reset to default");
-    expect(screen.getByTestId("composer-reasoning-warning")).toHaveTextContent(
+    expect(composer.getByText("Codex model and effort selector")).toBeTruthy();
+    expect(composer.getByText("Codex model selector — narrow layout")).toBeTruthy();
+    expect(composer.getAllByRole("button", { name: "Model and effort: 5.6 Sol Ultra" }).length).toBeGreaterThan(0);
+    expect(composer.getByTestId("composer-model-summary-menu")).toHaveTextContent("Model");
+    expect(composer.getByTestId("composer-model-summary-menu")).toHaveTextContent("Effort");
+    expect(composer.getByTestId("composer-model-summary-menu")).not.toHaveTextContent("Effective");
+    expect(composer.getByTestId("composer-model-summary-menu")).toHaveTextContent("Speed");
+    expect(composer.getByTestId("composer-model-summary-menu")).toHaveTextContent("Reset to default");
+    expect(composer.getByTestId("composer-reasoning-warning")).toHaveTextContent(
       "Runtime is using High instead of Ultra.",
     );
-    // The full Playground is intentionally broad documentation coverage and
-    // can exceed the default jsdom budget in the aggregate suite.
   }, 20_000);
 
   it("documents paused recovery guidance and completed terminal receipts", () => {
@@ -1029,7 +1030,7 @@ describe("Playground", () => {
     setMeasuredRailWidth(392);
     render(<Playground />);
 
-    const workBoardBar = getWorkBoardBarSection();
+    const workBoardBar = getPlaygroundSection("interactive-work-board-bar");
     fireEvent.click(workBoardBar.getByText("Seed board data"));
 
     const rail = workBoardBar.getByTestId("thread-tab-rail");
@@ -1210,7 +1211,7 @@ describe("Playground", () => {
     setMeasuredRailWidth(392);
     render(<Playground />);
 
-    const workBoardBar = getWorkBoardBarSection();
+    const workBoardBar = getPlaygroundSection("interactive-work-board-bar");
     fireEvent.click(workBoardBar.getByText("Seed board data"));
     fireEvent.click(workBoardBar.getByText("Show waiting completed tab"));
 
@@ -1260,7 +1261,7 @@ describe("Playground", () => {
     setMeasuredRailWidth(1880);
     render(<Playground />);
 
-    const workBoardBar = getWorkBoardBarSection();
+    const workBoardBar = getPlaygroundSection("interactive-work-board-bar");
     fireEvent.click(workBoardBar.getByText("Seed board data"));
     fireEvent.click(workBoardBar.getByText("Simulate desktop tab crowd"));
 
