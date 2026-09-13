@@ -1,6 +1,7 @@
 import { useComposerTextareaSize } from "../use-composer-textarea-size.js";
 import { ComposerMinimizer, ComposerMinimizeButton, ComposerVisibilityContext } from "../ComposerMinimizer.js";
-import { useContext, useEffect, useRef, useState, type TextareaHTMLAttributes } from "react";
+import { useContext, useEffect, useId, useRef, useState, type TextareaHTMLAttributes } from "react";
+import { ComposerCompactPreview } from "../ComposerCompactPreview.js";
 import { useStore } from "../../store.js";
 import { useTextSelection } from "../../hooks/useTextSelection.js";
 import { SelectionContextMenu } from "../SelectionContextMenu.js";
@@ -53,8 +54,8 @@ export function PlaygroundAnnotationsSection() {
       <p className="text-sm text-cc-muted">
         Attached passages stay dimly highlighted, including across bold and italic text. Click a chip to open its editor
         at the passage, or hover to strengthen its highlight and preview the comment. Minimize the draft to read more of
-        the feed: only its first line stays visible, and attachments return when you expand the input. This preview
-        changes only local fixture state.
+        the feed: an ellipsis indicates more text, and small image/comment counts keep attachments discoverable. Clear
+        the text to try an attachment-only draft. This preview changes only local fixture state.
       </p>
       <div
         ref={root}
@@ -80,6 +81,7 @@ export function PlaygroundAnnotationsSection() {
               <ComposerAnnotations sessionId={SESSION} threadKey="main" />
             </div>
             <DraftTextarea
+              commentCount={draft?.annotations?.length ?? 0}
               aria-label="Annotation main message"
               value={draft?.text ?? ""}
               onChange={(event) =>
@@ -120,13 +122,17 @@ export function PlaygroundAnnotationsSection() {
   );
 }
 
-function DraftTextarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+function DraftTextarea({
+  commentCount,
+  ...props
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & { commentCount: number }) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const previewDescriptionId = useId();
   const expanded = useContext(ComposerVisibilityContext);
   useComposerTextareaSize(ref, String(props.value ?? ""));
   return (
     <div
-      className={expanded ? "" : "px-4 py-2.5"}
+      className={`relative ${expanded ? "" : "px-4 py-2.5"}`}
       onClick={() => {
         if (!expanded) ref.current?.focus();
       }}
@@ -137,8 +143,18 @@ function DraftTextarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
         rows={1}
         wrap={expanded ? "soft" : "off"}
         aria-expanded={expanded}
-        className={`block w-full bg-transparent text-sm outline-none resize-none ${expanded ? "px-4 py-2" : "p-0 leading-6 overflow-hidden"}`}
+        aria-describedby={!expanded ? previewDescriptionId : undefined}
+        className={`block w-full bg-transparent text-sm outline-none resize-none ${expanded ? "px-4 py-2" : "p-0 leading-6 overflow-hidden opacity-0"}`}
       />
+      {!expanded && (
+        <ComposerCompactPreview
+          text={String(props.value ?? "")}
+          placeholder="Add a message..."
+          imageCount={1}
+          commentCount={commentCount}
+          descriptionId={previewDescriptionId}
+        />
+      )}
     </div>
   );
 }

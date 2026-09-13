@@ -1,5 +1,6 @@
 import { useComposerTextareaSize } from "./use-composer-textarea-size.js";
-import { useContext } from "react";
+import { useContext, useId } from "react";
+import { ComposerCompactPreview } from "./ComposerCompactPreview.js";
 import { ComposerVisibilityContext } from "./ComposerMinimizer.js";
 import type { RefObject, ReactNode } from "react";
 import { Lightbox } from "./Lightbox.js";
@@ -20,6 +21,7 @@ export function ComposerInputSurface({
   isPlan,
   textareaRef,
   text,
+  commentCount,
   handleInput,
   handleSelectionChange,
   handleKeyDown,
@@ -52,6 +54,7 @@ export function ComposerInputSurface({
   isPlan: boolean;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   text: string;
+  commentCount: number;
   handleInput: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   handleSelectionChange: (e: React.SyntheticEvent<HTMLTextAreaElement>) => void;
   handleKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -64,6 +67,7 @@ export function ComposerInputSurface({
   bottomChildren?: ReactNode;
 }) {
   const expanded = useContext(ComposerVisibilityContext);
+  const previewDescriptionId = useId();
   useComposerTextareaSize(textareaRef, text);
   return (
     <div className="max-w-3xl mx-auto">
@@ -186,11 +190,21 @@ export function ComposerInputSurface({
             rows={1}
             wrap={expanded ? "soft" : "off"}
             aria-expanded={expanded}
-            className={`block w-full text-base sm:text-sm bg-transparent resize-none focus:outline-none font-sans-ui placeholder:text-cc-muted disabled:opacity-50 ${expanded ? "px-4 pt-3 pb-1 overflow-y-auto" : "p-0 leading-6 overflow-hidden"} ${
+            aria-describedby={!expanded ? previewDescriptionId : undefined}
+            className={`block w-full text-base sm:text-sm bg-transparent resize-none focus:outline-none font-sans-ui placeholder:text-cc-muted disabled:opacity-50 ${expanded ? "px-4 pt-3 pb-1 overflow-y-auto" : "p-0 leading-6 overflow-hidden opacity-0"} ${
               isRecording && recordingCursorAfter ? "text-transparent caret-transparent" : "text-cc-fg"
             }`}
             style={{ minHeight: expanded ? "36px" : "24px", maxHeight: expanded ? "200px" : "24px" }}
           />
+          {!expanded && (
+            <ComposerCompactPreview
+              text={text}
+              placeholder={placeholder}
+              imageCount={imageSrcs.length}
+              commentCount={commentCount}
+              descriptionId={previewDescriptionId}
+            />
+          )}
           {isRecording && recordingCursorAfter && (
             <div className="absolute inset-0 px-4 pt-3 pb-1 text-base sm:text-sm font-sans-ui text-cc-fg pointer-events-none overflow-y-auto whitespace-pre-wrap break-words">
               <span>{recordingCursorBefore}</span>

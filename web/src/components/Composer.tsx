@@ -321,6 +321,9 @@ export function Composer({
     }
 
     voiceStartPendingRef.current = true;
+    // Voice shortcuts and touch buttons need not focus the textarea. Keep their
+    // intentional expansion after transcription, unless a later interaction closes it.
+    setComposerExpanded(true);
     try {
       setFailedTranscription(null);
       setAlternateVoiceRerun(null);
@@ -1656,6 +1659,7 @@ export function Composer({
           isPlan={isPlan}
           textareaRef={textareaRef}
           text={text}
+          commentCount={annotations?.length ?? 0}
           handleInput={handleInput}
           handleSelectionChange={handleSelectionChange}
           handleKeyDown={handleKeyDown}

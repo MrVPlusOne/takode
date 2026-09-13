@@ -1349,6 +1349,91 @@ it("allows an empty mobile composer to collapse after voice capture finishes", (
   }
 });
 
+it.each([
+  "none",
+  "outside",
+  "navigation",
+])("keeps voice-inserted text expanded unless the user leaves (%s)", async (departure) => {
+  // A voice shortcut can start without textarea focus. Its temporary reveal must become
+  // intentional expansion, while a later outside interaction or navigation still wins.
+  mediaState.touchDevice = true;
+  setViewportWidth(430);
+  mockStoreState.shortcutSettings = {
+    enabled: true,
+    preset: "standard",
+    overrides: { voice_start: "Ctrl+Y" },
+  };
+  const transcription = deferred<VoiceTranscriptionResult>();
+  mockTranscribe.mockReturnValueOnce(transcription.promise);
+  const view = renderCollapsedComposer(<Composer sessionId="s1" />);
+  const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+  fireEvent.keyDown(document, { key: "y", ctrlKey: true });
+  expect(mockTranscribe).toHaveBeenCalledTimes(1);
+  expect(textarea.getAttribute("aria-expanded")).toBe("true");
+  expect(document.activeElement).not.toBe(textarea);
+  if (departure === "outside") fireEvent.pointerDown(document.body);
+  if (departure === "navigation") view.rerender(<Composer sessionId="s1" threadKey="another" />);
+  await act(async () => {
+    transcription.resolve({
+      mode: "dictation",
+      text: "Voice first line\nVoice second line",
+      backend: "openai",
+      enhanced: false,
+    });
+  });
+  expect(textarea.value).toBe("Voice first line\nVoice second line");
+  expect(textarea.getAttribute("aria-expanded")).toBe(departure === "none" ? "true" : "false");
+  expect(document.activeElement).not.toBe(textarea);
+});
+
+it.each([
+  ["", 1, 0],
+  ["", 0, 2],
+  ["First line\nA hidden second line", 1, 2],
+  ["A single short line", 0, 0],
+  ["\nText below an empty first line", 0, 0],
+] as const)("previews draft continuation and attachment presence (%s, %s, %s)", (text, imageCount, commentCount) => {
+  // Indicators describe local draft state, including image/comment-only drafts; they must
+  // not replace full attachments, expose their content, or change the stored text.
+  const draft = {
+    text,
+    images: Array.from({ length: imageCount }, (_, index) => ({
+      id: `draft-image-${index}`,
+      imageId: `image-${index}`,
+      name: "Draft image",
+      mediaType: "image/png",
+      base64: "ZmFrZQ==",
+      status: "ready",
+    })),
+    annotations: Array.from({ length: commentCount }, (_, index) => ({
+      id: `draft-comment-${index}`,
+      selectedText: "A complete quotation",
+      comment: "A complete comment",
+    })),
+  };
+  mockStoreState.composerDrafts = new Map([["s1", draft]]);
+  renderCollapsedComposer(<Composer sessionId="s1" />);
+  const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+  const preview = screen.getByTestId("composer-compact-preview");
+  expect(preview.textContent?.includes("…")).toBe(text.includes("\n"));
+  expect(preview.textContent).not.toContain("A complete comment");
+  expect(preview.textContent).not.toContain("A complete quotation");
+  expect(screen.queryByTestId("compact-image-count")?.textContent ?? "").toBe(imageCount ? String(imageCount) : "");
+  expect(screen.queryByTestId("compact-comment-count")?.textContent ?? "").toBe(
+    commentCount ? String(commentCount) : "",
+  );
+  const description = document.getElementById(textarea.getAttribute("aria-describedby")!)!;
+  if (imageCount) expect(description.textContent).toContain("1 image attachment");
+  if (commentCount) expect(description.textContent).toContain("2 comment attachments");
+  expect(screen.queryAllByRole("img")).toHaveLength(0);
+  act(() => textarea.focus());
+  expect(screen.queryByTestId("composer-compact-preview")).toBeNull();
+  expect(screen.queryAllByRole("img")).toHaveLength(imageCount);
+  fireEvent.click(screen.getByLabelText("Minimize composer"));
+  expect(textarea.value).toBe(text);
+  expect((mockStoreState.composerDrafts as Map<string, unknown>).get("s1")).toEqual(draft);
+});
+
 // Defaults are uniform at both sizes; first-line presentation must never mutate later draft lines.
 it.each([false, true])("starts with only the populated input visible (touch=%s)", (touch) => {
   mediaState.touchDevice = touch;

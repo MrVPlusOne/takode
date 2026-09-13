@@ -18,13 +18,16 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-it("demonstrates an input-only draft with preserved multiline text and hidden attachments", () => {
+it("demonstrates compact indicators with preserved multiline text and hidden attachment content", () => {
   // This fixture uses the same expansion boundary and sizing hook as the assembled composer.
   render(<PlaygroundAnnotationsSection />);
   const input = screen.getByLabelText("Annotation main message") as HTMLTextAreaElement;
   const original = input.value;
   expect(original.split("\n")).toHaveLength(2);
   expect(input.getAttribute("aria-expanded")).toBe("false");
+  expect(screen.getByTestId("composer-compact-preview").textContent).toContain("…");
+  expect(screen.getByTestId("compact-image-count").textContent).toBe("1");
+  expect(screen.getByTestId("compact-comment-count").textContent).toBe("2");
   expect(screen.queryByRole("img", { name: "Example attached image" })).toBeNull();
   act(() => input.focus());
   const image = screen.getByRole("img", { name: "Example attached image" });
@@ -34,6 +37,10 @@ it("demonstrates an input-only draft with preserved multiline text and hidden at
   expect(image.closest("[hidden]")).toBeTruthy();
   act(() => input.focus());
   expect(screen.getByRole("img", { name: "Example attached image" })).toBe(image);
+  // An attachment-only draft remains discoverable without rendering full attachments.
+  fireEvent.change(input, { target: { value: "" } });
   fireEvent.pointerDown(screen.getByRole("heading", { name: "Conversation annotations" }));
   expect(input.getAttribute("aria-expanded")).toBe("false");
+  expect(screen.getByTestId("compact-image-count").textContent).toBe("1");
+  expect(screen.getByTestId("compact-comment-count").textContent).toBe("2");
 });
