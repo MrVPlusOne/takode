@@ -454,6 +454,7 @@ function QuestBannerParticipantChip({
   currentSessionId,
   threadKey,
   showDisplayName = true,
+  variant = "session",
 }: {
   role: QuestBannerParticipantRole;
   participant?: BoardRowSessionStatus["worker"] | BoardRowSessionStatus["reviewer"] | null;
@@ -463,6 +464,7 @@ function QuestBannerParticipantChip({
   currentSessionId?: string;
   threadKey?: string | null;
   showDisplayName?: boolean;
+  variant?: QuestBannerVariant;
 }) {
   const candidateSessionId = participant?.sessionId ?? explicitSessionId ?? fallbackSessionId ?? null;
   const candidateSessionNum = participant?.sessionNum ?? fallbackSessionNum ?? undefined;
@@ -500,7 +502,11 @@ function QuestBannerParticipantChip({
     <SessionInlineLink
       sessionId={sessionId}
       sessionNum={sessionNum}
-      className={QUEST_PARTICIPANT_CHIP_CLASS}
+      className={
+        variant === "thread"
+          ? `inline-flex h-6 min-w-0 max-w-full items-center gap-1 rounded px-1 text-[11px] hover:bg-cc-hover focus-visible:outline focus-visible:outline-cc-primary ${role === "Worker" ? "font-medium text-cc-fg" : "text-cc-muted"}`
+          : QUEST_PARTICIPANT_CHIP_CLASS
+      }
       dataTestId="quest-thread-participant"
       ariaLabel={label}
       title={`Open ${role.toLowerCase()} session ${sessionNum != null ? `#${sessionNum}` : sessionId}${displayName ? ` ${displayName}` : ""}`}
@@ -561,7 +567,7 @@ function QuestBannerCommitButton({ questId, count }: { questId: string; count: n
     <button
       type="button"
       onClick={() => setActiveTab("diff")}
-      className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-cc-border/60 bg-cc-hover/35 px-1.5 text-[10px] leading-none text-cc-muted transition-colors hover:border-cc-primary/35 hover:text-cc-primary"
+      className="inline-flex h-6 shrink-0 items-center gap-1 rounded px-1 text-[11px] leading-none text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline focus-visible:outline-cc-primary"
       data-testid="quest-thread-commit-button"
       aria-label={`Open ${questId} recorded commit diffs, ${label}`}
       title={`Open ${questId} recorded commit diffs`}
@@ -955,20 +961,16 @@ export function QuestThreadBanner({
                 <QuestJourneyTimeline
                   journey={row.journey}
                   status={journeyStatusForThread(row)}
-                  compact
+                  variant={isSessionBanner ? "compact" : "inline"}
                   showNotes={false}
-                  className="rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5"
+                  className={
+                    isSessionBanner ? "rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5" : "py-1"
+                  }
                 />
               </QuestJourneyHoverTarget>
             ) : null}
             {!queuedWaitCondition && !row?.journey && <QuestStatusFallbackPill status={row?.status} />}
-            {inputWaitCondition && <QuestBannerWaitPill condition={inputWaitCondition} />}
-            {showCommitAffordance && (
-              <QuestBannerCommitButton questId={questId} count={codeCommitState.commitShas.length} />
-            )}
-            {monitorSessionId && !isSessionBanner && (
-              <NotifyMeControl sessionId={monitorSessionId} threadKey={threadKey} />
-            )}
+            {isSessionBanner && inputWaitCondition && <QuestBannerWaitPill condition={inputWaitCondition} />}
             {hasParticipantContext && (
               <div className="inline-flex min-w-0 items-center gap-1.5" data-testid="quest-thread-participant-strip">
                 {isSessionBanner ? (
@@ -990,6 +992,7 @@ export function QuestThreadBanner({
                   <>
                     <QuestBannerParticipantChip
                       role="Worker"
+                      variant="thread"
                       participant={boardWorkerParticipantForRow(row)}
                       fallbackSessionId={row?.boardRow?.worker}
                       fallbackSessionNum={row?.boardRow?.workerNum}
@@ -999,10 +1002,17 @@ export function QuestThreadBanner({
                       role="Reviewer"
                       participant={row?.rowStatus?.reviewer}
                       showDisplayName={false}
+                      variant="thread"
                     />
                   </>
                 )}
               </div>
+            )}
+            {showCommitAffordance && (
+              <QuestBannerCommitButton questId={questId} count={codeCommitState.commitShas.length} />
+            )}
+            {monitorSessionId && !isSessionBanner && (
+              <NotifyMeControl sessionId={monitorSessionId} threadKey={threadKey} />
             )}
           </div>
         )}

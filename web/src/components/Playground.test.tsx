@@ -1311,6 +1311,13 @@ describe("Playground", () => {
     expect(within(mobileParticipantBanners[1]).getByTestId("session-role-icon-leader")).toBeInTheDocument();
 
     const queuedBanner = screen.getAllByTestId("quest-thread-banner")[1];
+    // The checkpoint specimen keeps the phase visible while suppressing duplicate attention.
+    const checkpointBanner = screen.getAllByTestId("quest-thread-banner")[4];
+    expect(within(checkpointBanner).getByTestId("quest-journey-compact-summary")).toHaveTextContent(
+      "User Checkpoint3/5",
+    );
+    expect(within(checkpointBanner).queryByTestId("quest-thread-wait-pill")).toBeNull();
+    expect(within(checkpointBanner).getByLabelText("Worker #1321 Clear Mesa")).toBeTruthy();
     expect(within(queuedBanner).getByTestId("quest-thread-queued-status-chip")).toHaveTextContent(
       "Queued, waiting for #1801, q-1367, free worker",
     );

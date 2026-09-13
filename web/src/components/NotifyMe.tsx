@@ -61,7 +61,7 @@ export function NotifyMeControlView({
         disabled={disabled}
         onClick={onToggle}
         title={enabled ? "Stop tracking this task" : "Keep new results until you acknowledge or reply"}
-        className={`inline-flex h-5 shrink-0 items-center gap-1 rounded-full border px-1.5 text-[10px] transition-colors cursor-pointer disabled:opacity-50 ${enabled ? "border-cc-info/35 bg-cc-info/10 text-cc-fg" : "border-cc-border/60 text-cc-muted hover:bg-cc-hover hover:text-cc-fg"}`}
+        className={`inline-flex h-6 shrink-0 items-center gap-1 rounded px-1 text-[11px] transition-colors cursor-pointer hover:bg-cc-hover focus-visible:outline focus-visible:outline-cc-primary disabled:opacity-50 ${enabled ? "text-cc-info" : "text-cc-muted hover:text-cc-fg"}`}
       >
         <NotifyMeIcon pending={pending} monitored={enabled} />
         Notify Me
@@ -71,7 +71,7 @@ export function NotifyMeControlView({
           type="button"
           disabled={disabled}
           onClick={onAcknowledge}
-          className="h-5 rounded-full border border-cc-info/30 px-1.5 text-[10px] text-cc-info hover:bg-cc-info/10 cursor-pointer disabled:opacity-50"
+          className="h-6 rounded px-1 text-[11px] text-cc-info hover:bg-cc-hover focus-visible:outline focus-visible:outline-cc-primary cursor-pointer disabled:opacity-50"
         >
           Acknowledge
         </button>

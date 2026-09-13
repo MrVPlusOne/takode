@@ -5,6 +5,8 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardParticipantStatus, BrowserIncomingMessage } from "../types.js";
 import { useStore } from "../store.js";
+import { buildThreadMonitoringProjection } from "../../server/thread-monitoring-projection.js";
+import { THREAD_MONITORING_PROJECTION } from "../../shared/thread-monitoring.js";
 
 const mockSetActiveTab = vi.fn();
 
@@ -212,6 +214,67 @@ describe("QuestThreadBanner commit affordance", () => {
     expect(commitButton).toHaveAccessibleName("Open q-968 recorded commit diffs, 2 commits");
 
     fireEvent.click(commitButton);
+    expect(mockSetActiveTab).toHaveBeenCalledWith("diff");
+  });
+
+  it("keeps Worker, complete commits and pending monitoring directly accessible during a user checkpoint", () => {
+    // Keep producer-owned waits and monitoring separate from the reduced header presentation.
+    const boardMessage = boardUpdatedMessage(null);
+    applyBoardUpdated(boardMessage);
+    setQuestCommitShas(["abc1234", "def5678"]);
+    useStore.getState().applySyncedProjectionSnapshot({
+      projection: THREAD_MONITORING_PROJECTION,
+      key: LEADER_ID,
+      generation: "header-monitoring",
+      revision: 1,
+      value: buildThreadMonitoringProjection({
+        state: {
+          leaderOpenThreadTabs: {
+            version: 1,
+            orderedOpenThreadKeys: [QUEST_ID],
+            closedThreadTombstones: [],
+            updatedAt: 1,
+          },
+          threadMonitoring: {
+            revision: 1,
+            alertVersion: 1,
+            threads: {
+              [QUEST_ID]: {
+                trackedAt: 1,
+                afterHistoryIndex: 0,
+                pending: { id: "1", messageId: "answer-1", timestamp: 1, summary: "Ready to inspect" },
+              },
+            },
+          },
+        },
+      }),
+    });
+    const row: QuestThreadBannerRow = {
+      threadKey: QUEST_ID,
+      questId: QUEST_ID,
+      title: BOARD_ROW.title,
+      section: "active",
+      boardStatus: "USER_CHECKPOINTING",
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
+        activePhaseIndex: 2,
+        currentPhaseId: "user-checkpoint",
+      },
+      boardRow: { ...BOARD_ROW, status: "USER_CHECKPOINTING", waitForInput: ["n-430"] },
+      rowStatus: boardMessage.rowSessionStatuses![QUEST_ID],
+    };
+    render(<QuestThreadBanner row={row} threadKey={QUEST_ID} monitorSessionId={LEADER_ID} />);
+    const banner = screen.getByTestId("quest-thread-banner");
+    const worker = within(banner).getByRole("link", { name: "Worker #1321 Clear Mesa" });
+    const commits = within(banner).getByRole("button", { name: "Open q-968 recorded commit diffs, 2 commits" });
+    expect(worker).toHaveAttribute("href", "#session-1321");
+    expect(worker.compareDocumentPosition(commits) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(banner).getByRole("button", { name: "Notify Me" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(banner).getByRole("button", { name: "Acknowledge" })).toBeEnabled();
+    expect(within(banner).queryByTestId("quest-thread-wait-pill")).not.toBeInTheDocument();
+    expect(row.boardRow!.waitForInput).toEqual(["n-430"]);
+    fireEvent.click(commits);
     expect(mockSetActiveTab).toHaveBeenCalledWith("diff");
   });
 

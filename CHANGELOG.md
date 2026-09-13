@@ -10,6 +10,7 @@
 ### Changed
 
 - **Compact diff viewer** -- Commit modals fill the viewport with two compact context rows, visible change totals, a file picker, and on-demand comparison details. Commit and review navigation remain accessible while code keeps the full width.
+- **Quest headers** -- Phase and progress use quiet inline text, duplicate waiting notices are removed, and Worker, Commits, and Notify Me remain directly accessible with lighter controls.
 
 ### Fixed
 

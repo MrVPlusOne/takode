@@ -8,6 +8,23 @@ import { QuestJourneyPreviewCard, QuestJourneyTimeline } from "./QuestJourneyTim
 
 const PHASE_CYCLE: QuestJourneyPhaseId[] = ["alignment", "work", "user-checkpoint", "work", "memory"];
 
+it("keeps the exact repeated phase position and completion state in a quiet inline summary", () => {
+  // The header must use the same Journey authority as the detailed timeline, including repeated Work.
+  const journey: QuestJourneyPlanState = {
+    mode: "active",
+    phaseIds: PHASE_CYCLE,
+    currentPhaseId: "work",
+    activePhaseIndex: 3,
+  };
+  const { rerender } = render(<QuestJourneyTimeline journey={journey} status="WORKING" variant="inline" />);
+  const summary = screen.getByTestId("quest-journey-compact-summary");
+  expect(summary).toHaveTextContent("Work4/5");
+  expect(summary).toHaveAttribute("data-presentation", "inline");
+  expect(summary.querySelector('[aria-hidden="true"]')).toBeNull();
+  rerender(<QuestJourneyTimeline journey={journey} status="done" variant="inline" />);
+  expect(summary).toHaveTextContent("Completed5 phases");
+});
+
 function longJourney(overrides: Partial<QuestJourneyPlanState> = {}): QuestJourneyPlanState {
   const phaseIds = Array.from({ length: 38 }, (_, index) => PHASE_CYCLE[index % PHASE_CYCLE.length]);
   return {

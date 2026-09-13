@@ -398,6 +398,36 @@ export function PlaygroundOverviewSections() {
       },
     },
     {
+      label: "Quiet header during a user checkpoint",
+      threadKey: "q-9005",
+      row: {
+        threadKey: "q-9005",
+        questId: "q-9005",
+        title: "Review the navigation comparison and next steps",
+        boardStatus: "USER_CHECKPOINTING",
+        commitShas: ["abc1234def5678", "def5678abc1234"],
+        section: "active",
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
+          currentPhaseId: "user-checkpoint",
+          activePhaseIndex: 2,
+        },
+        boardRow: {
+          questId: "q-9005",
+          title: "Review the navigation comparison and next steps",
+          status: "USER_CHECKPOINTING",
+          waitForInput: ["n-430"],
+          worker: "playground-thread-worker",
+          workerNum: 1321,
+          updatedAt: 1,
+        },
+        rowStatus: {
+          worker: { sessionId: "playground-thread-worker", sessionNum: 1321, name: "Clear Mesa", status: "idle" },
+        },
+      },
+    },
+    {
       label: "Worker session banner with timer",
       threadKey: "q-966",
       row: {
@@ -506,7 +536,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Leader Workboard Thread Navigation"
-        description="Projection-backed leader tabs keep in-motion work ahead of queued/proposed tabs, expose scheduled dismissal in the rail and More, and cover attention plus completed-Waiting behavior at desktop and 430px mobile widths."
+        description="Quiet task headers retain phase/progress and direct Worker/Commits access without repeating user-input waits. Projection-backed tabs preserve ordering, attention and completed-Waiting behavior at desktop and mobile widths."
       >
         <div className="grid max-w-5xl gap-3 lg:grid-cols-2">
           {compactQuestThreadBannerRows.map(({ label, row, threadKey }) => (

@@ -403,12 +403,14 @@ vi.mock("./QuestJourneyTimeline.js", () => ({
     journey,
     status,
     compact,
+    variant,
     className,
     showNotes = true,
   }: {
     journey?: { currentPhaseId?: string; phaseIds?: string[]; phaseNotes?: Record<string, string> };
     status?: string | null;
     compact?: boolean;
+    variant?: string;
     className?: string;
     showNotes?: boolean;
   }) => {
@@ -418,7 +420,11 @@ vi.mock("./QuestJourneyTimeline.js", () => ({
     const phaseCount = journey?.phaseIds?.length ?? 0;
     return (
       <div
-        data-testid={compact ? "quest-journey-compact-summary" : "quest-journey-timeline"}
+        data-testid={
+          compact || variant === "compact" || variant === "inline"
+            ? "quest-journey-compact-summary"
+            : "quest-journey-timeline"
+        }
         data-journey-mode={completed ? "completed" : "active"}
         className={className}
       >
@@ -1539,7 +1545,8 @@ describe("ChatView chat surface and leader routing", () => {
     expect(document.body.querySelector('[data-testid="quest-thread-journey-hover-card"]')).not.toBeInTheDocument();
   });
 
-  it("shows user-input waits in the banner and clears them when the board row advances", () => {
+  it("keeps user-input attention on the tab without repeating its wait in the quest header", () => {
+    // The authoritative wait remains intact; only its duplicate header presentation is removed.
     const pausedRow = {
       questId: "q-969",
       title: "Input wait banner",
@@ -1569,7 +1576,9 @@ describe("ChatView chat surface and leader routing", () => {
     const scope = within(view.container);
 
     fireEvent.click(scope.getByRole("button", { name: /q-969 input wait banner/i }));
-    expect(scope.getByTestId("quest-thread-wait-pill")).toHaveTextContent("Waiting for user input 430");
+    expect(scope.queryByTestId("quest-thread-wait-pill")).not.toBeInTheDocument();
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-attention-count", "1");
+    expect(pausedRow.waitForInput).toEqual(["n-430"]);
 
     mockState.sessionBoards = new Map([
       ["s1", [{ ...pausedRow, status: "IMPLEMENTING", waitForInput: undefined, updatedAt: 5 }]],
@@ -1585,6 +1594,7 @@ describe("ChatView chat surface and leader routing", () => {
     ]);
     view.rerender(<ChatView sessionId="s1" />);
     expect(scope.queryByTestId("quest-thread-wait-pill")).not.toBeInTheDocument();
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-attention-count", "0");
   });
 
   it("keeps completed quest-thread context compact while preserving Journey and participant metadata", () => {
