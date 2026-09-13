@@ -870,8 +870,8 @@ describe("ChatView leader thread tabs projection", () => {
 
     const banner = await screen.findByTestId("quest-thread-banner");
     const journey = within(banner).getByTestId("quest-journey-compact-summary");
-    expect(journey).toHaveTextContent("Work");
-    expect(journey).toHaveTextContent("2/3");
+    // Current server phase still wins; the information-bar label now intentionally omits position counts.
+    expect(journey).toHaveTextContent(/^Work$/);
     expect(journey).not.toHaveTextContent("Completed");
     expect(within(banner).getByLabelText("Worker #2580")).toBeTruthy();
     expect(within(banner).queryByLabelText("Worker #2569")).toBeNull();
