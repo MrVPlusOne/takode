@@ -1,5 +1,8 @@
 import type { FeedViewportPosition } from "../utils/thread-viewport.js";
 import { persistLeaderViewportPosition } from "../utils/thread-viewport.js";
+import { useStore } from "../store.js";
+import { annotationPassageRects, resolveAnnotationRange } from "./annotation-passages.js";
+import { flashMessageFeedTarget } from "./message-feed-target-highlight.js";
 
 function escapeSelectorValue(value: string): string {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
@@ -28,6 +31,7 @@ export function scrollMessageFeedTargetIntoView({
   setShowScrollButton,
   setAutoFollowEnabled,
   setFeedScrollPosition,
+  reserveTargetScrollSpace,
   refs,
 }: {
   container: HTMLDivElement;
@@ -44,16 +48,38 @@ export function scrollMessageFeedTargetIntoView({
   setShowScrollButton: (show: boolean) => void;
   setAutoFollowEnabled: (enabled: boolean) => void;
   setFeedScrollPosition: (viewportKey: string, position: FeedViewportPosition) => void;
+  reserveTargetScrollSpace?: (additional: number, viewportHeight: number) => void;
   refs: {
     lastScrollTop: { current: number };
     isNearBottom: { current: boolean };
   };
 }): FeedViewportPosition {
   const containerRect = container.getBoundingClientRect();
-  const targetRect = target.getBoundingClientRect();
-  const visibleTargetHeight = Math.min(targetRect.height, container.clientHeight);
-  const targetOffsetTop = Math.max(0, Math.round((container.clientHeight - visibleTargetHeight) / 2));
-  const nextTop = container.scrollTop + targetRect.top - containerRect.top - targetOffsetTop;
+  const editor = useStore.getState().annotationEditor;
+  const range =
+    editor?.navigateToSource &&
+    editor.sessionId === sessionId &&
+    editor.threadKey === threadKey &&
+    editor.annotation.sourceMessageId === targetMessageId
+      ? resolveAnnotationRange(target, editor.annotation)
+      : null;
+  const passage = range ? annotationPassageRects(range)[0] : undefined;
+  const targetRect = passage ?? target.getBoundingClientRect();
+  const scale = container.offsetHeight ? containerRect.height / container.offsetHeight || 1 : 1;
+  const visibleTargetHeight = Math.min(targetRect.height / scale, container.clientHeight);
+  const targetOffsetTop = passage ? 24 : Math.max(0, Math.round((container.clientHeight - visibleTargetHeight) / 2));
+  const nextTop = container.scrollTop + (targetRect.top - containerRect.top) / scale - targetOffsetTop;
+  if (passage) {
+    const end = container.querySelector<HTMLElement>("[data-feed-end-slack]");
+    // scrollHeight is at least clientHeight, hiding any unused space below a
+    // short answer. Measure the actual end before reserving room for the jump.
+    const contentEnd = end
+      ? container.scrollTop +
+        (end.getBoundingClientRect().bottom - containerRect.top) / scale +
+        (Number.parseFloat(getComputedStyle(container).paddingBottom) || 0)
+      : container.scrollHeight;
+    reserveTargetScrollSpace?.(Math.max(0, nextTop + container.clientHeight - contentEnd), container.clientHeight);
+  }
   markProgrammaticScroll(nextTop);
   container.scrollTop = nextTop;
   refs.lastScrollTop.current = container.scrollTop;
@@ -73,5 +99,6 @@ export function scrollMessageFeedTargetIntoView({
   };
   setFeedScrollPosition(viewportKey, position);
   if (isLeaderSession) persistLeaderViewportPosition(sessionId, threadKey, position);
+  if (!passage) flashMessageFeedTarget(target);
   return position;
 }

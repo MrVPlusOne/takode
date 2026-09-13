@@ -21,13 +21,10 @@ function sourceElement(sessionId: string, messageId: string, threadKey: string):
 
 function sourcePosition(source: HTMLElement, annotation: ConversationAnnotation) {
   const range = resolveAnnotationRange(source, annotation);
-  const rect = range?.getBoundingClientRect?.() ?? source.getBoundingClientRect();
   const feed = source.closest<HTMLElement>("[data-feed-session-id]");
-  if (feed) {
-    const bounds = feed.getBoundingClientRect();
-    const scale = feed.offsetHeight ? bounds.height / feed.offsetHeight || 1 : 1;
-    feed.scrollTop += (rect.top - bounds.top - Math.min(100, bounds.height / 4)) / scale;
-  } else source.scrollIntoView?.({ block: "center", behavior: "instant" });
+  // Real feeds have already placed and persisted the exact passage in their
+  // target-scroll operation. A second scroll here would bypass that ownership.
+  if (!feed) source.scrollIntoView?.({ block: "center", behavior: "instant" });
   const placed = range?.getBoundingClientRect?.() ?? source.getBoundingClientRect();
   return { position: { x: placed.left, y: placed.bottom + 12 }, sourceUnavailable: !range };
 }

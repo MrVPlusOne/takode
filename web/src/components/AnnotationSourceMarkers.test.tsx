@@ -85,26 +85,54 @@ describe("comment passage previews", () => {
     window.getSelection()!.addRange(selection);
     fireEvent.pointerEnter(screen.getByLabelText("Comment 1"));
     expect(screen.getByRole("tooltip").textContent).toContain("First feedback");
-    expect(screen.getByTestId("annotation-passage-highlight").style.top).toBe("10px");
+    expect(screen.getByTestId("annotation-passage-active").getAttribute("d")).toBe("M10 10h90v18h-90Z");
     expect(scope.innerHTML).toBe(originalMarkup);
     expect(screen.getByRole("link")).toBe(link);
     expect(window.getSelection()!.toString()).toBe("First passage");
     fireEvent.pointerLeave(screen.getByLabelText("Comment 1"));
     act(() => vi.advanceTimersByTime(150));
     expect(screen.queryByRole("tooltip")).toBeNull();
-    expect(screen.queryByTestId("annotation-passage-highlight")).toBeNull();
+    expect(screen.queryByTestId("annotation-passage-active")).toBeNull();
+    expect(screen.getByTestId("annotation-passage-highlight").getAttribute("d")).toContain("M10 10h90v18h-90Z");
     act(() => screen.getByLabelText("Edit comment 2").focus());
     expect(screen.getByRole("tooltip").textContent).toContain("Second feedback");
-    expect(screen.getByTestId("annotation-passage-highlight").style.top).toBe("70px");
+    expect(screen.getByTestId("annotation-passage-active").getAttribute("d")).toBe("M10 70h90v18h-90Z");
     fireEvent.click(screen.getByLabelText("Edit comment 2"));
     expect(useStore.getState().annotationEditor?.annotation.id).toBe("second");
     expect(useStore.getState().annotationHover).toBeNull();
     // Editor ownership survives pointer exit even on touch, where hover does not exist.
     fireEvent.pointerLeave(screen.getByLabelText("Edit comment 2"));
     act(() => vi.advanceTimersByTime(150));
-    expect(screen.getByTestId("annotation-passage-highlight").style.top).toBe("70px");
+    expect(screen.getByTestId("annotation-passage-active").getAttribute("d")).toBe("M10 70h90v18h-90Z");
     act(() => useStore.getState().setAnnotationEditor(null));
+    expect(screen.queryByTestId("annotation-passage-active")).toBeNull();
+    expect(screen.getByTestId("annotation-passage-highlight")).toBeTruthy();
+  });
+
+  it("keeps attached passages dim without an open tray and removes their paint with their attachment", () => {
+    // Compact mode hides the chip tray without removing its draft; source ownership outlives hover/editor UI.
+    render(<Fixture />);
+    expect(screen.getAllByTestId("annotation-passage-highlight")).toHaveLength(1);
+    expect(screen.queryByTestId("annotation-passage-active")).toBeNull();
+    act(() =>
+      useStore.getState().setComposerDraft("session", { text: "Draft", images: [], annotations: [comments[1]] }),
+    );
+    expect(screen.getByTestId("annotation-passage-highlight").getAttribute("d")).toBe("M10 70h90v18h-90Z");
+    act(() => useStore.getState().clearComposerDraft("session"));
     expect(screen.queryByTestId("annotation-passage-highlight")).toBeNull();
+  });
+
+  it("paints overlapping comments in one path per strength instead of stacking translucent boxes", () => {
+    useStore.setState({
+      composerDrafts: new Map([
+        ["session", { text: "", images: [], annotations: [comments[0], { ...comments[0], id: "overlap" }] }],
+      ]),
+    });
+    render(<Fixture />);
+    expect(screen.getAllByTestId("annotation-passage-highlight")).toHaveLength(1);
+    fireEvent.pointerEnter(screen.getByLabelText("Comment 1"));
+    expect(screen.getAllByTestId("annotation-passage-active")).toHaveLength(1);
+    expect(screen.getByTestId("annotation-passage-highlight").tagName).toBe("path");
   });
 
   it("keeps marker placement tied to passage order when comments were created in reverse order", () => {

@@ -11,7 +11,6 @@ import type { ChatMessage } from "../../types.js";
 import { formatAnnotatedMessage } from "../../../shared/conversation-annotations.js";
 
 const SESSION = "playground-conversation-annotations";
-const QUOTE = "The cache expires after one hour.\nA background refresh keeps the result current.";
 
 export function PlaygroundAnnotationsSection() {
   const root = useRef<HTMLDivElement>(null);
@@ -52,9 +51,10 @@ export function PlaygroundAnnotationsSection() {
     >
       <h2 className="text-lg font-semibold">Conversation annotations</h2>
       <p className="text-sm text-cc-muted">
-        Select a passage to comment. Click a chip to open its editor at the passage, or hover for a preview. Minimize
-        the draft to read more of the feed: only its first line stays visible, and attachments return when you expand
-        the input. This preview changes only local fixture state.
+        Attached passages stay dimly highlighted, including across bold and italic text. Click a chip to open its editor
+        at the passage, or hover to strengthen its highlight and preview the comment. Minimize the draft to read more of
+        the feed: only its first line stays visible, and attachments return when you expand the input. This preview
+        changes only local fixture state.
       </p>
       <div
         ref={root}
@@ -63,7 +63,8 @@ export function PlaygroundAnnotationsSection() {
       >
         <div className="relative" data-message-id="annotation-example" data-message-role="assistant">
           <div data-chat-selection-scope="true" className="whitespace-pre-wrap text-sm">
-            {QUOTE}
+            The cache expires after <strong>one hour.</strong>
+            {"\n"}A <em>background refresh</em> keeps the result current.
           </div>
           <AnnotationSourceMarkers sessionId={SESSION} messageId="annotation-example" />
         </div>

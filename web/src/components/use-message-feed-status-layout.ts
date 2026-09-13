@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { useStore } from "../store.js";
+import { flushSync } from "react-dom";
 import { selectLeaderThreadStatuses } from "../utils/leader-thread-tabs-resolver.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { getVisibleCurrentThreadStatuses } from "./MessageFeedThreadStatus.js";
@@ -46,6 +47,22 @@ export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: 
   );
   const [floatingStatusHeight, setFloatingStatusHeight] = useState(0);
   const [floatingStatusRunwayHeight, setFloatingStatusRunwayHeight] = useState(0);
+  const [targetSpace, setTargetSpace] = useState({ scope: statusScope, height: 0 });
+  const targetScrollSpace = targetSpace.scope === statusScope ? targetSpace.height : 0;
+  const reserveTargetScrollSpace = useCallback(
+    (additional: number, viewportHeight: number) => {
+      if (additional <= 0) return;
+      // The scroll range must exist before the browser clamps the passage jump.
+      // Keep it through editor close so closing the editor does not move the feed.
+      flushSync(() =>
+        setTargetSpace((previous) => ({
+          scope: statusScope,
+          height: Math.min(viewportHeight, (previous.scope === statusScope ? previous.height : 0) + additional),
+        })),
+      );
+    },
+    [statusScope],
+  );
   const threadStatusMeasurementsRef = useRef<ReadonlyMap<string, ThreadStatusMeasurement>>(new Map());
   const threadStatusVisibilityRef = useRef<ReadonlyMap<string, ThreadStatusVisibility>>(new Map());
   const activeThreadStatusScopeRef = useRef<string | null>(null);
@@ -129,18 +146,20 @@ export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: 
   );
   const centeredFeedStatusClearancePx =
     floatingStatusHeight > 0 ? floatingStatusHeight + CENTERED_FEED_STATUS_CLEARANCE_GAP_PX : 0;
-  const feedEndScrollSlack = overlayRunwayHeight + threadStatusCompensation;
+  const feedEndScrollSlack = overlayRunwayHeight + threadStatusCompensation + targetScrollSpace;
   const feedEndSlackProps: MessageFeedEndSlackProps = {
     height: feedEndScrollSlack,
     overlayRunwayHeight,
     currentThreadStatusHeight,
     threadStatusCompensation,
+    targetScrollSpace,
   };
   const threadStatusLayoutKey = `${visibleThreadStatusSignature}\u0000${currentThreadStatusHeight}\u0000${threadStatusCompensation}`;
 
   return {
     feedEndScrollSlack,
     feedEndSlackProps,
+    reserveTargetScrollSpace,
     centeredFeedStatusClearancePx,
     floatingStatusHeight,
     mobileNavBottomOffsetPx,

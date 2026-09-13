@@ -3,6 +3,7 @@ export interface MessageFeedEndSlackProps {
   overlayRunwayHeight: number;
   currentThreadStatusHeight: number;
   threadStatusCompensation: number;
+  targetScrollSpace?: number;
 }
 
 export function MessageFeedEndSlack({
@@ -10,6 +11,7 @@ export function MessageFeedEndSlack({
   overlayRunwayHeight,
   currentThreadStatusHeight,
   threadStatusCompensation,
+  targetScrollSpace = 0,
 }: MessageFeedEndSlackProps) {
   return (
     <div
@@ -19,6 +21,7 @@ export function MessageFeedEndSlack({
       data-feed-overlay-runway-height={overlayRunwayHeight}
       data-feed-thread-status-height={currentThreadStatusHeight}
       data-feed-thread-status-compensation={threadStatusCompensation}
+      data-feed-target-scroll-space={targetScrollSpace}
       style={{ height: `${height}px` }}
     />
   );

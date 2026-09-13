@@ -44,6 +44,61 @@ export function resolveAnnotationRange(root: HTMLElement, annotation: Conversati
   return match;
 }
 
+export interface PassageRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** Measure selected text only: element rectangles can duplicate descendants or span whole blocks. */
+export function annotationPassageRects(range: Range): PassageRect[] {
+  const root = range.commonAncestorContainer;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const rects: PassageRect[] = [];
+  for (let node = root.nodeType === Node.TEXT_NODE ? root : walker.nextNode(); node; node = walker.nextNode()) {
+    if (!range.intersectsNode(node)) continue;
+    const part = document.createRange();
+    part.setStart(node, node === range.startContainer ? range.startOffset : 0);
+    part.setEnd(node, node === range.endContainer ? range.endOffset : node.textContent!.length);
+    if (!part.collapsed) rects.push(...Array.from(part.getClientRects?.() ?? []));
+  }
+  return mergePassageRects(rects);
+}
+
+/** Join adjoining inline fragments on one visual line, preserving gaps between columns and lines. */
+export function mergePassageRects(rects: readonly PassageRect[]): PassageRect[] {
+  const lines: { top: number; bottom: number; rects: PassageRect[] }[] = [];
+  for (const rect of [...rects].filter((r) => r.width > 0 && r.height > 0).sort((a, b) => a.top - b.top)) {
+    const bottom = rect.top + rect.height;
+    const line = lines.find(
+      (candidate) =>
+        Math.min(candidate.bottom, bottom) - Math.max(candidate.top, rect.top) >=
+        Math.min(candidate.bottom - candidate.top, rect.height) * 0.6,
+    );
+    if (line) {
+      line.top = Math.min(line.top, rect.top);
+      line.bottom = Math.max(line.bottom, bottom);
+      line.rects.push(rect);
+    } else lines.push({ top: rect.top, bottom, rects: [rect] });
+  }
+  return lines.flatMap((line) => {
+    const merged: PassageRect[] = [];
+    for (const rect of line.rects.sort((a, b) => a.left - b.left)) {
+      const previous = merged.at(-1);
+      if (previous && rect.left <= previous.left + previous.width + 1) {
+        previous.width = Math.max(previous.left + previous.width, rect.left + rect.width) - previous.left;
+      } else merged.push({ left: rect.left, top: line.top, width: rect.width, height: line.bottom - line.top });
+    }
+    return merged;
+  });
+}
+
+/** One filled path paints overlapping ranges once, without internal outlines or darker intersections. */
+export function annotationHighlightPath(rects: readonly PassageRect[]): string {
+  return rects.map((r) => `M${r.left} ${r.top}h${r.width}v${r.height}h${-r.width}Z`).join(" ");
+}
+
 function textRange(scope: HTMLElement, start: number, end: number): Range | null {
   const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
   const range = document.createRange();

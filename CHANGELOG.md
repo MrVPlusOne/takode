@@ -1,5 +1,11 @@
 # Takode Changelog
 
+## 2026-09-13
+
+### Fixed
+
+- **Comment highlights** -- Passage shading stays uniform across formatted text and overlapping comments. Attached comments keep a dim highlight that strengthens on hover or while editing, and chip navigation brings the selected passage near the top of the feed.
+
 ## 2026-09-12
 
 ### Changed

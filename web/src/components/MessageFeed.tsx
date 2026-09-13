@@ -161,6 +161,7 @@ export function MessageFeed({
   const {
     feedEndScrollSlack,
     feedEndSlackProps,
+    reserveTargetScrollSpace,
     centeredFeedStatusClearancePx,
     floatingStatusHeight,
     mobileNavBottomOffsetPx,
@@ -1613,8 +1614,9 @@ export function MessageFeed({
     const sectionChanged = ensureSectionForTurnVisible(targetTurn.id);
 
     let scrollAttempts = 0;
+    let scrollFrame = 0;
     const scheduleScroll = () => {
-      requestAnimationFrame(() => {
+      scrollFrame = requestAnimationFrame(() => {
         const el = containerRef.current;
         if (!el) return;
         const targetElement = findMessageFeedScrollTarget(el, scrollToMessageId);
@@ -1634,9 +1636,9 @@ export function MessageFeed({
             setShowScrollButton,
             setAutoFollowEnabled,
             setFeedScrollPosition: useStore.getState().setFeedScrollPosition,
+            reserveTargetScrollSpace,
             refs: { lastScrollTop: lastScrollTopRef, isNearBottom },
           });
-          flashMessageFeedTarget(targetElement);
           clearScrollToMessage(sessionId);
           clearPendingScrollToMessageId(sessionId);
           clearExpandAllInTurn(sessionId);
@@ -1650,11 +1652,9 @@ export function MessageFeed({
         }
       });
     };
-    if (sectionChanged) {
-      requestAnimationFrame(scheduleScroll);
-      return;
-    }
-    scheduleScroll();
+    if (sectionChanged) scrollFrame = requestAnimationFrame(scheduleScroll);
+    else scheduleScroll();
+    return () => cancelAnimationFrame(scrollFrame);
   }, [
     activeHistoryWindow,
     cancelExactRestore,
@@ -1668,6 +1668,7 @@ export function MessageFeed({
     markProgrammaticScroll,
     normalizedThreadKey,
     requestThreadWindow,
+    reserveTargetScrollSpace,
     requestHistoryWindow,
     scrollToMessageId,
     selectedFeedWindowEnabled,

@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { ConversationAnnotation } from "../../shared/conversation-annotations.js";
 import { useStore } from "../store.js";
-import { resolveAnnotationRange } from "./annotation-passages.js";
+import { annotationHighlightPath, annotationPassageRects, resolveAnnotationRange } from "./annotation-passages.js";
 import { useAnnotationPreview } from "./use-annotation-preview.js";
 
 interface Rect {
@@ -58,12 +58,12 @@ export function AnnotationSourceMarkers({
       const scale = root.offsetWidth ? bounds.width / root.offsetWidth || 1 : 1;
       const next = entries.map(({ annotation }) => {
         const range = resolveAnnotationRange(root, annotation);
-        const rects = Array.from(range?.getClientRects?.() ?? [])
-          .filter((rect) => rect.width > 0 && rect.height > 0)
+        const rects = (range ? annotationPassageRects(range) : [])
           .map((rect) => ({
             left: (Math.max(bounds.left, rect.left) - bounds.left) / scale,
             top: (rect.top - bounds.top) / scale,
-            width: Math.max(0, Math.min(bounds.right, rect.right) - Math.max(bounds.left, rect.left)) / scale,
+            width:
+              Math.max(0, Math.min(bounds.right, rect.left + rect.width) - Math.max(bounds.left, rect.left)) / scale,
             height: rect.height / scale,
           }))
           .filter((rect) => rect.width > 0);
@@ -105,6 +105,13 @@ export function AnnotationSourceMarkers({
     };
   }, [entries, contentRef]);
   if (!sessionId || !entries.length) return null;
+  const visiblePositions = positions.filter((position) => entries.some((entry) => entry.annotation.id === position.id));
+  const dimPath = annotationHighlightPath(visiblePositions.flatMap((position) => position.rects));
+  const activePath = annotationHighlightPath(
+    visiblePositions
+      .filter((position) => position.id === highlightedId || position.id === editor?.annotation.id)
+      .flatMap((position) => position.rects),
+  );
   return (
     <div
       ref={overlay}
@@ -113,21 +120,17 @@ export function AnnotationSourceMarkers({
       className="pointer-events-none absolute inset-0"
       style={{ margin: 0 }}
     >
+      <svg aria-hidden="true" className="absolute inset-0 h-full w-full overflow-visible text-cc-primary">
+        {dimPath && <path data-testid="annotation-passage-highlight" d={dimPath} fill="currentColor" opacity={0.08} />}
+        {activePath && (
+          <path data-testid="annotation-passage-active" d={activePath} fill="currentColor" opacity={0.13} />
+        )}
+      </svg>
       {entries.map(({ annotation, number }) => {
         const position = positions.find((item) => item.id === annotation.id);
         if (!position) return null;
         return (
           <div key={annotation.id}>
-            {(highlightedId === annotation.id || editor?.annotation.id === annotation.id) &&
-              position.rects.map((rect, index) => (
-                <span
-                  key={index}
-                  data-testid="annotation-passage-highlight"
-                  aria-hidden="true"
-                  className="absolute rounded-sm bg-cc-primary/20 outline outline-1 outline-cc-primary/40"
-                  style={rect}
-                />
-              ))}
             <PassageMarker annotation={annotation} number={number} sessionId={sessionId} position={position} />
           </div>
         );
