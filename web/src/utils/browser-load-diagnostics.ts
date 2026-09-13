@@ -89,7 +89,13 @@ export class BrowserLoadDiagnostics {
   /** Record a committed feed's actual view/hash, separately from receipt and frame scheduling. */
   feedCommitted(sessionId: string, view: string, loading: boolean, windowHash?: string): void {
     const observation = this.observations.get(sessionId);
-    if (!observation || document.hidden) return;
+    if (
+      !observation ||
+      document.hidden ||
+      observation.count >= BROWSER_LOAD_MAX_STAGES ||
+      performance.now() - observation.life.startedAtMs > BROWSER_LOAD_WINDOW_MS
+    )
+      return;
     const signature = `${view}:${loading}:${windowHash ?? ""}`;
     if (observation.feedSignature === signature) return;
     observation.feedSignature = signature;

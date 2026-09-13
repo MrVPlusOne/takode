@@ -127,6 +127,9 @@ describe("bounded frontend load diagnostics", () => {
     observer.connect("s1", send);
     for (let i = 0; i < 500; i++) observer.capture("s1")("view_request");
     observer.identify("s1", "bounded");
+    observer.feedCommitted("s1", "main", false);
+    // Exhausted capture must stop scheduling callbacks as well as stop logging.
+    expect(frames).toHaveLength(0);
     expect(stages()).toHaveLength(64);
     expect(sent.every((message) => message.report.stages.length <= 16)).toBe(true);
     observer.connect("s2", send);
@@ -134,6 +137,8 @@ describe("bounded frontend load diagnostics", () => {
     const before = stages().length;
     vi.advanceTimersByTime(BROWSER_LOAD_WINDOW_MS + 1);
     observer.capture("s2")("view_request");
+    observer.feedCommitted("s2", "main", false);
+    expect(frames).toHaveLength(0);
     vi.advanceTimersByTime(200);
     expect(stages()).toHaveLength(before);
   });
