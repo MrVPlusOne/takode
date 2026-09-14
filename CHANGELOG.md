@@ -10,13 +10,13 @@
 ### Fixed
 
 - **Composer focus** -- Temporary focus loss during internal controls or voice input preserves expansion. Outside clicks, keyboard focus moving outside, navigation, sending, and manual minimization keep their existing behavior.
+- **Resolved Needs Input cards** -- Completed decisions remain inspectable in the conversation, including their full questions and exact recorded replies in chronological order. Missing replies are identified without substituting unrelated messages.
 
 ## 2026-09-13
 
 ### Added
 
 - **Automatic startup asset timings** -- Home Screen startup diagnostics can retain a bounded entry JavaScript/CSS timing summary, with explicit missing-data limits and no manual inspection or content capture.
-
 - **Mobile load diagnostics** -- Bounded startup, foreground, and selected-feed timings are retained in server logs alongside the actual browser connection, with explicit limits on what browser callbacks establish.
 - **Notify Me phone alerts** -- New monitored results can send dedicated Pushover alerts using the existing review filter and delay, with direct links to their task tabs. Acknowledging, replying to, or untracking a result before delivery suppresses its pending push.
 
@@ -24,26 +24,112 @@
 
 - **Compact diff viewer** -- Commit modals fill the viewport with two compact context rows, visible change totals, a file picker, and on-demand comparison details. Commit and review navigation remain accessible while code keeps the full width.
 - **Quest headers** -- Phase names use quiet inline text without counts, duplicate waiting notices are removed, and Worker and Commits remain directly accessible. Pending results replace Notify with Acknowledge; acknowledging restores Notify while tracking stays enabled. The Notify tooltip retains the full Notify Me name.
+- **Compact draft indicators** -- The first-line preview indicates additional lines and shows image and comment counts while preserving the complete draft and attachments.
 
 ### Fixed
 
 - **Comment highlights** -- Passage shading stays uniform across formatted text and overlapping comments. Attached comments keep a dim highlight that strengthens on hover or while editing, and chip navigation brings the selected passage near the top of the feed.
+- **Voice composer expansion** -- Starting voice input deliberately expands the composer and keeps the transcription visible until a later interaction minimizes it.
 
 ## 2026-09-12
 
 ### Changed
 
 - **Compact composer** -- Desktop and mobile start with an input showing the draft's first line. Expand to edit; sending or leaving the composer minimizes it. Drafts and attachments survive, and the minimize button fits in the existing toolbar.
+- **Interrupted-work inspection** -- Recovery guidance continues from available context and uses bounded history pages only for missing details. Codex close diagnostics retain termination details and evidence references without enabling raw protocol recording or claiming an unproven cause.
 
 ### Fixed
 
 - **Delivery comparisons** -- Commit chips identify their comparison baseline, and merge statistics and opened patches use the same first-parent view. Earlier saved totals stay inspectable, while reporting distinguishes pending and newly delivered batches without repeating historical commits.
+- **Comment source navigation** -- Attached comments can locate their original message beyond the loaded history window without jumping to a different passage or a child-only conversation.
+- **Overflow task tabs** -- The More menu keeps click and keyboard navigation without hover previews covering its rows; previews remain available on visible tabs.
 
 ## 2026-09-11
 
 ### Added
 
 - **Notify Me** -- Monitor named task tabs and keep new results in a global list until acknowledged or replied to; monitoring survives viewing, tab closure, and reconnects while ordinary unread and needs-input remain independent
+- **Conversation comments** -- Attach comments to selected passages, inspect their quoted context and source highlights, and send them alongside text or images. Voice editing can update the attached comments.
+- **Browser connection diagnostics** -- Server logs record transfer bytes, backpressure and synchronization timing for each browser connection without retaining message payloads.
+
+### Changed
+
+- **Composer controls** -- Manual minimize and expand controls preserve the complete draft, images and comments while hiding their content. Comment previews and selection controls make attached passages easier to inspect and edit.
+- **Citation guidance** -- Session instructions prefer supported clickable source links while preserving required citation formats and the exact content of quoted or stored messages.
+
+### Fixed
+
+- **Leader session return** -- Restoring the previously selected task tab no longer moves it ahead of the server's saved tab order.
+
+## 2026-09-10
+
+### Added
+
+- **Independent delivery targets** -- Leaders can record an explicitly approved publication's exact repository and branch heads without moving it onto an unrelated integration branch. Commit inspection reads from the recorded delivery target.
+
+### Changed
+
+- **Journey approval cards** -- Proposals render their complete Markdown summary and native links in one readable card, with shell details available through separate raw inspection.
+- **Thread continuation notices** -- Ordinary conversation notices disappear when agent activity returns to the viewed thread, while original history and navigation remain available. Loading older history does not resurrect an expired notice.
+
+### Fixed
+
+- **Long turn durations** -- Turn summaries display hours and minutes for long runs instead of an unwieldy total number of seconds.
+
+## 2026-09-09
+
+### Added
+
+- **Tracked commit deliveries** -- Commit links stay tied to an exact recorded delivery batch, with retained review history and receipts for partial ports. Port guidance requires fast-forward updates to shared integration branches and preserves already-landed history.
+
+### Changed
+
+- **Turn activity disclosure** -- One top control expands or collapses a turn's activity. Shared indentation and a continuous guide keep tools, commentary and system events aligned while preserving the full audit details.
+- **Compact commit chips** -- Adjacent commit links form aligned compact rows while retaining full titles, change totals and access to the exact selected commit.
+
+### Fixed
+
+- **Request handoff history** -- Moving unfinished work from Main to a task tab preserves the original request and related answers in their original thread while responsibility stays with the new owner.
+
+## 2026-09-08
+
+### Added
+
+- **Main-to-task handoff** -- Leaders can explicitly transfer unfinished requests and selected decisions from Main to a task tab without treating that transfer as an answer or completion.
+- **Scheduled thread reports** -- Leader timers retain the destination selected at creation. Each firing can receive its own answer, including after queued delivery or restart, without settling unrelated user requests.
+- **Codex retry progress** -- The activity indicator shows confirmed internal response retries and returns to normal when output resumes, without inventing retry counts.
+
+### Changed
+
+- **Leader context commands** -- `/compact` requests Codex compaction and `/recycle` requests a one-time leader recycle. Neither changes the configured automatic context policy.
+- **Compact Journey status** -- Board and header summaries show one current state or phase with its position, keeping the full Journey available in detail views.
+- **Continuation links** -- Notices label the viewed source or destination as the current thread while keeping the other thread's name and navigation.
+
+### Fixed
+
+- **Conversation navigation** -- Turn expansion, scaled scroll positions and bottom navigation remain stable as history windows change. Sending keeps the feed following new output without moving readers who are inspecting older messages.
+- **Decision chronology and quizzes** -- Full decision context and replies stay in chronological order, and each quiz uses one visible presentation instead of appearing twice in collapsed activity.
+- **MCP status errors** -- Server-status retrieval failures appear in Session Info instead of failing the session or adding conversation errors. Successful retrieval clears the diagnostic while independent server startup failures remain visible.
+- **Interrupted Codex delivery** -- Terminal recovery records no longer block later requests, and a delayed continuation cannot deliver after its recovery ownership has ended.
+- **Completed stream replay** -- Completed Codex output no longer reappears as a second live footer after conversation synchronization; genuine unfinished output and child-session ownership remain intact.
+- **Needs Input attention** -- Unresolved prompts remain distinct from unread results in session and group indicators instead of being counted as both.
+
+## 2026-09-07
+
+### Added
+
+- **Captured instruction viewing** -- Codex instruction sources are grouped under Developer Instructions with explicit viewing of captured content. Unavailable or unverified captures stay identified rather than being replaced with current file contents.
+- **Native computer-use defaults** -- Supported macOS Codex sessions can use the configured native computer-use runtime at normal startup while preserving custom settings. Each app and its intended use still require explicit human approval; Claude sessions remain excluded.
+- **Delivery evidence correction** -- Assigned workers can correct invalid recorded commit evidence through an audited operation that verifies the expected prior list and selected target, without advancing the Journey.
+
+### Changed
+
+- **Suggested replies** -- Agent guidance requires convenient reply shortcuts alongside complete decision context, while custom responses remain available and shortcuts never count as approval by themselves.
+- **Shared leader answers** -- One answer can appear across the related Main and task tabs without duplicating its text or settling unrelated requests. Bounded thread views retain the relevant complete answer set.
+
+### Fixed
+
+- **Answer retention** -- Routine outcome bookkeeping stays commentary so it cannot replace the substantive answer as the current result.
 
 ## 2026-08-31
 
