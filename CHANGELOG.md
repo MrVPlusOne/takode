@@ -12,7 +12,7 @@
 ### Changed
 
 - **Compact diff viewer** -- Commit modals fill the viewport with two compact context rows, visible change totals, a file picker, and on-demand comparison details. Commit and review navigation remain accessible while code keeps the full width.
-- **Quest headers** -- Phase names use quiet inline text without counts, duplicate waiting notices are removed, and Worker, Commits, and Notify remain directly accessible. The Notify tooltip retains the full Notify Me name.
+- **Quest headers** -- Phase names use quiet inline text without counts, duplicate waiting notices are removed, and Worker and Commits remain directly accessible. Pending results replace Notify with Acknowledge; acknowledging restores Notify while tracking stays enabled. The Notify tooltip retains the full Notify Me name.
 
 ### Fixed
 

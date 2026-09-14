@@ -270,7 +270,8 @@ describe("QuestThreadBanner commit affordance", () => {
     const commits = within(banner).getByRole("button", { name: "Open q-968 recorded commit diffs, 2 commits" });
     expect(worker).toHaveAttribute("href", "#session-1321");
     expect(worker.compareDocumentPosition(commits) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(banner).getByRole("button", { name: "Notify Me" })).toHaveAttribute("aria-pressed", "true");
+    // A pending result replaces the tracking toggle without removing the other direct header actions.
+    expect(within(banner).queryByRole("button", { name: "Notify Me" })).not.toBeInTheDocument();
     expect(within(banner).getByRole("button", { name: "Acknowledge" })).toBeEnabled();
     expect(within(banner).queryByTestId("quest-thread-wait-pill")).not.toBeInTheDocument();
     expect(row.boardRow!.waitForInput).toEqual(["n-430"]);

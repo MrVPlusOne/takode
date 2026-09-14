@@ -62,28 +62,22 @@ export function NotifyMeControlView({
     <span className="inline-flex max-w-full flex-wrap items-center gap-1" data-testid="notify-me-control">
       <button
         type="button"
-        aria-label="Notify Me"
-        aria-pressed={enabled}
+        aria-label={pending ? "Acknowledge" : "Notify Me"}
+        aria-pressed={pending ? undefined : enabled}
         disabled={disabled}
-        onClick={onToggle}
+        onClick={pending ? onAcknowledge : onToggle}
         title={
-          enabled ? "Notify Me: Stop tracking this task" : "Notify Me: Keep new results until you acknowledge or reply"
+          pending
+            ? "Acknowledge this result and keep tracking"
+            : enabled
+              ? "Notify Me: Stop tracking this task"
+              : "Notify Me: Keep new results until you acknowledge or reply"
         }
         className={`inline-flex h-6 shrink-0 items-center gap-1 rounded px-1 text-[11px] transition-colors cursor-pointer hover:bg-cc-hover focus-visible:outline focus-visible:outline-cc-primary disabled:opacity-50 ${enabled ? "text-cc-info" : "text-cc-muted hover:text-cc-fg"}`}
       >
         <NotifyMeIcon pending={pending} monitored={enabled} />
-        Notify
+        {pending ? "Acknowledge" : "Notify"}
       </button>
-      {pending && (
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={onAcknowledge}
-          className="h-6 rounded px-1 text-[11px] text-cc-info hover:bg-cc-hover focus-visible:outline focus-visible:outline-cc-primary cursor-pointer disabled:opacity-50"
-        >
-          Acknowledge
-        </button>
-      )}
       {error && (
         <span role="alert" className="text-[10px] text-cc-error">
           {error}

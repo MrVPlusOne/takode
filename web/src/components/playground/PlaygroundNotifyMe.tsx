@@ -28,7 +28,7 @@ export function PlaygroundNotifyMe() {
       ]
     : [];
   return (
-    <Card label="Notify Me: persistent monitored results">
+    <Card label="Notify Me: acknowledge first, then keep or stop tracking">
       <div className="space-y-3 p-3" data-testid="playground-notify-me">
         <div className="flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center gap-1.5 rounded-t-lg border border-cc-border px-2 py-1 text-xs text-cc-fg">
