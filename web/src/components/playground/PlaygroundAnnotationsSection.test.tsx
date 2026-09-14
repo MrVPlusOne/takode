@@ -44,3 +44,23 @@ it("demonstrates compact indicators with preserved multiline text and hidden att
   expect(screen.getByTestId("compact-image-count").textContent).toBe("1");
   expect(screen.getByTestId("compact-comment-count").textContent).toBe("2");
 });
+
+it("keeps simulated voice completion visible until an outside interaction", async () => {
+  // The sample intentionally releases focus; it does not record audio or emulate a native browser.
+  render(<PlaygroundAnnotationsSection />);
+  const input = screen.getByLabelText("Annotation main message") as HTMLTextAreaElement;
+  const original = input.value;
+  act(() => input.focus());
+  const complete = screen.getByRole("button", { name: "Simulate voice completion" });
+  act(() => complete.focus());
+  fireEvent.click(complete);
+  await act(async () => {});
+  expect(document.activeElement).toBe(document.body);
+  expect(input.getAttribute("aria-expanded")).toBe("true");
+  expect(input.value).toBe(`${original}\nSimulated voice text.`);
+  expect(screen.getByRole("img", { name: "Example attached image" })).toBeTruthy();
+  fireEvent.pointerDown(screen.getByRole("heading", { name: "Conversation annotations" }));
+  expect(input.getAttribute("aria-expanded")).toBe("false");
+  expect(input.value).toBe(`${original}\nSimulated voice text.`);
+  expect(screen.getByTestId("compact-comment-count").textContent).toBe("2");
+});

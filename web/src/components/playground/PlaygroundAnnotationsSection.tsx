@@ -55,7 +55,8 @@ export function PlaygroundAnnotationsSection() {
         Attached passages stay dimly highlighted, including across bold and italic text. Click a chip to open its editor
         at the passage, or hover to strengthen its highlight and preview the comment. Minimize the draft to read more of
         the feed: an ellipsis indicates more text, and small image/comment counts keep attachments discoverable. Clear
-        the text to try an attachment-only draft. This preview changes only local fixture state.
+        the text to try an attachment-only draft. Simulate voice completion to insert text and release focus without
+        leaving the composer. This preview changes only local fixture state and records no audio.
       </p>
       <div
         ref={root}
@@ -91,6 +92,20 @@ export function PlaygroundAnnotationsSection() {
             <div hidden={!visible}>
               <div className="flex items-center gap-2 p-2">
                 <ComposerMinimizeButton disabled={editing} onClick={() => setExpanded(false)} />
+                <button
+                  type="button"
+                  className="rounded-lg border border-cc-border px-3 py-2 text-sm text-cc-fg"
+                  onClick={(event) => {
+                    event.currentTarget.blur();
+                    useStore.getState().setComposerDraft(SESSION, {
+                      ...draft,
+                      text: `${draft?.text ?? ""}\nSimulated voice text.`,
+                      images: [],
+                    });
+                  }}
+                >
+                  Simulate voice completion
+                </button>
                 <button
                   type="button"
                   className="rounded-lg bg-cc-primary px-3 py-2 text-sm text-white"

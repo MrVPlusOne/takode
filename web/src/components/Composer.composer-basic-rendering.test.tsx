@@ -1351,6 +1351,8 @@ it("allows an empty mobile composer to collapse after voice capture finishes", (
 
 it.each([
   "none",
+  "transient-blur",
+  "transient-blur-then-outside",
   "outside",
   "navigation",
 ])("keeps voice-inserted text expanded unless the user leaves (%s)", async (departure) => {
@@ -1371,7 +1373,14 @@ it.each([
   expect(mockTranscribe).toHaveBeenCalledTimes(1);
   expect(textarea.getAttribute("aria-expanded")).toBe("true");
   expect(document.activeElement).not.toBe(textarea);
-  if (departure === "outside") fireEvent.pointerDown(document.body);
+  if (departure.startsWith("transient-blur")) {
+    // Exercise real Composer expansion during pending insertion, with only capture/API mocked.
+    // Losing focus without a new target must not silently clear persistent expansion.
+    act(() => textarea.focus());
+    act(() => textarea.blur());
+    await act(async () => {});
+  }
+  if (departure === "outside" || departure === "transient-blur-then-outside") fireEvent.pointerDown(document.body);
   if (departure === "navigation") view.rerender(<Composer sessionId="s1" threadKey="another" />);
   await act(async () => {
     transcription.resolve({
@@ -1382,7 +1391,9 @@ it.each([
     });
   });
   expect(textarea.value).toBe("Voice first line\nVoice second line");
-  expect(textarea.getAttribute("aria-expanded")).toBe(departure === "none" ? "true" : "false");
+  expect(textarea.getAttribute("aria-expanded")).toBe(
+    departure === "none" || departure === "transient-blur" ? "true" : "false",
+  );
   expect(document.activeElement).not.toBe(textarea);
 });
 

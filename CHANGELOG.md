@@ -1,5 +1,11 @@
 # Takode Changelog
 
+## 2026-09-14
+
+### Fixed
+
+- **Composer focus** -- Temporary focus loss during internal controls or voice input preserves expansion. Outside clicks, keyboard focus moving outside, navigation, sending, and manual minimization keep their existing behavior.
+
 ## 2026-09-13
 
 ### Added

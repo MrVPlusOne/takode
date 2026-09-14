@@ -128,7 +128,45 @@ describe("composer minimization", () => {
     await act(async () => {});
     expect(isCollapsed()).toBe(false);
     fireEvent.pointerDown(screen.getByRole("button", { name: "Attachment preview" }));
+    act(() => screen.getByRole("button", { name: "Attachment preview" }).focus());
     expect(isCollapsed()).toBe(false);
+    act(() => screen.getByRole("button", { name: "Outside" }).focus());
+    await act(async () => {});
+    expect(isCollapsed()).toBe(true);
+  });
+
+  it("keeps internal controls available when blur arrives after pointer release", async () => {
+    // This models the suspected touch ordering, without claiming native Safari reproduction.
+    render(<Fixture />);
+    focusDraft();
+    const control = screen.getByRole("button", { name: "Comment 1" });
+    fireEvent.pointerDown(control, { pointerType: "touch" });
+    fireEvent.pointerUp(control, { pointerType: "touch" });
+    act(() => screen.getByRole("textbox").blur());
+    await act(async () => {});
+    expect(isCollapsed()).toBe(false);
+    expect(screen.getByRole("button", { name: "Comment 1" })).toBe(control);
+  });
+
+  it("retains intentional expansion after active voice ends despite transient focus loss", async () => {
+    // Voice's temporary reveal must not mask a blur-driven loss of persistent expansion.
+    const view = render(<Fixture reveal />);
+    focusDraft();
+    act(() => screen.getByRole("textbox").blur());
+    await act(async () => {});
+    view.rerender(<Fixture />);
+    expect(isCollapsed()).toBe(false);
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("First line\nSecond line");
+  });
+
+  it("keeps a later outside action authoritative when active voice ends", () => {
+    // A late recording/transcription completion must not reopen a deliberately closed draft.
+    const view = render(<Fixture reveal />);
+    focusDraft();
+    fireEvent.pointerDown(document.body);
+    expect(isCollapsed()).toBe(false);
+    view.rerender(<Fixture />);
+    expect(isCollapsed()).toBe(true);
   });
 
   it("collapses populated drafts on outside pointers and keyboard focus departure", async () => {
@@ -144,8 +182,8 @@ describe("composer minimization", () => {
     expect(isCollapsed()).toBe(true);
   });
 
-  it("cancels deferred blur when focus returns before it settles", async () => {
-    // No stale callback may close a composer explicitly reopened in the same event turn.
+  it("preserves expansion through transient blur and refocus", async () => {
+    // A temporary lack of focus must not undo an explicit interaction in the same event turn.
     render(<Fixture />);
     focusDraft();
     act(() => screen.getByRole("textbox").blur());

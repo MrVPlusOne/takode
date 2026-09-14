@@ -15,36 +15,32 @@ export function ComposerMinimizer({
   onExpandedChange: (expanded: boolean) => void;
 }) {
   const root = useRef<HTMLDivElement>(null);
-  const pointerInside = useRef(false);
   const insidePointerEvent = useRef<Event | null>(null);
-  const blurGeneration = useRef(0);
+  const insideFocusEvent = useRef<Event | null>(null);
 
   useEffect(() => {
     const pointerDown = (event: PointerEvent) => {
-      pointerInside.current =
-        event === insidePointerEvent.current || (root.current?.contains(event.target as Node) ?? false);
+      const inside = event === insidePointerEvent.current || (root.current?.contains(event.target as Node) ?? false);
       insidePointerEvent.current = null;
-      if (!pointerInside.current) onExpandedChange(false);
+      if (!inside) onExpandedChange(false);
     };
-    const resetPointer = () => {
-      pointerInside.current = false;
+    const focusIn = (event: FocusEvent) => {
+      const inside = event === insideFocusEvent.current || (root.current?.contains(event.target as Node) ?? false);
+      insideFocusEvent.current = null;
+      if (!inside) onExpandedChange(false);
     };
     document.addEventListener("pointerdown", pointerDown);
-    document.addEventListener("pointerup", resetPointer);
-    document.addEventListener("pointercancel", resetPointer);
-    document.addEventListener("keydown", resetPointer, true);
+    // Blur alone is not an outside action: internal taps and disabled voice controls
+    // can temporarily leave no focused element. Observe the actual new focus target.
+    document.addEventListener("focusin", focusIn);
     return () => {
-      blurGeneration.current++;
       document.removeEventListener("pointerdown", pointerDown);
-      document.removeEventListener("pointerup", resetPointer);
-      document.removeEventListener("pointercancel", resetPointer);
-      document.removeEventListener("keydown", resetPointer, true);
+      document.removeEventListener("focusin", focusIn);
     };
   }, [onExpandedChange]);
 
   useLayoutEffect(() => {
-    // A destination change retires old blur work. Desktop focus may intentionally survive navigation.
-    blurGeneration.current++;
+    // Desktop focus may intentionally survive navigation; an unfocused destination starts compact.
     onExpandedChange(root.current?.contains(document.activeElement) ?? false);
   }, [destination, onExpandedChange]);
 
@@ -64,19 +60,9 @@ export function ComposerMinimizer({
         // React-owned portals, such as an attachment lightbox, belong to this same interaction.
         insidePointerEvent.current = event.nativeEvent;
       }}
-      onFocusCapture={() => {
-        blurGeneration.current++;
+      onFocusCapture={(event) => {
+        insideFocusEvent.current = event.nativeEvent;
         onExpandedChange(true);
-      }}
-      onBlurCapture={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-        // Clicking a non-focusable part of an internal control is still composer interaction.
-        if (!event.relatedTarget && pointerInside.current) return;
-        const generation = ++blurGeneration.current;
-        queueMicrotask(() => {
-          if (generation !== blurGeneration.current || root.current?.contains(document.activeElement)) return;
-          onExpandedChange(false);
-        });
       }}
     >
       <ComposerVisibilityContext.Provider value={expanded}>{children}</ComposerVisibilityContext.Provider>
