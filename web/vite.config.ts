@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { frontendGzipPlugin } from "./scripts/frontend-gzip-plugin.js";
 import {
   generateTakodeBuildId,
   normalizeTakodeBuildId,
@@ -36,7 +37,7 @@ export default defineConfig(({ command }) => {
       __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
       __TAKODE_BUILD_ID__: JSON.stringify(buildId),
     },
-    plugins: [react(), tailwindcss(), buildManifestPlugin(buildId)],
+    plugins: [react(), tailwindcss(), buildManifestPlugin(buildId), frontendGzipPlugin()],
     server: {
       host: "0.0.0.0",
       port: 5174,

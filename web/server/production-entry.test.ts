@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { gzipSync, gunzipSync } from "node:zlib";
 import {
   cleanupOwnedFrontendRuntimeSnapshot,
   getOwnedFrontendRuntimeSnapshotCleanupRoot,
@@ -197,4 +198,35 @@ describe("production startup routing", () => {
     expect(cliSource.match(/await startForegroundServer\(\);/g)).toHaveLength(3);
     expect(cliSource).not.toContain('await import("../server/index.ts")');
   });
+});
+
+it("carries exact gzip companions from a packaged build into its immutable runtime snapshot", async () => {
+  // The copied build must keep canonical bytes and their derivative together; no live root is modified.
+  const root = await makeTempRoot();
+  const packageRoot = join(root, "package");
+  const sourceRoot = join(packageRoot, "dist");
+  await writeFrontend(sourceRoot, "build-with-gzip");
+  const original = Buffer.from('window.fixture = "unchanged";\n'.repeat(100));
+  const encoded = gzipSync(original);
+  await writeFile(join(sourceRoot, "assets/app.js"), original);
+  await writeFile(join(sourceRoot, "assets/app.js.gz"), encoded);
+  const environment: NodeJS.ProcessEnv = {
+    NODE_ENV: "production",
+    COMPANION_FRONTEND_RUNTIME_DIR: join(root, "runtime"),
+  };
+  const snapshot = await startProductionServer({
+    environment,
+    packageRoot,
+    cwd: root,
+    homeDir: join(root, "home"),
+    importServer: async () => {
+      const copied = await readFile(join(environment.COMPANION_FRONTEND_ROOT!, "assets/app.js.gz"));
+      expect(copied).toEqual(encoded);
+      expect(gunzipSync(copied)).toEqual(await readFile(join(environment.COMPANION_FRONTEND_ROOT!, "assets/app.js")));
+      expect(environment.TAKODE_BUILD_ID).toBe("build-with-gzip");
+    },
+  });
+  expect(snapshot!.servingRoot).not.toBe(sourceRoot);
+  expect(await readFile(join(sourceRoot, "assets/app.js"))).toEqual(original);
+  expect(await readFile(join(sourceRoot, "assets/app.js.gz"))).toEqual(encoded);
 });

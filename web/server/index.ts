@@ -54,6 +54,7 @@ import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
 import { resumeRestartContinuations } from "./restart-continuation-store.js";
 import { requestStartupRecoveryRelaunch, runStartupRecovery } from "./startup-recovery.js";
 import { getStaticAssetCacheControl } from "./static-asset-cache.js";
+import { serveFrontendAssets } from "./frontend-static.js";
 import { checkFrontendAvailability } from "./frontend-availability.js";
 import { getTakodeProcessBuildId, readTakodeBuildManifest, TAKODE_DEVELOPMENT_BUILD_ID } from "./build-identity.js";
 import {
@@ -952,16 +953,7 @@ app.route(
 
 // In production, serve built frontend using absolute path (works when installed as npm package)
 if (process.env.NODE_ENV === "production") {
-  app.use(
-    "/*",
-    serveStatic({
-      root: frontendRoot,
-      onFound: (path, c) => {
-        const cacheControl = getStaticAssetCacheControl(path);
-        if (cacheControl) c.header("Cache-Control", cacheControl);
-      },
-    }),
-  );
+  app.use("/*", serveFrontendAssets(frontendRoot));
   app.get(
     "/*",
     serveStatic({

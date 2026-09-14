@@ -205,3 +205,6 @@ durations must not be summed into a CPU attribution. This summary does not
 measure icon taps, pre-navigation OS work, physical screen presentation, or the
 whole blackout. A newly activated bundle can change cache state; keep that first
 new-build navigation separate from a later ordinary or long-idle return.
+
+Production gzip representation behavior and its separate activation boundary are
+documented in [Frontend asset delivery](frontend-asset-delivery.md).
