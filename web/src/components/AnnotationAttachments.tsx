@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ConversationAnnotation } from "../../shared/conversation-annotations.js";
 import { useAnnotationPreview } from "./use-annotation-preview.js";
 export { AnnotationSourceMarkers } from "./AnnotationSourceMarkers.js";
@@ -9,7 +10,9 @@ export function AnnotationAttachments({
   onRemove,
   sessionId,
   disabled = false,
+  variant = "preview",
 }: {
+  variant?: "preview" | "message";
   disabled?: boolean;
   sessionId?: string;
   annotations: readonly ConversationAnnotation[];
@@ -28,6 +31,7 @@ export function AnnotationAttachments({
           onEdit={onEdit}
           onRemove={onRemove}
           disabled={disabled}
+          variant={variant}
         />
       ))}
     </div>
@@ -41,7 +45,9 @@ function AnnotationAttachment({
   onEdit,
   onRemove,
   disabled,
+  variant,
 }: {
+  variant: "preview" | "message";
   disabled?: boolean;
   annotation: ConversationAnnotation;
   number: number;
@@ -49,6 +55,7 @@ function AnnotationAttachment({
   onEdit?: (annotation: ConversationAnnotation, position: { x: number; y: number }) => void;
   onRemove?: (id: string) => void;
 }) {
+  const [open, setOpen] = useState(variant === "message");
   const { preview, triggerProps, close } = useAnnotationPreview(annotation, number, sessionId);
   if (onEdit)
     return (
@@ -72,7 +79,11 @@ function AnnotationAttachment({
     );
   return (
     <>
-      <details className="group/annotation min-w-0 max-w-full rounded-xl border border-cc-border bg-cc-hover/60 text-sm">
+      <details
+        open={open}
+        onToggle={(event) => setOpen(event.currentTarget.open)}
+        className="group/annotation min-w-0 max-w-full rounded-xl border border-cc-border bg-cc-hover/60 text-sm"
+      >
         <summary
           {...triggerProps}
           onClick={close}
@@ -81,7 +92,9 @@ function AnnotationAttachment({
         >
           Comment {number}
         </summary>
-        <div className="max-h-80 max-w-lg space-y-3 overflow-auto border-t border-cc-border p-3">
+        <div
+          className={`max-w-lg space-y-3 border-t border-cc-border p-3 ${variant === "message" ? "" : "max-h-80 overflow-auto"}`}
+        >
           <blockquote className="whitespace-pre-wrap break-words border-l-2 border-cc-primary/60 pl-3 text-cc-muted">
             {annotation.selectedText}
           </blockquote>

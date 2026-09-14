@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PlaygroundAnnotationsSection } from "./PlaygroundAnnotationsSection.js";
 import { useStore } from "../../store.js";
@@ -93,4 +93,18 @@ it("keeps annotation and image indicators while desktop hover restores a selecte
   expect([input.selectionStart, input.selectionEnd, input.selectionDirection]).toEqual([8, 20, "backward"]);
   expect(document.activeElement).toBe(input);
   vi.restoreAllMocks();
+});
+
+it("demonstrates default-open short, long and multiple sent comments through history normalization", () => {
+  // These are sent user-message fixtures; the existing editable composer chips stay independent.
+  render(<PlaygroundAnnotationsSection />);
+  const examples = within(screen.getByTestId("playground-sent-comments"));
+  const picker = examples.getByLabelText("Sent comment example");
+  expect(examples.getByLabelText("Comment 1").closest("details")?.open).toBe(true);
+  fireEvent.change(picker, { target: { value: "long" } });
+  expect(examples.getByText(/Paragraph 12:/).textContent).toContain("Paragraph 1:");
+  expect(examples.getByLabelText("Comment 1").closest("details")?.open).toBe(true);
+  fireEvent.change(picker, { target: { value: "multiple" } });
+  expect(examples.getByLabelText("Comment 3").closest("details")?.open).toBe(true);
+  expect(examples.getByText("Please address each comment before changing the refresh behavior.")).toBeTruthy();
 });

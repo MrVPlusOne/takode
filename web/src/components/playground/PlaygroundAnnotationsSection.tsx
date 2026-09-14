@@ -15,6 +15,7 @@ import { AnnotationSourceMarkers } from "../AnnotationAttachments.js";
 import { MessageBubble } from "../MessageBubble.js";
 import type { ChatMessage } from "../../types.js";
 import { formatAnnotatedMessage } from "../../../shared/conversation-annotations.js";
+import { normalizeHistoryMessageToChatMessages } from "../../utils/history-message-normalization.js";
 
 const SESSION = "playground-conversation-annotations";
 
@@ -146,7 +147,59 @@ export function PlaygroundAnnotationsSection() {
           </pre>
         </details>
       </div>
+      <SentCommentExamples />
     </section>
+  );
+}
+
+function SentCommentExamples() {
+  const [example, setExample] = useState("short");
+  const selectedText = "The cache expires after one hour.";
+  const longQuotation = Array.from(
+    { length: 12 },
+    (_, index) =>
+      `Paragraph ${index + 1}: A background refresh keeps the cached result current while requests continue.`,
+  ).join("\n\n");
+  const [message] = normalizeHistoryMessageToChatMessages(
+    {
+      type: "user_message",
+      id: `sent-comments-${example}`,
+      timestamp: 1,
+      content: example === "multiple" ? "Please address each comment before changing the refresh behavior." : "",
+      annotations: Array.from({ length: example === "multiple" ? 3 : 1 }, (_, index) => ({
+        id: `sent-comment-${index}`,
+        selectedText: example === "long" ? longQuotation : selectedText,
+        comment:
+          example === "short"
+            ? "Could this be configurable?"
+            : `Comment ${index + 1}: Explain the expiry policy and how retries affect requests already in progress.\nKeep the existing cache available until the replacement is ready.`,
+        sourceMessageId: "annotation-example",
+      })),
+    },
+    0,
+  );
+  return (
+    <div id="sent-comment-examples" data-testid="playground-sent-comments" className="space-y-3 scroll-mt-24">
+      <h3 className="font-semibold">Sent comments</h3>
+      <p className="text-sm text-cc-muted">
+        Quotations and comments open by default. Long messages share one Show more control; each comment can still be
+        closed independently.
+      </p>
+      <label className="flex items-center gap-2 text-sm">
+        Example
+        <select
+          aria-label="Sent comment example"
+          value={example}
+          onChange={(event) => setExample(event.target.value)}
+          className="rounded-lg border border-cc-border bg-cc-input-bg px-2 py-1"
+        >
+          <option value="short">Short comment only</option>
+          <option value="long">Long quotation only</option>
+          <option value="multiple">Several comments and text</option>
+        </select>
+      </label>
+      <MessageBubble key={message.id} message={message} interactionMode="read-only" />
+    </div>
   );
 }
 

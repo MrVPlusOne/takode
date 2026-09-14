@@ -343,15 +343,23 @@ function CollapsibleContent({ children }: { children: React.ReactNode }) {
   useLayoutEffect(() => {
     const el = contentRef.current;
     if (!el) return;
-    setNeedsCollapse(el.scrollHeight > COLLAPSE_THRESHOLD);
+    const measure = () => setNeedsCollapse(el.scrollHeight > COLLAPSE_THRESHOLD);
+    measure();
+    // Observe the unclipped body so comment disclosure and wrapping update the whole-message preview.
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [children]);
 
   const isCollapsed = needsCollapse && collapsed;
 
   return (
     <div className="relative">
-      <div ref={contentRef} style={isCollapsed ? { maxHeight: COLLAPSE_THRESHOLD, overflow: "hidden" } : undefined}>
-        {children}
+      <div style={isCollapsed ? { maxHeight: COLLAPSE_THRESHOLD, overflow: "hidden" } : undefined}>
+        <div ref={contentRef} data-testid="user-message-content">
+          {children}
+        </div>
       </div>
       {isCollapsed && (
         <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-cc-user-bubble to-transparent pointer-events-none" />
@@ -360,6 +368,7 @@ function CollapsibleContent({ children }: { children: React.ReactNode }) {
         <div className={`flex justify-center ${isCollapsed ? "-mt-3 relative z-10" : "mt-1"}`}>
           <button
             onClick={() => setCollapsed(!collapsed)}
+            aria-expanded={!isCollapsed}
             className="text-[11px] text-cc-muted hover:text-cc-fg bg-cc-user-bubble border border-cc-border/30 px-3 py-0.5 rounded-full cursor-pointer transition-colors"
           >
             {collapsed ? "Show more" : "Show less"}
@@ -947,9 +956,6 @@ function UserMessage({
       >
         {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
         {message.agentSource && <AgentSourceBadge source={message.agentSource} />}
-        {message.metadata?.annotations?.length ? (
-          <AnnotationAttachments annotations={message.metadata.annotations} />
-        ) : null}
         {replyContext && <UserReplyChip previewText={replyContext.previewText} messageId={replyContext.messageId} />}
         {message.metadata?.vscodeSelection && (
           <div className="mb-2 flex">
@@ -987,6 +993,9 @@ function UserMessage({
         />
         {pendingLabel && <div className="mb-2 text-[11px] text-cc-muted/80 font-mono-code">{pendingLabel}</div>}
         <CollapsibleContent>
+          {message.metadata?.annotations?.length ? (
+            <AnnotationAttachments annotations={message.metadata.annotations} variant="message" />
+          ) : null}
           <MarkdownContent
             text={displayContent}
             variant="conservative"
