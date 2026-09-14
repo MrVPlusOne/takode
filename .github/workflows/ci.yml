@@ -27,6 +27,9 @@ jobs:
 
       - name: Typecheck
         working-directory: web
+        env:
+          # Cold full-project checks exceed the macOS runner's default Node heap.
+          NODE_OPTIONS: --max-old-space-size=4096
         run: bun --no-install run typecheck
 
       - name: Codex protocol contract (offline)
