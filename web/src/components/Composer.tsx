@@ -1,4 +1,4 @@
-import { ComposerMinimizer, ComposerMinimizeButton } from "./ComposerMinimizer.js";
+import { ComposerMinimizer, ComposerMinimizeButton, type ComposerExpansion } from "./ComposerMinimizer.js";
 import { sendComposerDraft } from "./composer-message-send.js";
 import { ComposerAnnotations } from "./ComposerAnnotations.js";
 import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
@@ -153,7 +153,7 @@ export function Composer({
   const [pendingPermissionMode, setPendingPermissionMode] = useState<string | null>(null);
   const [dynamicClaudeModels, setDynamicClaudeModels] = useState<ModelOption[] | null>(null);
   const [sendPressing, setSendPressing] = useState(false);
-  const [composerExpanded, setComposerExpanded] = useState(false);
+  const [composerExpanded, setComposerExpanded] = useState<ComposerExpansion>(false);
   const [isImageDragOver, setIsImageDragOver] = useState(false);
   const [voiceEditProposal, setVoiceEditProposal] = useState<VoiceEditProposal | null>(null);
   const [alternateVoiceRerun, setAlternateVoiceRerun] = useState<AlternateVoiceRerun | null>(null);
@@ -1544,7 +1544,7 @@ export function Composer({
 
   // Active voice/comment editors remain usable even after the textarea loses focus.
   const keepComposerOpen = isVoiceInteractionActive || annotationEditorOpen || !!lightboxSrc;
-  const isCollapsed = !composerExpanded && !keepComposerOpen;
+  const isCollapsed = composerExpanded !== true && (composerExpanded === "hover-collapsed" || !keepComposerOpen);
 
   useEffect(() => {
     if (hasActiveReplyContext) setComposerExpanded(true);
@@ -1639,6 +1639,8 @@ export function Composer({
       destination={`${sessionId}:${threadKey}`}
       expanded={!isCollapsed}
       onExpandedChange={setComposerExpanded}
+      textareaRef={textareaRef}
+      overlay
     >
       <div
         className={`shrink-0 border-t border-cc-border bg-cc-card ${isCollapsed ? "px-2 py-2" : "px-2 sm:px-4 py-2 sm:py-3"}`}

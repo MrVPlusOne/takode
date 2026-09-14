@@ -1,6 +1,11 @@
 import { useComposerTextareaSize } from "../use-composer-textarea-size.js";
-import { ComposerMinimizer, ComposerMinimizeButton, ComposerVisibilityContext } from "../ComposerMinimizer.js";
-import { useContext, useEffect, useId, useRef, useState, type TextareaHTMLAttributes } from "react";
+import {
+  ComposerMinimizer,
+  ComposerMinimizeButton,
+  ComposerVisibilityContext,
+  type ComposerExpansion,
+} from "../ComposerMinimizer.js";
+import { useContext, useEffect, useId, useRef, useState, type RefObject, type TextareaHTMLAttributes } from "react";
 import { ComposerCompactPreview } from "../ComposerCompactPreview.js";
 import { useStore } from "../../store.js";
 import { useTextSelection } from "../../hooks/useTextSelection.js";
@@ -18,9 +23,10 @@ export function PlaygroundAnnotationsSection() {
   const selection = useTextSelection(root);
   const draft = useStore((state) => state.composerDrafts.get(SESSION));
   const [sent, setSent] = useState<ChatMessage | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState<ComposerExpansion>(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const editing = useStore((state) => state.annotationEditor?.sessionId === SESSION);
-  const visible = expanded || editing;
+  const visible = expanded === true || (expanded !== "hover-collapsed" && editing);
   useEffect(() => {
     useStore.getState().setComposerDraft(SESSION, {
       text: "Please explain both points before changing anything.\nKeep this second line and the attachments when minimized.",
@@ -55,8 +61,9 @@ export function PlaygroundAnnotationsSection() {
         Attached passages stay dimly highlighted, including across bold and italic text. Click a chip to open its editor
         at the passage, or hover to strengthen its highlight and preview the comment. Minimize the draft to read more of
         the feed: an ellipsis indicates more text, and small image/comment counts keep attachments discoverable. Clear
-        the text to try an attachment-only draft. Simulate voice completion to insert text and release focus without
-        leaving the composer. This preview changes only local fixture state and records no audio.
+        the text to try an attachment-only draft. On desktop, move out to collapse and back to expand; the draft
+        selection stays where you left it, even after copying feed text. Simulate voice completion to insert text and
+        release focus without leaving the composer. This preview changes only local fixture state and records no audio.
       </p>
       <div
         ref={root}
@@ -71,7 +78,12 @@ export function PlaygroundAnnotationsSection() {
           <AnnotationSourceMarkers sessionId={SESSION} messageId="annotation-example" />
         </div>
         <SelectionContextMenu selection={selection} sessionId={SESSION} onClose={selection.dismiss} />
-        <ComposerMinimizer destination={SESSION} expanded={visible} onExpandedChange={setExpanded}>
+        <ComposerMinimizer
+          destination={SESSION}
+          expanded={visible}
+          onExpandedChange={setExpanded}
+          textareaRef={textareaRef}
+        >
           <div className="rounded-2xl border border-cc-border bg-cc-input-bg">
             <div hidden={!visible}>
               <img
@@ -82,6 +94,7 @@ export function PlaygroundAnnotationsSection() {
               <ComposerAnnotations sessionId={SESSION} threadKey="main" />
             </div>
             <DraftTextarea
+              textareaRef={textareaRef}
               commentCount={draft?.annotations?.length ?? 0}
               aria-label="Annotation main message"
               value={draft?.text ?? ""}
@@ -138,10 +151,13 @@ export function PlaygroundAnnotationsSection() {
 }
 
 function DraftTextarea({
+  textareaRef: ref,
   commentCount,
   ...props
-}: TextareaHTMLAttributes<HTMLTextAreaElement> & { commentCount: number }) {
-  const ref = useRef<HTMLTextAreaElement>(null);
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  commentCount: number;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+}) {
   const previewDescriptionId = useId();
   const expanded = useContext(ComposerVisibilityContext);
   useComposerTextareaSize(ref, String(props.value ?? ""));

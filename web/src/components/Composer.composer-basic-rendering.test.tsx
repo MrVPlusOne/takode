@@ -23,7 +23,10 @@ const mediaState = {
 Object.defineProperty(window, "matchMedia", {
   writable: true,
   value: vi.fn().mockImplementation((query: string) => ({
-    matches: query === "(hover: none) and (pointer: coarse)" ? mediaState.touchDevice : false,
+    matches:
+      query === "(hover: none) and (pointer: coarse)"
+        ? mediaState.touchDevice
+        : query === "(hover: hover) and (pointer: fine)" && !mediaState.touchDevice,
     media: query,
     onchange: null,
     addListener: vi.fn(),
@@ -1353,13 +1356,14 @@ it.each([
   "none",
   "transient-blur",
   "transient-blur-then-outside",
+  "hover",
   "outside",
   "navigation",
 ])("keeps voice-inserted text expanded unless the user leaves (%s)", async (departure) => {
   // A voice shortcut can start without textarea focus. Its temporary reveal must become
   // intentional expansion, while a later outside interaction or navigation still wins.
-  mediaState.touchDevice = true;
-  setViewportWidth(430);
+  mediaState.touchDevice = departure !== "hover";
+  setViewportWidth(departure === "hover" ? 1440 : 430);
   mockStoreState.shortcutSettings = {
     enabled: true,
     preset: "standard",
@@ -1382,6 +1386,21 @@ it.each([
   }
   if (departure === "outside" || departure === "transient-blur-then-outside") fireEvent.pointerDown(document.body);
   if (departure === "navigation") view.rerender(<Composer sessionId="s1" threadKey="another" />);
+  if (departure === "hover") {
+    // Real Composer must hide ongoing work without cancelling capture or losing the eventual full result.
+    fireEvent(
+      screen.getByTestId("composer-minimizer"),
+      Object.assign(
+        new MouseEvent("pointerout", {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+        { pointerType: "mouse" },
+      ),
+    );
+    fireEvent.pointerDown(document.body);
+    expect(textarea.getAttribute("aria-expanded")).toBe("false");
+  }
   await act(async () => {
     transcription.resolve({
       mode: "dictation",

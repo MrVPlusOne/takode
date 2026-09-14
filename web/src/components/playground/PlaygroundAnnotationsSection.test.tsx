@@ -64,3 +64,33 @@ it("keeps simulated voice completion visible until an outside interaction", asyn
   expect(input.value).toBe(`${original}\nSimulated voice text.`);
   expect(screen.getByTestId("compact-comment-count").textContent).toBe("2");
 });
+
+it("keeps annotation and image indicators while desktop hover restores a selected draft range", () => {
+  // Exercise the actual Playground wiring, including the shared textarea ref and expansion intent.
+  vi.spyOn(window, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
+  render(<PlaygroundAnnotationsSection />);
+  const input = screen.getByLabelText("Annotation main message") as HTMLTextAreaElement;
+  act(() => input.focus());
+  input.setSelectionRange(8, 20, "backward");
+  const boundary = screen.getByTestId("composer-minimizer");
+  const pointer = (type: string) =>
+    fireEvent(
+      boundary,
+      Object.assign(
+        new MouseEvent(type, {
+          bubbles: true,
+          relatedTarget: document.body,
+        }),
+        { pointerType: "mouse" },
+      ),
+    );
+  pointer("pointerout");
+  expect(input.getAttribute("aria-expanded")).toBe("false");
+  expect(screen.getByTestId("compact-image-count").textContent).toBe("1");
+  expect(screen.getByTestId("compact-comment-count").textContent).toBe("2");
+  pointer("pointerover");
+  expect(input.getAttribute("aria-expanded")).toBe("true");
+  expect([input.selectionStart, input.selectionEnd, input.selectionDirection]).toEqual([8, 20, "backward"]);
+  expect(document.activeElement).toBe(input);
+  vi.restoreAllMocks();
+});
