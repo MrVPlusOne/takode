@@ -1,0 +1,284 @@
+{
+  "sessionId": "playground-chronological-answers",
+  "threadKey": "q-42",
+  "history": [
+    {
+      "type": "user_message",
+      "id": "chronology-u1",
+      "content": "Please add a download action for the report.",
+      "timestamp": 1789412401000,
+      "threadKey": "main",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit",
+          "attachedAt": 1789412403500,
+          "attachedBy": "playground-chronological-answers"
+        }
+      ],
+      "leaderResponseCoverageVersion": 1,
+      "leaderUserMessageId": "u1"
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1789412402000,
+      "parent_tool_use_id": null,
+      "codexMessagePhase": "commentary",
+      "threadKey": "q-42",
+      "questId": "q-42",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit"
+        }
+      ],
+      "leaderThreadRole": "commentary",
+      "message": {
+        "id": "chronology-progress-first",
+        "type": "message",
+        "role": "assistant",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "I am preparing the download action."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
+      "type": "user_message",
+      "id": "chronology-u2",
+      "content": "Should the downloaded file name include the date?",
+      "timestamp": 1789412403000,
+      "threadKey": "main",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit",
+          "attachedAt": 1789412403500,
+          "attachedBy": "playground-chronological-answers"
+        }
+      ],
+      "leaderResponseCoverageVersion": 1,
+      "leaderUserMessageId": "u2"
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1789412404000,
+      "parent_tool_use_id": null,
+      "codexMessagePhase": "final_answer",
+      "threadKey": "main",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "backfill",
+          "attachedAt": 1789412404000
+        }
+      ],
+      "leaderThreadRole": "answer",
+      "message": {
+        "id": "chronology-design-answer",
+        "type": "message",
+        "role": "assistant",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "Yes, include the date so downloaded reports are easy to distinguish."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      },
+      "leaderAnswerUserMessageIds": ["u2"],
+      "leaderAnswerObservedHistoryLength": 3,
+      "threadAnswer": {
+        "version": 2,
+        "answerUserMessageIds": ["u2"],
+        "observedHistoryLength": 3,
+        "authoredThreadKey": "q-42",
+        "ownerGroups": [
+          {
+            "threadKey": "q-42",
+            "userMessageIds": ["u2"]
+          }
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1789412405000,
+      "parent_tool_use_id": null,
+      "codexMessagePhase": "commentary",
+      "threadKey": "q-42",
+      "questId": "q-42",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "explicit"
+        }
+      ],
+      "leaderThreadRole": "commentary",
+      "message": {
+        "id": "chronology-progress-later",
+        "type": "message",
+        "role": "assistant",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "I am finishing the original download request."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      }
+    },
+    {
+      "type": "assistant",
+      "timestamp": 1789412406000,
+      "parent_tool_use_id": null,
+      "codexMessagePhase": "final_answer",
+      "threadKey": "main",
+      "threadRefs": [
+        {
+          "threadKey": "q-42",
+          "questId": "q-42",
+          "source": "backfill",
+          "attachedAt": 1789412406000
+        }
+      ],
+      "leaderThreadRole": "answer",
+      "message": {
+        "id": "chronology-implementation-answer",
+        "type": "message",
+        "role": "assistant",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "The download action is implemented and ready."
+          }
+        ],
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 1,
+          "output_tokens": 1,
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0
+        }
+      },
+      "leaderAnswerUserMessageIds": ["u1"],
+      "leaderAnswerObservedHistoryLength": 5,
+      "threadAnswer": {
+        "version": 2,
+        "answerUserMessageIds": ["u1"],
+        "observedHistoryLength": 5,
+        "authoredThreadKey": "q-42",
+        "ownerGroups": [
+          {
+            "threadKey": "q-42",
+            "userMessageIds": ["u1"]
+          }
+        ]
+      }
+    }
+  ],
+  "projections": {
+    "main": {
+      "version": 2,
+      "threadKey": "main",
+      "cutoverHistoryIndex": 0,
+      "pendingMessageCount": 0,
+      "pendingMessages": [],
+      "currentAnswers": [
+        {
+          "version": 2,
+          "threadKey": "main",
+          "answerUserMessageIds": ["u2"],
+          "referencedUserMessageIds": ["chronology-u2"],
+          "coveredAnswerUserMessageIds": [],
+          "coveredUserMessageIds": [],
+          "currentMessageId": "chronology-design-answer",
+          "currentHistoryIndex": 3,
+          "createdAt": 1789412404000,
+          "updatedAt": 1789412404000,
+          "source": "explicit"
+        },
+        {
+          "version": 2,
+          "threadKey": "main",
+          "answerUserMessageIds": ["u1"],
+          "referencedUserMessageIds": ["chronology-u1"],
+          "coveredAnswerUserMessageIds": [],
+          "coveredUserMessageIds": [],
+          "currentMessageId": "chronology-implementation-answer",
+          "currentHistoryIndex": 5,
+          "createdAt": 1789412406000,
+          "updatedAt": 1789412406000,
+          "source": "explicit"
+        }
+      ],
+      "ready": true
+    },
+    "q-42": {
+      "version": 2,
+      "threadKey": "q-42",
+      "cutoverHistoryIndex": 0,
+      "pendingMessageCount": 0,
+      "pendingMessages": [],
+      "currentAnswers": [
+        {
+          "version": 2,
+          "threadKey": "main",
+          "answerUserMessageIds": ["u2"],
+          "referencedUserMessageIds": ["chronology-u2"],
+          "coveredAnswerUserMessageIds": ["u2"],
+          "coveredUserMessageIds": ["chronology-u2"],
+          "currentMessageId": "chronology-design-answer",
+          "currentHistoryIndex": 3,
+          "createdAt": 1789412404000,
+          "updatedAt": 1789412404000,
+          "source": "explicit"
+        },
+        {
+          "version": 2,
+          "threadKey": "main",
+          "answerUserMessageIds": ["u1"],
+          "referencedUserMessageIds": ["chronology-u1"],
+          "coveredAnswerUserMessageIds": ["u1"],
+          "coveredUserMessageIds": ["chronology-u1"],
+          "currentMessageId": "chronology-implementation-answer",
+          "currentHistoryIndex": 5,
+          "createdAt": 1789412406000,
+          "updatedAt": 1789412406000,
+          "source": "explicit"
+        }
+      ],
+      "ready": true
+    }
+  }
+}

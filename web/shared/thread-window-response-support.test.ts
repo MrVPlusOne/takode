@@ -407,7 +407,6 @@ describe("selected thread-window routed answer support", () => {
     expect(
       resolvedPresentation(sync.entries, sync.threadResponseProjection!, THREAD_KEY)?.currentResponses[0],
     ).toMatchObject({
-      anchorUserMessageId: "raw-u2",
       sourceTurnId: "raw-u2",
     });
   });

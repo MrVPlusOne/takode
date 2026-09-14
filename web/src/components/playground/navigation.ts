@@ -64,6 +64,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Messages",
     "Inline Quest Preview",
     "Commit delivery chips",
+    "Chronological Answers",
     "Routed Answers",
     "Turn Activity",
     "Temporary Continuation Notices",

@@ -42,7 +42,7 @@ export function readyThreadResponseTurnHasContent(
   presentation: ThreadResponsePresentation,
   activeNeedsInputAnchorMessageIds: ReadonlySet<string> = new Set(),
 ): boolean {
-  if (presentation.currentResponses.some((item) => item.anchorTurnId === turn.id)) return true;
+  if (presentation.currentResponses.some((item) => item.sourceTurnId === turn.id)) return true;
   if (
     sourceDecisionEntries(turn, activeNeedsInputAnchorMessageIds, presentation.currentResponseMessageIds).length > 0
   ) {
@@ -67,7 +67,7 @@ export function ReadyThreadResponseRows({
   questLinkSurface: QuestLinkSurface;
   activeNeedsInputAnchorMessageIds?: ReadonlySet<string>;
 }) {
-  const responses = presentation.currentResponses.filter((item) => item.anchorTurnId === turn.id);
+  const responses = presentation.currentResponses.filter((item) => item.sourceTurnId === turn.id);
   const responseMessageIds = new Set(responses.map((item) => item.response.currentMessageId));
   const promptEntries = sourceDecisionEntries(turn, activeNeedsInputAnchorMessageIds, responseMessageIds);
   const quizGroup = presentation.quizGroups.find((group) => group.hostTurnId === turn.id);

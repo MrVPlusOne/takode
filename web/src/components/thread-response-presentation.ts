@@ -22,9 +22,6 @@ export interface ThreadResponseReferencedUserMessage {
 
 export interface CurrentThreadResponsePresentationItem {
   response: LeaderThreadResponseState;
-  anchorUserMessageId: string;
-  anchorTurnId: string;
-  anchorOrder: number;
   sourceTurnId: string;
   messageEntry: Extract<FeedEntry, { kind: "message" }>;
   collapsedMessageEntry: Extract<FeedEntry, { kind: "message" }>;
@@ -130,8 +127,7 @@ function collectQuestQuizGroups(
           questIds.push(questId);
         }
       }
-      // Ready collapse may relocate current responses to their covered prompt, but a Quiz
-      // remains owned by the turn that actually carried its hidden directive.
+      // A Quiz stays with the turn that actually carried its hidden directive.
       if (questIds.length > 0) groups.push({ hostTurnId: turn.id, questIds });
     }
   }
@@ -142,51 +138,9 @@ function entryHistoryIndex(entry: FeedEntry | null | undefined): number | null {
   return entry?.kind === "message" && Number.isInteger(entry.msg.historyIndex) ? entry.msg.historyIndex! : null;
 }
 
-function alignOverlappingAnswerAnchors(responses: CurrentThreadResponsePresentationItem[]): void {
-  const parents = responses.map((_, index) => index);
-  const find = (index: number): number => {
-    let root = index;
-    while (parents[root] !== root) root = parents[root]!;
-    while (parents[index] !== index) {
-      const next = parents[index]!;
-      parents[index] = root;
-      index = next;
-    }
-    return root;
-  };
-  const union = (left: number, right: number) => {
-    const leftRoot = find(left);
-    const rightRoot = find(right);
-    if (leftRoot !== rightRoot) parents[rightRoot] = leftRoot;
-  };
-
-  const firstResponseByPrompt = new Map<string, number>();
-  responses.forEach((item, index) => {
-    for (const messageId of item.response.referencedUserMessageIds) {
-      const first = firstResponseByPrompt.get(messageId);
-      if (first === undefined) firstResponseByPrompt.set(messageId, index);
-      else union(index, first);
-    }
-  });
-
-  const latestAnchorByRoot = new Map<number, CurrentThreadResponsePresentationItem>();
-  responses.forEach((item, index) => {
-    const root = find(index);
-    const latest = latestAnchorByRoot.get(root);
-    if (!latest || item.anchorOrder > latest.anchorOrder) latestAnchorByRoot.set(root, item);
-  });
-  responses.forEach((item, index) => {
-    const anchor = latestAnchorByRoot.get(find(index));
-    if (!anchor) return;
-    item.anchorUserMessageId = anchor.anchorUserMessageId;
-    item.anchorTurnId = anchor.anchorTurnId;
-    item.anchorOrder = anchor.anchorOrder;
-  });
-}
-
 export function threadResponsePresentationTouchesTurn(turn: Turn, presentation: ThreadResponsePresentation): boolean {
   return (
-    presentation.currentResponses.some((item) => item.anchorTurnId === turn.id || item.sourceTurnId === turn.id) ||
+    presentation.currentResponses.some((item) => item.sourceTurnId === turn.id) ||
     presentation.quizGroups.some((group) => group.hostTurnId === turn.id)
   );
 }
@@ -261,10 +215,7 @@ export function resolveThreadResponses(
   const seenVisibleDirectUserIds = new Set<string>();
   let duplicateVisibleDirectUser = false;
   let invalidVisibleDirectUser = false;
-  const responseEntries = new Map<
-    string,
-    { turnId: string; order: number; entry: Extract<FeedEntry, { kind: "message" }> }
-  >();
+  const responseEntries = new Map<string, { turnId: string; entry: Extract<FeedEntry, { kind: "message" }> }>();
   const duplicateResponseEntryIds = new Set<string>();
   let order = 0;
   for (const section of sections) {
@@ -327,7 +278,7 @@ export function resolveThreadResponses(
           }
         }
         if (responseEntries.has(entry.msg.id)) duplicateResponseEntryIds.add(entry.msg.id);
-        responseEntries.set(entry.msg.id, { turnId: turn.id, order, entry });
+        responseEntries.set(entry.msg.id, { turnId: turn.id, entry });
       }
       order += 1;
     }
@@ -478,15 +429,8 @@ export function resolveThreadResponses(
       if (coveredIds.has(messageId) || pendingIds.has(messageId)) return null;
       coveredIds.add(messageId);
     }
-    const lastAnchor = visibleAnchors.reduce<(typeof visibleAnchors)[number] | undefined>(
-      (latest, anchor) => (!latest || anchor.order > latest.order ? anchor : latest),
-      undefined,
-    );
     currentResponses.push({
       response,
-      anchorUserMessageId: lastAnchor?.message.id ?? located.turnId,
-      anchorTurnId: lastAnchor?.turnId ?? located.turnId,
-      anchorOrder: lastAnchor?.order ?? located.order,
       sourceTurnId: located.turnId,
       messageEntry: located.entry,
       collapsedMessageEntry: collapsedResponseEntry(located.entry),
@@ -506,22 +450,17 @@ export function resolveThreadResponses(
     if (!coveredIds.has(messageId) && !pendingIds.has(messageId)) return null;
   }
 
-  // Answers sharing any original prompt form one visible answer set. Anchor
-  // that set after its latest prompt so the rows can stay in source chronology
-  // even when later per-ID coverage points back to an earlier prompt.
-  alignOverlappingAnswerAnchors(currentResponses);
-  currentResponses.sort(
-    (left, right) =>
-      left.anchorOrder - right.anchorOrder || left.response.currentHistoryIndex - right.response.currentHistoryIndex,
-  );
+  // Request references prove association and coverage, not where an answer belongs
+  // in time. Keep delayed and superseded answers at their original source turn.
+  currentResponses.sort((left, right) => left.response.currentHistoryIndex - right.response.currentHistoryIndex);
   const quizGroups = collectQuestQuizGroups(sections, state.cutoverHistoryIndex);
   const pendingSignature = state.pendingMessages
     .map((pending) => `${pending.userMessageId}:${pending.historyMessageId}:${pending.historyIndex}`)
     .join("|");
   const responseSignature = currentResponses
     .map(
-      ({ response }) =>
-        `${response.currentMessageId}:${response.threadKey}:${response.answerUserMessageIds.join(",")}:${response.coveredAnswerUserMessageIds.join(",")}:${response.source}`,
+      ({ response, sourceTurnId }) =>
+        `${response.currentMessageId}:${sourceTurnId}:${response.threadKey}:${response.answerUserMessageIds.join(",")}:${response.coveredAnswerUserMessageIds.join(",")}:${response.source}`,
     )
     .join("|");
 

@@ -5,6 +5,7 @@ import { ReadyThreadResponseRows } from "../ReadyThreadResponseRows.js";
 import { TurnActivityDisclosure } from "../TurnActivitySummary.js";
 import { TurnEntriesExpanded } from "../MessageFeedTurns.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
+import { PlaygroundChronologicalAnswers } from "./PlaygroundChronologicalAnswers.js";
 
 const SESSION_ID = "playground-thread-responses";
 
@@ -99,9 +100,6 @@ const PRESENTATION: ThreadResponsePresentation = {
         updatedAt: 6,
         source: "explicit",
       },
-      anchorUserMessageId: "playground-user-second",
-      anchorTurnId: READY_TURN.id,
-      anchorOrder: 1,
       sourceTurnId: READY_TURN.id,
       messageEntry: EARLIER_RESPONSE,
       collapsedMessageEntry: EARLIER_RESPONSE,
@@ -122,9 +120,6 @@ const PRESENTATION: ThreadResponsePresentation = {
         updatedAt: 7,
         source: "explicit",
       },
-      anchorUserMessageId: "playground-user-second",
-      anchorTurnId: READY_TURN.id,
-      anchorOrder: 1,
       sourceTurnId: READY_TURN.id,
       messageEntry: CURRENT_RESPONSE,
       collapsedMessageEntry: CURRENT_RESPONSE,
@@ -202,9 +197,6 @@ const ANSWER_ONLY_PRESENTATION: ThreadResponsePresentation = {
         coveredUserMessageIds: [ANSWER_ONLY_TURN.id],
         currentMessageId: ANSWER_ONLY_RESPONSE.msg.id,
       },
-      anchorUserMessageId: ANSWER_ONLY_TURN.id,
-      anchorTurnId: ANSWER_ONLY_TURN.id,
-      anchorOrder: 0,
       sourceTurnId: ANSWER_ONLY_TURN.id,
       messageEntry: ANSWER_ONLY_RESPONSE,
       collapsedMessageEntry: ANSWER_ONLY_RESPONSE,
@@ -283,9 +275,6 @@ const ASSOCIATED_MAIN_PRESENTATION: ThreadResponsePresentation = {
         updatedAt: 25,
         source: "explicit",
       },
-      anchorUserMessageId: ASSOCIATED_MAIN_TURN.id,
-      anchorTurnId: ASSOCIATED_MAIN_TURN.id,
-      anchorOrder: 0,
       sourceTurnId: ASSOCIATED_MAIN_TURN.id,
       messageEntry: ASSOCIATED_MAIN_RESPONSE,
       collapsedMessageEntry: ASSOCIATED_MAIN_RESPONSE,
@@ -346,8 +335,6 @@ const MULTI_OWNER_PRESENTATION: ThreadResponsePresentation = {
         coveredUserMessageIds: [MULTI_OWNER_TURN.id],
         currentMessageId: MULTI_OWNER_RESPONSE.msg.id,
       },
-      anchorUserMessageId: MULTI_OWNER_TURN.id,
-      anchorTurnId: MULTI_OWNER_TURN.id,
       sourceTurnId: MULTI_OWNER_TURN.id,
       messageEntry: MULTI_OWNER_RESPONSE,
       collapsedMessageEntry: MULTI_OWNER_RESPONSE,
@@ -411,9 +398,6 @@ const TIMER_REPORT_PRESENTATION: ThreadResponsePresentation = {
       currentMessageId: entry.msg.id,
       currentHistoryIndex: entry.msg.historyIndex!,
     },
-    anchorUserMessageId: `playground-timer-firing-${index + 1}`,
-    anchorTurnId: TIMER_REPORT_TURN.id,
-    anchorOrder: 0,
     sourceTurnId: TIMER_REPORT_TURN.id,
     messageEntry: entry,
     collapsedMessageEntry: entry,
@@ -456,6 +440,7 @@ function renderEntry(entry: FeedEntry) {
 export function PlaygroundThreadResponseSection() {
   return (
     <PlaygroundSectionGroup groupId="overview">
+      <PlaygroundChronologicalAnswers />
       <Section
         title="Routed Answers"
         description="Every valid routed answer remains visible in source chronology with its original coverage preview; later answers add or correct substance, Ready controls whole-thread collapse, and expanded history preserves all commentary and answer rows."

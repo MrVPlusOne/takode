@@ -1854,8 +1854,8 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     });
   });
 
-  it("shows one asynchronous answer while its distinct source turn expands and collapses", () => {
-    // Relocation is presentation-only: expanding the real source swaps hosts instead of duplicating DOM identity.
+  it("keeps one asynchronous answer in its source turn through expansion and collapse", () => {
+    // A delayed answer stays in chronology; toggling must neither relocate it to its old request nor duplicate it.
     act(() => {
       useStore.getState().reset();
       handleMessage(SESSION_ID, { type: "session_init", session: leaderSession() });
@@ -1879,9 +1879,9 @@ describe("MessageFeed explicit answer selected-window integration", () => {
 
     fireEvent.click(within(sourceTurn).getByRole("button", { name: /Hide turn activity/ }));
     expect(screen.getAllByText(answerText)).toHaveLength(1);
-    expect(within(anchorTurn).getByTestId("thread-response-current")).toBeVisible();
-    expect(within(anchorTurn).getByText(answerText)).toBeVisible();
-    expect(within(sourceTurn).queryByText(answerText)).not.toBeInTheDocument();
+    expect(within(anchorTurn).queryByTestId("thread-response-current")).not.toBeInTheDocument();
+    expect(within(anchorTurn).queryByText(answerText)).not.toBeInTheDocument();
+    expect(within(sourceTurn).getByText(answerText)).toBeVisible();
     expect(within(sourceTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
 
     fireEvent.click(within(sourceTurn).getByRole("button", { name: /Show turn activity/ }));
@@ -1892,7 +1892,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
 
     fireEvent.click(within(sourceTurn).getByRole("button", { name: /Hide turn activity/ }));
     expect(screen.getAllByText(answerText)).toHaveLength(1);
-    expect(within(anchorTurn).getByTestId("thread-response-current")).toBeVisible();
+    expect(within(sourceTurn).getByTestId("thread-response-current")).toBeVisible();
     expect(within(sourceTurn).getByRole("region", { name: "Quest quiz" })).toBeVisible();
   });
 

@@ -67,10 +67,10 @@ function presentation(state = mainState(), threadKey = "main") {
 }
 
 describe("explicit answer placement compatibility", () => {
-  it("supports Main, places a grouped answer after the final prompt, and deduplicates Quiz", () => {
+  it("supports Main, retains the answer's source turn, and deduplicates Quiz", () => {
     const result = presentation();
 
-    expect(result?.currentResponses[0]?.anchorUserMessageId).toBe("raw-u2");
+    expect(result?.currentResponses[0]?.sourceTurnId).toBe("raw-u2");
     expect(result?.currentResponses[0]?.collapsedMessageEntry.msg.content).toBe("Main answer");
     expect(result?.quizGroups).toEqual([{ hostTurnId: "raw-u2", questIds: ["q-8"] }]);
   });

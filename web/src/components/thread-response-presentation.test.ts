@@ -111,10 +111,10 @@ function validMessages(): ChatMessage[] {
 }
 
 describe("explicit answer presentation", () => {
-  it("maps each current answer after its last effective prompt and separates Quiz", () => {
+  it("keeps each current answer in its source turn and separates Quiz", () => {
     const result = resolveThreadResponses(sections(validMessages()), projection(), THREAD_KEY);
 
-    expect(result?.currentResponses.map((item) => [item.response.currentMessageId, item.anchorUserMessageId])).toEqual([
+    expect(result?.currentResponses.map((item) => [item.response.currentMessageId, item.sourceTurnId])).toEqual([
       ["a-current", "raw-u2"],
       ["b-current", "raw-u3"],
     ]);
@@ -201,7 +201,7 @@ describe("explicit answer presentation", () => {
     });
 
     const result = resolveThreadResponses(sections(messages), state, THREAD_KEY);
-    expect(result?.currentResponses.map((item) => [item.response.currentMessageId, item.anchorUserMessageId])).toEqual([
+    expect(result?.currentResponses.map((item) => [item.response.currentMessageId, item.sourceTurnId])).toEqual([
       ["a-current", "raw-u2"],
       ["b-current", "raw-u2"],
     ]);
@@ -244,7 +244,7 @@ describe("explicit answer presentation", () => {
 
     const result = resolveThreadResponses(sections(messages), state, THREAD_KEY);
 
-    expect(result?.currentResponses.map((item) => [item.response.currentMessageId, item.anchorUserMessageId])).toEqual([
+    expect(result?.currentResponses.map((item) => [item.response.currentMessageId, item.sourceTurnId])).toEqual([
       ["answer-earlier", "raw-u2"],
       ["answer-later", "raw-u2"],
     ]);
@@ -260,9 +260,9 @@ describe("explicit answer presentation", () => {
     ]);
   });
 
-  it("keeps overlapping answer sets chronological when later coverage points to an earlier prompt", () => {
-    // Without shared-set anchoring, the later u1 answer would render before
-    // the earlier grouped answer merely because u1 appears before u2.
+  it("keeps overlapping answers chronological when later coverage points to an earlier prompt", () => {
+    // References remain answer proof; neither answer moves back to an earlier
+    // request just because that request owns its effective coverage.
     const messages = [
       user("u1", 10),
       user("u2", 11),
@@ -286,7 +286,7 @@ describe("explicit answer presentation", () => {
     expect(
       resolveThreadResponses(sections(messages), state, THREAD_KEY)?.currentResponses.map((item) => [
         item.response.currentMessageId,
-        item.anchorUserMessageId,
+        item.sourceTurnId,
       ]),
     ).toEqual([
       ["answer-earlier-group", "raw-u2"],
@@ -425,7 +425,7 @@ describe("explicit answer presentation", () => {
 
     expect(result?.currentResponses).toHaveLength(1);
     expect(result?.currentResponses[0]).toMatchObject({
-      anchorUserMessageId: attachedMainUser.id,
+      sourceTurnId: attachedMainUser.id,
       response: { threadKey: "main", currentMessageId: mainAnswer.id },
     });
     expect(result?.currentResponses[0]?.messageEntry.msg.id).toBe(mainAnswer.id);
@@ -572,7 +572,7 @@ describe("explicit answer presentation", () => {
       "The approved behavior is now implemented.",
     ]);
     expect(result?.currentResponses.every((item) => item.response.threadKey === ownerThreadKey)).toBe(true);
-    expect(result?.currentResponses.every((item) => item.anchorUserMessageId === "raw-u38")).toBe(true);
+    expect(result?.currentResponses.every((item) => item.sourceTurnId === "raw-u38")).toBe(true);
   });
 
   it("requires complete original-prompt proof before projecting grouped Main prose", () => {

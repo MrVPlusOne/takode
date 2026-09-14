@@ -51,9 +51,6 @@ function presentation(coveredUserMessageIds = ["u1", "u2"]): ThreadResponsePrese
           updatedAt: 4,
           source: "explicit",
         },
-        anchorUserMessageId: coveredUserMessageIds.at(-1)!,
-        anchorTurnId: "u2",
-        anchorOrder: 1,
         sourceTurnId: "u2",
         messageEntry: current,
         collapsedMessageEntry: current,
@@ -147,10 +144,9 @@ describe("ReadyThreadResponseRows", () => {
     expect(screen.getByRole("button", { name: "Answers 2 messages; preview referenced messages" })).toBeVisible();
   });
 
-  it("keeps co-anchored answer rows in history order when the earlier row came from another turn", () => {
-    // The later answer is physically present in this turn, while the earlier
-    // overlapping answer was relocated here. Source-local ordering must not
-    // put the later answer first.
+  it("keeps answers in their source turns even when their request references overlap", () => {
+    // Overlapping references must not relocate an earlier answer into a later
+    // turn. Each source renders exactly its own answer in either collapse state.
     const current = presentation();
     const base = current.currentResponses[0]!;
     const earlier = entry("response-earlier", "Earlier detailed answer", 3);
@@ -174,7 +170,7 @@ describe("ReadyThreadResponseRows", () => {
     ];
     current.currentResponseMessageIds = new Set([earlier.msg.id, base.messageEntry.msg.id]);
 
-    const { container } = render(
+    const view = render(
       <ReadyThreadResponseRows
         turn={turn([base.messageEntry])}
         presentation={current}
@@ -184,9 +180,19 @@ describe("ReadyThreadResponseRows", () => {
       />,
     );
 
-    expect(container.textContent?.indexOf("Earlier detailed answer")).toBeLessThan(
-      container.textContent?.indexOf("Current polished response") ?? -1,
+    expect(screen.queryByText("Earlier detailed answer")).not.toBeInTheDocument();
+    expect(screen.getByText("Current polished response")).toBeVisible();
+    view.rerender(
+      <ReadyThreadResponseRows
+        turn={{ ...turn([earlier]), id: "u1" }}
+        presentation={current}
+        sessionId="leader"
+        questLinkSurface="chat-feed"
+        renderEntry={(item) => <div>{item.kind === "message" ? item.msg.content : "activity"}</div>}
+      />,
     );
+    expect(screen.getByText("Earlier detailed answer")).toBeVisible();
+    expect(screen.queryByText("Current polished response")).not.toBeInTheDocument();
   });
   it("keeps exact unresolved needs-input anchors beside current responses in source order without duplication", () => {
     const current = presentation(["u2"]);

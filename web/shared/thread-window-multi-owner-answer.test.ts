@@ -119,6 +119,24 @@ function project(history: BrowserIncomingMessage[], threadKey: string) {
 }
 
 describe("multi-owner answer window and feed projection", () => {
+  it("keeps an earlier answer before a later prompt even when a later answer shares its references", () => {
+    // Overlapping answer sets used to move the earlier row under the newest
+    // referenced request. Supersession must not change its source placement.
+    const history: BrowserIncomingMessage[] = [human("u1", "q-42")];
+    appendAnswer(history, "earlier-answer", ["u1"], "q-42");
+    history.push({ ...human("u2", "q-42"), timestamp: 12 });
+    appendAnswer(history, "later-grouped-answer", ["u1", "u2"], "q-42");
+    const before = JSON.stringify(history);
+    const { sync, presentation } = project(history, "q-42");
+    expect(sync.threadResponseSupportComplete).toBe(true);
+    expect(presentation?.currentResponses.map((item) => [item.response.currentMessageId, item.sourceTurnId])).toEqual([
+      ["earlier-answer", "raw-u1"],
+      ["later-grouped-answer", "raw-u2"],
+    ]);
+    expect(presentation?.currentResponses[0]?.response.coveredAnswerUserMessageIds).toEqual([]);
+    expect(JSON.stringify(history)).toBe(before);
+  });
+
   it.each(["main", "q-42"])("retains an older Quiz answer's complete proof in a latest %s window", (threadKey) => {
     // Quiz support retains its actual host outside the selected latest turn.
     // Its older answer and covered user boundary must join the proof packet,

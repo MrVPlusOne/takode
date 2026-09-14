@@ -53,22 +53,6 @@ function latestStatusHostTurnId(sections: FeedSection[]): string | null {
   return latestTurnId;
 }
 
-function suppressRelocatedAnswersFromExpandedSourceTurns(
-  presentation: ThreadResponsePresentation | null | undefined,
-  expandedTurnIds: ReadonlySet<string>,
-): ThreadResponsePresentation | null {
-  if (!presentation) return null;
-  const currentResponses = presentation.currentResponses.filter(
-    (item) => item.anchorTurnId === item.sourceTurnId || !expandedTurnIds.has(item.sourceTurnId),
-  );
-  if (currentResponses.length === presentation.currentResponses.length) return presentation;
-  return {
-    ...presentation,
-    currentResponses,
-    currentResponseMessageIds: new Set(currentResponses.map((item) => item.response.currentMessageId)),
-  };
-}
-
 function CollapsedTurnRows({
   turn,
   sessionId,
@@ -291,14 +275,6 @@ export const TurnEntries = memo(function TurnEntries({
   onThreadStatusLayoutContributionChange?: (height: number) => void;
 }) {
   const turns = useMemo(() => sections.flatMap((section) => section.turns), [sections]);
-  const expandedTurnIds = useMemo(
-    () => new Set(turns.flatMap((turn, index) => (turnStates[index]?.isActivityExpanded === true ? [turn.id] : []))),
-    [turns, turnStates],
-  );
-  const collapsedAnswerPresentation = useMemo(
-    () => suppressRelocatedAnswersFromExpandedSourceTurns(threadResponsePresentation, expandedTurnIds),
-    [expandedTurnIds, threadResponsePresentation],
-  );
   const latestThreadResponseUpdatedAt = Math.max(
     0,
     ...(threadResponsePresentation?.currentResponses
@@ -348,23 +324,16 @@ export const TurnEntries = memo(function TurnEntries({
               const turnState = turnStates[turnIndex];
               const isActivityExpanded = turnState?.isActivityExpanded ?? false;
               const preserveHostQuestQuiz = turnIndex === turns.length - 1 && turnState?.defaultExpanded === false;
-              const expandedThreadResponsePresentation =
+              const turnResponsePresentation =
                 threadResponsePresentation && readyThreadResponseAppliesToTurn(turn, threadResponsePresentation)
                   ? threadResponsePresentation
                   : null;
-              const currentAnswerBelongsToTurn =
-                collapsedAnswerPresentation != null &&
-                threadResponsePresentationTouchesTurn(turn, collapsedAnswerPresentation);
               const collapsedThreadResponsePresentation =
-                readyThreadResponsePresentation &&
-                collapsedAnswerPresentation &&
-                readyThreadResponseAppliesToTurn(turn, readyThreadResponsePresentation)
-                  ? collapsedAnswerPresentation
-                  : collapsedAnswerPresentation &&
-                      currentAnswerBelongsToTurn &&
-                      readyThreadResponseAppliesToTurn(turn, collapsedAnswerPresentation)
-                    ? collapsedAnswerPresentation
-                    : null;
+                turnResponsePresentation &&
+                (readyThreadResponsePresentation ||
+                  threadResponsePresentationTouchesTurn(turn, turnResponsePresentation))
+                  ? turnResponsePresentation
+                  : null;
               const hasCollapsedContent = collapsedThreadResponsePresentation
                 ? readyThreadResponseTurnHasContent(
                     turn,
@@ -374,7 +343,7 @@ export const TurnEntries = memo(function TurnEntries({
                 : (turn.collapsedEntries?.some((row) => row.kind === "entry") ?? false) ||
                   turn.subConclusions.length > 0;
               const hasCollapsedCurrentAnswer =
-                collapsedThreadResponsePresentation?.currentResponses.some((item) => item.anchorTurnId === turn.id) ??
+                collapsedThreadResponsePresentation?.currentResponses.some((item) => item.sourceTurnId === turn.id) ??
                 false;
               const turnSummaryDuration = getTurnSummaryDurationMs(turn, turns[turnIndex + 1] ?? null, leaderMode);
               const showThreadStatusFooter = turn.id === threadStatusFooterTurnId;
@@ -437,7 +406,7 @@ export const TurnEntries = memo(function TurnEntries({
                           onOpenCodexTerminal={onOpenCodexTerminal}
                           onSelectThread={onSelectThread}
                           questLinkSurface={questLinkSurface}
-                          threadResponsePresentation={expandedThreadResponsePresentation}
+                          threadResponsePresentation={turnResponsePresentation}
                         />
                       )
                     ) : (
