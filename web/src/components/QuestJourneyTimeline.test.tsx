@@ -8,25 +8,23 @@ import { QuestJourneyPreviewCard, QuestJourneyTimeline } from "./QuestJourneyTim
 
 const PHASE_CYCLE: QuestJourneyPhaseId[] = ["alignment", "work", "user-checkpoint", "work", "memory"];
 
-it("shows only the phase name inline while retaining position information in other Journey views", () => {
-  // Header label refinement must not remove repeated-phase data or counts from detailed/compact views.
+it("keeps current repeated-phase progress and completed or proposed counts in compact Journey summaries", () => {
+  // The restored header pill uses the same phase position as the detailed Journey, including repeated Work phases.
   const journey: QuestJourneyPlanState = {
     mode: "active",
     phaseIds: PHASE_CYCLE,
     currentPhaseId: "work",
     activePhaseIndex: 3,
   };
-  const { rerender } = render(<QuestJourneyTimeline journey={journey} status="WORKING" variant="inline" />);
+  const { rerender } = render(<QuestJourneyTimeline journey={journey} status="WORKING" variant="compact" />);
   const summary = screen.getByTestId("quest-journey-compact-summary");
-  expect(summary).toHaveTextContent(/^Work$/);
-  expect(summary).toHaveAttribute("data-presentation", "inline");
-  expect(summary.querySelector('[aria-hidden="true"]')).toBeNull();
-  rerender(<QuestJourneyTimeline journey={journey} status="done" variant="inline" />);
-  expect(summary).toHaveTextContent(/^Completed$/);
-  rerender(<QuestJourneyTimeline journey={{ ...journey, mode: "proposed" }} variant="inline" />);
-  expect(summary).toHaveTextContent(/^Proposed$/);
-  rerender(<QuestJourneyTimeline journey={journey} status="WORKING" variant="compact" />);
   expect(summary).toHaveTextContent("Work4/5");
+  expect(summary).toHaveAttribute("data-presentation", "compact");
+  expect(summary.querySelector('[aria-hidden="true"]')).toBeInTheDocument();
+  rerender(<QuestJourneyTimeline journey={journey} status="done" variant="compact" />);
+  expect(summary).toHaveTextContent("Completed5 phases");
+  rerender(<QuestJourneyTimeline journey={{ ...journey, mode: "proposed" }} variant="compact" />);
+  expect(summary).toHaveTextContent("Proposed5 phases");
   rerender(<QuestJourneyTimeline journey={journey} status="WORKING" variant="vertical" />);
   expect(screen.getByTestId("quest-journey-timeline").querySelector('li[data-phase-index="3"]')).toHaveAttribute(
     "data-phase-current",

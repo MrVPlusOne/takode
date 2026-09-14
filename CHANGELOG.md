@@ -5,6 +5,7 @@
 ### Changed
 
 - **Smaller frontend transfers** -- Production JavaScript and CSS can be served as build-time gzip copies, preserving the decoded application and existing cache/build behavior.
+- **Quest status and participant chips** -- Leader headers use the same colored Journey pill and progress count as worker headers. Worker-side Leader links match the lighter Worker-link style while retaining role, identity and navigation. The single-action Notify/Acknowledge control is unchanged.
 
 ### Fixed
 

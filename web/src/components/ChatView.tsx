@@ -504,7 +504,7 @@ function QuestBannerParticipantChip({
       sessionNum={sessionNum}
       className={
         variant === "thread"
-          ? `inline-flex h-6 min-w-0 max-w-full items-center gap-1 rounded px-1 text-[11px] hover:bg-cc-hover focus-visible:outline focus-visible:outline-cc-primary ${role === "Worker" ? "font-medium text-cc-fg" : "text-cc-muted"}`
+          ? `inline-flex h-6 min-w-0 max-w-full items-center gap-1 rounded px-1 text-[11px] hover:bg-cc-hover focus-visible:outline focus-visible:outline-cc-primary ${role === "Reviewer" ? "text-cc-muted" : "font-medium text-cc-fg"}`
           : QUEST_PARTICIPANT_CHIP_CLASS
       }
       dataTestId="quest-thread-participant"
@@ -961,11 +961,9 @@ export function QuestThreadBanner({
                 <QuestJourneyTimeline
                   journey={row.journey}
                   status={journeyStatusForThread(row)}
-                  variant={isSessionBanner ? "compact" : "inline"}
+                  variant="compact"
                   showNotes={false}
-                  className={
-                    isSessionBanner ? "rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5" : "py-1"
-                  }
+                  className="rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5"
                 />
               </QuestJourneyHoverTarget>
             ) : null}
@@ -977,6 +975,8 @@ export function QuestThreadBanner({
                   <>
                     <QuestBannerParticipantChip
                       role="Leader"
+                      variant="thread"
+                      showDisplayName={false}
                       sessionId={row?.leaderSessionId}
                       fallbackSessionNum={row?.leaderSessionNum ?? undefined}
                       currentSessionId={currentSessionId}

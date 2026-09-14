@@ -870,8 +870,8 @@ describe("ChatView leader thread tabs projection", () => {
 
     const banner = await screen.findByTestId("quest-thread-banner");
     const journey = within(banner).getByTestId("quest-journey-compact-summary");
-    // Current server phase still wins; the information-bar label now intentionally omits position counts.
-    expect(journey).toHaveTextContent(/^Work$/);
+    // The restored pill must still use the current server phase and position instead of the historical completed run.
+    expect(journey).toHaveTextContent("Work2/3");
     expect(journey).not.toHaveTextContent("Completed");
     expect(within(banner).getByLabelText("Worker #2580")).toBeTruthy();
     expect(within(banner).queryByLabelText("Worker #2569")).toBeNull();

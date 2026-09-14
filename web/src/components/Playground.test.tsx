@@ -1023,7 +1023,8 @@ describe("Playground", () => {
         .some((row) => ["quest_journey_started", "quest_completed_recent"].includes(row.dataset.attentionType ?? "")),
     ).toBe(false);
     const banner = screen.getAllByTestId("quest-thread-banner")[0];
-    expect(within(banner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Work");
+    expect(within(banner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Work2/3");
+    expect(within(banner).getByTestId("quest-journey-compact-summary")).toHaveClass("rounded-full", "border");
   });
 
   it("documents Work Board Bar tab shrinking, phase legend, and shared quest hover states", async () => {
@@ -1309,12 +1310,18 @@ describe("Playground", () => {
     expect(within(mobileParticipantBanners[0]).getByTestId("session-role-icon-worker")).toBeInTheDocument();
     expect(within(mobileParticipantBanners[1]).getByText("Leader")).toHaveClass("max-[319px]:hidden");
     expect(within(mobileParticipantBanners[1]).getByTestId("session-role-icon-leader")).toBeInTheDocument();
+    // Styling matches across roles, while the links retain their distinct identities and navigation destinations.
+    const workerLink = within(mobileParticipantBanners[0]).getByRole("link", { name: /^Worker #/ });
+    const leaderLink = within(mobileParticipantBanners[1]).getByRole("link", { name: /^Leader #/ });
+    expect(leaderLink.className).toBe(workerLink.className);
+    expect(leaderLink).not.toHaveClass("rounded-full", "border");
+    expect(leaderLink.getAttribute("href")).not.toBe(workerLink.getAttribute("href"));
 
     const queuedBanner = screen.getAllByTestId("quest-thread-banner")[1];
     // The checkpoint specimen keeps the phase visible while suppressing duplicate attention.
     const checkpointBanner = screen.getAllByTestId("quest-thread-banner")[4];
     expect(within(checkpointBanner).getByTestId("quest-journey-compact-summary")).toHaveTextContent(
-      /^User Checkpoint$/,
+      "User Checkpoint3/5",
     );
     expect(within(checkpointBanner).queryByTestId("quest-thread-wait-pill")).toBeNull();
     expect(within(checkpointBanner).getByLabelText("Worker #1321 Clear Mesa")).toBeTruthy();

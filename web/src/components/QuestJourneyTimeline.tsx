@@ -18,7 +18,7 @@ import {
   getQuestPhaseTextStyle,
 } from "../utils/quest-phase-theme.js";
 
-type JourneyVariant = "horizontal" | "compact" | "inline" | "vertical";
+type JourneyVariant = "horizontal" | "compact" | "vertical";
 type JourneyPresentationMode = "active" | "completed" | "proposed";
 type PhaseState = "proposed" | "completed" | "current" | "upcoming" | "finished";
 type OmittedPhaseDirection = "earlier" | "later";
@@ -209,13 +209,11 @@ export function QuestJourneyCompactSummary({
   status,
   className,
   showNotes = true,
-  inline = false,
 }: {
   journey: QuestJourneyPlanState;
   status?: string | null;
   className?: string;
   showNotes?: boolean;
-  inline?: boolean;
 }) {
   const items = getPhaseItems(journey, status);
   if (items.length === 0) return null;
@@ -230,20 +228,18 @@ export function QuestJourneyCompactSummary({
 
   return (
     <div
-      className={`flex min-w-0 max-w-full items-center ${inline ? "gap-1.5 text-[11px] text-cc-muted" : "gap-2"} ${className ?? ""}`.trim()}
+      className={`flex min-w-0 max-w-full items-center gap-2 ${className ?? ""}`.trim()}
       data-testid="quest-journey-compact-summary"
       data-journey-mode={mode}
-      data-presentation={inline ? "inline" : "compact"}
+      data-presentation="compact"
     >
-      {!inline && (
-        <span
-          className={`h-2.5 w-2.5 shrink-0 rounded-full border ${currentItem ? "" : "border-cc-muted/45 bg-transparent"}`.trim()}
-          style={currentItem ? getQuestPhaseCurrentDotStyle(currentItem.phase) : undefined}
-          aria-hidden="true"
-        />
-      )}
-      <span className={inline ? "shrink-0" : "shrink-0 font-medium text-cc-fg"}>{label}</span>
-      {!inline && position && <span className="shrink-0 text-[10px] text-cc-muted">{position}</span>}
+      <span
+        className={`h-2.5 w-2.5 shrink-0 rounded-full border ${currentItem ? "" : "border-cc-muted/45 bg-transparent"}`.trim()}
+        style={currentItem ? getQuestPhaseCurrentDotStyle(currentItem.phase) : undefined}
+        aria-hidden="true"
+      />
+      <span className="shrink-0 font-medium text-cc-fg">{label}</span>
+      {position && <span className="shrink-0 text-[10px] text-cc-muted">{position}</span>}
       {showNotes && notes > 0 && (
         <span className="shrink-0 text-[10px] text-cc-attention">{`${notes} note${notes === 1 ? "" : "s"}`}</span>
       )}
@@ -481,16 +477,8 @@ export function QuestJourneyTimeline({
   if (items.length === 0) return null;
 
   const resolvedVariant: JourneyVariant = variant ?? (compact ? "compact" : "horizontal");
-  if (resolvedVariant === "compact" || resolvedVariant === "inline") {
-    return (
-      <QuestJourneyCompactSummary
-        journey={journey}
-        status={status}
-        className={className}
-        showNotes={showNotes}
-        inline={resolvedVariant === "inline"}
-      />
-    );
+  if (resolvedVariant === "compact") {
+    return <QuestJourneyCompactSummary journey={journey} status={status} className={className} showNotes={showNotes} />;
   }
   if (resolvedVariant === "vertical") {
     return (
