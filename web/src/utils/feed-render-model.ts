@@ -165,9 +165,8 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
       !isFullyResolvedNeedsInputReminder(message, displayNotifications),
   );
   const baseMessageIds = new Set(visibleBaseMessages.map((message) => message.id));
-  const isWindowedMainFeed = input.selectedFeedWindowEnabled && isMainThreadKey(normalizedThreadKey);
-  const mainWindowTimestampRange =
-    isWindowedMainFeed && input.selectedFeedWindow
+  const windowTimestampRange =
+    input.selectedFeedWindowEnabled && input.selectedFeedWindow
       ? messageTimestampRange(filterRootAgentFeedMessages(input.selectedFeedWindowMessages))
       : null;
   const attentionLedgerMessages = buildAttentionLedgerMessages(
@@ -175,9 +174,9 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     normalizedThreadKey,
     {
       availableMessageIds: baseMessageIds,
-      windowedMainFeed: isWindowedMainFeed,
-      mainWindowFromTimestamp: mainWindowTimestampRange?.from,
-      mainWindowToTimestamp: mainWindowTimestampRange?.to,
+      windowedFeed: input.selectedFeedWindowEnabled,
+      windowFromTimestamp: windowTimestampRange?.from,
+      windowToTimestamp: windowTimestampRange?.to,
     },
   );
   const messages = mergeChronologicalMessages(visibleBaseMessages, attentionLedgerMessages);

@@ -26,9 +26,9 @@ export interface BuildAttentionRecordsInput {
 
 export interface BuildAttentionLedgerMessagesOptions {
   availableMessageIds?: ReadonlySet<string>;
-  windowedMainFeed?: boolean;
-  mainWindowFromTimestamp?: number;
-  mainWindowToTimestamp?: number;
+  windowedFeed?: boolean;
+  windowFromTimestamp?: number;
+  windowToTimestamp?: number;
 }
 
 const ACTIVE_ATTENTION_STATES = new Set<AttentionRecord["state"]>(["unresolved", "seen", "reopened"]);
@@ -60,7 +60,7 @@ export function selectMainLedgerRecords(
   records: ReadonlyArray<AttentionRecord>,
   options: Pick<
     BuildAttentionLedgerMessagesOptions,
-    "availableMessageIds" | "windowedMainFeed" | "mainWindowFromTimestamp" | "mainWindowToTimestamp"
+    "availableMessageIds" | "windowedFeed" | "windowFromTimestamp" | "windowToTimestamp"
   > = {},
 ): AttentionRecord[] {
   const selected = records
@@ -70,12 +70,12 @@ export function selectMainLedgerRecords(
         !isJourneyLifecycleFeedRecord(record) &&
         record.type !== "quest_thread_created" &&
         !isThreadReadyReviewRecord(record) &&
-        !isRedundantActiveNotification(record, options.availableMessageIds),
+        !isRedundantNotification(record, options.availableMessageIds),
     )
     .sort(compareAttentionRecordsChronologically);
-  if (!options.windowedMainFeed) return selected;
-  const fromTimestamp = options.mainWindowFromTimestamp;
-  const toTimestamp = options.mainWindowToTimestamp;
+  if (!options.windowedFeed) return selected;
+  const fromTimestamp = options.windowFromTimestamp;
+  const toTimestamp = options.windowToTimestamp;
   if (fromTimestamp === undefined || toTimestamp === undefined) return [];
 
   return selected.filter((record) => record.createdAt >= fromTimestamp && record.createdAt <= toTimestamp);
@@ -100,9 +100,18 @@ export function isNeedsInputNotificationTabCandidate(record: AttentionRecord): b
   );
 }
 
-function isRedundantActiveNotification(record: AttentionRecord, availableMessageIds?: ReadonlySet<string>): boolean {
-  if (record.source.kind !== "notification" || !isAttentionRecordActive(record)) return false;
-  if (record.priority === "needs_input" && record.type === "needs_input") return true;
+function isRedundantNotification(record: AttentionRecord, availableMessageIds?: ReadonlySet<string>): boolean {
+  if (record.source.kind !== "notification") return false;
+  const needsInput = record.priority === "needs_input" && record.type === "needs_input";
+  if (isAttentionRecordActive(record)) {
+    if (needsInput) return true;
+  } else if (
+    !needsInput ||
+    record.state !== "resolved" ||
+    normalizeThreadKey(record.route.threadKey || record.threadKey) !== MAIN_THREAD_KEY
+  ) {
+    return false;
+  }
 
   const anchoredMessageId = record.route.messageId || record.source.messageId || null;
   return !!anchoredMessageId && availableMessageIds?.has(anchoredMessageId) === true;
@@ -130,34 +139,45 @@ function selectLedgerRecordsForThread(
   if (normalized === ALL_THREADS_KEY) return [];
 
   return records
-    .filter((record) => shouldRenderOwnerThreadLedgerRecord(record, normalized, options.availableMessageIds))
+    .filter((record) => shouldRenderOwnerThreadLedgerRecord(record, normalized, options))
     .sort(compareAttentionRecordsChronologically);
 }
 
 function shouldRenderOwnerThreadLedgerRecord(
   record: AttentionRecord,
   threadKey: string,
-  availableMessageIds?: ReadonlySet<string>,
+  options: BuildAttentionLedgerMessagesOptions,
 ): boolean {
-  return shouldRenderOwnerThreadNotificationRecord(record, threadKey, availableMessageIds);
+  return shouldRenderOwnerThreadNotificationRecord(record, threadKey, options);
 }
 
 function shouldRenderOwnerThreadNotificationRecord(
   record: AttentionRecord,
   threadKey: string,
-  availableMessageIds?: ReadonlySet<string>,
+  options: BuildAttentionLedgerMessagesOptions,
 ): boolean {
   if (!record.ledgerEligible) return false;
   if (isThreadReadyReviewRecord(record)) return false;
   if (record.source.kind !== "notification") return false;
   if (record.type !== "needs_input" || record.priority !== "needs_input") return false;
-  if (!isAttentionRecordActive(record)) return false;
+  if (!isAttentionRecordActive(record) && record.state !== "resolved") return false;
+  // Completed decisions are history, not active attention. Do not backfill an
+  // entire notification archive into every selected bounded thread window.
+  if (record.state === "resolved" && options.windowedFeed) {
+    if (
+      options.windowFromTimestamp === undefined ||
+      options.windowToTimestamp === undefined ||
+      record.createdAt < options.windowFromTimestamp ||
+      record.createdAt > options.windowToTimestamp
+    )
+      return false;
+  }
 
   const targetThreadKey = normalizeThreadKey(record.route.threadKey || record.threadKey);
   if (targetThreadKey !== threadKey) return false;
 
   const anchoredMessageId = record.route.messageId || record.source.messageId || null;
-  return !anchoredMessageId || !availableMessageIds?.has(anchoredMessageId);
+  return !anchoredMessageId || !options.availableMessageIds?.has(anchoredMessageId);
 }
 
 function isThreadReadyReviewRecord(record: AttentionRecord): boolean {

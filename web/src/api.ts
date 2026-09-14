@@ -1219,6 +1219,11 @@ export const api = {
   getSessionNotifications: (sessionId: string) =>
     get<SessionNotification[]>(`/sessions/${encodeURIComponent(sessionId)}/notifications`),
 
+  getNotificationReplies: (sessionId: string, notifId: string) =>
+    get<{ replies: Array<{ content: string }> }>(
+      `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/replies`,
+    ),
+
   fetchNotificationContext: async (sessionId: string, notifId: string): Promise<string | null> => {
     try {
       const data = await get<{ context: string | null }>(

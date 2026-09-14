@@ -931,42 +931,6 @@ export function PlaygroundMultiQuestionNotificationMarker() {
   );
 }
 
-export function PlaygroundAddressedSuggestedAnswerNotificationMarker() {
-  useEffect(() => {
-    const previous = useStore.getState().sessionNotifications;
-    const next = new Map(previous);
-    next.set("playground-addressed-suggested-notify", [
-      {
-        id: "n-addressed-suggested-1",
-        category: "needs-input",
-        timestamp: Date.now() - 30_000,
-        messageId: "playground-addressed-suggested-notify-msg",
-        summary: "Approve the rollout?",
-        suggestedAnswers: [
-          "Continue the rollout now; the canary looks healthy and the current error budget is acceptable.",
-          "Hold the rollout until the manual smoke checks finish and the on-call engineer confirms.",
-        ],
-        done: true,
-      },
-    ]);
-    useStore.setState({ sessionNotifications: next });
-
-    return () => {
-      useStore.setState({ sessionNotifications: previous });
-    };
-  }, []);
-
-  return (
-    <NotificationMarker
-      category="needs-input"
-      summary="Approve the rollout?"
-      sessionId="playground-addressed-suggested-notify"
-      messageId="playground-addressed-suggested-notify-msg"
-      notificationId="n-addressed-suggested-1"
-    />
-  );
-}
-
 export function PlaygroundDedupedNotificationMessage() {
   useEffect(() => {
     const previous = useStore.getState().sessionNotifications;

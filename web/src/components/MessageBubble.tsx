@@ -1080,11 +1080,13 @@ function compactToolGroups(groups: GroupedBlock[]): RenderedGroupedBlock[] {
   return compacted;
 }
 
-function getInlineToolNotificationCategory(blocks: ContentBlock[]): "needs-input" | "review" | null {
+function getInlineToolNotificationCategory(blocks: ContentBlock[]): "review" | null {
   for (const block of blocks) {
     if (block.type !== "tool_use" || block.name !== "Bash") continue;
     const match = parseTakodeNotifyCommand(String(block.input.command ?? ""));
-    if (match) return match.category;
+    // Needs-input decisions have their own anchored card, including in compact
+    // activity. The command must not create a second generic notification.
+    if (match?.category === "review") return match.category;
   }
   return null;
 }

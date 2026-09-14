@@ -234,3 +234,58 @@ describe("GET /api/sessions/:id/notifications/:notifId/context", () => {
     expect(body.context).toBeNull();
   });
 });
+
+describe("GET /api/sessions/:id/notifications/:notifId/replies", () => {
+  const notification = { id: "n-1", category: "needs-input", messageId: "decision", done: true, timestamp: 10 };
+  const reply: BrowserIncomingMessage = {
+    type: "user_message",
+    id: "reply",
+    content: "  Keep the original spacing.\n\n" + "Long response. ".repeat(1000),
+    timestamp: 20,
+    replyContext: { notificationId: "n-1", messageId: "decision", previewText: "Choose an approach" },
+  };
+
+  it("returns complete, chronological exact-notification replies without changing history or resolution", async () => {
+    // Explicit inspection is independent of the currently loaded browser window.
+    // Similar text, proximity, other notification IDs and injected/child activity
+    // never establish human reply identity. Multiple genuine replies keep order.
+    const history: BrowserIncomingMessage[] = [
+      { ...reply, id: "neighbor", replyContext: undefined },
+      { ...reply, id: "other", replyContext: { ...reply.replyContext!, notificationId: "n-2" } },
+      { ...reply, id: "source-only", replyContext: { previewText: "Choose an approach", messageId: "decision" } },
+      { ...reply, id: "injected", agentSource: { sessionId: "herd-events" } },
+      { ...reply, id: "child", codexSubagent: { childId: "child-1" } },
+      { ...reply, id: "side-chat", slackThreadId: "side-chat" },
+      reply,
+      { ...reply, id: "second-reply", content: "A later clarification." },
+    ];
+    const before = JSON.stringify({ history, notification });
+    const app = makeRoute(history, [notification]);
+    const response = await app.request("/api/sessions/session-abc/notifications/n-1/replies");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      replies: [{ content: reply.content }, { content: "A later clarification." }],
+    });
+    expect(JSON.stringify({ history, notification })).toBe(before);
+  });
+
+  it("reports no available reply without guessing from an unrelated human message", async () => {
+    // Manual and older resolutions may have no retained notification association.
+    const app = makeRoute([{ ...reply, replyContext: undefined }], [notification]);
+    expect(await (await app.request("/api/sessions/session-abc/notifications/n-1/replies")).json()).toEqual({
+      replies: [],
+    });
+  });
+
+  it("requires the exact existing session and needs-input notification", async () => {
+    const app = makeRoute([reply], [notification, { ...notification, id: "review", category: "review" }]);
+    for (const path of [
+      "missing/notifications/n-1",
+      "session-abc/notifications/n-2",
+      "session-abc/notifications/review",
+    ]) {
+      expect((await app.request(`/api/sessions/${path}/replies`)).status).toBe(404);
+    }
+    expect((await makeRoute(null).request("/api/sessions/session-abc/notifications/n-1/replies")).status).toBe(404);
+  });
+});

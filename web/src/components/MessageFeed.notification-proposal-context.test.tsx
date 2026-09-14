@@ -43,14 +43,14 @@ function preview(toolUseId: string, content: string): ToolResultPreview {
   return { tool_use_id: toolUseId, content, is_error: false, total_size: content.length, is_truncated: false };
 }
 
-function fixture(done: boolean) {
+function fixture(done: boolean, messageId = "old-closure") {
   const notification: SessionNotification = {
     id: "n-870",
     category: "needs-input",
     summary: NOTIFICATION_SUMMARY,
     questions: [{ prompt: "Approve one shared budget?", suggestedAnswers: ["Approve", "Revise"] }],
     timestamp: 350,
-    messageId: "old-closure",
+    messageId,
     done,
     ...route,
   };
@@ -157,6 +157,31 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Source-owned proposal and notification presentation", () => {
+  it.each([
+    false,
+    true,
+  ])("keeps one decision card beside a later notify command with compact tools=%s", (compactToolActivity) => {
+    // A real bounded window has a canonical card on the earlier proposal and a
+    // separate command row. Compact activity used to manufacture a second chip.
+    const { notification, delivered, model, toolResults } = fixture(false, "proposal-source");
+    useStore.setState({
+      compactToolActivity,
+      sessionNotifications: new Map([[SESSION_ID, [notification]]]),
+      messages: new Map([[SESSION_ID, delivered]]),
+      toolResults: new Map([[SESSION_ID, toolResults]]),
+    });
+    const view = render(
+      <FeedNotificationProvider sessionId={SESSION_ID} notifications={model.displayNotifications}>
+        {model.messages.map((message) => (
+          <MessageBubble key={message.id} message={message} sessionId={SESSION_ID} currentThreadKey={THREAD_KEY} />
+        ))}
+      </FeedNotificationProvider>,
+    );
+    expect(view.container.querySelectorAll('[data-notification-category="needs-input"]')).toHaveLength(1);
+    expect(screen.queryByText("Needs input")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Use suggested answer: Approve" })).toBeInTheDocument();
+  });
+
   it.each([false, true])("shows the original proposal and exact notify source in order with done=%s", async (done) => {
     const { history, notification, toolResults, delivered, model, feed } = fixture(done);
     const before = JSON.stringify({ history, notification, delivered });

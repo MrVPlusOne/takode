@@ -103,7 +103,10 @@ export function AttentionLedgerRow({
     ? formatThreadAttachmentMovementSummary(threadAttachmentSummary)
     : null;
   const movementDetails = threadAttachmentSummary?.details ?? [];
-  const needsInputDecision = buildNeedsInputDecisionProps(record, isActive);
+  const needsInputDecision = buildNeedsInputDecisionProps(
+    record,
+    isActive || (record.state === "resolved" && targetThread === normalizeThreadKey(currentThreadKey)),
+  );
 
   if (needsInputDecision) {
     return (
@@ -266,8 +269,6 @@ function NeedsInputDecisionLedgerRow({
     if (notification || loadState !== "idle") return;
     loadDetails();
   }, [loadDetails, loadState, notification]);
-
-  if (notification && notification.done) return null;
 
   if (notification) {
     return (

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { NotificationMarker, UserReplyChip } from "../MessageBubble.js";
+import { PlaygroundNeedsInputHistory } from "./PlaygroundNeedsInputHistory.js";
 import { BoardBlock } from "../BoardBlock.js";
 import type { BoardRowData } from "../BoardTable.js";
 import { CatPawAvatar } from "../CatIcons.js";
@@ -38,7 +39,6 @@ import { buildPlaygroundProjectedJourney } from "./leader-thread-tabs-projection
 import { MOCK_SESSION_ID } from "./fixtures.js";
 import {
   Card,
-  PlaygroundAddressedSuggestedAnswerNotificationMarker,
   PlaygroundBoardWithOriginalCommand,
   PlaygroundCollapsedBoardCommand,
   PlaygroundDedupedNotificationMessage,
@@ -1163,11 +1163,9 @@ export function PlaygroundInteractiveSections() {
               <PlaygroundMultiQuestionNotificationMarker />
             </div>
           </Card>
-          <Card label="addressed needs-input with suggested answers">
+          <Card label="needs-input card history">
             <div className="text-cc-fg text-sm">
-              <p className="mb-1">The rollout decision was answered.</p>
-              <p className="text-cc-muted">No further reply is needed.</p>
-              <PlaygroundAddressedSuggestedAnswerNotificationMarker />
+              <PlaygroundNeedsInputHistory />
             </div>
           </Card>
           <Card label="review (green, no summary)">

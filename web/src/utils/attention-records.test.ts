@@ -138,6 +138,34 @@ describe("attention records", () => {
     expect(selectAttentionChipRecords(records)).toHaveLength(0);
   });
 
+  it("retains resolved owner-thread decisions only inside the selected history window", () => {
+    // Real shared notification projection supplies ledger state. Resolved
+    // history stays inspectable but must not accumulate outside loaded bounds.
+    const records = buildAttentionRecords({
+      leaderSessionId: "leader-1",
+      notifications: [notification({ done: true, messageId: null })],
+    });
+    const window = { windowedFeed: true, windowFromTimestamp: 90, windowToTimestamp: 110 };
+    expect(buildAttentionLedgerMessages(records, "q-983", window)).toHaveLength(1);
+    expect(buildAttentionLedgerMessages(records, "q-984", window)).toHaveLength(0);
+    expect(buildAttentionLedgerMessages(records, "all", window)).toHaveLength(0);
+    expect(buildAttentionLedgerMessages(records, "q-983", { ...window, windowFromTimestamp: 101 })).toHaveLength(0);
+    expect(buildAttentionLedgerMessages(records, "q-983", { ...window, windowToTimestamp: 99 })).toHaveLength(0);
+    expect(buildAttentionLedgerMessages(records, "q-983", { windowedFeed: true })).toHaveLength(0);
+    expect(selectAttentionChipRecords(records)).toHaveLength(0);
+  });
+
+  it.each(["main", "q-983"])("does not duplicate the retained completed card in %s", (threadKey) => {
+    // A visible original card owns the display; the fallback ledger has no
+    // reason to repeat that exact notification after resolution.
+    const records = buildAttentionRecords({
+      leaderSessionId: "leader-1",
+      notifications: [notification({ done: true, threadKey, questId: threadKey === "main" ? undefined : threadKey })],
+    });
+    expect(buildAttentionLedgerMessages(records, threadKey, { availableMessageIds: new Set(["m-1"]) })).toHaveLength(0);
+    expect(buildAttentionLedgerMessages(records, threadKey, { availableMessageIds: new Set() })).toHaveLength(1);
+  });
+
   it("keeps Thread Ready review notifications available for unread chips but out of feed ledger rows", () => {
     const records = buildAttentionRecords({
       leaderSessionId: "leader-1",
@@ -303,9 +331,9 @@ describe("attention records", () => {
 
     expect(
       selectMainLedgerRecords(records, {
-        windowedMainFeed: true,
-        mainWindowFromTimestamp: 200,
-        mainWindowToTimestamp: 350,
+        windowedFeed: true,
+        windowFromTimestamp: 200,
+        windowToTimestamp: 350,
       }).map((record) => record.id),
     ).toEqual(["manual:in-window-review", "manual:in-window-needs-input"]);
   });

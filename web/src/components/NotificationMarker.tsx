@@ -15,10 +15,11 @@ import {
   shouldShowNeedsInputQuestionPrompt,
 } from "../utils/notification-source-context.js";
 import { NeedsInputAnswerField } from "./NeedsInputAnswerField.js";
+import { NeedsInputResponseHistory } from "./NeedsInputResponseHistory.js";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
-/** Compact marker rendered inline for notification tool calls.
+/** Inline notification card, retaining completed needs-input decisions for inspection.
  *  When sessionId and messageId are provided, shows the checkbox affordance immediately
  *  and resolves the backing notification lazily for done-state toggles. */
 export function NotificationMarker({
@@ -62,21 +63,20 @@ export function NotificationMarker({
   const isDone = doneOverride ?? notif?.done ?? false;
   const isToggleReady = !!onToggleDone || !!notif;
   const showReplyButton = !!showReplyAction && !!notif && !!sessionId && (isAction ? !isDone : isReview);
-  const questionViews = useMemo(
-    () => (isAction && !isDone && notif ? getNeedsInputQuestionViews(notif) : []),
-    [isAction, isDone, notif],
-  );
+  const questionViews = useMemo(() => (isAction && notif ? getNeedsInputQuestionViews(notif) : []), [isAction, notif]);
   const messages = useStore((s) => (sessionId ? (s.messages?.get(sessionId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES));
   const sourceContext = useMemo(
     () => (notif ? getNotificationSourceContext(notif, messages, messageId) : null),
     [messageId, messages, notif],
   );
   const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, string>>({});
+  const [historyOpen, setHistoryOpen] = useState(false);
   const canSendQuickReply =
     !!sessionId && !!notif && questionViews.length > 0 && questionViews.every((q) => answersByQuestion[q.key]?.trim());
 
   useEffect(() => {
     setAnswersByQuestion({});
+    setHistoryOpen(false);
   }, [notif?.id, isDone]);
   const toggleLabel = isReview
     ? isDone
@@ -224,7 +224,7 @@ export function NotificationMarker({
         questionViews.length > 0 ? "w-full sm:w-[min(30rem,100%)]" : ""
       } ${
         isDone
-          ? "border-cc-border bg-cc-hover/30 text-cc-muted opacity-60"
+          ? `border-cc-border bg-cc-hover/30 text-cc-muted ${isAction ? "" : "opacity-60"}`
           : isAction
             ? "border-cc-attention-border bg-cc-attention-bg text-cc-attention"
             : isReview
@@ -234,7 +234,7 @@ export function NotificationMarker({
       data-notification-id={notif?.id ?? notificationId ?? ""}
       data-notification-category={category}
     >
-      <div className="flex min-w-0 items-center gap-1.5">
+      <div className="flex w-full min-w-0 items-center gap-1.5">
         {/* Checkbox (shown as soon as the marker has a message anchor) */}
         {canToggleDone && (
           <button
@@ -260,12 +260,62 @@ export function NotificationMarker({
         </svg>
 
         {/* Label */}
-        <span className={`min-w-0 ${isDone ? "line-through" : ""}`}>{label}</span>
+        {isAction && isDone ? (
+          <button
+            type="button"
+            aria-expanded={historyOpen}
+            onClick={() => setHistoryOpen((open) => !open)}
+            className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left cursor-pointer rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-cc-primary [@media(pointer:coarse)]:min-h-11"
+          >
+            <span className="min-w-0 flex-1 break-words">{label}</span>{" "}
+            <span className="shrink-0 text-[10px]">
+              {notif?.resolutionNotice?.source === "response" ? "Answered" : "Handled"}
+            </span>
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              className={`size-3 shrink-0 ${historyOpen ? "rotate-90" : ""}`}
+              aria-hidden="true"
+            >
+              <path d="m6 3 5 5-5 5" />
+            </svg>
+          </button>
+        ) : (
+          <span className={`min-w-0 ${isDone ? "line-through" : ""}`}>{label}</span>
+        )}
 
         {!isAction && replyButton}
       </div>
 
-      {questionViews.length > 0 && (
+      {isAction && isDone && historyOpen && (
+        <div
+          className="w-full space-y-3 border-t border-cc-border pt-2 pb-1 pl-5 text-[11px]"
+          data-testid="notification-response-history"
+        >
+          <div className="space-y-2">
+            <div className="font-medium">{questionViews.length > 1 ? "Original questions" : "Original question"}</div>
+            {(questionViews.length ? questionViews.map((question) => question.prompt) : [label]).map(
+              (prompt, index) => (
+                <div key={index} className="whitespace-pre-wrap break-words text-cc-fg">
+                  {prompt}
+                </div>
+              ),
+            )}
+          </div>
+          {sessionId && notif ? (
+            <NeedsInputResponseHistory
+              key={`${sessionId}:${notif.id}`}
+              sessionId={sessionId}
+              notificationId={notif.id}
+            />
+          ) : (
+            <div>No saved response is available.</div>
+          )}
+        </div>
+      )}
+
+      {!isDone && questionViews.length > 0 && (
         <div
           className="flex w-full max-w-full flex-col items-stretch gap-1 pl-5"
           data-testid="notification-answer-actions"

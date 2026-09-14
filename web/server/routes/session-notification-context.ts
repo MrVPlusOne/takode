@@ -5,6 +5,31 @@ import type { RouteContext } from "./context.js";
 const SOURCE_CONTEXT_LIMIT = 1600;
 
 export function registerSessionNotificationContextRoute(api: Hono, ctx: Pick<RouteContext, "resolveId" | "wsBridge">) {
+  api.get("/sessions/:id/notifications/:notifId/replies", (c) => {
+    const sessionId = ctx.resolveId(c.req.param("id"));
+    if (!sessionId) return c.json({ error: "Session not found" }, 404);
+    const session = ctx.wsBridge.getSession(sessionId);
+    if (!session) return c.json({ error: "Session not found in bridge" }, 404);
+    const notification = session.notifications.find(
+      (entry) => entry.id === c.req.param("notifId") && entry.category === "needs-input",
+    );
+    if (!notification) return c.json({ error: "Notification not found" }, 404);
+
+    // Explicit detail access can inspect replies outside the current browser
+    // window. Only stored human reply identity authorizes inclusion; neither
+    // proximity nor matching prose proves a response to this notification.
+    const replies = session.messageHistory.flatMap((entry) =>
+      entry.type === "user_message" &&
+      !entry.agentSource &&
+      !entry.codexSubagent &&
+      !entry.slackThreadId &&
+      entry.replyContext?.notificationId === notification.id
+        ? [{ content: entry.content }]
+        : [],
+    );
+    return c.json({ replies });
+  });
+
   api.get("/sessions/:id/notifications/:notifId/context", (c) => {
     const sessionId = ctx.resolveId(c.req.param("id"));
     if (!sessionId) return c.json({ error: "Session not found" }, 404);
