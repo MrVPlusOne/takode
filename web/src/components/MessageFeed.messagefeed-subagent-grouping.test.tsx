@@ -687,7 +687,8 @@ describe("MessageFeed - subagent grouping", () => {
     );
     fireEvent.click(screen.getByText("Delegated task"));
     await waitFor(() => expect(mockGetDelegateTrace).toHaveBeenCalled());
-    fireEvent.click(screen.getByText("Activities"));
+    // Request dispatch does not guarantee that the async trace has rendered.
+    fireEvent.click(await screen.findByText("Activities"));
     const bashGroups = screen.getAllByTestId("delegate-bash-trace-group");
     expect(bashGroups).toHaveLength(1);
     expect(within(bashGroups[0]).getByText("sed -n '1,3p' sample.txt")).toBeTruthy();
