@@ -137,6 +137,12 @@ agent-browser screenshot /tmp/takode-q-N/mobile-playground.png
 
 Prefer semantic interactions and visible UI checks. Use DOM probes only when they answer an objective question that screenshots or visible interaction cannot, such as bounding boxes, aria state, or exact row counts.
 
+### Click Targets During Layout Changes
+
+When hover or focus changes layout, validate the complete approach -> transition -> click sequence. Choose the intended click position before the layout-changing approach or focus event, then click that original position without retargeting. Do not silently reposition the pointer, locate the moved control again with a selector, or programmatically focus it to turn a failed interaction into a pass. Verify that the intended action occurred, such as the input receiving focus and accepting typing.
+
+Keep selector-based state checks as useful separate evidence: targeting a control after it moves does not prove the original click target stayed usable. This original-position check applies to layout-changing interactions; semantic selectors remain appropriate for ordinary interactions.
+
 ## Agent Browser Cleanup And Display Sleep
 
 At the end of browser validation, close Agent Browser/browser resources you opened before releasing the `agent-browser` lease:
