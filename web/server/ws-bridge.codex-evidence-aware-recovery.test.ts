@@ -165,6 +165,153 @@ beforeEach(() => {
 });
 
 describe("Codex evidence-aware history recovery", () => {
+  it.each([
+    ["direct", "completed"],
+    ["direct", "interrupted"],
+    ["herd", "completed"],
+    ["herd", "interrupted"],
+  ])("keeps an acknowledged quiet %s turn running until %s", async (source, stopReason) => {
+    // Codex can acknowledge a turn well before its first visible output. That
+    // confirmed turn must outlive the optimistic dispatch timeout in every browser.
+    const sid = "quiet-leader";
+    const turnId = "quiet-turn";
+    const adapter = makeReceiptAwareCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter);
+    const session = bridge.getSession(sid)!;
+    session.state.isOrchestrator = true;
+    const browsers = [makeBrowserSocket(sid), makeBrowserSocket(sid)];
+    const projections = bridge.getSyncedProjectionController();
+    for (const browser of browsers) {
+      bridge.handleBrowserOpen(browser, sid);
+      await subscribeCurrentBrowser(bridge, browser);
+      projections.replaceSubscriptions(browser, [{ projection: "session-navigation", key: sid }]);
+      browser.send.mockClear();
+    }
+
+    vi.useFakeTimers();
+    try {
+      await bridge.handleBrowserMessage(
+        browsers[0],
+        JSON.stringify({
+          type: "user_message",
+          content: "explain",
+          ...(source === "herd" ? { agentSource: { sessionId: "herd-events", sessionLabel: "Herd" } } : {}),
+        }),
+      );
+      const start = adapter.sendBrowserMessage.mock.calls
+        .map((args: any[]) => args[0])
+        .find((message: any) => message?.type === "codex_start_pending");
+      adapter.emitTurnStarted(turnId);
+      const startedAt = session.generationStartedAt;
+      await vi.advanceTimersByTimeAsync(31_000);
+
+      expect(session.isGenerating).toBe(true);
+      expect(session.generationStartedAt).toBe(startedAt);
+      expect(session.optimisticRunningTimer).toBeNull();
+      // A start ACK proves generation, but does not manufacture input receipt.
+      expect(session.pendingCodexTurns[0]).toMatchObject({ status: "backend_acknowledged", turnId });
+      expect(session.pendingCodexInputs).toHaveLength(1);
+      for (const browser of browsers) {
+        const updates = browser.send.mock.calls.map((call: unknown[]) => JSON.parse(String(call[0])));
+        expect(updates).toContainEqual(
+          expect.objectContaining({
+            type: "synced_projection_update",
+            patch: expect.objectContaining({ status: "running" }),
+          }),
+        );
+        expect(updates.some((message: any) => message.patch?.status === "idle" || message.status === "idle")).toBe(
+          false,
+        );
+      }
+      const reconnect = projections.replaceSubscriptions(makeBrowserSocket(sid), [
+        { projection: "session-navigation", key: sid },
+      ]);
+      expect(reconnect).toContainEqual(
+        expect.objectContaining({
+          type: "synced_projection_snapshot",
+          value: expect.objectContaining({ status: "running", cliConnected: true }),
+        }),
+      );
+
+      adapter.emitUserMessageReceiptObserved({ turnId, clientUserMessageId: start.clientUserMessageId });
+      adapter.emitUserMessageRecorded({ turnId, clientUserMessageId: start.clientUserMessageId });
+      adapter.emitBrowserMessage({
+        type: "stream_event",
+        parent_tool_use_id: null,
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "Continuing the response" },
+        },
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(session.isGenerating).toBe(true);
+      expect(session.generationStartedAt).toBe(startedAt);
+      expect(session.pendingCodexInputs).toHaveLength(0);
+
+      const result = successResult(sid, turnId);
+      result.data.stop_reason = stopReason;
+      adapter.emitBrowserMessage(result);
+      await vi.advanceTimersByTimeAsync(0);
+      await projections.flushForTest();
+      expect(session.isGenerating).toBe(false);
+      expect(session.generationStartedAt).toBeNull();
+      expect(session.activeTurnRoute).toBeNull();
+      expect(projections.getSnapshot("session-navigation", sid)?.value.status).toBe("idle");
+      for (const browser of browsers) {
+        const updates = browser.send.mock.calls.map((call: unknown[]) => JSON.parse(String(call[0])));
+        expect(updates).toContainEqual(
+          expect.objectContaining({
+            type: "synced_projection_update",
+            patch: expect.objectContaining({ status: "idle" }),
+          }),
+        );
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps acknowledged steering from timing out a confirmed active turn", async () => {
+    // A direct steer re-arms optimistic dispatch while the root turn continues;
+    // its acknowledgement must retire that timer without changing receipt proof.
+    const sid = "quiet-steered-leader";
+    const adapter = makeReceiptAwareCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    await subscribeCurrentBrowser(bridge, browser);
+    vi.useFakeTimers();
+    try {
+      await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "start" }));
+      adapter.emitTurnStarted("active-turn");
+      const session = bridge.getSession(sid)!;
+      const start = adapter.sendBrowserMessage.mock.calls
+        .map((args: any[]) => args[0])
+        .find((message: any) => message?.type === "codex_start_pending");
+      adapter.emitUserMessageRecorded({ turnId: "active-turn", clientUserMessageId: start.clientUserMessageId });
+      await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "also explain" }));
+      const steer = adapter.sendBrowserMessage.mock.calls
+        .map((args: any[]) => args[0])
+        .find((message: any) => message?.type === "codex_steer_pending");
+      expect(steer).toBeDefined();
+      adapter.emitTurnSteered("active-turn", steer.pendingInputIds, steer.clientUserMessageId);
+      const startedAt = session.generationStartedAt;
+      await vi.advanceTimersByTimeAsync(31_000);
+      expect(session.isGenerating).toBe(true);
+      expect(session.generationStartedAt).toBe(startedAt);
+      expect(session.optimisticRunningTimer).toBeNull();
+      expect(session.pendingCodexInputs.map((input) => input.content)).toEqual(["also explain"]);
+      expect(bridge.getSyncedProjectionController().getSnapshot("session-navigation", sid)?.value.status).toBe(
+        "running",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("synthesizes receipt identity before dispatching a restored-style queued batch", async () => {
     const sid = "s-restored-queued-identity";
     const adapter = makeReceiptAwareCodexAdapterMock();

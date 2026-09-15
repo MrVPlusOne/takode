@@ -1264,6 +1264,9 @@ export function registerCodexAdapterRecoveryLifecycle(
       const target = session.isGenerating ? "current" : deps.markRunningFromUserDispatch(session, "codex_turn_started");
       pending.turnTarget = target;
     }
+    // The ACK confirms a live turn even before model output arrives. Clear after
+    // lifecycle promotion, which may have just armed the optimistic dispatch timer.
+    deps.clearOptimisticRunningTimer?.(session, "codex_turn_started");
     if (!receiptAwareAdapter) {
       finalizeCodexBatchBrowserHistory(session, pending, deps, true);
       pending.historyIncorporation = undefined;
@@ -1282,7 +1285,13 @@ export function registerCodexAdapterRecoveryLifecycle(
     const trackedTurn = session.pendingCodexTurns.find(
       (turn) => turn.turnId === turnId && turn.historyIncorporation?.clientUserMessageId === trackedClientId,
     );
-    if (trackedTurn) recordCodexHistoryMilestoneProof(session, trackedTurn, "rpc_accepted");
+    if (trackedTurn) {
+      recordCodexHistoryMilestoneProof(session, trackedTurn, "rpc_accepted");
+      // A late ACK for an older turn must not clear a newer dispatch's timer.
+      if (adapter.getCurrentTurnId?.() === turnId) {
+        deps.clearOptimisticRunningTimer?.(session, "codex_turn_steered");
+      }
+    }
     if (!receiptAwareAdapter) {
       const recorded = session.pendingCodexTurns.find(
         (turn) => turn.turnId === turnId && turn.historyIncorporation?.clientUserMessageId === trackedClientId,
