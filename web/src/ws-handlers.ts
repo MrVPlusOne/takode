@@ -719,6 +719,7 @@ function requestUncachedHistoryWindow(
     turn_count: data.window.turn_count,
     section_turn_count: data.window.section_turn_count,
     visible_section_count: data.window.visible_section_count,
+    ...(data.window.target_message_id ? { target_message_id: data.window.target_message_id } : {}),
     activate_view: true,
   });
 }
@@ -735,6 +736,7 @@ function requestUncachedThreadWindow(
     item_count: data.window.item_count,
     section_item_count: data.window.section_item_count,
     visible_item_count: data.window.visible_item_count,
+    ...(data.window.target_message_id ? { target_message_id: data.window.target_message_id } : {}),
     activate_view: true,
   });
 }

@@ -192,6 +192,7 @@ export function MessageFeed({
     selectedFeedWindow !== null &&
     selectedThreadWindowRevision < threadWindowRefreshRevision;
   const scrollToMessageId = useStore((s) => s.scrollToMessageId.get(sessionId));
+  const scrollToTurnId = useStore((s) => s.scrollToTurnId.get(sessionId));
   const pendingScrollToMessageId = useStore((s) => s.pendingScrollToMessageId?.get(sessionId));
   const routeScrollToMessageId = getRouteMessageTargetForThread(normalizedThreadKey);
   const savedViewportTargetMessageId = getSavedViewportTargetMessageId(savedScrollPos);
@@ -276,7 +277,10 @@ export function MessageFeed({
   const pendingSectionLoadKeyRef = useRef<string | null>(null);
   const pendingTargetWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
   const notedDeliberateMessageTargetRef = useRef<string | null>(null);
-  const pendingViewportAnchorWindowRequestRef = useRef<PendingTargetWindowRequest | null>(null);
+  const pendingViewportAnchorWindowRequestRef = useRef<{
+    key: string;
+    window: typeof selectedFeedWindow | typeof historyWindow;
+  } | null>(null);
   const [exactRestoreRef, cancelExactRestore] = useExactViewportRestore(restoredViewportRef, containerRef);
   const handleUserNavigationIntent = useUserViewportNavigationIntent(
     cancelExactRestore,
@@ -687,24 +691,6 @@ export function MessageFeed({
     [latestVisibleSectionStartIndex, sections],
   );
 
-  const restoreTurnAnchor = useCallback(
-    (anchorTurnId: string, anchorOffsetTop = 0) => {
-      const container = containerRef.current;
-      if (!container) return false;
-      const target = container.querySelector<HTMLElement>(`[data-turn-id="${escapeSelectorValue(anchorTurnId)}"]`);
-      if (!target) return false;
-      const containerRect = container.getBoundingClientRect();
-      const targetRect = target.getBoundingClientRect();
-      const scale = viewportAnchor.getFeedViewportScale(container, containerRect);
-      const nextTop = container.scrollTop + (targetRect.top - containerRect.top - anchorOffsetTop) / scale;
-      markProgrammaticScroll(nextTop);
-      container.scrollTop = nextTop;
-      lastScrollTopRef.current = container.scrollTop;
-      return true;
-    },
-    [markProgrammaticScroll],
-  );
-
   const restoreSavedScrollPosition = useCallback(
     (pos: FeedViewportPosition) => {
       const el = containerRef.current;
@@ -757,24 +743,20 @@ export function MessageFeed({
 
   const restoreSavedViewportAnchor = useCallback(
     (pos: FeedViewportPosition) => {
-      if (pos.anchorMessageId) {
-        if (
-          restoreFeedAnchor({
-            messageId: pos.anchorMessageId,
-            turnId: null,
-            offsetTop: pos.anchorOffsetTop ?? 0,
-          })
-        ) {
-          return true;
-        }
-        if (pos.anchorTurnId && restoreTurnAnchor(pos.anchorTurnId, 0)) {
-          return true;
-        }
-        return false;
-      }
-      return pos.anchorTurnId ? restoreTurnAnchor(pos.anchorTurnId, pos.anchorOffsetTop ?? 0) : false;
+      // A message's host turn may start much earlier. Only turn-only saved
+      // positions may restore by turn; missing messages need their own lookup.
+      return restoreFeedAnchor({
+        messageId: pos.anchorMessageId ?? null,
+        turnId: pos.anchorMessageId ? null : (pos.anchorTurnId ?? null),
+        offsetTop: pos.anchorOffsetTop ?? 0,
+      });
     },
-    [restoreFeedAnchor, restoreTurnAnchor],
+    [restoreFeedAnchor],
+  );
+
+  const restoreTurnAnchor = useCallback(
+    (turnId: string, offsetTop = 0) => restoreFeedAnchor({ messageId: null, turnId, offsetTop }),
+    [restoreFeedAnchor],
   );
 
   const snapshotViewportAnchor = useCallback(
@@ -852,41 +834,37 @@ export function MessageFeed({
       const useHistoryWindow = !selectedFeedWindowEnabled && activeHistoryWindow;
       if (!targetMessageId || (!useThreadWindow && !useHistoryWindow)) return false;
 
-      const revision = useThreadWindow ? selectedThreadWindowRevision : historyWindowRevision;
       const requestKey = `${normalizedThreadKey}:${restoreKey}:${targetMessageId}`;
-      const action = getMissingScrollTargetWindowAction({
-        pending: pendingViewportAnchorWindowRequestRef.current,
-        requestKey,
-        revision,
-      });
-      if (action.kind === "request") {
-        const requested = useThreadWindow
-          ? requestThreadWindow(-1, undefined, targetMessageId)
-          : requestHistoryWindow(
-              -1,
-              activeHistoryWindow?.turn_count || sectionTurnCount * DEFAULT_VISIBLE_SECTION_COUNT,
-              activeHistoryWindow?.section_turn_count ?? sectionTurnCount,
-              activeHistoryWindow?.visible_section_count ?? DEFAULT_VISIBLE_SECTION_COUNT,
-              targetMessageId,
-            );
-        if (!requested) return false;
-        pendingViewportAnchorWindowRequestRef.current = action.pending;
-        return true;
+      const resolvedWindow = useThreadWindow ? activeThreadWindow : activeHistoryWindow;
+      // A refresh revision is not a reply identity: it may remain unchanged
+      // across replies, or change for an unrelated update while lookup is pending.
+      const pending = pendingViewportAnchorWindowRequestRef.current;
+      if (pending?.key === requestKey) {
+        if (resolvedWindow === pending.window || resolvedWindow?.target_message_id !== targetMessageId) return true;
+        pendingViewportAnchorWindowRequestRef.current = null;
+        return false;
       }
-      if (action.kind === "wait") return true;
-      pendingViewportAnchorWindowRequestRef.current = null;
-      return false;
+      const requested = useThreadWindow
+        ? requestThreadWindow(-1, undefined, targetMessageId)
+        : requestHistoryWindow(
+            -1,
+            activeHistoryWindow?.turn_count || sectionTurnCount * DEFAULT_VISIBLE_SECTION_COUNT,
+            activeHistoryWindow?.section_turn_count ?? sectionTurnCount,
+            activeHistoryWindow?.visible_section_count ?? DEFAULT_VISIBLE_SECTION_COUNT,
+            targetMessageId,
+          );
+      if (!requested) return false;
+      pendingViewportAnchorWindowRequestRef.current = { key: requestKey, window: resolvedWindow };
+      return true;
     },
     [
       activeHistoryWindow,
       activeThreadWindow,
-      historyWindowRevision,
       normalizedThreadKey,
       requestHistoryWindow,
       requestThreadWindow,
       sectionTurnCount,
       selectedFeedWindowEnabled,
-      selectedThreadWindowRevision,
     ],
   );
 
@@ -924,6 +902,7 @@ export function MessageFeed({
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
       setAutoFollowEnabled(true);
+      isNearBottom.current = true;
       // Window replacement must follow this destination, not the previous reading anchor.
       if (containerRef.current) snapshotViewportAnchor(containerRef.current);
       if (activeThreadWindow && hasNewerSections) {
@@ -1255,7 +1234,18 @@ export function MessageFeed({
     const restoredViewport = restoredViewportRef.current;
     const container = containerRef.current;
     if (restoredViewport?.key === restoreKey && restoredViewport.container === container) return;
-    if (messages.length === 0 && (pos?.anchorMessageId || pos?.anchorTurnId)) return;
+    if (scrollToMessageId || pendingScrollToMessageId || routeScrollToMessageId || scrollToTurnId) {
+      cancelExactRestore();
+      restoredViewportRef.current = { key: restoreKey, container };
+      return;
+    }
+    if (
+      messages.length === 0 &&
+      !activeThreadWindow &&
+      !activeHistoryWindow &&
+      (pos?.anchorMessageId || pos?.anchorTurnId)
+    )
+      return;
     const desiredSectionWindowStart =
       !isWindowedFeed && pos?.anchorTurnId ? getSectionWindowStartForTurnId(pos.anchorTurnId) : null;
     if (!isWindowedFeed && desiredSectionWindowStart !== sectionWindowStart) {
@@ -1284,28 +1274,19 @@ export function MessageFeed({
         });
       } else if (requestViewportAnchorWindowIfMissing(pos, restoreKey)) {
         return;
-      } else if (restoreSavedScrollPosition(pos)) {
-        exactRestoreRef.current = null;
-        setAutoFollowEnabled(false);
-        isNearBottom.current = false;
-        setShowScrollButton(true);
       } else {
         exactRestoreRef.current = null;
         scrollToBottom("auto");
       }
     } else if (pos && !pos.isAtBottom) {
-      if (restoreSavedScrollPosition(pos)) {
+      // Coordinates alone do not identify a reading position in a bounded
+      // window: an equally tall replacement can contain entirely different rows.
+      if (!isWindowedFeed && restoreSavedScrollPosition(pos)) {
         setAutoFollowEnabled(false);
         isNearBottom.current = false;
         setShowScrollButton(true);
-      }
-    } else if (activeThreadWindow && hasNewerSections) {
-      const el = containerRef.current;
-      setAutoFollowEnabled(false);
-      isNearBottom.current = false;
-      setShowScrollButton(true);
-      if (el) {
-        lastScrollTopRef.current = el.scrollTop;
+      } else {
+        scrollToBottom("auto");
       }
     } else {
       scrollToBottom("auto");
@@ -1314,6 +1295,7 @@ export function MessageFeed({
   }, [
     activeHistoryWindow,
     activeThreadWindow,
+    cancelExactRestore,
     getSectionWindowStartForTurnId,
     hasNewerSections,
     historyLoading,
@@ -1321,6 +1303,10 @@ export function MessageFeed({
     isWindowedFeed,
     messages.length,
     normalizedThreadKey,
+    pendingScrollToMessageId,
+    routeScrollToMessageId,
+    scrollToMessageId,
+    scrollToTurnId,
     restoreSavedScrollPosition,
     restoreSavedViewportAnchor,
     requestViewportAnchorWindowIfMissing,
@@ -1361,9 +1347,9 @@ export function MessageFeed({
   }, [onLatestIndicatorVisibleChange, showLatestPill]);
 
   useEffect(() => {
-    onJumpToLatestReady?.(() => scrollToBottom());
+    onJumpToLatestReady?.(handleScrollToBottomClick);
     return () => onJumpToLatestReady?.(null);
-  }, [onJumpToLatestReady, scrollToBottom]);
+  }, [onJumpToLatestReady, handleScrollToBottomClick]);
 
   useLayoutEffect(() => {
     if (!shouldBottomAlignNextUserMessage) return;
@@ -1508,7 +1494,6 @@ export function MessageFeed({
     viewportLayoutSignature,
   ]);
 
-  const scrollToTurnId = useStore((s) => s.scrollToTurnId.get(sessionId));
   const clearScrollToTurn = useStore((s) => s.clearScrollToTurn);
   useEffect(() => {
     if (!scrollToTurnId) return;

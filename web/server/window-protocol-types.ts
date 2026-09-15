@@ -9,6 +9,8 @@ export interface HistoryWindowState {
   section_turn_count: number;
   visible_section_count: number;
   window_hash?: string;
+  /** Stable target looked up for this delivery, even if it could not be found. */
+  target_message_id?: string;
 }
 
 export interface ThreadWindowState {
@@ -24,6 +26,8 @@ export interface ThreadWindowState {
   /** Server-proven identity of the leading feed turn, stable when a window clips its activity. */
   leading_turn_id?: string;
   window_hash?: string;
+  /** Stable target looked up for this delivery, even if it could not be found. */
+  target_message_id?: string;
 }
 
 export interface InitialThreadWindowRequest {

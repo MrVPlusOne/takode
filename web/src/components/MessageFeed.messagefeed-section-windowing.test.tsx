@@ -247,15 +247,30 @@ function setStoreFeedScrollPosition(
     scrollTop: number;
     scrollHeight: number;
     isAtBottom: boolean;
+    anchorMessageId?: string | null;
     anchorTurnId?: string | null;
     anchorOffsetTop?: number;
     lastSeenContentBottom?: number | null;
   },
+  threadKey = "main",
 ) {
   const map = new Map();
   map.set(sessionId, pos);
-  map.set(`${sessionId}:thread:main`, pos);
+  map.set(`${sessionId}:thread:${threadKey}`, pos);
   mockStoreValues.feedScrollPosition = map;
+}
+
+function setStoreThreadReadingPosition(sessionId: string, threadKey: string, messageId: string) {
+  setStoreFeedScrollPosition(
+    sessionId,
+    {
+      scrollTop: 0,
+      scrollHeight: 1,
+      isAtBottom: false,
+      anchorMessageId: messageId,
+    },
+    threadKey,
+  );
 }
 
 function setStoreParentStreaming(sessionId: string, entries: Record<string, string>) {
@@ -875,6 +890,8 @@ describe("MessageFeed section windowing", () => {
   it("announces a cached selected thread view so live server filtering follows warm tab switches", async () => {
     const sid = "test-cached-thread-view-update";
     const threadKey = "q-1831";
+    // Cached bounds alone cannot own a restoration; model valid older reading.
+    setStoreThreadReadingPosition(sid, threadKey, "selected");
     setStoreSessionState(sid, { isOrchestrator: true });
     mockStoreValues.connectionStatus = new Map([[sid, "connected"]]);
     setStoreSelectedThreadWindow({
@@ -1467,6 +1484,7 @@ describe("MessageFeed section windowing", () => {
   it("requests an older selected-thread window and scrolls to the previous user-message target after sync", () => {
     const sid = "test-selected-thread-user-navigation-window";
     const threadKey = "q-1027";
+    setStoreThreadReadingPosition(sid, threadKey, "u3");
     setStoreSessionState(sid, { isOrchestrator: true });
     setStoreSelectedThreadWindow({
       sessionId: sid,
@@ -1526,6 +1544,7 @@ describe("MessageFeed section windowing", () => {
   it("uses global selected-thread user-message targets for the expanded navigator", async () => {
     const sid = "test-selected-thread-global-user-navigation";
     const threadKey = "q-1027";
+    setStoreThreadReadingPosition(sid, threadKey, "u3");
     const globalMessages = [
       makeMessage({
         id: "u1",
@@ -1623,6 +1642,7 @@ describe("MessageFeed section windowing", () => {
   it("requests selected-thread navigator jumps by stable message id, not display position", async () => {
     const sid = "test-selected-thread-global-user-navigation-target-id";
     const threadKey = "main";
+    setStoreThreadReadingPosition(sid, threadKey, "u15");
     const globalMessages = Array.from({ length: 163 }, (_, index) => {
       const messageNumber = index + 1;
       return makeMessage({

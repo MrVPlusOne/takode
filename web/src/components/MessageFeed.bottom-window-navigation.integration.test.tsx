@@ -6,6 +6,7 @@ import { buildThreadWindowSync } from "../../shared/thread-window.js";
 import { useStore } from "../store.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, SessionState } from "../types.js";
 import { createWsMessageHandler } from "../ws-handlers.js";
+import { persistLeaderViewportPosition } from "../utils/thread-viewport.js";
 import { MessageFeed } from "./MessageFeed.js";
 
 const sendToSession = vi.hoisted(() => vi.fn((_sessionId: string, _message: BrowserOutgoingMessage) => true));
@@ -473,8 +474,15 @@ describe("MessageFeed local send and follow subscription", () => {
   });
 
   it("does not publish stale latest intent while layout restores an older window", () => {
-    // The initial ref starts at latest, but the mounted window has newer rows.
-    // No transient -1 announcement may override layout's history decision.
+    // A valid saved anchor owns older reading; the cached window alone no
+    // longer establishes that intent. Restoration must announce numeric bounds.
+    persistLeaderViewportPosition(SESSION_ID, THREAD_KEY, {
+      scrollTop: 0,
+      scrollHeight: 1612,
+      isAtBottom: false,
+      anchorMessageId: "request-1",
+      anchorOffsetTop: 100,
+    });
     act(() => useStore.getState().setConnectionStatus(SESSION_ID, "connected"));
     const restoreGeometry = installViewportGeometry();
     const view = render(<MessageFeed sessionId={SESSION_ID} threadKey={THREAD_KEY} />);

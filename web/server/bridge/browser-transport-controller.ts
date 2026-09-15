@@ -1253,6 +1253,7 @@ export function sendHistoryWindowSync(
     section_turn_count: normalizedSectionTurnCount,
     visible_section_count: normalizedVisibleSectionCount,
     window_hash: windowHash,
+    ...(options.targetMessageId ? { target_message_id: options.targetMessageId } : {}),
   };
 
   sendToBrowser(ws, {

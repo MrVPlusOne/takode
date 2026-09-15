@@ -152,6 +152,7 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
       section_item_count: sectionItemCount,
       visible_item_count: visibleItemCount,
       ...(leadingTurnId ? { leading_turn_id: leadingTurnId } : {}),
+      ...(input.targetMessageId ? { target_message_id: input.targetMessageId } : {}),
     },
   };
 }

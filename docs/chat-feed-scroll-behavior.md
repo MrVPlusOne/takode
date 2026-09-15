@@ -79,12 +79,20 @@ After a restore, the latest indicator should only appear again when:
 
 ### 5. Session restore
 
-Saved scroll position restore follows the older proportional model:
+Restore a saved stable message and its offset when possible. A turn-only saved
+position can restore by that turn; a missing message must not be substituted
+with its turn's beginning. An off-window target is looked up through the server,
+and unrelated window updates do not establish that the lookup failed.
 
-- if the user left the session scrolled up, restore that saved position
-- if the saved content height has changed, restore proportionally based on the
-  old and new scroll heights
-- if the user left the session at the bottom, restore to the real bottom
+If the target's authoritative delivery still cannot restore the anchor, go to
+latest. Coordinates alone cannot reliably identify a position in a bounded
+window, so an unanchored saved position in that mode also falls back to latest.
+The unwindowed feed retains its proportional-coordinate restoration. Valid
+older reading positions remain valid regardless of their age. Fresh explicit
+navigation takes precedence over restoration and cancels a pending restore.
+
+If the user left at the bottom, restore the real bottom. Latest navigation also
+preserves bottom-follow intent while its requested window is loading.
 
 If the user left the session scrolled up, restoring that position must not by
 itself imply "new content below". The latest-indicator baseline resets to the

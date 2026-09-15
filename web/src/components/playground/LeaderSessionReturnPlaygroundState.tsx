@@ -3,7 +3,7 @@ import { LEADER_THREAD_TABS_PROJECTION } from "../../../shared/leader-thread-tab
 import { syncedProjectionEntryId } from "../../../shared/synced-projection.js";
 import { useStore } from "../../store.js";
 import { resolveLeaderThreadTabsProjection } from "../../utils/leader-thread-tabs-resolver.js";
-import { persistLeaderSelectedThreadKey } from "../../utils/thread-viewport.js";
+import { persistLeaderSelectedThreadKey, persistLeaderViewportPosition } from "../../utils/thread-viewport.js";
 import { ChatView } from "../ChatView.js";
 import { PLAYGROUND_LEADER_RETURN_AWAY_SESSION_ID, PLAYGROUND_LEADER_RETURN_SESSION_ID } from "./fixtures.js";
 import { Section } from "./shared.js";
@@ -18,6 +18,39 @@ export function LeaderSessionReturnPlaygroundState() {
   const [needsInputVisible, setNeedsInputVisible] = useState(false);
   const [restoredTabPreview, setRestoredTabPreview] = useState(false);
   const showingLeader = activeSessionId === PLAYGROUND_LEADER_RETURN_SESSION_ID;
+
+  const returnWithUnavailablePosition = (missingMessage: boolean) => {
+    // These controls are available only while away, after departure cleanup.
+    // The generated fixture models an authoritative failed target lookup;
+    // no live session or server viewport record is changed.
+    const store = useStore.getState();
+    const window = store.threadWindows.get(PLAYGROUND_LEADER_RETURN_SESSION_ID)?.get("main");
+    const messages = store.threadWindowMessages.get(PLAYGROUND_LEADER_RETURN_SESSION_ID)?.get("main");
+    if (!window || !messages) return;
+    const target = "playground-unavailable-saved-message";
+    store.setThreadWindow(
+      PLAYGROUND_LEADER_RETURN_SESSION_ID,
+      "main",
+      {
+        ...window,
+        target_message_id: missingMessage ? target : undefined,
+      },
+      messages,
+    );
+    persistLeaderViewportPosition(PLAYGROUND_LEADER_RETURN_SESSION_ID, "main", {
+      scrollTop: 900,
+      scrollHeight: 12000,
+      isAtBottom: false,
+      ...(missingMessage
+        ? {
+            anchorMessageId: target,
+            anchorTurnId: "synthetic-tail-main-117",
+            anchorOffsetTop: 40,
+          }
+        : {}),
+    });
+    resetLeaderMain();
+  };
 
   const resetLeaderMain = () => {
     setRestoredTabPreview(false);
@@ -120,7 +153,7 @@ export function LeaderSessionReturnPlaygroundState() {
   return (
     <Section
       title="Leader Session Return Stability"
-      description="Keep Main selected, scroll to a recognizable message, switch away and back, and confirm the viewport stays fixed. The middle-tab preview shows a restored selection retaining its position between neighboring tabs."
+      description="Keep Main selected, scroll to a recognizable message, switch away and back, and confirm the viewport stays fixed. While away, model unavailable saved positions to verify latest fallback. These are generated scenarios, not captured incidents."
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <button
@@ -134,6 +167,24 @@ export function LeaderSessionReturnPlaygroundState() {
         >
           {showingLeader ? "Switch to away session" : "Return to leader session"}
         </button>
+        {!showingLeader && (
+          <>
+            <button
+              type="button"
+              onClick={() => returnWithUnavailablePosition(true)}
+              className="rounded-lg border border-cc-border bg-cc-card px-3 py-1.5 text-xs font-medium text-cc-muted hover:text-cc-fg"
+            >
+              Return with unavailable saved message
+            </button>
+            <button
+              type="button"
+              onClick={() => returnWithUnavailablePosition(false)}
+              className="rounded-lg border border-cc-border bg-cc-card px-3 py-1.5 text-xs font-medium text-cc-muted hover:text-cc-fg"
+            >
+              Return with coordinates only
+            </button>
+          </>
+        )}
         <button
           type="button"
           onClick={() => {
