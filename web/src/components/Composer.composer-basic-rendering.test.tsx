@@ -1387,7 +1387,7 @@ it.each([
   if (departure === "outside" || departure === "transient-blur-then-outside") fireEvent.pointerDown(document.body);
   if (departure === "navigation") view.rerender(<Composer sessionId="s1" threadKey="another" />);
   if (departure === "hover") {
-    // Real Composer must hide ongoing work without cancelling capture or losing the eventual full result.
+    // Pointer movement alone must leave ongoing voice work and its final result visible.
     fireEvent(
       screen.getByTestId("composer-minimizer"),
       Object.assign(
@@ -1398,8 +1398,7 @@ it.each([
         { pointerType: "mouse" },
       ),
     );
-    fireEvent.pointerDown(document.body);
-    expect(textarea.getAttribute("aria-expanded")).toBe("false");
+    expect(textarea.getAttribute("aria-expanded")).toBe("true");
   }
   await act(async () => {
     transcription.resolve({
@@ -1411,7 +1410,7 @@ it.each([
   });
   expect(textarea.value).toBe("Voice first line\nVoice second line");
   expect(textarea.getAttribute("aria-expanded")).toBe(
-    departure === "none" || departure === "transient-blur" ? "true" : "false",
+    departure === "none" || departure === "transient-blur" || departure === "hover" ? "true" : "false",
   );
   expect(document.activeElement).not.toBe(textarea);
 });

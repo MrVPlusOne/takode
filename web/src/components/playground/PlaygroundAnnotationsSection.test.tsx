@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import { PlaygroundAnnotationsSection } from "./PlaygroundAnnotationsSection.js";
 import { useStore } from "../../store.js";
 
@@ -65,13 +66,12 @@ it("keeps simulated voice completion visible until an outside interaction", asyn
   expect(screen.getByTestId("compact-comment-count").textContent).toBe("2");
 });
 
-it("keeps annotation and image indicators while desktop hover restores a selected draft range", () => {
-  // Exercise the actual Playground wiring, including the shared textarea ref and expansion intent.
+it("keeps the compact draft stable on approach and expands only on a click", async () => {
+  // Exercise actual click/focus ordering and retained indicators; pointer movement must not change the target.
+  const user = userEvent.setup();
   vi.spyOn(window, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
   render(<PlaygroundAnnotationsSection />);
   const input = screen.getByLabelText("Annotation main message") as HTMLTextAreaElement;
-  act(() => input.focus());
-  input.setSelectionRange(8, 20, "backward");
   const boundary = screen.getByTestId("composer-minimizer");
   const pointer = (type: string) =>
     fireEvent(
@@ -84,11 +84,13 @@ it("keeps annotation and image indicators while desktop hover restores a selecte
         { pointerType: "mouse" },
       ),
     );
-  pointer("pointerout");
+  pointer("pointerover");
   expect(input.getAttribute("aria-expanded")).toBe("false");
   expect(screen.getByTestId("compact-image-count").textContent).toBe("1");
   expect(screen.getByTestId("compact-comment-count").textContent).toBe("2");
-  pointer("pointerover");
+  await user.click(input);
+  input.setSelectionRange(8, 20, "backward");
+  pointer("pointerout");
   expect(input.getAttribute("aria-expanded")).toBe("true");
   expect([input.selectionStart, input.selectionEnd, input.selectionDirection]).toEqual([8, 20, "backward"]);
   expect(document.activeElement).toBe(input);

@@ -1,14 +1,10 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createPortal } from "react-dom";
 import { useContext, useEffect, useRef, useState, type RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  ComposerMinimizer,
-  ComposerMinimizeButton,
-  ComposerVisibilityContext,
-  type ComposerExpansion,
-} from "./ComposerMinimizer.js";
+import { ComposerMinimizer, ComposerMinimizeButton, ComposerVisibilityContext } from "./ComposerMinimizer.js";
 import { useComposerNavigationFocus } from "./use-composer-navigation-focus.js";
 import { useComposerTextareaSize } from "./use-composer-textarea-size.js";
 import { useStore } from "../store.js";
@@ -63,18 +59,13 @@ function Fixture({
   unmounted?: () => void;
   portal?: boolean;
 }) {
-  const [expansion, setExpanded] = useState<ComposerExpansion>(false);
-  const expanded = expansion === true || (expansion !== "hover-collapsed" && reveal);
+  const [expansion, setExpanded] = useState(false);
+  const expanded = expansion || reveal;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   return (
     <>
       <button>Outside</button>
-      <ComposerMinimizer
-        destination={destination}
-        expanded={expanded}
-        onExpandedChange={setExpanded}
-        textareaRef={textareaRef}
-      >
+      <ComposerMinimizer destination={destination} expanded={expanded} onExpandedChange={setExpanded}>
         <Draft unmounted={unmounted} portal={portal} textareaRef={textareaRef} />
         <div hidden={!expanded}>
           <ComposerMinimizeButton onClick={() => setExpanded(false)} disabled={reveal} />
@@ -243,31 +234,24 @@ function desktopHover(enabled = true) {
   }));
 }
 
-it("restores a scrolled backward selection after hovering out, selecting feed text, and returning", () => {
-  // Hover must preserve the real editing range and scroll without preventing an independent feed selection.
+it("keeps a scrolled backward selection stable while the pointer leaves and returns", async () => {
+  // Pointer travel must not resize or blur an editor; only a deliberate outside action collapses it.
   desktopHover();
+  const user = userEvent.setup();
   render(<Fixture />);
   const boundary = screen.getByTestId("composer-minimizer");
   const input = screen.getByRole("textbox") as HTMLTextAreaElement;
   hover(boundary, true);
-  expect(isCollapsed()).toBe(false);
+  expect(isCollapsed()).toBe(true);
   expect(document.activeElement).not.toBe(input);
-  focusDraft();
+  await user.click(input);
+  expect(isCollapsed()).toBe(false);
   const text = "A long paragraph with the editing position in its middle. ".repeat(30);
   fireEvent.change(input, { target: { value: text } });
   for (let cycle = 0; cycle < 2; cycle++) {
     input.setSelectionRange(450 + cycle, 490 + cycle, "backward");
     input.scrollTop = 125;
     hover(boundary, false);
-    expect(isCollapsed()).toBe(true);
-    expect(document.activeElement).not.toBe(input);
-    const outside = screen.getByRole("button", { name: "Outside" });
-    act(() => outside.focus());
-    const range = document.createRange();
-    range.selectNodeContents(outside);
-    window.getSelection()?.removeAllRanges();
-    window.getSelection()?.addRange(range);
-    expect(window.getSelection()?.toString()).toBe("Outside");
     hover(boundary, true);
     expect(isCollapsed()).toBe(false);
     expect(document.activeElement).toBe(input);
@@ -280,75 +264,91 @@ it("restores a scrolled backward selection after hovering out, selecting feed te
     expect(input.value).toBe(text);
     expect(screen.getByRole("textbox")).toBe(input);
   }
+  await user.click(screen.getByRole("button", { name: "Outside" }));
+  expect(isCollapsed()).toBe(true);
+  hover(boundary, true);
+  expect(isCollapsed()).toBe(true);
+  await user.click(input);
+  expect(document.activeElement).toBe(input);
+  expect(isCollapsed()).toBe(false);
+  expect(input.value).toBe(text);
 });
 
-it("hides active work on desktop hover departure without disposing it or reopening on completion", () => {
-  // The hover close is presentation intent; the voice/editor lifetime remains mounted and independent.
+it("keeps active work revealed across pointer departure until a deliberate outside action completes", () => {
+  // Pointer departure must not undo voice expansion or dispose its pending work.
   desktopHover();
   const unmounted = vi.fn();
   const view = render(<Fixture reveal unmounted={unmounted} />);
   focusDraft();
   const boundary = screen.getByTestId("composer-minimizer");
   hover(boundary, false);
-  expect(isCollapsed()).toBe(true);
+  expect(isCollapsed()).toBe(false);
   expect(unmounted).not.toHaveBeenCalled();
   fireEvent.pointerDown(document.body);
   act(() => screen.getByRole("button", { name: "Outside" }).focus());
-  expect(isCollapsed()).toBe(true);
+  expect(isCollapsed()).toBe(false);
   view.rerender(<Fixture unmounted={unmounted} />);
   expect(isCollapsed()).toBe(true);
   hover(boundary, true);
+  expect(isCollapsed()).toBe(true);
+  focusDraft();
   expect(isCollapsed()).toBe(false);
 });
 
-it("leaves touch and pen interactions unchanged and requires real desktop hover capability", () => {
-  // Synthetic mouse compatibility events on a touch-only device must not enable this desktop behavior.
+it("leaves mouse, touch and pen movement independent of deliberate expansion", () => {
+  // Neither real mouse hover nor compatibility events on touch devices may change presentation.
   desktopHover();
   render(<Fixture />);
   const boundary = screen.getByTestId("composer-minimizer");
-  hover(boundary, true, "touch");
-  hover(boundary, true, "pen");
+  for (const pointer of ["mouse", "touch", "pen"]) hover(boundary, true, pointer);
   expect(isCollapsed()).toBe(true);
   focusDraft();
-  hover(boundary, false, "touch");
-  hover(boundary, false, "pen");
+  for (const pointer of ["mouse", "touch", "pen"]) hover(boundary, false, pointer);
   expect(isCollapsed()).toBe(false);
   desktopHover(false);
   hover(boundary, false);
   expect(isCollapsed()).toBe(false);
 });
 
-it("does not take focus from a feed selection drag or restore an old destination's range", () => {
-  // Returning while still dragging must not steal native feed selection; route changes retire saved editing intent.
+it("does not take focus from a feed selection drag or replay an old destination's focus", () => {
+  // Feed selection remains independent; returning to the composer needs an explicit input action.
   desktopHover();
   const view = render(<Fixture />);
   const boundary = screen.getByTestId("composer-minimizer");
   focusDraft();
   const input = screen.getByRole("textbox") as HTMLTextAreaElement;
   input.setSelectionRange(4, 9);
-  hover(boundary, false);
+  fireEvent.pointerDown(document.body);
+  const range = document.createRange();
+  range.selectNodeContents(screen.getByRole("button", { name: "Outside" }));
+  window.getSelection()?.removeAllRanges();
+  window.getSelection()?.addRange(range);
   hover(boundary, true, "mouse", 1);
+  expect(window.getSelection()?.toString()).toBe("Outside");
   expect(isCollapsed()).toBe(true);
   expect(document.activeElement).not.toBe(input);
   view.rerender(<Fixture destination="another:main" />);
   input.setSelectionRange(0, 0);
   hover(boundary, true);
+  expect(isCollapsed()).toBe(true);
   expect(input.selectionStart).toBe(0);
   expect(document.activeElement).not.toBe(input);
 });
 
-it("retains a newer collapsed draft result instead of replaying the saved selection over it", () => {
-  // Completion while hidden owns its inserted text and caret; hover must not restore obsolete indices.
+it("retains a newer collapsed draft result until a deliberate focus instead of reopening on hover", () => {
+  // Completion after a deliberate collapse owns its inserted text and caret; pointer motion cannot reopen it.
   desktopHover();
   render(<Fixture />);
   const input = screen.getByRole("textbox") as HTMLTextAreaElement;
   const boundary = screen.getByTestId("composer-minimizer");
   focusDraft();
   input.setSelectionRange(4, 9);
-  hover(boundary, false);
+  fireEvent.pointerDown(document.body);
   fireEvent.change(input, { target: { value: "Completed voice result." } });
   input.setSelectionRange(input.value.length, input.value.length);
   hover(boundary, true);
+  expect(isCollapsed()).toBe(true);
+  focusDraft();
   expect(input.value).toBe("Completed voice result.");
   expect(input.selectionStart).toBe(input.value.length);
   expect(input.selectionEnd).toBe(input.value.length);
