@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { SessionNotification, SessionState, SdkSessionInfo } from "../types.js";
 
@@ -592,6 +592,50 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
     const sessionButton = screen.getByText("claude-sonnet-4-5-20250929").closest("button")!;
     expect(sessionButton.textContent).not.toContain("+1527");
     expect(sessionButton.textContent).not.toContain("-625");
+  });
+
+  it.each([
+    ["codex", true],
+    ["claude", true],
+    ["codex", false],
+    ["claude", false],
+  ] as const)("preserves Git hover details with leader-only count hiding (%s, leader=%s)", async (backendType, isOrchestrator) => {
+    // Use the canonical navigation row and real sidebar hover path: hiding
+    // leader counts must not strip the values consumed by the detail card.
+    const sdk = makeSdkSession("git-details", {
+      name: "Git details session",
+      sessionNum: 42,
+      backendType,
+      cliConnected: true,
+      isOrchestrator,
+      isWorktree: true,
+      gitBranch: "feature/sidebar-details",
+      gitAhead: 19,
+      gitBehind: 24442,
+      totalLinesAdded: 59600,
+      totalLinesRemoved: 17400,
+      pendingTimerCount: 1,
+      gitStatusRefreshedAt: Date.now(),
+    });
+    mockState = createMockState({ sdkSessions: [sdk] });
+
+    render(<Sidebar />);
+    const row = screen.getByText("Git details session").closest("button")!;
+    const counts = ["19↑", "24442↓", "+59600", "-17400"];
+    for (const count of counts) {
+      expect(row.textContent?.includes(count)).toBe(!isOrchestrator);
+    }
+    expect(within(row).getByText("wt")).toBeInTheDocument();
+    expect(within(row).getByText("#42")).toBeInTheDocument();
+    expect(within(row).getByAltText(backendType === "codex" ? "Codex" : "Claude")).toBeInTheDocument();
+    expect(within(row).getByTestId("session-status-timer-icon")).toBeInTheDocument();
+
+    fireEvent.mouseEnter(row);
+    const hover = await screen.findByTestId("session-hover-card");
+    for (const count of counts) {
+      expect(within(hover).getByText(count)).toBeInTheDocument();
+    }
+    expect(within(hover).getByText("feature/sidebar-details")).toBeInTheDocument();
   });
 
   it("session uses the canonical SDK-row git stats instead of legacy bridge fields", () => {

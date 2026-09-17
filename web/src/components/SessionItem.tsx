@@ -935,7 +935,7 @@ function SessionItemComponent({
                     </div>
                   );
                 })()}
-              {hasBranchDivergence && (
+              {!s.isOrchestrator && hasBranchDivergence && (
                 <span
                   className="flex items-center gap-0.5 text-[10px] shrink-0"
                   title={gitStatusTitle}
@@ -946,7 +946,7 @@ function SessionItemComponent({
                   {s.gitBehind > 0 && <span className="text-cc-warning">{s.gitBehind}&#8595;</span>}
                 </span>
               )}
-              {hasLineDiff && (
+              {!s.isOrchestrator && hasLineDiff && (
                 <span
                   className="flex items-center gap-0.5 text-[10px] shrink-0"
                   title={gitStatusTitle}

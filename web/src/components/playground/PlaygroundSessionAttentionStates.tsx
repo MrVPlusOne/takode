@@ -36,6 +36,9 @@ const session = ([slug, , , , pendingTimerCount = 0, permCount = 0]: Demo, index
   pendingTimerCount,
   permCount,
   isOrchestrator: slug === "leader-checkpoint",
+  ...(slug === "leader-checkpoint"
+    ? { isWorktree: true, gitAhead: 19, gitBehind: 24442, linesAdded: 59600, linesRemoved: 17400 }
+    : {}),
   leaderProfilePortrait:
     slug === "leader-checkpoint" ? PLAYGROUND_SESSION_ROWS[0].session.leaderProfilePortrait : undefined,
 });
@@ -91,7 +94,7 @@ export function PlaygroundSessionAttentionStates() {
   return (
     <Section
       title="Session Attention Projection"
-      description="Read results clear blue; unresolved prompts retain amber. Hover for the projected count."
+      description="Read results clear blue; unresolved prompts retain amber. Hover for the projected count and the leader's detailed Git statistics."
     >
       <div className="rounded-xl bg-cc-sidebar p-2">
         <div className="flex items-center gap-2 px-2 pb-1 text-[10px] text-cc-muted">

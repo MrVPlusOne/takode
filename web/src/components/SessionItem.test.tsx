@@ -553,13 +553,13 @@ describe("SessionItem leader profiles", () => {
     expect(screen.queryByText("recent activity stays readable")).not.toBeInTheDocument();
   });
 
-  it("uses stronger metadata text on the selected active session row", () => {
+  it.each([false, true])("uses stronger selected-row metadata text (leader=%s)", (isOrchestrator) => {
     // The selected light sidebar row background is darker than the base app
     // background, so ordinary muted metadata needs a stronger selected-row tone.
     renderSessionItem({
       isActive: true,
       session: makeSession({
-        isOrchestrator: true,
+        isOrchestrator,
         leaderProfilePortrait: TAKO_PORTRAIT,
         sessionNum: 72,
         linesAdded: 18,
@@ -567,12 +567,18 @@ describe("SessionItem leader profiles", () => {
       }),
     });
 
-    const metadataRow = screen.getByTestId("session-metadata-row");
+    const metadataRow = screen.getByText("#72").closest("div")!;
     expect(metadataRow).toHaveTextContent("#72");
     expect(metadataRow).toHaveClass("text-cc-fg/80");
     expect(metadataRow).not.toHaveClass("text-cc-muted");
     expect(within(metadataRow).getByText("#72")).toHaveClass("text-current");
 
+    // Leaders retain their selected metadata styling while Git counts move
+    // exclusively to hover details; non-leaders retain their existing colors.
+    if (isOrchestrator) {
+      expect(screen.queryByTestId("session-git-line-diff")).not.toBeInTheDocument();
+      return;
+    }
     const lineDiff = screen.getByTestId("session-git-line-diff");
     expect(within(lineDiff).getByText("+18")).toHaveClass("text-current");
     expect(within(lineDiff).getByText("+18")).not.toHaveClass("text-green-500");
@@ -580,17 +586,22 @@ describe("SessionItem leader profiles", () => {
     expect(within(lineDiff).getByText("-3")).not.toHaveClass("text-red-400");
   });
 
-  it("preserves git diff color cues on non-selected session rows", () => {
+  it.each([false, true])("preserves non-selected Git presentation (leader=%s)", (isOrchestrator) => {
     renderSessionItem({
       isActive: false,
       session: makeSession({
-        isOrchestrator: true,
+        isOrchestrator,
         leaderProfilePortrait: TAKO_PORTRAIT,
         linesAdded: 18,
         linesRemoved: 3,
       }),
     });
 
+    // Count colors still apply to ordinary rows; leaders omit the count labels.
+    if (isOrchestrator) {
+      expect(screen.queryByTestId("session-git-line-diff")).not.toBeInTheDocument();
+      return;
+    }
     const lineDiff = screen.getByTestId("session-git-line-diff");
     expect(within(lineDiff).getByText("+18")).toHaveClass("text-green-500");
     expect(within(lineDiff).getByText("-3")).toHaveClass("text-red-400");
