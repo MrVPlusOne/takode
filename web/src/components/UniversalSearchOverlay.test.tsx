@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { useState, type ComponentProps } from "react";
 
@@ -29,6 +29,7 @@ import type {
   GlobalStarredMessageSearchResult,
   MessageSearchResponse,
   MessageSearchResult,
+  QuestListPage,
   RecentAskBundlesResponse,
 } from "../api.js";
 import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
@@ -382,6 +383,61 @@ describe("UniversalSearchOverlay", () => {
 
     const input = screen.getByRole("searchbox", { name: "Universal Search query" });
     await waitFor(() => expect(input).toHaveFocus());
+  });
+
+  it.each(["success", "failure"] as const)("settles the quest loading status after %s", async (outcome) => {
+    // Hold the real search path pending: the header must report activity until either response outcome settles it.
+    let resolveSearch!: (page: QuestListPage) => void;
+    let rejectSearch!: (error: Error) => void;
+    mockListQuestPage.mockImplementationOnce(
+      () =>
+        new Promise<QuestListPage>((resolve, reject) => {
+          resolveSearch = resolve;
+          rejectSearch = reject;
+        }),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    renderOverlay({ initialMode: "quests", initialQuery: "loading" });
+
+    expect(screen.getByRole("status")).toHaveTextContent("Searching...");
+    expect(mockListQuestPage).toHaveBeenCalledTimes(1);
+    expect(mockListQuestPage).toHaveBeenCalledWith(expect.objectContaining({ text: "loading", limit: 20 }));
+
+    await act(async () => {
+      if (outcome === "failure") {
+        rejectSearch(new Error("Search unavailable"));
+        return;
+      }
+      resolveSearch({
+        quests: [
+          {
+            preview: true,
+            id: "loading-preview",
+            questId: "q-410",
+            version: 1,
+            title: "Loading indicator",
+            status: "in_progress",
+            createdAt: now,
+          },
+        ],
+        total: 1,
+        offset: 0,
+        limit: 20,
+        hasMore: false,
+        nextOffset: null,
+        previousOffset: null,
+        counts: { all: 1, idea: 0, refined: 0, in_progress: 1, done: 0 },
+        allTags: [],
+      });
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent(outcome === "success" ? "1 quests" : "0 quests");
+    expect(screen.queryByText("Searching...")).not.toBeInTheDocument();
+    if (outcome === "success") {
+      expect(screen.getByRole("option")).toHaveTextContent("Loading indicator");
+    } else {
+      expect(screen.getByText("Search failed")).toBeInTheDocument();
+    }
   });
 
   it("uses text search semantics and one conventional close control", () => {

@@ -417,6 +417,20 @@ export function PlaygroundUniversalSearchStates() {
             </div>
           </div>
         </Card>
+        <Card label="Quest search loading and results">
+          <UniversalSearchOverlay
+            open
+            presentation="inline"
+            initialMode="quests"
+            initialQuery="search"
+            currentSessionId={null}
+            sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
+            messages={[]}
+            onClose={() => {}}
+            onOpenQuest={() => {}}
+            onOpenMessage={() => {}}
+          />
+        </Card>
         <Card label="Overlay with Session mode results">
           <UniversalSearchOverlay
             open

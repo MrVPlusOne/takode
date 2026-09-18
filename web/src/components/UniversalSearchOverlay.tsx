@@ -1052,8 +1052,18 @@ export function UniversalSearchOverlay({
               })}
             </div>
             <div className="flex items-center gap-2 text-[11px] text-cc-muted">
-              <span>
-                {loading ? "Searching..." : `${results.length}${hasMore ? "+" : ""} ${modeLabel.toLowerCase()}`}
+              <span role="status" className="inline-flex items-center gap-1.5">
+                {loading ? (
+                  <>
+                    <span
+                      aria-hidden="true"
+                      className="h-3 w-3 shrink-0 rounded-full border-2 border-cc-muted/30 border-t-cc-primary motion-safe:animate-spin"
+                    />
+                    Searching...
+                  </>
+                ) : (
+                  `${results.length}${hasMore ? "+" : ""} ${modeLabel.toLowerCase()}`
+                )}
               </span>
               <span className="hidden sm:inline">Tab switches modes</span>
             </div>
