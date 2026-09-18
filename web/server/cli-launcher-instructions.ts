@@ -127,6 +127,11 @@ Use \`/port-changes\` when asked to port, sync, or push commits to the main repo
   );
 
   parts.push(
+    "## Check Prerequisites Before Escalation\n\n" +
+      "Before reporting a blocker or asking the user for more input, check whether it comes from the task's actual constraints or from your chosen approach. Consider whether information and resources already available, or a different approach, can resolve it within the existing scope and permissions.",
+  );
+
+  parts.push(
     "## User notifications\n\n" +
       "Use `takode notify` to alert the user when they should come look at your work.\n\n" +
       "    takode notify <category> <summary> [--suggest <answer>]...\n" +

@@ -150,14 +150,14 @@ describe("getOrchestratorGuardrails", () => {
 
 describe("buildInjectedSystemPromptForDebug", () => {
   it.each(["claude", "claude-sdk", "codex"] as const)("adds leader guardrails only to %s leaders", (backend) => {
-    // Exercise the same composition used for offline inspection: role selection
-    // must include the complete backend-specific section and preserve append order.
+    // Preserve the complete shared prompt for both roles, then append the selected
+    // leader guardrails. Compare canonical assembly without copying static prose.
     const guardrails = getOrchestratorGuardrails(backend);
     const worker = buildInjectedSystemPromptForDebug({ sessionNum: 8, backend });
     const leader = buildInjectedSystemPromptForDebug({ sessionNum: 8, backend, isOrchestrator: true });
     expect(worker).toBe(buildCompanionInstructions({ sessionNum: 8, backend }));
     expect(worker).not.toContain("## Leader Thread Routing");
-    expect(leader.endsWith(guardrails)).toBe(true);
+    expect(leader).toBe(`${worker}\n\n${guardrails}`);
     expect(leader.includes("## Native Computer Use")).toBe(backend === "codex");
   });
 
