@@ -7,7 +7,15 @@ function makeBridgeSession(options: { searchDataOnly?: boolean; hidden?: boolean
     state: { hidden: options.hidden },
     searchDataOnly: options.searchDataOnly === true,
     messageHistory: [
-      { type: "user_message", id: "u1", content: "Inspect the recent asks modal", timestamp: 10, threadKey: "q-1" },
+      {
+        type: "user_message",
+        id: "u1",
+        content: "Inspect the recent asks modal",
+        timestamp: 10,
+        threadKey: "q-1",
+        images: [{ imageId: "image", media_type: "image/png" }],
+        annotations: [{ id: "comment", selectedText: "Selected passage", comment: "Please clarify" }],
+      },
       {
         type: "leader_user_message",
         id: "a1",
@@ -77,6 +85,8 @@ describe("GET /sessions/recent-asks", () => {
       ownerThreadKey: "q-1",
       questTitle: "Recent asks",
       status: "responded",
+      // The endpoint carries counts from authoritative history without attachment bodies.
+      members: [{ messageId: "u1", imageCount: 1, commentCount: 1 }],
     });
     expect(body.coverageNotice).toContain("archived sessions");
   });

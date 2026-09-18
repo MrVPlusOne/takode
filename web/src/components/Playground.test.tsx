@@ -115,6 +115,14 @@ describe("Playground", () => {
     ).toBeTruthy();
     expect(await recentPreview.findAllByTestId("recent-ask-bundle")).toHaveLength(3);
     expect(recentPreview.getAllByRole("button", { name: /Open newest message in/ })).toHaveLength(3);
+    // Attachment-only messages stay visible; the mixed row retains text and both counts.
+    const recentRows = recentPreview.getAllByTestId("recent-ask-bundle");
+    expect(within(recentRows[0]!).getByTitle("1 image attachment")).toBeInTheDocument();
+    expect(within(recentRows[0]!).getByTitle("2 comment attachments")).toBeInTheDocument();
+    expect(within(recentRows[1]!).queryByTestId("recent-ask-text")).toBeNull();
+    expect(within(recentRows[1]!).getByTitle("2 comment attachments")).toBeInTheDocument();
+    expect(within(recentRows[2]!).queryByTestId("recent-ask-text")).toBeNull();
+    expect(within(recentRows[2]!).getByTitle("1 image attachment")).toBeInTheDocument();
 
     const messagesPreview = within(screen.getByTestId("playground-universal-messages-preview"));
     expect(

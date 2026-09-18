@@ -36,6 +36,7 @@ export interface RecentAskMember {
   preview: string;
   truncated: boolean;
   imageCount: number;
+  commentCount: number;
 }
 
 export interface RecentAskResponsePreview {
@@ -501,6 +502,7 @@ function memberFromMessage(
     preview: truncate(text, MEMBER_PREVIEW_LIMIT),
     truncated: text.length > MEMBER_PREVIEW_LIMIT,
     imageCount: message.images?.length ?? 0,
+    commentCount: message.annotations?.length ?? 0,
   };
 }
 

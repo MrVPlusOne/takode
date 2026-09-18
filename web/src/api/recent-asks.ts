@@ -23,6 +23,7 @@ export interface RecentAskMember {
   preview: string;
   truncated: boolean;
   imageCount: number;
+  commentCount: number;
 }
 
 export interface RecentAskResponsePreview {

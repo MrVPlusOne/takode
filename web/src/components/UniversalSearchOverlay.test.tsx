@@ -237,6 +237,7 @@ function recentAskResponse(overrides: Partial<RecentAskBundlesResponse> = {}): R
             preview: "Keep every correction independently navigable",
             truncated: false,
             imageCount: 1,
+            commentCount: 0,
           },
         ],
       },
@@ -954,7 +955,7 @@ describe("UniversalSearchOverlay", () => {
     );
     const bundle = await screen.findByTestId("recent-ask-bundle");
     expect(within(bundle).getByText("Keep every correction independently navigable")).toBeInTheDocument();
-    expect(within(bundle).getByText("1 attachment")).toBeInTheDocument();
+    expect(within(bundle).getByTitle("1 image attachment")).toBeInTheDocument();
     expect(screen.getByText("Some archived sessions are available only through Search.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Needs me" }));
@@ -1016,6 +1017,7 @@ describe("UniversalSearchOverlay", () => {
             preview: "Keep the exact wording.\n\n    Preserve the original indentation.",
             truncated: false,
             imageCount: 0,
+            commentCount: 0,
           },
         ],
       },
@@ -1037,6 +1039,7 @@ describe("UniversalSearchOverlay", () => {
             preview: "A longer exact request that continues…",
             truncated: true,
             imageCount: 0,
+            commentCount: 0,
           },
         ],
       },

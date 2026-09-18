@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import { api, type RecentAskBundle, type RecentAskBundleStatus, type RecentAskMember } from "../api.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 
@@ -57,6 +57,7 @@ export function RecentAskBundleResult({
 }) {
   const [expandedText, setExpandedText] = useState<Record<string, string>>({});
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const attachmentDescriptionId = useId();
 
   const toggleMemberFormatting = useCallback(
     async (member: RecentAskMember) => {
@@ -156,6 +157,9 @@ export function RecentAskBundleResult({
         {bundle.members.map((member, index) => {
           const fullText = expandedText[member.messageId];
           const text = fullText ?? member.preview;
+          const hasAttachments = member.imageCount > 0 || member.commentCount > 0;
+          const imageLabel = `${member.imageCount} image attachment${member.imageCount === 1 ? "" : "s"}`;
+          const commentLabel = `${member.commentCount} comment attachment${member.commentCount === 1 ? "" : "s"}`;
           const expandable =
             member.truncated ||
             member.preview.length > COMPACT_TEXT_EXPAND_THRESHOLD ||
@@ -170,6 +174,7 @@ export function RecentAskBundleResult({
                 className="flex min-h-11 min-w-0 flex-1 items-start gap-2 py-1.5 text-left outline-none hover:text-cc-primary focus-visible:text-cc-primary sm:min-h-0 sm:py-1"
                 onClick={() => onOpenMember(member)}
                 aria-label={`Open newest message in ${sessionLabel} ${threadLabel}`}
+                aria-describedby={hasAttachments ? `${attachmentDescriptionId}-${index}` : undefined}
               >
                 <time
                   className="mt-px w-11 shrink-0 text-[10px] tabular-nums text-cc-muted"
@@ -177,18 +182,60 @@ export function RecentAskBundleResult({
                 >
                   {formatClockTime(member.timestamp)}
                 </time>
-                <span className="min-w-0 flex-1">
-                  <span
-                    data-testid="recent-ask-text"
-                    className={`break-words text-[13px] leading-[1.15rem] text-cc-fg ${
-                      fullText == null ? "line-clamp-2 whitespace-normal" : "block whitespace-pre-wrap"
-                    }`}
-                  >
-                    {text}
-                  </span>
-                  {member.imageCount > 0 && (
-                    <span className="mt-0.5 block text-[10px] leading-3 text-cc-muted">
-                      {member.imageCount} {member.imageCount === 1 ? "attachment" : "attachments"}
+                <span className="flex min-w-0 flex-1 items-start gap-2">
+                  {text && (
+                    <span
+                      data-testid="recent-ask-text"
+                      className={`min-w-0 flex-1 break-words text-[13px] leading-[1.15rem] text-cc-fg ${
+                        fullText == null ? "line-clamp-2 whitespace-normal" : "block whitespace-pre-wrap"
+                      }`}
+                    >
+                      {text}
+                    </span>
+                  )}
+                  {hasAttachments && (
+                    <span className="inline-flex shrink-0 items-center gap-2 text-xs leading-[1.15rem] text-cc-muted">
+                      {member.imageCount > 0 && (
+                        <span className="inline-flex items-center gap-1" title={imageLabel} aria-hidden="true">
+                          <svg
+                            aria-hidden="true"
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            className="h-3.5 w-3.5"
+                          >
+                            <rect x="2" y="2" width="12" height="12" rx="2" />
+                            <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
+                            <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                          {member.imageCount}
+                        </span>
+                      )}
+                      {member.commentCount > 0 && (
+                        <span className="inline-flex items-center gap-1" title={commentLabel} aria-hidden="true">
+                          <svg
+                            aria-hidden="true"
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            className="h-3.5 w-3.5"
+                          >
+                            <path
+                              d="M3 2.5h10a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H7l-4 3v-3H3a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1Z"
+                              strokeLinejoin="round"
+                            />
+                            <path d="M5 6h6M5 8.5h4" strokeLinecap="round" />
+                          </svg>
+                          {member.commentCount}
+                        </span>
+                      )}
+                      <span id={`${attachmentDescriptionId}-${index}`} className="sr-only">
+                        {[member.imageCount > 0 && imageLabel, member.commentCount > 0 && commentLabel]
+                          .filter(Boolean)
+                          .join(", ")}
+                      </span>
                     </span>
                   )}
                 </span>

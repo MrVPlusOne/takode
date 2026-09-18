@@ -134,6 +134,90 @@ describe("recent ask streamed response boundaries", () => {
 });
 
 describe("buildRecentAskBundles", () => {
+  it.each([
+    { content: "Text without attachments", images: undefined, annotations: undefined, imageCount: 0, commentCount: 0 },
+    {
+      content: "",
+      images: [{ imageId: "image-only", media_type: "image/png" }],
+      annotations: [],
+      imageCount: 1,
+      commentCount: 0,
+    },
+    {
+      content: "",
+      images: [],
+      annotations: [{ id: "comment-only", selectedText: "Selected passage", comment: "Please clarify" }],
+      imageCount: 0,
+      commentCount: 1,
+    },
+    {
+      content: "Exact text\n  with formatting",
+      images: [
+        { imageId: "first", media_type: "image/png" },
+        { imageId: "second", media_type: "image/jpeg" },
+      ],
+      annotations: [
+        { id: "first", selectedText: "First passage", comment: "First comment" },
+        { id: "second", selectedText: "Second passage", comment: "Second comment" },
+      ],
+      imageCount: 2,
+      commentCount: 2,
+    },
+  ])("counts only the newest message's attachments ($imageCount images, $commentCount comments)", ({
+    content,
+    images,
+    annotations,
+    imageCount,
+    commentCount,
+  }) => {
+    // Use saved browser-history shapes. Older messages and other destinations must
+    // never supply counts to the selected message, even when its text is empty.
+    const newest: BrowserIncomingMessage = {
+      type: "user_message",
+      id: "newest",
+      content,
+      timestamp: 30,
+      threadKey: "main",
+      images,
+      annotations,
+    };
+    const history: BrowserIncomingMessage[] = [
+      {
+        type: "user_message",
+        id: "older",
+        content: "Older ask",
+        timestamp: 10,
+        images: [{ imageId: "old-image", media_type: "image/png" }],
+        annotations: [{ id: "old-comment", selectedText: "Old passage", comment: "Old comment" }],
+      },
+      user("elsewhere", "Another destination", 20, "q-7"),
+      newest,
+    ];
+    const original = structuredClone(history);
+    const response = buildRecentAskBundles({ documents: [doc(history)] });
+    expect(response.groups).toHaveLength(2);
+    expect(response.groups[0]).toMatchObject({
+      id: "s1:main",
+      ownerThreadKey: "main",
+      lastAskedAt: 30,
+      members: [
+        {
+          messageId: "newest",
+          historyIndex: 2,
+          timestamp: 30,
+          preview: content,
+          truncated: false,
+          imageCount,
+          commentCount,
+        },
+      ],
+    });
+    expect(response.groups[1]?.members[0]).toMatchObject({ imageCount: 0, commentCount: 0 });
+    expect(response.groups[0]?.members[0]).not.toHaveProperty("images");
+    expect(response.groups[0]?.members[0]).not.toHaveProperty("annotations");
+    expect(history).toEqual(original);
+  });
+
   it("excludes native child responses and terminal results from root Recent bundles", () => {
     // Recent opens responses in the ordinary root feed. Child-owned rows remain
     // inspector-only and cannot satisfy a root notification anchor or close the bundle.

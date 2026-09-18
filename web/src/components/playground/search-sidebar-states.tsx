@@ -60,6 +60,7 @@ const PLAYGROUND_RECENT_ASKS_RESPONSE: RecentAskBundlesResponse = {
           preview: "Keep Recent browse-only: show the newest human message from each destination.",
           truncated: false,
           imageCount: 1,
+          commentCount: 2,
         },
       ],
     },
@@ -85,9 +86,10 @@ const PLAYGROUND_RECENT_ASKS_RESPONSE: RecentAskBundlesResponse = {
           messageId: "recent-q-1927-latest",
           historyIndex: 7,
           timestamp: Date.now() - 18 * 60_000,
-          preview: "Choose whether to continue with the private signed URL or pause the viewer build.",
+          preview: "",
           truncated: false,
           imageCount: 0,
+          commentCount: 2,
         },
       ],
     },
@@ -109,9 +111,10 @@ const PLAYGROUND_RECENT_ASKS_RESPONSE: RecentAskBundlesResponse = {
           messageId: "recent-review-main-latest",
           historyIndex: 4,
           timestamp: Date.now() - 45 * 60_000,
-          preview: "Review the mobile spacing and keyboard behavior.",
+          preview: "",
           truncated: false,
-          imageCount: 0,
+          imageCount: 1,
+          commentCount: 0,
         },
       ],
       response: {
@@ -371,7 +374,7 @@ export function PlaygroundUniversalSearchStates() {
   return (
     <Section
       title="Universal Search"
-      description="App-level command palette with browse-only Recent destinations, exhaustive Messages search within the selected scope, and explicit Quests, Sessions, and Starred modes."
+      description="App-level command palette with Recent text, comment-only and image-only previews, exhaustive Messages search within the selected scope, and explicit Quests, Sessions, and Starred modes."
     >
       <div className="space-y-4">
         <Card label="Recent browsing versus scoped Messages search">
