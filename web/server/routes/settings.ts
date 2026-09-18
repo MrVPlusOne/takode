@@ -835,6 +835,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
     return {
       needsInput: typeof raw.needsInput === "boolean" ? raw.needsInput : DEFAULT_PUSHOVER_EVENT_FILTERS.needsInput,
       review: typeof raw.review === "boolean" ? raw.review : DEFAULT_PUSHOVER_EVENT_FILTERS.review,
+      notifyMe: typeof raw.notifyMe === "boolean" ? raw.notifyMe : DEFAULT_PUSHOVER_EVENT_FILTERS.notifyMe,
       error: typeof raw.error === "boolean" ? raw.error : DEFAULT_PUSHOVER_EVENT_FILTERS.error,
     };
   }
@@ -844,6 +845,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
     return {
       needsInput: typeof raw.needsInput === "boolean" ? raw.needsInput : current.needsInput,
       review: typeof raw.review === "boolean" ? raw.review : current.review,
+      notifyMe: typeof raw.notifyMe === "boolean" ? raw.notifyMe : current.notifyMe,
       error: typeof raw.error === "boolean" ? raw.error : current.error,
     };
   }
@@ -1003,6 +1005,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
       }
       if (filters.review !== undefined && typeof filters.review !== "boolean") {
         return c.json({ error: "pushoverEventFilters.review must be a boolean" }, 400);
+      }
+      if (filters.notifyMe !== undefined && typeof filters.notifyMe !== "boolean") {
+        return c.json({ error: "pushoverEventFilters.notifyMe must be a boolean" }, 400);
       }
       if (filters.error !== undefined && typeof filters.error !== "boolean") {
         return c.json({ error: "pushoverEventFilters.error must be a boolean" }, 400);

@@ -43,7 +43,7 @@ describe("settings-manager", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
@@ -110,12 +110,42 @@ describe("settings-manager", () => {
   });
 
   it("normalizes and persists pushover event filters", async () => {
-    const updated = updateSettings({ pushoverEventFilters: { needsInput: false, review: true, error: false } });
-    expect(updated.pushoverEventFilters).toEqual({ needsInput: false, review: true, error: false });
+    const updated = updateSettings({
+      pushoverEventFilters: { needsInput: false, review: true, notifyMe: true, error: false },
+    });
+    expect(updated.pushoverEventFilters).toEqual({ needsInput: false, review: true, notifyMe: true, error: false });
 
     await _flushForTest();
     const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
-    expect(saved.pushoverEventFilters).toEqual({ needsInput: false, review: true, error: false });
+    expect(saved.pushoverEventFilters).toEqual({ needsInput: false, review: true, notifyMe: true, error: false });
+  });
+
+  it.each([
+    undefined,
+    true,
+    false,
+  ])("loads and persists Notify Me=%s without resetting existing preferences", async (notifyMe) => {
+    // JSON omits undefined, reproducing existing configuration without this field.
+    const existing = {
+      pushoverEnabled: false,
+      pushoverUserKey: "synthetic-user",
+      pushoverApiToken: "synthetic-token",
+      pushoverDelaySeconds: 73,
+      pushoverEventFilters: { needsInput: false, review: false, error: false, notifyMe },
+    };
+    writeFileSync(settingsPath, JSON.stringify(existing));
+    _resetForTest(settingsPath);
+    const expected = {
+      ...existing,
+      pushoverEventFilters: { ...existing.pushoverEventFilters, notifyMe: notifyMe ?? true },
+    };
+    expect(getSettings()).toMatchObject(expected);
+    // An unrelated save persists the normalized value, and a reload preserves it.
+    updateSettings({ serverSlug: "test-server" });
+    await _flushForTest();
+    _resetForTest(settingsPath);
+    expect(getSettings()).toMatchObject(expected);
+    expect(JSON.parse(readFileSync(settingsPath, "utf-8"))).toMatchObject(expected);
   });
 
   it("preserves safe future Codex reasoning defaults instead of dropping them", async () => {
@@ -545,7 +575,7 @@ describe("settings-manager", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",

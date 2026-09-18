@@ -109,7 +109,7 @@ vi.mock("./settings-manager.js", () => ({
     pushoverApiToken: "",
     pushoverDelaySeconds: 30,
     pushoverEnabled: true,
-    pushoverEventFilters: { needsInput: true, review: true, error: true },
+    pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
     pushoverBaseUrl: "",
     claudeBinary: "",
     codexBinary: "",
@@ -145,7 +145,7 @@ vi.mock("./settings-manager.js", () => ({
     pushoverApiToken: patch.pushoverApiToken ?? "",
     pushoverDelaySeconds: patch.pushoverDelaySeconds ?? 30,
     pushoverEnabled: patch.pushoverEnabled ?? true,
-    pushoverEventFilters: patch.pushoverEventFilters ?? { needsInput: true, review: true, error: true },
+    pushoverEventFilters: patch.pushoverEventFilters ?? { needsInput: true, review: true, notifyMe: true, error: true },
     pushoverBaseUrl: patch.pushoverBaseUrl ?? "",
     claudeBinary: patch.claudeBinary ?? "",
     codexBinary: patch.codexBinary ?? "",
@@ -525,6 +525,27 @@ beforeEach(() => {
   vi.spyOn(containerManager, "reseedGitAuth").mockImplementation(() => {});
 });
 
+it.each([
+  undefined,
+  true,
+  false,
+])("returns the effective Notify Me=%s setting for stored configuration", async (notifyMe) => {
+  // The response is authoritative even for files predating the new event filter.
+  const current = settingsManager.getSettings();
+  const storedFilters = JSON.parse(JSON.stringify({ needsInput: false, review: false, error: true, notifyMe }));
+  await vi.mocked(settingsManager.getSettings).withImplementation(
+    () => ({ ...current, pushoverEnabled: false, pushoverEventFilters: storedFilters }),
+    async () => {
+      const res = await app.request("/api/settings");
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        pushoverEnabled: false,
+        pushoverEventFilters: { needsInput: false, review: false, notifyMe: notifyMe ?? true, error: true },
+      });
+    },
+  );
+});
+
 // ─── Sessions ────────────────────────────────────────────────────────────────
 
 // ─── SSE Session Creation Streaming ──────────────────────────────────────────
@@ -557,7 +578,7 @@ describe("GET /api/settings", () => {
       pushoverApiToken: "t456",
       pushoverDelaySeconds: 60,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverBaseUrl: "http://localhost:3456",
       claudeBinary: "",
       codexBinary: "",
@@ -595,7 +616,7 @@ describe("GET /api/settings", () => {
       serverSlug: "prod",
       pushoverConfigured: true,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverDelaySeconds: 60,
       pushoverBaseUrl: "http://localhost:3456",
       claudeBinary: "",
@@ -640,7 +661,7 @@ describe("GET /api/settings", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
@@ -678,7 +699,7 @@ describe("GET /api/settings", () => {
       serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverDelaySeconds: 30,
       pushoverBaseUrl: "",
       claudeBinary: "",
@@ -720,7 +741,7 @@ describe("GET /api/settings", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
@@ -778,7 +799,7 @@ describe("GET /api/settings", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",

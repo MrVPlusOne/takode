@@ -189,7 +189,7 @@ beforeEach(() => {
     serverSlug: "prod",
     pushoverConfigured: false,
     pushoverEnabled: true,
-    pushoverEventFilters: { needsInput: true, review: true, error: true },
+    pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
     pushoverDelaySeconds: 30,
     pushoverBaseUrl: "",
     restartSupported: true,
@@ -221,7 +221,7 @@ beforeEach(() => {
     serverSlug: "prod",
     pushoverConfigured: false,
     pushoverEnabled: true,
-    pushoverEventFilters: { needsInput: true, review: true, error: true },
+    pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
     pushoverDelaySeconds: 30,
     pushoverBaseUrl: "",
     restartSupported: true,
@@ -1045,7 +1045,7 @@ describe("SettingsPage", () => {
       serverSlug: "prod",
       pushoverConfigured: true,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: false, error: true },
+      pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true },
       pushoverDelaySeconds: 30,
       pushoverBaseUrl: "",
       claudeBinary: "",
@@ -1068,7 +1068,7 @@ describe("SettingsPage", () => {
       serverSlug: "prod",
       pushoverConfigured: true,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverDelaySeconds: 30,
       pushoverBaseUrl: "",
       claudeBinary: "",
@@ -1103,7 +1103,7 @@ describe("SettingsPage", () => {
     await waitFor(() => {
       expect(mockApi.updateSettings).toHaveBeenCalledWith(
         expect.objectContaining({
-          pushoverEventFilters: { needsInput: true, review: true, error: true },
+          pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
         }),
       );
     });
@@ -1115,6 +1115,30 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
 
     expect(await screen.findByText("load failed")).toBeInTheDocument();
+  });
+
+  it.each([true, false])("loads and independently saves Notify Me=%s", async (notifyMe) => {
+    // Exercise the visible control and server-confirmed save while review stays off.
+    const base = await mockApi.getSettings();
+    const filters = { needsInput: false, review: false, notifyMe, error: true };
+    mockApi.getSettings.mockResolvedValue({ ...base, pushoverEventFilters: filters });
+    mockApi.updateSettings.mockResolvedValue({ ...base, pushoverEventFilters: { ...filters, notifyMe: !notifyMe } });
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+    const section = within(settingsSection("Push Notifications (Pushover)"));
+    const toggle = section.getByRole("checkbox", { name: /^Notify Me/ });
+    expect(toggle).toHaveProperty("checked", notifyMe);
+    expect(section.getByRole("checkbox", { name: /^Ready for review/ })).not.toBeChecked();
+    fireEvent.click(toggle);
+    fireEvent.submit(toggle.closest("form")!);
+    await waitFor(() => {
+      expect(mockApi.updateSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ pushoverEventFilters: { ...filters, notifyMe: !notifyMe } }),
+      );
+      expect(section.getByText("Pushover settings saved.")).toBeInTheDocument();
+    });
+    expect(toggle).toHaveProperty("checked", !notifyMe);
+    expect(section.getByRole("checkbox", { name: /^Ready for review/ })).not.toBeChecked();
   });
 
   it("navigates back when Back button is clicked", async () => {
@@ -1671,7 +1695,7 @@ describe("SettingsPage", () => {
       serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverDelaySeconds: 30,
       pushoverBaseUrl: "",
       claudeBinary: "",
@@ -1691,7 +1715,7 @@ describe("SettingsPage", () => {
       serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverDelaySeconds: 30,
       pushoverBaseUrl: "",
       claudeBinary: "",

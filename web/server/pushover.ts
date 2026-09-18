@@ -7,17 +7,19 @@
  */
 
 export type PushoverEventType = "permission" | "question" | "completed" | "error" | "monitored-result";
-export type PushoverNotificationCategory = "needs-input" | "review" | "error";
+export type PushoverNotificationCategory = "needs-input" | "review" | "notify-me" | "error";
 
 export interface PushoverEventFilters {
   needsInput: boolean;
   review: boolean;
+  notifyMe: boolean;
   error: boolean;
 }
 
 export const DEFAULT_PUSHOVER_EVENT_FILTERS: Readonly<PushoverEventFilters> = {
   needsInput: true,
   review: true,
+  notifyMe: true,
   error: true,
 };
 
@@ -107,7 +109,7 @@ const EVENT_CATEGORY: Record<PushoverEventType, PushoverNotificationCategory> = 
   question: "needs-input",
   completed: "review",
   error: "error",
-  "monitored-result": "review",
+  "monitored-result": "notify-me",
 };
 
 export class PushoverNotifier {
@@ -131,6 +133,7 @@ export class PushoverNotifier {
     return {
       needsInput: raw?.needsInput ?? DEFAULT_PUSHOVER_EVENT_FILTERS.needsInput,
       review: raw?.review ?? DEFAULT_PUSHOVER_EVENT_FILTERS.review,
+      notifyMe: raw?.notifyMe ?? DEFAULT_PUSHOVER_EVENT_FILTERS.notifyMe,
       error: raw?.error ?? DEFAULT_PUSHOVER_EVENT_FILTERS.error,
     };
   }
@@ -140,6 +143,7 @@ export class PushoverNotifier {
     const category = EVENT_CATEGORY[eventType];
     if (category === "needs-input") return filters.needsInput;
     if (category === "review") return filters.review;
+    if (category === "notify-me") return filters.notifyMe;
     return filters.error;
   }
 

@@ -28,7 +28,7 @@ function fixture(backend: "claude" | "codex" = "claude") {
     pushoverApiToken: "synthetic-token",
     pushoverUserKey: "synthetic-user",
     pushoverDelaySeconds: 30,
-    pushoverEventFilters: { needsInput: true, review: true, error: true },
+    pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true },
   };
   const notifier = new PushoverNotifier({
     getSettings: () => settings,
@@ -134,6 +134,47 @@ afterEach(() => {
 });
 
 describe("Notify Me result to Pushover", () => {
+  // Review is disabled in the fixture so every lifecycle case also proves that
+  // monitored results use their own filter through the real completed-turn path.
+  it.each([
+    [true, true],
+    [true, false],
+    [false, true],
+    [false, false],
+  ])("uses notifyMe=%s independently of review=%s", async (notifyMe, review) => {
+    const { session, settings, publish } = fixture();
+    settings.pushoverEventFilters = { needsInput: false, review, notifyMe, error: false };
+    setThreadMonitoring(session, "q-42", true);
+    await publish();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetch).toHaveBeenCalledTimes(notifyMe ? 1 : 0);
+    expect(session.state.threadMonitoring!.threads["q-42"].pending).not.toBeNull();
+  });
+
+  it("defaults a missing Notify Me filter to enabled without inheriting disabled legacy filters", async () => {
+    const { session, settings, publish } = fixture();
+    // Model old persisted configuration entering the scheduler without the new field.
+    Object.assign(settings, { pushoverEventFilters: { needsInput: false, review: false, error: false } });
+    setThreadMonitoring(session, "q-42", true);
+    await publish();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not backfill a suppressed result when Notify Me is enabled later", async () => {
+    const { session, settings, publish } = fixture();
+    settings.pushoverEventFilters!.notifyMe = false;
+    setThreadMonitoring(session, "q-42", true);
+    await publish();
+    settings.pushoverEventFilters!.notifyMe = true;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetch).not.toHaveBeenCalled();
+    // Only another newly accepted result schedules a push.
+    await publish();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     "claude",
     "codex",
@@ -223,7 +264,7 @@ describe("Notify Me result to Pushover", () => {
     const { session, settings, publish, launcherInfo, bridge } = fixture();
     setThreadMonitoring(session, "q-42", true);
     await publish();
-    if (change === "filter") settings.pushoverEventFilters!.review = false;
+    if (change === "filter") settings.pushoverEventFilters!.notifyMe = false;
     if (change === "archive") launcherInfo.archived = true;
     if (change === "removed") (bridge as any).sessions.delete(session.id);
     await vi.advanceTimersByTimeAsync(30_000);
@@ -269,7 +310,7 @@ describe("Notify Me result to Pushover", () => {
     "interrupted",
     "needs-input",
     "disabled",
-    "review-filter",
+    "notify-me-filter",
     "credentials",
   ])("does not send for %s", async (condition) => {
     const { session, settings, publish } = fixture();
@@ -284,7 +325,7 @@ describe("Notify Me result to Pushover", () => {
         done: false,
       });
     if (condition === "disabled") settings.pushoverEnabled = false;
-    if (condition === "review-filter") settings.pushoverEventFilters!.review = false;
+    if (condition === "notify-me-filter") settings.pushoverEventFilters!.notifyMe = false;
     if (condition === "credentials") settings.pushoverApiToken = "";
     await publish("q-42", condition === "waiting" ? "Waiting" : "Ready", condition === "interrupted");
     await vi.advanceTimersByTimeAsync(120_000);

@@ -59,6 +59,7 @@ const SCROLL_STORAGE_KEY = "cc-settings-scroll";
 const DEFAULT_PUSHOVER_EVENT_FILTERS: PushoverEventFilters = {
   needsInput: true,
   review: true,
+  notifyMe: true,
   error: true,
 };
 
@@ -1613,6 +1614,18 @@ export function SettingsPage({
                     <span className="min-w-0">
                       <span className="block text-sm text-cc-fg">Ready for review</span>
                       <span className="block text-xs text-cc-muted">Completed turns that need your eyes.</span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-3 px-3 py-3 border-t border-cc-border bg-cc-panel cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={poEventFilters.notifyMe}
+                      onChange={(e) => setPoEventFilter("notifyMe", e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm text-cc-fg">Notify Me</span>
+                      <span className="block text-xs text-cc-muted">New results in threads you track.</span>
                     </span>
                   </label>
                   <label className="flex items-start gap-3 px-3 py-3 border-t border-cc-border bg-cc-hover/40 cursor-pointer">

@@ -94,7 +94,8 @@ describe("PushoverNotifier", () => {
   it("does not schedule notifications for disabled categories", async () => {
     notifier = new PushoverNotifier(
       makeOpts({
-        getSettings: () => makeSettings({ pushoverEventFilters: { needsInput: true, review: false, error: true } }),
+        getSettings: () =>
+          makeSettings({ pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true } }),
       }),
     );
     notifier.scheduleNotification("sess-1", "completed");
@@ -104,17 +105,35 @@ describe("PushoverNotifier", () => {
   });
 
   it("re-checks filters before firing pending notifications", async () => {
-    let filters = { needsInput: true, review: true, error: true };
+    let filters = { needsInput: true, review: true, notifyMe: true, error: true };
     notifier = new PushoverNotifier(
       makeOpts({
         getSettings: () => makeSettings({ pushoverEventFilters: filters }),
       }),
     );
     notifier.scheduleNotification("sess-1", "completed");
-    filters = { needsInput: true, review: false, error: true };
+    filters = { needsInput: true, review: false, notifyMe: true, error: true };
 
     await vi.advanceTimersByTimeAsync(30_000);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "permission",
+    "question",
+    "completed",
+    "error",
+  ] as const)("keeps %s delivery enabled when only Notify Me is disabled", async (eventType) => {
+    // The new filter must not change any legacy event category's coverage.
+    notifier = new PushoverNotifier(
+      makeOpts({
+        getSettings: () =>
+          makeSettings({ pushoverEventFilters: { needsInput: true, review: true, notifyMe: false, error: true } }),
+      }),
+    );
+    notifier.scheduleNotification("sess-1", eventType);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   // ── Message format ──────────────────────────────────────────────────

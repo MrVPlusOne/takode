@@ -683,6 +683,7 @@ export interface ChangelogResponse {
 export interface PushoverEventFilters {
   needsInput: boolean;
   review: boolean;
+  notifyMe: boolean;
   error: boolean;
 }
 

@@ -438,6 +438,7 @@ function normalizePushoverEventFilters(raw: unknown): PushoverEventFilters {
     needsInput:
       typeof filters.needsInput === "boolean" ? filters.needsInput : DEFAULT_PUSHOVER_EVENT_FILTERS.needsInput,
     review: typeof filters.review === "boolean" ? filters.review : DEFAULT_PUSHOVER_EVENT_FILTERS.review,
+    notifyMe: typeof filters.notifyMe === "boolean" ? filters.notifyMe : DEFAULT_PUSHOVER_EVENT_FILTERS.notifyMe,
     error: typeof filters.error === "boolean" ? filters.error : DEFAULT_PUSHOVER_EVENT_FILTERS.error,
   };
 }

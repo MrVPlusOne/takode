@@ -105,7 +105,7 @@ vi.mock("./settings-manager.js", () => ({
     pushoverApiToken: "",
     pushoverDelaySeconds: 30,
     pushoverEnabled: true,
-    pushoverEventFilters: { needsInput: true, review: true, error: true },
+    pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
     pushoverBaseUrl: "",
     claudeBinary: "",
     codexBinary: "",
@@ -142,7 +142,7 @@ vi.mock("./settings-manager.js", () => ({
     pushoverApiToken: patch.pushoverApiToken ?? "",
     pushoverDelaySeconds: patch.pushoverDelaySeconds ?? 30,
     pushoverEnabled: patch.pushoverEnabled ?? true,
-    pushoverEventFilters: patch.pushoverEventFilters ?? { needsInput: true, review: true, error: true },
+    pushoverEventFilters: patch.pushoverEventFilters ?? { needsInput: true, review: true, notifyMe: true, error: true },
     pushoverBaseUrl: patch.pushoverBaseUrl ?? "",
     claudeBinary: patch.claudeBinary ?? "",
     codexBinary: patch.codexBinary ?? "",
@@ -558,7 +558,7 @@ describe("PUT /api/settings", () => {
       pushoverApiToken: "t456",
       pushoverDelaySeconds: 60,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
@@ -624,7 +624,7 @@ describe("PUT /api/settings", () => {
       serverSlug: "prod",
       pushoverConfigured: true,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverDelaySeconds: 60,
       pushoverBaseUrl: "",
       claudeBinary: "",
@@ -665,7 +665,7 @@ describe("PUT /api/settings", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: false, error: true },
+      pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
@@ -704,7 +704,7 @@ describe("PUT /api/settings", () => {
       pushoverApiToken: undefined,
       pushoverDelaySeconds: undefined,
       pushoverEnabled: undefined,
-      pushoverEventFilters: { needsInput: true, review: false, error: true },
+      pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true },
       pushoverBaseUrl: undefined,
       claudeBinary: undefined,
       codexBinary: undefined,
@@ -759,7 +759,7 @@ describe("PUT /api/settings", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
@@ -829,7 +829,7 @@ describe("PUT /api/settings", () => {
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
@@ -937,16 +937,41 @@ describe("PUT /api/settings", () => {
     expect(json).toEqual({ error: "pushoverDelaySeconds must be a number between 5 and 300" });
   });
 
-  it("returns 400 for invalid pushoverEventFilters value", async () => {
+  it.each(["review", "notifyMe"])("returns 400 for invalid pushoverEventFilters.%s", async (key) => {
+    // Invalid values must be rejected rather than silently enabling an event.
     const res = await app.request("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pushoverEventFilters: { review: "nope" } }),
+      body: JSON.stringify({ pushoverEventFilters: { [key]: "nope" } }),
     });
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json).toEqual({ error: "pushoverEventFilters.review must be a boolean" });
+    expect(json).toEqual({ error: `pushoverEventFilters.${key} must be a boolean` });
+  });
+
+  it.each([
+    { notifyMe: false },
+    { notifyMe: true },
+    { review: true },
+  ])("merges the event filter patch %j without resetting other saved filters", async (patch) => {
+    // A partial save of another event must retain an explicit Notify Me opt-out.
+    const current = settingsManager.getSettings();
+    const filters = { needsInput: false, review: false, notifyMe: false, error: true };
+    await vi.mocked(settingsManager.getSettings).withImplementation(
+      () => ({ ...current, pushoverEventFilters: filters }),
+      async () => {
+        const res = await app.request("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pushoverEventFilters: patch }),
+        });
+        expect(res.status).toBe(200);
+        expect(settingsManager.updateSettings).toHaveBeenCalledWith(
+          expect.objectContaining({ pushoverEventFilters: { ...filters, ...patch } }),
+        );
+      },
+    );
   });
 
   it("returns 400 when no settings fields are provided", async () => {
