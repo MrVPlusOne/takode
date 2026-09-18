@@ -57,6 +57,38 @@ describe("Codex leader recycle continuation", () => {
     mockGetKnownSessionNum.mockReset();
   });
 
+  it.each([false, true])("selects recycle skill delivery for native ownership %s", (nativeRecovery) => {
+    // Native session instructions already own the skills; only the fallback
+    // path should append a skill payload, even without an optional memory catalog.
+    const session = makeLeaderSession([]);
+    session.codexAdapter = { hasNativeCompactionRecovery: () => nativeRecovery };
+    prepareCodexLeaderRecycleSession(session, "manual_compact", 15_000, makeDeps());
+    const buildLeaderSkillPreloadBundles = vi.fn(() => [
+      {
+        skillName: "example",
+        source: "fixture",
+        files: [],
+        content: "fixture skill context",
+        agentSource: { sessionId: "system:skill-preload", sessionLabel: "Skill Preload" },
+      },
+    ]);
+    const injectUserMessage = vi.fn();
+
+    injectCompactionRecovery(session, {
+      isLeaderSession: () => true,
+      isSystemSourceTag: () => true,
+      injectUserMessage,
+      buildLeaderSkillPreloadBundles,
+    });
+
+    expect(injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(buildLeaderSkillPreloadBundles).toHaveBeenCalledTimes(nativeRecovery ? 0 : 1);
+    const options = injectUserMessage.mock.calls[0]![4];
+    expect(options.deliveryContent.includes("fixture skill context")).toBe(!nativeRecovery);
+    expect(options.historyFollowUps).toHaveLength(nativeRecovery ? 0 : 1);
+    expect(session.codexLeaderRecycleContinuation).toBeNull();
+  });
+
   it("injects a specific stopped-after-tools leader continuation even when old compaction recovery exists", () => {
     // Regression for q-1494 and q-1500: a leader recycled after tool
     // activity while preparing a quest-design/dispatch approval surface. The
@@ -173,7 +205,7 @@ describe("Codex leader recycle continuation", () => {
       "You are a replacement leader continuing the same Takode session",
     );
     expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "required leader skill contents are included immediately after this recovery message",
+      "required leader skills are already loaded with your session context",
     );
     expect(session.codexLeaderRecycleContinuation?.content).toContain("via tool calls");
     expect(session.codexLeaderRecycleContinuation?.content).toContain(
@@ -301,9 +333,7 @@ describe("Codex leader recycle continuation", () => {
         expect(content).toContain("Use it only as historical evidence if Takode inspection shows it matters.");
         expect(content).toContain("continue the interrupted workflow only if it is safe");
         expect(content).toContain("You are a replacement leader continuing the same Takode session");
-        expect(content).toContain(
-          "required leader skill contents are included immediately after this recovery message",
-        );
+        expect(content).toContain("required leader skills are already loaded with your session context");
         expect(content).toContain("via tool calls");
         expect(content).toContain("Invoke /leader-dispatch only before choosing workers or dispatching work.");
         expect(content).toContain("takode leader-context-resume 42");

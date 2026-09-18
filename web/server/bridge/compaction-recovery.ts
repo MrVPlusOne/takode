@@ -361,7 +361,7 @@ function buildOptionalMemoryCatalog(
 }
 
 function isThenable<T>(value: T | Promise<T>): value is Promise<T> {
-  return typeof (value as { then?: unknown }).then === "function";
+  return value != null && typeof (value as { then?: unknown }).then === "function";
 }
 
 function buildRecycleContinuationThreadRoute(
