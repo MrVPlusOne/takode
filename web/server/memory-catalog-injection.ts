@@ -61,6 +61,7 @@ export async function buildMemoryCatalogInjectionBundle(
       );
     }
     const bundle = buildAvailableMemoryCatalogBundle(renderMemoryCatalogShow(catalog), { limit: options.limit });
+    if (bundle.truncated) return bundle;
     return {
       ...bundle,
       recordSeen: buildCatalogSeenRecorder({

@@ -179,6 +179,72 @@ source:
     expect(cleanDiff.stdout).toContain("No catalog changes since last seen.");
   });
 
+  it("reports body-only edits compactly and upgrades legacy freshness without a false clean result", async () => {
+    const scopedEnv = { ...env, COMPANION_SESSION_ID: "body-reader" };
+    const path = "decisions/body-version.md";
+    const frontmatter = "description: Read for the current rule.\nsource: [session:test]";
+    await writeMemoryFile(path, frontmatter, "Original body.");
+    const show = await runMemory(["catalog", "show", "--json"], scopedEnv);
+    expect(show.status).toBe(0);
+    expect(JSON.parse(show.stdout)).not.toHaveProperty("contentHashes");
+
+    // A large changed body must affect freshness without being echoed by either output format.
+    const changedBody = "BODY_DETAIL_ONLY ".repeat(2_000);
+    await writeMemoryFile(path, frontmatter, changedBody);
+    const changed = await runMemory(["catalog", "diff"], scopedEnv);
+    expect(changed.status).toBe(0);
+    expect(changed.stdout).toContain(`changed: ${path} Read for the current rule.`);
+    expect(changed.stdout).not.toContain("BODY_DETAIL_ONLY");
+    expect(changed.stdout.length).toBeLessThan(1_000);
+
+    const seenPath = join(tempDir, "memory", ".git", "takode-memory-catalog-seen", "body-reader.json");
+    const snapshot = JSON.parse(await readFile(seenPath, "utf-8"));
+    expect(snapshot.contentHashes[path]).toMatch(/^[a-f0-9]{64}$/);
+    // Pre-upgrade watermarks have the same metadata but no evidence of body versions.
+    delete snapshot.contentHashes;
+    await writeFile(seenPath, JSON.stringify(snapshot));
+    const legacy = await runMemory(["catalog", "diff", "--json"], scopedEnv);
+    expect(legacy.status).toBe(0);
+    const legacyJson = JSON.parse(legacy.stdout);
+    expect(legacyJson.changes).toEqual([expect.objectContaining({ kind: "changed", path })]);
+    expect(legacy.stdout).not.toContain("contentHashes");
+    expect(legacy.stdout).not.toContain("BODY_DETAIL_ONLY");
+    const clean = await runMemory(["catalog", "diff", "--json"], scopedEnv);
+    expect(JSON.parse(clean.stdout).changes).toEqual([]);
+  });
+
+  it("rejects overlong descriptions in lint and commit without hiding or truncating records", async () => {
+    const path = "decisions/description-limit.md";
+    // Count Unicode code points, not UTF-16 units: exactly 1,000 remains valid.
+    const accepted = "🦊".repeat(1_000);
+    const overlong = accepted + "!";
+    await writeMemoryFile(path, `description: ${accepted}\nsource: [session:test]`);
+    expect((await runMemory(["lint"], env)).status).toBe(0);
+    await writeMemoryFile(path, `description: ${overlong}\nsource: [session:test]`);
+    const lint = await runMemory(["lint", "--json"], env);
+    expect(lint.status).toBe(1);
+    expect(JSON.parse(lint.stdout).issues).toContainEqual(
+      expect.objectContaining({
+        path,
+        severity: "error",
+        message: expect.stringContaining("1001 characters; maximum is 1000"),
+      }),
+    );
+    expect(JSON.parse(lint.stdout)).not.toHaveProperty("contentHashes");
+    const catalog = await runMemory(["catalog", "show", "--json"], env);
+    expect(catalog.status).toBe(0);
+    expect(JSON.parse(catalog.stdout).entries[0].description).toBe(overlong);
+    expect((await runMemory(["lock", "acquire"], env)).status).toBe(0);
+    const commit = await runMemory(
+      ["commit", "--message", "Validate description", "--source", "session:test", "--memory-id", path],
+      env,
+    );
+    expect(commit.status).toBe(1);
+    expect(commit.stderr).toContain("Memory lint failed");
+    expect(commit.stderr).toContain("Shorten it to explain when to read this note");
+    expect(await readFile(join(tempDir, "memory", path), "utf-8")).toContain(overlong);
+  });
+
   it("defaults to one auto-created repo per server/session space when no root override is set", async () => {
     const scopedEnv = {
       HOME: tempDir,
@@ -526,9 +592,9 @@ source:
     expect(help.stdout).toContain("Show the repo root and list authored memory files");
     expect(help.stdout).toContain("Default show output is compact");
     expect(help.stdout).toContain("inspect the file or use --json for provenance/source refs");
-    expect(help.stdout).toContain("Use catalog diff as a freshness check for memory-focused work");
+    expect(help.stdout).toContain("Catalog diff reports metadata and body changes");
     expect(help.stdout).not.toContain("Prefer catalog/direct file inspection for normal orientation.");
-    expect(help.stdout).toContain("description: one or two sentences for catalog orientation");
+    expect(help.stdout).toContain("description: one or two sentences explaining when to read the note");
     expect(help.stdout).toContain("source: [q-1218]");
     expect(help.stdout).toContain("For quest-backed records, use the quest id as the primary source");
     expect(help.stdout).toContain("only when no quest exists or the session itself is the durable source of truth");

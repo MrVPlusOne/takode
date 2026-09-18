@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import type { Dirent } from "node:fs";
 import { access, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -13,6 +13,7 @@ import {
 } from "./memory-session-space.js";
 import {
   MEMORY_COMMIT_OPERATIONS,
+  MEMORY_DESCRIPTION_CHAR_LIMIT,
   MEMORY_KINDS,
   type FrontmatterScalar,
   type FrontmatterValue,
@@ -229,6 +230,9 @@ async function scanMemoryCatalogUncoalesced(
     repo,
     entries: entries.sort((a, b) => a.kind.localeCompare(b.kind) || a.path.localeCompare(b.path)),
     issues,
+    contentHashes: Object.fromEntries(
+      files.map((file) => [file.path, createHash("sha256").update(file.content).digest("hex")]),
+    ),
   };
 }
 
@@ -360,7 +364,7 @@ export async function diffMemoryCatalog(options: MemoryRepoOptions = {}): Promis
   const sessionKey = catalogSessionKey(options.catalogSessionKey);
   const previous = await readCatalogSeen(catalog.repo.root, sessionKey);
   const seenAt = new Date().toISOString();
-  const changes = diffCatalogEntries(previous?.entries ?? [], catalog.entries);
+  const changes = diffCatalogEntries(previous, catalog);
   await writeCatalogSeen(catalog, seenAt, sessionKey);
   return {
     repo: catalog.repo,
@@ -724,7 +728,7 @@ export async function commitMemory(input: MemoryCommitInput): Promise<MemoryComm
   const catalog = await lintMemory(input);
   const errors = catalog.issues.filter((issue) => issue.severity === "error");
   if (errors.length) {
-    throw new Error(`Memory lint failed: ${errors.map((issue) => issue.message).join("; ")}`);
+    throw new Error(`Memory lint failed: ${errors.map((issue) => `${issue.path}: ${issue.message}`).join("; ")}`);
   }
 
   await runGit(repo.root, ["add", "--", ...MEMORY_KINDS]);
@@ -805,6 +809,7 @@ function catalogEntryFromFile(file: MemoryFile): MemoryCatalogEntry {
 interface CatalogSeenSnapshot {
   seenAt: string;
   entries: MemoryCatalogEntry[];
+  contentHashes?: Record<string, string>;
 }
 
 async function readCatalogSeen(root: string, sessionKey = catalogSessionKey()): Promise<CatalogSeenSnapshot | null> {
@@ -815,6 +820,7 @@ async function readCatalogSeen(root: string, sessionKey = catalogSessionKey()): 
     return {
       seenAt: parsed.seenAt,
       entries: parsed.entries.filter(isMemoryCatalogEntry),
+      contentHashes: parsed.contentHashes,
     };
   } catch {
     return null;
@@ -831,16 +837,17 @@ async function writeCatalogSeen(
   const snapshot: CatalogSeenSnapshot = {
     seenAt,
     entries: catalog.entries,
+    contentHashes: catalog.contentHashes,
   };
   await writeFile(path, JSON.stringify(snapshot, null, 2), "utf-8");
 }
 
 function diffCatalogEntries(
-  previousEntries: MemoryCatalogEntry[],
-  currentEntries: MemoryCatalogEntry[],
+  previousSnapshot: CatalogSeenSnapshot | null,
+  catalog: MemoryCatalog,
 ): MemoryCatalogChange[] {
-  const previous = new Map(previousEntries.map((entry) => [entry.path, entry]));
-  const current = new Map(currentEntries.map((entry) => [entry.path, entry]));
+  const previous = new Map((previousSnapshot?.entries ?? []).map((entry) => [entry.path, entry]));
+  const current = new Map(catalog.entries.map((entry) => [entry.path, entry]));
   const paths = [...new Set([...previous.keys(), ...current.keys()])].sort();
   const changes: MemoryCatalogChange[] = [];
   for (const path of paths) {
@@ -854,26 +861,14 @@ function diffCatalogEntries(
       changes.push({ kind: "removed", path, before });
       continue;
     }
-    if (before && after && catalogEntryFingerprint(before) !== catalogEntryFingerprint(after)) {
+    const previousHash = previousSnapshot?.contentHashes?.[path];
+    // Legacy snapshots cannot prove the body is unchanged. Report the entry once,
+    // then let the returned catalog establish a content-aware baseline.
+    if (before && after && (!previousHash || previousHash !== catalog.contentHashes?.[path])) {
       changes.push({ kind: "changed", path, before, after });
     }
   }
   return changes;
-}
-
-function catalogEntryFingerprint(entry: MemoryCatalogEntry): string {
-  return JSON.stringify({
-    kind: entry.kind,
-    description: entry.description,
-    source: [...entry.source].sort(),
-    facets: sortedFacetEntries(entry.facets),
-  });
-}
-
-function sortedFacetEntries(facets: Record<string, string[]>): Array<[string, string[]]> {
-  return Object.entries(facets)
-    .map(([key, values]) => [key, [...values].sort()] as [string, string[]])
-    .sort(([a], [b]) => a.localeCompare(b));
 }
 
 function isMemoryCatalogEntry(value: unknown): value is MemoryCatalogEntry {
@@ -918,6 +913,15 @@ function validateMemoryFile(file: MemoryFile): MemoryLintIssue[] {
   }
   if (file.description.length === 0) {
     issues.push({ severity: "error", id: file.id, path: file.path, message: "Memory description is required" });
+  }
+  const descriptionLength = [...file.description].length;
+  if (descriptionLength > MEMORY_DESCRIPTION_CHAR_LIMIT) {
+    issues.push({
+      severity: "error",
+      id: file.id,
+      path: file.path,
+      message: `Memory description has ${descriptionLength} characters; maximum is ${MEMORY_DESCRIPTION_CHAR_LIMIT}. Shorten it to explain when to read this note; keep detailed policy and evidence in the body.`,
+    });
   }
   if (typeof file.frontmatter.source === "string") {
     issues.push({

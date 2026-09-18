@@ -1,5 +1,6 @@
 export const MEMORY_KINDS = ["current", "knowledge", "procedures", "decisions", "references", "artifacts"] as const;
 export const MEMORY_COMMIT_OPERATIONS = ["add", "update", "supersede", "repair"] as const;
+export const MEMORY_DESCRIPTION_CHAR_LIMIT = 1_000;
 
 export type MemoryKind = (typeof MEMORY_KINDS)[number];
 export type MemoryCommitOperation = (typeof MEMORY_COMMIT_OPERATIONS)[number];
@@ -56,6 +57,8 @@ export interface MemoryCatalog {
   repo: MemoryRepoInfo;
   entries: MemoryCatalogEntry[];
   issues: MemoryLintIssue[];
+  /** Internal SHA-256 file versions for freshness; excluded from catalog presentation. */
+  contentHashes?: Record<string, string>;
 }
 
 export type MemoryCatalogChangeKind = "added" | "removed" | "changed";

@@ -39,7 +39,7 @@ export function getLeaderContextRecoveryInstructions(sessionRef: string): string
    - Do not conclude recovery is complete until you have accounted for likely unanswered user requests, interrupted actions, and unmodeled quest setup
    - Scope unresolved user decisions, including \`needs-input\` prompts, to their owner: do not advance the affected thread, quest, or board row, and do not answer on the user's behalf. Keep unrelated dispatch, quests, and herd events moving unless the pending prompt is explicitly safety/global/worker-slot/shared-resource/cross-quest. If the user sets one prompt aside and asks for unrelated work, proceed when that work does not depend on the answer
    - Inspect relevant quest state before advancing Journey work when the compacted summary leaves phase history, acceptance criteria, or user intent unclear
-   - Inspect file-based memory only when durable memory may affect the current decision; use catalog orientation and direct file reads rather than broad blind search
+   - Inspect file-based memory only when durable memory may affect the current decision; use available preloaded catalog orientation and direct file reads; request \`memory catalog show\` only when orientation is missing or incomplete, and \`memory catalog diff\` when freshness matters
    - Verify active Journey, board, and herd/session state when those surfaces matter to the next action
    - If recovered state includes an interrupted active Work occurrence, read \`~/.companion/quest-journey-phases/work/leader.md\` before steering. That brief owns the complete recovery rule; use the preloaded Takode orchestration guidance only to classify the event
    - Use \`takode spawn\` to create workers (never Agent tool)
@@ -65,7 +65,7 @@ Recover the interrupted session state:
 4. Use \`takode peek ${sessionRef}\` or \`takode read ${sessionRef} <msg-id>\` for specific turns or messages when the scan shows a turn that needs detail.
 5. Inspect relevant quest state with \`quest show\`, \`quest status\`, and phase feedback commands before advancing Journey work.
 6. Use \`takode board show\` and \`takode list\` when board or herd state matters.
-7. If durable memory may affect the current decision, run \`memory catalog show\` and inspect plausible catalog-listed files directly.
+7. If durable memory may affect the current decision, use an available preloaded catalog for orientation and inspect plausible listed files directly. Run \`memory catalog show\` if orientation is missing or incomplete; use \`memory catalog diff\` when freshness matters.
 
 Pay special attention to any \`Interrupted direct user work\` section in the recovery summary. Inspect those message links and handle each direct request independently from unrelated quest-scoped waits.
 
@@ -79,7 +79,7 @@ export function getStandardContextRecoveryInstructions(sessionRef: string): stri
   return `1. Inspect your own session history with Takode tools. Start with \`takode scan ${sessionRef}\`
 2. If you still need detail, inspect your own session further with Takode tools such as \`takode peek ${sessionRef}\` or \`takode read ${sessionRef}\`
 3. Re-read the quest or latest assignment only after you have recovered enough earlier context from your own session
-4. If durable memory may affect the task, run \`memory catalog show\` for orientation, inspect plausible catalog-listed files directly, and use targeted \`rg\` under \`$(memory repo path)\` only when catalog or known context makes a match plausible. If the catalog shows no plausible relevant topic, type, or source, skip blind repo-wide memory search
+4. If durable memory may affect the task, use available preloaded catalog orientation (or \`memory catalog show\` if missing or incomplete), use \`memory catalog diff\` when freshness matters, inspect plausible catalog-listed files directly, and use targeted \`rg\` under \`$(memory repo path)\` only when catalog or known context makes a match plausible. If the catalog shows no plausible relevant topic, type, or source, skip blind repo-wide memory search
 5. Keep your current role. If you are a worker or reviewer, continue the assigned task and do not switch into leader/orchestration behavior`;
 }
 

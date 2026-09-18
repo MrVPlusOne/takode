@@ -92,6 +92,31 @@ describe("memory catalog injection", () => {
     expect(seen.entries.map((entry) => entry.path)).toContain("decisions/memory-test.md");
   });
 
+  it("keeps the scanned content version through delayed acceptance and ignores clipped preloads", async () => {
+    const root = await makeTempRoot();
+    const path = "decisions/current-rule.md";
+    await mkdir(join(root, "decisions"));
+    const original = "---\ndescription: Current rule.\nsource: [session:test]\n---\nOriginal body.\n";
+    await writeFile(join(root, path), original);
+    const options = { repoOptions: { root }, sessionId: "delayed-reader", timeoutMs: 5_000 };
+    const bundle = await buildMemoryCatalogInjectionBundle(options);
+    // Acceptance must record the version in the delivered snapshot, not rescan a later file.
+    await writeFile(join(root, path), original + "Changed after preparation.\n");
+    await bundle.recordSeen?.();
+    const seenPath = join(root, ".git", "takode-memory-catalog-seen", "delayed-reader.json");
+    const beforeClipping = await readFile(seenPath, "utf-8");
+    const clipped = await buildMemoryCatalogInjectionBundle({ ...options, limit: 150 });
+    expect(clipped.truncated).toBe(true);
+    expect(clipped.recordSeen).toBeUndefined();
+    const unexpectedRecorder = vi.fn();
+    recordMemoryCatalogSeenAfterDelivery({ ...clipped, recordSeen: unexpectedRecorder });
+    expect(unexpectedRecorder).not.toHaveBeenCalled();
+    expect(await readFile(seenPath, "utf-8")).toBe(beforeClipping);
+    const { diffMemoryCatalog } = await import("./workstream-memory-store.js");
+    const diff = await diffMemoryCatalog({ root, catalogSessionKey: "delayed-reader" });
+    expect(diff.changes).toEqual([expect.objectContaining({ kind: "changed", path })]);
+  });
+
   it("caps available catalog content with a visible truncation warning", () => {
     const bundle = buildAvailableMemoryCatalogBundle("Memory repo: /tmp/memory\n" + "x".repeat(1_000), {
       limit: 420,
@@ -102,7 +127,7 @@ describe("memory catalog injection", () => {
     expect(bundle.content.length).toBeLessThanOrEqual(420);
     expect(bundle.content).toContain(MEMORY_CATALOG_TRUNCATED_PREFIX);
     expect(bundle.content).toContain("The preloaded content is truncated");
-    expect(bundle.content).toContain("for freshness since this injection, use `memory catalog diff`");
+    expect(bundle.content).toContain("does not advance catalog freshness");
   });
 
   it("returns a fail-open warning bundle when catalog generation fails", async () => {

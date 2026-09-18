@@ -383,6 +383,40 @@ facets:
     ]);
   });
 
+  it("keeps content freshness independent for each repository and observing session", async () => {
+    const path = "knowledge/shared-name.md";
+    const root = join(tempDir, "memory");
+    const otherRoot = join(tempDir, "other-memory");
+    const frontmatter = "description: Scope-specific memory.\nsource: [session:test]";
+    await writeMemoryFile(path, frontmatter, "First body.");
+    await mkdir(join(otherRoot, "knowledge"), { recursive: true });
+    await writeFile(join(otherRoot, path), `---\n${frontmatter}\n---\nOther body.\n`);
+    const options = { root, catalogSessionKey: "reader-a" };
+    const secondReader = { root, catalogSessionKey: "reader-b" };
+    const otherSpace = { root: otherRoot, sessionSpaceSlug: "Other", catalogSessionKey: "reader-a" };
+    const initial = await memoryStore.scanMemoryCatalog(options);
+    await memoryStore.markMemoryCatalogSeen(initial, options);
+    await memoryStore.markMemoryCatalogSeen(initial, secondReader);
+    await memoryStore.markMemoryCatalogSeen(await memoryStore.scanMemoryCatalog(otherSpace), otherSpace);
+
+    // Equal path/metadata never shares body versions across a repository or observer boundary.
+    await writeMemoryFile(path, frontmatter, "Corrected body.");
+    expect((await memoryStore.diffMemoryCatalog(options)).changes).toEqual([
+      expect.objectContaining({ kind: "changed", path }),
+    ]);
+    expect((await memoryStore.diffMemoryCatalog(options)).changes).toEqual([]);
+    expect((await memoryStore.diffMemoryCatalog(secondReader)).changes).toEqual([
+      expect.objectContaining({ kind: "changed", path }),
+    ]);
+    expect((await memoryStore.diffMemoryCatalog(otherSpace)).changes).toEqual([]);
+    // Removal remains an explicit catalog change, with its prior description retained.
+    await rm(join(root, path));
+    expect((await memoryStore.diffMemoryCatalog(options)).changes).toEqual([
+      expect.objectContaining({ kind: "removed", path, before: expect.objectContaining({ path }) }),
+    ]);
+    expect(await readFile(join(otherRoot, path), "utf-8")).toContain("Other body.");
+  });
+
   it("coalesces concurrent scans of the same memory repo", async () => {
     await writeMemoryFile(
       "knowledge/shared-scan.md",

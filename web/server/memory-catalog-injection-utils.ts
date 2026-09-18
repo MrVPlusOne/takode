@@ -47,7 +47,7 @@ export function buildAvailableMemoryCatalogBundle(
       " the catalog hit Takode's " +
       limit.toLocaleString() +
       " character injected-context limit.",
-    "The preloaded content is truncated. If you need the full current catalog, run `memory catalog show`; for freshness since this injection, use `memory catalog diff`. Inspect relevant Markdown files directly before relying on memory facts.",
+    "The preloaded content is truncated and does not advance catalog freshness. Run `memory catalog show` for full orientation or `memory catalog diff` for changes since the last complete catalog. Inspect relevant Markdown files directly before relying on memory facts.",
   ].join("\n");
   const prefix = [MEMORY_CATALOG_TITLE, "", warning, "", guidance, ""].join("\n");
   const suffix = "\n\n[Memory catalog output truncated.]";
@@ -111,7 +111,7 @@ export function buildMemoryCatalogHistoryFollowUp(
 
 /** Record freshness only after the catalog has been accepted for delivery. */
 export function recordMemoryCatalogSeenAfterDelivery(bundle: MemoryCatalogInjectionBundle | null | undefined): void {
-  if (!bundle || bundle.unavailable) return;
+  if (!bundle || bundle.unavailable || bundle.truncated) return;
   try {
     const recording = bundle.recordSeen?.();
     void recording?.catch((error) => {

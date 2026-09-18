@@ -4,6 +4,7 @@ import { workstreamMemoryService } from "../server/workstream-memory-service.js"
 import { getServerSlug, initWithPort } from "../server/settings-manager.js";
 import {
   MEMORY_COMMIT_OPERATIONS,
+  MEMORY_DESCRIPTION_CHAR_LIMIT,
   MEMORY_KINDS,
   type MemoryCommitOperation,
   type MemoryKind,
@@ -77,7 +78,9 @@ Commands:
   catalog [show|diff]
       Show the repo root and list authored memory files from frontmatter.
       Default show output is compact; inspect the file or use --json for provenance/source refs.
-      Use catalog diff as a freshness check for memory-focused work, not routine orientation.
+      Use an available preloaded catalog for orientation; show the full catalog when needed.
+      Catalog diff reports metadata and body changes since this session last saw the catalog.
+      Legacy metadata-only snapshots report existing entries as changed once.
   lint
       Canonical health check for memory files and frontmatter.
   lock status|acquire|release [--owner NAME] [--ttl-ms N]
@@ -106,7 +109,10 @@ Memory files are authored directly under:
   current/ knowledge/ procedures/ decisions/ references/ artifacts/
 
 Frontmatter schema:
-  description: one or two sentences for catalog orientation
+  description: one or two sentences explaining when to read the note
+  Descriptions are limited to ${MEMORY_DESCRIPTION_CHAR_LIMIT} Unicode characters (code points).
+  Keep policy, history and evidence in the body. Lint/commit reject overlong descriptions;
+  catalogs retain the record and report the error without silently truncating it.
   source: [q-1218]
   For quest-backed records, use the quest id as the primary source. Use session:<id>
   only when no quest exists or the session itself is the durable source of truth.
@@ -193,7 +199,7 @@ function requireOption(name: string): string {
 
 function printCatalog(catalog: Awaited<ReturnType<typeof workstreamMemoryService.catalog>>): void {
   if (jsonOutput) {
-    out(catalog);
+    out({ repo: catalog.repo, entries: catalog.entries, issues: catalog.issues });
     return;
   }
   console.log(`Memory repo: ${catalog.repo.root}`);
@@ -314,7 +320,7 @@ async function main(): Promise<void> {
     const catalog = await workstreamMemoryService.lint(repoOptions());
     const errors = catalog.issues.filter((issue) => issue.severity === "error").length;
     if (jsonOutput) {
-      out({ ok: !catalog.issues.some((issue) => issue.severity === "error"), ...catalog });
+      out({ ok: !errors, repo: catalog.repo, entries: catalog.entries, issues: catalog.issues });
       if (errors) process.exit(1);
       return;
     }
