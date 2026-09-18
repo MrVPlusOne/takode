@@ -1036,6 +1036,22 @@ describe("runStuckSessionWatchdogSweep", () => {
     expect(deps.emitTakodeEvent).not.toHaveBeenCalled();
   });
 
+  it("keeps quiet native compaction out of the stuck-recovery watchdog", () => {
+    // Provider compaction may be silent for minutes; timers are not failure proof.
+    const session = makeStuckWatchdogSession({
+      isGenerating: true,
+      generationStartedAt: 1,
+      lastCliMessageAt: 0,
+      lastToolProgressAt: 0,
+      state: { cwd: "/repo", backend_state: "connected", is_compacting: true },
+    });
+    const deps = makeStuckWatchdogDeps({ getLauncherSessionInfo: () => ({ isOrchestrator: true }) });
+    runStuckSessionWatchdogSweep([session], 600_000, deps);
+    expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
+    expect(deps.setGenerating).not.toHaveBeenCalled();
+    expect(deps.emitTakodeEvent).not.toHaveBeenCalled();
+  });
+
   it("terminally clears a provisionally reported connected Codex worker after the recovery window expires", () => {
     const session = makeStuckWatchdogSession({
       isGenerating: true,

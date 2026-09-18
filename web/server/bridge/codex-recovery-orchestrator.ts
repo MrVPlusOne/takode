@@ -129,6 +129,8 @@ import {
   buildCodexPendingBatchRecoveryText,
   findQueuedCodexPendingStartBatchTurn,
   getQueuedCodexPendingBatchInputs,
+  selectCodexSteeringInputs,
+  pruneSupersededCompactionInputs,
 } from "./codex-pending-start-batch.js";
 import {
   refreshDispatchableCodexStartTurn,
@@ -227,6 +229,7 @@ export interface CodexRecoveryOrchestratorSessionLike {
   lastUserMessage?: string;
   lastMessagePreviewAt?: number;
   codexAdapter: {
+    hasNativeCompactionRecovery?: () => boolean;
     getCurrentTurnId(): string | null;
     isConnected(): boolean;
     sendBrowserMessage(msg: BrowserOutgoingMessage): boolean;
@@ -650,6 +653,10 @@ export function rebuildQueuedCodexPendingStartBatch(
   session: CodexRecoveryOrchestratorSessionLike,
   deps: CodexRecoveryOrchestratorDeps,
 ): void {
+  if (pruneSupersededCompactionInputs(session)) {
+    deps.broadcastPendingCodexInputs(session);
+    deps.persistSession(session);
+  }
   retireTerminalCodexRecoveryOwners(session, deps);
   refreshPendingCodexThreadOutcomeReminders(session, deps);
   holdCodexAutoPausedQueuedBacklog(session as any, deps);
@@ -937,10 +944,15 @@ export function trySteerPendingCodexInputs(
     deps.clearCodexFreshTurnRequirement(session, `${reason}_active_turn_changed`);
   }
   deps.pruneStalePendingCodexHerdInputs(session, `${reason}_before_steer`);
+  if (pruneSupersededCompactionInputs(session)) {
+    deps.broadcastPendingCodexInputs(session);
+    deps.persistSession(session);
+    rebuildQueuedCodexPendingStartBatch(session, deps);
+  }
   retireTerminalCodexRecoveryOwners(session, deps);
   refreshPendingCodexThreadOutcomeReminders(session, deps);
   holdCodexAutoPausedQueuedBacklog(session as any, deps);
-  const deliverable = getCancelablePendingCodexInputs(session);
+  const deliverable = selectCodexSteeringInputs(session.pendingCodexInputs);
   if (deliverable.length === 0) return false;
   const ids = deliverable.map((input) => input.id);
   const clientUserMessageId = createCodexHistoryIncorporation(ids).clientUserMessageId;
@@ -960,7 +972,12 @@ export function trySteerPendingCodexInputs(
   const submitted = receiptAware
     ? recordSubmittedCodexSteerTurn(session, expectedTurnId, deliverable, clientUserMessageId, deps)
     : null;
-  if (submitted) recordCodexHistoryMilestoneProof(session, submitted, "submitted");
+  if (submitted) {
+    recordCodexHistoryMilestoneProof(session, submitted, "submitted");
+    // Retire the old queued-start snapshot before ACK/result callbacks can
+    // dispatch inputs now owned by this steer a second time.
+    rebuildQueuedCodexPendingStartBatch(session, deps);
+  }
   recordCodexAcceptedDispatchActivity(session, deps.persistSession, "steer", reason, ids.length);
   return true;
 }

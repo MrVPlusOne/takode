@@ -38,6 +38,8 @@ export interface CodexInstructionSnapshot {
 }
 
 export interface CodexAdapterOptions {
+  /** Stable recovery context restored by Codex before post-compaction sampling. */
+  recoveryRole?: "leader" | "standard";
   model?: string;
   cwd?: string;
   approvalMode?: string;

@@ -56,6 +56,7 @@ function makeSession() {
     },
     pendingCodexTurns: [pendingTurn()],
     pendingCodexInputs: [],
+    messageHistory: [],
     consecutiveAdapterFailures: 5,
     lastAdapterFailureAt: 100,
     isGenerating: true,

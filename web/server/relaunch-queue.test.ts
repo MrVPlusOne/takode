@@ -15,6 +15,28 @@ describe("RelaunchQueue", () => {
     vi.useRealTimers();
   });
 
+  it("does not relaunch a replacement for overlapping automatic recovery demand", async () => {
+    // Automatic recovery is satisfied by the in-flight launch. An explicit
+    // settings change still needs the trailing launch and must not be dropped.
+    let release!: () => void;
+    const run = vi.fn(() => new Promise<void>((resolve) => (release = resolve)));
+    const queue = new RelaunchQueue(run, 100);
+    queue.request("leader", { trailing: false });
+    queue.request("leader", { trailing: false });
+    release();
+    await flushMicrotasks();
+    queue.request("leader", { trailing: false });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(run).toHaveBeenCalledTimes(1);
+    queue.request("leader", { trailing: false });
+    queue.request("leader");
+    release();
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(run).toHaveBeenCalledTimes(3);
+    release();
+  });
+
   it("coalesces repeated requests into one trailing relaunch after cooldown", async () => {
     let resolveFirst: (() => void) | null = null;
     let callCount = 0;

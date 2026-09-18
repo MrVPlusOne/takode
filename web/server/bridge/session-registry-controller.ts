@@ -1030,6 +1030,9 @@ export function requestCodexAutoRecovery(
   if (!deps.requestCliRelaunch) return false;
   if (launcherInfo?.archived || launcherInfo?.killedByIdleManager || session.state.pause?.pausedAt) return false;
   if (session.state.backend_state === "broken" || session.state.backend_state === "recovery_suppressed") return false;
+  // Reconnect demand during an existing recovery is already satisfied by that
+  // launch. Queueing another request would terminate the replacement on cooldown.
+  if (session.state.backend_state === "recovering" && reason.startsWith("pending_herd_event_")) return true;
   const maxFailures = deps.maxAdapterRelaunchFailures ?? CODEX_PROCESS_RECONNECT_MAX_ATTEMPTS;
   if ((session as any).consecutiveAdapterFailures >= maxFailures) {
     if (canContinueCodexOutageRecovery(session, reason, launcherInfo)) {

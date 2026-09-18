@@ -1,3 +1,4 @@
+import { injectCompactionRecovery } from "./compaction-recovery.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   handleCodexAdapterBrowserMessage,
@@ -19,6 +20,37 @@ function makeSession(): any {
     attentionReason: null,
   };
 }
+
+describe("compaction boundary evidence", () => {
+  it("keeps started and completed markers separate instead of asserting completion at start", async () => {
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+    await handleCodexAdapterBrowserMessage(session, { type: "status_change", status: "compacting" }, deps);
+    expect(session.messageHistory.filter((item: BrowserIncomingMessage) => item.type === "compact_marker")).toEqual([
+      expect.objectContaining({ compactionStatus: "started" }),
+    ]);
+    await handleCodexAdapterBrowserMessage(session, { type: "status_change", status: null }, deps);
+    expect(
+      session.messageHistory
+        .filter((item: BrowserIncomingMessage) => item.type === "compact_marker")
+        .map((item: any) => item.compactionStatus),
+    ).toEqual(["started", "completed"]);
+  });
+
+  it("does not enqueue another recovery bundle when native instructions already contain it", () => {
+    const session = makeSession();
+    session.codexAdapter = { hasNativeCompactionRecovery: () => true };
+    session.messageHistory = [{ type: "compact_marker", id: "boundary", timestamp: 1 }];
+    const injectUserMessage = vi.fn();
+    injectCompactionRecovery(session, {
+      isLeaderSession: () => true,
+      isSystemSourceTag: () => true,
+      injectUserMessage,
+    });
+    expect(injectUserMessage).not.toHaveBeenCalled();
+  });
+});
 
 function makeAssistant(content: ContentBlock[]): BrowserIncomingMessage {
   return {

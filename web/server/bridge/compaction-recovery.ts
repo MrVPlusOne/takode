@@ -60,6 +60,8 @@ type CompactionRecoverySessionLike = {
   state?: { memorySessionSpaceSlug?: string };
   messageHistory: BrowserIncomingMessage[];
   codexLeaderRecycleContinuation?: CodexLeaderRecycleContinuation | null;
+  codexAdapter?: { hasNativeCompactionRecovery?: () => boolean } | null;
+  pendingCodexInputs?: Array<{ timestamp: number; agentSource?: { sessionId: string } }>;
 };
 
 type MemoryCatalogBuilder = (
@@ -74,6 +76,15 @@ type ExactRecoveryInjectionRunner = (
   settle: () => void,
 ) => void | Promise<void>;
 
+// A queued or still-building bundle has not entered browser history yet. Keep
+// its boundary identity so repeated completion callbacks cannot create copies.
+const recoveryBoundaries = new WeakMap<object, string>();
+
+function latestCompactionBoundary(session: CompactionRecoverySessionLike): string | undefined {
+  const marker = session.messageHistory.findLast((entry) => entry.type === "compact_marker");
+  return marker?.type === "compact_marker" ? (marker.id ?? String(marker.timestamp)) : undefined;
+}
+
 export function hasCompactionRecoveryAfterLatestMarker(
   session: CompactionRecoverySessionLike,
   deps: { isSystemSourceTag: (agentSource: { sessionId: string; sessionLabel?: string } | undefined) => boolean },
@@ -86,6 +97,15 @@ export function hasCompactionRecoveryAfterLatestMarker(
     }
   }
   if (latestCompactIdx < 0) return false;
+  const boundary = session.messageHistory[latestCompactIdx];
+  if (
+    boundary?.type === "compact_marker" &&
+    session.pendingCodexInputs?.some(
+      (input) =>
+        input.agentSource?.sessionId === COMPACTION_RECOVERY_SOURCE_ID && input.timestamp >= boundary.timestamp,
+    )
+  )
+    return true;
 
   for (let i = latestCompactIdx + 1; i < session.messageHistory.length; i++) {
     const latestMarker = session.messageHistory[latestCompactIdx];
@@ -158,7 +178,13 @@ export function injectCompactionRecovery(
     );
     return;
   }
+  // Codex restores the configured recovery guidance and skills with its native
+  // developer instructions. A queued recovery input would duplicate that context.
+  if (session.codexAdapter?.hasNativeCompactionRecovery?.()) return;
   if (hasCompactionRecoveryAfterLatestMarker(session, deps)) return;
+  const boundary = latestCompactionBoundary(session);
+  if (boundary && recoveryBoundaries.get(session) === boundary) return;
+  if (boundary) recoveryBoundaries.set(session, boundary);
   const role = deps.isLeaderSession(session) ? "leader" : "standard";
   const sessionRef = String(getKnownSessionNum(session.id) ?? session.sessionNum ?? session.id);
   const prompt = getCompactionRecoveryPrompt(role, sessionRef);
@@ -203,7 +229,9 @@ function injectWithOptionalLeaderSkillPreloads(
     sessionId: COMPACTION_RECOVERY_SOURCE_ID,
     sessionLabel: COMPACTION_RECOVERY_SOURCE_LABEL,
   };
+  const boundary = injectedSource ? undefined : latestCompactionBoundary(session);
   const inject = (bundles: LeaderSkillPreloadBundle[], memoryCatalog?: MemoryCatalogInjectionBundle | null) => {
+    if (boundary && latestCompactionBoundary(session) !== boundary) return;
     const deliveryWithLeaderPreloads = buildLeaderPreloadDeliveryContent(content, bundles);
     const performInjection = () => {
       deps.injectUserMessage(session.id, content, source, threadRoute, {
@@ -254,7 +282,9 @@ function injectWithOptionalLeaderSkillPreloads(
     afterInject?.();
   };
   try {
-    const leaderBundles = deps.buildLeaderSkillPreloadBundles?.() ?? [];
+    const leaderBundles = session.codexAdapter?.hasNativeCompactionRecovery?.()
+      ? []
+      : (deps.buildLeaderSkillPreloadBundles?.() ?? []);
     const memoryCatalog = buildOptionalMemoryCatalog(session, deps);
     if (isThenable(leaderBundles) || isThenable(memoryCatalog)) {
       void Promise.all([Promise.resolve(leaderBundles), Promise.resolve(memoryCatalog)])

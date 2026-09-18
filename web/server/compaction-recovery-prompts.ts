@@ -32,7 +32,7 @@ export const LEGACY_STANDARD_COMPACTION_RECOVERY_PROMPT = `${STANDARD_COMPACTION
 
 export function getLeaderContextRecoveryInstructions(sessionRef: string): string {
   void sessionRef;
-  return `1. The required leader skill contents are included immediately after this recovery message. Use that preloaded context as your source of truth; do not reread mandatory leader skills via tool calls unless checking freshness or debugging.
+  return `1. Use the required leader skills already loaded with your session context. Do not reread mandatory leader skills via tool calls unless checking freshness or debugging.
 2. Use the compacted memory summary as your first recovery signal, then decide the appropriate Takode, quest, board, and memory inspection path for the current situation.
 3. Key rules:
    - Treat the compacted memory summary as evidence, not as proof that every active request, phase, or user decision is fully recovered
@@ -54,7 +54,7 @@ export function getLeaderRecycleRecoveryInstructions(sessionRef: string): string
   return `You are a replacement leader continuing the same Takode session after an intentional Codex leader recycle. Recover context with tools before acting; do not rely on any embedded transcript excerpt.
 
 Start from the preloaded core orchestration context:
-- The required leader skill contents are included immediately after this recovery message. Use that preloaded context as your source of truth.
+- The required leader skills are already loaded with your session context. Use that context as your source of truth.
 - Do not reread mandatory leader skills via tool calls unless checking freshness or debugging.
 - Invoke /leader-dispatch only before choosing workers or dispatching work.
 

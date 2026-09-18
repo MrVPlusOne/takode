@@ -1,3 +1,4 @@
+import { compactionMarkerLabel } from "../shared/compaction-marker.js";
 import { useStore } from "./store.js";
 import { api } from "./api.js";
 import { createComposerDraftImage } from "./components/composer-image-utils.js";
@@ -1621,15 +1622,16 @@ function handleParsedMessage(
     }
 
     case "compact_boundary": {
-      // CLI has compacted — preserve existing messages and insert a compact marker divider
+      // Preserve the producer's start/completion distinction in live and replayed views.
       const markerTs = typeof data.timestamp === "number" ? data.timestamp : Date.now();
       const markerId = data.id || `compact-boundary-${markerTs}`;
       store.appendMessage(sessionId, {
         id: markerId,
         role: "system",
-        content: "Conversation compacted",
+        content: compactionMarkerLabel(data.compactionStatus),
         timestamp: markerTs,
         variant: "info",
+        ...(data.compactionStatus ? { metadata: { compactionStatus: data.compactionStatus } } : {}),
       });
       break;
     }

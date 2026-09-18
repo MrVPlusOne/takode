@@ -321,6 +321,7 @@ export interface ChatMessage {
       thinkingTimeMs?: number;
     };
     compactMarkerKind?: "compaction" | "session_recycled";
+    compactionStatus?: "started" | "completed";
     threadStatusMarkers?: LeaderThreadStatus[];
     threadRoutingError?: ThreadRoutingError;
     annotations?: ConversationAnnotation[];

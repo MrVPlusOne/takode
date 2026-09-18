@@ -94,6 +94,23 @@ describe("CodexAdapter", () => {
     stdout = mock.stdout;
   });
 
+  it("owns native recovery context only after its config write succeeds, before thread startup", async () => {
+    // A configured role alone must not retire queued context before the native
+    // instruction write is accepted. No turn can start ahead of that write.
+    const adapter = new CodexAdapter(proc as never, "test-session", { recoveryRole: "standard", instructions: "base" });
+    expect(adapter.hasNativeCompactionRecovery()).toBe(false);
+    stdout.push(JSON.stringify({ id: 1, result: {} }) + "\n");
+    await tick();
+    const before = parseWrittenJsonLines(stdin.chunks);
+    expect(before.some((message) => message.method === "thread/start")).toBe(false);
+    const write = before.find((message) => message.method === "config/value/write");
+    expect(write.params.keyPath).toBe("developer_instructions");
+    stdout.push(JSON.stringify({ id: write.id, result: {} }) + "\n");
+    await tick();
+    expect(adapter.hasNativeCompactionRecovery()).toBe(true);
+    expect(parseWrittenJsonLines(stdin.chunks).some((message) => message.method === "thread/start")).toBe(true);
+  });
+
   // ── Codex CLI enum values must be kebab-case (v0.99+) ─────────────────
   // Valid sandbox values: "read-only", "workspace-write", "danger-full-access"
   // Valid approvalPolicy values: "never", "untrusted", "on-failure", "on-request"

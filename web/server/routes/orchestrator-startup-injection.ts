@@ -30,7 +30,7 @@ export function markOrchestratorSessionWithStartupContext(
       try {
         const { buildMemoryCatalogInjectionBundle } = await import("../memory-catalog-injection.js");
         const [preloads, memoryCatalog] = await Promise.all([
-          buildLeaderSkillPreloadBundles(),
+          backend === "codex" ? Promise.resolve([]) : buildLeaderSkillPreloadBundles(),
           buildMemoryCatalogInjectionBundle({
             sessionId,
             repoOptions: { sessionSpaceSlug: deps.wsBridge.getSession(sessionId)?.state.memorySessionSpaceSlug },

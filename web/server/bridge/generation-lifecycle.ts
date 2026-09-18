@@ -113,6 +113,7 @@ export interface StuckWatchdogSession extends GenerationLifecycleSession {
   lastToolProgressAt: number;
   state: GenerationLifecycleSession["state"] & {
     backend_state?: string;
+    is_compacting?: boolean;
     cwd: string;
   };
 }
@@ -690,6 +691,9 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
       }
     }
 
+    // Compaction can be quiet while the provider processes a large history.
+    // Silence alone must not turn a live compaction into a relaunch loop.
+    if (session.backendType === "codex" && session.state.is_compacting) continue;
     if (!session.isGenerating || !session.generationStartedAt) continue;
     if (now - session.generationStartedAt < deps.stuckThresholdMs) continue;
 

@@ -13,9 +13,9 @@ export class RelaunchQueue {
     private readonly cooldownMs: number = 5000,
   ) {}
 
-  request(sessionId: string): void {
+  request(sessionId: string, options: { trailing?: boolean } = {}): void {
     if (this.inFlight.has(sessionId) || this.coolingDown.has(sessionId)) {
-      this.queued.add(sessionId);
+      if (options.trailing !== false) this.queued.add(sessionId);
       return;
     }
     void this.run(sessionId);

@@ -1953,6 +1953,9 @@ export function routeAdapterBrowserMessage(
   if (msg.type !== "user_message") {
     return finishRouting(undefined);
   }
+  if (session.backendType === "codex" && !msg.agentSource) {
+    deps.flushHerdEventsBeforeHumanInput?.(session.id, Date.now());
+  }
   const maybeIngested = ingestUserMessage(session, msg, deps, {
     commit: session.backendType !== "codex",
   });

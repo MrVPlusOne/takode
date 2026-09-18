@@ -1,3 +1,4 @@
+import { compactionMarkerLabel } from "../../shared/compaction-marker.js";
 import type { BrowserIncomingMessage, ContentBlock, ChatMessage, ToolResultPreview } from "../types.js";
 import { formatThreadAttachmentMarkerSummary, formatThreadTransitionMarkerSummary } from "./thread-projection.js";
 import { isTerminalResultInterrupted } from "../../shared/result-interruption.js";
@@ -392,7 +393,7 @@ export function normalizeHistoryMessageToChatMessages(
       (histMsg as { markerKind?: "compaction" | "session_recycled" }).markerKind === "session_recycled"
         ? "session_recycled"
         : "compaction";
-    const defaultContent = markerKind === "session_recycled" ? "Session recycled" : "Conversation compacted";
+    const defaultContent = compactionMarkerLabel(histMsg.compactionStatus, markerKind);
     return [
       {
         id: histMsg.id || `compact-${historyIndex}`,
@@ -401,7 +402,10 @@ export function normalizeHistoryMessageToChatMessages(
         timestamp: histMsg.timestamp,
         historyIndex,
         variant: "info",
-        metadata: { compactMarkerKind: markerKind },
+        metadata: {
+          compactMarkerKind: markerKind,
+          ...(histMsg.compactionStatus ? { compactionStatus: histMsg.compactionStatus } : {}),
+        },
       },
     ];
   }

@@ -1099,17 +1099,8 @@ export type BrowserIncomingMessageBase =
   | { type: "session_task_history"; tasks: SessionTaskEntry[] }
   | { type: "pr_status_update"; pr: import("./github-pr.js").GitHubPRInfo | null; available: boolean }
   | { type: "mcp_status"; servers: McpServerDetail[] }
-  | { type: "compact_boundary"; id?: string; timestamp?: number; trigger?: string; preTokens?: number }
-  | {
-      type: "compact_marker";
-      timestamp: number;
-      id?: string;
-      cliUuid?: string;
-      summary?: string;
-      markerKind?: "compaction" | "session_recycled";
-      trigger?: string;
-      preTokens?: number;
-    }
+  | import("../shared/compaction-marker.js").CompactionBoundaryMessage
+  | import("../shared/compaction-marker.js").CompactionMarkerMessage
   | { type: "compact_summary"; summary: string }
   | { type: "tool_result_preview"; previews: ToolResultPreview[] }
   | ThreadAttachmentMarker

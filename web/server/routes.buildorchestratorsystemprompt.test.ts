@@ -603,13 +603,22 @@ describe("buildOrchestratorSystemPrompt", () => {
       undefined,
       undefined,
       expect.objectContaining({
-        deliveryContent: expect.stringMatching(
-          /Required leader skill preloaded: takode-orchestration[\s\S]*Memory catalog preloaded/,
-        ),
+        // Codex owns mandatory skills in native developer instructions; the
+        // startup message carries only the kickoff and catalog, without a copy.
+        deliveryContent:
+          backend === "codex"
+            ? expect.stringContaining("Memory catalog preloaded")
+            : expect.stringMatching(
+                /Required leader skill preloaded: takode-orchestration[\s\S]*Memory catalog preloaded/,
+              ),
         historyFollowUps: expect.arrayContaining([
-          expect.objectContaining({
-            content: expect.stringContaining("Required leader skill preloaded: quest"),
-          }),
+          ...(backend === "codex"
+            ? []
+            : [
+                expect.objectContaining({
+                  content: expect.stringContaining("Required leader skill preloaded: quest"),
+                }),
+              ]),
           expect.objectContaining({
             content: expect.stringContaining("Memory catalog preloaded"),
             agentSource: expect.objectContaining({ sessionId: MEMORY_CATALOG_SOURCE_ID }),
@@ -619,6 +628,11 @@ describe("buildOrchestratorSystemPrompt", () => {
       }),
     );
     const options = bridge.injectUserMessage.mock.calls[0]?.[5] as { afterAccepted?: () => void } | undefined;
+    if (backend === "codex") {
+      expect(bridge.injectUserMessage.mock.calls[0]?.[5]?.deliveryContent).not.toContain(
+        "Required leader skill preloaded:",
+      );
+    }
     options?.afterAccepted?.();
     expect(mockMemoryCatalogRecordSeen).toHaveBeenCalledTimes(1);
   });

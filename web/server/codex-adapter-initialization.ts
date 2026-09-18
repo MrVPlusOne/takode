@@ -29,3 +29,20 @@ export function handleCodexTurnStartDispatchFailure(
   else callback(message, { recoverable, message: String(error) });
   return true;
 }
+
+export async function forkCodexThread(
+  transport: ConfigWriter,
+  params: Record<string, unknown>,
+  rollbackTurns?: number,
+): Promise<string> {
+  const result = (await transport.call("thread/fork", params)) as { thread: { id: string } };
+  const threadId = result.thread.id;
+  if (rollbackTurns) {
+    try {
+      await transport.call("thread/rollback", { threadId, numTurns: rollbackTurns });
+    } catch (error) {
+      throw new Error(`Rollback failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return threadId;
+}

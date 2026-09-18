@@ -1,4 +1,5 @@
 import { recordCodexClose, recordCodexProcessTermination } from "./codex-close-diagnostics.js";
+import { buildCodexRecoveryInstructions } from "./codex-recovery-instructions.js";
 /**
  * Codex App-Server Adapter
  *
@@ -107,6 +108,7 @@ import type {
 import { classifyCodexTurnSteerFailure } from "./codex-steer-failure.js";
 import {
   configureCodexDeveloperInstructions,
+  forkCodexThread,
   handleCodexTurnStartDispatchFailure,
 } from "./codex-adapter-initialization.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
@@ -147,6 +149,7 @@ export class CodexAdapter
   private proc: Subprocess;
   private sessionId: string;
   private options: CodexAdapterOptions;
+  private nativeRecoveryInstructionsConfigured = false;
 
   private browserMessageCb: ((msg: BrowserIncomingMessage) => void) | null = null;
   private sessionMetaCb: ((meta: CodexSessionMeta) => void) | null = null;
@@ -848,6 +851,10 @@ export class CodexAdapter
     return this.connected;
   }
 
+  hasNativeCompactionRecovery(): boolean {
+    return this.nativeRecoveryInstructionsConfigured;
+  }
+
   async disconnect(): Promise<void> {
     this.streamRetry.clear();
     this.connected = false;
@@ -934,19 +941,7 @@ export class CodexAdapter
 
   async forkThread(options: { rollbackTurns?: number } = {}): Promise<string> {
     if (!this.threadId) throw new Error("No Codex thread started yet");
-    const result = (await this.transport.call("thread/fork", this.buildThreadParams({ threadId: this.threadId }))) as {
-      thread: { id: string };
-    };
-    const threadId = result.thread.id;
-    if (options.rollbackTurns) {
-      try {
-        await this.transport.call("thread/rollback", { threadId, numTurns: options.rollbackTurns });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        throw new Error(`Rollback failed: ${message}`);
-      }
-    }
-    return threadId;
+    return forkCodexThread(this.transport, this.buildThreadParams({ threadId: this.threadId }), options.rollbackTurns);
   }
 
   // ── Initialization ──────────────────────────────────────────────────────
@@ -972,7 +967,13 @@ export class CodexAdapter
       // Step 2: Send initialized notification
       await this.transport.notify("initialized", {});
 
+      this.options.instructions = await buildCodexRecoveryInstructions(
+        this.options.instructions,
+        this.options.recoveryRole,
+        this.sessionId,
+      );
       await configureCodexDeveloperInstructions(this.transport, this.options.instructions);
+      this.nativeRecoveryInstructionsConfigured = !!this.options.recoveryRole;
 
       // Step 3: Start or resume a thread
       if (this.options.threadId) {

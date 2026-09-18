@@ -767,14 +767,14 @@ export class HerdEventDispatcher {
   }
 
   /** Force-deliver pending events, bypassing the isSessionIdle() gate.
-   *  Called by the stuck-session watchdog when a leader has been stuck for
-   *  too long — events would otherwise remain stranded indefinitely.
+   *  Human input supplies its arrival cutoff to carry earlier observations;
+   *  the stuck-session watchdog may flush the complete eligible backlog.
    *  Returns the number of events delivered (0 if nothing was pending). */
-  forceFlushPendingEvents(orchId: string): number {
+  forceFlushPendingEvents(orchId: string, before = Infinity): number {
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return 0;
     this.pruneStaleBoardStallEntries(orchId, inbox);
-    const pending = this.getDeliverablePendingEntries(orchId, inbox);
+    const pending = this.getDeliverablePendingEntries(orchId, inbox).filter((entry) => entry.event.ts <= before);
     if (pending.length === 0) return 0;
 
     const result = this.deliverPendingEntries(orchId, inbox, pending);
@@ -1864,17 +1864,19 @@ function snapshotHerdBatch(events: TakodeEvent[], renderedLines: string[]): Tako
 function groupPendingEntriesByThread(
   entries: InboxEntry[],
 ): Array<{ route: ThreadRouteMetadata; entries: InboxEntry[] }> {
-  const groups = new Map<string, { route: ThreadRouteMetadata; entries: InboxEntry[] }>();
+  const groups: Array<{ route: ThreadRouteMetadata; entries: InboxEntry[] }> = [];
   for (const entry of entries) {
     const key = routeKey(entry.threadRoute);
-    let group = groups.get(key);
-    if (!group) {
+    let group = groups.at(-1);
+    // Group only adjacent events: A, B, A must not become A, A, B when a
+    // human brings the preceding observations into an active turn.
+    if (!group || routeKey(group.route) !== key) {
       group = { route: entry.threadRoute, entries: [] };
-      groups.set(key, group);
+      groups.push(group);
     }
     group.entries.push(entry);
   }
-  return [...groups.values()];
+  return groups;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────

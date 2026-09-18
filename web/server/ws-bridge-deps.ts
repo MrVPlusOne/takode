@@ -1608,6 +1608,8 @@ export function getBrowserRoutingDeps(host: any) {
       host.notifyImageSendFailure(targetSession as Session, err),
     isHerdEventSource: (agentSource: { sessionId: string; sessionLabel?: string } | undefined) =>
       isHerdEventSourceBrowserTransportController(agentSource),
+    flushHerdEventsBeforeHumanInput: (sessionId: string, before: number) =>
+      host.herdEventDispatcher?.forceFlushPendingEvents(sessionId, before),
     onSessionActivityStateChanged: (sessionId: string, reason: string) =>
       host.onSessionActivityStateChanged(sessionId, reason),
     markTurnInterrupted: (targetSession: unknown, source: InterruptSource) =>

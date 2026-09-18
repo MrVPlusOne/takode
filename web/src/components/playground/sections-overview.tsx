@@ -794,6 +794,16 @@ export function PlaygroundOverviewSections() {
           <Card label="Compact marker (collapsed, no summary)">
             <MessageBubble message={MSG_COMPACT_COLLAPSED} />
           </Card>
+          <Card label="Compaction started (completion not yet established)">
+            <MessageBubble
+              message={{
+                ...MSG_COMPACT_COLLAPSED,
+                id: "compact-boundary-started",
+                content: "Compaction started",
+                metadata: { compactionStatus: "started" },
+              }}
+            />
+          </Card>
           <Card label="Compact marker (expandable, with summary)">
             <MessageBubble message={MSG_COMPACT_WITH_SUMMARY} />
           </Card>

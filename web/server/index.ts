@@ -548,7 +548,7 @@ wsBridge.onCLIRelaunchNeeded = (sessionId) => {
   // server's WebSocket) -- relaunching is safe and necessary (q-385).
   if (info.state === "starting" && wsBridge.isBackendAttached(sessionId)) return;
   console.log(`[server] Auto-relaunch requested for session ${sessionId}`);
-  relaunchQueue.request(sessionId);
+  relaunchQueue.request(sessionId, { trailing: false });
 };
 
 // Restart CLI when ask permission mode changes (updates launcher state + relaunches)

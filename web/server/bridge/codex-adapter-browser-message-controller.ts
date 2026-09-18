@@ -1119,12 +1119,14 @@ export async function handleCodexAdapterBrowserMessage(
           type: "compact_marker",
           timestamp: ts,
           id: markerId,
+          compactionStatus: "started",
         });
         deps.freezeHistoryThroughCurrentTail(session);
         deps.broadcastToBrowsers(session, {
           type: "compact_boundary",
           id: markerId,
           timestamp: ts,
+          compactionStatus: "started",
         } as BrowserIncomingMessage);
       }
     }
@@ -1139,6 +1141,14 @@ export async function handleCodexAdapterBrowserMessage(
         outgoing = null;
       } else {
         recordCompactionFinished(session);
+        const completed: BrowserIncomingMessage = {
+          type: "compact_marker",
+          timestamp: Date.now(),
+          id: `compact-boundary-${Date.now()}-completed`,
+          compactionStatus: "completed",
+        };
+        session.messageHistory.push(completed);
+        deps.broadcastToBrowsers(session, completed);
         deps.broadcastToBrowsers(session, {
           type: "session_update",
           session: { lifecycle_events: session.state.lifecycle_events },

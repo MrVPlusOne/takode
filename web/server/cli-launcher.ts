@@ -1367,6 +1367,7 @@ export class CliLauncher {
       serviceTier: options.codexServiceTier ?? null,
       recorder: this.recorder ?? undefined,
       instructions: codexInstructions || undefined,
+      recoveryRole: info.isOrchestrator ? "leader" : "standard",
       instructionContext,
       failureContextProvider: () => formatStreamTailForError(stderrTail),
     });

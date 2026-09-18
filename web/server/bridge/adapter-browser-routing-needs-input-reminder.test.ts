@@ -330,6 +330,23 @@ describe("Codex input admission activity", () => {
 });
 
 describe("direct user needs-input reminders", () => {
+  it("moves preceding herd observations into the queue before admitting human input", () => {
+    // A human trigger must flush the upstream inbox before its own delivery;
+    // otherwise an idle-only event can be stranded behind newer user context.
+    const session = makeSession();
+    session.backendType = "codex";
+    const order: string[] = [];
+    const deps = makeDeps();
+    deps.flushHerdEventsBeforeHumanInput = () => {
+      order.push("herd");
+    };
+    deps.addPendingCodexInput = (_target, input) => {
+      order.push("human");
+      session.pendingCodexInputs.push(input);
+    };
+    routeAdapterBrowserMessage(session, userMessage(), null, deps);
+    expect(order).toEqual(["herd", "human"]);
+  });
   it("persists and consumes a visible-stream boundary on the next direct human message", async () => {
     const session = makeSession();
     session.isGenerating = true;

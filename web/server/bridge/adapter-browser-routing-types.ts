@@ -110,6 +110,7 @@ export interface AdapterBrowserRoutingSessionLike {
 }
 
 export interface AdapterBrowserRoutingDeps {
+  flushHerdEventsBeforeHumanInput?: (sessionId: string, before: number) => void;
   sendToCLI: (
     session: AdapterBrowserRoutingSessionLike,
     ndjson: string,

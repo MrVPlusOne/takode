@@ -1,3 +1,4 @@
+import { compactionMarkerLabel } from "../../shared/compaction-marker.js";
 import { AnnotationAttachments, AnnotationSourceMarkers } from "./AnnotationAttachments.js";
 import { useState, useMemo, useRef, useCallback, useContext, useLayoutEffect, useEffect, memo } from "react";
 import type { ChatMessage, ContentBlock, ToolResultPreview } from "../types.js";
@@ -1501,7 +1502,7 @@ function CompactMarker({
 }) {
   const [expanded, setExpanded] = useState(false);
   const markerKind = message.metadata?.compactMarkerKind === "session_recycled" ? "session_recycled" : "compaction";
-  const label = markerKind === "session_recycled" ? "Session recycled" : "Conversation compacted";
+  const label = compactionMarkerLabel(message.metadata?.compactionStatus, markerKind);
   const hasSummary = message.content && message.content !== label;
 
   return (

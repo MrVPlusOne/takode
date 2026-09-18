@@ -1,3 +1,4 @@
+import { compactionMarkerLabel } from "./compaction-marker.js";
 import type { BrowserIncomingMessage, ContentBlock } from "../server/session-types.js";
 
 type ComparableHistoryEntry = {
@@ -175,7 +176,7 @@ function forEachComparableHistoryEntry(
         {
           id: message.id || `compact-${historyIndex}`,
           role: "system",
-          content: message.summary || "Conversation compacted",
+          content: message.summary || compactionMarkerLabel(message.compactionStatus),
           variant: "info",
           timestamp: null,
         },
