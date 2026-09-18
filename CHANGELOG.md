@@ -1,5 +1,11 @@
 # Takode Changelog
 
+## 2026-09-18
+
+### Changed
+
+- **Mobile quest banners** -- The title and right-aligned Journey pill share one row. Expanded details show the current worker, while a manual collapse control saves screen space without reopening on phase updates.
+
 ## 2026-09-14
 
 ### Changed

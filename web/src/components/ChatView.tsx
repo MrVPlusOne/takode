@@ -1,6 +1,7 @@
 import {
   useMemo,
   useState,
+  useId,
   useEffect,
   useRef,
   useCallback,
@@ -299,7 +300,7 @@ function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow;
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const zoomLevel = useStore((state) => state.zoomLevel ?? 1);
-  const cardWidth = 380;
+  const cardWidth = Math.min(380, (window.innerWidth - 16) / zoomLevel);
   const gap = 6;
 
   useEffect(
@@ -912,6 +913,10 @@ export function QuestThreadBanner({
   monitorSessionId?: string;
 }) {
   const questId = row?.questId ?? threadKey.toLowerCase();
+  const [collapsed, setCollapsed] = useState(false);
+  const detailsId = useId();
+  // Disclosure belongs to this quest, not to its changing phase or participants.
+  useEffect(() => setCollapsed(false), [questId]);
   const title = row?.title;
   const isSessionBanner = variant === "session";
   const codeCommitState = useQuestCodeCommitShas(isSessionBanner ? null : questId, row?.commitShas);
@@ -923,15 +928,20 @@ export function QuestThreadBanner({
     ? !!(row?.leaderSessionId || row?.rowStatus?.reviewer)
     : !!(row?.rowStatus?.worker || row?.boardRow?.worker || row?.rowStatus?.reviewer);
   const hasMeta = !!waitCondition || !!row?.journey || !!row?.status || hasParticipantContext || showCommitAffordance;
+  const hasMobileDetails =
+    showCommitAffordance ||
+    !!queuedWaitCondition ||
+    (isSessionBanner && (!!inputWaitCondition || !!(row?.leaderSessionId && row.leaderSessionId !== currentSessionId)));
   return (
     <div
       className="shrink-0 border-b border-cc-border/80 bg-cc-bg/95 px-2.5 py-1 sm:px-3"
       data-testid="quest-thread-banner"
       data-variant={variant}
       data-layout="compact-inline"
+      data-mobile-collapsed={collapsed}
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-        <div className="inline-flex min-w-0 max-w-full flex-[1_1_16rem] items-baseline gap-1.5">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-1 gap-y-0.5 text-xs sm:flex sm:flex-wrap sm:gap-x-2">
+        <div className="col-start-1 row-start-1 inline-flex min-w-0 max-w-full items-baseline gap-1.5 sm:flex-[1_1_16rem]">
           {isSessionBanner && (
             <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/65">Quest</span>
           )}
@@ -941,79 +951,119 @@ export function QuestThreadBanner({
           >
             {questId}
           </QuestInlineLink>
-          {title && <span className="min-w-0 truncate text-xs font-medium text-cc-fg sm:text-[13px]">{title}</span>}
+          {title && (
+            <span className="min-w-0 truncate text-xs font-medium text-cc-fg sm:text-[13px]" title={title}>
+              {title}
+            </span>
+          )}
         </div>
+        {hasMobileDetails && (
+          <button
+            type="button"
+            className="col-start-2 row-start-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-cc-muted hover:bg-cc-hover hover:text-cc-fg focus-visible:outline focus-visible:outline-cc-primary sm:hidden"
+            aria-label={collapsed ? "Expand quest information" : "Collapse quest information"}
+            aria-expanded={!collapsed}
+            aria-controls={detailsId}
+            onClick={() => setCollapsed((value) => !value)}
+          >
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              className="h-3 w-3"
+              aria-hidden="true"
+            >
+              <path d={collapsed ? "m4 6 4 4 4-4" : "m4 10 4-4 4 4"} strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
         {hasMeta && (
           <div
-            className="inline-flex min-w-0 flex-[1_1_auto] flex-wrap items-center gap-1.5 sm:flex-[0_1_auto] sm:justify-end"
+            className="contents min-w-0 flex-[1_1_auto] flex-wrap items-center gap-1.5 sm:inline-flex sm:flex-[0_1_auto] sm:justify-end"
             data-testid="quest-thread-meta-strip"
           >
-            {queuedWaitCondition ? (
-              row?.journey ? (
+            <div
+              className={`col-start-3 row-start-1 min-w-0 justify-self-end ${queuedWaitCondition ? "sm:hidden" : "sm:contents"}`}
+            >
+              {row?.journey ? (
                 <QuestJourneyHoverTarget row={row}>
-                  <QuestBannerQueuedStatusChip condition={queuedWaitCondition} />
+                  <QuestJourneyTimeline
+                    journey={row.journey}
+                    status={journeyStatusForThread(row)}
+                    variant="compact"
+                    showNotes={false}
+                    className="whitespace-nowrap rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5"
+                  />
                 </QuestJourneyHoverTarget>
               ) : (
-                <QuestBannerQueuedStatusChip condition={queuedWaitCondition} />
-              )
-            ) : row?.journey ? (
-              <QuestJourneyHoverTarget row={row}>
-                <QuestJourneyTimeline
-                  journey={row.journey}
-                  status={journeyStatusForThread(row)}
-                  variant="compact"
-                  showNotes={false}
-                  className="rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5"
-                />
-              </QuestJourneyHoverTarget>
-            ) : null}
-            {!queuedWaitCondition && !row?.journey && <QuestStatusFallbackPill status={row?.status} />}
-            {isSessionBanner && inputWaitCondition && <QuestBannerWaitPill condition={inputWaitCondition} />}
-            {hasParticipantContext && (
-              <div className="inline-flex min-w-0 items-center gap-1.5" data-testid="quest-thread-participant-strip">
-                {isSessionBanner ? (
-                  <>
-                    <QuestBannerParticipantChip
-                      role="Leader"
-                      variant="thread"
-                      showDisplayName={false}
-                      sessionId={row?.leaderSessionId}
-                      fallbackSessionNum={row?.leaderSessionNum ?? undefined}
-                      currentSessionId={currentSessionId}
-                      threadKey={row?.questId}
-                    />
-                    <QuestBannerParticipantChip
-                      role="Reviewer"
-                      participant={row?.rowStatus?.reviewer}
-                      currentSessionId={currentSessionId}
-                    />
-                  </>
+                <QuestStatusFallbackPill status={queuedWaitCondition ? "Queued" : row?.status} />
+              )}
+            </div>
+            <div
+              id={detailsId}
+              data-testid="quest-thread-details"
+              className={`${collapsed ? "hidden" : "flex"} col-span-3 min-w-0 flex-wrap items-center gap-1.5 sm:contents`}
+            >
+              {queuedWaitCondition &&
+                (row?.journey ? (
+                  <QuestJourneyHoverTarget row={row}>
+                    <QuestBannerQueuedStatusChip condition={queuedWaitCondition} />
+                  </QuestJourneyHoverTarget>
                 ) : (
-                  <>
-                    <QuestBannerParticipantChip
-                      role="Worker"
-                      variant="thread"
-                      participant={boardWorkerParticipantForRow(row)}
-                      fallbackSessionId={row?.boardRow?.worker}
-                      fallbackSessionNum={row?.boardRow?.workerNum}
-                      showDisplayName={false}
-                    />
-                    <QuestBannerParticipantChip
-                      role="Reviewer"
-                      participant={row?.rowStatus?.reviewer}
-                      showDisplayName={false}
-                      variant="thread"
-                    />
-                  </>
-                )}
-              </div>
-            )}
-            {showCommitAffordance && (
-              <QuestBannerCommitButton questId={questId} count={codeCommitState.commitShas.length} />
-            )}
-            {monitorSessionId && !isSessionBanner && (
-              <NotifyMeControl sessionId={monitorSessionId} threadKey={threadKey} />
-            )}
+                  <QuestBannerQueuedStatusChip condition={queuedWaitCondition} />
+                ))}
+              {isSessionBanner && inputWaitCondition && <QuestBannerWaitPill condition={inputWaitCondition} />}
+              {hasParticipantContext && (
+                <div className="inline-flex min-w-0 items-center gap-1.5" data-testid="quest-thread-participant-strip">
+                  {isSessionBanner ? (
+                    <>
+                      <QuestBannerParticipantChip
+                        role="Leader"
+                        variant="thread"
+                        showDisplayName={false}
+                        sessionId={row?.leaderSessionId}
+                        fallbackSessionNum={row?.leaderSessionNum ?? undefined}
+                        currentSessionId={currentSessionId}
+                        threadKey={row?.questId}
+                      />
+                      <span className="hidden sm:contents">
+                        <QuestBannerParticipantChip
+                          role="Reviewer"
+                          participant={row?.rowStatus?.reviewer}
+                          currentSessionId={currentSessionId}
+                        />
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <QuestBannerParticipantChip
+                        role="Worker"
+                        variant="thread"
+                        participant={boardWorkerParticipantForRow(row)}
+                        fallbackSessionId={row?.boardRow?.worker}
+                        fallbackSessionNum={row?.boardRow?.workerNum}
+                        showDisplayName={false}
+                      />
+                      <span className="hidden sm:contents">
+                        <QuestBannerParticipantChip
+                          role="Reviewer"
+                          participant={row?.rowStatus?.reviewer}
+                          showDisplayName={false}
+                          variant="thread"
+                        />
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
+              {showCommitAffordance && (
+                <QuestBannerCommitButton questId={questId} count={codeCommitState.commitShas.length} />
+              )}
+              {monitorSessionId && !isSessionBanner && (
+                <NotifyMeControl sessionId={monitorSessionId} threadKey={threadKey} />
+              )}
+            </div>
           </div>
         )}
       </div>

@@ -1329,7 +1329,8 @@ describe("Playground", () => {
       "Queued, waiting for #1801, q-1367, free worker",
     );
     expect(within(queuedBanner).queryByTestId("quest-thread-wait-pill")).not.toBeInTheDocument();
-    expect(within(queuedBanner).queryByTestId("quest-journey-compact-summary")).not.toBeInTheDocument();
+    // Mobile keeps Journey on the first row; queued dependencies remain available below it.
+    expect(within(queuedBanner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Journey");
     const staleQueuedDoneBanner = screen.getAllByTestId("quest-thread-banner")[2];
     expect(within(staleQueuedDoneBanner).queryByTestId("quest-thread-queued-status-chip")).not.toBeInTheDocument();
     expect(staleQueuedDoneBanner).not.toHaveTextContent("Queued, waiting for free worker");
