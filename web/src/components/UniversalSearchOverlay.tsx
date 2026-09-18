@@ -557,6 +557,7 @@ export function UniversalSearchOverlay({
     }
 
     if (mode === "quests") {
+      const controller = new AbortController();
       setRemoteState((current) => ({
         ...current,
         mode: "quests",
@@ -564,14 +565,17 @@ export function UniversalSearchOverlay({
         results: current.mode === "quests" ? current.results : [],
       }));
       void api
-        .listQuestPage({
-          limit: visibleLimit,
-          text: trimmedQuery || undefined,
-          sortColumn: trimmedQuery ? undefined : "updated",
-          sortDirection: trimmedQuery ? undefined : "desc",
-        })
+        .listQuestPage(
+          {
+            limit: visibleLimit,
+            text: trimmedQuery || undefined,
+            sortColumn: trimmedQuery ? undefined : "updated",
+            sortDirection: trimmedQuery ? undefined : "desc",
+          },
+          controller.signal,
+        )
         .then((page) => {
-          if (requestSeq !== requestSeqRef.current) return;
+          if (controller.signal.aborted || requestSeq !== requestSeqRef.current) return;
           setRemoteState({
             mode: "quests",
             status: "idle",
@@ -580,11 +584,11 @@ export function UniversalSearchOverlay({
           });
         })
         .catch((err) => {
-          if (requestSeq !== requestSeqRef.current) return;
+          if (controller.signal.aborted || requestSeq !== requestSeqRef.current) return;
           console.warn("[universal-search] quest search failed:", err);
           setRemoteState({ mode: "quests", status: "error", total: 0, results: [] });
         });
-      return;
+      return () => controller.abort();
     }
 
     if (mode === "messages") {

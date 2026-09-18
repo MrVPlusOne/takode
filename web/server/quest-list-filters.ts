@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { QuestListPreview, QuestmasterTask } from "./quest-types.js";
 import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "./quest-types.js";
 import { prepareSearchQuery, type PreparedSearchQuery, tokenizeSearchText } from "../shared/search-utils.js";
@@ -64,6 +65,10 @@ type QuestSearchDocument = {
   termFrequency: Map<string, number>;
   tokenCount: number;
   recencyTs: number;
+};
+type QuestSearchContext = {
+  getDocument?: (quest: QuestmasterTask) => QuestSearchDocument;
+  signal?: AbortSignal;
 };
 type RankedQuestSearchEntry = {
   quest: QuestmasterTask;
@@ -139,13 +144,60 @@ export function getQuestListPage(quests: QuestmasterTask[], options: QuestListPa
   );
 }
 
+/**
+ * Share one prepared document per known quest while reading an authoritative corpus
+ * for every request. Content fingerprints include derived relationships: neither
+ * a quest's own version nor its timestamp proves that its search text is unchanged.
+ * The cache retains documents, not quest records or per-query result sets.
+ */
+export function createQuestListSearch(readQuests: () => Promise<QuestmasterTask[]>) {
+  const documents = new Map<string, { fingerprint: string; document: QuestSearchDocument }>();
+  let knownQuestIds = new Set<string>();
+  let requestSequence = 0;
+  let corpusSequence = 0;
+
+  return async (options: QuestListPageOptions, signal?: AbortSignal): Promise<QuestListPageResult> => {
+    signal?.throwIfAborted();
+    const sequence = ++requestSequence;
+    // Do not share an older pending read with a request arriving after a mutation.
+    const quests = await readQuests();
+    signal?.throwIfAborted();
+    if (sequence > corpusSequence) {
+      corpusSequence = sequence;
+      knownQuestIds = new Set(quests.map((quest) => quest.questId));
+      for (const questId of documents.keys()) {
+        if (!knownQuestIds.has(questId)) documents.delete(questId);
+      }
+    }
+
+    return getQuestListPageAsync(quests, options, {
+      signal,
+      getDocument: (quest) => {
+        const fingerprint = questSearchFingerprint(quest);
+        const cached = documents.get(quest.questId);
+        let document = cached?.fingerprint === fingerprint ? cached.document : buildQuestSearchDocument(quest);
+        const recencyTs = questRecencyTs(quest);
+        if (document.recencyTs !== recencyTs) document = { ...document, recencyTs };
+        // An older in-flight snapshot must not resurrect an entry since deleted.
+        if (knownQuestIds.has(quest.questId) && cached?.document !== document) {
+          documents.set(quest.questId, { fingerprint, document });
+        }
+        return document;
+      },
+    });
+  };
+}
+
 export async function getQuestListPageAsync(
   quests: QuestmasterTask[],
   options: QuestListPageOptions,
+  context: QuestSearchContext = {},
 ): Promise<QuestListPageResult> {
+  context.signal?.throwIfAborted();
   const hasTextQuery = (options.text ?? "").trim().length > 0;
   if (!hasTextQuery) return getQuestListPage(quests, options);
-  const result = await filterQuestListAsync(quests, options);
+  const result = await filterQuestListAsync(quests, options, context);
+  context.signal?.throwIfAborted();
   return buildQuestListPage(
     quests,
     options,
@@ -266,6 +318,7 @@ function filterQuestList(quests: QuestmasterTask[], filters: QuestListFilterOpti
 async function filterQuestListAsync(
   quests: QuestmasterTask[],
   filters: QuestListFilterOptions,
+  context: QuestSearchContext,
 ): Promise<QuestListFilterResult> {
   const parsed = parseQuestListFilters(filters);
   if (parsed.hasTextQuery && !parsed.preparedSearchQuery) return finishQuestListFilter(parsed, []);
@@ -273,7 +326,8 @@ async function filterQuestListAsync(
   const beforeStatusEntries: QuestListEntry[] = [];
   for (const [index, quest] of quests.entries()) {
     if (index > 0 && index % TEXT_SEARCH_YIELD_INTERVAL === 0) await yieldToEventLoop();
-    const entry = buildQuestListEntry(quest, parsed);
+    context.signal?.throwIfAborted();
+    const entry = buildQuestListEntry(quest, parsed, context.getDocument);
     if (entry) beforeStatusEntries.push(entry);
   }
 
@@ -305,14 +359,18 @@ function parseQuestListFilters(filters: QuestListFilterOptions): ParsedQuestList
   };
 }
 
-function buildQuestListEntry(quest: QuestmasterTask, filters: ParsedQuestListFilters): QuestListEntry | null {
+function buildQuestListEntry(
+  quest: QuestmasterTask,
+  filters: ParsedQuestListFilters,
+  getDocument: (quest: QuestmasterTask) => QuestSearchDocument = buildQuestSearchDocument,
+): QuestListEntry | null {
   if (!matchesVerificationFilter(quest, filters.verificationScopes)) return null;
   if (!matchesTagFilters(quest, filters.tagTokens, filters.excludedTagTokens)) return null;
   if (!matchesSessionFilter(quest, filters.sessionId, filters.ownerKind)) return null;
 
   if (!filters.hasTextQuery) return { quest };
   if (!filters.preparedSearchQuery) return null;
-  const searchDocument = buildQuestSearchDocument(quest);
+  const searchDocument = getDocument(quest);
   return { quest, searchDocument, matchesText: matchesAllQueryTokens(searchDocument, filters.preparedSearchQuery) };
 }
 
@@ -522,17 +580,36 @@ function rankQuestSearchEntries(
 }
 
 function buildQuestSearchDocument(quest: QuestmasterTask): QuestSearchDocument {
-  const tokens = [
-    ...questSearchTokens(getQuestPrimarySearchFields(quest), PRIMARY_FIELD_DUPLICATION),
-    ...questSearchTokens(getQuestBodySearchFields(quest), BODY_FIELD_DUPLICATION),
-  ];
   const termFrequency = new Map<string, number>();
-  for (const token of tokens) termFrequency.set(token, (termFrequency.get(token) ?? 0) + 1);
+  let tokenCount = 0;
+  // Weight frequencies directly instead of duplicating and concatenating all tokens.
+  for (const [fields, weight] of [
+    [getQuestPrimarySearchFields(quest), PRIMARY_FIELD_DUPLICATION],
+    [getQuestBodySearchFields(quest), BODY_FIELD_DUPLICATION],
+  ] as const) {
+    for (const field of fields) {
+      if (!field) continue;
+      const tokens = tokenizeSearchText(field);
+      tokenCount += tokens.length * weight;
+      for (const token of tokens) {
+        termFrequency.set(token.value, (termFrequency.get(token.value) ?? 0) + weight);
+      }
+    }
+  }
   return {
     termFrequency,
-    tokenCount: Math.max(1, tokens.length),
+    tokenCount: Math.max(1, tokenCount),
     recencyTs: questRecencyTs(quest),
   };
+}
+
+function questSearchFingerprint(quest: QuestmasterTask): string {
+  const hash = createHash("sha256");
+  for (const field of [...getQuestPrimarySearchFields(quest), ...getQuestBodySearchFields(quest)]) {
+    const text = field ?? "";
+    hash.update(`${text.length}:`).update(text);
+  }
+  return hash.digest("base64url");
 }
 
 function getQuestPrimarySearchFields(quest: QuestmasterTask): Array<string | undefined> {
@@ -552,16 +629,6 @@ function getQuestBodySearchFields(quest: QuestmasterTask): Array<string | undefi
       ? liveQuestFeedbackEntries(quest.feedback).flatMap((entry) => [entry.tldr, entry.text])
       : []),
   ];
-}
-
-function questSearchTokens(fields: Array<string | undefined>, duplication: number): string[] {
-  const tokens: string[] = [];
-  for (const field of fields) {
-    if (!field) continue;
-    const fieldTokens = tokenizeSearchText(field).map((token) => token.value);
-    for (let count = 0; count < duplication; count += 1) tokens.push(...fieldTokens);
-  }
-  return tokens;
 }
 
 function matchesAllQueryTokens(document: QuestSearchDocument, query: PreparedSearchQuery): boolean {

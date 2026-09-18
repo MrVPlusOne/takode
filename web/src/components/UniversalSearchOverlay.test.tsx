@@ -401,7 +401,10 @@ describe("UniversalSearchOverlay", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("Searching...");
     expect(mockListQuestPage).toHaveBeenCalledTimes(1);
-    expect(mockListQuestPage).toHaveBeenCalledWith(expect.objectContaining({ text: "loading", limit: 20 }));
+    expect(mockListQuestPage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "loading", limit: 20 }),
+      expect.any(AbortSignal),
+    );
 
     await act(async () => {
       if (outcome === "failure") {
@@ -438,6 +441,42 @@ describe("UniversalSearchOverlay", () => {
     } else {
       expect(screen.getByText("Search failed")).toBeInTheDocument();
     }
+  });
+
+  it("cancels superseded quest requests and ignores their late results", async () => {
+    // The spinner's existing latest-query lifecycle remains intact while old
+    // work is cancelled. A transport that settles late cannot replace new rows.
+    let resolveOld!: (page: QuestListPage) => void;
+    mockListQuestPage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveOld = resolve;
+        }),
+    );
+    const view = renderOverlay({ initialMode: "quests", initialQuery: "old" });
+    const oldSignal = mockListQuestPage.mock.calls[0]![1] as AbortSignal;
+    expect(oldSignal.aborted).toBe(false);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "new" } });
+    await waitFor(() => expect(mockListQuestPage).toHaveBeenCalledTimes(2));
+    expect(oldSignal.aborted).toBe(true);
+    const currentSignal = mockListQuestPage.mock.calls[1]![1] as AbortSignal;
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("0 quests"));
+    await act(async () => {
+      resolveOld({
+        quests: [],
+        total: 99,
+        offset: 0,
+        limit: 20,
+        hasMore: false,
+        nextOffset: null,
+        previousOffset: null,
+        counts: { all: 99, idea: 0, refined: 0, in_progress: 0, done: 99 },
+        allTags: [],
+      });
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("0 quests");
+    view.unmount();
+    expect(currentSignal.aborted).toBe(true);
   });
 
   it("uses text search semantics and one conventional close control", () => {
@@ -1135,12 +1174,15 @@ describe("UniversalSearchOverlay", () => {
     fireEvent.click(screen.getByRole("button", { name: "Quests" }));
 
     await waitFor(() => expect(mockListQuestPage).toHaveBeenCalled());
-    expect(mockListQuestPage).toHaveBeenLastCalledWith({
-      limit: 20,
-      text: undefined,
-      sortColumn: "updated",
-      sortDirection: "desc",
-    });
+    expect(mockListQuestPage).toHaveBeenLastCalledWith(
+      {
+        limit: 20,
+        text: undefined,
+        sortColumn: "updated",
+        sortDirection: "desc",
+      },
+      expect.any(AbortSignal),
+    );
     expect(await screen.findByText("Recently updated quest")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "q-101" })).toBeInTheDocument();
   });

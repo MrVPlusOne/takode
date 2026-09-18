@@ -19,6 +19,7 @@ import { hasQuestReviewMetadata } from "../quest-types.js";
 import { normalizeCommitShas } from "../quest-store-helpers.js";
 import {
   buildQuestListPreview,
+  createQuestListSearch,
   getQuestListPageAsync,
   type QuestListPageOptions,
   type QuestListSortColumn,
@@ -443,6 +444,7 @@ function validateV2CompletionCodeCommitSubmission(
 
 export function createQuestRoutes(ctx: RouteContext) {
   const api = new Hono();
+  const searchQuestPage = createQuestListSearch(() => questStore.listQuests());
   registerQuestDeliveryRoutes(api);
   const { launcher, wsBridge, imageStore, authenticateCompanionCallerOptional, execCaptureStdoutAsync, resolveId } =
     ctx;
@@ -988,8 +990,14 @@ export function createQuestRoutes(ctx: RouteContext) {
   });
 
   api.get("/quests/_page", async (c) => {
-    const page = await getQuestListPageAsync(await questStore.listQuests(), questListPageOptions(c));
-    return cacheValidatedJson(c, page);
+    const signal = c.req.raw.signal;
+    try {
+      const page = await searchQuestPage(questListPageOptions(c), signal);
+      return cacheValidatedJson(c, page);
+    } catch (error) {
+      if (signal.aborted) return new Response(null, { status: 499 });
+      throw error;
+    }
   });
 
   api.get("/quests/_autocomplete", async (c) => {

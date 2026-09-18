@@ -67,6 +67,42 @@ afterEach(() => {
 });
 
 describe("GET /api/quests/_page", () => {
+  it("refreshes warm search results after a body edit with unchanged identity metadata", async () => {
+    // Route-level coverage ensures the shared search still reloads authoritative
+    // records instead of returning a cached page or trusting a mutable version.
+    const records = [makeQuest({ questId: "q-1", title: "Example", description: "firstneedle" })];
+    const app = makeApp(records);
+    expect((await (await app.request("/api/quests/_page?text=firstneedle")).json()).total).toBe(1);
+    records[0]!.description = "secondneedle";
+    expect((await (await app.request("/api/quests/_page?text=firstneedle")).json()).total).toBe(0);
+    expect((await (await app.request("/api/quests/_page?text=secondneedle")).json()).total).toBe(1);
+  });
+
+  it("treats an aborted pending read as request cancellation and keeps later searches usable", async () => {
+    // Cancelling one browser request must not poison the shared document cache
+    // or turn a normal abort into a logged route failure.
+    const records = [makeQuest({ questId: "q-1", title: "Needle" })];
+    const app = makeApp(records);
+    let release!: (quests: QuestmasterTask[]) => void;
+    vi.mocked(questStore.listQuests).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const pending = app.request(
+      new Request("http://localhost/api/quests/_page?text=needle", { signal: controller.signal }),
+    );
+    await Promise.resolve();
+    controller.abort();
+    release(records);
+    expect((await pending).status).toBe(499);
+    const next = await app.request("/api/quests/_page?text=needle");
+    expect(next.status).toBe(200);
+    expect((await next.json()).total).toBe(1);
+  });
+
   it("returns a bounded page with global counts and tag metadata", async () => {
     const app = makeApp([
       makeQuest({ questId: "q-1", title: "Active", status: "in_progress", updatedAt: 100, tags: ["work"] }),
