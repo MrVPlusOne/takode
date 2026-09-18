@@ -1426,7 +1426,7 @@ export function usePlaygroundSeed() {
         content: "Also check whether refresh-token rotation races with logout.",
         timestamp: Date.now(),
         cancelable: true,
-        threadKey: "q-1958",
+        threadKey: "",
         questId: "q-1958",
         draftImages: [],
       },
@@ -1456,6 +1456,28 @@ export function usePlaygroundSeed() {
         failureMessage: "Codex rejected this input before delivery.",
         failedAt: Date.now() + 4,
         draftImages: [],
+      },
+      {
+        id: "playground-pending-main",
+        content: "Summarize the current work in Main.",
+        timestamp: Date.now() + 5,
+        cancelable: true,
+        threadKey: "main",
+      },
+      {
+        id: "playground-pending-background",
+        content: "Background event: the worker has a result ready.",
+        timestamp: Date.now() + 6,
+        cancelable: false,
+        threadKey: " ",
+        questId: "q-1952",
+        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+      },
+      {
+        id: "playground-pending-unknown",
+        content: "This pending input has no known destination yet.",
+        timestamp: Date.now() + 7,
+        cancelable: true,
       },
     ]);
     store.addPendingUserUpload(PLAYGROUND_CODEX_PENDING_SESSION_ID, {

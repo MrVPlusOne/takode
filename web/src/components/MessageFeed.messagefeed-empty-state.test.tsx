@@ -29,7 +29,8 @@ beforeAll(() => {
 });
 
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
-import type { ChatMessage } from "../types.js";
+import type { ChatMessage, PendingCodexInput } from "../types.js";
+import { compactPendingCodexInputsForBrowser } from "../../server/codex-pending-input-safety.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 
 // Mock react-markdown to avoid ESM issues in tests
@@ -242,7 +243,7 @@ function setStoreThinking(sessionId: string, text: string | undefined) {
   mockStoreValues.streamingThinking = map;
 }
 
-function setStorePendingCodexInputs(sessionId: string, inputs: Array<Record<string, unknown>>) {
+function setStorePendingCodexInputs(sessionId: string, inputs: PendingCodexInput[]) {
   const map = new Map();
   map.set(sessionId, inputs);
   mockStoreValues.pendingCodexInputs = map;
@@ -552,6 +553,77 @@ describe("MessageFeed - empty state", () => {
 
   // Pending delivery follows reliable thread metadata, while unmapped inputs
   // stay visible so the UI does not hide a delivery state it cannot route.
+  it("keeps producer pending destinations and cancellation identity stable across thread switches", () => {
+    // The browser snapshot retains partially populated route fields from queued
+    // records. A valid quest destination must win over an empty primary field.
+    const sid = "pending-thread-switch";
+    setStoreMessages(sid, []);
+    setStoreSessionBackend(sid, "codex");
+    const snapshot = compactPendingCodexInputsForBrowser([
+      {
+        id: "human-owner",
+        clientMsgId: "local-owner",
+        content: "Queued human request",
+        timestamp: 1,
+        cancelable: true,
+        threadKey: "",
+        questId: "q-41",
+      },
+      {
+        id: "background-owner",
+        content: "Queued background event",
+        timestamp: 2,
+        cancelable: false,
+        threadKey: " ",
+        questId: "q-42",
+        agentSource: { sessionId: "herd-events" },
+      },
+      { id: "unknown-owner", content: "Unrouted pending request", timestamp: 3, cancelable: true },
+    ]);
+    setStorePendingCodexInputs(sid, snapshot);
+    setStorePendingUserUploads(sid, [
+      {
+        id: "local-owner",
+        content: "Replaced local send",
+        timestamp: 1,
+        stage: "delivering",
+        images: [],
+        threadKey: "",
+        questId: "q-41",
+      },
+    ]);
+
+    const view = render(<MessageFeed sessionId={sid} threadKey="q-41" />);
+    expect(screen.getByText("Queued human request")).toBeTruthy();
+    expect(screen.queryByText("Queued background event")).toBeNull();
+    expect(screen.getByText("Unrouted pending request")).toBeTruthy();
+    expect(screen.queryByText("Replaced local send")).toBeNull();
+
+    const humanRow = screen.getByText("Queued human request").closest("[data-delivery-state]")!;
+    fireEvent.click(within(humanRow as HTMLElement).getByRole("button", { name: "Cancel pending message" }));
+    expect(mockSendToSession).toHaveBeenCalledWith(sid, { type: "cancel_pending_codex_input", id: "human-owner" });
+
+    view.rerender(<MessageFeed sessionId={sid} threadKey="q-42" />);
+    expect(screen.queryByText("Queued human request")).toBeNull();
+    expect(screen.getByText("Queued background event")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Pending message is already being delivered" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(screen.getByText("Unrouted pending request")).toBeTruthy();
+
+    view.rerender(<MessageFeed sessionId={sid} threadKey="main" />);
+    expect(screen.queryByText("Queued human request")).toBeNull();
+    expect(screen.queryByText("Queued background event")).toBeNull();
+    expect(screen.getByText("Unrouted pending request")).toBeTruthy();
+
+    view.rerender(<MessageFeed sessionId={sid} threadKey="all" />);
+    expect(screen.getByText("Queued human request")).toBeTruthy();
+    expect(screen.getByText("Queued background event")).toBeTruthy();
+    expect(screen.getByText("Unrouted pending request")).toBeTruthy();
+    expect(screen.queryByText("Replaced local send")).toBeNull();
+    expect(snapshot.map((item) => item.id)).toEqual(["human-owner", "background-owner", "unknown-owner"]);
+  });
+
   it("shows routed pending Codex inputs in their owning thread tab", () => {
     const sid = "test-pending-codex-owner-thread";
     setStoreMessages(sid, []);
@@ -867,7 +939,7 @@ describe("MessageFeed - empty state", () => {
 
   it("renders persisted server failure once with exact retry and origin-only edit actions", () => {
     const sid = "test-failed-server-pending";
-    const failedInput = {
+    const failedInput: PendingCodexInput = {
       id: "server-failed-1",
       clientMsgId: "pending-client-1",
       content: "Inspect this failed screenshot",

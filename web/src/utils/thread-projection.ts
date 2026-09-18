@@ -506,22 +506,21 @@ export function retainCurrentThreadContinuation(
 }
 
 function pendingCodexInputOwnerKeys(input: PendingCodexInput): { mapped: boolean; keys: Set<string> } {
-  const directTarget = pendingThreadKey(input.threadKey ?? input.questId);
+  const directTarget = pendingThreadKey(input.threadKey, input.questId);
   if (directTarget) return { mapped: true, keys: new Set([directTarget]) };
 
   const keys = new Set<string>();
   for (const ref of input.threadRefs ?? []) {
-    const refTarget = pendingThreadKey(ref.threadKey ?? ref.questId);
+    const refTarget = pendingThreadKey(ref.threadKey, ref.questId);
     if (refTarget) keys.add(refTarget);
   }
   return { mapped: keys.size > 0, keys };
 }
 
-function pendingThreadKey(value: string | undefined): string | null {
-  if (!value?.trim()) return null;
-  const target = normalizeThreadTarget(value) ?? { threadKey: normalizeThreadKey(value) };
-  const key = normalizeThreadKey(target.threadKey);
-  return key || null;
+function pendingThreadKey(threadKey?: string, questId?: string): string | null {
+  // A blank/invalid primary field must not hide an intact quest destination.
+  // View keys such as All Threads are never model-input destinations.
+  return (normalizeThreadTarget(threadKey ?? "") ?? normalizeThreadTarget(questId ?? ""))?.threadKey ?? null;
 }
 
 export function filterPendingCodexInputsForThread(inputs: PendingCodexInput[], threadKey: string): PendingCodexInput[] {
@@ -534,14 +533,15 @@ export function filterPendingCodexInputsForThread(inputs: PendingCodexInput[], t
   });
 }
 
-/** Browser-local send state has an exact composer route; legacy unmapped entries belong to Main. */
+/** Keep browser-local preparation scoped when known and globally visible otherwise. */
 export function filterPendingUserUploadsForThread(
   uploads: PendingUserUpload[],
   threadKey: string,
 ): PendingUserUpload[] {
   const target = normalizeThreadKey(threadKey);
   if (isAllThreadsKey(target)) return uploads;
-  return uploads.filter(
-    (upload) => (pendingThreadKey(upload.threadKey ?? upload.questId) ?? MAIN_THREAD_KEY) === target,
-  );
+  return uploads.filter((upload) => {
+    const destination = pendingThreadKey(upload.threadKey, upload.questId);
+    return destination === null || destination === target;
+  });
 }

@@ -589,10 +589,10 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Codex Pending Inputs"
-        description="Accepted but not yet delivered Codex messages render once as owner-scoped pending-delivery rows. Prepared browser-local state is replaced by the matching server-owned row instead of appearing as a second upload card; persisted failures remain cancellable after reconnect."
+        description="Pending human and background messages follow their known destination, including quest routes with an empty primary field. Unknown destinations remain visible across tabs, and All Threads retains every input. Prepared local sends are replaced by their server-owned row; failure and cancellation actions keep the same input identity."
       >
-        <div className="mb-2 flex gap-2" aria-label="Pending input thread preview">
-          {["q-1958", "q-1952"].map((threadKey) => (
+        <div className="mb-2 flex flex-wrap gap-2" aria-label="Pending input thread preview">
+          {["main", "q-1958", "q-1952", "all"].map((threadKey) => (
             <button
               key={threadKey}
               type="button"
@@ -603,7 +603,7 @@ export function PlaygroundOverviewSections() {
                   : "border-cc-border text-cc-muted"
               }`}
             >
-              {threadKey}
+              {threadKey === "main" ? "Main" : threadKey === "all" ? "All Threads" : threadKey}
             </button>
           ))}
         </div>
