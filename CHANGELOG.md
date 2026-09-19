@@ -2,6 +2,10 @@
 
 ## 2026-09-18
 
+### Added
+
+- **Auxiliary worktree retention** -- Workers can register extra checkouts as temporary or retained. Archive cleanup protects shared and retained checkouts, checks temporary work before removal, and preserves Git branches independently of checkout environments.
+
 ### Fixed
 
 - **Memory catalog freshness** -- Catalog diffs detect note-body edits, descriptions have a 1,000-character validation limit, and agent guidance reuses preloaded catalogs while preserving direct note checks. Clipped preloads no longer mark unseen content as observed.

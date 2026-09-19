@@ -46,6 +46,7 @@ import {
 import { handlePermission } from "./takode-permission-commands.js";
 import { handleReconnect } from "./takode-reconnect.js";
 import { handleWorktreeCleanup } from "./takode-worktree-cleanup.js";
+import { handleWorktree } from "./takode-worktree.js";
 import {
   handleInfo,
   handleLeaderContextResume,
@@ -112,6 +113,7 @@ try {
     ["lease", {}],
     ["permission", { requireOrchestrator: true }],
     ["worktree-cleanup", { requireOrchestrator: true }],
+    ["worktree", {}],
   ]);
   if (!command || command === "-h" || command === "--help") {
     printUsage();
@@ -273,6 +275,9 @@ try {
       break;
     case "worktree-cleanup":
       await handleWorktreeCleanup(base, args);
+      break;
+    case "worktree":
+      await handleWorktree(base, args);
       break;
     default:
       console.error(`Unknown command: ${command}`);

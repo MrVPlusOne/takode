@@ -146,7 +146,7 @@ describe("worktree cleanup routes", () => {
     expect(await res.json()).toMatchObject({ ok: true, cleanup: { status: "pending" } });
     expect(gitUtils.isWorktreeDirtyAsync).toHaveBeenCalledWith("/owned/worktrees/repo/main-wt-1234");
     expect(gitUtils.countCommitsBetweenAsync).toHaveBeenCalledWith("/repo", "refs/heads/main", "sha");
-    expect(queueArchivedWorktreeCleanup).toHaveBeenCalledWith("s1", { archiveBranch: true, force: false });
+    expect(queueArchivedWorktreeCleanup).toHaveBeenCalledWith("s1", { force: false });
   });
 
   it("refuses retry when another active session uses the same worktree path", async () => {

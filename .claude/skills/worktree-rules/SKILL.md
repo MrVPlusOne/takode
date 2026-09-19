@@ -19,6 +19,8 @@ Every worktree session has these variables injected via system prompt:
 
 ## Port Workflow
 
+If approved delivery work requires an additional checkout, follow the shared **Additional Worktrees** launch guidance and register it with `takode worktree register` immediately after creation. Use `retained` for publication/shared/long-running targets or uncertain ownership; a temporary registration needs an explicit cleanup base. Registration does not authorize adopting old paths. Checkout removal and branch deletion are separate decisions; inspect registration and cleanup outcomes with `takode worktree list`.
+
 Follow this workflow **exactly** when asked to port, sync, or push commits:
 
 ### 1. Resolve and check the port target

@@ -4,6 +4,7 @@ import { containerManager } from "../container-manager.js";
 import * as gitUtils from "../git-utils.js";
 import { expandTilde } from "../path-resolver.js";
 import { cleanupWorktree } from "./worktree-cleanup.js";
+import { canonicalWorktreePath, pathsOverlap } from "../auxiliary-worktrees.js";
 import type { RouteContext } from "./context.js";
 
 type ReplacementCreateBody = Record<string, unknown>;
@@ -30,6 +31,7 @@ interface ReplacementSessionResult {
 }
 
 interface SessionReplacementRoutesDeps {
+  queueAuxiliaryCleanup?: (sessionId: string) => void;
   authenticateTakodeCaller: RouteContext["authenticateTakodeCaller"];
   createSessionFromBody: (
     body: ReplacementCreateBody,
@@ -149,6 +151,16 @@ async function validateReplacementTarget(
   if (deps.worktreeTracker.isWorktreeInUse(worker.cwd, oldSessionId)) {
     return Response.json({ error: "Replacement worktree is still mapped to another active session" }, { status: 409 });
   }
+  if (deps.worktreeTracker.auxiliary) {
+    const path = await canonicalWorktreePath(worker.cwd);
+    const registrations = await deps.worktreeTracker.auxiliary.list();
+    if (registrations.some((record) => record.cleanupStatus !== "done" && pathsOverlap(path, record.worktreePath))) {
+      return Response.json(
+        { error: "Replacement worktree has auxiliary ownership or retention registrations" },
+        { status: 409 },
+      );
+    }
+  }
 
   const worktreeRepo = await gitUtils.getRepoInfoAsync(worker.cwd);
   if (!worktreeRepo?.isWorktree || worktreeRepo.repoRoot !== worker.repoRoot) {
@@ -227,7 +239,7 @@ async function archiveReplacedWorker(
     containerManager.removeContainer(session.sessionId);
     const mapping = deps.worktreeTracker.getBySession(session.sessionId);
     if (mapping) {
-      await cleanupWorktree(mapping, deps.worktreeTracker, true, { archiveBranch: true });
+      await cleanupWorktree(mapping, deps.worktreeTracker, true);
     } else {
       deps.worktreeTracker.removeBySession(session.sessionId);
     }
@@ -301,6 +313,15 @@ export function registerSessionReplacementRoutes(api: Hono, deps: SessionReplace
         defaultBranch: intendedDefaultBranch,
         portTarget: worker.worktreePortTarget,
       });
+
+      // Retirement is committed only after replacement succeeds. Never route
+      // the reused primary checkout through archive removal.
+      deps.queueAuxiliaryCleanup?.(worker.sessionId);
+      for (const session of deps.launcher.listSessions()) {
+        if (session.archived && worker.sessionNum !== undefined && session.reviewerOf === worker.sessionNum) {
+          deps.queueAuxiliaryCleanup?.(session.sessionId);
+        }
+      }
 
       return c.json({
         ok: true,

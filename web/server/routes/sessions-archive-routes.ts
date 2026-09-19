@@ -17,16 +17,14 @@ type WorktreeInitialState = {
 };
 
 interface SessionsArchiveRoutesDeps {
+  isAuxiliaryCleanupPending?: (sessionId: string) => boolean;
   authenticateCompanionCallerOptional: RouteContext["authenticateCompanionCallerOptional"];
   applyInitialSessionState: (sessionId: string, options: WorktreeInitialState) => void;
   launcher: RouteContext["launcher"];
   pathExists: RouteContext["pathExists"];
   pendingWorktreeCleanups: Map<string, Promise<void>>;
   prPoller?: RouteContext["prPoller"];
-  queueArchivedWorktreeCleanup: (
-    sessionId: string,
-    options?: { archiveBranch?: boolean; force?: boolean },
-  ) => QueuedWorktreeCleanupResult;
+  queueArchivedWorktreeCleanup: (sessionId: string, options?: { force?: boolean }) => QueuedWorktreeCleanupResult;
   resolveId: RouteContext["resolveId"];
   sessionStore: RouteContext["sessionStore"];
   timerManager?: RouteContext["timerManager"];
@@ -101,10 +99,9 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
     // Stop PR polling for this session
     prPoller?.unwatch(id);
 
-    // Force-delete the worktree directory on archive. The branch tip is saved
-    // as an archived ref (refs/companion/archived/) so committed work can be
-    // restored on unarchive without polluting the active branch list (q-329).
-    const worktreeResult = queueArchivedWorktreeCleanup(id, { archiveBranch: true });
+    // Retire checkout environments independently of their Git branches.
+    // Auxiliary cleanup applies its explicit retention and safety rules first.
+    const worktreeResult = queueArchivedWorktreeCleanup(id);
     await sessionStore.setArchived(id, true);
 
     // Cancel all session-scoped timers when archiving.
@@ -141,7 +138,7 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
             reviewerRelation,
           );
           containerManager.removeContainer(s.sessionId);
-          queueArchivedWorktreeCleanup(s.sessionId, { archiveBranch: true });
+          queueArchivedWorktreeCleanup(s.sessionId);
           await sessionStore.setArchived(s.sessionId, true);
           // Emit after kill so the leader doesn't query a still-alive session
           if (reviewerRelation.herdedBy) {
@@ -224,6 +221,9 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
     if (!id) return c.json({ error: "Session not found" }, 404);
     const info = launcher.getSession(id);
     if (!info) return c.json({ error: "Session not found" }, 404);
+    if (deps.isAuxiliaryCleanupPending?.(id)) {
+      return c.json({ error: "Auxiliary worktree cleanup is still running" }, 409);
+    }
     if (info.worktreeCleanupStatus === "pending") {
       if (pendingWorktreeCleanups.has(id)) {
         return c.json({ error: "Worktree cleanup is still running. Try unarchiving again in a few seconds." }, 409);

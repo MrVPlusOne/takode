@@ -1,3 +1,4 @@
+import { AUXILIARY_WORKTREE_INSTRUCTIONS } from "./auxiliary-worktree-instructions.js";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { BackendType } from "./session-types.js";
@@ -85,6 +86,7 @@ Use \`/port-changes\` when asked to port, sync, or push commits to the main repo
 - Base branch / port target: \`${syncBaseBranch}\`${portTargetWorktree}${portTargetSource}`);
   }
 
+  parts.push(AUXILIARY_WORKTREE_INSTRUCTIONS);
   parts.push(`## Link Syntax\n\n${TAKODE_LINK_SYNTAX_INSTRUCTIONS}`);
 
   parts.push(

@@ -591,11 +591,10 @@ describe("DELETE /api/sessions/:id", () => {
     expect(tracker.removeBySession).toHaveBeenCalledWith("s1");
     expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/wt/feat", {
       force: true,
-      branchToDelete: undefined,
     });
   });
 
-  it("passes branchToDelete when actualBranch differs from branch", async () => {
+  it("preserves the managed branch when removing its checkout", async () => {
     tracker.getBySession.mockReturnValue({
       sessionId: "s1",
       repoRoot: "/repo",
@@ -613,7 +612,6 @@ describe("DELETE /api/sessions/:id", () => {
     expect(res.status).toBe(200);
     expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/wt/feat", {
       force: true,
-      branchToDelete: "feat-wt-1234",
     });
   });
 

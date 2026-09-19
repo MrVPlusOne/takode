@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
+import { AuxiliaryWorktreeRegistry } from "./auxiliary-worktree-registry.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -22,19 +23,33 @@ const TRACKER_PATH = join(homedir(), ".companion", "worktrees.json");
 
 export class WorktreeTracker {
   private mappings: WorktreeMapping[] = [];
+  readonly auxiliary = new AuxiliaryWorktreeRegistry(join(dirname(TRACKER_PATH), "auxiliary-worktrees.json"));
 
   constructor() {
     this.load();
   }
 
-  load(): WorktreeMapping[] {
+  load(strict = false): WorktreeMapping[] {
     try {
       if (existsSync(TRACKER_PATH)) {
         // sync-ok: session creation, not called during message handling
         const raw = readFileSync(TRACKER_PATH, "utf-8"); // sync-ok: session creation, not called during message handling
-        this.mappings = JSON.parse(raw) as WorktreeMapping[];
+        const parsed = JSON.parse(raw) as WorktreeMapping[];
+        if (
+          !Array.isArray(parsed) ||
+          parsed.some(
+            (mapping) => !mapping || typeof mapping.sessionId !== "string" || typeof mapping.worktreePath !== "string",
+          )
+        ) {
+          throw new Error("Invalid primary worktree ownership metadata");
+        }
+        this.mappings = parsed;
+      } else {
+        this.mappings = [];
       }
-    } catch {
+    } catch (error) {
+      if (strict) throw error;
+      console.warn("[worktree-tracker] Could not load primary worktree metadata", error);
       this.mappings = [];
     }
     return this.mappings;

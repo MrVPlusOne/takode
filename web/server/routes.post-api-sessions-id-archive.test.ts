@@ -596,6 +596,13 @@ describe("POST /api/sessions/:id/archive", () => {
     vi.mocked(gitUtils.archiveBranchAsync).mockResolvedValue(true);
 
     let resolveCleanup = (_value: { removed: boolean; reason?: string }) => {};
+    let finishState = () => {};
+    const finished = new Promise<void>((resolve) => {
+      finishState = resolve;
+    });
+    launcher.setWorktreeCleanupState.mockImplementation((_id: string, update: { status?: string }) => {
+      if (update.status === "done") finishState();
+    });
     vi.mocked(gitUtils.removeWorktreeAsync).mockImplementation(
       () =>
         new Promise<{ removed: boolean; reason?: string }>((resolve) => {
@@ -619,8 +626,7 @@ describe("POST /api/sessions/:id/archive", () => {
     );
 
     resolveCleanup({ removed: true });
-    await Promise.resolve();
-    await Promise.resolve();
+    await finished;
 
     expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(
       "s1",
@@ -663,10 +669,9 @@ describe("POST /api/sessions/:id/archive", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(gitUtils.archiveBranchAsync).toHaveBeenCalledWith(repoRoot, "main-wt-1234");
+    expect(gitUtils.archiveBranchAsync).not.toHaveBeenCalled();
     expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith(repoRoot, worktreePath, {
       force: true,
-      branchToDelete: "main-wt-1234",
     });
     expect(tracker.removeBySession).toHaveBeenCalledWith(sessionId);
     expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(

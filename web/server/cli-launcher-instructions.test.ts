@@ -5,6 +5,7 @@ import {
   getOrchestratorGuardrails,
 } from "./cli-launcher-instructions.js";
 import { TAKODE_LINK_SYNTAX_INSTRUCTIONS } from "./link-syntax.js";
+import { AUXILIARY_WORKTREE_INSTRUCTIONS } from "./auxiliary-worktree-instructions.js";
 import { QUEST_JOURNEY_PHASES } from "../shared/quest-journey.js";
 import {
   getQuestJourneyPhaseAssigneeBriefDisplayPath,
@@ -12,6 +13,18 @@ import {
 } from "./quest-journey-phases.js";
 
 describe("buildCompanionInstructions", () => {
+  it.each([
+    "claude",
+    "claude-sdk",
+    "codex",
+  ] as const)("assembles auxiliary ownership guidance once for %s regardless of primary checkout", (backend) => {
+    // Non-worktree sessions also create auxiliary checkouts. Test assembly,
+    // not a snapshot of policy prose or example command strings.
+    for (const worktree of [undefined, { branch: "feature", repoRoot: "/repo" }]) {
+      const prompt = buildCompanionInstructions({ backend, worktree });
+      expect(prompt.split(AUXILIARY_WORKTREE_INSTRUCTIONS)).toHaveLength(2);
+    }
+  });
   it.each([
     undefined,
     "claude",

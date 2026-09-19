@@ -1,3 +1,4 @@
+import { registerSessionDeleteRoute } from "./sessions-delete-route.js";
 import { Hono } from "hono";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import { resolveBinary, expandTilde } from "../path-resolver.js";
@@ -38,15 +39,12 @@ import {
   applyDefaultClaudeBackend,
   computeCodexRevertPlan,
   getLaunchingCliLabel,
-  getActorSessionId,
-  getArchiveSource,
   resolveBackend,
   throwPreparationError,
 } from "./sessions-helpers.js";
 import { registerSessionsArchiveRoutes } from "./sessions-archive-routes.js";
-import { broadcastSessionDeletedAndClose } from "./session-lifecycle-broadcast.js";
 import { withProgressHeartbeat } from "./progress-heartbeat.js";
-import { cleanupWorktree, createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
+import { createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
 import { registerArchivedSessionPageRoute } from "./session-archived-page-route.js";
 import { registerSessionMessageSearchRoute } from "./session-message-search-route.js";
@@ -64,6 +62,8 @@ import { registerSessionImageRoutes } from "./session-image-routes.js";
 import { registerSessionDirectoryRoutes } from "./session-directory-routes.js";
 import { registerSessionInstructionContentRoute } from "./session-instruction-content.js";
 import { registerWorktreeCleanupRoutes } from "./worktree-cleanup-routes.js";
+import { AuxiliaryWorktreeLifecycle } from "../auxiliary-worktrees.js";
+import { registerAuxiliaryWorktreeRoutes } from "./auxiliary-worktree-routes.js";
 import { prepareWorktreeForSessionCreate, type WorktreeSessionInfo } from "./session-worktree-create.js";
 import type { CreationProgressStatus, EmitCreationProgress, SessionConfig } from "./session-create-config.js";
 import * as codexWorkerCreateRole from "../codex-worker-create-role.js";
@@ -134,10 +134,15 @@ export function createSessionsRoutes(ctx: RouteContext) {
     bridgeAny.applyInitialSessionState?.(sessionId, options);
   };
 
+  const auxiliary = worktreeTracker.auxiliary
+    ? new AuxiliaryWorktreeLifecycle(worktreeTracker.auxiliary, () => launcher.listSessions(), worktreeTracker)
+    : undefined;
+  if (auxiliary) registerAuxiliaryWorktreeRoutes(api, ctx, auxiliary);
   const queueArchivedWorktreeCleanup = createArchivedWorktreeCleanupQueue({
     launcher,
     pendingWorktreeCleanups,
     worktreeTracker,
+    auxiliary,
   });
 
   const markOrchestratorSession = (sessionId: string, backend: SessionBackend) =>
@@ -880,6 +885,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
   registerSessionExtraRoutes(api, { launcher, wsBridge, sessionStore, resolveId, authenticateTakodeCaller });
   registerSessionReplacementRoutes(api, {
+    queueAuxiliaryCleanup: auxiliary
+      ? (id) => {
+          queueArchivedWorktreeCleanup(id, { auxiliaryOnly: true });
+        }
+      : undefined,
     resolveId,
     authenticateTakodeCaller,
     launcher,
@@ -1832,44 +1842,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
     console.log(`[revert] === REVERT COMPLETE === session=${id.slice(0, 8)}`);
     return c.json({ ok: true });
   });
-  api.delete("/sessions/:id", async (c) => {
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-
-    // If not already archived, emit session_archived so the leader gets a
-    // herd notification through the same proven path as explicit archiving.
-    // Must happen BEFORE kill -- after removal the session info is gone.
-    const sessionInfo = launcher.getSession(id);
-    if (sessionInfo?.herdedBy && !sessionInfo.archived) {
-      const actorId = getActorSessionId(authenticateCompanionCallerOptional(c));
-      wsBridge.emitTakodeEvent(id, "session_archived", { archive_source: getArchiveSource(actorId) }, actorId);
-    }
-
-    await launcher.kill(id);
-
-    // Clean up container if any
-    containerManager.removeContainer(id);
-
-    const mapping = worktreeTracker.getBySession(id);
-    const worktreeResult = mapping ? await cleanupWorktree(mapping, worktreeTracker, true) : undefined;
-    // Clean up any stale archived ref from a previous archive cycle (q-329)
-    if (sessionInfo?.isWorktree && sessionInfo.repoRoot && sessionInfo.actualBranch) {
-      await gitUtils.deleteArchivedRefAsync(sessionInfo.repoRoot, sessionInfo.actualBranch);
-    }
-    prPoller?.unwatch(id);
-    launcher.removeSession(id);
-    // Broadcast deletion to all browsers BEFORE closing the session sockets.
-    // This ensures every browser tab (not just the one that triggered delete)
-    // removes the session from the sidebar immediately.
-    broadcastSessionDeletedAndClose(wsBridge, id, sessionInfo ?? undefined);
-    await imageStore?.removeSession(id);
-    // Clean up tree group assignment (fire-and-forget)
-    treeGroupStore.removeSession(id).catch((err) => {
-      console.warn("[tree-group] cleanup failed for session:", id, err);
-    });
-    return c.json({ ok: true, worktree: worktreeResult });
-  });
+  registerSessionDeleteRoute(api, ctx, pendingWorktreeCleanups, auxiliary);
   registerSessionsArchiveRoutes(api, {
+    isAuxiliaryCleanupPending: (id) => auxiliary?.isCleaning(id) ?? false,
     resolveId,
     authenticateCompanionCallerOptional,
     launcher,

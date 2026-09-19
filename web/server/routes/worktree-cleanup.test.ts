@@ -68,14 +68,13 @@ describe("createArchivedWorktreeCleanupQueue", () => {
       logger: { error: vi.fn(), log: vi.fn() },
     });
 
-    const result = queueCleanup("s1", { archiveBranch: true });
+    const result = queueCleanup("s1");
     expect(result).toEqual({ status: "pending", path: "/repo-wt" });
     await pending.get("s1");
 
-    expect(gitUtils.archiveBranchAsync).toHaveBeenCalledWith("/repo", "feat-wt-1234");
+    expect(gitUtils.archiveBranchAsync).not.toHaveBeenCalled();
     expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/repo-wt", {
       force: true,
-      branchToDelete: "feat-wt-1234",
     });
     expect(tracker.removeBySession).toHaveBeenCalledWith("s1");
     expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(
@@ -104,14 +103,13 @@ describe("createArchivedWorktreeCleanupQueue", () => {
       logger: { error: vi.fn(), log: vi.fn() },
     });
 
-    const result = queueCleanup("s1", { archiveBranch: true });
+    const result = queueCleanup("s1");
     expect(result).toEqual({ status: "pending", path: "/repo-wt" });
     await pending.get("s1");
 
-    expect(gitUtils.archiveBranchAsync).toHaveBeenCalledWith("/repo", "feat-wt-1234");
+    expect(gitUtils.archiveBranchAsync).not.toHaveBeenCalled();
     expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/repo-wt", {
       force: true,
-      branchToDelete: "feat-wt-1234",
     });
     expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(
       "s1",
@@ -144,12 +142,11 @@ describe("createArchivedWorktreeCleanupQueue", () => {
       logger: { error: vi.fn(), log: vi.fn() },
     });
 
-    queueCleanup("s1", { archiveBranch: true });
+    queueCleanup("s1");
     await pending.get("s1");
 
     expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/repo-wt", {
       force: true,
-      branchToDelete: "feat-wt-1234",
     });
     expect(tracker.removeBySession).toHaveBeenCalledWith("s1");
     expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(
@@ -180,7 +177,7 @@ describe("createArchivedWorktreeCleanupQueue", () => {
       logger,
     });
 
-    queueCleanup("s1", { archiveBranch: true });
+    queueCleanup("s1");
     await pending.get("s1");
 
     expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(
@@ -188,13 +185,13 @@ describe("createArchivedWorktreeCleanupQueue", () => {
       expect.objectContaining({
         status: "failed",
         error:
-          "Worktree cleanup failed (force=true, archiveBranch=true, repoRoot=/repo, worktreePath=/repo-wt, branch=feat, actualBranch=feat-wt-1234): git refused removal",
+          "Worktree cleanup failed (force=true, repoRoot=/repo, worktreePath=/repo-wt, branch=feat, actualBranch=feat-wt-1234): git refused removal",
         finishedAt: expect.any(Number),
       }),
     );
     expect(logger.error).toHaveBeenCalledTimes(1);
     expect(logger.error).toHaveBeenCalledWith(
-      "[routes] Archived worktree cleanup failed for s1: /repo-wt (Worktree cleanup failed (force=true, archiveBranch=true, repoRoot=/repo, worktreePath=/repo-wt, branch=feat, actualBranch=feat-wt-1234): git refused removal)",
+      "[routes] Archived worktree cleanup failed for s1: /repo-wt (Worktree cleanup failed (force=true, repoRoot=/repo, worktreePath=/repo-wt, branch=feat, actualBranch=feat-wt-1234): git refused removal)",
     );
   });
 
@@ -225,7 +222,7 @@ describe("createArchivedWorktreeCleanupQueue", () => {
       logger: { error: vi.fn(), log: vi.fn() },
     });
 
-    const result = queueCleanup("s1", { archiveBranch: true });
+    const result = queueCleanup("s1");
     expect(result).toEqual({ status: "pending", path: "/repo-wt" });
     expect(pending.has("s1")).toBe(true);
     expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(

@@ -29,6 +29,7 @@ import {
 import { SPAWN_FLAG_USAGE } from "./takode-orchestration-commands.js";
 import { PERMISSION_GET_HELP, PERMISSION_HELP, PERMISSION_SET_HELP } from "./takode-permission-commands.js";
 import { WORKTREE_CLEANUP_HELP } from "./takode-worktree-cleanup.js";
+import { WORKTREE_HELP } from "./takode-worktree.js";
 
 const LIST_HELP = `Usage: takode list [--herd|--active|--all] [--tasks] [--json]
 
@@ -433,6 +434,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "worktree-cleanup":
       console.log(WORKTREE_CLEANUP_HELP);
       return true;
+    case "worktree":
+      console.log(WORKTREE_HELP);
+      return true;
     case "pending":
       console.log(PENDING_HELP);
       return true;
@@ -594,6 +598,7 @@ Commands:
   archive  Archive a herded session (e.g. takode archive 5)
   port             Track private review, squashed commits, and exact port receipts
   worktree-cleanup  List or retry archived worktree cleanup
+  worktree         Register and inspect auxiliary worktree retention
   pending  Show pending questions/plans from a herded session
   answer   Answer a pending question or approve/reject a plan
   set-base       Set the diff base branch for a session

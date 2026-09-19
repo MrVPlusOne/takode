@@ -39,7 +39,7 @@ interface WorktreeCleanupRoutesDeps {
   pendingWorktreeCleanups: Map<string, Promise<void>>;
   queueArchivedWorktreeCleanup: (
     sessionId: string,
-    options?: { archiveBranch?: boolean; force?: boolean },
+    options?: { force?: boolean },
   ) => { status: WorktreeCleanupStatus; path?: string } | undefined;
   resolveId: RouteContext["resolveId"];
   worktreeTracker: RouteContext["worktreeTracker"];
@@ -183,7 +183,7 @@ export function registerWorktreeCleanupRoutes(api: Hono, deps: WorktreeCleanupRo
       }
     }
 
-    const queued = deps.queueArchivedWorktreeCleanup(sessionId, { archiveBranch: true, force: false });
+    const queued = deps.queueArchivedWorktreeCleanup(sessionId, { force: false });
     if (!queued) return c.json({ error: "Worktree cleanup target could not be queued", candidate }, 404);
     const updatedSession = deps.launcher.getSession(sessionId);
     const updated = updatedSession ? await buildCandidate(deps, updatedSession) : null;
