@@ -5,6 +5,14 @@ const mockExec = vi.hoisted(() => vi.fn());
 const mockShouldSettingsRuleApprove = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec }));
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
+// Timer integration stays isolated from durable user schedules. SessionStore
+// below already uses a disposable directory for delivery persistence.
+vi.mock("./timer-store.js", () => ({
+  loadTimers: vi.fn(async (sessionId: string) => ({ sessionId, nextId: 1, timers: [] })),
+  saveTimers: vi.fn(async () => {}),
+  deleteTimers: vi.fn(async () => {}),
+  listTimerSessions: vi.fn(async () => []),
+}));
 // Mock settings rule loading so real user ~/.claude/settings.json rules don't
 // interfere with tests. Tests that need specific rules override this per-call.
 vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
@@ -17,6 +25,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { SessionStore } from "./session-store.js";
+import { TimerManager } from "./timer-manager.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
   advanceBoardRow as advanceBoardRowController,
@@ -596,6 +605,109 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Codex active-turn steering", () => {
+  it.each([
+    { leader: false, recurring: false },
+    { leader: false, recurring: true },
+    { leader: true, recurring: false },
+    { leader: true, recurring: true },
+  ])("delivers actual timer firings during active work (leader=$leader, recurring=$recurring)", async ({
+    leader,
+    recurring,
+  }) => {
+    // Exercise the real timer producer, admission and receipt-aware bridge.
+    // Firing/admission, RPC ACK and model-history receipt are distinct boundaries.
+    const sid = "active-timer-delivery";
+    const adapter = makeReceiptAwareCodexAdapterMock();
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ isOrchestrator: leader, backendType: "codex", cwd: tempDir })),
+      getHerdedSessions: vi.fn(() => []),
+      getSessionNum: vi.fn(() => 1),
+    } as any);
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter);
+    const browser = makeBrowserSocket(sid);
+    await bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "Keep working" }));
+    await flushAsync();
+    const start = adapter.sendBrowserMessage.mock.calls
+      .map(([msg]) => msg)
+      .find((msg) => msg.type === "codex_start_pending");
+    adapter.emitTurnStarted("active-turn");
+    adapter.emitUserMessageReceiptObserved({ turnId: "active-turn", clientUserMessageId: start.clientUserMessageId });
+    adapter.emitUserMessageRecorded({ turnId: "active-turn", clientUserMessageId: start.clientUserMessageId });
+    const session = bridge.getSession(sid)!;
+    const manager = new TimerManager(bridge);
+    const firingIds: string[] = [];
+    const leaderIds: Array<string | undefined> = [];
+    const fireTimes: number[] = [];
+    try {
+      const timer = await manager.createTimer(sid, {
+        title: "Check progress",
+        threadKey: "q-42",
+        ...(recurring ? { every: "1m" } : { in: "1m" }),
+      });
+      for (let occurrence = 0; occurrence < (recurring ? 2 : 1); occurrence++) {
+        adapter.sendBrowserMessage.mockClear();
+        const scheduledFireAt = timer.nextFireAt;
+        fireTimes.push(scheduledFireAt);
+        const sweep = await manager.sweepDueTimersNow(scheduledFireAt);
+        await flushAsync();
+        expect(sweep.fired).toHaveLength(1);
+        const steer = adapter.sendBrowserMessage.mock.calls
+          .map(([msg]) => msg)
+          .find((msg) => msg.type === "codex_steer_pending");
+        expect(steer).toMatchObject({ expectedTurnId: "active-turn" });
+        const pending = session.pendingCodexInputs.find((input) => input.id === steer.pendingInputIds[0])!;
+        expect(pending).toMatchObject({
+          threadKey: "q-42",
+          cancelable: false,
+          timerFiring: { timerId: timer.id, scheduledFireAt },
+        });
+        firingIds.push(pending.id);
+        leaderIds.push(pending.leaderTimerMessageId);
+        expect(session.messageHistory.some((entry) => entry.type === "user_message" && entry.id === pending.id)).toBe(
+          false,
+        );
+
+        if (!recurring) {
+          adapter.emitTurnSteered("active-turn", steer.pendingInputIds, steer.clientUserMessageId);
+          expect(session.pendingCodexInputs.some((input) => input.id === pending.id)).toBe(true);
+        }
+        adapter.emitUserMessageReceiptObserved({
+          turnId: "active-turn",
+          clientUserMessageId: steer.clientUserMessageId,
+        });
+        adapter.emitUserMessageRecorded({ turnId: "active-turn", clientUserMessageId: steer.clientUserMessageId });
+        // Recurring cases cover receipt before RPC acknowledgement as well.
+        if (recurring) adapter.emitTurnSteered("active-turn", steer.pendingInputIds, steer.clientUserMessageId);
+        expect(session.pendingCodexInputs.some((input) => input.id === pending.id)).toBe(false);
+        expect(
+          session.messageHistory.filter((entry) => entry.type === "user_message" && entry.id === pending.id),
+        ).toHaveLength(1);
+        expect(session.isGenerating).toBe(true);
+        expect(adapter.getCurrentTurnId()).toBe("active-turn");
+        expect(
+          adapter.sendBrowserMessage.mock.calls.some(
+            ([msg]) => msg.type === "interrupt" || msg.type === "codex_start_pending",
+          ),
+        ).toBe(false);
+      }
+      expect(new Set(firingIds).size).toBe(firingIds.length);
+      if (leader) expect(leaderIds).toEqual(recurring ? ["timer-m1", "timer-m2"] : ["timer-m1"]);
+      if (recurring) {
+        expect(fireTimes[1] - fireTimes[0]).toBe(60_000);
+        adapter.sendBrowserMessage.mockClear();
+        await manager.cancelTimer(sid, timer.id);
+        await flushAsync();
+        expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+      }
+      expect(manager.listTimers(sid)).toHaveLength(0);
+    } finally {
+      manager.destroy();
+    }
+  });
+
   it("steers a follow-up immediately instead of queueing a future turn", async () => {
     const sid = "codex-steer-active-turn";
     const browser = makeBrowserSocket(sid);

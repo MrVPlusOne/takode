@@ -2,6 +2,7 @@ import type { CodexOutboundTurn, CodexPendingBatchInput, PendingCodexInput } fro
 import { isCodexTurnProvablyNeverDispatched } from "./codex-history-incorporation.js";
 import { COMPACTION_RECOVERY_SOURCE_ID } from "../../shared/injected-event-message.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
+import { isTimerReminderFiring } from "./adapter-browser-routing-timer.js";
 
 /** Retire only provably unsent recovery bundles superseded by a later boundary. */
 export function pruneSupersededCompactionInputs(session: {
@@ -30,12 +31,16 @@ export function pruneSupersededCompactionInputs(session: {
   return true;
 }
 
-/** Human/leader input brings preceding observations along, but not later background work. */
+/** Human/leader input and fired timers bring earlier observations along, not later background work. */
 export function selectCodexSteeringInputs(inputs: PendingCodexInput[]): PendingCodexInput[] {
   const eligible = inputs.filter((input) => input.cancelable && input.deliveryState !== "failed");
   const lastTrigger = eligible.findLastIndex((input) => {
     const source = input.agentSource?.sessionId;
-    return !source || (!source.startsWith("system") && !source.startsWith("herd") && !source.startsWith("timer:"));
+    return (
+      isTimerReminderFiring(input) ||
+      !source ||
+      (!source.startsWith("system") && !source.startsWith("herd") && !source.startsWith("timer:"))
+    );
   });
   return eligible.slice(0, lastTrigger + 1);
 }

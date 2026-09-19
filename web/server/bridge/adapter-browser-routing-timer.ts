@@ -6,20 +6,28 @@ import { isCanonicalLeaderTimerMessageId, timerReminderMatchesSource } from "../
 type TimerDeliverySession = Pick<AdapterBrowserRoutingSessionLike, "messageHistory" | "pendingCodexInputs"> &
   Partial<Pick<AdapterBrowserRoutingSessionLike, "state" | "recoveryDeliveryTransfers">>;
 
+/** Recognize an actual server-produced firing, excluding cancellation and source-only lookalikes. */
+export function isTimerReminderFiring(
+  message: Pick<BrowserUserMessage, "timerFiring" | "content" | "agentSource">,
+): boolean {
+  const firing = message.timerFiring;
+  return (
+    !!firing &&
+    /^t[1-9]\d*$/.test(firing.timerId) &&
+    Number.isSafeInteger(firing.scheduledFireAt) &&
+    firing.scheduledFireAt >= 0 &&
+    message.agentSource?.sessionId === `timer:${firing.timerId}` &&
+    timerReminderMatchesSource(message.content, message.agentSource?.sessionId)
+  );
+}
+
 /** Mint a reference only for timer-manager provenance retained through server-owned queues. */
 export function leaderTimerMessageIdForDelivery(
   session: TimerDeliverySession,
   message: BrowserUserMessage,
 ): string | undefined {
   const firing = message.timerFiring;
-  if (
-    !firing ||
-    !/^t[1-9]\d*$/.test(firing.timerId) ||
-    !Number.isSafeInteger(firing.scheduledFireAt) ||
-    firing.scheduledFireAt < 0 ||
-    message.agentSource?.sessionId !== `timer:${firing.timerId}` ||
-    !timerReminderMatchesSource(message.content, message.agentSource?.sessionId)
-  ) {
+  if (!firing || !isTimerReminderFiring(message)) {
     if (firing?.messageId !== undefined) throw new Error("Retained timer firing provenance is invalid");
     return undefined;
   }

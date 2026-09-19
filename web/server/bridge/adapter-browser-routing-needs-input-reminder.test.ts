@@ -330,22 +330,32 @@ describe("Codex input admission activity", () => {
 });
 
 describe("direct user needs-input reminders", () => {
-  it("moves preceding herd observations into the queue before admitting human input", () => {
-    // A human trigger must flush the upstream inbox before its own delivery;
+  it.each([
+    "human",
+    "timer",
+    "cancellation",
+  ])("admits %s input after any eligible earlier herd observations", (source) => {
+    // Human and firing triggers must flush the upstream inbox before delivery;
     // otherwise an idle-only event can be stranded behind newer user context.
     const session = makeSession();
     session.backendType = "codex";
     const order: string[] = [];
     const deps = makeDeps();
-    deps.flushHerdEventsBeforeHumanInput = () => {
+    deps.flushHerdEventsBeforePromptInput = () => {
       order.push("herd");
     };
     deps.addPendingCodexInput = (_target, input) => {
-      order.push("human");
+      order.push(source);
       session.pendingCodexInputs.push(input);
     };
-    routeAdapterBrowserMessage(session, userMessage(), null, deps);
-    expect(order).toEqual(["herd", "human"]);
+    const message = userMessage();
+    if (source !== "human") {
+      message.agentSource = { sessionId: "timer:t1" };
+      message.content = `[⏰ Timer t1 ${source === "timer" ? "reminder" : "cancelled"}] Check progress`;
+      if (source === "timer") message.timerFiring = { timerId: "t1", scheduledFireAt: 1 };
+    }
+    routeAdapterBrowserMessage(session, message, null, deps);
+    expect(order).toEqual(source === "cancellation" ? [source] : ["herd", source]);
   });
   it("persists and consumes a visible-stream boundary on the next direct human message", async () => {
     const session = makeSession();

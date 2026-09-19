@@ -218,6 +218,7 @@ export interface CodexRecoveryOrchestratorSessionLike {
   codexModelSwitchCompactionGuard?: CodexModelSwitchCompactionGuard | null;
   codexPendingDeliveryProofSignals?: import("../session-types.js").CodexPendingDeliveryProofSignal[];
   isGenerating: boolean;
+  interruptedDuringTurn?: boolean;
   cliInitReceived: boolean;
   consecutiveAdapterFailures: number;
   lastAdapterFailureAt: number | null;
@@ -924,7 +925,12 @@ export function trySteerPendingCodexInputs(
   reason: string,
   deps: CodexRecoveryOrchestratorDeps,
 ): boolean {
-  if (deps.isCodexWorkerV2DeliveryFrozen(session.id) || isCodexTurnRecoveryContinuationInjectionPending(session))
+  if (
+    isSessionPaused(session as any) ||
+    session.interruptedDuringTurn ||
+    deps.isCodexWorkerV2DeliveryFrozen(session.id) ||
+    isCodexTurnRecoveryContinuationInjectionPending(session)
+  )
     return false;
   const adapter = session.codexAdapter;
   const expectedTurnId = adapter?.getCurrentTurnId() ?? null;

@@ -68,7 +68,7 @@ import {
 } from "../thread-routing-metadata.js";
 import { isActualHumanUserMessage } from "../user-message-classification.js";
 import { nextLeaderUserMessageId } from "../leader-user-message-id.js";
-import { leaderTimerMessageIdForDelivery } from "./adapter-browser-routing-timer.js";
+import { isTimerReminderFiring, leaderTimerMessageIdForDelivery } from "./adapter-browser-routing-timer.js";
 import { clearLeaderThreadStatusForCoveredUserMessage } from "./thread-routing-reminder.js";
 import { consumeRecentAskVisibleResponseBoundary } from "../recent-ask-bundles.js";
 import { determineUserMessageSourceKind } from "../codex-result-error-auto-pause.js";
@@ -1953,8 +1953,8 @@ export function routeAdapterBrowserMessage(
   if (msg.type !== "user_message") {
     return finishRouting(undefined);
   }
-  if (session.backendType === "codex" && !msg.agentSource) {
-    deps.flushHerdEventsBeforeHumanInput?.(session.id, Date.now());
+  if (session.backendType === "codex" && (!msg.agentSource || isTimerReminderFiring(msg))) {
+    deps.flushHerdEventsBeforePromptInput?.(session.id, Date.now());
   }
   const maybeIngested = ingestUserMessage(session, msg, deps, {
     commit: session.backendType !== "codex",
