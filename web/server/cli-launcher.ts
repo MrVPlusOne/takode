@@ -32,7 +32,7 @@ import type { HerdChangeEvent, HerdSessionsResponse } from "../shared/herd-types
 import { getSessionAuthDir, getSessionAuthPath } from "../shared/session-auth.js";
 import type { SdkSessionInfo } from "./session-info.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "./memory-session-space.js";
-import type { LaunchOptions } from "./cli-launcher-options.js";
+import type { LaunchOptions, WorktreeSessionUpdate } from "./cli-launcher-options.js";
 import { CLAUDE_1M_CONTEXT_BETA, CLAUDE_1M_CONTEXT_TOKENS } from "../shared/session-defaults.js";
 import { ensureModelAuthority, resolveLaunchModelSelection } from "./cli-launcher-model-authority.js";
 import { captureProcessSnapshot, sanitizeSpawnArgsForLog } from "./cli-launcher-process-diagnostics.js";
@@ -592,6 +592,7 @@ export class CliLauncher {
       info.repoRoot = options.worktreeInfo.repoRoot;
       info.branch = options.worktreeInfo.branch;
       info.actualBranch = options.worktreeInfo.actualBranch;
+      info.disposableBranch = options.worktreeInfo.disposableBranch;
       info.worktreePortTarget = options.worktreeInfo.portTarget;
     }
 
@@ -1714,11 +1715,10 @@ export class CliLauncher {
    * Update worktree-related fields on a session (e.g. after recreating a
    * worktree for an unarchived session).
    */
-  updateWorktree(sessionId: string, updates: { cwd: string; actualBranch: string }): void {
+  updateWorktree(sessionId: string, updates: WorktreeSessionUpdate): void {
     const info = this.sessions.get(sessionId);
     if (info) {
-      info.cwd = updates.cwd;
-      info.actualBranch = updates.actualBranch;
+      Object.assign(info, updates);
       this.persistState();
     }
   }

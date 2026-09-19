@@ -1,3 +1,4 @@
+import type { CreatedWorktreeBranch } from "../worktree-branch-retirement.js";
 import type { Hono } from "hono";
 import { resolve } from "node:path";
 import { containerManager } from "../container-manager.js";
@@ -14,6 +15,7 @@ interface RecycledWorktreeInfo {
   repoRoot: string;
   branch: string;
   actualBranch: string;
+  disposableBranch?: CreatedWorktreeBranch;
   worktreePath: string;
   defaultBranch: string;
   portTarget?: {
@@ -54,6 +56,7 @@ interface ReplaceableWorker {
   repoRoot: string;
   branch: string;
   actualBranch: string;
+  disposableBranch?: CreatedWorktreeBranch;
   worktreePortTarget?: RecycledWorktreeInfo["portTarget"];
   memorySessionSpaceSlug?: string;
 }
@@ -207,6 +210,7 @@ async function validateReplacementTarget(
       repoRoot: worker.repoRoot,
       branch: worker.branch,
       actualBranch: worker.actualBranch,
+      disposableBranch: worker.disposableBranch,
       worktreePortTarget: worker.worktreePortTarget,
       memorySessionSpaceSlug: worker.memorySessionSpaceSlug,
     },
@@ -239,7 +243,10 @@ async function archiveReplacedWorker(
     containerManager.removeContainer(session.sessionId);
     const mapping = deps.worktreeTracker.getBySession(session.sessionId);
     if (mapping) {
-      await cleanupWorktree(mapping, deps.worktreeTracker, true);
+      await cleanupWorktree(mapping, deps.worktreeTracker, true, {
+        archiveOwnedBranch: true,
+        branchUsers: () => deps.launcher.listSessions(),
+      });
     } else {
       deps.worktreeTracker.removeBySession(session.sessionId);
     }
@@ -261,6 +268,7 @@ async function restoreReplacedWorker(
       repoRoot: worker.repoRoot,
       branch: worker.branch,
       actualBranch: worker.actualBranch,
+      disposableBranch: worker.disposableBranch,
       worktreePath: worker.cwd,
       createdAt: Date.now(),
     });
@@ -309,6 +317,7 @@ export function registerSessionReplacementRoutes(api: Hono, deps: SessionReplace
         repoRoot: worker.repoRoot,
         branch: baseBranch,
         actualBranch: worker.actualBranch,
+        disposableBranch: worker.disposableBranch,
         worktreePath: worker.cwd,
         defaultBranch: intendedDefaultBranch,
         portTarget: worker.worktreePortTarget,

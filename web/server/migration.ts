@@ -505,12 +505,17 @@ export async function recreateWorktreeIfMissing(
         await gitUtils.gitAsync(`worktree add "${targetPath}" "${actualBranch}"`, repoInfo.repoRoot);
 
         migrateClaudeProjectDir(oldCwd, targetPath);
-        deps.launcher.updateWorktree(sessionId, { cwd: targetPath, actualBranch });
+        deps.launcher.updateWorktree(sessionId, {
+          cwd: targetPath,
+          actualBranch,
+          disposableBranch: info.disposableBranch,
+        });
         deps.worktreeTracker.addMapping({
           sessionId,
           repoRoot: info.repoRoot,
           branch: info.branch,
           actualBranch,
+          disposableBranch: info.disposableBranch,
           worktreePath: targetPath,
           createdAt: Date.now(),
         });
@@ -551,12 +556,17 @@ export async function recreateWorktreeIfMissing(
   // stranded at the old project dir path.
   migrateClaudeProjectDir(oldCwd, result.worktreePath);
 
-  deps.launcher.updateWorktree(sessionId, { cwd: result.worktreePath, actualBranch: result.actualBranch });
+  deps.launcher.updateWorktree(sessionId, {
+    cwd: result.worktreePath,
+    actualBranch: result.actualBranch,
+    disposableBranch: info.isOrchestrator ? undefined : result.createdBranch,
+  });
   deps.worktreeTracker.addMapping({
     sessionId,
     repoRoot: info.repoRoot,
     branch: info.branch,
     actualBranch: result.actualBranch,
+    disposableBranch: info.isOrchestrator ? undefined : result.createdBranch,
     worktreePath: result.worktreePath,
     createdAt: Date.now(),
   });

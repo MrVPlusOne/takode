@@ -5,6 +5,7 @@ import { access, mkdir } from "node:fs/promises";
 import { join, basename, resolve } from "node:path";
 import { homedir } from "node:os";
 import { GIT_CMD_TIMEOUT, SERVER_GIT_CMD } from "./constants.js";
+import { captureCreatedWorktreeBranch, type CreatedWorktreeBranch } from "./worktree-branch-retirement.js";
 
 const execPromise = promisify(execCb);
 
@@ -42,6 +43,7 @@ export interface WorktreeCreateResult {
   /** The actual git branch in the worktree (may be e.g. `main-wt-2` for duplicate sessions) */
   actualBranch: string;
   isNew: boolean;
+  createdBranch?: CreatedWorktreeBranch;
 }
 
 // ─── Paths ──────────────────────────────────────────────────────────────────
@@ -573,7 +575,8 @@ export async function ensureWorktreeAsync(
     const uniqueBranch = await generateUniqueWorktreeBranchAsync(repoRoot, branchName);
     const targetPath = worktreeDir(repoName, uniqueBranch);
     await gitAsync(`worktree add -b ${uniqueBranch} "${targetPath}" ${commitish}`, repoRoot);
-    return { worktreePath: targetPath, branch: branchName, actualBranch: uniqueBranch, isNew };
+    const createdBranch = await captureCreatedWorktreeBranch(targetPath, uniqueBranch);
+    return { worktreePath: targetPath, branch: branchName, actualBranch: uniqueBranch, isNew, createdBranch };
   };
 
   if (found) {
@@ -611,23 +614,43 @@ export function generateUniqueWorktreeBranch(repoRoot: string, baseBranch: strin
   for (let attempt = 0; attempt < 100; attempt++) {
     const suffix = Math.floor(1000 + Math.random() * 9000);
     const candidate = `${baseBranch}-wt-${suffix}`;
-    if (gitSafe(`rev-parse --verify refs/heads/${candidate}`, repoRoot) === null) {
+    if (
+      gitSafe(`rev-parse --verify refs/heads/${candidate}`, repoRoot) === null &&
+      gitSafe(`rev-parse --verify refs/companion/archived/${candidate}`, repoRoot) === null
+    ) {
       return candidate;
     }
   }
   // Fallback: use timestamp if all random attempts collide (extremely unlikely)
-  return `${baseBranch}-wt-${Date.now()}`;
+  const candidate = `${baseBranch}-wt-${Date.now()}`;
+  if (
+    gitSafe(`rev-parse --verify refs/heads/${candidate}`, repoRoot) !== null ||
+    gitSafe(`rev-parse --verify refs/companion/archived/${candidate}`, repoRoot) !== null
+  ) {
+    throw new Error("Could not allocate an unused worktree branch name");
+  }
+  return candidate;
 }
 
 export async function generateUniqueWorktreeBranchAsync(repoRoot: string, baseBranch: string): Promise<string> {
   for (let attempt = 0; attempt < 100; attempt++) {
     const suffix = Math.floor(1000 + Math.random() * 9000);
     const candidate = `${baseBranch}-wt-${suffix}`;
-    if ((await gitSafeAsync(`rev-parse --verify refs/heads/${candidate}`, repoRoot)) === null) {
+    if (
+      (await gitSafeAsync(`rev-parse --verify refs/heads/${candidate}`, repoRoot)) === null &&
+      (await gitSafeAsync(`rev-parse --verify refs/companion/archived/${candidate}`, repoRoot)) === null
+    ) {
       return candidate;
     }
   }
-  return `${baseBranch}-wt-${Date.now()}`;
+  const candidate = `${baseBranch}-wt-${Date.now()}`;
+  if (
+    (await gitSafeAsync(`rev-parse --verify refs/heads/${candidate}`, repoRoot)) !== null ||
+    (await gitSafeAsync(`rev-parse --verify refs/companion/archived/${candidate}`, repoRoot)) !== null
+  ) {
+    throw new Error("Could not allocate an unused worktree branch name");
+  }
+  return candidate;
 }
 
 export function removeWorktree(

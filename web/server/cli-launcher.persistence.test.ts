@@ -405,6 +405,33 @@ describe("persistence", () => {
   });
 
   describe("restoreFromDisk", () => {
+    it("restores explicit worker-branch provenance but does not backfill old session names", async () => {
+      // The disposable-branch marker is persisted authority, not a naming heuristic.
+      const disposableBranch = { name: "integration-wt-1234", initialTip: "a".repeat(40) };
+      store.saveLauncher([
+        {
+          sessionId: "owned",
+          state: "exited",
+          cwd: "/fixture/owned",
+          createdAt: 1,
+          actualBranch: disposableBranch.name,
+          disposableBranch,
+        },
+        {
+          sessionId: "legacy",
+          state: "exited",
+          cwd: "/fixture/legacy",
+          createdAt: 2,
+          actualBranch: "integration-wt-5678",
+        },
+      ]);
+      await store.flushAll();
+      const restored = new CliLauncher(3456, { serverId: "test-server-id" });
+      restored.setStore(store);
+      await restored.restoreFromDisk();
+      expect(restored.getSession("owned")?.disposableBranch).toEqual(disposableBranch);
+      expect(restored.getSession("legacy")?.disposableBranch).toBeUndefined();
+    });
     it("recovers sessions from the store", async () => {
       // Manually write launcher data to disk to simulate a previous run
       const savedSessions = [

@@ -294,6 +294,7 @@ describe("recreateWorktreeIfMissing", () => {
       repoRoot: "/tmp/test-repo",
       branch: "jiayi",
       actualBranch: "jiayi-wt-8153",
+      disposableBranch: { name: "jiayi-wt-8153", initialTip: "a".repeat(40) },
     };
 
     const updateWorktree = vi.fn();
@@ -336,6 +337,7 @@ describe("recreateWorktreeIfMissing", () => {
       expect(updateWorktree).toHaveBeenCalledWith("test-session", {
         cwd: expect.any(String),
         actualBranch: "jiayi-wt-8153",
+        disposableBranch: info.disposableBranch,
       });
     } finally {
       getRepoInfoSpy.mockRestore();
@@ -378,6 +380,7 @@ describe("recreateWorktreeIfMissing", () => {
       branch: "jiayi",
       actualBranch: "jiayi-wt-1234",
       isNew: true,
+      createdBranch: { name: "jiayi-wt-1234", initialTip: "b".repeat(40) },
     });
 
     try {
@@ -399,6 +402,7 @@ describe("recreateWorktreeIfMissing", () => {
       expect(mockDeps.launcher.updateWorktree).toHaveBeenCalledWith("test-session", {
         cwd: "/tmp/worktrees/repo/jiayi-wt-1234",
         actualBranch: "jiayi-wt-1234",
+        disposableBranch: { name: "jiayi-wt-1234", initialTip: "b".repeat(40) },
       });
     } finally {
       getRepoInfoSpy.mockRestore();

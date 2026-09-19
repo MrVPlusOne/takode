@@ -1,5 +1,11 @@
 # Takode Changelog
 
+## 2026-09-19
+
+### Fixed
+
+- **Disposable worker branches** -- Archive cleanup again removes proven Takode-created, exclusively owned worker branch names after preserving their committed tips for recovery. Original worker checkouts retain force-removal; shared, retained, user-owned and unproven branches stay protected, with auxiliary and retry safeguards unchanged.
+
 ## 2026-09-18
 
 ### Added

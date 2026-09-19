@@ -1,3 +1,4 @@
+import type { CreatedWorktreeBranch } from "./worktree-branch-retirement.js";
 import type {
   BackendType,
   BoardRow,
@@ -157,6 +158,8 @@ export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
   branch?: string;
   /** Actual git branch in the worktree (may differ for -wt-N branches) */
   actualBranch?: string;
+  /** Server-owned provenance for an exclusively disposable worker branch. */
+  disposableBranch?: CreatedWorktreeBranch;
   /** Branch/repo target that worktree changes should port back to. */
   worktreePortTarget?: {
     repoRoot: string;

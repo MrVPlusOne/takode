@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { AuxiliaryWorktreeRegistry } from "./auxiliary-worktree-registry.js";
+import type { CreatedWorktreeBranch } from "./worktree-branch-retirement.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -11,6 +12,8 @@ export interface WorktreeMapping {
   branch: string;
   /** Actual git branch in the worktree (may differ from `branch` for -wt-N branches) */
   actualBranch?: string;
+  /** Positive creation provenance, never inferred/backfilled from branch naming. */
+  disposableBranch?: CreatedWorktreeBranch;
   worktreePath: string;
   createdAt: number;
 }

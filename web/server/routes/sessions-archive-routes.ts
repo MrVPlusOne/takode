@@ -267,6 +267,7 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
           repoRoot: info.repoRoot,
           branch: info.branch,
           actualBranch: info.actualBranch || info.branch,
+          disposableBranch: info.disposableBranch,
           worktreePath: info.cwd,
           createdAt: Date.now(),
         });

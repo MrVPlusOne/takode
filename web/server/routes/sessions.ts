@@ -351,6 +351,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
         repoRoot: sessionConfig.worktreeInfo.repoRoot,
         branch: sessionConfig.worktreeInfo.branch,
         actualBranch: sessionConfig.worktreeInfo.actualBranch,
+        disposableBranch: sessionConfig.worktreeInfo.disposableBranch,
         worktreePath: sessionConfig.worktreeInfo.worktreePath,
         createdAt: Date.now(),
       });
@@ -1567,6 +1568,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
         const wt = await gitUtils.ensureWorktreeAsync(info.repoRoot, info.branch, { forceNew: true });
         info.cwd = wt.worktreePath;
         info.actualBranch = wt.actualBranch;
+        info.disposableBranch = info.isOrchestrator ? undefined : wt.createdBranch;
         applyInitialSessionState(id, {
           cwd: wt.worktreePath,
           worktree: { repoRoot: info.repoRoot, defaultBranch: undefined, diffBaseBranch: info.branch },
@@ -1576,6 +1578,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
           repoRoot: info.repoRoot,
           branch: info.branch,
           actualBranch: wt.actualBranch,
+          disposableBranch: info.disposableBranch,
           worktreePath: wt.worktreePath,
           createdAt: Date.now(),
         });
@@ -1586,6 +1589,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
           repoRoot: info.repoRoot,
           branch: info.branch,
           actualBranch: info.actualBranch || info.branch,
+          disposableBranch: info.disposableBranch,
           worktreePath: info.cwd,
           createdAt: Date.now(),
         });

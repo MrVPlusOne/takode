@@ -95,6 +95,17 @@ describe("WorktreeTracker", () => {
       expect(onDisk[0]).toEqual(mapping);
     });
 
+    it("persists explicit creation provenance without deriving it for legacy mappings", () => {
+      // A generated-looking name is not positive branch-ownership authority.
+      const tracker = new WorktreeTracker();
+      const disposableBranch = { name: "integration-wt-1234", initialTip: "a".repeat(40) };
+      tracker.addMapping(makeMapping({ disposableBranch, actualBranch: disposableBranch.name }));
+      tracker.addMapping(makeMapping({ sessionId: "legacy", actualBranch: "integration-wt-5678" }));
+      const restored = new WorktreeTracker();
+      expect(restored.getBySession("session-1")?.disposableBranch).toEqual(disposableBranch);
+      expect(restored.getBySession("legacy")?.disposableBranch).toBeUndefined();
+    });
+
     it("replaces existing mapping for same sessionId", () => {
       const tracker = new WorktreeTracker();
       const original = makeMapping({ branch: "feat-1" });

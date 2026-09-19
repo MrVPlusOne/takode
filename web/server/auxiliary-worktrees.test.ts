@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuxiliaryWorktreeRegistry } from "./auxiliary-worktree-registry.js";
 import { AuxiliaryWorktreeLifecycle } from "./auxiliary-worktrees.js";
-import type { WorktreeTracker } from "./worktree-tracker.js";
+import type { WorktreeTracker, WorktreeMapping } from "./worktree-tracker.js";
+import { archiveOwnedWorktreeBranch, captureCreatedWorktreeBranch } from "./worktree-branch-retirement.js";
+import { restoreArchivedBranchAsync } from "./git-utils.js";
 import { cleanupWorktree, createArchivedWorktreeCleanupQueue } from "./routes/worktree-cleanup.js";
 import { registerAuxiliaryWorktreeRoutes } from "./routes/auxiliary-worktree-routes.js";
 import { Hono } from "hono";
@@ -18,7 +20,7 @@ let repo: string;
 let registry: AuxiliaryWorktreeRegistry;
 let lifecycle: AuxiliaryWorktreeLifecycle;
 let owners: Array<{ sessionId: string; cwd: string; archived?: boolean }>;
-let mappings: Array<{ sessionId: string; worktreePath: string }>;
+let mappings: Array<Partial<WorktreeMapping> & { sessionId: string; worktreePath: string }>;
 let tracker: WorktreeTracker;
 
 function git(cwd: string, ...args: string[]): string {
@@ -367,5 +369,194 @@ describe("auxiliary worktree routes", () => {
       (await app.request("/sessions/owner/worktrees/cleanup", { method: "POST", headers: { "fixture-auth": "yes" } }))
         .status,
     ).toBe(403);
+  });
+});
+
+describe("original disposable worker branch retirement", () => {
+  async function original() {
+    const path = checkout("worker-wt-1234");
+    const disposableBranch = await captureCreatedWorktreeBranch(path, "worker-wt-1234");
+    const target: WorktreeMapping = {
+      sessionId: "owner",
+      worktreePath: path,
+      repoRoot: repo,
+      branch: "main",
+      actualBranch: disposableBranch.name,
+      disposableBranch,
+      createdAt: 1,
+    };
+    return { path, target };
+  }
+
+  it("force-removes original dirty/generated/untracked files and retires the owned branch with recoverable committed work", async () => {
+    // Original archive is forceful even though auxiliary/retry policies are stricter.
+    const { path, target } = await original();
+    writeFileSync(join(path, "committed"), "committed content");
+    git(path, "add", "committed");
+    git(path, "commit", "-m", "Worker work");
+    const tip = git(path, "rev-parse", "HEAD");
+    writeFileSync(join(path, "committed"), "uncommitted edit");
+    writeFileSync(join(path, "leftover"), "untracked");
+    mkdirSync(join(path, "environment"));
+    writeFileSync(join(path, "environment", "generated"), "ignored output");
+    const session = {
+      ...owners[0],
+      cwd: path,
+      archived: true,
+      isWorktree: true,
+      repoRoot: repo,
+      branch: "main",
+      actualBranch: target.actualBranch,
+      disposableBranch: target.disposableBranch,
+    };
+    owners = [session];
+    const pending = new Map<string, Promise<void>>();
+    const setWorktreeCleanupState = vi.fn();
+    const queue = createArchivedWorktreeCleanupQueue({
+      launcher: { getSession: () => session, listSessions: () => [session], setWorktreeCleanupState },
+      pendingWorktreeCleanups: pending,
+      worktreeTracker: tracker,
+      auxiliary: lifecycle,
+    });
+    queue("owner");
+    await pending.get("owner");
+    expect(existsSync(path)).toBe(false);
+    expect(() => git(repo, "rev-parse", "--verify", `refs/heads/${target.actualBranch}`)).toThrow();
+    expect(git(repo, "rev-parse", `refs/companion/archived/${target.actualBranch}`)).toBe(tip);
+    expect(setWorktreeCleanupState).toHaveBeenLastCalledWith("owner", expect.objectContaining({ status: "done" }));
+    expect(await restoreArchivedBranchAsync(repo, target.actualBranch!)).toBe(tip);
+    expect(git(repo, "show", `${target.actualBranch}:committed`)).toBe("committed content");
+  });
+
+  it.each([
+    "unproven",
+    "malformed-proof",
+    "retained",
+    "upstream",
+    "published",
+    "primary-user",
+    "port-target",
+    "auxiliary-base",
+    "other-checkout",
+    "changed-lineage",
+    "promoted-leader",
+  ])("keeps a %s branch without blocking original environment removal", async (reason) => {
+    const { path, target } = await original();
+    let branchUsers: () => any[] = () => [];
+    if (reason === "unproven") target.disposableBranch = undefined;
+    if (reason === "malformed-proof") target.disposableBranch!.initialTip = "unproven";
+    if (reason === "retained") git(repo, "config", `branch.${target.actualBranch}.takodeRetain`, "true");
+    if (reason === "upstream") {
+      git(repo, "config", `branch.${target.actualBranch}.remote`, ".");
+      git(repo, "config", `branch.${target.actualBranch}.merge`, "refs/heads/main");
+    }
+    if (reason === "published") git(repo, "update-ref", `refs/remotes/fixture/${target.actualBranch}`, "HEAD");
+    if (reason === "primary-user")
+      mappings.push({
+        sessionId: "foreign",
+        repoRoot: repo,
+        branch: "main",
+        actualBranch: target.actualBranch,
+        worktreePath: join(root, "other"),
+      });
+    if (reason === "promoted-leader")
+      branchUsers = () => [{ sessionId: "owner", archived: true, isOrchestrator: true }];
+    if (reason === "port-target")
+      branchUsers = () => [{ sessionId: "other", worktreePortTarget: { repoRoot: repo, branch: target.actualBranch } }];
+    if (reason === "auxiliary-base") {
+      const additional = checkout("retained");
+      await lifecycle.register("owner", additional, "retained", target.actualBranch);
+    }
+    if (reason === "other-checkout") git(repo, "worktree", "add", "--force", join(root, "other"), target.actualBranch!);
+    if (reason === "changed-lineage") {
+      const unrelated = git(repo, "commit-tree", "HEAD^{tree}", "-m", "Unrelated history");
+      git(repo, "update-ref", `refs/heads/${target.actualBranch}`, unrelated);
+    }
+    writeFileSync(join(path, "leftover"), "remove this environment");
+    const result = await cleanupWorktree(target, tracker, true, { archiveOwnedBranch: true, branchUsers });
+    expect(result).toMatchObject({ cleaned: true });
+    expect(result?.reason).toBeUndefined();
+    expect(existsSync(path)).toBe(false);
+    expect(git(repo, "rev-parse", `refs/heads/${target.actualBranch}`)).toMatch(/^[a-f0-9]{40}$/);
+  });
+
+  it("keeps the branch if the recovery ref cannot be saved, while still removing the original environment", async () => {
+    const { path, target } = await original();
+    const archiveDir = join(repo, ".git", "refs", "companion", "archived");
+    mkdirSync(archiveDir, { recursive: true });
+    writeFileSync(join(archiveDir, `${target.actualBranch}.lock`), "fixture lock");
+    writeFileSync(join(path, "leftover"), "untracked");
+    const result = await cleanupWorktree(target, tracker, true, { archiveOwnedBranch: true });
+    expect(result).toMatchObject({ cleaned: true, reason: expect.stringContaining("branch cleanup failed") });
+    expect(existsSync(path)).toBe(false);
+    expect(git(repo, "rev-parse", target.actualBranch!)).toBe(target.disposableBranch!.initialTip);
+  });
+
+  it("atomically refuses a stale branch tip without creating a misleading recovery ref", async () => {
+    const { path, target } = await original();
+    const oldTip = target.disposableBranch!.initialTip;
+    git(repo, "worktree", "remove", path);
+    git(repo, "commit", "--allow-empty", "-m", "Concurrent advance");
+    const newTip = git(repo, "rev-parse", "HEAD");
+    git(repo, "update-ref", `refs/heads/${target.actualBranch}`, newTip);
+    await expect(archiveOwnedWorktreeBranch(repo, target.actualBranch!, oldTip)).rejects.toThrow();
+    expect(git(repo, "rev-parse", target.actualBranch!)).toBe(newTip);
+    expect(() => git(repo, "rev-parse", "--verify", `refs/companion/archived/${target.actualBranch}`)).toThrow();
+  });
+
+  it("does not overwrite an older recovery tip when an archive name is already occupied", async () => {
+    const { path, target } = await original();
+    const olderTip = target.disposableBranch!.initialTip;
+    git(repo, "update-ref", `refs/companion/archived/${target.actualBranch}`, olderTip);
+    git(path, "commit", "--allow-empty", "-m", "New committed work");
+    const currentTip = git(path, "rev-parse", "HEAD");
+    const result = await cleanupWorktree(target, tracker, true, { archiveOwnedBranch: true });
+    expect(result).toMatchObject({ cleaned: true, reason: expect.stringContaining("branch cleanup failed") });
+    expect(existsSync(path)).toBe(false);
+    expect(git(repo, "rev-parse", target.actualBranch!)).toBe(currentTip);
+    expect(git(repo, "rev-parse", `refs/companion/archived/${target.actualBranch}`)).toBe(olderTip);
+  });
+
+  it("preserves a shared original checkout reached through a path alias", async () => {
+    // Force-removal is not permission to delete another session's checkout.
+    const { path, target } = await original();
+    const alias = join(root, "shared-alias");
+    symlinkSync(path, alias);
+    mappings.push({
+      sessionId: "another-owner",
+      worktreePath: alias,
+      repoRoot: repo,
+      actualBranch: target.actualBranch,
+    });
+    const result = await cleanupWorktree(target, tracker, true, { archiveOwnedBranch: true });
+    expect(result).toMatchObject({ cleaned: false });
+    expect(existsSync(path)).toBe(true);
+    expect(git(repo, "rev-parse", target.actualBranch!)).toBe(target.disposableBranch!.initialTip);
+  });
+
+  it("treats repeated archive cleanup as idempotent after branch retirement", async () => {
+    const { target } = await original();
+    expect(await cleanupWorktree(target, tracker, true, { archiveOwnedBranch: true })).toMatchObject({
+      cleaned: true,
+      reason: undefined,
+    });
+    expect(await cleanupWorktree(target, tracker, true, { archiveOwnedBranch: true })).toMatchObject({
+      cleaned: true,
+      reason: undefined,
+    });
+    expect(git(repo, "rev-parse", `refs/companion/archived/${target.actualBranch}`)).toBe(
+      target.disposableBranch!.initialTip,
+    );
+  });
+
+  it("keeps selected retry non-forcing even for a proven disposable branch", async () => {
+    const { path, target } = await original();
+    writeFileSync(join(path, "leftover"), "keep until retry safety is resolved");
+    expect(await cleanupWorktree(target, tracker, false, { archiveOwnedBranch: true })).toMatchObject({
+      cleaned: false,
+      dirty: true,
+    });
+    expect(existsSync(path)).toBe(true);
+    expect(git(repo, "rev-parse", target.actualBranch!)).toBe(target.disposableBranch!.initialTip);
   });
 });

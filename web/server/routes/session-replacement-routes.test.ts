@@ -104,7 +104,9 @@ beforeEach(() => {
 
 describe("session replacement routes", () => {
   it("archives the old owned worktree worker, resets the path, and creates the replacement in that worktree", async () => {
-    const { app, deps } = makeApp();
+    // Replacement transfers the existing branch receipt; it must not infer a new one.
+    const disposableBranch = { name: "main-wt-1111", initialTip: "a".repeat(40) };
+    const { app, deps } = makeApp({ disposableBranch });
 
     const res = await app.request("/sessions/worker-1/replace-worktree-worker", {
       method: "POST",
@@ -155,6 +157,7 @@ describe("session replacement routes", () => {
         repoRoot: "/repo",
         branch: "main",
         actualBranch: "main-wt-1111",
+        disposableBranch,
         worktreePath: "/wt/main-wt-1111",
       }),
     );

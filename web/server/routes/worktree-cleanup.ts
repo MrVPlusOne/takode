@@ -1,6 +1,8 @@
 import { canonicalWorktreePath, pathsOverlap, type AuxiliaryWorktreeLifecycle } from "../auxiliary-worktrees.js";
 import * as gitUtils from "../git-utils.js";
 import type { WorktreeMapping, WorktreeTracker } from "../worktree-tracker.js";
+import { retireDisposableWorktreeBranch, type WorktreeBranchUse } from "../worktree-branch-retirement.js";
+import type { AuxiliaryWorktreeRegistration } from "../auxiliary-worktree-registry.js";
 
 export type WorktreeCleanupStatus = "pending" | "done" | "failed";
 export type WorktreeCleanupResult = { cleaned?: boolean; dirty?: boolean; path?: string; reason?: string } | undefined;
@@ -19,9 +21,11 @@ interface WorktreeSessionInfo {
   repoRoot?: string;
   branch?: string;
   actualBranch?: string;
+  disposableBranch?: WorktreeMapping["disposableBranch"];
 }
 
 interface WorktreeCleanupLauncher {
+  listSessions?(): WorktreeBranchUse[];
   getSession(sessionId: string): WorktreeSessionInfo | undefined;
   setWorktreeCleanupState(
     sessionId: string,
@@ -69,6 +73,7 @@ export function resolveWorktreeCleanupTarget(
     repoRoot: session.repoRoot,
     branch: session.branch,
     actualBranch: session.actualBranch,
+    disposableBranch: session.disposableBranch,
     worktreePath: session.cwd,
     createdAt: Date.now(),
   };
@@ -78,8 +83,9 @@ export async function cleanupWorktree(
   target: WorktreeCleanupTarget,
   worktreeTracker: WorktreeTracker,
   force?: boolean,
+  options?: { archiveOwnedBranch?: boolean; branchUsers?: () => WorktreeBranchUse[] },
 ): Promise<WorktreeCleanupResult> {
-  const remove = async (): Promise<WorktreeCleanupResult> => {
+  const remove = async (registrations: AuxiliaryWorktreeRegistration[] = []): Promise<WorktreeCleanupResult> => {
     if (worktreeTracker.isWorktreeInUse(target.worktreePath, target.sessionId)) {
       worktreeTracker.removeBySession(target.sessionId);
       return { cleaned: false, path: target.worktreePath };
@@ -87,21 +93,48 @@ export async function cleanupWorktree(
     const dirty = await gitUtils.isWorktreeDirtyAsync(target.worktreePath);
     if (dirty && !force) return { cleaned: false, dirty: true, path: target.worktreePath };
     const shouldForceRemove = Boolean(force || dirty);
-    // Checkout retirement does not grant authority to delete its branch.
+    // Original archive force-removal remains independent of branch retention.
     const result = await gitUtils.removeWorktreeAsync(target.repoRoot, target.worktreePath, {
       force: shouldForceRemove,
     });
+    let branchError: string | undefined;
+    if (result.removed && options?.archiveOwnedBranch && target.disposableBranch) {
+      try {
+        const users = [
+          ...worktreeTracker.load(true),
+          ...(options.branchUsers?.() ?? []).filter((user) => !user.archived || user.sessionId === target.sessionId),
+        ];
+        await retireDisposableWorktreeBranch(target, users, registrations);
+      } catch (error) {
+        // Keep the branch on any uncertainty, without leaving the environment behind.
+        branchError = `Checkout removed; branch cleanup failed: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
     if (result.removed) worktreeTracker.removeBySession(target.sessionId);
     return {
       cleaned: result.removed,
       path: target.worktreePath,
-      reason: withCleanupContext(result.reason, target, { force: shouldForceRemove }),
+      reason: branchError ?? withCleanupContext(result.reason, target, { force: shouldForceRemove }),
     };
   };
   if (!worktreeTracker.auxiliary) return remove();
   return worktreeTracker.auxiliary.update(async (records) => {
     const canonicalPath = await canonicalWorktreePath(target.worktreePath);
-    worktreeTracker.load(true);
+    const mappings = worktreeTracker.load(true);
+    const users = [
+      ...mappings.map((mapping) => ({ sessionId: mapping.sessionId, cwd: mapping.worktreePath })),
+      ...(options?.branchUsers?.() ?? []).filter((user) => !user.archived),
+    ];
+    for (const user of users) {
+      if (
+        user.sessionId !== target.sessionId &&
+        user.cwd &&
+        (await canonicalWorktreePath(user.cwd)) === canonicalPath
+      ) {
+        worktreeTracker.removeBySession(target.sessionId);
+        return { cleaned: false, path: target.worktreePath };
+      }
+    }
     if (records.some((record) => record.cleanupStatus !== "done" && pathsOverlap(record.worktreePath, canonicalPath))) {
       return {
         cleaned: false,
@@ -109,7 +142,7 @@ export async function cleanupWorktree(
         reason: "Worktree has auxiliary ownership or retention registrations",
       };
     }
-    return remove();
+    return remove(records);
   });
 }
 
@@ -167,7 +200,12 @@ export function createArchivedWorktreeCleanupQueue(deps: ArchivedWorktreeCleanup
     const task = (async () => {
       try {
         const auxiliary = await deps.auxiliary?.cleanup(sessionId);
-        const result = target ? await cleanupWorktree(target, worktreeTracker, options?.force ?? true) : undefined;
+        const result = target
+          ? await cleanupWorktree(target, worktreeTracker, options?.force ?? true, {
+              archiveOwnedBranch: true,
+              branchUsers: () => launcher.listSessions?.() ?? [],
+            })
+          : undefined;
         const blocked = auxiliary?.filter(
           (record) => record.retention === "temporary" && record.cleanupStatus !== "done",
         );

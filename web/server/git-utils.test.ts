@@ -1,4 +1,9 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import { captureCreatedWorktreeBranch } from "./worktree-branch-retirement.js";
+
+vi.mock("./worktree-branch-retirement.js", () => ({
+  captureCreatedWorktreeBranch: vi.fn(async (_path: string, name: string) => ({ name, initialTip: "a".repeat(40) })),
+}));
 
 // ─── Hoisted mocks ───────────────────────────────────────────────────────────
 
@@ -450,6 +455,7 @@ describe("ensureWorktree", () => {
     expect(result.actualBranch).toBe("feat/existing");
     expect(result.isNew).toBe(false);
     // Should NOT have called worktree add
+    expect(result.createdBranch).toBeUndefined();
     const addCalls = mockExecSync.mock.calls.filter((c: unknown[]) => (c[0] as string).includes("worktree add"));
     expect(addCalls).toHaveLength(0);
   });
@@ -758,6 +764,8 @@ describe("ensureWorktreeAsync", () => {
     expect(result.isNew).toBe(false);
     expect(mockMkdirAsync).toHaveBeenCalledWith("/fake/home/.companion/worktrees/repo", { recursive: true });
     expect(mockExecSync).not.toHaveBeenCalled();
+    expect(result.createdBranch).toEqual({ name: result.actualBranch, initialTip: "a".repeat(40) });
+    expect(captureCreatedWorktreeBranch).toHaveBeenCalledWith(result.worktreePath, result.actualBranch);
     for (const [cmd] of mockExecCb.mock.calls as Array<[string]>) {
       expect(cmd).toContain("-c core.fsmonitor=false");
     }
@@ -820,6 +828,30 @@ describe("ensureWorktreeAsync", () => {
 // ─── generateUniqueWorktreeBranch ────────────────────────────────────────────
 
 describe("generateUniqueWorktreeBranch", () => {
+  it.each([false, true])("avoids a name whose old committed tip is still archived (async=%s)", async (asyncMode) => {
+    // An active branch can be gone while its recovery name still belongs to an old session.
+    const random = vi.spyOn(Math, "random").mockReturnValueOnce(0.5).mockReturnValueOnce(0.7);
+    const resultFor = (cmd: string) => {
+      if (cmd.includes("refs/companion/archived/main-wt-5500")) return "a".repeat(40);
+      throw new Error("not found");
+    };
+    mockExecSync.mockImplementation(resultFor);
+    mockExecCb.mockImplementation((cmd: string, _opts: unknown, callback: Function) => {
+      try {
+        callback(null, { stdout: resultFor(cmd), stderr: "" });
+      } catch (error) {
+        callback(error, { stdout: "", stderr: "" });
+      }
+    });
+    try {
+      const value = asyncMode
+        ? await gitUtils.generateUniqueWorktreeBranchAsync("/repo", "main")
+        : gitUtils.generateUniqueWorktreeBranch("/repo", "main");
+      expect(value).toBe("main-wt-7300");
+    } finally {
+      random.mockRestore();
+    }
+  });
   it("returns branch-wt-{random4digit} when no suffixed branches exist", () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("rev-parse --verify refs/heads/main-wt-")) throw new Error("not found");

@@ -1,3 +1,4 @@
+import type { CreatedWorktreeBranch } from "../worktree-branch-retirement.js";
 import * as gitUtils from "../git-utils.js";
 import type { CreationStepId } from "../session-types.js";
 import { withProgressHeartbeat } from "./progress-heartbeat.js";
@@ -18,6 +19,7 @@ export interface WorktreeSessionInfo {
   repoRoot: string;
   branch: string;
   actualBranch: string;
+  disposableBranch?: CreatedWorktreeBranch;
   worktreePath: string;
   defaultBranch: string;
   portTarget?: {
@@ -104,6 +106,7 @@ export async function prepareWorktreeForSessionCreate(options: {
       repoRoot: repoInfo.repoRoot,
       branch: targetBranch,
       actualBranch: result.actualBranch,
+      ...(!isOrchestrator && result.createdBranch ? { disposableBranch: result.createdBranch } : {}),
       worktreePath: result.worktreePath,
       defaultBranch: repoInfo.defaultBranch,
       portTarget: {

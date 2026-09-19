@@ -1,3 +1,4 @@
+import type { CreatedWorktreeBranch } from "./worktree-branch-retirement.js";
 import type { BackendType } from "./session-types.js";
 import type { ModelAuthorityDecision, ModelProvenanceMigration } from "./model-identity-contract.js";
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
@@ -63,6 +64,7 @@ export interface LaunchOptions {
     repoRoot: string;
     branch: string;
     actualBranch: string;
+    disposableBranch?: CreatedWorktreeBranch;
     worktreePath: string;
     portTarget?: {
       repoRoot: string;
@@ -106,4 +108,10 @@ export interface LaunchOptions {
   parentSessionId?: string;
   /** True when this is an orchestrator session (gets TAKODE_ROLE env). */
   isOrchestrator?: boolean;
+}
+
+export interface WorktreeSessionUpdate {
+  cwd: string;
+  actualBranch: string;
+  disposableBranch?: CreatedWorktreeBranch;
 }

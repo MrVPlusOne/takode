@@ -102,7 +102,7 @@ Herd headers keep their stable event type and add short text when a boundary cou
 
 ## Session Lifecycle
 
-Workers may register their own additional checkouts with `takode worktree register <path> --retention temporary --base <local-branch>` or `--retention retained`. The shared **Additional Worktrees** launch guidance owns retention selection and safety. `takode worktree list [--session <session>]` exposes compact registrations and cleanup reasons. Leaders may retry one archived temporary registration with `takode worktree retry <path> --session <session>`; retained/shared protection and Git safety checks still apply. Checkout cleanup preserves branches. These commands do not adopt historical paths automatically.
+Workers may register their own additional checkouts with `takode worktree register <path> --retention temporary --base <local-branch>` or `--retention retained`. The shared **Additional Worktrees** launch guidance owns retention selection and safety. `takode worktree list [--session <session>]` exposes compact registrations and cleanup reasons. Leaders may retry one archived temporary registration with `takode worktree retry <path> --session <session>`; retained/shared protection and Git safety checks still apply. Auxiliary cleanup preserves branches; original-worker archive may remove only proven disposable, exclusively owned branch names after saving a recovery tip. Its checkout force-removal remains separate from auxiliary, selected-retry and replacement safeguards. These commands do not adopt historical paths automatically.
 
 Three distinct operations -- never confuse them:
 
