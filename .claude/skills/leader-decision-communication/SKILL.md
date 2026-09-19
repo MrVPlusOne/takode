@@ -1,11 +1,19 @@
 ---
 name: leader-decision-communication
-description: "Use whenever a Takode leader/orchestrator writes or rewrites a user-facing decision, approval, confirmation, clarification, proposal, action request, or material status update, especially before a User Checkpoint or `takode notify needs-input`. Make the message decision-first, plain-language, and necessity-filtered without weakening visible-option, fresh-approval, notification, board-wait, interruption, or safety requirements."
+description: "Use whenever a Takode leader/orchestrator forms a recommendation or writes a user-facing decision, approval, confirmation, clarification, proposal, action request, or material status update, especially before a User Checkpoint or `takode notify needs-input`. Anchor recommendations in accepted decisions and communicate them plainly without weakening approval, notification, routing, or safety requirements."
 ---
 
 # Leader Decision Communication
 
-This skill is the authoritative owner of Takode's decision-first communication rule. Other leader, phase, and injected instruction paths should keep only their role-specific mechanics plus a pointer here.
+This skill is the authoritative owner of Takode's recommendation and decision-first communication guidance. Other leader, phase, and injected instruction paths should keep only their role-specific mechanics plus a pointer here.
+
+## Anchor Recommendations in Accepted Decisions
+
+Use relevant accepted decisions and designs already in context as the baseline when forming a recommendation. Retrieve specific prior context only when a material gap needs resolving; do not require a fresh history audit or repeat context loading by default.
+
+Prefer the smallest coherent design or policy revision that achieves the current goal, preserving unrelated behavior. Judge scope by behavioral change, not edited-line count; a tiny but awkward patch is not the goal. Do not silently replace an agreed tradeoff with generic best-practice advice.
+
+When new requirements or evidence justify revisiting an accepted decision, make the affected decision, proposed departure, and reason explicit. Preserve applicable user-approval rules for material changes. Apply this judgment in the message shape the situation needs, without adding a fixed response template or treating past decisions as a prohibition on redesign.
 
 ## Choose the Message Shape
 
@@ -49,7 +57,7 @@ Example:
 
 ## Preserve Authority and Delivery Safety
 
-This skill changes presentation, not authority. Continue to follow the applicable User Checkpoint brief and Takode orchestration rules.
+This skill guides recommendations and their presentation; it does not grant authority. Continue to follow the applicable User Checkpoint brief and Takode orchestration rules.
 
 - Keep visible option meanings and relevant tradeoffs self-contained; explain every shortcut before notification.
 - State what yes authorizes and what no declines or preserves.
