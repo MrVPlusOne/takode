@@ -41,7 +41,7 @@ describe("compaction boundary evidence", () => {
   it("does not enqueue another recovery bundle when native instructions already contain it", () => {
     const session = makeSession();
     session.codexAdapter = { hasNativeCompactionRecovery: () => true };
-    session.messageHistory = [{ type: "compact_marker", id: "boundary", timestamp: 1 }];
+    session.messageHistory = [{ type: "compact_marker", id: "boundary", timestamp: 1, compactionStatus: "completed" }];
     const injectUserMessage = vi.fn();
     injectCompactionRecovery(session, {
       isLeaderSession: () => true,
@@ -49,6 +49,7 @@ describe("compaction boundary evidence", () => {
       injectUserMessage,
     });
     expect(injectUserMessage).not.toHaveBeenCalled();
+    expect(session.compactionMemoryCatalog).toEqual({ boundaryId: "boundary", pending: true });
   });
 });
 

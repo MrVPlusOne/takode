@@ -29,6 +29,7 @@ import {
 import { deriveWindowAvailability } from "../../shared/window-availability.js";
 import { selectHistoryWindowRange } from "../history-window-selection.js";
 import { sessionTag } from "../session-tag.js";
+import { hasPendingMemoryCatalog } from "./memory-catalog-prelude.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { isHistoryBackedEvent, shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
@@ -173,6 +174,7 @@ export interface BrowserTransportSessionLike {
   activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
   codexReasoningPreviews?: import("./codex-reasoning-preview-state.js").CodexReasoningPreviewsByThread;
   pendingStartupMemoryCatalogInjection?: boolean;
+  compactionMemoryCatalog?: import("./memory-catalog-prelude.js").CompactionMemoryCatalogState;
   notifications: unknown[];
   attentionRecords: unknown[];
   notificationStatusVersion?: number;
@@ -496,7 +498,7 @@ export async function handleBrowserIngressMessage(
   };
   const routePromise =
     shouldSerializeBrowserMessage(msg) ||
-    shouldSerializeStartupCatalogMessage(session, msg) ||
+    shouldSerializeMemoryCatalogMessage(session, msg) ||
     hasSessionRouteInFlight(session.id, deps)
       ? enqueueSessionRoute(session.id, routeTask, deps)
       : Promise.resolve(routeTask());
@@ -749,7 +751,7 @@ export function injectUserMessage(
   const sdkAdapterMissingBeforeRoute = session.backendType === "claude-sdk" && !session.claudeSdkAdapter;
   const pendingCodexCountBefore = session.pendingCodexInputs.length;
   const hadRouteInFlight = hasSessionRouteInFlight(session.id, deps);
-  const serializeForStartupCatalog = session.pendingStartupMemoryCatalogInjection === true;
+  const serializeForCatalog = hasPendingMemoryCatalog(session);
   const browserMessage: BrowserOutgoingMessage = {
     type: "user_message",
     content,
@@ -832,7 +834,7 @@ export function injectUserMessage(
     }
   };
 
-  if (hadRouteInFlight || serializeForStartupCatalog) {
+  if (hadRouteInFlight || serializeForCatalog) {
     if (isHerdEventSource(agentSource) && session.backendType === "codex") {
       const queuedKey = getCodexHerdRouteQueueKey(content, agentSource, threadRoute);
       const queuedKeys = getQueuedCodexHerdRouteKeys(session);
@@ -1584,11 +1586,11 @@ function shouldSerializeBrowserMessage(msg: BrowserOutgoingMessage): boolean {
   return msg.type === "user_message" && !!msg.imageRefs?.length;
 }
 
-function shouldSerializeStartupCatalogMessage(
+function shouldSerializeMemoryCatalogMessage(
   session: BrowserTransportSessionLike,
   msg: BrowserOutgoingMessage,
 ): boolean {
-  return msg.type === "user_message" && session.pendingStartupMemoryCatalogInjection === true;
+  return msg.type === "user_message" && hasPendingMemoryCatalog(session);
 }
 
 function hasSessionRouteInFlight(sessionId: string, deps: BrowserTransportDeps): boolean {

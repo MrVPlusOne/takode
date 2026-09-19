@@ -3,6 +3,7 @@ import { createSessionAttentionProjectionDefinition } from "../session-attention
 import { buildPersistedSessionPayload, restorePersistedSessions } from "./session-registry-controller.js";
 import { setAttention } from "./session-notification-controller.js";
 import { injectCompactionRecovery } from "./compaction-recovery.js";
+import { requestCompactionMemoryCatalog } from "./memory-catalog-prelude.js";
 
 const recovery = {
   recoveryId: "original-owner",
@@ -66,6 +67,32 @@ function deriveAttention(session: any) {
 }
 
 describe("restored session activity", () => {
+  it.each([
+    true,
+    false,
+  ])("retains native catalog boundary identity and pending=%s across persistence", async (pending) => {
+    // Both a pending request and an accepted boundary must survive restart without unsolicited duplication.
+    const sessions = new Map<string, any>();
+    const marker = { type: "compact_marker", id: "native-boundary", timestamp: 1, compactionStatus: "completed" };
+    await restorePersistedSessions(
+      sessions,
+      [
+        persisted({
+          state: { ...persisted().state, codex_turn_recovery: null },
+          messageHistory: [marker],
+          compactionMemoryCatalog: { boundaryId: "native-boundary", pending },
+        }),
+      ],
+      deps(),
+    );
+    const restored = sessions.get("session-recovery");
+    requestCompactionMemoryCatalog(restored);
+    expect(buildPersistedSessionPayload(restored).compactionMemoryCatalog).toEqual({
+      boundaryId: "native-boundary",
+      pending,
+    });
+  });
+
   it("repairs human activity while restoring the latest committed or pending preview owner", async () => {
     const sessions = new Map<string, any>();
     const setLastUserMessageAt = vi.fn();

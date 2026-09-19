@@ -204,6 +204,8 @@ export interface Session {
   codexLeaderRecycleContinuation: CodexLeaderRecycleContinuation | null;
   /** Non-leader startup memory catalog prelude waiting for the first real model-bound input. */
   pendingStartupMemoryCatalogInjection?: boolean;
+  /** Last native compaction boundary and whether its catalog awaits ordinary input. */
+  compactionMemoryCatalog?: import("./memory-catalog-prelude.js").CompactionMemoryCatalogState;
   /** Message history indices of user messages received during the current turn (for turn_end herd events) */
   userMessageIdsThisTurn: number[];
   /** Synthetic quest-thread attachment reminders queued from leader assistant output for delivery after result. */

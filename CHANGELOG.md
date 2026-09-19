@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **Post-compaction memory catalogs** -- Codex attaches fresh memory orientation to the next ordinary input after compaction, without an extra model turn or duplicate required guidance. Catalog failures leave ordinary work usable, and repeated boundaries do not duplicate the attachment.
 - **Disposable worker branches** -- Archive cleanup again removes proven Takode-created, exclusively owned worker branch names after preserving their committed tips for recovery. Original worker checkouts retain force-removal; shared, retained, user-owned and unproven branches stay protected, with auxiliary and retry safeguards unchanged.
 
 ## 2026-09-18

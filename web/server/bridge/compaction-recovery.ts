@@ -4,6 +4,7 @@ import type {
   ProgrammaticHistoryFollowUp,
 } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
+import { requestCompactionMemoryCatalog, type CompactionMemoryCatalogState } from "./memory-catalog-prelude.js";
 import { getKnownSessionNum } from "../cli-launcher.js";
 import { getCompactionRecoveryPrompt, isCompactionRecoveryPrompt } from "../compaction-recovery-prompts.js";
 import {
@@ -61,6 +62,7 @@ type CompactionRecoverySessionLike = {
   messageHistory: BrowserIncomingMessage[];
   codexLeaderRecycleContinuation?: CodexLeaderRecycleContinuation | null;
   codexAdapter?: { hasNativeCompactionRecovery?: () => boolean } | null;
+  compactionMemoryCatalog?: CompactionMemoryCatalogState;
   pendingCodexInputs?: Array<{ timestamp: number; agentSource?: { sessionId: string } }>;
 };
 
@@ -178,9 +180,12 @@ export function injectCompactionRecovery(
     );
     return;
   }
-  // Codex restores the configured recovery guidance and skills with its native
-  // developer instructions. A queued recovery input would duplicate that context.
-  if (session.codexAdapter?.hasNativeCompactionRecovery?.()) return;
+  // Native instructions restore required context. The optional catalog rides
+  // the next ordinary input, without duplicating those instructions or starting a turn.
+  if (session.codexAdapter?.hasNativeCompactionRecovery?.()) {
+    requestCompactionMemoryCatalog(session);
+    return;
+  }
   if (hasCompactionRecoveryAfterLatestMarker(session, deps)) return;
   const boundary = latestCompactionBoundary(session);
   if (boundary && recoveryBoundaries.get(session) === boundary) return;

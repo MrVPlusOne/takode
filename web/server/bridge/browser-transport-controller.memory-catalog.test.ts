@@ -54,8 +54,12 @@ function makeRoutingDeps(routeBrowserMessage: ReturnType<typeof vi.fn>, routeSta
 }
 
 describe("startup memory catalog route serialization", () => {
-  it("serializes concurrent browser user messages", async () => {
+  it.each(["startup", "compaction"])("serializes concurrent browser user messages for %s catalog", async (kind) => {
     const session = makeSession();
+    if (kind === "compaction") {
+      session.pendingStartupMemoryCatalogInjection = false;
+      session.compactionMemoryCatalog = { boundaryId: "native-boundary", pending: true };
+    }
     const routeState: { current?: Promise<void> } = {};
     let releaseFirst!: () => void;
     let firstStarted!: () => void;
@@ -70,6 +74,7 @@ describe("startup memory catalog route serialization", () => {
       order.push(`start:${msg.content}`);
       if (msg.content === "first") {
         session.pendingStartupMemoryCatalogInjection = false;
+        if (session.compactionMemoryCatalog) session.compactionMemoryCatalog.pending = false;
         firstStarted();
         await firstGate;
       }
@@ -89,8 +94,15 @@ describe("startup memory catalog route serialization", () => {
     expect(order).toEqual(["start:first", "end:first", "start:second", "end:second"]);
   });
 
-  it("serializes programmatic startup messages and records acceptance after routing", async () => {
+  it.each([
+    "startup",
+    "compaction",
+  ])("serializes programmatic %s messages and records acceptance after routing", async (kind) => {
     const session = makeSession();
+    if (kind === "compaction") {
+      session.pendingStartupMemoryCatalogInjection = false;
+      session.compactionMemoryCatalog = { boundaryId: "native-boundary", pending: true };
+    }
     const routeState: { current?: Promise<void> } = {};
     let releaseFirst!: () => void;
     let firstStarted!: () => void;
@@ -105,6 +117,7 @@ describe("startup memory catalog route serialization", () => {
       order.push(`start:${msg.content}`);
       if (msg.content === "first") {
         session.pendingStartupMemoryCatalogInjection = false;
+        if (session.compactionMemoryCatalog) session.compactionMemoryCatalog.pending = false;
         firstStarted();
         await firstGate;
       }

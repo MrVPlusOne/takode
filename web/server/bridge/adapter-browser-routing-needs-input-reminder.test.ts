@@ -12,6 +12,8 @@ import { withTrustedRecoveryDeliveryTransferRoute } from "./recovery-delivery-tr
 import { buildCodexBatchMessageInputs } from "./codex-pending-start-batch.js";
 import { withTrustedCodexRecoveryRoute } from "./codex-recovery-routing-context.js";
 import { dispatchQueuedCodexTurns } from "./codex-turn-queue.js";
+import { requestCompactionMemoryCatalog } from "./memory-catalog-prelude.js";
+import { buildAvailableMemoryCatalogBundle } from "../memory-catalog-injection-utils.js";
 import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
@@ -1732,5 +1734,174 @@ describe("direct user needs-input reminders", () => {
       },
     });
     expect(session.messageHistory[1]).toMatchObject({ type: "user_message", content: "Fresh user message" });
+  });
+});
+
+describe("native compaction catalog ordinary-input delivery", () => {
+  function nativeSession() {
+    const session = makeSession();
+    session.backendType = "codex";
+    session.isGenerating = true;
+    session.codexAdapter = {
+      getCurrentTurnId: () => "existing-turn",
+      isConnected: () => true,
+      sendBrowserMessage: vi.fn(() => true),
+    } as any;
+    session.messageHistory.push({
+      type: "compact_marker",
+      id: "native-boundary",
+      timestamp: 1,
+      compactionStatus: "completed",
+    });
+    requestCompactionMemoryCatalog(session);
+    return session;
+  }
+
+  it.each([
+    { leader: false, source: undefined },
+    { leader: true, source: undefined },
+    { leader: false, source: { sessionId: "herd-events", sessionLabel: "Herd Events" } },
+    { leader: true, source: { sessionId: "timer:t1", sessionLabel: "Timer t1" } },
+  ])("attaches one catalog to existing input for %j without waking the model", async ({ leader, source }) => {
+    // Follow the real input router into the model-bound batch; source identity and native role content stay separate.
+    const session = nativeSession();
+    const deps = makeDeps({ isOrchestrator: leader });
+    deps.addPendingCodexInput = vi.fn((target, input) => {
+      target.pendingCodexInputs.push(input);
+    });
+    const recordSeen = vi.fn(async () => {});
+    deps.buildMemoryCatalogInjectionBundle = vi.fn(async () => ({
+      ...buildAvailableMemoryCatalogBundle("Memory repo: /tmp/isolated-memory\ndecisions/example.md: New orientation"),
+      recordSeen,
+    }));
+    expect(session.codexAdapter?.sendBrowserMessage).not.toHaveBeenCalled();
+    expect(deps.queueCodexPendingStartBatch).not.toHaveBeenCalled();
+    expect(deps.buildMemoryCatalogInjectionBundle).not.toHaveBeenCalled();
+
+    const timerFiring = source?.sessionId === "timer:t1" ? { timerId: "t1", scheduledFireAt: 1 } : undefined;
+    await routeBrowserMessage(
+      session as any,
+      userMessage({
+        content: timerFiring ? "[⏰ Timer t1 reminder] Continue work" : "Continue work",
+        agentSource: source,
+        ...(timerFiring ? { timerFiring } : {}),
+      }),
+      undefined,
+      deps,
+    );
+    const pending = session.pendingCodexInputs[0];
+    const batch = buildCodexBatchMessageInputs(session.pendingCodexInputs);
+    expect(batch).toHaveLength(1);
+    expect(batch[0].content).toContain("Continue work");
+    expect(batch[0].content.split("Memory catalog preloaded")).toHaveLength(2);
+    expect(batch[0].content).not.toContain("Required leader skill preloaded:");
+    expect(pending.agentSource).toEqual(source);
+    expect(pending.timerFiring).toEqual(timerFiring);
+    expect(pending.historyFollowUps).toEqual([
+      expect.objectContaining({ agentSource: { sessionId: "system:memory-catalog", sessionLabel: "Memory Catalog" } }),
+    ]);
+    expect(recordSeen).toHaveBeenCalledOnce();
+    expect(session.compactionMemoryCatalog).toEqual({ boundaryId: "native-boundary", pending: false });
+    // Catalog attachment keeps each source's established active-turn delivery route.
+    if (source?.sessionId === "herd-events") {
+      expect(deps.queueCodexPendingStartBatch).toHaveBeenCalledOnce();
+      expect(deps.trySteerPendingCodexInputs).not.toHaveBeenCalled();
+    } else {
+      expect(deps.trySteerPendingCodexInputs).toHaveBeenCalledOnce();
+      expect(deps.rebuildQueuedCodexPendingStartBatch).toHaveBeenCalledOnce();
+      expect(deps.queueCodexPendingStartBatch).not.toHaveBeenCalled();
+    }
+    expect(deps.injectUserMessage).not.toHaveBeenCalled();
+
+    requestCompactionMemoryCatalog(session);
+    await routeBrowserMessage(session as any, userMessage({ content: "Later input" }), undefined, deps);
+    expect(deps.buildMemoryCatalogInjectionBundle).toHaveBeenCalledOnce();
+    expect(session.pendingCodexInputs[1].deliveryContent).not.toContain("Memory catalog preloaded");
+  });
+
+  it("keeps primary input usable when optional catalog assembly throws", async () => {
+    // The native recovery instructions already exist; a catalog failure cannot veto ordinary work.
+    const session = nativeSession();
+    const deps = makeDeps();
+    deps.addPendingCodexInput = vi.fn((target, input) => {
+      target.pendingCodexInputs.push(input);
+    });
+    deps.buildMemoryCatalogInjectionBundle = vi.fn(async () => {
+      throw new Error("isolated scan failure");
+    });
+    await expect(
+      routeBrowserMessage(session as any, userMessage({ content: "Continue work" }), undefined, deps),
+    ).resolves.toBe(true);
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(session.pendingCodexInputs[0].deliveryContent).toBe("Continue work");
+    expect(session.compactionMemoryCatalog?.pending).toBe(false);
+  });
+
+  it("drops only the optional catalog when it would reject an otherwise valid primary input", async () => {
+    // Fail open at the actual pending-input size gate, preserving compiled annotations and prior follow-ups.
+    const previous = process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES;
+    process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES = "128";
+    try {
+      const session = nativeSession();
+      const deps = makeDeps();
+      deps.addPendingCodexInput = vi.fn((target, input) => {
+        target.pendingCodexInputs.push(input);
+      });
+      const recordSeen = vi.fn(async () => {});
+      deps.buildMemoryCatalogInjectionBundle = vi.fn(async () => ({
+        ...buildAvailableMemoryCatalogBundle("x".repeat(1000)),
+        recordSeen,
+      }));
+      const historyFollowUps = [{ content: "existing context", agentSource: { sessionId: "system:other-context" } }];
+      const accepted = await routeBrowserMessage(
+        session as any,
+        userMessage({
+          content: "Visible request",
+          deliveryContent: "Exact compiled primary content",
+          historyFollowUps,
+        }),
+        undefined,
+        deps,
+      );
+      expect(accepted).toBe(true);
+      expect(session.pendingCodexInputs).toHaveLength(1);
+      expect(session.pendingCodexInputs[0].content).toBe("Visible request");
+      expect(session.pendingCodexInputs[0].deliveryContent).toBe("Exact compiled primary content");
+      expect(session.pendingCodexInputs[0].historyFollowUps).toEqual(historyFollowUps);
+      expect(recordSeen).not.toHaveBeenCalled();
+      expect(session.compactionMemoryCatalog?.pending).toBe(false);
+      expect(vi.mocked(deps.broadcastToBrowsers).mock.calls.some(([, msg]) => msg.type === "error")).toBe(false);
+    } finally {
+      if (previous === undefined) delete process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES;
+      else process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES = previous;
+    }
+  });
+
+  it("retains the pending boundary when the primary input itself is rejected", async () => {
+    // Rejection must consume neither the catalog request nor its seen watermark.
+    const previous = process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES;
+    process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES = "64";
+    try {
+      const session = nativeSession();
+      const deps = makeDeps();
+      const recordSeen = vi.fn(async () => {});
+      deps.buildMemoryCatalogInjectionBundle = vi.fn(async () => ({
+        ...buildAvailableMemoryCatalogBundle("snapshot"),
+        recordSeen,
+      }));
+      const accepted = await routeBrowserMessage(
+        session as any,
+        userMessage({ content: "x".repeat(100) }),
+        undefined,
+        deps,
+      );
+      expect(accepted).toBe(false);
+      expect(deps.addPendingCodexInput).not.toHaveBeenCalled();
+      expect(recordSeen).not.toHaveBeenCalled();
+      expect(session.compactionMemoryCatalog?.pending).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES;
+      else process.env.TAKODE_CODEX_PENDING_INPUT_MAX_DELIVERY_BYTES = previous;
+    }
   });
 });

@@ -1,4 +1,5 @@
 import { sessionTag } from "../session-tag.js";
+import { normalizeCompactionMemoryCatalog } from "./memory-catalog-prelude.js";
 import {
   CODEX_PROCESS_RECONNECT_MAX_ATTEMPTS,
   CODEX_PROVIDER_RESULT_RECONNECT_TIMEOUT_MS,
@@ -152,6 +153,7 @@ type SessionRuntimeOptions = {
   pendingCodexRollbackError?: string | null;
   codexLeaderRecycleContinuation?: CodexLeaderRecycleContinuation | null;
   pendingStartupMemoryCatalogInjection?: boolean;
+  compactionMemoryCatalog?: import("./memory-catalog-prelude.js").CompactionMemoryCatalogState;
   codexFreshTurnRequiredUntilTurnId?: string | null;
   codexModelSwitchCompactionGuard?: import("../session-types.js").CodexModelSwitchCompactionGuard | null;
   codexPendingDeliveryProofSignals?: import("../session-types.js").CodexPendingDeliveryProofSignal[];
@@ -215,6 +217,7 @@ function createSessionRuntime(
     pendingCodexRollbackError: options.pendingCodexRollbackError ?? null,
     codexLeaderRecycleContinuation: options.codexLeaderRecycleContinuation ?? null,
     pendingStartupMemoryCatalogInjection: options.pendingStartupMemoryCatalogInjection === true,
+    compactionMemoryCatalog: options.compactionMemoryCatalog,
     codexFreshTurnRequiredUntilTurnId: options.codexFreshTurnRequiredUntilTurnId ?? null,
     codexModelSwitchCompactionGuard: options.codexModelSwitchCompactionGuard ?? null,
     codexSuppressRecoveryForCurrentCompaction: false,
@@ -689,6 +692,7 @@ export async function restorePersistedSessions(
         p.codexLeaderRecycleContinuation,
       ),
       pendingStartupMemoryCatalogInjection: p.pendingStartupMemoryCatalogInjection === true,
+      compactionMemoryCatalog: normalizeCompactionMemoryCatalog(p.compactionMemoryCatalog),
       codexFreshTurnRequiredUntilTurnId:
         typeof p.codexFreshTurnRequiredUntilTurnId === "string" ? p.codexFreshTurnRequiredUntilTurnId : null,
       codexModelSwitchCompactionGuard: normalizePersistedCodexModelSwitchCompactionGuard(
@@ -865,6 +869,7 @@ export function buildPersistedSessionPayload(session: SessionLike): PersistedSes
     pendingCodexRollback: session.pendingCodexRollback,
     pendingCodexRollbackError: session.pendingCodexRollbackError,
     codexLeaderRecycleContinuation: session.codexLeaderRecycleContinuation,
+    compactionMemoryCatalog: session.compactionMemoryCatalog,
     codexFreshTurnRequiredUntilTurnId: session.codexFreshTurnRequiredUntilTurnId,
     codexModelSwitchCompactionGuard: session.codexModelSwitchCompactionGuard,
     codexPendingDeliveryProofSignals: session.codexPendingDeliveryProofSignals,

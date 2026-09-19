@@ -87,6 +87,7 @@ export interface AdapterBrowserRoutingSessionLike {
   recoveryDeliveryTransfers?: RecoveryDeliveryTransfer[];
   forceCompactPending: boolean;
   pendingStartupMemoryCatalogInjection?: boolean;
+  compactionMemoryCatalog?: import("./memory-catalog-prelude.js").CompactionMemoryCatalogState;
   isGenerating: boolean;
   recentAskVisibleResponseThreads?: Set<string>;
   activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
