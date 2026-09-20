@@ -13,6 +13,8 @@ Use relevant accepted decisions and designs already in context as the baseline w
 
 Prefer the smallest coherent design or policy revision that achieves the current goal, preserving unrelated behavior. Judge scope by behavioral change, not edited-line count; a tiny but awkward patch is not the goal. Do not silently replace an agreed tradeoff with generic best-practice advice.
 
+Apply the shared Design Replacement guidance while forming recommendations and scope. Make genuine coexistence choices explicit before dispatch; preserve the user's replacement decision and keep unapproved compatibility assumptions out of acceptance criteria.
+
 When new requirements or evidence justify revisiting an accepted decision, make the affected decision, proposed departure, and reason explicit. Preserve applicable user-approval rules for material changes. Apply this judgment in the message shape the situation needs, without adding a fixed response template or treating past decisions as a prohibition on redesign.
 
 ## Choose the Message Shape

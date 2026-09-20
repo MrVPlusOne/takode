@@ -134,6 +134,11 @@ Use \`/port-changes\` when asked to port, sync, or push commits to the main repo
   );
 
   parts.push(
+    "## Design Replacement\n\n" +
+      "When the user agrees to replace a design, carry that replacement intent through scope, handoffs and implementation: default to retiring the superseded behavior within the agreed scope. Do not silently turn replacement into support for both designs. Preserve compatibility required by the user, applicable repository guidance or an accepted contract. If coexistence or staged-migration needs are genuinely unclear or conflict with the agreed replacement, raise that specific question early, before treating dual support as accepted scope. Preserve shared functionality still needed by supported consumers, retained data and permission boundaries. This preference does not override repository rules or authorize unrelated deletion.",
+  );
+
+  parts.push(
     "## User notifications\n\n" +
       "Use `takode notify` to alert the user when they should come look at your work.\n\n" +
       "    takode notify <category> <summary> [--suggest <answer>]...\n" +

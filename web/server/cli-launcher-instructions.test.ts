@@ -47,6 +47,25 @@ describe("buildCompanionInstructions", () => {
     "claude",
     "claude-sdk",
     "codex",
+  ] as const)("includes one complete design replacement section across %s roles and checkouts", (backend) => {
+    // The rule must reach leaders before dispatch and workers before Work.
+    // Compare assembled content, without maintaining a second copy of its prose.
+    const heading = "## Design Replacement\n\n";
+    const sharedSection = buildCompanionInstructions().split(heading)[1]?.split("\n\n## ")[0];
+    expect(sharedSection?.trim()).toBeTruthy();
+    for (const isOrchestrator of [false, true]) {
+      for (const worktree of [undefined, { branch: "feature", repoRoot: "/projects/example" }]) {
+        const prompt = buildInjectedSystemPromptForDebug({ backend, isOrchestrator, worktree });
+        expect(prompt.split(heading)).toHaveLength(2);
+        expect(prompt).toContain(`${heading}${sharedSection}`);
+      }
+    }
+  });
+
+  it.each([
+    "claude",
+    "claude-sdk",
+    "codex",
   ] as const)("includes the canonical shared link section in ordinary and leader %s prompts", (backend) => {
     // Catch omitted or truncated sections across roles/projects. Wording changes
     // update the canonical source only; this is an assembly contract.
