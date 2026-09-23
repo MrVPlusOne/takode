@@ -61,7 +61,7 @@ Subcommands:
   list [--json]
   renew <resource> [--ttl <duration>] [--json]
   heartbeat <resource> [--ttl <duration>] [--json]
-  release <resource> [--json]
+  release <resource> [--force] [--json]
 
 Use scoped keys by convention when useful, for example dev-server:companion.
 Default TTL is 30m. Heartbeat while working and release promptly when done.
@@ -93,9 +93,14 @@ export const LEASE_RENEW_HELP = `Usage: takode lease renew <resource> [--ttl <du
 Heartbeat an owned lease and extend its expiry. Without --ttl, the existing TTL is reused.
 `;
 
-export const LEASE_RELEASE_HELP = `Usage: takode lease release <resource> [--json]
+export const LEASE_RELEASE_HELP = `Usage: takode lease release <resource> [--force] [--json]
 
 Release an owned lease. If waiters exist, the first waiter is promoted and notified.
+Leaders may use --force to release another session's lease on this server when
+recovering an abandoned reservation or coordinating a handoff. Prefer normal
+owner release or queueing while the holder is using the resource. Use judgment
+about conflicting use; releasing a lease does not stop processes or grant
+permission for the underlying resource operations.
 `;
 
 export async function handleLease(args: string[], deps: TakodeLeaseDeps): Promise<void> {
@@ -200,8 +205,14 @@ async function handleRelease(args: string[], deps: TakodeLeaseDeps): Promise<voi
   const resource = firstPositional(args);
   if (!resource) deps.err(LEASE_RELEASE_HELP);
   const flags = parseFlags(args.slice(1));
-  assertKnownFlags(flags, new Set(["json"]), LEASE_RELEASE_HELP, deps);
-  const response = (await deps.apiPost(`/resource-leases/${encodeURIComponent(resource)}/release`, {})) as {
+  assertKnownFlags(flags, new Set(["force", "json"]), LEASE_RELEASE_HELP, deps);
+  if (flags.force !== undefined && flags.force !== true)
+    deps.err(`--force does not take a value\n${LEASE_RELEASE_HELP}`);
+  const force = flags.force === true;
+  const response = (await deps.apiPost(
+    `/resource-leases/${encodeURIComponent(resource)}/release`,
+    force ? { force: true } : {},
+  )) as {
     result: { released: LeaseDetail; promoted: LeaseDetail | null; waiters: WaiterDetail[] };
   };
   if (flags.json === true) {
@@ -209,7 +220,11 @@ async function handleRelease(args: string[], deps: TakodeLeaseDeps): Promise<voi
     return;
   }
   const promoted = response.result.promoted ? ` Promoted ${response.result.promoted.ownerSessionId}.` : "";
-  console.log(`Released ${response.result.released.resourceKey}.${promoted}`);
+  const released = response.result.released;
+  const action = force
+    ? `Force-released ${released.resourceKey}; previous owner: ${formatLeaseOwner(released, deps)}.`
+    : `Released ${released.resourceKey}.`;
+  console.log(`${action}${promoted}`);
 }
 
 function printAcquireResult(result: AcquireResult, deps: TakodeLeaseDeps): void {

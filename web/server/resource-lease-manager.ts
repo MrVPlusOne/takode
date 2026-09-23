@@ -100,19 +100,25 @@ export class ResourceLeaseManager {
     });
   }
 
-  async release(resourceKeyInput: string, callerSessionIdInput: string): Promise<ResourceLeaseReleaseResult> {
+  async release(
+    resourceKeyInput: string,
+    callerSessionIdInput: string,
+    force = false,
+  ): Promise<ResourceLeaseReleaseResult> {
     return this.runExclusive(async () => {
       await this.ensureLoaded();
       const resourceKey = normalizeResourceKey(resourceKeyInput);
       const callerSessionId = normalizeSessionId(callerSessionIdInput);
-      const expiredChanged = this.expireDueLeases(Date.now());
+      // Force release targets the current record, even if expired. Sweeping it
+      // first could promote a waiter and then accidentally release that successor.
+      const expiredChanged = force ? false : this.expireDueLeases(Date.now());
       const leaseIndex = this.data.leases.findIndex((lease) => lease.resourceKey === resourceKey);
       if (leaseIndex === -1) {
         await this.persistIfNeeded(expiredChanged);
         throw new ResourceLeaseError("not_found", `No active lease for ${resourceKey}`);
       }
       const lease = this.data.leases[leaseIndex];
-      if (lease.ownerSessionId !== callerSessionId) {
+      if (!force && lease.ownerSessionId !== callerSessionId) {
         await this.persistIfNeeded(expiredChanged);
         throw new ResourceLeaseError("forbidden", `Only ${lease.ownerSessionId} can release ${resourceKey}`);
       }

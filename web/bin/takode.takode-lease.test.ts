@@ -325,4 +325,70 @@ describe("takode lease", () => {
       server.close();
     }
   });
+
+  it.each([
+    { force: false, json: false },
+    { force: true, json: false },
+    { force: true, json: true },
+  ])("sends an explicit release override and reports the result (force=$force, json=$json)", async ({
+    force,
+    json,
+  }) => {
+    // Run the actual CLI against an isolated stub. Ordinary release keeps its
+    // existing payload; --force must reach the server and identify the old owner.
+    let receivedBody: JsonObject | null = null;
+    const now = Date.now();
+    const lease = {
+      resourceKey: "agent-browser",
+      ownerSessionId: "previous-owner",
+      ownerSessionNum: 12,
+      ownerSessionName: "Previous Worker",
+      purpose: "Inspect UI",
+      metadata: {},
+      acquiredAt: now,
+      heartbeatAt: now,
+      ttlMs: 1_800_000,
+      expiresAt: now + 1_800_000,
+    };
+    const responseBody = {
+      result: { released: lease, promoted: { ...lease, ownerSessionId: "next-waiter" }, waiters: [] },
+    };
+    const server = createServer(async (req, res) => {
+      res.setHeader("content-type", "application/json");
+      if (req.method === "GET" && req.url === "/api/takode/me") {
+        res.end(JSON.stringify({ sessionId: "leader-self", isOrchestrator: true }));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/resource-leases/agent-browser/release") {
+        receivedBody = await readJson(req);
+        res.end(JSON.stringify(responseBody));
+        return;
+      }
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    try {
+      const args = ["lease", "release", "agent-browser", "--port", String((server.address() as AddressInfo).port)];
+      if (force) args.push("--force");
+      if (json) args.push("--json");
+      const result = await runTakode(args, {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-self",
+        COMPANION_AUTH_TOKEN: "auth-self",
+      });
+      expect(result.status).toBe(0);
+      expect(receivedBody).toEqual(force ? { force: true } : {});
+      if (json) {
+        expect(JSON.parse(result.stdout)).toEqual(responseBody);
+      } else {
+        expect(result.stdout).toContain(force ? "Force-released agent-browser" : "Released agent-browser");
+        if (force) expect(result.stdout).toContain("previous owner: #12 Previous Worker (previous-owner)");
+        expect(result.stdout).toContain("Promoted next-waiter");
+      }
+    } finally {
+      server.close();
+    }
+  });
 });

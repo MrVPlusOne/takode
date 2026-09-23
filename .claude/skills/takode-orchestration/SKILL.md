@@ -131,6 +131,10 @@ Three distinct operations -- never confuse them:
 - **Multiple routed sections:** use separate sections for distinct content or roles, not to repeat one answer across tabs. Keep the first compact marker on the first line, then put a standalone `---` line immediately before each later role-bearing marker. The divider and marker must begin their physical lines.
 - **Shell commands:** use `# thread:main` or `# thread:q-N` as the first non-empty command line. Shell commands are commentary; they do not publish an answer.
 
+## Resource Lease Recovery
+
+Use `takode lease --help` for the shared-resource commands. Normal use is owner acquisition, renewal and release; when another holder is using the resource, coordinate owner release or join the queue. Leaders can use `takode lease release <resource> --force` across this server for abandoned/stale reservations or coordinated handoffs. Apply the judgment-led recovery guidance in the shared **Global Resource Leases** session instructions. Force release preserves queue order and does not stop processes or authorize underlying operations.
+
 ## Session Timers
 
 Use `takode timer create "Check build health" --thread q-N --in 30m` to save a leader timer's destination; `--thread main` selects Main explicitly. Without `--thread`, a new leader timer inherits the current active turn's valid route only while the leader is generating. If no active route is available, specify the destination explicitly. The saved destination survives later thread changes and restarts. Existing timers without a saved destination keep their existing behavior.

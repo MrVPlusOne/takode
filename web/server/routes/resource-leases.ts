@@ -121,7 +121,12 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
     if (!ctx.resourceLeaseManager) return c.json({ error: "Resource lease manager not available" }, 503);
 
     try {
-      const result = await ctx.resourceLeaseManager.release(c.req.param("resourceKey"), auth.callerId);
+      const body = await c.req.json().catch(() => ({}));
+      const force = body.force === true;
+      if (force && !auth.caller.isOrchestrator) {
+        return c.json({ error: "Only leader sessions can force-release a resource lease" }, 403);
+      }
+      const result = await ctx.resourceLeaseManager.release(c.req.param("resourceKey"), auth.callerId, force);
       return c.json({ result: enrichReleaseResultForResponse(ctx, result) });
     } catch (err) {
       return resourceLeaseErrorResponse(c, err);

@@ -161,4 +161,65 @@ describe("ResourceLeaseManager", () => {
     expect(status.waiters).toHaveLength(1);
     expect(status.waiters[0].waiterSessionId).toBe("waiter");
   });
+
+  it("force-releases the current holder while preserving FIFO and persisted ownership", async () => {
+    // The route grants leader authority; the manager still owns the single
+    // serialized release and the ordinary queue transition.
+    await manager.acquire({ resourceKey: "agent-browser", callerSessionId: "owner", purpose: "Inspect UI" });
+    for (const callerSessionId of ["first", "second"]) {
+      await manager.wait({
+        resourceKey: "agent-browser",
+        callerSessionId,
+        purpose: "Next inspection",
+        waitIfUnavailable: true,
+      });
+    }
+
+    const result = await manager.release("agent-browser", "leader", true);
+    expect(result.released.ownerSessionId).toBe("owner");
+    expect(result.promoted?.ownerSessionId).toBe("first");
+    expect(result.waiters.map((waiter) => waiter.waiterSessionId)).toEqual(["second"]);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    const restored = new ResourceLeaseManager(bridge, new ResourceLeaseStore("test-server", tempDir));
+    try {
+      expect((await restored.getStatus("agent-browser")).lease?.ownerSessionId).toBe("first");
+    } finally {
+      restored.destroy();
+    }
+  });
+
+  it("force-releases an expired record without also releasing its successor", async () => {
+    // Move the clock without running the sweep: the release itself must not
+    // expire the owner, promote the first waiter, then force-release that waiter.
+    await manager.acquire({
+      resourceKey: "agent-browser",
+      callerSessionId: "owner",
+      purpose: "Inspect UI",
+      ttlMs: 10_000,
+    });
+    for (const callerSessionId of ["first", "second"]) {
+      await manager.wait({
+        resourceKey: "agent-browser",
+        callerSessionId,
+        purpose: "Next inspection",
+        waitIfUnavailable: true,
+      });
+    }
+    vi.setSystemTime(Date.now() + 10_001);
+
+    const result = await manager.release("agent-browser", "leader", true);
+    expect(result.released.ownerSessionId).toBe("owner");
+    expect(result.promoted?.ownerSessionId).toBe("first");
+    expect(result.waiters.map((waiter) => waiter.waiterSessionId)).toEqual(["second"]);
+    expect((await manager.getStatus("agent-browser")).lease?.ownerSessionId).toBe("first");
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("force release reports a missing lease without creating a reservation", async () => {
+    // A recovery command is a release, never an acquisition or fabricated success.
+    await expect(manager.release("agent-browser", "leader", true)).rejects.toMatchObject({ code: "not_found" });
+    expect((await manager.getStatus("agent-browser")).available).toBe(true);
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+  });
 });
