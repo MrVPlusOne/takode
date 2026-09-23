@@ -5,13 +5,25 @@
 ### Added
 
 - **Counted resource leases** -- Leaders can configure resource pools with numbered slots, one reservation per session and FIFO waiting. Renewal, expiry and recovery target individual slots; existing singleton reservations migrate without losing ownership or queue state.
+- **Leader lease recovery** -- Leaders can release stale or abandoned reservations held by other sessions without waiting for expiry. Recovery releases one selected slot and leaves the underlying processes and data untouched.
 - **CLI text inputs** -- Session messages and worker answers accept stdin; proposal summaries, phase notes, timer descriptions, skill content, cron prompts, and delivery-target JSON accept file/stdin input. Help and agent examples show quoted heredocs and separate summaries without routine temporary files.
 
 ### Fixed
 
 - **Skill content parsing** -- Ambiguous inline content beginning with option syntax is rejected with file/stdin guidance instead of sending a boolean as Markdown.
+- **Expanded composer clearance** -- Desktop conversations can be scrolled above the expanded composer to reveal covered passages. Expanding or collapsing keeps the feed stationary, and used scroll space remains available until switching destinations.
+
+## 2026-09-20
+
+### Changed
+
+- **Agreed design replacements** -- Agent guidance carries an approved replacement through planning and implementation, retiring superseded behavior within scope while preserving required compatibility, shared functionality and user data.
 
 ## 2026-09-19
+
+### Changed
+
+- **Leader recommendations** -- Guidance anchors recommendations in accepted decisions and favors the smallest coherent change. Proposals that revisit an agreed tradeoff must explain the departure and preserve approval requirements.
 
 ### Fixed
 
@@ -24,13 +36,30 @@
 
 - **Auxiliary worktree retention** -- Workers can register extra checkouts as temporary or retained. Archive cleanup protects shared and retained checkouts, checks temporary work before removal, and preserves Git branches independently of checkout environments.
 
-### Fixed
-
-- **Memory catalog freshness** -- Catalog diffs detect note-body edits, descriptions have a 1,000-character validation limit, and agent guidance reuses preloaded catalogs while preserving direct note checks. Clipped preloads no longer mark unseen content as observed.
-
 ### Changed
 
 - **Mobile quest banners** -- The title and right-aligned Journey pill share one row. Expanded details show the current worker, while a manual collapse control saves screen space without reopening on phase updates.
+- **Quick quest search** -- Reuses prepared search documents and cancels superseded requests to reduce repeated work while preserving current results and relationship-aware freshness.
+- **Notify Me phone alerts** -- Settings provides a separate, default-on Pushover filter for monitored results, independent of ordinary review notifications.
+- **Blocker escalation** -- Agent guidance now asks agents to check available context, resources and alternative approaches before asking the user to resolve an avoidable blocker.
+
+### Fixed
+
+- **Memory catalog freshness** -- Catalog diffs detect note-body edits, descriptions have a 1,000-character validation limit, and agent guidance reuses preloaded catalogs while preserving direct note checks. Clipped preloads no longer mark unseen content as observed.
+- **Search activity** -- Pending quick searches show an animated status indicator, with reduced-motion support, until results arrive.
+- **Recent attachment counts** -- Recent message previews show separate image and comment counts, including messages with attachments but no text.
+- **Input delivery order** -- Human and leader input carries earlier queued observations in chronological order without pulling later background events into an active turn. Input already sent to that turn is not resent by a stale queued turn.
+- **Codex recovery guidance** -- Required recovery instructions and leader skills survive compaction without duplicate recovery messages. Leader recycle also retains its skills when the optional memory catalog is unavailable.
+- **Codex recovery stability** -- Quiet compaction is no longer treated as a stuck turn. Repeated automatic recovery requests share the current relaunch instead of restarting its replacement.
+- **Compaction status** -- Conversation markers distinguish compaction starting from completion, so an in-progress compaction is not presented as finished.
+- **Pending message visibility** -- Queued input remains visible in its valid destination thread even when another routing field is blank or invalid. Inputs without a known destination retain global visibility.
+- **Active Codex timers** -- Verified timer firings can reach an active turn with earlier queued observations, while paused or interrupted work stays protected.
+
+## 2026-09-17
+
+### Changed
+
+- **Leader sidebar cards** -- Leader cards omit numeric Git divergence and line-change counts. Git details remain available on hover, and worker cards keep their existing counts.
 
 ## 2026-09-14
 
