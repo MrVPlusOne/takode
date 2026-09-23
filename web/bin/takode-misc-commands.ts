@@ -7,6 +7,7 @@ import {
   formatTimestampCompact,
   getCallerSessionId,
   parseFlags,
+  readOptionTextFile,
   printTimerRows,
   TIMER_CREATE_GUIDANCE,
   type SessionTimerDetail,
@@ -129,10 +130,13 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
       //        takode timer create "Refresh context" --every 10m
       const title = args[1];
       if (!title) {
-        err("Usage: takode timer create <title> [--desc <description>] [--thread main|q-N] --in|--at|--every <spec>");
+        err(
+          "Usage: takode timer create <title> [--desc <description> | --desc-file <path|->] [--thread main|q-N] --in|--at|--every <spec>",
+        );
       }
 
       const body: Record<string, string> = { title };
+      let descriptionFile: string | undefined;
       for (let i = 2; i < args.length; i++) {
         if (args[i] === "--in" && args[i + 1]) {
           body.in = args[++i];
@@ -142,6 +146,10 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
           body.every = args[++i];
         } else if ((args[i] === "--desc" || args[i] === "--description") && args[i + 1]) {
           body.description = args[++i];
+        } else if (args[i] === "--desc-file") {
+          const value = args[++i];
+          if (!value || value.startsWith("--")) err("--desc-file requires a path or '-' for stdin.");
+          descriptionFile = value;
         } else if (args[i] === "--thread") {
           const target = args[++i] ? normalizeThreadTarget(args[i]) : null;
           if (!target) err("--thread requires main or q-N");
@@ -151,10 +159,15 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
 
       if (!body.in && !body.at && !body.every) {
         err(
-          "Usage: takode timer create <title> [--desc <description>] [--thread main|q-N] --in|--at|--every <spec>\n" +
+          "Usage: takode timer create <title> [--desc <description> | --desc-file <path|->] [--thread main|q-N] --in|--at|--every <spec>\n" +
             "  e.g. --in 30m, --at 3pm, --every 10m\n" +
             `  ${TIMER_CREATE_GUIDANCE}`,
         );
+      }
+
+      if (descriptionFile !== undefined) {
+        if (body.description !== undefined) err("Use either --desc/--description or --desc-file, not both.");
+        body.description = await readOptionTextFile(descriptionFile, "--desc-file");
       }
 
       const result = (await apiPost(base, `/sessions/${sessionId}/timers`, body)) as {
@@ -191,7 +204,7 @@ export async function handleTimer(base: string, args: string[]): Promise<void> {
       err(
         "Usage: takode timer <subcommand>\n\n" +
           "Subcommands:\n" +
-          "  create <title> [--desc <description>] [--thread main|q-N] --in|--at|--every <spec>   Create a timer\n" +
+          "  create <title> [--desc <description> | --desc-file <path|->] [--thread main|q-N] --in|--at|--every <spec>   Create a timer\n" +
           "  list                                       List active timers\n" +
           "  cancel <timer-id>                          Cancel a timer\n\n" +
           `${TIMER_CREATE_GUIDANCE}\n\n` +

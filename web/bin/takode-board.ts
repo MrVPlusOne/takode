@@ -10,6 +10,7 @@ import {
   parseFlags,
   parseIntegerFlag,
   readOptionTextFile,
+  readOptionalRichTextOption,
 } from "./takode-core.js";
 import { handleRecordDelivery } from "./takode-record-delivery.js";
 import { handleDeliveryTarget, deliveryTargetFlag, DELIVERY_TARGET_HELP } from "./takode-delivery-target.js";
@@ -123,9 +124,9 @@ Use --journey-file when the replacement suffix needs notes:
   { "phases": [{ "id": "work", "note": "Preserve the approved safety boundary." }, { "id": "memory" }] }
 `;
 
-export const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] --summary <text> (--phases <ids> | --journey-file <path|->) [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]
+export const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] (--summary <text> | --summary-file <path|->) (--phases <ids> | --journey-file <path|->) [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]
 
-Create and render a proposed pre-dispatch Journey row. The mandatory --summary is the approval packet that used to be sent as separate leader chat text: include the goal/acceptance context, key tradeoff, dependencies, and scheduling/approval question that the user needs, but do not restate the Journey because the proposal UI already renders it. Existing proposed Journey changes should use takode board revise. Use --journey-file for batch phase and note setup; omit standard-phase notes unless unusual phase-specific handling is needed. Optional User Checkpoints require a user-checkpoint phase note with a concrete skip condition; skipping one later requires recording why the condition is satisfied.
+Create and render a proposed pre-dispatch Journey row. The mandatory --summary/--summary-file input is the approval packet that used to be sent as separate leader chat text: include the goal/acceptance context, key tradeoff, dependencies, and scheduling/approval question that the user needs, but do not restate the Journey because the proposal UI already renders it. Existing proposed Journey changes should use takode board revise. Use --journey-file for batch phase and note setup; omit standard-phase notes unless unusual phase-specific handling is needed. Use --summary-file - with a quoted heredoc and --phases for a no-temporary-file proposal. Only one input option may consume stdin. Optional User Checkpoints require a user-checkpoint phase note with a concrete skip condition; skipping one later requires recording why the condition is satisfied.
 `;
 
 export const BOARD_PRESENT_HELP = `takode board present was removed. Use takode board propose <quest-id> --summary <text> ... so the proposal preview renders directly from the propose result.
@@ -137,7 +138,7 @@ export const BOARD_PROMOTE_HELP = `Usage: takode board promote <quest-id> [--wor
 Promote an existing proposed Journey into active execution without redefining its phases. By default this clears any proposal hold linked through --wait-for-input.
 `;
 
-export const BOARD_NOTE_HELP = `Usage: takode board note <quest-id> <phase-position> [--text <text> | --clear] [--full|--verbose] [--json]
+export const BOARD_NOTE_HELP = `Usage: takode board note <quest-id> <phase-position> [--text <text> | --text-file <path|-> | --clear] [--full|--verbose] [--json]
 
 Add or clear a lightweight per-phase Journey note. Phase positions are 1-based in CLI usage.
 `;
@@ -941,7 +942,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     const questId = args[1];
     const usageBySub =
       sub === "propose"
-        ? `Usage: takode board propose <quest-id> [--title "..."] --summary <text> [--phases <ids> | --journey-file <path|->] [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]`
+        ? `Usage: takode board propose <quest-id> [--title "..."] (--summary <text> | --summary-file <path|->) [--phases <ids> | --journey-file <path|->] [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]`
         : sub === "promote"
           ? `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]`
           : `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--active-phase-position <n>] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids> | --journey-file <path|->] [--preset <id>] [--full|--verbose] [--json]`;
@@ -971,12 +972,16 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     if (typeof flags.status === "string") body.status = flags.status;
     if (typeof flags.title === "string") body.title = flags.title;
     if (isProposalCommand) {
-      if (flags.summary === true || typeof flags.summary !== "string" || !flags.summary.trim()) {
-        err("takode board propose requires --summary with the full approval context.");
-      }
-      body.presentation = { summary: flags.summary.trim() };
-    } else if (flags.summary !== undefined) {
-      err("Use --summary only with takode board propose.");
+      const summary = await readOptionalRichTextOption(flags, {
+        inlineFlag: "summary",
+        fileFlag: "summary-file",
+        label: "Proposal summary",
+      });
+      if (summary === undefined)
+        err("takode board propose requires --summary or --summary-file with the full approval context.");
+      body.presentation = { summary: summary.trim() };
+    } else if (flags.summary !== undefined || flags["summary-file"] !== undefined) {
+      err("Use --summary/--summary-file only with takode board propose.");
     }
     const journeyFileFlag =
       typeof flags["journey-file"] === "string"
@@ -1169,7 +1174,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
   if (sub === "note") {
     const questId = args[1];
     const usage =
-      "Usage: takode board note <quest-id> <phase-position> [--text <text> | --clear] [--full|--verbose] [--json]";
+      "Usage: takode board note <quest-id> <phase-position> [--text <text> | --text-file <path|-> | --clear] [--full|--verbose] [--json]";
     if (!questId) err(usage);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const phasePositionRaw = args[2];
@@ -1179,17 +1184,23 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       err("Phase position must be a positive integer.");
     }
     const flags = parseFlags(args.slice(3));
-    const hasText = typeof flags.text === "string";
+    const text = await readOptionalRichTextOption(flags, {
+      inlineFlag: "text",
+      fileFlag: "text-file",
+      label: "Phase note",
+      allowEmpty: true,
+    });
+    const hasText = text !== undefined;
     const wantsClear = flags.clear === true;
     if (hasText === wantsClear) {
-      err("Use exactly one of --text or --clear.");
+      err("Use exactly one of --text, --text-file or --clear.");
     }
     const body: Record<string, unknown> = {
       questId,
       phaseNoteEdits: [
         {
           index: phasePosition - 1,
-          note: hasText ? flags.text : null,
+          note: hasText ? text : null,
         },
       ],
     };

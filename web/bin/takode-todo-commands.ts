@@ -282,11 +282,14 @@ async function handleAdd(
 }
 
 async function handleEdit(base: string, id: string | undefined, flags: Record<string, string | boolean>) {
-  if (!id) err("Usage: takode todo edit <td-id> --markdown-file <path|-> [--authorized-by <message-index>] [--json]");
+  if (!id)
+    err(
+      "Usage: takode todo edit <td-id> (--markdown <text> | --markdown-file <path|->) [--authorized-by <message-index>] [--json]",
+    );
   assertKnownFlags(
     flags,
     new Set(["markdown", "markdown-file", "title", "title-file", "details", "details-file", "authorized-by", "json"]),
-    "Usage: takode todo edit <td-id> --markdown-file <path|-> [--authorized-by <message-index>] [--json]",
+    "Usage: takode todo edit <td-id> (--markdown <text> | --markdown-file <path|->) [--authorized-by <message-index>] [--json]",
   );
   const input = await readItemInput(flags);
   if (Object.keys(input).length === 0) err("Provide --markdown/--markdown-file or a legacy --title/--details input.");

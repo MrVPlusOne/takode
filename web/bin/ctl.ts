@@ -5,7 +5,27 @@
  * All output is JSON to stdout for easy parsing by both humans and AI agents.
  */
 
+import { readOptionalRichTextOption, readStdinText } from "./takode-core.js";
+
 const DEFAULT_PORT = 3456;
+
+const TEXT_INPUT_HELP: Record<string, string> = {
+  "sessions send-message": `Usage: companion sessions send-message <sessionId> <message>
+       companion sessions send-message <sessionId> --stdin
+
+Send one message to the selected session. Use stdin for multiline or shell-sensitive text:
+  companion sessions send-message <sessionId> --stdin <<'MESSAGE'
+  Literal Markdown with \`code\` and $(example).
+MESSAGE
+Use --stdin < message.md for an existing file. Do not combine stdin and positional text.`,
+  "cron create":
+    "Usage: companion cron create --name <name> --schedule <cron|datetime> (--prompt <text> | --prompt-file <path|->) [--cwd <path>] [--model <model>] [--env <slug>] [--recurring] [--backend <type>] [--permission-mode <mode>]",
+  "cron update":
+    "Usage: companion cron update <jobId> [--prompt <text> | --prompt-file <path|->] [--name <name>] [--schedule <spec>] ...",
+  "skills create":
+    "Usage: companion skills create --name <name> [--description <desc>] [--content <markdown> | --content-file <path|->]",
+  "skills update": "Usage: companion skills update <slug> (--content <markdown> | --content-file <path|->)",
+};
 
 function getPort(argv: string[]): number {
   const idx = argv.indexOf("--port");
@@ -220,8 +240,12 @@ async function handleSessions(base: string, args: string[]): Promise<void> {
     }
     case "send-message": {
       const id = rest[0];
-      const content = rest.slice(1).join(" ");
-      if (!id || !content) err("Usage: companion sessions send-message <sessionId> <message>");
+      const messageArgs = rest.slice(1);
+      const useStdin = messageArgs.includes("--stdin");
+      if (!id || id.startsWith("--")) err(TEXT_INPUT_HELP["sessions send-message"]);
+      if (useStdin && messageArgs.length !== 1) err("Cannot combine --stdin with a positional message.");
+      const content = useStdin ? await readStdinText() : messageArgs.join(" ");
+      if (!content) err(TEXT_INPUT_HELP["sessions send-message"]);
       out(await apiPost(base, `/sessions/${encodeURIComponent(id)}/message`, { content }));
       break;
     }
@@ -294,14 +318,17 @@ async function handleCron(base: string, args: string[]): Promise<void> {
     }
     case "create": {
       const flags = parseFlags(rest);
-      if (!flags.name || !flags.schedule || !flags.prompt)
-        err(
-          "Usage: companion cron create --name <name> --schedule <cron|datetime> --prompt <prompt> [--cwd <path>] [--model <model>] [--env <slug>] [--recurring] [--backend <type>] [--permission-mode <mode>]",
-        );
+      const prompt = await readOptionalRichTextOption(flags, {
+        inlineFlag: "prompt",
+        fileFlag: "prompt-file",
+        label: "Cron prompt",
+        allowEmpty: true,
+      });
+      if (!flags.name || !flags.schedule || prompt === undefined) err(TEXT_INPUT_HELP["cron create"]);
       const body: Record<string, unknown> = {
         name: flags.name,
         schedule: flags.schedule,
-        prompt: flags.prompt,
+        prompt,
       };
       if (flags.cwd) body.cwd = flags.cwd;
       if (flags.model) body.model = flags.model;
@@ -318,13 +345,19 @@ async function handleCron(base: string, args: string[]): Promise<void> {
     }
     case "update": {
       const id = rest[0];
-      if (!id) err("Usage: companion cron update <jobId> [--name <n>] [--schedule <s>] [--prompt <p>] ...");
+      if (!id) err(TEXT_INPUT_HELP["cron update"]);
       const flagArgs = rest.slice(1);
       const flags = parseFlags(flagArgs);
+      const prompt = await readOptionalRichTextOption(flags, {
+        inlineFlag: "prompt",
+        fileFlag: "prompt-file",
+        label: "Cron prompt",
+        allowEmpty: true,
+      });
       const body: Record<string, unknown> = {};
       if (flags.name) body.name = flags.name;
       if (flags.schedule) body.schedule = flags.schedule;
-      if (flags.prompt) body.prompt = flags.prompt;
+      if (prompt !== undefined) body.prompt = prompt;
       if (flags.cwd) body.cwd = flags.cwd;
       if (flags.model) body.model = flags.model;
       if (flags.env) body.envSlug = flags.env;
@@ -439,20 +472,31 @@ async function handleSkills(base: string, args: string[]): Promise<void> {
     }
     case "create": {
       const flags = parseFlags(rest);
-      if (!flags.name)
-        err("Usage: companion skills create --name <name> [--description <desc>] [--content <markdown>]");
+      if (!flags.name) err(TEXT_INPUT_HELP["skills create"]);
+      const content = await readOptionalRichTextOption(flags, {
+        inlineFlag: "content",
+        fileFlag: "content-file",
+        label: "Skill content",
+        allowEmpty: true,
+      });
       const body: Record<string, unknown> = { name: flags.name };
       if (flags.description) body.description = flags.description;
-      if (flags.content) body.content = flags.content;
+      if (content !== undefined) body.content = content;
       out(await apiPost(base, "/skills", body));
       break;
     }
     case "update": {
       const slug = rest[0];
-      if (!slug) err("Usage: companion skills update <slug> --content <markdown>");
+      if (!slug) err(TEXT_INPUT_HELP["skills update"]);
       const flags = parseFlags(rest.slice(1));
-      if (!flags.content) err("Usage: companion skills update <slug> --content <full SKILL.md content>");
-      out(await apiPut(base, `/skills/${encodeURIComponent(slug)}`, { content: flags.content }));
+      const content = await readOptionalRichTextOption(flags, {
+        inlineFlag: "content",
+        fileFlag: "content-file",
+        label: "Skill content",
+        allowEmpty: true,
+      });
+      if (content === undefined) err(TEXT_INPUT_HELP["skills update"]);
+      out(await apiPut(base, `/skills/${encodeURIComponent(slug)}`, { content }));
       break;
     }
     case "delete": {
@@ -480,6 +524,14 @@ Management commands:
   companion settings <subcommand>         Manage settings
   companion assistant <subcommand>        Manage the Companion Assistant
 
+Text inputs:
+  companion sessions send-message <id> --stdin
+  companion skills create/update ... --content-file <path|->
+  companion cron create/update ... --prompt-file <path|->
+  Use a quoted heredoc with '-' for one large body, or an existing file.
+  Inline text beginning with '--' requires a file/stdin form.
+  Run a command with --help for its input forms and examples.
+
 Global options:
   --port <n>    Override the Companion API port (default: 3456, or COMPANION_PORT env)
 
@@ -490,6 +542,18 @@ Run 'companion <command>' without subcommand for available subcommands.
 export async function handleCtlCommand(command: string, rawArgv: string[]): Promise<void> {
   const argv = stripGlobalFlags(rawArgv);
   const base = getBase(rawArgv);
+
+  // Management text arguments may themselves be "--help". Only the standalone
+  // family/subcommand help form is reserved, before a target or payload is given.
+  if (
+    (argv.length === 1 && ["--help", "-h"].includes(argv[0])) ||
+    (argv.length === 2 && ["--help", "-h"].includes(argv[1]))
+  ) {
+    const help = TEXT_INPUT_HELP[`${command} ${argv[0]}`];
+    if (help) console.log(help);
+    else printCtlUsage();
+    return;
+  }
 
   try {
     switch (command) {

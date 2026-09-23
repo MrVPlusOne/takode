@@ -330,6 +330,7 @@ export function err(message: string): never {
 }
 
 let stdinTextPromise: Promise<string> | null = null;
+let stdinFlagName: string | null = null;
 
 export async function readStdinText(): Promise<string> {
   if (!stdinTextPromise) {
@@ -347,6 +348,12 @@ export async function readStdinText(): Promise<string> {
 
 export async function readOptionTextFile(pathOrDash: string, flagName: string): Promise<string> {
   if (pathOrDash === "-") {
+    if (stdinFlagName && stdinFlagName !== flagName) {
+      err(
+        `Only one option can read from stdin per command. Already using ${stdinFlagName}; cannot also use ${flagName}.`,
+      );
+    }
+    stdinFlagName = flagName;
     return readStdinText();
   }
 
@@ -364,13 +371,14 @@ export async function readOptionalRichTextOption(
     inlineFlag: string;
     fileFlag: string;
     label: string;
+    allowEmpty?: boolean;
   },
 ): Promise<string | undefined> {
   const inlineValue = flags[args.inlineFlag];
   const fileValue = flags[args.fileFlag];
 
   if (inlineValue === true) {
-    err(`--${args.inlineFlag} requires a value`);
+    err(`--${args.inlineFlag} requires a value; use --${args.fileFlag} <path|-> for text beginning with '--'`);
   }
   if (fileValue === true) {
     err(`--${args.fileFlag} requires a path or '-' for stdin`);
@@ -386,7 +394,7 @@ export async function readOptionalRichTextOption(
         ? inlineValue
         : undefined;
 
-  if (value !== undefined && !value.trim()) {
+  if (value !== undefined && !args.allowEmpty && !value.trim()) {
     err(`${args.label} is required`);
   }
 

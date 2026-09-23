@@ -1,7 +1,6 @@
-import { readFile } from "node:fs/promises";
-import { apiGet, apiPost, assertKnownFlags, err, parseFlags } from "./takode-core.js";
+import { apiGet, apiPost, assertKnownFlags, err, parseFlags, readOptionTextFile } from "./takode-core.js";
 
-export const DELIVERY_TARGET_HELP = `Usage: takode board approve-delivery-target <quest-id> --target-file <path> [--json]
+export const DELIVERY_TARGET_HELP = `Usage: takode board approve-delivery-target <quest-id> --target-file <path|-> [--json]
        takode board delivery-targets <quest-id> [--target <approval-id>] [--json]
 
 The assigned leader records an already-authorized independent publication target
@@ -29,7 +28,7 @@ export async function handleDeliveryTarget(base: string, action: string, args: s
   );
   if (action === "approve-delivery-target") {
     if (typeof flags["target-file"] !== "string") err("--target-file requires the approved target JSON file.");
-    const target = JSON.parse(await readFile(flags["target-file"], "utf8"));
+    const target = JSON.parse(await readOptionTextFile(flags["target-file"], "--target-file"));
     const result = (await apiPost(base, "/takode/board/approve-delivery-target", { questId, target })) as {
       approvalId: string;
       refCount: number;

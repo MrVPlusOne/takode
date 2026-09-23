@@ -400,17 +400,15 @@ Treat `foo $(bar)` as literal text, not shell.
 EOF
 ```
 
-For quest comments or summaries, prefer the quest CLI's safer rich-text path instead of inline shell quoting:
+For direct session messages, use `companion sessions send-message <session> --stdin` with the same quoted-heredoc pattern. An existing file can feed either message command with `--stdin < message.md`. Worker answers similarly accept `takode answer <session> --target <id> --stdin`; preserve the exact pending target.
+
+For quest comments or summaries, prefer one stdin body plus an inline or quoted-variable TLDR. The Quest skill owns the multi-string examples and their size, trailing-newline, leading-option and single-stdin limits. Files remain useful for existing artifacts or multiple large values:
 
 ```bash
-cat >/tmp/quest-feedback.txt <<'EOF'
-Port summary: commit abc123 ...
+quest feedback add q-123 --text-file - --tldr 'Verified the requested behavior.' <<'EOF'
+Full report:
 Treat `foo $(bar)` as literal text, not shell.
 EOF
-quest feedback q-123 --text-file /tmp/quest-feedback.txt
-
-printf '%s\n' 'Port summary: commit abc123 ...' 'Treat `foo $(bar)` as literal text, not shell.' | \
-  quest feedback q-123 --text-file -
 ```
 
 ### `takode reconnect <session...>` / `takode reconnect --all`
@@ -472,7 +470,7 @@ Interrupt a worker's current turn (sends SIGTERM).
 takode interrupt 2
 ```
 
-### `takode answer <session> [--message <msg-id> | --target <id>] <response>`
+### `takode answer <session> [--message <msg-id> | --target <id>] <response>` / `--stdin`
 
 Answer a worker's pending question, `needs-input` clarification prompt, or plan approval request.
 

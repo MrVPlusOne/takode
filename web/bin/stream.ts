@@ -424,6 +424,7 @@ Common options:
 Create options:
   --summary <text>      Initial current-state summary
   --desc <text>         Description
+  --desc-file <path|->  Read description from a file or stdin
   --tags "a,b"          Tags
   --parent <stream>     Parent dashboard/group stream
   --quest q-1           Link quest (repeatable)

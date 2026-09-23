@@ -40,6 +40,10 @@ ${THREAD_HANDOFF_HELP}
 `;
 
 const ANSWER_HELP = `Usage: takode answer <session> [--message <msg-id> | --target <id> | --thread <main|q-N> | --quest <q-N>] <response> [--json]
+       takode answer <session> [target options] --stdin [--json]
+
+Read a multiline response with --stdin and a quoted heredoc, or --stdin < response.md.
+Do not combine stdin and positional response text.
 
 Answer a pending needs-input question or approve/reject an ExitPlanMode prompt from a herded session.
 `;
@@ -1266,7 +1270,7 @@ export async function handlePending(base: string, args: string[]): Promise<void>
 export async function handleAnswer(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
   const flags = parseFlags(args.slice(1));
-  assertKnownFlags(flags, new Set(["json", "message", "target", "thread", "quest"]), ANSWER_HELP.trim());
+  assertKnownFlags(flags, new Set(["json", "message", "target", "thread", "quest", "stdin"]), ANSWER_HELP.trim());
   const jsonMode = flags.json === true;
   const targetId = typeof flags.target === "string" ? flags.target.trim() : "";
   const threadKey = typeof flags.thread === "string" ? flags.thread.trim() : "";
@@ -1283,9 +1287,10 @@ export async function handleAnswer(base: string, args: string[]): Promise<void> 
     err(ANSWER_HELP.trim());
   }
   const responseParts: string[] = [];
+  const useStdin = args.includes("--stdin");
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
-    if (arg === "--json") continue;
+    if (arg === "--json" || arg === "--stdin") continue;
     if (arg === "--message" || arg === "--target" || arg === "--thread" || arg === "--quest") {
       i++;
       continue;
@@ -1293,7 +1298,8 @@ export async function handleAnswer(base: string, args: string[]): Promise<void> 
     if (arg.startsWith("--")) continue;
     responseParts.push(arg);
   }
-  const response = responseParts.join(" ");
+  if (useStdin && responseParts.length > 0) err("Cannot combine --stdin with a positional response.");
+  const response = useStdin ? await readStdinText() : responseParts.join(" ");
 
   if (!response) err(ANSWER_HELP.trim());
 

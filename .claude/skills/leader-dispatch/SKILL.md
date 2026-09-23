@@ -45,7 +45,7 @@ Keep the top-level checklist open for routine dispatch. Load references only whe
 - **New blocking prompt means new `needs-input`.** Publish the self-contained decision text in the thread first, then call `takode notify needs-input`; existing unresolved prompts do not cover a separate decision.
 - **Apply `/leader-decision-communication` before publishing a user-facing decision or material status update.** That focused skill owns decision-first wording and the necessity filter; this dispatch skill retains only dispatch, approval, and board mechanics.
 - **Externally consequential User Checkpoints need fresh explicit approval.** A material edit alone is not approval. One fresh reply may make one exact substitution and explicitly approve the resulting packet only when its referent, every unchanged term, dependent parameters, monitor/stop conditions, safety implications, consequences, and tradeoffs remain unchanged and unambiguous, with no question or user choice left. Otherwise fail closed: publish a revised exact packet, keep the board in `USER_CHECKPOINTING`, and obtain fresh explicit approval before external consequences. Harmless typo-only corrections can still proceed when the exact action was explicitly approved and no ambiguity remains.
-- **Use shell-safe payload paths.** Use `--message-file`, `--stdin`, or quest `--*-file` flags for multiline or shell-like text. Do not paste backticks, `$(...)`, quotes, braces, logs, or copied commands into inline shell strings.
+- **Use shell-safe payload paths.** Prefer a quoted heredoc into `--stdin` or `--*-file -` for one large body. Other modest-size values may use quoted variables captured from quoted heredocs; see the Quest skill's shell-quoting examples and limits. Do not paste shell-sensitive literal payloads directly into double-quoted strings or use `eval`. Retain files when size, fidelity, reuse, or multiple large inputs warrant them.
 - **Separate access and authority safety from payload transformation.** Continue to protect credentials, signed URLs, permissions, destructive operations, external publication, source integrity, and shared-resource consequences. A private channel or protected access method does not by itself make the payload secret or authorize redaction, sanitation, filtering, omission, quarantine, rewriting, normalization, or aggressive truncation. Require explicit user direction, project/repository policy, an approved contract, or concrete payload evidence before adding a fidelity-changing transformation; preserve user-declared internal, training-ready, or expected realistic fields unless concrete contradictory evidence appears.
 - **Checkpoint material safety-scope expansion.** When a newly discovered safety concern would change artifact fidelity, materially expand scope or cost/runtime, introduce a validator or hard gate, or change acceptance criteria, surface the assumption as an explicit User Checkpoint decision unless existing project/repository policy or an approved contract already covers that exact change. Evidence can justify a transformation; it does not by itself authorize broader scope. Do not bury the decision in quest acceptance, worker instructions, or a long technical packet. Normal non-transforming safeguards remain mandatory.
 - **Follow the board-approved Journey.** If risk or scope changes, revise the board explicitly instead of silently skipping phases.
@@ -182,11 +182,14 @@ takode send <session> --stdin <<'EOF'
 EOF
 ```
 
-Use `--message` only for short literal text. Use quest file flags for shell-sensitive quest text or feedback:
+Session message sending is also a common case: `companion sessions send-message <session> --stdin` accepts the same quoted-heredoc pattern, or `--stdin < message.md` for an existing file. Existing target and authorization rules still apply.
+
+Use `--message` for short literal text. For Quest descriptions and feedback, pass one large body through stdin and the separate TLDR inline or via a quoted variable. The Quest skill owns the full multi-string examples and shell/parser limits:
 
 ```bash
-quest create --title-file /tmp/title.txt --desc-file /tmp/description.md --tldr-file /tmp/tldr.md
-quest feedback add q-123 --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md
+quest feedback add q-123 --text-file - --tldr 'Verified the requested behavior.' <<'BODY'
+The full report can contain literal `code` and $(example).
+BODY
 ```
 
 Never use `--no-worktree` unless the user explicitly asks for it or repo instructions require it. Normal workers, including investigation/debugging workers, get worktrees by default because investigation often leads to tracked changes.

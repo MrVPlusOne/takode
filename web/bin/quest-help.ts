@@ -82,6 +82,13 @@ Quest detail reveal:
   quest show q-1 --full                                 Expensive full detail; prefer --sections first
 
 Safer rich-text input:
+  quest feedback add q-1 --text-file - --tldr 'Concise summary' <<'BODY'
+  Markdown with literal \`code\` and $(example).
+BODY
+  Use one stdin body plus short inline fields or quoted variables captured from quoted heredocs.
+  Only one option may read stdin. Capture strips trailing newlines; argv has size limits.
+  For leading '--' text or exact source bytes, use files/stdin; command normalization still applies.
+  Retain files for existing artifacts, reuse, or multiple large values:
   quest create --title-file title.txt --desc-file body.md
   quest create --title-file title.txt --desc-file body.md --status refined
   quest create --title-file title.txt --desc-file body.md --tldr-file summary.txt

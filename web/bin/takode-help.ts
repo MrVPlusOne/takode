@@ -172,6 +172,7 @@ const GOAL_HELP = `Usage: takode goal <session> show|refresh|pause|resume|clear 
        takode goal <session> set --text-file <path|-> [--budget <tokens>] [--replace] [--json]
 
 Show or manually control Codex Goal state for a Codex-backed session.
+Use --text-file - with a quoted heredoc to avoid a temporary file.
 `;
 
 const THREAD_HELP = `Usage: takode thread attach <quest-id> --message <index> [more-indices...] [--json]
@@ -218,6 +219,10 @@ Show leader-answerable questions for a herded session, including
 `;
 
 const ANSWER_HELP = `Usage: takode answer <session> [--message <msg-id> | --target <id> | --thread <main|q-N> | --quest <q-N>] <response> [--json]
+       takode answer <session> [target options] --stdin [--json]
+
+Read a multiline response with --stdin and a quoted heredoc, or --stdin < response.md.
+Do not combine stdin and positional response text.
 
 Answer a pending question, \`needs-input\` prompt, or approve/reject a pending plan.
 `;
@@ -303,7 +308,7 @@ Mutation commands:
   add [markdown] [--markdown-file <path|->] [--category <id|name>]
       [--status todo|doing|done] [--before <td-id>|--after <td-id>]
       [--authorized-by <human-message-index>] [--json]
-  edit <td-id> [--markdown-file <path|->] [--authorized-by <index>] [--json]
+  edit <td-id> [--markdown <text> | --markdown-file <path|->] [--authorized-by <index>] [--json]
   status <td-id> <todo|doing|done> [--authorized-by <index>] [--json]
   move <td-id> [category] [--before <td-id>|--after <td-id>] [--authorized-by <index>] [--json]
   archive|restore <td-id> [--authorized-by <index>] [--json]
@@ -326,14 +331,14 @@ const TIMER_HELP = `Usage: takode timer <create|list|cancel> ...
 Session-scoped timers for the current session.
 
 Subcommands:
-  create <title> [--desc <description>] [--thread main|q-N] --in|--at|--every <spec>
+  create <title> [--desc <description> | --desc-file <path|->] [--thread main|q-N] --in|--at|--every <spec>
   list
   cancel <timer-id>
 
 ${TIMER_CREATE_GUIDANCE}
 `;
 
-const TIMER_CREATE_HELP = `Usage: takode timer create <title> [--desc <description>] [--thread main|q-N] --in|--at|--every <spec>
+const TIMER_CREATE_HELP = `Usage: takode timer create <title> [--desc <description> | --desc-file <path|->] [--thread main|q-N] --in|--at|--every <spec>
 
 Create a session-scoped timer.
 

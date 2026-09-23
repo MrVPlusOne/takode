@@ -256,7 +256,30 @@ Use `quest grep` when you need to search **inside** quest titles, descriptions, 
 
 `quest reassign` is leader-only and requires Companion server auth. It lets an orchestrator reassign a stale quest owner to a worker herded by that leader or assigned on that leader's board row. Leaders still cannot claim worker quests as themselves. Normal HTTP `quest claim` keeps the existing archived-owner takeover compatibility path, but that compatibility takeover is now recorded as an `archived_owner_takeover` ownership event.
 
-**Shell quoting safety:** if quest titles or descriptions may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content, prefer `--title-file` / `--desc-file` instead of inline shell quoting:
+**Shell quoting safety:** for one large or shell-sensitive body, use a quoted heredoc with the documented `--*-file -` stdin form. Keep short fields inline; a temporary file is not required:
+
+```bash
+quest create "Improve command help" --desc-file - --tldr 'Clarify existing input forms.' <<'DESCRIPTION'
+Treat `$(example)` and {"json":true} as literal text, not shell.
+DESCRIPTION
+```
+
+For multiple modest-size values, capture each quoted heredoc into a separate variable, then quote each expansion. This does not re-execute embedded shell syntax. The following uses one stdin body and a separate summary:
+
+```bash
+quest_tldr=$(cat <<'SUMMARY'
+Preserve literal `code` and $(example).
+Explain the input choices.
+SUMMARY
+)
+quest feedback add q-12 --text-file - --tldr "$quest_tldr" <<'BODY'
+Full Markdown body, including 'quotes', "quotes", and $literal_text.
+BODY
+```
+
+The same capture pattern works for a second variable passed as `--text "$quest_body"`; do not paste complex literal payloads directly inside double quotes, and never use `eval`. Choose delimiters absent from complete lines in the content. Only one option may read stdin: two heredocs do not supply two fields (Bash uses the last redirection; default zsh concatenates them). Command substitution removes trailing newlines, argv has size/NUL limits, and leading `--` text can be interpreted as options even when quoted. Use file/stdin forms for such content. Input readers preserve text, but command-specific normalization still applies, such as trimming feedback bodies. Use existing files or byte-preserving producers when exact source bytes matter.
+
+Files remain useful for saved/reviewed artifacts, reuse, or multiple large values. These alternatives retain those workflows:
 
 ```bash
 cat >/tmp/quest-title.txt <<'EOF'
@@ -335,7 +358,7 @@ quest feedback show q-12 0
 
 Use `quest status <id>` for a compact action-oriented view: status, owner, verification count, inbox state, commit metadata, human feedback count, unaddressed human feedback indices, latest summary preview, and suggested next action.
 
-**Shell quoting safety:** if feedback text may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content, prefer `--text-file <path>` or `--text-file -` instead of inline shell quoting:
+**Shell quoting safety:** prefer the body-on-stdin plus inline/quoted-variable TLDR pattern above for ephemeral feedback. Use `--text-file <path>` and `--tldr-file <path>` when the artifacts already exist or separate large inputs are clearer:
 
 ```bash
 cat >/tmp/quest-feedback.txt <<'EOF'

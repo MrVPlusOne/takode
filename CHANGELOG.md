@@ -1,5 +1,15 @@
 # Takode Changelog
 
+## 2026-09-23
+
+### Added
+
+- **CLI text inputs** -- Session messages and worker answers accept stdin; proposal summaries, phase notes, timer descriptions, skill content, cron prompts, and delivery-target JSON accept file/stdin input. Help and agent examples show quoted heredocs and separate summaries without routine temporary files.
+
+### Fixed
+
+- **Skill content parsing** -- Ambiguous inline content beginning with option syntax is rejected with file/stdin guidance instead of sending a boolean as Markdown.
+
 ## 2026-09-19
 
 ### Fixed
