@@ -158,6 +158,8 @@ import {
   requestThreadViewportSnapshot,
 } from "../utils/thread-viewport.js";
 import { MessageFeed } from "./MessageFeed.js";
+import { ComposerFeedLayout } from "./ComposerFeedLayout.js";
+import { ComposerMinimizer } from "./ComposerMinimizer.js";
 import { measureThreadStatusLayoutContribution } from "./MessageFeedThreadStatus.js";
 
 beforeEach(() => {
@@ -1312,6 +1314,94 @@ describe("MessageFeed activity viewport stability", () => {
       expect(geometry.scrollTop).toBe(baseline.scrollTop);
       expect(lastElement.getBoundingClientRect().top).toBe(baseline.anchorOffset);
     } finally {
+      geometry.restore();
+      resize.restore();
+    }
+  });
+});
+
+describe("composer overlay scroll reachability", () => {
+  it.each([
+    "main",
+    "q-4091",
+  ] as const)("adds manual range without moving the %s feed through toggles", async (threadKey) => {
+    // Use producer-authored windows and browser-like clamping, not a front-end-only
+    // spacer assertion: removing used clearance must not move the final passage.
+    const sid = `composer-scroll-${threadKey}`;
+    const selected = setProducerWindow(sid, threadKey);
+    setConnectedLeaderSession(sid);
+    const resize = installControlledResizeObserver();
+    const geometry = installActivityViewportGeometry(selected.messages, 400, 0);
+    let composerHeight = 70;
+    const offsetHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.dataset.testid === "composer-minimizer") return composerHeight;
+      return this.classList.contains("composer-dock") ? 70 : 0;
+    });
+    const fixture = (expanded: boolean, route = threadKey) => (
+      <ComposerFeedLayout>
+        <MessageFeed sessionId={sid} threadKey={route} />
+        <ComposerMinimizer destination={`${sid}:${route}`} expanded={expanded} onExpandedChange={() => {}} overlay>
+          <textarea defaultValue="Keep the complete draft" />
+        </ComposerMinimizer>
+      </ComposerFeedLayout>
+    );
+    const view = render(fixture(false));
+    try {
+      const container = screen.getByTestId("message-feed-scroll-container");
+      const boundary = screen.getByTestId("composer-minimizer");
+      const contentRoot = container.querySelector<HTMLElement>("[data-feed-content-root]")!;
+      geometry.setRealContentBottom();
+      fireEvent.scroll(container);
+      const baselineTop = geometry.scrollTop;
+      const baselineRange = geometry.scrollHeight;
+      const textarea = screen.getByRole("textbox");
+      composerHeight = 310;
+      view.rerender(fixture(true));
+      act(() => resize.triggerElement(boundary));
+      act(() => resize.triggerElement(contentRoot));
+      expect(geometry.scrollHeight).toBeGreaterThan(baselineRange + 200);
+      expect(geometry.scrollTop).toBe(baselineTop);
+      expect(screen.queryByText("New content below")).toBeNull();
+
+      // Only the wheel gesture moves the viewport into the newly available range.
+      fireEvent.wheel(container, { deltaY: 500 });
+      geometry.setPhysicalBottom();
+      fireEvent.scroll(container);
+      const manuallyScrolledTop = geometry.scrollTop;
+      expect(manuallyScrolledTop).toBeGreaterThan(baselineTop + 200);
+      const last = document.querySelector<HTMLElement>(`[data-message-id="${selected.messages.at(-1)!.id}"]`)!;
+      expect(last.getBoundingClientRect().bottom).toBeLessThanOrEqual(400 - (310 - 70));
+      const lastTop = last.getBoundingClientRect().top;
+
+      for (const height of [70, 310, 70, 170]) {
+        composerHeight = height;
+        view.rerender(fixture(height > 70));
+        act(() => resize.triggerElement(boundary));
+        act(() => resize.triggerElement(contentRoot));
+        expect(geometry.scrollTop).toBe(manuallyScrolledTop);
+        expect(last.getBoundingClientRect().top).toBe(lastTop);
+        expect(screen.getByRole("textbox")).toBe(textarea);
+        expect((textarea as HTMLTextAreaElement).value).toBe("Keep the complete draft");
+        expect(screen.queryByText("New content below")).toBeNull();
+      }
+      composerHeight = 390;
+      act(() => resize.triggerElement(boundary));
+      act(() => resize.triggerElement(contentRoot));
+      expect(geometry.slack).toBe(320);
+      expect(geometry.scrollTop).toBe(manuallyScrolledTop);
+
+      // Clearance is view-local: another destination starts with its own measurement.
+      composerHeight = 70;
+      act(() => resize.triggerElement(boundary));
+      const otherThread = threadKey === "main" ? "q-4091" : "main";
+      setProducerWindow(sid, otherThread);
+      view.rerender(fixture(false, otherThread));
+      expect(geometry.slack).toBe(12);
+    } finally {
+      view.unmount();
+      offsetHeight.mockRestore();
       geometry.restore();
       resize.restore();
     }

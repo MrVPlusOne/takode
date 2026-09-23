@@ -5,6 +5,7 @@ import { selectLeaderThreadStatuses } from "../utils/leader-thread-tabs-resolver
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { getVisibleCurrentThreadStatuses } from "./MessageFeedThreadStatus.js";
 import type { MessageFeedEndSlackProps } from "./MessageFeedEndSlack.js";
+import { useComposerScrollSpace } from "./ComposerFeedLayout.js";
 
 const FEED_EXTRA_SCROLL_SLACK_PX = 12;
 const FLOATING_STATUS_SPACER_MARGIN_PX = 4;
@@ -29,6 +30,7 @@ const MAX_THREAD_STATUS_SCOPES = 32;
 export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: string) {
   const normalizedThreadKey = normalizeThreadKey(currentThreadKey);
   const statusScope = `${sessionId}:${normalizedThreadKey}`;
+  const composerScrollSpace = useComposerScrollSpace(statusScope);
   const currentThreadStatuses = useStore((state) => selectLeaderThreadStatuses(state, sessionId));
   const visibleThreadStatuses = useMemo(
     () => getVisibleCurrentThreadStatuses(currentThreadStatuses, normalizedThreadKey),
@@ -142,6 +144,7 @@ export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: 
   );
   const overlayRunwayHeight = Math.max(
     FEED_EXTRA_SCROLL_SLACK_PX,
+    composerScrollSpace,
     floatingStatusRunwayHeight > 0 ? floatingStatusRunwayHeight + FLOATING_STATUS_SPACER_MARGIN_PX : 0,
   );
   const centeredFeedStatusClearancePx =

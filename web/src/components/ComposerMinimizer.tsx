@@ -1,4 +1,5 @@
 import { createContext, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useComposerOverlayMeasurement } from "./ComposerFeedLayout.js";
 
 export const ComposerVisibilityContext = createContext(true);
 
@@ -19,6 +20,7 @@ export function ComposerMinimizer({
   const root = useRef<HTMLDivElement>(null);
   const insidePointerEvent = useRef<Event | null>(null);
   const insideFocusEvent = useRef<Event | null>(null);
+  useComposerOverlayMeasurement(root, overlay);
 
   useEffect(() => {
     const pointerDown = (event: PointerEvent) => {

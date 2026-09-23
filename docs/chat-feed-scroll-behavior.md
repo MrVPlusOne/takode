@@ -33,8 +33,16 @@ The feed maintains a simple sticky-bottom model:
 - when the user is not near the bottom, new content should not force the
   viewport to move
 
-Near-bottom detection uses the feed container’s real scroll geometry. There is
-no synthetic runway or extra spacer below the real content.
+Near-bottom detection and automatic following use the real conversation bottom,
+excluding trailing space reserved for overlays and explicit passage navigation.
+
+On desktop, the expanded composer overlays a fixed compact dock. Its measured
+overlap adds manual scroll range so the last passage can be read above it;
+expanding or collapsing never requests a feed scroll. Retain the greatest measured
+overlap while viewing the same destination, including after collapse or draft
+shrinkage, so the browser cannot clamp a position reached using that range.
+Changing destinations releases that reservation. In-flow touch layouts do not
+reserve additional composer space.
 
 ### 3. Streaming behavior
 
@@ -116,7 +124,7 @@ history payload has landed for that session.
 ## Non-goals
 
 - No send-time auto-scroll to place the newest user turn at the top
-- No extra scroll runway below the real content
+- No send-time scroll runway or automatic following of overlay clearance
 - No special session-restore anchor model for running turns
 
 ## Expected UX outcome

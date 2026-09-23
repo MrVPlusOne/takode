@@ -20,6 +20,7 @@ import { formatWaitForRefLabel, getWaitForRefKind } from "../../shared/quest-jou
 import type { LeaderThreadTabsProjectionJourney } from "../../shared/leader-thread-tabs-projection.js";
 import { MessageFeed } from "./MessageFeed.js";
 import { Composer } from "./Composer.js";
+import { ComposerFeedLayout } from "./ComposerFeedLayout.js";
 import { NotifyMeControl } from "./NotifyMe.js";
 import { SideChatPanel } from "./SideChatPanel.js";
 import {
@@ -1677,7 +1678,7 @@ export function ChatView({
     serverReachable,
   });
   return (
-    <div className="relative flex flex-col h-full min-h-0">
+    <ComposerFeedLayout>
       {preview ? (
         <div className="shrink-0 px-4 py-2 border-b border-cc-border bg-cc-card/80 text-[11px] text-cc-muted font-medium">
           Previewing search result. Press Enter to select this conversation.
@@ -1858,6 +1859,6 @@ export function ChatView({
           transcriptionThreadTitle={composerThreadTitle}
         />
       )}
-    </div>
+    </ComposerFeedLayout>
   );
 }

@@ -153,9 +153,24 @@ export function LeaderSessionReturnPlaygroundState() {
   return (
     <Section
       title="Leader Session Return Stability"
-      description="Keep Main selected, scroll to a recognizable message, switch away and back, and confirm the viewport stays fixed. While away, model unavailable saved positions to verify latest fallback. These are generated scenarios, not captured incidents."
+      description="Keep Main selected, scroll to a recognizable message, switch away and back, and confirm the viewport stays fixed. Load a long draft, click to expand it, then scroll the conversation to reveal the covered answer. Minimize and expand again: toggling must not move the feed, even after scrolling to the end. While away, model unavailable saved positions to verify latest fallback. These are generated scenarios, not captured incidents."
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() =>
+            useStore.getState().setComposerDraft(activeSessionId, {
+              text: Array.from(
+                { length: 8 },
+                (_, index) => `Draft point ${index + 1}: keep the final answer readable while I finish this message.`,
+              ).join("\n\n"),
+              images: [],
+            })
+          }
+          className="rounded-lg border border-cc-border bg-cc-card px-3 py-1.5 text-xs font-medium text-cc-muted hover:text-cc-fg"
+        >
+          Load long composer draft
+        </button>
         <button
           type="button"
           onClick={() =>
