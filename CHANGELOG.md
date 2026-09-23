@@ -1,5 +1,83 @@
 # Takode Changelog
 
+## [0.47.0](https://github.com/MrVPlusOne/takode/compare/the-companion-v0.46.0...the-companion-v0.47.0) (2026-09-23)
+
+
+### Features
+
+* add conversation comment attachments ([a58c04f](https://github.com/MrVPlusOne/takode/commit/a58c04f8a43b6b3ba0d37c8c81ef2a163d10b937))
+* add counted resource lease pools ([d2492f9](https://github.com/MrVPlusOne/takode/commit/d2492f90b48a2753ffce2bdb1ce58170256569f6))
+* **cli:** accept large text through stdin ([628a9ba](https://github.com/MrVPlusOne/takode/commit/628a9bab56f635e747aef98c5617a7ad2246800d))
+* **diagnostics:** collect bounded startup asset timings ([b35195e](https://github.com/MrVPlusOne/takode/commit/b35195e2202aa4f43e8e5ddb3dfc7e5b39798ea2))
+* **diagnostics:** log browser connection transfer costs ([14cb4ea](https://github.com/MrVPlusOne/takode/commit/14cb4ea8f78d08192af17ec24239e85b65b0b900))
+* **diagnostics:** retain frontend load stages by connection ([aa883ca](https://github.com/MrVPlusOne/takode/commit/aa883ca48e9448e63b030c54343fca350e9ff4ea))
+* improve comment previews and composer controls ([e5af814](https://github.com/MrVPlusOne/takode/commit/e5af814c8c49aa4e0fe9d97aefb0d5e041a77350))
+* **leases:** let leaders force-release reservations ([1f82896](https://github.com/MrVPlusOne/takode/commit/1f82896ad296079121756c357ecc6a0c14e7a558))
+* **notifications:** add independent Notify Me push setting ([4fffab1](https://github.com/MrVPlusOne/takode/commit/4fffab1fa0e76ad37080b84b2fe50021266f90a8))
+* **quests:** verify independently approved delivery targets ([162d3a8](https://github.com/MrVPlusOne/takode/commit/162d3a833c4c9b3cf387e457f420c1fcf8f06c1a))
+* send Pushover alerts for monitored thread results ([fc4c639](https://github.com/MrVPlusOne/takode/commit/fc4c6396f85475140a885f2ff0ad2dd17623de9e))
+* separate leader recycle and compact commands ([53b4d78](https://github.com/MrVPlusOne/takode/commit/53b4d7803260f3593cd5f0deff5727badb0378dd))
+* **timers:** route scheduled reports to firing answers ([4904bad](https://github.com/MrVPlusOne/takode/commit/4904bad66417a335dd0a07bceb46ab537dfab953))
+* **ui:** keep monitored thread results until acknowledged ([e0e0297](https://github.com/MrVPlusOne/takode/commit/e0e02979e9fb5b548db1d1f41f4cde1c241c76d5))
+* **ui:** replace tracking with acknowledgement for pending results ([a762671](https://github.com/MrVPlusOne/takode/commit/a7626712a4a5929b86e4e6c0e77a33dce7f0ddb2))
+* **ui:** simplify quest headers and keep task actions direct ([24a61eb](https://github.com/MrVPlusOne/takode/commit/24a61eb61502178dbddbf8b04399d62668311aa1))
+* **ui:** simplify turn activity disclosure ([78101aa](https://github.com/MrVPlusOne/takode/commit/78101aa8e86eda7fec6a9bd9eae970751b7a0974))
+* unify compact composer behavior across devices ([fe92928](https://github.com/MrVPlusOne/takode/commit/fe92928d6af984924f27fe80befc0fc7a75808f1))
+
+
+### Bug Fixes
+
+* align delivery batch reporting and commit comparisons ([059c94e](https://github.com/MrVPlusOne/takode/commit/059c94ebc77e4d7eef3c06daa238c21c9a57127d))
+* bound recovery inspection and retain close diagnostics ([15d684d](https://github.com/MrVPlusOne/takode/commit/15d684d5ee7394c7f98d2146d01d67644c4a66c1))
+* **chat:** handle full-block text selections ([dd2ae8c](https://github.com/MrVPlusOne/takode/commit/dd2ae8c20f49e74cf2131d1d50b2d6ecd182cd08))
+* **chat:** keep quest preview eyes adjacent ([4a6b2aa](https://github.com/MrVPlusOne/takode/commit/4a6b2aa22cbfb4473d6b638678d958e78f97de09))
+* **chat:** preserve tab order on leader session return ([0d61013](https://github.com/MrVPlusOne/takode/commit/0d61013317a143523bd05f3c87d32cc0d190fcce))
+* **chat:** restore dense quest link previews ([65ec7f9](https://github.com/MrVPlusOne/takode/commit/65ec7f9981132e988ca226423d020ffb95c37639))
+* **ci:** budget heap for cold TypeScript checks ([f5d9add](https://github.com/MrVPlusOne/takode/commit/f5d9add5205531074b7901d3cb73222926a86616))
+* **codex:** harden recovery receipt boundaries ([80b311d](https://github.com/MrVPlusOne/takode/commit/80b311d5023c71dca33574354ae8b294ead165bd))
+* **codex:** pause after Copilot auth refresh exhaustion ([bba568c](https://github.com/MrVPlusOne/takode/commit/bba568ca294e56cc7a9adfa5525ac4f71b284e67))
+* **codex:** persist recovery delivery handoffs ([f1546b1](https://github.com/MrVPlusOne/takode/commit/f1546b1e7b648d2c707c50fa33249a949e705243))
+* **codex:** preserve chronological delivery and compaction context ([c9cb07f](https://github.com/MrVPlusOne/takode/commit/c9cb07f523e0ea01912fec7fd53c326d9c6f9391))
+* **codex:** preserve drained input ownership ([8fb3ff4](https://github.com/MrVPlusOne/takode/commit/8fb3ff45995ff3a2d5611229a172dbbccc4faf28))
+* **codex:** preserve held input outcomes ([d4a0560](https://github.com/MrVPlusOne/takode/commit/d4a05605a30c8b6f7cbea5c6f6e30887e29f0169))
+* **codex:** preserve resumed pause ownership ([b24a050](https://github.com/MrVPlusOne/takode/commit/b24a050d8894fbec47dd4864c0eae09c6b3f113b))
+* **codex:** restore catalogs on post-compaction input ([2ad78d2](https://github.com/MrVPlusOne/takode/commit/2ad78d27d1ba5e9cda4d6a2bb7126c2a40bbc247))
+* **codex:** retain recycle skills without an optional catalog ([d6f551d](https://github.com/MrVPlusOne/takode/commit/d6f551dee5e37a05c4d58c3a9ff060f6f5e4ad65))
+* **codex:** retire completed live stream replay ([f180584](https://github.com/MrVPlusOne/takode/commit/f180584c09ec9332bcf2ef420666a1959f8a77e3))
+* **codex:** show confirmed response retry progress ([d165a80](https://github.com/MrVPlusOne/takode/commit/d165a808dbc0411ffadc4847706bf1c290152a8c))
+* **composer:** preserve expansion across transient focus loss ([3d37a7b](https://github.com/MrVPlusOne/takode/commit/3d37a7b4e7bd56803d39294540308e1bc6aed989))
+* deliver session timers during active Codex work ([c7f1849](https://github.com/MrVPlusOne/takode/commit/c7f1849626cfbe2e0df4c756e854d1885e608cd5))
+* **diagnostics:** stop frame work after capture expires ([a1ba9fb](https://github.com/MrVPlusOne/takode/commit/a1ba9fbf391aae88b4df2fdf7951786c60343fbc))
+* disable hover previews inside More tabs ([1e48e28](https://github.com/MrVPlusOne/takode/commit/1e48e285019695c81754db85935c55cb0e978d49))
+* **feed:** fall back to latest when saved restoration fails ([eade192](https://github.com/MrVPlusOne/takode/commit/eade19252d0d0a928afdacba23394b497a4667af))
+* **feed:** keep collapsed answers in source chronology ([aafe0dc](https://github.com/MrVPlusOne/takode/commit/aafe0dc6481e953118e444b83a62bbd18f866077))
+* **feed:** preserve scaled scroll anchors and retain more paging context ([19ea4d5](https://github.com/MrVPlusOne/takode/commit/19ea4d53d3759578855e720cf39e077fe91553be))
+* **feed:** retain latest-follow intent after sending ([dbd6237](https://github.com/MrVPlusOne/takode/commit/dbd6237f32288080178aa1043dad20c28c131548))
+* prefer supported citation links in session replies ([b88f1ed](https://github.com/MrVPlusOne/takode/commit/b88f1ede3246cb9100da2fcf8a19327af4fe1cbc))
+* preserve voice expansion and reveal compact draft content ([f6cc532](https://github.com/MrVPlusOne/takode/commit/f6cc5327398badb8ea0872acd91efd5f980cd392))
+* **quests:** read recorded commits from their delivery target ([1c2e14e](https://github.com/MrVPlusOne/takode/commit/1c2e14e1ad062367978337dc4b6ed3cb598adaf2))
+* **search:** animate pending quick search status ([da002b7](https://github.com/MrVPlusOne/takode/commit/da002b7e1c1fbac57e16e860b7b1950ae68193a7))
+* stabilize comment navigation and composer restoration ([190a637](https://github.com/MrVPlusOne/takode/commit/190a637c14ecf2da459d49a6a55bfffb06174e6c))
+* **ui:** compact commit chips and align grouped titles ([6e4733b](https://github.com/MrVPlusOne/takode/commit/6e4733b3bb26bfe2722d34e51a11a1f43be9341d))
+* **ui:** distinguish needs-input attention from unread results ([e93dc33](https://github.com/MrVPlusOne/takode/commit/e93dc33f17a3853e0a2269aa5bb6cf214e2d7170))
+* **ui:** flatten turn activity indentation ([5c99100](https://github.com/MrVPlusOne/takode/commit/5c9910057f5053322741c703fc36ea1a7d41e6c3))
+* **ui:** hide Git counts on leader sidebar cards ([f7ec246](https://github.com/MrVPlusOne/takode/commit/f7ec246c3ada56477c9f3f03524552f9b8fa3d97))
+* **ui:** keep compact quest journey summaries single-state ([a519dbe](https://github.com/MrVPlusOne/takode/commit/a519dbe544adecff8d44c53f39598033271a63cf))
+* **ui:** keep turn guides continuous through system events ([8c9fc3a](https://github.com/MrVPlusOne/takode/commit/8c9fc3a5623c088e69ed076ef5e46c47aca3850f))
+* **ui:** label current-thread continuation links ([2c78fbd](https://github.com/MrVPlusOne/takode/commit/2c78fbdb9c28fcd1efe63eed724307f30de6f0d7))
+* **ui:** reveal conversation beneath expanded composer ([f1d6294](https://github.com/MrVPlusOne/takode/commit/f1d6294a65b1c032f51cc79739f82c344f088a47))
+* **ui:** scope pending messages to valid destination threads ([edf340b](https://github.com/MrVPlusOne/takode/commit/edf340b3edf8f8c801ad407a3805a94d8421a18b))
+* **ui:** shorten quest header phase and notification labels ([89f5230](https://github.com/MrVPlusOne/takode/commit/89f52305857611c50ab78315aefb75eec148ab71))
+* **ui:** show comment and image counts in Recent previews ([01325ac](https://github.com/MrVPlusOne/takode/commit/01325ace5ddbcbb762a8a4a525408efb8693cc52))
+* **ui:** show long turn durations in hours and minutes ([0f54a28](https://github.com/MrVPlusOne/takode/commit/0f54a280f4cb111fd4938f88f30aa6397b29a2c8))
+* unify comment highlights and scroll to passages ([fc3b7ff](https://github.com/MrVPlusOne/takode/commit/fc3b7ffd037e62c029ab933966bfe5855652cbc2))
+
+
+### Performance Improvements
+
+* **search:** reuse authoritative quest search documents ([b5d68ff](https://github.com/MrVPlusOne/takode/commit/b5d68ffed52a2f171a73be681283dcdf60af52f2))
+* **web:** serve prebuilt gzip frontend assets ([1615769](https://github.com/MrVPlusOne/takode/commit/1615769a10fdf69c99da3d93f56ae499ce3389b4))
+
 ## 2026-09-23
 
 ### Added
