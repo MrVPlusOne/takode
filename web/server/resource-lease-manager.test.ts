@@ -107,7 +107,7 @@ describe("ResourceLeaseManager", () => {
     vi.advanceTimersByTime(10_001);
     const status = await manager.getStatus("dev-server:companion");
 
-    expect(status.lease).toMatchObject({
+    expect(status.leases[0]).toMatchObject({
       ownerSessionId: "waiter",
       purpose: "Need server next",
     });
@@ -157,7 +157,7 @@ describe("ResourceLeaseManager", () => {
     const status = await restored.getStatus("dev-server:companion");
     restored.destroy();
 
-    expect(status.lease?.ownerSessionId).toBe("owner");
+    expect(status.leases[0]?.ownerSessionId).toBe("owner");
     expect(status.waiters).toHaveLength(1);
     expect(status.waiters[0].waiterSessionId).toBe("waiter");
   });
@@ -183,7 +183,7 @@ describe("ResourceLeaseManager", () => {
 
     const restored = new ResourceLeaseManager(bridge, new ResourceLeaseStore("test-server", tempDir));
     try {
-      expect((await restored.getStatus("agent-browser")).lease?.ownerSessionId).toBe("first");
+      expect((await restored.getStatus("agent-browser")).leases[0]?.ownerSessionId).toBe("first");
     } finally {
       restored.destroy();
     }
@@ -212,7 +212,7 @@ describe("ResourceLeaseManager", () => {
     expect(result.released.ownerSessionId).toBe("owner");
     expect(result.promoted?.ownerSessionId).toBe("first");
     expect(result.waiters.map((waiter) => waiter.waiterSessionId)).toEqual(["second"]);
-    expect((await manager.getStatus("agent-browser")).lease?.ownerSessionId).toBe("first");
+    expect((await manager.getStatus("agent-browser")).leases[0]?.ownerSessionId).toBe("first");
     expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
   });
 

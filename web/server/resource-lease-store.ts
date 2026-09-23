@@ -8,7 +8,7 @@ const COMPANION_DIR = join(homedir(), ".companion");
 const RESOURCE_LEASE_DIR = join(COMPANION_DIR, "resource-leases");
 
 export function emptyResourceLeaseFile(): ResourceLeaseFile {
-  return { version: 1, nextWaiterId: 1, leases: [], waiters: {} };
+  return { version: 2, capacities: {}, nextWaiterId: 1, leases: [], waiters: {} };
 }
 
 export class ResourceLeaseStore {
@@ -69,12 +69,21 @@ function normalizeResourceLeaseFile(raw: unknown): ResourceLeaseFile {
     typeof data.nextWaiterId === "number" && Number.isInteger(data.nextWaiterId) && data.nextWaiterId > 0
       ? data.nextWaiterId
       : 1;
-  file.leases = Array.isArray(data.leases) ? data.leases.flatMap(normalizeLease) : [];
+  // Existing singleton records become slot one; the original identity and
+  // lifetime fields stay intact. The next save persists the canonical v2 file.
+  if (data.version === 2 && data.capacities && typeof data.capacities === "object") {
+    file.capacities = Object.fromEntries(
+      Object.entries(data.capacities).filter(([, capacity]) => Number.isSafeInteger(capacity) && capacity > 0),
+    );
+  }
+  file.leases = Array.isArray(data.leases)
+    ? data.leases.flatMap((lease) => normalizeLease(lease, data.version === 2))
+    : [];
   file.waiters = normalizeWaiters(data.waiters);
   return file;
 }
 
-function normalizeLease(raw: unknown): ResourceLease[] {
+function normalizeLease(raw: unknown, counted: boolean): ResourceLease[] {
   if (!raw || typeof raw !== "object") return [];
   const lease = raw as Partial<ResourceLease>;
   if (typeof lease.resourceKey !== "string" || !lease.resourceKey.trim()) return [];
@@ -88,6 +97,7 @@ function normalizeLease(raw: unknown): ResourceLease[] {
   return [
     {
       resourceKey: lease.resourceKey,
+      slot: counted && Number.isSafeInteger(lease.slot) && lease.slot! > 0 ? lease.slot! : 1,
       ownerSessionId: lease.ownerSessionId,
       ...(typeof lease.questId === "string" && lease.questId ? { questId: lease.questId } : {}),
       purpose: lease.purpose,

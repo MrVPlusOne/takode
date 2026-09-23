@@ -1,5 +1,6 @@
 import {
   LEASE_ACQUIRE_HELP,
+  LEASE_CONFIGURE_HELP,
   LEASE_HELP,
   LEASE_RELEASE_HELP,
   LEASE_RENEW_HELP,
@@ -538,6 +539,8 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
       const sub = args[0];
       if (!sub) {
         console.log(LEASE_HELP);
+      } else if (sub === "configure") {
+        console.log(LEASE_CONFIGURE_HELP);
       } else if (sub === "acquire") {
         console.log(LEASE_ACQUIRE_HELP);
       } else if (sub === "wait") {
@@ -615,7 +618,7 @@ Commands:
   board          Quest Journey work board (e.g. takode board show, takode board advance q-12)
   todo           Personal durable to-dos (read, propose, or mutate with user/grant authorization)
   timer          Session-scoped timers (create, list, cancel)
-  lease          Global resource leases (acquire, status, renew, release, wait)
+  lease          Resource pools (configure, acquire, status, renew, release, wait)
   permission     Inspect or update session permission modes
   help           Show detailed help for a command or nested subcommand
 

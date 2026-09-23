@@ -18,6 +18,7 @@ Validate Takode UI changes with `agent-browser`, scoped leases, an explicit stat
 - Hold the Takode lease for each shared resource you will use:
   - Full browser validation usually needs both `dev-server:companion` and `agent-browser`.
   - Server-only work needs `dev-server:companion`.
+  - If an authorized resource pool has multiple slots, use only your acquired slot and its documented port/state mapping. Apply the shared **Global Resource Leases** instructions for capacity and recovery; do not increase capacity or treat another slot as permission to share conflicting ports/state.
   - Browser-only inspection of an already-authorized server needs `agent-browser`.
 - Release leases promptly when validation is finished.
 - Close Agent Browser/browser resources you opened before releasing the lease, especially after screenshots or capture work. On macOS, when practical, verify stale `Google Chrome for Testing` capture state is not still holding a display-sleep assertion such as `PreventUserIdleDisplaySleep` / `NoDisplaySleepAssertion`.

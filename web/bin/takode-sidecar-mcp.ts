@@ -345,7 +345,7 @@ function registerMemoryAndLeaseTools(server: Pick<McpServer, "registerTool">): v
     "lease_status",
     {
       title: "Show Takode lease status",
-      description: "Read the current holder and expiry of one shared-resource lease.",
+      description: "Read a resource pool capacity, slot holders, expiries and FIFO waiters.",
       inputSchema: { resourceKey: z.string().min(1), _takodeContext: contextSchema },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },

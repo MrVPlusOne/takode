@@ -35,6 +35,21 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
     return c.json({ resource: enrichStatusForResponse(ctx, resource) });
   });
 
+  api.post("/resource-leases/:resourceKey/configure", async (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+    if (!ctx.resourceLeaseManager) return c.json({ error: "Resource lease manager not available" }, 503);
+    if (!auth.caller.isOrchestrator)
+      return c.json({ error: "Only leader sessions can configure resource capacity" }, 403);
+    try {
+      const body = await c.req.json();
+      const resource = await ctx.resourceLeaseManager.configure(c.req.param("resourceKey"), body.capacity);
+      return c.json({ resource: enrichStatusForResponse(ctx, resource) });
+    } catch (err) {
+      return resourceLeaseErrorResponse(c, err);
+    }
+  });
+
   api.post("/resource-leases/:resourceKey/acquire", async (c) => {
     const auth = authenticateTakodeCaller(c);
     if ("response" in auth) return auth.response;
@@ -90,6 +105,7 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
         resourceKey: c.req.param("resourceKey"),
         callerSessionId: auth.callerId,
         ttlMs: normalizeTtl(body),
+        slot: body.slot,
       });
       return c.json({ lease: enrichLeaseForResponse(ctx, lease) });
     } catch (err) {
@@ -108,6 +124,7 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
         resourceKey: c.req.param("resourceKey"),
         callerSessionId: auth.callerId,
         ttlMs: normalizeTtl(body),
+        slot: body.slot,
       });
       return c.json({ lease: enrichLeaseForResponse(ctx, lease) });
     } catch (err) {
@@ -126,7 +143,12 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
       if (force && !auth.caller.isOrchestrator) {
         return c.json({ error: "Only leader sessions can force-release a resource lease" }, 403);
       }
-      const result = await ctx.resourceLeaseManager.release(c.req.param("resourceKey"), auth.callerId, force);
+      const result = await ctx.resourceLeaseManager.release(
+        c.req.param("resourceKey"),
+        auth.callerId,
+        force,
+        body.slot,
+      );
       return c.json({ result: enrichReleaseResultForResponse(ctx, result) });
     } catch (err) {
       return resourceLeaseErrorResponse(c, err);
@@ -149,23 +171,18 @@ type WaiterResponse = ResourceLeaseWaiter & {
 function enrichStatusForResponse(ctx: RouteContext, status: ResourceLeaseStatus) {
   return {
     ...status,
-    lease: status.lease ? enrichLeaseForResponse(ctx, status.lease) : null,
+    leases: status.leases.map((lease) => enrichLeaseForResponse(ctx, lease)),
     waiters: status.waiters.map((waiter) => enrichWaiterForResponse(ctx, waiter)),
   };
 }
 
 function enrichAcquireResultForResponse(ctx: RouteContext, result: ResourceLeaseAcquireResult) {
-  if (result.status === "queued") {
-    return {
-      ...result,
-      lease: enrichLeaseForResponse(ctx, result.lease),
-      waiter: enrichWaiterForResponse(ctx, result.waiter),
-      waiters: result.waiters.map((waiter) => enrichWaiterForResponse(ctx, waiter)),
-    };
-  }
   return {
     ...result,
-    lease: enrichLeaseForResponse(ctx, result.lease),
+    ...("lease" in result
+      ? { lease: enrichLeaseForResponse(ctx, result.lease) }
+      : { leases: result.leases.map((lease) => enrichLeaseForResponse(ctx, lease)) }),
+    ...(result.status === "queued" ? { waiter: enrichWaiterForResponse(ctx, result.waiter) } : {}),
     waiters: result.waiters.map((waiter) => enrichWaiterForResponse(ctx, waiter)),
   };
 }
@@ -238,7 +255,8 @@ function normalizeTtl(body: Record<string, unknown>): number | undefined {
 
 function resourceLeaseErrorResponse(c: any, err: unknown): Response {
   if (err instanceof ResourceLeaseError) {
-    const status = err.code === "forbidden" ? 403 : err.code === "not_found" ? 404 : 400;
+    const status =
+      err.code === "forbidden" ? 403 : err.code === "not_found" ? 404 : err.code === "conflict" ? 409 : 400;
     return c.json({ error: err.message }, status);
   }
   const message = err instanceof Error ? err.message : String(err);

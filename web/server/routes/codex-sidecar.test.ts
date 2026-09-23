@@ -34,7 +34,7 @@ beforeEach(async () => {
   memoryRead.mockReset().mockResolvedValue({ repo: { root }, file: { path: "knowledge/example.md", content: "body" } });
   getLeaseStatus
     .mockReset()
-    .mockResolvedValue({ resourceKey: "dev-server:test", lease: null, waiters: [], available: true });
+    .mockResolvedValue({ resourceKey: "dev-server:test", capacity: 3, leases: [], waiters: [], available: true });
   questCommandRunner.mockReset().mockResolvedValue({ exitCode: 0, stdout: "ok\n", stderr: "" });
 
   const ctx = {
@@ -271,6 +271,13 @@ describe("Codex sidecar routes", () => {
 
     const lease = await request("/integrations/codex/leases/dev-server%3Atest");
     expect(lease.status).toBe(200);
+    expect((await lease.json()).resource).toEqual({
+      resourceKey: "dev-server:test",
+      capacity: 3,
+      leases: [],
+      waiters: [],
+      available: true,
+    });
     expect(getLeaseStatus).toHaveBeenCalledWith("dev-server:test");
   });
 });

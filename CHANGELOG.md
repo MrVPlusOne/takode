@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Counted resource leases** -- Leaders can configure resource pools with numbered slots, one reservation per session and FIFO waiting. Renewal, expiry and recovery target individual slots; existing singleton reservations migrate without losing ownership or queue state.
 - **CLI text inputs** -- Session messages and worker answers accept stdin; proposal summaries, phase notes, timer descriptions, skill content, cron prompts, and delivery-target JSON accept file/stdin input. Help and agent examples show quoted heredocs and separate summaries without routine temporary files.
 
 ### Fixed

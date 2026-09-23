@@ -3,6 +3,7 @@ export const RESOURCE_LEASE_SWEEP_INTERVAL_MS = 5_000;
 
 export interface ResourceLease {
   resourceKey: string;
+  slot: number;
   ownerSessionId: string;
   questId?: string;
   purpose: string;
@@ -25,7 +26,8 @@ export interface ResourceLeaseWaiter {
 }
 
 export interface ResourceLeaseFile {
-  version: 1;
+  version: 2;
+  capacities: Record<string, number>;
   nextWaiterId: number;
   leases: ResourceLease[];
   waiters: Record<string, ResourceLeaseWaiter[]>;
@@ -33,7 +35,8 @@ export interface ResourceLeaseFile {
 
 export interface ResourceLeaseStatus {
   resourceKey: string;
-  lease: ResourceLease | null;
+  capacity: number;
+  leases: ResourceLease[];
   waiters: ResourceLeaseWaiter[];
   available: boolean;
 }
@@ -55,21 +58,16 @@ export interface ResourceLeaseWaitInput extends ResourceLeaseAcquireInput {
 export type ResourceLeaseAcquireResult =
   | {
       status: "acquired" | "already_owned";
+      capacity: number;
       lease: ResourceLease;
       waiters: ResourceLeaseWaiter[];
     }
-  | {
+  | (ResourceLeaseStatus & {
       status: "queued";
       waiter: ResourceLeaseWaiter;
-      lease: ResourceLease;
-      waiters: ResourceLeaseWaiter[];
       position: number;
-    }
-  | {
-      status: "unavailable";
-      lease: ResourceLease;
-      waiters: ResourceLeaseWaiter[];
-    };
+    })
+  | (ResourceLeaseStatus & { status: "unavailable" });
 
 export interface ResourceLeaseReleaseResult {
   released: ResourceLease;
@@ -78,6 +76,7 @@ export interface ResourceLeaseReleaseResult {
 }
 
 export interface ResourceLeaseRenewInput {
+  slot?: number;
   resourceKey: string;
   callerSessionId: string;
   ttlMs?: number;

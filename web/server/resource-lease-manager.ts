@@ -20,7 +20,7 @@ const LOG_TAG = "[resource-lease-manager]";
 
 export class ResourceLeaseError extends Error {
   constructor(
-    readonly code: "invalid" | "not_found" | "forbidden",
+    readonly code: "invalid" | "not_found" | "forbidden" | "conflict",
     message: string,
   ) {
     super(message);
@@ -75,22 +75,35 @@ export class ResourceLeaseManager {
     return this.acquire({ ...input, waitIfUnavailable: true });
   }
 
+  async configure(resourceKeyInput: string, capacity: number): Promise<ResourceLeaseStatus> {
+    return this.runExclusive(async () => {
+      await this.ensureLoaded();
+      const resourceKey = normalizeResourceKey(resourceKeyInput);
+      if (!Number.isSafeInteger(capacity) || capacity < 1) {
+        throw new ResourceLeaseError("invalid", "capacity must be a positive safe integer");
+      }
+      const changed = this.expireDueLeases(Date.now());
+      await this.persistIfNeeded(changed);
+      if (capacity !== this.getCapacity(resourceKey) && this.getLeases(resourceKey).length > 0) {
+        throw new ResourceLeaseError("conflict", "Capacity can change only when no slots are leased");
+      }
+      if (this.data.capacities[resourceKey] !== capacity) {
+        this.data.capacities[resourceKey] = capacity;
+        await this.persistIfNeeded(true);
+      }
+      return this.buildStatus(resourceKey);
+    });
+  }
+
   async renew(input: ResourceLeaseRenewInput): Promise<ResourceLease> {
     return this.runExclusive(async () => {
       await this.ensureLoaded();
       const resourceKey = normalizeResourceKey(input.resourceKey);
       const callerSessionId = normalizeSessionId(input.callerSessionId);
+      const slot = this.validateSlot(resourceKey, input.slot);
       const ttlMs = normalizeTtlMs(input.ttlMs);
-      const expiredChanged = this.expireDueLeases(Date.now());
-      const lease = this.findLease(resourceKey);
-      if (!lease) {
-        await this.persistIfNeeded(expiredChanged);
-        throw new ResourceLeaseError("not_found", `No active lease for ${resourceKey}`);
-      }
-      if (lease.ownerSessionId !== callerSessionId) {
-        await this.persistIfNeeded(expiredChanged);
-        throw new ResourceLeaseError("forbidden", `Only ${lease.ownerSessionId} can renew ${resourceKey}`);
-      }
+      await this.persistIfNeeded(this.expireDueLeases(Date.now()));
+      const lease = this.selectLease(resourceKey, callerSessionId, slot, "renew");
       const now = Date.now();
       lease.heartbeatAt = now;
       lease.ttlMs = ttlMs ?? lease.ttlMs;
@@ -104,33 +117,24 @@ export class ResourceLeaseManager {
     resourceKeyInput: string,
     callerSessionIdInput: string,
     force = false,
+    slotInput?: number,
   ): Promise<ResourceLeaseReleaseResult> {
     return this.runExclusive(async () => {
       await this.ensureLoaded();
       const resourceKey = normalizeResourceKey(resourceKeyInput);
       const callerSessionId = normalizeSessionId(callerSessionIdInput);
-      // Force release targets the current record, even if expired. Sweeping it
-      // first could promote a waiter and then accidentally release that successor.
-      const expiredChanged = force ? false : this.expireDueLeases(Date.now());
-      const leaseIndex = this.data.leases.findIndex((lease) => lease.resourceKey === resourceKey);
-      if (leaseIndex === -1) {
-        await this.persistIfNeeded(expiredChanged);
-        throw new ResourceLeaseError("not_found", `No active lease for ${resourceKey}`);
+      const slot = this.validateSlot(resourceKey, slotInput);
+      if (force && slot === undefined && this.getCapacity(resourceKey) > 1) {
+        throw new ResourceLeaseError("invalid", "Force release requires --slot for a multi-slot pool");
       }
-      const lease = this.data.leases[leaseIndex];
-      if (!force && lease.ownerSessionId !== callerSessionId) {
-        await this.persistIfNeeded(expiredChanged);
-        throw new ResourceLeaseError("forbidden", `Only ${lease.ownerSessionId} can release ${resourceKey}`);
-      }
-
-      this.data.leases.splice(leaseIndex, 1);
-      const promoted = this.promoteNextWaiter(resourceKey, Date.now());
+      // Recovery targets the current record before expiry can replace it with
+      // a queued successor. It never means release every slot in the pool.
+      if (!force) await this.persistIfNeeded(this.expireDueLeases(Date.now()));
+      const lease = this.selectLease(resourceKey, callerSessionId, force ? (slot ?? 1) : slot, "release", force);
+      this.data.leases.splice(this.data.leases.indexOf(lease), 1);
+      const promoted = this.promoteWaiters(resourceKey, Date.now())[0] ?? null;
       await this.persistIfNeeded(true);
-      return {
-        released: lease,
-        promoted,
-        waiters: this.getWaiters(resourceKey),
-      };
+      return { released: lease, promoted, waiters: this.getWaiters(resourceKey) };
     });
   }
 
@@ -150,6 +154,7 @@ export class ResourceLeaseManager {
       const changed = this.expireDueLeases(Date.now());
       await this.persistIfNeeded(changed);
       const keys = new Set<string>([
+        ...Object.keys(this.data.capacities),
         ...this.data.leases.map((lease) => lease.resourceKey),
         ...Object.keys(this.data.waiters).filter((key) => this.data.waiters[key]?.length),
       ]);
@@ -165,100 +170,76 @@ export class ResourceLeaseManager {
     });
   }
 
-  private acquireLoaded(input: Required<Omit<ResourceLeaseAcquireInput, "questId">> & { questId?: string }) {
+  private acquireLoaded(
+    input: Required<Omit<ResourceLeaseAcquireInput, "questId">> & { questId?: string },
+  ): ResourceLeaseAcquireResult {
     const now = Date.now();
-    const existing = this.findLease(input.resourceKey);
-    if (existing?.ownerSessionId === input.callerSessionId) {
-      return {
-        status: "already_owned" as const,
-        lease: existing,
-        waiters: this.getWaiters(input.resourceKey),
-      };
-    }
-
+    const capacity = this.getCapacity(input.resourceKey);
+    const existing = this.getLeases(input.resourceKey).find((lease) => lease.ownerSessionId === input.callerSessionId);
     if (existing) {
-      if (!input.waitIfUnavailable) {
-        return { status: "unavailable" as const, lease: existing, waiters: this.getWaiters(input.resourceKey) };
-      }
-      const waiter = this.addWaiter(input, now);
-      return {
-        status: "queued" as const,
-        waiter,
-        lease: existing,
-        waiters: this.getWaiters(input.resourceKey),
-        position: this.getWaiters(input.resourceKey).findIndex((entry) => entry.id === waiter.id) + 1,
-      };
+      return { status: "already_owned", capacity, lease: existing, waiters: this.getWaiters(input.resourceKey) };
     }
-
-    const waiters = this.getWaiters(input.resourceKey);
-    if (waiters.length > 0) {
-      if (waiters[0]?.waiterSessionId === input.callerSessionId) {
-        const lease = this.promoteNextWaiter(input.resourceKey, now);
-        if (!lease) throw new ResourceLeaseError("invalid", `Failed to promote waiter for ${input.resourceKey}`);
-        return { status: "acquired" as const, lease, waiters: this.getWaiters(input.resourceKey) };
-      }
-      if (!input.waitIfUnavailable) {
-        const placeholderLease = this.waiterPlaceholderLease(waiters[0]);
-        return { status: "unavailable" as const, lease: placeholderLease, waiters };
-      }
-      const waiter = this.addWaiter(input, now);
-      return {
-        status: "queued" as const,
-        waiter,
-        lease: this.waiterPlaceholderLease(waiters[0]),
-        waiters: this.getWaiters(input.resourceKey),
-        position: this.getWaiters(input.resourceKey).findIndex((entry) => entry.id === waiter.id) + 1,
-      };
+    const slot = this.lowestFreeSlot(input.resourceKey);
+    if (slot !== undefined) {
+      const lease = this.createLease(input, slot, now);
+      this.data.leases.push(lease);
+      return { status: "acquired", capacity, lease, waiters: this.getWaiters(input.resourceKey) };
     }
-
-    const lease = this.createLease(input, now);
-    this.data.leases.push(lease);
-    return { status: "acquired" as const, lease, waiters: [] };
+    if (!input.waitIfUnavailable) return { status: "unavailable", ...this.buildStatus(input.resourceKey) };
+    const waiter = this.addWaiter(input, now);
+    const pool = this.buildStatus(input.resourceKey);
+    return {
+      status: "queued",
+      ...pool,
+      waiter,
+      position: pool.waiters.findIndex((entry) => entry.id === waiter.id) + 1,
+    };
   }
 
   private expireDueLeases(now: number): boolean {
-    let changed = false;
     const expired = this.data.leases.filter((lease) => lease.expiresAt <= now);
-    if (expired.length === 0) return false;
-
+    // Remove only expired records, then fill all free slots. Removing by resource
+    // would incorrectly erase still-active siblings in a counted pool.
+    this.data.leases = this.data.leases.filter((lease) => lease.expiresAt > now);
     for (const lease of expired) {
-      this.data.leases = this.data.leases.filter((entry) => entry.resourceKey !== lease.resourceKey);
-      this.promoteNextWaiter(lease.resourceKey, now);
-      changed = true;
-      console.log(`${LOG_TAG} Expired lease for ${lease.resourceKey} owned by ${lease.ownerSessionId.slice(0, 8)}`);
+      console.log(
+        `${LOG_TAG} Expired lease for ${lease.resourceKey} slot ${lease.slot} owned by ${lease.ownerSessionId.slice(0, 8)}`,
+      );
+    }
+    let changed = expired.length > 0;
+    for (const resourceKey of Object.keys(this.data.waiters)) {
+      if (this.promoteWaiters(resourceKey, now).length > 0) changed = true;
     }
     return changed;
   }
 
-  private promoteNextWaiter(resourceKey: string, now: number): ResourceLease | null {
+  private promoteWaiters(resourceKey: string, now: number): ResourceLease[] {
     const waiters = this.getWaiters(resourceKey);
-    const waiter = waiters.shift();
-    if (!waiter) {
-      this.setWaiters(resourceKey, waiters);
-      return null;
+    const promoted: ResourceLease[] = [];
+    let slot = this.lowestFreeSlot(resourceKey);
+    // Each iteration consumes a waiter and fills a slot, so the loop is bounded
+    // by both the queue and the remaining capacity. Newcomers cannot bypass it.
+    while (waiters.length > 0 && slot !== undefined) {
+      const waiter = waiters.shift()!;
+      const lease = this.createLease(
+        { ...waiter, callerSessionId: waiter.waiterSessionId, waitIfUnavailable: true },
+        slot,
+        now,
+      );
+      this.data.leases.push(lease);
+      promoted.push(lease);
+      this.notifyPromotedWaiter(lease);
+      slot = this.lowestFreeSlot(resourceKey);
     }
-
     this.setWaiters(resourceKey, waiters);
-    const lease: ResourceLease = {
-      resourceKey,
-      ownerSessionId: waiter.waiterSessionId,
-      ...(waiter.questId ? { questId: waiter.questId } : {}),
-      purpose: waiter.purpose,
-      metadata: waiter.metadata,
-      acquiredAt: now,
-      heartbeatAt: now,
-      ttlMs: waiter.ttlMs,
-      expiresAt: now + waiter.ttlMs,
-    };
-    this.data.leases.push(lease);
-    this.notifyPromotedWaiter(lease);
-    return lease;
+    return promoted;
   }
 
   private notifyPromotedWaiter(lease: ResourceLease): void {
     const lines = [
       `[Resource lease acquired] You now hold \`${lease.resourceKey}\`.`,
       "",
+      `Slot: ${lease.slot} of ${this.getCapacity(lease.resourceKey)}`,
       `Purpose: ${lease.purpose}`,
       `Expires: ${new Date(lease.expiresAt).toISOString()}`,
       "",
@@ -273,10 +254,12 @@ export class ResourceLeaseManager {
 
   private createLease(
     input: Required<Omit<ResourceLeaseAcquireInput, "questId">> & { questId?: string },
+    slot: number,
     now: number,
   ): ResourceLease {
     return {
       resourceKey: input.resourceKey,
+      slot,
       ownerSessionId: input.callerSessionId,
       ...(input.questId ? { questId: input.questId } : {}),
       purpose: input.purpose,
@@ -311,37 +294,66 @@ export class ResourceLeaseManager {
     return waiter;
   }
 
-  private waiterPlaceholderLease(waiter: ResourceLeaseWaiter): ResourceLease {
-    return {
-      resourceKey: waiter.resourceKey,
-      ownerSessionId: waiter.waiterSessionId,
-      ...(waiter.questId ? { questId: waiter.questId } : {}),
-      purpose: waiter.purpose,
-      metadata: waiter.metadata,
-      acquiredAt: waiter.queuedAt,
-      heartbeatAt: waiter.queuedAt,
-      ttlMs: waiter.ttlMs,
-      expiresAt: waiter.queuedAt + waiter.ttlMs,
-    };
-  }
-
   private buildStatus(resourceKey: string): ResourceLeaseStatus {
-    const lease = this.findLease(resourceKey) ?? null;
+    const capacity = this.getCapacity(resourceKey);
+    const leases = this.getLeases(resourceKey);
     const waiters = this.getWaiters(resourceKey);
-    return {
-      resourceKey,
-      lease,
-      waiters,
-      available: !lease && waiters.length === 0,
-    };
+    return { resourceKey, capacity, leases, waiters, available: leases.length < capacity && waiters.length === 0 };
   }
 
-  private findLease(resourceKey: string): ResourceLease | undefined {
-    return this.data.leases.find((lease) => lease.resourceKey === resourceKey);
+  private getCapacity(resourceKey: string): number {
+    return Object.hasOwn(this.data.capacities, resourceKey) ? this.data.capacities[resourceKey] : 1;
+  }
+
+  private getLeases(resourceKey: string): ResourceLease[] {
+    return this.data.leases.filter((lease) => lease.resourceKey === resourceKey).sort((a, b) => a.slot - b.slot);
+  }
+
+  private lowestFreeSlot(resourceKey: string): number | undefined {
+    const occupied = new Set(this.getLeases(resourceKey).map((lease) => lease.slot));
+    // At most occupied.size + 1 probes, even for a very large configured pool.
+    for (let slot = 1; slot <= this.getCapacity(resourceKey); slot++) {
+      if (!occupied.has(slot)) return slot;
+    }
+    return undefined;
+  }
+
+  private validateSlot(resourceKey: string, slot: number | undefined): number | undefined {
+    if (slot !== undefined && (!Number.isSafeInteger(slot) || slot < 1 || slot > this.getCapacity(resourceKey))) {
+      throw new ResourceLeaseError("invalid", `slot must be between 1 and ${this.getCapacity(resourceKey)}`);
+    }
+    return slot;
+  }
+
+  private selectLease(
+    resourceKey: string,
+    caller: string,
+    slot: number | undefined,
+    action: string,
+    force = false,
+  ): ResourceLease {
+    const leases = this.getLeases(resourceKey);
+    const lease =
+      slot === undefined
+        ? leases.find((entry) => entry.ownerSessionId === caller)
+        : leases.find((entry) => entry.slot === slot);
+    if (!lease && (slot !== undefined || leases.length === 0)) {
+      throw new ResourceLeaseError(
+        "not_found",
+        `No active lease for ${resourceKey}${slot === undefined ? "" : ` slot ${slot}`}`,
+      );
+    }
+    if (!lease || (!force && lease.ownerSessionId !== caller)) {
+      throw new ResourceLeaseError(
+        "forbidden",
+        `Only ${lease?.ownerSessionId ?? (leases.length === 1 ? leases[0].ownerSessionId : "the slot owner")} can ${action} ${resourceKey}`,
+      );
+    }
+    return lease;
   }
 
   private getWaiters(resourceKey: string): ResourceLeaseWaiter[] {
-    return [...(this.data.waiters[resourceKey] ?? [])];
+    return Object.hasOwn(this.data.waiters, resourceKey) ? [...this.data.waiters[resourceKey]] : [];
   }
 
   private setWaiters(resourceKey: string, waiters: ResourceLeaseWaiter[]): void {

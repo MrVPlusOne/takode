@@ -131,9 +131,9 @@ Three distinct operations -- never confuse them:
 - **Multiple routed sections:** use separate sections for distinct content or roles, not to repeat one answer across tabs. Keep the first compact marker on the first line, then put a standalone `---` line immediately before each later role-bearing marker. The divider and marker must begin their physical lines.
 - **Shell commands:** use `# thread:main` or `# thread:q-N` as the first non-empty command line. Shell commands are commentary; they do not publish an answer.
 
-## Resource Lease Recovery
+## Resource Lease Pools and Recovery
 
-Use `takode lease --help` for the shared-resource commands. Normal use is owner acquisition, renewal and release; when another holder is using the resource, coordinate owner release or join the queue. Leaders can use `takode lease release <resource> --force` across this server for abandoned/stale reservations or coordinated handoffs. Apply the judgment-led recovery guidance in the shared **Global Resource Leases** session instructions. Force release preserves queue order and does not stop processes or authorize underlying operations.
+Use `takode lease --help` for the shared-resource commands. Normal use is owner acquisition, renewal and release; when another holder is using the resource, coordinate owner release or join the queue. Leaders configure idle pool capacity with `takode lease configure <resource> --capacity N`. Each session holds one returned numbered slot per pool; use the workflow's agreed slot-to-resource mapping. Leaders can use `takode lease release <resource> --force` (with `--slot N` required for multi-slot pools) across this server for abandoned/stale reservations or coordinated handoffs. Apply the judgment-led recovery guidance in the shared **Global Resource Leases** session instructions. Force release preserves queue order and does not stop processes or authorize underlying operations.
 
 ## Session Timers
 

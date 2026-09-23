@@ -112,13 +112,15 @@ describe("resource lease routes", () => {
     expect(body.result).toMatchObject({
       status: "queued",
       position: 1,
-      lease: {
-        ownerSessionId: "owner",
-        ownerSessionNum: 1370,
-        ownerSessionName: "Owner Execute",
-        questId: "q-979",
-        purpose: "Inspect UI",
-      },
+      leases: [
+        {
+          ownerSessionId: "owner",
+          ownerSessionNum: 1370,
+          ownerSessionName: "Owner Execute",
+          questId: "q-979",
+          purpose: "Inspect UI",
+        },
+      ],
       waiter: {
         waiterSessionId: "waiter",
         waiterSessionNum: 1364,
@@ -196,7 +198,7 @@ describe("resource lease routes", () => {
       body: JSON.stringify({ force: true, callerSessionId: "leader", isOrchestrator: true }),
     });
     expect(response.status).toBe(403);
-    expect((await manager.getStatus("agent-browser")).lease?.ownerSessionId).toBe("owner");
+    expect((await manager.getStatus("agent-browser")).leases[0]?.ownerSessionId).toBe("owner");
   });
 
   it("requires an explicit force flag even for a leader, while ordinary owner release still works", async () => {
@@ -213,5 +215,40 @@ describe("resource lease routes", () => {
     });
     expect(released.status).toBe(200);
     expect((await manager.getStatus("agent-browser")).available).toBe(true);
+  });
+  it("authenticates capacity changes and per-slot operations through the canonical pool API", async () => {
+    // Caller role comes from server authentication, never from request fields.
+    const post = (action: string, caller: string, body: object) =>
+      app.request(`/api/resource-leases/test-server/${action}`, {
+        method: "POST",
+        headers: authHeaders(caller),
+        body: JSON.stringify(body),
+      });
+    expect((await post("configure", "owner", { capacity: 3, isOrchestrator: true })).status).toBe(403);
+    expect((await post("configure", "leader", { capacity: 0 })).status).toBe(400);
+    expect((await post("configure", "leader", { capacity: 3 })).status).toBe(200);
+    for (const caller of ["owner", "waiter", "other"]) {
+      expect((await post("acquire", caller, { purpose: "Check", callerSessionId: "leader" })).status).toBe(201);
+    }
+    const full = await (await post("acquire", "leader", { purpose: "Next" })).json();
+    expect(full.result).toMatchObject({ status: "unavailable", capacity: 3, resourceKey: "test-server" });
+    expect(full.result.leases.map((lease: any) => lease.slot)).toEqual([1, 2, 3]);
+    expect(full.result).not.toHaveProperty("lease");
+    expect((await post("configure", "leader", { capacity: 4 })).status).toBe(409);
+    expect((await post("configure", "leader", { capacity: 3 })).status).toBe(200);
+    expect((await post("renew", "owner", { slot: 2 })).status).toBe(403);
+    expect((await post("heartbeat", "owner", { slot: 1, ttl: "1m" })).status).toBe(200);
+    expect((await post("release", "owner", { slot: 2, force: true })).status).toBe(403);
+    expect((await post("release", "leader", { force: true })).status).toBe(400);
+    expect((await post("release", "leader", { force: true, slot: "2" })).status).toBe(400);
+    const released = await (await post("release", "leader", { force: true, slot: 2 })).json();
+    expect(released.result.released).toMatchObject({ slot: 2, ownerSessionId: "waiter" });
+    const status = await (
+      await app.request("/api/resource-leases/test-server", { headers: authHeaders("leader") })
+    ).json();
+    expect(status.resource.capacity).toBe(3);
+    expect(status.resource.leases.map((lease: any) => lease.slot)).toEqual([1, 3]);
+    expect(status.resource.leases[0]).toMatchObject({ ownerSessionNum: 1370, ownerSessionName: "Owner Execute" });
+    expect(status.resource).not.toHaveProperty("lease");
   });
 });
