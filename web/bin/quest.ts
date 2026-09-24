@@ -1828,11 +1828,12 @@ async function main(): Promise<void> {
     case "grep":
       return cmdGrep();
     case "commit-links":
-      validateFlags(["delivery", "commits", "json"]);
+      validateFlags(["delivery", "commits", "range", "json"]);
       await runCommitLinksCommand({
         questId: positionalArgs[0] ?? "",
         deliveryId: option("delivery") ?? "",
         commitShas: option("commits")?.split(","),
+        range: option("range"),
         json: jsonOutput,
       });
       break;

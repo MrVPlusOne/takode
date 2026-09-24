@@ -77,13 +77,25 @@ export interface QuestDeliveryView {
   recordedAt: number;
   commits: Array<CommitSummary & { reviewCount: number }>;
   earlierReviewCount: number;
+  /** Explicit Git history selection, not additional recorded delivery evidence. */
+  range?: CommitRange;
+}
+
+export interface CommitRange {
+  baseSha: string;
+  tipSha: string;
 }
 
 export const DELIVERY_ID_PATTERN = /^[a-f0-9]{32}$/;
 export const FULL_COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
 
-export function deliveryCommitHref(questId: string, deliveryId: string, sha: string): string {
-  return `quest:${questId}:delivery:${deliveryId}:commit:${sha}`;
+export function deliveryCommitHref(questId: string, deliveryId: string, sha: string, range?: CommitRange): string {
+  const selection = range ? `:range:${range.baseSha}:${range.tipSha}` : "";
+  return `quest:${questId}:delivery:${deliveryId}${selection}:commit:${sha}`;
+}
+
+export function commitRangeQuery(range?: CommitRange): string {
+  return range ? `&base=${encodeURIComponent(range.baseSha)}&tip=${encodeURIComponent(range.tipSha)}` : "";
 }
 
 export function projectQuestDelivery(questId: string, delivery: QuestCodeDelivery): QuestDeliveryView {

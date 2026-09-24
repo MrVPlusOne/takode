@@ -9,11 +9,29 @@ import {
 } from "../../shared/quest-delivery.js";
 import { readCommitDetails } from "../git-commit-reader.js";
 import { verifyReview } from "../port-tracking.js";
+import { readDeliveryRange, resolveDeliveryRange } from "../quest-delivery-range.js";
 
 export function registerQuestDeliveryRoutes(api: Hono): void {
   api.get("/quests/:questId/deliveries/:deliveryId", async (c) => {
     const delivery = await findDelivery(c.req.param("questId"), c.req.param("deliveryId"));
     if (!delivery) return c.json({ error: "Recorded delivery not found." }, 404);
+    const baseSha = c.req.query("base");
+    const tipSha = c.req.query("tip");
+    if (baseSha !== undefined || tipSha !== undefined) {
+      if (!validRange(baseSha, tipSha)) return c.json({ error: "Supply full base and tip commit SHAs." }, 400);
+      const questId = c.req.param("questId");
+      try {
+        return c.json(
+          await readDeliveryRange(questId, delivery, (await getQuest(questId))?.commitShas ?? [], {
+            baseSha: baseSha!,
+            tipSha: tipSha!,
+          }),
+        );
+      } catch (error) {
+        console.warn("[quest-delivery] Range unavailable:", error);
+        return c.json({ error: "Git range unavailable or not verifiable in the recorded repository." }, 404);
+      }
+    }
     return c.json(projectQuestDelivery(c.req.param("questId"), delivery));
   });
 
@@ -41,6 +59,25 @@ export function registerQuestDeliveryRoutes(api: Hono): void {
     const sha = c.req.param("sha").toLowerCase();
     if (!delivery || !FULL_COMMIT_SHA_PATTERN.test(sha)) return c.json({ error: "Recorded commit not found." }, 404);
     const isReview = c.req.query("review") === "true";
+    const baseSha = c.req.query("base");
+    const tipSha = c.req.query("tip");
+    if (baseSha !== undefined || tipSha !== undefined) {
+      if (isReview || !validRange(baseSha, tipSha)) return c.json({ error: "Invalid range selection." }, 400);
+      try {
+        const { commitShas } = await resolveDeliveryRange(delivery, (await getQuest(questId))?.commitShas ?? [], {
+          baseSha: baseSha!,
+          tipSha: tipSha!,
+        });
+        if (!commitShas.includes(sha)) return c.json({ error: "Commit is outside the verified range." }, 404);
+        return c.json({
+          ...(await readCommitDetails(delivery.target.repoRoot, sha, c.req.query("includeDiff") !== "false")),
+          available: true,
+        });
+      } catch (error) {
+        console.warn("[quest-delivery] Range commit unavailable:", error);
+        return c.json({ sha, available: false, reason: "commit_not_available" });
+      }
+    }
     const selected = delivery.commits.find((commit) => commit.sha === sha);
     const ranges = [
       ...delivery.commits.flatMap((commit) => (commit.review ? [commit.review] : [])),
@@ -71,6 +108,10 @@ export function registerQuestDeliveryRoutes(api: Hono): void {
       return c.json({ sha, available: false, reason: "commit_not_available" });
     }
   });
+}
+
+function validRange(base: string | undefined, tip: string | undefined): boolean {
+  return !!base && !!tip && FULL_COMMIT_SHA_PATTERN.test(base) && FULL_COMMIT_SHA_PATTERN.test(tip);
 }
 
 async function findDelivery(questId: string, id: string): Promise<QuestCodeDelivery | undefined> {

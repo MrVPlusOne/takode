@@ -1,3 +1,5 @@
+import type { CommitRange } from "../../shared/quest-delivery.js";
+
 export interface QuestFeedbackTargetRequest {
   index: number;
   requestId: number;
@@ -6,7 +8,7 @@ export interface QuestFeedbackTargetRequest {
 export interface QuestLinkTarget {
   questId: string;
   feedbackIndex?: number;
-  delivery?: { id: string; sha: string };
+  delivery?: { id: string; sha: string; range?: CommitRange };
 }
 
 const QUEST_ID_PATTERN = "(q-\\d+)";
@@ -27,11 +29,19 @@ export function parseQuestLinkTarget(href?: string): QuestLinkTarget | null {
     if (match) return { questId: match[1]!.toLowerCase() };
   }
 
-  const deliveryMatch = trimmed.match(/^quest:(q-\d+):delivery:([a-f0-9]{32}):commit:([a-f0-9]{40})$/i);
+  const deliveryMatch = trimmed.match(
+    /^quest:(q-\d+):delivery:([a-f0-9]{32})(?::range:([a-f0-9]{40}):([a-f0-9]{40}))?:commit:([a-f0-9]{40})$/i,
+  );
   if (deliveryMatch)
     return {
       questId: deliveryMatch[1]!.toLowerCase(),
-      delivery: { id: deliveryMatch[2]!.toLowerCase(), sha: deliveryMatch[3]!.toLowerCase() },
+      delivery: {
+        id: deliveryMatch[2]!.toLowerCase(),
+        sha: deliveryMatch[5]!.toLowerCase(),
+        ...(deliveryMatch[3]
+          ? { range: { baseSha: deliveryMatch[3].toLowerCase(), tipSha: deliveryMatch[4]!.toLowerCase() } }
+          : {}),
+      },
     };
 
   const feedbackMatch = trimmed.match(CANONICAL_FEEDBACK_PATTERN) ?? trimmed.match(LEGACY_FEEDBACK_PATTERN);

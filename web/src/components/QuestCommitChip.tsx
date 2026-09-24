@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { api, type QuestCommitLookup } from "../api.js";
-import { commitComparisonLabel, type QuestDeliveryView } from "../../shared/quest-delivery.js";
+import { commitComparisonLabel, type CommitRange, type QuestDeliveryView } from "../../shared/quest-delivery.js";
 import { buildCodeCommitEntries, QuestCommitDiffView, useQuestCommitDiffState } from "./QuestCommitDiffView.js";
 import type { QuestCommitEntry } from "./QuestCommitEvidence.js";
 
 export interface QuestDeliveryClient {
-  delivery: (questId: string, deliveryId: string) => Promise<QuestDeliveryView>;
+  delivery: (questId: string, deliveryId: string, range?: CommitRange) => Promise<QuestDeliveryView>;
   commit: (
     questId: string,
     deliveryId: string,
     sha: string,
     review: boolean,
     includeDiff: boolean,
+    range?: CommitRange,
   ) => Promise<QuestCommitLookup>;
   review: (
     questId: string,
@@ -37,12 +38,14 @@ export function QuestCommitChip({
   questId,
   deliveryId,
   sha,
+  range,
   children,
   client = deliveryClient,
 }: {
   questId: string;
   deliveryId: string;
   sha: string;
+  range?: CommitRange;
   children: ReactNode;
   client?: QuestDeliveryClient;
 }) {
@@ -52,16 +55,18 @@ export function QuestCommitChip({
   const [retry, setRetry] = useState(0);
   const [open, setOpen] = useState(false);
   const selected = delivery?.commits.find((commit) => commit.sha === sha);
+  const baseSha = range?.baseSha;
+  const tipSha = range?.tipSha;
 
   useEffect(() => {
     setDelivery(null);
     setError(false);
     setOpen(false);
     let cancelled = false;
-    const key = `${questId}:${deliveryId}`;
+    const key = `${questId}:${deliveryId}:${baseSha ?? ""}:${tipSha ?? ""}`;
     let request = client === deliveryClient ? pendingSummaries.get(key) : undefined;
     if (!request) {
-      request = client.delivery(questId, deliveryId);
+      request = range ? client.delivery(questId, deliveryId, range) : client.delivery(questId, deliveryId);
       if (client === deliveryClient) {
         pendingSummaries.set(key, request);
         const current = request;
@@ -77,6 +82,8 @@ export function QuestCommitChip({
         if (
           value.id !== deliveryId ||
           value.questId !== questId ||
+          value.range?.baseSha !== baseSha ||
+          value.range?.tipSha !== tipSha ||
           !value.commits.some((commit) => commit.sha === sha)
         ) {
           setError(true);
@@ -90,7 +97,7 @@ export function QuestCommitChip({
     return () => {
       cancelled = true;
     };
-  }, [client, questId, deliveryId, sha, retry]);
+  }, [client, questId, deliveryId, sha, retry, baseSha, tipSha]);
 
   const title = selected
     ? `${selected.message}\n+${selected.additions} −${selected.deletions}${selected.binaryFiles ? `; ${selected.binaryFiles} binary files` : ""}\n${commitComparisonLabel(selected.comparison)}${selected.comparison?.baseSha ? ` ${selected.comparison.baseSha}` : ""}\n${delivery!.branch}`
@@ -140,7 +147,11 @@ export function QuestCommitChip({
             {selected?.message || children}
           </span>
           <span className="block text-[10px] leading-tight text-cc-muted" data-testid="commit-chip-comparison">
-            {selected ? commitComparisonLabel(selected.comparison) : "Recorded commit"}
+            {selected
+              ? `${range ? "Range · " : ""}${commitComparisonLabel(selected.comparison)}`
+              : range
+                ? "Range commit"
+                : "Recorded commit"}
           </span>
         </span>
       </button>
@@ -186,11 +197,13 @@ function QuestDeliveryModal({
   );
   const lookup = useCallback(
     (entry: QuestCommitEntry, includeDiff: boolean) =>
-      client.commit(questId, delivery.id, entry.sha, review, includeDiff),
-    [client, questId, delivery.id, review],
+      delivery.range
+        ? client.commit(questId, delivery.id, entry.sha, false, includeDiff, delivery.range)
+        : client.commit(questId, delivery.id, entry.sha, review, includeDiff),
+    [client, questId, delivery.id, delivery.range, review],
   );
   const state = useQuestCommitDiffState({
-    questId: `${questId}:${delivery.id}:${review}:${snapshot}`,
+    questId: `${questId}:${delivery.id}:${delivery.range?.baseSha ?? ""}:${delivery.range?.tipSha ?? ""}:${review}:${snapshot}`,
     storedEntries: entries,
     autoOpenFirst: true,
     initialSha: review ? undefined : parentSha,
@@ -198,7 +211,7 @@ function QuestDeliveryModal({
     preserveOrder: true,
   });
   const activeSummary = delivery.commits.find((commit) => commit.sha === state.activeCommitEntry?.sha);
-  const canReview = (activeSummary?.reviewCount ?? 0) > 0 || delivery.earlierReviewCount > 0;
+  const canReview = !delivery.range && ((activeSummary?.reviewCount ?? 0) > 0 || delivery.earlierReviewCount > 0);
   const closeModal = () => {
     // Release native dialog inertness before the parent restores focus to its chip.
     dialogRef.current?.close();
@@ -232,7 +245,7 @@ function QuestDeliveryModal({
   return createPortal(
     <dialog
       ref={dialogRef}
-      aria-label="Recorded delivery commit"
+      aria-label={delivery.range ? "Verified range commit" : "Recorded delivery commit"}
       onCancel={(event) => {
         event.preventDefault();
         closeModal();
@@ -242,12 +255,20 @@ function QuestDeliveryModal({
       <QuestCommitDiffView
         state={state}
         onClose={closeModal}
-        commitLabel={review ? "Review commit" : "Delivered commit"}
+        commitLabel={review ? "Review commit" : delivery.range ? "Range commit" : "Delivered commit"}
         headerContext={
           <>
             <span className="order-first max-w-40 truncate text-[10px] text-cc-muted" title={delivery.branch}>
               {delivery.branch}
             </span>
+            {delivery.range && (
+              <span
+                className="text-[10px] text-cc-muted"
+                title={`Verified Git range ${delivery.range.baseSha}..${delivery.range.tipSha}. Each view compares one commit with its first parent; these are not aggregate range totals or newly recorded deliveries.`}
+              >
+                Range {delivery.range.baseSha.slice(0, 7)}..{delivery.range.tipSha.slice(0, 7)} · individual commit
+              </span>
+            )}
             {(review || canReview) && (
               <button
                 type="button"

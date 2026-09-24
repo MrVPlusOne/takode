@@ -12,6 +12,8 @@ import {
   FIRST_DELIVERY_SHA,
   SECOND_DELIVERY_SHA,
   REVIEW_FIXTURE_SHA,
+  RANGE_FIXTURE,
+  rangeCommitFixtures,
 } from "../test-fixtures/commit-delivery-fixture.js";
 
 vi.mock("./DiffViewer.js", () => ({
@@ -40,6 +42,86 @@ afterEach(() => {
 });
 
 describe("fixed delivery commit chips", () => {
+  it("opens every range member with explicit endpoints, navigates the full set, and retains the ordinary delivery view", async () => {
+    // The main implementation is absent from the recorded batch but present in the separately verified range.
+    const client = createDeliveryFixtureClient();
+    const load = vi.spyOn(client, "commit");
+    const view = render(
+      <QuestCommitChip
+        questId={DELIVERY_FIXTURE_QUEST}
+        deliveryId={laterDeliveryFixture.id}
+        sha={rangeCommitFixtures[0]!.sha}
+        range={RANGE_FIXTURE}
+        client={client}
+      >
+        Main implementation
+      </QuestCommitChip>,
+    );
+    const chip = await screen.findByRole("button", { name: /377 additions, 12 deletions/ });
+    expect(screen.getByTestId("commit-chip-comparison")).toHaveTextContent("Range · Vs parent");
+    expect(load).not.toHaveBeenCalled();
+    fireEvent.click(chip);
+    await screen.findByTestId("delivery-diff");
+    expect(screen.getByRole("dialog", { name: "Verified range commit" })).toBeVisible();
+    expect(screen.getByLabelText("Commit position")).toHaveTextContent("1/3");
+    expect(load.mock.calls[0]).toEqual([
+      DELIVERY_FIXTURE_QUEST,
+      laterDeliveryFixture.id,
+      rangeCommitFixtures[0]!.sha,
+      false,
+      true,
+      RANGE_FIXTURE,
+    ]);
+    expect(screen.queryByRole("button", { name: "Review history" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByLabelText("Commit position")).toHaveTextContent("2/3"));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() =>
+      expect(load).toHaveBeenCalledWith(
+        DELIVERY_FIXTURE_QUEST,
+        laterDeliveryFixture.id,
+        RANGE_FIXTURE.tipSha,
+        false,
+        true,
+        RANGE_FIXTURE,
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Close commit modal" }));
+    expect(chip).toHaveFocus();
+    view.rerender(
+      <QuestCommitChip
+        questId={DELIVERY_FIXTURE_QUEST}
+        deliveryId={laterDeliveryFixture.id}
+        sha={RANGE_FIXTURE.tipSha}
+        client={client}
+      >
+        Recorded tip
+      </QuestCommitChip>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /16 additions, 5 deletions/ }));
+    expect(await screen.findByRole("dialog", { name: "Recorded delivery commit" })).toBeVisible();
+    expect(screen.getByLabelText("Commit position")).toHaveTextContent("1/1");
+  });
+
+  it("shows unavailable range evidence instead of substituting the recorded batch", async () => {
+    // A missing range must not silently turn a substantive implementation link into the final correction.
+    render(
+      <QuestCommitChip
+        questId={DELIVERY_FIXTURE_QUEST}
+        deliveryId={laterDeliveryFixture.id}
+        sha={rangeCommitFixtures[0]!.sha}
+        range={RANGE_FIXTURE}
+        client={createDeliveryFixtureClient(true)}
+      >
+        Main implementation
+      </QuestCommitChip>,
+    );
+    expect(await screen.findByRole("button", { name: "Retry unavailable commit details" })).toHaveTextContent(
+      "Unavailable",
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("loads newly inserted chips without depending on another scroll or a visibility callback", async () => {
     // A mounted visible chip must settle even when the browser delays IntersectionObserver delivery.
     vi.stubGlobal(

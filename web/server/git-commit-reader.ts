@@ -28,7 +28,7 @@ export async function resolveCommit(cwd: string, value: string): Promise<string>
 
 export async function isAncestor(cwd: string, sha: string, head: string): Promise<boolean> {
   try {
-    await readGit(cwd, ["merge-base", "--is-ancestor", sha, head]);
+    await readGit(cwd, ["--no-replace-objects", "merge-base", "--is-ancestor", sha, head]);
     return true;
   } catch (error) {
     if ((error as { code?: unknown }).code === 1) return false;

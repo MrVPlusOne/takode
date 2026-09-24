@@ -55,6 +55,9 @@ describe("exact commit-link authoring", () => {
     const args = ["commit-links", "q-9904", "--delivery", deliveryFixture.id, "--commits", FIRST_DELIVERY_SHA];
     expect(classifyQuestCommand(args)).toEqual({ kind: "read" });
     expect(questCommandPositionals(args)).toEqual(["q-9904"]);
+    expect(questCommandPositionals([...args, "--range", `${"0".repeat(40)}..${FIRST_DELIVERY_SHA}`])).toEqual([
+      "q-9904",
+    ]);
   });
   it("introduces only the chosen later batch while earlier links and complete quest evidence remain available", async () => {
     // Reporting a later batch must not expand to the accumulated quest commit list.

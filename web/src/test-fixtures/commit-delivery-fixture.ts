@@ -9,6 +9,7 @@ export const SECOND_DELIVERY_SHA = "2".repeat(40);
 export const LATER_DELIVERY_SHA = "3".repeat(40);
 export const REVIEW_FIXTURE_SHA = "4".repeat(40);
 export const LEGACY_DELIVERY_SHA = "5".repeat(40);
+export const RANGE_FIXTURE = { baseSha: "6".repeat(40), tipSha: LATER_DELIVERY_SHA };
 
 const summary = (sha: string, message: string, additions: number, deletions: number, binaryFiles = 0) => ({
   sha,
@@ -67,21 +68,43 @@ export const legacyDeliveryFixture: QuestCodeDelivery = {
   commits: [{ ...summary(LEGACY_DELIVERY_SHA, "Older saved commit", 9, 2), comparison: undefined }],
 };
 
+// Only the tip is recorded. The earlier members belong to an explicit verified Git range.
+export const rangeCommitFixtures = [
+  summary("7".repeat(40), "Implement complete coverage reporting", 377, 12),
+  summary("8".repeat(40), "Reconcile the existing startup test", 84, 29),
+  laterDeliveryFixture.commits[0]!,
+];
+
 export function createDeliveryFixtureClient(unavailable = false): QuestDeliveryClient {
   return {
-    async delivery(questId, id) {
+    async delivery(questId, id, range) {
       if (questId !== DELIVERY_FIXTURE_QUEST) throw new Error("Unknown fixture quest.");
       const record = [deliveryFixture, laterDeliveryFixture, legacyDeliveryFixture].find((item) => item.id === id);
       if (!record) throw new Error("Unknown fixture delivery.");
+      if (range) {
+        if (
+          unavailable ||
+          id !== laterDeliveryFixture.id ||
+          range.baseSha !== RANGE_FIXTURE.baseSha ||
+          range.tipSha !== RANGE_FIXTURE.tipSha
+        )
+          throw new Error("Range unavailable.");
+        return {
+          ...projectQuestDelivery(questId, record),
+          range,
+          commits: rangeCommitFixtures.map((commit) => ({ ...commit, reviewCount: 0 })),
+          earlierReviewCount: 0,
+        };
+      }
       return projectQuestDelivery(questId, record);
     },
-    async commit(_questId, id, sha, review, includeDiff) {
+    async commit(_questId, id, sha, review, includeDiff, range) {
       if (unavailable) return { sha, available: false, reason: "repo_unavailable" };
       const record = [deliveryFixture, laterDeliveryFixture, legacyDeliveryFixture].find((item) => item.id === id)!;
       const metadata =
         review && sha === REVIEW_FIXTURE_SHA
           ? summary(sha, "Original review increment", 24, 7)
-          : record.commits.find((item) => item.sha === sha);
+          : (range ? rangeCommitFixtures : record.commits).find((item) => item.sha === sha);
       if (!metadata) throw new Error("Commit is outside this fixture delivery.");
       const current =
         includeDiff && !metadata.comparison

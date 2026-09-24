@@ -1,6 +1,22 @@
 import { isReservedQuestLinkHref, parseQuestLinkTarget } from "./quest-link-target.js";
+import { deliveryCommitHref } from "../../shared/quest-delivery.js";
 
 describe("parseQuestLinkTarget", () => {
+  it("preserves both full range endpoints and selected commit without changing ordinary fixed links", () => {
+    // All identities must survive authoring/parsing; short or mutable endpoints are not native range links.
+    const id = "a".repeat(32);
+    const sha = "b".repeat(40);
+    const range = { baseSha: "c".repeat(40), tipSha: "d".repeat(40) };
+    expect(parseQuestLinkTarget(deliveryCommitHref("q-42", id, sha, range))).toEqual({
+      questId: "q-42",
+      delivery: { id, sha, range },
+    });
+    expect(parseQuestLinkTarget(deliveryCommitHref("q-42", id, sha))).toEqual({
+      questId: "q-42",
+      delivery: { id, sha },
+    });
+    expect(parseQuestLinkTarget(deliveryCommitHref("q-42", id, sha, { ...range, baseSha: "main" }))).toBeNull();
+  });
   it.each([
     ["q-42", { questId: "q-42" }],
     ["quest:q-42", { questId: "q-42" }],

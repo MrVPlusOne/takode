@@ -15,6 +15,7 @@ const VALUE_FLAGS = new Set([
   "--commit",
   "--commits",
   "--delivery",
+  "--range",
   "--count",
   "--debrief",
   "--debrief-file",

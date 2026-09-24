@@ -772,6 +772,7 @@ export const MarkdownContent = memo(function MarkdownContent({
                   questId={questTarget.questId}
                   deliveryId={questTarget.delivery.id}
                   sha={questTarget.delivery.sha}
+                  range={questTarget.delivery.range}
                 >
                   {children}
                 </QuestCommitChip>

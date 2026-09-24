@@ -12,6 +12,8 @@ import {
   laterDeliveryFixture,
   legacyDeliveryFixture,
   DELIVERY_FIXTURE_QUEST,
+  RANGE_FIXTURE,
+  rangeCommitFixtures,
 } from "../../test-fixtures/commit-delivery-fixture.js";
 
 export function PlaygroundCommitDeliverySection() {
@@ -56,6 +58,25 @@ export function PlaygroundCommitDeliverySection() {
             Full-width code with two compact context rows, file selection, review history, and comparison details.
             Source-backed fixtures include long lines, unchanged context, and code/test files.
           </p>
+        </Card>
+        <Card label="Verified commit range">
+          <p className="mb-2 text-sm text-cc-fg">
+            Browse all three commits behind a recorded tip. Each chip shows an individual parent comparison.
+          </p>
+          <span className="commit-chip-group" role="group" aria-label="Verified range commits">
+            {rangeCommitFixtures.map((commit) => (
+              <QuestCommitChip
+                key={commit.sha}
+                questId={DELIVERY_FIXTURE_QUEST}
+                deliveryId={laterDeliveryFixture.id}
+                sha={commit.sha}
+                range={RANGE_FIXTURE}
+                client={client}
+              >
+                {commit.message}
+              </QuestCommitChip>
+            ))}
+          </span>
         </Card>
         <Card label="Recorded delivery responses">
           <div className="space-y-3">
