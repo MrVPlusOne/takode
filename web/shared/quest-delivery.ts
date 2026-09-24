@@ -34,13 +34,17 @@ export interface DeliveryTarget {
   publication?: PublishedDeliveryTarget & { approvalId: string };
 }
 
-/** Exact published branch heads, ordered in delivery order, in an independent checkout. */
+/** Publication receipts and the independently selected final Work commits in one checkout. */
 export interface PublishedDeliveryTarget {
   checkoutPath: string;
   remote: string;
   repositoryUrl: string;
   refs: Array<{ ref: string; sha: string }>;
+  /** Complete ordered final target commits. Absent only in preserved historical head-only descriptors. */
+  commitShas?: string[];
 }
+
+export type CompletePublishedDeliveryTarget = PublishedDeliveryTarget & { commitShas: string[] };
 
 /** An immutable leader authorization scoped to one assigned worker and Work occurrence. */
 export interface QuestDeliveryTargetApproval {

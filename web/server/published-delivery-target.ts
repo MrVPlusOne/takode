@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isAbsolute } from "node:path";
-import type { PublishedDeliveryTarget, QuestDeliveryTargetApproval } from "../shared/quest-delivery.js";
+import type {
+  CompletePublishedDeliveryTarget,
+  PublishedDeliveryTarget,
+  QuestDeliveryTargetApproval,
+} from "../shared/quest-delivery.js";
 import type { QuestmasterTask } from "./quest-types.js";
-import { readGit, resolveCommit } from "./git-commit-reader.js";
+import { isAncestor, readGit, resolveCommit } from "./git-commit-reader.js";
 
 export class DeliveryEvidenceError extends Error {
   constructor(
@@ -15,13 +19,13 @@ export class DeliveryEvidenceError extends Error {
 }
 
 /** Reject malformed or oversized target specifications before touching Git or durable state. */
-export function parsePublishedDeliveryTarget(value: unknown): PublishedDeliveryTarget {
+export function parsePublishedDeliveryTarget(value: unknown): CompletePublishedDeliveryTarget {
   const item = value as PublishedDeliveryTarget | undefined;
   if (
     !item ||
     typeof item !== "object" ||
     Array.isArray(item) ||
-    Object.keys(item).some((key) => !["checkoutPath", "remote", "repositoryUrl", "refs"].includes(key)) ||
+    Object.keys(item).some((key) => !["checkoutPath", "remote", "repositoryUrl", "refs", "commitShas"].includes(key)) ||
     typeof item.checkoutPath !== "string" ||
     !isAbsolute(item.checkoutPath) ||
     typeof item.remote !== "string" ||
@@ -35,6 +39,18 @@ export function parsePublishedDeliveryTarget(value: unknown): PublishedDeliveryT
   ) {
     throw new DeliveryEvidenceError(
       "Expected an absolute checkoutPath, remote, repositoryUrl and 1-100 exact published refs.",
+      400,
+    );
+  }
+  if (
+    !Array.isArray(item.commitShas) ||
+    item.commitShas.length === 0 ||
+    item.commitShas.length > 100 ||
+    item.commitShas.some((sha) => typeof sha !== "string" || !/^[a-f0-9]{40}$/.test(sha)) ||
+    new Set(item.commitShas).size !== item.commitShas.length
+  ) {
+    throw new DeliveryEvidenceError(
+      "Supply commitShas as the complete ordered set of 1-100 unique full lowercase final target commit SHAs, separately from published refs. Head-only approvals remain historical; ask the leader for a fresh complete-set approval.",
       400,
     );
   }
@@ -62,6 +78,7 @@ export function parsePublishedDeliveryTarget(value: unknown): PublishedDeliveryT
     remote: item.remote,
     repositoryUrl: item.repositoryUrl,
     refs: item.refs.map(({ ref, sha }) => ({ ref, sha })),
+    commitShas: [...item.commitShas],
   };
 }
 
@@ -93,7 +110,7 @@ export function resolveDeliveryTargetApproval(input: {
   deliveryTargetId: string;
   existing?: Pick<QuestmasterTask, "deliveryTargetApprovals">;
   commitShas: string[];
-}): QuestDeliveryTargetApproval {
+}): QuestDeliveryTargetApproval & { target: CompletePublishedDeliveryTarget } {
   const approval = input.existing?.deliveryTargetApprovals?.find((item) => item.id === input.deliveryTargetId);
   if (
     !approval ||
@@ -111,16 +128,15 @@ export function resolveDeliveryTargetApproval(input: {
     throw new DeliveryEvidenceError(
       "Stored delivery target approval is invalid; ask the assigned leader to record a fresh approval.",
     );
-  const shas = [...new Set(target.refs.map((entry) => entry.sha))];
-  if (JSON.stringify(input.commitShas) !== JSON.stringify(shas))
+  if (JSON.stringify(input.commitShas) !== JSON.stringify(target.commitShas))
     throw new DeliveryEvidenceError(
-      "Commit evidence must exactly match the approved published refs in delivery order.",
+      "Commit evidence must exactly match the complete approved commitShas in order, not merely the published branch heads.",
     );
   return { ...approval, target };
 }
 
 /** Read-only verification: exact remote heads plus local commit objects, without fetching or moving any ref. */
-export async function verifyPublishedDeliveryTarget(target: PublishedDeliveryTarget): Promise<void> {
+export async function verifyPublishedDeliveryTarget(target: CompletePublishedDeliveryTarget): Promise<void> {
   const label = `${target.checkoutPath} (${target.remote})`;
   try {
     const root = await readGit(target.checkoutPath, ["rev-parse", "--show-toplevel"]);
@@ -137,6 +153,19 @@ export async function verifyPublishedDeliveryTarget(target: PublishedDeliveryTar
       await readGit(target.checkoutPath, ["check-ref-format", ref]);
       if ((await resolveCommit(target.checkoutPath, sha)) !== sha)
         throw new DeliveryEvidenceError(`Published commit ${sha} is unavailable in ${label}.`);
+    }
+    for (const sha of target.commitShas) {
+      if ((await resolveCommit(target.checkoutPath, sha)) !== sha)
+        throw new DeliveryEvidenceError(`Delivered commit ${sha} is unavailable in ${label}.`);
+      let published = false;
+      for (const head of target.refs) {
+        if (await isAncestor(target.checkoutPath, sha, head.sha)) {
+          published = true;
+          break;
+        }
+      }
+      if (!published)
+        throw new DeliveryEvidenceError(`Delivered commit ${sha} is not reachable from an approved published head.`);
     }
   } catch (error) {
     if (error instanceof DeliveryEvidenceError) throw error;

@@ -9,9 +9,13 @@ it never pushes, moves a branch, repairs another quest, or changes session targe
 
 Target JSON: { "checkoutPath": "/absolute/independent-checkout", "remote": "origin",
   "repositoryUrl": "https://example.com/team/project.git",
-  "refs": [{ "ref": "refs/heads/user/change", "sha": "<full lowercase SHA>" }] }
-List refs in delivery order. Each exact head must exist locally and at the remote.
-The worker supplies --delivery-target <approval-id> alongside the exact --commits
+  "refs": [{ "ref": "refs/heads/user/change", "sha": "<published head SHA>" }],
+  "commitShas": ["<first final Work commit SHA>", "<last final Work commit SHA>"] }
+List all relevant final target commits in delivery order, separately from ref heads.
+Both lists require full lowercase SHAs. Each commit must be reachable from an exact
+published head. Use Work/publication receipts to establish the complete set; exclude
+unrelated ancestors and discarded pre-squash increments. Git does not infer ownership.
+The worker supplies --delivery-target <approval-id> alongside that exact --commits
 on record-work-delivery or work-to-memory, without --preparation or --no-code.
 Use delivery-targets --target for the full persisted approval, including paths/refs.
 `;
@@ -32,11 +36,20 @@ export async function handleDeliveryTarget(base: string, action: string, args: s
     const result = (await apiPost(base, "/takode/board/approve-delivery-target", { questId, target })) as {
       approvalId: string;
       refCount: number;
+      commitCount: number;
     };
-    if (flags.json) console.log(JSON.stringify({ questId, approvalId: result.approvalId, refCount: result.refCount }));
+    if (flags.json)
+      console.log(
+        JSON.stringify({
+          questId,
+          approvalId: result.approvalId,
+          refCount: result.refCount,
+          commitCount: result.commitCount,
+        }),
+      );
     else
       console.log(
-        `${questId}: approved delivery target ${result.approvalId} (${result.refCount} refs). Worker: use --delivery-target ${result.approvalId} with the approved commits.`,
+        `${questId}: approved delivery target ${result.approvalId} (${result.refCount} refs; ${result.commitCount} commits). Worker: use --delivery-target ${result.approvalId} with the complete approved commit list.`,
       );
     return;
   }
@@ -47,23 +60,35 @@ export async function handleDeliveryTarget(base: string, action: string, args: s
     `/takode/board/delivery-targets/${questId}${flags.target ? `/${flags.target}` : ""}`,
   )) as {
     approval?: unknown;
-    approvals?: Array<{ id: string; approvedAt: number; phaseOccurrenceId: string; refCount: number }>;
+    approvals?: Array<{
+      id: string;
+      approvedAt: number;
+      phaseOccurrenceId: string;
+      refCount: number;
+      commitCount: number | null;
+    }>;
   };
   if (flags.target) {
     console.log(JSON.stringify({ questId, approval: result.approval }, null, flags.json ? undefined : 2));
   } else {
     const approvals =
-      result.approvals?.map(({ id, approvedAt, phaseOccurrenceId, refCount }) => ({
+      result.approvals?.map(({ id, approvedAt, phaseOccurrenceId, refCount, commitCount }) => ({
         id,
         approvedAt,
         phaseOccurrenceId,
         refCount,
+        commitCount,
       })) ?? [];
     if (flags.json) console.log(JSON.stringify({ questId, approvals }));
     else
       console.log(
         approvals.length
-          ? approvals.map((item) => `${item.id} (${item.refCount} refs; ${item.phaseOccurrenceId})`).join("\n")
+          ? approvals
+              .map(
+                (item) =>
+                  `${item.id} (${item.refCount} refs; ${item.commitCount ?? "unrecorded"} commits; ${item.phaseOccurrenceId})`,
+              )
+              .join("\n")
           : `${questId}: no independent delivery target approvals.`,
       );
   }

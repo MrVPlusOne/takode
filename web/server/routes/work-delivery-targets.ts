@@ -57,7 +57,12 @@ export function registerWorkDeliveryTargetRoutes(api: Hono, deps: WorkDeliveryRo
       };
       const updated = await questStore.appendQuestDeliveryTargetApproval(questId, approval);
       if (!updated) throw new DeliveryEvidenceError("Quest no longer exists.");
-      return c.json({ questId, approvalId: approval.id, refCount: target.refs.length });
+      return c.json({
+        questId,
+        approvalId: approval.id,
+        refCount: target.refs.length,
+        commitCount: target.commitShas.length,
+      });
     } catch (error) {
       if (error instanceof DeliveryEvidenceError) return c.json({ error: error.message }, error.status);
       console.warn("[delivery-target] Approval failed:", error);
@@ -85,6 +90,7 @@ export function registerWorkDeliveryTargetRoutes(api: Hono, deps: WorkDeliveryRo
         approvedAt: item.approvedAt,
         phaseOccurrenceId: item.phaseOccurrenceId,
         refCount: item.target.refs.length,
+        commitCount: item.target.commitShas?.length ?? null,
       })),
     });
   });

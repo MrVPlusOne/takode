@@ -5,6 +5,7 @@ import { verifyReplacementWorkEvidence, type WorkEvidenceTargetCaller } from "./
 import { inspectPort, ownedPlan, verifyReview, type PortTrackingContext } from "./port-tracking.js";
 import {
   DeliveryEvidenceError,
+  parsePublishedDeliveryTarget,
   resolveDeliveryTargetApproval,
   verifyPublishedDeliveryTarget,
 } from "./published-delivery-target.js";
@@ -40,7 +41,7 @@ export async function buildCodeDelivery(input: {
           branch: lastRef.ref.slice("refs/heads/".length),
           mode: "published" as const,
           headSha: lastRef.sha,
-          commitShas: [...new Set(approval.target.refs.map((entry) => entry.sha))],
+          commitShas: approval.target.commitShas,
         }
       : await verifyReplacementWorkEvidence(input.caller, input.commitShas);
   if ("error" in verified) {
@@ -146,7 +147,8 @@ async function assertDeliveryHead(target: QuestCodeDelivery["target"], expected:
   if (target.mode === "published") {
     if (!target.publication)
       throw new DeliveryEvidenceError("Published delivery lacks its approved target descriptor.");
-    await verifyPublishedDeliveryTarget(target.publication);
+    const { approvalId: _approvalId, ...publication } = target.publication;
+    await verifyPublishedDeliveryTarget(parsePublishedDeliveryTarget(publication));
     return;
   }
   const [branch, head] = await Promise.all([

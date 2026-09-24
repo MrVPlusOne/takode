@@ -37,12 +37,14 @@ it("routes the leader command, reads exact target JSON and emits only operationa
     remote: "origin",
     repositoryUrl: "https://example.com/repo.git",
     refs: [{ ref: "refs/heads/user/change", sha }],
+    commitShas: ["a".repeat(40), "b".repeat(40), sha],
   };
   const path = join(root, "target.json");
   writeFileSync(path, JSON.stringify(target));
   vi.mocked(apiPost).mockResolvedValue({
     approvalId: id,
     refCount: 1,
+    commitCount: 3,
     injectedSystemPrompt: "hidden".repeat(10000),
     target,
   });
@@ -55,6 +57,7 @@ it("routes the leader command, reads exact target JSON and emits only operationa
     questId: "q-1",
     approvalId: id,
     refCount: 1,
+    commitCount: 3,
   });
 });
 
@@ -66,6 +69,7 @@ it("keeps list output compact and reveals persisted target detail only by explic
         approvedAt: 1,
         phaseOccurrenceId: "work-occurrence",
         refCount: 3,
+        commitCount: 5,
         target: { checkoutPath: "/hidden/source" },
         injectedSystemPrompt: "hidden".repeat(10000),
       },
@@ -73,7 +77,13 @@ it("keeps list output compact and reveals persisted target detail only by explic
   });
   await handleDeliveryTarget("http://fixture", "delivery-targets", ["q-1", "--json"]);
   const compact = JSON.parse(vi.mocked(console.log).mock.calls[0]![0] as string);
-  expect(compact.approvals[0]).toEqual({ id, approvedAt: 1, phaseOccurrenceId: "work-occurrence", refCount: 3 });
+  expect(compact.approvals[0]).toEqual({
+    id,
+    approvedAt: 1,
+    phaseOccurrenceId: "work-occurrence",
+    refCount: 3,
+    commitCount: 5,
+  });
   vi.mocked(apiGet).mockResolvedValue({ approval: { id, target: { checkoutPath: "/explicit/source" } } });
   await handleDeliveryTarget("http://fixture", "delivery-targets", ["q-1", "--target", id, "--json"]);
   expect(apiGet).toHaveBeenLastCalledWith("http://fixture", `/takode/board/delivery-targets/q-1/${id}`);

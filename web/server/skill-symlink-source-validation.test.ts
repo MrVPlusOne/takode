@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ensureSkillSymlinks, type SkillSymlinkRoots } from "./skill-symlink.js";
@@ -46,6 +46,22 @@ function validSkillContent(name: string, body: string): string {
 }
 
 describe("skill source payload validation", () => {
+  it("loads the current porting recipe through both installed skill paths", async () => {
+    // Protect source selection and relative reference loading, not duplicated instruction sentences.
+    const installation = await makeInstallation();
+    const source = join(PROJECT_ROOT, ".claude", "skills", "worktree-rules");
+    await cp(source, join(installation.repoClaudeHome, "worktree-rules"), { recursive: true });
+    await ensureSkillSymlinks(["worktree-rules"], installation.roots);
+    const expected = await readFile(join(source, "references", "port-tracking.md"), "utf8");
+    for (const skillHome of [installation.roots.claudeSkillsHome, installation.roots.agentsSkillsHome]) {
+      const installed = join(skillHome, "worktree-rules");
+      expect(await readFile(join(installed, "SKILL.md"), "utf8")).toBe(
+        await readFile(join(source, "SKILL.md"), "utf8"),
+      );
+      expect(await readFile(join(installed, "references", "port-tracking.md"), "utf8")).toBe(expected);
+    }
+  });
+
   it("falls back from an empty agent source and exposes the canonical skill through the installed path", async () => {
     // This exercises the real filesystem path selection in disposable roots and
     // proves the installed non-Claude link exposes the current canonical guidance.

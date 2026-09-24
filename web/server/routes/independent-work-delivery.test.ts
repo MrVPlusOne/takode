@@ -1,18 +1,22 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { fileURLToPath } from "node:url";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardRow } from "../session-types.js";
-import type { PublishedDeliveryTarget } from "../../shared/quest-delivery.js";
+import type { CompletePublishedDeliveryTarget } from "../../shared/quest-delivery.js";
 
 const home = vi.hoisted(() => ({ path: "" }));
 vi.mock("node:os", async (original) => ({ ...(await original<typeof import("node:os")>()), homedir: () => home.path }));
 let root: string;
 let inherited: string;
 let source: string;
-let target: PublishedDeliveryTarget;
+let target: CompletePublishedDeliveryTarget;
 let store: typeof import("../quest-store.js");
 let app: Hono;
 let row: BoardRow;
@@ -56,7 +60,7 @@ async function approve(spec = target): Promise<string> {
 }
 function evidence(id?: string) {
   return {
-    commitShas: [...new Set(target.refs.map((entry) => entry.sha))],
+    commitShas: [...target.commitShas],
     workFeedbackIndex: 0,
     ...(id ? { deliveryTargetId: id } : {}),
   };
@@ -73,11 +77,12 @@ beforeEach(async () => {
   const remote = join(root, "published.git");
   git(root, "init", "--bare", remote);
   git(source, "remote", "add", "origin", remote);
-  target = { checkoutPath: source, remote: "origin", repositoryUrl: remote, refs: [] };
+  target = { checkoutPath: source, remote: "origin", repositoryUrl: remote, refs: [], commitShas: [] };
   for (const name of ["runtime", "eval", "training"]) {
     const sha = commit(source, name);
     const ref = `refs/heads/user/${name}`;
     target.refs.push({ ref, sha });
+    target.commitShas.push(sha);
   }
   git(source, "push", "--atomic", "origin", ...target.refs.map(({ ref, sha }) => `${sha}:${ref}`));
   // Deliberately keep the checkout on integration, not on any published branch.
@@ -182,6 +187,151 @@ afterEach(() => {
 });
 
 describe("independent published delivery through real guarded routes", () => {
+  it("runs the normal CLI approval, recording and Memory commands against isolated real handlers", async () => {
+    // Real CLI subprocesses talk only to this ephemeral loopback server and disposable Questmaster/Git stores.
+    target.refs = [target.refs.at(-1)!];
+    const targetPath = join(root, "complete-target.json");
+    writeFileSync(targetPath, JSON.stringify(target));
+    const server = createServer(async (request, response) => {
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      if (request.url === "/api/takode/me") {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ isOrchestrator: caller === "leader" }));
+        return;
+      }
+      const result = await app.request(request.url!.replace(/^\/api/, ""), {
+        method: request.method,
+        ...(body ? { body } : {}),
+      });
+      response.writeHead(result.status, { "content-type": "application/json" });
+      response.end(await result.text());
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    const script = fileURLToPath(new URL("../../bin/takode.ts", import.meta.url));
+    const run = async (args: string[]) => {
+      const child = spawn(process.execPath, [script, "board", ...args, "--json", "--port", String(port)], {
+        cwd: root,
+        env: { ...process.env, COMPANION_SESSION_ID: caller, COMPANION_AUTH_TOKEN: "fixture-token" },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk;
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+      const [code] = await once(child, "close");
+      expect(code, stderr || stdout).toBe(0);
+      return JSON.parse(stdout);
+    };
+    try {
+      caller = "leader";
+      const approval = await run(["approve-delivery-target", questId, "--target-file", targetPath]);
+      expect(approval).toMatchObject({ refCount: 1, commitCount: 3 });
+      caller = "worker";
+      const args = [
+        questId,
+        "--work-note",
+        "0",
+        "--commits",
+        target.commitShas.join(","),
+        "--delivery-target",
+        approval.approvalId,
+      ];
+      const recording = await run(["record-work-delivery", ...args]);
+      expect(recording.commitShas).toEqual(target.commitShas);
+      await run(["work-to-memory", ...args]);
+      expect(row.status).toBe("MEMORY");
+      expect((await store.getQuest(questId))?.commitShas).toEqual(target.commitShas);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("preserves historical head-only approval and delivery data while requiring a fresh complete-set approval", async () => {
+    // Seed an authentic old-shaped record in the disposable store; never backfill or rewrite it during lookup.
+    const { commitShas: _commits, ...legacyTarget } = target;
+    legacyTarget.refs = [legacyTarget.refs.at(-1)!];
+    const { deliveryTargetApprovalId } = await import("../published-delivery-target.js");
+    const { readCommitSummary } = await import("../git-commit-reader.js");
+    const scope = {
+      leaderSessionId: "leader",
+      workerSessionId: "worker",
+      phaseOccurrenceId: "board-leader-100:p2",
+      target: legacyTarget,
+    };
+    const id = deliveryTargetApprovalId(questId, scope);
+    const approval = { ...scope, id, approvedAt: 100 };
+    await store.appendQuestDeliveryTargetApproval(questId, approval);
+    const head = legacyTarget.refs[0]!.sha;
+    const delivery = {
+      id: "d".repeat(32),
+      recordedAt: 100,
+      actorSessionId: "worker",
+      phaseOccurrenceId: scope.phaseOccurrenceId,
+      target: {
+        repoRoot: source,
+        checkoutPath: source,
+        branch: "user/training",
+        mode: "published" as const,
+        publication: { ...legacyTarget, approvalId: id },
+      },
+      targetHeadSha: head,
+      commits: [await readCommitSummary(source, head)],
+    };
+    await store.appendQuestCodeCommitEvidenceForOwner(
+      questId,
+      { kind: "takode", sessionId: "worker" },
+      [head],
+      delivery,
+    );
+    const before = JSON.stringify(await store.getQuest(questId));
+    const compact = await (await app.request(`/takode/board/delivery-targets/${questId}`)).json();
+    expect(compact.approvals[0]).toMatchObject({ id, refCount: 1, commitCount: null });
+    const details = await (await app.request(`/takode/board/delivery-targets/${questId}/${id}`)).json();
+    expect(details.approval).toEqual(approval);
+    expect((await (await app.request(`/quests/${questId}/deliveries/${delivery.id}`)).json()).commits).toHaveLength(1);
+    const rejected = await post("record-work-delivery", { ...evidence(id), commitShas: [head] });
+    expect(rejected.status).toBe(400);
+    expect((await rejected.json()).error).toContain("fresh complete-set approval");
+    expect(JSON.stringify(await store.getQuest(questId))).toBe(before);
+  });
+
+  it("records all three final commits behind one published head and rejects a head-only handoff", async () => {
+    // Reproduce the omitted implementation: one ref is a publication receipt, not a one-commit Work set.
+    const relevant = [...target.commitShas];
+    target.refs = [target.refs.at(-1)!];
+    const base = git(source, "rev-parse", `${relevant[0]}^`);
+    const id = await approve();
+    const listing = await (await app.request(`/takode/board/delivery-targets/${questId}`)).json();
+    expect(listing.approvals[0]).toMatchObject({ refCount: 1, commitCount: 3 });
+    const incomplete = await post("work-to-memory", { ...evidence(id), commitShas: [relevant[2]] });
+    expect(incomplete.status).toBe(409);
+    expect((await incomplete.json()).error).toContain("complete approved commitShas");
+    expect((await store.getQuest(questId))?.codeDeliveries).toBeUndefined();
+    const recorded = await (await post("record-work-delivery", evidence(id))).json();
+    expect(recorded.delivery.commits.map((item: { sha: string }) => item.sha)).toEqual(relevant);
+    expect(recorded.delivery.commits.map((item: { sha: string }) => item.sha)).not.toContain(base);
+    expect((await post("work-to-memory", evidence(id))).status).toBe(200);
+    const saved = (await store.getQuest(questId))!;
+    expect(saved.commitShas).toEqual(relevant);
+    expect(saved.codeDeliveries).toHaveLength(1);
+    const delivery = saved.codeDeliveries![0]!;
+    expect(delivery.targetHeadSha).toBe(relevant[2]);
+    expect(delivery.target.publication).toMatchObject({ refs: target.refs, commitShas: relevant });
+    for (const sha of relevant) {
+      const view = await (await app.request(`/quests/${questId}/deliveries/${delivery.id}/commits/${sha}`)).json();
+      expect(view).toMatchObject({ sha, available: true });
+      expect(view.diff).toContain("diff --git");
+    }
+  });
+
   it("diagnoses the inherited target, records all published branches and enters Memory after a restart", async () => {
     const inheritedHead = git(inherited, "rev-parse", "HEAD");
     const missing = await post("work-to-memory", evidence());
@@ -230,10 +380,12 @@ describe("independent published delivery through real guarded routes", () => {
     const sha = commit(source, "followup");
     const ref = "refs/heads/user/followup";
     git(source, "push", "origin", `${sha}:${ref}`);
-    target = { ...target, refs: [{ ref, sha }] };
+    target = { ...target, refs: [{ ref, sha }], commitShas: [...oldShas, sha] };
     const second = await approve();
     expect(second).not.toBe(id);
     expect((await post("record-work-delivery", evidence(second))).status).toBe(200);
+    // The approved complete current Work set may include an earlier recorded prefix; only the new suffix is new.
+    expect((await store.getQuest(questId))?.codeDeliveries?.at(-1)?.commits.map((item) => item.sha)).toEqual([sha]);
     expect(
       (await post("work-to-memory", { commitShas: oldShas, workFeedbackIndex: 0, deliveryTargetId: id })).status,
     ).toBe(409);
@@ -277,6 +429,11 @@ describe("independent published delivery through real guarded routes", () => {
     caller = "leader";
     for (const spec of [
       { ...target, refs: [] },
+      { ...target, commitShas: undefined },
+      { ...target, commitShas: [] },
+      { ...target, commitShas: [target.commitShas[0], target.commitShas[0]] },
+      { ...target, commitShas: [target.commitShas[0]!.slice(0, 7)] },
+      { ...target, commitShas: Array.from({ length: 101 }, (_, index) => index.toString(16).padStart(40, "0")) },
       { ...target, injectedSystemPrompt: "bulky".repeat(5000) },
       { ...target, refs: [{ ref: "refs/heads/missing", sha: target.refs[0]!.sha }] },
       { ...target, refs: [{ ref: "refs/heads/bad..ref", sha: target.refs[0]!.sha }] },
@@ -287,6 +444,29 @@ describe("independent published delivery through real guarded routes", () => {
     expect((await post("work-to-memory", { ...evidence(), target })).status).toBe(400);
     expect((await post("record-work-delivery", { ...evidence(), target })).status).toBe(400);
     expect((await store.getQuest(questId))?.deliveryTargetApprovals).toBeUndefined();
+  });
+
+  it("rejects an unpushed or discarded local commit and binds the ordered selection into approval identity", async () => {
+    // Local object existence alone cannot turn pre-squash or unpushed work into delivered evidence.
+    const discarded = commit(source, "discarded-local-increment");
+    caller = "leader";
+    const rejected = await post("approve-delivery-target", { target: { ...target, commitShas: [discarded] } });
+    expect(rejected.status).toBe(409);
+    expect((await rejected.json()).error).toContain("not reachable");
+    const id = await approve();
+    const reordered = await approve({ ...target, commitShas: [...target.commitShas].reverse() });
+    expect(reordered).not.toBe(id);
+    expect(
+      (await post("record-work-delivery", { ...evidence(id), commitShas: [...target.commitShas].reverse() })).status,
+    ).toBe(409);
+    const saved = (await store.getQuest(questId))!;
+    const corrupted = structuredClone(saved);
+    corrupted.deliveryTargetApprovals![0]!.target.commitShas = [target.commitShas[2]!];
+    vi.spyOn(store, "getQuest").mockResolvedValue(corrupted);
+    const response = await post("record-work-delivery", evidence(id));
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toContain("Stored delivery target approval is invalid");
+    expect(saved.commitShas).toBeUndefined();
   });
 
   it.each([
