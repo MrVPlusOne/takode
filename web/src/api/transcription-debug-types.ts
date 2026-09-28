@@ -42,7 +42,7 @@ export interface TranscriptionLogIndexEntry {
   canOpenRecordingDirectory?: boolean;
   openRecordingDirectoryLabel?: string;
   replayAvailability?: {
-    retranscribe: { available: boolean; reason?: string };
+    retranscribe: { available: boolean; reason?: string; warning?: string };
     reenhance: { available: boolean; reason?: string };
   };
   enhancement: {

@@ -185,7 +185,12 @@ export function TranscriptionDebugPanel({
 
   useEffect(() => {
     if (!expandedEntry) return;
-    setReplaySttModel(expandedEntry.sttModel || DEFAULT_TRANSCRIPTION_STT_MODEL);
+    // Older failed requests recorded the backend alias before selecting a model.
+    const missingSourceModel =
+      expandedEntry.sttModel === "openai" && !!expandedEntry.replayAvailability?.retranscribe.warning;
+    setReplaySttModel(
+      missingSourceModel ? DEFAULT_TRANSCRIPTION_STT_MODEL : expandedEntry.sttModel || DEFAULT_TRANSCRIPTION_STT_MODEL,
+    );
     setReplayEnhancementModel(expandedEntry.enhancement?.model || "gpt-5-mini");
     setReplayEnhancementMode("default");
   }, [expandedEntry?.id]);
@@ -776,6 +781,9 @@ export function TranscriptionDebugPanel({
                           )}
                           {expandedEntry.replayAvailability?.retranscribe.reason && (
                             <p className="text-cc-warning">{expandedEntry.replayAvailability.retranscribe.reason}</p>
+                          )}
+                          {expandedEntry.replayAvailability?.retranscribe.warning && (
+                            <p className="text-cc-warning">{expandedEntry.replayAvailability.retranscribe.warning}</p>
                           )}
                           <button
                             type="button"

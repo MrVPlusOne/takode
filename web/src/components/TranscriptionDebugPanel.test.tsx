@@ -222,6 +222,40 @@ describe("TranscriptionDebugPanel", () => {
     );
   });
 
+  it("warns before retrying failed historical audio while keeping re-enhancement unavailable", async () => {
+    // Producer-shaped availability keeps a warning distinct from a blocking reason.
+    const base = await mockApi.getTranscriptionLogEntry();
+    const warning =
+      "Original recognition context is incomplete or missing. Retry uses only saved context; missing vocabulary or hints cannot be recovered.";
+    mockApi.getTranscriptionLogEntry.mockResolvedValue({
+      ...base,
+      status: "error",
+      recordingStatus: "error",
+      sttModel: "openai",
+      rawTranscript: "",
+      replayAvailability: {
+        retranscribe: { available: true, warning },
+        reenhance: { available: false, reason: "Source raw transcript is missing" },
+      },
+    });
+    render(<TranscriptionDebugPanel />);
+    fireEvent.click(screen.getByText("Show"));
+    fireEvent.click(await screen.findByText("gpt-4o-mini-transcribe-alpha-tapioca-4"));
+    fireEvent.click(await screen.findByRole("button", { name: /Replay & compare/i }));
+    expect(screen.getByText(warning)).toBeVisible();
+    expect(screen.getByLabelText(/Target STT model/i)).toHaveValue("gpt-transcribe");
+    expect(screen.getByRole("button", { name: "Run re-enhance" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run re-transcribe" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Run re-transcribe" }));
+    await waitFor(() =>
+      expect(mockApi.retranscribeLogEntry).toHaveBeenCalledWith("r_test-recording", "gpt-transcribe"),
+    );
+    expect(await screen.findByText("replay transcript")).toBeVisible();
+    expect(screen.getByText(warning)).toBeVisible();
+    expect(screen.getAllByText("(empty)")[0]).toBeVisible();
+    expect(mockApi.reenhanceLogEntry).not.toHaveBeenCalled();
+  });
+
   it("runs replay actions immediately without provider confirmations", async () => {
     render(<TranscriptionDebugPanel />);
 

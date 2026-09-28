@@ -1400,7 +1400,7 @@ export interface TranscriptionLogEntry {
   };
   replayVariants?: TranscriptionReplayVariant[];
   replayAvailability?: {
-    retranscribe: { available: boolean; reason?: string };
+    retranscribe: { available: boolean; reason?: string; warning?: string };
     reenhance: { available: boolean; reason?: string };
   };
 }
@@ -1463,10 +1463,12 @@ function getReplayAvailability(entry: StoredTranscriptionLogEntry): Transcriptio
       reenhance: { available: false, reason: "No OpenAI-compatible API key configured" },
     };
   }
-  const missingStructuredSttContext =
-    !entry.sttReplayContext && ((entry.sttContext?.keywordCount ?? 0) > 0 || !!entry.sttContext?.languageHints.length);
-  const retranscribe = missingStructuredSttContext
-    ? { available: false, reason: "Separated STT replay context is missing" }
+  const retranscribe = !entry.sttReplayContext
+    ? {
+        available: true,
+        warning:
+          "Original recognition context is incomplete or missing. Retry uses only saved context; missing vocabulary or hints cannot be recovered.",
+      }
     : { available: true };
   const reenhance = (() => {
     if (!entry.rawTranscript.trim()) return { available: false, reason: "Source raw transcript is missing" };

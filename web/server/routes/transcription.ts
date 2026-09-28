@@ -38,6 +38,7 @@ import * as sessionNames from "../session-names.js";
 import { GPT_TRANSCRIBE_STT_MODEL, getSettings } from "../settings-manager.js";
 import type { RouteContext } from "./context.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
+import type { TranscriptionSttReplayContext } from "../transcription-recordings.js";
 import { buildProjectedThreadEntries } from "../../shared/thread-window.js";
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 
@@ -688,20 +689,23 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           : true,
       };
     }
-    const missingStructuredContext =
-      (source.sttContext?.keywordCount ?? 0) > 0 || !!source.sttContext?.languageHints.length;
-    if (usesGptTranscribeContext && missingStructuredContext) return null;
+    // Older failed attempts retained the prompt and language hints, but only a
+    // count of vocabulary terms. Reuse saved values without inventing the terms.
+    const languageHints = source.sttContext?.languageHints ?? [];
+    const prompt = usesGptTranscribeContext
+      ? source.sttPrompt
+      : buildPromptCompatibleReplayPrompt(source.sttPrompt, [], languageHints);
     return {
       version: 1 as const,
       backend: "openai",
       model: targetModel,
-      prompt: source.sttPrompt,
-      promptLength: source.sttPrompt.length,
+      prompt,
+      promptLength: prompt.length,
       usesGptTranscribeContext,
       promptIncludesCustomVocabulary: true,
       keywords: [] as string[],
       droppedKeywordCount: source.sttContext?.droppedKeywordCount ?? 0,
-      languageHints: [] as string[],
+      languageHints,
     };
   }
 
@@ -734,9 +738,6 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       );
     }
     const sttReplayContext = buildSourceSttReplayContext(sourceOrError, targetModel);
-    if (!sttReplayContext) {
-      return c.json({ error: "Separated STT replay context is missing for this source recording" }, 409);
-    }
 
     const sttStart = Date.now();
     try {
@@ -1057,6 +1058,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     // but the client still treats this pre-response window as distinct from STT.
     let debugSttPrompt = "";
     let debugSttModel = backend;
+    let debugSttReplayContext: TranscriptionSttReplayContext | undefined;
     let debugRawTranscript = "";
     let debugSttContext = { promptLength: 0, keywordCount: 0, droppedKeywordCount: 0, languageHints: [] as string[] };
     return streamSSE(c, async (stream: SSEStreamingApi) => {
@@ -1158,6 +1160,8 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             : undefined;
         debugSttPrompt = sttPrompt;
         debugSttContext = sttContext;
+        debugSttReplayContext = sttReplayContext;
+        debugSttModel = backend === "openai" ? configuredSttModel : backend;
         serverTiming.contextBuildDurationMs = Date.now() - contextBuildStart;
 
         const sttStart = Date.now();
@@ -1564,6 +1568,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           sttDurationMs: 0,
           sttPrompt: debugSttPrompt,
           sttContext: debugSttContext,
+          sttReplayContext: debugSttReplayContext,
           rawTranscript: debugRawTranscript,
           audioSizeBytes: buf.length,
           audioMimeType: audioMimeType ?? uploadFormat.mimeType,

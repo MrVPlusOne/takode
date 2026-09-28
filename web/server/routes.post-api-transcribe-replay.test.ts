@@ -674,6 +674,163 @@ describe("POST /api/transcribe replay and durable discovery", () => {
     ]);
   });
 
+  it.each([
+    "gpt-transcribe",
+    "custom-stt",
+  ])("preserves failed %s source context and model across retry failures and restart", async (sttModel) => {
+    // A rejected provider call used to bypass the successful-path context/model
+    // bookkeeping. Exercise the real upload, persistence, hydration and replay routes.
+    mockVoiceSettings({ sttModel, enhancementEnabled: false, customVocabulary: "SavedTerm", sttLanguageHints: ["en"] });
+    const audio = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]);
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("original network failure"));
+    const sourceResponse = await app.request("/api/transcribe?backend=openai&sessionId=session-1", {
+      method: "POST",
+      body: audio,
+      headers: { "Content-Type": "audio/webm;codecs=opus" },
+    });
+    expect((await parseSSE(sourceResponse)).some((event) => event.event === "error")).toBe(true);
+    const source = transcriptionEnhancer.getTranscriptionLogIndex()[0];
+    expect(source.sttModel).toBe(sttModel);
+    const manifestBefore = await readFile(
+      (await transcriptionEnhancer.getTranscriptionLogEntry(source.id))!.recordingManifestPath!,
+      "utf-8",
+    );
+    // Changes to today's recognition settings must never leak into a saved-source retry.
+    mockVoiceSettings({
+      sttModel: "different-model",
+      enhancementEnabled: false,
+      customVocabulary: "UnrelatedTerm",
+      sttLanguageHints: ["fr"],
+    });
+    transcriptionEnhancer._resetTranscriptionLogForTest();
+    const detail = (await (await app.request(`/api/transcription-logs/${source.recordingKey}`)).json()) as any;
+    expect(detail).toMatchObject({
+      sttModel,
+      status: "error",
+      rawTranscript: "",
+      error: { message: "original network failure" },
+      replayAvailability: {
+        retranscribe: { available: true },
+        reenhance: { available: false, reason: "Source raw transcript is missing" },
+      },
+    });
+    expect(detail.replayAvailability.retranscribe.warning).toBeUndefined();
+    const saved = await transcriptionEnhancer.getTranscriptionReplaySource(source.recordingKey!);
+    expect(saved?.audioBytes).toEqual(Buffer.from(audio));
+    expect(saved?.audioMimeType).toBe("audio/webm;codecs=opus");
+    expect(saved?.sttReplayContext?.model).toBe(sttModel);
+    expect(saved?.sttReplayContext?.keywords).toEqual(sttModel === "gpt-transcribe" ? ["SavedTerm"] : []);
+    const request = {
+      method: "POST",
+      body: JSON.stringify({ sttModel }),
+      headers: { "Content-Type": "application/json" },
+    };
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("retry network failure"));
+    expect((await app.request(`/api/transcription-logs/${source.recordingKey}/retranscribe`, request)).status).toBe(
+      502,
+    );
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ text: "recovered transcript" })));
+    expect((await app.request(`/api/transcription-logs/${source.recordingKey}/retranscribe`, request)).status).toBe(
+      200,
+    );
+    const form = vi.mocked(fetch).mock.calls.at(-1)![1]!.body as FormData;
+    expect(form.get("model")).toBe(sttModel);
+    expect(form.getAll("keywords[]")).toEqual(sttModel === "gpt-transcribe" ? ["SavedTerm"] : []);
+    expect(form.getAll("languages[]")).toEqual(sttModel === "gpt-transcribe" ? ["en"] : []);
+    expect(String(form.get("prompt"))).not.toContain("UnrelatedTerm");
+    expect(new Uint8Array(await (form.get("file") as File).arrayBuffer())).toEqual(audio);
+    transcriptionEnhancer._resetTranscriptionLogForTest();
+    const after = (await (await app.request(`/api/transcription-logs/${source.recordingKey}`)).json()) as any;
+    expect(after.error.message).toBe("original network failure");
+    expect(after.rawTranscript).toBe("");
+    expect(after.replayVariants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: "error", error: { message: "retry network failure", phase: "transcribe" } }),
+        expect.objectContaining({ status: "success", rawTranscript: "recovered transcript" }),
+      ]),
+    );
+    expect(await readFile(after.recordingManifestPath, "utf-8")).toBe(manifestBefore);
+    const index = await (await app.request("/api/transcription-logs?refresh=1")).text();
+    for (const privateText of [
+      "SavedTerm",
+      "original network failure",
+      "recovered transcript",
+      "sttReplayContext",
+      "transcription-secret",
+    ]) {
+      expect(index).not.toContain(privateText);
+    }
+  });
+
+  it.each([
+    { prompt: "Saved source prompt", hints: ["en", "zh-cn"], sttModel: "gpt-transcribe" },
+    { prompt: "Saved source prompt", hints: ["en", "zh-cn"], sttModel: "custom-stt" },
+    { prompt: "", hints: [], sttModel: "gpt-transcribe" },
+    { prompt: "", hints: [], sttModel: "custom-stt" },
+  ])("warns and retries historical context $prompt against $sttModel", async ({ prompt, hints, sttModel }) => {
+    // Reproduce the former catch-handler artifacts, including an unknown vocabulary
+    // count. No source context is synthesized from current settings or session state.
+    mockVoiceSettings({ customVocabulary: "UnrelatedTerm", sttLanguageHints: ["fr"] });
+    const source = await transcriptionEnhancer.addTranscriptionLogEntry({
+      status: "error",
+      sessionId: null,
+      mode: "dictation",
+      backend: "openai",
+      uploadDurationMs: 1,
+      sttModel: "openai",
+      sttDurationMs: 0,
+      sttPrompt: prompt,
+      sttContext: prompt
+        ? { promptLength: prompt.length, keywordCount: 8, droppedKeywordCount: 0, languageHints: hints }
+        : undefined,
+      rawTranscript: "",
+      audioSizeBytes: 4,
+      audioMimeType: "audio/webm;codecs=opus",
+      audioFileName: "source.webm",
+      audioExtension: "webm",
+      audioBytes: Buffer.from([0x1a, 0x45, 0xdf, 0xa3]),
+      enhancement: null,
+      error: { message: "original network failure", phase: "transcribe" },
+    });
+    expect(source.replayAvailability?.retranscribe).toMatchObject({
+      available: true,
+      warning: expect.stringContaining("only saved context"),
+    });
+    transcriptionEnhancer._resetTranscriptionLogForTest();
+    const detail = (await (await app.request(`/api/transcription-logs/${source.recordingKey}`)).json()) as any;
+    expect(detail.replayAvailability.retranscribe).toEqual(source.replayAvailability?.retranscribe);
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ text: "historical retry" })));
+    const replay = await app.request(`/api/transcription-logs/${source.recordingKey}/retranscribe`, {
+      method: "POST",
+      body: JSON.stringify({ sttModel }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(replay.status).toBe(200);
+    const form = vi.mocked(fetch).mock.calls[0][1]!.body as FormData;
+    expect(form.get("model")).toBe(sttModel);
+    expect(form.getAll("keywords[]")).toEqual([]);
+    expect(form.getAll("languages[]")).toEqual(sttModel === "gpt-transcribe" ? hints : []);
+    const expectedPrompt =
+      sttModel === "custom-stt" && hints.length ? prompt + "\n\nExpected input languages: en, zh-cn" : prompt;
+    expect(form.get("prompt")).toBe(expectedPrompt || null);
+    expect(
+      (await app.request(`/api/transcription-logs/${source.recordingKey}/reenhance`, { method: "POST" })).status,
+    ).toBe(409);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    // Optional context may be absent; source audio remains mandatory.
+    await rm(join(source.recordingDirectoryPath!, "audio.webm"));
+    transcriptionEnhancer._resetTranscriptionLogForTest();
+    const missingAudio = (await (await app.request(`/api/transcription-logs/${source.recordingKey}`)).json()) as any;
+    expect(missingAudio.replayAvailability.retranscribe).toEqual({
+      available: false,
+      reason: "Source audio is missing",
+    });
+    expect(
+      (await app.request(`/api/transcription-logs/${source.recordingKey}/retranscribe`, { method: "POST" })).status,
+    ).toBe(409);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("hydrates preview-bounded list, detail, audio, replay, aliases, and tombstones after restart", async () => {
     const sourceModel = "org/private";
     const sourceMimeType = "audio/webm;codecs=opus";
@@ -797,6 +954,10 @@ describe("POST /api/transcribe replay and durable discovery", () => {
       expect(entry.previewText).toBeUndefined();
       const audioRes = await app.request(`/api/transcription-logs/${entry.recordingKey}/audio`);
       expect(audioRes.status).toBe(409);
+      expect(
+        (await app.request(`/api/transcription-logs/${entry.recordingKey}/retranscribe`, { method: "POST" })).status,
+      ).toBe(409);
+      expect(fetch).not.toHaveBeenCalled();
       await expect(audioRes.json()).resolves.toMatchObject({ code: `recording_${entry.discoveryState}` });
     }
     const unknown = await app.request("/api/transcription-logs/r_dW5rbm93bi9yZWNvcmQ/audio");
