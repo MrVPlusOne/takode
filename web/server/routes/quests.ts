@@ -344,10 +344,28 @@ function findActiveV2BoardRowsForQuest(
   return rows;
 }
 
-function countFinalMemoryStatements(quest: QuestmasterTask, workerSessionId: string): number {
+function countFinalMemoryStatements(
+  quest: QuestmasterTask,
+  workerSessionId: string,
+  currentBoardRow: QuestBoardRowCandidate,
+): number {
+  // Use the same identity as phase-note creation, including retained occurrence IDs.
+  // Resolving this snapshot is read-only; historical runs and feedback remain intact.
+  const { entryPatch: scope } = resolveQuestFeedbackDocumentation({
+    quest,
+    authorSessionId: workerSessionId,
+    request: {},
+    boardRows: [currentBoardRow],
+  });
+  if (scope.phaseId !== "memory" || !scope.journeyRunId || !scope.phaseOccurrenceId) return 0;
   return liveQuestFeedbackEntries(quest.feedback)
     .filter(
-      (entry) => entry.author === "agent" && entry.authorSessionId === workerSessionId && entry.phaseId === "memory",
+      (entry) =>
+        entry.author === "agent" &&
+        entry.authorSessionId === workerSessionId &&
+        entry.phaseId === "memory" &&
+        entry.journeyRunId === scope.journeyRunId &&
+        entry.phaseOccurrenceId === scope.phaseOccurrenceId,
     )
     .reduce((count, entry) => count + [...entry.text.matchAll(FINAL_MEMORY_STATEMENT_RE)].length, 0);
 }
@@ -564,7 +582,7 @@ export function createQuestRoutes(ctx: RouteContext) {
         headers: { "content-type": "application/json" },
       });
     }
-    const memoryStatementCount = countFinalMemoryStatements(currentQuest, workerSessionId);
+    const memoryStatementCount = countFinalMemoryStatements(currentQuest, workerSessionId, { leaderSessionId, row });
     if (memoryStatementCount !== 1) {
       return new Response(
         JSON.stringify({
