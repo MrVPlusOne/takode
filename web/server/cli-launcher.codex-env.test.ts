@@ -45,7 +45,7 @@ vi.mock("./codex-adapter.js", () => ({
 }));
 
 import { SessionStore } from "./session-store.js";
-import { CliLauncher } from "./cli-launcher.js";
+import { CliLauncher, type LaunchOptions } from "./cli-launcher.js";
 
 function createMockCodexProc(pid = 12345) {
   let resolve: (code: number) => void;
@@ -168,6 +168,78 @@ it("passes derived Codex reasoning summary mode through to adapter options", asy
 });
 
 describe("Codex launch env", () => {
+  it.each<[string, LaunchOptions]>([
+    ["worker", { codexMultiAgentVersion: "v2" }],
+    ["reviewer", { codexMultiAgentVersion: "v1" }],
+    ["leader", { isOrchestrator: true }],
+    [
+      "hidden delegate",
+      {
+        isOrchestrator: true,
+        hidden: true,
+        publicSessionNumber: false,
+        parentSessionId: "parent-session",
+        env: {
+          TAKODE_ROLE: "orchestrator",
+          TAKODE_DELEGATE_ROLE: "child",
+          TAKODE_DELEGATE_ID: "del_memory_policy",
+          TAKODE_DELEGATE_PARENT_SESSION_ID: "parent-session",
+        },
+      },
+    ],
+  ])("disables built-in memory on %s launch and relaunch without changing saved memory policy or data", async (_role, roleOptions) => {
+    // Every managed role uses the real launcher. Existing homes may explicitly
+    // enable memory; process overrides must win without rewriting user policy.
+    const legacyHome = join(tempDir, "standalone");
+    const customHome = join(tempDir, "managed");
+    const sessionHome = join(customHome, "test-session-id");
+    const enabledConfig = "[features]\nmemories = true\n[memories]\ngenerate_memories = true\nuse_memories = true\n";
+    mkdirSync(legacyHome, { recursive: true });
+    mkdirSync(join(sessionHome, "memories"), { recursive: true });
+    writeFileSync(join(legacyHome, "config.toml"), enabledConfig);
+    writeFileSync(join(sessionHome, "config.toml"), enabledConfig);
+    const memoryPath = join(sessionHome, "memories", "MEMORY.md");
+    const databasePath = join(sessionHome, "memories_1.sqlite");
+    writeFileSync(memoryPath, "retained native memory\n");
+    writeFileSync(databasePath, "retained database bytes\n");
+    mockLegacyCodexHome.mockReturnValue(legacyHome);
+
+    const session = await launcher.launch({
+      backendType: "codex",
+      cwd: tempDir,
+      codexHome: customHome,
+      permissionMode: "codex-custom",
+      ...roleOptions,
+    });
+    await waitForSpawnCalls(1);
+    expect(await launcher.relaunch(session.sessionId)).toEqual({ ok: true });
+    await waitForSpawnCalls(2);
+
+    const codexCommands = mockSpawn.mock.calls
+      .map(([args]) => args)
+      .filter((args): args is string[] => Array.isArray(args) && args.includes("app-server"));
+    expect(codexCommands).toHaveLength(2);
+    for (const args of codexCommands) {
+      for (const key of ["features.memories", "memories.generate_memories", "memories.use_memories"]) {
+        const index = args.indexOf(`${key}=false`);
+        expect(index).toBeGreaterThan(0);
+        expect(args[index - 1]).toBe("-c");
+        expect(args.filter((arg: string) => arg.startsWith(`${key}=`))).toEqual([`${key}=false`]);
+      }
+      expect(args).not.toContain("-a");
+      expect(args).not.toContain("-s");
+    }
+    expect(readFileSync(join(legacyHome, "config.toml"), "utf-8")).toBe(enabledConfig);
+    const savedConfig = Bun.TOML.parse(readFileSync(join(sessionHome, "config.toml"), "utf-8"));
+    expect(savedConfig).toMatchObject({
+      features: { memories: true, multi_agent: true },
+      memories: { generate_memories: true, use_memories: true },
+    });
+    if (roleOptions.isOrchestrator) expect(savedConfig).toHaveProperty("mcp_servers.takode_delegate");
+    expect(readFileSync(memoryPath, "utf-8")).toBe("retained native memory\n");
+    expect(readFileSync(databasePath, "utf-8")).toBe("retained database bytes\n");
+  });
+
   it("enables Codex native multi-agent support in per-session config", async () => {
     const customHome = mkdtempSync(join(tempDir, "codex-home-test-"));
     const sessionHome = join(customHome, "test-session-id");
@@ -260,6 +332,10 @@ describe("Codex launch env", () => {
     expect(innerScript).toContain("multi_agent_v2 = true");
     expect(innerScript).toContain('"multi_agent_version": "v2"');
     expect(innerScript).toContain("/root/.codex/takode-model-catalog.json");
+    // Docker runs the same process policy, even with a separately materialized config.
+    for (const key of ["features.memories", "memories.generate_memories", "memories.use_memories"]) {
+      expect(innerScript).toContain(`'-c' '${key}=false'`);
+    }
   });
 
   it("passes explicit OPENAI_API_KEY through host Codex env when no session auth.json is available", async () => {

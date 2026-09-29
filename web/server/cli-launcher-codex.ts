@@ -21,6 +21,7 @@ import { homedir, hostname } from "node:os";
 import { getLegacyCodexHome, resolveCompanionCodexHome, resolveCompanionCodexSessionHome } from "./codex-home.js";
 import { seedCodexResumeRollout } from "./codex-resume-rollout.js";
 import { codexComputerUseLaunchArgs } from "./codex-computer-use.js";
+import { resolveCodexLaunchPolicy, type CodexSandboxMode } from "./codex-launch-policy.js";
 import {
   NON_INTERACTIVE_GIT_EDITOR_ENV_KEYS,
   stripInheritedTelemetryEnv,
@@ -103,8 +104,6 @@ const containerTakodeNonLeaderModelCatalogPath = "/root/.codex/takode-model-cata
 const containerTakodeLeaderModelCatalogPath = "/root/.codex/takode-leader-model-catalog.json";
 
 type HostCodexBinaryKind = "native" | "dotslash" | "bootstrap";
-type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
-type CodexApprovalPolicy = "never" | "untrusted" | "on-request" | "on-failure";
 const hostLaunchBinaryCache = new Map<string, TimedPromiseCacheEntry<{ binary: string; dotslashCache?: string }>>();
 const legacySkillMigrationCache = new Map<string, TimedPromiseCacheEntry<void>>();
 let spawnPrepCacheStats: CodexSpawnPrepCacheStats = {
@@ -270,39 +269,6 @@ async function setTimedPromiseCacheEntry<T>(
       cache.delete(key);
     }
     throw error;
-  }
-}
-
-function mapCodexApprovalPolicy(permissionMode?: string, askPermission?: boolean): CodexApprovalPolicy | undefined {
-  switch (permissionMode) {
-    case "codex-custom":
-      return undefined;
-    case "codex-default":
-      return "on-request";
-    case "codex-auto-review":
-      return "on-request";
-    case "codex-full-access":
-      return "never";
-  }
-
-  const effectiveAskPermission =
-    typeof askPermission === "boolean" ? askPermission : permissionMode !== "bypassPermissions";
-  if (!effectiveAskPermission) return "never";
-  return permissionMode === "bypassPermissions" ? "never" : "untrusted";
-}
-
-function resolveCodexSandbox(permissionMode?: string, requested?: CodexSandboxMode): CodexSandboxMode | undefined {
-  if (permissionMode === "codex-custom") return undefined;
-  if (requested) return requested;
-  switch (permissionMode) {
-    case "codex-auto-review":
-      return "workspace-write";
-    case "codex-full-access":
-    case "bypassPermissions":
-      return "danger-full-access";
-    case "codex-default":
-    default:
-      return "workspace-write";
   }
 }
 
@@ -1642,8 +1608,7 @@ export async function prepareCodexSpawn(
       dotslashCache = hostLaunchBinary.dotslashCache;
     }
 
-    const approvalPolicy = mapCodexApprovalPolicy(options.permissionMode, options.askPermission);
-    const sandboxMode = resolveCodexSandbox(options.permissionMode, options.codexSandbox);
+    const { args, sandboxMode } = resolveCodexLaunchPolicy(options);
 
     const codexHome = resolveCompanionCodexSessionHome(sessionId, codexHomeRoot);
     const resumeRolloutSourceHomes = options.codexResumeSourceSessionId
@@ -1791,27 +1756,7 @@ export async function prepareCodexSpawn(
             resolveMaiWrapperSessionLaunchSpec(maiWrapperHostSpec, sessionId, codexHome, options),
           )
         : null;
-    const args: string[] = [];
-    if (options.codexMultiAgentVersion) {
-      args.push(options.codexMultiAgentVersion === "v2" ? "--enable" : "--disable", codexMultiAgentV2Feature);
-    }
-    args.push("-c", `tools.webSearch=${options.codexInternetAccess === true ? "true" : "false"}`);
-    if (options.model) {
-      args.push("-c", `model=${options.model}`);
-    }
-    if (options.codexReasoningEffort) {
-      args.push("-c", `model_reasoning_effort=${options.codexReasoningEffort}`);
-    }
     appendCodexContextLaunchArgs(args, contextLaunchConfig);
-    if (options.permissionMode === "codex-auto-review") {
-      args.push("-c", "approvals_reviewer=auto_review");
-    }
-    if (approvalPolicy) {
-      args.push("-a", approvalPolicy);
-    }
-    if (sandboxMode) {
-      args.push("-s", sandboxMode);
-    }
     if (reasoningSummaryLaunchMode) {
       args.push("-c", `model_reasoning_summary=${reasoningSummaryLaunchMode}`);
     }

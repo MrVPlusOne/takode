@@ -1929,7 +1929,7 @@ describe("launch", () => {
       expect(innerScript).toContain("model_context_window = 1444445");
       expect(innerScript).toContain("model_auto_compact_token_limit = 1300000");
       expect(innerScript).toContain(
-        "exec 'codex' '--disable' 'multi_agent_v2' '-c' 'tools.webSearch=false' '-c' 'model=gpt-5.6-sol' '-a'",
+        "exec 'codex' '-c' 'features.memories=false' '-c' 'memories.generate_memories=false' '-c' 'memories.use_memories=false' '--disable' 'multi_agent_v2' '-c' 'tools.webSearch=false' '-c' 'model=gpt-5.6-sol' '-a'",
       );
     } finally {
       rmSync(customHome, { recursive: true, force: true });

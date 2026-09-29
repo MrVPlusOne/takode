@@ -594,7 +594,13 @@ describe("Codex spawn preparation", () => {
 
       const [cmdAndArgs] = mockSpawn.mock.calls[0];
       expect(cmdAndArgs[0]).toBe(fakeCodex);
-      expect(cmdAndArgs.slice(1, 9)).toEqual([
+      expect(cmdAndArgs.slice(1, 15)).toEqual([
+        "-c",
+        "features.memories=false",
+        "-c",
+        "memories.generate_memories=false",
+        "-c",
+        "memories.use_memories=false",
         "--disable",
         "multi_agent_v2",
         "-c",
