@@ -20,6 +20,10 @@ const mockNavigateToSession = vi.fn();
 vi.mock("../api.js", () => ({
   api: {
     relaunchSession: vi.fn().mockResolvedValue({ ok: true }),
+    renameSession: vi.fn().mockResolvedValue({ ok: true }),
+    archiveSession: vi.fn().mockResolvedValue({ ok: true }),
+    archiveGroup: vi.fn().mockResolvedValue({ ok: true }),
+    deleteSession: vi.fn().mockResolvedValue({ ok: true }),
     pauseSession: vi.fn().mockResolvedValue({ ok: true }),
     unpauseSession: vi.fn().mockResolvedValue({ ok: true }),
     getSessionNotifications: vi.fn().mockResolvedValue([]),
@@ -105,6 +109,9 @@ interface MockStoreState {
     sessionId: string;
     createdAt: number;
     archived?: boolean;
+    isWorktree?: boolean;
+    containerId?: string;
+    herdedBy?: string;
     cwd?: string;
     name?: string;
     sessionNum?: number | null;
@@ -138,6 +145,8 @@ interface MockStoreState {
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
   sessionNotifications: Map<string, Array<any>>;
   sessionNames: Map<string, string>;
+  treeGroups: Array<{ id: string; name: string }>;
+  treeAssignments: Map<string, string>;
   diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
   sessionBoards: Map<
     string,
@@ -220,6 +229,8 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     changedFiles: new Map(),
     pendingPermissions: new Map(),
     sessionAttention: new Map(),
+    treeGroups: [],
+    treeAssignments: new Map(),
     sessionNotifications: new Map(),
     sessionNames: new Map(),
     diffFileStats: new Map(),
@@ -292,6 +303,148 @@ beforeEach(() => {
   localStorage.clear();
   localStorage.setItem("cc-server-id", "test-server");
   resetStore();
+});
+
+describe("TopBar session menu", () => {
+  beforeEach(() => {
+    resetStore({
+      sidebarOpen: false,
+      sdkSessions: [
+        { sessionId: "other", createdAt: 1, name: "Other session", sessionNum: 10, backendType: "codex" },
+        {
+          sessionId: "s1",
+          createdAt: 2,
+          name: "Viewed session",
+          sessionNum: 11,
+          backendType: "codex",
+          state: "connected",
+        },
+      ],
+    });
+  });
+
+  function openMenu() {
+    return fireEvent.contextMenu(screen.getByTitle("Viewed session"), { clientX: 230, clientY: 35 });
+  }
+
+  it("relaunches the viewed session from the title with the sidebar closed", () => {
+    // The title must work without a mounted sidebar or a sidebar selection lookup.
+    render(<TopBar />);
+    expect(openMenu()).toBe(false);
+    expect(screen.getByRole("button", { name: "Relaunch" }).closest(".fixed")).toHaveStyle({
+      left: "230px",
+      top: "35px",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Relaunch" }));
+    expect(api.relaunchSession).toHaveBeenCalledExactlyOnceWith("s1");
+    expect(screen.queryByRole("button", { name: "Relaunch" })).not.toBeInTheDocument();
+    expect(storeState.setSidebarOpen).not.toHaveBeenCalled();
+  });
+
+  it("preserves left-click session info and dismisses it when opening the menu", () => {
+    render(<TopBar />);
+    fireEvent.click(screen.getByTitle("Viewed session"));
+    expect(screen.getByTestId("session-info-popover")).toBeInTheDocument();
+    openMenu();
+    expect(screen.queryByTestId("session-info-popover")).not.toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: "Relaunch" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Viewed session"));
+    expect(screen.getByTestId("session-info-popover")).toBeInTheDocument();
+  });
+
+  it("keeps Configure Session open after the context menu closes", async () => {
+    render(<TopBar />);
+    openMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Configure Session" }));
+    expect(await screen.findByRole("dialog", { name: "Configure Session" })).toBeInTheDocument();
+    expect(screen.getByText(/Codex session settings for #11/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Relaunch" })).not.toBeInTheDocument();
+  });
+
+  it("renames in the header and supports cancelling without opening the sidebar", () => {
+    render(<TopBar />);
+    openMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    const input = screen.getByRole("textbox", { name: "Session name" });
+    expect(input).toHaveFocus();
+    fireEvent.change(input, { target: { value: "New title" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(api.renameSession).toHaveBeenCalledExactlyOnceWith("s1", "New title");
+    // The title stays server-authored until an authoritative update arrives.
+    expect(screen.getByTitle("Viewed session")).toBeInTheDocument();
+    openMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Session name" }), { target: { value: "Cancelled" } });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Session name" }), { key: "Escape" });
+    expect(api.renameSession).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["archived", "exited", "paused", "claude", "claude-sdk"])("preserves %s action availability", (state) => {
+    // These are the existing sidebar gates, rendered from the same menu component.
+    const session = storeState.sdkSessions[1]!;
+    if (state === "archived") session.archived = true;
+    if (state === "exited") session.state = "exited";
+    if (state === "paused") session.pause = { pausedAt: 1, queuedMessages: [] };
+    if (state === "claude" || state === "claude-sdk") session.backendType = state;
+    render(<TopBar />);
+    openMenu();
+    expect(!!screen.queryByRole("button", { name: "Relaunch" })).toBe(state !== "archived" && state !== "exited");
+    expect(!!screen.queryByRole("button", { name: "Configure Session" })).toBe(state !== "archived");
+    if (state === "archived") expect(screen.getByRole("button", { name: "Unarchive" })).toBeInTheDocument();
+    if (state === "paused") expect(screen.getByRole("button", { name: "Unpause Session" })).toBeInTheDocument();
+    if (state === "claude") expect(screen.getByRole("button", { name: "Switch to SDK" })).toBeInTheDocument();
+    if (state === "claude-sdk") expect(screen.getByRole("button", { name: "Switch to WebSocket" })).toBeInTheDocument();
+  });
+
+  it.each(["worktree", "container", "leader"])("keeps the %s archive safeguard visible without a sidebar", (kind) => {
+    const session = storeState.sdkSessions[1]!;
+    if (kind === "container") session.containerId = "container";
+    else session.isWorktree = true;
+    if (kind === "leader") {
+      session.isOrchestrator = true;
+      storeState.sdkSessions[0]!.herdedBy = "s1";
+    }
+    render(<TopBar />);
+    openMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+    expect(api.archiveSession).not.toHaveBeenCalled();
+    expect(api.archiveGroup).not.toHaveBeenCalled();
+    if (kind === "leader") {
+      expect(screen.getByText(/delete this leader's worktree/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Archive Leader Only" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Archive Leader + Herd" })).toBeInTheDocument();
+    } else
+      expect(
+        screen.getByText(kind === "worktree" ? "delete the worktree" : "remove the container"),
+      ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+    expect(api.archiveSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps permanent deletion behind the existing confirmation", () => {
+    render(<TopBar />);
+    openMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Session" }));
+    expect(screen.getByText("Delete session permanently?")).toBeInTheDocument();
+    expect(api.deleteSession).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Delete Session" })).toBeInTheDocument();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("button", { name: "Delete Session" })).not.toBeInTheDocument();
+  });
+
+  it("closes the old menu on navigation and targets the newly viewed session", () => {
+    const view = render(<TopBar />);
+    openMenu();
+    storeState.currentSessionId = "other";
+    view.rerender(<TopBar />);
+    expect(screen.queryByRole("button", { name: "Relaunch" })).not.toBeInTheDocument();
+    fireEvent.contextMenu(screen.getByTitle("Other session"));
+    fireEvent.click(screen.getByRole("button", { name: "Relaunch" }));
+    expect(api.relaunchSession).toHaveBeenCalledExactlyOnceWith("other");
+  });
 });
 
 describe("TopBar", () => {

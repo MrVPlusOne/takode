@@ -13,6 +13,7 @@ import { PlaygroundThreadContinuationSection } from "./playground/PlaygroundThre
 import { PlaygroundOriginalThreadSection } from "./playground/PlaygroundOriginalThreadSection.js";
 import { PlaygroundStateSections } from "./playground/sections-states.js";
 import { usePlaygroundSeed } from "./playground/usePlaygroundSeed.js";
+import { PlaygroundSessionHeaderMenu } from "./playground/PlaygroundSessionHeaderMenu.js";
 
 function scrollToPlaygroundSection(sectionId: string) {
   document.getElementById(sectionId)?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -96,6 +97,7 @@ export function Playground() {
 
         <main className="space-y-12 min-w-0">
           <PlaygroundAnnotationsSection />
+          <PlaygroundSessionHeaderMenu />
           <PlaygroundOverviewSections />
           <PlaygroundInlineQuestPreviewSection />
           <PlaygroundCommitDeliverySection />

@@ -18,26 +18,23 @@ import {
   type PendingSession,
 } from "../store.js";
 import { api, type SessionSearchResult } from "../api.js";
-import { writeClipboardText } from "../utils/copy-utils.js";
-import { connectSession, disconnectSession } from "../ws.js";
+import { connectSession } from "../ws.js";
 import { navigateToSession, navigateToMostRecentSession, parseHash } from "../utils/routing.js";
 import { cancelPendingCreation } from "../utils/pending-creation.js";
 import { getTreeGroupNewSessionDefaultsKey } from "../utils/new-session-defaults.js";
 import { bootstrapServerId, scopedGetItem } from "../utils/scoped-storage.js";
 import { TreeViewGroup } from "./TreeViewGroup.js";
 import { SortableTreeGroup } from "./SortableTreeGroup.js";
-import { SessionItem, type ArchiveConfirmationState } from "./SessionItem.js";
+import { SessionItem } from "./SessionItem.js";
 import { ArchivedSessionSection, type CommonSessionItemProps } from "./ArchivedSessionSection.js";
-import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
-import { ConfigureSessionModal } from "./ConfigureSessionModal.js";
-import { buildMoveToSubmenu } from "./SidebarContextMenu.js";
+import { SessionContextMenu } from "./SessionContextMenu.js";
+import { useSessionActions } from "../hooks/useSessionActions.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import { SidebarBuildLabel } from "./SidebarBuildLabel.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import type { SdkSessionInfo } from "../types.js";
 import {
-  applyAuthoritativeSessionArchive,
   beginActiveSessionListRequest,
   hydrateSessionList,
   refreshTreeGroups as hydrateTreeGroups,
@@ -67,7 +64,6 @@ import { getShortcutTitle } from "../shortcuts.js";
 import { formatDocumentTitle, getDocumentTitleAttentionCount } from "../utils/document-title-attention.js";
 import { buildSidebarItemFromSearchResult } from "../utils/sidebar-search-result.js";
 import { useArchivedSessionPaging } from "../hooks/useArchivedSessionPaging.js";
-import { archiveGroupNavigationExcludedIds, archiveGroupSuccessfulIds } from "../utils/archive-group-reconciliation.js";
 
 /** Restrict drag movement to vertical axis only. */
 const restrictToVerticalAxis: Modifier = ({ transform }) => ({
@@ -80,9 +76,7 @@ export function Sidebar() {
   const [editingName, setEditingName] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [mobileReorderHandleActive, setMobileReorderHandleActive] = useState(false);
-  const [archiveConfirmation, setArchiveConfirmation] = useState<ArchiveConfirmationState | null>(null);
   const [contextMenu, setContextMenu] = useState<{ sessionId: string; x: number; y: number } | null>(null);
-  const [configureSessionId, setConfigureSessionId] = useState<string | null>(null);
   const [hoveredSession, setHoveredSession] = useState<{ sessionId: string; rect: DOMRect } | null>(null);
   const [hash, setHash] = useState(() => (typeof window !== "undefined" ? window.location.hash : ""));
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -92,12 +86,7 @@ export function Sidebar() {
   const serverNameInputRef = useRef<HTMLInputElement>(null);
   const sdkSessions = useStore((s) => s.sdkSessions);
   const currentSessionId = useStore((s) => s.currentSessionId);
-  const contextMenuBridge = useStore((s) => (contextMenu ? s.sessions.get(contextMenu.sessionId) : undefined));
-  const contextMenuLeaderBridge = useStore((s) =>
-    contextMenu && currentSessionId ? s.sessions.get(currentSessionId) : undefined,
-  );
   const setCurrentSession = useStore((s) => s.setCurrentSession);
-  const removeSession = useStore((s) => s.removeSession);
   const recentlyRenamed = useStore((s) => s.recentlyRenamed);
   const clearRecentlyRenamed = useStore((s) => s.clearRecentlyRenamed);
   const sessionTaskHistory = useStore((s) => s.sessionTaskHistory);
@@ -169,6 +158,17 @@ export function Sidebar() {
     },
     [loadArchivedSessionsPage],
   );
+
+  const sessionActions = useSessionActions(refreshSessionListNow, showArchived || archivedSessionPage.loaded);
+  const {
+    handleArchiveSession,
+    handleUnarchiveSession,
+    handleDeleteSession,
+    archiveConfirmation,
+    confirmArchive,
+    confirmArchiveHerdMembers,
+    cancelArchive,
+  } = sessionActions;
 
   const nextAutoGroupName = useCallback(() => {
     const existing = new Set(treeGroups.map((g) => g.name));
@@ -474,19 +474,6 @@ export function Sidebar() {
     setContextMenu({ sessionId, x: e.clientX, y: e.clientY });
   }
 
-  const handlePauseToggle = useCallback(
-    async (sessionId: string, paused: boolean) => {
-      try {
-        if (paused) await api.unpauseSession(sessionId);
-        else await api.pauseSession(sessionId);
-        await refreshSessionListNow();
-      } catch (err) {
-        console.warn("[sidebar] failed to toggle session pause:", err);
-      }
-    },
-    [refreshSessionListNow],
-  );
-
   const hoverIntentRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function handleHoverStart(sessionId: string, rect: DOMRect) {
@@ -506,142 +493,6 @@ export function Sidebar() {
 
   function handleHoverCardLeave() {
     setHoveredSession(null);
-  }
-
-  const handleDeleteSession = useCallback(
-    async (e: React.MouseEvent, sessionId: string) => {
-      e.stopPropagation();
-      try {
-        disconnectSession(sessionId);
-        await api.deleteSession(sessionId);
-      } catch {
-        // best-effort
-      }
-      if (useStore.getState().currentSessionId === sessionId) {
-        navigateToMostRecentSession({ excludeId: sessionId });
-      }
-      removeSession(sessionId);
-    },
-    [removeSession],
-  );
-
-  function handleArchiveSession(e: React.MouseEvent, sessionId: string) {
-    e.stopPropagation();
-    const state = useStore.getState();
-    const sdk = state.sdkSessions.find((candidate) => candidate.sessionId === sessionId);
-    const bridge = state.sessions.get(sessionId);
-    const isContainerized = bridge?.is_containerized === true || typeof sdk?.containerId === "string";
-    const isWorktree = bridge?.is_worktree === true || sdk?.isWorktree === true;
-    const isOrchestrator = bridge?.isOrchestrator === true || sdk?.isOrchestrator === true;
-    const activeWorkerCount = isOrchestrator
-      ? state.sdkSessions.filter((worker) => worker.herdedBy === sessionId && !worker.archived).length
-      : 0;
-    if (isWorktree || isContainerized || activeWorkerCount > 0) {
-      setArchiveConfirmation({
-        sessionId,
-        kind: activeWorkerCount > 0 ? "leader" : isWorktree ? "worktree" : "container",
-        activeWorkerCount: activeWorkerCount > 0 ? activeWorkerCount : undefined,
-        leaderArchiveDestructiveTarget:
-          activeWorkerCount > 0 && isWorktree
-            ? "worktree"
-            : activeWorkerCount > 0 && isContainerized
-              ? "container"
-              : undefined,
-      });
-      return;
-    }
-    doArchive(sessionId);
-  }
-
-  async function doArchive(sessionId: string, force?: boolean) {
-    try {
-      disconnectSession(sessionId);
-      const result = await api.archiveSession(sessionId, force ? { force: true } : undefined);
-      applyAuthoritativeSessionArchive(result.sessionId ?? sessionId, result.archivedAt);
-    } catch {
-      // best-effort
-    }
-    if (useStore.getState().currentSessionId === sessionId) {
-      navigateToMostRecentSession({ excludeId: sessionId });
-    }
-    void refreshSessionListNow(showArchived || archivedSessionPage.loaded);
-  }
-
-  const confirmArchive = useCallback(() => {
-    if (archiveConfirmation) {
-      doArchive(archiveConfirmation.sessionId, true);
-      setArchiveConfirmation(null);
-    }
-  }, [archiveConfirmation, doArchive]);
-
-  const cancelArchive = useCallback(() => {
-    setArchiveConfirmation(null);
-  }, []);
-
-  const doArchiveGroup = useCallback(
-    async (leaderId: string) => {
-      const state = useStore.getState();
-      const workers = state.sdkSessions
-        .filter((worker) => worker.herdedBy === leaderId && !worker.archived)
-        .map((worker) => ({ sessionId: worker.sessionId }));
-      const navigationExcludedIds = archiveGroupNavigationExcludedIds(leaderId, workers);
-      let archivedIds = new Set<string>();
-      try {
-        for (const w of workers) {
-          disconnectSession(w.sessionId);
-        }
-        disconnectSession(leaderId);
-
-        const result = await api.archiveGroup(leaderId);
-        archivedIds = archiveGroupSuccessfulIds(leaderId, workers, result);
-        const archivedAt = Date.now();
-        for (const archivedId of archivedIds) {
-          applyAuthoritativeSessionArchive(archivedId, archivedAt);
-        }
-      } catch {
-        // best-effort
-      }
-      // Navigate away if the current session is part of the archived group
-      const currentId = useStore.getState().currentSessionId;
-      if (currentId) {
-        if (navigationExcludedIds.has(currentId)) {
-          navigateToMostRecentSession({ excludeIds: navigationExcludedIds });
-        }
-      }
-      void refreshSessionListNow(showArchived || archivedSessionPage.loaded);
-    },
-    [archivedSessionPage.loaded, refreshSessionListNow, showArchived],
-  );
-
-  const confirmArchiveHerdMembers = useCallback(() => {
-    if (archiveConfirmation?.kind === "leader") {
-      void doArchiveGroup(archiveConfirmation.sessionId);
-      setArchiveConfirmation(null);
-    }
-  }, [archiveConfirmation, doArchiveGroup]);
-
-  const doHerdToCurrentSession = useCallback(async (workerId: string, force = false) => {
-    const leaderId = useStore.getState().currentSessionId;
-    if (!leaderId) return;
-    try {
-      const result = await api.herdWorkerToLeader(workerId, leaderId, force ? { force: true } : undefined);
-      if (result.herded.length === 0) {
-        throw new Error("Failed to herd session");
-      }
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Failed to herd session");
-      return;
-    }
-  }, []);
-
-  async function handleUnarchiveSession(e: React.MouseEvent, sessionId: string) {
-    e.stopPropagation();
-    try {
-      await api.unarchiveSession(sessionId);
-    } catch {
-      // best-effort
-    }
-    void refreshSessionListNow(true);
   }
 
   async function handleRetryWorktreeCleanup(e: React.MouseEvent, sessionId: string) {
@@ -1610,221 +1461,12 @@ export function Sidebar() {
           }}
         />
       </div>
-      {contextMenu &&
-        (() => {
-          const sdk = sdkSessions.find((s) => s.sessionId === contextMenu.sessionId);
-          const bridge = contextMenuBridge;
-          const sessionInfo = allSessionList.find((s) => s.id === contextMenu.sessionId);
-          if (!sdk && !bridge) return null;
-          const cliId = sdk?.cliSessionId || "";
-          const isArchived = sdk?.archived === true;
-          const isExited = sdk?.state === "exited";
-          const isPaused = !!(bridge?.pause ?? sdk?.pause);
-          const attention = sessionAttention.get(contextMenu.sessionId);
-          const backendType = bridge?.backend_type ?? sdk?.backendType ?? "claude";
-          const currentLeaderSdk = sdkSessions.find((s) => s.sessionId === currentSessionId);
-          const currentLeaderBridge = contextMenuLeaderBridge;
-          const isCurrentLeader =
-            currentLeaderBridge?.isOrchestrator === true || currentLeaderSdk?.isOrchestrator === true;
-          const isTargetLeader = bridge?.isOrchestrator === true || sdk?.isOrchestrator === true;
-          const canHerdToCurrentSession =
-            !isArchived &&
-            !isExited &&
-            !!currentSessionId &&
-            currentSessionId !== contextMenu.sessionId &&
-            isCurrentLeader &&
-            !isTargetLeader;
-          const needsForceHerd = canHerdToCurrentSession && !!sdk?.herdedBy && sdk.herdedBy !== currentSessionId;
-
-          // Count non-archived herded workers for the leader+herd archive option.
-          const herdedWorkers =
-            !isArchived && isTargetLeader
-              ? sdkSessions.filter((worker) => worker.herdedBy === contextMenu.sessionId && !worker.archived)
-              : [];
-
-          const sessionNum = sessionInfo?.sessionNum ?? sdk?.sessionNum;
-          const items: ContextMenuItem[] = [
-            ...(sessionNum != null
-              ? [
-                  {
-                    label: "Copy Session Number",
-                    onClick: () => {
-                      writeClipboardText(`#${sessionNum}`).catch(console.error);
-                    },
-                  },
-                ]
-              : [
-                  {
-                    label: "Copy Session ID",
-                    onClick: () => {
-                      writeClipboardText(contextMenu.sessionId).catch(console.error);
-                    },
-                  },
-                ]),
-            ...(cliId
-              ? [
-                  {
-                    label: "Copy CLI Session ID",
-                    onClick: () => {
-                      writeClipboardText(cliId).catch(console.error);
-                    },
-                  },
-                ]
-              : []),
-            {
-              label: "Rename",
-              onClick: () => {
-                const name = allSessionList.find((session) => session.id === contextMenu.sessionId)?.name || "";
-                handleStartRename(contextMenu.sessionId, name);
-              },
-            },
-            ...(!isArchived
-              ? [
-                  {
-                    label: "Configure Session",
-                    onClick: () => {
-                      setConfigureSessionId(contextMenu.sessionId);
-                    },
-                  },
-                ]
-              : []),
-            ...(!isArchived
-              ? [
-                  {
-                    label: isPaused ? "Unpause Session" : "Pause Session",
-                    onClick: () => {
-                      void handlePauseToggle(contextMenu.sessionId, isPaused);
-                    },
-                  },
-                ]
-              : []),
-            ...(!isExited && !isArchived
-              ? [
-                  {
-                    label: "Relaunch",
-                    onClick: () => {
-                      api.relaunchSession(contextMenu.sessionId).catch(console.error);
-                    },
-                  },
-                ]
-              : []),
-            // Transport switch: only for Claude-family sessions that are alive
-            ...(backendType === "claude" && !isExited && !isArchived
-              ? [
-                  {
-                    label: "Switch to SDK",
-                    onClick: () => {
-                      api.upgradeTransport(contextMenu.sessionId).catch(console.error);
-                    },
-                  },
-                ]
-              : []),
-            ...(backendType === "claude-sdk" && !isExited && !isArchived
-              ? [
-                  {
-                    label: "Switch to WebSocket",
-                    onClick: () => {
-                      api.downgradeTransport(contextMenu.sessionId).catch(console.error);
-                    },
-                  },
-                ]
-              : []),
-            attention
-              ? {
-                  label: "Mark as read",
-                  onClick: () => {
-                    api.markSessionRead?.(contextMenu.sessionId).catch(() => {});
-                  },
-                }
-              : {
-                  label: "Mark as unread",
-                  onClick: () => {
-                    api.markSessionUnread(contextMenu.sessionId).catch(() => {});
-                  },
-                },
-            // Tree groups are now the only session-browsing mode in the sidebar.
-            ...buildMoveToSubmenu(treeGroups, treeAssignments, contextMenu.sessionId),
-            ...(canHerdToCurrentSession
-              ? [
-                  {
-                    label: needsForceHerd ? "Force Herd to Current Session" : "Herd to Current Session",
-                    onClick: () => {
-                      void doHerdToCurrentSession(contextMenu.sessionId, needsForceHerd);
-                    },
-                    ...(needsForceHerd
-                      ? {
-                          confirm: {
-                            title: "Force herd takeover?",
-                            description:
-                              "This will move the session out of its current leader's herd into your current leader session.",
-                            confirmLabel: "Force Herd",
-                          },
-                        }
-                      : {}),
-                  },
-                ]
-              : []),
-            isArchived
-              ? {
-                  label: "Unarchive",
-                  onClick: () => {
-                    const syntheticEvent = { stopPropagation: () => {} } as React.MouseEvent;
-                    void handleUnarchiveSession(syntheticEvent, contextMenu.sessionId);
-                  },
-                }
-              : {
-                  label: "Archive",
-                  onClick: () => {
-                    const syntheticEvent = { stopPropagation: () => {} } as React.MouseEvent;
-                    handleArchiveSession(syntheticEvent, contextMenu.sessionId);
-                  },
-                },
-            // Archives the leader and all active herded workers in one action.
-            ...(herdedWorkers.length > 0
-              ? [
-                  {
-                    label: "Archive Leader + Herd",
-                    onClick: () => {
-                      doArchiveGroup(contextMenu.sessionId);
-                    },
-                    confirm: {
-                      title: "Archive leader and herd?",
-                      description: `This will archive the leader and ${herdedWorkers.length} worker session${herdedWorkers.length === 1 ? "" : "s"}.`,
-                      confirmLabel: "Archive Leader + Herd",
-                      destructive: true,
-                    },
-                  },
-                ]
-              : []),
-            {
-              label: "Delete Session",
-              onClick: () => {
-                const syntheticEvent = { stopPropagation: () => {} } as React.MouseEvent;
-                void handleDeleteSession(syntheticEvent, contextMenu.sessionId);
-              },
-              confirm: {
-                title: "Delete session permanently?",
-                description: "This cannot be undone. The session will be removed from history.",
-                confirmLabel: "Delete",
-                destructive: true,
-              },
-            },
-          ];
-
-          return (
-            <ContextMenu
-              x={contextMenu.x}
-              y={contextMenu.y}
-              items={items}
-              onClose={() => setContextMenu(null)}
-              widthClassName="w-56 max-w-[calc(100vw-1rem)]"
-              itemClassName="whitespace-normal break-words leading-snug"
-            />
-          );
-        })()}
-      {configureSessionId && (
-        <ConfigureSessionModal sessionId={configureSessionId} onClose={() => setConfigureSessionId(null)} />
-      )}
+      <SessionContextMenu
+        target={contextMenu}
+        onClose={() => setContextMenu(null)}
+        onRename={handleStartRename}
+        actions={sessionActions}
+      />
       {hoveredSession &&
         (() => {
           const s = allSessionList.find((item) => item.id === hoveredSession.sessionId);

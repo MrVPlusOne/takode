@@ -20,6 +20,10 @@ import { LeaderWorkboardControlButton, SummarySegments } from "./leader-workboar
 import { useQuestCodeCommitShas } from "./QuestCommitDiffView.js";
 import type { BoardRowData } from "./BoardTable.js";
 import type { LeaderWorkboardView } from "../store-types.js";
+import { SessionContextMenu, type SessionMenuTarget } from "./SessionContextMenu.js";
+import { SessionArchiveConfirmation } from "./SessionArchiveConfirmation.js";
+import { ContextMenu } from "./ContextMenu.js";
+import { useSessionActions } from "../hooks/useSessionActions.js";
 
 type TopBarState = ReturnType<typeof useStore.getState>;
 const EMPTY_LEADER_BOARD_ROWS: readonly BoardRowData[] = [];
@@ -210,6 +214,12 @@ export function TopBar({
       : diffChrome.changedFilesCount;
   const [infoOpen, setInfoOpen] = useState(false);
   const [configureSessionId, setConfigureSessionId] = useState<string | null>(null);
+  const [sessionMenu, setSessionMenu] = useState<SessionMenuTarget | null>(null);
+  const [renamingSession, setRenamingSession] = useState<{ sessionId: string; name: string } | null>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const sessionMenuPosition = useRef({ x: 0, y: 0 });
+  const sessionActions = useSessionActions();
+  const { cancelArchive } = sessionActions;
   const sessionInfoAnchorRef = useRef<HTMLDivElement | null>(null);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
   const isPaused = paused;
@@ -217,6 +227,26 @@ export function TopBar({
     () => activeBoardSummarySegments(currentLeaderBoard),
     [currentLeaderBoard],
   );
+
+  useEffect(() => {
+    setSessionMenu(null);
+    setRenamingSession(null);
+    cancelArchive();
+  }, [currentSessionId, isSessionView, cancelArchive]);
+
+  useEffect(() => {
+    if (renamingSession) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [renamingSession?.sessionId]);
+
+  function confirmSessionRename() {
+    if (renamingSession?.name.trim()) {
+      api.renameSession(renamingSession.sessionId, renamingSession.name.trim()).catch(console.error);
+    }
+    setRenamingSession(null);
+  }
 
   useEffect(() => {
     if (!isSessionView && codexSubagentInspector) closeCodexSubagentInspector();
@@ -365,56 +395,83 @@ export function TopBar({
         {/* Current session status + title — clickable to open session info */}
         {currentSessionId && (
           <div ref={sessionInfoAnchorRef} className="flex items-center gap-1.5 min-w-0">
-            <button
-              onClick={() => {
-                const nextOpen = !infoOpen;
-                setInfoOpen(nextOpen);
-                if (nextOpen) closeCodexSubagentInspector();
-              }}
-              className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
-              aria-label={[
-                isCurrentLeaderSession ? "Leader" : null,
-                typeof sessionNum === "number" ? `#${sessionNum}` : null,
-                sessionName,
-              ]
-                .filter(Boolean)
-                .join(" ")}
-            >
-              <div className="[&>div]:mt-0 shrink-0">
-                <SessionStatusDot
-                  permCount={currentPermCount}
-                  isConnected={isConnected}
-                  sdkState={currentSdkState}
-                  status={status}
-                  hasUnread={currentHasUnread}
-                  idleKilled={idleKilled}
-                  activeTimerCount={activeTimerCount}
-                />
-              </div>
-              {typeof sessionNum === "number" && (
-                <span className="text-[11px] font-medium text-cc-muted shrink-0" title={`Session #${sessionNum}`}>
-                  #{sessionNum}
-                </span>
-              )}
-              {leaderProfilePortrait && (
-                <img
-                  src={leaderProfilePortrait.smallUrl}
-                  alt=""
-                  width={leaderProfilePortrait.smallSize}
-                  height={leaderProfilePortrait.smallSize}
-                  loading="eager"
-                  decoding="async"
-                  data-testid="topbar-leader-profile-portrait"
-                  className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-cc-border/70"
-                  draggable={false}
-                />
-              )}
-              {sessionName && (
-                <span className="min-w-0 truncate text-[11px] font-medium text-cc-fg" title={sessionName}>
-                  {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
-                </span>
-              )}
-            </button>
+            {renamingSession ? (
+              <input
+                ref={renameInputRef}
+                aria-label="Session name"
+                value={renamingSession.name}
+                onChange={(e) => setRenamingSession({ ...renamingSession, name: e.target.value })}
+                onBlur={confirmSessionRename}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    confirmSessionRename();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    setRenamingSession(null);
+                  }
+                  e.stopPropagation();
+                }}
+                className="min-w-0 w-56 rounded border border-cc-border bg-cc-input-bg px-1 text-[11px] text-cc-fg"
+              />
+            ) : (
+              <button
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setInfoOpen(false);
+                  sessionMenuPosition.current = { x: e.clientX, y: e.clientY };
+                  setSessionMenu({ sessionId: currentSessionId, ...sessionMenuPosition.current });
+                }}
+                onClick={() => {
+                  const nextOpen = !infoOpen;
+                  setInfoOpen(nextOpen);
+                  if (nextOpen) closeCodexSubagentInspector();
+                }}
+                className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
+                aria-label={[
+                  isCurrentLeaderSession ? "Leader" : null,
+                  typeof sessionNum === "number" ? `#${sessionNum}` : null,
+                  sessionName,
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
+                <div className="[&>div]:mt-0 shrink-0">
+                  <SessionStatusDot
+                    permCount={currentPermCount}
+                    isConnected={isConnected}
+                    sdkState={currentSdkState}
+                    status={status}
+                    hasUnread={currentHasUnread}
+                    idleKilled={idleKilled}
+                    activeTimerCount={activeTimerCount}
+                  />
+                </div>
+                {typeof sessionNum === "number" && (
+                  <span className="text-[11px] font-medium text-cc-muted shrink-0" title={`Session #${sessionNum}`}>
+                    #{sessionNum}
+                  </span>
+                )}
+                {leaderProfilePortrait && (
+                  <img
+                    src={leaderProfilePortrait.smallUrl}
+                    alt=""
+                    width={leaderProfilePortrait.smallSize}
+                    height={leaderProfilePortrait.smallSize}
+                    loading="eager"
+                    decoding="async"
+                    data-testid="topbar-leader-profile-portrait"
+                    className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-cc-border/70"
+                    draggable={false}
+                  />
+                )}
+                {sessionName && (
+                  <span className="min-w-0 truncate text-[11px] font-medium text-cc-fg" title={sessionName}>
+                    {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
+                  </span>
+                )}
+              </button>
+            )}
             {!isConnected && !isPaused && !isArchived && (
               <button
                 onClick={() => currentSessionId && api.relaunchSession(currentSessionId).catch(console.error)}
@@ -531,6 +588,29 @@ export function TopBar({
           )}
         </button>
       </div>
+      <SessionContextMenu
+        key={currentSessionId}
+        target={sessionMenu}
+        onClose={() => setSessionMenu(null)}
+        onRename={(sessionId, name) => setRenamingSession({ sessionId, name })}
+        actions={sessionActions}
+      />
+      {sessionActions.archiveConfirmation && (
+        <ContextMenu
+          {...sessionMenuPosition.current}
+          items={[]}
+          onClose={sessionActions.cancelArchive}
+          widthClassName="w-72 max-w-[calc(100vw-1rem)]"
+          footer={
+            <SessionArchiveConfirmation
+              archiveConfirmation={sessionActions.archiveConfirmation}
+              onConfirmArchive={sessionActions.confirmArchive}
+              onConfirmArchiveHerdMembers={sessionActions.confirmArchiveHerdMembers}
+              onCancelArchive={sessionActions.cancelArchive}
+            />
+          }
+        />
+      )}
     </header>
   );
 }
