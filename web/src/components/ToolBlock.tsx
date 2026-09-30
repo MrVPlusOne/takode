@@ -347,7 +347,7 @@ const ToolBlockInner = memo(function ToolBlockInner({
 
   // Extract the most useful preview
   const preview = getPreview(name, input);
-  const hideHeaderLabel = hideLabel || name === "Bash";
+  const hideHeaderLabel = hideLabel || name === "Bash" || (name === "mcp:node_repl:js" && !!preview);
   // File-operation tools show smart-truncated path + Open File button in the header
   const changedFilePaths = name === "Write" || name === "Edit" ? getDistinctChangeFilePaths(input) : ([] as string[]);
   const isMultiFileChangeTool = (name === "Write" || name === "Edit") && changedFilePaths.length > 1;
@@ -450,6 +450,7 @@ const ToolBlockInner = memo(function ToolBlockInner({
         ) : multiFilePreview || preview ? (
           <span
             className={`text-xs truncate flex-1 font-mono-code ${hideHeaderLabel ? "text-cc-fg/90" : "text-cc-muted"}`}
+            title={name === "mcp:node_repl:js" ? preview : undefined}
           >
             {multiFilePreview || preview}
           </span>
@@ -1686,6 +1687,9 @@ function AskUserQuestionDetail({ input }: { input: Record<string, unknown> }) {
 // ─── Preview ────────────────────────────────────────────────────────────────
 
 export function getPreview(name: string, input: Record<string, unknown>): string {
+  if (name === "mcp:node_repl:js" && typeof input.title === "string" && input.title.trim()) {
+    return input.title;
+  }
   if (name === "Bash" && typeof input.command === "string") {
     // Prefer description if short enough, otherwise show command
     if (input.description && typeof input.description === "string" && input.description.length <= 60) {

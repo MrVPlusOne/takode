@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { ToolMsgGroup } from "../../hooks/use-feed-model.js";
+import { groupMessages, type ToolMsgGroup } from "../../hooks/use-feed-model.js";
+import { NODE_REPL_TOOL_MESSAGES, NODE_REPL_TOOL_RESULTS } from "../../test-fixtures/node-repl-tools.js";
 import type { ChatMessage } from "../../types.js";
 import { CompactFeedActivity } from "../CompactFeedActivity.js";
 import { CompactToolMessageGroups } from "../ToolMessageGroup.js";
@@ -30,6 +31,8 @@ const SMALL_MCP_GROUP: ToolMsgGroup = {
     { id: "compact-small-thread", name: "mcp:slack:thread", input: { thread_ts: "123.456" } },
   ],
 };
+
+const NODE_REPL_GROUPS = groupMessages(NODE_REPL_TOOL_MESSAGES).filter((entry) => entry.kind === "tool_msg_group");
 
 const LARGE_MIXED_GROUP: ToolMsgGroup = {
   kind: "tool_msg_group",
@@ -135,6 +138,20 @@ export function PlaygroundCompactToolActivityStates() {
       description="Small groups stay descriptive; large or growing Bash/MCP groups use stable invocation counts with lossless expansion."
     >
       <div className="space-y-4 max-w-3xl">
+        <Card label="Node REPL titles and fallback">
+          <div data-testid="playground-node-repl-titles">
+            <CompactToolMessageGroups
+              groups={NODE_REPL_GROUPS}
+              sessionId={MOCK_SESSION_ID}
+              isCodexSession
+              activeCodexTerminalIds={new Set()}
+              onOpenCodexTerminal={() => {}}
+              interactionMode="read-only"
+              toolResultOverrides={NODE_REPL_TOOL_RESULTS}
+              toolResultScope="overrides-only"
+            />
+          </div>
+        </Card>
         <Card label="Small descriptive MCP group">
           <CompactToolMessageGroups
             groups={[SMALL_MCP_GROUP]}
