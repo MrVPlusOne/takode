@@ -5,7 +5,7 @@ export function PlaygroundQuestDetailModalSection() {
   return (
     <Section
       title="Quest Detail Modal"
-      description="Global read-only quest detail overlay triggered from quest links in boards or markdown."
+      description="Global quest detail overlay with on-demand details, including Edit and Cancel."
     >
       <div className="max-w-3xl space-y-4">
         <Card label="Open quest detail modal">
@@ -31,71 +31,75 @@ function openPlaygroundQuestDetail() {
   const now = Date.now();
   const journeyRuns = buildPlaygroundJourneyRuns(now);
   useStore.setState({
-    quests: [
-      {
-        id: "q-42-v3",
-        questId: "q-42",
-        version: 3,
-        title: "Fix mobile sidebar overflow on small screens",
-        status: "done" as const,
-        description:
-          "The sidebar overflows on screens narrower than 375px. Need to add `overflow-hidden` and a scrollable wrapper.\n\n## Steps\n1. Add wrapper div\n2. Set max-height\n3. Test on iPhone SE",
-        createdAt: now - 86400000,
-        updatedAt: now - 3600000,
-        sessionId: "playground-worker",
-        leaderSessionId: "playground-leader",
-        previousOwnerSessionIds: ["abc-123"],
-        claimedAt: now - 43200000,
-        completedAt: now - 3600000,
-        commitShas: ["82a3f2b71d4c9000", "7d2c332e9b5a1000"],
-        memoryCommitShas: ["eedb2db46f8a7000"],
-        tags: ["ui", "mobile", "bug"],
-        verificationItems: [
-          { text: "Sidebar does not overflow on iPhone SE", checked: true },
-          { text: "Scroll works on sidebar content", checked: false },
-          { text: "Desktop layout unaffected", checked: true },
-        ],
-        quizItems: [
-          {
-            id: "q-42-mobile-failure",
-            question: "What layout failure did this quest fix?",
-            answer:
-              "The mobile sidebar could exceed the viewport on narrow screens, so the fix added a bounded scroll container around sidebar content.",
-            source: "Final debrief",
-          },
-          {
-            id: "q-42-validation",
-            question: "Which validation matters most before accepting this fix?",
-            answer:
-              "Inspect a narrow mobile viewport and a desktop viewport so the fix is proven responsive without regressing the normal layout.",
-            source: "Verification items",
-          },
-        ],
-        journeyRuns,
-        feedback: [
-          ...buildPlaygroundPhaseFeedback(journeyRuns, now),
-          {
-            author: "human" as const,
-            text: "Please also check iPad mini",
-            ts: now - 7200000,
-            addressed: true,
-            authorSessionId: "abc-123",
-          },
-          {
-            author: "agent" as const,
-            text: "Checked on iPad mini -- works correctly with the new wrapper.",
-            ts: now - 3600000,
-            authorSessionId: "abc-123",
-          },
-          {
-            author: "human" as const,
-            text: "Looks good! One more: the close button is hard to tap.",
-            ts: now - 1800000,
-            addressed: false,
-          },
-        ],
-      },
-    ],
+    quests: [],
+    questDetails: new Map([
+      [
+        "q-42",
+        {
+          id: "q-42-v3",
+          questId: "q-42",
+          version: 3,
+          title: "Fix mobile sidebar overflow on small screens",
+          status: "done" as const,
+          description:
+            "The sidebar overflows on screens narrower than 375px. Need to add `overflow-hidden` and a scrollable wrapper.\n\n## Steps\n1. Add wrapper div\n2. Set max-height\n3. Test on iPhone SE",
+          createdAt: now - 86400000,
+          updatedAt: now - 3600000,
+          sessionId: "playground-worker",
+          leaderSessionId: "playground-leader",
+          previousOwnerSessionIds: ["abc-123"],
+          claimedAt: now - 43200000,
+          completedAt: now - 3600000,
+          commitShas: ["82a3f2b71d4c9000", "7d2c332e9b5a1000"],
+          memoryCommitShas: ["eedb2db46f8a7000"],
+          tags: ["ui", "mobile", "bug"],
+          verificationItems: [
+            { text: "Sidebar does not overflow on iPhone SE", checked: true },
+            { text: "Scroll works on sidebar content", checked: false },
+            { text: "Desktop layout unaffected", checked: true },
+          ],
+          quizItems: [
+            {
+              id: "q-42-mobile-failure",
+              question: "What layout failure did this quest fix?",
+              answer:
+                "The mobile sidebar could exceed the viewport on narrow screens, so the fix added a bounded scroll container around sidebar content.",
+              source: "Final debrief",
+            },
+            {
+              id: "q-42-validation",
+              question: "Which validation matters most before accepting this fix?",
+              answer:
+                "Inspect a narrow mobile viewport and a desktop viewport so the fix is proven responsive without regressing the normal layout.",
+              source: "Verification items",
+            },
+          ],
+          journeyRuns,
+          feedback: [
+            ...buildPlaygroundPhaseFeedback(journeyRuns, now),
+            {
+              author: "human" as const,
+              text: "Please also check iPad mini",
+              ts: now - 7200000,
+              addressed: true,
+              authorSessionId: "abc-123",
+            },
+            {
+              author: "agent" as const,
+              text: "Checked on iPad mini -- works correctly with the new wrapper.",
+              ts: now - 3600000,
+              authorSessionId: "abc-123",
+            },
+            {
+              author: "human" as const,
+              text: "Looks good! One more: the close button is hard to tap.",
+              ts: now - 1800000,
+              addressed: false,
+            },
+          ],
+        },
+      ],
+    ]),
     sdkSessions: [
       {
         sessionId: "playground-worker",

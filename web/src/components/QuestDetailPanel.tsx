@@ -228,22 +228,21 @@ export function QuestDetailPanel() {
     return () => document.removeEventListener("keydown", handleKey);
   }, [assignPickerForId]);
 
-  // Stale edit detection
+  // On-demand details need not appear in the bounded quest list.
   useEffect(() => {
     if (!editingId) return;
-    const storeQuest = quests.find((q) => q.questId === editingId);
-    if (!storeQuest) {
+    if (quest?.questId !== editingId) {
       setEditingId(null);
       setEditStaleNotice(false);
       return;
     }
-    if (storeQuest.version > editVersionRef.current) {
+    if (quest.version > editVersionRef.current) {
       setEditingId(null);
       setEditStaleNotice(true);
       const timer = setTimeout(() => setEditStaleNotice(false), 4000);
       return () => clearTimeout(timer);
     }
-  }, [editingId, quests]);
+  }, [editingId, quest]);
 
   useEffect(() => {
     autoResizeTextarea(editTitleRef.current);
@@ -404,14 +403,13 @@ export function QuestDetailPanel() {
   }
 
   // Actions
-  async function handlePatch(questId: string) {
+  async function handlePatch(currentQuest: QuestmasterTask) {
     setError("");
     try {
-      const currentQuest = quests.find((q) => q.questId === questId);
       const nextDescription = editDescription.trim() || undefined;
       const extracted = extractHashtags(`${editTitle.trim()}\n${nextDescription ?? ""}`);
-      const tags = extracted.length > 0 ? extracted : (currentQuest?.tags ?? []);
-      const updatedQuest = await api.patchQuest(questId, {
+      const tags = extracted.length > 0 ? extracted : (currentQuest.tags ?? []);
+      const updatedQuest = await api.patchQuest(currentQuest.questId, {
         title: editTitle.trim() || undefined,
         description: nextDescription,
         tags: tags.length > 0 ? tags : undefined,
@@ -1006,7 +1004,7 @@ export function QuestDetailPanel() {
               {/* Save / Cancel */}
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => handlePatch(quest.questId)}
+                  onClick={() => handlePatch(quest)}
                   className="px-3 py-1.5 text-xs font-medium bg-cc-primary hover:bg-cc-primary-hover text-white rounded-lg transition-colors cursor-pointer"
                 >
                   Save
