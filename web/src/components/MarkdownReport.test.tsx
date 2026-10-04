@@ -11,14 +11,46 @@ import { MessageBubble } from "./MessageBubble.js";
 import { captureAnnotationSource, resolveAnnotationRange } from "./annotation-passages.js";
 import { ComposerAnnotations } from "./ComposerAnnotations.js";
 import { useReportCommentSend } from "./use-report-comment-send.js";
+import { useReportCommentDraft } from "./use-report-comment-draft.js";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   useStore.setState({ composerDrafts: new Map(), annotationEditor: null });
+  localStorage.clear();
 });
 
 describe("saved Markdown reports", () => {
+  it("restores saved unsent comments and exact anchors after a page reload, then retires them after send", () => {
+    // Simulate reload by unmounting subscribers and recreating the in-memory store from scoped storage.
+    const source = makeMarkdownReportFixture().source;
+    const draft = {
+      text: "Follow up",
+      images: [],
+      reportRecipientSessionId: "report-worker",
+      annotations: [
+        {
+          id: "comment",
+          selectedText: "one hour",
+          comment: "Why?",
+          sourceMessageId: source.reportId,
+          sourceAnchor: { scopeIndex: 0, start: 8, end: 16, text: "one hour" },
+          reportSource: source,
+        },
+      ],
+    };
+    localStorage.setItem("cc-server-id", "server-one");
+    const first = renderHook(() => useReportCommentDraft(source.sessionId));
+    act(() => useStore.getState().setComposerDraft(source.sessionId, draft));
+    first.unmount();
+    useStore.setState({ composerDrafts: new Map() });
+    const second = renderHook(() => useReportCommentDraft(source.sessionId));
+    expect(useStore.getState().composerDrafts.get(source.sessionId)).toEqual(draft);
+    act(() => useStore.getState().clearComposerDraft(source.sessionId));
+    expect(localStorage.getItem(`server-one:report-comment-draft:${source.sessionId}`)).toBeNull();
+    second.unmount();
+  });
+
   it.each([false, true])("keeps the complete report visible in collapsed feeds, leader=%s", (leader) => {
     // Use server-produced selected-window entries, not a frontend-only invented route shape.
     const report = makeMarkdownReportFixture();

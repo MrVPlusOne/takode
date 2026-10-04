@@ -28,6 +28,7 @@ export function shouldBufferForReplay(msg: BrowserIncomingMessage): msg is Repla
 export function isHistoryBackedEvent(msg: ReplayableBrowserIncomingMessage): boolean {
   return (
     msg.type === "assistant" ||
+    msg.type === "markdown_report" ||
     msg.type === "codex_reasoning_detail" ||
     msg.type === "result" ||
     msg.type === "user_message" ||

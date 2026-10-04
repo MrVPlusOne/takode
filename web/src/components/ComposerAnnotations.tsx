@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { useStore } from "../store.js";
 import { AnnotationAttachments } from "./AnnotationAttachments.js";
 import { AnnotationEditor } from "./AnnotationEditor.js";
+import { useReportCommentDraft } from "./use-report-comment-draft.js";
 
 export function ComposerAnnotations({
   sessionId,
@@ -16,6 +17,7 @@ export function ComposerAnnotations({
   disabled?: boolean;
 }) {
   const openSource = useAnnotationSourceNavigation(sessionId, threadKey);
+  const draftStorageError = useReportCommentDraft(sessionId);
   const draft = useStore((state) => state.composerDrafts.get(sessionId));
   const editor = useStore((state) => state.annotationEditor);
   const annotations = draft?.annotations ?? [];
@@ -50,6 +52,11 @@ export function ComposerAnnotations({
   };
   return (
     <>
+      {draftStorageError && (
+        <p role="status" className="text-xs text-cc-muted">
+          {draftStorageError}
+        </p>
+      )}
       {reports.length > 0 && (
         <label className="flex flex-wrap items-center gap-2 text-xs text-cc-muted">
           Send report comments to

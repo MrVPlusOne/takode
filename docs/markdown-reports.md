@@ -28,6 +28,10 @@ revalidates the worker relationship. An ineligible recipient leaves the draft
 intact with an error; it never selects a replacement. Comments preserve the
 complete quotation, exact reply, source session, snapshot identity and passage
 anchor. Sent comments include an **Open source report** action.
+Saved, unsent report comments and their recipient choice also survive reload in
+that browser's server-scoped draft storage. Image attachments retain their
+existing temporary lifetime. A storage failure is shown while keeping the
+editable comments in the current tab.
 
 Send report comments separately from images, reply attachments or comments on
 ordinary chat messages. Normal links retain their existing behavior. Relative

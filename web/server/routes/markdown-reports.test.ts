@@ -14,6 +14,11 @@ import { resolveSessionMessageTarget } from "../session-message-search.js";
 import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
 import { buildProgrammaticUserMessage } from "../session-pause.js";
 import { prepareAnnotatedUserMessage } from "../bridge/user-message-delivery.js";
+import { isHistoryBackedEvent } from "../bridge/replay-buffer-policy.js";
+import {
+  shouldDeliverBrowserEventToSocket,
+  prepareBoundedConversationSubscribe,
+} from "../bridge/browser-conversation-window-policy.js";
 
 function harness() {
   const sessions = new Map([
@@ -55,6 +60,41 @@ function harness() {
 }
 
 describe("Markdown report publication and human comments", () => {
+  it("keeps live reports scoped to their selected thread and hydrates them once on reconnect", () => {
+    // A new history event must join both the bounded fan-out and replay classifications.
+    const report = makeMarkdownReportFixture();
+    const session = { messageHistory: [report], eventBuffer: [{ seq: 1, message: report }], nextEventSeq: 2 };
+    for (const threadKey of ["main", "q-42", "q-99"]) {
+      const socketData = {
+        conversationView: {
+          kind: "thread" as const,
+          request: { threadKey, fromItem: -1, itemCount: 3, sectionItemCount: 1, visibleItemCount: 3 },
+        },
+      };
+      expect(shouldDeliverBrowserEventToSocket(session, report, socketData)).toBe(threadKey === "q-42");
+    }
+    expect(shouldDeliverBrowserEventToSocket(session, report, {})).toBe(false);
+    const subscribe = prepareBoundedConversationSubscribe({
+      session,
+      socketData: {},
+      initialThreadWindow: {
+        thread_key: "q-42",
+        from_item: -1,
+        item_count: 3,
+        section_item_count: 1,
+        visible_item_count: 3,
+      },
+      historyWindowSectionTurnCount: 1,
+      historyWindowVisibleSectionCount: 3,
+      historyWindowTargetMessageId: undefined,
+      historyWindowTargetIndex: undefined,
+      lastAckSeq: 0,
+      running: true,
+      isHistoryBackedEvent,
+    });
+    expect(subscribe.replayEvents).toEqual([]);
+  });
+
   it("persists the exact local snapshot and source identity after the file changes", async () => {
     // Exercise actual local-file reading, route publication, disk roundtrip and producer-owned windows.
     const root = await mkdtemp(join(tmpdir(), "markdown-report-"));
@@ -91,6 +131,7 @@ describe("Markdown report publication and human comments", () => {
         content: original,
         source: { sourcePath: file, sha256: receipt.sha256 },
       });
+      expect(isHistoryBackedEvent(reloaded!.messageHistory[0] as any)).toBe(true);
       for (const threadKey of ["q-42", "all", "main"]) {
         const window = buildThreadWindowSync({
           messageHistory: reloaded!.messageHistory,

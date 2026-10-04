@@ -380,6 +380,7 @@ function threadViewFromInitialRequest(request: InitialThreadWindowRequest): Boun
 function isConversationScopedMessage(message: BrowserIncomingMessage): boolean {
   return (
     message.type === "assistant" ||
+    message.type === "markdown_report" ||
     message.type === "user_message" ||
     message.type === "leader_user_message" ||
     message.type === "stream_event" ||
