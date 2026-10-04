@@ -21,6 +21,7 @@ export interface ProgrammaticPauseMessageInput {
   takodeHerdBatch?: TakodeHerdBatchSnapshot;
   threadRoute?: { threadKey: string; questId?: string; threadRefs?: ThreadRef[] };
   options?: {
+    annotations?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["annotations"];
     deliveryContent?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["deliveryContent"];
     historyFollowUps?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["historyFollowUps"];
     timerFiring?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["timerFiring"];
@@ -121,6 +122,7 @@ export function buildProgrammaticUserMessage(
   return {
     type: "user_message",
     content: input.content,
+    ...(input.options?.annotations ? { annotations: input.options.annotations } : {}),
     ...(input.options?.deliveryContent ? { deliveryContent: input.options.deliveryContent } : {}),
     ...(input.options?.historyFollowUps?.length ? { historyFollowUps: input.options.historyFollowUps } : {}),
     ...(input.options?.timerFiring ? { timerFiring: input.options.timerFiring } : {}),

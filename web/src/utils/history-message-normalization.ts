@@ -260,6 +260,19 @@ export function normalizeHistoryMessageToChatMessages(
     return [normalizeCodexReasoningDetailMessage(histMsg, historyIndex)];
   }
 
+  if (histMsg.type === "markdown_report") {
+    return [
+      {
+        id: histMsg.id,
+        role: "assistant",
+        content: histMsg.content,
+        timestamp: histMsg.timestamp,
+        historyIndex,
+        metadata: { ...existingThreadMetadataFromMessage(histMsg), markdownReport: histMsg.source },
+      },
+    ];
+  }
+
   if (histMsg.type === "quest_lifecycle_event") {
     const label = histMsg.kind === "submitted" ? "Quest submitted" : "Quest claimed";
     return [

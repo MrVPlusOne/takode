@@ -151,6 +151,14 @@ function forEachComparableHistoryEntry(
       );
       continue;
     }
+    if (message.type === "markdown_report") {
+      visitor(
+        { id: message.id, role: "assistant", content: message.content, timestamp: message.timestamp },
+        renderedIndex++,
+        i,
+      );
+      continue;
+    }
     if (message.type === "assistant") {
       if (options.suppressRootThinkingOnlyAssistant && isRootThinkingOnlyAssistantHistoryEntry(message)) continue;
       visitor(

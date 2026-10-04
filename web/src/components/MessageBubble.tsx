@@ -64,6 +64,7 @@ import { useMessageSearchHighlight, type SearchHighlightInfo } from "../hooks/us
 import { reconcileLocalImagePreviewUrls } from "../local-image-previews.js";
 import { useFeedDisplayNotifications } from "./FeedNotificationContext.js";
 import { TimerMessage } from "./TimerMessage.js";
+import { MarkdownReport } from "./MarkdownReport.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
 
@@ -115,6 +116,10 @@ export const MessageBubble = memo(function MessageBubble({
 
   if (isCodexReasoningDetailMessage(message)) {
     return <CodexReasoningDetail message={message} sessionId={sessionId} questLinkSurface={questLinkSurface} />;
+  }
+
+  if (message.metadata?.markdownReport) {
+    return <MarkdownReport message={message} readOnly={interactionMode === "read-only"} />;
   }
 
   if (message.role === "system") {

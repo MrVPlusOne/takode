@@ -241,6 +241,8 @@ interface MarkdownContentProps {
   id?: string;
   "data-testid"?: string;
   sessionId?: string;
+  /** Resolve a published file's relative links without rewriting its stored Markdown. */
+  fileBasePath?: string;
   searchHighlight?: { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
   enableChatSelectionMenu?: boolean;
   wrapLongContent?: boolean;
@@ -644,6 +646,7 @@ export const MarkdownContent = memo(function MarkdownContent({
   id,
   "data-testid": dataTestId,
   sessionId,
+  fileBasePath,
   searchHighlight,
   enableChatSelectionMenu = false,
   wrapLongContent = false,
@@ -807,7 +810,24 @@ export const MarkdownContent = memo(function MarkdownContent({
                 </SessionMarkdownLink>
               );
             }
-            const fileTarget = parseFileLinkFromHref(href);
+            let fileTarget = parseFileLinkFromHref(href);
+            if (
+              !fileTarget &&
+              fileBasePath &&
+              href &&
+              !/^[a-z][a-z\d+.-]*:/i.test(href) &&
+              !href.startsWith("#") &&
+              !href.startsWith("//")
+            ) {
+              try {
+                const base = new URL("file:///");
+                base.pathname = fileBasePath;
+                fileTarget = parseFileLinkFromHref(`file:${decodeURIComponent(new URL(href, base).pathname)}`);
+              } catch {
+                // Keep malformed source links readable; they must not crash the entire report.
+                fileTarget = null;
+              }
+            }
             if (fileTarget) {
               if (fileLinkMode === "text-only") {
                 return (
@@ -913,6 +933,7 @@ function areMarkdownContentPropsEqual(prev: MarkdownContentProps, next: Markdown
     prev.id === next.id &&
     prev["data-testid"] === next["data-testid"] &&
     prev.sessionId === next.sessionId &&
+    prev.fileBasePath === next.fileBasePath &&
     prev.enableChatSelectionMenu === next.enableChatSelectionMenu &&
     prev.wrapLongContent === next.wrapLongContent &&
     prev.className === next.className &&

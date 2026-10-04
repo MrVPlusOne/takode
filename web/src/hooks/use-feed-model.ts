@@ -622,7 +622,8 @@ function entryIsCollapsedVisible(
   return (
     entry.kind === "message" &&
     ((entry.msg.role === "assistant" &&
-      (entry.msg.notification != null ||
+      (entry.msg.metadata?.markdownReport != null ||
+        entry.msg.notification != null ||
         anchoredNotificationMessageIds?.has(entry.msg.id) === true ||
         isBoardProposalMessage(entry.msg) ||
         (leaderMode && isLeaderNeedsInputStatusMessage(entry.msg)))) ||
@@ -678,6 +679,7 @@ function isAssistantTextResponseEntry(entry: FeedEntry): entry is Extract<FeedEn
     entry.kind === "message" &&
     entry.msg.role === "assistant" &&
     !isCodexReasoningDetailMessage(entry.msg) &&
+    !entry.msg.metadata?.markdownReport &&
     messageText(entry.msg).trim().length > 0
   );
 }
@@ -873,7 +875,12 @@ function filterCollapsedVisibleEntriesForModelOnlyReminderSegments(
     const key = getEntryId(entry);
     if (!visibleEntryKeys.has(key)) continue;
 
-    if (modelOnlyReminderSegment && isPlainLeaderCollapsedSummaryEntry(entry)) continue;
+    if (
+      modelOnlyReminderSegment &&
+      isPlainLeaderCollapsedSummaryEntry(entry) &&
+      !(entry.kind === "message" && entry.msg.metadata?.markdownReport)
+    )
+      continue;
 
     retainedVisibleEntryKeys.add(key);
     if (entryHasNeedsInputSignal(entry)) modelOnlyReminderSegment = false;

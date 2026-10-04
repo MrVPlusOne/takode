@@ -19,6 +19,12 @@ export function ComposerAnnotations({
   const draft = useStore((state) => state.composerDrafts.get(sessionId));
   const editor = useStore((state) => state.annotationEditor);
   const annotations = draft?.annotations ?? [];
+  const reports = annotations.filter((annotation) => annotation.reportSource);
+  const worker = reports[0]?.reportSource;
+  const sharedWorker =
+    reports.length === annotations.length &&
+    worker?.responsibleWorkerId &&
+    reports.every((annotation) => annotation.reportSource?.responsibleWorkerId === worker.responsibleWorkerId);
   const activeEditor =
     editor?.sessionId === sessionId && (!editor.threadKey || editor.threadKey === threadKey) ? editor : null;
   useEffect(
@@ -44,6 +50,29 @@ export function ComposerAnnotations({
   };
   return (
     <>
+      {reports.length > 0 && (
+        <label className="flex flex-wrap items-center gap-2 text-xs text-cc-muted">
+          Send report comments to
+          <select
+            aria-label="Report comment recipient"
+            value={draft?.reportRecipientSessionId ?? ""}
+            disabled={disabled}
+            className="max-w-full rounded border border-cc-border bg-cc-input-bg p-1 text-cc-fg"
+            onChange={(event) => {
+              const store = useStore.getState();
+              const current = store.composerDrafts.get(sessionId);
+              if (current)
+                store.setComposerDraft(sessionId, { ...current, reportRecipientSessionId: event.target.value });
+            }}
+          >
+            <option value="">Choose recipient</option>
+            <option value={sessionId}>This session</option>
+            {sharedWorker && worker.responsibleWorkerId !== sessionId && (
+              <option value={worker.responsibleWorkerId}>{worker.responsibleWorkerLabel ?? "Recorded worker"}</option>
+            )}
+          </select>
+        </label>
+      )}
       <AnnotationAttachments
         sessionId={sessionId}
         annotations={annotations}

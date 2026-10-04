@@ -12,6 +12,7 @@ import { RECORD_DELIVERY_HELP } from "./takode-record-delivery.js";
 import { DELIVERY_TARGET_HELP } from "./takode-delivery-target.js";
 import { PORT_HELP } from "./takode-port.js";
 import { FILE_RESOLVE_HELP } from "./takode-file-resolve.js";
+import { REPORT_HELP } from "./takode-report.js";
 import { THREAD_HANDOFF_HELP } from "./takode-thread-handoff.js";
 import {
   BOARD_ADVANCE_HELP,
@@ -374,6 +375,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "leader-context-resume":
       console.log(LEADER_CONTEXT_RESUME_HELP);
       return true;
+    case "report":
+      console.log(REPORT_HELP);
+      return true;
     case "file-resolve":
       console.log(FILE_RESOLVE_HELP);
       return true;
@@ -584,6 +588,7 @@ Commands:
   info     Show detailed metadata for a session
   leader-context-resume  Recover compact leader/orchestrator context for a session
   file-resolve  Resolve paths or file links against a session filesystem context
+  report        Publish an exact Markdown file as an annotatable chat report
   spawn    Create and auto-herd new worker sessions
   tasks    Show a session task outline (available to all sessions)
   timers   Inspect pending timers for a session

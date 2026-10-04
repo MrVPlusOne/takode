@@ -124,6 +124,7 @@ type BrowserTransportSocketData = BrowserConversationWindowSocketData &
   };
 
 export interface ProgrammaticUserMessageOptions {
+  annotations?: ProgrammaticUserMessage["annotations"];
   deliveryContent?: ProgrammaticUserMessage["deliveryContent"];
   historyFollowUps?: ProgrammaticHistoryFollowUp[];
   timerFiring?: ProgrammaticUserMessage["timerFiring"];
@@ -755,6 +756,7 @@ export function injectUserMessage(
   const browserMessage: BrowserOutgoingMessage = {
     type: "user_message",
     content,
+    ...(options?.annotations ? { annotations: options.annotations } : {}),
     ...(options?.deliveryContent ? { deliveryContent: options.deliveryContent } : {}),
     ...(options?.historyFollowUps?.length ? { historyFollowUps: options.historyFollowUps } : {}),
     ...(options?.timerFiring ? { timerFiring: options.timerFiring } : {}),

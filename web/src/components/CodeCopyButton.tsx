@@ -8,7 +8,15 @@ import { writeClipboardText } from "../utils/copy-utils.js";
  *
  * Pass `text` for static content, or `getText` for lazy evaluation (e.g. reading from a ref).
  */
-export function CodeCopyButton({ text, getText }: { text?: string; getText?: () => string }) {
+export function CodeCopyButton({
+  text,
+  getText,
+  label = "Copy code",
+}: {
+  text?: string;
+  getText?: () => string;
+  label?: string;
+}) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {
@@ -25,7 +33,7 @@ export function CodeCopyButton({ text, getText }: { text?: string; getText?: () 
     <button
       onClick={handleCopy}
       className="opacity-100 sm:opacity-0 sm:group-hover/code:opacity-100 transition-opacity p-1 rounded hover:bg-white/10 cursor-pointer"
-      title={copied ? "Copied!" : "Copy code"}
+      title={copied ? "Copied!" : label}
     >
       {copied ? (
         <svg

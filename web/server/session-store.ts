@@ -707,7 +707,7 @@ export class SessionStore {
           timestamp: typeof msg.timestamp === "number" ? msg.timestamp : 0,
           id: msg.id,
         });
-      } else if (msg.type === "leader_user_message" && msg.threadResponse) {
+      } else if (msg.type === "markdown_report" || (msg.type === "leader_user_message" && msg.threadResponse)) {
         const content = (msg.content || "").trim();
         if (!content) continue;
         excerpts.push({

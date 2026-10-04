@@ -940,6 +940,7 @@ export type BrowserIncomingMessageBase =
       notification?: TakodeNotificationPayload;
       threadStatusMarkers?: LeaderThreadStatus[];
     }
+  | import("../shared/markdown-report.js").MarkdownReportMessage
   | CodexReasoningDetailMessage
   | { type: "stream_event"; event: unknown; parent_tool_use_id: string | null }
   | { type: "result"; data: CLIResultMessage; interrupted?: boolean }

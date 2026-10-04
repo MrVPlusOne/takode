@@ -5,12 +5,16 @@ const SCOPE = '[data-chat-selection-scope="true"]';
 /** Capture the selected occurrence, including when the same words appear repeatedly in a message. */
 export function captureAnnotationSource(
   range: Range | null,
-): Pick<ConversationAnnotation, "sourceMessageId" | "sourceAnchor"> {
+): Pick<ConversationAnnotation, "sourceMessageId" | "sourceAnchor" | "reportSource"> {
   if (!range) return {};
   const element = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
   const message = element?.closest<HTMLElement>("[data-message-id]");
   if (!message) return {};
   const sourceMessageId = message.dataset.messageId;
+  const reportElement = element?.closest<HTMLElement>("[data-markdown-report-source]");
+  const reportSource = reportElement?.dataset.markdownReportSource
+    ? (JSON.parse(reportElement.dataset.markdownReportSource) as ConversationAnnotation["reportSource"])
+    : undefined;
   const scopes = Array.from(message.querySelectorAll<HTMLElement>(SCOPE));
   const scopeIndex = scopes.findIndex(
     (scope) => scope.contains(range.startContainer) && scope.contains(range.endContainer),
@@ -21,7 +25,11 @@ export function captureAnnotationSource(
   prefix.setEnd(range.startContainer, range.startOffset);
   const start = prefix.toString().length;
   const text = range.toString();
-  return { sourceMessageId, ...(text ? { sourceAnchor: { scopeIndex, start, end: start + text.length, text } } : {}) };
+  return {
+    sourceMessageId,
+    ...(reportSource ? { reportSource } : {}),
+    ...(text ? { sourceAnchor: { scopeIndex, start, end: start + text.length, text } } : {}),
+  };
 }
 
 /** Resolve only a verified occurrence; old annotations without offsets require a unique literal match. */

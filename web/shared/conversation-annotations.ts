@@ -4,6 +4,7 @@ export interface ConversationAnnotation {
   selectedText: string;
   comment: string;
   sourceMessageId?: string;
+  reportSource?: import("./markdown-report.js").MarkdownReportSource;
   /** Rendered-text offsets within one source Markdown scope; text verifies the anchor after remounts. */
   sourceAnchor?: { scopeIndex: number; start: number; end: number; text: string };
 }
@@ -44,6 +45,20 @@ export function readConversationAnnotations(value: unknown): ConversationAnnotat
       throw new Error("Each annotation needs a unique ID, selected text, and a comment.");
     ids.add(entry.id);
     const anchor = entry.sourceAnchor;
+    const report = entry.reportSource;
+    if (
+      report !== undefined &&
+      (!report ||
+        typeof report.sessionId !== "string" ||
+        typeof report.reportId !== "string" ||
+        typeof report.sourcePath !== "string" ||
+        typeof report.sha256 !== "string" ||
+        !/^[a-f0-9]{64}$/.test(report.sha256) ||
+        (report.responsibleWorkerId !== undefined && typeof report.responsibleWorkerId !== "string") ||
+        (report.responsibleWorkerLabel !== undefined && typeof report.responsibleWorkerLabel !== "string"))
+    ) {
+      throw new Error("Invalid report source.");
+    }
     if (
       anchor !== undefined &&
       (!anchor ||
@@ -61,6 +76,18 @@ export function readConversationAnnotations(value: unknown): ConversationAnnotat
       id: entry.id,
       selectedText: entry.selectedText,
       comment: entry.comment,
+      ...(report
+        ? {
+            reportSource: {
+              sessionId: report.sessionId,
+              reportId: report.reportId,
+              sourcePath: report.sourcePath,
+              sha256: report.sha256,
+              ...(report.responsibleWorkerId ? { responsibleWorkerId: report.responsibleWorkerId } : {}),
+              ...(report.responsibleWorkerLabel ? { responsibleWorkerLabel: report.responsibleWorkerLabel } : {}),
+            },
+          }
+        : {}),
       ...(entry.sourceMessageId !== undefined ? { sourceMessageId: entry.sourceMessageId } : {}),
       ...(anchor
         ? { sourceAnchor: { scopeIndex: anchor.scopeIndex, start: anchor.start, end: anchor.end, text: anchor.text } }
@@ -75,7 +102,7 @@ export function formatAnnotatedMessage(content: string, annotations?: readonly C
   const comments = annotations
     .map(
       (annotation, index) =>
-        `${annotation.selectedText
+        `${annotation.reportSource ? `Report ${annotation.reportSource.reportId} in session ${annotation.reportSource.sessionId}\nSource: ${annotation.reportSource.sourcePath} (SHA-256 ${annotation.reportSource.sha256})\n` : ""}${annotation.selectedText
           .split("\n")
           .map((line) => `> ${line}`)
           .join("\n")}\n[comment ${index + 1}] ${annotation.comment}`,

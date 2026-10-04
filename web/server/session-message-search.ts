@@ -105,7 +105,11 @@ export function resolveSessionMessageTarget(
 ): { messageId: string; threadKey: string } | null {
   const entries = buildProjectedThreadEntries(history, ALL_THREADS_KEY, { includeMessage: isRootAgentHistoryMessage });
   const matches = entries.filter((entry) => rawMessageId(entry.message, entry.history_index) === messageId);
-  if (matches.length !== 1 || matches[0].message.type !== "assistant") return null;
+  if (
+    matches.length !== 1 ||
+    (matches[0].message.type !== "assistant" && matches[0].message.type !== "markdown_report")
+  )
+    return null;
   return {
     messageId,
     threadKey: isLeaderSession ? authoritativeMessageOwner(matches[0].message).threadKey : MAIN_THREAD_KEY,
@@ -233,7 +237,7 @@ function normalizeRawMessage(
       text: message.content,
     };
   }
-  if (message.type === "leader_user_message") {
+  if (message.type === "leader_user_message" || message.type === "markdown_report") {
     return {
       message,
       messageId: rawMessageId(message, historyIndex),

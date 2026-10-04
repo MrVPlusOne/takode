@@ -265,6 +265,7 @@ export interface ChatMessage {
   variant?: "error" | "info" | "denied" | "approved" | "quest_claimed" | "quest_submitted" | "task_completed";
   /** Extra structured data for rich rendering (e.g. AskUserQuestion answers, quest claim details) */
   metadata?: {
+    markdownReport?: import("../shared/markdown-report.js").MarkdownReportSource;
     answers?: { question: string; answer: string }[];
     /** LLM rationale for auto-approved permissions (rendered separately from the summary). */
     autoApprovalReason?: string;
@@ -404,6 +405,7 @@ export interface ComposerDraft {
   text: string;
   images: ComposerDraftImage[];
   annotations?: ConversationAnnotation[];
+  reportRecipientSessionId?: string;
 }
 
 export interface AnnotationEditorState {

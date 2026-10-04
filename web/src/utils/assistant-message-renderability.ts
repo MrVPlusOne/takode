@@ -72,7 +72,9 @@ export function projectAssistantMessageForRendering(
   );
   const hasTextBlock = blocks.some((block) => block.type === "text" && block.text.trim().length > 0);
   const hasThinkingBlock = blocks.some((block) => block.type === "thinking" && block.thinking.trim().length > 0);
-  const fallbackText = projectAssistantVisibleText(message.content ?? "");
+  const fallbackText = message.metadata?.markdownReport
+    ? message.content
+    : projectAssistantVisibleText(message.content ?? "");
   const shouldRenderContentFallback =
     fallbackText.trim().length > 0 && !hasTextBlock && !hasThinkingBlock && !hasSuppressedRootCodexThinkingBlock;
   const hasVisibleBlock = blocks.length > 0;

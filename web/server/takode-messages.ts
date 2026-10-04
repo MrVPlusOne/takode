@@ -733,6 +733,7 @@ function extractFullText(msg: BrowserIncomingMessage, sessionId?: string): strin
       return text;
     }
 
+    case "markdown_report":
     case "leader_user_message":
       return msg.content || "";
 
@@ -799,6 +800,7 @@ function getCompactMarkerText(msg: Extract<BrowserIncomingMessage, { type: "comp
 /** Get the timestamp for any message in the history. */
 function extractTimestamp(msg: BrowserIncomingMessage): number {
   switch (msg.type) {
+    case "markdown_report":
     case "user_message":
     case "leader_user_message":
       return msg.timestamp || 0;
@@ -822,6 +824,7 @@ function extractTimestamp(msg: BrowserIncomingMessage): number {
 
 /** Message types that carry meaningful content for the peek/read API. */
 type PeekableType =
+  | "markdown_report"
   | "user_message"
   | "leader_user_message"
   | "assistant"
@@ -832,6 +835,7 @@ type PeekableType =
   | "quest_lifecycle_event";
 
 const PEEKABLE_TYPES = new Set<string>([
+  "markdown_report",
   "user_message",
   "leader_user_message",
   "assistant",
@@ -855,6 +859,7 @@ function injectedTemplateForMessage(msg: BrowserIncomingMessage): TakodeInjected
 
 /** Map message type to the simplified peek type. */
 function toPeekType(type: string): "user" | "assistant" | "result" | "system" {
+  if (type === "markdown_report") return "assistant";
   if (type === "user_message") return "user";
   if (type === "leader_user_message") return "assistant";
   if (type === "assistant") return "assistant";

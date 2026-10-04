@@ -295,8 +295,8 @@ function messageMatchCandidate(
       };
     }
 
-    if (msg.type === "assistant") {
-      const text = extractAssistantText(msg);
+    if (msg.type === "assistant" || msg.type === "markdown_report") {
+      const text = msg.type === "markdown_report" ? msg.content : extractAssistantText(msg);
       if (!text || !matches(text)) continue;
 
       const timestamp = typeof msg.timestamp === "number" ? msg.timestamp : (doc.lastActivityAt ?? doc.createdAt);
@@ -306,7 +306,11 @@ function messageMatchCandidate(
         matchedField: "assistant",
         matchContext: `assistant: ${buildSnippet(text, qWords)}`,
         matchedAt: timestamp,
-        messageMatch: { id: msg.message?.id, timestamp, snippet: buildSnippet(text, qWords) },
+        messageMatch: {
+          id: msg.type === "markdown_report" ? msg.id : msg.message?.id,
+          timestamp,
+          snippet: buildSnippet(text, qWords),
+        },
       };
     }
   }

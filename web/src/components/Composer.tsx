@@ -1,6 +1,7 @@
 import { ComposerMinimizer, ComposerMinimizeButton } from "./ComposerMinimizer.js";
 import { sendComposerDraft } from "./composer-message-send.js";
 import { ComposerAnnotations } from "./ComposerAnnotations.js";
+import { useReportCommentSend } from "./use-report-comment-send.js";
 import { formatAnnotatedMessage } from "../../shared/conversation-annotations.js";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -121,6 +122,7 @@ export function Composer({
   transcriptionThreadTitle?: string;
 }) {
   const draft = useStore((s) => s.composerDrafts.get(sessionId));
+  const reportComments = useReportCommentSend(sessionId, threadKey);
   const shortcutSettings = useStore((s) => s.shortcutSettings);
   const replyContext = useStore((s) => s.replyContexts.get(sessionId));
   const text = draft?.text ?? "";
@@ -942,6 +944,11 @@ export function Composer({
     )
       return;
 
+    if (annotations?.some((annotation) => annotation.reportSource)) {
+      await reportComments.send();
+      return;
+    }
+
     // Auto-answer pending AskUserQuestion if user types a response.
     // The typed text becomes the "Other..." answer for each question.
     // No separate user_message is sent — the answer IS the user's message.
@@ -1761,6 +1768,11 @@ export function Composer({
                 threadTitle={transcriptionThreadTitle}
                 disabled={!canUseInput}
               />
+              {reportComments.status && (
+                <p role="status" className="text-xs text-cc-muted">
+                  {reportComments.status}
+                </p>
+              )}
               <ComposerReferencePreview references={plainReferencePreviews} />
             </>
           }

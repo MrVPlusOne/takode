@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ConversationAnnotation } from "../../shared/conversation-annotations.js";
 import { useAnnotationPreview } from "./use-annotation-preview.js";
+import { navigateToSessionMessageId } from "../utils/routing.js";
 export { AnnotationSourceMarkers } from "./AnnotationSourceMarkers.js";
 
 /** Structured attachment previews; ordinary message text is never parsed as attachment syntax. */
@@ -99,6 +100,17 @@ function AnnotationAttachment({
             {annotation.selectedText}
           </blockquote>
           <p className="whitespace-pre-wrap break-words">{annotation.comment}</p>
+          {annotation.reportSource && (
+            <button
+              type="button"
+              className="text-xs text-cc-primary hover:underline"
+              onClick={() =>
+                navigateToSessionMessageId(annotation.reportSource!.sessionId, annotation.reportSource!.reportId)
+              }
+            >
+              Open source report
+            </button>
+          )}
           {onRemove && (
             <div className="flex gap-3 text-xs">
               {onRemove && (

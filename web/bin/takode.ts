@@ -18,6 +18,7 @@ import {
   stripGlobalFlags,
 } from "./takode-core.js";
 import { handleFileResolve } from "./takode-file-resolve.js";
+import { handleReport } from "./takode-report.js";
 import { handleGoal } from "./takode-goal-commands.js";
 import { printCommandHelp, printUsage } from "./takode-help.js";
 import { handleLease } from "./takode-lease.js";
@@ -79,6 +80,7 @@ try {
     ["info", { allowSessionlessRead: true }],
     ["leader-context-resume", {}],
     ["file-resolve", {}],
+    ["report", {}],
     ["tasks", { allowSessionlessRead: true }],
     ["timers", {}],
     ["scan", { allowSessionlessRead: true }],
@@ -163,6 +165,9 @@ try {
       break;
     case "file-resolve":
       await handleFileResolve(base, args);
+      break;
+    case "report":
+      await handleReport(base, args);
       break;
     case "spawn":
       await handleSpawn(base, args);

@@ -1701,6 +1701,35 @@ describe("programmatic user message injection", () => {
     );
   });
 
+  it.each([
+    "claude",
+    "codex",
+  ] as const)("preserves report annotation identity through %s input routing", (backendType) => {
+    // Human report comments use the existing input path, including provider-independent structured metadata.
+    const routeBrowserMessage = vi.fn();
+    const deps = makeInjectDeps({ routeBrowserMessage });
+    const session = makeSession({ id: "worker-1", backendType });
+    const annotations = [
+      {
+        id: "comment",
+        selectedText: "one hour",
+        comment: "Why?",
+        sourceMessageId: "report",
+        reportSource: {
+          sessionId: "leader",
+          reportId: "report",
+          sourcePath: "/reports/daily.md",
+          sha256: "a".repeat(64),
+        },
+      },
+    ];
+    injectUserMessage(session, "", undefined, undefined, deps, { threadKey: "main" }, { annotations });
+    expect(routeBrowserMessage).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ type: "user_message", content: "", annotations }),
+    );
+  });
+
   it("passes reply and thread metadata through programmatic user-message injection", () => {
     const routeBrowserMessage = vi.fn();
     const deps = makeInjectDeps({ routeBrowserMessage });

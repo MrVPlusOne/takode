@@ -849,6 +849,7 @@ function handleParsedMessage(
       break;
     }
 
+    case "markdown_report":
     case "thread_attachment_marker": {
       const [message] = normalizeHistoryMessageToChatMessages(data, data.history_index ?? -1);
       if (message) store.appendMessage(sessionId, message);

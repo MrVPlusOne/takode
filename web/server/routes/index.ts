@@ -25,6 +25,7 @@ import { createCodexGoalRoutes } from "./session-codex-goal-routes.js";
 import { createCodexRuntimeDiagnosticsRoutes } from "./codex-runtime-diagnostics.js";
 import { createTranscriptionRoutes } from "./transcription.js";
 import { createTakodeRoutes } from "./takode.js";
+import { createMarkdownReportRoutes } from "./markdown-reports.js";
 import { createQuestRoutes } from "./quests.js";
 import { createQuestOutcomeRoutes } from "./quest-outcome-routes.js";
 import { createRecordingsRoutes } from "./recordings.js";
@@ -247,6 +248,7 @@ export function createRoutes(
   api.route("/", createTakodeRoutes(ctx));
   api.route("/", createRecordingsRoutes(ctx));
   api.route("/", createFilesystemRoutes(ctx));
+  api.route("/", createMarkdownReportRoutes(ctx));
   api.route("/", createSettingsRoutes(ctx));
   api.route("/", createChangelogRoutes(ctx));
   api.route("/", createTranscriptionRoutes(ctx));

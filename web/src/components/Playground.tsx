@@ -1,4 +1,5 @@
 import { PlaygroundAnnotationsSection } from "./playground/PlaygroundAnnotationsSection.js";
+import { PlaygroundMarkdownReportSection } from "./playground/PlaygroundMarkdownReportSection.js";
 import { PlaygroundCommitDeliverySection } from "./playground/PlaygroundCommitDeliverySection.js";
 import { useMemo } from "react";
 import { COLOR_THEMES, useStore } from "../store.js";
@@ -96,6 +97,7 @@ export function Playground() {
         </aside>
 
         <main className="space-y-12 min-w-0">
+          <PlaygroundMarkdownReportSection />
           <PlaygroundAnnotationsSection />
           <PlaygroundSessionHeaderMenu />
           <PlaygroundOverviewSections />
