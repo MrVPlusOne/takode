@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useState } from "react";
 import { makeMarkdownReportFixture } from "../../../shared/test-fixtures/markdown-report.js";
 import { normalizeHistoryMessageToChatMessages } from "../../utils/history-message-normalization.js";
 import { useTextSelection } from "../../hooks/useTextSelection.js";
@@ -11,8 +11,8 @@ const report = makeMarkdownReportFixture();
 const [message] = normalizeHistoryMessageToChatMessages(report, 0);
 
 export function PlaygroundMarkdownReportSection() {
-  const root = useRef<HTMLDivElement>(null);
-  const selection = useTextSelection(root);
+  const [root, setRoot] = useState<HTMLDivElement | null>(null);
+  const selection = useTextSelection({ current: root });
   const draft = useStore((state) => state.composerDrafts.get(report.source.sessionId));
   return (
     <section id="markdown-reports" className="space-y-4 scroll-mt-24" data-testid="playground-markdown-reports">
@@ -21,7 +21,7 @@ export function PlaygroundMarkdownReportSection() {
         Select a passage to add a comment and choose its recipient. This preview does not send messages.
       </p>
       <div
-        ref={root}
+        ref={setRoot}
         data-annotation-preview-session={report.source.sessionId}
         className="rounded-xl border border-cc-border bg-cc-card p-4"
       >

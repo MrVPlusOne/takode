@@ -23,7 +23,7 @@ export function MarkdownReport({ message, readOnly = false }: { message: ChatMes
         </div>
         <CodeCopyButton text={message.content} label="Copy Markdown" />
       </div>
-      <div ref={contentRef}>
+      <div ref={contentRef} className="relative min-w-0 mr-5">
         <MarkdownContent
           text={message.content}
           sessionId={source.responsibleWorkerId ?? source.sessionId}
