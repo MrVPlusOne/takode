@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -94,6 +94,27 @@ describe("index startup skill registration", () => {
     for (const directory of [".agents", ".codex"]) {
       await expect(access(join(REPO_ROOT, directory, "skills", slug, "SKILL.md"))).rejects.toThrow();
     }
+  });
+
+  it("gives every agent-side project skill a Claude-facing source", async () => {
+    // Startup installs ~/.claude/skills only from .claude/skills, so a skill kept
+    // solely under .agents/skills silently reaches Codex sessions but never Claude
+    // sessions. A distinct .agents variant is fine; a missing Claude source is not.
+    const agentsSkillsRoot = join(REPO_ROOT, ".agents", "skills");
+    const slugs = (await readdir(agentsSkillsRoot, { withFileTypes: true }))
+      .filter((entry) => !entry.name.startsWith(".") && (entry.isDirectory() || entry.isSymbolicLink()))
+      .map((entry) => entry.name);
+    expect(slugs.length).toBeGreaterThan(0);
+    const missingClaudeSources = [];
+    for (const slug of slugs) {
+      const claudeSkill = join(REPO_ROOT, ".claude", "skills", slug, "SKILL.md");
+      const hasClaudeSource = await access(claudeSkill).then(
+        () => true,
+        () => false,
+      );
+      if (!hasClaudeSource) missingClaudeSources.push(slug);
+    }
+    expect(missingClaudeSources).toEqual([]);
   });
 
   it("documents executable full-gate commands using the no-install package runner", async () => {

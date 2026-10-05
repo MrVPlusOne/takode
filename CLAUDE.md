@@ -21,7 +21,7 @@ Treat destructive tests and helpers as dangerous until their data paths are prov
 
 ## Skills (Auto-Installed)
 
-The Takode server symlinks project skills into global skill directories at startup (see `web/server/skill-symlink.ts` and `web/server/index.ts`). Claude-facing skills are installed into `~/.claude/skills/`; Codex/new-agent skills are installed into `~/.agents/skills/`. The canonical Claude-facing project source remains `.claude/skills/` in the repo, while `.agents/skills/` is the single non-Claude project skill source. Legacy `.codex/skills/` content is compatibility-only and may be migrated into `.agents`; do not add new project skills there.
+The Takode server symlinks project skills into global skill directories at startup (see `web/server/skill-symlink.ts` and `web/server/index.ts`). Claude-facing skills are installed into `~/.claude/skills/`; Codex/new-agent skills are installed into `~/.agents/skills/`. The canonical Claude-facing project source remains `.claude/skills/` in the repo, while `.agents/skills/` is the single non-Claude project skill source. Legacy `.codex/skills/` content is compatibility-only and may be migrated into `.agents`; do not add new project skills there. A `.claude/skills/` skill reaches both backends because the `~/.agents/skills/` install falls back to it, while a skill that exists only under `.agents/skills/` never reaches Claude sessions; keep backend-neutral skills in `.claude/skills/`.
 
 Global skills are auto-discovered by every session and can be hard to remove once installed. Avoid adding global skills for context-dependent instructions. Prefer repo instruction files in known locations, then inject or reference those exact file paths only for the agents that need that context.
 
@@ -47,7 +47,7 @@ If an implementation plan or user proposal conflicts with an existing design-pri
 | `reviewer-groom` | `.claude/skills/reviewer-groom/` | Reviewer-owned quality review for another agent's change |
 | `skeptic-review` | `.claude/skills/skeptic-review/` | Adversarial work integrity review of worker output |
 | `worktree-rules` (`/port-changes`) | `.claude/skills/worktree-rules/` | Worktree-to-main-repo porting workflow; `worktree-rules` is the underlying skill slug and `/port-changes` is the user-facing command/alias |
-| `takode-ui-e2e-validation` | `.agents/skills/takode-ui-e2e-validation/` | Takode UI/E2E validation with `agent-browser`, leases, shared persistent validation state by default, isolated exceptions, Playground coverage, and screenshot evidence |
+| `takode-ui-e2e-validation` | `.claude/skills/takode-ui-e2e-validation/` | Takode UI/E2E validation with `agent-browser`, leases, shared persistent validation state by default, isolated exceptions, Playground coverage, and screenshot evidence |
 
 Additionally, `quest-integration.ts` generates and installs the `quest` skill docs (from `web/server/templates/quest-skill-docs.md`) into the Claude and `.agents` skill directories at startup.
 Quest Journey phases are guided by the canonical phase briefs in `~/.companion/quest-journey-phases/<phase-id>/`, not by globally installed phase skills. Historical and canonical phase skill slugs remain internal Quest Journey compatibility metadata only; they are not installed as worker-visible skills.

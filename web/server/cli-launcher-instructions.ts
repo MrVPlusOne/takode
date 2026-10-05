@@ -218,30 +218,13 @@ Use \`/port-changes\` when asked to port, sync, or push commits to the main repo
   return parts.join("\n\n");
 }
 
-interface OrchestratorGuardrailCopy {
-  orchestratorRole: string;
-  forwardedSessionLine: string;
-  delegationLine: string;
-}
+// Leader guidance is shared across backends except for in-session delegation,
+// whose tools differ: Claude has background sub-agents, Codex has `delegate_task`.
+const CLAUDE_DELEGATION_LINE =
+  "- **Always use async sub-agents.** When spinning up sub-agents via the Task tool, always use `run_in_background: true`. Synchronous sub-agents block your turn and prevent you from receiving and reacting to herd events or user messages until they complete.";
 
-function getClaudeOrchestratorGuardrailCopy(): OrchestratorGuardrailCopy {
-  return {
-    orchestratorRole: "agent",
-    forwardedSessionLine:
-      "- **`[Agent #N name HH:MM]`** -- a message sent by another agent session (via `takode send`)",
-    delegationLine:
-      "- **Always use async sub-agents.** When spinning up sub-agents via the Task tool, always use `run_in_background: true`. Synchronous sub-agents block your turn and prevent you from receiving and reacting to herd events or user messages until they complete.",
-  };
-}
-
-function getCodexOrchestratorGuardrailCopy(): OrchestratorGuardrailCopy {
-  return {
-    orchestratorRole: "leader session",
-    forwardedSessionLine: "- A forwarded message from another session may also appear with its own source tag",
-    delegationLine:
-      "- **Delegate all major work.** Keep your own work to triage, coordination, and short spot checks. Send implementation, deeper investigation, and verification to worker sessions. Use `delegate_task(task)` for a bounded same-context task when you need a concise summary plus an inspectable forked transcript instead of raw delegate work in your own context. If the user explicitly asks you to use `delegate_task`, make your next action the actual MCP tool call rather than prose or doing the task directly.",
-  };
-}
+const CODEX_DELEGATION_LINE =
+  "- **Delegate all major work.** Keep your own work to triage, coordination, and short spot checks. Send implementation, deeper investigation, and verification to worker sessions. Use `delegate_task(task)` for a bounded same-context task when you need a concise summary plus an inspectable forked transcript instead of raw delegate work in your own context. If the user explicitly asks you to use `delegate_task`, make your next action the actual MCP tool call rather than prose or doing the task directly.";
 
 function renderBuiltInQuestJourneyPhaseTable(): string {
   const rows = QUEST_JOURNEY_PHASES.map((phase) => {
@@ -283,10 +266,10 @@ For memory record frontmatter \`source\`, use the quest ID (\`q-N\`) as the prim
 For quest work, final Memory must include exactly one memory statement after catalog/direct-file triage: \`memory updated: <commit>\`, \`memory update deferred: <reason or curator>\`, or \`memory update not needed: <reason>\`. Non-Memory phases should not add routine \`memory update not needed\` statements. Include memory-specific evidence only when material, such as a completed memory write, a deferral for final Memory or a curator, durable user decisions/preferences, memory files inspected for a reason, artifact manifests, or other facts final Memory needs.`;
 }
 
-function renderOrchestratorGuardrails(copy: OrchestratorGuardrailCopy): string {
+function renderOrchestratorGuardrails(delegationLine: string): string {
   return `# Takode -- Cross-Session Orchestration
 
-You are an **orchestrator ${copy.orchestratorRole}**. You coordinate multiple worker sessions, monitor their progress, and decide when to intervene, send follow-up instructions, or notify the human.
+You are an **orchestrator leader session**. You coordinate multiple worker sessions, monitor their progress, and decide when to intervene, send follow-up instructions, or notify the human.
 
 The \`takode-orchestration\`, \`leader-dispatch\`, \`leader-decision-communication\`, \`confirm\`, and \`quest\` skills are preloaded at startup. Use the orchestration and dispatch skills as your source of truth for command syntax and detailed workflows; do not reread mandatory leader skills via tool calls unless checking freshness or debugging. The \`leader-decision-communication\` skill is the sole complete owner of decision-first wording, plain-language translation, progressive disclosure, and the material-detail necessity filter for user-facing decisions and material status updates. The \`takode-orchestration\` skill covers CLI commands, herd events, Quest Journey v2, and the work board. Invoke \`/quest-design\` when you need to confirm or discipline quest text, including whether a new/refined quest is a true follow-up of earlier work. Invoke \`/leader-dispatch\` before every quest dispatch or direct worker errand; it owns worker selection, direct errand eligibility, the direct-dispatch versus approval decision, durable board recording for quest-backed work, and the dispatch templates. Direct create/dispatch is allowed only for clear, low-risk, reversible repo-local work with no material ambiguity, irreversible/destructive operation, external side effect, security/privacy/global/shared-resource risk, product/policy choice, or user-level scheduling tradeoff. A direct worker errand is narrower: a one-turn, context-rich, read-only draft, explanation, narrow source lookup, translation, formatting pass, or clarification with no mutation, validation, external action, durable artifact, review, checkpoint, or handoff; otherwise create or reopen a normal quest. Pre-dispatch approval remains mandatory for ambiguous, destructive, irreversible, externally consequential, expensive/long-running, global/shared-resource, security/privacy, product/policy, or user-visible tradeoff work. Use delayed approval via User Checkpoint when Work can safely start but a later decision needs user confirmation. When approval is required and the user clearly wants quest creation plus dispatch, combine the quest draft and Journey/scheduling draft in one concise approval packet so one confirmation can approve quest text, Journey, and dispatch plan. The visible chat approval surface is for the user's decision, not worker grounding: make it read like a TLDR for approval with the goal, Journey, scheduling, and only the details the user needs to approve, correct, or choose. Keep the quest record intent-first and self-contained: preserve the requested outcome, user-supplied, confirmed, or mandatory constraints, and useful evidence or context a worker could not reasonably recover; leave unconfirmed leader ideas and detailed planning to Work. If the approval asks the user to choose, the thread text must include enough decision context for that choice; notification suggestions and quest feedback are not substitutes for options or tradeoffs. Use \`Goal / Acceptance\` as the source of truth for the requested work and user-supplied, confirmed, or mandatory acceptance checks; do not restate the same work again as a separate quest description, \`Scope\` paragraph, \`The worker should\` list, default \`Expected Output / Acceptance\` section, or full quest-body paste. Use the scannable shape \`Proposed Quest\`, \`Goal / Acceptance\`, optional \`Context / Evidence\`, optional \`Out Of Scope\`, optional \`Open Questions\`, \`Journey\`, and \`Scheduling\` as a menu, not a form when an approval surface is needed: preserve judgment, but expand only for ambiguity, user-visible boundaries, unusual phase reasons, queueing/capacity choices, or tradeoffs the user must confirm. For quest-design-only requests, omit dispatch sections; for dispatch-only requests, reference the existing quest instead of re-describing its accepted scope. Keep separate sections only for non-overlapping approval details such as \`Relationship\`, \`Context / Evidence\`, \`Out Of Scope\`, \`Open Questions\`, \`Invariants / Must Preserve\`, \`Journey\`, phase notes, and \`Scheduling\`; optional questions and assumptions should not restate facts already implied by \`Goal / Acceptance\`, and optional sections should be omitted when they add no decision value. If the quest is a true follow-up, bug fix, successor, redesign, or user-approved next quest from prior findings, include \`Relationship: follow-up of [q-N](quest:q-N)\` in that approval surface or direct-dispatch rationale and persist it with \`quest create ... --follow-up-of q-N\` or \`quest edit q-M --follow-up-of q-N\`; leave incidental mentions to auto-detected backlinks. After approval or direct-dispatch authorization for quest-backed work, write the authorized Journey to the board before or with dispatch. When spawning workers, default to your own backend type unless the user specifies otherwise. If your session uses \`bypassPermissions\` (auto mode), spawned workers inherit auto mode.
 
@@ -325,7 +308,7 @@ Use \`--json\` only when you need exact structured fields for a programmatic dec
 **Message sources** -- every user message has a source tag:
 - **\`[User HH:MM]\`** -- human operator
 - **\`[Herd HH:MM]\`** -- automatic event summary from herded sessions
-${copy.forwardedSessionLine}
+- **\`[Agent #N name HH:MM]\`** -- a message sent by another agent session (via \`takode send\`)
 
 The \`takode-orchestration\` skill has the full event type table and reaction rules inline in its Herd Events section.
 System-interrupted worker \`turn_end\` herd events may be provisional. If an event says \`recovery pending\`, or the worker still appears connected or generating after a stuck-watchdog interruption, inspect \`takode info\`, \`takode peek\`, or \`takode scan\` once, then read and apply \`${getQuestJourneyPhaseLeaderBriefDisplayPath("work")}\` before steering. That brief owns the complete recovery rule.
@@ -433,15 +416,15 @@ Do not rely on deprecated leader reply suffixes like \`@to(user)\` or \`@to(self
   - \`needs-input\`: Every time you ask the user a question or need a user decision before work can continue. First send the detailed question or decision text as a marked leader response, then call \`takode notify needs-input\` with a short summary so the user never misses it. The marked response must be self-contained enough to answer; include the reply shortcuts required by User notifications through \`--suggest\`, but never as the only place options or tradeoffs appear. For multiple independent questions, use \`--question <prompt>\` and attach each question's suggestions after that flag.
   - \`waiting\`: Legacy CLI fallback for non-user waits only; prefer inline \`Thread Waiting\` markers in leader responses so the status is visible without an extra tool call.
   - \`review\`: Use this only for significant non-thread deliverables that truly need a notification. For normal leader thread completion, prefer an inline \`Thread Ready\` marker. Do **not** call \`takode notify review\` for quest completion -- when a work board item is completed, Takode already sends that review notification automatically.
-${copy.delegationLine}
+${delegationLine}
 
 Invoke \`/leader-dispatch\` for the full discipline rules, communication patterns, and task delegation style.`;
 }
 
 export function getOrchestratorGuardrails(backend: BackendType = "claude-sdk"): string {
   return backend === "codex"
-    ? renderOrchestratorGuardrails(getCodexOrchestratorGuardrailCopy())
-    : renderOrchestratorGuardrails(getClaudeOrchestratorGuardrailCopy());
+    ? renderOrchestratorGuardrails(CODEX_DELEGATION_LINE)
+    : renderOrchestratorGuardrails(CLAUDE_DELEGATION_LINE);
 }
 
 /**
