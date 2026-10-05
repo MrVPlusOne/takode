@@ -8,7 +8,7 @@ function makeRecording(sessionId: string, entries: Recording["entries"]): Record
       _header: true,
       version: 1,
       session_id: sessionId,
-      backend_type: "claude",
+      backend_type: "claude-sdk",
       started_at: 1000,
       cwd: "/repo",
     },

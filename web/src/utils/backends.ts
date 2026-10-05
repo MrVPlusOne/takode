@@ -1,7 +1,5 @@
-import type { BackendType } from "../types.js";
-import { assertNever } from "../types.js";
 import type { BackendModelInfo } from "../api.js";
-import { getDefaultModelForBackend } from "../../shared/backend-defaults.js";
+import { getBackendFamily, getDefaultModelForBackend, type BackendSelection } from "../../shared/backend-defaults.js";
 import {
   CLAUDE_PERMISSION_MODES as CLAUDE_PERMISSION_MODE_VALUES,
   deriveAskPermissionForMode as deriveSharedAskPermissionForMode,
@@ -221,44 +219,20 @@ export const CODEX_PERMISSION_MODES: CodexPermissionOption[] = [
 
 // ─── Getters ─────────────────────────────────────────────────────────────────
 
-export function getModelsForBackend(backend: BackendType): ModelOption[] {
-  switch (backend) {
-    case "claude":
-    case "claude-sdk":
-      return CLAUDE_MODELS;
-    case "codex":
-      return CODEX_MODELS;
-    default:
-      return assertNever(backend);
-  }
+export function getModelsForBackend(backend: BackendSelection): ModelOption[] {
+  return getBackendFamily(backend) === "codex" ? CODEX_MODELS : CLAUDE_MODELS;
 }
 
-export function getModesForBackend(backend: BackendType): ModeOption[] {
-  switch (backend) {
-    case "claude":
-    case "claude-sdk":
-      return CLAUDE_MODES;
-    case "codex":
-      return CODEX_MODES;
-    default:
-      return assertNever(backend);
-  }
+export function getModesForBackend(backend: BackendSelection): ModeOption[] {
+  return getBackendFamily(backend) === "codex" ? CODEX_MODES : CLAUDE_MODES;
 }
 
-export function getDefaultModel(backend: BackendType): string {
+export function getDefaultModel(backend: BackendSelection): string {
   return getDefaultModelForBackend(backend);
 }
 
-export function getDefaultMode(backend: BackendType): string {
-  switch (backend) {
-    case "claude":
-    case "claude-sdk":
-      return CLAUDE_MODES[0].value;
-    case "codex":
-      return CODEX_MODES[0].value;
-    default:
-      return assertNever(backend);
-  }
+export function getDefaultMode(backend: BackendSelection): string {
+  return getModesForBackend(backend)[0].value;
 }
 
 /** Cycle to the next mode; falls back to first mode if currentMode is unknown. */

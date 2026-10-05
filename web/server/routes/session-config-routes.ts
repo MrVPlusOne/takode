@@ -131,10 +131,7 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
     const info = launcher.getSession(id);
     if (!info) return c.json({ error: "Session not found" }, 404);
 
-    const backendType = info.backendType || "claude";
-    if (backendType !== "codex" && backendType !== "claude" && backendType !== "claude-sdk") {
-      return c.json({ error: `Unsupported backend for session configuration: ${backendType}` }, 400);
-    }
+    const backendType = info.backendType ?? "claude-sdk";
 
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const session = wsBridge.getOrCreateSession(id, backendType);

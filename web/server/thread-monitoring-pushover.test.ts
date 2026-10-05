@@ -15,7 +15,7 @@ import { registerTakodeNotificationResponseRoute } from "./routes/takode-notific
 // the delayed scheduler. All state is in memory and every HTTP delivery is mocked.
 const notifiers: PushoverNotifier[] = [];
 
-function fixture(backend: "claude" | "codex" = "claude") {
+function fixture(backend: "claude-sdk" | "codex" = "claude-sdk") {
   const bridge = new WsBridge();
   const session = bridge.getOrCreateSession("synthetic-leader", backend);
   session.state.isOrchestrator = true;
@@ -84,7 +84,7 @@ function fixture(backend: "claude" | "codex" = "claude") {
     if (backend === "codex") {
       await handleCodexAdapterBrowserMessage(session, assistant, getCodexAdapterBrowserMessageDeps(bridge));
     } else {
-      handlers.handleAssistantMessage(session, assistant);
+      handlers.handleSdkBrowserMessage(session, assistant);
     }
     expect(fetch).not.toHaveBeenCalled();
     const result: CLIResultMessage = {
@@ -176,7 +176,7 @@ describe("Notify Me result to Pushover", () => {
   });
 
   it.each([
-    "claude",
+    "claude-sdk",
     "codex",
   ] as const)("sends one scoped %s result after the delay despite viewing", async (backend) => {
     const { session, publish, handlers } = fixture(backend);
@@ -184,7 +184,7 @@ describe("Notify Me result to Pushover", () => {
     const { assistant, result } = await publish();
     expect(session.state.threadMonitoring?.threads["q-42"].pending).toMatchObject({ messageId: "assistant-1" });
     // Duplicate completed-turn transport cannot restart the delay or create another alert.
-    handlers.handleAssistantMessage(session, assistant);
+    handlers.handleSdkBrowserMessage(session, assistant);
     handlers.handleResultMessage(session, result);
     clearAttentionAndMarkRead(session, { persistSession: () => {} });
     session.state.leaderOpenThreadTabs = undefined;

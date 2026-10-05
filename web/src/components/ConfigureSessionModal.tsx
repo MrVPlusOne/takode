@@ -37,8 +37,6 @@ import {
 const inputClass =
   "w-full rounded-lg border border-cc-border bg-cc-input-bg px-3 py-2 text-sm text-cc-fg focus:border-cc-primary/60 focus:outline-none";
 
-type Backend = "claude" | "claude-sdk" | "codex";
-
 interface SessionConfigForm {
   model: string;
   permissionMode: string;
@@ -148,7 +146,7 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
   const updateSession = useStore((s) => s.updateSession);
   const updateSdkSession = useStore((s) => s.updateSdkSession);
   const cliConnected = useStore((s) => s.cliConnected.get(sessionId) ?? false);
-  const backend = (session?.backend_type ?? sdkSession?.backendType ?? "claude") as Backend;
+  const backend = session?.backend_type ?? sdkSession?.backendType ?? "claude-sdk";
   const isCodex = backend === "codex";
   const backendLabel = isCodex ? "Codex" : "Claude";
   const [form, setForm] = useState<SessionConfigForm | null>(null);

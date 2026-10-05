@@ -12,10 +12,10 @@ import type {
   CodexLeaderRecycleTokenSnapshot,
   CodexLeaderRecycleTrigger,
 } from "./session-types.js";
-import { assertNever } from "./session-types.js";
+import { assertNever, normalizePersistedBackendType } from "./session-types.js";
+import type { ClaudeSdkAdapter } from "./claude-sdk-adapter.js";
 import type { RecorderManager } from "./recorder.js";
 import { CodexAdapter } from "./codex-adapter.js";
-import { resolveBinary, getEnrichedPath } from "./path-resolver.js";
 import { containerManager } from "./container-manager.js";
 import {
   buildCompanionInstructions,
@@ -23,7 +23,6 @@ import {
   getOrchestratorGuardrails as renderOrchestratorGuardrails,
 } from "./cli-launcher-instructions.js";
 import { MissingCodexBinaryError, prepareCodexSpawn } from "./cli-launcher-codex.js";
-import { stripInheritedTelemetryEnv, withNonInteractiveGitEditorEnv } from "./cli-launcher-env.js";
 import { prepareWorktreeSessionArtifacts } from "./cli-launcher-worktree.js";
 import { ensureQuestJourneyPhaseDataForCwd } from "./quest-journey-phases.js";
 import { isRecoverableCodexInitError } from "./codex-adapter-utils.js";
@@ -60,8 +59,8 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 /**
- * Manages CLI backend processes (Claude Code via --sdk-url WebSocket,
- * or Codex via app-server stdio).
+ * Manages backend processes (Claude Code via the Agent SDK, or Codex via
+ * app-server stdio).
  */
 const knownSessionNums = new Map<string, number>();
 
@@ -81,6 +80,8 @@ export class CliLauncher {
   private processes = new Map<string, Subprocess>();
   /** Runtime-only env vars per session (kept out of persisted launcher state). */
   private sessionEnvs = new Map<string, Record<string, string>>();
+  /** Current Claude SDK adapter per session, so a replaced adapter cannot change lifecycle state. */
+  private claudeSdkAdapters = new Map<string, ClaudeSdkAdapter>();
   private codexTokenRefreshNoiseBySession = new Map<string, CodexTokenRefreshNoiseState>();
   private port: number;
   private serverId: string;
@@ -349,6 +350,10 @@ export class CliLauncher {
         memorySessionSpaceBackfilled = true;
       }
 
+      // Sessions saved by the retired WebSocket backend ("claude" or no type)
+      // resume through the SDK with the same Claude session ID.
+      info.backendType = normalizePersistedBackendType(info.backendType);
+
       // Migrate legacy herdedBy array → string (pre-single-leader refactor)
       if (Array.isArray(info.herdedBy)) {
         info.herdedBy = (info.herdedBy as unknown as string[])[0] ?? undefined;
@@ -471,7 +476,7 @@ export class CliLauncher {
   private async launchAccepted(options: LaunchOptions): Promise<SdkSessionInfo> {
     const sessionId = randomUUID();
     const cwd = options.cwd || process.cwd();
-    const backendType = options.backendType || "claude";
+    const backendType = options.backendType || "claude-sdk";
     const memorySessionSpaceSlug = this.resolveLaunchMemorySessionSpaceSlug(options);
     const parent = options.parentSessionId ? this.sessions.get(options.parentSessionId) : undefined;
     const configuredDefaultModel = this.settingsGetter?.().sessionDefaults?.codex?.model;
@@ -634,12 +639,6 @@ export class CliLauncher {
         // This ensures the browser sees backend_connected in the state_snapshot.
         await this.spawnClaudeSdk(sessionId, info, options);
         break;
-      case "claude":
-        this.spawnCLI(sessionId, info, {
-          ...options,
-          ...(options.resumeCliSessionId ? { resumeSessionId: options.resumeCliSessionId } : {}),
-        });
-        break;
       default:
         assertNever(backendType);
     }
@@ -665,7 +664,7 @@ export class CliLauncher {
     const info = this.sessions.get(sessionId);
     if (!info) return { ok: false, error: "Session not found" };
     const binSettings = this.settingsGetter?.() ?? { claudeBinary: "", codexBinary: "" };
-    const bt = info.backendType ?? "claude";
+    const bt = info.backendType ?? "claude-sdk";
     if (bt === "codex") {
       const ensured = ensureModelAuthority(info, binSettings.sessionDefaults?.codex?.model, "legacy_relaunch");
       if (ensured.migrationCreated && ensured.migration) {
@@ -689,6 +688,20 @@ export class CliLauncher {
     } else if (info.pid) {
       // Process from a previous server instance — kill by PID
       await terminateKnownProcess(sessionId, this.sessions.get(sessionId), info.pid, undefined, "relaunch");
+    }
+
+    // Claude ran in containers only on the retired WebSocket backend. Refuse to
+    // resume such a saved session rather than silently running it on the host;
+    // its history and conversation ID stay intact.
+    if (bt === "claude-sdk" && info.containerId) {
+      info.state = "exited";
+      info.exitCode = 1;
+      this.persistState();
+      return {
+        ok: false,
+        error:
+          "This Claude session ran in a container, which Claude sessions no longer support. Its history is kept; start a new session to continue.",
+      };
     }
 
     // Pre-flight validation for containerized sessions
@@ -726,11 +739,9 @@ export class CliLauncher {
         }
       }
 
-      // Validate the configured CLI binary exists inside the container.
-      const configuredBinary = (
-        info.backendType === "codex" ? binSettings.codexBinary : binSettings.claudeBinary
-      ).trim();
-      const binary = (configuredBinary || (info.backendType === "codex" ? "codex" : "claude")).split(/\s+/)[0];
+      // Validate the configured Codex binary exists inside the container
+      // (saved Claude container sessions were refused above).
+      const binary = (binSettings.codexBinary.trim() || "codex").split(/\s+/)[0];
 
       if (!containerManager.hasBinaryInContainer(info.containerId, binary)) {
         console.error(
@@ -750,7 +761,7 @@ export class CliLauncher {
     info.killedByIdleManager = false;
 
     console.log(
-      `[cli-launcher] Relaunching session ${sessionTag(sessionId)} (cliSessionId: ${info.cliSessionId || "none"}, state: ${info.state}, backendType: ${info.backendType || "claude"})`,
+      `[cli-launcher] Relaunching session ${sessionTag(sessionId)} (cliSessionId: ${info.cliSessionId || "none"}, state: ${info.state}, backendType: ${info.backendType})`,
     );
     this.recorder?.recordServerEvent(
       sessionId,
@@ -758,9 +769,9 @@ export class CliLauncher {
       {
         cliSessionId: info.cliSessionId || null,
         hasResume: !!info.cliSessionId,
-        backendType: info.backendType || "claude",
+        backendType: info.backendType,
       },
-      info.backendType || "claude",
+      info.backendType,
       info.cwd,
     );
 
@@ -801,7 +812,7 @@ export class CliLauncher {
     }
 
     try {
-      const bt = info.backendType ?? "claude";
+      const bt = info.backendType ?? "claude-sdk";
 
       // Re-derive orchestrator guardrails for relaunched sessions.
       // extraInstructions is not persisted; regenerate from the isOrchestrator flag
@@ -846,22 +857,6 @@ export class CliLauncher {
             extraInstructions,
           });
           break;
-        case "claude":
-          this.spawnCLI(sessionId, info, {
-            model: info.model,
-            permissionMode: info.permissionMode,
-            claudeReasoningEffort: info.claudeReasoningEffort,
-            claudeMaxContextLength: info.claudeMaxContextLength,
-            cwd: info.cwd,
-            claudeBinary: binSettings.claudeBinary || undefined,
-            resumeSessionId: info.cliSessionId,
-            containerId: info.containerId,
-            containerName: info.containerName,
-            containerImage: info.containerImage,
-            env: runtimeEnv,
-            extraInstructions,
-          });
-          break;
         default:
           assertNever(bt);
       }
@@ -874,8 +869,8 @@ export class CliLauncher {
       return { ok: false, error: `Failed to spawn process: ${msg}` };
     }
 
-    // spawnCLI may fail silently (marks state="exited" and returns).
-    // Re-read state since spawnCLI mutates info as a side effect.
+    // Spawns may fail without throwing (marking state="exited" when the binary
+    // is missing). Re-read state since the spawn mutates info as a side effect.
     if ((info.state as string) === "exited") {
       return { ok: false, error: "Failed to spawn process (binary not found)" };
     }
@@ -902,263 +897,15 @@ export class CliLauncher {
   }
 
   /**
-   * Get all sessions in "starting" state (awaiting CLI WebSocket connection).
+   * Get restored sessions whose live backend process has not reattached since a server restart.
    */
   getStartingSessions(): SdkSessionInfo[] {
     return Array.from(this.sessions.values()).filter((s) => s.state === "starting");
   }
 
-  private spawnCLI(
-    sessionId: string,
-    info: SdkSessionInfo,
-    options: LaunchOptions & { resumeSessionId?: string },
-  ): void {
-    const isContainerized = !!options.containerId;
-
-    // For containerized sessions, the CLI binary lives inside the container.
-    // For host sessions, resolve the binary on the host.
-    let binary = options.claudeBinary || "claude";
-    if (!isContainerized) {
-      const resolved = resolveBinary(binary);
-      if (resolved) {
-        binary = resolved;
-      } else {
-        console.error(`[cli-launcher] Binary "${binary}" not found in PATH`);
-        info.state = "exited";
-        info.exitCode = 127;
-        this.persistState();
-        return;
-      }
-    }
-
-    // Allow overriding the host alias used by containerized Claude sessions.
-    // Useful when host.docker.internal is unavailable in a given Docker setup.
-    const containerSdkHost =
-      (process.env.COMPANION_CONTAINER_SDK_HOST || "host.docker.internal").trim() || "host.docker.internal";
-
-    // When running inside a container, the SDK URL should target the host alias
-    // so the CLI can connect back to the Hono server running on the host.
-    const sdkUrl = isContainerized
-      ? `ws://${containerSdkHost}:${this.port}/ws/cli/${sessionId}`
-      : `ws://localhost:${this.port}/ws/cli/${sessionId}`;
-
-    // Claude Code rejects bypassPermissions when running with root/sudo. Most
-    // container images run as root by default, so downgrade to acceptEdits unless
-    // explicitly forced.
-    let effectivePermissionMode = options.permissionMode;
-    if (
-      isContainerized &&
-      options.permissionMode === "bypassPermissions" &&
-      process.env.COMPANION_FORCE_BYPASS_IN_CONTAINER !== "1"
-    ) {
-      console.warn(
-        `[cli-launcher] Session ${sessionId}: downgrading container permission mode ` +
-          `from bypassPermissions to acceptEdits (set COMPANION_FORCE_BYPASS_IN_CONTAINER=1 to force bypass).`,
-      );
-      effectivePermissionMode = "acceptEdits";
-      info.permissionMode = "acceptEdits";
-    }
-
-    const args: string[] = [
-      "--sdk-url",
-      sdkUrl,
-      "--print",
-      "--output-format",
-      "stream-json",
-      "--input-format",
-      "stream-json",
-      "--verbose",
-    ];
-
-    if (options.model) {
-      args.push("--model", options.model);
-    }
-    if (effectivePermissionMode) {
-      args.push("--permission-mode", effectivePermissionMode);
-    }
-    if (options.claudeReasoningEffort) {
-      args.push("--effort", options.claudeReasoningEffort);
-    }
-    if (options.claudeMaxContextLength === CLAUDE_1M_CONTEXT_TOKENS) {
-      args.push("--betas", CLAUDE_1M_CONTEXT_BETA);
-    }
-    if (options.allowedTools) {
-      for (const tool of options.allowedTools) {
-        args.push("--allowedTools", tool);
-      }
-    }
-
-    // Always pass -p "" for headless mode. When relaunching, also pass --resume
-    // to restore the CLI's conversation context.
-    if (options.resumeSessionId) {
-      args.push("--resume", options.resumeSessionId);
-      console.log(`[cli-launcher] Passing --resume ${options.resumeSessionId}`);
-    } else {
-      console.warn(`[cli-launcher] No cliSessionId — starting fresh session`);
-    }
-    if (info.resumeAt) {
-      args.push("--resume-session-at", info.resumeAt);
-      console.log(
-        `[revert] spawnCLI: passing --resume-session-at ${info.resumeAt} (with --resume ${options.resumeSessionId})`,
-      );
-    }
-    args.push("-p", "");
-
-    // Inject Companion-specific instructions via system prompt (link syntax,
-    // worktree branch guardrails, orchestrator guardrails, sync workflow).
-    // This replaces the old approach of writing files into the user's repo.
-    const companionInstructions = buildCompanionInstructions({
-      sessionNum: info.sessionNum,
-      ...(info.isWorktree && info.branch
-        ? {
-            worktree: {
-              branch: info.actualBranch || info.branch,
-              repoRoot: info.repoRoot || "",
-              parentBranch: info.actualBranch && info.actualBranch !== info.branch ? info.branch : undefined,
-              portTarget: info.worktreePortTarget,
-            },
-          }
-        : {}),
-      extraInstructions: options.extraInstructions,
-      backend: "claude",
-    });
-    if (companionInstructions) {
-      args.push("--append-system-prompt", companionInstructions);
-      info.injectedSystemPrompt = companionInstructions;
-    }
-
-    let spawnCmd: string[];
-    let spawnEnv: Record<string, string | undefined>;
-    let spawnCwd: string | undefined;
-
-    if (isContainerized) {
-      // Run CLI inside the container via docker exec -i.
-      // Keeping stdin open avoids premature EOF-driven exits in SDK mode.
-      // Environment variables are passed via -e flags to docker exec.
-      const dockerArgs = ["docker", "exec", "-i"];
-      const containerEnv = withNonInteractiveGitEditorEnv(options.env ?? {});
-
-      // Pass env vars via -e flags
-      for (const [k, v] of Object.entries(containerEnv)) {
-        dockerArgs.push("-e", `${k}=${v}`);
-      }
-      // Ensure CLAUDECODE is unset inside container
-      dockerArgs.push("-e", "CLAUDECODE=");
-
-      dockerArgs.push(options.containerId!);
-      // Use a login shell so ~/.bashrc is sourced and nvm/bun/deno/etc are on PATH
-      const innerCmd = [binary, ...args].map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
-      dockerArgs.push("bash", "-lc", innerCmd);
-
-      spawnCmd = dockerArgs;
-      // Host env for the docker CLI itself
-      spawnEnv = { ...process.env, PATH: getEnrichedPath({ serverId: this.serverId }) };
-      spawnCwd = undefined; // cwd is set inside the container via -w at creation
-    } else {
-      // Host-based spawn (original behavior)
-      spawnCmd = [binary, ...args];
-      spawnEnv = withNonInteractiveGitEditorEnv({
-        ...stripInheritedTelemetryEnv(process.env),
-        CLAUDECODE: undefined,
-        ...options.env,
-        PATH: getEnrichedPath({ serverId: this.serverId }),
-      });
-      spawnCwd = info.cwd;
-    }
-
-    console.log(
-      `[cli-launcher] Spawning session ${sessionTag(sessionId)}${isContainerized ? " (container)" : ""}: ` +
-        sanitizeSpawnArgsForLog(spawnCmd),
-    );
-
-    let proc: ReturnType<typeof Bun.spawn>;
-    try {
-      serverWorkAdmission.assertOpen();
-      proc = Bun.spawn(spawnCmd, {
-        cwd: spawnCwd,
-        env: spawnEnv,
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[cli-launcher] Failed to spawn CLI for session ${sessionTag(sessionId)}: ${msg}`);
-      info.state = "exited";
-      info.exitCode = 1;
-      this.persistState();
-      return;
-    }
-
-    info.pid = proc.pid;
-    this.processes.set(sessionId, proc);
-
-    // Stream stdout/stderr for debugging
-    this.pipeOutput(sessionId, proc);
-
-    // Monitor process exit
-    const spawnedAt = Date.now();
-    proc.exited.then((exitCode) => {
-      const uptime = Date.now() - spawnedAt;
-      console.log(`[cli-launcher] Session ${sessionTag(sessionId)} exited (code=${exitCode}, uptime=${uptime}ms)`);
-      this.recorder?.recordServerEvent(
-        sessionId,
-        "cli_exit",
-        {
-          exitCode,
-          uptime,
-          hadResume: !!options.resumeSessionId,
-        },
-        info.backendType || "claude",
-        info.cwd,
-      );
-
-      // Guard against stale exits: if a new process was already spawned
-      // (e.g. relaunch timeout), this exit belongs to the old process.
-      if (this.processes.get(sessionId) !== proc) {
-        console.log(`[cli-launcher] Ignoring stale exit for session ${sessionTag(sessionId)}`);
-        return;
-      }
-
-      const session = this.sessions.get(sessionId);
-      if (session) {
-        session.state = "exited";
-        session.exitCode = exitCode;
-
-        // If the process exited almost immediately with --resume, the resume likely failed.
-        if (uptime < 5000 && options.resumeSessionId) {
-          if (!session.resumeRetried) {
-            // First failure: retry once (the CLI might have been killed mid-write)
-            console.warn(`[cli-launcher] --resume failed (${uptime}ms), retrying once...`);
-            session.resumeRetried = true;
-            // Don't clear cliSessionId — relaunch will retry with --resume
-          } else {
-            // Second failure: give up and start fresh
-            console.error(`[cli-launcher] --resume failed twice. Clearing cliSessionId for fresh start.`);
-            session.cliSessionId = undefined;
-            session.resumeRetried = false;
-          }
-        }
-      }
-      this.processes.delete(sessionId);
-      this.persistState();
-      for (const handler of this.exitHandlers) {
-        try {
-          handler(sessionId, exitCode);
-        } catch {}
-      }
-    });
-
-    this.persistState();
-  }
-
-  /**
-   * Spawn a Codex app-server subprocess for a session.
-   * Unlike Claude Code (which connects back via WebSocket), Codex uses stdio.
-   */
-
   /**
    * Spawn a Claude Code session using the Agent SDK (stdio transport).
-   * No WebSocket — the SDK manages the process and communicates via stdin/stdout.
+   * The SDK manages the process and communicates via stdin/stdout.
    * Eliminates 5-minute disconnect cycles and all associated reliability issues.
    */
   private async spawnClaudeSdk(sessionId: string, info: SdkSessionInfo, options: LaunchOptions): Promise<void> {
@@ -1176,33 +923,60 @@ export class CliLauncher {
           }
         : {}),
       extraInstructions: options.extraInstructions,
-      backend: "claude",
+      backend: "claude-sdk",
     });
     if (sdkInstructions) info.injectedSystemPrompt = sdkInstructions;
     info.sdkDebugLogPath ||= getClaudeSdkDebugLogPath(this.port, sessionId);
     serverWorkAdmission.assertOpen();
-    const adapter = new ClaudeSdkAdapter(sessionId, {
+    // Starting until the Claude process has actually spawned, so consumers such
+    // as cron never treat a failed launch as a connected session.
+    info.state = "starting";
+    const adapter: ClaudeSdkAdapter = new ClaudeSdkAdapter(sessionId, {
       model: options.model,
       cwd: info.cwd,
       permissionMode: options.permissionMode,
       reasoningEffort: options.claudeReasoningEffort,
       betas: options.claudeMaxContextLength === CLAUDE_1M_CONTEXT_TOKENS ? [CLAUDE_1M_CONTEXT_BETA] : undefined,
       cliSessionId: info.cliSessionId,
+      resumeSessionAt: info.resumeAt,
       env: options.env as Record<string, string | undefined>,
       claudeBinary: options.claudeBinary,
       recorder: this.recorder,
       pluginDirs: options.pluginDirs,
+      allowedTools: options.allowedTools,
       instructions: sdkInstructions || undefined,
       debugFile: info.sdkDebugLogPath,
+      onBackendExit: (error) => this.markClaudeSdkExited(sessionId, adapter, error),
     });
+    this.claudeSdkAdapters.set(sessionId, adapter);
 
     if (this.onClaudeSdkAdapter) {
       this.onClaudeSdkAdapter(sessionId, adapter);
     }
 
+    const started = await adapter.started;
+    if (this.claudeSdkAdapters.get(sessionId) !== adapter || info.state !== "starting") return;
+    if (!started) {
+      this.markClaudeSdkExited(sessionId, adapter, "Claude did not start");
+      return;
+    }
     info.state = "connected";
     this.persistState();
     console.log(`[cli-launcher] Claude SDK session ${sessionTag(sessionId)} started`);
+  }
+
+  /**
+   * Record that the current Claude process failed to start or ended unexpectedly.
+   * The saved conversation ID is kept so a relaunch resumes the same conversation;
+   * relaunch policy (and its failure cap) stays with the bridge.
+   */
+  private markClaudeSdkExited(sessionId: string, adapter: ClaudeSdkAdapter, error: string): void {
+    const info = this.sessions.get(sessionId);
+    if (!info || this.claudeSdkAdapters.get(sessionId) !== adapter || info.state === "exited") return;
+    info.state = "exited";
+    info.exitCode = 1;
+    this.persistState();
+    console.error(`[cli-launcher] Claude SDK session ${sessionTag(sessionId)} exited: ${error}`);
   }
 
   private async spawnCodex(sessionId: string, info: SdkSessionInfo, options: LaunchOptions): Promise<void> {
@@ -1398,20 +1172,8 @@ export class CliLauncher {
   /**
    * Return orchestrator identity and instructions for system prompt injection.
    */
-  getOrchestratorGuardrails(backend: BackendType = "claude"): string {
+  getOrchestratorGuardrails(backend: BackendType = "claude-sdk"): string {
     return renderOrchestratorGuardrails(backend);
-  }
-
-  /**
-   * Mark a session as connected (called when CLI establishes WS connection).
-   */
-  markConnected(sessionId: string): void {
-    const session = this.sessions.get(sessionId);
-    if (session && (session.state === "starting" || session.state === "connected")) {
-      session.state = "connected";
-      console.log(`[cli-launcher] Session ${sessionTag(sessionId)} connected via WebSocket`);
-      this.persistState();
-    }
   }
 
   /**
@@ -1508,103 +1270,6 @@ export class CliLauncher {
     return true;
   }
 
-  /**
-   * Upgrade a WebSocket ("claude") session to SDK ("claude-sdk") transport.
-   *
-   * This kills the CLI WebSocket process, changes the backendType to "claude-sdk",
-   * and relaunches using the Agent SDK with the same cliSessionId. The SDK calls
-   * unstable_v2_resumeSession() to resume the conversation, preserving full
-   * history and context from the original WebSocket session.
-   *
-   * Returns { ok, sessionId, cliSessionId, previousBackend } on success.
-   */
-  async upgradeToSdk(
-    sessionId: string,
-  ): Promise<{ ok: boolean; error?: string; sessionId?: string; cliSessionId?: string; previousBackend?: string }> {
-    const info = this.sessions.get(sessionId);
-    if (!info) return { ok: false, error: "Session not found" };
-    if (info.backendType === "claude-sdk") return { ok: false, error: "Session is already using SDK transport" };
-    if (info.backendType === "codex") return { ok: false, error: "Cannot upgrade Codex sessions to SDK" };
-    if (!info.cliSessionId) return { ok: false, error: "Session has no cliSessionId — cannot resume via SDK" };
-
-    const previousBackend = info.backendType || "claude";
-    const cliSessionId = info.cliSessionId;
-    console.log(
-      `[cli-launcher] Upgrading session ${sessionTag(sessionId)} from ${previousBackend} to claude-sdk (cliSessionId: ${cliSessionId})`,
-    );
-
-    // Kill the WebSocket CLI process if running
-    const proc = this.processes.get(sessionId);
-    if (proc) {
-      proc.kill("SIGTERM");
-      await Promise.race([
-        proc.exited.then(() => true),
-        new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
-      ]).then((exited) => {
-        if (!exited) proc.kill("SIGKILL");
-      });
-      this.processes.delete(sessionId);
-    }
-
-    // Switch backend type and mark as exited so relaunch() will spawn fresh
-    info.backendType = "claude-sdk";
-    info.state = "exited";
-    this.persistState();
-
-    // Relaunch with new backend — relaunch() reads info.backendType and
-    // routes to spawnClaudeSdk(), which passes info.cliSessionId to the
-    // SDK adapter for resumption via unstable_v2_resumeSession().
-    const result = await this.relaunch(sessionId);
-    if (!result.ok) {
-      // Revert on failure
-      info.backendType = previousBackend as "claude";
-      this.persistState();
-      return { ok: false, error: result.error || "Relaunch failed after transport upgrade" };
-    }
-
-    return { ok: true, sessionId, cliSessionId, previousBackend };
-  }
-
-  /**
-   * Downgrade an SDK ("claude-sdk") session to WebSocket ("claude") transport.
-   *
-   * Disconnects the SDK adapter, changes backendType to "claude", and relaunches
-   * using the WebSocket CLI with --resume and the same cliSessionId. Symmetric
-   * to upgradeToSdk().
-   */
-  async downgradeToWebSocket(
-    sessionId: string,
-  ): Promise<{ ok: boolean; error?: string; sessionId?: string; cliSessionId?: string; previousBackend?: string }> {
-    const info = this.sessions.get(sessionId);
-    if (!info) return { ok: false, error: "Session not found" };
-    if (info.backendType === "claude") return { ok: false, error: "Session is already using WebSocket transport" };
-    if (info.backendType === "codex") return { ok: false, error: "Cannot downgrade Codex sessions to WebSocket" };
-    if (!info.cliSessionId) return { ok: false, error: "Session has no cliSessionId — cannot resume via WebSocket" };
-
-    const previousBackend = info.backendType;
-    const cliSessionId = info.cliSessionId;
-    console.log(
-      `[cli-launcher] Downgrading session ${sessionTag(sessionId)} from ${previousBackend} to claude (cliSessionId: ${cliSessionId})`,
-    );
-
-    // Switch backend type and mark as exited so relaunch() will spawn WebSocket CLI.
-    // The SDK adapter will be disconnected by the bridge when it detects the state change.
-    info.backendType = "claude";
-    info.state = "exited";
-    this.persistState();
-
-    // Relaunch with WebSocket backend — relaunch() reads info.backendType and
-    // routes to spawnCLI(), which passes --resume with the cliSessionId.
-    const result = await this.relaunch(sessionId);
-    if (!result.ok) {
-      // Revert on failure
-      info.backendType = previousBackend as "claude-sdk";
-      this.persistState();
-      return { ok: false, error: result.error || "Relaunch failed after transport downgrade" };
-    }
-
-    return { ok: true, sessionId, cliSessionId, previousBackend };
-  }
   listSessions(): SdkSessionInfo[] {
     return Array.from(this.sessions.values());
   }
@@ -1855,6 +1520,7 @@ export class CliLauncher {
   removeSession(sessionId: string) {
     this.sessions.delete(sessionId);
     this.processes.delete(sessionId);
+    this.claudeSdkAdapters.delete(sessionId);
     this.sessionEnvs.delete(sessionId);
     knownSessionNums.delete(sessionId);
     this.persistState();
@@ -1884,6 +1550,7 @@ export class CliLauncher {
     for (const [id, session] of this.sessions) {
       if (session.state === "exited") {
         this.sessions.delete(id);
+        this.claudeSdkAdapters.delete(id);
         this.sessionEnvs.delete(id);
         pruned++;
       }
@@ -1935,16 +1602,5 @@ export class CliLauncher {
       getSessionNum: (id) => this.getSessionNum(id),
       codexTokenRefreshNoiseBySession: this.codexTokenRefreshNoiseBySession,
     });
-  }
-
-  private pipeOutput(sessionId: string, proc: Subprocess): void {
-    const stdout = proc.stdout;
-    const stderr = proc.stderr;
-    if (stdout && typeof stdout !== "number") {
-      this.pipeStream(sessionId, stdout, "stdout");
-    }
-    if (stderr && typeof stderr !== "number") {
-      this.pipeStream(sessionId, stderr, "stderr");
-    }
   }
 }

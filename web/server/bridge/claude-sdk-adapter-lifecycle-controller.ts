@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "../server-work-admission.js";
 import { sessionTag } from "../session-tag.js";
 
 export interface ClaudeSdkAdapterLifecycleDeps {
@@ -18,6 +19,7 @@ export interface ClaudeSdkAdapterLifecycleDeps {
   setGenerating: (session: any, generating: boolean, reason: string) => void;
   requestCliRelaunch?: (sessionId: string) => void;
   isCurrentSession: (sessionId: string, session: any) => boolean;
+  onSessionActivityStateChanged: (sessionId: string, reason: string) => void;
   maxAdapterRelaunchFailures: number;
   adapterFailureResetWindowMs: number;
 }
@@ -53,6 +55,15 @@ export function attachClaudeSdkAdapterLifecycle(
   }
   session.claudeSdkAdapter = adapter;
   session.cliInitReceived = true;
+  // Each adapter is a new Claude process: permission requests restored from disk
+  // or left by a previous process can no longer be answered.
+  if (session.pendingPermissions.size > 0) {
+    for (const [requestId] of session.pendingPermissions) {
+      deps.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: requestId });
+    }
+    session.pendingPermissions.clear();
+    deps.persistSession(session);
+  }
   const isActiveAdapter = () => session.claudeSdkAdapter === adapter && deps.isCurrentSession(sessionId, session);
 
   if (!!launcherInfo?.cliSessionId && session.messageHistory.length > 0) {
@@ -76,6 +87,8 @@ export function attachClaudeSdkAdapterLifecycle(
 
   adapter.onBrowserMessage((msg: any) => {
     if (!isActiveAdapter()) return;
+    // Heartbeats are not activity: a stuck turn must stay detectable.
+    if (msg.type === "keep_alive") return;
 
     deps.touchActivity(session.id);
     session.lastCliMessageAt = Date.now();
@@ -147,6 +160,7 @@ export function attachClaudeSdkAdapterLifecycle(
       if (launcherInfoAfterInit?.isOrchestrator) {
         deps.onOrchestratorTurnEnd(session.id);
       }
+      deps.onSessionActivityStateChanged(session.id, "system_init");
     }
 
     if (msg.type === "permission_request") {
@@ -262,15 +276,27 @@ export function attachClaudeSdkAdapterLifecycle(
 }
 
 function flushQueuedSdkMessages(session: any, adapter: any, reason: string): void {
+  // Keep accepted input queued for the next server instead of handing it to a
+  // backend that refuses dispatch during shutdown.
+  if (serverWorkAdmission.isStopping()) return;
   console.log(`[ws-bridge] Flushing ${session.pendingMessages.length} queued message(s) ${reason}`);
   const queued = session.pendingMessages.splice(0);
   for (const raw of queued) {
     try {
-      adapter.sendBrowserMessage(JSON.parse(raw));
+      adapter.sendBrowserMessage(fromLegacyQueuedMessage(JSON.parse(raw)));
     } catch {
       console.warn(
         `[ws-bridge] Skipping corrupt queued message for session ${sessionTag(session.id)}: ${String(raw).substring(0, 80)}`,
       );
     }
   }
+}
+
+/**
+ * Sessions saved by the retired WebSocket backend queued raw CLI `user` NDJSON.
+ * Convert text-only entries to the browser message the SDK adapter accepts.
+ */
+function fromLegacyQueuedMessage(msg: any): any {
+  if (msg?.type !== "user" || typeof msg.message?.content !== "string") return msg;
+  return { type: "user_message", content: msg.message.content };
 }

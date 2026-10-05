@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -579,9 +580,9 @@ describe("handleBrowserMessage with Buffer", () => {
   it("parses Buffer input and routes user_message correctly", () => {
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
-    cli.send.mockClear();
+    cli.clearSent();
 
     const msgStr = JSON.stringify({
       type: "user_message",
@@ -590,30 +591,22 @@ describe("handleBrowserMessage with Buffer", () => {
 
     bridge.handleBrowserMessage(browser, Buffer.from(msgStr, "utf-8"));
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.type).toBe("user");
-    // CLI-bound content gets a [User HH:MM] timestamp prefix
-    expect(sent.message.content).toMatch(
-      /^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] Hello from buffer$/,
-    );
+    expect(cli.promptTexts()).toHaveLength(1);
+    const sent = cli.promptTexts()[0];
+    // Model-bound content gets a [User HH:MM] timestamp prefix
+    expect(sent).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] Hello from buffer$/);
   });
 
   it("parses Buffer input and routes interrupt correctly", () => {
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
-    cli.send.mockClear();
+    cli.clearSent();
 
     const msgStr = JSON.stringify({ type: "interrupt" });
     bridge.handleBrowserMessage(browser, Buffer.from(msgStr, "utf-8"));
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.type).toBe("control_request");
-    expect(sent.request.subtype).toBe("interrupt");
+    expect(cli.query.interrupt).toHaveBeenCalledTimes(1);
   });
 });

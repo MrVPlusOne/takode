@@ -53,8 +53,6 @@ export interface CompanionSettings {
   claudeBinary: string;
   /** Custom Codex CLI binary path or command (empty = auto-detect "codex") */
   codexBinary: string;
-  /** Default backend for new Claude Code sessions: "claude" (WebSocket) or "claude-sdk" (Agent SDK) */
-  defaultClaudeBackend: "claude" | "claude-sdk";
   /** Max number of live CLI processes to keep alive (0 = unlimited) */
   maxKeepAlive: number;
   /** Whether session list git refreshes should run in the background for large/slow repos */
@@ -222,7 +220,6 @@ let settings: CompanionSettings = {
   pushoverBaseUrl: "",
   claudeBinary: "",
   codexBinary: "",
-  defaultClaudeBackend: "claude",
   maxKeepAlive: 0,
   heavyRepoModeEnabled: false,
   autoApprovalEnabled: false,
@@ -490,10 +487,6 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     pushoverBaseUrl: typeof raw?.pushoverBaseUrl === "string" ? raw.pushoverBaseUrl : "",
     claudeBinary: typeof raw?.claudeBinary === "string" ? raw.claudeBinary : "",
     codexBinary: typeof raw?.codexBinary === "string" ? raw.codexBinary : "",
-    defaultClaudeBackend:
-      raw?.defaultClaudeBackend === "claude" || raw?.defaultClaudeBackend === "claude-sdk"
-        ? raw.defaultClaudeBackend
-        : "claude",
     maxKeepAlive: typeof raw?.maxKeepAlive === "number" && raw.maxKeepAlive >= 0 ? Math.floor(raw.maxKeepAlive) : 0,
     heavyRepoModeEnabled: typeof raw?.heavyRepoModeEnabled === "boolean" ? raw.heavyRepoModeEnabled : false,
     autoApprovalEnabled: typeof raw?.autoApprovalEnabled === "boolean" ? raw.autoApprovalEnabled : false,
@@ -625,7 +618,6 @@ export function updateSettings(
       | "pushoverBaseUrl"
       | "claudeBinary"
       | "codexBinary"
-      | "defaultClaudeBackend"
       | "maxKeepAlive"
       | "heavyRepoModeEnabled"
       | "autoApprovalEnabled"

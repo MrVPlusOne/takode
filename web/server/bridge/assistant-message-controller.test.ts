@@ -13,7 +13,7 @@ import { buildLeaderThreadResponseState, finalizeRoutedLeaderResponseMessage } f
 function makeSession(): AssistantMessageSessionLike {
   return {
     id: "s-assistant",
-    backendType: "claude",
+    backendType: "claude-sdk",
     cliResuming: false,
     dropReplayHistoryAfterRevert: false,
     isGenerating: false,

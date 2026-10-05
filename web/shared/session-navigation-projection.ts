@@ -10,7 +10,7 @@ const RULES = {
   name: ["nullable-string", SESSION_NAVIGATION_TEXT_MAX_LENGTH],
   model: ["string", SESSION_NAVIGATION_TEXT_MAX_LENGTH],
   cwd: ["string", SESSION_NAVIGATION_PATH_MAX_LENGTH],
-  backendType: ["claude", "codex", "claude-sdk"],
+  backendType: ["codex", "claude-sdk"],
   permissionMode: ["string", SESSION_NAVIGATION_TEXT_MAX_LENGTH],
   askPermission: "boolean",
   sessionNum: "positive-nullable-integer",

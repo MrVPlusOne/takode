@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -582,7 +583,7 @@ describe("CLI message routing", () => {
   beforeEach(() => {
     cli = makeCliSocket("s1");
     browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
   });
@@ -596,8 +597,7 @@ describe("CLI message routing", () => {
       getSession: vi.fn(() => ({ isOrchestrator: true })),
     } as any);
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -613,8 +613,7 @@ describe("CLI message routing", () => {
       }),
     );
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -650,8 +649,7 @@ describe("CLI message routing", () => {
       }),
     );
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -667,8 +665,7 @@ describe("CLI message routing", () => {
       }),
     );
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -712,8 +709,7 @@ describe("CLI message routing", () => {
       }),
     );
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -729,8 +725,7 @@ describe("CLI message routing", () => {
       }),
     );
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -758,8 +753,7 @@ describe("CLI message routing", () => {
       persistSession: (session) => bridge.persistSessionById((session as any).id),
     });
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -804,15 +798,15 @@ describe("CLI message routing", () => {
     const leaderBrowser = makeBrowserSocket(leaderId);
     const workerBrowser = makeBrowserSocket(workerId);
 
-    bridge.handleCLIOpen(leaderCli, leaderId);
-    bridge.handleCLIOpen(workerCli, workerId);
+    leaderCli.attach(bridge);
+    workerCli.attach(bridge);
     bridge.handleBrowserOpen(leaderBrowser, leaderId);
     bridge.handleBrowserOpen(workerBrowser, workerId);
     leaderBrowser.send.mockClear();
     workerBrowser.send.mockClear();
 
-    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch" }));
-    bridge.handleCLIMessage(workerCli, makeInitMsg({ session_id: "cli-worker" }));
+    leaderCli.message(makeInitMsg({ session_id: "cli-orch" }));
+    workerCli.message(makeInitMsg({ session_id: "cli-worker" }));
 
     vi.advanceTimersByTime(9_000);
     let leaderIdleEvents = leaderBrowser.send.mock.calls
@@ -867,12 +861,12 @@ describe("CLI message routing", () => {
     const workerCli = makeCliSocket(workerId);
     const leaderBrowser = makeBrowserSocket(leaderId);
 
-    bridge.handleCLIOpen(leaderCli, leaderId);
-    bridge.handleCLIOpen(workerCli, workerId);
+    leaderCli.attach(bridge);
+    workerCli.attach(bridge);
     bridge.handleBrowserOpen(leaderBrowser, leaderId);
 
-    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-1a" }));
-    bridge.handleCLIMessage(workerCli, makeInitMsg({ session_id: "cli-worker-1a" }));
+    leaderCli.message(makeInitMsg({ session_id: "cli-orch-1a" }));
+    workerCli.message(makeInitMsg({ session_id: "cli-worker-1a" }));
 
     vi.advanceTimersByTime(10_500);
     expect(bridge.getSession(leaderId)!.attentionReason).toBe("review");
@@ -904,13 +898,13 @@ describe("CLI message routing", () => {
     const workerCli = makeCliSocket(workerId);
     const leaderBrowser = makeBrowserSocket(leaderId);
 
-    bridge.handleCLIOpen(leaderCli, leaderId);
-    bridge.handleCLIOpen(workerCli, workerId);
+    leaderCli.attach(bridge);
+    workerCli.attach(bridge);
     bridge.handleBrowserOpen(leaderBrowser, leaderId);
     leaderBrowser.send.mockClear();
 
-    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-2" }));
-    bridge.handleCLIMessage(workerCli, makeInitMsg({ session_id: "cli-worker-2" }));
+    leaderCli.message(makeInitMsg({ session_id: "cli-orch-2" }));
+    workerCli.message(makeInitMsg({ session_id: "cli-worker-2" }));
 
     vi.advanceTimersByTime(5_000);
     bridge.injectUserMessage(workerId, "Continue with validation");
@@ -921,8 +915,7 @@ describe("CLI message routing", () => {
       .filter((msg: any) => msg.type === "leader_group_idle");
     expect(leaderIdleEvents).toHaveLength(0);
 
-    bridge.handleCLIMessage(
-      workerCli,
+    workerCli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",

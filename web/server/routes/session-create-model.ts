@@ -6,16 +6,16 @@ import {
   type ModelProvenanceMigration,
 } from "../model-identity-contract.js";
 import { createModelProvenanceMigration } from "../cli-launcher-model-authority.js";
-import type { SessionBackend } from "./sessions-helpers.js";
+import type { BackendType } from "../session-types.js";
 import { resolveSessionDefaultsForRole } from "../../shared/session-defaults.js";
 
 type SessionCreateModelLauncher = {
-  getSession: (sessionId: string) => { backendType?: SessionBackend; model?: string } | undefined;
+  getSession: (sessionId: string) => { backendType?: BackendType; model?: string } | undefined;
   resolveSessionId: (raw: string) => string | null;
 };
 
 type ResolveSessionCreateModelOptions = {
-  backend: SessionBackend;
+  backend: BackendType;
   createdBy?: unknown;
   getClaudeUserDefaultModel: () => Promise<string>;
   launcher: SessionCreateModelLauncher;
@@ -80,7 +80,7 @@ export async function resolveSessionCreateModel({
   if (explicitModel) return { model: explicitModel };
   if (creatorModel && creator?.backendType === backend) return { model: creatorModel };
 
-  if (backend === "claude" || backend === "claude-sdk") {
+  if (backend === "claude-sdk") {
     return { model: (await getClaudeUserDefaultModel()) || undefined };
   }
 
@@ -93,7 +93,7 @@ export function createSessionCreateModelResolver({
   launcher,
 }: SessionCreateModelResolverDeps) {
   const resolveForBody = (
-    backend: SessionBackend,
+    backend: BackendType,
     body: SessionCreateModelBody,
     settings: SessionCreateModelSettings,
     originalRequestedModel: unknown,
@@ -116,7 +116,7 @@ export function createSessionCreateModelResolver({
   return {
     forCreate: resolveForBody,
     forResume: async (
-      backend: SessionBackend,
+      backend: BackendType,
       body: SessionCreateModelBody,
       settings: SessionCreateModelSettings,
       originalRequestedModel: unknown,

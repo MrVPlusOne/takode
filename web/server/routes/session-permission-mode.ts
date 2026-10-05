@@ -49,7 +49,10 @@ export function registerSessionPermissionModeRoute(api: Hono, ctx: RouteContext)
       return c.json({ error: `Unsupported backend for permission modes: ${info.backendType}` }, 400);
     }
     if (!isValidPermissionModeForBackend(backend, mode)) {
-      return c.json({ error: `Unsupported permission mode for ${info.backendType || "claude"} session: ${mode}` }, 400);
+      return c.json(
+        { error: `Unsupported permission mode for ${info.backendType ?? "claude-sdk"} session: ${mode}` },
+        400,
+      );
     }
 
     const leaderId = typeof body.leaderSessionId === "string" ? resolveId(body.leaderSessionId) : null;
@@ -61,7 +64,7 @@ export function registerSessionPermissionModeRoute(api: Hono, ctx: RouteContext)
       }
     }
 
-    wsBridge.getOrCreateSession(id, info.backendType || "claude");
+    wsBridge.getOrCreateSession(id, info.backendType ?? "claude-sdk");
     const ok = await wsBridge.setSessionPermissionMode(id, mode);
     if (!ok) return c.json({ error: "Session not found" }, 404);
     return c.json({ ok: true, sessionId: id, permissionMode: mode });

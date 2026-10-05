@@ -30,7 +30,7 @@ export function createTimerRoutes(ctx: RouteContext) {
           sessionId: session.sessionId,
           sessionNum: launcher.getSessionNum(session.sessionId) ?? null,
           name: names[session.sessionId] ?? session.name,
-          backendType: bridge?.backend_type || session.backendType || "claude",
+          backendType: bridge?.backend_type || session.backendType || "claude-sdk",
           state: effectiveState,
           cliConnected,
           cwd: session.cwd,

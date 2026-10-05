@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -578,8 +579,8 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 describe("Tool call duration tracking", () => {
   it("includes duration_seconds in tool_result_preview when start time was tracked", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -595,8 +596,7 @@ describe("Tool call duration tracking", () => {
     browser.send.mockClear();
 
     // Send assistant message with tool_use block
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -615,8 +615,7 @@ describe("Tool call duration tracking", () => {
     );
 
     // Send tool_result
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu-1", content: "file.txt" }] },
@@ -638,8 +637,8 @@ describe("Tool call duration tracking", () => {
 
   it("tracks independent durations for parallel tool calls", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -655,8 +654,7 @@ describe("Tool call duration tracking", () => {
     browser.send.mockClear();
 
     // Send assistant with two parallel tool_use blocks
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -678,8 +676,7 @@ describe("Tool call duration tracking", () => {
     );
 
     // Send tool_result for both
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: {
@@ -706,8 +703,8 @@ describe("Tool call duration tracking", () => {
 
   it("sets duration_seconds to undefined when no start time exists", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -723,8 +720,7 @@ describe("Tool call duration tracking", () => {
     browser.send.mockClear();
 
     // Send tool_result WITHOUT a preceding tool_use (simulates server restart)
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu-orphan", content: "data" }] },
@@ -742,12 +738,11 @@ describe("Tool call duration tracking", () => {
 
   it("cleans up toolStartTimes after tool_result is processed", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     // Send tool_use
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -769,8 +764,7 @@ describe("Tool call duration tracking", () => {
     expect(session.toolStartTimes.has("tu-1")).toBe(true);
 
     // Send tool_result
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu-1", content: "contents" }] },
@@ -786,12 +780,11 @@ describe("Tool call duration tracking", () => {
 
   it("persists duration_seconds in messageHistory for replay", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     // Send tool_use + tool_result
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -809,8 +802,7 @@ describe("Tool call duration tracking", () => {
       }),
     );
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }] },
@@ -829,8 +821,8 @@ describe("Tool call duration tracking", () => {
 
   it("includes tool_start_times in assistant broadcasts for tool_use blocks", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -846,8 +838,7 @@ describe("Tool call duration tracking", () => {
     browser.send.mockClear();
 
     // Send assistant message with tool_use blocks
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -880,8 +871,8 @@ describe("Tool call duration tracking", () => {
 
   it("does not include tool_start_times when assistant message has no tool_use blocks", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -897,8 +888,7 @@ describe("Tool call duration tracking", () => {
     browser.send.mockClear();
 
     // Send assistant message with only text (no tool_use)
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -927,8 +917,8 @@ describe("Tool call duration tracking", () => {
     vi.useFakeTimers();
     try {
       const cli = makeCliSocket("s1");
-      bridge.handleCLIOpen(cli, "s1");
-      bridge.handleCLIMessage(cli, makeInitMsg());
+      cli.attach(bridge);
+      cli.message(makeInitMsg());
 
       const browser = makeBrowserSocket("s1");
       bridge.handleBrowserOpen(browser, "s1");
@@ -944,8 +934,7 @@ describe("Tool call duration tracking", () => {
       browser.send.mockClear();
 
       vi.setSystemTime(new Date(1700000000000));
-      bridge.handleCLIMessage(
-        cli,
+      cli.message(
         JSON.stringify({
           type: "assistant",
           message: {
@@ -964,8 +953,7 @@ describe("Tool call duration tracking", () => {
       );
 
       vi.setSystemTime(new Date(1700000005000));
-      bridge.handleCLIMessage(
-        cli,
+      cli.message(
         JSON.stringify({
           type: "assistant",
           message: {
@@ -1001,8 +989,8 @@ describe("Tool call duration tracking", () => {
 
   it("does not duplicate assistant text when the same Claude message ID replays overlapping snapshots", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -1017,8 +1005,7 @@ describe("Tool call duration tracking", () => {
     );
     browser.send.mockClear();
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -1036,8 +1023,7 @@ describe("Tool call duration tracking", () => {
       }),
     );
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -1058,8 +1044,7 @@ describe("Tool call duration tracking", () => {
       }),
     );
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -1102,8 +1087,8 @@ describe("Tool call duration tracking", () => {
 
   it("preserves a legitimate repeated trailing block appended by a later Claude snapshot", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -1118,8 +1103,7 @@ describe("Tool call duration tracking", () => {
     );
     browser.send.mockClear();
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -1137,8 +1121,7 @@ describe("Tool call duration tracking", () => {
       }),
     );
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {

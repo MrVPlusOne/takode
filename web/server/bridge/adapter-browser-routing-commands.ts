@@ -57,18 +57,7 @@ export function queueForceCompactPendingMessage(
   session: AdapterBrowserRoutingSessionLike,
   deps: AdapterBrowserRoutingDeps,
 ): void {
-  if (session.backendType === "claude-sdk") {
-    session.pendingMessages.push(JSON.stringify({ type: "user_message", content: "/compact" }));
-  } else {
-    session.pendingMessages.push(
-      JSON.stringify({
-        type: "user",
-        message: { role: "user", content: "/compact" },
-        parent_tool_use_id: null,
-        session_id: deps.getCliSessionId(session),
-      }),
-    );
-  }
+  session.pendingMessages.push(JSON.stringify({ type: "user_message", content: "/compact" }));
   markForceCompactPending(session, deps);
 }
 
@@ -79,24 +68,12 @@ export function handleCliSlashCommand(
 ): void {
   console.log(`[ws-bridge] CLI slash command intercepted for session ${sessionTag(session.id)}: ${command}`);
   appendLocalSlashCommandHistory(session, command, deps);
-  if (session.claudeSdkAdapter) {
-    const accepted = session.claudeSdkAdapter.sendBrowserMessage({
-      type: "user_message",
-      content: command,
-    } satisfies BrowserUserMessage);
-    if (!accepted) {
-      session.pendingMessages.push(JSON.stringify({ type: "user_message", content: command }));
-    }
-  } else {
-    deps.sendToCLI(
-      session,
-      JSON.stringify({
-        type: "user",
-        message: { role: "user", content: command },
-        parent_tool_use_id: null,
-        session_id: deps.getCliSessionId(session),
-      }),
-    );
+  const accepted = session.claudeSdkAdapter?.sendBrowserMessage({
+    type: "user_message",
+    content: command,
+  } satisfies BrowserUserMessage);
+  if (!accepted) {
+    session.pendingMessages.push(JSON.stringify({ type: "user_message", content: command }));
   }
   deps.setGenerating(session, true, "cli_slash_command");
   deps.broadcastStatusChange(session, "running");

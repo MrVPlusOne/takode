@@ -59,7 +59,7 @@ const sessions: SdkSessionInfo[] = [
     createdAt: now - 10_000,
     lastActivityAt: now - 8_000,
     name: "Old session",
-    backendType: "claude",
+    backendType: "claude-sdk",
   },
 ];
 

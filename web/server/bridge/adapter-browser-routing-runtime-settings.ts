@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { BrowserIncomingMessage } from "../session-types.js";
 import { inferContextWindowFromModel } from "./context-usage.js";
 import type {
@@ -22,30 +21,12 @@ import {
   formatCodexReasoningEffortSupportIssue,
 } from "../../shared/codex-reasoning-effort.js";
 
-function shouldSendClassicClaudeControlRequest(session: AdapterBrowserRoutingSessionLike): boolean {
-  return session.backendType === "claude" && !!session.backendSocket;
-}
-
 export function handleSetModel(
   session: AdapterBrowserRoutingSessionLike,
   model: string,
-  deps: Pick<
-    AdapterBrowserRoutingDeps,
-    "sendToCLI" | "getLauncherSessionInfo" | "broadcastToBrowsers" | "persistSession"
-  >,
+  deps: Pick<AdapterBrowserRoutingDeps, "getLauncherSessionInfo" | "broadcastToBrowsers" | "persistSession">,
 ): void {
-  if (session.backendType === "claude-sdk" && session.claudeSdkAdapter) {
-    session.claudeSdkAdapter.sendBrowserMessage({ type: "set_model", model } as any);
-  } else if (shouldSendClassicClaudeControlRequest(session)) {
-    deps.sendToCLI(
-      session,
-      JSON.stringify({
-        type: "control_request",
-        request_id: randomUUID(),
-        request: { subtype: "set_model", model },
-      }),
-    );
-  }
+  session.claudeSdkAdapter?.sendBrowserMessage({ type: "set_model", model } as any);
   session.state.model = model;
   const launchInfo = deps.getLauncherSessionInfo(session.id);
   if (launchInfo) launchInfo.model = model;
@@ -75,18 +56,7 @@ export function handleSetPermissionMode(
   deps: AdapterBrowserRoutingDeps,
 ): void {
   const nextMode = normalizeClaudePermissionMode(mode);
-  if (session.backendType === "claude-sdk" && session.claudeSdkAdapter) {
-    session.claudeSdkAdapter.sendBrowserMessage({ type: "set_permission_mode", mode: nextMode });
-  } else if (shouldSendClassicClaudeControlRequest(session)) {
-    deps.sendToCLI(
-      session,
-      JSON.stringify({
-        type: "control_request",
-        request_id: randomUUID(),
-        request: { subtype: "set_permission_mode", mode: nextMode },
-      }),
-    );
-  }
+  session.claudeSdkAdapter?.sendBrowserMessage({ type: "set_permission_mode", mode: nextMode });
   const uiMode = deriveUiModeForMode("claude", nextMode);
   const askPermission = deriveAskPermissionForMode("claude", nextMode);
   session.state.permissionMode = nextMode;

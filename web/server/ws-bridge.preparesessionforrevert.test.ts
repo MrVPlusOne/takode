@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -579,7 +580,7 @@ describe("prepareSessionForRevert", () => {
   it("repairs human activity from retained history and direct pending input", () => {
     const bridge = attachBoardFacade(new WsBridge());
     const cli = makeCliSocket("revert-repairs-human-activity");
-    bridge.handleCLIOpen(cli, "revert-repairs-human-activity");
+    cli.attach(bridge);
     const session = bridge.getSession("revert-repairs-human-activity");
     expect(session).toBeDefined();
     if (!session) return;
@@ -620,7 +621,7 @@ describe("prepareSessionForRevert", () => {
     // truncated out of history so retained payload metrics don't stay inflated.
     const bridge = attachBoardFacade(new WsBridge());
     const cli = makeCliSocket("revert-prunes-tool-results");
-    bridge.handleCLIOpen(cli, "revert-prunes-tool-results");
+    cli.attach(bridge);
 
     const session = bridge.getSession("revert-prunes-tool-results");
     expect(session).toBeDefined();
@@ -666,7 +667,7 @@ describe("prepareSessionForRevert", () => {
     // stale tool ID in the map while history references a different preview ID.
     const bridge = attachBoardFacade(new WsBridge());
     const cli = makeCliSocket("revert-prunes-equal-cardinality");
-    bridge.handleCLIOpen(cli, "revert-prunes-equal-cardinality");
+    cli.attach(bridge);
 
     const session = bridge.getSession("revert-prunes-equal-cardinality");
     expect(session).toBeDefined();
@@ -711,7 +712,7 @@ describe("prepareSessionForRevert", () => {
   it("drops replayed Claude history that no longer exists after revert truncation", () => {
     const bridge = attachBoardFacade(new WsBridge());
     const cli = makeCliSocket("revert-drops-truncated-replay");
-    bridge.handleCLIOpen(cli, "revert-drops-truncated-replay");
+    cli.attach(bridge);
 
     const session = bridge.getSession("revert-drops-truncated-replay");
     expect(session).toBeDefined();
@@ -758,8 +759,7 @@ describe("prepareSessionForRevert", () => {
 
     session.cliResuming = true;
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         uuid: "assistant-drop-uuid",
@@ -776,8 +776,7 @@ describe("prepareSessionForRevert", () => {
         session_id: "revert-drops-truncated-replay",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -793,8 +792,7 @@ describe("prepareSessionForRevert", () => {
         session_id: "revert-drops-truncated-replay",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         uuid: "tool-result-drop",

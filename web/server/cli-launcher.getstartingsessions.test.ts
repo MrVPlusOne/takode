@@ -1,4 +1,17 @@
 import { vi } from "vitest";
+
+// Claude sessions launch through the Agent SDK adapter; capture what the
+// launcher hands it instead of starting a real Claude process.
+const sdkAdapterLaunches = vi.hoisted(() => [] as Array<{ sessionId: string; options: any }>);
+vi.mock("./claude-sdk-adapter.js", () => ({
+  ClaudeSdkAdapter: class {
+    started = Promise.resolve(true);
+    constructor(sessionId: string, options: any) {
+      sdkAdapterLaunches.push({ sessionId, options });
+    }
+  },
+}));
+
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -338,6 +351,7 @@ let launcher: CliLauncher;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sdkAdapterLaunches.length = 0;
   // Re-apply default: lstatSync throws ENOENT (file doesn't exist), matching real behavior
   mockLstatSync.mockImplementation(() => {
     throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
@@ -378,8 +392,21 @@ afterAll(() => {
 // ─── launch ──────────────────────────────────────────────────────────────────
 
 describe("getStartingSessions", () => {
-  it("returns only sessions in starting state", async () => {
-    await launcher.launch({ cwd: "/tmp" });
+  it("returns only restored sessions whose backend process is still alive", async () => {
+    // After a server restart, a live backend process cannot reattach; it waits in
+    // "starting" until the reconnect watchdog relaunches it.
+    store.saveLauncher([
+      {
+        sessionId: "live-codex",
+        pid: process.pid,
+        state: "connected" as const,
+        backendType: "codex" as const,
+        cwd: "/tmp",
+        createdAt: Date.now(),
+      },
+    ]);
+    await store.flushAll();
+    await launcher.restoreFromDisk();
 
     const starting = launcher.getStartingSessions();
     expect(starting).toHaveLength(1);
@@ -387,8 +414,8 @@ describe("getStartingSessions", () => {
   });
 
   it("excludes sessions that have been connected", async () => {
+    // A freshly launched Claude session is connected as soon as its SDK adapter exists.
     await launcher.launch({ cwd: "/tmp" });
-    launcher.markConnected("test-session-id");
 
     const starting = launcher.getStartingSessions();
     expect(starting).toHaveLength(0);

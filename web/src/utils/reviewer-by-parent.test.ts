@@ -17,7 +17,7 @@ function makeSession(overrides: Partial<SidebarSessionItem> & { id: string }): S
     sdkState: "exited",
     createdAt: 1,
     archived: false,
-    backendType: "claude",
+    backendType: "claude-sdk",
     repoRoot: "/test",
     permCount: 0,
     ...overrides,

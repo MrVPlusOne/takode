@@ -688,38 +688,12 @@ describe("SessionItem leader profiles", () => {
     expect(screen.getByTestId("session-status-dot")).toBeInTheDocument();
   });
 
-  it("uses the approved Claude backend badge for Claude and Claude SDK sessions", () => {
-    const { rerender } = renderSessionItem({
-      session: makeSession({ backendType: "claude" }),
+  it("uses the approved Claude backend badge for Claude sessions", () => {
+    renderSessionItem({
+      session: makeSession({ backendType: "claude-sdk" }),
     });
 
     expect(screen.getByAltText("Claude")).toHaveAttribute("src", "/backend-logos/claude.svg");
-
-    rerender(
-      <SessionItem
-        session={makeSession({ backendType: "claude-sdk" })}
-        isActive={false}
-        isArchived={false}
-        sessionName="Session"
-        sessionPreview="preview"
-        permCount={0}
-        isRecentlyRenamed={false}
-        onSelect={vi.fn()}
-        onStartRename={vi.fn()}
-        onArchive={vi.fn()}
-        onUnarchive={vi.fn()}
-        onDelete={vi.fn()}
-        onClearRecentlyRenamed={vi.fn()}
-        editingSessionId={null}
-        editingName=""
-        setEditingName={vi.fn()}
-        onConfirmRename={vi.fn()}
-        onCancelRename={vi.fn()}
-        editInputRef={{ current: null }}
-      />,
-    );
-
-    expect(screen.getByAltText("Claude SDK")).toHaveAttribute("src", "/backend-logos/claude.svg");
   });
 
   it("opens the profile picker from a leader portrait", () => {

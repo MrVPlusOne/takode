@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -696,15 +697,14 @@ describe("CLI-initiated turn tracking", () => {
     // already-tracked turn.
     const sid = "cli-init-subagent";
     const cli = makeCliSocket(sid);
-    bridge.handleCLIOpen(cli, sid);
-    bridge.handleCLIMessage(cli, makeInitMsg({ session_id: "cli-subagent-1" }));
+    cli.attach(bridge);
+    cli.message(makeInitMsg({ session_id: "cli-subagent-1" }));
 
     const session = bridge.getSession(sid)!;
     expect(session.isGenerating).toBe(false);
 
     // Subagent assistant message (has parent_tool_use_id)
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -727,8 +727,8 @@ describe("CLI-initiated turn tracking", () => {
     // These should NOT trigger cli_initiated_turn detection.
     const sid = "cli-init-resume";
     const cli = makeCliSocket(sid);
-    bridge.handleCLIOpen(cli, sid);
-    bridge.handleCLIMessage(cli, makeInitMsg({ session_id: "cli-resume-1" }));
+    cli.attach(bridge);
+    cli.message(makeInitMsg({ session_id: "cli-resume-1" }));
 
     const session = bridge.getSession(sid)!;
     // Simulate: session already has a historical assistant message
@@ -746,8 +746,7 @@ describe("CLI-initiated turn tracking", () => {
     } as any);
 
     // Replay of the same message (same ID)
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {

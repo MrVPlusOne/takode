@@ -1,4 +1,17 @@
 import { vi } from "vitest";
+
+// Claude sessions launch through the Agent SDK adapter; capture what the
+// launcher hands it instead of starting a real Claude process.
+const sdkAdapterLaunches = vi.hoisted(() => [] as Array<{ sessionId: string; options: any }>);
+vi.mock("./claude-sdk-adapter.js", () => ({
+  ClaudeSdkAdapter: class {
+    started = Promise.resolve(true);
+    constructor(sessionId: string, options: any) {
+      sdkAdapterLaunches.push({ sessionId, options });
+    }
+  },
+}));
+
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -338,6 +351,7 @@ let launcher: CliLauncher;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sdkAdapterLaunches.length = 0;
   // Re-apply default: lstatSync throws ENOENT (file doesn't exist), matching real behavior
   mockLstatSync.mockImplementation(() => {
     throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
@@ -400,21 +414,6 @@ describe("state management", () => {
     expect(launcher.resolveSessionId("test-session-id")).toBe("test-session-id");
   });
 
-  describe("markConnected", () => {
-    it("sets state to connected", async () => {
-      await launcher.launch({ cwd: "/tmp" });
-      launcher.markConnected("test-session-id");
-
-      const session = launcher.getSession("test-session-id");
-      expect(session?.state).toBe("connected");
-    });
-
-    it("does nothing for unknown session", () => {
-      // Should not throw
-      launcher.markConnected("nonexistent");
-    });
-  });
-
   describe("setCLISessionId", () => {
     it("stores the CLI session ID", async () => {
       await launcher.launch({ cwd: "/tmp" });
@@ -439,10 +438,8 @@ describe("state management", () => {
     it("returns false for exited session", async () => {
       await launcher.launch({ cwd: "/tmp" });
 
-      // Simulate process exit
-      exitResolve(0);
-      // Allow the .then callback in spawnCLI to run
-      await new Promise((r) => setTimeout(r, 10));
+      // Stopping a Claude SDK session marks it exited
+      await launcher.kill("test-session-id");
 
       expect(launcher.isAlive("test-session-id")).toBe(false);
     });
@@ -486,9 +483,8 @@ describe("state management", () => {
     it("removes exited sessions and returns count", async () => {
       await launcher.launch({ cwd: "/tmp" });
 
-      // Simulate process exit
-      exitResolve(0);
-      await new Promise((r) => setTimeout(r, 10));
+      // Stopping a Claude SDK session marks it exited
+      await launcher.kill("test-session-id");
 
       expect(launcher.getSession("test-session-id")?.state).toBe("exited");
 

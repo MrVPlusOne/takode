@@ -959,7 +959,7 @@ describe("Side Chat session routes", () => {
   it("rejects leader sessions before routing messages to existing Side Chats", async () => {
     const root = {
       id: "leader",
-      state: makeState({ session_id: "leader", backend_type: "claude", isOrchestrator: true }),
+      state: makeState({ session_id: "leader", backend_type: "claude-sdk", isOrchestrator: true }),
       messageHistory: [assistant("anchor-1", "Root answer")],
     };
     const launcher = {
@@ -1010,7 +1010,7 @@ describe("Side Chat session routes", () => {
   it("uses Side Chat wording when the new message route targets an unknown Side Chat", async () => {
     const root = {
       id: "root",
-      state: makeState({ session_id: "root", backend_type: "claude" }),
+      state: makeState({ session_id: "root", backend_type: "claude-sdk" }),
       messageHistory: [assistant("anchor-1", "Root answer")],
     };
     const launcher = {

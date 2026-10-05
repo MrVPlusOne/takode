@@ -458,7 +458,7 @@ function makeFixture(): ProjectionFixture {
 
   for (let index = 0; index < PROJECTION_PERFORMANCE_FIXTURE.sessionCount; index += 1) {
     const id = index === 0 ? "leader" : `worker-${index}`;
-    const backendType = index % 2 === 0 ? "claude" : "codex";
+    const backendType = index % 2 === 0 ? "claude-sdk" : "codex";
     launcherSessions.set(id, {
       sessionId: id,
       state: "connected",

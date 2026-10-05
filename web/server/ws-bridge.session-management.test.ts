@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -600,7 +601,8 @@ describe("Session management", () => {
     expect(session.state.repo_root).toBe("");
     expect(session.state.git_ahead).toBe(0);
     expect(session.state.git_behind).toBe(0);
-    expect(session.backendSocket).toBeNull();
+    expect(session.backendType).toBe("claude-sdk");
+    expect(session.claudeSdkAdapter).toBeNull();
     expect(session.browserSockets.size).toBe(0);
     expect(session.pendingPermissions.size).toBe(0);
     expect(session.messageHistory).toEqual([]);
@@ -635,7 +637,7 @@ describe("Session management", () => {
 
   it("getOrCreateSession: overwrites backendType when explicitly provided on existing session", () => {
     const session = bridge.getOrCreateSession("s1");
-    expect(session.backendType).toBe("claude");
+    expect(session.backendType).toBe("claude-sdk");
 
     // Explicit override (e.g. attachCodexAdapter)
     bridge.getOrCreateSession("s1", "codex");
@@ -839,18 +841,19 @@ describe("Session management", () => {
     );
   });
 
-  it("closeSession: closes all sockets and removes session", () => {
+  it("closeSession: stops Claude, closes browser sockets and removes the session", () => {
     const cli = makeCliSocket("s1");
     const browser1 = makeBrowserSocket("s1");
     const browser2 = makeBrowserSocket("s1");
 
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser1, "s1");
     bridge.handleBrowserOpen(browser2, "s1");
 
+    const disconnect = vi.spyOn(cli.adapter, "disconnect");
     bridge.closeSession("s1");
 
-    expect(cli.close).toHaveBeenCalled();
+    expect(disconnect).toHaveBeenCalled();
     expect(browser1.close).toHaveBeenCalled();
     expect(browser2.close).toHaveBeenCalled();
     expect(bridge.getSession("s1")).toBeUndefined();

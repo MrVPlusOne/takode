@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import { createUnavailableOrchestratorRecoveryWake } from "./unavailable-orchestrator-recovery.js";
@@ -69,7 +70,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -671,16 +672,16 @@ describe("board stall warnings", () => {
     dispatcher.setupForOrchestrator(leaderId);
 
     const leaderCli = makeCliSocket(leaderId);
-    bridge.handleCLIOpen(leaderCli, leaderId);
-    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-board-stall" }));
+    leaderCli.attach(bridge);
+    leaderCli.message(makeInitMsg({ session_id: "cli-orch-board-stall" }));
 
     bridge.getOrCreateSession(workerId);
     if (opts?.reviewer) bridge.getOrCreateSession(reviewerId);
     const connectLiveParticipant = (sessionId: string, liveState: "idle" | "running" | undefined) => {
       if (!liveState) return;
       const cli = makeCliSocket(sessionId);
-      bridge.handleCLIOpen(cli, sessionId);
-      bridge.handleCLIMessage(cli, makeInitMsg({ session_id: `cli-${sessionId}` }));
+      cli.attach(bridge);
+      cli.message(makeInitMsg({ session_id: `cli-${sessionId}` }));
       const session = bridge.getSession(sessionId)!;
       session.isGenerating = liveState === "running";
     };
@@ -1160,7 +1161,7 @@ describe("board stall warnings", () => {
   it("drops same-batch reviewer board_stalled events even when attributed to the worker", async () => {
     const { leaderId, workerId, reviewerId, dispatcher, leaderCli } = setupBoardStallHarness({ reviewer: true });
     const now = Date.now();
-    leaderCli.send.mockClear();
+    leaderCli.clearSent();
     const boardStalled = {
       id: 1,
       event: "board_stalled",
@@ -1205,7 +1206,7 @@ describe("board stall warnings", () => {
     );
 
     expect(delivery).toBe("sent");
-    const sentPayload = leaderCli.send.mock.calls.map((call: unknown[]) => String(call[0])).join("\n");
+    const sentPayload = leaderCli.promptTexts().join("\n");
     expect(sentPayload).toContain("1 event from 1 session");
     expect(sentPayload).toContain("turn_end");
     expect(sentPayload).not.toContain("board_stalled");
@@ -1463,8 +1464,8 @@ describe("board stall warnings", () => {
     const leaderSession = (bridge as any).sessions.get(leaderId);
     const workerCli = makeCliSocket("worker-board-stall");
 
-    bridge.handleCLIOpen(workerCli, "worker-board-stall");
-    bridge.handleCLIMessage(workerCli, makeInitMsg({ session_id: "cli-worker-board-stall" }));
+    workerCli.attach(bridge);
+    workerCli.message(makeInitMsg({ session_id: "cli-worker-board-stall" }));
 
     leaderSession.messageHistory.push({
       type: "assistant",
@@ -1534,11 +1535,11 @@ describe("board stall warnings", () => {
     });
     dispatcher.setupForOrchestrator(externalLeaderId);
     const externalLeaderCli = makeCliSocket(externalLeaderId);
-    bridge.handleCLIOpen(externalLeaderCli, externalLeaderId);
-    bridge.handleCLIMessage(externalLeaderCli, makeInitMsg({ session_id: "cli-external-board-leader" }));
+    externalLeaderCli.attach(bridge);
+    externalLeaderCli.message(makeInitMsg({ session_id: "cli-external-board-leader" }));
     const externalWorkerCli = makeCliSocket(externalWorkerId);
-    bridge.handleCLIOpen(externalWorkerCli, externalWorkerId);
-    bridge.handleCLIMessage(externalWorkerCli, makeInitMsg({ session_id: "cli-external-worker-completed" }));
+    externalWorkerCli.attach(bridge);
+    externalWorkerCli.message(makeInitMsg({ session_id: "cli-external-worker-completed" }));
 
     bridge.upsertBoardRow(leaderId, {
       questId: "q-8",
@@ -1831,8 +1832,8 @@ describe("board stall warnings", () => {
     const injectSpy = vi.spyOn(restored, "injectUserMessage");
     dispatcher.setupForOrchestrator(leaderId);
     const leaderCli = makeCliSocket(leaderId);
-    restored.handleCLIOpen(leaderCli, leaderId);
-    restored.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-board-stall-restore" }));
+    leaderCli.attach(restored);
+    leaderCli.message(makeInitMsg({ session_id: "cli-orch-board-stall-restore" }));
 
     restored.startStuckSessionWatchdog();
     vi.advanceTimersByTime(181_000);

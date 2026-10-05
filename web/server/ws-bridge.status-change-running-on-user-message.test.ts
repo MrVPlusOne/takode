@@ -17,6 +17,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { waitForBrowserMessage } from "./ws-bridge-current-browser-test-helpers.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -70,7 +71,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -581,8 +582,8 @@ describe("status_change: running on user_message", () => {
 
   beforeEach(() => {
     cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -657,8 +658,7 @@ describe("status_change: running on user_message", () => {
     expect(initialStatus?.activeTurnRoute).toEqual({ threadKey: "main" });
     browser.send.mockClear();
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         uuid: "assistant-route-q975",
@@ -770,8 +770,7 @@ describe("status_change: running on user_message", () => {
       );
 
       // First backend output should cancel the timeout.
-      bridge.handleCLIMessage(
-        cli,
+      cli.message(
         JSON.stringify({
           type: "assistant",
           message: {
@@ -926,8 +925,7 @@ describe("status_change: running on user_message", () => {
     );
 
     // CLI sends an assistant message
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -941,8 +939,7 @@ describe("status_change: running on user_message", () => {
     );
 
     // CLI sends result (isGenerating = false)
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         total_cost_usd: 0.01,
@@ -984,8 +981,7 @@ describe("status_change: running on user_message", () => {
     );
 
     // CLI sends an assistant message mid-generation
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -999,15 +995,15 @@ describe("status_change: running on user_message", () => {
     );
 
     // CLI disconnects (server restart scenario)
-    bridge.handleCLIClose(cli);
+    cli.disconnect();
 
     // Grace period expires — this is a real disconnect, not a token refresh
     vi.advanceTimersByTime(16_000);
 
     // CLI reconnects (like --resume after server restart)
     const cli2 = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli2, "s1");
-    bridge.handleCLIMessage(cli2, makeInitMsg());
+    cli2.attach(bridge);
+    cli2.message(makeInitMsg());
     browser.send.mockClear();
 
     // Switch back to real timers before subscribe so async flushes work

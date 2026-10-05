@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { normalizePersistedBackendType } from "./session-types.js";
 import { CliLauncher } from "./cli-launcher.js";
 import type { SdkSessionInfo } from "./session-info.js";
 
@@ -56,7 +57,8 @@ describe("explicit Codex leader recycling", () => {
 
   it.each([
     { isOrchestrator: false },
-    { backendType: "claude" },
+    // A session stored with the retired WebSocket type loads as Claude SDK.
+    { backendType: normalizePersistedBackendType("claude") },
     { backendType: "claude-sdk" },
   ] as const)("refuses unsupported sessions: %j", (overrides) => {
     const { launcher, session } = fixture(overrides);

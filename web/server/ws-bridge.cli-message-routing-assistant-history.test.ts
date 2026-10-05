@@ -20,6 +20,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import { THREAD_OUTCOME_REMINDER_SOURCE_ID } from "../shared/thread-outcome-reminder.js";
@@ -74,7 +75,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -588,7 +589,7 @@ describe("CLI message routing", () => {
   beforeEach(async () => {
     cli = makeCliSocket("s1");
     browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
     await subscribeCurrentBrowser(bridge, browser);
   });
@@ -610,7 +611,7 @@ describe("CLI message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     const session = bridge.getSession("s1")!;
     expect(session.messageHistory).toHaveLength(1);
@@ -644,7 +645,7 @@ describe("CLI message routing", () => {
         session_id: "s1",
       });
 
-      bridge.handleCLIMessage(cli, msg);
+      cli.message(msg);
 
       const session = bridge.getSession("s1")!;
       expect(session.messageHistory).toHaveLength(1);
@@ -683,7 +684,7 @@ describe("CLI message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     // (4000 + 5000 + 30000) / 200000 * 100 = 20
     // output_tokens (2000) excluded — they are generated, not context occupants
@@ -706,15 +707,10 @@ describe("CLI message routing", () => {
       sessionLabel: "System",
     });
 
-    const reminderCountBefore = cli.send.mock.calls
-      .map(([payload]: [string]) => JSON.parse(String(payload).trim()))
-      .filter(
-        (payload: any) => payload.type === "user" && String(payload.message?.content).includes("As a leader session"),
-      ).length;
+    const reminderCountBefore = cli.promptTexts().filter((prompt) => prompt.includes("As a leader session")).length;
 
     // Assistant still forgets the suffix on this reminder-triggered turn.
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -730,8 +726,7 @@ describe("CLI message routing", () => {
         session_id: "s1",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -743,11 +738,7 @@ describe("CLI message routing", () => {
       }),
     );
 
-    const reminderCountAfter = cli.send.mock.calls
-      .map(([payload]: [string]) => JSON.parse(String(payload).trim()))
-      .filter(
-        (payload: any) => payload.type === "user" && String(payload.message?.content).includes("As a leader session"),
-      ).length;
+    const reminderCountAfter = cli.promptTexts().filter((prompt) => prompt.includes("As a leader session")).length;
 
     expect(reminderCountAfter).toBe(reminderCountBefore);
   });
@@ -767,8 +758,7 @@ describe("CLI message routing", () => {
       }),
     );
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -787,8 +777,7 @@ describe("CLI message routing", () => {
 
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "interrupt" }));
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -801,11 +790,7 @@ describe("CLI message routing", () => {
       }),
     );
 
-    const reminderSend = cli.send.mock.calls
-      .map(([payload]: [string]) => JSON.parse(String(payload).trim()))
-      .find(
-        (payload: any) => payload.type === "user" && String(payload.message?.content).includes("As a leader session"),
-      );
+    const reminderSend = cli.promptTexts().find((prompt) => prompt.includes("As a leader session"));
     expect(reminderSend).toBeUndefined();
 
     const session = bridge.getSession("s1")!;
@@ -831,8 +816,7 @@ describe("CLI message routing", () => {
       }),
     );
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -849,8 +833,7 @@ describe("CLI message routing", () => {
       }),
     );
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -888,8 +871,7 @@ describe("CLI message routing", () => {
       }),
     );
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -910,8 +892,7 @@ describe("CLI message routing", () => {
         session_id: "s1",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -935,8 +916,7 @@ describe("CLI message routing", () => {
     );
     expect(reminder?.content).toContain("do not emit another `:A:<ids>` answer merely to carry that outcome");
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -957,8 +937,7 @@ describe("CLI message routing", () => {
         session_id: "s1",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -1086,8 +1065,7 @@ describe("CLI message routing", () => {
       getSession: vi.fn(() => ({ isOrchestrator: true })),
     } as any);
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -1108,11 +1086,7 @@ describe("CLI message routing", () => {
     const histAssistant = session.messageHistory.find((m: any) => m.type === "assistant") as any;
     expect(histAssistant?.leader_user_addressed).not.toBe(true);
 
-    const reminderSend = cli.send.mock.calls
-      .map(([payload]: [string]) => JSON.parse(String(payload).trim()))
-      .find(
-        (payload: any) => payload.type === "user" && String(payload.message?.content).includes("As a leader session"),
-      );
+    const reminderSend = cli.promptTexts().find((prompt) => prompt.includes("As a leader session"));
     expect(reminderSend).toBeUndefined();
   });
 });

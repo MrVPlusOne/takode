@@ -93,11 +93,9 @@ export interface AdapterBrowserRoutingSessionLike {
   activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
   codexReasoningPreviews?: CodexReasoningPreviewsByThread;
   codexModelSwitchCompactionGuard?: CodexModelSwitchCompactionGuard | null;
-  backendSocket?: unknown;
   lastUserMessage?: string;
   lastMessagePreviewAt?: number;
   lastUserMessageDateTag: string;
-  lastOutboundUserNdjson: string | null;
   consecutiveAdapterFailures: number;
   codexAdapter: {
     sendBrowserMessage(msg: unknown): boolean;
@@ -112,15 +110,6 @@ export interface AdapterBrowserRoutingSessionLike {
 
 export interface AdapterBrowserRoutingDeps {
   flushHerdEventsBeforePromptInput?: (sessionId: string, before: number) => void;
-  sendToCLI: (
-    session: AdapterBrowserRoutingSessionLike,
-    ndjson: string,
-    opts?: {
-      deferUntilCliReady?: boolean;
-      skipUserDispatchLifecycle?: boolean;
-      userMessageHistoryIndex?: number;
-    },
-  ) => UserDispatchTurnTarget | null;
   broadcastToBrowsers: (session: AdapterBrowserRoutingSessionLike, msg: BrowserIncomingMessage) => void;
   emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>, actorSessionId?: string) => void;
   persistSession: (session: AdapterBrowserRoutingSessionLike) => void;
@@ -140,8 +129,6 @@ export interface AdapterBrowserRoutingDeps {
   abortAutoApproval: (session: AdapterBrowserRoutingSessionLike, requestId: string) => void;
   preInterrupt: (session: AdapterBrowserRoutingSessionLike, source: InterruptSource) => void;
   touchUserMessage: (sessionId: string, timestamp?: number) => void;
-  formatVsCodeSelectionPrompt: (selection: NonNullable<BrowserUserMessage["vscodeSelection"]>) => string;
-  getCliSessionId: (session: AdapterBrowserRoutingSessionLike) => string;
   nextUserMessageId: (ts: number) => string;
   onUserMessage?: (
     sessionId: string,
@@ -221,11 +208,6 @@ export interface AdapterBrowserRoutingDeps {
     delayMs?: number,
   ) => void;
   onPermissionModeChanged?: (sessionId: string, newMode: string) => void;
-  sendControlRequest: (
-    session: AdapterBrowserRoutingSessionLike,
-    request: Record<string, unknown>,
-    onResponse?: ControlResponseHandler,
-  ) => void;
   requestCodexAutoRecovery: (session: AdapterBrowserRoutingSessionLike, reason: string) => boolean;
   requestCodexLeaderRecycle: (
     session: AdapterBrowserRoutingSessionLike,
@@ -248,5 +230,4 @@ export interface AdapterBrowserRoutingDeps {
   handleCodexSetReasoningEffort: (session: AdapterBrowserRoutingSessionLike, effort: string) => void;
   handleCodexSetServiceTier: (session: AdapterBrowserRoutingSessionLike, serviceTier: string | null) => void;
   handleSetAskPermission: (session: AdapterBrowserRoutingSessionLike, askPermission: boolean) => void;
-  handleInterruptFallback: (session: AdapterBrowserRoutingSessionLike, source: InterruptSource) => void;
 }

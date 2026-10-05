@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -581,6 +582,15 @@ describe("cliResuming suppresses status_change broadcast during --resume replay"
   // cliResuming guard, these get broadcast to browsers as live status_change
   // events, polluting the eventBuffer and overriding state_snapshot.
 
+  beforeEach(() => {
+    // Resuming a previous Claude session (known session ID + existing history).
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ cliSessionId: "cli-prev" })),
+    } as any);
+  });
+
   it("does not broadcast status_change for replayed system.status during cliResuming", () => {
     vi.useFakeTimers();
 
@@ -590,17 +600,17 @@ describe("cliResuming suppresses status_change broadcast during --resume replay"
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     expect(session.cliResuming).toBe(true);
 
     // Replayed system.init (triggers cliResuming debounce)
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.message(makeInitMsg());
     expect(session.cliResuming).toBe(true);
 
     browser.send.mockClear();
 
     // Replayed system.status with null (idle/completed turn) — should NOT be broadcast.
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: null }));
+    cli.message(JSON.stringify({ type: "system", subtype: "status", status: null }));
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const statusChanges = calls.filter((m: any) => m.type === "status_change");
@@ -619,9 +629,9 @@ describe("cliResuming suppresses status_change broadcast during --resume replay"
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.message(makeInitMsg());
     expect(session.cliResuming).toBe(true);
 
     // Wait for debounce to clear cliResuming.
@@ -631,7 +641,7 @@ describe("cliResuming suppresses status_change broadcast during --resume replay"
     browser.send.mockClear();
 
     // Real system.status with compacting — should be broadcast.
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: "compacting" }));
+    cli.message(JSON.stringify({ type: "system", subtype: "status", status: "compacting" }));
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const statusChanges = calls.filter((m: any) => m.type === "status_change");
@@ -649,15 +659,15 @@ describe("cliResuming suppresses status_change broadcast during --resume replay"
     session.messageHistory.push({ role: "assistant", content: "previous turn" } as any);
 
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     expect(session.cliResuming).toBe(true);
 
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.message(makeInitMsg());
 
     const bufferLenBefore = session.eventBuffer.length;
 
     // Replayed system.status with null — should NOT enter eventBuffer.
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: null }));
+    cli.message(JSON.stringify({ type: "system", subtype: "status", status: null }));
 
     // eventBuffer should not have grown (no status_change was buffered).
     const statusBuffered = session.eventBuffer

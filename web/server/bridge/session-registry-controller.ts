@@ -1,3 +1,4 @@
+import { normalizePersistedBackendType } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
 import { normalizeCompactionMemoryCatalog } from "./memory-catalog-prelude.js";
 import {
@@ -197,7 +198,6 @@ function createSessionRuntime(
   return {
     id: sessionId,
     backendType,
-    backendSocket: null,
     codexAdapter: null,
     claudeSdkAdapter: null,
     browserSockets: new Set(),
@@ -259,10 +259,8 @@ function createSessionRuntime(
     queuedTurnActiveRoutes: [],
     cliInitReceived: false,
     lastCliMessageAt: 0,
-    lastCliPingAt: 0,
     lastToolProgressAt: 0,
     optimisticRunningTimer: null,
-    lastOutboundUserNdjson: null,
     stuckNotifiedAt: null,
     lastReadAt: options.lastReadAt ?? 0,
     lastUserMessageDateTag: "",
@@ -270,9 +268,6 @@ function createSessionRuntime(
     attentionReason: options.attentionReason ?? null,
     manualUnread: options.manualUnread === true,
     codexDisconnectGraceTimer: null,
-    disconnectGraceTimer: null,
-    disconnectWasGenerating: false,
-    seamlessReconnect: false,
     relaunchPending: false,
     taskHistory: options.taskHistory ?? [],
     keywords: options.keywords ?? [],
@@ -291,11 +286,9 @@ function createSessionRuntime(
     searchDataOnly: false,
     searchExcerpts: [],
     evaluatingAborts: new Map(),
-    cliInitializeSent: false,
     cliResuming: false,
     cliResumingClearTimer: null,
     dropReplayHistoryAfterRevert: false,
-    claudeCompactBoundarySeen: false,
   };
 }
 
@@ -307,12 +300,12 @@ export function getOrCreateSession(
 ): SessionLike {
   let session = sessions.get(sessionId);
   if (!session) {
-    const type = backendType || "claude";
+    const type = normalizePersistedBackendType(backendType);
     session = createSessionRuntime(sessionId, type, deps.makeDefaultState(sessionId, type));
     sessions.set(sessionId, session);
   } else if (backendType) {
-    session.backendType = backendType;
-    session.state.backend_type = backendType;
+    session.backendType = normalizePersistedBackendType(backendType);
+    session.state.backend_type = session.backendType;
   }
   return session;
 }
@@ -395,7 +388,6 @@ export function prepareSessionForRevert(
   deps.pruneToolResultsForCurrentHistory(session);
   session.assistantAccumulator?.clear?.();
   session.pendingMessages = [];
-  session.lastOutboundUserNdjson = null;
   session.userMessageIdsThisTurn = [];
   session.queuedTurnStarts = 0;
   session.queuedTurnReasons = [];
@@ -406,11 +398,9 @@ export function prepareSessionForRevert(
   session.interruptSourceDuringTurn = null;
   session.isGenerating = false;
   session.generationStartedAt = null;
-  session.disconnectWasGenerating = false;
-  session.seamlessReconnect = false;
   session.toolStartTimes?.clear?.();
   session.toolProgressOutput?.clear?.();
-  session.dropReplayHistoryAfterRevert = session.backendType === "claude" || session.backendType === "claude-sdk";
+  session.dropReplayHistoryAfterRevert = session.backendType === "claude-sdk";
 
   if (session.taskHistory?.length) {
     const remainingUserMsgIds = new Set(
@@ -434,7 +424,6 @@ export function prepareSessionForRevert(
 
   session.eventBuffer = [];
   session.awaitingCompactSummary = false;
-  session.claudeCompactBoundarySeen = false;
   session.compactedDuringTurn = false;
   session.provisionalStuckRecovery = null;
   session.forceCompactPending = false;
@@ -594,10 +583,12 @@ export async function restorePersistedSessions(
     // closed notification-derived review state. Preserve those safeguards by
     // recognizing manual unread only when the explicit persisted bit exists.
     const restoredManualUnread = p.manualUnread === true;
+    // Retired WebSocket-backend sessions ("claude") restore as SDK sessions.
+    p.state.backend_type = normalizePersistedBackendType(p.state.backend_type);
 
     // Archived sessions loaded with search-data-only: skip heavyweight restore
     if (p._searchDataOnly) {
-      const session = createSessionRuntime(p.id, p.state.backend_type || "claude", p.state, {
+      const session = createSessionRuntime(p.id, p.state.backend_type, p.state, {
         pendingPermissions: new Map(),
         messageHistory: [],
         codexNativeSubagents: normalizeCodexNativeSubagentRegistry(p.codexNativeSubagents, p.id),
@@ -653,7 +644,7 @@ export async function restorePersistedSessions(
     const restoredCodexTurns = Array.isArray(p.pendingCodexTurns)
       ? p.pendingCodexTurns.map((turn: any) => normalizePersistedCodexTurn(turn))
       : [];
-    const session = createSessionRuntime(p.id, p.state.backend_type || "claude", p.state, {
+    const session = createSessionRuntime(p.id, p.state.backend_type, p.state, {
       pendingPermissions: new Map(p.pendingPermissions || []),
       messageHistory: p.messageHistory || [],
       codexNativeSubagents: normalizeCodexNativeSubagentRegistry(p.codexNativeSubagents, p.id),
@@ -828,15 +819,13 @@ export function closeSession(
   deps.clearCodexDisconnectGraceTimer?.(session, "close_session");
   clearCodexRecoveryRuntimeState(session);
 
-  if (session.backendSocket) {
-    try {
-      session.backendSocket.close();
-    } catch {}
-    session.backendSocket = null;
-  }
   if (session.codexAdapter) {
     session.codexAdapter.disconnect().catch(() => {});
     session.codexAdapter = null;
+  }
+  if (session.claudeSdkAdapter) {
+    session.claudeSdkAdapter.disconnect().catch(() => {});
+    session.claudeSdkAdapter = null;
   }
   for (const ws of session.browserSockets) {
     deps.removeSyncedProjectionSubscriber?.(ws);
@@ -898,8 +887,6 @@ export function buildPersistedSessionPayload(session: SessionLike): PersistedSes
 
 export function backendConnected(session: SessionLike): boolean {
   switch (session.backendType) {
-    case "claude":
-      return !!session.backendSocket;
     case "codex":
       return !!session.codexAdapter?.isConnected();
     case "claude-sdk":
@@ -910,7 +897,7 @@ export function backendConnected(session: SessionLike): boolean {
 }
 
 export function backendAttached(session: SessionLike): boolean {
-  return !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter);
+  return !!(session.codexAdapter || session.claudeSdkAdapter);
 }
 
 export function deriveBackendState(session: SessionLike): NonNullable<SessionState["backend_state"]> {
@@ -1416,9 +1403,6 @@ export function getHerdDiagnostics(
     cliInitReceived: session.cliInitReceived,
     pendingMessagesCount: session.pendingMessages.length,
     pendingPermissionsCount: session.pendingPermissions.size,
-    disconnectGraceActive: session.disconnectGraceTimer !== null,
-    disconnectWasGenerating: session.disconnectWasGenerating,
-    seamlessReconnect: session.seamlessReconnect,
     stuckNotifiedAt: session.stuckNotifiedAt,
     toolStartTimesCount: session.toolStartTimes.size,
     oldestToolAgeMs,
@@ -1774,7 +1758,7 @@ export function updateLeaderGroupIdleState(
     leaderId,
     "leader_group_idle_timer_started",
     { reason, members: members.length },
-    leaderInfo.backendType ?? "claude",
+    leaderInfo.backendType ?? "claude-sdk",
     leaderInfo.cwd,
   );
   console.log(`[ws-bridge] Group idle timer started for ${leaderTag} (reason: ${reason}, members: ${members.length})`);

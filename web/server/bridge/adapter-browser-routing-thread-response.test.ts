@@ -273,7 +273,6 @@ function session(): AdapterBrowserRoutingSessionLike {
     forceCompactPending: false,
     isGenerating: false,
     lastUserMessageDateTag: "",
-    lastOutboundUserNdjson: null,
     consecutiveAdapterFailures: 0,
     codexAdapter: null,
     claudeSdkAdapter: null,

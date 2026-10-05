@@ -120,7 +120,6 @@ vi.mock("./settings-manager.js", () => ({
       enhancementModel: "gpt-5-mini",
     },
     editorConfig: { editor: "none" },
-    defaultClaudeBackend: "claude",
     sleepInhibitorEnabled: false,
     sleepInhibitorDurationMinutes: 5,
     questmasterViewMode: "cards",
@@ -152,7 +151,6 @@ vi.mock("./settings-manager.js", () => ({
       enhancementModel: "gpt-5-mini",
     },
     editorConfig: patch.editorConfig ?? { editor: "none" },
-    defaultClaudeBackend: patch.defaultClaudeBackend ?? "claude",
     sleepInhibitorEnabled: patch.sleepInhibitorEnabled ?? false,
     sleepInhibitorDurationMinutes: patch.sleepInhibitorDurationMinutes ?? 5,
     questmasterViewMode: patch.questmasterViewMode ?? "cards",
@@ -567,15 +565,17 @@ describe("POST /api/sessions/create-stream", () => {
   });
 
   it.each([
-    { backend: "claude", expectedLabel: "Launching Claude Code..." },
-    { backend: "claude-sdk", expectedLabel: "Launching Claude SDK..." },
-    { backend: "codex", expectedLabel: "Launching Codex..." },
+    { backend: "claude", expectedLabel: "Launching Claude Code...", backendType: "claude-sdk" },
+    { backend: "claude-sdk", expectedLabel: "Launching Claude Code...", backendType: "claude-sdk" },
+    { backend: "codex", expectedLabel: "Launching Codex...", backendType: "codex" },
   ] as const)("uses a backend-specific launch progress label for $backend sessions", async ({
     backend,
     expectedLabel,
+    backendType,
   }) => {
     // The startup progress stream is user-visible before the backend connects,
     // so it must describe the resolved backend without changing launch behavior.
+    // Both Claude spellings resolve to the Agent SDK backend.
     const res = await app.request("/api/sessions/create-stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -595,7 +595,7 @@ describe("POST /api/sessions/create-stream", () => {
         status: "in_progress",
       }),
     );
-    expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ backendType: backend }));
+    expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ backendType }));
   });
 
   it("injects COMPANION_PORT when resuming via create-stream", async () => {
@@ -770,7 +770,7 @@ describe("POST /api/sessions/create-stream", () => {
       vi.mocked(envManager.getEnv).mockResolvedValue({
         name: "Docker",
         slug: "docker",
-        variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
+        variables: { OPENAI_API_KEY: "sk-test" },
         baseImage: "the-companion:latest",
         createdAt: 1000,
         updatedAt: 1000,
@@ -799,7 +799,7 @@ describe("POST /api/sessions/create-stream", () => {
       const response = await app.request("/api/sessions/create-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: "/test", envSlug: "docker" }),
+        body: JSON.stringify({ cwd: "/test", envSlug: "docker", backend: "codex" }),
       });
       const eventsPromise = parseSSE(response);
 
@@ -931,7 +931,7 @@ describe("POST /api/sessions/create-stream", () => {
     vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "Docker",
       slug: "docker",
-      variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
+      variables: { OPENAI_API_KEY: "sk-test" },
       baseImage: "the-companion:latest",
       createdAt: 1000,
       updatedAt: 1000,
@@ -952,7 +952,7 @@ describe("POST /api/sessions/create-stream", () => {
     const res = await app.request("/api/sessions/create-stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: "/test", envSlug: "docker" }),
+      body: JSON.stringify({ cwd: "/test", envSlug: "docker", backend: "codex" }),
     });
 
     expect(res.status).toBe(200);
@@ -973,7 +973,7 @@ describe("POST /api/sessions/create-stream", () => {
     vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "Docker",
       slug: "docker",
-      variables: { ANTHROPIC_API_KEY: "key" },
+      variables: { OPENAI_API_KEY: "sk-test" },
       baseImage: "the-companion:latest",
       createdAt: 1000,
       updatedAt: 1000,
@@ -996,7 +996,7 @@ describe("POST /api/sessions/create-stream", () => {
     const res = await app.request("/api/sessions/create-stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: "/test", envSlug: "docker" }),
+      body: JSON.stringify({ cwd: "/test", envSlug: "docker", backend: "codex" }),
     });
 
     expect(res.status).toBe(200);
@@ -1015,7 +1015,7 @@ describe("POST /api/sessions/create-stream", () => {
     vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "Docker",
       slug: "docker",
-      variables: { ANTHROPIC_API_KEY: "key" },
+      variables: { OPENAI_API_KEY: "sk-test" },
       baseImage: "the-companion:latest",
       createdAt: 1000,
       updatedAt: 1000,
@@ -1042,7 +1042,7 @@ describe("POST /api/sessions/create-stream", () => {
     const res = await app.request("/api/sessions/create-stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: "/test", envSlug: "docker" }),
+      body: JSON.stringify({ cwd: "/test", envSlug: "docker", backend: "codex" }),
     });
 
     expect(res.status).toBe(200);
@@ -1059,7 +1059,7 @@ describe("POST /api/sessions/create-stream", () => {
     vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "WithInit",
       slug: "with-init",
-      variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
+      variables: { OPENAI_API_KEY: "sk-test" },
       baseImage: "the-companion:latest",
       initScript: "npm install",
       createdAt: 1000,
@@ -1082,7 +1082,7 @@ describe("POST /api/sessions/create-stream", () => {
     const res = await app.request("/api/sessions/create-stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: "/test", envSlug: "with-init" }),
+      body: JSON.stringify({ cwd: "/test", envSlug: "with-init", backend: "codex" }),
     });
 
     expect(res.status).toBe(200);
@@ -1101,7 +1101,7 @@ describe("POST /api/sessions/create-stream", () => {
     vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "FailInit",
       slug: "fail-init",
-      variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
+      variables: { OPENAI_API_KEY: "sk-test" },
       baseImage: "the-companion:latest",
       initScript: "exit 1",
       createdAt: 1000,
@@ -1127,7 +1127,7 @@ describe("POST /api/sessions/create-stream", () => {
     const res = await app.request("/api/sessions/create-stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: "/test", envSlug: "fail-init" }),
+      body: JSON.stringify({ cwd: "/test", envSlug: "fail-init", backend: "codex" }),
     });
 
     expect(res.status).toBe(200);

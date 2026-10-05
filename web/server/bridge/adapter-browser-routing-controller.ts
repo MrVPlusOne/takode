@@ -2,10 +2,8 @@ import { serverWorkAdmission } from "../server-work-admission.js";
 import { normalizeAdapterUserMessage, prepareAnnotatedUserMessage } from "./user-message-delivery.js";
 import { acknowledgeMonitoredThreadResult } from "../thread-monitoring.js";
 import { formatAnnotatedMessage, readAnnotationMessage } from "../../shared/conversation-annotations.js";
-import { randomUUID } from "node:crypto";
 import { evaluatePermission, type RecentToolCall } from "../auto-approver.js";
 import type { AutoApprovalConfig } from "../auto-approval-store.js";
-import { deriveAttachmentPaths, formatAttachmentPathAnnotation } from "../attachment-paths.js";
 import type { ImageRef } from "../image-store.js";
 import {
   appendLocalSlashCommandHistory,
@@ -22,7 +20,6 @@ import {
   markNeedsInputResolutionNoticesQueued,
   prependNeedsInputNoticesToContent,
 } from "./adapter-browser-routing-needs-input-reminder.js";
-import { applyUserMessageDeliveryPrefix } from "./adapter-browser-routing-delivery-content.js";
 import {
   handleCodexSetModel,
   handleCodexSetPermissionMode,
@@ -41,9 +38,6 @@ import {
 import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
-  CLIControlRequestMessage,
-  McpServerConfig,
-  McpServerDetail,
   PermissionRequest,
   ProgrammaticHistoryFollowUp,
   ThreadRef,
@@ -248,11 +242,7 @@ function maybeAutoRejectPendingPlanForUserMessage(
     handleSdkPermissionResponse(session, denial, deps);
     return;
   }
-  if (session.backendType === "codex") {
-    handleCodexPermissionResponse(session, denial, deps);
-    return;
-  }
-  handlePermissionResponse(session, denial, deps, actorSessionId);
+  handleCodexPermissionResponse(session, denial, deps);
 }
 
 function maybeAutoAnswerPendingQuestionForUserMessage(
@@ -284,11 +274,7 @@ function maybeAutoAnswerPendingQuestionForUserMessage(
     handleSdkPermissionResponse(session, approval, deps);
     return true;
   }
-  if (session.backendType === "codex") {
-    handleCodexPermissionResponse(session, approval, deps);
-    return true;
-  }
-  handlePermissionResponse(session, approval, deps, actorSessionId);
+  handleCodexPermissionResponse(session, approval, deps);
   return true;
 }
 
@@ -369,40 +355,14 @@ function routeImmediateDenyToBackend(
   session: AdapterBrowserRoutingSessionLike,
   requestId: string,
   message: string,
-  deps: Pick<AdapterBrowserRoutingDeps, "sendToCLI">,
 ): void {
-  if (session.backendType === "claude-sdk" && session.claudeSdkAdapter) {
-    session.claudeSdkAdapter.sendBrowserMessage({
-      type: "permission_response",
-      request_id: requestId,
-      behavior: "deny",
-      message,
-    });
-    return;
-  }
-  if (session.backendType === "codex" && session.codexAdapter) {
-    session.codexAdapter.sendBrowserMessage({
-      type: "permission_response",
-      request_id: requestId,
-      behavior: "deny",
-      message,
-    });
-    return;
-  }
-  deps.sendToCLI(
-    session,
-    JSON.stringify({
-      type: "control_response",
-      response: {
-        subtype: "success",
-        request_id: requestId,
-        response: {
-          behavior: "deny",
-          message,
-        },
-      },
-    }),
-  );
+  const adapter = session.claudeSdkAdapter ?? session.codexAdapter;
+  adapter?.sendBrowserMessage({
+    type: "permission_response",
+    request_id: requestId,
+    behavior: "deny",
+    message,
+  });
 }
 
 function appendImmediateDeniedHistory(
@@ -440,7 +400,12 @@ function applyHardDeniedPermission(
   deps: AdapterBrowserRoutingDeps,
 ): void {
   deps.onSessionActivityStateChanged(session.id, "permission_hard_denied");
-  routeImmediateDenyToBackend(session, result.request.request_id, result.message, deps);
+  routeImmediateDenyToBackend(session, result.request.request_id, result.message);
+  // The bypass-mode long-sleep observer may already have denied this tool call.
+  const alreadyDenied = session.messageHistory.some(
+    (entry) => entry.type === "permission_denied" && entry.tool_use_id === result.request.tool_use_id,
+  );
+  if (alreadyDenied) return;
   appendImmediateDeniedHistory(session, result.request, deps);
   emitTakodePermissionResolved(session.id, result.request.tool_name, "denied", deps);
   injectLongSleepReminder(session, deps, result.reminder);
@@ -618,160 +583,14 @@ export async function routeBrowserMessage(
     },
     trustedCodexRecoveryRoute,
   );
-  const adapterRouted = maybeAdapterRouted instanceof Promise ? await maybeAdapterRouted : maybeAdapterRouted;
-  if (adapterRouted) {
-    if (userMessageRejected) return false;
-    if (catalogAttachment) {
-      acceptMemoryCatalogPrelude(session, catalogAttachment);
-      deps.persistSession(session);
-    }
-    return true;
+  if (maybeAdapterRouted instanceof Promise) await maybeAdapterRouted;
+  if (userMessageRejected) return false;
+  if (catalogAttachment) {
+    acceptMemoryCatalogPrelude(session, catalogAttachment);
+    deps.persistSession(session);
   }
-
-  if (routedMsg.type === "user_message") {
-    try {
-      await handleUserMessage(session, routedMsg, deps);
-    } catch (err) {
-      if (routedMsg.imageRefs?.length) {
-        deps.notifyImageSendFailure(session, err);
-        return;
-      }
-      throw err;
-    }
-    if (catalogAttachment) {
-      acceptMemoryCatalogPrelude(session, catalogAttachment);
-      deps.persistSession(session);
-    }
-    return true;
-  }
-
-  switch (routedMsg.type) {
-    case "permission_response":
-      handlePermissionResponse(session, routedMsg, deps, routedMsg.actorSessionId);
-      break;
-
-    case "interrupt":
-      handleInterrupt(session, routedMsg.interruptSource ?? "user", deps);
-      break;
-
-    case "set_model":
-      deps.handleSetModel(session, routedMsg.model);
-      break;
-
-    case "set_codex_reasoning_effort":
-      break;
-
-    case "set_codex_service_tier":
-      if (session.backendType === "codex") deps.handleCodexSetServiceTier(session, routedMsg.serviceTier);
-      break;
-
-    case "set_permission_mode":
-      handleSetPermissionMode(session, routedMsg.mode, deps);
-      break;
-
-    case "set_codex_ui_mode":
-      if (session.backendType === "codex") deps.handleCodexSetUiMode(session, routedMsg.uiMode);
-      break;
-
-    case "mcp_get_status":
-      handleMcpGetStatus(session, deps);
-      break;
-
-    case "mcp_toggle":
-      handleMcpToggle(session, routedMsg.serverName, routedMsg.enabled, deps);
-      break;
-
-    case "mcp_reconnect":
-      handleMcpReconnect(session, routedMsg.serverName, deps);
-      break;
-
-    case "mcp_set_servers":
-      handleMcpSetServers(session, routedMsg.servers, deps);
-      break;
-
-    case "set_ask_permission":
-      handleSetAskPermission(session, routedMsg.askPermission, deps);
-      break;
-  }
+  return true;
 }
-export function handleControlRequest(
-  session: AdapterBrowserRoutingSessionLike,
-  msg: CLIControlRequestMessage,
-  deps: AdapterBrowserRoutingDeps,
-): void {
-  if (msg.request.subtype !== "can_use_tool") return;
-  const toolName = msg.request.tool_name;
-  const applyResult = (result: PermissionPipelineResult): void => {
-    if (result.kind === "hard_denied") {
-      applyHardDeniedPermission(session, result, deps);
-      return;
-    }
-    if (result.kind === "mode_auto_approved" || result.kind === "settings_rule_approved") {
-      deps.sendToCLI(
-        session,
-        JSON.stringify({
-          type: "control_response",
-          response: {
-            subtype: "success",
-            request_id: result.request.request_id,
-            response: {
-              behavior: "allow",
-              updatedInput: result.request.input,
-            },
-          },
-        }),
-      );
-      broadcastAutoApproval(session, result.request, deps);
-      return;
-    }
-    if (result.kind === "queued_for_llm_auto_approval") {
-      void tryLlmAutoApproval(session, result.request.request_id, result.request, result.autoApprovalConfig, deps);
-    }
-    if (toolName === "ExitPlanMode" && deps.onAgentPaused) {
-      deps.onAgentPaused(session.id, [...session.messageHistory], session.state.cwd);
-    }
-  };
-  const resultOrPromise = handlePermissionRequestPipeline(
-    session as never,
-    enrichPermissionWithThreadRoute(
-      {
-        request_id: msg.request_id,
-        tool_name: toolName,
-        input: msg.request.input,
-        permission_suggestions: msg.request.permission_suggestions,
-        description: msg.request.description,
-        tool_use_id: msg.request.tool_use_id,
-        agent_id: msg.request.agent_id,
-        timestamp: Date.now(),
-      },
-      session.messageHistory,
-    ),
-    "claude-ws",
-    {
-      onSessionActivityStateChanged: deps.onSessionActivityStateChanged,
-      broadcastPermissionRequest: (targetSession, request) =>
-        deps.broadcastToBrowsers(targetSession as never, {
-          type: "permission_request",
-          request,
-        }),
-      persistSession: (targetSession) => deps.persistSession(targetSession as never),
-      setAttentionAction: (targetSession) => setActionAttention(targetSession as never, deps),
-      emitTakodePermissionRequest: (targetSession, request) =>
-        emitTakodePermissionRequest(targetSession as never, request, deps),
-      schedulePermissionNotification: (targetSession, request) =>
-        schedulePermissionNotification(targetSession as never, request, deps),
-    },
-    { activityReason: "permission_request" },
-  );
-  if (resultOrPromise instanceof Promise) {
-    void resultOrPromise.then(applyResult).catch((err) => {
-      console.error(`[ws-bridge] Failed to process control_request for session ${session.id}:`, err);
-    });
-    return;
-  }
-  applyResult(resultOrPromise);
-}
-
 export function handleSdkPermissionRequest(
   session: AdapterBrowserRoutingSessionLike,
   perm: PermissionRequest,
@@ -924,7 +743,7 @@ export async function tryLlmAutoApproval(
       deps.onSessionActivityStateChanged(session.id, "auto_approved_permission");
       deps.sessionNotificationDeps.cancelPermissionNotification?.(session.id, requestId);
       clearActionAttentionIfNoPermissionsSessionRegistryController(session, deps.sessionNotificationDeps);
-      routeApprovalResponse(session, requestId, perm.input, deps);
+      routeApprovalResponse(session, requestId, perm.input);
       deps.broadcastToBrowsers(session, {
         type: "permission_auto_approved",
         request_id: requestId,
@@ -982,172 +801,8 @@ export function handleInterrupt(
 ): void {
   deps.preInterrupt(session, source);
   deps.markTurnInterrupted(session, source);
-  deps.sendToCLI(
-    session,
-    JSON.stringify({
-      type: "control_request",
-      request_id: randomUUID(),
-      request: { subtype: "interrupt" },
-    }),
-  );
-}
-
-export function handlePermissionResponse(
-  session: AdapterBrowserRoutingSessionLike,
-  msg: PermissionResponseMessage,
-  deps: AdapterBrowserRoutingDeps,
-  actorSessionId?: string,
-): void {
-  const pending = session.pendingPermissions.get(msg.request_id);
-  session.pendingPermissions.delete(msg.request_id);
-  deps.onSessionActivityStateChanged(session.id, "permission_response");
-  deps.abortAutoApproval(session, msg.request_id);
-  deps.sessionNotificationDeps.cancelPermissionNotification?.(session.id, msg.request_id);
-  clearActionAttentionIfNoPermissionsSessionRegistryController(session, deps.sessionNotificationDeps);
-
-  if (msg.behavior === "allow") {
-    const response: Record<string, unknown> = {
-      behavior: "allow",
-      updatedInput: msg.updated_input ?? pending?.input ?? {},
-    };
-    if (msg.updated_permissions?.length) {
-      response.updatedPermissions = msg.updated_permissions;
-    }
-    deps.sendToCLI(
-      session,
-      JSON.stringify({
-        type: "control_response",
-        response: {
-          subtype: "success",
-          request_id: msg.request_id,
-          response,
-        },
-      }),
-    );
-
-    if (msg.updated_permissions?.length) {
-      const setMode = (msg.updated_permissions as Array<{ type: string; mode?: string }>).find(
-        (entry) => entry.type === "setMode" && entry.mode,
-      );
-      if (setMode) {
-        deps.handleSetPermissionMode(session, setMode.mode!);
-      }
-    }
-
-    if (pending && NOTABLE_APPROVALS.has(pending.tool_name)) {
-      const answers =
-        pending.tool_name === "AskUserQuestion" ? extractAskUserAnswers(pending.input, msg.updated_input) : undefined;
-      if (pending.tool_name !== "AskUserQuestion" || answers) {
-        const approvedMsg: BrowserIncomingMessage = {
-          type: "permission_approved",
-          ...(msg.annotationMessage ? { annotationMessage: msg.annotationMessage } : {}),
-          id: `approval-${msg.request_id}`,
-          request_id: msg.request_id,
-          tool_name: pending.tool_name,
-          tool_use_id: pending.tool_use_id,
-          summary: getApprovalSummary(pending.tool_name, pending.input),
-          timestamp: Date.now(),
-          ...(answers ? { answers } : {}),
-        };
-        session.messageHistory.push(approvedMsg);
-        deps.broadcastToBrowsers(session, approvedMsg);
-      }
-    }
-
-    if (pending) {
-      emitTakodePermissionResolved(session.id, pending.tool_name, "approved", deps, actorSessionId);
-    }
-
-    if (pending?.tool_name === "ExitPlanMode") {
-      const askPerm = session.state.askPermission !== false;
-      deps.handleSetPermissionMode(session, askPerm ? "acceptEdits" : "bypassPermissions");
-      deps.setGenerating(session, true, "exit_plan_mode");
-      deps.broadcastStatusChange(session, "running");
-    }
-    if (pending?.tool_name === "EnterPlanMode") {
-      deps.handleSetPermissionMode(session, "plan");
-    }
-  } else {
-    deps.sendToCLI(
-      session,
-      JSON.stringify({
-        type: "control_response",
-        response: {
-          subtype: "success",
-          request_id: msg.request_id,
-          response: {
-            behavior: "deny",
-            message: msg.message || "Denied by user",
-          },
-        },
-      }),
-    );
-
-    if (pending?.tool_name === "ExitPlanMode") {
-      const interruptSource = getInterruptSourceFromActorSessionId(actorSessionId);
-      deps.handleInterruptFallback(session, interruptSource);
-    }
-
-    const deniedMsg: BrowserIncomingMessage = {
-      type: "permission_denied",
-      id: `denial-${msg.request_id}`,
-      request_id: msg.request_id,
-      tool_name: pending?.tool_name || "unknown",
-      tool_use_id: pending?.tool_use_id || "",
-      summary: getDenialSummary(pending?.tool_name || "unknown", pending?.input || {}),
-      timestamp: Date.now(),
-    };
-    session.messageHistory.push(deniedMsg);
-    deps.broadcastToBrowsers(session, deniedMsg);
-    emitTakodePermissionResolved(session.id, pending?.tool_name || "unknown", "denied", deps, actorSessionId);
-    if (pending?.tool_name === "ExitPlanMode") {
-      maybeInjectExitPlanFollowUp(session, msg.message, actorSessionId, deps);
-    }
-  }
-
-  deps.persistSession(session);
-}
-
-export function handleMcpGetStatus(session: AdapterBrowserRoutingSessionLike, deps: AdapterBrowserRoutingDeps): void {
-  deps.sendControlRequest(
-    session,
-    { subtype: "mcp_status" },
-    {
-      subtype: "mcp_status",
-      resolve: (response) => {
-        const servers = (response as { mcpServers?: McpServerDetail[] }).mcpServers ?? [];
-        deps.broadcastToBrowsers(session, { type: "mcp_status", servers });
-      },
-    },
-  );
-}
-
-export function handleMcpToggle(
-  session: AdapterBrowserRoutingSessionLike,
-  serverName: string,
-  enabled: boolean,
-  deps: AdapterBrowserRoutingDeps,
-): void {
-  deps.sendControlRequest(session, { subtype: "mcp_toggle", serverName, enabled });
-  setTimeout(() => handleMcpGetStatus(session, deps), 500);
-}
-
-export function handleMcpReconnect(
-  session: AdapterBrowserRoutingSessionLike,
-  serverName: string,
-  deps: AdapterBrowserRoutingDeps,
-): void {
-  deps.sendControlRequest(session, { subtype: "mcp_reconnect", serverName });
-  setTimeout(() => handleMcpGetStatus(session, deps), 1000);
-}
-
-export function handleMcpSetServers(
-  session: AdapterBrowserRoutingSessionLike,
-  servers: Record<string, McpServerConfig>,
-  deps: AdapterBrowserRoutingDeps,
-): void {
-  deps.sendControlRequest(session, { subtype: "mcp_set_servers", servers });
-  setTimeout(() => handleMcpGetStatus(session, deps), 2000);
+  const adapter = session.claudeSdkAdapter ?? session.codexAdapter;
+  adapter?.sendBrowserMessage({ type: "interrupt", interruptSource: source });
 }
 
 function extractRecentToolCalls(session: AdapterBrowserRoutingSessionLike, limit = 10): RecentToolCall[] {
@@ -1174,36 +829,14 @@ function routeApprovalResponse(
   session: AdapterBrowserRoutingSessionLike,
   requestId: string,
   updatedInput: Record<string, unknown>,
-  deps: AdapterBrowserRoutingDeps,
 ): void {
-  const ndjson = JSON.stringify({
-    type: "control_response",
-    response: {
-      subtype: "success",
-      request_id: requestId,
-      response: {
-        behavior: "allow",
-        updatedInput,
-      },
-    },
+  const adapter = session.claudeSdkAdapter ?? session.codexAdapter;
+  adapter?.sendBrowserMessage({
+    type: "permission_response",
+    request_id: requestId,
+    behavior: "allow",
+    updated_input: updatedInput,
   });
-  if (session.backendType === "claude-sdk" && session.claudeSdkAdapter) {
-    session.claudeSdkAdapter.sendBrowserMessage({
-      type: "permission_response",
-      request_id: requestId,
-      behavior: "allow",
-      updated_input: updatedInput,
-    });
-  } else if (session.backendType === "codex" && session.codexAdapter) {
-    session.codexAdapter.sendBrowserMessage({
-      type: "permission_response",
-      request_id: requestId,
-      behavior: "allow",
-      updated_input: updatedInput,
-    });
-  } else {
-    deps.sendToCLI(session, ndjson);
-  }
 }
 
 export function ingestUserMessage(
@@ -1373,73 +1006,6 @@ function appendProgrammaticHistoryFollowUps(
   }
 }
 
-export async function handleUserMessage(
-  session: AdapterBrowserRoutingSessionLike,
-  msg: BrowserUserMessage,
-  deps: AdapterBrowserRoutingDeps,
-): Promise<void> {
-  const maybeIngested = ingestUserMessage(session, msg, deps);
-  const ingested = maybeIngested instanceof Promise ? await maybeIngested : maybeIngested;
-  const selectionText = msg.vscodeSelection ? deps.formatVsCodeSelectionPrompt(msg.vscodeSelection) : null;
-  let content: string | unknown[];
-  if (typeof msg.deliveryContent === "string" && msg.deliveryContent.length > 0) {
-    content = selectionText
-      ? [
-          { type: "text", text: msg.deliveryContent },
-          { type: "text", text: selectionText },
-        ]
-      : msg.deliveryContent;
-  } else if (ingested.imageRefs?.length) {
-    const paths = deriveAttachmentPaths(session.id, ingested.imageRefs);
-    const textContent = (msg.content || "") + formatAttachmentPathAnnotation(paths);
-    content = selectionText
-      ? [
-          { type: "text", text: textContent },
-          { type: "text", text: selectionText },
-        ]
-      : textContent;
-  } else {
-    content = selectionText
-      ? [
-          { type: "text", text: msg.content },
-          { type: "text", text: selectionText },
-        ]
-      : msg.content;
-  }
-  if (typeof content === "string") {
-    const contentWithNotice = prependNeedsInputNoticesToContent(
-      content,
-      ingested.needsInputResolutionNoticeText,
-      ingested.needsInputReminderText,
-    ) as string;
-    content = buildUserMessageDeliveryPrefix(session, ingested, msg, contentWithNotice, deps) + contentWithNotice;
-  } else {
-    content = prependNeedsInputNoticesToContent(
-      content,
-      ingested.needsInputResolutionNoticeText,
-      ingested.needsInputReminderText,
-    );
-    content = applyUserMessageDeliveryPrefix(
-      content,
-      buildUserMessageDeliveryPrefix(session, ingested, msg, undefined, deps),
-    );
-  }
-  const ndjson = JSON.stringify({
-    type: "user",
-    message: { role: "user", content },
-    parent_tool_use_id: null,
-    session_id: msg.session_id || session.state.session_id || "",
-  });
-  const turnTarget = deps.sendToCLI(session, ndjson, {
-    deferUntilCliReady: deps.isHerdEventSource(msg.agentSource),
-    userMessageHistoryIndex: ingested.historyIndex,
-  });
-  if (turnTarget === null && ingested.historyIndex >= 0) {
-    deps.trackUserMessageForTurn(session, ingested.historyIndex, turnTarget ?? "current");
-  }
-  session.lastOutboundUserNdjson = ndjson;
-  deps.onUserMessage?.(session.id, [...session.messageHistory], session.state.cwd, ingested.wasGenerating);
-}
 function handleSdkPermissionResponse(
   session: AdapterBrowserRoutingSessionLike,
   msg: PermissionResponseMessage,
@@ -1457,8 +1023,17 @@ function handleSdkPermissionResponse(
       request_id: msg.request_id,
       behavior: msg.behavior,
       updated_input: msg.behavior === "allow" ? msg.updated_input || pending.input : undefined,
+      ...(msg.behavior === "allow" && msg.updated_permissions?.length
+        ? { updated_permissions: msg.updated_permissions }
+        : {}),
       message: msg.behavior !== "allow" ? msg.message || "Denied by user" : undefined,
     });
+  }
+  if (msg.behavior === "allow") {
+    // "Always allow" suggestions can also switch modes (e.g. accept edits).
+    for (const entry of msg.updated_permissions ?? []) {
+      if (entry.type === "setMode") deps.handleSetPermissionMode(session, entry.mode);
+    }
   }
   deps.emitTakodeEvent(
     session.id,
@@ -1470,6 +1045,8 @@ function handleSdkPermissionResponse(
     msg.actorSessionId,
   );
   if (msg.behavior === "allow") {
+    const answers =
+      pending.tool_name === "AskUserQuestion" ? extractAskUserAnswers(pending.input, msg.updated_input) : undefined;
     const approvedMsg: BrowserIncomingMessage = {
       type: "permission_approved",
       ...(msg.annotationMessage ? { annotationMessage: msg.annotationMessage } : {}),
@@ -1479,6 +1056,7 @@ function handleSdkPermissionResponse(
       tool_use_id: pending.tool_use_id,
       summary: `Approved: ${pending.tool_name}${pending.description ? ` — ${pending.description}` : ""}`,
       timestamp: Date.now(),
+      ...(answers ? { answers } : {}),
     };
     session.messageHistory.push(approvedMsg);
     deps.broadcastToBrowsers(session, approvedMsg);
@@ -1508,13 +1086,7 @@ function handleSdkPermissionResponse(
     deps.handleSetPermissionMode(session, "plan");
   }
   if (msg.behavior === "deny" && pending.tool_name === "ExitPlanMode") {
-    const interruptSource = getInterruptSourceFromActorSessionId(msg.actorSessionId);
-    deps.markTurnInterrupted(session, interruptSource);
-    if (session.claudeSdkAdapter) {
-      session.claudeSdkAdapter.sendBrowserMessage({ type: "interrupt", interruptSource });
-    } else {
-      deps.handleInterruptFallback(session, interruptSource);
-    }
+    handleInterrupt(session, getInterruptSourceFromActorSessionId(msg.actorSessionId), deps);
   }
   deps.persistSession(session);
 }

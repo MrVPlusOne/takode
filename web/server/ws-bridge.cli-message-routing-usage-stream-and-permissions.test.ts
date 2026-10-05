@@ -17,6 +17,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -69,7 +70,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -583,7 +584,7 @@ describe("CLI message routing", () => {
   beforeEach(async () => {
     cli = makeCliSocket("s1");
     browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
     await subscribeCurrentBrowser(bridge, browser);
   });
@@ -623,7 +624,7 @@ describe("CLI message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     // refreshGitInfo is async (fire-and-forget) — wait for session_update broadcast
     await vi.waitFor(() => {
@@ -665,7 +666,7 @@ describe("CLI message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     const state = bridge.getSession("s1")!.state;
     // (3 + 12 + 19705 + 20959) / 200000 * 100 = 20
@@ -701,7 +702,7 @@ describe("CLI message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     expect(session.state.claude_token_details).toEqual({
       inputTokens: 254,
@@ -753,7 +754,7 @@ describe("CLI message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     const state = bridge.getSession("s1")!.state;
     // input_tokens (400000) already includes cached tokens (OpenAI/Copilot semantics).
@@ -792,7 +793,7 @@ describe("CLI message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     expect(bridge.getSession("s1")!.state.context_used_percent).toBe(61);
   });
@@ -849,7 +850,7 @@ describe("CLI message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     // context_used_percent should be preserved, not inflated to 100%+
     expect(bridge.getSession("s1")!.state.context_used_percent).toBe(34);
@@ -864,7 +865,7 @@ describe("CLI message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     const session = bridge.getSession("s1")!;
     expect(session.messageHistory).toHaveLength(0);
@@ -888,7 +889,7 @@ describe("CLI message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     const zeroBrowserWarning = logSpy.mock.calls.find(([line]) =>
       String(line).includes("Broadcasting stream_event to 0 browsers"),
@@ -914,7 +915,7 @@ describe("CLI message routing", () => {
       },
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
     await new Promise((r) => setTimeout(r, 0)); // flush async handleControlRequest
 
     const session = bridge.getSession("s1")!;

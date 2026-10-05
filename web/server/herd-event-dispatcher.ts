@@ -139,7 +139,6 @@ export interface WsBridgeHandle {
         messageHistory: BrowserIncomingMessage[];
         backendType?: string;
         state?: { claimedQuestId?: string };
-        backendSocket?: unknown;
         codexAdapter?: unknown;
         claudeSdkAdapter?: unknown;
         cliInitReceived?: boolean;
@@ -208,7 +207,6 @@ interface RestartPrepOperation {
 export function isSessionIdleRuntime(
   session:
     | {
-        backendSocket?: unknown;
         codexAdapter?: unknown;
         claudeSdkAdapter?: unknown;
         cliInitReceived?: boolean;
@@ -217,11 +215,7 @@ export function isSessionIdleRuntime(
     | undefined,
 ): boolean {
   if (!session) return false;
-  return (
-    !!(session.backendSocket || session.codexAdapter || session.claudeSdkAdapter) &&
-    !!session.cliInitReceived &&
-    !session.isGenerating
-  );
+  return !!(session.codexAdapter || session.claudeSdkAdapter) && !!session.cliInitReceived && !session.isGenerating;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────────

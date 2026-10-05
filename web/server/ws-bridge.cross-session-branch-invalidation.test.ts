@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -648,14 +649,14 @@ describe("Cross-session branch invalidation", () => {
     // Set up session A (on branch "jiayi") with CLI socket
     bridge.markWorktree("sA", "/repo", "/tmp/wtA", "main");
     const sA = bridge.getSession("sA")!;
-    (sA as any).backendSocket = { send: vi.fn() };
+    (sA as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
     sA.state.git_branch = "jiayi";
     sA.state.git_head_sha = "sha-old";
 
     // Set up session B (worktree, base = "jiayi") with CLI socket
     bridge.markWorktree("sB", "/repo", "/tmp/wtB", "jiayi");
     const sB = bridge.getSession("sB")!;
-    (sB as any).backendSocket = { send: vi.fn() };
+    (sB as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
     sB.state.git_branch = "jiayi-wt-123";
     sB.state.diff_base_branch = "jiayi";
     sB.state.git_head_sha = "sha-wt-b";
@@ -711,13 +712,13 @@ describe("Cross-session branch invalidation", () => {
 
     bridge.markWorktree("sA", "/repo", "/tmp/wtA", "main");
     const sA = bridge.getSession("sA")!;
-    (sA as any).backendSocket = { send: vi.fn() };
+    (sA as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
     sA.state.git_branch = "jiayi";
     sA.state.git_head_sha = "sha-old";
 
     bridge.markWorktree("sB", "/repo", "/tmp/wtB", "jiayi");
     const sB = bridge.getSession("sB")!;
-    (sB as any).backendSocket = { send: vi.fn() };
+    (sB as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
     sB.state.git_branch = "jiayi-wt-123";
     sB.state.diff_base_branch = "jiayi";
     sB.state.git_head_sha = "sha-wt-b";
@@ -755,13 +756,13 @@ describe("Cross-session branch invalidation", () => {
 
     bridge.markWorktree("sA", "/repo", "/tmp/wtA", "main");
     const sA = bridge.getSession("sA")!;
-    (sA as any).backendSocket = { send: vi.fn() };
+    (sA as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
     sA.state.git_branch = "jiayi";
     sA.state.git_head_sha = "sha-1";
 
     bridge.markWorktree("sB", "/repo", "/tmp/wtB", "jiayi");
     const sB = bridge.getSession("sB")!;
-    (sB as any).backendSocket = { send: vi.fn() };
+    (sB as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
     sB.state.git_branch = "jiayi-wt-123";
     sB.state.diff_base_branch = "jiayi";
 
@@ -886,13 +887,13 @@ describe("Cross-session branch invalidation", () => {
 
     bridge.markWorktree("sA", "/repo", "/tmp/wtA", "main");
     const sA = bridge.getSession("sA")!;
-    (sA as any).backendSocket = { send: vi.fn() };
+    (sA as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
     sA.state.git_branch = "feature-x";
     sA.state.git_head_sha = "sha-old";
 
     bridge.markWorktree("sB", "/repo", "/tmp/wtB", "feature-z");
     const sB = bridge.getSession("sB")!;
-    (sB as any).backendSocket = { send: vi.fn() };
+    (sB as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
     sB.state.git_branch = "feature-y";
     sB.state.diff_base_branch = "feature-z"; // unrelated to sA's git_branch
 

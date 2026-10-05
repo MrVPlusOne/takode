@@ -1,7 +1,4 @@
-export type WebSocketRouteMatch =
-  | { kind: "cli"; sessionId: string }
-  | { kind: "browser"; sessionId: string }
-  | { kind: "terminal"; terminalId: string };
+export type WebSocketRouteMatch = { kind: "browser"; sessionId: string } | { kind: "terminal"; terminalId: string };
 
 function decodePathSegment(segment: string): string | null {
   try {
@@ -13,9 +10,6 @@ function decodePathSegment(segment: string): string | null {
 }
 
 export function matchWebSocketRoute(pathname: string): WebSocketRouteMatch | null {
-  const cliMatch = pathname.match(/^\/ws\/cli\/([a-f0-9-]+)$/);
-  if (cliMatch) return { kind: "cli", sessionId: cliMatch[1]! };
-
   const browserMatch = pathname.match(/^\/ws\/browser\/([^/]+)$/);
   if (browserMatch) {
     const sessionId = decodePathSegment(browserMatch[1]!);

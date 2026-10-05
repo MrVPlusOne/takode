@@ -80,6 +80,7 @@ function makeDeps(session: any, launcherInfo: any = null) {
     setGenerating: vi.fn(),
     requestCliRelaunch: vi.fn(),
     isCurrentSession: vi.fn(() => true),
+    onSessionActivityStateChanged: vi.fn(),
     maxAdapterRelaunchFailures: 3,
     adapterFailureResetWindowMs: 10_000,
   };

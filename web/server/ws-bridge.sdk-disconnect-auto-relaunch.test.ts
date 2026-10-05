@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -807,9 +808,10 @@ describe("SDK disconnect auto-relaunch", () => {
     expect(queued).toEqual({ type: "user_message", content: "/compact" });
   });
 
-  it("queues /compact in NDJSON format for WebSocket sessions", () => {
-    // WebSocket (plain Claude) sessions flush pendingMessages through
-    // sendToCLI() which expects NDJSON format (type: "user").
+  it("queues /compact for the next SDK adapter when a default session has no backend attached", () => {
+    // Sessions created without a backend type are Claude SDK sessions. With no
+    // adapter attached, /compact is queued in the browser message format that
+    // the SDK adapter flush accepts once the relaunched adapter attaches.
     const sid = "s-compact-ws";
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
@@ -819,9 +821,8 @@ describe("SDK disconnect auto-relaunch", () => {
       getSession: vi.fn(() => ({ cliSessionId: "cli-sess-456" })),
     } as any);
 
-    // Create session with default backendType (claude = WebSocket)
     const session = bridge.getOrCreateSession(sid);
-    expect(session.backendType).toBe("claude");
+    expect(session.backendType).toBe("claude-sdk");
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
@@ -842,15 +843,9 @@ describe("SDK disconnect auto-relaunch", () => {
     expect(session.state.is_compacting).toBe(true);
     expect(session.forceCompactPending).toBe(true);
 
-    // WebSocket sessions queue NDJSON format for sendToCLI flush
     expect(session.pendingMessages.length).toBe(1);
     const queued = JSON.parse(session.pendingMessages[0]);
-    expect(queued).toEqual({
-      type: "user",
-      message: { role: "user", content: "/compact" },
-      parent_tool_use_id: null,
-      session_id: "cli-sess-456",
-    });
+    expect(queued).toEqual({ type: "user_message", content: "/compact" });
   });
 
   it("queueForceCompactForRelaunch reuses the shared force-compact preparation", () => {
@@ -871,12 +866,7 @@ describe("SDK disconnect auto-relaunch", () => {
     expect(session.state.is_compacting).toBe(true);
     expect(session.forceCompactPending).toBe(true);
     expect(session.pendingMessages).toHaveLength(1);
-    expect(JSON.parse(session.pendingMessages[0])).toEqual({
-      type: "user",
-      message: { role: "user", content: "/compact" },
-      parent_tool_use_id: null,
-      session_id: "cli-sess-route",
-    });
+    expect(JSON.parse(session.pendingMessages[0])).toEqual({ type: "user_message", content: "/compact" });
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls).toContainEqual(expect.objectContaining({ type: "status_change", status: "compacting" }));
   });

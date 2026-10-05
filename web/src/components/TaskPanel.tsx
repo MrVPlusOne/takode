@@ -996,7 +996,6 @@ export function HerdDiagnosticsSection({ sessionId }: { sessionId: string }) {
   const cliConn = (diag?.cliConnected as boolean | undefined) ?? false;
   const cliInitReceived = (diag?.cliInitReceived as boolean | undefined) ?? false;
   const pendingMsgs = (diag?.pendingMessagesCount as number | undefined) || 0;
-  const graceActive = (diag?.disconnectGraceActive as boolean | undefined) ?? false;
   const eventHistory = (dispatcher?.eventHistory || []) as Array<{
     event: string;
     sessionName: string;
@@ -1011,7 +1010,6 @@ export function HerdDiagnosticsSection({ sessionId }: { sessionId: string }) {
   if (isGen) statusParts.push("generating");
   if (!cliConn) statusParts.push("cli disconnected");
   else if (!cliInitReceived) statusParts.push("cli connected (init pending)");
-  if (graceActive) statusParts.push("grace period");
   if (pendingMsgs > 0) statusParts.push(`${pendingMsgs} queued msgs`);
   const statusLine = statusParts.length > 0 ? statusParts.join(" · ") : "✓ idle";
 

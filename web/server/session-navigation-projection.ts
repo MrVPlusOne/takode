@@ -11,6 +11,7 @@ import {
   type SessionNavigationStatus,
 } from "../shared/session-navigation-projection.js";
 import { deriveAskPermissionForMode } from "../shared/permission-modes.js";
+import { normalizePersistedBackendType } from "./session-types.js";
 import { isCodexLeaderRecycleMode } from "../shared/codex-leader-compaction-mode.js";
 import { countPendingUserPermissions } from "./bridge/session-registry-controller.js";
 import type { Session } from "./bridge/ws-bridge-session.js";
@@ -62,8 +63,7 @@ function backendTypeFor(
   session: Session,
   launcherInfo: SdkSessionInfo | null | undefined,
 ): SessionNavigationBackendType {
-  const backendType = session.state.backend_type ?? launcherInfo?.backendType ?? session.backendType;
-  return backendType === "codex" || backendType === "claude-sdk" ? backendType : "claude";
+  return normalizePersistedBackendType(session.state.backend_type ?? launcherInfo?.backendType ?? session.backendType);
 }
 
 function sdkStateFor(

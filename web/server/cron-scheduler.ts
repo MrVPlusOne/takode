@@ -1,6 +1,7 @@
 import { serverWorkAdmission } from "./server-work-admission.js";
 import { Cron } from "croner";
 import type { CronJob, CronJobExecution } from "./cron-types.js";
+import { normalizePersistedBackendType } from "./session-types.js";
 import type { CliLauncher, SdkSessionInfo } from "./cli-launcher.js";
 import type { WsBridge } from "./ws-bridge.js";
 import * as cronStore from "./cron-store.js";
@@ -150,7 +151,7 @@ export class CronScheduler {
         permissionMode: job.permissionMode,
         cwd: job.cwd,
         env: envVars,
-        backendType: job.backendType,
+        backendType: normalizePersistedBackendType(job.backendType),
         codexInternetAccess: job.backendType === "codex" ? (job.codexInternetAccess ?? true) : undefined,
         codexReasoningEffort: job.backendType === "codex" ? job.codexReasoningEffort?.trim() || undefined : undefined,
         codexSandbox: job.backendType === "codex" ? resolveCodexCronSandbox(job.permissionMode) : undefined,

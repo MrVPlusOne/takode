@@ -10,7 +10,6 @@ import type {
   CLIMessage,
   CLIAssistantMessage,
   CLIResultMessage,
-  CLIControlResponseMessage,
   CLISystemCompactBoundaryMessage,
   CLIUserMessage,
   BrowserIncomingMessage,
@@ -121,15 +120,6 @@ import {
   syncSideChatRecordForChild as syncSideChatRecordForChildController,
   type SideChatBridgeDeps,
 } from "./side-chat-bridge.js";
-import {
-  flushQueuedCliMessages as flushQueuedCliMessagesController,
-  handleCLIClose as handleCLICloseTransportController,
-  handleCLIOpen as handleCLIOpenTransportController,
-  handleControlResponse as handleControlResponseTransportController,
-  processCLIMessageBatch as processCLIMessageBatchController,
-  sendControlRequest as sendControlRequestTransportController,
-  sendToCLI as sendToCLITransportController,
-} from "./bridge/claude-cli-transport-controller.js";
 import { attachClaudeSdkAdapterLifecycle } from "./bridge/claude-sdk-adapter-lifecycle-controller.js";
 import { flushQueuedMessagesToCodexAdapter as flushQueuedMessagesToCodexAdapterController } from "./bridge/codex-adapter-browser-message-controller.js";
 import {
@@ -189,14 +179,9 @@ import {
 import { isDuplicateCodexAssistantReplay as isDuplicateCodexAssistantReplayController } from "./bridge/codex-assistant-replay-dedup.js";
 import { markCodexTurnRecoveryActionRequired } from "./bridge/codex-interrupted-turn-recovery.js";
 import { codexReasoningSnapshotFields } from "./bridge/codex-reasoning-preview-state.js";
-import {
-  createClaudeMessageHandlers as createClaudeMessageHandlersController,
-  drainInlineQueuedClaudeTurns as drainInlineQueuedClaudeTurnsController,
-  routeCLIMessage as routeCLIMessageController,
-} from "./bridge/claude-message-controller.js";
+import { createClaudeMessageHandlers as createClaudeMessageHandlersController } from "./bridge/claude-message-controller.js";
 import {
   handleCodexPermissionRequest as handleCodexPermissionRequestController,
-  handleControlRequest as handleControlRequestController,
   handleInterrupt as handleInterruptController,
   handleSetModel as handleSetModelController,
   handleCodexSetModel as handleCodexSetModelController,
@@ -321,7 +306,6 @@ const CODEX_TOOL_RESULT_WATCHDOG_MS = 120_000;
 export type { SocketData, WorkerStreamCheckpointResult } from "./bridge/ws-bridge-session.js";
 import type {
   BrowserSocketData,
-  CLISocketData,
   CodexBridgeAdapter,
   ClaudeSdkBridgeAdapter,
   GitSessionKey,
@@ -341,7 +325,6 @@ import {
   getClaudeMessageHandlers as getClaudeMessageHandlersController,
   getToolResultRecoveryDeps as getToolResultRecoveryDepsController,
   getBrowserTransportDeps as getBrowserTransportDepsController,
-  getClaudeCliTransportDeps as getClaudeCliTransportDepsController,
   getClaudeSdkAdapterLifecycleDeps as getClaudeSdkAdapterLifecycleDepsController,
   getCodexAdapterBrowserMessageDeps as getCodexAdapterBrowserMessageDepsController,
   getCodexAttachLifecycleDeps as getCodexAttachLifecycleDepsController,
@@ -468,7 +451,6 @@ export class WsBridge {
   >();
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   /** Track recent CLI disconnects to detect mass disconnect events. */
-  private recentCliDisconnects: number[] = [];
   /** Machine-global browser transport state shared with VS Code/browser routing. */
   private browserTransportState: BrowserTransportStateLike = {
     vscodeSelectionState: null,
@@ -578,9 +560,8 @@ export class WsBridge {
     }
   }
 
-  /** Send periodic pings to all browser and CLI sockets to detect dead connections.
-   *  10s interval matches the CLI's expected WebSocket ping/pong cadence and ensures
-   *  half-open TCP connections are detected within ~10s instead of ~30s. */
+  /** Send periodic pings to all browser sockets to detect dead connections.
+   *  A 10s interval detects half-open TCP connections within ~10s instead of ~30s. */
   startHeartbeat(): void {
     if (this.heartbeatInterval) return;
     this.heartbeatInterval = setInterval(() => {
@@ -591,23 +572,6 @@ export class WsBridge {
             ws.ping();
           } catch {
             session.browserSockets.delete(ws);
-          }
-        }
-        // Ping CLI socket (detects half-open TCP connections from the server
-        // side — the CLI also pings us every 10s, but if the network silently
-        // drops packets, server-side pings give us earlier detection)
-        if (session.backendSocket) {
-          try {
-            session.backendSocket.ping();
-          } catch {
-            // ping() threw — socket is already dead. Close it to trigger
-            // handleCLIClose → auto-relaunch instead of leaving a ghost socket.
-            console.warn(`[ws-bridge] CLI ping failed for session ${sessionTag(session.id)}, closing dead socket`);
-            try {
-              session.backendSocket.close();
-            } catch {
-              /* already dead */
-            }
           }
         }
       }
@@ -1331,13 +1295,18 @@ export class WsBridge {
     session: Session,
     toolUse: Extract<ContentBlock, { type: "tool_use" }>,
   ): void {
-    if (session.backendType !== "claude" || toolUse.name !== "Bash") return;
+    // In bypass mode Claude runs Bash without asking, so the permission
+    // pipeline's long-sleep denial never sees the call; catch it on observation.
+    if (session.backendType !== "claude-sdk" || toolUse.name !== "Bash") return;
+    if (session.state.permissionMode !== "bypassPermissions") return;
     const command = typeof toolUse.input?.command === "string" ? toolUse.input.command : "";
     if (!detectLongSleepBashCommand(command)) return;
 
     const denialId = `sleep-guard-${toolUse.id || randomUUID()}`;
     const alreadyDenied = session.messageHistory.some(
-      (entry) => entry.type === "permission_denied" && (entry as { id?: string }).id === denialId,
+      (entry) =>
+        entry.type === "permission_denied" &&
+        ((entry as { id?: string }).id === denialId || (!!toolUse.id && entry.tool_use_id === toolUse.id)),
     );
     if (alreadyDenied) return;
 
@@ -1517,43 +1486,6 @@ export class WsBridge {
    *  Mirrors attachCodexAdapter but simpler — SDK messages already match our protocol. */
   attachClaudeSdkAdapter(sessionId: string, adapter: ClaudeSdkBridgeAdapter): void {
     attachClaudeSdkAdapterLifecycle(sessionId, adapter, this.getClaudeSdkAdapterLifecycleDeps());
-  }
-
-  // ── CLI WebSocket handlers ──────────────────────────────────────────────
-
-  handleCLIOpen(ws: ServerWebSocket<SocketData>, sessionId: string) {
-    const session = this.getOrCreateSession(sessionId);
-    handleCLIOpenTransportController(session, sessionId, ws, this.getClaudeCliTransportDeps());
-  }
-
-  handleCLIMessage(ws: ServerWebSocket<SocketData>, raw: string | Buffer) {
-    const perfStart = this.perfTracer ? performance.now() : 0;
-    const data = typeof raw === "string" ? raw : raw.toString("utf-8");
-    const sessionId = (ws.data as CLISocketData).sessionId;
-    const session = this.sessions.get(sessionId);
-    if (!session) return;
-    const firstType = processCLIMessageBatchController(session, sessionId, data, this.getClaudeCliTransportDeps());
-
-    if (this.perfTracer) {
-      const perfMs = performance.now() - perfStart;
-      if (perfMs > this.perfTracer.wsSlowThresholdMs) {
-        this.perfTracer.recordSlowWsMessage(sessionId, "cli", firstType, perfMs);
-      }
-    }
-  }
-
-  handleCLIClose(ws: ServerWebSocket<SocketData>, code?: number, reason?: string) {
-    const sessionId = (ws.data as CLISocketData).sessionId;
-    const session = this.sessions.get(sessionId);
-    if (!session) return;
-    if (session.backendSocket && session.backendSocket !== ws) return;
-    handleCLICloseTransportController(
-      session,
-      sessionId,
-      { ...this.getClaudeCliTransportDeps(), recentCliDisconnects: this.recentCliDisconnects },
-      code,
-      reason,
-    );
   }
 
   // ── Browser WebSocket handlers ──────────────────────────────────────────
@@ -1811,10 +1743,6 @@ export class WsBridge {
     return getBrowserTransportDepsController(this);
   }
 
-  private getClaudeCliTransportDeps() {
-    return getClaudeCliTransportDepsController(this);
-  }
-
   private getClaudeSdkAdapterLifecycleDeps() {
     return getClaudeSdkAdapterLifecycleDepsController(this);
   }
@@ -1898,10 +1826,6 @@ export class WsBridge {
     markTurnInterruptedLifecycle(session, source);
   }
 
-  private handleControlResponse(session: Session, msg: CLIControlResponseMessage) {
-    handleControlResponseTransportController(session, msg);
-  }
-
   private trackCodexQuestCommands(session: Session, content: ContentBlock[]): void {
     trackCodexQuestCommandsController(session, content);
   }
@@ -1919,19 +1843,6 @@ export class WsBridge {
           : undefined,
       });
     });
-  }
-
-  private isCliUserMessagePayload(ndjson: string): boolean {
-    if (!ndjson.includes('"type":"user"')) return false;
-    try {
-      const parsed = JSON.parse(ndjson) as {
-        type?: unknown;
-        message?: { role?: unknown };
-      };
-      return parsed.type === "user" && parsed.message?.role === "user";
-    } catch {
-      return false;
-    }
   }
 
   private recomputeAndBroadcastHistoryBytes(session: Session): void {

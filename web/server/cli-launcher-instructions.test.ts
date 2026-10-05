@@ -5,6 +5,7 @@ import {
   getOrchestratorGuardrails,
 } from "./cli-launcher-instructions.js";
 import { TAKODE_LINK_SYNTAX_INSTRUCTIONS } from "./link-syntax.js";
+import { normalizePersistedBackendType, type BackendType } from "./session-types.js";
 import { AUXILIARY_WORKTREE_INSTRUCTIONS } from "./auxiliary-worktree-instructions.js";
 import { QUEST_JOURNEY_PHASES } from "../shared/quest-journey.js";
 import {
@@ -12,12 +13,18 @@ import {
   getQuestJourneyPhaseLeaderBriefDisplayPath,
 } from "./quest-journey-phases.js";
 
+/** Stored backend values, including the retired "claude" WebSocket type, as sessions load them. */
+function loadedBackend(stored: string | undefined): BackendType | undefined {
+  return stored === undefined ? undefined : normalizePersistedBackendType(stored);
+}
+
 describe("buildCompanionInstructions", () => {
   it.each([
     "claude",
     "claude-sdk",
     "codex",
-  ] as const)("assembles auxiliary ownership guidance once for %s regardless of primary checkout", (backend) => {
+  ] as const)("assembles auxiliary ownership guidance once for %s regardless of primary checkout", (stored) => {
+    const backend = loadedBackend(stored);
     // Non-worktree sessions also create auxiliary checkouts. Test assembly,
     // not a snapshot of policy prose or example command strings.
     for (const worktree of [undefined, { branch: "feature", repoRoot: "/repo" }]) {
@@ -30,7 +37,8 @@ describe("buildCompanionInstructions", () => {
     "claude",
     "claude-sdk",
     "codex",
-  ] as const)("selects backend-specific sections for %s", (backend) => {
+  ] as const)("selects backend-specific sections for %s", (stored) => {
+    const backend = loadedBackend(stored);
     // Section presence tests backend selection without freezing the rules inside.
     const result = buildCompanionInstructions({ backend });
     expect(result.includes("## Responding to Leaders")).toBe(backend !== "codex");
@@ -47,7 +55,8 @@ describe("buildCompanionInstructions", () => {
     "claude",
     "claude-sdk",
     "codex",
-  ] as const)("includes one complete design replacement section across %s roles and checkouts", (backend) => {
+  ] as const)("includes one complete design replacement section across %s roles and checkouts", (stored) => {
+    const backend = loadedBackend(stored);
     // The rule must reach leaders before dispatch and workers before Work.
     // Compare assembled content, without maintaining a second copy of its prose.
     const heading = "## Design Replacement\n\n";
@@ -66,7 +75,8 @@ describe("buildCompanionInstructions", () => {
     "claude",
     "claude-sdk",
     "codex",
-  ] as const)("includes the canonical shared link section in ordinary and leader %s prompts", (backend) => {
+  ] as const)("includes the canonical shared link section in ordinary and leader %s prompts", (stored) => {
+    const backend = loadedBackend(stored);
     // Catch omitted or truncated sections across roles/projects. Wording changes
     // update the canonical source only; this is an assembly contract.
     expect(TAKODE_LINK_SYNTAX_INSTRUCTIONS.trim()).not.toBe("");
@@ -152,15 +162,17 @@ describe("buildCompanionInstructions", () => {
 });
 
 describe("getOrchestratorGuardrails", () => {
-  it("defaults to the Claude family and shares that selection with Claude SDK", () => {
-    expect(getOrchestratorGuardrails()).toBe(getOrchestratorGuardrails("claude"));
-    expect(getOrchestratorGuardrails("claude-sdk")).toBe(getOrchestratorGuardrails("claude"));
+  it("defaults to the Claude guardrails, including for sessions stored with the retired type", () => {
+    expect(getOrchestratorGuardrails()).toBe(getOrchestratorGuardrails("claude-sdk"));
+    expect(getOrchestratorGuardrails(normalizePersistedBackendType("claude"))).toBe(
+      getOrchestratorGuardrails("claude-sdk"),
+    );
   });
 
   it("selects the tool invocation syntax supported by each backend", () => {
     // A swapped backend branch would teach calls to unavailable tools. These
     // exact tool/argument tokens are intentional contracts, not prose preferences.
-    const claude = getOrchestratorGuardrails("claude");
+    const claude = getOrchestratorGuardrails("claude-sdk");
     const codex = getOrchestratorGuardrails("codex");
     expect(claude).toContain("run_in_background: true");
     expect(claude).not.toContain("delegate_task(task)");
@@ -168,7 +180,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(codex).not.toContain("run_in_background: true");
   });
 
-  it.each(["claude", "codex"] as const)("assembles the current phase catalog into %s guidance", (backend) => {
+  it.each(["claude", "codex"] as const)("assembles the current phase catalog into %s guidance", (stored) => {
+    const backend = loadedBackend(stored);
     // Paths and board states must follow the live catalog instead of stale copied
     // phase data; the prose of each phase remains owned by its canonical source.
     const result = getOrchestratorGuardrails(backend);
@@ -181,7 +194,8 @@ describe("getOrchestratorGuardrails", () => {
 });
 
 describe("buildInjectedSystemPromptForDebug", () => {
-  it.each(["claude", "claude-sdk", "codex"] as const)("adds leader guardrails only to %s leaders", (backend) => {
+  it.each(["claude", "claude-sdk", "codex"] as const)("adds leader guardrails only to %s leaders", (stored) => {
+    const backend = loadedBackend(stored);
     // Preserve the complete shared prompt for both roles, then append the selected
     // leader guardrails. Compare canonical assembly without copying static prose.
     const guardrails = getOrchestratorGuardrails(backend);

@@ -438,7 +438,7 @@ ${copy.delegationLine}
 Invoke \`/leader-dispatch\` for the full discipline rules, communication patterns, and task delegation style.`;
 }
 
-export function getOrchestratorGuardrails(backend: BackendType = "claude"): string {
+export function getOrchestratorGuardrails(backend: BackendType = "claude-sdk"): string {
   return backend === "codex"
     ? renderOrchestratorGuardrails(getCodexOrchestratorGuardrailCopy())
     : renderOrchestratorGuardrails(getClaudeOrchestratorGuardrailCopy());
@@ -449,10 +449,10 @@ export function getOrchestratorGuardrails(backend: BackendType = "claude"): stri
  *
  * This intentionally does not call the live server. Run from `web/` with:
  *
- *   bun -e 'import { buildInjectedSystemPromptForDebug } from "./server/cli-launcher-instructions.ts"; console.log(buildInjectedSystemPromptForDebug({ sessionNum: 1, backend: "claude", isOrchestrator: true }))'
+ *   bun -e 'import { buildInjectedSystemPromptForDebug } from "./server/cli-launcher-instructions.ts"; console.log(buildInjectedSystemPromptForDebug({ sessionNum: 1, backend: "claude-sdk", isOrchestrator: true }))'
  */
 export function buildInjectedSystemPromptForDebug(opts: InjectedSystemPromptDebugOptions = {}): string {
-  const backend = opts.backend ?? "claude";
+  const backend = opts.backend ?? "claude-sdk";
   const extraInstructions = [
     opts.isOrchestrator ? getOrchestratorGuardrails(backend) : undefined,
     opts.extraInstructions,

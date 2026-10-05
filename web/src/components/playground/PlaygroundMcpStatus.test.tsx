@@ -48,3 +48,15 @@ it("shows real panel failure and recovery without transport requests and removes
   expect(sendMcpReconnect).not.toHaveBeenCalled();
   expect(sendMcpSetServers).not.toHaveBeenCalled();
 });
+
+it("shows the Claude status-only panel without management controls", () => {
+  // Claude sessions report MCP servers but cannot be managed from Takode.
+  render(<PlaygroundMcpStatus />);
+  expect(screen.getByTitle("Add MCP server")).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText("MCP session backend"), { target: { value: "claude-sdk" } });
+
+  expect(screen.getByRole("button", { name: "filesystem" })).toBeInTheDocument();
+  expect(screen.queryByTitle("Add MCP server")).not.toBeInTheDocument();
+  expect(screen.queryByTitle("Reconnect server")).not.toBeInTheDocument();
+});

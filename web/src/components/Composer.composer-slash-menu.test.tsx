@@ -684,7 +684,7 @@ describe("Composer slash menu", () => {
 
   it.each([
     ["codex", false],
-    ["claude", true],
+    ["claude-sdk", false],
     ["claude-sdk", true],
   ] as const)("hides /recycle for backend %s with leader=%s", (backend_type, isOrchestrator) => {
     setupMockStore({ session: { backend_type, isOrchestrator, slash_commands: ["compact", "recycle"] } });

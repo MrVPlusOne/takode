@@ -1,4 +1,17 @@
 import { vi } from "vitest";
+
+// Claude sessions launch through the Agent SDK adapter; capture what the
+// launcher hands it instead of starting a real Claude process.
+const sdkAdapterLaunches = vi.hoisted(() => [] as Array<{ sessionId: string; options: any }>);
+vi.mock("./claude-sdk-adapter.js", () => ({
+  ClaudeSdkAdapter: class {
+    started = Promise.resolve(true);
+    constructor(sessionId: string, options: any) {
+      sdkAdapterLaunches.push({ sessionId, options });
+    }
+  },
+}));
+
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -338,6 +351,7 @@ let launcher: CliLauncher;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sdkAdapterLaunches.length = 0;
   // Re-apply default: lstatSync throws ENOENT (file doesn't exist), matching real behavior
   mockLstatSync.mockImplementation(() => {
     throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
@@ -379,10 +393,11 @@ afterAll(() => {
 
 describe("kill", () => {
   it("sends SIGTERM via proc.kill", async () => {
-    await launcher.launch({ cwd: "/tmp" });
-
-    // Grab the mock proc
-    const mockProc = mockSpawn.mock.results[0].value;
+    // Codex is the backend whose process the launcher owns directly.
+    const mockProc = createMockCodexProc();
+    mockSpawn.mockReturnValueOnce(mockProc);
+    await launcher.launch({ backendType: "codex", cwd: "/tmp", codexSandbox: "workspace-write" });
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
 
     // Resolve the exit promise so kill() doesn't wait on the timeout
     setTimeout(() => exitResolve(0), 5);

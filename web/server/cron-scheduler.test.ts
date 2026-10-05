@@ -221,13 +221,14 @@ describe("execution", () => {
 
     await scheduler.executeJob("run-me");
 
-    // Verify launcher was called with correct params
+    // Verify launcher was called with correct params. Jobs saved with the
+    // retired "claude" backend launch through the Agent SDK backend.
     expect(launcher.launch).toHaveBeenCalledWith(
       expect.objectContaining({
         model: "claude-sonnet-4-5-20250929",
         permissionMode: "bypassPermissions",
         cwd: "/tmp/repo",
-        backendType: "claude",
+        backendType: "claude-sdk",
       }),
     );
 

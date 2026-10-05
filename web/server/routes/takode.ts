@@ -443,7 +443,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       sessionNum: launcher.getSessionNum(auth.callerId) ?? null,
       isOrchestrator: auth.caller.isOrchestrator === true,
       state: auth.caller.state,
-      backendType: auth.caller.backendType || "claude",
+      backendType: auth.caller.backendType || "claude-sdk",
     });
   });
 

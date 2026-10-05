@@ -35,6 +35,7 @@ type StatusMode = "failed" | "empty" | "recovered";
 
 export function PlaygroundMcpStatus() {
   const [mode, setMode] = useState<StatusMode>("failed");
+  const [backend, setBackend] = useState<SessionState["backend_type"]>("codex");
 
   useEffect(() => {
     const previousSession = useStore.getState().sessions.get(SESSION_ID);
@@ -44,6 +45,7 @@ export function PlaygroundMcpStatus() {
     useStore.setState((state) => ({
       sessions: new Map(state.sessions).set(SESSION_ID, {
         ...SESSION,
+        backend_type: backend,
         mcp_status_error:
           mode === "recovered" ? null : "Failed to get MCP status: Error: mcpServerStatus/list timed out after 5000ms",
       }),
@@ -60,7 +62,7 @@ export function PlaygroundMcpStatus() {
         return { sessions, mcpServers };
       });
     };
-  }, [mode]);
+  }, [mode, backend]);
 
   return (
     <div className="space-y-3" data-testid="playground-mcp-status">
@@ -75,6 +77,18 @@ export function PlaygroundMcpStatus() {
           <option value="failed">Failed with known servers</option>
           <option value="empty">Failed before first status</option>
           <option value="recovered">Recovered</option>
+        </select>
+      </label>
+      <label className="flex flex-wrap items-center gap-2 text-xs text-cc-muted">
+        Backend
+        <select
+          aria-label="MCP session backend"
+          value={backend}
+          onChange={(event) => setBackend(event.target.value as SessionState["backend_type"])}
+          className="rounded border border-cc-border bg-cc-card px-2 py-1 text-cc-fg"
+        >
+          <option value="codex">Codex (manage servers)</option>
+          <option value="claude-sdk">Claude (status only)</option>
         </select>
       </label>
       <div className="w-full max-w-[280px] border border-cc-border rounded-xl overflow-hidden bg-cc-card">

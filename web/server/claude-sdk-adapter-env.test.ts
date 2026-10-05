@@ -26,9 +26,20 @@ const sdkMocks = vi.hoisted(() => {
     },
   });
 
+  // Like the real SDK, resuming constructs the process transport and initializes it
+  // synchronously, which is when CLI arguments are derived from transport options.
+  const resumedTransports: MockTransport[] = [];
+  const resumeSession = (_sessionId: string, _options: unknown) => {
+    const transport = new MockTransport();
+    transport.initialize();
+    resumedTransports.push(transport);
+    return makeSession();
+  };
+
   return {
     createSession: vi.fn((_options: unknown) => makeSession()),
-    resumeSession: vi.fn((_sessionId: string, _options: unknown) => makeSession()),
+    resumeSession: vi.fn(resumeSession),
+    resumedTransports,
   };
 });
 
@@ -45,6 +56,8 @@ describe("ClaudeSdkAdapter launch env", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    sdkMocks.resumedTransports.length = 0;
+    delete process.env.CLAUDECODE;
     if (originalGitEditor === undefined) {
       delete process.env.GIT_EDITOR;
     } else {
@@ -100,5 +113,47 @@ describe("ClaudeSdkAdapter launch env", () => {
     };
     expect(sessionOptions.effort).toBe("max");
     expect(sessionOptions.betas).toEqual(["context-1m-2025-08-07"]);
+  });
+
+  it("strips an inherited CLAUDECODE so Claude's nesting guard does not trip", async () => {
+    process.env.CLAUDECODE = "1";
+    new ClaudeSdkAdapter("sdk-session", { cwd: process.cwd() });
+
+    await vi.waitFor(() => expect(sdkMocks.createSession).toHaveBeenCalled());
+
+    const sessionOptions = sdkMocks.createSession.mock.calls.at(-1)?.[0] as { env: Record<string, unknown> };
+    expect(sessionOptions.env.CLAUDECODE).toBeUndefined();
+  });
+
+  it("passes allowed tools into SDK session options", async () => {
+    new ClaudeSdkAdapter("sdk-session", { cwd: process.cwd(), allowedTools: ["Read", "Bash"] });
+
+    await vi.waitFor(() => expect(sdkMocks.createSession).toHaveBeenCalled());
+
+    const sessionOptions = sdkMocks.createSession.mock.calls.at(-1)?.[0] as { allowedTools?: string[] };
+    expect(sessionOptions.allowedTools).toEqual(["Read", "Bash"]);
+  });
+
+  it("injects the Revert point into the resumed transport so Claude truncates its context", async () => {
+    // The v2 session API clears resumeSessionAt; the transport patch must restore it
+    // so the CLI receives --resume-session-at for the chosen assistant message.
+    new ClaudeSdkAdapter("sdk-session", {
+      cwd: process.cwd(),
+      cliSessionId: "cli-session-1",
+      resumeSessionAt: "assistant-uuid-7",
+    });
+
+    await vi.waitFor(() => expect(sdkMocks.resumeSession).toHaveBeenCalled());
+
+    expect(sdkMocks.resumeSession.mock.calls.at(-1)?.[0]).toBe("cli-session-1");
+    expect(sdkMocks.resumedTransports.at(-1)?.options.resumeSessionAt).toBe("assistant-uuid-7");
+  });
+
+  it("does not set a Revert point on an ordinary resume", async () => {
+    new ClaudeSdkAdapter("sdk-session", { cwd: process.cwd(), cliSessionId: "cli-session-1" });
+
+    await vi.waitFor(() => expect(sdkMocks.resumeSession).toHaveBeenCalled());
+
+    expect(sdkMocks.resumedTransports.at(-1)?.options.resumeSessionAt).toBeUndefined();
   });
 });

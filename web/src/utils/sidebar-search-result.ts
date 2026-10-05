@@ -20,7 +20,7 @@ export function buildSidebarItemFromSearchResult(result: SessionSearchResult): S
     createdAt: session.createdAt,
     archived: session.archived ?? false,
     archivedAt: session.archivedAt,
-    backendType: session.backendType ?? "claude",
+    backendType: session.backendType ?? "claude-sdk",
     repoRoot: session.repoRoot ?? "",
     permCount: 0,
     lastActivityAt: session.lastActivityAt,

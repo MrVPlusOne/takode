@@ -17,6 +17,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -69,7 +70,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -583,10 +584,10 @@ describe("Browser message routing", () => {
   beforeEach(async () => {
     cli = makeCliSocket("s1");
     browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
     await subscribeCurrentBrowser(bridge, browser);
-    cli.send.mockClear();
+    cli.clearSent();
   });
 
   it("user_message: sends NDJSON to CLI and stores in history", () => {
@@ -605,14 +606,11 @@ describe("Browser message routing", () => {
       }),
     );
 
-    // Should have sent NDJSON to CLI
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.type).toBe("user");
-    expect(sent.message.role).toBe("user");
+    // Should have delivered the prompt to Claude
+    expect(cli.promptTexts()).toHaveLength(1);
+    const sent = cli.promptTexts()[0];
     // CLI-bound content gets a [User HH:MM] timestamp prefix
-    expect(sent.message.content).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] What is 2\+2\?$/);
+    expect(sent).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] What is 2\+2\?$/);
 
     // Should store in history (without the tag -- history preserves original content)
     const session = bridge.getSession("s1")!;
@@ -650,7 +648,7 @@ describe("Browser message routing", () => {
 
   it("user_message: queues when CLI not connected", () => {
     // Close CLI
-    bridge.handleCLIClose(cli);
+    cli.disconnect();
     browser.send.mockClear();
 
     bridge.handleBrowserMessage(
@@ -664,9 +662,9 @@ describe("Browser message routing", () => {
     const session = bridge.getSession("s1")!;
     expect(session.pendingMessages).toHaveLength(1);
     const queued = JSON.parse(session.pendingMessages[0]);
-    expect(queued.type).toBe("user");
-    // CLI-bound content gets a [User HH:MM] timestamp prefix
-    expect(queued.message.content).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] queued message$/);
+    expect(queued.type).toBe("user_message");
+    // Model-bound content gets a [User HH:MM] timestamp prefix
+    expect(queued.content).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] queued message$/);
   });
 
   it("user_message: deduplicates repeated client_msg_id", () => {
@@ -679,7 +677,7 @@ describe("Browser message routing", () => {
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
+    expect(cli.promptTexts()).toHaveLength(1);
     const session = bridge.getSession("s1")!;
     const userMessages = session.messageHistory.filter((m) => m.type === "user_message");
     expect(userMessages).toHaveLength(1);
@@ -702,11 +700,8 @@ describe("Browser message routing", () => {
       }),
     );
 
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.message.content).toMatch(
-      /^\[Leader #17 Orchestrator (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] do the task$/,
-    );
+    const sent = cli.promptTexts()[0];
+    expect(sent).toMatch(/^\[Leader #17 Orchestrator (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] do the task$/);
   });
 
   it("user_message: herded worker falls back to leader session id when label is absent", () => {
@@ -725,11 +720,8 @@ describe("Browser message routing", () => {
       }),
     );
 
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.message.content).toMatch(
-      /^\[Leader leader-s (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] do the task$/,
-    );
+    const sent = cli.promptTexts()[0];
+    expect(sent).toMatch(/^\[Leader leader-s (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] do the task$/);
   });
 
   it("user_message: herded worker gets [User HH:MM] for direct human messages", () => {
@@ -749,43 +741,39 @@ describe("Browser message routing", () => {
       }),
     );
 
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.message.content).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] direct nudge$/);
+    const sent = cli.promptTexts()[0];
+    expect(sent).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] direct nudge$/);
   });
 
   it("user_message: first message includes date, same-day follow-up omits it, different-day includes it again", () => {
     // First message of a fresh session should include the date
     // (lastUserMessageDateTag starts as "").
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "msg1" }));
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const firstRaw = cli.send.mock.calls[0][0] as string;
-    const first = JSON.parse(firstRaw.trim());
+    expect(cli.promptTexts()).toHaveLength(1);
+    const first = cli.promptTexts()[0];
     // Date portion: "Mon, Mar 31" (weekday, month, day) must be present
-    expect(first.message.content).toMatch(/^\[User \w{3}, \w{3} \d{1,2} \d{1,2}:\d{2}\s*[AP]M\] msg1$/);
+    expect(first).toMatch(/^\[User \w{3}, \w{3} \d{1,2} \d{1,2}:\d{2}\s*[AP]M\] msg1$/);
 
     // Second message on the SAME day should omit the date (time only).
-    cli.send.mockClear();
+    cli.clearSent();
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "msg2" }));
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const secondRaw = cli.send.mock.calls[0][0] as string;
-    const second = JSON.parse(secondRaw.trim());
+    expect(cli.promptTexts()).toHaveLength(1);
+    const second = cli.promptTexts()[0];
     // Must NOT contain a date prefix -- should be just [User HH:MM AM/PM]
-    expect(second.message.content).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] msg2$/);
+    expect(second).toMatch(/^\[User \d{1,2}:\d{2}\s*[AP]M\] msg2$/);
     // Negative check: no weekday/month in the tag
-    expect(second.message.content).not.toMatch(/\w{3}, \w{3} \d{1,2}/);
+    expect(second).not.toMatch(/\w{3}, \w{3} \d{1,2}/);
 
     // Third message on a DIFFERENT day should include the date again.
     // Manually set lastUserMessageDateTag to a past date to simulate a day change.
     const session = bridge.getSession("s1")!;
     session.lastUserMessageDateTag = "1999-01-01";
-    cli.send.mockClear();
+    cli.clearSent();
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "msg3" }));
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const thirdRaw = cli.send.mock.calls[0][0] as string;
-    const third = JSON.parse(thirdRaw.trim());
+    expect(cli.promptTexts()).toHaveLength(1);
+    const third = cli.promptTexts()[0];
     // Date must be present again since the day changed
-    expect(third.message.content).toMatch(/^\[User \w{3}, \w{3} \d{1,2} \d{1,2}:\d{2}\s*[AP]M\] msg3$/);
+    expect(third).toMatch(/^\[User \w{3}, \w{3} \d{1,2} \d{1,2}:\d{2}\s*[AP]M\] msg3$/);
   });
 
   it("vscode_selection_update: broadcasts the latest global selection to browsers across sessions", () => {
@@ -1105,15 +1093,14 @@ describe("Browser message routing", () => {
     );
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.message.content).toContain(`Attachment 1: ${expectedPath}`);
+    expect(cli.promptTexts()).toHaveLength(1);
+    const sent = cli.promptTexts()[0];
+    expect(sent).toContain(`Attachment 1: ${expectedPath}`);
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls.find((m: any) => m.type === "error")).toBeUndefined();
   });
 
-  it("user_message with images: non-SDK Claude sends file path annotations via deliveryContent", async () => {
+  it("user_message with images: Claude receives file path annotations via deliveryContent", async () => {
     // With prepared imageRefs, the browser sends deliveryContent containing
     // path annotations. No imageStore.store() call happens at route time.
     const expectedPath1 = join(homedir(), ".companion", "images", "s1", "img-1.orig.png");
@@ -1136,15 +1123,14 @@ describe("Browser message routing", () => {
     );
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
+    expect(cli.promptTexts()).toHaveLength(1);
+    const sent = cli.promptTexts()[0];
     // Images should be sent as file path annotations (plain text), not inline base64 blocks.
-    expect(typeof sent.message.content).toBe("string");
-    expect(sent.message.content).toContain("Please compare these");
-    expect(sent.message.content).toContain(`Attachment 1: ${expectedPath1}`);
-    expect(sent.message.content).toContain(`Attachment 2: ${expectedPath2}`);
-    expect(sent.message.content).toContain("read these files with the Read tool before responding");
+    expect(cli.userTurns.mock.calls[0][0]).toBeTypeOf("string");
+    expect(sent).toContain("Please compare these");
+    expect(sent).toContain(`Attachment 1: ${expectedPath1}`);
+    expect(sent).toContain(`Attachment 2: ${expectedPath2}`);
+    expect(sent).toContain("read these files with the Read tool before responding");
   });
 
   it("user_message with images: prepared imageRefs work even when imageStore has errors (store not called)", async () => {
@@ -1171,19 +1157,17 @@ describe("Browser message routing", () => {
     await new Promise((r) => setTimeout(r, 20));
 
     expect(mockImageStore.store).not.toHaveBeenCalled();
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.message.content).toContain(`Attachment 1: ${expectedPath}`);
+    expect(cli.promptTexts()).toHaveLength(1);
+    const sent = cli.promptTexts()[0];
+    expect(sent).toContain(`Attachment 1: ${expectedPath}`);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls.find((m: any) => m.type === "error")).toBeUndefined();
   });
 
-  it("permission_response allow: sends control_response to CLI", async () => {
+  it("permission_response allow: answers Claude's permission request", async () => {
     // First create a pending permission
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "control_request",
         request_id: "req-allow",
@@ -1195,8 +1179,7 @@ describe("Browser message routing", () => {
         },
       }),
     );
-    await new Promise((r) => setTimeout(r, 0)); // flush async handleControlRequest
-    cli.send.mockClear();
+    await new Promise((r) => setTimeout(r, 0)); // flush async permission pipeline
 
     bridge.handleBrowserMessage(
       browser,
@@ -1206,25 +1189,21 @@ describe("Browser message routing", () => {
         behavior: "allow",
       }),
     );
+    await new Promise((r) => setTimeout(r, 0));
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.type).toBe("control_response");
-    expect(sent.response.subtype).toBe("success");
-    expect(sent.response.request_id).toBe("req-allow");
-    expect(sent.response.response.behavior).toBe("allow");
-    expect(sent.response.response.updatedInput).toEqual({ command: "echo hi" });
+    expect(cli.permissionDecisions.get("req-allow")).toEqual({
+      behavior: "allow",
+      updatedInput: { command: "echo hi" },
+    });
 
     // Should remove from pending
     const session = bridge.getSession("s1")!;
     expect(session.pendingPermissions.has("req-allow")).toBe(false);
   });
 
-  it("permission_response deny: sends deny response to CLI", () => {
+  it("permission_response deny: denies Claude's permission request", async () => {
     // Create a pending permission
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "control_request",
         request_id: "req-deny",
@@ -1236,7 +1215,7 @@ describe("Browser message routing", () => {
         },
       }),
     );
-    cli.send.mockClear();
+    await new Promise((r) => setTimeout(r, 0)); // flush async permission pipeline
 
     bridge.handleBrowserMessage(
       browser,
@@ -1247,24 +1226,17 @@ describe("Browser message routing", () => {
         message: "Too dangerous",
       }),
     );
+    await new Promise((r) => setTimeout(r, 0));
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.type).toBe("control_response");
-    expect(sent.response.subtype).toBe("success");
-    expect(sent.response.request_id).toBe("req-deny");
-    expect(sent.response.response.behavior).toBe("deny");
-    expect(sent.response.response.message).toBe("Too dangerous");
+    expect(cli.permissionDecisions.get("req-deny")).toEqual({ behavior: "deny", message: "Too dangerous" });
 
     // Should remove from pending
     const session = bridge.getSession("s1")!;
     expect(session.pendingPermissions.has("req-deny")).toBe(false);
   });
 
-  it("permission_response: deduplicates repeated client_msg_id", () => {
-    bridge.handleCLIMessage(
-      cli,
+  it("permission_response: deduplicates repeated client_msg_id", async () => {
+    cli.message(
       JSON.stringify({
         type: "control_request",
         request_id: "req-dedupe",
@@ -1276,7 +1248,8 @@ describe("Browser message routing", () => {
         },
       }),
     );
-    cli.send.mockClear();
+    await new Promise((r) => setTimeout(r, 0)); // flush async permission pipeline
+    cli.clearSent();
 
     const payload = {
       type: "permission_response",
@@ -1287,12 +1260,12 @@ describe("Browser message routing", () => {
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
+    expect(cli.outgoing.filter((m) => m.type === "permission_response")).toHaveLength(1);
     const session = bridge.getSession("s1")!;
     expect(session.pendingPermissions.has("req-dedupe")).toBe(false);
   });
 
-  it("interrupt: sends control_request with interrupt subtype to CLI", () => {
+  it("interrupt: interrupts Claude", () => {
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
@@ -1300,12 +1273,7 @@ describe("Browser message routing", () => {
       }),
     );
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.type).toBe("control_request");
-    expect(sent.request_id).toBe("test-uuid");
-    expect(sent.request.subtype).toBe("interrupt");
+    expect(cli.query.interrupt).toHaveBeenCalledTimes(1);
   });
 
   it("interrupt: emits turn_end with interrupt_source=user", () => {
@@ -1324,8 +1292,7 @@ describe("Browser message routing", () => {
         type: "interrupt",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         total_cost_usd: 0,
@@ -1353,8 +1320,7 @@ describe("Browser message routing", () => {
     );
     const interrupted = await bridge.interruptSession("s1", "leader");
     expect(interrupted).toBe(true);
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         total_cost_usd: 0,
@@ -1402,8 +1368,7 @@ describe("Browser message routing", () => {
         message: "Keep planning",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         total_cost_usd: 0,
@@ -1447,8 +1412,7 @@ describe("Browser message routing", () => {
       message: "Keep planning",
       actorSessionId: "leader-7",
     });
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         total_cost_usd: 0,
@@ -1492,8 +1456,7 @@ describe("Browser message routing", () => {
       message: "Keep planning",
       actorSessionId: "system:auto",
     });
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         total_cost_usd: 0,
@@ -1514,7 +1477,7 @@ describe("Browser message routing", () => {
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
+    expect(cli.query.interrupt).toHaveBeenCalledTimes(1);
   });
 
   it("interrupt: suppresses session_error takode event for interrupted is_error result", () => {
@@ -1525,8 +1488,7 @@ describe("Browser message routing", () => {
 
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "start work" }));
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "interrupt" }));
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "error_during_execution",
@@ -1552,8 +1514,7 @@ describe("Browser message routing", () => {
     // Interrupted error results should not set attention to "error"
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "start work" }));
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "interrupt" }));
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "error_during_execution",
@@ -1574,8 +1535,7 @@ describe("Browser message routing", () => {
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "start work" }));
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "interrupt" }));
     browser.send.mockClear();
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "error_during_execution",
@@ -1600,8 +1560,7 @@ describe("Browser message routing", () => {
 
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "start work" }));
     // No interrupt sent
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "error_during_execution",
@@ -1628,8 +1587,7 @@ describe("Browser message routing", () => {
     const spy = vi.spyOn(bridge, "emitTakodeEvent");
 
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "start work" }));
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "error_during_execution",
@@ -1647,7 +1605,7 @@ describe("Browser message routing", () => {
     spy.mockRestore();
   });
 
-  it("set_model: sends control_request with set_model subtype to CLI", () => {
+  it("set_model: switches Claude's model", () => {
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
@@ -1656,16 +1614,10 @@ describe("Browser message routing", () => {
       }),
     );
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.type).toBe("control_request");
-    expect(sent.request_id).toBe("test-uuid");
-    expect(sent.request.subtype).toBe("set_model");
-    expect(sent.request.model).toBe("claude-opus-4-5-20250929");
+    expect(cli.query.setModel).toHaveBeenCalledWith("claude-opus-4-5-20250929");
   });
 
-  it("set_permission_mode: sends control_request with set_permission_mode subtype to CLI", () => {
+  it("set_permission_mode: applies the mode and notifies the Claude adapter", () => {
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
@@ -1674,13 +1626,9 @@ describe("Browser message routing", () => {
       }),
     );
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.type).toBe("control_request");
-    expect(sent.request_id).toBe("test-uuid");
-    expect(sent.request.subtype).toBe("set_permission_mode");
-    expect(sent.request.mode).toBe("bypassPermissions");
+    // The SDK keeps permission policy server-side; the adapter still sees the change.
+    expect(cli.outgoing).toEqual([{ type: "set_permission_mode", mode: "bypassPermissions" }]);
+    expect(bridge.getSession("s1")!.state.permissionMode).toBe("bypassPermissions");
   });
 
   it("set_model: updates claude_token_details.modelContextWindow for [1m] variant", () => {
@@ -1727,7 +1675,7 @@ describe("Browser message routing", () => {
     };
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
-    expect(cli.send).toHaveBeenCalledTimes(1);
+    expect(cli.outgoing.filter((m) => m.type === "set_model")).toHaveLength(1);
   });
 
   it("set_permission_mode: deduplicates repeated client_msg_id", () => {
@@ -1738,7 +1686,7 @@ describe("Browser message routing", () => {
     };
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
-    expect(cli.send).toHaveBeenCalledTimes(1);
+    expect(cli.outgoing.filter((m) => m.type === "set_permission_mode")).toHaveLength(1);
   });
 
   it("mcp_toggle: deduplicates repeated client_msg_id", () => {
@@ -1751,8 +1699,7 @@ describe("Browser message routing", () => {
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
 
-    // 1 send for mcp_toggle control_request + delayed status refresh timer not run in this assertion window.
-    expect(cli.send).toHaveBeenCalledTimes(1);
+    expect(cli.outgoing.filter((m) => m.type === "mcp_toggle")).toHaveLength(1);
   });
 
   it("mcp_get_status: deduplicates repeated client_msg_id", () => {
@@ -1762,7 +1709,7 @@ describe("Browser message routing", () => {
     };
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
-    expect(cli.send).toHaveBeenCalledTimes(1);
+    expect(cli.outgoing.filter((m) => m.type === "mcp_get_status")).toHaveLength(1);
   });
 
   it("mcp_reconnect: deduplicates repeated client_msg_id", () => {
@@ -1773,7 +1720,7 @@ describe("Browser message routing", () => {
     };
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
-    expect(cli.send).toHaveBeenCalledTimes(1);
+    expect(cli.outgoing.filter((m) => m.type === "mcp_reconnect")).toHaveLength(1);
   });
 
   it("mcp_set_servers: deduplicates repeated client_msg_id", () => {
@@ -1790,6 +1737,6 @@ describe("Browser message routing", () => {
     };
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
     bridge.handleBrowserMessage(browser, JSON.stringify(payload));
-    expect(cli.send).toHaveBeenCalledTimes(1);
+    expect(cli.outgoing.filter((m) => m.type === "mcp_set_servers")).toHaveLength(1);
   });
 });

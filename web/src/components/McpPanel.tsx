@@ -14,7 +14,15 @@ const STATUS_STYLES: Record<string, { label: string; badge: string; dot: string 
 };
 const DEFAULT_STATUS = { label: "Unknown", badge: "text-cc-muted bg-cc-hover", dot: "bg-cc-muted opacity-40" };
 
-function McpServerRow({ server, sessionId }: { server: McpServerDetail; sessionId: string }) {
+function McpServerRow({
+  server,
+  sessionId,
+  canManage,
+}: {
+  server: McpServerDetail;
+  sessionId: string;
+  canManage: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const style = STATUS_STYLES[server.status] || DEFAULT_STATUS;
   const isEnabled = server.status !== "disabled";
@@ -36,44 +44,46 @@ function McpServerRow({ server, sessionId }: { server: McpServerDetail; sessionI
         </span>
 
         {/* Actions */}
-        <div className="flex items-center gap-0.5 shrink-0">
-          {/* Toggle enable/disable */}
-          <button
-            onClick={() => sendMcpToggle(sessionId, server.name, !isEnabled)}
-            className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors cursor-pointer ${
-              isEnabled
-                ? "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-                : "text-cc-muted/50 hover:text-cc-success hover:bg-cc-success/10"
-            }`}
-            title={isEnabled ? "Disable server" : "Enable server"}
-          >
-            {isEnabled ? (
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
-                <circle cx="8" cy="8" r="6" />
-                <path d="M5 8h6" strokeLinecap="round" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
-                <circle cx="8" cy="8" r="6" />
-                <path d="M8 5v6M5 8h6" strokeLinecap="round" />
-              </svg>
-            )}
-          </button>
-
-          {/* Reconnect */}
-          {(server.status === "failed" || server.status === "connected") && (
+        {canManage && (
+          <div className="flex items-center gap-0.5 shrink-0">
+            {/* Toggle enable/disable */}
             <button
-              onClick={() => sendMcpReconnect(sessionId, server.name)}
-              className="w-6 h-6 flex items-center justify-center rounded-md text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-              title="Reconnect server"
+              onClick={() => sendMcpToggle(sessionId, server.name, !isEnabled)}
+              className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors cursor-pointer ${
+                isEnabled
+                  ? "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+                  : "text-cc-muted/50 hover:text-cc-success hover:bg-cc-success/10"
+              }`}
+              title={isEnabled ? "Disable server" : "Enable server"}
             >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
-                <path d="M2.5 8a5.5 5.5 0 019.78-3.5M13.5 8a5.5 5.5 0 01-9.78 3.5" strokeLinecap="round" />
-                <path d="M12.5 2v3h-3M3.5 14v-3h3" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              {isEnabled ? (
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
+                  <circle cx="8" cy="8" r="6" />
+                  <path d="M5 8h6" strokeLinecap="round" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
+                  <circle cx="8" cy="8" r="6" />
+                  <path d="M8 5v6M5 8h6" strokeLinecap="round" />
+                </svg>
+              )}
             </button>
-          )}
-        </div>
+
+            {/* Reconnect */}
+            {(server.status === "failed" || server.status === "connected") && (
+              <button
+                onClick={() => sendMcpReconnect(sessionId, server.name)}
+                className="w-6 h-6 flex items-center justify-center rounded-md text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+                title="Reconnect server"
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
+                  <path d="M2.5 8a5.5 5.5 0 019.78-3.5M13.5 8a5.5 5.5 0 01-9.78 3.5" strokeLinecap="round" />
+                  <path d="M12.5 2v3h-3M3.5 14v-3h3" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Expanded details */}
@@ -282,6 +292,8 @@ export function McpSection({
   const servers = useStore((s) => s.mcpServers.get(sessionId) || EMPTY_SERVERS);
   const cliConnected = useStore((s) => s.cliConnected.get(sessionId) ?? false);
   const statusError = useStore((s) => s.sessions.get(sessionId)?.mcp_status_error);
+  // Claude sessions report MCP status but cannot add, toggle or reconnect servers from Takode.
+  const canManage = useStore((s) => s.sessions.get(sessionId)?.backend_type !== "claude-sdk");
   const [showAddForm, setShowAddForm] = useState(false);
 
   // The session_init mcp_servers gives us basic info (name + status).
@@ -333,18 +345,20 @@ export function McpSection({
         {!collapsed && (
           <div className="flex items-center gap-1">
             {/* Add server button */}
-            <button
-              onClick={() => setShowAddForm(!showAddForm)}
-              disabled={!cliConnected}
-              className={`text-[11px] font-medium transition-colors ${
-                cliConnected ? "text-cc-muted hover:text-cc-fg cursor-pointer" : "text-cc-muted/30 cursor-not-allowed"
-              }`}
-              title="Add MCP server"
-            >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
-                <path d="M8 3v10M3 8h10" strokeLinecap="round" />
-              </svg>
-            </button>
+            {canManage && (
+              <button
+                onClick={() => setShowAddForm(!showAddForm)}
+                disabled={!cliConnected}
+                className={`text-[11px] font-medium transition-colors ${
+                  cliConnected ? "text-cc-muted hover:text-cc-fg cursor-pointer" : "text-cc-muted/30 cursor-not-allowed"
+                }`}
+                title="Add MCP server"
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                  <path d="M8 3v10M3 8h10" strokeLinecap="round" />
+                </svg>
+              </button>
+            )}
             {/* Refresh button */}
             <button
               onClick={() => sendMcpGetStatus(sessionId)}
@@ -373,7 +387,7 @@ export function McpSection({
           )}
 
           {/* Add server form */}
-          {showAddForm && (
+          {canManage && showAddForm && (
             <div className="px-3 py-2 border-b border-cc-border">
               <AddServerForm sessionId={sessionId} onDone={() => setShowAddForm(false)} />
             </div>
@@ -383,7 +397,7 @@ export function McpSection({
           {displayServers.length > 0 && (
             <div className="px-3 py-2 space-y-1.5 border-b border-cc-border">
               {displayServers.map((server) => (
-                <McpServerRow key={server.name} server={server} sessionId={sessionId} />
+                <McpServerRow key={server.name} server={server} sessionId={sessionId} canManage={canManage} />
               ))}
             </div>
           )}
@@ -393,7 +407,7 @@ export function McpSection({
             <div className="px-3 py-3 border-b border-cc-border">
               <p className="text-[11px] text-cc-muted text-center">
                 No MCP servers configured.{" "}
-                {cliConnected && (
+                {canManage && cliConnected && (
                   <button
                     onClick={() => setShowAddForm(true)}
                     className="text-cc-accent hover:underline cursor-pointer"

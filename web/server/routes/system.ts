@@ -581,8 +581,8 @@ export function createSystemRoutes(ctx: RouteContext) {
     const s = getSettings();
     const backends: Array<{ id: string; name: string; available: boolean }> = [];
 
-    // Only two creation-time backends: "claude" (server resolves to WS or SDK
-    // based on the global defaultClaudeBackend setting) and "codex".
+    // Only two creation-time backends: "claude" (launched through the Agent SDK)
+    // and "codex".
     backends.push({ id: "claude", name: "Claude", available: resolveBinary(s.claudeBinary || "claude") !== null });
     backends.push({ id: "codex", name: "Codex", available: resolveBinary(s.codexBinary || "codex") !== null });
 

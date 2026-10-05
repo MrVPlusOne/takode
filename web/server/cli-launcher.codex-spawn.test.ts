@@ -1,4 +1,16 @@
 import { vi } from "vitest";
+
+// Claude sessions launch through the Agent SDK adapter; capture what the
+// launcher hands it instead of starting a real Claude process.
+const sdkAdapterLaunches = vi.hoisted(() => [] as Array<{ sessionId: string; options: any }>);
+vi.mock("./claude-sdk-adapter.js", () => ({
+  ClaudeSdkAdapter: class {
+    started = Promise.resolve(true);
+    constructor(sessionId: string, options: any) {
+      sdkAdapterLaunches.push({ sessionId, options });
+    }
+  },
+}));
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, hostname, tmpdir } from "node:os";

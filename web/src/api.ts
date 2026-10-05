@@ -499,7 +499,7 @@ export interface ActiveTimerSession {
   sessionId: string;
   sessionNum: number | null;
   name?: string;
-  backendType: "claude" | "codex" | "claude-sdk";
+  backendType: import("./types.js").BackendType;
   state: string;
   cliConnected: boolean;
   cwd: string;
@@ -654,7 +654,6 @@ export interface AppSettings {
   autoNamerEnabled: boolean;
   transcriptionConfig: TranscriptionConfig;
   editorConfig: EditorConfig;
-  defaultClaudeBackend: "claude" | "claude-sdk";
   sleepInhibitorEnabled: boolean;
   sleepInhibitorDurationMinutes: number;
   questmasterViewMode: QuestmasterViewMode;
@@ -1098,12 +1097,6 @@ export const api = {
   unpauseSession: (sessionId: string) =>
     post<{ ok: boolean; sessionId: string; resumed: number }>(`/sessions/${encodeURIComponent(sessionId)}/unpause`),
 
-  upgradeTransport: (sessionId: string) =>
-    post<{ ok: boolean; error?: string }>(`/sessions/${encodeURIComponent(sessionId)}/upgrade-transport`),
-
-  downgradeTransport: (sessionId: string) =>
-    post<{ ok: boolean; error?: string }>(`/sessions/${encodeURIComponent(sessionId)}/downgrade-transport`),
-
   forceCompact: (sessionId: string) => post(`/sessions/${encodeURIComponent(sessionId)}/force-compact`),
 
   prepareUserMessageImages: async (
@@ -1407,7 +1400,6 @@ export const api = {
     autoNamerEnabled?: boolean;
     transcriptionConfig?: Partial<TranscriptionConfig>;
     editorConfig?: EditorConfig;
-    defaultClaudeBackend?: "claude" | "claude-sdk";
     sleepInhibitorEnabled?: boolean;
     sleepInhibitorDurationMinutes?: number;
     questmasterViewMode?: QuestmasterViewMode;

@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -579,43 +580,43 @@ describe("handleBrowserMessage with malformed JSON", () => {
   it("does not throw on invalid JSON", () => {
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
-    cli.send.mockClear();
+    cli.clearSent();
 
     expect(() => {
       bridge.handleBrowserMessage(browser, "this is not json {{{");
     }).not.toThrow();
 
-    // CLI should not receive anything
-    expect(cli.send).not.toHaveBeenCalled();
+    // Claude should not receive anything
+    expect(cli.outgoing).toEqual([]);
   });
 
   it("does not throw on empty string", () => {
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
-    cli.send.mockClear();
+    cli.clearSent();
 
     expect(() => {
       bridge.handleBrowserMessage(browser, "");
     }).not.toThrow();
 
-    expect(cli.send).not.toHaveBeenCalled();
+    expect(cli.outgoing).toEqual([]);
   });
 
   it("does not throw on truncated JSON", () => {
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
-    cli.send.mockClear();
+    cli.clearSent();
 
     expect(() => {
       bridge.handleBrowserMessage(browser, '{"type":"user_message","con');
     }).not.toThrow();
 
-    expect(cli.send).not.toHaveBeenCalled();
+    expect(cli.outgoing).toEqual([]);
   });
 });

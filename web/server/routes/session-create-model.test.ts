@@ -4,7 +4,7 @@ import { createSessionCreateModelResolver, resolveSessionCreateModel } from "./s
 function makeLauncher(
   session:
     | {
-        backendType?: "claude" | "codex" | "claude-sdk";
+        backendType?: "codex" | "claude-sdk";
         model?: string;
       }
     | undefined = undefined,
@@ -38,7 +38,7 @@ describe("resolveSessionCreateModel", () => {
 
     await expect(
       resolveSessionCreateModel({
-        backend: "claude",
+        backend: "claude-sdk",
         createdBy: "leader-1",
         getClaudeUserDefaultModel,
         launcher,
@@ -52,7 +52,7 @@ describe("resolveSessionCreateModel", () => {
 
     await expect(
       resolveSessionCreateModel({
-        backend: "claude",
+        backend: "claude-sdk",
         createdBy: "leader-1",
         getClaudeUserDefaultModel: vi.fn(async () => "claude-default"),
         launcher,

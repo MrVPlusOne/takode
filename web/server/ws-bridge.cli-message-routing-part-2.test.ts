@@ -17,6 +17,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -69,7 +70,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -583,7 +584,7 @@ describe("CLI message routing", () => {
   beforeEach(async () => {
     cli = makeCliSocket("s1");
     browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
     await subscribeCurrentBrowser(bridge, browser);
   });
@@ -607,7 +608,7 @@ describe("CLI message routing", () => {
       },
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
     await new Promise((r) => setTimeout(r, 0)); // flush async handleControlRequest
 
     const session = bridge.getSession("s1")!;
@@ -632,19 +633,15 @@ describe("CLI message routing", () => {
       },
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
     await new Promise((r) => setTimeout(r, 0)); // flush async handleControlRequest
 
     // Should NOT be added to pending (auto-approved)
     expect(session.pendingPermissions.has("req-mode-auto")).toBe(false);
 
-    // CLI should receive control_response with allow
-    const cliCalls = cli.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const controlResp = cliCalls.find(
-      (c: any) => c.type === "control_response" && c.response?.request_id === "req-mode-auto",
-    );
-    expect(controlResp).toBeDefined();
-    expect(controlResp.response.response.behavior).toBe("allow");
+    // Claude should be allowed to run the tool
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cli.permissionDecisions.get("req-mode-auto")).toMatchObject({ behavior: "allow" });
 
     // Browser should receive permission_approved (not just permission_request)
     const browserCalls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
@@ -662,7 +659,7 @@ describe("CLI message routing", () => {
     expect(historyEntry).toBeDefined();
   });
 
-  it("control_request (can_use_tool): Tier 2 settings rule auto-approves Bash mkdir for WS sessions", async () => {
+  it("control_request (can_use_tool): Tier 2 settings rule auto-approves Bash mkdir", async () => {
     const session = bridge.getSession("s1")!;
     // Plan mode: Tier 1 won't fire for Bash, but Tier 2 should match settings rule
     session.state.permissionMode = "plan";
@@ -671,7 +668,7 @@ describe("CLI message routing", () => {
     mockShouldSettingsRuleApprove.mockResolvedValueOnce("Bash(mkdir *)");
 
     browser.send.mockClear();
-    cli.send.mockClear();
+    cli.clearSent();
 
     const msg = JSON.stringify({
       type: "control_request",
@@ -685,7 +682,7 @@ describe("CLI message routing", () => {
       },
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
     // Tier 2 is async (settings rule check returns a promise), so flush promises
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
@@ -693,13 +690,9 @@ describe("CLI message routing", () => {
     // Should NOT be added to pending (auto-approved via settings rule)
     expect(session.pendingPermissions.has("req-settings-rule")).toBe(false);
 
-    // CLI should receive control_response with allow
-    const cliCalls = cli.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const controlResp = cliCalls.find(
-      (c: any) => c.type === "control_response" && c.response?.request_id === "req-settings-rule",
-    );
-    expect(controlResp).toBeDefined();
-    expect(controlResp.response.response.behavior).toBe("allow");
+    // Claude should be allowed to run the tool
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cli.permissionDecisions.get("req-settings-rule")).toMatchObject({ behavior: "allow" });
 
     // Browser should receive permission_approved
     const browserCalls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
@@ -713,7 +706,7 @@ describe("CLI message routing", () => {
   it("control_request (can_use_tool): hard-denies long sleep Bash commands and injects reminder", async () => {
     const session = bridge.getSession("s1")!;
     browser.send.mockClear();
-    cli.send.mockClear();
+    cli.clearSent();
 
     const msg = JSON.stringify({
       type: "control_request",
@@ -727,17 +720,13 @@ describe("CLI message routing", () => {
       },
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
     await new Promise((r) => setTimeout(r, 0));
 
     expect(session.pendingPermissions.has("req-long-sleep")).toBe(false);
 
-    const cliCalls = cli.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const controlResp = cliCalls.find(
-      (c: any) => c.type === "control_response" && c.response?.request_id === "req-long-sleep",
-    );
-    expect(controlResp).toBeDefined();
-    expect(controlResp.response.response.behavior).toBe("deny");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cli.permissionDecisions.get("req-long-sleep")).toMatchObject({ behavior: "deny" });
 
     const browserCalls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(
@@ -756,7 +745,7 @@ describe("CLI message routing", () => {
   it("control_request (can_use_tool): hard-denies backgrounded long sleep Bash commands", async () => {
     const session = bridge.getSession("s1")!;
     browser.send.mockClear();
-    cli.send.mockClear();
+    cli.clearSent();
 
     const msg = JSON.stringify({
       type: "control_request",
@@ -770,17 +759,13 @@ describe("CLI message routing", () => {
       },
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
     await new Promise((r) => setTimeout(r, 0));
 
     expect(session.pendingPermissions.has("req-background-sleep")).toBe(false);
 
-    const cliCalls = cli.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const controlResp = cliCalls.find(
-      (c: any) => c.type === "control_response" && c.response?.request_id === "req-background-sleep",
-    );
-    expect(controlResp).toBeDefined();
-    expect(controlResp.response.response.behavior).toBe("deny");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cli.permissionDecisions.get("req-background-sleep")).toMatchObject({ behavior: "deny" });
 
     const browserCalls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(
@@ -796,13 +781,14 @@ describe("CLI message routing", () => {
     ).toBeDefined();
   });
 
-  it("interrupts Claude WS long sleep tool_use observed after bypassed permissions and injects reminder", async () => {
+  it("interrupts bypass-mode Claude long sleep tool_use observed after bypassed permissions and injects reminder", async () => {
     const session = bridge.getSession("s1")!;
+    // Claude launched in bypass mode runs Bash without a permission request.
+    bridge.getSession("s1")!.state.permissionMode = "bypassPermissions";
     browser.send.mockClear();
-    cli.send.mockClear();
+    cli.clearSent();
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         parent_tool_use_id: null,
@@ -819,8 +805,7 @@ describe("CLI message routing", () => {
     );
     await new Promise((r) => setTimeout(r, 0));
 
-    const cliCalls = cli.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(cliCalls.find((c: any) => c.type === "control_request" && c.request?.subtype === "interrupt")).toBeDefined();
+    expect(cli.query.interrupt).toHaveBeenCalled();
 
     const browserCalls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(
@@ -841,13 +826,14 @@ describe("CLI message routing", () => {
     ).toBe(true);
   });
 
-  it("interrupts Claude WS backgrounded long sleep tool_use observed after bypassed permissions", async () => {
+  it("interrupts bypass-mode Claude backgrounded long sleep tool_use observed after bypassed permissions", async () => {
     const session = bridge.getSession("s1")!;
+    // Claude launched in bypass mode runs Bash without a permission request.
+    bridge.getSession("s1")!.state.permissionMode = "bypassPermissions";
     browser.send.mockClear();
-    cli.send.mockClear();
+    cli.clearSent();
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         parent_tool_use_id: null,
@@ -864,8 +850,7 @@ describe("CLI message routing", () => {
     );
     await new Promise((r) => setTimeout(r, 0));
 
-    const cliCalls = cli.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(cliCalls.find((c: any) => c.type === "control_request" && c.request?.subtype === "interrupt")).toBeDefined();
+    expect(cli.query.interrupt).toHaveBeenCalled();
 
     const browserCalls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(
@@ -881,12 +866,13 @@ describe("CLI message routing", () => {
     ).toBeDefined();
   });
 
-  it("interrupts Claude WS wrapper-option long sleep tool_use observed after bypassed permissions", async () => {
+  it("interrupts bypass-mode Claude wrapper-option long sleep tool_use observed after bypassed permissions", async () => {
+    // Claude launched in bypass mode runs Bash without a permission request.
+    bridge.getSession("s1")!.state.permissionMode = "bypassPermissions";
     browser.send.mockClear();
-    cli.send.mockClear();
+    cli.clearSent();
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         parent_tool_use_id: null,
@@ -905,8 +891,7 @@ describe("CLI message routing", () => {
     );
     await new Promise((r) => setTimeout(r, 0));
 
-    const cliCalls = cli.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(cliCalls.find((c: any) => c.type === "control_request" && c.request?.subtype === "interrupt")).toBeDefined();
+    expect(cli.query.interrupt).toHaveBeenCalled();
 
     const browserCalls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(
@@ -914,12 +899,13 @@ describe("CLI message routing", () => {
     ).toBeDefined();
   });
 
-  it("does not interrupt Claude WS short sleep tool_use with file-descriptor redirection", async () => {
+  it("does not interrupt bypass-mode Claude short sleep tool_use with file-descriptor redirection", async () => {
+    // Claude launched in bypass mode runs Bash without a permission request.
+    bridge.getSession("s1")!.state.permissionMode = "bypassPermissions";
     browser.send.mockClear();
-    cli.send.mockClear();
+    cli.clearSent();
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         parent_tool_use_id: null,
@@ -938,15 +924,81 @@ describe("CLI message routing", () => {
     );
     await new Promise((r) => setTimeout(r, 0));
 
-    const cliCalls = cli.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(
-      cliCalls.find((c: any) => c.type === "control_request" && c.request?.subtype === "interrupt"),
-    ).toBeUndefined();
+    expect(cli.query.interrupt).not.toHaveBeenCalled();
 
     const browserCalls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(
       browserCalls.find((c: any) => c.type === "permission_denied" && c.tool_use_id === "cmd-short-sleep-redirect"),
     ).toBeUndefined();
+  });
+
+  it("leaves long sleeps outside bypass mode to the permission pipeline", async () => {
+    // In other modes Claude asks before running Bash, and the pipeline hard-denies
+    // the call there; the observer must not also interrupt the turn.
+    bridge.getSession("s1")!.state.permissionMode = "default";
+    cli.clearSent();
+
+    cli.message(
+      JSON.stringify({
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: {
+          id: "assistant-default-mode-sleep",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [{ type: "tool_use", id: "cmd-default-sleep", name: "Bash", input: { command: "sleep 600" } }],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(cli.query.interrupt).not.toHaveBeenCalled();
+  });
+
+  it("records one long-sleep denial when bypass observation and a permission request both fire", async () => {
+    // If Claude does ask in bypass mode, the observer's denial already covers the
+    // tool call; the pipeline still denies it but must not duplicate history.
+    const session = bridge.getSession("s1")!;
+    session.state.permissionMode = "bypassPermissions";
+
+    cli.message(
+      JSON.stringify({
+        type: "assistant",
+        parent_tool_use_id: null,
+        message: {
+          id: "assistant-double-sleep",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [{ type: "tool_use", id: "cmd-double-sleep", name: "Bash", input: { command: "sleep 600" } }],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+      }),
+    );
+    cli.message(
+      JSON.stringify({
+        type: "control_request",
+        request_id: "req-double-sleep",
+        request: {
+          subtype: "can_use_tool",
+          tool_name: "Bash",
+          input: { command: "sleep 600" },
+          tool_use_id: "cmd-double-sleep",
+        },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(cli.permissionDecisions.get("req-double-sleep")).toMatchObject({ behavior: "deny" });
+    const denials = session.messageHistory.filter(
+      (entry: any) => entry.type === "permission_denied" && entry.tool_use_id === "cmd-double-sleep",
+    );
+    expect(denials).toHaveLength(1);
   });
 
   it("tool_progress: broadcasts", () => {
@@ -961,7 +1013,7 @@ describe("CLI message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const progressMsg = calls.find((c: any) => c.type === "tool_progress");
@@ -981,88 +1033,12 @@ describe("CLI message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const summaryMsg = calls.find((c: any) => c.type === "tool_use_summary");
     expect(summaryMsg).toBeDefined();
     expect(summaryMsg.summary).toBe("Ran bash command successfully");
     expect(summaryMsg.tool_use_ids).toEqual(["tu-10", "tu-11"]);
-  });
-
-  it("keep_alive: silently consumed, no broadcast", () => {
-    const msg = JSON.stringify({ type: "keep_alive" });
-
-    bridge.handleCLIMessage(cli, msg);
-
-    expect(browser.send).not.toHaveBeenCalled();
-  });
-
-  it("keep_alive does not update lastActivityAt but real messages do", () => {
-    // Idle Claude sessions send periodic keep_alive pings. These must NOT
-    // refresh lastActivityAt, otherwise the idle manager treats them as
-    // recently active and kills sessions with real user activity instead.
-    const mockLauncher = {
-      touchActivity: vi.fn(),
-      getSession: vi.fn(() => undefined),
-    } as any;
-    bridge.setLauncher(mockLauncher);
-
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "keep_alive" }));
-    expect(mockLauncher.touchActivity).not.toHaveBeenCalled();
-
-    // A real message (e.g. tool_progress) should update activity
-    bridge.handleCLIMessage(
-      cli,
-      JSON.stringify({
-        type: "tool_progress",
-        tool_use_id: "tu-1",
-        tool_name: "Bash",
-        parent_tool_use_id: null,
-        elapsed_time_seconds: 1,
-        uuid: "uuid-1",
-        session_id: "s1",
-      }),
-    );
-    expect(mockLauncher.touchActivity).toHaveBeenCalledWith("s1");
-  });
-
-  it("multi-line NDJSON: processes both lines", () => {
-    const line1 = JSON.stringify({
-      type: "tool_progress",
-      tool_use_id: "tu-a",
-      tool_name: "Read",
-      parent_tool_use_id: null,
-      elapsed_time_seconds: 1,
-      uuid: "uuid-a",
-      session_id: "s1",
-    });
-    const line2 = JSON.stringify({
-      type: "tool_progress",
-      tool_use_id: "tu-b",
-      tool_name: "Edit",
-      parent_tool_use_id: null,
-      elapsed_time_seconds: 2,
-      uuid: "uuid-b",
-      session_id: "s1",
-    });
-
-    bridge.handleCLIMessage(cli, line1 + "\n" + line2);
-
-    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const progressMsgs = calls.filter((c: any) => c.type === "tool_progress");
-    expect(progressMsgs).toHaveLength(2);
-    expect(progressMsgs[0].tool_use_id).toBe("tu-a");
-    expect(progressMsgs[1].tool_use_id).toBe("tu-b");
-  });
-
-  it("malformed JSON: skips gracefully without crashing", () => {
-    const validLine = JSON.stringify({ type: "keep_alive" });
-    const raw = "not-valid-json\n" + validLine;
-
-    // Should not throw
-    expect(() => bridge.handleCLIMessage(cli, raw)).not.toThrow();
-    // keep_alive is silently consumed, so no broadcast
-    expect(browser.send).not.toHaveBeenCalled();
   });
 });

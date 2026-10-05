@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -639,7 +640,7 @@ describe("Persistence", () => {
     expect(session!.state.cwd).toBe("/saved");
     expect(session!.state.total_cost_usd).toBe(0.1);
     expect(session!.messageHistory).toHaveLength(1);
-    expect(session!.backendSocket).toBeNull();
+    expect(session!.codexAdapter).toBeNull();
     expect(session!.browserSockets.size).toBe(0);
     expect(getPendingCodexTurn(session!)).toMatchObject({
       adapterMsg: { type: "user_message", content: "Hello" },
@@ -926,10 +927,10 @@ describe("Persistence", () => {
     const saveSpy = vi.spyOn(store, "save");
 
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
     // system.init should trigger persist
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.message(makeInitMsg());
     expect(saveSpy).toHaveBeenCalled();
 
     const lastCall = saveSpy.mock.calls[saveSpy.mock.calls.length - 1][0];
@@ -939,8 +940,7 @@ describe("Persistence", () => {
     saveSpy.mockClear();
 
     // assistant message should trigger persist
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -962,8 +962,7 @@ describe("Persistence", () => {
     saveSpy.mockClear();
 
     // result message should trigger persist
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -983,8 +982,7 @@ describe("Persistence", () => {
     saveSpy.mockClear();
 
     // control_request (can_use_tool) should trigger persist
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "control_request",
         request_id: "req-persist",

@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -581,9 +582,11 @@ describe("AskUserQuestion is never auto-approved in bypassPermissions mode", () 
 
   beforeEach(() => {
     cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    // Start in bypassPermissions mode — all tools except interactive ones should auto-approve
-    bridge.handleCLIMessage(cli, makeInitMsg({ permissionMode: "bypassPermissions" }));
+    cli.attach(bridge);
+    // Start in bypassPermissions mode — all tools except interactive ones should auto-approve.
+    // Takode owns the permission mode for Claude sessions.
+    bridge.getSession("s1")!.state.permissionMode = "bypassPermissions";
+    cli.message(makeInitMsg({ permissionMode: "bypassPermissions" }));
 
     browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -596,13 +599,12 @@ describe("AskUserQuestion is never auto-approved in bypassPermissions mode", () 
         history_window_visible_section_count: 3,
       }),
     );
-    cli.send.mockClear();
+    cli.clearSent();
     browser.send.mockClear();
   });
 
-  it("does not auto-approve AskUserQuestion — sends permission_request to browser instead", () => {
-    bridge.handleCLIMessage(
-      cli,
+  it("does not auto-approve AskUserQuestion — sends permission_request to browser instead", async () => {
+    cli.message(
       JSON.stringify({
         type: "control_request",
         request_id: "req-ask",
@@ -615,10 +617,10 @@ describe("AskUserQuestion is never auto-approved in bypassPermissions mode", () 
       }),
     );
 
-    // CLI should NOT receive an auto-approval control_response
-    const cliCalls = cli.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
-    const autoResponse = cliCalls.find((m: any) => m.type === "control_response");
-    expect(autoResponse).toBeUndefined();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Claude should NOT receive an automatic answer
+    expect(cli.permissionDecisions.has("req-ask")).toBe(false);
 
     // Browser SHOULD receive a permission_request so the user can answer
     const browserCalls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
@@ -627,9 +629,8 @@ describe("AskUserQuestion is never auto-approved in bypassPermissions mode", () 
     expect(permReq.request.tool_name).toBe("AskUserQuestion");
   });
 
-  it("does not auto-approve ExitPlanMode — sends permission_request to browser instead", () => {
-    bridge.handleCLIMessage(
-      cli,
+  it("does not auto-approve ExitPlanMode — sends permission_request to browser instead", async () => {
+    cli.message(
       JSON.stringify({
         type: "control_request",
         request_id: "req-plan",
@@ -642,9 +643,9 @@ describe("AskUserQuestion is never auto-approved in bypassPermissions mode", () 
       }),
     );
 
-    const cliCalls = cli.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
-    const autoResponse = cliCalls.find((m: any) => m.type === "control_response");
-    expect(autoResponse).toBeUndefined();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(cli.permissionDecisions.has("req-plan")).toBe(false);
 
     const browserCalls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
     const permReq = browserCalls.find((m: any) => m.type === "permission_request");
@@ -652,9 +653,8 @@ describe("AskUserQuestion is never auto-approved in bypassPermissions mode", () 
     expect(permReq.request.tool_name).toBe("ExitPlanMode");
   });
 
-  it("still auto-approves regular tools like Edit in bypassPermissions mode", () => {
-    bridge.handleCLIMessage(
-      cli,
+  it("still auto-approves regular tools like Edit in bypassPermissions mode", async () => {
+    cli.message(
       JSON.stringify({
         type: "control_request",
         request_id: "req-edit",
@@ -667,10 +667,9 @@ describe("AskUserQuestion is never auto-approved in bypassPermissions mode", () 
       }),
     );
 
-    // CLI should receive an auto-approval
-    const cliCalls = cli.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
-    const autoResponse = cliCalls.find((m: any) => m.type === "control_response");
-    expect(autoResponse).toBeDefined();
-    expect(autoResponse.response.response.behavior).toBe("allow");
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Claude should receive an automatic approval
+    expect(cli.permissionDecisions.get("req-edit")).toMatchObject({ behavior: "allow" });
   });
 });

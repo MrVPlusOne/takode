@@ -273,7 +273,7 @@ export function registerSessionSideChatRoutes(
     const anchor = findRootAssistantAnchor(root.messageHistory, anchorMessageId);
     if (!anchor) return c.json({ error: "Anchor must be a root assistant message" }, 400);
 
-    const backend = (rootInfo.backendType || root.state.backend_type || "claude") as BackendType;
+    const backend = rootInfo.backendType ?? root.state.backend_type ?? "claude-sdk";
     const preflight = buildPreflight(backend, root, rootInfo, anchorMessageId);
     if (!preflight.ok) {
       return c.json({ error: preflight.error, reasonCode: preflight.reasonCode }, preflight.status as never);
@@ -422,7 +422,7 @@ export function registerSessionSideChatRoutes(
     const body = await c.req.json().catch(() => ({}));
     const anchorMessageId = typeof body.anchorMessageId === "string" ? body.anchorMessageId.trim() : "";
     if (!anchorMessageId) return c.json({ error: "anchorMessageId is required" }, 400);
-    const backend = (rootInfo.backendType || root.state.backend_type || "claude") as BackendType;
+    const backend = rootInfo.backendType ?? root.state.backend_type ?? "claude-sdk";
     const preflight = buildPreflight(backend, root, rootInfo, anchorMessageId);
     if (!preflight.ok)
       return c.json({ error: preflight.error, reasonCode: preflight.reasonCode }, preflight.status as never);

@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -578,14 +579,13 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 describe("compaction_finished herd event", () => {
   it("emits compaction_finished when Claude Code exits compacting state", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const spy = vi.spyOn(bridge, "emitTakodeEvent");
 
     // Enter compacting
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "status",
@@ -594,8 +594,7 @@ describe("compaction_finished herd event", () => {
     );
 
     // Exit compacting
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "status",
@@ -626,8 +625,8 @@ describe("compaction_finished herd event", () => {
 
   it("includes context_used_percent in compaction_finished event data", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     // Set context usage on the session
     const session = bridge.getSession("s1")!;
@@ -636,16 +635,14 @@ describe("compaction_finished herd event", () => {
     const spy = vi.spyOn(bridge, "emitTakodeEvent");
 
     // Enter then exit compacting
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "status",
         status: "compacting",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "status",
@@ -666,18 +663,23 @@ describe("compaction_finished herd event", () => {
     const session = bridge.getOrCreateSession("s1");
     session.messageHistory.push({ role: "assistant", content: "previous" } as any);
 
+    // Resuming a previous Claude session (known session ID + existing history).
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ cliSessionId: "cli-prev" })),
+    } as any);
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     expect(session.cliResuming).toBe(true);
 
     const spy = vi.spyOn(bridge, "emitTakodeEvent");
 
     // Replayed system.init
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.message(makeInitMsg());
 
     // Replayed compacting status (suppressed by cliResuming guard)
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "status",
@@ -685,8 +687,7 @@ describe("compaction_finished herd event", () => {
       }),
     );
     // Replayed idle status
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "status",

@@ -20,6 +20,7 @@ import { SessionStore } from "./session-store.js";
 import { CodexMcpManager } from "./codex-mcp-manager.js";
 import type { JsonRpcTransport } from "./codex-jsonrpc-transport.js";
 import { subscribeCurrentBrowser, waitForBrowserMessage } from "./ws-bridge-current-browser-test-helpers.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
   advanceBoardRow as advanceBoardRowController,
@@ -71,7 +72,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {

@@ -30,20 +30,21 @@ import type { PermissionRequest } from "./session-types.js";
 import { WsBridge } from "./ws-bridge.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
 
-type TestCliSocket = {
-  send: ReturnType<typeof vi.fn>;
-  close: ReturnType<typeof vi.fn>;
+type TestClaudeAdapter = {
+  sendBrowserMessage: ReturnType<typeof vi.fn>;
+  isConnected: () => boolean;
+  disconnect: ReturnType<typeof vi.fn>;
 };
 
-function makeCliSocket(sessionId: string, sentOrder: string[]): TestCliSocket {
+/** Stand-in for a connected Claude SDK adapter that records interrupts in order. */
+function makeClaudeAdapter(sessionId: string, sentOrder: string[]): TestClaudeAdapter {
   return {
-    send: vi.fn((raw: string) => {
-      const parsed = JSON.parse(raw.trim());
-      if (parsed.type === "control_request" && parsed.request?.subtype === "interrupt") {
-        sentOrder.push(sessionId);
-      }
+    sendBrowserMessage: vi.fn((msg: { type: string }) => {
+      if (msg.type === "interrupt") sentOrder.push(sessionId);
+      return true;
     }),
-    close: vi.fn(),
+    isConnected: () => true,
+    disconnect: vi.fn(async () => {}),
   };
 }
 
@@ -61,7 +62,7 @@ describe("server restart controls", () => {
   let publishPreparedRestart: ReturnType<typeof vi.fn>;
   let discardPreparedRestart: ReturnType<typeof vi.fn>;
   let sentOrder: string[];
-  let cliSockets: Record<string, TestCliSocket>;
+  let claudeAdapters: Record<string, TestClaudeAdapter>;
   let tempDir: string;
 
   beforeEach(async () => {
@@ -69,7 +70,7 @@ describe("server restart controls", () => {
     tempDir = await mkdtemp(join(tmpdir(), "takode-restart-controls-"));
     bridge = new WsBridge();
     sentOrder = [];
-    cliSockets = {};
+    claudeAdapters = {};
     requestRestart = vi.fn();
     publishPreparedRestart = vi.fn(async () => {});
     discardPreparedRestart = vi.fn(async () => {});
@@ -137,9 +138,9 @@ describe("server restart controls", () => {
         return [requestId, request];
       }),
     );
-    const socket = makeCliSocket(sessionId, sentOrder);
-    session.backendSocket = socket as any;
-    cliSockets[sessionId] = socket;
+    const adapter = makeClaudeAdapter(sessionId, sentOrder);
+    session.claudeSdkAdapter = adapter as any;
+    claudeAdapters[sessionId] = adapter;
   }
 
   function attachBlockingCodexSession(sessionId: string): {
@@ -202,7 +203,7 @@ describe("server restart controls", () => {
 
     expect(res.status).toBe(500);
     await expect(res.json()).resolves.toEqual({ error: "Frontend restart preparation failed: Vite build failed" });
-    expect(cliSockets.worker.send).not.toHaveBeenCalled();
+    expect(claudeAdapters.worker.sendBrowserMessage).not.toHaveBeenCalled();
     expect(requestRestart).not.toHaveBeenCalled();
     expect(publishPreparedRestart).not.toHaveBeenCalled();
     expect(discardPreparedRestart).not.toHaveBeenCalled();
@@ -381,10 +382,8 @@ describe("server restart controls", () => {
     expect(leaderSession?.interruptSourceDuringTurn).toBe("user");
 
     for (const sessionId of ["worker", "leader", "approval"] as const) {
-      expect(cliSockets[sessionId].send).toHaveBeenCalledTimes(1);
-      const payload = JSON.parse(cliSockets[sessionId].send.mock.calls[0][0].trim());
-      expect(payload.type).toBe("control_request");
-      expect(payload.request?.subtype).toBe("interrupt");
+      expect(claudeAdapters[sessionId].sendBrowserMessage).toHaveBeenCalledTimes(1);
+      expect(claudeAdapters[sessionId].sendBrowserMessage.mock.calls[0][0]).toMatchObject({ type: "interrupt" });
     }
   });
 
@@ -396,8 +395,8 @@ describe("server restart controls", () => {
     attachBlockingSession("worker", { isGenerating: true });
     const leaderSession = bridge.getOrCreateSession("leader");
     leaderSession.cliInitReceived = true;
-    cliSockets.leader = makeCliSocket("leader", sentOrder);
-    leaderSession.backendSocket = cliSockets.leader as any;
+    claudeAdapters.leader = makeClaudeAdapter("leader", sentOrder);
+    leaderSession.claudeSdkAdapter = claudeAdapters.leader as any;
 
     const res = await app.request("/api/server/interrupt-all", { method: "POST" });
     const body = await res.json();
@@ -413,7 +412,7 @@ describe("server restart controls", () => {
       interrupt_source: "user",
     });
 
-    expect(cliSockets.leader?.send).not.toHaveBeenCalled();
+    expect(claudeAdapters.leader?.sendBrowserMessage).not.toHaveBeenCalled();
     const snapshot = (bridge as any).herdEventDispatcher.getRestartPrepOperationSnapshot(body.operationId);
     expect(snapshot.suppressedHerdEvents).toBe(1);
   });

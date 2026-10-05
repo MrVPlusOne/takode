@@ -120,7 +120,6 @@ vi.mock("./settings-manager.js", () => ({
       enhancementModel: "gpt-5-mini",
     },
     editorConfig: { editor: "none" },
-    defaultClaudeBackend: "claude",
     sleepInhibitorEnabled: false,
     sleepInhibitorDurationMinutes: 5,
     questmasterViewMode: "cards",
@@ -152,7 +151,6 @@ vi.mock("./settings-manager.js", () => ({
       enhancementModel: "gpt-5-mini",
     },
     editorConfig: patch.editorConfig ?? { editor: "none" },
-    defaultClaudeBackend: patch.defaultClaudeBackend ?? "claude",
     sleepInhibitorEnabled: patch.sleepInhibitorEnabled ?? false,
     sleepInhibitorDurationMinutes: patch.sleepInhibitorDurationMinutes ?? 5,
     questmasterViewMode: patch.questmasterViewMode ?? "cards",
@@ -600,7 +598,7 @@ describe("POST /api/sessions/create with backend", () => {
     expect(launched?.noAutoName).toBe(true);
   });
 
-  it("defaults to claude backend when not specified", async () => {
+  it("defaults to the Claude SDK backend when not specified", async () => {
     const res = await app.request("/api/sessions/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -608,6 +606,31 @@ describe("POST /api/sessions/create with backend", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ backendType: "claude" }));
+    expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ backendType: "claude-sdk" }));
+  });
+
+  it("rejects Claude sessions in a container environment before starting one", async () => {
+    // Claude runs through the Agent SDK on the host; only Codex supports containers.
+    vi.mocked(envManager.getEnv).mockResolvedValue({
+      name: "Companion",
+      slug: "companion",
+      variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
+      baseImage: "companion-dev:latest",
+      createdAt: 1000,
+      updatedAt: 1000,
+    } as any);
+    vi.mocked(envManager.getEffectiveImage).mockResolvedValue("companion-dev:latest");
+    const createSpy = vi.spyOn(containerManager, "createContainer");
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test", envSlug: "companion", backend: "claude" }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("Claude sessions cannot run in a container");
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(launcher.launch).not.toHaveBeenCalled();
   });
 });

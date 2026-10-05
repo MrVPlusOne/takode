@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -584,9 +585,9 @@ describe("Compaction preserves generation state (regression)", () => {
   it("Claude Code: isGenerating stays true during compaction", async () => {
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.message(makeInitMsg());
 
     // Start generation via user message
     await bridge.handleBrowserMessage(
@@ -600,8 +601,7 @@ describe("Compaction preserves generation state (regression)", () => {
     expect(session.isGenerating).toBe(true);
 
     // CLI enters compaction mid-turn
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "status",
@@ -614,8 +614,7 @@ describe("Compaction preserves generation state (regression)", () => {
     expect(session.state.is_compacting).toBe(true);
 
     // CLI finishes compaction, continues turn
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "status",
@@ -626,8 +625,7 @@ describe("Compaction preserves generation state (regression)", () => {
     expect(session.isGenerating).toBe(true);
 
     // Turn ends normally — result properly transitions to idle
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -649,9 +647,9 @@ describe("Compaction preserves generation state (regression)", () => {
   it("Claude Code: compaction mid-tool-call preserves tool state and generation", async () => {
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.message(makeInitMsg());
 
     // Start generation
     await bridge.handleBrowserMessage(
@@ -663,8 +661,7 @@ describe("Compaction preserves generation state (regression)", () => {
     );
 
     // CLI sends assistant message with a tool_use
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -687,8 +684,7 @@ describe("Compaction preserves generation state (regression)", () => {
     expect(session.toolStartTimes.has("tool-bash-1")).toBe(true);
 
     // Compaction starts mid-tool-call
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "status",
@@ -702,8 +698,7 @@ describe("Compaction preserves generation state (regression)", () => {
     expect(session.state.is_compacting).toBe(true);
 
     // Compaction finishes
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "status",

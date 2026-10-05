@@ -19,6 +19,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import { COMPACTION_RECOVERY_SOURCE_ID, COMPACTION_RECOVERY_SOURCE_LABEL } from "../shared/injected-event-message.js";
@@ -88,7 +89,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -595,142 +596,34 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
   });
 }
 
-describe("cliResuming debounce prevents false compaction events on --resume replay", () => {
-  // During --resume, the CLI replays ALL historical system.init messages (one
-  // per subagent/Task invocation). The old code cleared cliResuming on every
-  // system.init, allowing later replayed system.status "compacting" messages
-  // to slip through the guard and emit false compaction_started events.
-  // The fix debounces the cliResuming clear — it stays true until 2s after
-  // the LAST replayed system.init.
+describe("cliResuming prevents false compaction events on --resume replay", () => {
+  // While a resumed Claude session is still replaying, compaction status,
+  // boundaries and summaries belong to the old conversation. cliResuming stays
+  // true until 2s after the last replayed message, and only compaction that
+  // happens after that window may surface as a live event.
 
-  it("does not emit compaction_started for replayed compacting status after a replayed system.init", () => {
-    vi.useFakeTimers();
-
-    // Create a session with existing message history (simulates restore from disk).
-    const session = bridge.getOrCreateSession("s1");
-    session.messageHistory.push({ role: "assistant", content: "previous turn" } as any);
-
-    const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    // cliResuming should be true because messageHistory is non-empty.
-    expect(session.cliResuming).toBe(true);
-
-    const spy = vi.spyOn(bridge, "emitTakodeEvent");
-
-    // Simulate replayed system.init (from a subagent) — should NOT clear cliResuming.
-    bridge.handleCLIMessage(cli, makeInitMsg());
-    expect(session.cliResuming).toBe(true); // still true — debounced
-
-    // Simulate replayed system.status with compacting — should be suppressed.
-    bridge.handleCLIMessage(
-      cli,
-      JSON.stringify({
-        type: "system",
-        subtype: "status",
-        status: "compacting",
-      }),
-    );
-
-    // No compaction_started event should have been emitted.
-    const compactionCalls = spy.mock.calls.filter(([, event]) => event === "compaction_started");
-    expect(compactionCalls).toHaveLength(0);
-
-    // After the debounce window (2s), cliResuming should be cleared.
-    vi.advanceTimersByTime(2100);
-    expect(session.cliResuming).toBe(false);
-    expect(session.state.is_compacting).toBe(false);
-
-    spy.mockRestore();
-    vi.useRealTimers();
-  });
-
-  it("allows real compaction events after the debounce window expires", () => {
+  it("ignores replayed compact_boundary on Claude sessions during cliResuming", () => {
     vi.useFakeTimers();
 
     const session = bridge.getOrCreateSession("s1");
     session.messageHistory.push({ role: "assistant", content: "previous turn" } as any);
-
-    const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-
-    const spy = vi.spyOn(bridge, "emitTakodeEvent");
-
-    // Replayed system.init
-    bridge.handleCLIMessage(cli, makeInitMsg());
-    expect(session.cliResuming).toBe(true);
-
-    // Wait for debounce to expire.
-    vi.advanceTimersByTime(2100);
-    expect(session.cliResuming).toBe(false);
-
-    // Now a REAL compaction status arrives — should emit event.
-    bridge.handleCLIMessage(
-      cli,
-      JSON.stringify({
-        type: "system",
-        subtype: "status",
-        status: "compacting",
-      }),
-    );
-
-    const compactionCalls = spy.mock.calls.filter(([, event]) => event === "compaction_started");
-    expect(compactionCalls).toHaveLength(1);
-
-    spy.mockRestore();
-    vi.useRealTimers();
-  });
-
-  it("resets debounce timer on each replayed system.init", () => {
-    vi.useFakeTimers();
-
-    const session = bridge.getOrCreateSession("s1");
-    session.messageHistory.push({ role: "assistant", content: "previous turn" } as any);
-
-    const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-
-    // First replayed system.init at t=0
-    bridge.handleCLIMessage(cli, makeInitMsg());
-    expect(session.cliResuming).toBe(true);
-
-    // Advance 1.5s (less than 2s debounce)
-    vi.advanceTimersByTime(1500);
-    expect(session.cliResuming).toBe(true); // still resuming
-
-    // Second replayed system.init resets the timer
-    bridge.handleCLIMessage(cli, makeInitMsg());
-    expect(session.cliResuming).toBe(true);
-
-    // Advance another 1.5s — first timer would have fired, but it was reset
-    vi.advanceTimersByTime(1500);
-    expect(session.cliResuming).toBe(true); // still resuming (timer reset)
-
-    // Advance past the second timer
-    vi.advanceTimersByTime(600);
-    expect(session.cliResuming).toBe(false); // now cleared
-
-    vi.clearAllTimers();
-    vi.useRealTimers();
-  });
-
-  it("ignores replayed compact_boundary on Claude WebSocket sessions during cliResuming", () => {
-    vi.useFakeTimers();
-
-    const session = bridge.getOrCreateSession("s1");
-    session.messageHistory.push({ role: "assistant", content: "previous turn" } as any);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ cliSessionId: "cli-prev" })),
+    } as any);
 
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     expect(session.cliResuming).toBe(true);
 
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.message(makeInitMsg());
     expect(session.cliResuming).toBe(true);
     browser.send.mockClear();
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -750,7 +643,7 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
     vi.useRealTimers();
   });
 
-  it("does not capture replayed compact summaries on Claude WebSocket sessions during cliResuming", () => {
+  it("does not capture replayed compact summaries on Claude sessions during cliResuming", () => {
     vi.useFakeTimers();
 
     const session = bridge.getOrCreateSession("s1");
@@ -761,11 +654,10 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     browser.send.mockClear();
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: { role: "user", content: "replayed summary text" },
@@ -783,7 +675,7 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
     vi.useRealTimers();
   });
 
-  it("replayed Claude WebSocket compaction during resume is ignored, then the first real compaction after debounce produces one live sequence", async () => {
+  it("replayed Claude compaction during resume is ignored, then the first real compaction after debounce produces one live sequence", async () => {
     // q-317: the WebSocket path now mirrors the SDK replay guard. Replayed
     // compaction noise during cliResuming must be ignored, then once the
     // debounce clears, the first real compact_boundary + summary should produce
@@ -796,22 +688,21 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
     bridge.setLauncher({
       touchActivity: vi.fn(),
       touchUserMessage: vi.fn(),
-      getSession: vi.fn(() => ({ isOrchestrator: true })),
+      getSession: vi.fn(() => ({ isOrchestrator: true, cliSessionId: "cli-prev" })),
     } as any);
 
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     expect(session.cliResuming).toBe(true);
 
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");
 
     // Phase 1: replay noise during resume must be ignored.
-    bridge.handleCLIMessage(cli, makeInitMsg());
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: "compacting" }));
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(makeInitMsg());
+    cli.message(JSON.stringify({ type: "system", subtype: "status", status: "compacting" }));
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -820,8 +711,7 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
         session_id: "s1",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: { role: "user", content: "Old compaction summary" },
@@ -830,7 +720,7 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
         session_id: "s1",
       }),
     );
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: null }));
+    cli.message(JSON.stringify({ type: "system", subtype: "status", status: null }));
 
     expect(session.messageHistory.filter((m) => m.type === "compact_marker")).toHaveLength(0);
     expect(
@@ -850,9 +740,8 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
     browser.send.mockClear();
 
     // Phase 3: first real compaction after replay should surface exactly once.
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: "compacting" }));
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(JSON.stringify({ type: "system", subtype: "status", status: "compacting" }));
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -861,8 +750,7 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
         session_id: "s1",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: { role: "user", content: "New compaction summary" },
@@ -871,7 +759,7 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
         session_id: "s1",
       }),
     );
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: null }));
+    cli.message(JSON.stringify({ type: "system", subtype: "status", status: null }));
 
     const markers = session.messageHistory.filter((m) => m.type === "compact_marker");
     expect(markers).toHaveLength(1);
@@ -895,7 +783,7 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
     vi.useRealTimers();
   });
 
-  it("preserves compacting state across Claude WebSocket resume when /compact is queued for post-replay flush", () => {
+  it("preserves compacting state across Claude resume when /compact is queued for post-replay flush", () => {
     // Regression for q-456: a queued /compact must keep the authoritative
     // session status at compacting while resume replay drains, otherwise the
     // UI snaps back to idle before the compact request is actually sent.
@@ -921,10 +809,10 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
     browser.send.mockClear();
-    cli.send.mockClear();
+    cli.clearSent();
 
     vi.advanceTimersByTime(2100);
 
@@ -934,13 +822,8 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls).toContainEqual(expect.objectContaining({ type: "status_change", status: "compacting" }));
 
-    const sentCalls = cli.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg.trim()));
-    expect(sentCalls).toContainEqual(
-      expect.objectContaining({
-        type: "user",
-        message: { role: "user", content: "/compact" },
-      }),
-    );
+    // The /compact queued by the earlier process reaches Claude after replay.
+    expect(cli.promptTexts()).toContain("/compact");
 
     vi.clearAllTimers();
     vi.useRealTimers();

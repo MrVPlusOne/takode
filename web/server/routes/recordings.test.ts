@@ -44,8 +44,8 @@ describe("recording routes with automatic capture disabled", () => {
     expect(recorder.isRecording("s2")).toBe(false);
     expect(existsSync(recordingsDir)).toBe(false);
 
-    recorder.record("s1", "in", "selected", "browser", "claude", "/cwd");
-    recorder.record("s2", "in", "not selected", "browser", "claude", "/cwd");
+    recorder.record("s1", "in", "selected", "browser", "claude-sdk", "/cwd");
+    recorder.record("s2", "in", "not selected", "browser", "claude-sdk", "/cwd");
 
     const activeStatus = await app.request("/api/sessions/s1/recording/status");
     expect(activeStatus.status).toBe(200);
@@ -55,7 +55,7 @@ describe("recording routes with automatic capture disabled", () => {
       recordingsDir,
       globalEnabled: false,
       sdkDebugFile: "/tmp/claude-sdk-s1.log",
-      filePath: expect.stringContaining("s1_claude_"),
+      filePath: expect.stringContaining("s1_claude-sdk_"),
     });
 
     const stop = await app.request("/api/sessions/s1/recording/stop", { method: "POST" });
@@ -73,7 +73,7 @@ describe("recording routes with automatic capture disabled", () => {
 
     const listing = await app.request("/api/recordings");
     expect(await listing.json()).toEqual({
-      recordings: [expect.objectContaining({ sessionId: "s1", backendType: "claude" })],
+      recordings: [expect.objectContaining({ sessionId: "s1", backendType: "claude-sdk" })],
     });
   });
 });

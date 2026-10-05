@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -576,17 +577,17 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("CLI handlers", () => {
-  it("handleCLIOpen: sets backendSocket and broadcasts backend_connected", () => {
+  it("attaching Claude sets the adapter and broadcasts backend_connected", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
     // Clear session_init send calls
     browser.send.mockClear();
 
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
     const session = bridge.getSession("s1")!;
-    expect(session.backendSocket).toBe(cli);
+    expect(session.claudeSdkAdapter).toBe(cli.adapter);
     expect(bridge.isBackendConnected("s1")).toBe(true);
 
     // Should have broadcast backend_connected
@@ -594,11 +595,10 @@ describe("CLI handlers", () => {
     expect(calls).toContainEqual(expect.objectContaining({ type: "backend_connected" }));
   });
 
-  it("handleCLIOpen: flushes pending messages immediately", () => {
-    // Per the SDK protocol, the first user message triggers system.init,
-    // so queued messages must be flushed as soon as the CLI WebSocket connects
-    // (not deferred until system.init, which would create a deadlock for
-    // slow-starting sessions like Docker containers).
+  it("attaching Claude flushes pending messages immediately", () => {
+    // The first user message triggers system.init, so queued messages must be
+    // flushed as soon as Claude attaches (not deferred until system.init, which
+    // would deadlock a slow-starting session).
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
@@ -614,32 +614,16 @@ describe("CLI handlers", () => {
     const session = bridge.getSession("s1")!;
     expect(session.pendingMessages.length).toBe(1);
 
-    // Now connect CLI — messages should be flushed immediately
+    // Now attach Claude — messages should be flushed immediately
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
-    // Pending should have been flushed
+    // Pending should have been flushed to Claude
     expect(session.pendingMessages).toEqual([]);
-    // The CLI socket should have received the queued message
-    expect(cli.send).toHaveBeenCalled();
-    const sentCalls = cli.send.mock.calls.map(([arg]: [string]) => arg);
-    const userMsg = sentCalls.find((s: string) => s.includes('"type":"user"'));
-    expect(userMsg).toBeDefined();
-    const parsed = JSON.parse(userMsg!.trim());
-    expect(parsed.type).toBe("user");
-    // CLI-bound content gets a [User HH:MM] timestamp prefix
-    expect(parsed.message.content).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] hello queued$/);
+    expect(cli.promptTexts()).toHaveLength(1);
+    // Model-bound content gets a [User HH:MM] timestamp prefix
+    expect(cli.promptTexts()[0]).toMatch(/^\[User (?:\w{3}, \w{3} \d{1,2} )?\d{1,2}:\d{2}\s*[AP]M\] hello queued$/);
   });
-
-  // ── WebSocket system prompt injection via initialize control_request ──
-
-  /** Parse CLI socket send calls and find the initialize control_request, if any. */
-  function findInitializeMsg(cli: ReturnType<typeof makeCliSocket>) {
-    const sent = cli.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg.trim()));
-    return sent.find((m: any) => m.type === "control_request" && m.request?.subtype === "initialize") as
-      | { type: string; request_id: string; request: { subtype: string; appendSystemPrompt?: string } }
-      | undefined;
-  }
 
   /** Set up a mock launcher returning a session with the given backendType and optional instructions. */
   function setLauncherSession(backendType: string, instructions?: string) {
@@ -655,149 +639,12 @@ describe("CLI handlers", () => {
     } as any);
   }
 
-  it("handleCLIOpen: sends initialize control_request with appendSystemPrompt for WebSocket sessions", () => {
-    // The --append-system-prompt CLI flag is not honored in --sdk-url mode.
-    // Instead, we send a control_request {subtype: "initialize", appendSystemPrompt}
-    // over the WebSocket before the first user message.
-    const instructions =
-      "## Session Timers\n\nUse `takode timer` to create timers.\n\n## Link Syntax\n\nTest instructions";
-    setLauncherSession("claude", instructions);
-
-    const browser = makeBrowserSocket("s1");
-    bridge.handleBrowserOpen(browser, "s1");
-
-    const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-
-    const initMsg = findInitializeMsg(cli);
-    expect(initMsg).toBeDefined();
-    expect(initMsg!.request.appendSystemPrompt).toBe(instructions);
-    expect(initMsg!.request_id).toBeDefined();
-
-    const session = bridge.getSession("s1")!;
-    expect(session.cliInitializeSent).toBe(true);
-  });
-
-  it("handleCLIOpen: does NOT send initialize for SDK sessions", () => {
-    // SDK sessions inject system prompts via V4.prototype.initialize patching,
-    // not via WebSocket control_request.
-    setLauncherSession("claude-sdk", "some instructions");
-
-    const session = bridge.getOrCreateSession("s1", "claude-sdk");
-    const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-
-    expect(findInitializeMsg(cli)).toBeUndefined();
-    expect(session.cliInitializeSent).toBe(false);
-  });
-
-  it("handleCLIOpen: does NOT send initialize for Codex sessions", () => {
-    // Codex uses JSON-RPC initialize, not the NDJSON control_request.
-    setLauncherSession("codex", "some instructions");
-
-    const session = bridge.getOrCreateSession("s1", "codex");
-    const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-
-    expect(findInitializeMsg(cli)).toBeUndefined();
-    expect(session.cliInitializeSent).toBe(false);
-  });
-
-  it("handleCLIOpen: does NOT send initialize when no injectedSystemPrompt", () => {
-    // If the launcher has no instructions, skip the initialize request.
-    setLauncherSession("claude");
-
-    const browser = makeBrowserSocket("s1");
-    bridge.handleBrowserOpen(browser, "s1");
-
-    const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-
-    expect(findInitializeMsg(cli)).toBeUndefined();
-
-    const session = bridge.getSession("s1")!;
-    expect(session.cliInitializeSent).toBe(false);
-  });
-
-  it("handleCLIOpen: does NOT send initialize when injectedSystemPrompt is empty string", () => {
-    // Empty string is falsy -- should not trigger an initialize request.
-    setLauncherSession("claude", "");
-
-    const browser = makeBrowserSocket("s1");
-    bridge.handleBrowserOpen(browser, "s1");
-
-    const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-
-    expect(findInitializeMsg(cli)).toBeUndefined();
-    expect(bridge.getSession("s1")!.cliInitializeSent).toBe(false);
-  });
-
-  it("handleCLIOpen: seamless reconnect does NOT re-send initialize", () => {
-    // When CLI disconnects for token refresh and reconnects within the grace
-    // period, we should NOT re-send initialize (same process, already initialized).
-    setLauncherSession("claude", "## Timers\nTest");
-
-    const browser = makeBrowserSocket("s1");
-    bridge.handleBrowserOpen(browser, "s1");
-
-    // First connect -- should send initialize
-    const cli1 = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli1, "s1");
-    const session = bridge.getSession("s1")!;
-    expect(session.cliInitializeSent).toBe(true);
-
-    // Simulate disconnect (triggers grace timer)
-    bridge.handleCLIClose(cli1, 1006, "token refresh");
-
-    // Reconnect within grace period (seamless)
-    const cli2 = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli2, "s1");
-
-    // cliInitializeSent should still be true (not reset)
-    expect(session.cliInitializeSent).toBe(true);
-    expect(findInitializeMsg(cli2)).toBeUndefined();
-  });
-
-  it("handleCLIOpen: relaunch resets cliInitializeSent and re-sends initialize", () => {
-    // When a CLI process is killed and relaunched, the new process needs
-    // a fresh initialize control_request.
-    const instructions = "## Timers\nTest";
-    setLauncherSession("claude", instructions);
-
-    const browser = makeBrowserSocket("s1");
-    bridge.handleBrowserOpen(browser, "s1");
-
-    // First connect
-    const cli1 = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli1, "s1");
-    const session = bridge.getSession("s1")!;
-    expect(session.cliInitializeSent).toBe(true);
-
-    // Simulate disconnect
-    bridge.handleCLIClose(cli1, 1006, "relaunch");
-
-    // Mark relaunch pending (as cli-launcher does via onBeforeRelaunch callback)
-    session.relaunchPending = true;
-
-    // New CLI process connects
-    const cli2 = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli2, "s1");
-
-    // cliInitializeSent should be true again (reset then re-sent)
-    expect(session.cliInitializeSent).toBe(true);
-
-    const initMsg2 = findInitializeMsg(cli2);
-    expect(initMsg2).toBeDefined();
-    expect(initMsg2!.request.appendSystemPrompt).toBe(instructions);
-  });
-
-  it("handleCLIOpen: clears stale pendingPermissions on relaunch reconnect", () => {
+  it("attaching a new Claude process clears stale pendingPermissions on relaunch reconnect", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
     const cli1 = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli1, "s1");
+    cli1.attach(bridge);
     const session = bridge.getSession("s1")!;
 
     // Simulate a pending ExitPlanMode permission
@@ -810,9 +657,9 @@ describe("CLI handlers", () => {
     });
 
     // Disconnect
-    bridge.handleCLIClose(cli1, 1006, "relaunch");
-    // handleCLIClose clears them, but simulate server-restart scenario where
-    // they were restored from disk before close handler ran
+    cli1.disconnect();
+    // Disconnect cancels them; simulate permissions that were restored from
+    // disk before the replacement process attaches
     session.pendingPermissions.set("stale-plan-1", {
       request_id: "stale-plan-1",
       tool_name: "ExitPlanMode",
@@ -825,7 +672,7 @@ describe("CLI handlers", () => {
     browser.send.mockClear();
 
     const cli2 = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli2, "s1");
+    cli2.attach(bridge);
 
     expect(session.pendingPermissions.size).toBe(0);
     const cancelled = browser.send.mock.calls
@@ -834,9 +681,9 @@ describe("CLI handlers", () => {
     expect(cancelled).toEqual([expect.objectContaining({ type: "permission_cancelled", request_id: "stale-plan-1" })]);
   });
 
-  it("handleCLIOpen: clears stale pendingPermissions restored from disk on server restart", () => {
+  it("attaching a new Claude process clears stale pendingPermissions restored from disk on server restart", () => {
     // Simulate server restart: session is restored from disk with stale permissions,
-    // then CLI connects fresh (no disconnectGraceTimer set).
+    // then a fresh Claude process attaches.
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
     const session = bridge.getSession("s1")!;
@@ -853,7 +700,7 @@ describe("CLI handlers", () => {
     browser.send.mockClear();
 
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
     expect(session.pendingPermissions.size).toBe(0);
     const cancelled = browser.send.mock.calls
@@ -862,142 +709,56 @@ describe("CLI handlers", () => {
     expect(cancelled).toEqual([expect.objectContaining({ type: "permission_cancelled", request_id: "stale-ask-1" })]);
   });
 
-  it("handleCLIOpen: preserves pendingPermissions on seamless reconnect", () => {
+  it("cancels permissions left by a previous Claude process when a replacement adapter attaches", () => {
+    // The retired WebSocket backend could reattach the same CLI process and
+    // keep its pending permissions. Every SDK attach is a new process, so a
+    // permission still recorded at attach (for example, restored from disk)
+    // can no longer be answered and must be cancelled for the browser.
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
     const cli1 = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli1, "s1");
+    cli1.attach(bridge);
     const session = bridge.getSession("s1")!;
-
-    session.pendingPermissions.set("valid-perm-1", {
-      request_id: "valid-perm-1",
+    session.pendingPermissions.set("stale-perm-1", {
+      request_id: "stale-perm-1",
       tool_name: "Bash",
       input: { command: "ls" },
       tool_use_id: "tool-bash-1",
       timestamp: Date.now(),
     });
-
-    // Simulate disconnect with grace period (seamless reconnect path)
-    bridge.handleCLIClose(cli1, 1006, "transient");
-    // Re-add permission since handleCLIClose cleared it -- in a true seamless
-    // reconnect the CLI process stays alive and the permission is still valid.
-    // We test the handleCLIOpen logic by setting seamlessReconnect directly.
-    session.pendingPermissions.set("valid-perm-1", {
-      request_id: "valid-perm-1",
-      tool_name: "Bash",
-      input: { command: "ls" },
-      tool_use_id: "tool-bash-1",
-      timestamp: Date.now(),
-    });
-    session.seamlessReconnect = true;
 
     browser.send.mockClear();
     const cli2 = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli2, "s1");
+    cli2.attach(bridge);
 
-    // Permission should still be there
-    expect(session.pendingPermissions.size).toBe(1);
-    expect(session.pendingPermissions.has("valid-perm-1")).toBe(true);
+    expect(session.pendingPermissions.size).toBe(0);
     const cancelled = browser.send.mock.calls
       .map(([raw]: [string]) => JSON.parse(raw))
       .filter((msg: any) => msg.type === "permission_cancelled");
-    expect(cancelled).toHaveLength(0);
+    expect(cancelled).toEqual([expect.objectContaining({ type: "permission_cancelled", request_id: "stale-perm-1" })]);
   });
 
-  it("handleCLIClose ignores a stale socket after a newer CLI socket is attached", () => {
-    const browser = makeBrowserSocket("s1");
-    bridge.handleBrowserOpen(browser, "s1");
-
-    const cli1 = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli1, "s1");
-
-    const cli2 = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli2, "s1");
-
-    const session = bridge.getSession("s1")!;
-    expect(session.backendSocket).toBe(cli2);
-
-    browser.send.mockClear();
-    bridge.handleCLIClose(cli1, 1006, "stale close");
-
-    expect(session.backendSocket).toBe(cli2);
-    expect(browser.send).not.toHaveBeenCalled();
-  });
-
-  it("handleCLIOpen: initialize is sent BEFORE queued user messages", () => {
-    // The NDJSON protocol requires initialize to be sent before the first user
-    // message. Verify ordering when there are pending messages.
-    setLauncherSession("claude", "## Timers\nTest");
-
-    const browser = makeBrowserSocket("s1");
-    bridge.handleBrowserOpen(browser, "s1");
-
-    // Queue a user message before CLI connects
-    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "hello" }));
-
-    const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-
-    // Check ordering: initialize should come before the user message
-    const sent = cli.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg.trim()));
-    const initIdx = sent.findIndex((m: any) => m.type === "control_request" && m.request?.subtype === "initialize");
-    const userIdx = sent.findIndex((m: any) => m.type === "user");
-    expect(initIdx).toBeGreaterThanOrEqual(0);
-    expect(userIdx).toBeGreaterThanOrEqual(0);
-    expect(initIdx).toBeLessThan(userIdx);
-  });
-
-  it("handleCLIMessage: system.init does not re-flush already-sent messages", () => {
-    // Messages are flushed on CLI connect, so by the time system.init
-    // arrives the queue should already be empty.
-    mockExecSync.mockImplementation(() => {
-      throw new Error("not a git repo");
-    });
-
-    const browser = makeBrowserSocket("s1");
-    bridge.handleBrowserOpen(browser, "s1");
-
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({
-        type: "user_message",
-        content: "hello queued",
-      }),
-    );
-
-    const session = bridge.getSession("s1")!;
-    expect(session.pendingMessages.length).toBe(1);
-
-    // Connect CLI — messages flushed immediately
-    const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    expect(session.pendingMessages).toEqual([]);
-    const sendCountAfterOpen = cli.send.mock.calls.length;
-
-    // Send system.init — no additional flush should happen
-    bridge.handleCLIMessage(cli, makeInitMsg());
-
-    // Verify no additional user messages were sent after system.init
-    const newCalls = cli.send.mock.calls.slice(sendCountAfterOpen);
-    const userMsgAfterInit = newCalls.find(([arg]: [string]) => arg.includes('"type":"user"'));
-    expect(userMsgAfterInit).toBeUndefined();
-  });
-
-  it("defers injected herd events during Claude WebSocket replay without creating a phantom queued turn", async () => {
-    // q-467 regression: the unsafe window is after reconnect init when the
-    // leader already passes `isSessionIdle()` but is still in cliResuming
-    // replay. The herd preview reaches browser history immediately, while the
-    // synthetic wakeup must stay queued until replay completes.
+  it("delivers herd events right after a Claude resume without creating a phantom queued turn", async () => {
+    // q-467 regression: right after a resumed leader initializes it already
+    // passes `isSessionIdle()` while the bridge still treats output as possible
+    // replay. The herd wakeup must become exactly one real turn, not a queued
+    // turn that never drains.
     vi.useFakeTimers();
-    const leaderId = "orch-ws-herd-replay";
-    const workerId = "worker-ws-herd-replay";
+    const leaderId = "orch-herd-replay";
+    const workerId = "worker-herd-replay";
     const launcherSessions = new Map<string, any>([
       [
         leaderId,
-        { sessionId: leaderId, isOrchestrator: true, backendType: "claude", cwd: "/test", cliSessionId: "cli-prev" },
+        {
+          sessionId: leaderId,
+          isOrchestrator: true,
+          backendType: "claude-sdk",
+          cwd: "/test",
+          cliSessionId: "cli-prev",
+        },
       ],
-      [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "claude", cwd: "/test" }],
+      [workerId, { sessionId: workerId, herdedBy: leaderId, backendType: "claude-sdk", cwd: "/test" }],
     ]);
     const launcherMock = {
       touchActivity: vi.fn(),
@@ -1019,46 +780,31 @@ describe("CLI handlers", () => {
     } as any);
 
     const leaderCli = makeCliSocket(leaderId);
-    bridge.handleCLIOpen(leaderCli, leaderId);
-    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-ws-herd-replay" }));
+    leaderCli.attach(bridge);
+    leaderCli.message(makeInitMsg({ session_id: "cli-orch-herd-replay" }));
     expect(session.cliInitReceived).toBe(true);
     expect(session.cliResuming).toBe(true);
-    leaderCli.send.mockClear();
+    leaderCli.clearSent();
 
     bridge.emitTakodeEvent(workerId, "turn_end", { duration_ms: 1000 });
     vi.advanceTimersByTime(600);
     await Promise.resolve();
 
     expect(bridge.getSession(leaderId)?.lastUserMessage).toContain("1 event from 1 session");
-    const outboundDuringReplay = leaderCli.send.mock.calls
-      .map(([arg]: [string]) => arg as string)
-      .find((line: string) => line.includes('"type":"user"'));
-    expect(outboundDuringReplay).toBeUndefined();
-    expect(session.pendingMessages).toHaveLength(1);
+    // The SDK accepts input while resuming, so the wakeup is delivered once.
+    expect(leaderCli.promptTexts()).toHaveLength(1);
+    expect(leaderCli.promptTexts()[0]).toContain("1 event from 1 session");
+    expect(session.pendingMessages).toHaveLength(0);
     expect(session.isGenerating).toBe(true);
     expect(session.queuedTurnStarts).toBe(0);
-    expect(JSON.parse(session.pendingMessages[0]!)).toMatchObject({
-      type: "user",
-      message: expect.objectContaining({
-        role: "user",
-      }),
-    });
 
     vi.advanceTimersByTime(2100);
     await Promise.resolve();
 
     expect(session.cliResuming).toBe(false);
-    expect(session.isGenerating).toBe(true);
-    expect(session.queuedTurnStarts).toBe(0);
-    const outboundAfterReplay = leaderCli.send.mock.calls
-      .map(([arg]: [string]) => arg as string)
-      .filter((line: string) => line.includes('"type":"user"'));
-    expect(outboundAfterReplay).toHaveLength(1);
-    expect(outboundAfterReplay[0]).toContain("1 event from 1 session");
-    expect(session.pendingMessages).toHaveLength(0);
+    expect(leaderCli.promptTexts()).toHaveLength(1);
 
-    bridge.handleCLIMessage(
-      leaderCli,
+    leaderCli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -1071,7 +817,7 @@ describe("CLI handlers", () => {
         stop_reason: "end_turn",
         usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
         uuid: "uuid-herd-replay-result",
-        session_id: "cli-orch-ws-herd-replay",
+        session_id: "cli-orch-herd-replay",
       }),
     );
 
@@ -1086,12 +832,12 @@ describe("CLI handlers", () => {
     vi.useRealTimers();
   });
 
-  it("handleCLIMessage: system.init does not emit turn_end for an in-flight user dispatch", () => {
+  it("system.init does not emit turn_end for an in-flight user dispatch", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     browser.send.mockClear();
 
     const spy = vi.spyOn(bridge, "emitTakodeEvent");
@@ -1108,7 +854,7 @@ describe("CLI handlers", () => {
 
     // Regression: when system.init arrives before assistant/result output,
     // we should preserve the in-flight turn instead of emitting a fake turn_end.
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.message(makeInitMsg());
 
     const turnEndCalls = spy.mock.calls.filter(([, eventType]) => eventType === "turn_end");
     expect(turnEndCalls).toHaveLength(0);
@@ -1121,55 +867,30 @@ describe("CLI handlers", () => {
     spy.mockRestore();
   });
 
-  it("handleCLIMessage: parses NDJSON and routes system.init", () => {
+  it("system.init records Claude's session ID for resume", () => {
     mockExecSync.mockImplementation(() => {
       throw new Error("not a git repo");
     });
 
+    const setCLISessionId = vi.fn();
+    bridge.setLauncher({ touchActivity: vi.fn(), getSession: vi.fn(() => undefined), setCLISessionId } as any);
+
     const cli = makeCliSocket("s1");
-    const browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleBrowserOpen(browser, "s1");
-    browser.send.mockClear();
+    cli.attach(bridge);
+    cli.message(makeInitMsg({ session_id: "cli-internal-id" }));
 
-    bridge.handleCLIMessage(cli, makeInitMsg());
-
-    const session = bridge.getSession("s1")!;
-    expect(session.state.model).toBe("claude-sonnet-4-5-20250929");
-    expect(session.state.cwd).toBe("/test");
-
-    // Should broadcast session_init to browser
-    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const initCall = calls.find((c: any) => c.type === "session_init");
-    expect(initCall).toBeDefined();
-    expect(initCall.session.model).toBe("claude-sonnet-4-5-20250929");
+    expect(setCLISessionId).toHaveBeenCalledWith("s1", "cli-internal-id");
   });
 
-  it("handleCLIMessage: system.init fires onCLISessionIdReceived callback", () => {
-    mockExecSync.mockImplementation(() => {
-      throw new Error("not a git repo");
-    });
-
-    const callback = vi.fn();
-    bridge.onCLISessionId = callback;
-
-    const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg({ session_id: "cli-internal-id" }));
-
-    expect(callback).toHaveBeenCalledWith("s1", "cli-internal-id");
-  });
-
-  it("handleCLIMessage: updates state from init (model, cwd, tools, permissionMode)", () => {
+  it("system.init updates session state (model, cwd, tools) and keeps the server permission mode", () => {
     mockExecSync.mockImplementation(() => {
       throw new Error("not a git repo");
     });
 
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       makeInitMsg({
         model: "claude-opus-4-5-20250929",
         cwd: "/workspace",
@@ -1187,7 +908,9 @@ describe("CLI handlers", () => {
     expect(state.model).toBe("claude-opus-4-5-20250929");
     expect(state.cwd).toBe("/workspace");
     expect(state.tools).toEqual(["Bash", "Read", "Edit"]);
-    expect(state.permissionMode).toBe("bypassPermissions");
+    // Permission policy is server-authoritative for SDK sessions; Claude's
+    // reported launch mode must not overwrite it.
+    expect(state.permissionMode).toBe("default");
     expect(state.claude_code_version).toBe("2.0");
     expect(state.mcp_servers).toEqual([{ name: "test-mcp", status: "connected" }]);
     expect(state.agents).toEqual(["agent1"]);
@@ -1195,7 +918,7 @@ describe("CLI handlers", () => {
     expect(state.skills).toEqual(["pdf"]);
   });
 
-  it("handleCLIMessage: system.init preserves host cwd for containerized sessions", async () => {
+  it("system.init preserves host cwd for containerized sessions", async () => {
     // applyInitialSessionState pre-populates container host cwd before CLI connects
     bridge.applyInitialSessionState("s1", { containerizedHostCwd: "/Users/stan/Dev/myproject" });
 
@@ -1210,10 +933,10 @@ describe("CLI handlers", () => {
     });
 
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
     // CLI inside the container reports /workspace — should be ignored
-    bridge.handleCLIMessage(cli, makeInitMsg({ cwd: "/workspace" }));
+    cli.message(makeInitMsg({ cwd: "/workspace" }));
 
     const state = bridge.getSession("s1")!.state;
     expect(state.cwd).toBe("/Users/stan/Dev/myproject");
@@ -1225,7 +948,7 @@ describe("CLI handlers", () => {
     });
   });
 
-  it("handleCLIMessage: markWorktree pre-populates repo_root, git_default_branch, and diff_base_branch", async () => {
+  it("markWorktree pre-populates repo_root, git_default_branch, and diff_base_branch", async () => {
     // markWorktree sets is_worktree, repo_root, cwd, git_default_branch, and diff_base_branch before CLI connects
     bridge.markWorktree(
       "s1",
@@ -1253,8 +976,8 @@ describe("CLI handlers", () => {
     });
 
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg({ cwd: "/home/user/.companion/worktrees/companion/jiayi-wt-1234" }));
+    cli.attach(bridge);
+    cli.message(makeInitMsg({ cwd: "/home/user/.companion/worktrees/companion/jiayi-wt-1234" }));
 
     // resolveGitInfo is async (fire-and-forget) — wait for it to complete
     const stateAfter = bridge.getSession("s1")!.state;
@@ -1307,7 +1030,7 @@ describe("CLI handlers", () => {
     bridge.markWorktree("s1", "/home/user/companion", "/tmp/wt", "jiayi");
     const session = bridge.getSession("s1")!;
     // Ensure the session has a CLI socket so refreshGitInfo/recomputeDiffIfDirty don't skip
-    (session as any).backendSocket = { send: vi.fn() };
+    (session as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
     const browserWs = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browserWs, "s1");
     browserWs.send.mockClear();
@@ -1363,7 +1086,7 @@ describe("CLI handlers", () => {
 
     bridge.markWorktree("s1", "/home/user/companion", "/tmp/wt", "jiayi");
     const session = bridge.getSession("s1")!;
-    // Intentionally NO backendSocket -- simulates a session without active CLI
+    // Intentionally no Claude adapter -- simulates a session without an active backend
     // Seed stale stats that should be overwritten
     session.state.total_lines_added = 219;
     session.state.total_lines_removed = 126;
@@ -1409,7 +1132,7 @@ describe("CLI handlers", () => {
 
     bridge.markWorktree("s1", "/home/user/companion", "/tmp/wt", "jiayi");
     const session = bridge.getSession("s1")!;
-    (session as any).backendSocket = { send: vi.fn() };
+    (session as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
     const browserWs = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browserWs, "s1");
     const saveSpy = vi.spyOn(store, "save");
@@ -1439,7 +1162,7 @@ describe("CLI handlers", () => {
     );
   });
 
-  it("handleCLIMessage: system.init resolves git info and sets diff_base_branch via async exec", async () => {
+  it("system.init resolves git info and sets diff_base_branch via async exec", async () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "feat/test-branch\n";
       if (cmd.includes("rev-parse HEAD")) return "head-feat-test\n";
@@ -1453,8 +1176,8 @@ describe("CLI handlers", () => {
     });
 
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     // resolveGitInfo is async (fire-and-forget) — wait for it to complete
     const state = bridge.getSession("s1")!.state;
@@ -1469,7 +1192,7 @@ describe("CLI handlers", () => {
     });
   });
 
-  it("handleCLIMessage: system.init defaults non-worktree base to upstream tracking ref", async () => {
+  it("system.init defaults non-worktree base to upstream tracking ref", async () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "jiayi\n";
       if (cmd.includes("--git-dir")) return ".git\n";
@@ -1481,8 +1204,8 @@ describe("CLI handlers", () => {
     });
 
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg({ cwd: "/repo" }));
+    cli.attach(bridge);
+    cli.message(makeInitMsg({ cwd: "/repo" }));
 
     const state = bridge.getSession("s1")!.state;
     await vi.waitFor(() => {
@@ -1504,7 +1227,7 @@ describe("CLI handlers", () => {
     }
   });
 
-  it("handleCLIMessage: system.init migrates legacy non-worktree default base from repo default to upstream", async () => {
+  it("system.init migrates legacy non-worktree default base from repo default to upstream", async () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "jiayi\n";
       if (cmd.includes("--git-dir")) return ".git\n";
@@ -1520,11 +1243,9 @@ describe("CLI handlers", () => {
     const session = bridge.getOrCreateSession("s1");
     session.state.cwd = "/repo";
     session.state.diff_base_branch = "main";
-    (session as any).backendSocket = { send: vi.fn() };
-
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg({ cwd: "/repo" }));
+    cli.attach(bridge);
+    cli.message(makeInitMsg({ cwd: "/repo" }));
 
     await vi.waitFor(() => {
       expect(session.state.git_default_branch).toBe("origin/jiayi");
@@ -1534,7 +1255,7 @@ describe("CLI handlers", () => {
     });
   });
 
-  it("handleCLIMessage: system.init preserves an explicit non-worktree diff base branch", async () => {
+  it("system.init preserves an explicit non-worktree diff base branch", async () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "jiayi\n";
       if (cmd.includes("--git-dir")) return ".git\n";
@@ -1552,11 +1273,9 @@ describe("CLI handlers", () => {
     session.state.cwd = "/repo";
     session.state.diff_base_branch = "main";
     session.state.diff_base_branch_explicit = true;
-    (session as any).backendSocket = { send: vi.fn() };
-
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg({ cwd: "/repo" }));
+    cli.attach(bridge);
+    cli.message(makeInitMsg({ cwd: "/repo" }));
 
     await vi.waitFor(() => {
       expect(session.state.git_default_branch).toBe("origin/jiayi");
@@ -1567,7 +1286,7 @@ describe("CLI handlers", () => {
     });
   });
 
-  it("handleCLIMessage: transient git failure does not erase an explicit diff base branch", async () => {
+  it("system.init: transient git failure does not erase an explicit diff base branch", async () => {
     // A transient refresh failure should not rewrite explicit branch selections.
     mockExecSync.mockImplementation(() => {
       throw new Error("git unavailable");
@@ -1577,11 +1296,9 @@ describe("CLI handlers", () => {
     session.state.cwd = "/repo";
     session.state.diff_base_branch = "main";
     session.state.diff_base_branch_explicit = true;
-    (session as any).backendSocket = { send: vi.fn() };
-
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg({ cwd: "/repo" }));
+    cli.attach(bridge);
+    cli.message(makeInitMsg({ cwd: "/repo" }));
 
     await vi.waitFor(() => {
       expect(session.state.git_branch).toBe("");
@@ -1602,7 +1319,7 @@ describe("CLI handlers", () => {
       throw new Error(`unknown git cmd: ${cmd}`);
     });
 
-    bridge.handleCLIMessage(cli, makeInitMsg({ cwd: "/repo" }));
+    cli.message(makeInitMsg({ cwd: "/repo" }));
 
     await vi.waitFor(() => {
       expect(session.state.git_default_branch).toBe("origin/jiayi");
@@ -1613,7 +1330,7 @@ describe("CLI handlers", () => {
     });
   });
 
-  it("handleCLIMessage: system.init resolves repo_root via --show-toplevel for standard repo", async () => {
+  it("system.init resolves repo_root via --show-toplevel for standard repo", async () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "main\n";
       if (cmd.includes("rev-parse HEAD")) return "head-main\n";
@@ -1628,8 +1345,8 @@ describe("CLI handlers", () => {
     });
 
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg({ cwd: "/home/user/myproject" }));
+    cli.attach(bridge);
+    cli.message(makeInitMsg({ cwd: "/home/user/myproject" }));
 
     // resolveGitInfo is async (fire-and-forget) — wait for it to complete
     const state = bridge.getSession("s1")!.state;
@@ -1638,10 +1355,10 @@ describe("CLI handlers", () => {
     });
   });
 
-  it("handleCLIMessage: system.status updates compacting and permissionMode", () => {
+  it("system.status updates compacting without overriding the server permission mode", () => {
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
 
@@ -1654,31 +1371,30 @@ describe("CLI handlers", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, statusMsg);
+    cli.message(statusMsg);
 
     const state = bridge.getSession("s1")!.state;
     expect(state.is_compacting).toBe(true);
-    expect(state.permissionMode).toBe("plan");
+    expect(state.permissionMode).toBe("default");
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls).toContainEqual(expect.objectContaining({ type: "status_change", status: "compacting" }));
   });
 
-  it("handleCLIClose: nulls backendSocket and broadcasts backend_disconnected", () => {
+  it("Claude exiting detaches the adapter and broadcasts backend_disconnected", () => {
     vi.useFakeTimers();
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
 
-    bridge.handleCLIClose(cli);
+    cli.disconnect();
 
     const session = bridge.getSession("s1")!;
-    expect(session.backendSocket).toBeNull();
+    expect(session.claudeSdkAdapter).toBeNull();
     expect(bridge.isBackendConnected("s1")).toBe(false);
 
-    // Side-effects are deferred by 15s grace period (CLI token refresh cycle)
     vi.advanceTimersByTime(16_000);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
@@ -1686,11 +1402,11 @@ describe("CLI handlers", () => {
     vi.useRealTimers();
   });
 
-  it("handleCLIClose: cancels pending permissions", async () => {
+  it("Claude exiting cancels pending permissions", async () => {
     vi.useFakeTimers();
     const cli = makeCliSocket("s1");
     const browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
 
     // Simulate a pending permission request
@@ -1704,13 +1420,11 @@ describe("CLI handlers", () => {
         tool_use_id: "tu-1",
       },
     });
-    bridge.handleCLIMessage(cli, controlReq);
+    cli.message(controlReq);
     await vi.advanceTimersByTimeAsync(0); // flush async handleControlRequest
     browser.send.mockClear();
 
-    bridge.handleCLIClose(cli);
-
-    // Side-effects are deferred by 15s grace period
+    cli.disconnect();
     vi.advanceTimersByTime(16_000);
 
     const session = bridge.getSession("s1")!;

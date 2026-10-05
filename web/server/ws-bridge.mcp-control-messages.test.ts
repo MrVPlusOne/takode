@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -582,14 +583,28 @@ describe("MCP control messages", () => {
   beforeEach(() => {
     cli = makeCliSocket("s1");
     browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
-    cli.send.mockClear();
+    cli.message(makeInitMsg({ mcp_servers: [{ name: "test-server", status: "connected" }] }));
+    cli.clearSent();
     browser.send.mockClear();
   });
 
-  it("mcp_get_status: sends mcp_status control_request to CLI", () => {
+  function browserMessages(): any[] {
+    return browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+  }
+
+  /** Unsupported MCP management must be refused visibly and never reach Claude. */
+  function expectRefusedWithoutContactingClaude() {
+    expect(cli.userTurns).not.toHaveBeenCalled();
+    expect(cli.query.interrupt).not.toHaveBeenCalled();
+    expect(bridge.getSession("s1")!.pendingMessages).toEqual([]);
+    expect(browserMessages()).toContainEqual(
+      expect.objectContaining({ type: "error", message: expect.stringContaining("not supported for Claude") }),
+    );
+  }
+
+  it("mcp_get_status: answers from Claude's reported servers without contacting Claude", () => {
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
@@ -597,16 +612,11 @@ describe("MCP control messages", () => {
       }),
     );
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.type).toBe("control_request");
-    expect(sent.request_id).toBe("test-uuid");
-    expect(sent.request.subtype).toBe("mcp_status");
+    expect(cli.userTurns).not.toHaveBeenCalled();
+    expect(browserMessages()).toContainEqual(expect.objectContaining({ type: "mcp_status" }));
   });
 
-  it("mcp_toggle: sends mcp_toggle control_request to CLI", () => {
-    // Use vi.useFakeTimers to prevent the delayed mcp_get_status
+  it("mcp_toggle: is refused for Claude sessions", () => {
     vi.useFakeTimers();
     bridge.handleBrowserMessage(
       browser,
@@ -617,17 +627,11 @@ describe("MCP control messages", () => {
       }),
     );
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.type).toBe("control_request");
-    expect(sent.request.subtype).toBe("mcp_toggle");
-    expect(sent.request.serverName).toBe("my-server");
-    expect(sent.request.enabled).toBe(false);
+    expectRefusedWithoutContactingClaude();
     vi.useRealTimers();
   });
 
-  it("mcp_reconnect: sends mcp_reconnect control_request to CLI", () => {
+  it("mcp_reconnect: is refused for Claude sessions", () => {
     vi.useFakeTimers();
     bridge.handleBrowserMessage(
       browser,
@@ -637,100 +641,25 @@ describe("MCP control messages", () => {
       }),
     );
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.type).toBe("control_request");
-    expect(sent.request.subtype).toBe("mcp_reconnect");
-    expect(sent.request.serverName).toBe("failing-server");
+    expectRefusedWithoutContactingClaude();
     vi.useRealTimers();
   });
 
-  it("control_response for mcp_status: broadcasts mcp_status to browsers", () => {
-    // Send mcp_get_status to create the pending request
+  it("mcp_status reports each server Claude announced at startup", () => {
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
         type: "mcp_get_status",
       }),
     );
-    browser.send.mockClear();
 
-    // Simulate CLI responding with control_response
-    const mockServers = [
-      {
-        name: "test-server",
-        status: "connected",
-        config: { type: "stdio", command: "node", args: ["server.js"] },
-        scope: "project",
-        tools: [{ name: "myTool" }],
-      },
-    ];
-
-    bridge.handleCLIMessage(
-      cli,
-      JSON.stringify({
-        type: "control_response",
-        response: {
-          subtype: "success",
-          request_id: "test-uuid",
-          response: { mcpServers: mockServers },
-        },
-      }),
-    );
-
-    expect(browser.send).toHaveBeenCalledTimes(1);
-    const browserMsg = JSON.parse(browser.send.mock.calls[0][0] as string);
-    expect(browserMsg.type).toBe("mcp_status");
-    expect(browserMsg.servers).toHaveLength(1);
-    expect(browserMsg.servers[0].name).toBe("test-server");
-    expect(browserMsg.servers[0].status).toBe("connected");
-    expect(browserMsg.servers[0].tools).toHaveLength(1);
+    const status = browserMessages().find((m) => m.type === "mcp_status");
+    expect(status.servers).toHaveLength(1);
+    expect(status.servers[0].name).toBe("test-server");
+    expect(status.servers[0].status).toBe("connected");
   });
 
-  it("control_response with error: does not broadcast to browsers", () => {
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({
-        type: "mcp_get_status",
-      }),
-    );
-    browser.send.mockClear();
-
-    bridge.handleCLIMessage(
-      cli,
-      JSON.stringify({
-        type: "control_response",
-        response: {
-          subtype: "error",
-          request_id: "test-uuid",
-          error: "MCP not available",
-        },
-      }),
-    );
-
-    // Should not broadcast anything
-    expect(browser.send).not.toHaveBeenCalled();
-  });
-
-  it("control_response for unknown request_id: ignored silently", () => {
-    bridge.handleCLIMessage(
-      cli,
-      JSON.stringify({
-        type: "control_response",
-        response: {
-          subtype: "success",
-          request_id: "unknown-id",
-          response: { mcpServers: [] },
-        },
-      }),
-    );
-
-    // Should not throw and not send anything
-    expect(browser.send).not.toHaveBeenCalled();
-  });
-
-  it("mcp_set_servers: sends mcp_set_servers control_request to CLI", () => {
+  it("mcp_set_servers: is refused for Claude sessions", () => {
     vi.useFakeTimers();
     const servers = {
       "my-notes": {
@@ -747,12 +676,7 @@ describe("MCP control messages", () => {
       }),
     );
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.type).toBe("control_request");
-    expect(sent.request.subtype).toBe("mcp_set_servers");
-    expect(sent.request.servers).toEqual(servers);
+    expectRefusedWithoutContactingClaude();
     vi.clearAllTimers();
     vi.useRealTimers();
   });

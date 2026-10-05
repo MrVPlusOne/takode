@@ -1,4 +1,25 @@
 import { vi } from "vitest";
+
+// Claude sessions launch through the Agent SDK adapter; capture what the
+// launcher hands it instead of starting a real Claude process.
+const sdkAdapterLaunches = vi.hoisted(() => [] as Array<{ sessionId: string; options: any }>);
+const sdkAdapterStartFailure = vi.hoisted(() => ({ next: null as Error | null }));
+// Whether the next adapter's Claude process spawns (the adapter's `started` result).
+const sdkAdapterSpawns = vi.hoisted(() => ({ next: true }));
+vi.mock("./claude-sdk-adapter.js", () => ({
+  ClaudeSdkAdapter: class {
+    started: Promise<boolean>;
+    constructor(sessionId: string, options: any) {
+      const failure = sdkAdapterStartFailure.next;
+      sdkAdapterStartFailure.next = null;
+      if (failure) throw failure;
+      this.started = Promise.resolve(sdkAdapterSpawns.next);
+      sdkAdapterSpawns.next = true;
+      sdkAdapterLaunches.push({ sessionId, options });
+    }
+  },
+}));
+
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -346,6 +367,9 @@ let launcher: CliLauncher;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sdkAdapterLaunches.length = 0;
+  sdkAdapterStartFailure.next = null;
+  sdkAdapterSpawns.next = true;
   // Re-apply default: lstatSync throws ENOENT (file doesn't exist), matching real behavior
   mockLstatSync.mockImplementation(() => {
     throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
@@ -386,115 +410,132 @@ afterAll(() => {
 // ─── launch ──────────────────────────────────────────────────────────────────
 
 describe("relaunch", () => {
-  it("kills old process and spawns new one with --resume", async () => {
-    // Create first proc whose exit resolves immediately when killed
-    let resolveFirst: (code: number) => void;
-    const firstProc = {
-      pid: 12345,
-      kill: vi.fn(() => {
-        resolveFirst(0);
-      }),
-      exited: new Promise<number>((r) => {
-        resolveFirst = r;
-      }),
-      stdout: null,
-      stderr: null,
-    };
-    mockSpawn.mockReturnValueOnce(firstProc);
-
+  it("relaunch resumes the Claude conversation through a new SDK adapter", async () => {
     await launcher.launch({ cwd: "/tmp/project", model: "claude-sonnet-4-5-20250929" });
     launcher.setCLISessionId("test-session-id", "cli-resume-id");
 
-    // Second proc for the relaunch — never exits during test
-    const secondProc = createMockProc(54321);
-    mockSpawn.mockReturnValueOnce(secondProc);
-
     const result = await launcher.relaunch("test-session-id");
     expect(result).toEqual({ ok: true });
 
-    // Old process should have been killed
-    expect(firstProc.kill).toHaveBeenCalledWith("SIGTERM");
+    // The replacement adapter resumes the same Claude session with the same model.
+    expect(sdkAdapterLaunches).toHaveLength(2);
+    expect(sdkAdapterLaunches[1]!.options.cliSessionId).toBe("cli-resume-id");
+    expect(sdkAdapterLaunches[1]!.options.model).toBe("claude-sonnet-4-5-20250929");
+    expect(launcher.getSession("test-session-id")?.state).toBe("connected");
+  });
 
-    // New process should be spawned with --resume
-    expect(mockSpawn).toHaveBeenCalledTimes(2);
-    const [cmdAndArgs] = mockSpawn.mock.calls[1];
-    expect(cmdAndArgs).toContain("--resume");
-    expect(cmdAndArgs).toContain("cli-resume-id");
+  it("relaunch forwards a Revert point to the resumed Claude session once", async () => {
+    // Revert relaunches at an assistant message; Claude must truncate its own
+    // context there, and later relaunches must resume the full conversation.
+    await launcher.launch({ cwd: "/tmp/project" });
+    launcher.setCLISessionId("test-session-id", "cli-revert-id");
 
-    // Session state should be reset to starting (set by relaunch before spawnCLI)
-    // Allow microtask queue to flush
-    await new Promise((r) => setTimeout(r, 10));
-    const session = launcher.getSession("test-session-id");
-    expect(session?.state).toBe("starting");
+    expect(await launcher.relaunchWithResumeAt("test-session-id", "assistant-uuid-3")).toEqual({ ok: true });
+    expect(await launcher.relaunch("test-session-id")).toEqual({ ok: true });
+
+    expect(sdkAdapterLaunches[1]!.options).toMatchObject({
+      cliSessionId: "cli-revert-id",
+      resumeSessionAt: "assistant-uuid-3",
+    });
+    expect(sdkAdapterLaunches[2]!.options.resumeSessionAt).toBeUndefined();
+  });
+
+  it("reports a Claude launch whose process never spawns as exited and resumes it on relaunch", async () => {
+    // Cron's connection wait, liveness checks and the sidebar read launcher
+    // state, so a failed start must not look connected. The saved conversation
+    // ID survives so the bridge's bounded relaunch resumes the same conversation.
+    await launcher.launch({ cwd: "/tmp/project" });
+    launcher.setCLISessionId("test-session-id", "cli-kept");
+    sdkAdapterSpawns.next = false;
+    const failed = await launcher.relaunch("test-session-id");
+    expect(failed.ok).toBe(false);
+    expect(failed.error).toContain("Failed to spawn process");
+
+    const info = launcher.getSession("test-session-id")!;
+    expect(info).toMatchObject({ state: "exited", exitCode: 1, cliSessionId: "cli-kept" });
+    expect(launcher.isAlive("test-session-id")).toBe(false);
+
+    expect(await launcher.relaunch("test-session-id")).toEqual({ ok: true });
+    expect(sdkAdapterLaunches.at(-1)!.options.cliSessionId).toBe("cli-kept");
+    expect(launcher.getSession("test-session-id")?.state).toBe("connected");
+  });
+
+  it("marks a Claude session exited when its current process ends, ignoring replaced adapters", async () => {
+    await launcher.launch({ cwd: "/tmp/project" });
+    launcher.setCLISessionId("test-session-id", "cli-kept");
+    const first = sdkAdapterLaunches[0]!.options;
+    expect(await launcher.relaunch("test-session-id")).toEqual({ ok: true });
+    const second = sdkAdapterLaunches[1]!.options;
+
+    // A late failure from the replaced adapter must not mark the new one exited.
+    first.onBackendExit("old process closed");
+    expect(launcher.getSession("test-session-id")?.state).toBe("connected");
+
+    second.onBackendExit("Claude process ended");
+    expect(launcher.getSession("test-session-id")).toMatchObject({
+      state: "exited",
+      exitCode: 1,
+      cliSessionId: "cli-kept",
+    });
+  });
+
+  it("refuses to resume a saved Claude container session without running it on the host", async () => {
+    // Only the retired WebSocket backend ran Claude in containers. A saved
+    // record keeps its history and conversation ID but is not relaunched.
+    store.saveLauncher([
+      {
+        sessionId: "claude-container",
+        state: "exited" as const,
+        backendType: "claude" as any,
+        cwd: "/tmp/project",
+        createdAt: Date.now(),
+        cliSessionId: "container-cli-session",
+        containerId: "abc123def456",
+        containerName: "companion-old",
+      },
+    ]);
+    await store.flushAll();
+    await launcher.restoreFromDisk();
+
+    const result = await launcher.relaunch("claude-container");
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("ran in a container");
+    expect(sdkAdapterLaunches).toHaveLength(0);
+    expect(mockSpawn).not.toHaveBeenCalled();
+    expect(launcher.getSession("claude-container")).toMatchObject({
+      state: "exited",
+      cliSessionId: "container-cli-session",
+      containerId: "abc123def456",
+    });
   });
 
   it("reuses launch env variables during relaunch", async () => {
-    let resolveFirst: (code: number) => void;
-    const firstProc = {
-      pid: 12345,
-      kill: vi.fn(() => {
-        resolveFirst(0);
-      }),
-      exited: new Promise<number>((r) => {
-        resolveFirst = r;
-      }),
-      stdout: null,
-      stderr: null,
-    };
-    mockSpawn.mockReturnValueOnce(firstProc);
-
     await launcher.launch({
       cwd: "/tmp/project",
-      containerId: "abc123def456",
-      containerName: "companion-test",
       env: { CLAUDE_CODE_OAUTH_TOKEN: "tok-test" },
     });
 
-    const secondProc = createMockProc(54321);
-    mockSpawn.mockReturnValueOnce(secondProc);
-
     const result = await launcher.relaunch("test-session-id");
     expect(result).toEqual({ ok: true });
 
-    const [relaunchCmd] = mockSpawn.mock.calls[1];
-    expect(relaunchCmd).toContain("-e");
-    expect(relaunchCmd).toContain("CLAUDE_CODE_OAUTH_TOKEN=tok-test");
-    expect(relaunchCmd.some((arg: string) => arg.startsWith("COMPANION_SERVER_ID=test-server-id"))).toBe(true);
-    expect(relaunchCmd.some((arg: string) => arg.startsWith("COMPANION_SERVER_SLUG=local"))).toBe(true);
-    expect(relaunchCmd.some((arg: string) => arg.startsWith("COMPANION_MEMORY_SPACE_SLUG=Takode"))).toBe(true);
-    expect(relaunchCmd.some((arg: string) => arg.startsWith("COMPANION_AUTH_TOKEN="))).toBe(true);
+    const relaunchEnv = sdkAdapterLaunches[1]!.options.env;
+    expect(relaunchEnv.CLAUDE_CODE_OAUTH_TOKEN).toBe("tok-test");
+    expect(relaunchEnv.COMPANION_SERVER_ID).toBe("test-server-id");
+    expect(relaunchEnv.COMPANION_SERVER_SLUG).toBe("local");
+    expect(relaunchEnv.COMPANION_MEMORY_SPACE_SLUG).toBe("Takode");
+    expect(relaunchEnv.COMPANION_AUTH_TOKEN).toBeTruthy();
   });
 
   it("preserves the persisted memory session-space slug during relaunch", async () => {
-    let resolveFirst: (code: number) => void;
-    const firstProc = {
-      pid: 12345,
-      kill: vi.fn(() => {
-        resolveFirst(0);
-      }),
-      exited: new Promise<number>((r) => {
-        resolveFirst = r;
-      }),
-      stdout: null,
-      stderr: null,
-    };
-    mockSpawn.mockReturnValueOnce(firstProc);
-
     await launcher.launch({
       cwd: "/tmp/project",
-      containerId: "abc123def456",
-      containerName: "companion-test",
       memorySessionSpaceSlug: "Other",
     });
-
-    const secondProc = createMockProc(54321);
-    mockSpawn.mockReturnValueOnce(secondProc);
 
     const result = await launcher.relaunch("test-session-id");
     expect(result).toEqual({ ok: true });
 
-    const [relaunchCmd] = mockSpawn.mock.calls[1];
-    expect(relaunchCmd).toContain("COMPANION_MEMORY_SPACE_SLUG=Other");
+    expect(sdkAdapterLaunches[1]!.options.env.COMPANION_MEMORY_SPACE_SLUG).toBe("Other");
     expect(launcher.getSession("test-session-id")?.memorySessionSpaceSlug).toBe("Other");
   });
 
@@ -503,7 +544,8 @@ describe("relaunch", () => {
       {
         sessionId: "profile-relaunch",
         state: "exited" as const,
-        backendType: "claude" as const,
+        // Saved by the retired WebSocket backend; it relaunches through the SDK.
+        backendType: "claude" as any,
         cwd: "/tmp/project",
         createdAt: Date.now(),
         envSlug: "profile-with-stale-space",
@@ -520,7 +562,8 @@ describe("relaunch", () => {
     const result = await launcher.relaunch("profile-relaunch");
 
     expect(result).toEqual({ ok: true });
-    const [, options] = mockSpawn.mock.calls[0];
+    expect(launcher.getSession("profile-relaunch")?.backendType).toBe("claude-sdk");
+    const { options } = sdkAdapterLaunches[0]!;
     expect(options.env.PROFILE_ONLY).toBe("kept");
     expect(options.env.COMPANION_MEMORY_SPACE_SLUG).toBe("PersistedSpace");
   });
@@ -531,13 +574,13 @@ describe("relaunch", () => {
     );
 
     await launcher.launch({
-      backendType: "claude",
+      backendType: "claude-sdk",
       cwd: "/tmp/project",
       envSlug: "codex-profile",
       env: { INLINE_ONLY: "also-kept" },
     });
 
-    const [, options] = mockSpawn.mock.calls[0];
+    const { options } = sdkAdapterLaunches[0]!;
     expect(options.env.LITELLM_API_KEY).toBe("profile-key");
     expect(options.env.PROFILE_ONLY).toBe("kept");
     expect(options.env.INLINE_ONLY).toBe("also-kept");
@@ -553,14 +596,14 @@ describe("relaunch", () => {
     );
 
     await launcher.launch({
-      backendType: "claude",
+      backendType: "claude-sdk",
       cwd: "/tmp/project",
       envSlug: "codex-profile",
       env: { INLINE_ONLY: "kept", TAKODE_ROLE: "worker" },
       blockedEnvKeys: ["TAKODE_ROLE", "TAKODE_API_PORT"],
     });
 
-    const [, options] = mockSpawn.mock.calls[0];
+    const { options } = sdkAdapterLaunches[0]!;
     expect(options.env.LITELLM_API_KEY).toBe("profile-key");
     expect(options.env.INLINE_ONLY).toBe("kept");
     expect(options.env.TAKODE_ROLE).toBeUndefined();
@@ -627,19 +670,20 @@ describe("relaunch", () => {
   });
 
   it("returns error when container was removed externally", async () => {
-    // Launch a containerized session
+    // Container preflight applies to Codex, the only backend that runs in containers.
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
     await launcher.launch({
+      backendType: "codex",
       cwd: "/tmp/project",
       containerId: "abc123def456",
       containerName: "companion-gone",
+      codexSandbox: "workspace-write",
     });
 
     // Simulate container being removed
     mockIsContainerAlive.mockReturnValueOnce("missing");
+    const pidBefore = launcher.getSession("test-session-id")?.pid;
 
-    // Resolve the tracked launcher proc so relaunch can fail on the missing
-    // container check instead of waiting through the generic SIGTERM timeout.
-    exitResolve(0);
     const result = await launcher.relaunch("test-session-id");
     expect(result.ok).toBe(false);
     expect(result.error).toContain("companion-gone");
@@ -650,50 +694,42 @@ describe("relaunch", () => {
     expect(session?.state).toBe("exited");
     expect(session?.exitCode).toBe(1);
 
-    // Should NOT have spawned a new process
-    expect(mockSpawn).toHaveBeenCalledTimes(1); // only the initial launch
+    // Should NOT have started a new backend
+    expect(launcher.getSession("test-session-id")?.pid).toBe(pidBefore);
   });
 
-  it("restarts stopped container before spawning CLI", async () => {
-    // Create initial proc that exits immediately when killed
-    let resolveFirst: (code: number) => void;
-    const firstProc = {
-      pid: 12345,
-      kill: vi.fn(() => {
-        resolveFirst(0);
-      }),
-      exited: new Promise<number>((r) => {
-        resolveFirst = r;
-      }),
-      stdout: null,
-      stderr: null,
-    };
-    mockSpawn.mockReturnValueOnce(firstProc);
-
+  it("restarts stopped container before relaunching", async () => {
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
     await launcher.launch({
+      backendType: "codex",
       cwd: "/tmp/project",
       containerId: "abc123def456",
       containerName: "companion-stopped",
+      codexSandbox: "workspace-write",
     });
 
     // Container is stopped but can be restarted
     mockIsContainerAlive.mockReturnValueOnce("stopped");
     mockHasBinaryInContainer.mockReturnValueOnce(true);
 
-    const secondProc = createMockProc(54321);
-    mockSpawn.mockReturnValueOnce(secondProc);
-
+    // Let the original process exit before creating the replacement mock,
+    // which takes over exitResolve.
+    exitResolve(0);
+    mockSpawn.mockReturnValueOnce(createMockCodexProc(54321));
     const result = await launcher.relaunch("test-session-id");
     expect(result).toEqual({ ok: true });
     expect(mockStartContainer).toHaveBeenCalledWith("abc123def456");
-    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    expect(launcher.getSession("test-session-id")?.pid).toBe(54321);
   });
 
   it("returns error when stopped container cannot be restarted", async () => {
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
     await launcher.launch({
+      backendType: "codex",
       cwd: "/tmp/project",
       containerId: "abc123def456",
       containerName: "companion-dead",
+      codexSandbox: "workspace-write",
     });
 
     mockIsContainerAlive.mockReturnValueOnce("stopped");
@@ -712,10 +748,13 @@ describe("relaunch", () => {
   });
 
   it("returns error when CLI binary not found in container", async () => {
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
     await launcher.launch({
+      backendType: "codex",
       cwd: "/tmp/project",
       containerId: "abc123def456",
       containerName: "companion-nobin",
+      codexSandbox: "workspace-write",
     });
 
     mockIsContainerAlive.mockReturnValueOnce("running");
@@ -725,7 +764,7 @@ describe("relaunch", () => {
     exitResolve(0);
     const result = await launcher.relaunch("test-session-id");
     expect(result.ok).toBe(false);
-    expect(result.error).toContain("claude");
+    expect(result.error).toContain("codex");
     expect(result.error).toContain("not found");
     expect(result.error).toContain("companion-nobin");
 
@@ -734,7 +773,9 @@ describe("relaunch", () => {
     expect(session?.exitCode).toBe(127);
   });
 
-  it("validates configured Claude binary name in container during relaunch", async () => {
+  it("refuses a saved Claude container session before any container preflight", async () => {
+    // Claude no longer runs in containers, so relaunch refuses before restarting
+    // the container or looking for a configured Claude binary inside it.
     launcher.setSettingsGetter(() => ({
       claudeBinary: "/opt/custom/claude-enterprise",
       codexBinary: "",
@@ -746,15 +787,14 @@ describe("relaunch", () => {
       containerName: "companion-custom-claude",
     });
 
-    mockIsContainerAlive.mockReturnValueOnce("running");
-    mockHasBinaryInContainer.mockReturnValueOnce(false);
-
-    // Resolve mock process exit so relaunch doesn't wait the 2s kill timeout
-    exitResolve(0);
+    mockIsContainerAlive.mockReturnValueOnce("stopped");
     const result = await launcher.relaunch("test-session-id");
     expect(result.ok).toBe(false);
-    expect(result.error).toContain("claude-enterprise");
-    expect(mockHasBinaryInContainer).toHaveBeenCalledWith("abc123def456", "/opt/custom/claude-enterprise");
+    expect(result.error).toContain("ran in a container");
+    expect(mockIsContainerAlive).not.toHaveBeenCalled();
+    expect(mockStartContainer).not.toHaveBeenCalled();
+    expect(mockHasBinaryInContainer).not.toHaveBeenCalled();
+    expect(sdkAdapterLaunches).toHaveLength(1); // only the initial launch
   });
 
   it("validates configured Codex binary name in container during relaunch", async () => {
@@ -784,25 +824,7 @@ describe("relaunch", () => {
   });
 
   it("skips container validation for non-containerized sessions", async () => {
-    // Create initial proc that exits when killed
-    let resolveFirst: (code: number) => void;
-    const firstProc = {
-      pid: 12345,
-      kill: vi.fn(() => {
-        resolveFirst(0);
-      }),
-      exited: new Promise<number>((r) => {
-        resolveFirst = r;
-      }),
-      stdout: null,
-      stderr: null,
-    };
-    mockSpawn.mockReturnValueOnce(firstProc);
-
     await launcher.launch({ cwd: "/tmp/project" });
-
-    const secondProc = createMockProc(54321);
-    mockSpawn.mockReturnValueOnce(secondProc);
 
     const result = await launcher.relaunch("test-session-id");
     expect(result).toEqual({ ok: true });
@@ -812,32 +834,13 @@ describe("relaunch", () => {
     expect(mockHasBinaryInContainer).not.toHaveBeenCalled();
   });
 
-  // Regression: Bun.spawn throws ENOENT when the binary path is stale
+  // Regression: starting the backend can throw when the binary path is stale
   // (e.g. nvm version changed). The server must not crash.
-  it("returns error gracefully when Bun.spawn throws ENOENT on Claude relaunch", async () => {
-    let resolveFirst: (code: number) => void;
-    const firstProc = {
-      pid: 12345,
-      kill: vi.fn(() => {
-        resolveFirst(0);
-      }),
-      exited: new Promise<number>((r) => {
-        resolveFirst = r;
-      }),
-      stdout: null,
-      stderr: null,
-    };
-    mockSpawn.mockReturnValueOnce(firstProc);
-
+  it("returns error gracefully when the Claude SDK adapter cannot start on relaunch", async () => {
     await launcher.launch({ cwd: "/tmp/project" });
 
-    // On relaunch, Bun.spawn throws ENOENT (binary path gone).
-    // Use persistent implementation (not once) to avoid order-dependent
-    // consumption from unrelated async spawn attempts in prior tests.
-    mockSpawn.mockImplementation(() => {
-      throw Object.assign(new Error("ENOENT: no such file or directory, posix_spawn '/usr/bin/claude'"), {
-        code: "ENOENT",
-      });
+    sdkAdapterStartFailure.next = Object.assign(new Error("ENOENT: no such file or directory, posix_spawn 'claude'"), {
+      code: "ENOENT",
     });
 
     const result = await launcher.relaunch("test-session-id");
@@ -951,6 +954,52 @@ describe("relaunch", () => {
     expect(mockSpawn).toHaveBeenCalledTimes(1);
 
     killSpy.mockRestore();
+  });
+
+  it("stops a live process saved by the retired Claude WebSocket backend before resuming through the SDK", async () => {
+    // A record saved before the WebSocket retirement can still point at a live
+    // CLI process. It can never reconnect, so the reconnect watchdog relaunches
+    // it. The pid is untracked, so relaunch sends best-effort SIGTERM without
+    // polling or SIGKILL, then resumes the same conversation through the SDK.
+    store.saveLauncher([
+      {
+        sessionId: "legacy-claude",
+        pid: 66666,
+        state: "connected" as const,
+        backendType: "claude" as any,
+        cwd: "/tmp/project",
+        createdAt: Date.now(),
+        cliSessionId: "legacy-cli-session",
+      },
+    ]);
+    await store.flushAll();
+
+    let pidAlive = true;
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: string | number) => {
+      if (pid !== 66666) return true;
+      if (signal === 0) {
+        if (pidAlive) return true;
+        throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+      }
+      if (signal === "SIGTERM") pidAlive = false;
+      return true;
+    }) as any);
+
+    try {
+      expect(await launcher.restoreFromDisk()).toBe(1);
+      expect(launcher.getSession("legacy-claude")).toMatchObject({ state: "starting", backendType: "claude-sdk" });
+      // Only the restore-time liveness probe may check the pid; relaunch must not poll it.
+      killSpy.mockClear();
+
+      expect(await launcher.relaunch("legacy-claude")).toEqual({ ok: true });
+      expect(killSpy).toHaveBeenCalledWith(66666, "SIGTERM");
+      expect(killSpy).not.toHaveBeenCalledWith(66666, 0);
+      expect(killSpy).not.toHaveBeenCalledWith(66666, "SIGKILL");
+      expect(mockSpawn).not.toHaveBeenCalled();
+      expect(sdkAdapterLaunches.at(-1)!.options.cliSessionId).toBe("legacy-cli-session");
+    } finally {
+      killSpy.mockRestore();
+    }
   });
 
   it("does not escalate persisted stale pids to SIGKILL without a tracked subprocess", async () => {
@@ -1148,21 +1197,7 @@ describe("relaunch", () => {
   // workflows, breaking all orchestration coordination.
   it("re-injects orchestrator guardrails into system prompt on relaunch", async () => {
     // Launch as an orchestrator — pass extraInstructions via launch options
-    const orchestratorGuardrails = launcher.getOrchestratorGuardrails("claude");
-    let resolveFirst: (code: number) => void;
-    const firstProc = {
-      pid: 12345,
-      kill: vi.fn(() => {
-        resolveFirst(0);
-      }),
-      exited: new Promise<number>((r) => {
-        resolveFirst = r;
-      }),
-      stdout: null,
-      stderr: null,
-    };
-    mockSpawn.mockReturnValueOnce(firstProc);
-
+    const orchestratorGuardrails = launcher.getOrchestratorGuardrails("claude-sdk");
     const session = await launcher.launch({
       cwd: "/tmp/project",
       extraInstructions: orchestratorGuardrails,
@@ -1170,24 +1205,14 @@ describe("relaunch", () => {
     session.isOrchestrator = true;
     launcher.setCLISessionId("test-session-id", "cli-orch-id");
 
-    // Verify initial launch includes guardrails in --append-system-prompt
-    const [initialCmd] = mockSpawn.mock.calls[0];
-    const initialSysPromptIdx = initialCmd.indexOf("--append-system-prompt");
-    expect(initialSysPromptIdx).toBeGreaterThan(-1);
-    const initialSysPrompt = initialCmd[initialSysPromptIdx + 1] as string;
-    expect(initialSysPrompt).toContain("Takode");
+    // The initial launch hands Claude the Takode system prompt
+    expect(sdkAdapterLaunches[0]!.options.instructions).toContain("Takode");
 
-    // Relaunch the session
-    const secondProc = createMockProc(54321);
-    mockSpawn.mockReturnValueOnce(secondProc);
     const result = await launcher.relaunch("test-session-id");
     expect(result).toEqual({ ok: true });
 
-    // Relaunched CLI must also have --append-system-prompt with guardrails
-    const [relaunchCmd] = mockSpawn.mock.calls[1];
-    const relaunchSysPromptIdx = relaunchCmd.indexOf("--append-system-prompt");
-    expect(relaunchSysPromptIdx).toBeGreaterThan(-1);
-    const relaunchSysPrompt = relaunchCmd[relaunchSysPromptIdx + 1] as string;
+    // The relaunched Claude session must also receive the guardrails
+    const relaunchSysPrompt = sdkAdapterLaunches[1]!.options.instructions as string;
     expect(relaunchSysPrompt).toContain("Takode");
     expect(relaunchSysPrompt).toContain("Quest Journey");
     expect(relaunchSysPrompt).toContain("Work");
@@ -1195,36 +1220,17 @@ describe("relaunch", () => {
   });
 
   it("does not inject orchestrator guardrails for non-orchestrator sessions on relaunch", async () => {
-    let resolveFirst: (code: number) => void;
-    const firstProc = {
-      pid: 12345,
-      kill: vi.fn(() => {
-        resolveFirst(0);
-      }),
-      exited: new Promise<number>((r) => {
-        resolveFirst = r;
-      }),
-      stdout: null,
-      stderr: null,
-    };
-    mockSpawn.mockReturnValueOnce(firstProc);
-
     await launcher.launch({ cwd: "/tmp/project" });
     launcher.setCLISessionId("test-session-id", "cli-worker-id");
 
-    // Relaunch a non-orchestrator session
-    const secondProc = createMockProc(54321);
-    mockSpawn.mockReturnValueOnce(secondProc);
     const result = await launcher.relaunch("test-session-id");
     expect(result).toEqual({ ok: true });
 
     // The system prompt should still exist (link syntax etc.) but NOT contain
     // orchestrator guardrails -- assert unconditionally to catch regressions
-    // where the flag disappears entirely.
-    const [relaunchCmd] = mockSpawn.mock.calls[1];
-    const sysPromptIdx = relaunchCmd.indexOf("--append-system-prompt");
-    expect(sysPromptIdx).toBeGreaterThan(-1);
-    const sysPrompt = relaunchCmd[sysPromptIdx + 1] as string;
+    // where the prompt disappears entirely.
+    const sysPrompt = sdkAdapterLaunches[1]!.options.instructions as string;
+    expect(sysPrompt).toBeTruthy();
     expect(sysPrompt).not.toContain("Quest Journey");
     expect(sysPrompt).not.toContain("Code Review");
   });

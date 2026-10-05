@@ -13,10 +13,8 @@ import { buildLeaderSkillPreloadBundles } from "./leader-skill-preload.js";
 import type { PushoverNotifier } from "./pushover.js";
 import type { TrafficStatsSnapshot } from "./traffic-stats.js";
 import type {
-  CLIMessage,
   CLIAssistantMessage,
   CLIResultMessage,
-  CLIControlResponseMessage,
   CLISystemCompactBoundaryMessage,
   CLIUserMessage,
   BrowserOutgoingMessage,
@@ -117,15 +115,6 @@ import {
   handleRecoveredCodexAutoPauseSuccessForBridge,
   releaseCodexAutoPausedInputsForBridge,
 } from "./bridge/ws-bridge-codex-pending-input-deps.js";
-import {
-  flushQueuedCliMessages as flushQueuedCliMessagesController,
-  handleCLIClose as handleCLICloseTransportController,
-  handleCLIOpen as handleCLIOpenTransportController,
-  handleControlResponse as handleControlResponseTransportController,
-  processCLIMessageBatch as processCLIMessageBatchController,
-  sendControlRequest as sendControlRequestTransportController,
-  sendToCLI as sendToCLITransportController,
-} from "./bridge/claude-cli-transport-controller.js";
 import { attachClaudeSdkAdapterLifecycle } from "./bridge/claude-sdk-adapter-lifecycle-controller.js";
 import {
   flushQueuedMessagesToCodexAdapter as flushQueuedMessagesToCodexAdapterController,
@@ -178,17 +167,11 @@ import {
   trackCodexQuestCommands as trackCodexQuestCommandsController,
   closeSession as closeSessionController,
 } from "./bridge/session-registry-controller.js";
-import {
-  createClaudeMessageHandlers as createClaudeMessageHandlersController,
-  drainInlineQueuedClaudeTurns as drainInlineQueuedClaudeTurnsController,
-  routeCLIMessage as routeCLIMessageController,
-} from "./bridge/claude-message-controller.js";
+import { createClaudeMessageHandlers as createClaudeMessageHandlersController } from "./bridge/claude-message-controller.js";
 import { validateLeaderThreadOutcomes as validateLeaderThreadOutcomesController } from "./bridge/leader-thread-outcome-validator.js";
 import type { LeaderThreadOutcomeReminderGuard } from "./leader-thread-response-types.js";
 import {
   handleCodexPermissionRequest as handleCodexPermissionRequestController,
-  handleControlRequest as handleControlRequestController,
-  handleInterrupt as handleInterruptController,
   handleSetModel as handleSetModelController,
   handleCodexSetModel as handleCodexSetModelController,
   handleCodexSetReasoningEffort as handleCodexSetReasoningEffortController,
@@ -271,7 +254,6 @@ import {
 } from "./codex-process-reconnect.js";
 import {
   clearOptimisticRunningTimer as clearOptimisticRunningTimerLifecycle,
-  getQueuedTurnLifecycleEntries as getQueuedTurnLifecycleEntriesLifecycle,
   markRunningFromUserDispatch as markRunningFromUserDispatchLifecycle,
   markTurnInterrupted as markTurnInterruptedLifecycle,
   promoteNextQueuedTurn as promoteNextQueuedTurnLifecycle,
@@ -316,7 +298,6 @@ const CODEX_DISCONNECT_GRACE_MS = 15_000;
 const CODEX_INTENTIONAL_RELAUNCH_GUARD_MS = 15_000;
 const CODEX_RECOVERY_TIMEOUT_MS = 30_000;
 const CODEX_TOOL_RESULT_WATCHDOG_MS = 120_000;
-const STUCK_GENERATION_THRESHOLD_MS = 120_000;
 const TAKODE_BOARD_RESULT_PREVIEW_LIMIT = 12_000;
 const WS_BRIDGE_CODEX_ASSISTANT_REPLAY_SCAN_LIMIT = 200;
 const WS_BRIDGE_CROSS_SESSION_THROTTLE_MS = 30_000;
@@ -785,27 +766,16 @@ export function getCommonCodexRuntimeDeps(host: any) {
 export function getClaudeMessageHandlers(host: any) {
   const runtime = host.getCommonClaudeRuntimeDeps();
   return createClaudeMessageHandlersController({
-    onCLISessionId: host.onCLISessionId ?? undefined,
-    cacheSlashCommands: (projectKey: string, data: { slash_commands: string[]; skills: string[] }) => {
-      host.slashCommandCache.set(projectKey, {
-        ...data,
-        skill_metadata: [],
-        apps: [],
-      });
-    },
-    backfillSlashCommands: (projectKey: string, sourceSessionId: string) =>
-      host.backfillSlashCommands(projectKey, sourceSessionId),
     ...runtime,
     broadcastToBrowsers: (
       targetSession: unknown,
       browserMsg: BrowserIncomingMessage,
       options?: { skipBuffer?: boolean },
     ) => host.broadcastToBrowsers(targetSession as Session, browserMsg, options),
-    hasPendingForceCompact: (targetSession: unknown) => host.hasPendingForceCompact(targetSession as Session),
-    flushQueuedCliMessages: (targetSession: unknown, reason: string) =>
-      flushQueuedCliMessagesController(targetSession as Session, reason, host.getClaudeCliTransportDeps()),
-    onOrchestratorTurnEnd: (sessionId: string) => host.herdEventDispatcher?.onOrchestratorTurnEnd(sessionId),
-    isCliUserMessagePayload: (ndjson: string) => host.isCliUserMessagePayload(ndjson),
+    abortAutoApproval: (targetSession: unknown, requestId: string) =>
+      host.abortAutoApproval(targetSession as Session, requestId),
+    clearActionAttentionIfNoPermissions: (targetSession: unknown) =>
+      host.clearActionAttentionIfNoPermissions(targetSession as Session),
     emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) =>
       host.emitTakodeEvent(sessionId, type as TakodeEventType, data as TakodeEventDataByType[TakodeEventType]),
     injectCompactionRecovery: (targetSession: unknown) =>
@@ -820,7 +790,6 @@ export function getClaudeMessageHandlers(host: any) {
       freezeHistoryThroughCurrentTailController(targetSession as Session),
     hasTaskNotificationReplay: (targetSession: unknown, taskId: string, toolUseId: string) =>
       host.hasTaskNotificationReplay(targetSession as Session, taskId, toolUseId),
-    stuckGenerationThresholdMs: STUCK_GENERATION_THRESHOLD_MS,
     hasAssistantReplay: (targetSession: unknown, messageId: string) =>
       host.hasAssistantReplay(targetSession as Session, messageId),
     promoteLeaderThreadTabForTransition: (
@@ -837,13 +806,6 @@ export function getClaudeMessageHandlers(host: any) {
         targetSession as Session,
         "result_replay",
       ),
-    drainInlineQueuedClaudeTurns: (targetSession: unknown, reason: string) =>
-      drainInlineQueuedClaudeTurnsController(targetSession as Session, reason, {
-        getQueuedTurnLifecycleEntries: (session) => getQueuedTurnLifecycleEntriesLifecycle(session as Session),
-        replaceQueuedTurnLifecycleEntries: (session, entries) =>
-          replaceQueuedTurnLifecycleEntriesLifecycle(session as Session, entries as any[]),
-        isCliUserMessagePayload: (ndjson: string) => host.isCliUserMessagePayload(ndjson),
-      }),
     getCurrentTurnTriggerSource: (targetSession: unknown) =>
       getCurrentTurnTriggerSourceController(targetSession as Session, {
         isSystemSourceTag,
@@ -1121,66 +1083,6 @@ export function getBrowserTransportDeps(host: any) {
   };
 }
 
-export function getClaudeCliTransportDeps(host: any) {
-  const runtime = host.getCommonClaudeRuntimeDeps();
-  const handlers = host.getClaudeMessageHandlers();
-  return {
-    ...runtime,
-    broadcastToBrowsers: (targetSession: unknown, msg: BrowserIncomingMessage) =>
-      host.broadcastToBrowsers(targetSession as Session, msg),
-    routeCLIMessage: (targetSession: unknown, msg: CLIMessage) => {
-      const session = targetSession as Session;
-      if (msg.type !== "keep_alive") {
-        touchSessionActivity(host, session.id);
-        session.lastCliMessageAt = Date.now();
-        clearOptimisticRunningTimerLifecycle(session);
-      } else {
-        session.lastCliPingAt = Date.now();
-      }
-      routeCLIMessageController(session, msg, {
-        handleSystemMessage: handlers.handleSystemMessage,
-        handleAssistantMessage: handlers.handleAssistantMessage,
-        handleResultMessage: handlers.handleResultMessage,
-        handleControlRequest: (messageSession, controlMsg) => {
-          void handleControlRequestController(messageSession as Session, controlMsg, host.getBrowserRoutingDeps());
-        },
-        handleUserMessage: handlers.handleClaudeCliUserMessage,
-        handleControlResponse: (messageSession, controlResponse) =>
-          host.handleControlResponse(messageSession as Session, controlResponse),
-        abortAutoApproval: (messageSession, requestId) => host.abortAutoApproval(messageSession as Session, requestId),
-        broadcastToBrowsers: (messageSession, browserMsg, options) =>
-          host.broadcastToBrowsers(messageSession as Session, browserMsg, options),
-        cancelPermissionNotification: (sessionId, requestId) =>
-          host.pushoverNotifier?.cancelPermission(sessionId, requestId),
-        clearActionAttentionIfNoPermissions: (messageSession) =>
-          host.clearActionAttentionIfNoPermissions(messageSession as Session),
-        persistSession: (messageSession) => host.persistSession(messageSession as Session),
-        toolProgressOutputLimit: 12_000,
-      });
-      host.syncSideChatRecordForChild?.(session);
-    },
-    recordIncomingRaw: (sessionId: string, data: string, backendType: string, cwd: string) =>
-      host.recorder?.record(sessionId, "in", data, "cli", backendType as BackendType, cwd),
-    recordOutgoingRaw: (sessionId: string, data: string, backendType: string, cwd: string) =>
-      host.recorder?.record(sessionId, "out", data, "cli", backendType as BackendType, cwd),
-    emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) =>
-      host.emitTakodeEvent(sessionId, type as TakodeEventType, data as TakodeEventDataByType[TakodeEventType]),
-    setAttentionError: (targetSession: unknown) =>
-      setAttentionController(targetSession as Session, "error", host.getSessionRegistryDeps()),
-    onOrchestratorDisconnect: (sessionId: string) => host.herdEventDispatcher?.onOrchestratorDisconnect(sessionId),
-    requestCliRelaunch: requestCliRelaunchIfUnpaused(host),
-    markRunningFromUserDispatch: (targetSession: unknown, reason: string, userMessageHistoryIndex?: number) =>
-      markRunningFromUserDispatchLifecycle(
-        host.getGenerationLifecycleDeps(),
-        targetSession as Session,
-        reason,
-        null,
-        userMessageHistoryIndex,
-      ),
-    isCliUserMessagePayload: (ndjson: string) => host.isCliUserMessagePayload(ndjson),
-  };
-}
-
 export function getClaudeSdkAdapterLifecycleDeps(host: any) {
   const runtime = host.getCommonClaudeRuntimeDeps();
   const handlers = host.getClaudeMessageHandlers();
@@ -1200,7 +1102,7 @@ export function getClaudeSdkAdapterLifecycleDeps(host: any) {
       handleSdkPermissionRequestController(targetSession as Session, request, host.getBrowserRoutingDeps()),
     syncSideChatParent: (targetSession: unknown) => host.syncSideChatRecordForChild?.(targetSession as Session),
     setCliSessionId: (sessionId: string, cliSessionId: string) =>
-      host.launcher?.setCLISessionId(sessionId, cliSessionId),
+      host.launcher?.setCLISessionId?.(sessionId, cliSessionId),
     requestCliRelaunch: requestCliRelaunchIfUnpaused(host),
     isCurrentSession: (sessionId: string, session: unknown) => host.sessions.get(sessionId) === session,
     maxAdapterRelaunchFailures: MAX_ADAPTER_RELAUNCH_FAILURES,
@@ -1494,11 +1396,6 @@ export function getBrowserRoutingDeps(host: any) {
   const generationDeps = host.getGenerationLifecycleDeps();
   const codexRecoveryDeps = host.getCodexRecoveryOrchestratorDeps();
   return {
-    sendToCLI: (
-      targetSession: unknown,
-      ndjson: string,
-      opts?: { deferUntilCliReady?: boolean; skipUserDispatchLifecycle?: boolean; userMessageHistoryIndex?: number },
-    ) => sendToCLITransportController(targetSession as Session, ndjson, opts, host.getClaudeCliTransportDeps()),
     broadcastToBrowsers: (targetSession: unknown, browserMsg: BrowserIncomingMessage) =>
       host.broadcastToBrowsers(targetSession as Session, browserMsg),
     emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>, actorSessionId?: string) =>
@@ -1562,12 +1459,6 @@ export function getBrowserRoutingDeps(host: any) {
       }
     },
     touchUserMessage: (sessionId: string, timestamp?: number) => host.launcher?.touchUserMessage(sessionId, timestamp),
-    formatVsCodeSelectionPrompt: (selection: import("./session-types.js").VsCodeSelectionMetadata) =>
-      host.formatVsCodeSelectionPrompt(selection),
-    getCliSessionId: (targetSession: unknown) => {
-      const session = targetSession as Session;
-      return readLauncherSession(host, session.id)?.cliSessionId || session.state.session_id || "";
-    },
     nextUserMessageId: (ts: number) => `user-${ts}-${host.userMsgCounter++}`,
     onUserMessage: host.onUserMessage
       ? (sessionId: string, history: Session["messageHistory"], cwd: string, wasGenerating: boolean) =>
@@ -1662,17 +1553,6 @@ export function getBrowserRoutingDeps(host: any) {
     onPermissionModeChanged: host.onPermissionModeChanged
       ? (sessionId: string, newMode: string) => host.onPermissionModeChanged?.(sessionId, newMode)
       : undefined,
-    sendControlRequest: (
-      targetSession: unknown,
-      request: Record<string, unknown>,
-      onResponse?: { subtype: string; resolve: (response: unknown) => void },
-    ) =>
-      sendControlRequestTransportController(
-        targetSession as Session,
-        request,
-        onResponse,
-        host.getClaudeCliTransportDeps(),
-      ),
     requestCodexAutoRecovery: (targetSession: unknown, reason: string) =>
       host.requestCodexAutoRecovery(targetSession as Session, reason),
     requestCodexLeaderRecycle: async (targetSession: unknown, trigger: CodexLeaderRecycleTrigger) =>
@@ -1708,8 +1588,6 @@ export function getBrowserRoutingDeps(host: any) {
       handleCodexSetServiceTierController(targetSession as Session, serviceTier, host.getBrowserRoutingDeps()),
     handleSetAskPermission: (targetSession: unknown, askPermission: boolean) =>
       handleSetAskPermissionController(targetSession as Session, askPermission, host.getBrowserRoutingDeps()),
-    handleInterruptFallback: (targetSession: unknown, source: InterruptSource) =>
-      handleInterruptController(targetSession as Session, source, host.getBrowserRoutingDeps()),
   };
 }
 

@@ -28,7 +28,7 @@ describe("SessionNumChip navigation projection", () => {
         createdAt: 1,
         name: "Legacy name",
         model: "legacy-model",
-        backendType: "claude",
+        backendType: "claude-sdk",
         cliConnected: false,
         gitBranch: "legacy-branch",
       },

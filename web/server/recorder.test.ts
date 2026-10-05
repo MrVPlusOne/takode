@@ -70,7 +70,7 @@ async function waitForFileLines(filePath: string, expectedLines: number): Promis
 
 describe("SessionRecorder", () => {
   it("writes a header as the first line with correct metadata", () => {
-    const rec = new SessionRecorder("sess-1", "claude", "/project", tempDir);
+    const rec = new SessionRecorder("sess-1", "claude-sdk", "/project", tempDir);
     rec.close();
 
     const lines = readFileSync(rec.filePath, "utf-8").trim().split("\n");
@@ -80,7 +80,7 @@ describe("SessionRecorder", () => {
     expect(header._header).toBe(true);
     expect(header.version).toBe(1);
     expect(header.session_id).toBe("sess-1");
-    expect(header.backend_type).toBe("claude");
+    expect(header.backend_type).toBe("claude-sdk");
     expect(header.cwd).toBe("/project");
     expect(typeof header.started_at).toBe("number");
   });
@@ -89,7 +89,7 @@ describe("SessionRecorder", () => {
     // The raw string has intentional formatting (extra spaces, specific order)
     // that must be preserved verbatim — not re-parsed and re-serialized.
     const rawMsg = '{"type":"system",  "subtype":"init", "extra_field": true}';
-    const rec = new SessionRecorder("sess-2", "claude", "/project", tempDir);
+    const rec = new SessionRecorder("sess-2", "claude-sdk", "/project", tempDir);
     rec.record("in", rawMsg, "cli");
     rec.close();
     // flush() is async (uses fs.promises.appendFile); wait for the expected lines
@@ -129,7 +129,7 @@ describe("SessionRecorder", () => {
   });
 
   it("records direction and channel correctly", async () => {
-    const rec = new SessionRecorder("sess-4", "claude", "/cwd", tempDir);
+    const rec = new SessionRecorder("sess-4", "claude-sdk", "/cwd", tempDir);
     rec.record("in", "hello", "cli");
     rec.record("out", "world", "browser");
     rec.close();
@@ -145,7 +145,7 @@ describe("SessionRecorder", () => {
   });
 
   it("does not record after close()", async () => {
-    const rec = new SessionRecorder("sess-5", "claude", "/cwd", tempDir);
+    const rec = new SessionRecorder("sess-5", "claude-sdk", "/cwd", tempDir);
     rec.record("in", "before-close", "cli");
     rec.close();
     await waitForFileLines(rec.filePath, 2);
@@ -167,7 +167,7 @@ describe("SessionRecorder", () => {
 
   it("tracks lineCount correctly (header + entries)", () => {
     // lineCount starts at 1 (the header), increments for each recorded entry
-    const rec = new SessionRecorder("sess-lc", "claude", "/cwd", tempDir);
+    const rec = new SessionRecorder("sess-lc", "claude-sdk", "/cwd", tempDir);
     expect(rec.lineCount).toBe(1);
 
     rec.record("in", "a", "cli");
@@ -198,8 +198,8 @@ describe("RecorderManager", () => {
       expect(mgr.isGloballyEnabled()).toBe(false);
       expect(mgr.isRecording("any-session")).toBe(false);
 
-      mgr.record("sess-1", "in", "browser payload", "browser", "claude", "/cwd");
-      mgr.recordServerEvent("sess-1", "turn_state", { state: "idle" }, "claude", "/cwd");
+      mgr.record("sess-1", "in", "browser payload", "browser", "claude-sdk", "/cwd");
+      mgr.recordServerEvent("sess-1", "turn_state", { state: "idle" }, "claude-sdk", "/cwd");
 
       expect(mgr.getActiveRecorderStats("sess-1")).toBeNull();
       expect(existsSync(recordingsDir)).toBe(false);
@@ -233,7 +233,7 @@ describe("RecorderManager", () => {
     const recordingsDir = join(tempDir, "opt-in-recordings");
     const mgr = new RecorderManager({ recordingsDir });
 
-    mgr.record("sess-1", "in", "captured", "cli", "claude", "/cwd");
+    mgr.record("sess-1", "in", "captured", "cli", "claude-sdk", "/cwd");
 
     expect(readDirSafe(recordingsDir)).toHaveLength(1);
     expect(mgr.getActiveRecorderStats("sess-1")).not.toBeNull();
@@ -251,7 +251,7 @@ describe("RecorderManager", () => {
     const mgr = new RecorderManager({ globalEnabled: false, recordingsDir: tempDir });
     expect(mgr.isRecording("sess-1")).toBe(false);
 
-    mgr.record("sess-1", "in", "test", "cli", "claude", "/cwd");
+    mgr.record("sess-1", "in", "test", "cli", "claude-sdk", "/cwd");
 
     const files = readDirSafe(tempDir);
     expect(files.length).toBe(0);
@@ -275,8 +275,8 @@ describe("RecorderManager", () => {
     const mgr = new RecorderManager({ globalEnabled: false, recordingsDir });
 
     mgr.enableForSession("sess-1");
-    mgr.record("sess-1", "in", "selected", "browser", "claude", "/cwd");
-    mgr.record("sess-2", "in", "not selected", "browser", "claude", "/cwd");
+    mgr.record("sess-1", "in", "selected", "browser", "claude-sdk", "/cwd");
+    mgr.record("sess-2", "in", "not selected", "browser", "claude-sdk", "/cwd");
 
     expect(readDirSafe(recordingsDir)).toHaveLength(1);
     expect(readDirSafe(recordingsDir)[0]).toContain("sess-1");
@@ -286,7 +286,7 @@ describe("RecorderManager", () => {
     expect(mgr.isRecording("sess-1")).toBe(false);
     expect(mgr.getRecordingStatus("sess-1").filePath).toBeUndefined();
 
-    mgr.record("sess-1", "in", "after stop", "browser", "claude", "/cwd");
+    mgr.record("sess-1", "in", "after stop", "browser", "claude-sdk", "/cwd");
     expect(readDirSafe(recordingsDir)).toHaveLength(1);
   });
 
@@ -295,18 +295,18 @@ describe("RecorderManager", () => {
 
     expect(readDirSafe(tempDir).length).toBe(0);
 
-    mgr.record("sess-1", "in", "first-msg", "cli", "claude", "/cwd");
+    mgr.record("sess-1", "in", "first-msg", "cli", "claude-sdk", "/cwd");
 
     const files = readDirSafe(tempDir);
     expect(files.length).toBe(1);
-    expect(files[0]).toMatch(/^sess-1_claude_.*\.jsonl$/);
+    expect(files[0]).toMatch(/^sess-1_claude-sdk_.*\.jsonl$/);
     mgr.closeAll();
   });
 
   it("creates separate files for concurrent sessions", () => {
     const mgr = new RecorderManager({ globalEnabled: true, recordingsDir: tempDir });
 
-    mgr.record("sess-a", "in", "msg-a", "cli", "claude", "/cwd");
+    mgr.record("sess-a", "in", "msg-a", "cli", "claude-sdk", "/cwd");
     mgr.record("sess-b", "in", "msg-b", "cli", "codex", "/cwd");
 
     const files = readDirSafe(tempDir);
@@ -318,11 +318,11 @@ describe("RecorderManager", () => {
 
   it("stopRecording closes the recorder and removes it", () => {
     const mgr = new RecorderManager({ globalEnabled: true, recordingsDir: tempDir });
-    mgr.record("sess-1", "in", "msg1", "cli", "claude", "/cwd");
+    mgr.record("sess-1", "in", "msg1", "cli", "claude-sdk", "/cwd");
 
     mgr.stopRecording("sess-1");
 
-    mgr.record("sess-1", "in", "msg2", "cli", "claude", "/cwd");
+    mgr.record("sess-1", "in", "msg2", "cli", "claude-sdk", "/cwd");
 
     const files = readDirSafe(tempDir);
     expect(files.length).toBe(2);
@@ -331,7 +331,7 @@ describe("RecorderManager", () => {
 
   it("getRecordingStatus returns filePath when active", () => {
     const mgr = new RecorderManager({ globalEnabled: true, recordingsDir: tempDir });
-    mgr.record("sess-1", "in", "msg", "cli", "claude", "/cwd");
+    mgr.record("sess-1", "in", "msg", "cli", "claude-sdk", "/cwd");
 
     const status = mgr.getRecordingStatus("sess-1");
     expect(status.filePath).toBeDefined();
@@ -348,7 +348,7 @@ describe("RecorderManager", () => {
   it("listRecordings returns correct metadata and line counts", async () => {
     const mgr = new RecorderManager({ globalEnabled: true, recordingsDir: tempDir });
     // sess-1: header + 1 entry = 2 lines
-    mgr.record("sess-1", "in", "msg", "cli", "claude", "/cwd");
+    mgr.record("sess-1", "in", "msg", "cli", "claude-sdk", "/cwd");
     // sess-2: header + 1 entry = 2 lines
     mgr.record("sess-2", "in", "msg", "cli", "codex", "/cwd");
     // Flush buffered entries to disk before reading
@@ -360,7 +360,7 @@ describe("RecorderManager", () => {
 
     const r1 = recordings.find((r) => r.sessionId === "sess-1");
     expect(r1).toBeDefined();
-    expect(r1!.backendType).toBe("claude");
+    expect(r1!.backendType).toBe("claude-sdk");
     expect(r1!.lines).toBe(2);
 
     const r2 = recordings.find((r) => r.sessionId === "sess-2");
@@ -394,7 +394,7 @@ describe("RecorderManager", () => {
 
   it("closeAll closes all active recorders and stops cleanup timer", () => {
     const mgr = new RecorderManager({ globalEnabled: true, recordingsDir: tempDir });
-    mgr.record("sess-1", "in", "msg", "cli", "claude", "/cwd");
+    mgr.record("sess-1", "in", "msg", "cli", "claude-sdk", "/cwd");
     mgr.record("sess-2", "in", "msg", "cli", "codex", "/cwd");
 
     mgr.closeAll();
@@ -406,7 +406,7 @@ describe("RecorderManager", () => {
   it("disableForSession also stops and closes the recorder", () => {
     const mgr = new RecorderManager({ globalEnabled: false, recordingsDir: tempDir });
     mgr.enableForSession("sess-1");
-    mgr.record("sess-1", "in", "msg", "cli", "claude", "/cwd");
+    mgr.record("sess-1", "in", "msg", "cli", "claude-sdk", "/cwd");
 
     expect(mgr.getRecordingStatus("sess-1").filePath).toBeDefined();
 
@@ -419,7 +419,7 @@ describe("RecorderManager", () => {
     // When globalEnabled is true, disableForSession must still stop recording
     // for that specific session by adding it to the perSessionDisabled set.
     const mgr = new RecorderManager({ globalEnabled: true, recordingsDir: tempDir });
-    mgr.record("sess-1", "in", "msg1", "cli", "claude", "/cwd");
+    mgr.record("sess-1", "in", "msg1", "cli", "claude-sdk", "/cwd");
 
     expect(mgr.isRecording("sess-1")).toBe(true);
 
@@ -430,7 +430,7 @@ describe("RecorderManager", () => {
 
     // New record() calls should be no-ops (no new file created)
     const filesBefore = readDirSafe(tempDir).length;
-    mgr.record("sess-1", "in", "msg2", "cli", "claude", "/cwd");
+    mgr.record("sess-1", "in", "msg2", "cli", "claude-sdk", "/cwd");
     expect(readDirSafe(tempDir).length).toBe(filesBefore);
 
     // Re-enabling should work
@@ -490,7 +490,7 @@ describe("cleanup / rotation", () => {
       recordingsDir: tempDir,
       maxLines: 5, // Very low limit to force cleanup
     });
-    mgr.record("active-sess", "in", "msg", "cli", "claude", "/cwd");
+    mgr.record("active-sess", "in", "msg", "cli", "claude-sdk", "/cwd");
 
     // Now cleanup should delete the stale file but NOT the active recording's file
     const deleted = await mgr.cleanup();

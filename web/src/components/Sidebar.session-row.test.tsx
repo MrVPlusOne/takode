@@ -596,9 +596,9 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
 
   it.each([
     ["codex", true],
-    ["claude", true],
+    ["claude-sdk", true],
     ["codex", false],
-    ["claude", false],
+    ["claude-sdk", false],
   ] as const)("preserves Git hover details with leader-only count hiding (%s, leader=%s)", async (backendType, isOrchestrator) => {
     // Use the canonical navigation row and real sidebar hover path: hiding
     // leader counts must not strip the values consumed by the detail card.

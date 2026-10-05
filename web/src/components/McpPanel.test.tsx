@@ -162,3 +162,25 @@ describe("McpSection status-fetch failures", () => {
     expect(screen.getByRole("status")).toHaveTextContent(STATUS_ERROR);
   });
 });
+
+describe("McpSection for Claude sessions", () => {
+  it("shows reported servers but hides add, toggle and reconnect controls Claude cannot honor", () => {
+    // Claude reports MCP servers at startup but Takode cannot manage them, so the
+    // panel must not offer controls that would silently do nothing.
+    useStore.setState({
+      sessions: new Map([["claude", session("claude", { backend_type: "claude-sdk" })]]),
+      mcpServers: new Map([["claude", [FAILED_SERVER]]]),
+      cliConnected: new Map([["claude", true]]),
+    });
+    render(<McpSection sessionId="claude" />);
+
+    expect(screen.getByRole("button", { name: "database" })).toBeInTheDocument();
+    expect(screen.queryByTitle("Add MCP server")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Enable server")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Disable server")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Reconnect server")).not.toBeInTheDocument();
+    // Status refresh stays available.
+    expect(screen.getByTitle("Refresh MCP server status")).toBeInTheDocument();
+    expect(sendMcpGetStatus).toHaveBeenCalledWith("claude");
+  });
+});

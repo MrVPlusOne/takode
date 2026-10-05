@@ -220,7 +220,7 @@ export async function prepareWorktreeSessionArtifacts(options: {
 
   await cleanStaleGuardrailsFile(worktreePath);
 
-  if (backendType === "claude" || backendType === "claude-sdk") {
+  if (backendType === "claude-sdk") {
     try {
       await symlinkProjectSettings(worktreePath, repoRoot);
       console.log(

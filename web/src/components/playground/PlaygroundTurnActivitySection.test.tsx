@@ -41,7 +41,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function fixtureSession(backend: "claude" | "codex"): SessionState {
+function fixtureSession(backend: "claude-sdk" | "codex"): SessionState {
   return {
     session_id: turnActivityFixture.sessionId,
     backend_type: backend,
@@ -152,7 +152,7 @@ describe("turn activity disclosure integration", () => {
   });
 
   it.each([
-    "claude",
+    "claude-sdk",
     "codex",
   ] as const)("preserves chronology and the single mounted control in the %s MessageFeed", (backend) => {
     // Exercise the real store delivery and MessageFeed path on producer-built windows.

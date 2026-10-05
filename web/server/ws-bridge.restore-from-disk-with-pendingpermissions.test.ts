@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -713,7 +714,7 @@ describe("Restore from disk with pendingPermissions", () => {
 
     // CLI connects (non-seamless, simulating server restart) -- stale perms cleared
     const cli = makeCliSocket("perm-replay");
-    bridge.handleCLIOpen(cli, "perm-replay");
+    cli.attach(bridge);
 
     expect(session.pendingPermissions.size).toBe(0);
 

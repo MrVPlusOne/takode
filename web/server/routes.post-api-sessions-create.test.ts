@@ -124,7 +124,6 @@ vi.mock("./settings-manager.js", () => ({
       enhancementModel: "gpt-5-mini",
     },
     editorConfig: { editor: "none" },
-    defaultClaudeBackend: "claude",
     sleepInhibitorEnabled: false,
     sleepInhibitorDurationMinutes: 5,
     questmasterViewMode: "cards",
@@ -156,7 +155,6 @@ vi.mock("./settings-manager.js", () => ({
       enhancementModel: "gpt-5-mini",
     },
     editorConfig: patch.editorConfig ?? { editor: "none" },
-    defaultClaudeBackend: patch.defaultClaudeBackend ?? "claude",
     sleepInhibitorEnabled: patch.sleepInhibitorEnabled ?? false,
     sleepInhibitorDurationMinutes: patch.sleepInhibitorDurationMinutes ?? 5,
     questmasterViewMode: patch.questmasterViewMode ?? "cards",
@@ -550,6 +548,7 @@ beforeEach(async () => {
   // Default no-op mocks for container workspace isolation (called during container session creation)
   vi.spyOn(containerManager, "copyWorkspaceToContainer").mockResolvedValue(undefined);
   vi.spyOn(containerManager, "reseedGitAuth").mockImplementation(() => {});
+  vi.mocked(envManager.getEffectiveImage).mockResolvedValue(null);
 });
 
 afterEach(async () => {
@@ -834,7 +833,7 @@ describe("POST /api/sessions/create", () => {
     expect(res.status).toBe(200);
     expect(launcher.launch).toHaveBeenCalledWith(
       expect.objectContaining({
-        backendType: "claude",
+        backendType: "claude-sdk",
         model: "claude-sonnet-4-5-20250929",
         permissionMode: "acceptEdits",
         claudeReasoningEffort: "max",
@@ -1576,7 +1575,7 @@ describe("POST /api/sessions/create", () => {
     vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "Companion",
       slug: "companion",
-      variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
+      variables: { OPENAI_API_KEY: "sk-test" },
       baseImage: "companion-dev:latest",
       createdAt: 1000,
       updatedAt: 1000,
@@ -1590,7 +1589,7 @@ describe("POST /api/sessions/create", () => {
     const res = await app.request("/api/sessions/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: "/test", envSlug: "companion" }),
+      body: JSON.stringify({ cwd: "/test", envSlug: "companion", backend: "codex" }),
     });
 
     expect(res.status).toBe(503);
@@ -1665,7 +1664,7 @@ describe("POST /api/sessions/create", () => {
     vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "Companion",
       slug: "companion",
-      variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
+      variables: { OPENAI_API_KEY: "sk-test" },
       baseImage: "companion-dev:latest",
       createdAt: 1000,
       updatedAt: 1000,
@@ -1690,7 +1689,7 @@ describe("POST /api/sessions/create", () => {
     const res = await app.request("/api/sessions/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: "/test", envSlug: "companion" }),
+      body: JSON.stringify({ cwd: "/test", envSlug: "companion", backend: "codex" }),
     });
 
     expect(res.status).toBe(200);
@@ -1703,7 +1702,7 @@ describe("POST /api/sessions/create", () => {
     vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "WithInit",
       slug: "with-init",
-      variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
+      variables: { OPENAI_API_KEY: "sk-test" },
       baseImage: "the-companion:latest",
       initScript: "bun install && pip install -r requirements.txt",
       createdAt: 1000,
@@ -1728,7 +1727,7 @@ describe("POST /api/sessions/create", () => {
     const res = await app.request("/api/sessions/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: "/test", envSlug: "with-init" }),
+      body: JSON.stringify({ cwd: "/test", envSlug: "with-init", backend: "codex" }),
     });
 
     expect(res.status).toBe(200);
@@ -1746,7 +1745,7 @@ describe("POST /api/sessions/create", () => {
     vi.mocked(envManager.getEnv).mockResolvedValue({
       name: "FailInit",
       slug: "fail-init",
-      variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
+      variables: { OPENAI_API_KEY: "sk-test" },
       baseImage: "the-companion:latest",
       initScript: "exit 1",
       createdAt: 1000,
@@ -1772,7 +1771,7 @@ describe("POST /api/sessions/create", () => {
     const res = await app.request("/api/sessions/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: "/test", envSlug: "fail-init" }),
+      body: JSON.stringify({ cwd: "/test", envSlug: "fail-init", backend: "codex" }),
     });
 
     expect(res.status).toBe(503);

@@ -7,7 +7,7 @@ import { isClaudeFamily } from "../session-types.js";
 import { detectLongSleepBashCommand, LONG_SLEEP_DENY_MESSAGE, LONG_SLEEP_REMINDER_TEXT } from "./bash-sleep-policy.js";
 import { shouldSettingsRuleApprove } from "./settings-rule-matcher.js";
 
-export type PermissionRequestBackend = "claude-ws" | "claude-sdk" | "codex";
+export type PermissionRequestBackend = "claude-sdk" | "codex";
 
 export interface IncomingPermissionRequest {
   request_id: string;
@@ -291,9 +291,7 @@ export function handlePermissionRequest<S extends PermissionPipelineSession>(
 
   // Tier 2: Settings.json rule matching — fast static check against user allow rules.
   // Enabled for all backends. SDK sessions bypass the CLI's built-in rule engine
-  // (--permission-prompt-tool stdio), Codex has no CLI-side engine, and WebSocket
-  // sessions may forward requests the CLI couldn't approve (e.g. Bash commands
-  // not matching the CLI's narrower rule set, or requests during plan mode).
+  // (--permission-prompt-tool stdio) and Codex has no CLI-side engine.
   // Skip tools that can never be auto-approved (they'd just return null anyway).
   const settingsRuleEnabled = options.enableSettingsRuleApprove !== false && !NEVER_AUTO_APPROVE.has(toolName);
   if (settingsRuleEnabled) {

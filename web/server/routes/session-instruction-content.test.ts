@@ -134,7 +134,7 @@ describe("captured Codex instruction content route", () => {
   it("rejects missing identity and non-Codex sessions", async () => {
     const { app, session, request } = setup();
     expect((await app.request("/sessions/session-a/instruction-content?source=0")).status).toBe(400);
-    session.backendType = "claude";
+    session.backendType = "claude-sdk";
     expect((await request()).status).toBe(404);
   });
 });

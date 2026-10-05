@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -578,13 +579,13 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 describe("compact_boundary handling", () => {
   it("appends compact_marker to messageHistory (preserving old messages) when compact_boundary is received", () => {
     const cli = makeCliSocket("s1");
+    cli.attach(bridge);
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
     // Send init + an assistant message so history is non-empty
-    bridge.handleCLIMessage(cli, makeInitMsg());
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(makeInitMsg());
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -608,8 +609,7 @@ describe("compact_boundary handling", () => {
     expect(historyLenBefore).toBeGreaterThan(0);
 
     // Send compact_boundary with metadata
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -637,16 +637,16 @@ describe("compact_boundary handling", () => {
   // a valid percentage for SDK/WebSocket sessions).
   it("does not update context_used_percent from compact_boundary pre_tokens", () => {
     const cli = makeCliSocket("s1");
+    cli.attach(bridge);
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg({ model: "claude-opus-4-6" }));
+    cli.message(makeInitMsg({ model: "claude-opus-4-6" }));
     browser.send.mockClear();
 
     const session = bridge.getOrCreateSession("s1");
     session.state.context_used_percent = 68;
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -668,12 +668,11 @@ describe("compact_boundary handling", () => {
 
   it("supports multiple compactions creating multiple compact_markers in history", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     // Send an assistant message
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -692,8 +691,7 @@ describe("compact_boundary handling", () => {
     );
 
     // First compaction
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -704,8 +702,7 @@ describe("compact_boundary handling", () => {
     );
 
     // Another assistant message after compaction
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -724,8 +721,7 @@ describe("compact_boundary handling", () => {
     );
 
     // Second compaction
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -745,8 +741,8 @@ describe("compact_boundary handling", () => {
 
   it("deduplicates replayed compact_boundary without uuid when marker is equivalent", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const payload = {
       type: "system",
@@ -755,8 +751,8 @@ describe("compact_boundary handling", () => {
       session_id: "cli-123",
     };
 
-    bridge.handleCLIMessage(cli, JSON.stringify(payload));
-    bridge.handleCLIMessage(cli, JSON.stringify(payload));
+    cli.message(JSON.stringify(payload));
+    cli.message(JSON.stringify(payload));
 
     const session = bridge.getOrCreateSession("s1");
     const markers = session.messageHistory.filter((m) => m.type === "compact_marker");
@@ -767,11 +763,10 @@ describe("compact_boundary handling", () => {
 
   it("deduplicates equivalent replayed compact_boundary even when uuid changes", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -780,8 +775,7 @@ describe("compact_boundary handling", () => {
         session_id: "cli-123",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -800,6 +794,7 @@ describe("compact_boundary handling", () => {
 
   it("broadcasts compact_boundary event with metadata to browsers", () => {
     const cli = makeCliSocket("s1");
+    cli.attach(bridge);
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
@@ -814,12 +809,11 @@ describe("compact_boundary handling", () => {
       }),
     );
 
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.message(makeInitMsg());
     browser.send.mockClear();
 
     // Send compact_boundary
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -841,6 +835,7 @@ describe("compact_boundary handling", () => {
 
   it("captures compaction summary from next CLI user message and broadcasts compact_summary", () => {
     const cli = makeCliSocket("s1");
+    cli.attach(bridge);
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
@@ -855,11 +850,10 @@ describe("compact_boundary handling", () => {
       }),
     );
 
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.message(makeInitMsg());
 
     // Send compact_boundary (sets awaitingCompactSummary)
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -874,8 +868,7 @@ describe("compact_boundary handling", () => {
     // Send a CLI "user" message with a text block (this is the compaction summary)
     const summaryText =
       "This session is being continued from a previous conversation. Key context: the user is building a web app.";
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: { role: "user", content: [{ type: "text", text: summaryText }] },
@@ -903,7 +896,7 @@ describe("compact_boundary handling", () => {
 
   it("captures compaction summary from a plain string content (CLI actual format)", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -917,11 +910,10 @@ describe("compact_boundary handling", () => {
       }),
     );
 
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.message(makeInitMsg());
 
     // Send compact_boundary
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -935,8 +927,7 @@ describe("compact_boundary handling", () => {
 
     // CLI sends the summary as a plain string (not an array of content blocks)
     const summaryText = "This session is being continued from a previous conversation. The user is building a web UI.";
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: { role: "user", content: summaryText },
@@ -964,12 +955,11 @@ describe("compact_boundary handling", () => {
 
   it("attaches summary to the LAST compact_marker when multiple compactions occurred (findLast)", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     // First compaction
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -980,8 +970,7 @@ describe("compact_boundary handling", () => {
     );
 
     // Provide summary for first compaction
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: { role: "user", content: "First compaction summary" },
@@ -992,8 +981,7 @@ describe("compact_boundary handling", () => {
     );
 
     // Some more messages between compactions
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -1012,8 +1000,7 @@ describe("compact_boundary handling", () => {
     );
 
     // Second compaction
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -1024,8 +1011,7 @@ describe("compact_boundary handling", () => {
     );
 
     // Provide summary for second compaction — should attach to the LAST marker
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: { role: "user", content: "Second compaction summary" },
@@ -1046,13 +1032,12 @@ describe("compact_boundary handling", () => {
 
   it("processes normal tool_result user messages after summary is captured", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.message(makeInitMsg());
 
     // Send compact_boundary
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -1063,8 +1048,7 @@ describe("compact_boundary handling", () => {
     );
 
     // Send summary (consumes awaitingCompactSummary)
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: { role: "user", content: [{ type: "text", text: "Summary text" }] },
@@ -1075,8 +1059,7 @@ describe("compact_boundary handling", () => {
     );
 
     // Now send a normal tool_result user message — should be handled normally
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu-1", content: "result data" }] },

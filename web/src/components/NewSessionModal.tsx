@@ -27,7 +27,6 @@ import {
   type ModelOption,
   type CodexPermissionMode,
 } from "../utils/backends.js";
-import type { BackendType } from "../types.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 import {
   getGlobalNewSessionDefaults,
@@ -118,7 +117,7 @@ export function NewSessionModal({
     scopedSetItem(key, value);
   }
 
-  const [backend, setBackend] = useState<BackendType>(() => defaults.backend);
+  const [backend, setBackend] = useState<NewSessionBackend>(() => defaults.backend);
   const [backends, setBackends] = useState<BackendInfo[]>([]);
   const [model, setModel] = useState(() => defaults.model);
   const [mode, setMode] = useState(() => defaults.mode);
@@ -227,12 +226,12 @@ export function NewSessionModal({
     claudePermissionModeOverrideRef.current = null;
   }
 
-  function backendDefaultKey(targetBackend: BackendType): "claude" | "codex" {
+  function backendDefaultKey(targetBackend: NewSessionBackend): "claude" | "codex" {
     return targetBackend === "codex" ? "codex" : "claude";
   }
 
   function applySettingsDefaultsForBackend(
-    targetBackend: BackendType,
+    targetBackend: NewSessionBackend,
     nextSettingsDefaults: AppSettings["sessionDefaults"] | null,
   ) {
     if (!nextSettingsDefaults) return;
@@ -372,7 +371,7 @@ export function NewSessionModal({
     persistGlobalDefault("cc-mode", value);
   }
 
-  function switchBackend(newBackend: BackendType) {
+  function switchBackend(newBackend: NewSessionBackend) {
     setBackend(newBackend);
     persistGlobalDefault("cc-backend", newBackend);
     setDynamicModels(null);
@@ -766,7 +765,7 @@ export function NewSessionModal({
                       {backends.map((b) => (
                         <button
                           key={b.id}
-                          onClick={() => b.available && switchBackend(b.id as BackendType)}
+                          onClick={() => b.available && switchBackend(b.id as NewSessionBackend)}
                           disabled={!b.available}
                           title={b.available ? b.name : `${b.name} CLI not found in PATH`}
                           className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-colors ${
@@ -999,7 +998,7 @@ export function NewSessionModal({
                           {backends.map((b) => (
                             <button
                               key={b.id}
-                              onClick={() => b.available && switchBackend(b.id as BackendType)}
+                              onClick={() => b.available && switchBackend(b.id as NewSessionBackend)}
                               disabled={!b.available}
                               title={b.available ? b.name : `${b.name} CLI not found in PATH`}
                               className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-colors ${

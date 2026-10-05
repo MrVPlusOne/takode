@@ -165,8 +165,8 @@ export function SessionHoverCard({
   const shortId = s.id.slice(0, 8);
   const label = resolvedSessionName || s.model || shortId;
   const model = sessionVm?.model || s.model || "";
-  const backendType = effectiveBackendType ?? "claude";
-  const backendLabel = backendType === "codex" ? "Codex" : backendType === "claude-sdk" ? "Claude SDK" : "Claude";
+  const backendType = effectiveBackendType ?? "claude-sdk";
+  const backendLabel = backendType === "codex" ? "Codex" : "Claude";
   const backendToneClass = backendType === "codex" ? "text-blue-500" : "text-[#D97757]";
   const createdAtLabel = s.createdAt > 0 ? new Date(s.createdAt).toLocaleString() : "Unknown";
   const taskEntries = (taskHistory ?? []).map((task) => ({

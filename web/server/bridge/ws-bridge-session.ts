@@ -41,11 +41,6 @@ import type {
 } from "../session-types.js";
 // ─── WebSocket data tags ──────────────────────────────────────────────────────
 
-export interface CLISocketData {
-  kind: "cli";
-  sessionId: string;
-}
-
 export interface BrowserSocketData {
   kind: "browser";
   sessionId: string;
@@ -59,7 +54,7 @@ export interface TerminalSocketData {
   terminalId: string;
 }
 
-export type SocketData = CLISocketData | BrowserSocketData | TerminalSocketData;
+export type SocketData = BrowserSocketData | TerminalSocketData;
 
 // ─── Session ──────────────────────────────────────────────────────────────────
 
@@ -95,7 +90,6 @@ export type ClaudeSdkBridgeAdapter = BackendAdapter<ClaudeSdkSessionMeta> & Comp
 export interface Session {
   id: string;
   backendType: BackendType;
-  backendSocket: ServerWebSocket<SocketData> | null;
   codexAdapter: CodexBridgeAdapter | null;
   claudeSdkAdapter: ClaudeSdkBridgeAdapter | null;
   browserSockets: Set<ServerWebSocket<SocketData>>;
@@ -146,8 +140,6 @@ export interface Session {
   >;
   /** Set after compact_boundary; the next user text message is the summary */
   awaitingCompactSummary?: boolean;
-  /** Claude WebSocket only: a real compact_boundary arrived for the current compaction cycle. */
-  claudeCompactBoundarySeen?: boolean;
   /** Accumulates content blocks for assistant messages with the same ID (parallel tool calls) */
   assistantAccumulator: Map<
     string,
@@ -244,20 +236,11 @@ export interface Session {
   cliInitReceived: boolean;
   /** Last message received from CLI (epoch ms), for stuck detection */
   lastCliMessageAt: number;
-  /** Last keep_alive or WebSocket ping from CLI (epoch ms), for disconnect diagnostics */
-  lastCliPingAt: number;
   /** Last tool_progress from any tool (epoch ms). Prevents false "stuck"
    *  warnings when a tool (Bash, Agent, etc.) is legitimately running. */
   lastToolProgressAt: number;
   /** Optimistic running rollback timer started when a user message is dispatched. */
   optimisticRunningTimer: ReturnType<typeof setTimeout> | null;
-  /**
-   * The last user message NDJSON sent to the CLI. Set when a user message is
-   * forwarded to the CLI, cleared when the turn completes (result message).
-   * If the CLI disconnects mid-turn, this is re-queued in pendingMessages so
-   * the message is automatically re-sent after --resume reconnect.
-   */
-  lastOutboundUserNdjson: string | null;
   /** When stuck notification was sent (epoch ms), to avoid repeated notifications */
   stuckNotifiedAt: number | null;
   /** Server-side activity preview (mirrors browser's sessionTaskPreview) */
@@ -273,17 +256,8 @@ export interface Session {
   attentionReason: "action" | "error" | "review" | null;
   /** Codex-only: defers disconnect interruption side-effects while reconnect/resume may recover the turn. */
   codexDisconnectGraceTimer: ReturnType<typeof setTimeout> | null;
-  /** Grace period timer for CLI disconnect — delays side-effects to allow seamless reconnect.
-   *  The Claude Code CLI disconnects every 5 minutes for token refresh and reconnects in ~13s.
-   *  If the CLI reconnects within the grace period, the disconnect is invisible to the system. */
-  disconnectGraceTimer: ReturnType<typeof setTimeout> | null;
-  /** Whether the CLI was generating when the grace timer started (preserved for deferred handling). */
-  disconnectWasGenerating: boolean;
-  /** Set when the CLI reconnects within the grace period (token refresh, not relaunch).
-   *  Consumed by system.init handler to skip force-clearing isGenerating. */
-  seamlessReconnect: boolean;
-  /** Set by onBeforeRelaunch — prevents handleCLIOpen from treating the new
-   *  CLI connection as a seamless reconnect (which would preserve stale isGenerating). */
+  /** Set while an intentional relaunch is in flight, so the backend reattach is not
+   *  mistaken for a recovered connection. */
   relaunchPending: boolean;
   /** High-level task history recognized by the session auto-namer */
   taskHistory: SessionTaskEntry[];
@@ -325,10 +299,6 @@ export interface Session {
   /** AbortControllers for in-flight LLM auto-approval evaluations, keyed by request_id.
    *  Used to cancel the LLM subprocess when the user responds manually. Transient — not persisted. */
   evaluatingAborts: Map<string, AbortController>;
-  /** Whether we've sent the `initialize` control_request with appendSystemPrompt
-   *  to the current CLI process (WebSocket sessions only). Reset on relaunch so
-   *  new processes get fresh instructions. Prevents double-sends on seamless reconnects. */
-  cliInitializeSent: boolean;
   /** True while a relaunched CLI is replaying old messages via --resume.
    *  During this window, system.status permissionMode changes must NOT
    *  overwrite uiMode — the replayed mode is stale and would revert

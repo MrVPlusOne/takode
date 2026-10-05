@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -633,14 +634,14 @@ describe("traffic accounting", () => {
     expect(snapshot.sessions.s1?.totals.messages).toBeGreaterThan(0);
   });
 
-  it("tracks CLI inbound NDJSON and outbound sends", async () => {
+  it("tracks Claude inbound messages and outbound sends", async () => {
     const browser = makeBrowserSocket("s1");
     const cli = makeCliSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.resetTrafficStats();
 
-    bridge.handleCLIMessage(cli, `${JSON.stringify({ type: "keep_alive" })}\n`);
+    cli.message(`${JSON.stringify({ type: "keep_alive" })}\n`);
     bridge.handleBrowserMessage(browser, JSON.stringify({ type: "user_message", content: "hi" }));
     await Promise.resolve();
 
@@ -649,7 +650,7 @@ describe("traffic accounting", () => {
       (entry: any) => entry.channel === "cli" && entry.direction === "in" && entry.messageType === "keep_alive",
     );
     const cliOut = snapshot.buckets.find(
-      (entry: any) => entry.channel === "cli" && entry.direction === "out" && entry.messageType === "user",
+      (entry: any) => entry.channel === "cli" && entry.direction === "out" && entry.messageType === "user_message",
     );
 
     expect(cliIn?.messages).toBe(1);

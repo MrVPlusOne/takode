@@ -76,7 +76,7 @@ export function SessionInfoPopover({
   const sessionVm = resolvedNavigation?.viewModel ?? null;
   const cwd = sessionVm?.cwd ?? null;
   const model = sessionVm?.model ?? "";
-  const backendType = sessionVm?.backendType ?? "claude";
+  const backendType = sessionVm?.backendType ?? "claude-sdk";
   const popoverRef = useRef<HTMLDivElement>(null);
   const taskHistoryScrollRef = useRef<HTMLDivElement>(null);
 
@@ -1062,9 +1062,7 @@ function formatLifecycleTokenCount(count: number): string {
 }
 
 function formatLifecycleBackend(backendType: SessionLifecycleEvent["backendType"]): string {
-  if (backendType === "codex") return "Codex";
-  if (backendType === "claude-sdk") return "Claude SDK";
-  return "Claude";
+  return backendType === "codex" ? "Codex" : "Claude";
 }
 
 /** Quest chip in task history; hover popups are intentionally disabled here to keep scrolling smooth. */

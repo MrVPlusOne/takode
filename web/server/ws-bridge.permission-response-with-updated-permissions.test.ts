@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -582,16 +583,15 @@ describe("permission_response with updated_permissions", () => {
   beforeEach(() => {
     cli = makeCliSocket("s1");
     browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
-    cli.send.mockClear();
+    cli.clearSent();
     browser.send.mockClear();
   });
 
-  it("allow with updated_permissions forwards updatedPermissions in control_response", () => {
+  it("allow with updated_permissions forwards the chosen rules to Claude", async () => {
     // Create pending permission
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "control_request",
         request_id: "req-perm-update",
@@ -603,7 +603,8 @@ describe("permission_response with updated_permissions", () => {
         },
       }),
     );
-    cli.send.mockClear();
+    await new Promise((r) => setTimeout(r, 0)); // flush async permission pipeline
+    cli.clearSent();
 
     const updatedPermissions = [
       {
@@ -624,18 +625,15 @@ describe("permission_response with updated_permissions", () => {
       }),
     );
 
-    expect(cli.send).toHaveBeenCalledTimes(1);
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.type).toBe("control_response");
-    expect(sent.response.response.behavior).toBe("allow");
-    expect(sent.response.response.updatedPermissions).toEqual(updatedPermissions);
+    await new Promise((r) => setTimeout(r, 0));
+    const decision = cli.permissionDecisions.get("req-perm-update") as any;
+    expect(decision.behavior).toBe("allow");
+    expect(decision.updatedPermissions).toEqual(updatedPermissions);
   });
 
-  it("allow without updated_permissions does not include updatedPermissions key", () => {
+  it("allow without updated_permissions does not include updatedPermissions key", async () => {
     // Create pending permission
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "control_request",
         request_id: "req-no-perm",
@@ -647,7 +645,8 @@ describe("permission_response with updated_permissions", () => {
         },
       }),
     );
-    cli.send.mockClear();
+    await new Promise((r) => setTimeout(r, 0)); // flush async permission pipeline
+    cli.clearSent();
 
     bridge.handleBrowserMessage(
       browser,
@@ -658,14 +657,14 @@ describe("permission_response with updated_permissions", () => {
       }),
     );
 
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.response.response.updatedPermissions).toBeUndefined();
+    await new Promise((r) => setTimeout(r, 0));
+    const decision = cli.permissionDecisions.get("req-no-perm") as any;
+    expect(decision.behavior).toBe("allow");
+    expect(decision).not.toHaveProperty("updatedPermissions");
   });
 
-  it("allow with empty updated_permissions does not include updatedPermissions key", () => {
-    bridge.handleCLIMessage(
-      cli,
+  it("allow with empty updated_permissions does not include updatedPermissions key", async () => {
+    cli.message(
       JSON.stringify({
         type: "control_request",
         request_id: "req-empty-perm",
@@ -677,7 +676,8 @@ describe("permission_response with updated_permissions", () => {
         },
       }),
     );
-    cli.send.mockClear();
+    await new Promise((r) => setTimeout(r, 0)); // flush async permission pipeline
+    cli.clearSent();
 
     bridge.handleBrowserMessage(
       browser,
@@ -689,8 +689,43 @@ describe("permission_response with updated_permissions", () => {
       }),
     );
 
-    const sentRaw = cli.send.mock.calls[0][0] as string;
-    const sent = JSON.parse(sentRaw.trim());
-    expect(sent.response.response.updatedPermissions).toBeUndefined();
+    await new Promise((r) => setTimeout(r, 0));
+    const decision = cli.permissionDecisions.get("req-empty-perm") as any;
+    expect(decision.behavior).toBe("allow");
+    expect(decision).not.toHaveProperty("updatedPermissions");
+  });
+
+  it("allow with a setMode suggestion also switches the session permission mode", async () => {
+    // "Always allow"-style answers can carry a mode change (e.g. accept edits);
+    // Takode owns permission mode for Claude, so it must apply the change itself.
+    cli.message(
+      JSON.stringify({
+        type: "control_request",
+        request_id: "req-set-mode",
+        request: {
+          subtype: "can_use_tool",
+          tool_name: "Edit",
+          input: { file_path: "/test.ts" },
+          tool_use_id: "tu-set-mode",
+        },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "permission_response",
+        request_id: "req-set-mode",
+        behavior: "allow",
+        updated_permissions: [{ type: "setMode", mode: "acceptEdits", destination: "session" }],
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(bridge.getSession("s1")!.state.permissionMode).toBe("acceptEdits");
+    expect((cli.permissionDecisions.get("req-set-mode") as any).updatedPermissions).toEqual([
+      { type: "setMode", mode: "acceptEdits", destination: "session" },
+    ]);
   });
 });

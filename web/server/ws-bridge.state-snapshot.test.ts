@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -579,8 +580,8 @@ describe("state_snapshot", () => {
 
   beforeEach(() => {
     cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -613,8 +614,7 @@ describe("state_snapshot", () => {
 
   it("state_snapshot is the last message sent during subscribe", async () => {
     // Add history so multiple messages are sent
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -665,8 +665,7 @@ describe("state_snapshot", () => {
         content: "Do something",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -702,7 +701,7 @@ describe("state_snapshot", () => {
   });
 
   it("reports backendConnected as false when CLI is disconnected", async () => {
-    bridge.handleCLIClose(cli);
+    cli.disconnect();
     browser.send.mockClear();
 
     bridge.handleBrowserMessage(

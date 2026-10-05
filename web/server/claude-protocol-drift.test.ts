@@ -16,12 +16,19 @@ function readFile(relativePath: string): string {
 function extractMethodBody(source: string, methodName: string): string {
   // Match the method definition, not call sites like `this.methodName(`
   const definitionPattern = new RegExp(
-    `(?:(?:private|public|protected)\\s+|export\\s+function\\s+)${methodName}\\s*\\(`,
+    `(?:(?:private|public|protected)\\s+|(?:export\\s+)?function\\s+)${methodName}\\s*\\(`,
   );
   const match = definitionPattern.exec(source);
   if (!match) return "";
-  const idx = match.index;
-  const braceStart = source.indexOf("{", idx);
+  // Skip the parameter list, which may contain object types, to reach the body.
+  let parenDepth = 1;
+  let p = match.index + match[0].length;
+  while (parenDepth > 0 && p < source.length) {
+    if (source[p] === "(") parenDepth++;
+    else if (source[p] === ")") parenDepth--;
+    p++;
+  }
+  const braceStart = source.indexOf("{", p);
   if (braceStart === -1) return "";
   let depth = 1;
   let i = braceStart + 1;
@@ -82,52 +89,56 @@ function extractSDKMessageTypes(sdkSource: string): Set<string> {
   return types;
 }
 
-describe("Claude ws-bridge method drift vs upstream Agent SDK snapshot", () => {
-  it("keeps handled CLI message types aligned with upstream (or explicit local allowlist)", () => {
+/** Extract `msg.type === "xxx"` comparisons from a block of source code. */
+function extractTypeComparisons(block: string): Set<string> {
+  return new Set([...block.matchAll(/msg\.type === "([^"]+)"/g)].map((m) => m[1]));
+}
+
+describe("Claude SDK message handling drift vs upstream Agent SDK snapshot", () => {
+  it("keeps handled Claude message types aligned with upstream (or explicit local allowlist)", () => {
+    // Claude output is translated by the SDK adapter, then handled by the bridge.
+    const adapter = readFile("server/claude-sdk-adapter.ts");
     const bridge = readFile("server/bridge/claude-message-controller.ts");
     const sdk = readFile("server/protocol/claude-upstream/sdk.d.ts.txt");
 
-    // Extract case values from routeCLIMessage using brace-counted body extraction
-    const routeBody = extractMethodBody(bridge, "routeCLIMessage");
-    expect(routeBody.length).toBeGreaterThan(0);
-    const handledFromCLI = extractCaseValues(routeBody);
-    expect(handledFromCLI.size).toBeGreaterThan(0);
+    const adapterBody = extractMethodBody(adapter, "handleSdkMessage");
+    const bridgeBody = extractMethodBody(bridge, "handleSdkBrowserMessage");
+    expect(adapterBody.length).toBeGreaterThan(0);
+    expect(bridgeBody.length).toBeGreaterThan(0);
+    const handled = new Set([
+      ...extractCaseValues(adapterBody),
+      ...extractCaseValues(bridgeBody),
+      ...extractTypeComparisons(bridgeBody),
+    ]);
+    expect(handled.size).toBeGreaterThan(0);
 
     const upstreamMessageTypes = extractSDKMessageTypes(sdk);
     expect(upstreamMessageTypes.size).toBeGreaterThan(0);
 
-    // Messages we intentionally support in raw CLI transport but are not part of SDKMessage union.
-    const localRawTransportTypes = new Set([
-      "control_request",
-      "control_response",
-      "control_cancel_request",
-      "keep_alive",
-    ]);
+    // Types the adapter synthesizes for the bridge, or transport heartbeats,
+    // that are not members of the SDKMessage union.
+    const localTypes = new Set(["keep_alive", "control_cancel_request", "status_change", "task_notification"]);
 
-    // Forward check: every type the bridge handles must exist in upstream OR the local allowlist
-    for (const caseType of handledFromCLI) {
+    // Forward check: every type handled must exist in upstream OR the local allowlist
+    for (const handledType of handled) {
       expect(
-        upstreamMessageTypes.has(caseType) || localRawTransportTypes.has(caseType),
-        `Bridge handles CLI type "${caseType}" which is not in the upstream SDK snapshot or local allowlist`,
+        upstreamMessageTypes.has(handledType) || localTypes.has(handledType),
+        `Claude handling covers type "${handledType}" which is not in the upstream SDK snapshot or local allowlist`,
       ).toBe(true);
     }
 
-    // Reverse check: every upstream SDKMessage type should be handled by the bridge
-    // (or explicitly listed as intentionally unhandled)
-    const intentionallyUnhandled = new Set([
-      "user", // user messages are inbound from browser, not from CLI
-    ]);
+    // Reverse check: every upstream SDKMessage type should be handled
     for (const upstreamType of upstreamMessageTypes) {
       expect(
-        handledFromCLI.has(upstreamType) || intentionallyUnhandled.has(upstreamType),
-        `Upstream SDK message type "${upstreamType}" is not handled in routeCLIMessage. ` +
-          `Add a case for it, or add it to intentionallyUnhandled with justification.`,
+        handled.has(upstreamType),
+        `Upstream SDK message type "${upstreamType}" is not handled by the SDK adapter or bridge. ` +
+          `Add handling for it, or document why it can be ignored.`,
       ).toBe(true);
     }
   });
 
-  it("keeps system subtypes handled by ws-bridge aligned with upstream", () => {
-    const handler = readFile("server/bridge/claude-message-controller.ts");
+  it("keeps system subtypes handled by the SDK adapter aligned with upstream", () => {
+    const adapter = readFile("server/claude-sdk-adapter.ts");
     const sdk = readFile("server/protocol/claude-upstream/sdk.d.ts.txt");
 
     const upstreamInit = sdk.includes("export declare type SDKSystemMessage = {") && sdk.includes("subtype: 'init';");
@@ -137,7 +148,7 @@ describe("Claude ws-bridge method drift vs upstream Agent SDK snapshot", () => {
     expect(upstreamInit).toBe(true);
     expect(upstreamStatus).toBe(true);
 
-    expect(handler).toContain('if (msg.subtype === "init")');
-    expect(handler).toContain('if (msg.subtype === "status")');
+    expect(adapter).toContain('if (msg.subtype === "init")');
+    expect(adapter).toContain('if (msg.subtype === "status")');
   });
 });

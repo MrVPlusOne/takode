@@ -152,34 +152,36 @@ All UI components used in the message/chat flow **must** be represented in the P
 ### Data Flow
 
 ```
-Browser (React) ←→ WebSocket ←→ Hono Server (Bun) ←→ WebSocket (NDJSON) ←→ Claude Code CLI
-     :5174              /ws/browser/:id        :3456        /ws/cli/:id         (--sdk-url)
+Browser (React) ←→ WebSocket ←→ Hono Server (Bun) ←→ Agent SDK (stdio)  ←→ Claude Code CLI
+     :5174              /ws/browser/:id        :3456   ←→ JSON-RPC (stdio) ←→ codex app-server
 ```
 
 1. Browser sends a "create session" REST call to the server
-2. Server spawns `claude --sdk-url ws://localhost:3456/ws/cli/SESSION_ID` as a subprocess
-3. CLI connects back to the server over WebSocket using NDJSON protocol
-4. Server bridges messages between CLI WebSocket and browser WebSocket
-5. Tool calls arrive as `control_request` (subtype `can_use_tool`) — browser renders approval UI, server relays `control_response` back
+2. Server starts the backend: Claude Code through the Agent SDK (`claude-sdk-adapter.ts`), or `codex app-server` (`codex-adapter.ts`)
+3. The adapter normalizes backend output into the bridge's common event format
+4. Server bridges messages between the backend adapter and browser WebSockets
+5. Tool calls arrive as permission requests (the SDK's `canUseTool` callback for Claude) — browser renders approval UI, server answers through the adapter
+
+Claude's former native `--sdk-url` WebSocket backend is retired; see [Claude backend](docs/claude-backend.md) for the versioned compatibility findings.
 
 ### All code lives under `web/`
 
 - **`web/server/`** — Hono + Bun backend (runs on port 3456)
 
   **Core runtime:**
-  - `index.ts` — Server bootstrap, Bun.serve with dual WebSocket upgrade (CLI vs browser)
+  - `index.ts` — Server bootstrap, Bun.serve with browser and terminal WebSocket upgrades
   - `ws-bridge.ts` — Session-level state machine and WebSocket message router. Orchestrates bridge subsystems, broadcasts canonical session updates.
   - `bridge/` — Extracted bridge controllers (see details below). Each handles a focused concern (permissions, lifecycle, transport, recovery) and operates on narrow interfaces rather than full bridge state.
   - `service.ts` — Shared service container wiring server-wide dependencies.
 
   **CLI launchers** (split by backend and concern):
-  - `cli-launcher.ts` — Core process lifecycle: spawn, kill, relaunch Claude Code CLI. Handles `--resume` for session recovery.
+  - `cli-launcher.ts` — Core process lifecycle: launch, kill, relaunch Claude (via the SDK adapter) and Codex. Resumes the backend session ID for recovery.
   - `cli-launcher-codex.ts` — Codex-specific process lifecycle and spawn logic.
   - `cli-launcher-instructions.ts` — Generates per-session CLAUDE.md / system instructions injected at launch.
   - `cli-launcher-worktree.ts` — Worktree setup: guardrails injection, git exclude, settings symlinks (all async).
 
   **Backend adapters:**
-  - `claude-sdk-adapter.ts` / `codex-adapter.ts` — Protocol adapters (Claude NDJSON and Codex JSON-RPC) normalized into the bridge's common event format.
+  - `claude-sdk-adapter.ts` / `codex-adapter.ts` — Protocol adapters (Claude Agent SDK and Codex JSON-RPC) normalized into the bridge's common event format.
   - `codex-adapter-utils.ts` — Shared Codex adapter helpers.
   - `codex-jsonrpc-transport.ts` — Low-level JSON-RPC transport for Codex connections.
   - `codex-approval-manager.ts` — Codex-specific permission approval handling.
@@ -236,7 +238,6 @@ Browser (React) ←→ WebSocket ←→ Hono Server (Bun) ←→ WebSocket (NDJS
 
   *Transport:*
   - `browser-transport-controller.ts` — Browser WebSocket transport, history sync hashing, session tagging.
-  - `claude-cli-transport-controller.ts` — Claude CLI WebSocket transport layer.
   - `adapter-browser-routing-controller.ts` — Routes browser messages to the active backend adapter (with auto-approval evaluation).
   - `adapter-interface.ts` — Shared `AdapterSessionMeta` interface and base adapter contract.
 
@@ -287,13 +288,13 @@ Browser (React) ←→ WebSocket ←→ Hono Server (Bun) ←→ WebSocket (NDJS
 
 ### WebSocket Protocol
 
-Claude Code uses NDJSON (newline-delimited JSON), while Codex uses JSON-RPC through `codex-adapter.ts`; both are normalized by the bridge. Common message categories include `system` (init/status), `assistant`, `result`, `stream_event`, `control_request`/`control_response`, tool progress/summary updates, and `keep_alive`.
+Claude Code messages arrive through the Agent SDK as stream-json objects, while Codex uses JSON-RPC through `codex-adapter.ts`; both are normalized by the bridge. Common message categories include `system` (init/status), `assistant`, `result`, `stream_event`, permission requests, tool progress/summary updates, and `keep_alive`.
 
-Full protocol documentation is in `WEBSOCKET_PROTOCOL_REVERSED.md`.
+`WEBSOCKET_PROTOCOL_REVERSED.md` documents the retired native WebSocket transport and remains a historical reference for the message shapes.
 
 ### Session Lifecycle
 
-Sessions persist to disk (`~/.companion/sessions/`) and survive server restarts. On restart, live CLI processes are detected by PID and given a grace period to reconnect their WebSocket. If they don't, they're killed and relaunched with `--resume` using the CLI's internal session ID.
+Sessions persist to disk (`~/.companion/sessions/`) and survive server restarts. Backend processes cannot reattach to a new server: Claude SDK sessions are relaunched on demand, and live Codex processes found by PID are given a grace period before being killed and relaunched. Relaunches resume the backend's own session ID. Sessions saved by the retired Claude WebSocket backend load as Claude SDK sessions.
 
 ### Raw Protocol Recordings
 
@@ -357,11 +358,8 @@ Git worktrees are the preferred isolation model for this project. Container supp
   - **Git commands** must include `--no-optional-locks` to avoid NFS lock contention on `.git/index.lock`.
   - **Recordings** default to `$TMPDIR/companion-recordings/` (local tmpfs, ~37× faster than NFS). They are ephemeral debugging data — never read by production code.
   - **Session data** stays on the home directory for persistence across reboots — it is critical user data. Optimize with async writes and debouncing, not by moving to tmpfs.
-- **CLI connection liveness is maintained through three layers:**
-  1. **Heartbeat pings (10s):** The server pings all CLI WebSockets every 10s via `ws.ping()`. Bun doesn't expose pong callbacks, so this is polling-based — if `ping()` throws, the socket is dead. The protocol also includes application-level `keep_alive` messages, but heartbeat ping/pong + send-failure detection remain the primary liveness signals.
-  2. **Send failure detection:** When the server tries to send a message to a dead CLI socket, `ws.send()` throws. The catch handler closes the socket, which triggers `handleCLIClose` and the auto-relaunch mechanism. This gives instant detection on the next outbound message.
-  3. **Auto-relaunch on disconnect:** When a CLI disconnects (via `handleCLIClose`), the server proactively requests a relaunch after a 2-second delay — no need to wait for a browser to connect and discover the dead session. The delay avoids relaunching during transient network blips. Safety: `relaunchingSet` (5s throttle) prevents concurrent relaunches, `killedByIdleManager` check skips intentional kills, and cli-launcher's fast-exit retry handles crash loops.
-  - **Worktree setup must be fully async.** Creating a new worktree session involves file I/O (guardrails injection, git exclude, settings symlinks) and git commands (`update-index --skip-worktree`). On NFS, synchronous versions of these operations can block the event loop for 10+ seconds, killing all CLI WebSocket connections. All worktree setup methods in `cli-launcher.ts` (`injectWorktreeGuardrails`, `addWorktreeGitExclude`, `symlinkProjectSettings`) must use async I/O.
+- **Backend liveness follows the adapter's process.** The Claude SDK and Codex adapters own their stdio processes. When an adapter reports a disconnect or init error, the bridge cancels pending permissions, settles the turn and requests a throttled relaunch, stopping after repeated consecutive failures; idle-limit kills are not relaunched. The launcher reports a Claude session `starting` until its process spawns and `exited` when it fails to start or ends unexpectedly, keeping the saved session ID for resume, so cron, liveness checks and lists never see a dead backend as connected. `keep_alive` heartbeats are not activity, so stuck-turn detection still fires. Browser sockets get 10s `ws.ping()` heartbeats.
+  - **Worktree setup must be fully async.** Creating a new worktree session involves file I/O (guardrails injection, git exclude, settings symlinks) and git commands (`update-index --skip-worktree`). On NFS, synchronous versions of these operations can block the event loop for 10+ seconds, stalling every backend and browser connection. All worktree setup methods in `cli-launcher.ts` (`injectWorktreeGuardrails`, `addWorktreeGitExclude`, `symlinkProjectSettings`) must use async I/O.
 
 ## Browser Exploration
 

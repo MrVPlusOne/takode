@@ -5,7 +5,8 @@ import {
   formatCodexReasoningEffortSupportIssue,
 } from "../../shared/codex-reasoning-effort.js";
 import { resolveCodexSandboxForPermissionMode } from "./session-permission-mode.js";
-import { type SessionBackend, throwPreparationError } from "./sessions-helpers.js";
+import { throwPreparationError } from "./sessions-helpers.js";
+import type { BackendType } from "../session-types.js";
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value.trim() || undefined : undefined;
@@ -13,7 +14,7 @@ function optionalString(value: unknown): string | undefined {
 
 export function buildSessionBackendLaunchSettings(
   body: Record<string, unknown>,
-  backend: SessionBackend,
+  backend: BackendType,
   permissionMode: string,
   model: string | undefined,
 ): Partial<LaunchOptions> {

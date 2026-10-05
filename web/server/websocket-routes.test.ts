@@ -12,10 +12,11 @@ describe("websocket route matching", () => {
     });
   });
 
-  it("keeps CLI and terminal routes constrained to UUID-like ids", () => {
+  it("keeps terminal routes constrained to UUID-like ids and no longer serves CLI sockets", () => {
+    // Claude runs through the Agent SDK over stdio, so the old CLI socket route is gone.
     expect(matchWebSocketRoute("/ws/cli/q1603-archived-session")).toBeNull();
     expect(matchWebSocketRoute("/ws/terminal/q1603-archived-session")).toBeNull();
-    expect(matchWebSocketRoute("/ws/cli/abc123-456")).toEqual({ kind: "cli", sessionId: "abc123-456" });
+    expect(matchWebSocketRoute("/ws/cli/abc123-456")).toBeNull();
     expect(matchWebSocketRoute("/ws/terminal/abc123-456")).toEqual({ kind: "terminal", terminalId: "abc123-456" });
   });
 

@@ -299,6 +299,18 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   };
 });
 
+// Claude sessions launch through the Agent SDK adapter; capture what the
+// launcher hands it instead of starting a real Claude process.
+const sdkAdapterLaunches = vi.hoisted(() => [] as Array<{ sessionId: string; options: any }>);
+vi.mock("./claude-sdk-adapter.js", () => ({
+  ClaudeSdkAdapter: class {
+    started = Promise.resolve(true);
+    constructor(sessionId: string, options: any) {
+      sdkAdapterLaunches.push({ sessionId, options });
+    }
+  },
+}));
+
 // ─── Imports (after mocks) ───────────────────────────────────────────────────
 
 import { SessionStore } from "./session-store.js";
@@ -431,6 +443,7 @@ let launcher: CliLauncher;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sdkAdapterLaunches.length = 0;
   // Re-apply default: lstatSync throws ENOENT (file doesn't exist), matching real behavior
   mockLstatSync.mockImplementation(() => {
     throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
@@ -471,11 +484,14 @@ afterAll(() => {
 // ─── launch ──────────────────────────────────────────────────────────────────
 
 describe("launch", () => {
-  it("creates a session with a UUID and starting state", async () => {
+  it("creates a session with a UUID and a connected Claude SDK adapter", async () => {
     const info = await launcher.launch({ cwd: "/tmp/project" });
 
     expect(info.sessionId).toBe("test-session-id");
-    expect(info.state).toBe("starting");
+    expect(info.backendType).toBe("claude-sdk");
+    // The SDK adapter owns the Claude process, so the session is connected once it exists.
+    expect(info.state).toBe("connected");
+    expect(sdkAdapterLaunches).toHaveLength(1);
     expect(info.cwd).toBe("/tmp/project");
     expect(info.createdAt).toBeGreaterThan(0);
   });
@@ -483,7 +499,7 @@ describe("launch", () => {
   it("injects server-issued auth env vars into launched sessions", async () => {
     await launcher.launch({ cwd: "/tmp/project" });
 
-    const [, options] = mockSpawn.mock.calls[0];
+    const { options } = sdkAdapterLaunches[0]!;
     expect(options.env.COMPANION_SERVER_ID).toBe("test-server-id");
     expect(options.env.COMPANION_SERVER_SLUG).toBe("local");
     expect(options.env.COMPANION_MEMORY_SPACE_SLUG).toBe("Takode");
@@ -502,7 +518,7 @@ describe("launch", () => {
       publicSessionNumber: false,
     });
 
-    const [, options] = mockSpawn.mock.calls[0];
+    const { options } = sdkAdapterLaunches[0]!;
     expect(info.sessionId).toBe("test-session-id");
     expect(info.hidden).toBe(true);
     expect(info.parentSessionId).toBe("parent-session");
@@ -521,7 +537,7 @@ describe("launch", () => {
       env: { COMPANION_MEMORY_SPACE_SLUG: "StaleProfileSpace" },
     });
 
-    const [, options] = mockSpawn.mock.calls[0];
+    const { options } = sdkAdapterLaunches[0]!;
     expect(info.memorySessionSpaceSlug).toBe("Takode");
     expect(options.env.COMPANION_MEMORY_SPACE_SLUG).toBe("Takode");
   });
@@ -529,7 +545,7 @@ describe("launch", () => {
   it("persists and injects an explicit memory session-space slug", async () => {
     const info = await launcher.launch({ cwd: "/tmp/project", memorySessionSpaceSlug: "Other" });
 
-    const [, options] = mockSpawn.mock.calls[0];
+    const { options } = sdkAdapterLaunches[0]!;
     expect(info.memorySessionSpaceSlug).toBe("Other");
     expect(options.env.COMPANION_MEMORY_SPACE_SLUG).toBe("Other");
   });
@@ -611,41 +627,10 @@ describe("launch", () => {
     expect(payload.serverId).toBe("test-server-id");
   });
 
-  it("spawns CLI with correct --sdk-url and flags", async () => {
-    await launcher.launch({ cwd: "/tmp/project" });
-
-    expect(mockSpawn).toHaveBeenCalledOnce();
-    const [cmdAndArgs, options] = mockSpawn.mock.calls[0];
-
-    // Binary should be resolved via execSync
-    expect(cmdAndArgs[0]).toBe("/usr/bin/claude");
-
-    // Core required flags
-    expect(cmdAndArgs).toContain("--sdk-url");
-    expect(cmdAndArgs).toContain("ws://localhost:3456/ws/cli/test-session-id");
-    expect(cmdAndArgs).toContain("--print");
-    expect(cmdAndArgs).toContain("--output-format");
-    expect(cmdAndArgs).toContain("stream-json");
-    expect(cmdAndArgs).toContain("--input-format");
-    expect(cmdAndArgs).toContain("--verbose");
-
-    // Headless prompt
-    expect(cmdAndArgs).toContain("-p");
-    expect(cmdAndArgs).toContain("");
-
-    // Spawn options
-    expect(options.cwd).toBe("/tmp/project");
-    expect(options.stdout).toBe("pipe");
-    expect(options.stderr).toBe("pipe");
-  });
-
-  it("passes --model when provided", async () => {
+  it("passes the model to Claude when provided", async () => {
     await launcher.launch({ model: "claude-opus-4-20250514", cwd: "/tmp" });
 
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    const modelIdx = cmdAndArgs.indexOf("--model");
-    expect(modelIdx).toBeGreaterThan(-1);
-    expect(cmdAndArgs[modelIdx + 1]).toBe("claude-opus-4-20250514");
+    expect(sdkAdapterLaunches[0]!.options.model).toBe("claude-opus-4-20250514");
   });
 
   it("passes Claude reasoning effort and 1M context beta when provided", async () => {
@@ -655,99 +640,40 @@ describe("launch", () => {
       claudeMaxContextLength: 1_000_000,
     });
 
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    expect(cmdAndArgs).toContain("--effort");
-    expect(cmdAndArgs[cmdAndArgs.indexOf("--effort") + 1]).toBe("max");
-    expect(cmdAndArgs).toContain("--betas");
-    expect(cmdAndArgs[cmdAndArgs.indexOf("--betas") + 1]).toBe("context-1m-2025-08-07");
+    const { options } = sdkAdapterLaunches[0]!;
+    expect(options.reasoningEffort).toBe("max");
+    expect(options.betas).toEqual(["context-1m-2025-08-07"]);
   });
 
-  it("passes --permission-mode when provided", async () => {
+  it("passes the permission mode to Claude when provided", async () => {
     await launcher.launch({ permissionMode: "bypassPermissions", cwd: "/tmp" });
 
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    const modeIdx = cmdAndArgs.indexOf("--permission-mode");
-    expect(modeIdx).toBeGreaterThan(-1);
-    expect(cmdAndArgs[modeIdx + 1]).toBe("bypassPermissions");
+    expect(sdkAdapterLaunches[0]!.options.permissionMode).toBe("bypassPermissions");
   });
 
-  it("downgrades bypassPermissions to acceptEdits for containerized Claude sessions", async () => {
-    await launcher.launch({
-      cwd: "/tmp/project",
-      permissionMode: "bypassPermissions",
-      containerId: "abc123def456",
-      containerName: "companion-test",
-    });
-
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    // With bash -lc wrapping, CLI args are in the last element as a single string
-    const bashCmd = cmdAndArgs[cmdAndArgs.length - 1];
-    expect(cmdAndArgs).toContain("-e");
-    expect(cmdAndArgs).toContain("COMPANION_MEMORY_SPACE_SLUG=Takode");
-    expect(bashCmd).toContain("--permission-mode");
-    expect(bashCmd).toContain("acceptEdits");
-    expect(bashCmd).not.toContain("bypassPermissions");
-  });
-
-  it("uses COMPANION_CONTAINER_SDK_HOST for containerized sdk-url when set", async () => {
-    process.env.COMPANION_CONTAINER_SDK_HOST = "172.17.0.1";
-    await launcher.launch({
-      cwd: "/tmp/project",
-      containerId: "abc123def456",
-      containerName: "companion-test",
-    });
-
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    // With bash -lc wrapping, CLI args are in the last element as a single string
-    const bashCmd = cmdAndArgs[cmdAndArgs.length - 1];
-    expect(bashCmd).toContain("--sdk-url");
-    expect(bashCmd).toContain("ws://172.17.0.1:3456/ws/cli/test-session-id");
-  });
-
-  it("passes --allowedTools for each tool", async () => {
+  it("passes allowed tools to Claude", async () => {
     await launcher.launch({
       allowedTools: ["Read", "Write", "Bash"],
       cwd: "/tmp",
     });
 
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    // Each tool gets its own --allowedTools flag
-    const toolFlags = cmdAndArgs.reduce((acc: string[], arg: string, i: number) => {
-      if (arg === "--allowedTools") acc.push(cmdAndArgs[i + 1]);
-      return acc;
-    }, []);
-    expect(toolFlags).toEqual(["Read", "Write", "Bash"]);
+    expect(sdkAdapterLaunches[0]!.options.allowedTools).toEqual(["Read", "Write", "Bash"]);
   });
 
-  it("resolves binary path via resolveBinary when not absolute", async () => {
-    mockResolveBinary.mockReturnValue("/usr/local/bin/claude-dev");
+  it("passes a configured binary command name through to the SDK", async () => {
+    // The SDK resolves the executable itself; the launcher must not rewrite it.
     await launcher.launch({ claudeBinary: "claude-dev", cwd: "/tmp" });
 
-    expect(mockResolveBinary).toHaveBeenCalledWith("claude-dev");
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    expect(cmdAndArgs[0]).toBe("/usr/local/bin/claude-dev");
+    expect(sdkAdapterLaunches[0]!.options.claudeBinary).toBe("claude-dev");
   });
 
-  it("passes absolute binary path directly to resolveBinary", async () => {
-    mockResolveBinary.mockReturnValue("/opt/bin/claude");
+  it("passes a configured absolute binary path through to the SDK", async () => {
     await launcher.launch({
       claudeBinary: "/opt/bin/claude",
       cwd: "/tmp",
     });
 
-    expect(mockResolveBinary).toHaveBeenCalledWith("/opt/bin/claude");
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    expect(cmdAndArgs[0]).toBe("/opt/bin/claude");
-  });
-
-  it("sets state=exited and exitCode=127 when claude binary not found", async () => {
-    mockResolveBinary.mockReturnValue(null);
-
-    const info = await launcher.launch({ cwd: "/tmp" });
-
-    expect(info.state).toBe("exited");
-    expect(info.exitCode).toBe(127);
-    expect(mockSpawn).not.toHaveBeenCalled();
+    expect(sdkAdapterLaunches[0]!.options.claudeBinary).toBe("/opt/bin/claude");
   });
 
   it("stores container metadata when containerId provided", async () => {
@@ -763,34 +689,11 @@ describe("launch", () => {
     expect(info.containerImage).toBe("ubuntu:22.04");
   });
 
-  it("uses docker exec -i with bash -lc for containerized Claude sessions", async () => {
-    // bash -lc ensures ~/.bashrc is sourced so nvm-installed CLIs are on PATH
-    await launcher.launch({
-      cwd: "/tmp/project",
-      containerId: "abc123def456",
-      containerName: "companion-session-1",
-    });
-
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    expect(cmdAndArgs[0]).toBe("docker");
-    expect(cmdAndArgs[1]).toBe("exec");
-    expect(cmdAndArgs[2]).toBe("-i");
-    // Should wrap the CLI command in bash -lc for login shell PATH
-    expect(cmdAndArgs).toContain("bash");
-    expect(cmdAndArgs).toContain("-lc");
-  });
-
-  it("sets session pid from spawned process", async () => {
-    mockSpawn.mockReturnValue(createMockProc(99999));
-    const info = await launcher.launch({ cwd: "/tmp" });
-    expect(info.pid).toBe(99999);
-  });
-
-  it("unsets CLAUDECODE to avoid CLI nesting guard", async () => {
+  it("does not hand CLAUDECODE to Claude (CLI nesting guard)", async () => {
     await launcher.launch({ cwd: "/tmp" });
 
-    const [, options] = mockSpawn.mock.calls[0];
-    expect(options.env.CLAUDECODE).toBeUndefined();
+    // The SDK adapter also strips an inherited CLAUDECODE; see claude-sdk-adapter-env.test.ts.
+    expect(sdkAdapterLaunches[0]!.options.env.CLAUDECODE).toBeUndefined();
   });
 
   it("merges custom env variables", async () => {
@@ -799,7 +702,7 @@ describe("launch", () => {
       env: { MY_VAR: "hello" },
     });
 
-    const [, options] = mockSpawn.mock.calls[0];
+    const { options } = sdkAdapterLaunches[0]!;
     expect(options.env.MY_VAR).toBe("hello");
     expect(options.env.CLAUDECODE).toBeUndefined();
   });

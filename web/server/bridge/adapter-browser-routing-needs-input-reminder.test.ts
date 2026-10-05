@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  handleUserMessage,
   routeBrowserMessage,
   routeAdapterBrowserMessage,
   type AdapterBrowserRoutingDeps,
@@ -25,7 +24,7 @@ import type {
 function makeSession(notifications: SessionNotification[] = []): AdapterBrowserRoutingSessionLike {
   return {
     id: "leader-session",
-    backendType: "claude",
+    backendType: "claude-sdk",
     state: {
       askPermission: true,
       backend_error: null,
@@ -55,7 +54,6 @@ function makeSession(notifications: SessionNotification[] = []): AdapterBrowserR
     forceCompactPending: false,
     isGenerating: false,
     lastUserMessageDateTag: "",
-    lastOutboundUserNdjson: null,
     consecutiveAdapterFailures: 0,
     codexAdapter: null,
     claudeSdkAdapter: null,
@@ -65,7 +63,6 @@ function makeSession(notifications: SessionNotification[] = []): AdapterBrowserR
 function makeDeps(options: { isOrchestrator?: boolean } = {}): AdapterBrowserRoutingDeps {
   let nextId = 0;
   return {
-    sendToCLI: vi.fn(() => "current" as const),
     isCodexWorkerV2DeliveryFrozen: vi.fn(() => false),
     broadcastToBrowsers: vi.fn(),
     emitTakodeEvent: vi.fn(),
@@ -82,8 +79,6 @@ function makeDeps(options: { isOrchestrator?: boolean } = {}): AdapterBrowserRou
     abortAutoApproval: vi.fn(),
     preInterrupt: vi.fn(),
     touchUserMessage: vi.fn(),
-    formatVsCodeSelectionPrompt: vi.fn(() => ""),
-    getCliSessionId: vi.fn(() => "cli-leader-session"),
     nextUserMessageId: vi.fn(() => `user-${++nextId}`),
     markRunningFromUserDispatch: vi.fn(() => "current" as const),
     trackUserMessageForTurn: vi.fn(),
@@ -108,7 +103,6 @@ function makeDeps(options: { isOrchestrator?: boolean } = {}): AdapterBrowserRou
     getLauncherSessionInfo: vi.fn(() => ({ isOrchestrator: options.isOrchestrator === true })),
     requestCodexIntentionalRelaunch: vi.fn(),
     onPermissionModeChanged: vi.fn(),
-    sendControlRequest: vi.fn(),
     requestCodexAutoRecovery: vi.fn(() => false),
     requestCodexLeaderRecycle: vi.fn(async () => ({ ok: true as const })),
     requestCliRelaunch: vi.fn(),
@@ -121,7 +115,6 @@ function makeDeps(options: { isOrchestrator?: boolean } = {}): AdapterBrowserRou
     handleCodexSetReasoningEffort: vi.fn(),
     handleCodexSetServiceTier: vi.fn(),
     handleSetAskPermission: vi.fn(),
-    handleInterruptFallback: vi.fn(),
   };
 }
 
@@ -190,10 +183,21 @@ function userMessage(overrides: Partial<Extract<BrowserOutgoingMessage, { type: 
   };
 }
 
-function sentCliContent(deps: AdapterBrowserRoutingDeps): string {
-  const raw = vi.mocked(deps.sendToCLI).mock.calls[0]?.[1];
-  expect(raw).toBeTypeOf("string");
-  return JSON.parse(raw as string).message.content;
+/** Route a user message to Claude, attaching a recording SDK adapter when none is attached. */
+async function deliverUserMessage(
+  session: AdapterBrowserRoutingSessionLike,
+  message: Extract<BrowserOutgoingMessage, { type: "user_message" }>,
+  deps: AdapterBrowserRoutingDeps,
+): Promise<void> {
+  session.claudeSdkAdapter ??= { sendBrowserMessage: vi.fn(() => true), isConnected: vi.fn(() => true) } as any;
+  await routeAdapterBrowserMessage(session, message, null, deps);
+}
+
+/** The prompt text the first routed user message delivered to Claude. */
+function sentClaudeContent(session: AdapterBrowserRoutingSessionLike): string {
+  const sent = vi.mocked(session.claudeSdkAdapter!.sendBrowserMessage).mock.calls[0]?.[0] as { content?: unknown };
+  expect(sent?.content).toBeTypeOf("string");
+  return sent.content as string;
 }
 
 function installActiveRouteStatusBroadcast(deps: AdapterBrowserRoutingDeps): void {
@@ -365,8 +369,8 @@ describe("direct user needs-input reminders", () => {
     session.recentAskVisibleResponseThreads = new Set(["main"]);
     const deps = makeDeps();
 
-    await handleUserMessage(session, userMessage(), deps);
-    await handleUserMessage(session, userMessage({ content: "Another correction" }), deps);
+    await deliverUserMessage(session, userMessage(), deps);
+    await deliverUserMessage(session, userMessage({ content: "Another correction" }), deps);
 
     expect(session.messageHistory[0]).toMatchObject({
       type: "user_message",
@@ -430,11 +434,11 @@ describe("direct user needs-input reminders", () => {
     });
   });
 
-  it("delivers concise reply context while storing reply metadata separately for Claude CLI", async () => {
+  it("delivers concise reply context while storing reply metadata separately for Claude", async () => {
     const session = makeSession();
     const deps = makeDeps();
 
-    await handleUserMessage(
+    await deliverUserMessage(
       session,
       userMessage({
         content: "Continue the work",
@@ -449,9 +453,9 @@ describe("direct user needs-input reminders", () => {
       content: "Continue the work",
       replyContext: { previewText: "Original answer", messageId: "codex-agent-random-id" },
     });
-    expect(sentCliContent(deps)).toContain("[reply] Original answer\n\nContinue the work");
-    expect(sentCliContent(deps)).not.toContain("<<<REPLY_TO");
-    expect(sentCliContent(deps)).not.toContain("codex-agent-random-id");
+    expect(sentClaudeContent(session)).toContain("[reply] Original answer\n\nContinue the work");
+    expect(sentClaudeContent(session)).not.toContain("<<<REPLY_TO");
+    expect(sentClaudeContent(session)).not.toContain("codex-agent-random-id");
   });
 
   it("passes concise reply delivery content to Claude SDK adapter", async () => {
@@ -540,7 +544,7 @@ describe("direct user needs-input reminders", () => {
     ]);
     const deps = makeDeps({ isOrchestrator: true });
 
-    await handleUserMessage(session, userMessage(), deps);
+    await deliverUserMessage(session, userMessage(), deps);
 
     expect(session.messageHistory).toHaveLength(2);
     expect(session.messageHistory[0]?.type).toBe("user_message");
@@ -571,7 +575,7 @@ describe("direct user needs-input reminders", () => {
       content: expect.not.stringContaining("Review-only notification"),
     });
 
-    const cliContent = sentCliContent(deps);
+    const cliContent = sentClaudeContent(session);
     expect(cliContent.indexOf("[Needs-input reminder]")).toBeLessThan(cliContent.indexOf("Fresh user message"));
     expect(cliContent).toContain(
       "Unresolved same-session same-thread needs-input notifications (main): 4. Showing newest 3.",
@@ -582,7 +586,7 @@ describe("direct user needs-input reminders", () => {
     const session = makeSession([externallyResolvedNeedsInput("n-2", "Already handled", 200)]);
     const deps = makeDeps({ isOrchestrator: true });
 
-    await handleUserMessage(session, userMessage(), deps);
+    await deliverUserMessage(session, userMessage(), deps);
 
     expect(session.messageHistory).toHaveLength(2);
     expect(session.messageHistory[0]).toMatchObject({
@@ -592,14 +596,14 @@ describe("direct user needs-input reminders", () => {
         sessionLabel: "Needs Input Resolution",
       },
     });
-    expect(sentCliContent(deps)).toContain("Resolved same-session same-thread needs-input (main): 1.");
-    expect(sentCliContent(deps)).toContain("2. Already handled (resolved outside the agent).");
-    expect(sentCliContent(deps)).toContain(
+    expect(sentClaudeContent(session)).toContain("Resolved same-session same-thread needs-input (main): 1.");
+    expect(sentClaudeContent(session)).toContain("2. Already handled (resolved outside the agent).");
+    expect(sentClaudeContent(session)).toContain(
       "Do not run `takode notify resolve` for these same-session prompts unless a new prompt is recreated later.",
     );
     expect(session.notifications?.[0]?.resolutionNotice).toMatchObject({ status: "delivered" });
 
-    await handleUserMessage(session, userMessage({ content: "Another direct user message" }), deps);
+    await deliverUserMessage(session, userMessage({ content: "Another direct user message" }), deps);
     expect(
       session.messageHistory.filter((entry: any) => entry.id?.startsWith("needs-input-resolution-notice-")),
     ).toHaveLength(1);
@@ -612,7 +616,7 @@ describe("direct user needs-input reminders", () => {
     ]);
     const deps = makeDeps({ isOrchestrator: true });
 
-    await handleUserMessage(session, userMessage(), deps);
+    await deliverUserMessage(session, userMessage(), deps);
 
     expect(session.messageHistory[0]).toMatchObject({
       content: expect.stringContaining("[Needs-input resolution notice]"),
@@ -620,7 +624,7 @@ describe("direct user needs-input reminders", () => {
     expect(session.messageHistory[1]).toMatchObject({
       content: expect.stringContaining("[Needs-input reminder]"),
     });
-    const cliContent = sentCliContent(deps);
+    const cliContent = sentClaudeContent(session);
     expect(cliContent.indexOf("[Needs-input resolution notice]")).toBeLessThan(
       cliContent.indexOf("[Needs-input reminder]"),
     );
@@ -632,20 +636,20 @@ describe("direct user needs-input reminders", () => {
     const session = makeSession([externallyResolvedNeedsInput("n-2", "Already handled", 200)]);
     const deps = makeDeps({ isOrchestrator: true });
 
-    await handleUserMessage(
+    await deliverUserMessage(
       session,
       userMessage({ agentSource: { sessionId: "system:test", sessionLabel: "System Test" } }),
       deps,
     );
-    expect(sentCliContent(deps)).not.toContain("[Needs-input resolution notice]");
+    expect(sentClaudeContent(session)).not.toContain("[Needs-input resolution notice]");
     expect(session.notifications?.[0]?.resolutionNotice).toMatchObject({ status: "pending" });
 
     const interruptedSession = makeSession([externallyResolvedNeedsInput("n-4", "Interrupt handled", 400)]);
     interruptedSession.isGenerating = true;
     const interruptedDeps = makeDeps({ isOrchestrator: true });
-    await handleUserMessage(interruptedSession, userMessage({ content: "Interrupting message" }), interruptedDeps);
+    await deliverUserMessage(interruptedSession, userMessage({ content: "Interrupting message" }), interruptedDeps);
 
-    expect(sentCliContent(interruptedDeps)).not.toContain("[Needs-input resolution notice]");
+    expect(sentClaudeContent(interruptedSession)).not.toContain("[Needs-input resolution notice]");
     expect(interruptedSession.notifications?.[0]?.resolutionNotice).toMatchObject({ status: "pending" });
   });
 
@@ -660,7 +664,7 @@ describe("direct user needs-input reminders", () => {
     ]);
     const deps = makeDeps({ isOrchestrator: true });
 
-    await handleUserMessage(
+    await deliverUserMessage(
       session,
       userMessage({
         content: "Fresh q-941 reply",
@@ -690,7 +694,7 @@ describe("direct user needs-input reminders", () => {
       questId: "q-941",
     });
 
-    const cliContent = sentCliContent(deps);
+    const cliContent = sentClaudeContent(session);
     expect(cliContent).toContain("Unresolved same-session same-thread needs-input notifications (q-941): 1.");
     expect(cliContent).toContain("2. Current quest question");
     expect(cliContent).not.toContain("Main pending question");
@@ -706,7 +710,7 @@ describe("direct user needs-input reminders", () => {
     ]);
     const deps = makeDeps({ isOrchestrator: true });
 
-    await handleUserMessage(session, userMessage({ content: "Fresh Main reply" }), deps);
+    await deliverUserMessage(session, userMessage({ content: "Fresh Main reply" }), deps);
 
     expect(session.messageHistory).toHaveLength(2);
     expect(session.messageHistory[0]).toMatchObject({
@@ -716,7 +720,7 @@ describe("direct user needs-input reminders", () => {
     expect(session.messageHistory[0]).toMatchObject({ content: expect.stringContaining("1. Main pending question") });
     expect(session.messageHistory[0]).toMatchObject({ content: expect.not.stringContaining("Quest pending question") });
 
-    const cliContent = sentCliContent(deps);
+    const cliContent = sentClaudeContent(session);
     expect(cliContent).toContain("1. Main pending question");
     expect(cliContent).not.toContain("Quest pending question");
   });
@@ -728,20 +732,20 @@ describe("direct user needs-input reminders", () => {
     const session = makeSession([]);
     const deps = makeDeps({ isOrchestrator: true });
 
-    await handleUserMessage(session, userMessage(), deps);
+    await deliverUserMessage(session, userMessage(), deps);
 
     expect(session.messageHistory).toHaveLength(1);
     expect(session.messageHistory[0]).toMatchObject({ type: "user_message", content: "Fresh user message" });
-    expect(sentCliContent(deps)).not.toContain("[Needs-input reminder]");
+    expect(sentClaudeContent(session)).not.toContain("[Needs-input reminder]");
   });
 
-  it("annotates Main-origin leader user messages in metadata and Claude CLI delivery", async () => {
+  it("annotates Main-origin leader user messages in metadata and Claude delivery", async () => {
     // Main is an explicit thread source for leaders even though it is not a
     // quest projection, so the model does not infer where the user typed.
     const session = makeSession();
     const deps = makeDeps({ isOrchestrator: true });
 
-    await handleUserMessage(session, userMessage({ content: "Main reply" }), deps);
+    await deliverUserMessage(session, userMessage({ content: "Main reply" }), deps);
 
     expect(session.messageHistory[0]).toMatchObject({
       type: "user_message",
@@ -749,16 +753,16 @@ describe("direct user needs-input reminders", () => {
       threadKey: "main",
       leaderUserMessageId: "u1",
     });
-    expect(sentCliContent(deps)).toMatch(/^\[User .*? id:u1\] \[thread:main\] Main reply$/);
+    expect(sentClaudeContent(session)).toMatch(/^\[User .*? id:u1\] \[thread:main\] Main reply$/);
   });
 
-  it("annotates quest-thread-origin leader user messages in metadata and Claude CLI delivery", async () => {
+  it("annotates quest-thread-origin leader user messages in metadata and Claude delivery", async () => {
     // Quest-thread messages must remain clean in durable history while the
     // delivered prompt carries the stable source key for leader/model routing.
     const session = makeSession();
     const deps = makeDeps({ isOrchestrator: true });
 
-    await handleUserMessage(
+    await deliverUserMessage(
       session,
       userMessage({
         content: "Quest-thread reply",
@@ -776,7 +780,7 @@ describe("direct user needs-input reminders", () => {
       threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
       leaderUserMessageId: "u1",
     });
-    expect(sentCliContent(deps)).toMatch(/^\[User .*? id:u1\] \[thread:q-941\] Quest-thread reply$/);
+    expect(sentClaudeContent(session)).toMatch(/^\[User .*? id:u1\] \[thread:q-941\] Quest-thread reply$/);
   });
 
   it("stops listing notifications after they are resolved", async () => {
@@ -787,7 +791,7 @@ describe("direct user needs-input reminders", () => {
     ]);
     const deps = makeDeps({ isOrchestrator: true });
 
-    await handleUserMessage(session, userMessage(), deps);
+    await deliverUserMessage(session, userMessage(), deps);
 
     expect(session.messageHistory[0]).toMatchObject({
       content: expect.stringContaining("Unresolved same-session same-thread needs-input notifications (main): 1."),
@@ -801,7 +805,7 @@ describe("direct user needs-input reminders", () => {
     const session = makeSession([needsInput("n-1", "Pending question", 100)]);
     const deps = makeDeps({ isOrchestrator: true });
 
-    await handleUserMessage(
+    await deliverUserMessage(
       session,
       userMessage({ agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" } }),
       deps,
@@ -813,7 +817,7 @@ describe("direct user needs-input reminders", () => {
       content: "Fresh user message",
       agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
     });
-    expect(sentCliContent(deps)).not.toContain("[Needs-input reminder]");
+    expect(sentClaudeContent(session)).not.toContain("[Needs-input reminder]");
   });
 
   it("keeps the behavior scoped to orchestrator sessions", async () => {
@@ -821,10 +825,10 @@ describe("direct user needs-input reminders", () => {
     const session = makeSession([needsInput("n-1", "Pending question", 100)]);
     const deps = makeDeps({ isOrchestrator: false });
 
-    await handleUserMessage(session, userMessage(), deps);
+    await deliverUserMessage(session, userMessage(), deps);
 
     expect(session.messageHistory).toHaveLength(1);
-    expect(sentCliContent(deps)).not.toContain("[Needs-input reminder]");
+    expect(sentClaudeContent(session)).not.toContain("[Needs-input reminder]");
   });
 
   it("carries direct-user reminders through Codex pending inputs until the user message is committed", () => {
@@ -1223,10 +1227,12 @@ describe("direct user needs-input reminders", () => {
     session.pendingStartupMemoryCatalogInjection = true;
     const deps = makeDeps();
     const recordSeen = vi.fn(async () => {});
-    deps.sendToCLI = vi.fn(() => {
+    // The catalog must reach Claude before it is recorded as seen.
+    const sendBrowserMessage = vi.fn(() => {
       expect(recordSeen).not.toHaveBeenCalled();
-      return "current" as const;
+      return true;
     });
+    session.claudeSdkAdapter = { sendBrowserMessage, isConnected: vi.fn(() => true) } as any;
     deps.buildMemoryCatalogInjectionBundle = vi.fn(async () => ({
       content: [
         "Memory catalog preloaded",
@@ -1245,11 +1251,11 @@ describe("direct user needs-input reminders", () => {
 
     expect(session.pendingStartupMemoryCatalogInjection).toBe(false);
     expect(deps.buildMemoryCatalogInjectionBundle).toHaveBeenCalledWith(session);
-    expect(deps.sendToCLI).toHaveBeenCalledTimes(1);
-    const ndjson = String((deps.sendToCLI as any).mock.calls[0]?.[1] ?? "");
-    expect(ndjson).toContain("Do the assigned work");
-    expect(ndjson).toContain("Memory catalog preloaded");
-    expect(ndjson).toContain("inspect actual memory Markdown files directly");
+    expect(sendBrowserMessage).toHaveBeenCalledTimes(1);
+    const delivered = sentClaudeContent(session);
+    expect(delivered).toContain("Do the assigned work");
+    expect(delivered).toContain("Memory catalog preloaded");
+    expect(delivered).toContain("inspect actual memory Markdown files directly");
     expect(session.messageHistory).toEqual([
       expect.objectContaining({ type: "user_message", content: "Do the assigned work" }),
       expect.objectContaining({

@@ -1,8 +1,6 @@
-import { getSettings } from "../settings-manager.js";
-import type { CreationStepId, ProgrammaticHistoryFollowUp } from "../session-types.js";
+import type { BackendType, CreationStepId, ProgrammaticHistoryFollowUp } from "../session-types.js";
 import type { OptionalAuthResult } from "./context.js";
 
-export type SessionBackend = "claude" | "codex" | "claude-sdk";
 export type SessionPreparationStatus = 400 | 503;
 
 export function getActorSessionId(auth: OptionalAuthResult): string | undefined {
@@ -26,29 +24,11 @@ export class SessionPreparationError extends Error {
   }
 }
 
-export function resolveBackend(raw: unknown): SessionBackend | null {
-  if (raw === "claude" || raw === "codex" || raw === "claude-sdk") return raw;
-  return null;
+export function getBackendLaunchDisplayName(backend: BackendType): string {
+  return backend === "codex" ? "Codex" : "Claude Code";
 }
 
-export function applyDefaultClaudeBackend(backend: SessionBackend): SessionBackend {
-  if (backend !== "claude") return backend;
-  const configured = getSettings().defaultClaudeBackend;
-  return configured === "claude-sdk" ? "claude-sdk" : "claude";
-}
-
-export function getBackendLaunchDisplayName(backend: SessionBackend): string {
-  switch (backend) {
-    case "claude":
-      return "Claude Code";
-    case "claude-sdk":
-      return "Claude SDK";
-    case "codex":
-      return "Codex";
-  }
-}
-
-export function getLaunchingCliLabel(options: { backend: SessionBackend; resumeCliSessionId?: string }): string {
+export function getLaunchingCliLabel(options: { backend: BackendType; resumeCliSessionId?: string }): string {
   if (options.resumeCliSessionId) return "Resuming CLI session...";
   return `Launching ${getBackendLaunchDisplayName(options.backend)}...`;
 }

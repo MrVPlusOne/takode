@@ -50,7 +50,7 @@ export function toSidebarSessionItem(session: SdkSessionInfo): SidebarSessionIte
     status,
     sdkState: session.state,
     archived: session.archived ?? false,
-    backendType: session.backendType ?? "claude",
+    backendType: session.backendType ?? "claude-sdk",
     treeGroupId: session.treeGroupId ?? null,
     memorySessionSpaceSlug: session.memorySessionSpaceSlug ?? null,
     repoRoot: session.repoRoot ?? "",

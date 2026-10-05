@@ -1,4 +1,17 @@
 import { vi } from "vitest";
+
+// Claude sessions launch through the Agent SDK adapter; capture what the
+// launcher hands it instead of starting a real Claude process.
+const sdkAdapterLaunches = vi.hoisted(() => [] as Array<{ sessionId: string; options: any }>);
+vi.mock("./claude-sdk-adapter.js", () => ({
+  ClaudeSdkAdapter: class {
+    started = Promise.resolve(true);
+    constructor(sessionId: string, options: any) {
+      sdkAdapterLaunches.push({ sessionId, options });
+    }
+  },
+}));
+
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -338,6 +351,7 @@ let launcher: CliLauncher;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sdkAdapterLaunches.length = 0;
   // Re-apply default: lstatSync throws ENOENT (file doesn't exist), matching real behavior
   mockLstatSync.mockImplementation(() => {
     throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
@@ -383,10 +397,9 @@ describe("session identity injection", () => {
   it("includes session number in the system prompt", async () => {
     await launcher.launch({ cwd: "/tmp/project" });
 
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    const sysPromptIdx = cmdAndArgs.indexOf("--append-system-prompt");
-    expect(sysPromptIdx).toBeGreaterThan(-1);
-    const sysPrompt = String(cmdAndArgs[sysPromptIdx + 1] ?? "");
+    // Takode instructions reach Claude as the SDK's appended system prompt
+    const sysPrompt = String(sdkAdapterLaunches[0]!.options.instructions ?? "");
+    expect(sysPrompt).not.toBe("");
     // Session number is assigned monotonically starting from 1
     expect(sysPrompt).toContain("You are Takode session #");
     expect(sysPrompt).toContain("earlier context from this same session");
@@ -404,10 +417,9 @@ describe("session identity injection", () => {
     // shape so sessions stop generating stale prompt-only timer commands.
     await launcher.launch({ cwd: "/tmp/project" });
 
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    const sysPromptIdx = cmdAndArgs.indexOf("--append-system-prompt");
-    expect(sysPromptIdx).toBeGreaterThan(-1);
-    const sysPrompt = String(cmdAndArgs[sysPromptIdx + 1] ?? "");
+    // Takode instructions reach Claude as the SDK's appended system prompt
+    const sysPrompt = String(sdkAdapterLaunches[0]!.options.instructions ?? "");
+    expect(sysPrompt).not.toBe("");
 
     expect(sysPrompt).toContain('takode timer create "Check build health" --desc');
     expect(sysPrompt).toContain("Keep timer titles concise and human-scannable.");
@@ -418,10 +430,9 @@ describe("session identity injection", () => {
   it("requires reading attached user images before responding", async () => {
     await launcher.launch({ cwd: "/tmp/project" });
 
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    const sysPromptIdx = cmdAndArgs.indexOf("--append-system-prompt");
-    expect(sysPromptIdx).toBeGreaterThan(-1);
-    const sysPrompt = String(cmdAndArgs[sysPromptIdx + 1] ?? "");
+    // Takode instructions reach Claude as the SDK's appended system prompt
+    const sysPrompt = String(sdkAdapterLaunches[0]!.options.instructions ?? "");
+    expect(sysPrompt).not.toBe("");
 
     expect(sysPrompt).toContain(
       "If a user message includes image attachments, read every attached image before you respond.",

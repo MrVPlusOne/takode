@@ -17,6 +17,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -69,7 +70,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -583,7 +584,7 @@ describe("Multiple browser sockets", () => {
     const browser2 = makeBrowserSocket("s1");
     const browser3 = makeBrowserSocket("s1");
 
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser1, "s1");
     bridge.handleBrowserOpen(browser2, "s1");
     bridge.handleBrowserOpen(browser3, "s1");
@@ -603,7 +604,7 @@ describe("Multiple browser sockets", () => {
       uuid: "uuid-multi",
       session_id: "s1",
     });
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     // All three browsers should receive the broadcast
     for (const browser of [browser1, browser2, browser3]) {
@@ -620,7 +621,7 @@ describe("Multiple browser sockets", () => {
     const browser2 = makeBrowserSocket("s1");
     const browser3 = makeBrowserSocket("s1");
 
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser1, "s1");
     bridge.handleBrowserOpen(browser2, "s1");
     bridge.handleBrowserOpen(browser3, "s1");
@@ -645,7 +646,7 @@ describe("Multiple browser sockets", () => {
       uuid: "uuid-fail",
       session_id: "s1",
     });
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     // browser1 and browser3 should have received the message
     expect(browser1.send).toHaveBeenCalledTimes(1);

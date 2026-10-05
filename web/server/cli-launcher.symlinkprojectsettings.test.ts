@@ -1,4 +1,17 @@
 import { vi } from "vitest";
+
+// Claude sessions launch through the Agent SDK adapter; capture what the
+// launcher hands it instead of starting a real Claude process.
+const sdkAdapterLaunches = vi.hoisted(() => [] as Array<{ sessionId: string; options: any }>);
+vi.mock("./claude-sdk-adapter.js", () => ({
+  ClaudeSdkAdapter: class {
+    started = Promise.resolve(true);
+    constructor(sessionId: string, options: any) {
+      sdkAdapterLaunches.push({ sessionId, options });
+    }
+  },
+}));
+
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -338,6 +351,7 @@ let launcher: CliLauncher;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sdkAdapterLaunches.length = 0;
   // Re-apply default: lstatSync throws ENOENT (file doesn't exist), matching real behavior
   mockLstatSync.mockImplementation(() => {
     throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
@@ -799,10 +813,9 @@ describe("symlinkProjectSettings", () => {
   it("injects worktree porting reference into the Claude system prompt", async () => {
     await launchWorktree();
 
-    const [cmdAndArgs] = mockSpawn.mock.calls[0];
-    const promptIdx = cmdAndArgs.indexOf("--append-system-prompt");
-    expect(promptIdx).toBeGreaterThan(-1);
-    const prompt = String(cmdAndArgs[promptIdx + 1] ?? "");
+    // Takode instructions reach Claude as the SDK's appended system prompt
+    const prompt = String(sdkAdapterLaunches[0]!.options.instructions ?? "");
+    expect(prompt).not.toBe("");
     // Porting instructions now reference the /port-changes skill instead of inline content
     expect(prompt).toContain("/port-changes");
     expect(prompt).toContain("Base repo checkout");

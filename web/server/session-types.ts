@@ -1,3 +1,4 @@
+import type { BackendType } from "./backend-type.js";
 import type { ConversationAnnotation, AnnotationMessage } from "../shared/conversation-annotations.js";
 import type { ReplyContext } from "../shared/reply-context.js";
 import type { BackendSessionState } from "./backend-session-state.js";
@@ -1317,16 +1318,16 @@ export interface BufferedBrowserEvent {
 
 // ─── Session State ────────────────────────────────────────────────────────────
 
-export type BackendType = "claude" | "codex" | "claude-sdk";
+export {
+  isClaudeFamily,
+  normalizePersistedBackendType,
+  parseBackendSelection,
+  type BackendType,
+} from "./backend-type.js";
 
 /** Exhaustive check — TypeScript errors if a switch doesn't cover all cases. */
 export function assertNever(x: never, msg?: string): never {
   throw new Error(msg ?? `Unexpected value: ${JSON.stringify(x)}`);
-}
-
-/** True for backends using Claude Code (CLI WebSocket or SDK stdio). */
-export function isClaudeFamily(backend: BackendType): boolean {
-  return backend === "claude" || backend === "claude-sdk";
 }
 
 export interface StarredMessageRecord {

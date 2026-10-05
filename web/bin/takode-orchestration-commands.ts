@@ -351,7 +351,7 @@ export const SPAWN_FLAG_USAGE = `Usage: takode spawn [options]
   Create and auto-herd new worker sessions.
 
 Options:
-  --backend <type>             AI backend: "claude", "codex", or "claude-sdk" (default: inherit from leader)
+  --backend <type>             AI backend: "claude" or "codex" (default: inherit from leader)
   --cwd <path>                 Working directory (default: current directory)
   --count <n>                  Number of sessions to spawn (default: 1)
   --message <text>             Short inline initial message

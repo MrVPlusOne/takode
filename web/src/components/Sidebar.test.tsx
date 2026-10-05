@@ -404,7 +404,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
           sdkState: "connected",
           createdAt: 1000,
           archived: false,
-          backendType: "claude",
+          backendType: "claude-sdk",
           repoRoot: "/repo",
           permCount: 0,
           notificationUrgency: null,
@@ -1555,9 +1555,9 @@ describe("Sidebar", { timeout: 10000 }, () => {
   });
 
   it("session shows correct backend icon based on backendType", () => {
-    const session1 = makeSession("s1", { backend_type: "claude" });
+    const session1 = makeSession("s1", { backend_type: "claude-sdk" });
     const session2 = makeSession("s2", { backend_type: "codex" });
-    const sdk1 = makeSdkSession("s1", { backendType: "claude" });
+    const sdk1 = makeSdkSession("s1", { backendType: "claude-sdk" });
     const sdk2 = makeSdkSession("s2", { backendType: "codex" });
     mockState = createMockState({
       sessions: new Map([

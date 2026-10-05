@@ -21,7 +21,7 @@ function makeHeader(overrides: Partial<RecordingHeader> = {}): RecordingHeader {
     _header: true,
     version: 1,
     session_id: "test-session",
-    backend_type: "claude",
+    backend_type: "claude-sdk",
     started_at: 1739654400000,
     cwd: "/project",
     ...overrides,
@@ -62,7 +62,7 @@ describe("loadRecording", () => {
     expect(recording.header._header).toBe(true);
     expect(recording.header.version).toBe(1);
     expect(recording.header.session_id).toBe("test-session");
-    expect(recording.header.backend_type).toBe("claude");
+    expect(recording.header.backend_type).toBe("claude-sdk");
     expect(recording.entries).toHaveLength(2);
     expect(recording.entries[0].dir).toBe("in");
     expect(recording.entries[0].ch).toBe("cli");

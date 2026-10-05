@@ -1,17 +1,13 @@
 import { describe, expect, it } from "vitest";
-import {
-  applyDefaultClaudeBackend,
-  buildCodexTurnSegments,
-  computeCodexRevertPlan,
-  resolveBackend,
-} from "./sessions-helpers.js";
+import { buildCodexTurnSegments, computeCodexRevertPlan } from "./sessions-helpers.js";
+import { parseBackendSelection } from "../session-types.js";
 
 describe("sessions route helpers", () => {
   it("recognizes supported backends", () => {
     // Route parsing should only accept the explicit session backend values the
     // launcher understands, leaving unknown strings rejected at the boundary.
-    expect(resolveBackend("codex")).toBe("codex");
-    expect(resolveBackend("bad-backend")).toBeNull();
+    expect(parseBackendSelection("codex")).toBe("codex");
+    expect(parseBackendSelection("bad-backend")).toBeNull();
   });
 
   it("segments Codex history by completed turns", () => {
@@ -53,10 +49,10 @@ describe("sessions route helpers", () => {
     });
   });
 
-  it("maps default Claude backend from settings", () => {
-    // The helper preserves explicit codex sessions but resolves the generic
-    // "claude" choice to the user's configured WebSocket vs SDK default.
-    const result = applyDefaultClaudeBackend("claude");
-    expect(result === "claude" || result === "claude-sdk").toBe(true);
+  it("maps the Claude choice to the SDK backend", () => {
+    // Creation requests name the "claude" family; it always launches through the
+    // Agent SDK now that the WebSocket backend is retired.
+    expect(parseBackendSelection("claude")).toBe("claude-sdk");
+    expect(parseBackendSelection("claude-sdk")).toBe("claude-sdk");
   });
 });

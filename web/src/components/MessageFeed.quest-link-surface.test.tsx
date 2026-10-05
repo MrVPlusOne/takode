@@ -38,7 +38,7 @@ describe("MessageFeed quest-link surface wiring", () => {
           SESSION_ID,
           {
             session_id: SESSION_ID,
-            backend_type: "claude",
+            backend_type: "claude-sdk",
             cwd: "/tmp/project",
           } as never,
         ],
@@ -50,7 +50,7 @@ describe("MessageFeed quest-link surface wiring", () => {
           cwd: "/tmp/project",
           createdAt: 1,
           sessionNum: 80,
-          backendType: "claude",
+          backendType: "claude-sdk",
         },
       ],
     }));

@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -711,7 +712,7 @@ describe("Browser handlers", () => {
     session.state.cwd = "/repo";
     session.state.git_branch = "main";
     // Ensure the session has a CLI socket so refreshGitInfo doesn't skip
-    (session as any).backendSocket = { send: vi.fn() };
+    (session as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
 
     const gitInfoCb = vi.fn();
     bridge.onGitInfoReady = gitInfoCb;
@@ -738,7 +739,7 @@ describe("Browser handlers", () => {
     });
 
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
     const assistantMsg = JSON.stringify({
       type: "assistant",
@@ -755,7 +756,7 @@ describe("Browser handlers", () => {
       uuid: "uuid-2",
       session_id: "s1",
     });
-    bridge.handleCLIMessage(cli, assistantMsg);
+    cli.message(assistantMsg);
 
     // Connect a browser; browser open should send metadata but no conversation payload.
     const browser = makeBrowserSocket("s1");
@@ -789,7 +790,7 @@ describe("Browser handlers", () => {
     // Pending permissions are now delivered via handleSessionSubscribe instead of
     // handleBrowserOpen, to prevent double delivery on reconnect.
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
     // Create a pending permission
     const controlReq = JSON.stringify({
@@ -802,7 +803,7 @@ describe("Browser handlers", () => {
         tool_use_id: "tu-1",
       },
     });
-    bridge.handleCLIMessage(cli, controlReq);
+    cli.message(controlReq);
     await new Promise((r) => setTimeout(r, 0)); // flush async handleControlRequest
 
     // Now connect a browser and send session_subscribe
@@ -919,11 +920,10 @@ describe("Browser handlers", () => {
 
   it("session_subscribe: replays buffered sequenced events after last_seq", async () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
     // Generate replayable events while no browser is connected.
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "stream_event",
         event: { type: "content_block_delta", delta: { type: "text_delta", text: "a" } },
@@ -932,8 +932,7 @@ describe("Browser handlers", () => {
         session_id: "s1",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "stream_event",
         event: { type: "content_block_delta", delta: { type: "text_delta", text: "b" } },
@@ -969,7 +968,7 @@ describe("Browser handlers", () => {
 
   it("session_subscribe: skips stale transient replay on idle cold subscribe", async () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     const session = bridge.getSession("s1")!;
     session.messageHistory.push({
       type: "assistant",
@@ -1026,11 +1025,10 @@ describe("Browser handlers", () => {
     // of trusting a stale cached prefix count.
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
     // Populate history so fallback payload has content.
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -1049,8 +1047,7 @@ describe("Browser handlers", () => {
     );
 
     // Generate several stream events, then trim the first one from in-memory buffer.
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "stream_event",
         event: { type: "content_block_delta", delta: { type: "text_delta", text: "1" } },
@@ -1059,8 +1056,7 @@ describe("Browser handlers", () => {
         session_id: "s1",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "stream_event",
         event: { type: "content_block_delta", delta: { type: "text_delta", text: "2" } },
@@ -1110,9 +1106,8 @@ describe("Browser handlers", () => {
     // browser still carries stale prefix metadata.
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(
-      cli,
+    cli.attach(bridge);
+    cli.message(
       JSON.stringify({
         type: "user_message",
         content: "hello",
@@ -1121,8 +1116,7 @@ describe("Browser handlers", () => {
         uuid: "u1",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -1139,8 +1133,7 @@ describe("Browser handlers", () => {
         session_id: "s1",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -1189,9 +1182,8 @@ describe("Browser handlers", () => {
     // An empty replay buffer does not block an explicit full-history request.
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(
-      cli,
+    cli.attach(bridge);
+    cli.message(
       JSON.stringify({
         type: "user_message",
         content: "hello",
@@ -1200,8 +1192,7 @@ describe("Browser handlers", () => {
         uuid: "u1",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -1218,8 +1209,7 @@ describe("Browser handlers", () => {
         session_id: "s1",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -1297,11 +1287,10 @@ describe("Browser handlers", () => {
     // A reconnecting browser gets the selected bounded window for persisted rows
     // and replays only missed transient events.
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
     // Generate a stream_event (transient, seq=2) then an assistant message (history-backed, seq=3)
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "stream_event",
         event: { type: "content_block_delta", delta: { type: "text_delta", text: "streaming" } },
@@ -1310,8 +1299,7 @@ describe("Browser handlers", () => {
         session_id: "s1",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -1364,11 +1352,10 @@ describe("Browser handlers", () => {
     // The current build still receives its bounded selected window, while only
     // transient missed events enter event_replay.
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
     // Generate only transient events
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "stream_event",
         event: { type: "content_block_delta", delta: { type: "text_delta", text: "a" } },
@@ -1377,8 +1364,7 @@ describe("Browser handlers", () => {
         session_id: "s1",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "stream_event",
         event: { type: "content_block_delta", delta: { type: "text_delta", text: "b" } },
@@ -1416,11 +1402,10 @@ describe("Browser handlers", () => {
     // A pruned replay buffer does not force passive full-history delivery; the
     // selected bounded window remains authoritative.
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
     // Generate an assistant message to populate messageHistory
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {

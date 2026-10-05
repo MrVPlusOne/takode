@@ -12,8 +12,7 @@ import * as sessionNames from "../session-names.js";
 import * as treeGroupStore from "../tree-group-store.js";
 import * as newSessionDefaultsStore from "../new-session-defaults-store.js";
 import { containerManager, ContainerManager, type ContainerConfig, type ContainerInfo } from "../container-manager.js";
-import type { CreationStepId } from "../session-types.js";
-import { hasContainerClaudeAuth } from "../claude-container-auth.js";
+import { parseBackendSelection, type BackendType, type CreationStepId } from "../session-types.js";
 import { hasContainerCodexAuth } from "../codex-container-auth.js";
 import { getSettings, getClaudeUserDefaultModel, getServerId } from "../settings-manager.js";
 import { buildReadResponse } from "../takode-messages.js";
@@ -33,13 +32,10 @@ import {
   setDiffBaseBranch as setDiffBaseBranchController,
 } from "../bridge/session-git-state.js";
 import {
-  SessionBackend,
   SessionPreparationError,
   SessionPreparationStatus,
-  applyDefaultClaudeBackend,
   computeCodexRevertPlan,
   getLaunchingCliLabel,
-  resolveBackend,
   throwPreparationError,
 } from "./sessions-helpers.js";
 import { registerSessionsArchiveRoutes } from "./sessions-archive-routes.js";
@@ -145,7 +141,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     auxiliary,
   });
 
-  const markOrchestratorSession = (sessionId: string, backend: SessionBackend) =>
+  const markOrchestratorSession = (sessionId: string, backend: BackendType) =>
     markOrchestratorSessionWithStartupContext(
       { launcher, wsBridge, buildOrchestratorSystemPrompt },
       sessionId,
@@ -383,7 +379,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       session.isOrchestrator = true;
       session.leaderProfilePortraitId = chooseRandomLeaderProfilePortraitId(getSettings().leaderProfilePools);
       session.noAutoName = true; // Leaders handle multiple quests; autonamer would pick a misleading name
-      markOrchestratorSession(session.sessionId, sessionConfig.launchOptions.backendType || "claude");
+      markOrchestratorSession(session.sessionId, sessionConfig.launchOptions.backendType ?? "claude-sdk");
     } else {
       const bridgeSession = wsBridge.getSession(session.sessionId);
       if (bridgeSession) bridgeSession.pendingStartupMemoryCatalogInjection = true;
@@ -430,7 +426,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
   const prepareSession = async (
     body: any,
-    backend: SessionBackend,
+    backend: BackendType,
     emitProgress?: EmitCreationProgress,
   ): Promise<SessionConfig> => {
     const binarySettings = getSettings();
@@ -454,10 +450,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     );
 
     if (body.resumeCliSessionId) {
-      if (backend !== "claude" && backend !== "codex") {
-        throwPreparationError("Resuming CLI sessions is only supported for Claude and Codex backends", 400);
-      }
-
       await emit("resolving_env", "Resolving environment...", "in_progress");
       let envVars: Record<string, string> | undefined = body.env;
       if (body.envSlug) {
@@ -585,10 +577,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
     let containerName: string | undefined;
     let containerImage: string | undefined;
 
-    if (effectiveImage && backend === "claude" && !hasContainerClaudeAuth(envVars)) {
+    if (effectiveImage && backend === "claude-sdk") {
+      // The SDK backend runs Claude on the host; only the retired WebSocket
+      // backend could run it inside a container.
       throwPreparationError(
-        "Containerized Claude requires auth available inside the container. " +
-          "Set ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN / CLAUDE_CODE_AUTH_TOKEN) in the selected environment.",
+        "Claude sessions cannot run in a container. Choose an environment without a Docker image, or use Codex.",
         400,
       );
     }
@@ -838,12 +831,12 @@ export function createSessionsRoutes(ctx: RouteContext) {
     recycledWorktreeInfo?: WorktreeSessionInfo,
   ): Promise<Awaited<ReturnType<CliLauncher["launch"]>>> => {
     const backendRaw = body.backend ?? "claude";
-    const backend = resolveBackend(backendRaw);
+    const backend = parseBackendSelection(backendRaw);
     if (!backend) {
       throwPreparationError(`Invalid backend: ${String(backendRaw)}`, 400);
     }
 
-    const sessionConfig = await prepareSession(body, applyDefaultClaudeBackend(backend));
+    const sessionConfig = await prepareSession(body, backend);
     if (recycledWorktreeInfo) {
       sessionConfig.initialCwd = recycledWorktreeInfo.worktreePath;
       sessionConfig.worktreeInfo = recycledWorktreeInfo;
@@ -920,7 +913,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     return streamSSE(c, async (stream) => {
       try {
         const backendRaw = body.backend ?? "claude";
-        const backend = resolveBackend(backendRaw);
+        const backend = parseBackendSelection(backendRaw);
         if (!backend) {
           await stream.writeSSE({
             event: "error",
@@ -929,13 +922,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
           return;
         }
 
-        const sessionConfig = await prepareSession(
-          body,
-          applyDefaultClaudeBackend(backend),
-          (step, label, status, detail) => emitProgress(stream, step, label, status, detail),
+        const sessionConfig = await prepareSession(body, backend, (step, label, status, detail) =>
+          emitProgress(stream, step, label, status, detail),
         );
         const launchingCliLabel = getLaunchingCliLabel({
-          backend: sessionConfig.launchOptions.backendType ?? "claude",
+          backend: sessionConfig.launchOptions.backendType ?? "claude-sdk",
           resumeCliSessionId: sessionConfig.resumeCliSessionId,
         });
 
@@ -1502,7 +1493,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
 
     if (!session) {
-      wsBridge.getOrCreateSession(id, workerInfo.backendType || "claude");
+      wsBridge.getOrCreateSession(id, workerInfo.backendType ?? "claude-sdk");
     }
     const interrupted = await wsBridge.interruptSession(id, "leader");
     if (!interrupted) return c.json({ error: "Session not found" }, 404);
@@ -1603,59 +1594,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
       return c.json({ error: result.error || "Relaunch failed" }, status);
     }
     return c.json({ ok: true });
-  });
-  // ─── Transport Upgrade: WebSocket → SDK ───────────────────────
-  api.post("/sessions/:id/upgrade-transport", async (c) => {
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-
-    console.log(`[transport] Upgrading session ${id.slice(0, 8)} from claude → claude-sdk`);
-    const result = await launcher.upgradeToSdk(id);
-    if (!result.ok) {
-      console.log(`[transport] Upgrade failed for ${id.slice(0, 8)}: ${result.error}`);
-      const status = result.error && result.error.includes("not found") ? 404 : 400;
-      return c.json({ error: result.error }, status);
-    }
-
-    // Update the ws-bridge session's backendType so it attaches the
-    // SDK adapter (instead of expecting a WebSocket CLI connection).
-    // Broadcast the change so all connected browsers update their UI
-    // (e.g. context menu shows "Switch to WebSocket" instead of "Switch to SDK").
-    const bridgeSession = wsBridge.getSession(id);
-    if (bridgeSession) {
-      bridgeSession.backendType = "claude-sdk";
-      bridgeSession.state.backend_type = "claude-sdk";
-      wsBridge.broadcastToSession(id, { type: "session_update", session: { backend_type: "claude-sdk" } } as any);
-    }
-
-    console.log(`[transport] Upgrade complete for ${id.slice(0, 8)}`);
-    return c.json(result);
-  });
-  // ─── Transport Downgrade: SDK → WebSocket ─────────────────────
-  api.post("/sessions/:id/downgrade-transport", async (c) => {
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-
-    console.log(`[transport] Downgrading session ${id.slice(0, 8)} from claude-sdk → claude`);
-    const result = await launcher.downgradeToWebSocket(id);
-    if (!result.ok) {
-      console.log(`[transport] Downgrade failed for ${id.slice(0, 8)}: ${result.error}`);
-      const status = result.error && result.error.includes("not found") ? 404 : 400;
-      return c.json({ error: result.error }, status);
-    }
-
-    // Update the ws-bridge session's backendType so it expects a WebSocket
-    // CLI connection instead of an SDK adapter.
-    // Broadcast so all browsers see the transport change immediately.
-    const bridgeSession = wsBridge.getSession(id);
-    if (bridgeSession) {
-      bridgeSession.backendType = "claude";
-      bridgeSession.state.backend_type = "claude";
-      wsBridge.broadcastToSession(id, { type: "session_update", session: { backend_type: "claude" } } as any);
-    }
-
-    console.log(`[transport] Downgrade complete for ${id.slice(0, 8)}`);
-    return c.json(result);
   });
   api.post("/sessions/:id/force-compact", async (c) => {
     const id = resolveId(c.req.param("id"));

@@ -1,13 +1,9 @@
-import { projectBrowserSessionState } from "../session-types.js";
 import type {
   BackendType,
   BrowserIncomingMessage,
   CLIAssistantMessage,
   CLIAuthStatusMessage,
   CLIControlCancelRequestMessage,
-  CLIControlRequestMessage,
-  CLIControlResponseMessage,
-  CLIMessage,
   CLIResultMessage,
   CLIStreamEventMessage,
   CLISystemCompactBoundaryMessage,
@@ -30,7 +26,6 @@ import {
   computeContextUsedPercent,
   computeResultContextUsedPercent,
   extractClaudeTokenDetails,
-  inferContextWindowFromModel,
   recordContextUsageHistory,
   resolveResultContextWindow,
   type TokenUsage,
@@ -76,59 +71,31 @@ import {
   type ThreadRouteMetadata,
 } from "../thread-routing-metadata.js";
 
+/** Keep only the tail of streamed tool output per tool call. */
+const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
+
 type BroadcastOptions = {
   skipBuffer?: boolean;
 };
 
-type SystemMessage =
-  | CLISystemInitMessage
-  | CLISystemStatusMessage
-  | CLISystemCompactBoundaryMessage
-  | CLISystemTaskNotificationMessage;
-
 export interface SystemMessageSessionLike {
   id: string;
-  backendType: "claude" | "codex" | "claude-sdk";
-  cliInitReceived: boolean;
+  backendType: BackendType;
   cliResuming: boolean;
-  dropReplayHistoryAfterRevert?: boolean;
-  cliResumingClearTimer: ReturnType<typeof setTimeout> | null;
   forceCompactPending: boolean;
   compactedDuringTurn: boolean;
   awaitingCompactSummary?: boolean;
-  claudeCompactBoundarySeen?: boolean;
-  seamlessReconnect: boolean;
-  disconnectWasGenerating: boolean;
-  isGenerating: boolean;
-  generationStartedAt?: number | null;
-  messageCountAtTurnStart?: number;
-  lastOutboundUserNdjson: string | null;
   messageHistory: BrowserIncomingMessage[];
-  pendingMessages: string[];
   state: SessionState;
 }
 
 interface SystemMessageDeps {
-  onCLISessionId?: (sessionId: string, cliSessionId: string) => void;
-  cacheSlashCommands: (projectKey: string, data: { slash_commands: string[]; skills: string[] }) => void;
-  backfillSlashCommands: (projectKey: string, sourceSessionId: string) => void;
-  refreshGitInfoThenRecomputeDiff: (
-    session: SystemMessageSessionLike,
-    options: { notifyPoller?: boolean; broadcastUpdate?: boolean },
-  ) => void;
-  getLauncherSessionInfo: (sessionId: string) => { isOrchestrator?: boolean } | null | undefined;
   broadcastToBrowsers: (
     session: SystemMessageSessionLike,
     msg: BrowserIncomingMessage,
     options?: BroadcastOptions,
   ) => void;
   persistSession: (session: SystemMessageSessionLike) => void;
-  hasPendingForceCompact: (session: SystemMessageSessionLike) => boolean;
-  flushQueuedCliMessages: (session: SystemMessageSessionLike, reason: string) => void;
-  onOrchestratorTurnEnd: (sessionId: string) => void;
-  isCliUserMessagePayload: (ndjson: string) => boolean;
-  markTurnInterrupted: (session: SystemMessageSessionLike, source: "system") => void;
-  setGenerating: (session: SystemMessageSessionLike, generating: boolean, reason: string) => void;
   onSessionActivityStateChanged: (sessionId: string, reason: string) => void;
   emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) => void;
   injectCompactionRecovery: (session: SystemMessageSessionLike) => void;
@@ -139,7 +106,6 @@ interface SystemMessageDeps {
   ) => boolean;
   freezeHistoryThroughCurrentTail: (session: SystemMessageSessionLike) => void;
   hasTaskNotificationReplay: (session: SystemMessageSessionLike, taskId: string, toolUseId: string) => boolean;
-  stuckGenerationThresholdMs: number;
 }
 
 export interface AssistantMessageSessionLike {
@@ -266,7 +232,7 @@ function queueQuestThreadRemindersFromLeaderAssistant(
 
 export interface ResultMessageSessionLike {
   id: string;
-  backendType: "claude" | "codex" | "claude-sdk";
+  backendType: BackendType;
   cliResuming: boolean;
   dropReplayHistoryAfterRevert?: boolean;
   messageHistory: BrowserIncomingMessage[];
@@ -295,7 +261,6 @@ export interface ResultMessageSessionLike {
   activeTurnRoute?: ActiveTurnRoute | null;
   userMessageIdsThisTurn: number[];
   isGenerating: boolean;
-  lastOutboundUserNdjson: string | null;
   pendingPermissions: Map<string, PermissionRequest>;
   toolStartTimes: Map<string, number>;
 }
@@ -319,13 +284,7 @@ export interface CliUserReplaySessionLike {
   toolStartTimes: Map<string, number>;
 }
 
-interface CliMessageRouteDeps {
-  handleSystemMessage: (session: CliMessageRouteSessionLike, msg: SystemMessage) => void;
-  handleAssistantMessage: (session: CliMessageRouteSessionLike, msg: CLIAssistantMessage) => void;
-  handleResultMessage: (session: CliMessageRouteSessionLike, msg: CLIResultMessage) => void;
-  handleControlRequest: (session: CliMessageRouteSessionLike, msg: CLIControlRequestMessage) => void;
-  handleUserMessage: (session: CliMessageRouteSessionLike, msg: CLIUserMessage) => void;
-  handleControlResponse: (session: CliMessageRouteSessionLike, msg: CLIControlResponseMessage) => void;
+interface PassthroughMessageDeps {
   abortAutoApproval: (session: CliMessageRouteSessionLike, requestId: string) => void;
   broadcastToBrowsers: (
     session: CliMessageRouteSessionLike,
@@ -335,7 +294,6 @@ interface CliMessageRouteDeps {
   cancelPermissionNotification: (sessionId: string, requestId: string) => void;
   clearActionAttentionIfNoPermissions: (session: CliMessageRouteSessionLike) => void;
   persistSession: (session: CliMessageRouteSessionLike) => void;
-  toolProgressOutputLimit: number;
 }
 
 interface CliUserReplayDeps {
@@ -366,12 +324,6 @@ interface ClaudeCliUserMessageDeps extends CliUserReplayDeps {
   updateLatestCompactMarkerSummary: (session: CliUserReplaySessionLike, summary: string) => void;
 }
 
-interface DrainInlineQueuedClaudeTurnsSessionLike {
-  id: string;
-  backendType: BackendType;
-  pendingMessages: string[];
-}
-
 function shouldDropReplayHistoryAfterRevert(session: {
   cliResuming: boolean;
   dropReplayHistoryAfterRevert?: boolean;
@@ -379,17 +331,10 @@ function shouldDropReplayHistoryAfterRevert(session: {
   return session.cliResuming && session.dropReplayHistoryAfterRevert === true;
 }
 
-interface DrainInlineQueuedClaudeTurnsDeps {
-  getQueuedTurnLifecycleEntries: (session: DrainInlineQueuedClaudeTurnsSessionLike) => unknown[];
-  replaceQueuedTurnLifecycleEntries: (session: DrainInlineQueuedClaudeTurnsSessionLike, entries: unknown[]) => void;
-  isCliUserMessagePayload: (ndjson: string) => boolean;
-}
-
 interface ResultMessageDeps {
   onMonitoredThreadResult?: (session: ResultMessageSessionLike, threadKey: string) => void;
   hasResultReplay: (session: ResultMessageSessionLike, resultUuid: string) => boolean;
   reconcileReplayState: (session: ResultMessageSessionLike) => { clearedResidualState: boolean };
-  drainInlineQueuedClaudeTurns: (session: ResultMessageSessionLike, reason: string) => boolean;
   markTurnInterrupted: (session: ResultMessageSessionLike, source: "user" | "leader" | "system") => void;
   getCurrentTurnTriggerSource: (session: ResultMessageSessionLike) => "user" | "leader" | "system" | "unknown";
   reconcileTerminalResultState: (session: ResultMessageSessionLike) => void;
@@ -434,20 +379,19 @@ interface ResultMessageDeps {
 
 interface ClaudeSdkBrowserMessageSessionLike {
   id: string;
-  backendType: "claude" | "codex" | "claude-sdk";
+  backendType: BackendType;
   cliInitReceived: boolean;
   cliResuming: boolean;
   cliResumingClearTimer: ReturnType<typeof setTimeout> | null;
   forceCompactPending: boolean;
   compactedDuringTurn: boolean;
   awaitingCompactSummary?: boolean;
-  claudeCompactBoundarySeen?: boolean;
-  seamlessReconnect: boolean;
-  disconnectWasGenerating: boolean;
   isGenerating: boolean;
   generationStartedAt?: number | null;
-  lastOutboundUserNdjson: string | null;
   resumedFromExternal?: boolean;
+  activeTurnRoute?: ActiveTurnRoute | null;
+  recentAskVisibleResponseThreads?: Set<string>;
+  lastToolProgressAt: number;
   messageHistory: BrowserIncomingMessage[];
   pendingMessages: string[];
   assistantAccumulator: Map<
@@ -467,28 +411,6 @@ interface ClaudeSdkBrowserMessageSessionLike {
   queuedTurnActiveRoutes?: Array<ActiveTurnRoute | null>;
   userMessageIdsThisTurn: number[];
   state: SessionState;
-}
-
-export function handleSystemMessage(
-  session: SystemMessageSessionLike,
-  msg: SystemMessage,
-  deps: SystemMessageDeps,
-): void {
-  if (msg.subtype === "init") {
-    handleSystemInit(session, msg, deps);
-    return;
-  }
-  if (msg.subtype === "status") {
-    handleSystemStatus(session, msg, deps);
-    return;
-  }
-  if (msg.subtype === "compact_boundary") {
-    handleCompactBoundary(session, msg, deps);
-    return;
-  }
-  if (msg.subtype === "task_notification") {
-    handleTaskNotification(session, msg, deps);
-  }
 }
 
 export function handleAssistantMessage(
@@ -897,8 +819,7 @@ export function handleResultMessage(
   const hasReplay = !!msg.uuid && deps.hasResultReplay(session, msg.uuid);
   if (hasReplay) {
     const reconciled = deps.reconcileReplayState(session);
-    const drainedQueuedTurns = deps.drainInlineQueuedClaudeTurns(session, "result_replay");
-    if (drainedQueuedTurns || reconciled.clearedResidualState) {
+    if (reconciled.clearedResidualState) {
       deps.broadcastToBrowsers(session, {
         type: "status_change",
         status: "idle",
@@ -954,7 +875,6 @@ export function handleResultMessage(
       : buildThreadRoutingReminderForCompletedTurn(session);
   const questThreadReminders = isProviderRetryResult ? [] : consumeQuestThreadRemindersForCompletedTurn(session);
   const deliverQuestThreadReminders = turnWasInterrupted ? [] : questThreadReminders;
-  deps.drainInlineQueuedClaudeTurns(session, "result");
 
   deps.reconcileTerminalResultState(session);
   deps.finalizeOrphanedTerminalToolsOnResult(session, msg);
@@ -966,7 +886,6 @@ export function handleResultMessage(
       codexAutoPauseRecoveryProgress: deps.getCodexAutoPauseRecoveryProgress?.(session) ?? null,
     });
   }
-  session.lastOutboundUserNdjson = null;
 
   if (typeof turnDurationMs === "number") {
     const latestAssistant = session.messageHistory.findLast(
@@ -1065,48 +984,6 @@ export function handleResultMessage(
       undefined,
       threadRoutingReminder.route,
     );
-  }
-}
-
-export function routeCLIMessage(session: CliMessageRouteSessionLike, msg: CLIMessage, deps: CliMessageRouteDeps): void {
-  switch (msg.type) {
-    case "system":
-      deps.handleSystemMessage(session, msg);
-      break;
-    case "assistant":
-      deps.handleAssistantMessage(session, msg);
-      break;
-    case "result":
-      deps.handleResultMessage(session, msg);
-      break;
-    case "stream_event":
-      handleStreamEventMessage(session, msg, deps);
-      break;
-    case "control_request":
-      deps.handleControlRequest(session, msg);
-      break;
-    case "tool_progress":
-      handleToolProgressMessage(session, msg, deps);
-      break;
-    case "tool_use_summary":
-      handleToolUseSummaryMessage(session, msg, deps);
-      break;
-    case "auth_status":
-      handleAuthStatusMessage(session, msg, deps);
-      break;
-    case "control_response":
-      deps.handleControlResponse(session, msg);
-      break;
-    case "control_cancel_request":
-      handleControlCancelRequestMessage(session, msg, deps);
-      break;
-    case "user":
-      deps.handleUserMessage(session, msg);
-      break;
-    case "keep_alive":
-      break;
-    default:
-      break;
   }
 }
 
@@ -1263,6 +1140,7 @@ export function createClaudeMessageHandlers(
     Pick<
       HandleAssistantRuntimeDeps,
       | "hasAssistantReplay"
+      | "getLauncherSessionInfo"
       | "broadcastToBrowsers"
       | "persistSession"
       | "setGenerating"
@@ -1270,36 +1148,21 @@ export function createClaudeMessageHandlers(
       | "promoteLeaderThreadTabForTransition"
     > &
     ResultMessageDeps &
-    ClaudeCliUserMessageDeps,
+    ClaudeCliUserMessageDeps &
+    PassthroughMessageDeps,
 ): {
-  handleSystemMessage: (session: CliMessageRouteSessionLike, msg: SystemMessage) => void;
-  handleAssistantMessage: (session: CliMessageRouteSessionLike, msg: CLIAssistantMessage) => void;
   handleResultMessage: (session: CliMessageRouteSessionLike, msg: CLIResultMessage) => void;
-  handleToolResultMessage: (session: CliUserReplaySessionLike, msg: CLIUserMessage) => void;
-  handleClaudeCliUserMessage: (session: CliMessageRouteSessionLike, msg: CLIUserMessage) => void;
   handleSdkBrowserMessage: (session: ClaudeSdkBrowserMessageSessionLike, msg: any) => boolean;
 } {
   const systemMessageDeps: SystemMessageDeps = {
-    onCLISessionId: deps.onCLISessionId,
-    cacheSlashCommands: deps.cacheSlashCommands,
-    backfillSlashCommands: deps.backfillSlashCommands,
-    refreshGitInfoThenRecomputeDiff: deps.refreshGitInfoThenRecomputeDiff,
-    getLauncherSessionInfo: deps.getLauncherSessionInfo,
     broadcastToBrowsers: deps.broadcastToBrowsers,
     persistSession: deps.persistSession,
-    hasPendingForceCompact: deps.hasPendingForceCompact,
-    flushQueuedCliMessages: deps.flushQueuedCliMessages,
-    onOrchestratorTurnEnd: deps.onOrchestratorTurnEnd,
-    isCliUserMessagePayload: deps.isCliUserMessagePayload,
-    markTurnInterrupted: deps.markTurnInterrupted,
-    setGenerating: deps.setGenerating,
     onSessionActivityStateChanged: deps.onSessionActivityStateChanged,
     emitTakodeEvent: deps.emitTakodeEvent,
     injectCompactionRecovery: deps.injectCompactionRecovery,
     hasCompactBoundaryReplay: deps.hasCompactBoundaryReplay,
     freezeHistoryThroughCurrentTail: deps.freezeHistoryThroughCurrentTail,
     hasTaskNotificationReplay: deps.hasTaskNotificationReplay,
-    stuckGenerationThresholdMs: deps.stuckGenerationThresholdMs,
   };
   const assistantMessageDeps: HandleAssistantRuntimeDeps = {
     hasAssistantReplay: deps.hasAssistantReplay,
@@ -1317,7 +1180,6 @@ export function createClaudeMessageHandlers(
     onMonitoredThreadResult: deps.onMonitoredThreadResult,
     hasResultReplay: deps.hasResultReplay,
     reconcileReplayState: deps.reconcileReplayState,
-    drainInlineQueuedClaudeTurns: deps.drainInlineQueuedClaudeTurns,
     markTurnInterrupted: deps.markTurnInterrupted,
     getCurrentTurnTriggerSource: deps.getCurrentTurnTriggerSource,
     reconcileTerminalResultState: deps.reconcileTerminalResultState,
@@ -1350,37 +1212,63 @@ export function createClaudeMessageHandlers(
     updateLatestCompactMarkerSummary: deps.updateLatestCompactMarkerSummary,
   };
 
+  const passthroughDeps: PassthroughMessageDeps = {
+    abortAutoApproval: deps.abortAutoApproval,
+    broadcastToBrowsers: deps.broadcastToBrowsers,
+    cancelPermissionNotification: deps.cancelPermissionNotification,
+    clearActionAttentionIfNoPermissions: deps.clearActionAttentionIfNoPermissions,
+    persistSession: deps.persistSession,
+  };
+
   return {
-    handleSystemMessage: (session: CliMessageRouteSessionLike, msg: SystemMessage) =>
-      handleSystemMessage(session as unknown as SystemMessageSessionLike, msg, systemMessageDeps),
-    handleAssistantMessage: (session: CliMessageRouteSessionLike, msg: CLIAssistantMessage) =>
-      handleAssistantMessageWithRuntime(session as unknown as AssistantMessageSessionLike, msg, assistantMessageDeps),
     handleResultMessage: (session: CliMessageRouteSessionLike, msg: CLIResultMessage) =>
       handleResultMessage(session as unknown as ResultMessageSessionLike, msg, resultMessageDeps),
-    handleToolResultMessage: (session: CliUserReplaySessionLike, msg: CLIUserMessage) =>
-      handleToolResultMessage(session, msg, cliUserMessageDeps),
-    handleClaudeCliUserMessage: (session: CliMessageRouteSessionLike, msg: CLIUserMessage) =>
-      handleClaudeCliUserMessage(session as unknown as CliUserReplaySessionLike, msg, cliUserMessageDeps),
     handleSdkBrowserMessage: (session: ClaudeSdkBrowserMessageSessionLike, msg: any) =>
-      handleSdkBrowserMessage(
-        session,
-        msg,
-        systemMessageDeps,
-        assistantMessageDeps,
-        resultMessageDeps,
-        cliUserMessageDeps,
-      ),
+      handleSdkBrowserMessage(session, msg, {
+        system: systemMessageDeps,
+        assistant: assistantMessageDeps,
+        result: resultMessageDeps,
+        user: cliUserMessageDeps,
+        passthrough: passthroughDeps,
+      }),
   };
 }
 
 function handleSdkBrowserMessage(
   session: ClaudeSdkBrowserMessageSessionLike,
   msg: any,
-  systemMessageDeps: SystemMessageDeps,
-  assistantMessageDeps: HandleAssistantRuntimeDeps,
-  resultMessageDeps: ResultMessageDeps,
-  cliUserMessageDeps: ClaudeCliUserMessageDeps,
+  deps: {
+    system: SystemMessageDeps;
+    assistant: HandleAssistantRuntimeDeps;
+    result: ResultMessageDeps;
+    user: ClaudeCliUserMessageDeps;
+    passthrough: PassthroughMessageDeps;
+  },
 ): boolean {
+  const {
+    system: systemMessageDeps,
+    assistant: assistantMessageDeps,
+    result: resultMessageDeps,
+    user: cliUserMessageDeps,
+  } = deps;
+  switch (msg.type) {
+    case "stream_event":
+      handleStreamEventMessage(session, msg, deps.passthrough);
+      return true;
+    case "tool_progress":
+      handleToolProgressMessage(session, msg, deps.passthrough);
+      return true;
+    case "tool_use_summary":
+      handleToolUseSummaryMessage(session, msg, deps.passthrough);
+      return true;
+    case "auth_status":
+      handleAuthStatusMessage(session, msg, deps.passthrough);
+      return true;
+    case "control_cancel_request":
+      handleControlCancelRequestMessage(session, msg, deps.passthrough);
+      return true;
+  }
+
   if (msg.type === "assistant") {
     handleAssistantMessageWithRuntime(session, msg, assistantMessageDeps);
     return true;
@@ -1502,9 +1390,6 @@ function handleSdkCompactBoundary(
       trigger: meta?.trigger,
       preTokens: meta?.pre_tokens,
     });
-    if (session.backendType === "claude") {
-      session.claudeCompactBoundarySeen = true;
-    }
     deps.broadcastToBrowsers(session, {
       type: "session_update",
       session: { lifecycle_events: session.state.lifecycle_events },
@@ -1515,30 +1400,6 @@ function handleSdkCompactBoundary(
 
   session.compactedDuringTurn = true;
   handleCompactBoundary(session, msg, deps);
-}
-
-export function drainInlineQueuedClaudeTurns(
-  session: DrainInlineQueuedClaudeTurnsSessionLike,
-  reason: string,
-  deps: DrainInlineQueuedClaudeTurnsDeps,
-): boolean {
-  if (session.backendType !== "claude") return false;
-  const queuedEntries = deps.getQueuedTurnLifecycleEntries(session);
-  if (queuedEntries.length === 0) return false;
-
-  const pendingUserMessageCount = session.pendingMessages.reduce((count, raw) => {
-    return count + (deps.isCliUserMessagePayload(raw) ? 1 : 0);
-  }, 0);
-  if (queuedEntries.length <= pendingUserMessageCount) return false;
-
-  const retainedEntries = pendingUserMessageCount > 0 ? queuedEntries.slice(-pendingUserMessageCount) : [];
-  const drainedCount = queuedEntries.length - retainedEntries.length;
-  console.log(
-    `[ws-bridge] Draining ${drainedCount} inline queued Claude turn(s) on ${reason} for session ${sessionTag(session.id)} ` +
-      `(pending_cli_user_messages=${pendingUserMessageCount})`,
-  );
-  deps.replaceQueuedTurnLifecycleEntries(session, retainedEntries);
-  return true;
 }
 
 export function getAssistantContentAppendBlocks(
@@ -1601,116 +1462,6 @@ export function extractActivityPreview(session: AssistantMessageSessionLike, con
   }
 }
 
-function handleSystemInit(session: SystemMessageSessionLike, msg: CLISystemInitMessage, deps: SystemMessageDeps): void {
-  session.cliInitReceived = true;
-  if (msg.session_id && deps.onCLISessionId) {
-    deps.onCLISessionId(session.id, msg.session_id);
-  }
-  session.state.model = msg.model;
-  const inferredContextWindow = inferContextWindowFromModel(msg.model);
-  if (inferredContextWindow) {
-    if (session.state.claude_token_details) {
-      session.state.claude_token_details.modelContextWindow = Math.max(
-        session.state.claude_token_details.modelContextWindow,
-        inferredContextWindow,
-      );
-    } else {
-      session.state.claude_token_details = {
-        inputTokens: 0,
-        outputTokens: 0,
-        cachedInputTokens: 0,
-        modelContextWindow: inferredContextWindow,
-      };
-    }
-  }
-  if (!session.state.is_containerized) {
-    session.state.cwd = msg.cwd;
-  }
-  session.state.tools = msg.tools;
-  if (session.messageHistory.length === 0) {
-    session.state.permissionMode = msg.permissionMode;
-  }
-  session.state.claude_code_version = msg.claude_code_version;
-
-  if (session.cliResuming) {
-    if (session.cliResumingClearTimer) clearTimeout(session.cliResumingClearTimer);
-    session.cliResumingClearTimer = setTimeout(() => {
-      session.cliResumingClearTimer = null;
-      session.cliResuming = false;
-      session.dropReplayHistoryAfterRevert = false;
-      const compactPending = deps.hasPendingForceCompact(session);
-      session.forceCompactPending = compactPending;
-      session.state.is_compacting = compactPending;
-      session.awaitingCompactSummary = false;
-      session.claudeCompactBoundarySeen = false;
-      if (compactPending) {
-        deps.broadcastToBrowsers(session, { type: "status_change", status: "compacting" });
-      }
-      if (session.pendingMessages.length > 0) {
-        deps.flushQueuedCliMessages(session, "after replay done");
-      }
-      if (deps.getLauncherSessionInfo(session.id)?.isOrchestrator) {
-        deps.onOrchestratorTurnEnd(session.id);
-      }
-    }, 2000);
-  } else {
-    session.state.is_compacting = false;
-  }
-
-  session.state.mcp_servers = msg.mcp_servers;
-  session.state.agents = msg.agents ?? [];
-  session.state.slash_commands = msg.slash_commands ?? [];
-  session.state.skills = msg.skills ?? [];
-  session.state.skill_metadata = [];
-  session.state.apps = [];
-  const projectKey = session.state.repo_root || session.state.cwd;
-  if (projectKey && (msg.slash_commands?.length || msg.skills?.length)) {
-    deps.cacheSlashCommands(projectKey, { slash_commands: msg.slash_commands ?? [], skills: msg.skills ?? [] });
-    deps.backfillSlashCommands(projectKey, session.id);
-  }
-
-  deps.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
-  const launcherInfo = deps.getLauncherSessionInfo(session.id);
-  deps.broadcastToBrowsers(session, {
-    type: "session_init",
-    session: {
-      ...projectBrowserSessionState(session.state),
-      isOrchestrator: launcherInfo?.isOrchestrator === true,
-    },
-  });
-  deps.persistSession(session);
-
-  const generationAge = session.generationStartedAt ? Date.now() - session.generationStartedAt : 0;
-  const seamlessButStuck = session.seamlessReconnect && generationAge >= deps.stuckGenerationThresholdMs;
-  if (seamlessButStuck) {
-    console.warn(
-      `[ws-bridge] Seamless reconnect with stale generation (${Math.round(generationAge / 1000)}s) for session ${sessionTag(session.id)} — treating as relaunch`,
-    );
-  }
-  if (session.isGenerating && (!session.seamlessReconnect || seamlessButStuck)) {
-    const hasInFlightUserDispatch =
-      typeof session.lastOutboundUserNdjson === "string" &&
-      deps.isCliUserMessagePayload(session.lastOutboundUserNdjson);
-    if (!hasInFlightUserDispatch) {
-      deps.markTurnInterrupted(session, "system");
-      deps.setGenerating(session, false, "system_init_reset");
-      deps.broadcastToBrowsers(session, { type: "status_change", status: "idle" });
-    }
-  }
-  session.seamlessReconnect = false;
-  session.disconnectWasGenerating = false;
-
-  if (!session.cliResuming) {
-    if (session.pendingMessages.length > 0) {
-      deps.flushQueuedCliMessages(session, "after init");
-    }
-    if (launcherInfo?.isOrchestrator) {
-      deps.onOrchestratorTurnEnd(session.id);
-    }
-  }
-  deps.onSessionActivityStateChanged(session.id, "system_init");
-}
-
 function handleSystemStatus(
   session: SystemMessageSessionLike,
   msg: CLISystemStatusMessage,
@@ -1722,9 +1473,6 @@ function handleSystemStatus(
   const enteringCompacting = msg.status === "compacting" && (!wasCompacting || forceCompactPending);
   if (msg.status === "compacting") {
     session.forceCompactPending = false;
-  }
-  if (enteringCompacting && session.backendType === "claude") {
-    session.claudeCompactBoundarySeen = false;
   }
   if (enteringCompacting && !session.cliResuming) {
     session.compactedDuringTurn = true;
@@ -1745,12 +1493,7 @@ function handleSystemStatus(
         ? { context_used_percent: session.state.context_used_percent }
         : {}),
     });
-    if (session.backendType !== "claude" || session.claudeCompactBoundarySeen) {
-      deps.injectCompactionRecovery(session);
-    }
-  }
-  if (wasCompacting && msg.status !== "compacting" && session.backendType === "claude") {
-    session.claudeCompactBoundarySeen = false;
+    deps.injectCompactionRecovery(session);
   }
 
   if (msg.permissionMode) {
@@ -1784,9 +1527,6 @@ function handleCompactBoundary(
   if (session.cliResuming) return;
   const cliUuid = msg.uuid;
   const meta = msg.compact_metadata;
-  if (session.backendType === "claude") {
-    session.claudeCompactBoundarySeen = true;
-  }
   if (deps.hasCompactBoundaryReplay(session, cliUuid, meta)) return;
 
   const ts = Date.now();
@@ -1845,7 +1585,7 @@ function handleTaskNotification(
 function handleStreamEventMessage(
   session: CliMessageRouteSessionLike,
   msg: CLIStreamEventMessage,
-  deps: Pick<CliMessageRouteDeps, "broadcastToBrowsers">,
+  deps: Pick<PassthroughMessageDeps, "broadcastToBrowsers">,
 ): void {
   markRecentAskVisibleResponseFromStream(session, msg as BrowserIncomingMessage);
   deps.broadcastToBrowsers(session, {
@@ -1858,14 +1598,7 @@ function handleStreamEventMessage(
 function handleControlCancelRequestMessage(
   session: CliMessageRouteSessionLike,
   msg: CLIControlCancelRequestMessage,
-  deps: Pick<
-    CliMessageRouteDeps,
-    | "abortAutoApproval"
-    | "broadcastToBrowsers"
-    | "cancelPermissionNotification"
-    | "clearActionAttentionIfNoPermissions"
-    | "persistSession"
-  >,
+  deps: PassthroughMessageDeps,
 ): void {
   const reqId = msg.request_id;
   const pending = session.pendingPermissions.get(reqId);
@@ -1884,14 +1617,14 @@ function handleControlCancelRequestMessage(
 function handleToolProgressMessage(
   session: CliMessageRouteSessionLike,
   msg: CLIToolProgressMessage,
-  deps: Pick<CliMessageRouteDeps, "broadcastToBrowsers" | "toolProgressOutputLimit">,
+  deps: Pick<PassthroughMessageDeps, "broadcastToBrowsers">,
 ): void {
   if (typeof msg.output_delta === "string" && msg.output_delta.length > 0) {
     const prev = session.toolProgressOutput.get(msg.tool_use_id) || "";
     const merged = prev + msg.output_delta;
     session.toolProgressOutput.set(
       msg.tool_use_id,
-      merged.length > deps.toolProgressOutputLimit ? merged.slice(-deps.toolProgressOutputLimit) : merged,
+      merged.length > TOOL_PROGRESS_OUTPUT_LIMIT ? merged.slice(-TOOL_PROGRESS_OUTPUT_LIMIT) : merged,
     );
   }
   session.lastToolProgressAt = Date.now();
@@ -1907,7 +1640,7 @@ function handleToolProgressMessage(
 function handleToolUseSummaryMessage(
   session: CliMessageRouteSessionLike,
   msg: CLIToolUseSummaryMessage,
-  deps: Pick<CliMessageRouteDeps, "broadcastToBrowsers">,
+  deps: Pick<PassthroughMessageDeps, "broadcastToBrowsers">,
 ): void {
   deps.broadcastToBrowsers(session, {
     type: "tool_use_summary",
@@ -1919,7 +1652,7 @@ function handleToolUseSummaryMessage(
 function handleAuthStatusMessage(
   session: CliMessageRouteSessionLike,
   msg: CLIAuthStatusMessage,
-  deps: Pick<CliMessageRouteDeps, "broadcastToBrowsers">,
+  deps: Pick<PassthroughMessageDeps, "broadcastToBrowsers">,
 ): void {
   deps.broadcastToBrowsers(session, {
     type: "auth_status",

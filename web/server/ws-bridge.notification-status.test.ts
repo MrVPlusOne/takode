@@ -23,6 +23,7 @@ import {
 } from "./bridge/session-registry-controller.js";
 import { SessionStore } from "./session-store.js";
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 
 function createMockSocket(data: SocketData) {
   return {
@@ -34,7 +35,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -65,8 +66,8 @@ describe("notification status fanout", () => {
     const leaderCli = makeCliSocket("leader");
     const workerBrowser = makeBrowserSocket("worker");
     const leaderBrowser = makeBrowserSocket("leader");
-    bridge.handleCLIOpen(workerCli, "worker");
-    bridge.handleCLIOpen(leaderCli, "leader");
+    workerCli.attach(bridge);
+    leaderCli.attach(bridge);
     bridge.handleBrowserOpen(workerBrowser, "worker");
     bridge.handleBrowserOpen(leaderBrowser, "leader");
     workerBrowser.send.mockClear();
@@ -110,8 +111,8 @@ describe("notification status fanout", () => {
     const leaderCli = makeCliSocket("leader");
     const workerBrowser = makeBrowserSocket("worker");
     const leaderBrowser = makeBrowserSocket("leader");
-    bridge.handleCLIOpen(workerCli, "worker");
-    bridge.handleCLIOpen(leaderCli, "leader");
+    workerCli.attach(bridge);
+    leaderCli.attach(bridge);
     bridge.handleBrowserOpen(workerBrowser, "worker");
     bridge.handleBrowserOpen(leaderBrowser, "leader");
     await bridge.handleBrowserMessage(

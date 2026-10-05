@@ -448,7 +448,7 @@ function SessionItemComponent({
 
   // Backend identity badge. Session portraits remain the primary session identity.
   const backendLogo = s.backendType === "codex" ? "/backend-logos/codex.svg" : "/backend-logos/claude.svg";
-  const backendAlt = s.backendType === "codex" ? "Codex" : s.backendType === "claude-sdk" ? "Claude SDK" : "Claude";
+  const backendAlt = s.backendType === "codex" ? "Codex" : "Claude";
   const hasBranchDivergence = s.gitAhead > 0 || s.gitBehind > 0;
   const hasLineDiff = s.linesAdded > 0 || s.linesRemoved > 0;
   const hasSkippedDiffStats = !!s.diffStatsSkippedReason;

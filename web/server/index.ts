@@ -5,7 +5,7 @@ process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1";
 // Increase libuv threadpool size BEFORE any I/O operations.
 // Default of 4 threads is too small for NFS — concurrent async I/O operations
 // (session saves, git info, recordings) saturate the pool, stalling the event loop
-// and causing CLI WebSocket ping/pong timeouts (10s budget). Must be set before
+// and causing WebSocket ping/pong timeouts (10s budget). Must be set before
 // the first libuv I/O call — Node/Bun reads this value once at initialization.
 if (!process.env.UV_THREADPOOL_SIZE) {
   process.env.UV_THREADPOOL_SIZE = "64";
@@ -472,10 +472,8 @@ launcher.onBeforeRelaunchCallback((sessionId, backendType) => {
   // (the adapter.disconnect() call in attachClaudeSdkAdapter sets
   // session.codexAdapter = adapter before the old one's callback fires).
 
-  // For all backends: prevent handleCLIOpen from treating the new CLI
-  // connection as a seamless reconnect (token refresh). Without this,
-  // the system.init handler skips force-clearing stale isGenerating state,
-  // leaving phantom queued turns stuck as "running" across relaunches.
+  // Mark the relaunch as in flight so the replacement backend's attach is not
+  // mistaken for a recovered connection while it initializes.
   if (bridgeSession) {
     markSessionRelaunchPending(bridgeSession as any);
   }
@@ -1017,10 +1015,7 @@ const server = Bun.serve<SocketData>({
     perMessageDeflate: true, // Compress large payloads (history_sync can be multi-MB JSON)
     open(ws: ServerWebSocket<SocketData>) {
       const data = ws.data;
-      if (data.kind === "cli") {
-        wsBridge.handleCLIOpen(ws, data.sessionId);
-        launcher.markConnected(data.sessionId);
-      } else if (data.kind === "browser") {
+      if (data.kind === "browser") {
         wsBridge.handleBrowserOpen(ws, data.sessionId);
       } else if (data.kind === "terminal") {
         terminalManager.addBrowserSocket(data.terminalId, ws);
@@ -1028,9 +1023,7 @@ const server = Bun.serve<SocketData>({
     },
     message(ws: ServerWebSocket<SocketData>, msg: string | Buffer) {
       const data = ws.data;
-      if (data.kind === "cli") {
-        wsBridge.handleCLIMessage(ws, msg);
-      } else if (data.kind === "browser") {
+      if (data.kind === "browser") {
         wsBridge.handleBrowserMessage(ws, msg);
       } else if (data.kind === "terminal") {
         terminalManager.handleBrowserMessage(data.terminalId, ws, msg);
@@ -1038,9 +1031,7 @@ const server = Bun.serve<SocketData>({
     },
     close(ws: ServerWebSocket<SocketData>, code: number, reason: string) {
       const data = ws.data;
-      if (data.kind === "cli") {
-        wsBridge.handleCLIClose(ws, code, reason);
-      } else if (data.kind === "browser") {
+      if (data.kind === "browser") {
         // Close diagnostics even if the session was removed while its socket was open.
         closeBrowserConnectionDiagnostics(ws);
         wsBridge.handleBrowserClose(ws, code, reason);
@@ -1058,14 +1049,12 @@ wsBridge.startHeartbeat();
 wsBridge.startStuckSessionWatchdog();
 
 // ── Event loop lag monitor ──────────────────────────────────────────────────
-// The Claude Code CLI (Node.js) sends WebSocket ping frames every 10s and
-// considers the connection dead if no pong arrives before the next ping.
 // On slow NFS, Bun's event loop can block for seconds during file I/O,
-// preventing it from responding to pings. This monitor detects those stalls
-// so we can identify what operations are causing CLI disconnections.
+// delaying WebSocket ping/pong and every other request. This monitor detects
+// those stalls so we can identify what operations are causing them.
 {
   const LAG_WARN_MS = 500; // warn at 500ms
-  const LAG_ALERT_MS = 5_000; // alert at 5s (CLI timeout is 10s)
+  const LAG_ALERT_MS = 5_000; // alert at 5s (heartbeat budget is 10s)
   const CHECK_INTERVAL_MS = 2_000;
   let lastTick = performance.now();
   setInterval(() => {
@@ -1084,7 +1073,6 @@ wsBridge.startStuckSessionWatchdog();
 
 const listeningFrontendAvailability = await checkCurrentFrontendAvailability();
 console.log(`Server running on http://localhost:${server.port}`);
-console.log(`  CLI WebSocket:     ws://localhost:${server.port}/ws/cli/:sessionId`);
 console.log(`  Browser WebSocket: ws://localhost:${server.port}/ws/browser/:sessionId`);
 if (frontendRequired) {
   console.log(
@@ -1229,9 +1217,9 @@ process.on("SIGINT", () => {
 });
 
 // ── Reconnection watchdog ────────────────────────────────────────────────────
-// After a server restart, restored CLI processes may not reconnect their
-// WebSocket. Give them a grace period, then kill + relaunch any that are
-// still in "starting" state (alive but no WS connection).
+// After a server restart, restored backend processes cannot reattach to the new
+// server. Give them a grace period, then kill + relaunch any that are still in
+// "starting" state.
 const RECONNECT_GRACE_MS = Number(process.env.COMPANION_RECONNECT_GRACE_MS || "30000");
 const starting = launcher.getStartingSessions();
 if (starting.length > 0) {

@@ -9,10 +9,8 @@ vi.mock("./settings-rule-matcher.js", () => ({
 
 import {
   handleCodexPermissionRequest,
-  handleControlRequest,
   handleSetModel,
   handleSetPermissionMode,
-  handlePermissionResponse,
   routeBrowserMessage,
   handleSdkPermissionRequest,
   routeAdapterBrowserMessage,
@@ -25,7 +23,7 @@ import type { PermissionRequest } from "../session-types.js";
 function makeSession(): AdapterBrowserRoutingSessionLike {
   return {
     id: "s1",
-    backendType: "claude",
+    backendType: "claude-sdk",
     state: {
       askPermission: true,
       backend_error: null,
@@ -54,7 +52,6 @@ function makeSession(): AdapterBrowserRoutingSessionLike {
     forceCompactPending: false,
     isGenerating: false,
     lastUserMessageDateTag: "",
-    lastOutboundUserNdjson: null,
     consecutiveAdapterFailures: 0,
     codexAdapter: null,
     claudeSdkAdapter: null,
@@ -63,7 +60,6 @@ function makeSession(): AdapterBrowserRoutingSessionLike {
 
 function makeDeps(): AdapterBrowserRoutingDeps {
   return {
-    sendToCLI: vi.fn(() => null),
     isCodexWorkerV2DeliveryFrozen: vi.fn(() => false),
     broadcastToBrowsers: vi.fn(),
     emitTakodeEvent: vi.fn(),
@@ -80,8 +76,6 @@ function makeDeps(): AdapterBrowserRoutingDeps {
     abortAutoApproval: vi.fn(),
     preInterrupt: vi.fn(),
     touchUserMessage: vi.fn(),
-    formatVsCodeSelectionPrompt: vi.fn(() => ""),
-    getCliSessionId: vi.fn(() => "cli-s1"),
     nextUserMessageId: vi.fn(() => "user-1"),
     markRunningFromUserDispatch: vi.fn(() => null),
     trackUserMessageForTurn: vi.fn(),
@@ -106,7 +100,6 @@ function makeDeps(): AdapterBrowserRoutingDeps {
     getLauncherSessionInfo: vi.fn(() => ({})),
     requestCodexIntentionalRelaunch: vi.fn(),
     onPermissionModeChanged: vi.fn(),
-    sendControlRequest: vi.fn(),
     requestCodexAutoRecovery: vi.fn(() => false),
     requestCodexLeaderRecycle: vi.fn(async () => ({ ok: true as const })),
     requestCliRelaunch: vi.fn(),
@@ -119,8 +112,31 @@ function makeDeps(): AdapterBrowserRoutingDeps {
     handleCodexSetReasoningEffort: vi.fn(),
     handleCodexSetServiceTier: vi.fn(),
     handleSetAskPermission: vi.fn(),
-    handleInterruptFallback: vi.fn(),
   };
+}
+
+/** Attach a recording Claude SDK adapter so routed answers and turns are observable. */
+function withClaudeAdapter(session: AdapterBrowserRoutingSessionLike) {
+  const adapter = { sendBrowserMessage: vi.fn((_msg: unknown) => true), isConnected: vi.fn(() => true) };
+  session.claudeSdkAdapter = adapter as any;
+  return adapter;
+}
+
+/** Messages routed to the Claude adapter, in order. */
+function adapterCalls(adapter: ReturnType<typeof withClaudeAdapter>): any[] {
+  return adapter.sendBrowserMessage.mock.calls.map(([msg]) => msg);
+}
+
+/** Answer a pending Claude permission request the way the browser does. */
+function respond(
+  session: AdapterBrowserRoutingSessionLike,
+  response: { type: "permission_response"; request_id: string; behavior: "allow" | "deny"; message?: string },
+  deps: AdapterBrowserRoutingDeps,
+  actorSessionId?: string,
+) {
+  const adapter = session.claudeSdkAdapter ? (session.claudeSdkAdapter as any) : withClaudeAdapter(session);
+  routeAdapterBrowserMessage(session, { ...response, ...(actorSessionId ? { actorSessionId } : {}) }, null, deps);
+  return adapter as ReturnType<typeof withClaudeAdapter>;
 }
 
 describe("permission response handling in browser routing", () => {
@@ -137,7 +153,7 @@ describe("permission response handling in browser routing", () => {
     });
     const deps = makeDeps();
 
-    handlePermissionResponse(
+    respond(
       session,
       {
         type: "permission_response",
@@ -156,7 +172,7 @@ describe("permission response handling in browser routing", () => {
 
   // ExitPlanMode denial should keep an explicit denial artifact and route the
   // fallback interrupt with the actor-derived source through the merged controller.
-  it("records a denial and routes ExitPlanMode interrupt fallback", () => {
+  it("records a denial and interrupts Claude for an ExitPlanMode denial", () => {
     const session = makeSession();
     session.pendingPermissions.set("req-2", {
       request_id: "req-2",
@@ -167,7 +183,7 @@ describe("permission response handling in browser routing", () => {
     });
     const deps = makeDeps();
 
-    handlePermissionResponse(
+    const adapter = respond(
       session,
       {
         type: "permission_response",
@@ -179,7 +195,8 @@ describe("permission response handling in browser routing", () => {
     );
 
     expect(session.messageHistory.at(-1)).toEqual(expect.objectContaining({ type: "permission_denied" }));
-    expect(deps.handleInterruptFallback).toHaveBeenCalledWith(session, "leader");
+    expect(deps.markTurnInterrupted).toHaveBeenCalledWith(session, "leader");
+    expect(adapterCalls(adapter)).toContainEqual({ type: "interrupt", interruptSource: "leader" });
     expect(deps.emitTakodeEvent).toHaveBeenCalledWith(
       "s1",
       "permission_resolved",
@@ -199,7 +216,7 @@ describe("permission response handling in browser routing", () => {
     });
     const deps = makeDeps();
 
-    handlePermissionResponse(
+    respond(
       session,
       {
         type: "permission_response",
@@ -220,7 +237,7 @@ describe("permission response handling in browser routing", () => {
 
   it("updates launcher session model when Claude model changes", () => {
     const session = makeSession();
-    session.backendSocket = {} as any;
+    const adapter = withClaudeAdapter(session);
     const launcherInfo = { model: "claude-sonnet-4-5-20250929" };
     const deps = makeDeps();
     deps.getLauncherSessionInfo = vi.fn(() => launcherInfo);
@@ -229,7 +246,7 @@ describe("permission response handling in browser routing", () => {
 
     expect(session.state.model).toBe("claude-opus-4-5-20250929");
     expect(launcherInfo.model).toBe("claude-opus-4-5-20250929");
-    expect(deps.sendToCLI).toHaveBeenCalledWith(session, expect.stringContaining('"subtype":"set_model"'));
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith({ type: "set_model", model: "claude-opus-4-5-20250929" });
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
       session,
       expect.objectContaining({
@@ -250,7 +267,6 @@ describe("permission response handling in browser routing", () => {
 
     expect(session.state.model).toBe("claude-opus-4-5-20250929");
     expect(launcherInfo.model).toBe("claude-opus-4-5-20250929");
-    expect(deps.sendToCLI).not.toHaveBeenCalled();
     expect(session.pendingMessages).toHaveLength(0);
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
       session,
@@ -277,7 +293,6 @@ describe("permission response handling in browser routing", () => {
       askPermission: false,
       uiMode: "agent",
     });
-    expect(deps.sendToCLI).not.toHaveBeenCalled();
     expect(session.pendingMessages).toHaveLength(0);
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
       session,
@@ -299,7 +314,7 @@ describe("permission response handling in browser routing", () => {
     });
     const deps = makeDeps();
 
-    handlePermissionResponse(
+    respond(
       session,
       {
         type: "permission_response",
@@ -323,6 +338,7 @@ describe("permission response handling in browser routing", () => {
       timestamp: 1,
     });
     const deps = makeDeps();
+    const adapter = withClaudeAdapter(session);
 
     await routeBrowserMessage(
       session as any,
@@ -336,7 +352,8 @@ describe("permission response handling in browser routing", () => {
 
     expect(session.pendingPermissions.size).toBe(0);
     expect(session.messageHistory.slice(-2).map((entry) => entry.type)).toEqual(["permission_denied", "user_message"]);
-    expect(deps.handleInterruptFallback).toHaveBeenCalledWith(session, "user");
+    expect(deps.markTurnInterrupted).toHaveBeenCalledWith(session, "user");
+    expect(adapterCalls(adapter)).toContainEqual({ type: "interrupt", interruptSource: "user" });
     expect(deps.broadcastToBrowsers).toHaveBeenNthCalledWith(
       1,
       session,
@@ -377,6 +394,7 @@ describe("permission response handling in browser routing", () => {
       timestamp: 1,
     });
     const deps = makeDeps();
+    const adapter = withClaudeAdapter(session);
 
     await routeBrowserMessage(
       session as any,
@@ -391,7 +409,7 @@ describe("permission response handling in browser routing", () => {
 
     expect(session.pendingPermissions.size).toBe(0);
     expect(session.messageHistory.slice(-2).map((entry) => entry.type)).toEqual(["permission_denied", "user_message"]);
-    expect(deps.handleInterruptFallback).toHaveBeenCalledWith(session, "leader");
+    expect(deps.markTurnInterrupted).toHaveBeenCalledWith(session, "leader");
     expect(deps.emitTakodeEvent).toHaveBeenCalledWith(
       "s1",
       "permission_resolved",
@@ -399,33 +417,16 @@ describe("permission response handling in browser routing", () => {
       "leader-7",
     );
 
-    const sendCalls = (deps.sendToCLI as any).mock.calls.map(([targetSession, payload]: [unknown, string]) => [
-      targetSession,
-      JSON.parse(payload),
-    ]);
-    expect(sendCalls).toHaveLength(2);
-    expect(sendCalls[0]).toEqual([
-      session,
+    // Claude gets the plan rejection, an interrupt, then the leader's message.
+    expect(adapterCalls(adapter)).toEqual([
       expect.objectContaining({
-        type: "control_response",
-        response: expect.objectContaining({
-          request_id: "req-leader-message",
-          response: expect.objectContaining({
-            behavior: "deny",
-            message: "Plan rejected — leader sent a new message",
-          }),
-        }),
+        type: "permission_response",
+        request_id: "req-leader-message",
+        behavior: "deny",
+        message: "Plan rejected — leader sent a new message",
       }),
-    ]);
-    expect(sendCalls[1]).toEqual([
-      session,
-      expect.objectContaining({
-        type: "user",
-        message: expect.objectContaining({
-          role: "user",
-          content: expect.stringContaining("Implement now"),
-        }),
-      }),
+      { type: "interrupt", interruptSource: "leader" },
+      expect.objectContaining({ type: "user_message", content: expect.stringContaining("Implement now") }),
     ]);
   });
 
@@ -440,6 +441,7 @@ describe("permission response handling in browser routing", () => {
       threadKey: "main",
     });
     const deps = makeDeps();
+    const adapter = withClaudeAdapter(session);
 
     await routeBrowserMessage(
       session as any,
@@ -455,21 +457,9 @@ describe("permission response handling in browser routing", () => {
     );
 
     expect(session.pendingPermissions.has("req-main-plan")).toBe(true);
-    expect(deps.handleInterruptFallback).not.toHaveBeenCalled();
-    const sendCalls = (deps.sendToCLI as any).mock.calls.map(([targetSession, payload]: [unknown, string]) => [
-      targetSession,
-      JSON.parse(payload),
-    ]);
-    expect(sendCalls).toHaveLength(1);
-    expect(sendCalls[0]).toEqual([
-      session,
-      expect.objectContaining({
-        type: "user",
-        message: expect.objectContaining({
-          role: "user",
-          content: expect.stringContaining("Quest thread follow-up"),
-        }),
-      }),
+    expect(deps.markTurnInterrupted).not.toHaveBeenCalled();
+    expect(adapterCalls(adapter)).toEqual([
+      expect.objectContaining({ type: "user_message", content: expect.stringContaining("Quest thread follow-up") }),
     ]);
   });
 
@@ -485,6 +475,7 @@ describe("permission response handling in browser routing", () => {
       questId: "q-968",
     });
     const deps = makeDeps();
+    const adapter = withClaudeAdapter(session);
 
     await routeBrowserMessage(
       session as any,
@@ -501,24 +492,15 @@ describe("permission response handling in browser routing", () => {
 
     expect(session.pendingPermissions.size).toBe(0);
     expect(session.messageHistory.slice(-2).map((entry) => entry.type)).toEqual(["permission_denied", "user_message"]);
-    expect(deps.handleInterruptFallback).toHaveBeenCalledWith(session, "leader");
-    const sendCalls = (deps.sendToCLI as any).mock.calls.map(([targetSession, payload]: [unknown, string]) => [
-      targetSession,
-      JSON.parse(payload),
-    ]);
-    expect(sendCalls[0]).toEqual([
-      session,
+    expect(deps.markTurnInterrupted).toHaveBeenCalledWith(session, "leader");
+    expect(adapterCalls(adapter)[0]).toEqual(
       expect.objectContaining({
-        type: "control_response",
-        response: expect.objectContaining({
-          request_id: "req-quest-plan",
-          response: expect.objectContaining({
-            behavior: "deny",
-            message: "Plan rejected — leader sent a new message",
-          }),
-        }),
+        type: "permission_response",
+        request_id: "req-quest-plan",
+        behavior: "deny",
+        message: "Plan rejected — leader sent a new message",
       }),
-    ]);
+    );
   });
 
   it("auto-answers pending AskUserQuestion from a fresh leader message instead of sending a new turn", async () => {
@@ -533,6 +515,7 @@ describe("permission response handling in browser routing", () => {
       timestamp: 1,
     });
     const deps = makeDeps();
+    const adapter = withClaudeAdapter(session);
 
     await routeBrowserMessage(
       session as any,
@@ -562,25 +545,16 @@ describe("permission response handling in browser routing", () => {
       "leader-7",
     );
 
-    const sendCalls = (deps.sendToCLI as any).mock.calls.map(([targetSession, payload]: [unknown, string]) => [
-      targetSession,
-      JSON.parse(payload),
-    ]);
-    expect(sendCalls).toHaveLength(1);
-    expect(sendCalls[0]).toEqual([
-      session,
+    // The answer goes to Claude's pending question; no new turn is started.
+    expect(adapterCalls(adapter)).toEqual([
       expect.objectContaining({
-        type: "control_response",
-        response: expect.objectContaining({
-          request_id: "req-leader-question",
-          response: expect.objectContaining({
-            behavior: "allow",
-            updatedInput: {
-              questions: [{ question: "Which rollout?", options: [{ label: "Staged" }, { label: "Immediate" }] }],
-              answers: { "0": "Use staged rollout" },
-            },
-          }),
-        }),
+        type: "permission_response",
+        request_id: "req-leader-question",
+        behavior: "allow",
+        updated_input: {
+          questions: [{ question: "Which rollout?", options: [{ label: "Staged" }, { label: "Immediate" }] }],
+          answers: { "0": "Use staged rollout" },
+        },
       }),
     ]);
   });
@@ -597,6 +571,7 @@ describe("permission response handling in browser routing", () => {
       questId: "q-1",
     });
     const deps = makeDeps();
+    const adapter = withClaudeAdapter(session);
 
     await routeBrowserMessage(
       session as any,
@@ -611,17 +586,8 @@ describe("permission response handling in browser routing", () => {
     );
 
     expect(session.pendingPermissions.has("req-thread-question")).toBe(true);
-    const sendCalls = (deps.sendToCLI as any).mock.calls.map(([targetSession, payload]: [unknown, string]) => [
-      targetSession,
-      JSON.parse(payload),
-    ]);
-    expect(sendCalls).toHaveLength(1);
-    expect(sendCalls[0]).toEqual([
-      session,
-      expect.objectContaining({
-        type: "user",
-        message: expect.objectContaining({ content: expect.stringContaining("Use the staged path") }),
-      }),
+    expect(adapterCalls(adapter)).toEqual([
+      expect.objectContaining({ type: "user_message", content: expect.stringContaining("Use the staged path") }),
     ]);
   });
 
@@ -637,6 +603,7 @@ describe("permission response handling in browser routing", () => {
       questId: "q-1",
     });
     const deps = makeDeps();
+    const adapter = withClaudeAdapter(session);
 
     await routeBrowserMessage(
       session as any,
@@ -683,6 +650,7 @@ describe("permission response handling in browser routing", () => {
       questId: "q-2",
     });
     const deps = makeDeps();
+    const adapter = withClaudeAdapter(session);
 
     await routeBrowserMessage(
       session as any,
@@ -894,56 +862,56 @@ describe("permission response handling in browser routing", () => {
     expect(deps.persistSession).toHaveBeenCalledWith(session);
   });
 
-  it("immediately denies long sleep can_use_tool requests and injects the timer reminder", () => {
+  it("immediately denies chained long sleep permission requests and injects the timer reminder", () => {
     const session = makeSession();
+    const adapter = withClaudeAdapter(session);
     const deps = makeDeps();
 
-    handleControlRequest(
+    handleSdkPermissionRequest(
       session,
       {
-        type: "control_request",
         request_id: "req-sleep",
-        request: {
-          subtype: "can_use_tool",
-          tool_name: "Bash",
-          input: { command: "echo hi && sleep 61" },
-          tool_use_id: "tool-sleep",
-        },
-      } as any,
+        tool_name: "Bash",
+        input: { command: "echo hi && sleep 61" },
+        tool_use_id: "tool-sleep",
+        timestamp: Date.now(),
+      },
       deps,
     );
 
     expect(session.pendingPermissions.size).toBe(0);
     expect(session.messageHistory.at(-1)).toEqual(expect.objectContaining({ type: "permission_denied" }));
-    expect(deps.sendToCLI).toHaveBeenCalledWith(session, expect.stringContaining('"behavior":"deny"'));
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "permission_response", request_id: "req-sleep", behavior: "deny" }),
+    );
     expect(deps.injectUserMessage).toHaveBeenCalledWith("s1", LONG_SLEEP_REMINDER_TEXT, {
       sessionId: "system:long-sleep-guard",
       sessionLabel: "System",
     });
   });
 
-  it("immediately denies backgrounded long sleep can_use_tool requests", () => {
+  it("immediately denies backgrounded long sleep permission requests", () => {
     const session = makeSession();
+    const adapter = withClaudeAdapter(session);
     const deps = makeDeps();
 
-    handleControlRequest(
+    handleSdkPermissionRequest(
       session,
       {
-        type: "control_request",
         request_id: "req-sleep-background",
-        request: {
-          subtype: "can_use_tool",
-          tool_name: "Bash",
-          input: { command: "sleep 61 & echo hi" },
-          tool_use_id: "tool-sleep-background",
-        },
-      } as any,
+        tool_name: "Bash",
+        input: { command: "sleep 61 & echo hi" },
+        tool_use_id: "tool-sleep-background",
+        timestamp: Date.now(),
+      },
       deps,
     );
 
     expect(session.pendingPermissions.size).toBe(0);
     expect(session.messageHistory.at(-1)).toEqual(expect.objectContaining({ type: "permission_denied" }));
-    expect(deps.sendToCLI).toHaveBeenCalledWith(session, expect.stringContaining('"behavior":"deny"'));
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "permission_response", request_id: "req-sleep-background", behavior: "deny" }),
+    );
     expect(deps.injectUserMessage).toHaveBeenCalledWith("s1", LONG_SLEEP_REMINDER_TEXT, {
       sessionId: "system:long-sleep-guard",
       sessionLabel: "System",

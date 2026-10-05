@@ -4,6 +4,7 @@ export { retryPendingCodexTurn } from "./codex-pending-turn-retry.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot } from "../codex-adapter.js";
 import type { TurnStartFailureInfo, TurnSteerFailureInfo } from "./adapter-interface.js";
 import type {
+  BackendType,
   BrowserIncomingMessage,
   CLIResultMessage,
   ActiveTurnRoute,
@@ -193,7 +194,7 @@ type InterruptSource = "user" | "leader" | "system";
 type CodexRecoveryAdapterLike = any;
 export interface CodexRecoveryOrchestratorSessionLike {
   id: string;
-  backendType: "codex" | "claude" | "claude-sdk";
+  backendType: BackendType;
   state: Pick<
     SessionState,
     | "backend_state"

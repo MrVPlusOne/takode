@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -593,12 +594,11 @@ describe("handleSessionSubscribe — no duplicate conversation history", () => {
   it("does not send conversation history in handleBrowserOpen even when history exists", () => {
     // CLI must connect first so the session exists when CLI messages arrive
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     // Add a message to history
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -634,11 +634,10 @@ describe("handleSessionSubscribe — no duplicate conversation history", () => {
 
   it("sends one bounded history window only after session_subscribe with lastSeq=0", async () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -699,8 +698,8 @@ describe("handleSessionSubscribe — no duplicate conversation history", () => {
 
   it("sends a windowed initial history slice when session_subscribe requests visible sections only", async () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const session = (bridge as any).sessions.get("s1");
     session.messageHistory = [
@@ -812,8 +811,8 @@ describe("handleSessionSubscribe — no duplicate conversation history", () => {
 
   it("serves an older history window on history_window_request", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const session = (bridge as any).sessions.get("s1");
     session.messageHistory = [
@@ -859,8 +858,8 @@ describe("handleSessionSubscribe — no duplicate conversation history", () => {
 
   it("includes nextEventSeq in session_init", () => {
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");

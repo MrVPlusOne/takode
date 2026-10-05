@@ -49,7 +49,7 @@ function leaderSession(): SessionState {
   return {
     session_id: SESSION_ID,
     isOrchestrator: true,
-    backend_type: "claude",
+    backend_type: "claude-sdk",
     model: "claude-opus-4-20250514",
     cwd: "/tmp/takode",
     tools: [],

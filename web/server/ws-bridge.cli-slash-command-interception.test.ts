@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -642,39 +643,6 @@ describe("CLI slash command interception", () => {
     } finally {
       eventSpy.mockRestore();
     }
-  });
-
-  it("forwards /cost to WebSocket session via sendToCLI", () => {
-    const sid = "s-slash-ws";
-    const session = bridge.getOrCreateSession(sid);
-    session.state.slash_commands = ["context", "cost", "status"];
-
-    // Connect a mock CLI socket so sendToCLI works
-    const cliSocket = makeCliSocket(sid);
-    bridge.handleCLIOpen(cliSocket, sid);
-
-    const browser = makeBrowserSocket(sid);
-    bridge.handleBrowserOpen(browser, sid);
-    browser.send.mockClear();
-    cliSocket.send.mockClear();
-
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({
-        type: "user_message",
-        content: "/cost",
-      }),
-    );
-
-    // Should have sent NDJSON to the CLI socket without timestamp tags
-    expect(cliSocket.send).toHaveBeenCalled();
-    const sentNdjson = JSON.parse(cliSocket.send.mock.calls[0][0]);
-    expect(sentNdjson.type).toBe("user");
-    expect(sentNdjson.message.content).toBe("/cost");
-
-    // Should have recorded the command in message history
-    const userMsg = session.messageHistory.find((m) => m.type === "user_message" && (m as any).content === "/cost");
-    expect(userMsg).toBeTruthy();
   });
 
   it("does NOT intercept unrecognized slash commands", () => {

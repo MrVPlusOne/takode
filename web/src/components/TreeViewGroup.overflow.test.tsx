@@ -71,7 +71,7 @@ function session(id: string, overrides: Partial<SidebarSessionItem> = {}): Sideb
     sdkState: "connected",
     createdAt: 1,
     archived: false,
-    backendType: "claude",
+    backendType: "claude-sdk",
     repoRoot: "/repo",
     permCount: 0,
     ...overrides,

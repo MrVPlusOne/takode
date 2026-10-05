@@ -11,16 +11,17 @@ import {
   buildMemoryCatalogHistoryFollowUp,
   recordMemoryCatalogSeenAfterDelivery,
 } from "../memory-catalog-injection-utils.js";
-import { markOrchestratorSessionAfterConnect, type SessionBackend } from "./sessions-helpers.js";
+import { markOrchestratorSessionAfterConnect } from "./sessions-helpers.js";
+import type { BackendType } from "../session-types.js";
 
 export function markOrchestratorSessionWithStartupContext(
   deps: {
     launcher: CliLauncher;
     wsBridge: WsBridge;
-    buildOrchestratorSystemPrompt: (backend: SessionBackend) => string;
+    buildOrchestratorSystemPrompt: (backend: BackendType) => string;
   },
   sessionId: string,
-  backend: SessionBackend,
+  backend: BackendType,
 ): void {
   markOrchestratorSessionAfterConnect(
     { launcher: deps.launcher, wsBridge: deps.wsBridge },

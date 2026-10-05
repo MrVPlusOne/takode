@@ -1,11 +1,13 @@
 import { afterEach, expect, it, vi } from "vitest";
+
 import { serverWorkAdmission } from "./server-work-admission.js";
 import { RelaunchQueue } from "./relaunch-queue.js";
 import { CliLauncher } from "./cli-launcher.js";
 import { CodexAdapter } from "./codex-adapter.js";
 import { JsonRpcTransport } from "./codex-jsonrpc-transport.js";
 import { dispatchQueuedCodexTurns } from "./bridge/codex-turn-queue.js";
-import { sendToCLI, flushQueuedCliMessages } from "./bridge/claude-cli-transport-controller.js";
+import { WsBridge } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { handleBrowserMessage } from "./bridge/browser-transport-controller.js";
 import { deliverProgrammaticUserMessage } from "./bridge/programmatic-user-message-delivery.js";
 
@@ -56,14 +58,15 @@ it("leaves accepted Codex and Claude queue entries intact", () => {
   expect(dispatchQueuedCodexTurns(codex as any, "shutdown", {} as any).status).toBe("noop");
   expect(codex.pendingCodexTurns).toEqual([turn]);
   expect(send).not.toHaveBeenCalled();
-  const raw = JSON.stringify({ type: "user", message: { content: "accepted" } });
-  const claude = { pendingMessages: [], backendSocket: { send } } as any;
-  const persist = vi.fn();
-  sendToCLI(claude, raw, undefined, { persistSession: persist } as any);
-  flushQueuedCliMessages(claude, "shutdown", {} as any);
+  // A Claude process attaching during shutdown must not drain accepted input.
+  const raw = JSON.stringify({ type: "user_message", content: "accepted" });
+  const bridge = new WsBridge();
+  const claude = bridge.getOrCreateSession("claude-shutdown");
+  claude.pendingMessages.push(raw);
+  const backend = createClaudeSdkTestBackend("claude-shutdown").attach(bridge);
   expect(claude.pendingMessages).toEqual([raw]);
-  expect(persist).toHaveBeenCalledOnce();
-  expect(send).not.toHaveBeenCalled();
+  expect(backend.outgoing).toEqual([]);
+  expect(backend.userTurns).not.toHaveBeenCalled();
 });
 
 it("refuses backend dispatch even when an earlier async handler reaches the transport later", async () => {

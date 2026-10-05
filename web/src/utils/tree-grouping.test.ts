@@ -19,7 +19,7 @@ function makeSession(overrides: Partial<SessionItem> & { id: string }): SessionI
     sdkState: "running",
     createdAt: Date.now(),
     archived: false,
-    backendType: "claude",
+    backendType: "claude-sdk",
     treeGroupId: "default",
     repoRoot: "/test",
     permCount: 0,

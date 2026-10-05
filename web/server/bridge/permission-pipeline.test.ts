@@ -42,7 +42,7 @@ const MOCK_AUTO_APPROVAL_CONFIG: AutoApprovalConfig = {
 function makeSession(overrides: Partial<PermissionPipelineSession> = {}): PermissionPipelineSession {
   return {
     id: "session-1",
-    backendType: "claude",
+    backendType: "claude-sdk",
     state: { permissionMode: "default", cwd: "/tmp/test" },
     pendingPermissions: new Map(),
     ...overrides,
@@ -84,7 +84,7 @@ describe("permission pipeline takode event emission (q-205)", () => {
         input: { command: "echo test" },
         tool_use_id: "tu-1",
       },
-      "claude-ws",
+      "claude-sdk",
       deps,
       { activityReason: "permission_request" },
     );
@@ -104,9 +104,8 @@ describe("permission pipeline takode event emission (q-205)", () => {
     // Regression test (q-205): previously, queued_for_llm_auto_approval did NOT
     // emit the takode event, leaving the herd leader blind to permissions being
     // evaluated by the LLM auto-approver.
-    // Note: LLM auto-approval requires isClaudeFamily(backend), which is true for
-    // "claude-sdk" but NOT for "claude-ws". SDK sessions also go through the
-    // settings rule tier first, so we mock that to return no match.
+    // Note: SDK sessions go through the settings rule tier first, so we mock that
+    // to return no match.
     vi.mocked(shouldAttemptAutoApproval).mockResolvedValue(MOCK_AUTO_APPROVAL_CONFIG);
 
     const session = makeSession({ backendType: "claude-sdk" });
@@ -154,7 +153,7 @@ describe("permission pipeline takode event emission (q-205)", () => {
         input: { command: "echo test" },
         tool_use_id: "tu-3",
       },
-      "claude-ws",
+      "claude-sdk",
       deps,
       { activityReason: "permission_request" },
     );
@@ -181,7 +180,7 @@ describe("permission pipeline takode event emission (q-205)", () => {
         input: { file_path: "/tmp/test/CLAUDE.md", content: "updated instructions" },
         tool_use_id: "tu-sensitive-bypass",
       },
-      "claude-ws",
+      "claude-sdk",
       deps,
       { activityReason: "permission_request" },
     );
@@ -210,7 +209,7 @@ describe("permission pipeline takode event emission (q-205)", () => {
         input: { file_path: "/tmp/test/CLAUDE.md", old_string: "old", new_string: "new" },
         tool_use_id: "tu-sensitive-accept-edits",
       },
-      "claude-ws",
+      "claude-sdk",
       deps,
       { activityReason: "permission_request" },
     );
@@ -237,7 +236,7 @@ describe("permission pipeline takode event emission (q-205)", () => {
         input: { file_path: "/tmp/test/CLAUDE.md", content: "updated instructions" },
         tool_use_id: "tu-sensitive-manual",
       },
-      "claude-ws",
+      "claude-sdk",
       deps,
       { activityReason: "permission_request" },
     );
@@ -270,7 +269,7 @@ describe("permission pipeline takode event emission (q-205)", () => {
         input: { questions: [{ question: "Which approach?", options: ["A", "B"] }] },
         tool_use_id: "tu-ask-interactive",
       },
-      "claude-ws",
+      "claude-sdk",
       deps,
       { activityReason: "permission_request" },
     );
@@ -283,7 +282,7 @@ describe("permission pipeline takode event emission (q-205)", () => {
         input: { plan: "Proceed with implementation" },
         tool_use_id: "tu-plan-interactive",
       },
-      "claude-ws",
+      "claude-sdk",
       deps,
       { activityReason: "permission_request" },
     );
@@ -371,7 +370,7 @@ describe("permission pipeline takode event emission (q-205)", () => {
         input: { file_path: "/tmp/test/file.ts", content: "mutate" },
         tool_use_id: "tu-thread-edit",
       },
-      "claude-ws",
+      "claude-sdk",
       deps,
       { activityReason: "permission_request" },
     );
@@ -403,7 +402,7 @@ describe("permission pipeline takode event emission (q-205)", () => {
         input: { command: "echo changed > src/file.ts" },
         tool_use_id: "tu-thread-bash",
       },
-      "claude-ws",
+      "claude-sdk",
       deps,
       { activityReason: "permission_request" },
     );
@@ -498,7 +497,7 @@ describe("permission pipeline takode event emission (q-205)", () => {
         input: { command: "sleep 60" },
         tool_use_id: "tu-sleep-allow",
       },
-      "claude-ws",
+      "claude-sdk",
       deps,
       { activityReason: "permission_request" },
     );
@@ -519,7 +518,7 @@ describe("permission pipeline takode event emission (q-205)", () => {
         input: { command: "sleep 60 2>&1" },
         tool_use_id: "tu-sleep-redirect",
       },
-      "claude-ws",
+      "claude-sdk",
       deps,
       { activityReason: "permission_request" },
     );

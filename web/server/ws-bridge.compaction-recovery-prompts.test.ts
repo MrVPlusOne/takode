@@ -58,6 +58,7 @@ vi.mock("./memory-catalog-injection.js", () => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -135,7 +136,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -753,41 +754,14 @@ describe("Compaction recovery prompts", () => {
     );
   });
 
-  it("does not inject recovery for Claude WebSocket leaders when compact_boundary never arrived", () => {
-    // q-317: status-only compacting transitions can be noisy or stale. The
-    // leader recovery prompt should only appear after a real Claude
-    // compact_boundary, not just after compacting -> idle.
+  it("deduplicates replayed Claude recovery but still injects again for a later real compaction", async () => {
+    // Regression: replayed compacting/null pairs can arrive after a completed
+    // compaction and must not re-inject the leader recovery prompt unless a new
+    // compact_boundary was recorded. A later real compaction must still inject
+    // a fresh recovery message.
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
-
-    bridge.setLauncher({
-      touchActivity: vi.fn(),
-      touchUserMessage: vi.fn(),
-      getSession: vi.fn(() => ({ isOrchestrator: true })),
-    } as any);
-
-    const spy = vi.spyOn(bridge, "injectUserMessage");
-
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: "compacting" }));
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: null }));
-
-    const recoveryCalls = spy.mock.calls.filter(
-      ([, , source]) =>
-        source?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
-        source?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
-    );
-    expect(recoveryCalls).toHaveLength(0);
-  });
-
-  it("deduplicates replayed websocket recovery but still injects again for a later real compaction", async () => {
-    // Regression for q-317: replayed compacting/null pairs in Claude WebSocket
-    // sessions can arrive after a completed compaction and must not re-inject
-    // the leader recovery prompt unless a new compact_boundary was recorded.
-    // A later real compaction must still inject a fresh recovery message.
-    const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     bridge.setLauncher({
       touchActivity: vi.fn(),
@@ -796,9 +770,8 @@ describe("Compaction recovery prompts", () => {
     } as any);
 
     // First real compaction with a real boundary + summary.
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: "compacting" }));
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(JSON.stringify({ type: "system", subtype: "status", status: "compacting" }));
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -807,8 +780,7 @@ describe("Compaction recovery prompts", () => {
         session_id: "cli-123",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: { role: "user", content: [{ type: "text", text: "Compaction summary" }] },
@@ -817,11 +789,11 @@ describe("Compaction recovery prompts", () => {
         session_id: "cli-123",
       }),
     );
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: null }));
+    cli.message(JSON.stringify({ type: "system", subtype: "status", status: null }));
 
     // Replayed status pair after the same compaction — must NOT inject again.
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: "compacting" }));
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: null }));
+    cli.message(JSON.stringify({ type: "system", subtype: "status", status: "compacting" }));
+    cli.message(JSON.stringify({ type: "system", subtype: "status", status: null }));
 
     await vi.waitFor(() => {
       const sessionAfterReplay = bridge.getSession("s1")!;
@@ -839,9 +811,8 @@ describe("Compaction recovery prompts", () => {
     });
 
     // Second real compaction with a NEW boundary must inject a NEW recovery.
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: "compacting" }));
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(JSON.stringify({ type: "system", subtype: "status", status: "compacting" }));
+    cli.message(
       JSON.stringify({
         type: "system",
         subtype: "compact_boundary",
@@ -850,8 +821,7 @@ describe("Compaction recovery prompts", () => {
         session_id: "cli-123",
       }),
     );
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "user",
         message: { role: "user", content: [{ type: "text", text: "Second compaction summary" }] },
@@ -860,7 +830,7 @@ describe("Compaction recovery prompts", () => {
         session_id: "cli-123",
       }),
     );
-    bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: null }));
+    cli.message(JSON.stringify({ type: "system", subtype: "status", status: null }));
 
     await vi.waitFor(() => {
       const finalSession = bridge.getSession("s1")!;

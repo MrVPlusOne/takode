@@ -3,6 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { vi } from "vitest";
 
+// Claude sessions run through the real SDK adapter against a fake Agent SDK, so the
+// test sees the environment the Claude process would actually receive.
+const sdkSessionOptions = vi.hoisted(() => [] as any[]);
+vi.mock("@anthropic-ai/claude-agent-sdk", async () =>
+  (await import("./claude-sdk-test-helpers.js")).fakeAgentSdkModule(sdkSessionOptions),
+);
+
 vi.mock("node:crypto", async (importOriginal) => {
   const actual = (await importOriginal()) as any;
   return {
@@ -106,6 +113,7 @@ let launcher: CliLauncher;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sdkSessionOptions.length = 0;
   tempDir = mkdtempSync(join(tmpdir(), "launcher-telemetry-env-test-"));
   store = new SessionStore(tempDir);
   launcher = new CliLauncher(3456, { serverId: "test-server-id" });
@@ -134,10 +142,11 @@ describe("launcher telemetry env stripping", () => {
     await withInheritedOtelEnv(async () => {
       await launcher.launch({ cwd: "/tmp/project" });
 
-      const [, options] = mockSpawn.mock.calls[0];
-      expect(options.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toBeUndefined();
-      expect(options.env.OTEL_EXPORTER_OTLP_PROTOCOL).toBeUndefined();
-      expect(options.env.OTEL_SERVICE_NAME).toBeUndefined();
+      await vi.waitFor(() => expect(sdkSessionOptions.at(-1)?.env?.COMPANION_SESSION_ID).toBe("test-session-id"));
+      const { env } = sdkSessionOptions.at(-1);
+      expect(env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT).toBeUndefined();
+      expect(env.OTEL_EXPORTER_OTLP_PROTOCOL).toBeUndefined();
+      expect(env.OTEL_SERVICE_NAME).toBeUndefined();
     });
   });
 

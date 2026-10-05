@@ -158,7 +158,7 @@ describe("CodexSubagentFeedControl", () => {
   });
 
   it("does not render for a non-Codex session", () => {
-    installSession({ backend_type: "claude", codex_native_subagents: snapshot() });
+    installSession({ backend_type: "claude-sdk", codex_native_subagents: snapshot() });
     render(<CodexSubagentFeedControl sessionId="session-1" />);
 
     expect(screen.queryByTestId("feed-codex-subagents")).toBeNull();

@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -585,14 +586,13 @@ describe("stuck session watchdog", () => {
     const cli = makeCliSocket(sid);
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    bridge.handleCLIOpen(cli, sid);
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const session = bridge.getSession(sid)!;
 
     // Simulate a previous turn that ended 5 minutes ago
     session.lastCliMessageAt = Date.now() - 300_000;
-    session.lastCliPingAt = Date.now() - 300_000;
 
     // Start a new generation (user sends a message)
     session.isGenerating = true;
@@ -620,8 +620,8 @@ describe("stuck session watchdog", () => {
     const cli = makeCliSocket(sid);
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    bridge.handleCLIOpen(cli, sid);
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const session = bridge.getSession(sid)!;
 
@@ -630,7 +630,6 @@ describe("stuck session watchdog", () => {
     session.isGenerating = true;
     session.generationStartedAt = threeMinAgo;
     session.lastCliMessageAt = threeMinAgo;
-    session.lastCliPingAt = threeMinAgo;
     session.stuckNotifiedAt = null;
 
     bridge.startStuckSessionWatchdog();
@@ -647,16 +646,16 @@ describe("stuck session watchdog", () => {
   });
 
   it("detects stuck session even when keep_alive pings are recent", () => {
-    // Regression test for q-237: keep_alive pings indicate the CLI process
-    // is alive (network liveness) but should NOT be treated as real activity.
-    // A session with stale lastCliMessageAt but recent lastCliPingAt is stuck.
+    // Regression test for q-237: keep_alive pings indicate the Claude process
+    // is alive but should NOT be treated as real activity. A session whose last
+    // real output is stale is stuck even while heartbeats keep arriving.
     vi.useFakeTimers();
     const sid = "s-stuck-keepalive";
     const cli = makeCliSocket(sid);
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    bridge.handleCLIOpen(cli, sid);
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const session = bridge.getSession(sid)!;
 
@@ -665,9 +664,9 @@ describe("stuck session watchdog", () => {
     session.isGenerating = true;
     session.generationStartedAt = threeMinAgo;
     session.lastCliMessageAt = threeMinAgo;
-    // But keep_alive pings are recent (CLI process is alive)
-    session.lastCliPingAt = Date.now() - 10_000;
     session.stuckNotifiedAt = null;
+    // But keep_alive heartbeats keep arriving (the process is alive)
+    cli.message(JSON.stringify({ type: "keep_alive" }));
 
     bridge.startStuckSessionWatchdog();
 
@@ -692,8 +691,8 @@ describe("stuck session watchdog", () => {
     const cli = makeCliSocket(sid);
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    bridge.handleCLIOpen(cli, sid);
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const session = bridge.getSession(sid)!;
 
@@ -702,7 +701,6 @@ describe("stuck session watchdog", () => {
     session.isGenerating = true;
     session.generationStartedAt = sixMinAgo;
     session.lastCliMessageAt = sixMinAgo;
-    session.lastCliPingAt = sixMinAgo;
     session.lastToolProgressAt = 0;
     session.stuckNotifiedAt = null;
 
@@ -728,8 +726,8 @@ describe("stuck session watchdog", () => {
     const cli = makeCliSocket(sid);
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    bridge.handleCLIOpen(cli, sid);
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const session = bridge.getSession(sid)!;
 
@@ -738,7 +736,6 @@ describe("stuck session watchdog", () => {
     session.isGenerating = true;
     session.generationStartedAt = threeMinAgo;
     session.lastCliMessageAt = threeMinAgo;
-    session.lastCliPingAt = threeMinAgo;
     session.stuckNotifiedAt = null;
 
     bridge.startStuckSessionWatchdog();
@@ -772,8 +769,8 @@ describe("stuck session watchdog", () => {
     const cli = makeCliSocket(sid);
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    bridge.handleCLIOpen(cli, sid);
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const session = bridge.getSession(sid)!;
 
@@ -782,7 +779,6 @@ describe("stuck session watchdog", () => {
     session.isGenerating = true;
     session.generationStartedAt = threeMinAgo;
     session.lastCliMessageAt = threeMinAgo;
-    session.lastCliPingAt = threeMinAgo;
     session.stuckNotifiedAt = null;
 
     // But a tool sent tool_progress 30 seconds ago
@@ -811,8 +807,8 @@ describe("stuck session watchdog", () => {
     const cli = makeCliSocket(sid);
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    bridge.handleCLIOpen(cli, sid);
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const session = bridge.getSession(sid)!;
 
@@ -821,7 +817,6 @@ describe("stuck session watchdog", () => {
     session.isGenerating = true;
     session.generationStartedAt = fiveMinAgo;
     session.lastCliMessageAt = fiveMinAgo;
-    session.lastCliPingAt = fiveMinAgo;
     session.lastToolProgressAt = 0;
     session.stuckNotifiedAt = null;
 
@@ -850,8 +845,8 @@ describe("stuck session watchdog", () => {
     const cli = makeCliSocket(sid);
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    bridge.handleCLIOpen(cli, sid);
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const session = bridge.getSession(sid)!;
 
@@ -861,7 +856,6 @@ describe("stuck session watchdog", () => {
     session.isGenerating = true;
     session.generationStartedAt = threeMinAgo;
     session.lastCliMessageAt = threeMinAgo;
-    session.lastCliPingAt = threeMinAgo;
     session.lastToolProgressAt = 0;
     session.stuckNotifiedAt = null;
 
@@ -896,8 +890,8 @@ describe("stuck session watchdog", () => {
     const cli = makeCliSocket(sid);
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    bridge.handleCLIOpen(cli, sid);
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const session = bridge.getSession(sid)!;
 
@@ -906,7 +900,6 @@ describe("stuck session watchdog", () => {
     session.isGenerating = true;
     session.generationStartedAt = sixMinAgo;
     session.lastCliMessageAt = sixMinAgo;
-    session.lastCliPingAt = sixMinAgo;
     session.lastToolProgressAt = 0;
     session.stuckNotifiedAt = null;
 
@@ -940,8 +933,8 @@ describe("stuck session watchdog", () => {
     const cli = makeCliSocket(sid);
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    bridge.handleCLIOpen(cli, sid);
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const session = bridge.getSession(sid)!;
 
@@ -950,7 +943,6 @@ describe("stuck session watchdog", () => {
     session.isGenerating = true;
     session.generationStartedAt = threeMinAgo;
     session.lastCliMessageAt = threeMinAgo;
-    session.lastCliPingAt = threeMinAgo;
     session.lastToolProgressAt = 0;
     session.stuckNotifiedAt = null;
 
@@ -976,8 +968,8 @@ describe("stuck session watchdog", () => {
     const cli = makeCliSocket(sid);
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    bridge.handleCLIOpen(cli, sid);
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     const session = bridge.getSession(sid)!;
 
@@ -986,12 +978,11 @@ describe("stuck session watchdog", () => {
     session.isGenerating = true;
     session.generationStartedAt = sixMinAgo;
     session.lastCliMessageAt = sixMinAgo;
-    session.lastCliPingAt = sixMinAgo;
     session.lastToolProgressAt = 0;
     session.stuckNotifiedAt = null;
 
-    // Simulate CLI disconnect (backendSocket cleared)
-    session.backendSocket = null;
+    // Simulate Claude exiting (adapter detached)
+    session.claudeSdkAdapter = null;
 
     bridge.startStuckSessionWatchdog();
 
@@ -1046,7 +1037,6 @@ describe("stuck session watchdog", () => {
     const threeMinAgo = Date.now() - 180_000;
     session.generationStartedAt = threeMinAgo;
     session.lastCliMessageAt = threeMinAgo;
-    session.lastCliPingAt = threeMinAgo;
     session.lastToolProgressAt = 0;
     session.toolStartTimes.clear();
     session.stuckNotifiedAt = null;
@@ -1098,7 +1088,6 @@ describe("stuck session watchdog", () => {
     const threeMinAgo = Date.now() - 180_000;
     session.generationStartedAt = threeMinAgo;
     session.lastCliMessageAt = threeMinAgo;
-    session.lastCliPingAt = threeMinAgo;
     session.lastToolProgressAt = 0;
     session.toolStartTimes.clear();
     session.stuckNotifiedAt = null;
@@ -1122,8 +1111,8 @@ describe("stuck session watchdog", () => {
     const cli = makeCliSocket(sid);
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    bridge.handleCLIOpen(cli, sid);
-    bridge.handleCLIMessage(cli, makeInitMsg());
+    cli.attach(bridge);
+    cli.message(makeInitMsg());
 
     // Set up launcher with isOrchestrator=true
     bridge.setLauncher({
@@ -1140,7 +1129,6 @@ describe("stuck session watchdog", () => {
     session.isGenerating = true;
     session.generationStartedAt = threeMinAgo;
     session.lastCliMessageAt = threeMinAgo;
-    session.lastCliPingAt = threeMinAgo;
     session.lastToolProgressAt = 0;
     session.stuckNotifiedAt = null;
 

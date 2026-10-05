@@ -124,8 +124,7 @@ function SessionChipTooltip({
   const name = sessionName || "(unnamed)";
   const num = session?.sessionNum != null ? `#${session.sessionNum}` : "#?";
   const model = session?.model?.replace(/-\d{8}$/, "") || "";
-  const backend =
-    session?.backendType === "codex" ? "Codex" : session?.backendType === "claude-sdk" ? "Claude SDK" : "Claude";
+  const backend = session?.backendType === "codex" ? "Codex" : "Claude";
   const isConnected = session?.isConnected;
   const statusColor = !isConnected
     ? "bg-cc-muted/40"

@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { GIT_STATUS_AUTO_REFRESH_STALE_MS } from "../shared/git-status-freshness.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
@@ -70,7 +71,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -582,7 +583,7 @@ describe("Diff stats computation", () => {
     bridge.markWorktree("s1", "/repo", "/tmp/wt", "main");
     const session = bridge.getSession("s1")!;
     session.state.cwd = "/tmp/wt";
-    (session as any).backendSocket = { send: vi.fn() };
+    (session as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
 
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "feat-wt-1234\n";
@@ -609,7 +610,7 @@ describe("Diff stats computation", () => {
     session.state.cwd = "/tmp/wt";
     session.state.diff_base_branch = "abcdef1234567";
     session.diffStatsDirty = true;
-    (session as any).backendSocket = { send: vi.fn() };
+    (session as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
 
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("diff --numstat abcdef1234567")) return "9\t4\tsrc/file.ts\n";
@@ -639,7 +640,7 @@ describe("Diff stats computation", () => {
     session.state.diff_base_start_sha = "base-start-sha";
     session.state.git_ahead = 2;
     session.diffStatsDirty = true;
-    (session as any).backendSocket = { send: vi.fn() };
+    (session as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
 
     bridge.recomputeDiffIfDirty(session);
 
@@ -667,7 +668,7 @@ describe("Diff stats computation", () => {
     session.state.git_head_sha = "old-head-sha";
     session.state.diff_base_start_sha = "old-anchor-sha";
     session.diffStatsDirty = true;
-    (session as any).backendSocket = { send: vi.fn() };
+    (session as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
 
     bridge.setDiffBaseBranch("s1", "jiayi");
 
@@ -692,7 +693,7 @@ describe("Diff stats computation", () => {
     // Set cwd so computeDiffStats can run
     session.state.cwd = "/tmp/wt";
     // Ensure the session has a CLI socket so recomputeDiffIfDirty doesn't skip
-    (session as any).backendSocket = { send: vi.fn() };
+    (session as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
 
     // Use setDiffBaseBranch which triggers computeDiff
     mockExecSync.mockImplementation((cmd: string) => {
@@ -760,7 +761,7 @@ describe("Diff stats computation", () => {
     session.state.diff_base_branch = "origin/feature-base";
     session.state.is_worktree = false;
     session.diffStatsDirty = true;
-    (session as any).backendSocket = { send: vi.fn() };
+    (session as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
 
     bridge.recomputeDiffIfDirty(session);
 
@@ -796,7 +797,7 @@ describe("Diff stats computation", () => {
     session.state.cwd = "/tmp/wt";
     session.state.git_ahead = 1;
     // Ensure the session has a CLI socket so refreshGitInfo/recomputeDiffIfDirty don't skip
-    (session as any).backendSocket = { send: vi.fn() };
+    (session as any).claudeSdkAdapter = { isConnected: () => true, sendBrowserMessage: vi.fn(() => true) };
     const browserWs = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browserWs, "s1");
 
@@ -858,7 +859,7 @@ describe("Diff stats computation", () => {
     expect(session.diffStatsDirty).toBe(true);
 
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
 
     await vi.waitFor(() => {
       expect(session.state.total_lines_added).toBe(6);
@@ -1828,16 +1829,15 @@ describe("Diff stats computation", () => {
     });
 
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg({ cwd: "/repo" }));
+    cli.attach(bridge);
+    cli.message(makeInitMsg({ cwd: "/repo" }));
 
     const session = bridge.getSession("s1")!;
     // Clear dirty flag from initialization
     session.diffStatsDirty = false;
 
     // Read-only tool (e.g. Read) should NOT mark dirty
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -1864,8 +1864,7 @@ describe("Diff stats computation", () => {
     expect(session.diffStatsDirty).toBe(false);
 
     // Non-read-only tool (Edit) should mark dirty and track the file
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -1893,8 +1892,7 @@ describe("Diff stats computation", () => {
 
     // Bash tool (not in READ_ONLY_TOOLS) should also mark dirty
     session.diffStatsDirty = false;
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "assistant",
         message: {
@@ -1938,8 +1936,8 @@ describe("Diff stats computation", () => {
     });
 
     const cli = makeCliSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
-    bridge.handleCLIMessage(cli, makeInitMsg({ cwd: "/tmp/wt" }));
+    cli.attach(bridge);
+    cli.message(makeInitMsg({ cwd: "/tmp/wt" }));
 
     // resolveGitInfo is async (fire-and-forget) — wait for it to complete
     await vi.waitFor(() => {

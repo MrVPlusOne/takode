@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -576,39 +577,6 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Session not found scenarios", () => {
-  it("handleCLIMessage does nothing for unknown session", () => {
-    const cli = makeCliSocket("unknown-session");
-    // Do NOT call handleCLIOpen — session does not exist in the bridge
-
-    expect(() => {
-      bridge.handleCLIMessage(
-        cli,
-        JSON.stringify({
-          type: "tool_progress",
-          tool_use_id: "tu-unknown",
-          tool_name: "Bash",
-          parent_tool_use_id: null,
-          elapsed_time_seconds: 1,
-          uuid: "uuid-unknown",
-          session_id: "unknown-session",
-        }),
-      );
-    }).not.toThrow();
-
-    // Session should not have been created
-    expect(bridge.getSession("unknown-session")).toBeUndefined();
-  });
-
-  it("handleCLIClose does nothing for unknown session", () => {
-    const cli = makeCliSocket("nonexistent");
-
-    expect(() => {
-      bridge.handleCLIClose(cli);
-    }).not.toThrow();
-
-    expect(bridge.getSession("nonexistent")).toBeUndefined();
-  });
-
   it("handleBrowserClose does nothing for unknown session", () => {
     const browser = makeBrowserSocket("nonexistent");
 

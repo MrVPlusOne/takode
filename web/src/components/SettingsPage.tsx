@@ -127,7 +127,6 @@ export function SettingsPage({
   const [claudeBin, setClaudeBin] = useState("");
   const [codexBin, setCodexBin] = useState("");
   const [codexLeaderCompactionMode, setCodexLeaderCompactionMode] = useState<CodexLeaderCompactionMode>("recycle");
-  const [defaultClaudeBackend, setDefaultClaudeBackend] = useState<"claude" | "claude-sdk">("claude");
   const [logFile, setLogFile] = useState("");
   const [binSaving, setBinSaving] = useState(false);
   const [binError, setBinError] = useState("");
@@ -286,7 +285,6 @@ export function SettingsPage({
         setCodexBin(s.codexBinary || "");
         setCodexLeaderCompactionMode(normalizeCodexLeaderCompactionMode(s.codexLeaderCompactionMode));
         setLeaderProfilePools(s.leaderProfilePools);
-        setDefaultClaudeBackend(s.defaultClaudeBackend || "claude");
         setLogFile(s.logFile || "");
         setMaxKeepAlive(s.maxKeepAlive || 0);
         setHeavyRepoModeEnabled(s.heavyRepoModeEnabled ?? false);
@@ -1134,45 +1132,6 @@ export function SettingsPage({
                   Default for new Codex leaders. Recycling keeps Takode-owned leader recovery; compacting lets Codex use
                   built-in compaction. Manual /compact always compacts; /recycle recycles a leader once. Neither command
                   changes this automatic mode.
-                </p>
-              </div>
-
-              <div hidden={settingsSearch.rowHidden("cli", "default-backend")}>
-                <label className="block text-sm font-medium mb-1.5">Default Claude Backend</label>
-                <div className="flex items-center bg-cc-hover/50 rounded-lg p-0.5 w-fit">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDefaultClaudeBackend("claude");
-                      api.updateSettings({ defaultClaudeBackend: "claude" }).catch(console.error);
-                    }}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer select-none ${
-                      defaultClaudeBackend === "claude"
-                        ? "bg-cc-primary/15 text-cc-primary"
-                        : "text-cc-muted hover:text-cc-fg"
-                    }`}
-                  >
-                    WebSocket
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDefaultClaudeBackend("claude-sdk");
-                      api.updateSettings({ defaultClaudeBackend: "claude-sdk" }).catch(console.error);
-                    }}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer select-none ${
-                      defaultClaudeBackend === "claude-sdk"
-                        ? "bg-cc-primary/15 text-cc-primary"
-                        : "text-cc-muted hover:text-cc-fg"
-                    }`}
-                  >
-                    SDK
-                  </button>
-                </div>
-                <p className="mt-1.5 text-xs text-cc-muted">
-                  Transport for new Claude Code sessions. SDK uses the Agent SDK (bills by token usage). WebSocket uses
-                  the CLI's native WebSocket protocol (included with Max subscription). Existing sessions are not
-                  affected -- right-click a session to switch individually.
                 </p>
               </div>
 

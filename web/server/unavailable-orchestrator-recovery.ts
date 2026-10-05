@@ -8,7 +8,6 @@ export interface UnavailableOrchestratorSessionLike {
   backendType: BackendTypeLike;
   isGenerating?: boolean;
   state?: { backend_state?: string };
-  backendSocket?: unknown;
   codexAdapter?: { isConnected?: () => boolean } | null;
   claudeSdkAdapter?: { isConnected?: () => boolean } | null;
 }

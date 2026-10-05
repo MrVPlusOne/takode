@@ -36,7 +36,7 @@ async function resolveUpstreamRef(state: SessionState): Promise<string | null> {
   }
 }
 
-export function makeDefaultState(sessionId: string, backendType: BackendType = "claude"): SessionState {
+export function makeDefaultState(sessionId: string, backendType: BackendType = "claude-sdk"): SessionState {
   return {
     session_id: sessionId,
     treeGroupId: "default",
@@ -301,7 +301,7 @@ interface SessionDiffStateLike {
 
 interface SessionDiffRefreshLike extends SessionDiffStateLike {
   id: string;
-  backendSocket: unknown | null;
+  claudeSdkAdapter: unknown | null;
   codexAdapter: unknown | null;
   browserSockets: { size: number };
   diffStatsDirty: boolean;
@@ -419,7 +419,7 @@ function shouldSkipNonWorktreeDefaultMainDiffStats(session: SessionDiffStateLike
 function getDiffStatsSkippedReasonForVisibility(session: SessionDiffStateLike): string | null {
   if (!session.state.is_worktree) return null;
   const refreshSession = session as Partial<SessionDiffRefreshLike>;
-  const hasBackend = !!refreshSession.backendSocket || !!refreshSession.codexAdapter;
+  const hasBackend = !!refreshSession.claudeSdkAdapter || !!refreshSession.codexAdapter;
   const hasOpenBrowser = (refreshSession.browserSockets?.size ?? 0) > 0;
   return hasBackend || hasOpenBrowser ? null : "worktree is not open";
 }
@@ -727,7 +727,7 @@ export async function computeDiffStatsAsync(
 export function recomputeDiffIfDirty(session: SessionDiffRefreshLike, deps: RecomputeDiffIfDirtyDeps): void {
   if (!session.diffStatsDirty) return;
   if (
-    !session.backendSocket &&
+    !session.claudeSdkAdapter &&
     !session.codexAdapter &&
     !(session.state.is_worktree && session.browserSockets.size > 0)
   ) {
@@ -813,7 +813,7 @@ export async function refreshGitInfo(
 ): Promise<void> {
   if (
     !options.force &&
-    !session.backendSocket &&
+    !session.claudeSdkAdapter &&
     !session.codexAdapter &&
     !(session.state.is_worktree && session.browserSockets.size > 0)
   ) {

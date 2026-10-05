@@ -138,7 +138,7 @@ export function usePlaygroundSeed() {
 
     const session: SessionState = {
       session_id: sessionId,
-      backend_type: "claude",
+      backend_type: "claude-sdk",
       model: "claude-sonnet-4-5",
       cwd: "/Users/stan/Dev/project",
       tools: ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebSearch"],

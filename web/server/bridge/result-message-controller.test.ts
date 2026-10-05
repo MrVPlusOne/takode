@@ -24,7 +24,7 @@ function makeState(): ResultMessageSessionLike["state"] {
 function makeSession(): ResultMessageSessionLike {
   return {
     id: "s1",
-    backendType: "claude",
+    backendType: "claude-sdk",
     cliResuming: false,
     messageHistory: [],
     notifications: [],
@@ -38,7 +38,6 @@ function makeSession(): ResultMessageSessionLike {
     queuedTurnInterruptSources: [],
     userMessageIdsThisTurn: [],
     isGenerating: false,
-    lastOutboundUserNdjson: null,
     pendingPermissions: new Map<string, PermissionRequest>(),
     toolStartTimes: new Map(),
   };

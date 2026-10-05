@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
@@ -69,7 +70,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -1030,8 +1031,8 @@ describe("Codex user_message takode events", () => {
     dispatcher.setupForOrchestrator(leaderId);
 
     const leaderCli = makeCliSocket(leaderId);
-    bridge.handleCLIOpen(leaderCli, leaderId);
-    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-correction" }));
+    leaderCli.attach(bridge);
+    leaderCli.message(makeInitMsg({ session_id: "cli-orch-correction" }));
 
     const workerBrowser = makeBrowserSocket(workerId);
     const workerAdapter = makeCodexAdapterMock();
@@ -1094,8 +1095,7 @@ describe("Codex user_message takode events", () => {
     await Promise.resolve();
 
     // Leader processes injected herd event message and returns idle.
-    bridge.handleCLIMessage(
-      leaderCli,
+    leaderCli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -1199,8 +1199,8 @@ describe("Codex user_message takode events", () => {
     dispatcher.setupForOrchestrator(leaderId);
 
     const leaderCli = makeCliSocket(leaderId);
-    bridge.handleCLIOpen(leaderCli, leaderId);
-    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-correction-reconnect" }));
+    leaderCli.attach(bridge);
+    leaderCli.message(makeInitMsg({ session_id: "cli-orch-correction-reconnect" }));
 
     const workerBrowser = makeBrowserSocket(workerId);
     const workerAdapter1 = makeCodexAdapterMock();
@@ -1237,8 +1237,7 @@ describe("Codex user_message takode events", () => {
     vi.advanceTimersByTime(600);
     await Promise.resolve();
 
-    bridge.handleCLIMessage(
-      leaderCli,
+    leaderCli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -1370,8 +1369,8 @@ describe("Codex user_message takode events", () => {
     dispatcher.setupForOrchestrator(leaderId);
 
     const leaderCli = makeCliSocket(leaderId);
-    bridge.handleCLIOpen(leaderCli, leaderId);
-    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-user-only-retry" }));
+    leaderCli.attach(bridge);
+    leaderCli.message(makeInitMsg({ session_id: "cli-orch-user-only-retry" }));
 
     const workerBrowser = makeBrowserSocket(workerId);
     const workerAdapter1 = makeCodexAdapterMock();
@@ -1570,8 +1569,8 @@ describe("Codex user_message takode events", () => {
     dispatcher.setupForOrchestrator(leaderId);
 
     const leaderCli = makeCliSocket(leaderId);
-    bridge.handleCLIOpen(leaderCli, leaderId);
-    bridge.handleCLIMessage(leaderCli, makeInitMsg({ session_id: "cli-orch-correction-no-interrupt" }));
+    leaderCli.attach(bridge);
+    leaderCli.message(makeInitMsg({ session_id: "cli-orch-correction-no-interrupt" }));
 
     const workerBrowser = makeBrowserSocket(workerId);
     const workerAdapter = makeCodexAdapterMock();
@@ -1629,8 +1628,7 @@ describe("Codex user_message takode events", () => {
     vi.advanceTimersByTime(600);
     await Promise.resolve();
 
-    bridge.handleCLIMessage(
-      leaderCli,
+    leaderCli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",

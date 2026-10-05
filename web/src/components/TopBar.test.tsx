@@ -380,21 +380,18 @@ describe("TopBar session menu", () => {
     expect(api.renameSession).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["archived", "exited", "paused", "claude", "claude-sdk"])("preserves %s action availability", (state) => {
+  it.each(["archived", "exited", "paused"])("preserves %s action availability", (state) => {
     // These are the existing sidebar gates, rendered from the same menu component.
     const session = storeState.sdkSessions[1]!;
     if (state === "archived") session.archived = true;
     if (state === "exited") session.state = "exited";
     if (state === "paused") session.pause = { pausedAt: 1, queuedMessages: [] };
-    if (state === "claude" || state === "claude-sdk") session.backendType = state;
     render(<TopBar />);
     openMenu();
     expect(!!screen.queryByRole("button", { name: "Relaunch" })).toBe(state !== "archived" && state !== "exited");
     expect(!!screen.queryByRole("button", { name: "Configure Session" })).toBe(state !== "archived");
     if (state === "archived") expect(screen.getByRole("button", { name: "Unarchive" })).toBeInTheDocument();
     if (state === "paused") expect(screen.getByRole("button", { name: "Unpause Session" })).toBeInTheDocument();
-    if (state === "claude") expect(screen.getByRole("button", { name: "Switch to SDK" })).toBeInTheDocument();
-    if (state === "claude-sdk") expect(screen.getByRole("button", { name: "Switch to WebSocket" })).toBeInTheDocument();
   });
 
   it.each(["worktree", "container", "leader"])("keeps the %s archive safeguard visible without a sidebar", (kind) => {

@@ -118,7 +118,7 @@ describe("MessageBubble Side Chat actions", () => {
     const msg = makeMessage({ id: "assistant-anchor", role: "assistant", content: "Root answer" });
     useStore.getState().addSession(
       makeSession(sessionId, {
-        backend_type: "claude",
+        backend_type: "claude-sdk",
         model: "claude-sonnet",
         slackThreads: {
           "st-test": makeSideChat({

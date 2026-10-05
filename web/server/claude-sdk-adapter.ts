@@ -5,21 +5,21 @@ import { serverWorkAdmission } from "./server-work-admission.js";
  * Bridges between the Agent SDK's stdio transport (via @anthropic-ai/claude-agent-sdk)
  * and The Companion's BrowserIncomingMessage/BrowserOutgoingMessage types.
  *
- * This adapter eliminates the WebSocket transport layer, which reduces a major class
- * of transport disconnect issues (e.g. periodic WS churn) and simplifies liveness
- * semantics to process lifecycle. The bridge still handles disconnect/relaunch and
+ * This is the only supported Claude transport (see docs/claude-backend.md). Liveness
+ * follows the process lifecycle; the bridge handles disconnect/relaunch and
  * generation-state edge cases above the adapter layer. Follows the same pattern as
  * CodexAdapter for consistency.
  */
 
 import { randomUUID } from "node:crypto";
-import { withNonInteractiveGitEditorEnv } from "./cli-launcher-env.js";
+import { stripInheritedTelemetryEnv, withNonInteractiveGitEditorEnv } from "./cli-launcher-env.js";
 import { getEnrichedPath } from "./path-resolver.js";
 import {
   formatVsCodeSelectionPrompt,
   type BrowserIncomingMessage,
   type BrowserOutgoingMessage,
   type PermissionRequest,
+  type PermissionUpdate,
   type VsCodeSelectionMetadata,
 } from "./session-types.js";
 import type { RecorderManager } from "./recorder.js";
@@ -45,14 +45,24 @@ export interface ClaudeSdkAdapterOptions {
   reasoningEffort?: string;
   betas?: string[];
   cliSessionId?: string;
+  /** When resuming, keep only conversation history through this assistant message UUID (Revert). */
+  resumeSessionAt?: string;
   env?: Record<string, string | undefined>;
   claudeBinary?: string;
   debugFile?: string;
   recorder?: RecorderManager | null;
   /** Plugin directories to pass to Claude Code */
   pluginDirs?: string[];
+  /** Tools Claude may use without asking (`--allowedTools`). */
+  allowedTools?: string[];
   /** Companion instructions injected via appendSystemPrompt in the control init. */
   instructions?: string;
+  /**
+   * Called once when the Claude process fails to start or ends unexpectedly.
+   * Not called for an intentional `disconnect()`. Lets the launcher keep its
+   * lifecycle state truthful; the bridge's own failure callbacks are separate.
+   */
+  onBackendExit?: (error: string) => void;
 }
 
 export interface ClaudeSdkSessionMeta {
@@ -62,10 +72,21 @@ export interface ClaudeSdkSessionMeta {
   permissionMode?: string;
 }
 
+type PermissionDecision =
+  | { behavior: "allow"; updatedInput?: Record<string, unknown>; updatedPermissions?: PermissionUpdate[] }
+  | { behavior: "deny"; message: string };
+
+/** Options the Agent SDK passes to `canUseTool` (note the SDK's `toolUseID`/`agentID` casing). */
+type CanUseToolOptions = {
+  signal: AbortSignal;
+  suggestions?: any[];
+  description?: string;
+  toolUseID?: string;
+  agentID?: string;
+};
+
 interface PendingPermission {
-  resolve: (
-    result: { behavior: "allow"; updatedInput?: Record<string, unknown> } | { behavior: "deny"; message: string },
-  ) => void;
+  resolve: (result: PermissionDecision) => void;
   reject: (err: Error) => void;
   requestId: string;
   toolName: string;
@@ -83,6 +104,9 @@ export class ClaudeSdkAdapter
   private sessionId: string;
   private options: ClaudeSdkAdapterOptions;
   private sdkSession: any = null; // SDKSession from the Agent SDK
+  /** Settles true once the Claude process has spawned, false if startup failed. */
+  readonly started: Promise<boolean>;
+  private settleStarted: (started: boolean) => void = () => {};
   private connected = false;
   private browserMessageCb: ((msg: BrowserIncomingMessage) => void) | null = null;
   private sessionMetaCb: ((meta: ClaudeSdkSessionMeta) => void) | null = null;
@@ -97,10 +121,16 @@ export class ClaudeSdkAdapter
   constructor(sessionId: string, options: ClaudeSdkAdapterOptions) {
     this.sessionId = sessionId;
     this.options = options;
+    this.started = new Promise((resolve) => {
+      this.settleStarted = resolve;
+    });
     // Start initialization asynchronously
     this.initialize().catch((err) => {
       console.error(`[claude-sdk-adapter] Init failed for session ${sessionId}:`, err);
-      this.initErrorCb?.(err instanceof Error ? err.message : String(err));
+      const error = err instanceof Error ? err.message : String(err);
+      this.settleStarted(false);
+      this.options.onBackendExit?.(error);
+      this.initErrorCb?.(error);
     });
   }
 
@@ -161,9 +191,12 @@ export class ClaudeSdkAdapter
   // ─── Initialization ─────────────────────────────────────────────────────────
 
   private async initialize(): Promise<void> {
-    // Dynamic import to avoid loading the SDK at startup for WebSocket-only servers
+    // Dynamic import keeps SDK loading off the server startup path.
     const sdk = await import("@anthropic-ai/claude-agent-sdk");
-    if (serverWorkAdmission.isStopping()) return;
+    if (serverWorkAdmission.isStopping()) {
+      this.settleStarted(false);
+      return;
+    }
 
     // Merge process.env (inherits ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN from
     // claude.sh) with session-specific vars (COMPANION_SESSION_ID, etc.)
@@ -171,8 +204,10 @@ export class ClaudeSdkAdapter
     // (e.g., quest CLI in ~/.companion/bin). Without this, SDK sessions can't
     // find binaries that aren't on the default system PATH.
     const mergedEnv: Record<string, string | undefined> = withNonInteractiveGitEditorEnv({
-      ...process.env,
+      ...stripInheritedTelemetryEnv(process.env),
       ...(this.options.env || {}),
+      // A Takode server started from inside Claude Code must not trip the CLI's nesting guard.
+      CLAUDECODE: undefined,
       PATH: getEnrichedPath({ serverId: this.options.env?.COMPANION_SERVER_ID }),
     });
 
@@ -191,6 +226,7 @@ export class ClaudeSdkAdapter
       // the correct --setting-sources and --plugin-dir flags.
       settingSources: ["user", "project", "local"],
       ...(plugins.length > 0 ? { plugins } : {}),
+      ...(this.options.allowedTools?.length ? { allowedTools: this.options.allowedTools } : {}),
     };
 
     // Pass model explicitly if provided — otherwise the CLI reads it from
@@ -287,6 +323,9 @@ export class ClaudeSdkAdapter
       const patchedPlugins = plugins;
       const patchedReasoningEffort = this.options.reasoningEffort;
       const patchedBetas = this.options.betas;
+      // The v2 session API always clears resumeSessionAt, but the transport still
+      // maps it to --resume-session-at, which Revert needs to truncate context.
+      const patchedResumeSessionAt = this.options.cliSessionId ? this.options.resumeSessionAt : undefined;
       v4Class.prototype.initialize = function patchedV4Initialize(this: any) {
         this.options.settingSources = patchedSettingSources;
         if (patchedPlugins.length > 0) {
@@ -297,6 +336,9 @@ export class ClaudeSdkAdapter
         }
         if (patchedBetas?.length) {
           this.options.betas = patchedBetas;
+        }
+        if (patchedResumeSessionAt) {
+          this.options.resumeSessionAt = patchedResumeSessionAt;
         }
         return originalV4Initialize.call(this);
       };
@@ -377,6 +419,7 @@ export class ClaudeSdkAdapter
     }
 
     this.connected = true;
+    this.watchProcessStart();
     console.log(
       `[claude-sdk-adapter] Session ${this.sessionId} initialized${this.options.cliSessionId ? " (resumed)" : ""}`,
     );
@@ -390,7 +433,7 @@ export class ClaudeSdkAdapter
     this.streamMessages().catch((err) => {
       const errMsg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
       console.error(`[claude-sdk-adapter] Stream error for session ${this.sessionId}: ${errMsg}`);
-      this.handleDisconnect();
+      this.handleDisconnect(err instanceof Error ? err.message : String(err));
     });
   }
 
@@ -414,7 +457,7 @@ export class ClaudeSdkAdapter
         if (this.connected) {
           const errMsg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
           console.error(`[claude-sdk-adapter] Stream error for session ${this.sessionId}: ${errMsg}`);
-          this.handleDisconnect();
+          this.handleDisconnect(err instanceof Error ? err.message : String(err));
           return;
         }
       }
@@ -512,13 +555,21 @@ export class ClaudeSdkAdapter
   // ─── Permission bridging ────────────────────────────────────────────────────
 
   /** Called by the Agent SDK when a tool needs permission */
-  private async handleCanUseTool(
+  private handleCanUseTool(
     toolName: string,
     input: Record<string, unknown>,
-    options: { signal: AbortSignal; suggestions?: any[]; filePath?: string; toolUseId?: string },
-  ): Promise<{ behavior: "allow"; updatedInput?: Record<string, unknown> } | { behavior: "deny"; message: string }> {
-    const requestId = randomUUID();
-    const toolUseId = options.toolUseId || randomUUID();
+    options: CanUseToolOptions,
+  ): Promise<PermissionDecision> {
+    return this.requestPermission(randomUUID(), toolName, input, options);
+  }
+
+  private async requestPermission(
+    requestId: string,
+    toolName: string,
+    input: Record<string, unknown>,
+    options: CanUseToolOptions,
+  ): Promise<PermissionDecision> {
+    const toolUseId = options.toolUseID || randomUUID();
 
     // Create a permission request and emit it to the browser
     const permRequest: PermissionRequest = {
@@ -527,6 +578,8 @@ export class ClaudeSdkAdapter
       input,
       tool_use_id: toolUseId,
       timestamp: Date.now(),
+      ...(options.description ? { description: options.description } : {}),
+      ...(options.agentID ? { agent_id: options.agentID } : {}),
       ...(options.suggestions ? { permission_suggestions: options.suggestions } : {}),
     };
 
@@ -555,7 +608,11 @@ export class ClaudeSdkAdapter
       options.signal.addEventListener(
         "abort",
         () => {
-          this.pendingPermissions.delete(requestId);
+          // Claude withdrew the request (e.g. the turn was interrupted); let the
+          // bridge retire its pending banner like any other cancelled request.
+          if (this.pendingPermissions.delete(requestId)) {
+            this.emitBrowserMessage({ type: "control_cancel_request", request_id: requestId } as any);
+          }
           resolve({ behavior: "deny", message: "Permission request aborted" });
         },
         { once: true },
@@ -631,12 +688,15 @@ export class ClaudeSdkAdapter
           this.pendingPermissions.delete(requestId);
           if (behavior === "allow") {
             const updatedInput = (msg as any).updated_input;
+            const updatedPermissions = (msg as any).updated_permissions as PermissionUpdate[] | undefined;
             // Always provide updatedInput — the CLI's Zod schema requires a Record,
             // not undefined. Use browser-provided input if non-empty, otherwise fall
             // back to the original tool input from the permission request.
             pending.resolve({
               behavior: "allow",
               updatedInput: updatedInput && Object.keys(updatedInput).length > 0 ? updatedInput : pending.originalInput,
+              // Chosen "Always allow" suggestions persist as Claude permission rules.
+              ...(updatedPermissions?.length ? { updatedPermissions } : {}),
             });
           } else {
             pending.resolve({
@@ -652,8 +712,7 @@ export class ClaudeSdkAdapter
         // The v2 SDKSession type doesn't expose interrupt() directly, but the
         // underlying SQ class holds a v1 Query at this.query which has it.
         // Calling query.interrupt() sends a control_request {subtype:"interrupt"}
-        // to the CLI process — the same mechanism the Stop button uses for
-        // WebSocket sessions.
+        // to the CLI process.
         const query = (this.sdkSession as any)?.query;
         if (query?.interrupt) {
           query.interrupt().catch((err: Error) => {
@@ -713,6 +772,17 @@ export class ClaudeSdkAdapter
         return true;
       }
 
+      case "mcp_toggle":
+      case "mcp_reconnect":
+      case "mcp_set_servers":
+        // Consume rather than return false: an unhandled message would be
+        // re-queued and replayed on every reconnect.
+        this.emitBrowserMessage({
+          type: "error",
+          message: "Managing MCP servers from Takode is not supported for Claude sessions.",
+        });
+        return true;
+
       default:
         console.log(`[claude-sdk-adapter] Unhandled outgoing message type: ${msgType}`);
         return false;
@@ -729,14 +799,34 @@ export class ClaudeSdkAdapter
     this.browserMessageCb?.(msg);
   }
 
-  private handleDisconnect(): void {
+  /**
+   * Settle `started` from the spawned Claude process. The SDK reports a missing
+   * or unlaunchable executable only through the process `error` event, after
+   * session creation has already returned.
+   */
+  private watchProcessStart(): void {
+    const proc = this.sdkSession?.query?.transport?.process;
+    if (typeof proc?.once !== "function") {
+      // SDK internals changed: startup cannot be observed, so keep treating the
+      // created session as started. Later failures still arrive as disconnects.
+      console.warn(`[claude-sdk-adapter] Cannot observe Claude process startup for session ${this.sessionId}`);
+      this.settleStarted(true);
+      return;
+    }
+    proc.once("spawn", () => this.settleStarted(true));
+    proc.once("error", () => this.settleStarted(false));
+  }
+
+  private handleDisconnect(error = "Claude process ended"): void {
     if (!this.connected) return;
     this.connected = false;
+    this.settleStarted(false);
     // Reject pending permissions
     for (const [, pending] of this.pendingPermissions) {
       pending.reject(new Error("Session disconnected"));
     }
     this.pendingPermissions.clear();
+    this.options.onBackendExit?.(error);
     this.disconnectCb?.();
   }
 

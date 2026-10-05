@@ -17,6 +17,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -69,7 +70,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -583,7 +584,7 @@ describe("CLI message routing", () => {
   beforeEach(async () => {
     cli = makeCliSocket("s1");
     browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
     await subscribeCurrentBrowser(bridge, browser);
   });
@@ -628,7 +629,7 @@ describe("CLI message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     const state = bridge.getSession("s1")!.state;
     await vi.waitFor(() => {
@@ -667,7 +668,7 @@ describe("CLI message routing", () => {
       uuid: "uuid-turn-1",
       session_id: "s1",
     });
-    bridge.handleCLIMessage(cli, assistantMsg);
+    cli.message(assistantMsg);
 
     const session = bridge.getSession("s1")!;
     session.isGenerating = true;
@@ -687,7 +688,7 @@ describe("CLI message routing", () => {
       uuid: "uuid-turn-result",
       session_id: "s1",
     });
-    bridge.handleCLIMessage(cli, resultMsg);
+    cli.message(resultMsg);
 
     const latestAssistant = session.messageHistory.findLast((m: any) => m.type === "assistant") as any;
     expect(typeof latestAssistant.turn_duration_ms).toBe("number");
@@ -725,8 +726,7 @@ describe("CLI message routing", () => {
     session.stuckNotifiedAt = Date.now() - 30_000;
     browser.send.mockClear();
 
-    bridge.handleCLIMessage(
-      cli,
+    cli.message(
       JSON.stringify({
         type: "result",
         subtype: "success",
@@ -750,137 +750,6 @@ describe("CLI message routing", () => {
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls).toContainEqual(expect.objectContaining({ type: "status_change", status: "idle" }));
-  });
-
-  it("result replay: retains only buffered Claude follow-ups when stale inline bookkeeping also exists", () => {
-    // q-296 follow-up: the corrected nuance is not "drop all queued lifecycle
-    // on Claude result". During reconnect/replay, a duplicate terminal result
-    // can arrive after one follow-up was already delivered inline and another
-    // later follow-up is still buffered in pendingMessages. Only the buffered
-    // follow-up is legitimate and must survive replay cleanup.
-    const session = bridge.getSession("s1")!;
-    session.messageHistory.push({
-      type: "result",
-      data: {
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        result: "Done!",
-        duration_ms: 2500,
-        duration_api_ms: 2000,
-        num_turns: 1,
-        total_cost_usd: 0.01,
-        stop_reason: "end_turn",
-        usage: { input_tokens: 50, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-        uuid: "uuid-replayed-result-with-buffered-followup",
-        session_id: "s1",
-      },
-    } as any);
-    session.isGenerating = true;
-    session.generationStartedAt = Date.now() - 180_000;
-    session.stuckNotifiedAt = Date.now() - 30_000;
-    session.pendingMessages.push(
-      JSON.stringify({
-        type: "user",
-        message: { role: "user", content: "[User 10:00 PM] buffered follow-up" },
-        parent_tool_use_id: null,
-        session_id: "s1",
-      }),
-    );
-    session.queuedTurnStarts = 2;
-    session.queuedTurnReasons = ["user_message", "user_message"];
-    session.queuedTurnUserMessageIds = [[5], [7]];
-    session.queuedTurnInterruptSources = [null, null];
-    browser.send.mockClear();
-
-    bridge.handleCLIMessage(
-      cli,
-      JSON.stringify({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        result: "Done!",
-        duration_ms: 2500,
-        duration_api_ms: 2000,
-        num_turns: 1,
-        total_cost_usd: 0.01,
-        stop_reason: "end_turn",
-        usage: { input_tokens: 50, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-        uuid: "uuid-replayed-result-with-buffered-followup",
-        session_id: "s1",
-      }),
-    );
-
-    expect(session.isGenerating).toBe(false);
-    expect(session.generationStartedAt).toBeNull();
-    expect(session.stuckNotifiedAt).toBeNull();
-    expect(session.pendingMessages).toHaveLength(1);
-    expect(session.queuedTurnStarts).toBe(1);
-    expect(session.queuedTurnReasons).toEqual(["user_message"]);
-    expect(session.queuedTurnUserMessageIds).toEqual([[7]]);
-    expect(session.queuedTurnInterruptSources).toEqual([null]);
-
-    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(expect.objectContaining({ type: "status_change", status: "idle" }));
-  });
-
-  it("result: drains inline Claude WebSocket follow-ups instead of promoting a phantom queued turn", () => {
-    // q-296: for live Claude WebSocket sessions, a follow-up user message is
-    // sent to the connected CLI immediately even while the current turn is
-    // still running. The queued-turn lifecycle entry is only bookkeeping for
-    // interruption attribution. If result handling promotes that entry as a
-    // future turn, the session stays stuck in running until the watchdog fires.
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({
-        type: "user_message",
-        content: "first turn",
-      }),
-    );
-    bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({
-        type: "user_message",
-        content: "follow-up already delivered inline",
-      }),
-    );
-
-    const session = bridge.getSession("s1")!;
-    expect(session.isGenerating).toBe(true);
-    expect(session.queuedTurnStarts).toBe(1);
-    expect(session.pendingMessages).toEqual([]);
-
-    browser.send.mockClear();
-
-    bridge.handleCLIMessage(
-      cli,
-      JSON.stringify({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        result: "done",
-        duration_ms: 2500,
-        duration_api_ms: 2000,
-        num_turns: 1,
-        total_cost_usd: 0.01,
-        stop_reason: "end_turn",
-        usage: { input_tokens: 50, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-        uuid: "uuid-inline-follow-up-result",
-        session_id: "s1",
-      }),
-    );
-
-    expect(session.isGenerating).toBe(false);
-    expect(session.queuedTurnStarts).toBe(0);
-    expect(session.queuedTurnReasons).toEqual([]);
-    expect(session.queuedTurnUserMessageIds).toEqual([]);
-    expect(session.queuedTurnInterruptSources).toEqual([]);
-
-    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const runningStatuses = calls.filter((msg: any) => msg.type === "status_change" && msg.status === "running");
-    const idleStatuses = calls.filter((msg: any) => msg.type === "status_change" && msg.status === "idle");
-    expect(runningStatuses).toHaveLength(0);
-    expect(idleStatuses).toHaveLength(1);
   });
 
   it("user replay: does not append duplicate tool_result_preview after a completed turn", async () => {
@@ -925,13 +794,18 @@ describe("CLI message routing", () => {
     });
     session.toolStartTimes.set("tool-preview-1", Date.now() - 1000);
 
+    // Resuming a previous Claude session (known session ID + existing history).
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ cliSessionId: "cli-prev" })),
+    } as any);
     bridge.handleBrowserOpen(browserReplay, sid);
-    bridge.handleCLIOpen(cliReplay, sid);
+    cliReplay.attach(bridge);
     expect(session.cliResuming).toBe(true);
     browserReplay.send.mockClear();
 
-    bridge.handleCLIMessage(
-      cliReplay,
+    cliReplay.message(
       JSON.stringify({
         type: "user",
         message: {
@@ -993,11 +867,16 @@ describe("CLI message routing", () => {
       timestamp: Date.now(),
     });
 
-    bridge.handleCLIOpen(cliReplay, sid);
+    // Resuming a previous Claude session (known session ID + existing history).
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ cliSessionId: "cli-prev" })),
+    } as any);
+    cliReplay.attach(bridge);
     expect(session.cliResuming).toBe(true);
 
-    bridge.handleCLIMessage(
-      cliReplay,
+    cliReplay.message(
       JSON.stringify({
         type: "user",
         message: {

@@ -60,7 +60,6 @@ export function prepareCodexLeaderRecycleSession(
   session.pendingPermissions.clear();
   session.pendingQuestCommands.clear();
   session.codexFreshTurnRequiredUntilTurnId = null;
-  session.lastOutboundUserNdjson = null;
   session.state.is_compacting = false;
   session.codexLeaderRecycleContinuation = continuation;
   const recovery = session.state.codex_turn_recovery ?? null;

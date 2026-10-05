@@ -13,9 +13,6 @@ interfaces rather than full bridge state.
 - [browser-transport-controller.ts](./browser-transport-controller.ts)
   - Browser WebSocket transport layer, history sync hashing, session tagging.
 
-- [claude-cli-transport-controller.ts](./claude-cli-transport-controller.ts)
-  - Claude CLI WebSocket transport layer.
-
 - [adapter-browser-routing-controller.ts](./adapter-browser-routing-controller.ts)
   - Routes incoming browser messages (with auto-approval evaluation and
     attachment path handling) to the active backend adapter.

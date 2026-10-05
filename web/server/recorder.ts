@@ -307,7 +307,7 @@ export class RecorderManager {
     sessionId: string,
     event: string,
     data?: Record<string, unknown>,
-    backendType: BackendType = "claude",
+    backendType: BackendType = "claude-sdk",
     cwd: string = "",
   ): void {
     if (!this.isRecording(sessionId)) return;

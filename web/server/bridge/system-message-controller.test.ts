@@ -1,16 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  createClaudeMessageHandlers,
-  handleSystemMessage,
-  type SystemMessageSessionLike,
-} from "./claude-message-controller.js";
-import type {
-  BrowserIncomingMessage,
-  CLISystemStatusMessage,
-  CLISystemTaskNotificationMessage,
-  PermissionRequest,
-  SessionState,
-} from "../session-types.js";
+import { createClaudeMessageHandlers } from "./claude-message-controller.js";
+import type { BrowserIncomingMessage, PermissionRequest, SessionState } from "../session-types.js";
 
 function makeState(): SessionState {
   return {
@@ -39,41 +29,12 @@ function makeState(): SessionState {
   };
 }
 
-function makeSession(): SystemMessageSessionLike {
-  return {
-    id: "s1",
-    backendType: "claude",
-    cliInitReceived: false,
-    cliResuming: false,
-    cliResumingClearTimer: null,
-    forceCompactPending: false,
-    compactedDuringTurn: false,
-    awaitingCompactSummary: false,
-    claudeCompactBoundarySeen: false,
-    seamlessReconnect: false,
-    disconnectWasGenerating: false,
-    isGenerating: false,
-    generationStartedAt: undefined,
-    lastOutboundUserNdjson: null,
-    messageHistory: [],
-    pendingMessages: [],
-    state: makeState(),
-  };
-}
-
 function makeDeps() {
   return {
-    onCLISessionId: vi.fn(),
-    cacheSlashCommands: vi.fn(),
-    backfillSlashCommands: vi.fn(),
     refreshGitInfoThenRecomputeDiff: vi.fn(),
     getLauncherSessionInfo: vi.fn(() => ({ isOrchestrator: false })),
     broadcastToBrowsers: vi.fn(),
     persistSession: vi.fn(),
-    hasPendingForceCompact: vi.fn(() => false),
-    flushQueuedCliMessages: vi.fn(),
-    onOrchestratorTurnEnd: vi.fn(),
-    isCliUserMessagePayload: vi.fn(() => false),
     markTurnInterrupted: vi.fn(),
     setGenerating: vi.fn(),
     onSessionActivityStateChanged: vi.fn(),
@@ -82,26 +43,24 @@ function makeDeps() {
     hasCompactBoundaryReplay: vi.fn(() => false),
     freezeHistoryThroughCurrentTail: vi.fn(),
     hasTaskNotificationReplay: vi.fn(() => false),
-    stuckGenerationThresholdMs: 120_000,
+    abortAutoApproval: vi.fn(),
+    clearActionAttentionIfNoPermissions: vi.fn(),
   };
 }
 
 function makeSdkSession() {
   return {
     id: "s1",
-    backendType: "claude" as const,
+    backendType: "claude-sdk" as const,
     cliInitReceived: true,
     cliResuming: false,
     cliResumingClearTimer: null,
     forceCompactPending: false,
     compactedDuringTurn: false,
     awaitingCompactSummary: false,
-    claudeCompactBoundarySeen: false,
-    seamlessReconnect: false,
-    disconnectWasGenerating: false,
     isGenerating: false,
     generationStartedAt: undefined as number | null | undefined,
-    lastOutboundUserNdjson: null as string | null,
+    lastToolProgressAt: 0,
     messageHistory: [] as BrowserIncomingMessage[],
     pendingMessages: [] as string[],
     assistantAccumulator: new Map<string, { contentBlockIds: Set<string> }>(),
@@ -127,7 +86,6 @@ function makeSdkDeps() {
     onToolUseObserved: vi.fn(),
     hasResultReplay: vi.fn(() => false),
     reconcileReplayState: vi.fn(() => ({ clearedResidualState: false })),
-    drainInlineQueuedClaudeTurns: vi.fn(() => false),
     getCurrentTurnTriggerSource: vi.fn(() => "user" as const),
     reconcileTerminalResultState: vi.fn(),
     finalizeOrphanedTerminalToolsOnResult: vi.fn(),
@@ -168,7 +126,7 @@ describe("system-message-controller", () => {
     const allDeps = makeSdkDeps();
     const handlers = createClaudeMessageHandlers(allDeps);
 
-    handlers.handleAssistantMessage(session as any, {
+    handlers.handleSdkBrowserMessage(session as any, {
       type: "assistant",
       parent_tool_use_id: null,
       uuid: "commentary-uuid",
@@ -199,7 +157,7 @@ describe("system-message-controller", () => {
       },
     ];
     session.userMessageIdsThisTurn = [0];
-    handlers.handleAssistantMessage(session as any, {
+    handlers.handleSdkBrowserMessage(session as any, {
       type: "assistant",
       parent_tool_use_id: null,
       uuid: "final-uuid",
@@ -233,21 +191,14 @@ describe("system-message-controller", () => {
     expect(allDeps.refreshSessionConversation).toHaveBeenCalledWith(session.id);
   });
 
-  // Verifies the live system.status path updates both permissionMode and the derived
+  // Verifies the live status path updates both permissionMode and the derived
   // uiMode, while still emitting the current backend status to subscribed browsers.
-  it("broadcasts uiMode and status changes for live system.status updates", () => {
-    const session = makeSession();
-    const deps = makeDeps();
-    const msg: CLISystemStatusMessage = {
-      type: "system",
-      subtype: "status",
-      status: "compacting",
-      permissionMode: "plan",
-      uuid: "status-1",
-      session_id: "s1",
-    };
+  it("broadcasts uiMode and status changes for live status updates", () => {
+    const session = makeSdkSession();
+    const deps = makeSdkDeps();
+    const handlers = createClaudeMessageHandlers(deps);
 
-    handleSystemMessage(session, msg, deps);
+    handlers.handleSdkBrowserMessage(session, { type: "status_change", status: "compacting", permissionMode: "plan" });
 
     expect(session.state.permissionMode).toBe("plan");
     expect(session.state.uiMode).toBe("plan");
@@ -266,8 +217,7 @@ describe("system-message-controller", () => {
   });
 
   // Exercises the SDK path (handleSdkCompactBoundary) where compact_boundary
-  // enriches an existing compact_marker. The enrichment early-return must still
-  // set claudeCompactBoundarySeen so the post-compaction recovery injection fires.
+  // enriches an existing compact_marker; the post-compaction recovery must still fire.
   it("injects compaction recovery after SDK compact_boundary enrichment", () => {
     const session = makeSdkSession();
     const allDeps = makeSdkDeps();
@@ -279,7 +229,6 @@ describe("system-message-controller", () => {
       status: "compacting",
     });
     expect(session.state.is_compacting).toBe(true);
-    expect(session.claudeCompactBoundarySeen).toBe(false);
     const marker = session.messageHistory.find((m) => m.type === "compact_marker");
     const markerId = marker && "id" in marker ? marker.id : undefined;
     expect(marker).toBeDefined();
@@ -292,7 +241,6 @@ describe("system-message-controller", () => {
       session_id: "s1",
       compact_metadata: { trigger: "auto", pre_tokens: 180_000 },
     });
-    expect(session.claudeCompactBoundarySeen).toBe(true);
     expect(session.state.lifecycle_events).toEqual([
       expect.objectContaining({
         type: "compaction",
@@ -321,23 +269,20 @@ describe("system-message-controller", () => {
     expect(allDeps.injectCompactionRecovery).toHaveBeenCalledWith(session);
   });
 
-  it("records classic Claude compact_boundary lifecycle events with pre-compaction tokens", () => {
-    // Classic Claude can send compact_boundary directly; that path should also
-    // persist the event model consumed by SessionInfoPopover.
-    const session = makeSession();
-    const deps = makeDeps();
+  it("records a standalone Claude compact_boundary as a lifecycle event with pre-compaction tokens", () => {
+    // Claude can report compact_boundary without a preceding compacting status;
+    // that path should also persist the event model consumed by SessionInfoPopover.
+    const session = makeSdkSession();
+    const deps = makeSdkDeps();
+    const handlers = createClaudeMessageHandlers(deps);
 
-    handleSystemMessage(
-      session,
-      {
-        type: "system",
-        subtype: "compact_boundary",
-        uuid: "cb-classic",
-        session_id: "s1",
-        compact_metadata: { trigger: "manual", pre_tokens: 123_000 },
-      },
-      deps,
-    );
+    handlers.handleSdkBrowserMessage(session, {
+      type: "system",
+      subtype: "compact_boundary",
+      uuid: "cb-standalone",
+      session_id: "s1",
+      compact_metadata: { trigger: "manual", pre_tokens: 123_000 },
+    });
 
     expect(session.state.lifecycle_events).toEqual([
       expect.objectContaining({
@@ -358,9 +303,9 @@ describe("system-message-controller", () => {
     );
   });
 
-  // Verifies that when no compact_boundary arrives between compacting start and end,
-  // the recovery injection is skipped for Claude backend sessions.
-  it("skips compaction recovery when SDK compact boundary was never seen", () => {
+  // The Agent SDK does not always surface compact_boundary through stream(), so a
+  // finished compaction must still restore Takode context without one.
+  it("injects compaction recovery even when the SDK never reports a compact boundary", () => {
     const session = makeSdkSession();
     const allDeps = makeSdkDeps();
     const handlers = createClaudeMessageHandlers(allDeps);
@@ -375,27 +320,25 @@ describe("system-message-controller", () => {
       type: "status_change",
       status: null,
     });
-    expect(allDeps.injectCompactionRecovery).not.toHaveBeenCalled();
+    expect(allDeps.injectCompactionRecovery).toHaveBeenCalledWith(session);
   });
 
   // Resume replay can resend old task notifications; this confirms the controller
   // drops those duplicates instead of re-adding completion cards to history.
   it("deduplicates replayed task notifications", () => {
-    const session = makeSession();
-    const deps = makeDeps();
+    const session = makeSdkSession();
+    const deps = makeSdkDeps();
     deps.hasTaskNotificationReplay.mockReturnValue(true);
-    const msg: CLISystemTaskNotificationMessage = {
-      type: "system",
-      subtype: "task_notification",
+    const handlers = createClaudeMessageHandlers(deps);
+
+    handlers.handleSdkBrowserMessage(session, {
+      type: "task_notification",
       task_id: "task-1",
       tool_use_id: "tool-1",
       status: "completed",
       summary: "done",
       output_file: undefined,
-      session_id: "s1",
-    };
-
-    handleSystemMessage(session, msg, deps);
+    });
 
     expect(session.messageHistory).toHaveLength(0);
     expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();

@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -782,7 +783,7 @@ describe("Codex /compact passthrough", () => {
 
   it.each([
     ["codex", false],
-    ["claude", true],
+    ["claude-sdk", false],
     ["claude-sdk", true],
   ] as const)("rejects /recycle for backend %s with leader=%s", async (backendType, isOrchestrator) => {
     // Manually typed commands enforce the same role/backend boundary as autocomplete.

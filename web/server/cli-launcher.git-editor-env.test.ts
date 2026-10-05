@@ -3,6 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { vi } from "vitest";
 
+// Claude sessions launch through the Agent SDK adapter; capture what the
+// launcher hands it instead of starting a real Claude process.
+// Claude sessions run through the real SDK adapter against a fake Agent SDK, so the
+// test sees the environment the Claude process would actually receive.
+const sdkSessionOptions = vi.hoisted(() => [] as any[]);
+vi.mock("@anthropic-ai/claude-agent-sdk", async () =>
+  (await import("./claude-sdk-test-helpers.js")).fakeAgentSdkModule(sdkSessionOptions),
+);
+
 vi.mock("node:crypto", async (importOriginal) => {
   const actual = (await importOriginal()) as any;
   return {
@@ -63,6 +72,7 @@ let launcher: CliLauncher;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sdkSessionOptions.length = 0;
   tempDir = mkdtempSync(join(tmpdir(), "launcher-git-editor-env-test-"));
   store = new SessionStore(tempDir);
   launcher = new CliLauncher(3456, { serverId: "test-server-id" });
@@ -98,17 +108,21 @@ describe("launcher Git editor env", () => {
       },
     });
 
-    const [, options] = mockSpawn.mock.calls[0];
-    expect(options.env.GIT_EDITOR).toBe("true");
-    expect(options.env.GIT_SEQUENCE_EDITOR).toBe("true");
-    expect(options.env.EDITOR).toBe("code --wait");
-    expect(options.env.VISUAL).toBe("code --wait");
+    // The first SDK call is the adapter's one-time class probe; the last starts this session.
+    await vi.waitFor(() => expect(sdkSessionOptions.at(-1)?.env?.COMPANION_SESSION_ID).toBe("test-session-id"));
+    const { env } = sdkSessionOptions.at(-1);
+    expect(env.GIT_EDITOR).toBe("true");
+    expect(env.GIT_SEQUENCE_EDITOR).toBe("true");
+    expect(env.EDITOR).toBe("code --wait");
+    expect(env.VISUAL).toBe("code --wait");
   });
 
-  it("passes noninteractive Git editors into containerized Claude sessions", async () => {
+  it("passes noninteractive Git editors into containerized Codex sessions", async () => {
     // Containerized agents receive session env through docker exec -e rather
     // than Bun.spawn env, so verify the policy crosses that boundary.
     await launcher.launch({
+      backendType: "codex",
+      codexSandbox: "workspace-write",
       cwd: "/tmp/project",
       containerId: "abc123def456",
       containerName: "companion-session-1",
@@ -119,7 +133,9 @@ describe("launcher Git editor env", () => {
       },
     });
 
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalled());
     const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    expect(cmdAndArgs.slice(0, 3)).toEqual(["docker", "exec", "-i"]);
     expect(dockerExecEnvValue(cmdAndArgs, "GIT_EDITOR")).toBe("true");
     expect(dockerExecEnvValue(cmdAndArgs, "GIT_SEQUENCE_EDITOR")).toBe("true");
     expect(dockerExecEnvValue(cmdAndArgs, "EDITOR")).toBe("code --wait");

@@ -17,6 +17,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { CURRENT_SESSION_SUBSCRIBE, subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { RelaunchQueue } from "./relaunch-queue.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
@@ -75,7 +76,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -667,8 +668,8 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(delivery).toBe("queued");
     expect(relaunchCb).toHaveBeenCalledWith(sid);
     expect(session.pendingMessages).toHaveLength(1);
-    expect(queued.session_id).toBe(sid);
-    expect(queued.message.content).toContain("[reply] Confirm scope\n\nAnswer: yes");
+    expect(queued.type).toBe("user_message");
+    expect(queued.content).toContain("[reply] Confirm scope\n\nAnswer: yes");
     expect(historyEntry).toMatchObject({
       type: "user_message",
       content: "Answer: yes",
@@ -693,7 +694,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     // It must be corrected from launcher metadata before injected dispatch
     // routing, otherwise q44 startup turns fall into raw pendingMessages.
     const session = bridge.getOrCreateSession(sid);
-    expect(session.backendType).toBe("claude");
+    expect(session.backendType).toBe("claude-sdk");
 
     const delivery = bridge.injectUserMessage(sid, "startup dispatch from takode send", {
       sessionId: "leader-session",
@@ -1572,7 +1573,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     } as any);
 
     const cliWs = makeCliSocket(sid);
-    bridge.handleCLIOpen(cliWs, sid);
+    cliWs.attach(bridge);
 
     const delivery = bridge.injectUserMessage(sid, "hello live session");
 
@@ -1597,8 +1598,8 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
     const cliWs = makeCliSocket(sid);
-    bridge.handleCLIOpen(cliWs, sid);
-    bridge.handleCLIMessage(cliWs, makeInitMsg({ session_id: "cli-s-inject-stale-board-stall" }));
+    cliWs.attach(bridge);
+    cliWs.message(makeInitMsg({ session_id: "cli-s-inject-stale-board-stall" }));
 
     bridge.upsertBoardRow(sid, {
       questId: "q-1",

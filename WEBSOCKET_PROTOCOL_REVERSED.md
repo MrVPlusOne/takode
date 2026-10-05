@@ -4,6 +4,11 @@
 >
 > This document describes the undocumented WebSocket protocol that Claude Code CLI uses for programmatic control via the `--sdk-url` flag. This is the same NDJSON protocol used over stdin/stdout, but transported over WebSocket — enabling full bidirectional control without tmux or PTY hacks.
 
+> **Historical document.** Takode no longer uses this protocol. Claude Code 2.1.289 rejects
+> non-Anthropic `--sdk-url` hosts and speaks a different remote-worker protocol, so Takode runs
+> Claude only through the Agent SDK (stdio). See [docs/claude-backend.md](docs/claude-backend.md).
+> The NDJSON message shapes below still describe what the SDK carries over stdin/stdout.
+
 ## Verification Status (March 2026)
 
 - Re-checked against current server bridge code (`web/server/ws-bridge.ts`) after the Phase 2/3 ws-bridge refactors.

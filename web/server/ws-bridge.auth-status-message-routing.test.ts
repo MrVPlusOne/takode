@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -68,7 +69,7 @@ function createMockSocket(data: SocketData) {
 }
 
 function makeCliSocket(sessionId: string) {
-  return createMockSocket({ kind: "cli", sessionId });
+  return createClaudeSdkTestBackend(sessionId);
 }
 
 function makeBrowserSocket(sessionId: string) {
@@ -582,7 +583,7 @@ describe("auth_status message routing", () => {
   beforeEach(() => {
     cli = makeCliSocket("s1");
     browser = makeBrowserSocket("s1");
-    bridge.handleCLIOpen(cli, "s1");
+    cli.attach(bridge);
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
   });
@@ -596,7 +597,7 @@ describe("auth_status message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const authMsg = calls.find((c: any) => c.type === "auth_status");
@@ -615,7 +616,7 @@ describe("auth_status message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const authMsg = calls.find((c: any) => c.type === "auth_status");
@@ -634,7 +635,7 @@ describe("auth_status message routing", () => {
       session_id: "s1",
     });
 
-    bridge.handleCLIMessage(cli, msg);
+    cli.message(msg);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const authMsg = calls.find((c: any) => c.type === "auth_status");
