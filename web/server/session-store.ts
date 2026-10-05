@@ -1,6 +1,8 @@
 import { formatAnnotatedMessage } from "../shared/conversation-annotations.js";
-import { mkdirSync } from "node:fs";
-import { readdir, readFile, writeFile, unlink, appendFile } from "node:fs/promises";
+import { createReadStream, mkdirSync } from "node:fs";
+import { createInterface } from "node:readline";
+import { replaceSessionFile, writeFrozenHistory } from "./session-persistence-io.js";
+import { readdir, readFile, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { isReplayableBufferedEvent } from "./bridge/replay-buffer-policy.js";
@@ -55,7 +57,7 @@ export interface SearchExcerpt {
 //
 //   {id}.json            Hot state — session config + current turn's messages.
 //                        Written every 150ms (debounced). Serialize cost is
-//                        O(current turn), bounded and typically <1ms.
+//                        O(active payload), which has no intrinsic byte bound.
 //
 //   {id}.history.jsonl   Frozen log — completed turns, append-only JSONL.
 //                        Appended once per turn completion. Each message is
@@ -253,12 +255,20 @@ function serializedJsonArrayBytes(itemBytes: number, itemCount: number): number 
   return itemBytes + itemCount + 1;
 }
 
+interface SessionWriteRequest {
+  run: () => Promise<void>;
+  coalescible: boolean;
+  done: Promise<boolean>;
+  resolve: (success: boolean) => void;
+  error?: unknown;
+}
+
 /**
  * Session persistence with two-tier storage:
  *
  * 1. **Hot state** (`{id}.json`) — small JSON with session state + only the
  *    current turn's messages and tool results. Written every 150ms (debounced).
- *    Serialize cost is O(current turn), bounded and typically <1ms.
+ *    Serialization scales with active payload bytes; writer admission bounds simultaneous copies.
  *
  * 2. **Frozen log** (`{id}.history.jsonl`) — append-only JSONL with all
  *    completed turns. Appended once per turn completion. Each message is
@@ -275,10 +285,13 @@ export class SessionStore {
   private inflightWrites = new Set<Promise<unknown>>();
   private persistenceFailures = new Map<string, unknown>();
   private launcherWrite: Promise<void> = Promise.resolve();
-  /** Serialize hot JSON replacements per session so durability barriers cannot be overwritten by older writes. */
-  private hotWriteChains = new Map<string, Promise<void>>();
-  /** Serialize append/rewrite operations for each frozen log. */
-  private frozenWriteChains = new Map<string, Promise<void>>();
+  private writeQueues = new Map<string, SessionWriteRequest[]>();
+  private activeWriters = new Set<string>();
+  private readyWriters = new Set<string>();
+  private requestedHistoryLengths = new Map<string, number>();
+  /** Failed snapshots stay owned until a successful save or explicit removal. */
+  private failedSaves = new Map<string, PersistedSession>();
+  private static readonly MAX_ACTIVE_WRITERS = 2;
 
   /**
    * How many messages from the start of each session's messageHistory are
@@ -542,100 +555,52 @@ export class SessionStore {
     return removedCount > 0 ? { messages: cleaned, removedCount } : { messages, removedCount: 0 };
   }
 
-  private enqueueFrozenWrite(sessionId: string, write: () => Promise<void>): Promise<void> {
-    const prior = this.frozenWriteChains.get(sessionId) ?? Promise.resolve();
-    const operation = prior
-      .catch(() => {})
-      .then(write)
-      .catch((error) => {
-        // A later append cannot repair a missing earlier frozen segment. Keep the failure for shutdown.
-        this.persistenceFailures.set(`frozen:${sessionId}`, error);
-        throw error;
-      });
-    const chain = operation.finally(() => {
-      this.inflightWrites.delete(operation);
-      if (this.frozenWriteChains.get(sessionId) === chain) this.frozenWriteChains.delete(sessionId);
+  private enqueueWrite(sessionId: string, run: () => Promise<void>, coalescible = false): SessionWriteRequest {
+    const queue = this.writeQueues.get(sessionId) ?? [];
+    const last = queue.at(-1);
+    // Never merge through an ownership barrier or change the running snapshot.
+    if (coalescible && last?.coalescible && !(queue.length === 1 && this.activeWriters.has(sessionId))) {
+      last.run = run;
+      return last;
+    }
+    let resolve!: (success: boolean) => void;
+    const done = new Promise<boolean>((settle) => {
+      resolve = settle;
     });
-    this.frozenWriteChains.set(sessionId, chain);
-    this.inflightWrites.add(operation);
-    void chain.catch(() => {});
-    return operation;
+    const request: SessionWriteRequest = { run, coalescible, done, resolve };
+    queue.push(request);
+    this.writeQueues.set(sessionId, queue);
+    this.inflightWrites.add(done);
+    if (!this.activeWriters.has(sessionId)) this.readyWriters.add(sessionId);
+    this.pumpWrites();
+    return request;
   }
 
-  /**
-   * Append newly frozen messages and tool results to the JSONL frozen log.
-   * Creates the file with a version header if it doesn't exist yet.
-   * Fire-and-forget async — tracked in inflightWrites for flushAll().
-   */
-  private appendToFrozenLog(
-    sessionId: string,
-    messages: BrowserIncomingMessage[],
-    toolResults: [string, { content: string; is_error: boolean; timestamp: number }][],
-    isNewLog: boolean,
-  ): void {
-    if (messages.length === 0 && toolResults.length === 0) return;
-
-    let data = "";
-    if (isNewLog) {
-      data += JSON.stringify({ v: 1, sessionId }) + "\n";
-    }
-
-    for (const msg of messages) {
-      data += JSON.stringify(msg) + "\n";
-    }
-
-    if (toolResults.length > 0) {
-      data += JSON.stringify({ _toolResults: toolResults }) + "\n";
-    }
-
-    void this.enqueueFrozenWrite(sessionId, () => appendFile(this.frozenLogPath(sessionId), data, "utf-8")).catch(
-      (err) => {
-        console.error(`[session-store] Failed to append frozen log for ${sessionId}:`, err);
-      },
-    );
-  }
-
-  /**
-   * Rewrite the frozen JSONL log with only the messages that survived a
-   * history truncation (e.g., session revert). Replaces the entire file.
-   * Fire-and-forget async — tracked in inflightWrites for flushAll().
-   */
-  private rewriteFrozenLog(
-    sessionId: string,
-    survivingMessages: BrowserIncomingMessage[],
-    survivingToolResults: PersistedSession["toolResults"],
-  ): void {
-    // Compute how many of the surviving messages belong to completed turns
-    const frozenCount = this.computeFreezeCutoff(survivingMessages);
-    const frozenMessages = survivingMessages.slice(0, frozenCount);
-
-    // Build the full JSONL content from scratch
-    let data = JSON.stringify({ v: 1, sessionId }) + "\n";
-    for (const msg of frozenMessages) {
-      data += JSON.stringify(msg) + "\n";
-    }
-    // Include tool results that survived the truncation
-    if (survivingToolResults?.length) {
-      data += JSON.stringify({ _toolResults: survivingToolResults }) + "\n";
-    }
-
-    // Update in-memory frozen counts to match the rewritten file
-    this.frozenCounts.set(sessionId, frozenCount);
-    this.frozenToolResultCounts.set(sessionId, survivingToolResults?.length ?? 0);
-
-    const logPath = this.frozenLogPath(sessionId);
-    if (frozenCount === 0) {
-      // No completed turns survive — delete the JSONL file entirely
-      void this.enqueueFrozenWrite(sessionId, () =>
-        unlink(logPath).catch(() => {
-          /* File may not exist */
-        }),
-      );
-    } else {
-      // Rewrite with only the surviving frozen messages
-      void this.enqueueFrozenWrite(sessionId, () => writeFile(logPath, data, "utf-8")).catch((err) => {
-        console.error(`[session-store] Failed to rewrite frozen log for ${sessionId}:`, err);
-      });
+  private pumpWrites(): void {
+    while (this.activeWriters.size < SessionStore.MAX_ACTIVE_WRITERS && this.readyWriters.size > 0) {
+      const sessionId = this.readyWriters.values().next().value!;
+      this.readyWriters.delete(sessionId);
+      const queue = this.writeQueues.get(sessionId)!;
+      const request = queue[0]!;
+      this.activeWriters.add(sessionId);
+      void (async () => {
+        try {
+          await request.run();
+          request.resolve(true);
+        } catch (error) {
+          request.error = error;
+          console.error(`[session-store] Failed to persist session ${sessionId}:`, error);
+          request.resolve(false);
+        } finally {
+          this.inflightWrites.delete(request.done);
+          queue.shift();
+          this.activeWriters.delete(sessionId);
+          if (queue.length) this.readyWriters.add(sessionId);
+          else this.writeQueues.delete(sessionId);
+          // Rotate sessions after each commit so a busy writer cannot starve others.
+          this.pumpWrites();
+        }
+      })();
     }
   }
 
@@ -651,40 +616,38 @@ export class SessionStore {
     const messages: BrowserIncomingMessage[] = [];
     const toolResults: [string, { content: string; is_error: boolean; timestamp: number }][] = [];
 
-    let raw: string;
-    try {
-      raw = await readFile(this.frozenLogPath(sessionId), "utf-8");
-    } catch {
-      return { messages, toolResults, rawBytes: 0 };
-    }
-
-    const lines = raw.split("\n");
+    let rawBytes = 0;
+    const input = createReadStream(this.frozenLogPath(sessionId));
+    input.on("data", (chunk: Buffer) => {
+      rawBytes += chunk.length;
+    });
+    const lines = createInterface({ input, crlfDelay: Infinity });
     let isFirstNonEmpty = true;
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-
-      try {
-        const parsed = JSON.parse(trimmed);
-        // Skip the version header (first non-empty line with a `v` field)
-        if (isFirstNonEmpty && parsed.v !== undefined) {
+    try {
+      for await (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (isFirstNonEmpty && parsed.v !== undefined) {
+            isFirstNonEmpty = false;
+            continue;
+          }
           isFirstNonEmpty = false;
-          continue;
+          if (parsed._toolResults) {
+            for (const result of parsed._toolResults) toolResults.push(result);
+          } else messages.push(parsed as BrowserIncomingMessage);
+        } catch {
+          console.warn(`[session-store] Skipping corrupt line in frozen log for ${sessionId}`);
         }
-        isFirstNonEmpty = false;
-
-        if (parsed._toolResults) {
-          toolResults.push(...parsed._toolResults);
-        } else {
-          messages.push(parsed as BrowserIncomingMessage);
-        }
-      } catch {
-        // Truncated line from a crash — skip
-        console.warn(`[session-store] Skipping corrupt line in frozen log for ${sessionId}`);
       }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    } finally {
+      lines.close();
+      input.destroy();
     }
-
-    return { messages, toolResults, rawBytes: Buffer.byteLength(raw) };
+    return { messages, toolResults, rawBytes };
   }
 
   // ─── Public API ─────────────────────────────────────────────────────────
@@ -769,6 +732,12 @@ export class SessionStore {
 
   /** Debounced write — batches rapid changes (e.g. multiple stream events). */
   save(session: PersistedSession): void {
+    if (this.isHistoryRevert(session)) {
+      // Do not let a subsequent append hide a shortened history inside debounce.
+      this.saveSync(session);
+      return;
+    }
+    this.requestedHistoryLengths.set(session.id, session.messageHistory.length);
     const existing = this.debounceTimers.get(session.id);
     if (existing) clearTimeout(existing);
 
@@ -781,210 +750,166 @@ export class SessionStore {
     this.debounceTimers.set(session.id, timer);
   }
 
-  /**
-   * Immediate persist — fire-and-forget async under the hood.
-   *
-   * Two-tier write: completed turns go to append-only JSONL (O(new msgs)),
-   * current turn goes to the hot JSON file (O(current turn), typically <1ms).
-   */
+  /** Queue the latest ordinary state immediately, coalescing only pending ordinary saves. */
   saveSync(session: PersistedSession): Promise<boolean> {
-    const cleanedHistory = this.trimDuplicateReplayPreviewTail(session.messageHistory);
-    if (cleanedHistory.removedCount > 0) {
-      // Only use the cleaned array for persistence — do NOT mutate the live
-      // session's messageHistory. The ws-bridge's frozenCount and the browser's
-      // frozen hash are computed against the live array; mutating it here would
-      // invalidate those hashes and cause "frozen prefix hash mismatch" on the
-      // next browser reconnect.
-      console.warn(
-        `[session-store] Trimmed ${cleanedHistory.removedCount} duplicate replay-generated tool_result_preview messages ` +
-          `from hot tail while saving session ${session.id.slice(0, 8)}`,
-      );
-    }
-
-    const messages = cleanedHistory.messages;
-    const allToolResults = session.toolResults ?? [];
-
-    // How many messages are in completed turns?
-    const cutoff = this.computeFreezeCutoff(messages);
-    let prevFrozenMsgs = this.frozenCounts.get(session.id) ?? session._frozenCount ?? 0;
-    let prevFrozenToolResults = this.frozenToolResultCounts.get(session.id) ?? session._frozenToolResultCount ?? 0;
-
-    // Revert detection: if messageHistory was truncated below the frozen count
-    // (e.g., session revert), rewrite the JSONL frozen log with only the
-    // surviving messages so the revert persists across server restarts.
-    // This breaks the append-only invariant but only during an explicit
-    // user-initiated revert (which is inherently destructive anyway).
-    if (prevFrozenMsgs > messages.length) {
-      console.log(
-        `[session-store] Session ${session.id.slice(0, 8)} reverted: messageHistory (${messages.length}) < frozenCount (${prevFrozenMsgs}). ` +
-          `Rewriting frozen log to match truncated history.`,
-      );
-      this.rewriteFrozenLog(session.id, messages, allToolResults);
-      prevFrozenMsgs = messages.length;
-      prevFrozenToolResults = Math.min(prevFrozenToolResults, allToolResults.length);
-    }
-    if (prevFrozenToolResults > allToolResults.length) {
-      prevFrozenToolResults = allToolResults.length;
-    }
-
-    // If new messages to freeze (a turn just completed), append them to JSONL
-    if (cutoff > prevFrozenMsgs) {
-      const newFrozenMsgs = messages.slice(prevFrozenMsgs, cutoff);
-
-      // Tool results are stored as an ordered array (Map insertion order =
-      // chronological). When a turn completes, snapshot the current count:
-      // all tool results accumulated so far belong to completed turns.
-      // Results from the next in-progress turn haven't been added yet
-      // because they arrive via result messages (which trigger the freeze).
-      const toolResultsToFreeze = allToolResults.length;
-      const newToolResults = allToolResults.slice(prevFrozenToolResults, toolResultsToFreeze);
-
-      const isNewLog = prevFrozenMsgs === 0;
-      this.appendToFrozenLog(session.id, newFrozenMsgs, newToolResults, isNewLog);
-      this.frozenCounts.set(session.id, cutoff);
-      this.frozenToolResultCounts.set(session.id, toolResultsToFreeze);
-
-      // Hot JSON: only the current turn (no tool results yet — they arrive
-      // with the result message, which triggers the next freeze)
-      return this.writeHotJson(session, messages.slice(cutoff), [], cutoff, toolResultsToFreeze);
-    } else {
-      // No new freeze — write the hot JSON with the current tail
-      return this.writeHotJson(
-        session,
-        messages.slice(prevFrozenMsgs),
-        allToolResults.slice(prevFrozenToolResults),
-        prevFrozenMsgs,
-        prevFrozenToolResults,
-      );
-    }
+    this.cancelDebouncedSave(session.id);
+    return this.queueSnapshot(session, true).done;
   }
 
-  /**
-   * Rewrite an existing frozen prefix after a metadata-only authority repair.
-   * The exact-count guard prevents stale callers from replacing a concurrently
-   * advanced append-only log. Message order and length must remain unchanged.
-   */
+  /** Persist this revision before its caller may transfer or remove pending ownership. */
+  async saveImmediate(session: PersistedSession): Promise<void> {
+    this.cancelDebouncedSave(session.id);
+    const request = this.queueSnapshot(session, false);
+    if (!(await request.done)) throw request.error;
+  }
+
+  /** Queue an ordered metadata repair; reject if its frozen prefix has since advanced. */
   async rewriteFrozenHistoryMetadata(session: PersistedSession, expectedFrozenCount: number): Promise<void> {
-    const knownFrozenCount = this.frozenCounts.get(session.id) ?? session._frozenCount ?? 0;
+    const request = this.enqueueWrite(session.id, () => this.writeSnapshot(session, expectedFrozenCount));
+    if (!(await request.done)) throw request.error;
+  }
+
+  private cancelDebouncedSave(sessionId: string): void {
+    const timer = this.debounceTimers.get(sessionId);
+    if (timer) clearTimeout(timer);
+    this.debounceTimers.delete(sessionId);
+    this.pendingSaves.delete(sessionId);
+  }
+
+  private isHistoryRevert(session: PersistedSession): boolean {
+    return (
+      session.messageHistory.length <
+      (this.requestedHistoryLengths.get(session.id) ?? this.frozenCounts.get(session.id) ?? session._frozenCount ?? 0)
+    );
+  }
+
+  private queueSnapshot(session: PersistedSession, coalescible: boolean): SessionWriteRequest {
+    const reverted = this.isHistoryRevert(session);
+    this.requestedHistoryLengths.set(session.id, session.messageHistory.length);
+    // A revert is an ordered operation, including when new input immediately
+    // grows the same live array back past the old frozen count.
+    const snapshot = reverted
+      ? { ...session, messageHistory: session.messageHistory.slice(), toolResults: session.toolResults?.slice() }
+      : session;
+    return this.enqueueWrite(session.id, () => this.writeSnapshot(snapshot), coalescible && !reverted);
+  }
+
+  private async writeSnapshot(session: PersistedSession, repairCount?: number): Promise<void> {
+    const cleaned = this.trimDuplicateReplayPreviewTail(session.messageHistory);
+    const messages = cleaned.messages.slice();
+    const toolResults = (session.toolResults ?? []).slice();
+    const previous = this.frozenCounts.get(session.id) ?? session._frozenCount ?? 0;
+    const previousTools = this.frozenToolResultCounts.get(session.id) ?? session._frozenToolResultCount ?? 0;
     if (
-      !Number.isSafeInteger(expectedFrozenCount) ||
-      expectedFrozenCount < 0 ||
-      expectedFrozenCount !== knownFrozenCount ||
-      expectedFrozenCount > session.messageHistory.length
+      repairCount !== undefined &&
+      (!Number.isSafeInteger(repairCount) ||
+        repairCount < 0 ||
+        repairCount !== previous ||
+        repairCount > messages.length)
     ) {
       throw new Error(
-        `Frozen history metadata repair guard failed for ${session.id}: expected=${expectedFrozenCount}, ` +
-          `known=${knownFrozenCount}, history=${session.messageHistory.length}`,
+        `Frozen history metadata repair guard failed for ${session.id}: expected=${repairCount}, known=${previous}, history=${messages.length}`,
       );
     }
-
-    const allToolResults = session.toolResults ?? [];
-    const frozenToolResultCount = Math.min(
-      this.frozenToolResultCounts.get(session.id) ?? session._frozenToolResultCount ?? 0,
-      allToolResults.length,
-    );
-    const logPath = this.frozenLogPath(session.id);
-    let frozenRewrite: Promise<void>;
-    if (expectedFrozenCount === 0) {
-      frozenRewrite = this.enqueueFrozenWrite(session.id, () =>
-        unlink(logPath).catch(() => {
-          /* File may not exist */
-        }),
+    const rewrite =
+      repairCount !== undefined || previous > messages.length || this.persistenceFailures.has(`frozen:${session.id}`);
+    const cutoff = repairCount ?? this.computeFreezeCutoff(messages);
+    const frozenCount = rewrite ? cutoff : Math.max(previous, cutoff);
+    let frozenTools = Math.min(previousTools, toolResults.length);
+    if (repairCount === undefined && (rewrite || cutoff > previous)) {
+      frozenTools = frozenCount > 0 ? toolResults.length : 0;
+    }
+    let failureKey = `hot:${session.id}`;
+    try {
+      // Capture active state before the first await. Pending updates get their own
+      // later admitted snapshot; completed records retain their existing finality contract.
+      const data = this.encodeHotJson(
+        session,
+        messages.slice(frozenCount),
+        toolResults.slice(frozenTools),
+        frozenCount,
+        frozenTools,
       );
-    } else {
-      let data = JSON.stringify({ v: 1, sessionId: session.id }) + "\n";
-      for (const message of session.messageHistory.slice(0, expectedFrozenCount)) {
-        data += JSON.stringify(message) + "\n";
+      if (rewrite && repairCount === undefined) {
+        // Revert/retry may replace a prefix. First commit a self-contained hot
+        // snapshot so a crash cannot pair an old hot tail with a shorter log.
+        await replaceSessionFile(this.filePath(session.id), [this.encodeHotJson(session, messages, toolResults, 0, 0)]);
+        this.frozenCounts.set(session.id, 0);
+        this.frozenToolResultCounts.set(session.id, 0);
       }
-      if (frozenToolResultCount > 0) {
-        data += JSON.stringify({ _toolResults: allToolResults.slice(0, frozenToolResultCount) }) + "\n";
+      if (rewrite || cutoff > previous) {
+        failureKey = `frozen:${session.id}`;
+        await writeFrozenHistory(
+          this.frozenLogPath(session.id),
+          session.id,
+          messages.slice(rewrite ? 0 : previous, frozenCount),
+          toolResults.slice(rewrite ? 0 : previousTools, frozenTools),
+          !rewrite && previous > 0,
+        );
+        // These counts describe successfully synced history, even if the following
+        // hot replacement fails. A retry must not append that prefix twice.
+        this.frozenCounts.set(session.id, frozenCount);
+        this.frozenToolResultCounts.set(session.id, frozenTools);
+        this.persistenceFailures.delete(failureKey);
       }
-      frozenRewrite = this.enqueueFrozenWrite(session.id, () => writeFile(logPath, data, "utf-8"));
-    }
-
-    // Reserve the matching hot-state write before yielding. A concurrent newer
-    // save will queue behind this repair and therefore remains the final hot
-    // state instead of being overwritten when the frozen rewrite completes.
-    const hotRewrite = this.writeHotJson(
-      session,
-      session.messageHistory.slice(expectedFrozenCount),
-      allToolResults.slice(frozenToolResultCount),
-      expectedFrozenCount,
-      frozenToolResultCount,
-      frozenRewrite,
-    );
-    await frozenRewrite;
-    if (!(await hotRewrite)) throw new Error(`Failed to persist session ${session.id}`);
-    await (this.frozenWriteChains.get(session.id) ?? Promise.resolve());
-  }
-
-  /** Capture and await one ordered hot-state replacement for ownership-transfer durability barriers. */
-  async saveImmediate(session: PersistedSession): Promise<void> {
-    const timer = this.debounceTimers.get(session.id);
-    if (timer) clearTimeout(timer);
-    this.debounceTimers.delete(session.id);
-    this.pendingSaves.delete(session.id);
-    if (!(await this.saveSync(session))) {
-      throw new Error(`Failed to persist session ${session.id}`);
+      failureKey = `hot:${session.id}`;
+      await replaceSessionFile(this.filePath(session.id), [data]);
+      this.persistenceFailures.delete(failureKey);
+      this.failedSaves.delete(session.id);
+    } catch (error) {
+      this.persistenceFailures.set(failureKey, error);
+      this.failedSaves.set(session.id, session);
+      throw error;
     }
   }
 
-  /** Write the hot JSON file with the given tail of messages and tool results. */
-  private writeHotJson(
+  private encodeHotJson(
     session: PersistedSession,
     hotMessages: BrowserIncomingMessage[],
     hotToolResults: PersistedSession["toolResults"],
     frozenMsgCount: number,
     frozenToolResultCount: number,
-    beforeWrite?: Promise<unknown>,
-  ): Promise<boolean> {
-    const hotSession: PersistedSession = {
+  ): string {
+    const start = performance.now();
+    const data = JSON.stringify({
       ...session,
       messageHistory: hotMessages,
       toolResults: hotToolResults,
       _frozenCount: frozenMsgCount,
       _frozenToolResultCount: frozenToolResultCount,
-    };
-
-    const serStart = performance.now();
-    const data = JSON.stringify(hotSession);
-    const serMs = performance.now() - serStart;
-    if (serMs > 50) {
+    });
+    const elapsed = performance.now() - start;
+    if (elapsed > 50)
       console.warn(
-        `[session-store] Slow JSON.stringify: ${serMs.toFixed(1)}ms, session=${session.id.slice(0, 8)}, hotMsgs=${hotMessages.length}, len=${data.length}`,
+        `[session-store] Slow JSON.stringify: ${elapsed.toFixed(1)}ms, session=${session.id.slice(0, 8)}, hotMsgs=${hotMessages.length}, len=${data.length}`,
       );
-    }
+    return data;
+  }
 
-    const prior = this.hotWriteChains.get(session.id) ?? Promise.resolve();
-    const p = prior
-      .catch(() => {})
-      .then(async () => {
-        try {
-          await beforeWrite;
-          await writeFile(this.filePath(session.id), data, "utf-8");
-          this.persistenceFailures.delete(`hot:${session.id}`);
-          return true;
-        } catch (err) {
-          this.persistenceFailures.set(`hot:${session.id}`, err);
-          console.error(`[session-store] Failed to save session ${session.id}:`, err);
-          return false;
-        }
-      });
-    const chain = p
-      .then(() => undefined)
-      .finally(() => {
-        this.inflightWrites.delete(p);
-        if (this.hotWriteChains.get(session.id) === chain) this.hotWriteChains.delete(session.id);
-      });
-    this.inflightWrites.add(p);
-    this.hotWriteChains.set(session.id, chain);
-    this.inflightWrites.add(chain);
-    void chain.finally(() => this.inflightWrites.delete(chain));
-    return p;
+  private writeHotJson(
+    session: PersistedSession,
+    messages: BrowserIncomingMessage[],
+    toolResults: PersistedSession["toolResults"],
+    frozenCount: number,
+    frozenTools: number,
+  ): Promise<boolean> {
+    return this.enqueueWrite(session.id, async () => {
+      try {
+        await replaceSessionFile(this.filePath(session.id), [
+          this.encodeHotJson(session, messages, toolResults, frozenCount, frozenTools),
+        ]);
+        this.persistenceFailures.delete(`hot:${session.id}`);
+      } catch (error) {
+        this.persistenceFailures.set(`hot:${session.id}`, error);
+        this.failedSaves.set(session.id, session);
+        throw error;
+      }
+    }).done;
   }
 
   /** Load a single session from disk, combining frozen log + hot state. */
   async load(sessionId: string, restoreMetrics?: SessionRestoreMetrics): Promise<PersistedSession | null> {
+    while (this.writeQueues.get(sessionId)?.length) await this.writeQueues.get(sessionId)!.at(-1)!.done;
     let hot: PersistedSession;
     let raw: string;
     try {
@@ -994,9 +919,20 @@ export class SessionStore {
       return null;
     }
 
+    const rawBytes = Buffer.byteLength(raw);
+    raw = "";
+    return this.restoreSession(hot, rawBytes, restoreMetrics);
+  }
+
+  private async restoreSession(
+    hot: PersistedSession,
+    rawBytes: number,
+    restoreMetrics?: SessionRestoreMetrics,
+  ): Promise<PersistedSession> {
+    const sessionId = hot.id;
     if (restoreMetrics) {
       restoreMetrics.activeSessions++;
-      restoreMetrics.activeHotJsonBytes += Buffer.byteLength(raw);
+      restoreMetrics.activeHotJsonBytes += rawBytes;
     }
 
     const sanitizedBuffer = this.sanitizePersistedEventBuffer(
@@ -1145,16 +1081,18 @@ export class SessionStore {
             continue;
           }
           const hot = JSON.parse(raw) as PersistedSession;
+          const rawBytes = Buffer.byteLength(raw);
+          raw = "";
           metrics.totalSessions++;
 
           const launcherState = launcherRestoreState.get(hot.id);
           if (hot.archived || launcherState?.archived) {
             metrics.searchOnlySessions++;
-            metrics.searchOnlyHotJsonBytes += Buffer.byteLength(raw);
+            metrics.searchOnlyHotJsonBytes += rawBytes;
             // Search-data-only: skip JSONL frozen log entirely
             sessions.push(this.buildSearchDataOnlySession(hot, launcherState));
           } else {
-            const session = await this.load(sessionId, metrics);
+            const session = await this.restoreSession(hot, rawBytes, metrics);
             if (session) sessions.push(session);
           }
         } catch {
@@ -1204,32 +1142,22 @@ export class SessionStore {
 
   /** Remove a session's files from disk (hot JSON + frozen log). */
   remove(sessionId: string): void {
-    const timer = this.debounceTimers.get(sessionId);
-    if (timer) {
-      clearTimeout(timer);
-      this.debounceTimers.delete(sessionId);
-    }
-    this.pendingSaves.delete(sessionId);
-    this.frozenCounts.delete(sessionId);
-    this.frozenToolResultCounts.delete(sessionId);
-
-    const p1 = unlink(this.filePath(sessionId))
-      .catch(() => {
-        /* File may not exist */
-      })
-      .finally(() => {
-        this.inflightWrites.delete(p1);
-      });
-    this.inflightWrites.add(p1);
-
-    const p2 = unlink(this.frozenLogPath(sessionId))
-      .catch(() => {
-        /* File may not exist */
-      })
-      .finally(() => {
-        this.inflightWrites.delete(p2);
-      });
-    this.inflightWrites.add(p2);
+    this.cancelDebouncedSave(sessionId);
+    this.enqueueWrite(sessionId, async () => {
+      for (const path of [this.filePath(sessionId), this.frozenLogPath(sessionId)]) {
+        try {
+          await unlink(path);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      }
+      this.frozenCounts.delete(sessionId);
+      this.frozenToolResultCounts.delete(sessionId);
+      this.requestedHistoryLengths.delete(sessionId);
+      this.failedSaves.delete(sessionId);
+      this.persistenceFailures.delete(`hot:${sessionId}`);
+      this.persistenceFailures.delete(`frozen:${sessionId}`);
+    });
   }
 
   /** Persist launcher state (separate file). */
