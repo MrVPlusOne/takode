@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "./server-work-admission.js";
 import { recordCodexClose, recordCodexProcessTermination } from "./codex-close-diagnostics.js";
 import { buildCodexRecoveryInstructions } from "./codex-recovery-instructions.js";
 /**
@@ -720,6 +721,7 @@ export class CodexAdapter
   }
 
   sendBrowserMessage(msg: BrowserOutgoingMessage): boolean {
+    if (serverWorkAdmission.isStopping()) return false;
     // If initialization failed, reject all new messages
     if (this.initFailed) {
       return false;
@@ -794,7 +796,9 @@ export class CodexAdapter
   }
 
   private enqueueOutgoingDispatch(label: string, run: () => Promise<void>): void {
-    this.outgoingDispatch.enqueue(label, run);
+    this.outgoingDispatch.enqueue(label, async () => {
+      if (!serverWorkAdmission.isStopping()) await serverWorkAdmission.track(run());
+    });
   }
 
   onBrowserMessage(cb: (msg: BrowserIncomingMessage) => void): void {

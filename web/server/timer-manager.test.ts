@@ -550,3 +550,37 @@ describe("TimerManager", () => {
     });
   });
 });
+
+describe("shutdown persistence", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("leaves a due timer scheduled when shutdown prevents dispatch", async () => {
+    // A stopped server must neither deliver nor consume the next durable firing.
+    const { serverWorkAdmission } = await import("./server-work-admission.js");
+    const bridge = createMockBridge();
+    const manager = new TimerManager(bridge);
+    await manager.createTimer("shutdown-timer", { title: "pending", in: "1s" });
+    vi.spyOn(serverWorkAdmission, "isStopping").mockReturnValue(true);
+    manager.stopDispatch();
+    const result = await manager.sweepDueTimersNow(Date.now() + 2_000);
+    expect(result.fired).toEqual([]);
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+    expect(manager.listTimers("shutdown-timer")).toHaveLength(1);
+    await manager.flush();
+    manager.destroy();
+  });
+
+  it("blocks shutdown completion after an accepted timer write fails", async () => {
+    const store = await import("./timer-store.js");
+    const manager = new TimerManager(createMockBridge());
+    vi.mocked(store.saveTimers).mockRejectedValueOnce(new Error("disk failure"));
+    await expect(manager.createTimer("shutdown-failure", { title: "pending", in: "1s" })).rejects.toThrow(
+      "disk failure",
+    );
+    await expect(manager.flush()).rejects.toThrow("Unsaved timer state");
+    expect(manager.listTimers("shutdown-failure")).toHaveLength(1);
+    manager.destroy();
+  });
+});

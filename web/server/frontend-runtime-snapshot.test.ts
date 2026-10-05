@@ -1,3 +1,5 @@
+import { ServerShutdown } from "./server-shutdown.js";
+import { ServerWorkAdmission } from "./server-work-admission.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { access, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
@@ -5,7 +7,6 @@ import { tmpdir } from "node:os";
 import {
   createValidatedFrontendRuntimeSnapshot,
   resolveFrontendRuntimeParent,
-  stopFrontendServerBeforeSnapshotCleanup,
   type FrontendRuntimeSnapshotCopier,
   type FrontendRuntimeSnapshotValidator,
 } from "./frontend-runtime-snapshot.js";
@@ -208,7 +209,27 @@ describe("createValidatedFrontendRuntimeSnapshot", () => {
   });
 });
 
-describe("stopFrontendServerBeforeSnapshotCleanup", () => {
+describe("frontend snapshot shutdown", () => {
+  function stopBeforeCleanup(
+    server: { stop(force?: boolean): Promise<void> },
+    cleanup: () => Promise<void>,
+    onFailure: ReturnType<typeof vi.fn>,
+  ) {
+    return new ServerShutdown({
+      admission: new ServerWorkAdmission(),
+      stopWork: () => {},
+      settleWork: async () => {},
+      cancelFrontendPreparation: async () => {},
+      stopListener: () => server.stop(true),
+      persist: async () => {},
+      cleanupFrontend: cleanup,
+      flushLogs: async () => {},
+      exit: () => {},
+      log: (message, details) => {
+        if (message === "Shutdown stage failed") onFailure(details.stage, details.error);
+      },
+    }).request(0);
+  }
   it("stops active serving before deleting the owned frontend", async () => {
     // The outage contract requires the API listener to close before its static tree disappears.
     const order: string[] = [];
@@ -223,7 +244,7 @@ describe("stopFrontendServerBeforeSnapshotCleanup", () => {
     });
     const onFailure = vi.fn();
 
-    await stopFrontendServerBeforeSnapshotCleanup({ server, cleanup, onFailure });
+    await stopBeforeCleanup(server, cleanup, onFailure);
 
     expect(order).toEqual(["stop", "cleanup"]);
     expect(server.stop).toHaveBeenCalledOnce();
@@ -237,13 +258,9 @@ describe("stopFrontendServerBeforeSnapshotCleanup", () => {
     const cleanup = vi.fn(async () => undefined);
     const onFailure = vi.fn();
 
-    await stopFrontendServerBeforeSnapshotCleanup({
-      server: { stop: vi.fn(async () => Promise.reject(stopFailure)) },
-      cleanup,
-      onFailure,
-    });
+    await stopBeforeCleanup({ stop: vi.fn(async () => Promise.reject(stopFailure)) }, cleanup, onFailure);
 
     expect(cleanup).not.toHaveBeenCalled();
-    expect(onFailure).toHaveBeenCalledWith("stop", stopFailure);
+    expect(onFailure).toHaveBeenCalledWith("listener", String(stopFailure));
   });
 });

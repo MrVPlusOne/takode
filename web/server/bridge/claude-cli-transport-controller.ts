@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "../server-work-admission.js";
 import { randomUUID } from "node:crypto";
 import type { BrowserIncomingMessage, CLIControlResponseMessage, CLIMessage } from "../session-types.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
@@ -205,6 +206,11 @@ export function handleCLIClose(
   code?: number,
   reason?: string,
 ): void {
+  if (serverWorkAdmission.isStopping()) {
+    session.backendSocket = null;
+    deps.persistSession(session);
+    return;
+  }
   const now = Date.now();
   const wasGenerating = session.isGenerating;
   session.backendSocket = null;
@@ -376,6 +382,11 @@ export function sendToCLI(
     | undefined,
   deps: ClaudeCliTransportDeps,
 ): UserDispatchTurnTarget | null {
+  if (serverWorkAdmission.isStopping()) {
+    session.pendingMessages.push(ndjson);
+    deps.persistSession(session);
+    return null;
+  }
   let turnTarget: UserDispatchTurnTarget | null = null;
   if (!opts?.skipUserDispatchLifecycle && deps.isCliUserMessagePayload(ndjson)) {
     turnTarget = deps.markRunningFromUserDispatch(session, "user_message_dispatch", opts?.userMessageHistoryIndex);
@@ -420,7 +431,7 @@ export function flushQueuedCliMessages(
   reason: string,
   deps: ClaudeCliTransportDeps,
 ): void {
-  if (session.pendingMessages.length === 0) return;
+  if (serverWorkAdmission.isStopping() || session.pendingMessages.length === 0) return;
   if (isSessionPaused(session as any)) {
     console.log(
       `[ws-bridge] Deferring ${session.pendingMessages.length} queued CLI message(s) for paused session ${sessionTag(session.id)}`,

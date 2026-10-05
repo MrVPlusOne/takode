@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "../server-work-admission.js";
 import { normalizeAdapterUserMessage, prepareAnnotatedUserMessage } from "./user-message-delivery.js";
 import { acknowledgeMonitoredThreadResult } from "../thread-monitoring.js";
 import { formatAnnotatedMessage, readAnnotationMessage } from "../../shared/conversation-annotations.js";
@@ -1963,7 +1964,8 @@ export function routeAdapterBrowserMessage(
     if (adapter) {
       const accepted = adapter.sendBrowserMessage(adapterMsg);
       if (!accepted) {
-        const sdkQueuedInternally = session.claudeSdkAdapter === adapter && !adapter.isConnected?.();
+        const sdkQueuedInternally =
+          !serverWorkAdmission.isStopping() && session.claudeSdkAdapter === adapter && !adapter.isConnected?.();
         if (!sdkQueuedInternally) {
           queueAdapterMessage(session, raw);
         }

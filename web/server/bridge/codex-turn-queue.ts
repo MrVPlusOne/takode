@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "../server-work-admission.js";
 import type { BrowserOutgoingMessage, CLIResultMessage, CodexOutboundTurn } from "../session-types.js";
 
 type CodexQueueAdapter = {
@@ -130,6 +131,7 @@ export function dispatchQueuedCodexTurns(
     persistSession: () => void;
   },
 ): { status: "noop" | "adapter_rejected" | "dispatched"; head: CodexOutboundTurn | null } {
+  if (serverWorkAdmission.isStopping()) return { status: "noop", head: getCodexHeadTurn(session) };
   const adapter = session.codexAdapter;
   if (!adapter) return { status: "noop", head: null };
   if (session.state.backend_state !== "connected" || !adapter.isConnected()) {

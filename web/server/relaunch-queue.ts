@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "./server-work-admission.js";
 /**
  * Coalesces rapid relaunch requests per session into at-most one trailing
  * relaunch after a cooldown window. This prevents dropping mode changes while
@@ -14,6 +15,7 @@ export class RelaunchQueue {
   ) {}
 
   request(sessionId: string, options: { trailing?: boolean } = {}): void {
+    if (serverWorkAdmission.isStopping()) return;
     if (this.inFlight.has(sessionId) || this.coolingDown.has(sessionId)) {
       if (options.trailing !== false) this.queued.add(sessionId);
       return;
@@ -22,6 +24,7 @@ export class RelaunchQueue {
   }
 
   private async run(sessionId: string): Promise<void> {
+    if (serverWorkAdmission.isStopping()) return;
     this.inFlight.add(sessionId);
     try {
       await this.runRelaunch(sessionId);

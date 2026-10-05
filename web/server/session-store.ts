@@ -273,6 +273,8 @@ export class SessionStore {
   private pendingSaves = new Map<string, PersistedSession>();
   /** Track in-flight async writes so flushAll can await them. */
   private inflightWrites = new Set<Promise<unknown>>();
+  private persistenceFailures = new Map<string, unknown>();
+  private launcherWrite: Promise<void> = Promise.resolve();
   /** Serialize hot JSON replacements per session so durability barriers cannot be overwritten by older writes. */
   private hotWriteChains = new Map<string, Promise<void>>();
   /** Serialize append/rewrite operations for each frozen log. */
@@ -542,7 +544,14 @@ export class SessionStore {
 
   private enqueueFrozenWrite(sessionId: string, write: () => Promise<void>): Promise<void> {
     const prior = this.frozenWriteChains.get(sessionId) ?? Promise.resolve();
-    const operation = prior.catch(() => {}).then(write);
+    const operation = prior
+      .catch(() => {})
+      .then(write)
+      .catch((error) => {
+        // A later append cannot repair a missing earlier frozen segment. Keep the failure for shutdown.
+        this.persistenceFailures.set(`frozen:${sessionId}`, error);
+        throw error;
+      });
     const chain = operation.finally(() => {
       this.inflightWrites.delete(operation);
       if (this.frozenWriteChains.get(sessionId) === chain) this.frozenWriteChains.delete(sessionId);
@@ -953,8 +962,10 @@ export class SessionStore {
         try {
           await beforeWrite;
           await writeFile(this.filePath(session.id), data, "utf-8");
+          this.persistenceFailures.delete(`hot:${session.id}`);
           return true;
         } catch (err) {
+          this.persistenceFailures.set(`hot:${session.id}`, err);
           console.error(`[session-store] Failed to save session ${session.id}:`, err);
           return false;
         }
@@ -1173,17 +1184,22 @@ export class SessionStore {
     return true;
   }
 
-  /** Flush all pending debounced saves and await in-flight writes. Call before shutdown. */
+  /** Flush accepted state, including writes queued while earlier saves settle. Reject on unsaved data. */
   async flushAll(): Promise<void> {
-    for (const [, timer] of this.debounceTimers) {
-      clearTimeout(timer);
+    do {
+      for (const timer of this.debounceTimers.values()) clearTimeout(timer);
+      const pending = [...this.pendingSaves.values()];
+      this.debounceTimers.clear();
+      this.pendingSaves.clear();
+      for (const session of pending) this.saveSync(session);
+      await Promise.allSettled([...this.inflightWrites]);
+    } while (this.pendingSaves.size > 0 || this.inflightWrites.size > 0);
+    if (this.persistenceFailures.size > 0) {
+      throw new AggregateError(
+        [...this.persistenceFailures.values()],
+        `Unsaved session state: ${[...this.persistenceFailures.keys()].join(", ")}`,
+      );
     }
-    for (const [, session] of this.pendingSaves) {
-      this.saveSync(session);
-    }
-    this.debounceTimers.clear();
-    this.pendingSaves.clear();
-    await Promise.allSettled([...this.inflightWrites]);
   }
 
   /** Remove a session's files from disk (hot JSON + frozen log). */
@@ -1218,13 +1234,20 @@ export class SessionStore {
 
   /** Persist launcher state (separate file). */
   saveLauncher(data: unknown): void {
-    const p = writeFile(join(this.dir, "launcher.json"), JSON.stringify(data, null, 2), "utf-8")
+    const dataJson = JSON.stringify(data, null, 2);
+    const p = this.launcherWrite
+      .then(() => writeFile(join(this.dir, "launcher.json"), dataJson, "utf-8"))
+      .then(() => {
+        this.persistenceFailures.delete("launcher");
+      })
       .catch((err) => {
+        this.persistenceFailures.set("launcher", err);
         console.error("[session-store] Failed to save launcher state:", err);
       })
       .finally(() => {
         this.inflightWrites.delete(p);
       });
+    this.launcherWrite = p;
     this.inflightWrites.add(p);
   }
 

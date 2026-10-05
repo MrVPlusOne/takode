@@ -27,6 +27,7 @@ import {
   consumeFrontendRestartHandoff,
 } from "./server/frontend-restart-preparation.js";
 import { RESTART_EXIT_CODE } from "./server/constants.js";
+import { waitForBackendShutdown } from "./server/supervised-backend-shutdown.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webDir = resolve(__dirname);
@@ -176,7 +177,9 @@ function requestShutdown(code: number): Promise<never> {
     buildAbortController?.abort(new Error("Production server wrapper is shutting down"));
 
     await Promise.all([
-      activeServer ? terminateBunChild(activeServer) : Promise.resolve(),
+      activeServer
+        ? waitForBackendShutdown(activeServer, (message) => console.warn(`[serve] ${message}`))
+        : Promise.resolve(),
       activeInstall ? terminateBunChild(activeInstall) : Promise.resolve(),
       activeBuild?.catch(() => undefined) ?? Promise.resolve(),
     ]);

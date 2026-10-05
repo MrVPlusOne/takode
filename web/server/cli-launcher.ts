@@ -1,3 +1,5 @@
+import { serverWorkAdmission } from "./server-work-admission.js";
+import { terminateKnownProcess } from "./cli-launcher-termination.js";
 import { recordCodexProcessTermination } from "./codex-close-diagnostics.js";
 import { randomUUID, createHash } from "node:crypto";
 import { mkdir, access, writeFile } from "node:fs/promises";
@@ -55,24 +57,6 @@ async function fileExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (!isProcessAlive(pid)) return true;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  return !isProcessAlive(pid);
 }
 
 /**
@@ -197,58 +181,6 @@ export class CliLauncher {
   /** Attach an env resolver so relaunch() can re-resolve env profiles after restart. */
   setEnvResolver(fn: (slug: string) => Promise<Record<string, string> | null>): void {
     this.envResolver = fn;
-  }
-
-  private async terminateKnownProcess(
-    sessionId: string,
-    pid: number | undefined,
-    proc?: Subprocess,
-    reason?: string,
-  ): Promise<void> {
-    if (!pid) return;
-
-    try {
-      recordCodexProcessTermination(
-        this.sessions.get(sessionId),
-        pid,
-        "SIGTERM",
-        reason ?? "launcher.terminateKnownProcess",
-      );
-      if (proc) {
-        proc.kill("SIGTERM");
-      } else {
-        process.kill(pid, "SIGTERM");
-      }
-    } catch {}
-
-    if (!proc) {
-      console.warn(
-        `[cli-launcher] Sent SIGTERM to untracked persisted pid ${pid} for session ${sessionTag(sessionId)}` +
-          `${reason ? ` (${reason})` : ""}; refusing SIGKILL without a live subprocess handle`,
-      );
-      return;
-    }
-
-    const exitedGracefully = await Promise.race([
-      proc.exited.then(() => true).catch(() => true),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2000)),
-    ]);
-    if (exitedGracefully) return;
-
-    console.warn(
-      `[cli-launcher] Process ${pid} for session ${sessionTag(sessionId)} did not exit after SIGTERM` +
-        `${reason ? ` (${reason})` : ""}; escalating to SIGKILL`,
-    );
-    try {
-      recordCodexProcessTermination(
-        this.sessions.get(sessionId),
-        pid,
-        "SIGKILL",
-        reason ?? "launcher.terminateKnownProcess",
-      );
-      process.kill(pid, "SIGKILL");
-    } catch {}
-    await waitForProcessExit(pid, 1000);
   }
 
   // ─── Integer session ID management ─────────────────────────────────────────
@@ -383,6 +315,13 @@ export class CliLauncher {
     }, 150);
   }
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Include the launcher debounce in the final persistence barrier. */
+  flushState(): void {
+    if (this.persistTimer) clearTimeout(this.persistTimer);
+    this.persistTimer = null;
+    this.store?.saveLauncher(Array.from(this.sessions.values()));
+  }
 
   private recordModelProvenanceMigration(info: SdkSessionInfo, migration: ModelProvenanceMigration): void {
     this.persistState();
@@ -525,6 +464,11 @@ export class CliLauncher {
    * Launch a new CLI session (Claude Code or Codex).
    */
   async launch(options: LaunchOptions = {}): Promise<SdkSessionInfo> {
+    serverWorkAdmission.assertOpen();
+    return serverWorkAdmission.track(this.launchAccepted(options));
+  }
+
+  private async launchAccepted(options: LaunchOptions): Promise<SdkSessionInfo> {
     const sessionId = randomUUID();
     const cwd = options.cwd || process.cwd();
     const backendType = options.backendType || "claude";
@@ -681,7 +625,7 @@ export class CliLauncher {
 
     switch (backendType) {
       case "codex":
-        this.spawnCodex(sessionId, info, options).catch((err) => {
+        serverWorkAdmission.track(this.spawnCodex(sessionId, info, options)).catch((err) => {
           console.error(`[cli-launcher] Codex spawn failed for ${sessionTag(sessionId)}:`, err);
         });
         break;
@@ -713,6 +657,11 @@ export class CliLauncher {
    * that connects back to the same session in the WsBridge.
    */
   async relaunch(sessionId: string): Promise<{ ok: boolean; error?: string }> {
+    if (serverWorkAdmission.isStopping()) return { ok: false, error: "Server is shutting down" };
+    return serverWorkAdmission.track(this.relaunchAccepted(sessionId));
+  }
+
+  private async relaunchAccepted(sessionId: string): Promise<{ ok: boolean; error?: string }> {
     const info = this.sessions.get(sessionId);
     if (!info) return { ok: false, error: "Session not found" };
     const binSettings = this.settingsGetter?.() ?? { claudeBinary: "", codexBinary: "" };
@@ -735,11 +684,11 @@ export class CliLauncher {
       this.onBeforeRelaunch?.(sessionId, bt);
     }
     if (oldProc) {
-      await this.terminateKnownProcess(sessionId, oldProc.pid, oldProc, "relaunch");
+      await terminateKnownProcess(sessionId, this.sessions.get(sessionId), oldProc.pid, oldProc, "relaunch");
       this.processes.delete(sessionId);
     } else if (info.pid) {
       // Process from a previous server instance — kill by PID
-      await this.terminateKnownProcess(sessionId, info.pid, undefined, "relaunch");
+      await terminateKnownProcess(sessionId, this.sessions.get(sessionId), info.pid, undefined, "relaunch");
     }
 
     // Pre-flight validation for containerized sessions
@@ -1124,6 +1073,7 @@ export class CliLauncher {
 
     let proc: ReturnType<typeof Bun.spawn>;
     try {
+      serverWorkAdmission.assertOpen();
       proc = Bun.spawn(spawnCmd, {
         cwd: spawnCwd,
         env: spawnEnv,
@@ -1230,6 +1180,7 @@ export class CliLauncher {
     });
     if (sdkInstructions) info.injectedSystemPrompt = sdkInstructions;
     info.sdkDebugLogPath ||= getClaudeSdkDebugLogPath(this.port, sessionId);
+    serverWorkAdmission.assertOpen();
     const adapter = new ClaudeSdkAdapter(sessionId, {
       model: options.model,
       cwd: info.cwd,
@@ -1312,6 +1263,7 @@ export class CliLauncher {
 
     let proc: ReturnType<typeof Bun.spawn>;
     try {
+      serverWorkAdmission.assertOpen();
       proc = Bun.spawn(spawnCmd, {
         cwd: spawnCwd,
         env: spawnEnv,
@@ -1392,12 +1344,14 @@ export class CliLauncher {
       if (this.processes.get(sessionId) === proc) {
         this.processes.delete(sessionId);
       }
-      void this.terminateKnownProcess(sessionId, proc.pid, proc, "codex_init_error").catch((err) => {
-        console.error(
-          `[cli-launcher] Failed to terminate broken Codex process for session ${sessionTag(sessionId)}:`,
-          err,
-        );
-      });
+      void terminateKnownProcess(sessionId, this.sessions.get(sessionId), proc.pid, proc, "codex_init_error").catch(
+        (err) => {
+          console.error(
+            `[cli-launcher] Failed to terminate broken Codex process for session ${sessionTag(sessionId)}:`,
+            err,
+          );
+        },
+      );
       this.persistState();
     });
 

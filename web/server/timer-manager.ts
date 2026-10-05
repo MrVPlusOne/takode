@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "./server-work-admission.js";
 import type { WsBridge } from "./ws-bridge.js";
 import type { SessionTimer, SessionTimerFile, TimerCreateInput } from "./timer-types.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
@@ -32,6 +33,9 @@ export interface TimerSweepResult {
 export class TimerManager {
   /** In-memory cache: sessionId -> SessionTimerFile */
   private sessions = new Map<string, SessionTimerFile>();
+  private pendingWrites = new Set<Promise<void>>();
+  private writeFailures = new Map<string, unknown>();
+  private writeChains = new Map<string, Promise<void>>();
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private wsBridge: WsBridge) {}
@@ -58,8 +62,19 @@ export class TimerManager {
 
   /** Stop the sweep loop and clear in-memory state. Called on shutdown. */
   destroy(): void {
-    this.stopSweep();
+    this.stopDispatch();
     this.sessions.clear();
+  }
+
+  /** Stop firing while retaining timers and accepted writes for the persistence barrier. */
+  stopDispatch(): void {
+    this.stopSweep();
+  }
+
+  /** Wait for accepted timer changes and retain failures instead of exiting with lost firings. */
+  async flush(): Promise<void> {
+    while (this.pendingWrites.size) await Promise.allSettled([...this.pendingWrites]);
+    if (this.writeFailures.size) throw new AggregateError([...this.writeFailures.values()], "Unsaved timer state");
   }
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
@@ -98,7 +113,7 @@ export class TimerManager {
     };
 
     file.timers.push(timer);
-    this.persistSession(sessionId);
+    await this.persistSessionNow(sessionId);
     this.broadcastTimers(sessionId);
 
     console.log(
@@ -120,7 +135,7 @@ export class TimerManager {
 
     const timer = file.timers[idx];
     file.timers.splice(idx, 1);
-    this.persistAndEvictIfEmpty(sessionId);
+    await this.persistAndEvictIfEmptyNow(sessionId);
     this.broadcastTimers(sessionId);
 
     // Notify the agent that the user manually cancelled this timer
@@ -155,7 +170,7 @@ export class TimerManager {
 
   /** Run one immediate due-timer sweep. Used at startup so due timers do not wait for browser navigation. */
   async sweepDueTimersNow(now = Date.now()): Promise<TimerSweepResult> {
-    return this.sweep(now);
+    return serverWorkAdmission.track(this.sweep(now));
   }
 
   /** Cancel all timers for a session (on archive). Deletes persistence file. */
@@ -190,8 +205,10 @@ export class TimerManager {
   /** Check all timers, fire any that are due. */
   private async sweep(now = Date.now()): Promise<TimerSweepResult> {
     const result: TimerSweepResult = { fired: [], skipped: [] };
+    if (serverWorkAdmission.isStopping()) return result;
 
     for (const [sessionId, file] of this.sessions) {
+      if (serverWorkAdmission.isStopping()) break;
       const toRemove = new Set<string>();
       let changed = false;
 
@@ -312,30 +329,30 @@ export class TimerManager {
     return file;
   }
 
-  /** Persist to disk (nextId must survive even when empty), then evict from
-   *  memory if no active timers remain. Only cancelAllTimers deletes the disk file. */
-  private persistAndEvictIfEmpty(sessionId: string): void {
-    this.persistAndEvictIfEmptyNow(sessionId).catch((err) => {
-      console.error(`${LOG_TAG} Failed to persist timers for ${sessionId.slice(0, 8)}:`, err);
-    });
-  }
-
   private async persistAndEvictIfEmptyNow(sessionId: string): Promise<void> {
     await this.persistSessionNow(sessionId);
     const file = this.sessions.get(sessionId);
     if (file && file.timers.length === 0) this.sessions.delete(sessionId);
   }
 
-  /** Save session timer state to disk (fire-and-forget). */
-  private persistSession(sessionId: string): void {
-    this.persistSessionNow(sessionId).catch((err) => {
-      console.error(`${LOG_TAG} Failed to persist timers for ${sessionId.slice(0, 8)}:`, err);
-    });
-  }
-
   private async persistSessionNow(sessionId: string): Promise<void> {
     const file = this.sessions.get(sessionId);
     if (!file) return;
-    await timerStore.saveTimers(file);
+    // Serialize snapshots so an older asynchronous write cannot overwrite the final timer state.
+    const snapshot = structuredClone(file);
+    const prior = this.writeChains.get(sessionId) ?? Promise.resolve();
+    const write = prior.catch(() => {}).then(() => timerStore.saveTimers(snapshot));
+    this.writeChains.set(sessionId, write);
+    this.pendingWrites.add(write);
+    try {
+      await write;
+      this.writeFailures.delete(sessionId);
+    } catch (error) {
+      this.writeFailures.set(sessionId, error);
+      throw error;
+    } finally {
+      this.pendingWrites.delete(write);
+      if (this.writeChains.get(sessionId) === write) this.writeChains.delete(sessionId);
+    }
   }
 }

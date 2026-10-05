@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "./server-work-admission.js";
 import type { CliLauncher } from "./cli-launcher.js";
 import type { WsBridge } from "./ws-bridge.js";
 
@@ -45,6 +46,7 @@ export class IdleManager {
    * Returns the number of sessions killed.
    */
   async sweep(): Promise<number> {
+    if (serverWorkAdmission.isStopping()) return 0;
     const { maxKeepAlive } = this.getSettings();
     if (maxKeepAlive <= 0) return 0;
 
@@ -76,6 +78,7 @@ export class IdleManager {
     let killed = 0;
 
     for (let i = 0; i < Math.min(toKill, killable.length); i++) {
+      if (serverWorkAdmission.isStopping()) break;
       const s = killable[i];
       const age = s.lastActivityAt ? `${Math.round((Date.now() - s.lastActivityAt) / 1000)}s ago` : "no activity";
       console.log(

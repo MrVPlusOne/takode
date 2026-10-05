@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "../server-work-admission.js";
 import { retryPendingCodexTurn } from "./codex-pending-turn-retry.js";
 export { retryPendingCodexTurn } from "./codex-pending-turn-retry.js";
 import type { CodexResumeSnapshot, CodexResumeTurnSnapshot } from "../codex-adapter.js";
@@ -597,6 +598,7 @@ export function dispatchQueuedCodexTurns(
   deps: CodexRecoveryOrchestratorDeps,
 ): void {
   if (
+    serverWorkAdmission.isStopping() ||
     isSessionPaused(session as any) ||
     deps.isCodexWorkerV2DeliveryFrozen(session.id) ||
     isCodexTurnRecoveryContinuationInjectionPending(session)
@@ -926,6 +928,7 @@ export function trySteerPendingCodexInputs(
   deps: CodexRecoveryOrchestratorDeps,
 ): boolean {
   if (
+    serverWorkAdmission.isStopping() ||
     isSessionPaused(session as any) ||
     session.interruptedDuringTurn ||
     deps.isCodexWorkerV2DeliveryFrozen(session.id) ||

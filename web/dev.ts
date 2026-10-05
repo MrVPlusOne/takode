@@ -10,6 +10,7 @@ import { spawn, type Subprocess } from "bun";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RESTART_EXIT_CODE } from "./server/constants.js";
+import { waitForBackendShutdown } from "./server/supervised-backend-shutdown.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webDir = resolve(__dirname);
@@ -92,10 +93,11 @@ prefix("vite", "\x1b[35m", vite.stdout);
 prefix("vite", "\x1b[31m", vite.stderr);
 
 // ── Cleanup on exit ───────────────────────────────────────────────
-function cleanup() {
+async function cleanup() {
   if (shuttingDown) return;
   shuttingDown = true;
-  for (const p of procs) p.kill();
+  for (const p of procs) if (p !== backend) p.kill();
+  await waitForBackendShutdown(backend, (message) => console.warn(`[dev] ${message}`));
   process.exit(0);
 }
 

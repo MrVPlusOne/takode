@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "../server-work-admission.js";
 import {
   injectUserMessage,
   type BrowserTransportDeps,
@@ -30,6 +31,10 @@ export function deliverProgrammaticUserMessage(
   options: ProgrammaticUserMessageOptions | undefined,
   deps: ProgrammaticUserMessageDeliveryDeps,
 ): ProgrammaticUserMessageDeliveryStatus {
+  if (serverWorkAdmission.isStopping() && !serverWorkAdmission.isPreservingQueuedWork()) {
+    notifyProgrammaticMessageRejected(options, "route_rejected");
+    return "dropped";
+  }
   let deliveryContent = content;
   let deliveryBatch = takodeHerdBatch;
   if (agentSource?.sessionId === "herd-events" && deliveryBatch) {

@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "./server-work-admission.js";
 /**
  * Claude SDK Adapter
  *
@@ -107,6 +108,7 @@ export class ClaudeSdkAdapter
 
   /** Accept a message from the browser and send it to the CLI */
   sendBrowserMessage(msg: BrowserOutgoingMessage): boolean {
+    if (serverWorkAdmission.isStopping()) return false;
     if (!this.connected || !this.sdkSession) {
       this.pendingOutgoing.push(msg);
       return false;
@@ -161,6 +163,7 @@ export class ClaudeSdkAdapter
   private async initialize(): Promise<void> {
     // Dynamic import to avoid loading the SDK at startup for WebSocket-only servers
     const sdk = await import("@anthropic-ai/claude-agent-sdk");
+    if (serverWorkAdmission.isStopping()) return;
 
     // Merge process.env (inherits ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN from
     // claude.sh) with session-specific vars (COMPANION_SESSION_ID, etc.)
@@ -569,6 +572,7 @@ export class ClaudeSdkAdapter
   // ─── Outgoing message dispatch ──────────────────────────────────────────────
 
   private dispatchOutgoing(msg: BrowserOutgoingMessage): boolean {
+    if (serverWorkAdmission.isStopping()) return false;
     if (!this.sdkSession || !this.connected) return false;
 
     const msgType = (msg as any).type;

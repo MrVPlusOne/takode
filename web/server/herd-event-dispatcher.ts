@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "./server-work-admission.js";
 /**
  * Push-based event delivery for herded sessions.
  *
@@ -650,7 +651,7 @@ export class HerdEventDispatcher {
       this.recomputeInboxWatermarks(inbox);
     }
 
-    if (policy.kind === "hold") return;
+    if (policy.kind === "hold" || serverWorkAdmission.isStopping()) return;
 
     // If orchestrator is idle, schedule delivery
     if (this.isSessionIdle(orchId)) {
@@ -771,6 +772,7 @@ export class HerdEventDispatcher {
    *  the stuck-session watchdog may flush the complete eligible backlog.
    *  Returns the number of events delivered (0 if nothing was pending). */
   forceFlushPendingEvents(orchId: string, before = Infinity): number {
+    if (serverWorkAdmission.isStopping()) return 0;
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return 0;
     this.pruneStaleBoardStallEntries(orchId, inbox);
@@ -789,6 +791,7 @@ export class HerdEventDispatcher {
 
   /** Schedule a debounced flush. Multiple calls within DEBOUNCE_MS batch together. */
   private scheduleDelivery(orchId: string): void {
+    if (serverWorkAdmission.isStopping()) return;
     const inbox = this.inboxes.get(orchId);
     if (!inbox || inbox.debounceTimer) return; // already scheduled
     inbox.debounceTimer = setTimeout(() => {
@@ -800,6 +803,7 @@ export class HerdEventDispatcher {
   /** Schedule a retry flush at a longer interval. Called when flushInbox finds
    *  the leader busy — prevents events from being permanently stranded. */
   private scheduleRetry(orchId: string): void {
+    if (serverWorkAdmission.isStopping()) return;
     const inbox = this.inboxes.get(orchId);
     if (!inbox || inbox.debounceTimer) return; // already has a pending timer
     inbox.debounceTimer = setTimeout(() => {
@@ -810,6 +814,7 @@ export class HerdEventDispatcher {
 
   /** Deliver pending events to the orchestrator's CLI. */
   private flushInbox(orchId: string): void {
+    if (serverWorkAdmission.isStopping()) return;
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return;
     this.pruneStaleBoardStallEntries(orchId, inbox);
@@ -940,7 +945,7 @@ export class HerdEventDispatcher {
         );
         continue;
       }
-      if (delivery === "queued" && !this.isCodexLeader(orchId))
+      if (delivery === "queued" && !this.isCodexLeader(orchId) && !serverWorkAdmission.isPreservingQueuedWork())
         return { status: "retry", deliveredCount: deliveredEvents.length };
       if (delivery !== "sent" && delivery !== "queued")
         return { status: "retry", deliveredCount: deliveredEvents.length };
@@ -1251,6 +1256,21 @@ export class HerdEventDispatcher {
   }
 
   // ─── Lifecycle ────────────────────────────────────────────────────────────
+
+  /** Move buffered events into the bridge's durable pending input without waking a backend. */
+  preservePendingForShutdown(): void {
+    serverWorkAdmission.preserveQueuedWork(() => {
+      for (const [orchId, inbox] of this.inboxes) {
+        if (inbox.debounceTimer) clearTimeout(inbox.debounceTimer);
+        inbox.debounceTimer = null;
+        this.pruneStaleBoardStallEntries(orchId, inbox);
+        const pending = this.getPendingEntries(inbox);
+        if (pending.length && this.deliverPendingEntries(orchId, inbox, pending).status !== "sent") {
+          throw new Error(`Buffered events for ${orchId} have not reached durable pending input`);
+        }
+      }
+    });
+  }
 
   /** Clean up all inboxes (for server shutdown). */
   destroy(): void {

@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "./server-work-admission.js";
 import { Cron } from "croner";
 import type { CronJob, CronJobExecution } from "./cron-types.js";
 import type { CliLauncher, SdkSessionInfo } from "./cli-launcher.js";
@@ -62,7 +63,7 @@ export class CronScheduler {
   scheduleJob(job: CronJob): void {
     this.stopJob(job.id);
 
-    if (!job.enabled) return;
+    if (serverWorkAdmission.isStopping() || !job.enabled) return;
 
     try {
       if (job.recurring) {
@@ -110,7 +111,14 @@ export class CronScheduler {
 
   /** Execute a job: create a session, send the prompt, track the result. */
   async executeJob(jobId: string, opts?: { force?: boolean }): Promise<void> {
+    if (serverWorkAdmission.isStopping()) return;
+    return serverWorkAdmission.track(this.executeAcceptedJob(jobId, opts));
+  }
+
+  private async executeAcceptedJob(jobId: string, opts?: { force?: boolean }): Promise<void> {
+    if (serverWorkAdmission.isStopping()) return;
     const job = await cronStore.getJob(jobId);
+    if (serverWorkAdmission.isStopping()) return;
     if (!job) return;
     if (!job.enabled && !opts?.force) return;
 
@@ -161,6 +169,8 @@ export class CronScheduler {
       // Wait for CLI to connect, then send the prompt
       await this.waitForCLIConnection(sessionInfo.sessionId);
 
+      if (serverWorkAdmission.isStopping()) return;
+
       // Send the prompt with cron prefix for traceability
       const fullPrompt = `[cron:${job.id} ${job.name}]\n\n${job.prompt}`;
       this.wsBridge.injectUserMessage(sessionInfo.sessionId, fullPrompt, {
@@ -179,6 +189,7 @@ export class CronScheduler {
       execution.success = true;
       this.addExecution(jobId, execution);
     } catch (err) {
+      if (serverWorkAdmission.isStopping()) return;
       console.error(`[cron-scheduler] Job "${job.name}" failed:`, err);
       execution.error = err instanceof Error ? err.message : String(err);
       execution.completedAt = Date.now();
@@ -213,6 +224,7 @@ export class CronScheduler {
     const start = Date.now();
 
     while (Date.now() - start < CLI_CONNECT_TIMEOUT_MS) {
+      if (serverWorkAdmission.isStopping()) return;
       const info = this.launcher.getSession(sessionId);
       if (info && (info.state === "connected" || info.state === "running")) {
         return;

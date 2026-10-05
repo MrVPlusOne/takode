@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "./server-work-admission.js";
 import { randomUUID } from "node:crypto";
 import type { RecorderManager } from "./recorder.js";
 import { getTrafficMessageType, trafficStats } from "./traffic-stats.js";
@@ -241,6 +242,9 @@ export class JsonRpcTransport {
     timeoutMs?: number,
   ): { id: number; promise: Promise<unknown> } {
     const id = this.nextId++;
+    if (serverWorkAdmission.isStopping() && (method === "turn/start" || method === "turn/steer")) {
+      return { id, promise: Promise.reject(new Error("Server is shutting down; turn dispatch deferred")) };
+    }
     const promise = new Promise<unknown>((resolve, reject) => {
       let timeout: ReturnType<typeof setTimeout> | null = null;
       const settle =

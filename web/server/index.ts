@@ -1,3 +1,5 @@
+import { ServerShutdown } from "./server-shutdown.js";
+import { serverWorkAdmission } from "./server-work-admission.js";
 process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1";
 
 // Increase libuv threadpool size BEFORE any I/O operations.
@@ -61,7 +63,7 @@ import {
   COMPANION_FRONTEND_RUNTIME_ROOT_ENV,
   createProductionFrontendRestartPreparer,
 } from "./frontend-restart-preparation.js";
-import { stopFrontendServerBeforeSnapshotCleanup } from "./frontend-runtime-snapshot.js";
+import { cleanupOwnedFrontendRuntimeSnapshot } from "./frontend-runtime-snapshot.js";
 import { markCodexIntentionalRelaunch, markSessionRelaunchPending } from "./bridge/codex-recovery-orchestrator.js";
 import { deliverModelProvenanceMigration } from "./model-provenance-migration-delivery.js";
 import {
@@ -485,6 +487,7 @@ wsBridge.onGitInfoReady = (sessionId, cwd, branch) => {
 };
 
 const relaunchQueue = new RelaunchQueue(async (sessionId) => {
+  if (serverWorkAdmission.isStopping()) return;
   const info = launcher.getSession(sessionId);
   if (!info || info.archived) return;
   // Don't auto-relaunch sessions killed by the idle manager — they were
@@ -536,6 +539,7 @@ const relaunchQueue = new RelaunchQueue(async (sessionId) => {
 
 // Auto-relaunch CLI when a browser connects to a session with no CLI
 wsBridge.onCLIRelaunchNeeded = (sessionId) => {
+  if (serverWorkAdmission.isStopping()) return;
   const info = launcher.getSession(sessionId);
   if (!info || info.archived || info.killedByIdleManager) return;
   if (wsBridge.isSessionPaused(sessionId)) {
@@ -971,6 +975,7 @@ const server = Bun.serve<SocketData>({
   port,
   maxRequestBodySize: 1024 * 1024 * 1024, // 1 GB — needed for migration import
   async fetch(req, server) {
+    if (serverWorkAdmission.isStopping()) return new Response("Server is shutting down", { status: 503 });
     const url = new URL(req.url);
 
     const wsRoute = matchWebSocketRoute(url.pathname);
@@ -1004,7 +1009,7 @@ const server = Bun.serve<SocketData>({
       headers.set(COMPANION_CLIENT_IP_HEADER, requestIp.address);
     }
     const decoratedRequest = new Request(req, { headers });
-    return app.fetch(decoratedRequest, server);
+    return serverWorkAdmission.track(Promise.resolve(app.fetch(decoratedRequest, server)));
   },
   websocket: {
     idleTimeout: 0, // Disable Bun's idle timeout; we manage liveness via ws.ping heartbeats
@@ -1175,60 +1180,53 @@ idleManager.start();
 sleepInhibitor.start();
 
 // ── Shutdown helpers ─────────────────────────────────────────────────────────
-async function performShutdown() {
-  serverLog.info("Persisting state before shutdown...");
-  try {
-    await productionFrontendRestartController?.cancelAndWait(
-      new Error("Server shutdown interrupted frontend restart preparation"),
-    );
-  } catch (error) {
-    // Runtime-candidate cleanup must never bypass durable session persistence.
-    // The supervisor owns and removes the enclosing runtime root after exit.
-    serverLog.error("Failed to settle frontend restart preparation during shutdown", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-  await stopFrontendServerBeforeSnapshotCleanup({
-    server,
-    onFailure: (phase, error) => {
-      serverLog.error(
-        phase === "stop"
-          ? "Failed to stop frontend-serving listener; preserving runtime snapshot"
-          : "Failed to remove owned frontend runtime snapshot",
-        { error: error instanceof Error ? error.message : String(error) },
-      );
-    },
-  });
-
-  try {
-    await codexWorkerV2RolloutService.destroy();
+let settleWorkerRollout: Promise<void> = Promise.resolve();
+const shutdown = new ServerShutdown({
+  stopWork: () => {
+    timerManager.stopDispatch();
+    cronScheduler.destroy();
     idleManager.stop();
     sleepInhibitor.stop();
-    await sessionStore.flushAll();
-    containerManager.persistState(CONTAINER_STATE_PATH);
     pushoverNotifier.destroy();
-    timerManager.destroy();
     resourceLeaseManager.destroy();
-    cronScheduler.destroy();
-  } finally {
-    await flushServerLogger();
-  }
-}
-
-function gracefulShutdown() {
-  performShutdown().finally(() => process.exit(0));
-}
+    settleWorkerRollout = codexWorkerV2RolloutService.destroy();
+  },
+  settleWork: async () => {
+    await settleWorkerRollout;
+    await serverWorkAdmission.drain();
+  },
+  cancelFrontendPreparation: () => productionFrontendRestartController?.cancelAndWait() ?? Promise.resolve(),
+  stopListener: () => server.stop(true),
+  persist: async () => {
+    herdEventDispatcher.preservePendingForShutdown();
+    await serverWorkAdmission.drain();
+    launcher.flushState();
+    await Promise.all([
+      sessionStore.flushAll(),
+      timerManager.flush(),
+      containerManager.flushState(CONTAINER_STATE_PATH),
+    ]);
+  },
+  cleanupFrontend: cleanupOwnedFrontendRuntimeSnapshot,
+  flushLogs: flushServerLogger,
+  log: (message, details) => serverLog.info(message, details),
+  exit: (code) => process.exit(code),
+});
 
 function requestRestart() {
-  // Delay exit so the HTTP response can flush to the browser
+  // Finish the response before closing the listener, but stop admission immediately.
+  serverWorkAdmission.stop();
   setTimeout(() => {
-    serverLog.info("Restart requested, exiting with code 42...");
-    performShutdown().finally(() => process.exit(RESTART_EXIT_CODE));
+    void shutdown.request(RESTART_EXIT_CODE);
   }, 500);
 }
 
-process.on("SIGTERM", gracefulShutdown);
-process.on("SIGINT", gracefulShutdown);
+process.on("SIGTERM", () => {
+  void shutdown.request(0);
+});
+process.on("SIGINT", () => {
+  void shutdown.request(0);
+});
 
 // ── Reconnection watchdog ────────────────────────────────────────────────────
 // After a server restart, restored CLI processes may not reconnect their
@@ -1241,6 +1239,7 @@ if (starting.length > 0) {
   setTimeout(async () => {
     const stale = launcher.getStartingSessions();
     for (const info of stale) {
+      if (serverWorkAdmission.isStopping()) return;
       if (info.archived) continue;
       serverLog.warn("CLI did not reconnect, relaunching session", { sessionId: info.sessionId });
       try {

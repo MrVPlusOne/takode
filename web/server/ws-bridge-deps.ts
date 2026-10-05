@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "./server-work-admission.js";
 import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
 import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
@@ -481,6 +482,7 @@ export function maybeBroadcastGlobalSessionActivityUpdate(
 function requestCliRelaunchIfUnpaused(host: any): ((sessionId: string) => void) | undefined {
   if (!host.onCLIRelaunchNeeded) return undefined;
   return (sessionId: string) => {
+    if (serverWorkAdmission.isStopping()) return;
     if (isSessionPaused(host.sessions?.get(sessionId))) {
       console.log(`[ws-bridge] Relaunch deferred for paused session ${sessionTag(sessionId)}`);
       return;
@@ -1026,11 +1028,13 @@ export function getBrowserTransportDeps(host: any) {
       }
     },
     routeBrowserMessage: (targetSession: unknown, msg: BrowserOutgoingMessage, ws?: unknown) =>
-      routeBrowserMessageController(
-        targetSession as Session,
-        msg,
-        ws as ServerWebSocket<SocketData> | undefined,
-        host.getBrowserRoutingDeps(),
+      serverWorkAdmission.track(
+        routeBrowserMessageController(
+          targetSession as Session,
+          msg,
+          ws as ServerWebSocket<SocketData> | undefined,
+          host.getBrowserRoutingDeps(),
+        ),
       ),
     pruneTakodeHerdBatch: (targetSession: unknown, batch: TakodeHerdBatchSnapshot | undefined) =>
       pruneStaleBoardStalledHerdBatchController(targetSession as Session, batch, host.getBoardWatchdogDeps()),

@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { execSync, type ExecSyncOptionsWithStringEncoding } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -679,6 +680,14 @@ export class ContainerManager {
     } catch (e) {
       console.warn("[container-manager] Failed to persist state:", e instanceof Error ? e.message : String(e));
     }
+  }
+
+  /** Await the shutdown snapshot and propagate failures to the preservation barrier. */
+  async flushState(filePath: string): Promise<void> {
+    const entries = [...this.containers]
+      .filter(([, info]) => info.state !== "removed")
+      .map(([sessionId, info]) => ({ sessionId, info }));
+    await writeFile(filePath, JSON.stringify(entries, null, 2), "utf-8");
   }
 
   /** Restore container tracking from disk, verifying each container still exists. */

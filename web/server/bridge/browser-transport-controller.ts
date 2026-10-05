@@ -1,3 +1,4 @@
+import { serverWorkAdmission } from "../server-work-admission.js";
 import { isInactiveCodexRecoverySource } from "./codex-interrupted-turn-recovery.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -534,6 +535,14 @@ export function handleBrowserMessage(
   ws: BrowserTransportSocketLike | undefined,
   deps: BrowserTransportDeps,
 ): { messageType: string; completion: Promise<void> | null } {
+  if (serverWorkAdmission.isStopping()) {
+    if (ws)
+      sendToBrowser(ws, {
+        type: "error",
+        message: "Server is shutting down; message was not accepted. Retry after restart.",
+      });
+    return { messageType: "shutdown_rejected", completion: null };
+  }
   deps.recordIncomingRaw?.(session.id, data, session.backendType, session.state.cwd);
 
   let msg: BrowserOutgoingMessage;
@@ -565,7 +574,7 @@ export function handleBrowserMessage(
 
   return {
     messageType: msg.type,
-    completion: handleBrowserIngressMessage(session, msg, ws, deps).then(() => undefined),
+    completion: serverWorkAdmission.track(handleBrowserIngressMessage(session, msg, ws, deps).then(() => undefined)),
   };
 }
 
@@ -738,7 +747,7 @@ export function injectUserMessage(
   threadRoute?: ThreadRouteMetadata,
   options?: ProgrammaticUserMessageOptions,
 ): "sent" | "queued" {
-  const backendLive = deps.backendConnected(session);
+  const backendLive = !serverWorkAdmission.isStopping() && deps.backendConnected(session);
   if (isHerdEventSource(agentSource) && session.backendType === "codex") {
     const existing = findMatchingPendingCodexInput(session, content, agentSource, threadRoute);
     if (existing) {
