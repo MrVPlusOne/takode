@@ -324,6 +324,15 @@ function createMockProc(pid = 12345) {
   };
 }
 
+/** Codex spawns after launch() returns; wait so later mocks are not consumed by the initial spawn. */
+async function waitForCodexSpawns(count: number) {
+  const deadline = Date.now() + 2000;
+  while (mockSpawn.mock.calls.length < count) {
+    if (Date.now() > deadline) throw new Error("Timed out waiting for Codex spawn");
+    await new Promise<void>((r) => setTimeout(r, 10));
+  }
+}
+
 function createMockCodexProc(pid = 12345) {
   let resolve: (code: number) => void;
   let exited = false;
@@ -679,6 +688,7 @@ describe("relaunch", () => {
       containerName: "companion-gone",
       codexSandbox: "workspace-write",
     });
+    await waitForCodexSpawns(1);
 
     // Simulate container being removed
     mockIsContainerAlive.mockReturnValueOnce("missing");
@@ -707,6 +717,7 @@ describe("relaunch", () => {
       containerName: "companion-stopped",
       codexSandbox: "workspace-write",
     });
+    await waitForCodexSpawns(1);
 
     // Container is stopped but can be restarted
     mockIsContainerAlive.mockReturnValueOnce("stopped");
@@ -731,6 +742,7 @@ describe("relaunch", () => {
       containerName: "companion-dead",
       codexSandbox: "workspace-write",
     });
+    await waitForCodexSpawns(1);
 
     mockIsContainerAlive.mockReturnValueOnce("stopped");
     mockStartContainer.mockImplementationOnce(() => {
@@ -756,6 +768,7 @@ describe("relaunch", () => {
       containerName: "companion-nobin",
       codexSandbox: "workspace-write",
     });
+    await waitForCodexSpawns(1);
 
     mockIsContainerAlive.mockReturnValueOnce("running");
     mockHasBinaryInContainer.mockReturnValueOnce(false);
