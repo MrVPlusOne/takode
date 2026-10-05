@@ -213,7 +213,7 @@ describe("frontend snapshot shutdown", () => {
   function stopBeforeCleanup(
     server: { stop(force?: boolean): Promise<void> },
     cleanup: () => Promise<void>,
-    onFailure: ReturnType<typeof vi.fn>,
+    onFailure: (stage: unknown, error: unknown) => void,
   ) {
     return new ServerShutdown({
       admission: new ServerWorkAdmission(),
