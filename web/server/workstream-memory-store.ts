@@ -12,9 +12,22 @@ import {
   normalizeMemorySessionSpaceSlug,
 } from "./memory-session-space.js";
 import {
+  buildMemoryFolderInfos,
+  laterDate,
+  listMemoryRepoFiles,
+  localDate,
+  noteFolder,
+  readGitLastCommitDates,
+  readHelpfulMarks,
+  resolveNoteType,
+  setFrontmatterField,
+} from "./memory-repo-layout.js";
+import { checkMemoryRepoHealth } from "./memory-repo-health.js";
+import {
+  LEGACY_TYPE_FOLDERS,
   MEMORY_COMMIT_OPERATIONS,
   MEMORY_DESCRIPTION_CHAR_LIMIT,
-  MEMORY_KINDS,
+  MEMORY_NOTE_TYPES,
   type FrontmatterScalar,
   type FrontmatterValue,
   type MemoryCatalog,
@@ -29,8 +42,8 @@ import {
   type MemoryCommitSourceFile,
   type MemoryFile,
   type MemoryFrontmatter,
-  type MemoryKind,
   type MemoryLintIssue,
+  type MemoryNoteType,
   type MemoryLockAcquireInput,
   type MemoryLockInfo,
   type MemoryRecentCommit,
@@ -49,6 +62,7 @@ const SERVER_INDEX_DIR = ".servers";
 const CATALOG_SEEN_DIR_NAME = "takode-memory-catalog-seen";
 const DEFAULT_LOCK_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_CATALOG_READ_CONCURRENCY = 16;
+const LEGACY_TYPE_FOLDER_NAMES = Object.keys(LEGACY_TYPE_FOLDERS);
 const OBSOLETE_FRONTMATTER_FIELDS = new Set([
   "id",
   "kind",
@@ -95,9 +109,6 @@ export async function ensureMemoryRepo(options: MemoryRepoOptions = {}): Promise
     await migrateDefaultMemoryRepo(repo);
   }
   await mkdir(repo.root, { recursive: true });
-  for (const kind of MEMORY_KINDS) {
-    await mkdir(join(repo.root, kind), { recursive: true });
-  }
   const initialized = await pathExists(join(repo.root, ".git"));
   if (!initialized) {
     await runGit(repo.root, ["init"]);
@@ -105,7 +116,7 @@ export async function ensureMemoryRepo(options: MemoryRepoOptions = {}): Promise
   if (!repo.explicitRoot) {
     await writeServerMemoryIndex(repo);
   }
-  return publicRepoInfo({ ...repo, initialized: true, authoredDirs: [...MEMORY_KINDS] });
+  return publicRepoInfo({ ...repo, initialized: true, authoredDirs: await topLevelFolders(repo.root) });
 }
 
 export function resolveMemoryRepo(options: MemoryRepoOptions = {}): MemoryRepoInfo {
@@ -163,7 +174,7 @@ function resolveMemoryRepoInternal(options: MemoryRepoOptions = {}): ResolvedMem
     baseRoot,
     explicitRoot,
     initialized: false,
-    authoredDirs: [...MEMORY_KINDS],
+    authoredDirs: [],
   };
 }
 
@@ -214,21 +225,32 @@ async function scanMemoryCatalogUncoalesced(
   runtime: InternalMemoryCatalogScanRuntime = {},
 ): Promise<MemoryCatalog> {
   const repo = await repoForRead(options);
-  const absolutePaths = (
-    await Promise.all(MEMORY_KINDS.map((kind) => listMarkdownFiles(join(repo.root, kind))))
-  ).flat();
+  const { notePaths, readmePaths } = await listMemoryRepoFiles(repo.root);
   throwIfMemoryCatalogScanAborted(runtime.signal);
-  const { files, issues } = await readMemoryCatalogFiles(repo.root, absolutePaths, runtime);
+  const { files, issues } = await readMemoryCatalogFiles(repo.root, notePaths, runtime);
+  const readmeFiles = await readMemoryCatalogFiles(repo.root, readmePaths, runtime);
+  // A malformed folder README only loses its description; it never blocks commits.
+  issues.push(...readmeFiles.issues.map((issue) => ({ ...issue, severity: "warning" as const })));
+  // Notes from before topic folders have no `updated:`; their last commit date stands in.
+  const needsGitDates = repo.initialized && files.some((file) => !file.updated);
+  const [gitDates, helpfulMarks] = await Promise.all([
+    needsGitDates ? readGitLastCommitDates(repo.root, runtime.signal) : new Map<string, string>(),
+    readHelpfulMarks(repo.root),
+  ]);
+  throwIfMemoryCatalogScanAborted(runtime.signal);
 
   const entries: MemoryCatalogEntry[] = [];
   for (const file of files) {
     issues.push(...validateMemoryFile(file));
-    entries.push(catalogEntryFromFile(file));
+    entries.push(catalogEntryFromFile(file, gitDates.get(file.path) ?? "", helpfulMarks[file.path] ?? ""));
   }
+  entries.sort((a, b) => a.path.localeCompare(b.path));
+  const readmes = new Map(readmeFiles.files.map((file) => [noteFolder(file.path), { description: file.description }]));
 
   return {
     repo,
-    entries: entries.sort((a, b) => a.kind.localeCompare(b.kind) || a.path.localeCompare(b.path)),
+    entries,
+    folders: buildMemoryFolderInfos(entries, readmes),
     issues,
     contentHashes: Object.fromEntries(
       files.map((file) => [file.path, createHash("sha256").update(file.content).digest("hex")]),
@@ -376,8 +398,26 @@ export async function diffMemoryCatalog(options: MemoryRepoOptions = {}): Promis
   };
 }
 
-export async function lintMemory(options: MemoryRepoOptions = {}): Promise<MemoryCatalog> {
-  return scanMemoryCatalog(options);
+/**
+ * Full health check: the catalog's per-note schema issues plus repo-wide structure checks.
+ * Per-note rules marked `blocksCommitOfNote` are errors only for changed notes (by default the
+ * uncommitted ones, i.e. what a commit would include), so repos from before topic folders keep
+ * committing until curated.
+ */
+export async function lintMemory(
+  options: MemoryRepoOptions = {},
+  lintOptions: { changedPaths?: ReadonlySet<string> } = {},
+): Promise<MemoryCatalog> {
+  const catalog = await scanMemoryCatalog(options);
+  const health = await checkMemoryRepoHealth(catalog);
+  const changedPaths =
+    lintOptions.changedPaths ?? new Set(catalog.repo.initialized ? await changedMemoryPaths(catalog.repo.root) : []);
+  const issues = [...catalog.issues, ...health].map((issue) =>
+    issue.blocksCommitOfNote && issue.path && changedPaths.has(issue.path)
+      ? { ...issue, severity: "error" as const }
+      : issue,
+  );
+  return { ...catalog, issues };
 }
 
 export async function listMemorySpaces(options: MemoryRepoOptions = {}): Promise<MemorySpaceInfo[]> {
@@ -393,13 +433,13 @@ export async function listMemorySpaces(options: MemoryRepoOptions = {}): Promise
     serverId?: string;
     index?: ServerMemoryIndexEntry;
   }) => {
-    const authoredDirs = await existingAuthoredDirs(input.root);
+    const authoredDirs = await topLevelFolders(input.root);
     spaces.set(resolve(input.root), {
       slug: input.slug,
       root: input.root,
       current: input.current,
       initialized: await pathExists(join(input.root, ".git")),
-      authoredDirs: authoredDirs.length ? authoredDirs : [...MEMORY_KINDS],
+      authoredDirs,
       hasAuthoredData: await hasAuthoredMemoryData(input.root),
       sessionSpaceSlug: input.index?.sessionSpaceSlug ?? sessionSpaceSlugFromRoot(input.slug, input.root),
       ...(input.index?.serverId || input.serverId ? { serverId: input.index?.serverId ?? input.serverId } : {}),
@@ -481,12 +521,12 @@ export async function recallMemory(
 ): Promise<MemoryRecallResult> {
   const catalog = await scanMemoryCatalog(options);
   const terms = tokenize(query.query ?? "");
-  const kindSet = query.kinds?.length ? new Set(query.kinds) : undefined;
+  const typeSet = query.types?.length ? new Set(query.types) : undefined;
   const limit = query.limit && query.limit > 0 ? query.limit : 20;
   const matches: MemoryRecallMatch[] = [];
 
   for (const entry of catalog.entries) {
-    if (kindSet && !kindSet.has(entry.kind)) continue;
+    if (typeSet && (!entry.type || !typeSet.has(entry.type))) continue;
     if (!matchesFacets(entry, query.facets)) continue;
     const file =
       query.includeContent || terms.length ? await readEntryContent(catalog.repo.root, entry.path) : undefined;
@@ -500,9 +540,7 @@ export async function recallMemory(
     });
   }
 
-  matches.sort(
-    (a, b) => b.score - a.score || a.entry.kind.localeCompare(b.entry.kind) || a.entry.path.localeCompare(b.entry.path),
-  );
+  matches.sort((a, b) => b.score - a.score || a.entry.path.localeCompare(b.entry.path));
   return { repo: catalog.repo, matches: matches.slice(0, limit), issues: catalog.issues };
 }
 
@@ -563,8 +601,6 @@ export async function memoryRecentCommits(options: MemoryRepoOptions = {}, limit
       `--max-count=${safeLimit}`,
       "--format=%x1e%H%x1f%h%x1f%ct%x1f%an%x1f%ae%x1f%s%x1f%B%x1d",
       "--name-status",
-      "--",
-      ...MEMORY_KINDS,
     ]);
     return parseRecentMemoryCommits(output);
   } catch (error) {
@@ -587,8 +623,6 @@ export async function memoryCommitDiff(options: MemoryRepoOptions = {}, sha: str
       "--format=%x1e%H%x1f%h%x1f%ct%x1f%an%x1f%ae%x1f%s%x1f%B%x1d",
       "--name-status",
       normalizedSha,
-      "--",
-      ...MEMORY_KINDS,
     ]);
     const commit = parseRecentMemoryCommits(metadataOutput)[0];
     if (!commit || commit.changedFiles.length === 0) return null;
@@ -600,8 +634,6 @@ export async function memoryCommitDiff(options: MemoryRepoOptions = {}, sha: str
       "--no-ext-diff",
       "--unified=3",
       normalizedSha,
-      "--",
-      ...MEMORY_KINDS,
     ]);
     const sourceFiles = await readMemoryCommitSourceFiles(repo.root, normalizedSha, commit.changedFiles);
     return { repo, commit, diff, sourceFiles };
@@ -718,20 +750,26 @@ function parseMemoryCommitFileChanges(block: string): MemoryRecentCommit["change
 
 export async function memoryGitDiff(options: MemoryRepoOptions = {}): Promise<string> {
   const repo = await ensureMemoryRepo(options);
-  return runGit(repo.root, ["diff", "--", ...MEMORY_KINDS]);
+  return runGit(repo.root, ["diff"]);
 }
 
 export async function commitMemory(input: MemoryCommitInput): Promise<MemoryCommitResult> {
   const repo = await ensureMemoryRepo(input);
   validateMemoryCommitInput(input);
   await assertActiveMemoryLock(repo.root);
-  const catalog = await lintMemory(input);
+  const changedPaths = await changedMemoryPaths(repo.root);
+  // A repair (moves, reference rewrites, README and description fixes) doesn't change what notes
+  // say: it neither makes them look recently updated nor holds the notes it touched to the
+  // per-note rules, which would otherwise block mechanical moves in uncurated repos.
+  const repair = parseOperation(input.operation) === "repair";
+  const catalog = await lintMemory(input, { changedPaths: new Set(repair ? [] : changedPaths) });
   const errors = catalog.issues.filter((issue) => issue.severity === "error");
   if (errors.length) {
     throw new Error(`Memory lint failed: ${errors.map((issue) => `${issue.path}: ${issue.message}`).join("; ")}`);
   }
+  if (!repair) await stampUpdated(repo.root, changedPaths);
 
-  await runGit(repo.root, ["add", "--", ...MEMORY_KINDS]);
+  await runGit(repo.root, ["add", "-A"]);
   const status = await memoryGitStatus(input);
   if (!status) {
     return { committed: false, message: "No memory changes to commit", status };
@@ -754,10 +792,11 @@ export async function commitMemory(input: MemoryCommitInput): Promise<MemoryComm
 export function parseMemoryFile(root: string, absolutePath: string, content: string): MemoryFile {
   const { frontmatter, body } = parseFrontmatter(content);
   const path = repoRelative(root, absolutePath);
-  const kind = parseKindFromPath(path);
   return {
     id: path,
-    kind,
+    type: resolveNoteType(path, optionalString(frontmatter.type)),
+    folder: noteFolder(path),
+    updated: optionalString(frontmatter.updated),
     description: optionalString(frontmatter.description),
     source: stringList(frontmatter.source),
     path,
@@ -787,18 +826,21 @@ async function repoForRead(options: MemoryRepoOptions): Promise<MemoryRepoInfo> 
 
 async function inspectExistingMemoryRepo(options: MemoryRepoOptions): Promise<MemoryRepoInfo> {
   const repo = resolveMemoryRepoInternal(options);
-  const authoredDirs = await existingAuthoredDirs(repo.root);
   return publicRepoInfo({
     ...repo,
     initialized: await pathExists(join(repo.root, ".git")),
-    authoredDirs: authoredDirs.length ? authoredDirs : [...MEMORY_KINDS],
+    authoredDirs: await topLevelFolders(repo.root),
   });
 }
 
-function catalogEntryFromFile(file: MemoryFile): MemoryCatalogEntry {
+function catalogEntryFromFile(file: MemoryFile, gitDate: string, helpfulDate: string): MemoryCatalogEntry {
+  const updated = file.updated || gitDate;
   return {
     id: file.id,
-    kind: file.kind,
+    ...(file.type ? { type: file.type } : {}),
+    folder: file.folder,
+    updated,
+    touched: laterDate(updated, helpfulDate),
     description: file.description,
     path: file.path,
     source: file.source,
@@ -876,7 +918,6 @@ function isMemoryCatalogEntry(value: unknown): value is MemoryCatalogEntry {
   return (
     !!entry &&
     typeof entry.id === "string" &&
-    MEMORY_KINDS.includes(entry.kind as MemoryKind) &&
     typeof entry.description === "string" &&
     typeof entry.path === "string" &&
     Array.isArray(entry.source) &&
@@ -917,10 +958,37 @@ function validateMemoryFile(file: MemoryFile): MemoryLintIssue[] {
   const descriptionLength = [...file.description].length;
   if (descriptionLength > MEMORY_DESCRIPTION_CHAR_LIMIT) {
     issues.push({
+      severity: "warning",
+      blocksCommitOfNote: true,
+      id: file.id,
+      path: file.path,
+      message: `Memory description has ${descriptionLength} characters; maximum is ${MEMORY_DESCRIPTION_CHAR_LIMIT}. Rewrite it as a "Read when/before/for..." routing line and keep detail in the body.`,
+    });
+  }
+  const explicitType = optionalString(file.frontmatter.type);
+  if (explicitType && !MEMORY_NOTE_TYPES.includes(explicitType as MemoryNoteType)) {
+    issues.push({
       severity: "error",
       id: file.id,
       path: file.path,
-      message: `Memory description has ${descriptionLength} characters; maximum is ${MEMORY_DESCRIPTION_CHAR_LIMIT}. Shorten it to explain when to read this note; keep detailed policy and evidence in the body.`,
+      message: `Unknown memory type "${explicitType}". Use one of: ${MEMORY_NOTE_TYPES.join(", ")}.`,
+    });
+  } else if (!file.type) {
+    issues.push({
+      severity: "warning",
+      blocksCommitOfNote: true,
+      id: file.id,
+      path: file.path,
+      message: `Memory note has no type. Add \`type:\` (one of: ${MEMORY_NOTE_TYPES.join(", ")}).`,
+    });
+  }
+  if (!file.folder) {
+    issues.push({
+      severity: "warning",
+      blocksCommitOfNote: true,
+      id: file.id,
+      path: file.path,
+      message: "Memory note is at the repo root; move it into a topic folder with `memory mv`.",
     });
   }
   if (typeof file.frontmatter.source === "string") {
@@ -1069,17 +1137,6 @@ function normalizeFacets(value: FrontmatterValue | undefined): Record<string, st
   return facets;
 }
 
-function parseKind(value: string): MemoryKind {
-  if (MEMORY_KINDS.includes(value as MemoryKind)) return value as MemoryKind;
-  throw new Error(`Invalid memory kind "${value}". Expected one of: ${MEMORY_KINDS.join(", ")}`);
-}
-
-function parseKindFromPath(path: string): MemoryKind {
-  const [topDir] = path.split("/");
-  if (topDir) return parseKind(topDir);
-  throw new Error(`Memory file path "${path}" must be under one of: ${MEMORY_KINDS.join(", ")}`);
-}
-
 function parseOperation(value: string | undefined): MemoryCommitOperation | undefined {
   if (!value) return undefined;
   if (MEMORY_COMMIT_OPERATIONS.includes(value as MemoryCommitOperation)) return value as MemoryCommitOperation;
@@ -1181,6 +1238,35 @@ function formatLockConflict(info: MemoryLockInfo): string {
   return `Memory repo is already locked${owner}${session}${expires}`;
 }
 
+/** Repo-relative paths with uncommitted changes, including both sides of renames. */
+async function changedMemoryPaths(root: string): Promise<string[]> {
+  const output = await runGit(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+  const fields = output.split("\0").filter(Boolean);
+  const paths: string[] = [];
+  for (let index = 0; index < fields.length; index++) {
+    const status = fields[index].slice(0, 2);
+    paths.push(fields[index].slice(3));
+    if (status.includes("R") || status.includes("C")) paths.push(fields[++index]);
+  }
+  return paths;
+}
+
+/** Stamp `updated:` with today's date on changed notes that still exist (not folder READMEs). */
+async function stampUpdated(root: string, changedPaths: string[]): Promise<void> {
+  const today = localDate();
+  for (const path of changedPaths) {
+    if (!path.endsWith(".md") || path === "README.md" || path.endsWith("/README.md")) continue;
+    let content: string;
+    try {
+      content = await readFile(join(root, path), "utf-8");
+    } catch {
+      continue; // Deleted or moved away.
+    }
+    const stamped = setFrontmatterField(content, "updated", today);
+    if (stamped !== content) await writeFile(join(root, path), stamped, "utf-8");
+  }
+}
+
 function buildCommitMessage(input: MemoryCommitInput): string {
   if (!input.message.trim()) throw new Error("Memory commit message is required");
   const lines = [input.message.trim(), ""];
@@ -1193,13 +1279,13 @@ function buildCommitMessage(input: MemoryCommitInput): string {
   return lines.join("\n");
 }
 
-async function assertActiveMemoryLock(root: string): Promise<void> {
+export async function assertActiveMemoryLock(root: string): Promise<void> {
   const lock = await readLockInfo(root);
   if (!lock.locked) {
-    throw new Error("Acquire the memory repo lock before committing memory changes.");
+    throw new Error("Acquire the memory repo lock before committing or moving memory notes (`memory lock acquire`).");
   }
   if (lock.stale) {
-    throw new Error("Memory repo lock is stale; acquire a fresh lock before committing memory changes.");
+    throw new Error("Memory repo lock is stale; acquire a fresh lock before committing or moving memory notes.");
   }
 }
 
@@ -1410,12 +1496,12 @@ function legacyServerIndexPath(baseRoot: string, serverId: string): string {
 async function isEmptyMemoryRepo(path: string): Promise<boolean> {
   try {
     const entries = await readdir(path, { withFileTypes: true });
-    const allowedEmptyDirs = new Set([".git", ...MEMORY_KINDS]);
+    const allowedEmptyDirs = new Set([".git", ...LEGACY_TYPE_FOLDER_NAMES]);
     for (const entry of entries) {
       if (entry.isDirectory() && allowedEmptyDirs.has(entry.name)) continue;
       return false;
     }
-    for (const kind of MEMORY_KINDS) {
+    for (const kind of LEGACY_TYPE_FOLDER_NAMES) {
       const kindPath = join(path, kind);
       if ((await pathExists(kindPath)) && (await listMarkdownFiles(kindPath)).length > 0) return false;
     }
@@ -1427,12 +1513,13 @@ async function isEmptyMemoryRepo(path: string): Promise<boolean> {
 
 async function looksLikeMemorySpace(root: string): Promise<boolean> {
   if (await pathExists(join(root, ".git"))) return true;
-  return (await existingAuthoredDirs(root)).length > 0;
+  return (await existingLegacyTypeFolders(root)).length > 0;
 }
 
-async function existingAuthoredDirs(root: string): Promise<MemoryKind[]> {
-  const dirs: MemoryKind[] = [];
-  for (const kind of MEMORY_KINDS) {
+/** Legacy type folders identify a memory repo even before Git init (pre-session-space layouts). */
+async function existingLegacyTypeFolders(root: string): Promise<string[]> {
+  const dirs: string[] = [];
+  for (const kind of LEGACY_TYPE_FOLDER_NAMES) {
     try {
       const info = await stat(join(root, kind));
       if (info.isDirectory()) dirs.push(kind);
@@ -1443,11 +1530,23 @@ async function existingAuthoredDirs(root: string): Promise<MemoryKind[]> {
   return dirs;
 }
 
+async function topLevelFolders(root: string): Promise<string[]> {
+  return (await safeReaddir(root))
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+    .map((entry) => entry.name)
+    .sort();
+}
+
+/**
+ * Notes in legacy type folders, or anywhere in a Git-initialized repo. The Git requirement keeps
+ * a server-slug directory that merely contains session-space repos from counting as a repo.
+ */
 async function hasAuthoredMemoryData(root: string): Promise<boolean> {
-  for (const kind of MEMORY_KINDS) {
+  for (const kind of LEGACY_TYPE_FOLDER_NAMES) {
     if ((await listMarkdownFiles(join(root, kind))).length > 0) return true;
   }
-  return false;
+  if (!(await pathExists(join(root, ".git")))) return false;
+  return (await listMemoryRepoFiles(root)).notePaths.length > 0;
 }
 
 function sanitizeSlugForPath(slug: string): string {
@@ -1482,22 +1581,16 @@ async function resolveMemoryRecordPath(
   if (!isPathInside(rootPath, syntacticPath)) {
     throw new Error("Memory record path must stay inside the memory repo");
   }
-  const [kind] = syntacticRelativePath.split("/");
-  if (!MEMORY_KINDS.includes(kind as MemoryKind)) {
-    throw new Error(`Memory record path must be under one of: ${MEMORY_KINDS.join(", ")}`);
+  if (syntacticRelativePath.split("/").some((segment) => segment.startsWith("."))) {
+    throw new Error("Memory record path must not be inside a hidden directory");
   }
   if (!syntacticRelativePath.endsWith(".md")) {
     throw new Error("Memory record path must point to a Markdown file");
   }
 
   const realRoot = await realpath(rootPath);
-  const realAuthoredDir = await realpath(join(rootPath, kind));
-  if (!isPathInside(realRoot, realAuthoredDir)) {
-    throw new Error("Memory authored directory must stay inside the memory repo");
-  }
-
   const realTarget = await realpath(syntacticPath);
-  if (!isPathInside(realRoot, realTarget) || !isPathInside(realAuthoredDir, realTarget)) {
+  if (!isPathInside(realRoot, realTarget)) {
     throw new Error("Memory record path must stay inside the memory repo");
   }
   if (!repoRelative(realRoot, realTarget).endsWith(".md")) {

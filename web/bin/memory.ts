@@ -1,16 +1,23 @@
 #!/usr/bin/env bun
 
+import { readFile } from "node:fs/promises";
 import { workstreamMemoryService } from "../server/workstream-memory-service.js";
+import { applyMemoryHandle, noteViewLine, type MemoryViewLine } from "../server/memory-catalog-view.js";
+import { memoryHealthSummary } from "../server/memory-repo-health.js";
+import { parseMovePlan } from "../server/memory-move.js";
 import { getServerSlug, initWithPort } from "../server/settings-manager.js";
 import {
+  LEGACY_TYPE_FOLDERS,
   MEMORY_COMMIT_OPERATIONS,
   MEMORY_DESCRIPTION_CHAR_LIMIT,
-  MEMORY_KINDS,
+  MEMORY_NOTE_TYPES,
   type MemoryCommitOperation,
-  type MemoryKind,
+  type MemoryNoteType,
 } from "../server/workstream-memory-types.js";
 
 const VALUE_OPTIONS = new Set(["--root", "--server-id", "--server-slug", "--session-space"]);
+/** Flags that never take a value, so the next token stays positional. */
+const BOOLEAN_FLAGS = new Set(["--json", "--all", "--content", "--no-steal-stale", "--help"]);
 const args = process.argv.slice(2);
 const commandIndex = findCommandIndex(args);
 const command = commandIndex === -1 ? undefined : args[commandIndex];
@@ -51,13 +58,22 @@ function positional(index: number): string | undefined {
   const start = commandIndex === -1 ? 0 : commandIndex + 1;
   for (let i = start; i < args.length; i++) {
     if (args[i].startsWith("--")) {
-      if (args[i + 1] && !args[i + 1].startsWith("--")) i += 1;
+      if (!BOOLEAN_FLAGS.has(args[i]) && args[i + 1] && !args[i + 1].startsWith("--")) i += 1;
       continue;
     }
     if (current === index) return args[i];
     current += 1;
   }
   return undefined;
+}
+
+function positionals(): string[] {
+  const values: string[] = [];
+  for (let index = 0; ; index++) {
+    const value = positional(index);
+    if (value === undefined) return values;
+    values.push(value);
+  }
 }
 
 function die(message: string): never {
@@ -72,65 +88,56 @@ function out(data: unknown): void {
 function printUsage(): void {
   console.log(`Usage: memory [options] <command> [args]
 
-Commands:
+Memory is a Git repo of Markdown notes in topic folders. Load the \`memory\` skill before
+writing, moving or reorganizing notes; it has the full workflow and the curation procedure.
+
+Reading:
+  catalog show [--seen HANDLE]
+      The catalog: recently updated notes plus one line per top-level folder.
+  catalog show <folder> [--seen HANDLE]
+      Every note in one folder. Before relying on memory, list every folder that matches your task.
+  catalog show --all [--seen HANDLE]
+      Every note in the repo (for curation).
+  catalog diff [--seen HANDLE]
+      Notes whose content changed since this session last looked.
+  Every catalog output ends with a memory handle. Pass the newest handle with --seen on your next
+  read to leave out entries already shown (they are counted, not listed). Without --seen the output
+  is complete. --json prints full machine-readable fields without dedupe.
+  helpful <path>...
+      Record that notes helped. A mark counts as touching the note for the recent list.
   repo path
-      Print the resolved repo root. Use this to rediscover memory after compaction.
-  catalog [show|diff]
-      Show the repo root and list authored memory files from frontmatter.
-      Default show output is compact; inspect the file or use --json for provenance/source refs.
-      Use an available preloaded catalog for orientation; show the full catalog when needed.
-      Catalog diff reports metadata and body changes since this session last saw the catalog.
-      Legacy metadata-only snapshots report existing entries as changed once.
-  lint
-      Canonical health check for memory files and frontmatter.
+      Print the resolved repo root.
+
+Writing (hold the lock):
   lock status|acquire|release [--owner NAME] [--ttl-ms N]
-      Coordinate direct file edits with the repo-level write lock.
-  status
-      Show git status for pending memory edits.
-  diff
-      Show the unstaged/staged memory diff before commit.
-  commit --message TEXT [--quest q-N] [--session N] [--operation update] [--memory-id PATH] [--source REF]
-      Commit memory edits with provenance trailers.
+  mv <old-path> <new-path> | mv --plan <file>
+      Move notes and rewrite every reference to them. A plan has one "old new" pair per line.
+  lint
+      Health check: summary line, then errors and warnings. Commits are blocked only by errors.
+  status | diff
+      Pending Git changes.
+  commit --message TEXT [--quest q-N] [--session N] [--operation update|repair|...] [--memory-id PATH] [--source REF]
+      Commit with provenance trailers. Stamps \`updated:\` on changed notes unless --operation repair
+      (use repair for moves, README edits and description fixes).
 
 Options:
-  --root PATH       Override the memory repo root for this command.
-	  --server-slug SLUG
-	                    Override the server slug used for default repo discovery.
-	  --session-space SLUG
-	                    Override the session-space slug used for default repo discovery.
-	  --json            Emit exact machine-readable fields. Default output is concise for agents.
+  --root PATH            Override the memory repo root for this command.
+  --server-slug SLUG     Override the server slug used for default repo discovery.
+  --session-space SLUG   Override the session-space slug used for default repo discovery.
+  --json                 Machine-readable output.
 
-Default repo:
-  ~/.companion/memory/<serverSlug>/<sessionSpace>
-  Normal memory operations auto-create the Git repo and authored directories.
-  Server slugs are short names such as prod, dev, or port-3455; the default session space is Takode.
+Default repo: ~/.companion/memory/<serverSlug>/<sessionSpace>, auto-created with Git.
 
-Memory files are authored directly under:
-  current/ knowledge/ procedures/ decisions/ references/ artifacts/
-
-Frontmatter schema:
-  description: one or two sentences explaining when to read the note
-  Descriptions are limited to ${MEMORY_DESCRIPTION_CHAR_LIMIT} Unicode characters (code points).
-  Keep policy, history and evidence in the body. Lint/commit reject overlong descriptions;
-  catalogs retain the record and report the error without silently truncating it.
-  source: [q-1218]
-  For quest-backed records, use the quest id as the primary source. Use session:<id>
-  only when no quest exists or the session itself is the durable source of truth.
-  id and kind are derived from the repo-relative file path.
-
-Common examples:
-	  memory repo path
-	  memory --server-slug dev repo path
-	  memory --server-slug dev --session-space Other repo path
-	  memory catalog show
-  memory catalog diff
-  # If catalog/context makes a memory match plausible, search with concrete terms.
-  rg "exact task terms" "$(memory repo path)"
-  memory lint
+Note frontmatter:
+  description: "Read when/before/for ..." routing line, at most ${MEMORY_DESCRIPTION_CHAR_LIMIT} characters
+  type: one of ${MEMORY_NOTE_TYPES.join(", ")}
+  updated: YYYY-MM-DD (stamped by memory commit)
+  source: [q-N]   (quest ID for quest-backed notes; session:<id> only without a quest)
+Notes live in topic folders (5-25 notes each), each with a README.md holding a one-line description.
 
 Write flow:
   memory lock acquire --owner <session-or-role>
-  edit Markdown files directly under the authored directories
+  edit Markdown files directly (move notes only with memory mv)
   memory lint
   memory diff
   memory commit --message "Update memory" --source <source-ref> --memory-id <repo-relative-path>
@@ -153,17 +160,21 @@ function parseCsv(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function parseKinds(): MemoryKind[] | undefined {
-  const raw = [...options("kind"), ...parseCsv(option("kinds"))].flatMap((item) => parseCsv(item));
+/** Recall filter. `--kind` also accepts the legacy folder names (decisions, procedures, ...). */
+function parseTypes(): MemoryNoteType[] | undefined {
+  const raw = [
+    ...options("type"),
+    ...options("kind"),
+    ...parseCsv(option("types")),
+    ...parseCsv(option("kinds")),
+  ].flatMap((item) => parseCsv(item));
   if (!raw.length) return undefined;
-  const kinds: MemoryKind[] = [];
-  for (const value of raw) {
-    if (!MEMORY_KINDS.includes(value as MemoryKind)) {
-      die(`--kind must be one of: ${MEMORY_KINDS.join(", ")}`);
-    }
-    kinds.push(value as MemoryKind);
-  }
-  return kinds;
+  return raw.map((value) => {
+    const type = (LEGACY_TYPE_FOLDERS as Record<string, MemoryNoteType>)[value] ?? value;
+    if (!MEMORY_NOTE_TYPES.includes(type as MemoryNoteType))
+      die(`--type must be one of: ${MEMORY_NOTE_TYPES.join(", ")}`);
+    return type as MemoryNoteType;
+  });
 }
 
 function parseFacets(): Record<string, string[]> | undefined {
@@ -197,41 +208,33 @@ function requireOption(name: string): string {
   return value.trim();
 }
 
-function printCatalog(catalog: Awaited<ReturnType<typeof workstreamMemoryService.catalog>>): void {
-  if (jsonOutput) {
-    out({ repo: catalog.repo, entries: catalog.entries, issues: catalog.issues });
-    return;
-  }
-  console.log(`Memory repo: ${catalog.repo.root}`);
-  if (!catalog.entries.length) {
-    console.log("No memory files found.");
-  }
-  for (const entry of catalog.entries) {
-    console.log(`${entry.id}: ${entry.description}`);
-  }
-  printIssues(filterNormalReadIssues(catalog.issues));
+function printCatalogJson(catalog: Awaited<ReturnType<typeof workstreamMemoryService.catalog>>): void {
+  out({ repo: catalog.repo, entries: catalog.entries, folders: catalog.folders, issues: catalog.issues });
 }
 
-function printCatalogDiff(diff: Awaited<ReturnType<typeof workstreamMemoryService.catalogDiff>>): void {
+async function printCatalogDiff(diff: Awaited<ReturnType<typeof workstreamMemoryService.catalogDiff>>): Promise<void> {
   if (jsonOutput) {
     out(diff);
     return;
   }
-  console.log(`Memory repo: ${diff.repo.root}`);
-  if (diff.previousSeenAt) {
-    console.log(`Catalog changes since ${diff.previousSeenAt}:`);
-  } else {
-    console.log("No prior catalog snapshot for this session; current entries are shown as new:");
-  }
-  if (!diff.changes.length) {
-    console.log("No catalog changes since last seen.");
-  }
+  // Versions must match catalog outputs so a later listing can skip what diff already showed.
+  const hashes = (await workstreamMemoryService.catalog(repoOptions())).contentHashes ?? {};
+  const lines: MemoryViewLine[] = [{ text: `Memory repo: ${diff.repo.root}` }];
+  lines.push({
+    text: diff.previousSeenAt
+      ? `Catalog changes since ${diff.previousSeenAt}:`
+      : "No prior catalog snapshot for this session; current entries are shown as new:",
+  });
+  if (!diff.changes.length) lines.push({ text: "No catalog changes since last seen." });
   for (const change of diff.changes) {
     const entry = change.after ?? change.before;
     const description = entry?.description ? ` ${entry.description}` : "";
-    console.log(`${change.kind}: ${change.path}${description}`);
+    const text = `${change.kind}: ${change.path}${description}`;
+    // A changed note's new version is now shown; record it so later reads can skip it.
+    lines.push(change.after ? { ...noteViewLine(change.after, hashes[change.path]), text } : { text });
   }
-  printIssues(filterNormalReadIssues(diff.issues));
+  const view = await applyMemoryHandle(diff.repo.root, lines, { seen: option("seen") });
+  console.log(view.text);
 }
 
 function printIssues(issues: { severity: string; path?: string; message: string }[]): void {
@@ -279,13 +282,52 @@ async function main(): Promise<void> {
   if (command === "catalog") {
     const subcommand = positional(0);
     if (subcommand === "diff") {
-      printCatalogDiff(await workstreamMemoryService.catalogDiff(repoOptions()));
+      await printCatalogDiff(await workstreamMemoryService.catalogDiff(repoOptions()));
       return;
     }
     if (subcommand && subcommand !== "show") die("catalog subcommand must be show or diff");
-    const catalog = await workstreamMemoryService.catalog(repoOptions());
-    printCatalog(catalog);
-    await workstreamMemoryService.markCatalogSeen(catalog);
+    const folder = positional(1);
+    if (jsonOutput) {
+      const catalog = await workstreamMemoryService.catalog(repoOptions());
+      printCatalogJson(catalog);
+      if (!folder) await workstreamMemoryService.markCatalogSeen(catalog);
+      return;
+    }
+    const request = folder
+      ? ({ mode: "folder", folder } as const)
+      : flag("all")
+        ? ({ mode: "all" } as const)
+        : ({ mode: "overview" } as const);
+    const { catalog, view } = await workstreamMemoryService.catalogView(request, repoOptions(), option("seen"));
+    console.log(view.text);
+    if (!folder) await workstreamMemoryService.markCatalogSeen(catalog);
+    return;
+  }
+
+  if (command === "helpful") {
+    const paths = positionals();
+    if (!paths.length) die("helpful needs at least one repo-relative note path");
+    const result = await workstreamMemoryService.markHelpful(paths, repoOptions());
+    if (jsonOutput) out(result);
+    else console.log(`Marked ${result.marked.length} note(s) helpful on ${result.date}.`);
+    return;
+  }
+
+  if (command === "mv") {
+    const planPath = option("plan");
+    const moves = planPath
+      ? parseMovePlan(await readFile(planPath, "utf-8"))
+      : (() => {
+          const [from, to] = positionals();
+          if (!from || !to) die("mv needs <old-path> <new-path>, or --plan <file>");
+          return [{ from, to }];
+        })();
+    const result = await workstreamMemoryService.move(moves, repoOptions());
+    if (jsonOutput) out(result);
+    else
+      console.log(
+        `Moved ${result.moved} note(s); rewrote references in ${result.rewrittenNotes} other note(s). Commit with --operation repair.`,
+      );
     return;
   }
 
@@ -293,7 +335,7 @@ async function main(): Promise<void> {
     const result = await workstreamMemoryService.recall(
       {
         query: positional(0),
-        kinds: parseKinds(),
+        types: parseTypes(),
         facets: parseFacets(),
         includeContent: flag("content"),
         limit: parsePositiveInt(option("limit"), "--limit"),
@@ -307,7 +349,7 @@ async function main(): Promise<void> {
     console.log(`Memory repo: ${result.repo.root}`);
     if (!result.matches.length) console.log("No matching memory files found.");
     for (const match of result.matches) {
-      console.log(`${match.entry.id} [${match.entry.kind}] score=${match.score} ${match.entry.path}`);
+      console.log(`${match.entry.id} [${match.entry.type ?? "untyped"}] score=${match.score} ${match.entry.path}`);
       console.log(`  ${match.entry.description}`);
       if (match.entry.source.length) console.log(`  source: ${match.entry.source.join(", ")}`);
       if (match.content) console.log(`\n${match.content.trim()}\n`);
@@ -324,6 +366,7 @@ async function main(): Promise<void> {
       if (errors) process.exit(1);
       return;
     }
+    console.log(await memoryHealthSummary(catalog));
     printIssues(catalog.issues);
     const warnings = catalog.issues.filter((issue) => issue.severity === "warning").length;
     console.log(

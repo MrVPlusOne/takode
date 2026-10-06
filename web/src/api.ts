@@ -76,7 +76,7 @@ export type {
   MemoryCommitFileChange,
   MemoryFile,
   MemoryGitStatusEntry,
-  MemoryKind,
+  MemoryNoteType,
   MemoryLintIssue,
   MemoryLockInfo,
   MemoryRecentCommit,

@@ -198,7 +198,7 @@ source:
       expect.arrayContaining([
         expect.objectContaining({
           path: "knowledge/service-x.md",
-          kind: "knowledge",
+          type: "knowledge",
           source: ["q-1220"],
           facets: { project: ["takode"] },
         }),
@@ -555,7 +555,7 @@ source: q-1220
     const json = await res.json();
     expect(json.file).toMatchObject({
       path: "procedures/run-service.md",
-      kind: "procedures",
+      type: "procedure",
       description: "Starts the local service.",
       source: ["q-1220"],
       body: "Run `bun run dev` from the web directory.",

@@ -12,6 +12,8 @@ import {
 
 const CLAUDE_SKILL_DIR = join(homedir(), ".claude", "skills", "quest");
 const AGENTS_SKILL_DIR = join(homedir(), ".agents", "skills", "quest");
+const CLAUDE_MEMORY_SKILL_DIR = join(homedir(), ".claude", "skills", "memory");
+const AGENTS_MEMORY_SKILL_DIR = join(homedir(), ".agents", "skills", "memory");
 const OLD_SLASH_COMMAND = join(homedir(), ".claude", "commands", "quest.md");
 const OLD_API_DOC = join(homedir(), ".companion", "questmaster", "API.md");
 const TEMPLATE_PATH = join(dirname(fileURLToPath(import.meta.url)), "templates", "quest-skill-docs.md");
@@ -20,10 +22,12 @@ const MEMORY_COMPLETION_TEMPLATE_PATH = join(
   "templates",
   "quest-memory-completion.md",
 );
+const MEMORY_SKILL_TEMPLATE_PATH = join(dirname(fileURLToPath(import.meta.url)), "templates", "memory-skill-docs.md");
 const GENERATED_QUEST_SKILL_FILES = [
   { relativePath: "SKILL.md", templatePath: TEMPLATE_PATH },
   { relativePath: "memory-completion.md", templatePath: MEMORY_COMPLETION_TEMPLATE_PATH },
 ] as const;
+const GENERATED_MEMORY_SKILL_FILES = [{ relativePath: "SKILL.md", templatePath: MEMORY_SKILL_TEMPLATE_PATH }] as const;
 
 type GeneratedQuestSkillFile = {
   relativePath: string;
@@ -31,22 +35,33 @@ type GeneratedQuestSkillFile = {
 };
 
 let questSkillFiles: GeneratedQuestSkillFile[] | null = null;
+let memorySkillFiles: GeneratedQuestSkillFile[] | null = null;
 
 async function getQuestSkillFiles(): Promise<GeneratedQuestSkillFile[]> {
-  if (questSkillFiles !== null) return questSkillFiles;
-  questSkillFiles = await Promise.all(
-    GENERATED_QUEST_SKILL_FILES.map(async (file) => ({
+  questSkillFiles ??= await readSkillTemplates(GENERATED_QUEST_SKILL_FILES);
+  return questSkillFiles;
+}
+
+async function getMemorySkillFiles(): Promise<GeneratedQuestSkillFile[]> {
+  memorySkillFiles ??= await readSkillTemplates(GENERATED_MEMORY_SKILL_FILES);
+  return memorySkillFiles;
+}
+
+function readSkillTemplates(
+  files: readonly { relativePath: string; templatePath: string }[],
+): Promise<GeneratedQuestSkillFile[]> {
+  return Promise.all(
+    files.map(async (file) => ({
       relativePath: file.relativePath,
       content: await readFile(file.templatePath, "utf-8"),
     })),
   );
-  return questSkillFiles;
 }
 
 /**
  * Set up Questmaster CLI integration on server startup:
  * 1. Write copied global wrapper scripts at ~/.companion/bin/quest, memory, and stream
- * 2. Write an agent skill for Claude and the shared non-Claude skill home
+ * 2. Write the quest and memory agent skills for Claude and the shared non-Claude skill home
  * 3. Clean up old files (slash command, API.md)
  */
 export async function ensureQuestmasterIntegration(port: number, packageRoot: string): Promise<void> {
@@ -57,8 +72,11 @@ export async function ensureQuestmasterIntegration(port: number, packageRoot: st
   const skillFiles = await getQuestSkillFiles();
   writeAgentSkill(CLAUDE_SKILL_DIR, skillFiles);
   writeAgentSkill(AGENTS_SKILL_DIR, skillFiles);
+  const memoryFiles = await getMemorySkillFiles();
+  writeAgentSkill(CLAUDE_MEMORY_SKILL_DIR, memoryFiles);
+  writeAgentSkill(AGENTS_MEMORY_SKILL_DIR, memoryFiles);
   cleanupOldFiles();
-  console.log("[quest-integration] CLI wrapper and agent skill installed");
+  console.log("[quest-integration] CLI wrappers and quest/memory agent skills installed");
 }
 
 async function writeWrapperScripts(packageRoot: string): Promise<void> {

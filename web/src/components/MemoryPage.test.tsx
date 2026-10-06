@@ -145,7 +145,10 @@ function catalogResponse(): MemoryCatalogResponse {
     entries: [
       {
         id: "knowledge/service-x.md",
-        kind: "knowledge",
+        type: "knowledge",
+        folder: "knowledge",
+        updated: "2026-09-01",
+        touched: "2026-09-01",
         path: "knowledge/service-x.md",
         description: "Explains Service X config and failure modes.",
         source: ["q-1220", "session:1576:99"],
@@ -153,7 +156,10 @@ function catalogResponse(): MemoryCatalogResponse {
       },
       {
         id: "procedures/run-service.md",
-        kind: "procedures",
+        type: "procedure",
+        folder: "procedures",
+        updated: "2026-09-01",
+        touched: "2026-09-01",
         path: "procedures/run-service.md",
         description: "Starts the local service.",
         source: ["q-1227"],
@@ -161,7 +167,10 @@ function catalogResponse(): MemoryCatalogResponse {
       },
       {
         id: "decisions/memory-policy.md",
-        kind: "decisions",
+        type: "decision",
+        folder: "decisions",
+        updated: "2026-09-01",
+        touched: "2026-09-01",
         path: "decisions/memory-policy.md",
         description: "Records how memory catalog freshness is evaluated.",
         source: ["q-1220"],
@@ -229,7 +238,10 @@ function otherCatalogResponse(): MemoryCatalogResponse {
     entries: [
       {
         id: "current/other-state.md",
-        kind: "current",
+        type: "current",
+        folder: "current",
+        updated: "2026-09-01",
+        touched: "2026-09-01",
         path: "current/other-state.md",
         description: "Other session-space state.",
         source: ["q-1237"],
@@ -248,7 +260,9 @@ function recordResponse(path = "knowledge/service-x.md"): MemoryRecordResponse {
       repo: catalogResponse().repo,
       file: {
         id: "procedures/run-service.md",
-        kind: "procedures",
+        type: "procedure",
+        folder: "procedures",
+        updated: "2026-09-01",
         path: "procedures/run-service.md",
         absolutePath: "/Users/test/.companion/memory/prod/Takode/procedures/run-service.md",
         description: "Starts the local service.",
@@ -265,7 +279,9 @@ function recordResponse(path = "knowledge/service-x.md"): MemoryRecordResponse {
     repo: catalogResponse().repo,
     file: {
       id: "knowledge/service-x.md",
-      kind: "knowledge",
+      type: "knowledge",
+      folder: "knowledge",
+      updated: "2026-09-01",
       path: "knowledge/service-x.md",
       absolutePath: "/Users/test/.companion/memory/prod/Takode/knowledge/service-x.md",
       description: "Explains Service X config and failure modes.",
@@ -289,7 +305,9 @@ function otherRecordResponse(): MemoryRecordResponse {
     repo: otherCatalogResponse().repo,
     file: {
       id: "current/other-state.md",
-      kind: "current",
+      type: "current",
+      folder: "current",
+      updated: "2026-09-01",
       path: "current/other-state.md",
       absolutePath: "/Users/test/.companion/memory/prod/Other/current/other-state.md",
       description: "Other session-space state.",
@@ -633,7 +651,7 @@ describe("MemoryPage", () => {
     });
   });
 
-  it("collapses kind groups and filters simple record rows without clearing selected detail", async () => {
+  it("collapses folder groups and filters simple record rows without clearing selected detail", async () => {
     render(<MemoryPage embedded />);
 
     expect(await screen.findByText("service-x.md")).toBeInTheDocument();

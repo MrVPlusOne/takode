@@ -78,14 +78,15 @@ facets:
         serverSlug: "test",
         sessionSpaceSlug: "Takode",
         initialized: true,
-        authoredDirs: ["current", "knowledge", "procedures", "decisions", "references", "artifacts"],
+        // Only folders that exist are reported; new repos pre-create none.
+        authoredDirs: ["procedures"],
       }),
     );
     await expect(readFile(join(tempDir, "memory", ".git", "HEAD"), "utf-8")).resolves.toContain("ref:");
     expect(catalogJson.entries[0]).toEqual(
       expect.objectContaining({
         id: "procedures/run-service-x.md",
-        kind: "procedures",
+        type: "procedure",
         description: "Starts Service X.",
         source: ["q-1218"],
       }),
@@ -125,7 +126,7 @@ source: [q-1220, session:1559]
     expect(JSON.parse(catalogJson.stdout).entries[0]).toEqual(
       expect.objectContaining({
         id: "decisions/memory-schema.md",
-        kind: "decisions",
+        type: "decision",
         source: ["q-1220", "session:1559"],
       }),
     );
@@ -215,8 +216,9 @@ source:
 
   it("rejects overlong descriptions in lint and commit without hiding or truncating records", async () => {
     const path = "decisions/description-limit.md";
-    // Count Unicode code points, not UTF-16 units: exactly 1,000 remains valid.
-    const accepted = "🦊".repeat(1_000);
+    // Count Unicode code points, not UTF-16 units: exactly 250 remains valid. The note is
+    // uncommitted, so lint treats it as part of the next commit and reports an error.
+    const accepted = "🦊".repeat(250);
     const overlong = accepted + "!";
     await writeMemoryFile(path, `description: ${accepted}\nsource: [session:test]`);
     expect((await runMemory(["lint"], env)).status).toBe(0);
@@ -227,7 +229,7 @@ source:
       expect.objectContaining({
         path,
         severity: "error",
-        message: expect.stringContaining("1001 characters; maximum is 1000"),
+        message: expect.stringContaining("251 characters; maximum is 250"),
       }),
     );
     expect(JSON.parse(lint.stdout)).not.toHaveProperty("contentHashes");
@@ -241,7 +243,7 @@ source:
     );
     expect(commit.status).toBe(1);
     expect(commit.stderr).toContain("Memory lint failed");
-    expect(commit.stderr).toContain("Shorten it to explain when to read this note");
+    expect(commit.stderr).toContain("Rewrite it as a");
     expect(await readFile(join(tempDir, "memory", path), "utf-8")).toContain(overlong);
   });
 
@@ -413,7 +415,7 @@ source:
     expect(parsed.entries[0]).toEqual(
       expect.objectContaining({
         id: "knowledge/dual-schema.md",
-        kind: "knowledge",
+        type: "knowledge",
         description: "New description wins.",
         source: ["q-1220"],
       }),
@@ -462,7 +464,8 @@ source:
     const lint = await runMemory(["lint"], env);
     expect(lint.status).toBe(0);
     expect(lint.stdout).toContain("Obsolete memory frontmatter field");
-    expect(lint.stdout).toContain("Memory lint found 0 errors and 6 warnings.");
+    // 6 obsolete fields, plus the non-routing description and the legacy type folder.
+    expect(lint.stdout).toContain("Memory lint found 0 errors and 8 warnings.");
   });
 
   it("requires source refs as a YAML list in simplified frontmatter", async () => {
@@ -578,40 +581,54 @@ source:
     expect(result.stdout).not.toMatch(/^  check\b/m);
   });
 
+  it("chains memory handles across catalog reads, marks notes helpful, and moves notes by plan", async () => {
+    await writeMemoryFile("voice/recent.md", 'description: "Read when recent."\ntype: decision\nsource: [q-1]');
+    await writeMemoryFile("voice/evidence.md", 'description: "Read for evidence."\ntype: artifact\nsource: [q-1]');
+    const handleOf = (output: string) => /memory handle: (mem-[0-9a-f]{10})/.exec(output)?.[1];
+
+    // The overview shows the recent decision; the folder listing under that handle omits it.
+    const overview = await runMemory(["catalog", "show"], env);
+    expect(overview.status).toBe(0);
+    expect(overview.stdout).toContain("voice/recent.md: Read when recent.");
+    const listing = await runMemory(["catalog", "show", "voice", "--seen", handleOf(overview.stdout)!], env);
+    expect(listing.stdout).toContain("voice/evidence.md: Read for evidence.");
+    expect(listing.stdout).not.toContain("voice/recent.md");
+    expect(listing.stdout).toContain("1 entry omitted as already shown");
+    // Without --seen the listing is complete.
+    expect((await runMemory(["catalog", "show", "voice"], env)).stdout).toContain("voice/recent.md");
+
+    expect((await runMemory(["helpful", "voice/evidence.md"], env)).status).toBe(0);
+    expect((await runMemory(["helpful", "voice/missing.md"], env)).status).toBe(1);
+
+    const planPath = join(tempDir, "plan.txt");
+    await writeFile(planPath, "voice/evidence.md audio/evidence.md\n", "utf-8");
+    expect((await runMemory(["mv", "--plan", planPath], env)).status).toBe(1); // Needs the lock.
+    expect((await runMemory(["lock", "acquire"], env)).status).toBe(0);
+    const moved = await runMemory(["mv", "--plan", planPath], env);
+    expect(moved.status).toBe(0);
+    expect(moved.stdout).toContain("Moved 1 note(s)");
+    const json = JSON.parse((await runMemory(["catalog", "show", "--json"], env)).stdout);
+    expect(json.entries.map((entry: { path: string }) => entry.path)).toContain("audio/evidence.md");
+  });
+
   it("prints self-contained help without re-advertising legacy commands", async () => {
     const help = await runMemory(["help"], env);
 
     expect(help.status).toBe(0);
-    // The help text should be enough for an agent to recover the memory workflow after compaction.
-    expect(help.stdout).toContain("Normal memory operations auto-create");
+    // The help text should be enough for an agent to recover the command surface after compaction.
     expect(help.stdout).toContain("~/.companion/memory/<serverSlug>/<sessionSpace>");
-    expect(help.stdout).toContain("default session space is Takode");
     expect(help.stdout).toContain("repo path");
-    expect(help.stdout).toContain("Print the resolved repo root");
-    expect(help.stdout).toContain("catalog [show|diff]");
-    expect(help.stdout).toContain("Show the repo root and list authored memory files");
-    expect(help.stdout).toContain("Default show output is compact");
-    expect(help.stdout).toContain("inspect the file or use --json for provenance/source refs");
-    expect(help.stdout).toContain("Catalog diff reports metadata and body changes");
-    expect(help.stdout).not.toContain("Prefer catalog/direct file inspection for normal orientation.");
-    expect(help.stdout).toContain("description: one or two sentences explaining when to read the note");
-    expect(help.stdout).toContain("source: [q-1218]");
-    expect(help.stdout).toContain("For quest-backed records, use the quest id as the primary source");
-    expect(help.stdout).toContain("only when no quest exists or the session itself is the durable source of truth");
-    expect(help.stdout).toContain("id and kind are derived from the repo-relative file path.");
-    expect(help.stdout).toContain("Canonical health check");
-    expect(help.stdout).toContain("memory catalog show");
-    expect(help.stdout).toContain("memory catalog diff");
-    expect(help.stdout).toContain("If catalog/context makes a memory match plausible");
-    expect(help.stdout).toContain('rg "exact task terms" "$(memory repo path)"');
+    expect(help.stdout).toContain("catalog show <folder> [--seen HANDLE]");
+    expect(help.stdout).toContain("catalog diff [--seen HANDLE]");
+    expect(help.stdout).toContain("helpful <path>...");
+    expect(help.stdout).toContain("mv <old-path> <new-path> | mv --plan <file>");
+    expect(help.stdout).toContain("--operation update|repair");
+    expect(help.stdout).toContain("Load the `memory` skill");
+    expect(help.stdout).toContain("source: [q-N]");
+    expect(help.stdout).toContain("memory lock acquire --owner <session-or-role>");
+    expect(help.stdout).toContain("memory commit --message");
     expect(help.stdout).not.toContain('memory recall "current task terms"');
     expect(help.stdout).not.toContain("recall [query]");
-    expect(help.stdout).toContain("memory lock acquire --owner <session-or-role>");
-    expect(help.stdout).toContain("edit Markdown files directly under the authored directories");
-    expect(help.stdout).toContain("memory commit --message");
-    expect(help.stdout).toContain(
-      "--json            Emit exact machine-readable fields. Default output is concise for agents.",
-    );
     expect(help.stdout).not.toContain("repo path [--json]");
     expect(help.stdout).not.toContain("doctor");
     expect(help.stdout).not.toContain("repo path|init");

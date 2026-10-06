@@ -1,8 +1,20 @@
-export const MEMORY_KINDS = ["current", "knowledge", "procedures", "decisions", "references", "artifacts"] as const;
+export const MEMORY_NOTE_TYPES = ["current", "knowledge", "procedure", "decision", "reference", "artifact"] as const;
+/**
+ * Top-level folders of the original type-directory layout. Until a repo is curated into
+ * topic folders, a note in one of these folders without a `type:` takes its type from it.
+ */
+export const LEGACY_TYPE_FOLDERS = {
+  current: "current",
+  knowledge: "knowledge",
+  procedures: "procedure",
+  decisions: "decision",
+  references: "reference",
+  artifacts: "artifact",
+} as const satisfies Record<string, MemoryNoteType>;
 export const MEMORY_COMMIT_OPERATIONS = ["add", "update", "supersede", "repair"] as const;
-export const MEMORY_DESCRIPTION_CHAR_LIMIT = 1_000;
+export const MEMORY_DESCRIPTION_CHAR_LIMIT = 250;
 
-export type MemoryKind = (typeof MEMORY_KINDS)[number];
+export type MemoryNoteType = (typeof MEMORY_NOTE_TYPES)[number];
 export type MemoryCommitOperation = (typeof MEMORY_COMMIT_OPERATIONS)[number];
 
 export type FrontmatterScalar = string | string[];
@@ -29,12 +41,18 @@ export interface MemoryRepoInfo {
   serverSlug: string;
   sessionSpaceSlug: string;
   initialized: boolean;
-  authoredDirs: MemoryKind[];
+  /** Top-level folders that hold notes. */
+  authoredDirs: string[];
 }
 
 export interface MemoryFile {
   id: string;
-  kind: MemoryKind;
+  /** Explicit `type:`, else the legacy type folder's type, else undefined. */
+  type?: MemoryNoteType;
+  /** Repo-relative folder holding the note ("" for a misplaced root-level note). */
+  folder: string;
+  /** `updated:` frontmatter date (YYYY-MM-DD), or "" when absent. */
+  updated: string;
   description: string;
   source: string[];
   path: string;
@@ -46,16 +64,35 @@ export interface MemoryFile {
 
 export interface MemoryCatalogEntry {
   id: string;
-  kind: MemoryKind;
+  type?: MemoryNoteType;
+  folder: string;
+  /** Last substantive edit (frontmatter `updated:`, else the file's last Git commit date). */
+  updated: string;
+  /** Last touched: the later of `updated` and the latest helpful mark. Ranks the recent list. */
+  touched: string;
   description: string;
   path: string;
   source: string[];
   facets: Record<string, string[]>;
 }
 
+export interface MemoryFolderInfo {
+  /** Repo-relative folder path. */
+  path: string;
+  /** README `description:`, or "" when the folder has no README description. */
+  description: string;
+  /** Notes in this folder and its subfolders. */
+  noteCount: number;
+  /** Direct subfolder paths. */
+  subfolders: string[];
+  /** Internal version of the folder's catalog line, for handle dedupe. */
+  version: string;
+}
+
 export interface MemoryCatalog {
   repo: MemoryRepoInfo;
   entries: MemoryCatalogEntry[];
+  folders: MemoryFolderInfo[];
   issues: MemoryLintIssue[];
   /** Internal SHA-256 file versions for freshness; excluded from catalog presentation. */
   contentHashes?: Record<string, string>;
@@ -84,7 +121,7 @@ export interface MemorySpaceInfo {
   root: string;
   current: boolean;
   initialized: boolean;
-  authoredDirs: MemoryKind[];
+  authoredDirs: string[];
   hasAuthoredData: boolean;
   sessionSpaceSlug?: string;
   serverId?: string;
@@ -133,11 +170,13 @@ export interface MemoryLintIssue {
   path?: string;
   id?: string;
   message: string;
+  /** A per-note rule that blocks only commits that change this note; reported as a warning otherwise. */
+  blocksCommitOfNote?: boolean;
 }
 
 export interface MemoryRecallQuery {
   query?: string;
-  kinds?: MemoryKind[];
+  types?: MemoryNoteType[];
   facets?: Record<string, string[]>;
   includeContent?: boolean;
   limit?: number;

@@ -38,14 +38,16 @@ async function writeMemoryFile(path: string, frontmatter: string, body = "Body t
 }
 
 describe("file-based memory store", () => {
-  it("initializes one git-backed memory repo with the accepted authored directories", async () => {
+  it("initializes one git-backed memory repo without pre-creating folders", async () => {
     const repo = await memoryStore.ensureMemoryRepo();
 
     expect(repo.root).toBe(join(tempDir, "memory"));
     expect(repo.serverId).toBe("test-server");
     expect(repo.serverSlug).toBe("test");
     expect(repo.sessionSpaceSlug).toBe("Takode");
-    expect(repo.authoredDirs).toEqual(["current", "knowledge", "procedures", "decisions", "references", "artifacts"]);
+    // New repos start empty: topic folders are created as notes are written, and the
+    // legacy type folders are never created (lint would flag them for curation).
+    expect(repo.authoredDirs).toEqual([]);
     await expect(readFile(join(tempDir, "memory", ".git", "HEAD"), "utf-8")).resolves.toContain("ref:");
   });
 
@@ -256,6 +258,7 @@ Takode-owned memory.
     const msiRoot = join(tempDir, ".companion", "memory", "prod", "MSI");
 
     await memoryStore.ensureMemoryRepo();
+    await mkdir(join(takodeRoot, "current"), { recursive: true });
     await writeFile(
       join(takodeRoot, "current", "takode.md"),
       `---
@@ -374,7 +377,9 @@ facets:
     expect(catalog.entries).toEqual([
       expect.objectContaining({
         id: "knowledge/service-x.md",
-        kind: "knowledge",
+        // A note in a legacy type folder without `type:` takes the folder's type.
+        type: "knowledge",
+        folder: "knowledge",
         description: "Explains Service X config and failure modes.",
         path: "knowledge/service-x.md",
         source: ["q-1220"],
@@ -620,7 +625,7 @@ facets:
 
     const result = await memoryStore.recallMemory({
       query: "bun service",
-      kinds: ["procedures"],
+      types: ["procedure"],
       facets: { project: ["takode"] },
       includeContent: true,
     });

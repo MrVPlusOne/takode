@@ -49,7 +49,7 @@ If an implementation plan or user proposal conflicts with an existing design-pri
 | `worktree-rules` (`/port-changes`) | `.claude/skills/worktree-rules/` | Worktree-to-main-repo porting workflow; `worktree-rules` is the underlying skill slug and `/port-changes` is the user-facing command/alias |
 | `takode-ui-e2e-validation` | `.claude/skills/takode-ui-e2e-validation/` | Takode UI/E2E validation with `agent-browser`, leases, shared persistent validation state by default, isolated exceptions, Playground coverage, and screenshot evidence |
 
-Additionally, `quest-integration.ts` generates and installs the `quest` skill docs (from `web/server/templates/quest-skill-docs.md`) into the Claude and `.agents` skill directories at startup.
+Additionally, `quest-integration.ts` generates and installs the `quest` skill docs (from `web/server/templates/quest-skill-docs.md`) and the `memory` skill (from `web/server/templates/memory-skill-docs.md`, the reading, writing, upkeep and curation workflow for file-based memory) into the Claude and `.agents` skill directories at startup.
 Quest Journey phases are guided by the canonical phase briefs in `~/.companion/quest-journey-phases/<phase-id>/`, not by globally installed phase skills. Historical and canonical phase skill slugs remain internal Quest Journey compatibility metadata only; they are not installed as worker-visible skills.
 
 ## Development Commands

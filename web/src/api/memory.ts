@@ -9,7 +9,7 @@ async function get<T = unknown>(path: string): Promise<T> {
   return res.json();
 }
 
-export type MemoryKind = "current" | "knowledge" | "procedures" | "decisions" | "references" | "artifacts";
+export type MemoryNoteType = "current" | "knowledge" | "procedure" | "decision" | "reference" | "artifact";
 
 export interface MemoryRepoInfo {
   root: string;
@@ -17,7 +17,7 @@ export interface MemoryRepoInfo {
   serverSlug: string;
   sessionSpaceSlug: string;
   initialized: boolean;
-  authoredDirs: MemoryKind[];
+  authoredDirs: string[];
 }
 
 export interface MemorySpaceInfo {
@@ -25,7 +25,7 @@ export interface MemorySpaceInfo {
   root: string;
   current: boolean;
   initialized: boolean;
-  authoredDirs: MemoryKind[];
+  authoredDirs: string[];
   hasAuthoredData: boolean;
   sessionSpaceSlug?: string;
   serverId?: string;
@@ -34,7 +34,11 @@ export interface MemorySpaceInfo {
 
 export interface MemoryCatalogEntry {
   id: string;
-  kind: MemoryKind;
+  type?: MemoryNoteType;
+  /** Folder holding the note ("" at the repo root). */
+  folder: string;
+  updated: string;
+  touched: string;
   description: string;
   path: string;
   source: string[];
@@ -115,7 +119,9 @@ export interface MemorySpacesResponse {
 
 export interface MemoryFile {
   id: string;
-  kind: MemoryKind;
+  type?: MemoryNoteType;
+  folder: string;
+  updated: string;
   description: string;
   source: string[];
   path: string;

@@ -40,6 +40,7 @@ function catalogFixture(root = "/tmp/takode-memory"): MemoryCatalog {
       authoredDirs: ["current", "knowledge", "procedures", "decisions", "references", "artifacts"],
     },
     entries: [],
+    folders: [],
     issues: [],
   };
 }
@@ -77,9 +78,12 @@ describe("memory catalog injection", () => {
     expect(bundle.content).toContain("Memory repo: " + root);
     expect(bundle.content).toContain("decisions/memory-test.md: Test memory record");
     expect(bundle.content).toContain("result of `memory catalog show` at injection time");
-    expect(bundle.content).toContain("prefer `memory catalog diff`");
-    expect(bundle.content).toContain("instead of reflexively rerunning `memory catalog show`");
-    expect(bundle.content).toContain("inspect the actual Markdown files directly");
+    // Every injected catalog is complete and issues a fresh dedupe handle, which is how a new
+    // or compacted context restarts dedupe without any per-session server state.
+    expect(bundle.content).toMatch(
+      /\[memory handle: mem-[0-9a-f]{10}\. Pass --seen mem-[0-9a-f]{10} to your next memory read\.\]$/,
+    );
+    expect(bundle.content).toContain("decisions/ (1 note; 1 in recent list)");
 
     await expect(
       readFile(join(root, ".git", "takode-memory-catalog-seen", "session-a.json"), "utf-8"),

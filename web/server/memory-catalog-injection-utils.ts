@@ -6,7 +6,6 @@ import {
   MEMORY_CATALOG_UNAVAILABLE_PREFIX,
 } from "../shared/injected-event-message.js";
 import type { ProgrammaticHistoryFollowUp } from "./session-types.js";
-import type { MemoryCatalog } from "./workstream-memory-types.js";
 
 export const MEMORY_CATALOG_INJECTION_CHAR_LIMIT = 100_000;
 
@@ -149,38 +148,11 @@ export function hasMemoryCatalogHistoryFollowUp(message: {
   );
 }
 
-export function renderMemoryCatalogShow(catalog: MemoryCatalog): string {
-  const lines = ["Memory repo: " + catalog.repo.root];
-  if (!catalog.entries.length) {
-    lines.push("No memory files found.");
-  }
-  for (const entry of catalog.entries) {
-    lines.push(entry.id + ": " + entry.description);
-  }
-  const issues = catalog.issues.filter((issue) => !isSafelyIgnoredObsoleteFrontmatterWarning(issue));
-  if (issues.length) {
-    lines.push("", "Issues:");
-    for (const issue of issues) {
-      const path = issue.path ? issue.path + ": " : "";
-      lines.push("  " + issue.severity + ": " + path + issue.message);
-    }
-  }
-  return lines.join("\n");
-}
-
 function renderMemoryCatalogGuidance(): string {
   return [
-    "This automatically injected catalog is the result of `memory catalog show` at injection time. Treat it as an orientation snapshot, not the source of truth.",
-    "For freshness after injection, prefer `memory catalog diff` or inspect the actual Markdown files directly with normal tools such as `memory repo path`, `sed`, `rg`, and `cat` instead of reflexively rerunning `memory catalog show`.",
+    "This automatically injected catalog is the result of `memory catalog show` at injection time: recently updated notes plus one line per topic folder. Treat it as an orientation snapshot, not the source of truth.",
+    "Before relying on memory for a task, list every folder that matches it with `memory catalog show <folder> --seen <handle>`, passing the newest memory handle (this catalog ends with one). Use `memory catalog diff` for later changes, and read the Markdown files directly.",
   ].join("\n");
-}
-
-function isSafelyIgnoredObsoleteFrontmatterWarning(issue: { severity: string; message: string }): boolean {
-  return (
-    issue.severity === "warning" &&
-    issue.message.startsWith("Obsolete memory frontmatter field ") &&
-    issue.message.includes(" is ignored; derive it from path or use description/source.")
-  );
 }
 
 function normalizeLimit(limit: number | undefined): number {

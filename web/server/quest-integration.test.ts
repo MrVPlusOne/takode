@@ -78,6 +78,16 @@ describe("ensureQuestmasterIntegration", () => {
     );
   });
 
+  it("installs the generated memory skill for Claude and the shared non-Claude skill home", async () => {
+    // Every Takode user's agents load the memory workflow from this generated skill, so it must
+    // reach both backends from the canonical template, like the quest skill.
+    await ensureQuestmasterIntegration(3456, "/repo/web");
+    const canonical = await readFile(new URL("./templates/memory-skill-docs.md", import.meta.url), "utf-8");
+    for (const home of [".claude", ".agents"]) {
+      expect(writtenFile(`/home/tester/${home}/skills/memory/SKILL.md`)).toBe(canonical);
+    }
+  });
+
   it("replaces stale agents quest symlinks before writing the generated quest skill", async () => {
     // Covers the legacy migration state where ~/.agents/skills/quest pointed at
     // ~/.codex/skills/quest. The generated quest skill must become a real,

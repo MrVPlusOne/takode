@@ -2,9 +2,9 @@ import type { MemoryCatalog, MemoryRepoOptions } from "./workstream-memory-types
 import {
   buildAvailableMemoryCatalogBundle,
   buildUnavailableMemoryCatalogBundle,
-  renderMemoryCatalogShow,
   type MemoryCatalogInjectionBundle,
 } from "./memory-catalog-injection-utils.js";
+import { renderMemoryCatalogView } from "./memory-catalog-view.js";
 
 export * from "./memory-catalog-injection-utils.js";
 
@@ -60,7 +60,14 @@ export async function buildMemoryCatalogInjectionBundle(
           `(entries=${catalog.entries.length}, issues=${catalog.issues.length})`,
       );
     }
-    const bundle = buildAvailableMemoryCatalogBundle(renderMemoryCatalogShow(catalog), { limit: options.limit });
+    // Injected catalogs never take a handle: each one is complete and issues a fresh handle,
+    // which is how a compacted or new context starts dedupe over.
+    const view = await withTimeout(
+      renderMemoryCatalogView(catalog, { mode: "overview" }),
+      timeoutMs,
+      "memory catalog rendering",
+    );
+    const bundle = buildAvailableMemoryCatalogBundle(view.text, { limit: options.limit });
     if (bundle.truncated) return bundle;
     return {
       ...bundle,

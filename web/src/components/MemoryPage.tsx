@@ -4,7 +4,6 @@ import {
   type MemoryCatalogEntry,
   type MemoryCatalogResponse,
   type MemoryFile,
-  type MemoryKind,
   type MemoryLintIssue,
   type MemoryRecentCommit,
   type MemoryRecordResponse,
@@ -28,7 +27,8 @@ type LoadState<T> =
 
 type MemoryPreferenceState = Pick<AppState, "currentSessionId" | "sessions" | "treeAssignments" | "treeGroups">;
 
-const MEMORY_KINDS: MemoryKind[] = ["current", "knowledge", "procedures", "decisions", "references", "artifacts"];
+/** Group label for misplaced notes at the repo root. */
+const ROOT_GROUP = "(repo root)";
 const INITIAL_RECENT_LIMIT = 20;
 const RECENT_INCREMENT = 20;
 type MemorySidePanelTab = "records" | "updates";
@@ -234,36 +234,36 @@ function SpaceSelect({
 }
 
 function RecordTree({
-  entriesByKind,
+  entriesByFolder,
   pathIssues,
-  collapsedKinds,
+  collapsedFolders,
   selectedPath,
-  onToggleKind,
+  onToggleFolder,
   onSelectEntry,
 }: {
-  entriesByKind: Map<MemoryKind, MemoryCatalogEntry[]>;
+  entriesByFolder: Map<string, MemoryCatalogEntry[]>;
   pathIssues: Map<string, MemoryLintIssue[]>;
-  collapsedKinds: Set<MemoryKind>;
+  collapsedFolders: Set<string>;
   selectedPath: string | null;
-  onToggleKind: (kind: MemoryKind) => void;
+  onToggleFolder: (folder: string) => void;
   onSelectEntry: (entry: MemoryCatalogEntry) => void;
 }) {
   return (
     <div className="divide-y divide-cc-border rounded-md border border-cc-border bg-cc-card">
-      {MEMORY_KINDS.map((kind) => {
-        const entries = entriesByKind.get(kind) ?? [];
-        const collapsed = collapsedKinds.has(kind);
+      {[...entriesByFolder.keys()].map((folder) => {
+        const entries = entriesByFolder.get(folder) ?? [];
+        const collapsed = collapsedFolders.has(folder);
         return (
-          <section key={kind} aria-label={`${kind} memory records`}>
+          <section key={folder} aria-label={`${folder} memory records`}>
             <button
               type="button"
-              onClick={() => onToggleKind(kind)}
+              onClick={() => onToggleFolder(folder)}
               className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs transition-colors hover:bg-cc-hover focus:bg-cc-hover focus:outline-none"
               aria-expanded={!collapsed}
             >
               <span className="flex min-w-0 items-center gap-2">
                 <span className="w-3 shrink-0 text-cc-muted">{collapsed ? "+" : "-"}</span>
-                <span className="truncate font-semibold text-cc-fg">{kind}</span>
+                <span className="truncate font-semibold text-cc-fg">{folder}</span>
               </span>
               <span className="shrink-0 rounded bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted">
                 {entries.length}
@@ -463,9 +463,9 @@ function MemoryFileDetail({
             <Field label="Path">
               <div className="break-all font-mono text-[11px] leading-relaxed text-cc-muted">{file.absolutePath}</div>
             </Field>
-            <Field label="Kind">
+            <Field label="Type">
               <span className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-[11px] text-cc-muted">
-                {file.kind}
+                {file.type ?? "untyped"}
               </span>
             </Field>
             <Field label="Sources">
@@ -832,18 +832,18 @@ function issuesByPath(issues: MemoryLintIssue[]): Map<string, MemoryLintIssue[]>
 function entryMatches(entry: MemoryCatalogEntry, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
-  return [entry.path, entry.kind, entry.description, entry.source.join(" "), Object.keys(entry.facets).join(" ")]
+  return [entry.path, entry.type ?? "", entry.description, entry.source.join(" "), Object.keys(entry.facets).join(" ")]
     .join(" ")
     .toLowerCase()
     .includes(needle);
 }
 
-function groupEntries(entries: MemoryCatalogEntry[]): Map<MemoryKind, MemoryCatalogEntry[]> {
-  const map = new Map<MemoryKind, MemoryCatalogEntry[]>();
-  for (const kind of MEMORY_KINDS) map.set(kind, []);
-  for (const entry of entries) {
-    map.set(entry.kind, [...(map.get(entry.kind) ?? []), entry]);
-  }
+/** Group by top-level folder (sorted), so both topic folders and older type folders read naturally. */
+function groupEntries(entries: MemoryCatalogEntry[]): Map<string, MemoryCatalogEntry[]> {
+  const map = new Map<string, MemoryCatalogEntry[]>();
+  const folderOf = (entry: MemoryCatalogEntry) => entry.folder.split("/")[0] || ROOT_GROUP;
+  for (const folder of [...new Set(entries.map(folderOf))].sort()) map.set(folder, []);
+  for (const entry of entries) map.get(folderOf(entry))?.push(entry);
   return map;
 }
 
@@ -881,7 +881,7 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [selectedUpdateSha, setSelectedUpdateSha] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [collapsedKinds, setCollapsedKinds] = useState<Set<MemoryKind>>(new Set());
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [sidePanelTab, setSidePanelTab] = useState<MemorySidePanelTab>("records");
   const [recentLimit, setRecentLimit] = useState(INITIAL_RECENT_LIMIT);
@@ -1020,7 +1020,7 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
     () => (catalog?.entries ?? []).filter((entry) => entryMatches(entry, query)),
     [catalog?.entries, query],
   );
-  const entriesByKind = useMemo(() => groupEntries(filteredEntries), [filteredEntries]);
+  const entriesByFolder = useMemo(() => groupEntries(filteredEntries), [filteredEntries]);
   const selectedSpace = spacesState.data?.spaces.find((space) => space.root === selectedRoot) ?? null;
   const selectedSpaceLabel = selectedSpace ? spaceLabel(selectedSpace) : null;
   const selectedEntry = selectedPath ? (catalog?.entries.find((entry) => entry.path === selectedPath) ?? null) : null;
@@ -1062,11 +1062,11 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
     setMobileDetailOpen(true);
   }
 
-  function toggleKind(kind: MemoryKind): void {
-    setCollapsedKinds((current) => {
+  function toggleFolder(folder: string): void {
+    setCollapsedFolders((current) => {
       const next = new Set(current);
-      if (next.has(kind)) next.delete(kind);
-      else next.add(kind);
+      if (next.has(folder)) next.delete(folder);
+      else next.add(folder);
       return next;
     });
   }
@@ -1255,11 +1255,11 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
                     ) : null}
                     {catalogState.status === "ready" && filteredEntries.length > 0 ? (
                       <RecordTree
-                        entriesByKind={entriesByKind}
+                        entriesByFolder={entriesByFolder}
                         pathIssues={pathIssues}
-                        collapsedKinds={collapsedKinds}
+                        collapsedFolders={collapsedFolders}
                         selectedPath={selectedPath}
-                        onToggleKind={toggleKind}
+                        onToggleFolder={toggleFolder}
                         onSelectEntry={selectEntry}
                       />
                     ) : null}

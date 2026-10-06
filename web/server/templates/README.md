@@ -15,6 +15,10 @@ documentation in user/worktree environments.
   - Questmaster skill content and workflow guidance.
   - Used to install/update quest docs in backend skill directories.
 
+- [memory-skill-docs.md](./memory-skill-docs.md)
+  - `memory` skill: reading, writing, upkeep and curation of the file-based memory repo.
+  - Installed next to the quest skill by `quest-integration.ts`.
+
 ## Primary consumers
 
 - [../takode-integration.ts](../takode-integration.ts)
