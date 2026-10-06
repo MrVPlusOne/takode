@@ -498,73 +498,26 @@ export function handleAssistantMessage(
     }
 
     const contentBlockIds = new Set<string>();
-    const now = Date.now();
-    const timestamp = Date.now();
-    const contentSegments = splitLeaderAssistantContentAtThreadRouteBoundaries(
+    const currentHistoryMessageId = emitRoutedAssistantSegments(session, msg, msg.message.content, deps, {
       isLeaderSession,
-      msg.message.content,
-      msg.parent_tool_use_id,
-    );
-    let currentHistoryMessageId = msgId;
-    for (const [segmentIndex, contentSegment] of contentSegments.entries()) {
-      const routed = applyRecentThreadFallbackToLeaderAssistantRouting(
-        isLeaderSession,
-        normalizeLeaderAssistantRouting(isLeaderSession, contentSegment, msg.parent_tool_use_id),
-        session.messageHistory,
-        msg.parent_tool_use_id,
-      );
-      const route = routeFromLeaderAssistantResult(routed);
-      queueQuestThreadRemindersFromLeaderAssistant(session, routed.questThreadReminders, route);
-      const routedMessage = { ...msg.message, content: routed.content };
-      const segmentMessageId = segmentIndex === 0 ? msgId : `${msgId}:route-${segmentIndex}`;
-      currentHistoryMessageId = segmentMessageId;
-      const toolStartTimesMap: Record<string, number> = {};
-      for (const block of routedMessage.content) {
-        if (block.type === "tool_use" && block.id) {
-          contentBlockIds.add(block.id);
-          if (!session.toolStartTimes.has(block.id)) {
-            session.toolStartTimes.set(block.id, now);
-          }
-          session.toolProgressOutput.delete(block.id);
-          toolStartTimesMap[block.id] = session.toolStartTimes.get(block.id)!;
-          newlyObservedToolUses.push(block);
-        }
-      }
-
-      const browserMsg: BrowserIncomingMessage = {
-        type: "assistant",
-        message: { ...routedMessage, id: segmentMessageId, content: [...routedMessage.content] },
-        parent_tool_use_id: msg.parent_tool_use_id,
-        timestamp,
-        uuid: msg.uuid,
-        ...(Object.keys(toolStartTimesMap).length > 0 ? { tool_start_times: toolStartTimesMap } : {}),
-        ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
-        ...(routed.questId ? { questId: routed.questId } : {}),
-        ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
-        ...(slackThreadId ? { slackThreadId } : {}),
-        ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
-        ...leaderAssistantControlMetadata(session, routed, true),
-      };
-      const transitionMarker = appendThreadTransitionMarkerForRouteSwitch(
-        session.messageHistory,
-        normalizeThreadRoute(routed.threadKey, routed.questId),
-      );
-      publishThreadTransitionMarker(session, transitionMarker, deps);
-      session.messageHistory.push(browserMsg);
-      const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
-        session,
-        undefined,
-        { messageId: segmentMessageId, timestamp },
-        hasLeaderRoutedActivityContent(routed.content) ? route : undefined,
-      );
-      if (statusUpdate.changed) deps.invalidateLeaderThreadTabsForSession?.(session.id);
-      deps.broadcastToBrowsers(session, browserMsg);
-      updateActiveTurnRouteFromLeaderAssistant(session, route, deps);
-    }
+      contentBlockIds,
+      newlyObservedToolUses,
+    });
     session.assistantAccumulator.set(msgId, {
       contentBlockIds,
       currentHistoryMessageId,
       rawContent: [...msg.message.content],
+    });
+  } else if (isLeaderSession && isFirstRoutableChunkForUnroutedRow(session, msg)) {
+    // The first same-id chunk carried no routable content (Claude streams a
+    // thinking block as its own chunk), so route the merged message now as if
+    // it had arrived whole, rewriting the unrouted row in place.
+    acc.rawContent = mergeAssistantRawContent(acc.rawContent ?? [], msg.message.content);
+    acc.currentHistoryMessageId = emitRoutedAssistantSegments(session, msg, acc.rawContent, deps, {
+      isLeaderSession,
+      contentBlockIds: acc.contentBlockIds,
+      newlyObservedToolUses,
+      replaceUnroutedRow: true,
     });
   } else {
     const historyMessageId = acc.currentHistoryMessageId ?? msgId;
@@ -685,6 +638,116 @@ export function handleAssistantMessage(
     deps.onToolUseObserved?.(session, toolUse);
   }
   deps.persistSession(session);
+}
+
+/**
+ * Persist and broadcast one history row per leader thread-route segment of
+ * `content`. With `replaceUnroutedRow`, segment 0 takes the history position
+ * (and CLI uuid) of the existing row for this message id instead of being
+ * appended. Returns the history message id of the last segment.
+ */
+function emitRoutedAssistantSegments(
+  session: AssistantMessageSessionLike,
+  msg: CLIAssistantMessage,
+  content: ContentBlock[],
+  deps: HandleAssistantMessageDeps,
+  options: {
+    isLeaderSession: boolean;
+    contentBlockIds: Set<string>;
+    newlyObservedToolUses: Array<Extract<ContentBlock, { type: "tool_use" }>>;
+    replaceUnroutedRow?: boolean;
+  },
+): string {
+  const msgId = msg.message.id;
+  const { isLeaderSession, contentBlockIds, newlyObservedToolUses } = options;
+  const slackThreadId = session.state.slackThreadChild?.threadId;
+  const timestamp = Date.now();
+  const replaceIndex = options.replaceUnroutedRow ? findAssistantHistoryIndex(session, msgId) : -1;
+  const contentSegments = splitLeaderAssistantContentAtThreadRouteBoundaries(
+    isLeaderSession,
+    content,
+    msg.parent_tool_use_id,
+  );
+  let currentHistoryMessageId = msgId;
+  for (const [segmentIndex, contentSegment] of contentSegments.entries()) {
+    const routed = applyRecentThreadFallbackToLeaderAssistantRouting(
+      isLeaderSession,
+      normalizeLeaderAssistantRouting(isLeaderSession, contentSegment, msg.parent_tool_use_id),
+      session.messageHistory,
+      msg.parent_tool_use_id,
+    );
+    const route = routeFromLeaderAssistantResult(routed);
+    queueQuestThreadRemindersFromLeaderAssistant(session, routed.questThreadReminders, route);
+    const segmentMessageId = segmentIndex === 0 ? msgId : `${msgId}:route-${segmentIndex}`;
+    const replacesRow = segmentIndex === 0 && replaceIndex >= 0;
+    currentHistoryMessageId = segmentMessageId;
+    const toolStartTimesMap: Record<string, number> = {};
+    for (const block of routed.content) {
+      if (block.type === "tool_use" && block.id) {
+        contentBlockIds.add(block.id);
+        if (!session.toolStartTimes.has(block.id)) {
+          session.toolStartTimes.set(block.id, timestamp);
+        }
+        session.toolProgressOutput.delete(block.id);
+        toolStartTimesMap[block.id] = session.toolStartTimes.get(block.id)!;
+        newlyObservedToolUses.push(block);
+      }
+    }
+
+    const browserMsg: BrowserIncomingMessage = {
+      type: "assistant",
+      message: { ...msg.message, id: segmentMessageId, content: [...routed.content] },
+      parent_tool_use_id: msg.parent_tool_use_id,
+      timestamp,
+      uuid: replacesRow ? (session.messageHistory[replaceIndex] as { uuid?: string }).uuid : msg.uuid,
+      ...(Object.keys(toolStartTimesMap).length > 0 ? { tool_start_times: toolStartTimesMap } : {}),
+      ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
+      ...(routed.questId ? { questId: routed.questId } : {}),
+      ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
+      ...(slackThreadId ? { slackThreadId } : {}),
+      ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
+      ...leaderAssistantControlMetadata(session, routed, true),
+    };
+    // A replaced row is taken out before the transition check so it cannot act
+    // as an implicit Main boundary; the routed row then takes its index.
+    if (replacesRow) session.messageHistory.splice(replaceIndex, 1);
+    const transitionMarker = appendThreadTransitionMarkerForRouteSwitch(
+      session.messageHistory,
+      normalizeThreadRoute(routed.threadKey, routed.questId),
+    );
+    publishThreadTransitionMarker(session, transitionMarker, deps);
+    if (replacesRow) {
+      session.messageHistory.splice(replaceIndex, 0, browserMsg);
+    } else {
+      session.messageHistory.push(browserMsg);
+    }
+    const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
+      session,
+      undefined,
+      { messageId: segmentMessageId, timestamp },
+      hasLeaderRoutedActivityContent(routed.content) ? route : undefined,
+    );
+    if (statusUpdate.changed) deps.invalidateLeaderThreadTabsForSession?.(session.id);
+    deps.broadcastToBrowsers(session, browserMsg, replacesRow ? { skipBuffer: true } : undefined);
+    updateActiveTurnRouteFromLeaderAssistant(session, route, deps);
+  }
+  return currentHistoryMessageId;
+}
+
+/**
+ * True when a same-id chunk brings the first routable content (visible text or
+ * tools) to a top-level leader row that has none yet, e.g. a thinking-only
+ * first chunk. Routing is decided by the first routable content, so that row
+ * must be routed now rather than having raw marker text appended to it.
+ */
+function isFirstRoutableChunkForUnroutedRow(session: AssistantMessageSessionLike, msg: CLIAssistantMessage): boolean {
+  if (msg.parent_tool_use_id || !hasLeaderRoutedActivityContent(msg.message.content)) return false;
+  const row = session.messageHistory[findAssistantHistoryIndex(session, msg.message.id)];
+  return row?.type === "assistant" && !hasLeaderRoutedActivityContent(row.message.content);
+}
+
+function findAssistantHistoryIndex(session: AssistantMessageSessionLike, messageId: string): number {
+  return session.messageHistory.findLastIndex((entry) => entry.type === "assistant" && entry.message.id === messageId);
 }
 
 export function handleAssistantMessageWithRuntime(

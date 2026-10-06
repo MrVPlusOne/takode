@@ -176,6 +176,134 @@ describe("assistant-message-controller", () => {
     });
   });
 
+  it("routes leader markers that arrive after a thinking-only chunk of the same message", () => {
+    // The Claude Agent SDK streams each content block of one assistant message
+    // as its own same-id chunk, so a thinking block arrives before the routed
+    // text. Routing must still consume the answer marker and the `---` split
+    // instead of appending raw marker text to the unrouted thinking row. A user
+    // message can land between chunks, so the row must keep its history index.
+    const session = makeSession() as AssistantMessageSessionLike & {
+      userMessageIdsThisTurn: number[];
+      messageCountAtTurnStart: number;
+    };
+    session.state.isOrchestrator = true;
+    session.messageHistory.push({
+      type: "user_message",
+      id: "raw-u1",
+      leaderUserMessageId: "u1",
+      content: "Did you show me the proposal?",
+      timestamp: 1,
+      threadKey: "main",
+      leaderResponseCoverageVersion: 1,
+    });
+    session.userMessageIdsThisTurn = [0];
+    session.messageCountAtTurnStart = 1;
+    const broadcasts: Array<{ msg: BrowserIncomingMessage; skipBuffer?: boolean }> = [];
+    const deps = {
+      hasAssistantReplay: () => false,
+      broadcastToBrowsers: (_session: unknown, msg: BrowserIncomingMessage, options?: { skipBuffer?: boolean }) =>
+        broadcasts.push({ msg, skipBuffer: options?.skipBuffer }),
+      persistSession: () => {},
+    };
+    const thinking: ContentBlock = { type: "thinking", thinking: "", signature: "sig" } as ContentBlock;
+    const thinkingChunk = makeAssistant([thinking], "sdk-chunked");
+    const textChunk = makeAssistant(
+      [
+        {
+          type: "text",
+          text: ["[thread:main:A:u1]", "No, it was lost.", "", "---", "[thread:q-2252:C]", "Work approved."].join("\n"),
+        },
+      ],
+      "sdk-chunked",
+    );
+    textChunk.uuid = "text-chunk-uuid";
+    const toolChunk = makeAssistant(
+      [{ type: "tool_use", id: "tool-after-split", name: "Read", input: { file_path: "a.ts" } }],
+      "sdk-chunked",
+    );
+
+    handleAssistantMessage(session, thinkingChunk, deps);
+    session.messageHistory.push({
+      type: "user_message",
+      id: "raw-u2",
+      leaderUserMessageId: "u2",
+      content: "Another bug.",
+      timestamp: 2,
+      threadKey: "main",
+      leaderResponseCoverageVersion: 1,
+    });
+    handleAssistantMessage(session, textChunk, deps);
+    handleAssistantMessage(session, toolChunk, deps);
+
+    expect(JSON.stringify(session.messageHistory)).not.toContain("[thread:");
+    expect(session.messageHistory.map((entry) => entry.type)).toEqual([
+      "user_message",
+      "assistant",
+      "user_message",
+      "thread_transition_marker",
+      "assistant",
+    ]);
+    const answer = session.messageHistory[1] as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    expect(answer).toMatchObject({
+      uuid: thinkingChunk.uuid,
+      threadKey: "main",
+      leaderThreadRole: "answer",
+      leaderAnswerUserMessageIds: ["u1"],
+      message: { id: "sdk-chunked", content: [thinking, { type: "text", text: "No, it was lost." }] },
+    });
+    expect(session.messageHistory[4]).toMatchObject({
+      threadKey: "q-2252",
+      questId: "q-2252",
+      leaderThreadRole: "commentary",
+      message: {
+        id: "sdk-chunked:route-1",
+        content: [
+          { type: "text", text: "Work approved." },
+          { type: "tool_use", id: "tool-after-split" },
+        ],
+      },
+    });
+    // The rewritten first row is an update of an already-broadcast message.
+    expect(
+      broadcasts.find(
+        ({ msg }) => msg.type === "assistant" && msg.message.id === "sdk-chunked" && msg.threadKey === "main",
+      )?.skipBuffer,
+    ).toBe(true);
+    expect(finalizeRoutedLeaderResponseMessage(session, answer)).toMatchObject({ finalized: true });
+  });
+
+  it("emits quest-to-quest transition markers when routing is deferred past a thinking chunk", () => {
+    // The unrouted thinking row must not act as an implicit Main boundary that
+    // suppresses the source-thread handoff marker.
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    session.messageHistory.push({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: { id: "previous-q940", content: [] } as any,
+      threadKey: "q-940",
+      questId: "q-940",
+      threadRefs: [{ threadKey: "q-940", questId: "q-940", source: "explicit" }],
+    });
+    const deps = { hasAssistantReplay: () => false, broadcastToBrowsers: () => {}, persistSession: () => {} };
+    const thinking = { type: "thinking", thinking: "", signature: "sig" } as ContentBlock;
+
+    handleAssistantMessage(session, makeAssistant([thinking], "deferred-handoff"), deps);
+    handleAssistantMessage(
+      session,
+      makeAssistant([{ type: "text", text: "[thread:q-941:C]\nDispatching worker" }], "deferred-handoff"),
+      deps,
+    );
+
+    expect(session.messageHistory).toHaveLength(3);
+    expect(session.messageHistory[1]).toMatchObject({ type: "assistant", threadKey: "q-941" });
+    expect(session.messageHistory[2]).toMatchObject({
+      type: "thread_transition_marker",
+      sourceThreadKey: "q-940",
+      threadKey: "q-941",
+    });
+  });
+
   // Covers the two supported task-preview sources so push-notification context
   // stays aligned whether the assistant emitted TodoWrite or TaskUpdate blocks.
   it("extracts the active preview from TodoWrite and TaskUpdate tool_use blocks", () => {
