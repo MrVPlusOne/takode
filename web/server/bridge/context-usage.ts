@@ -94,15 +94,19 @@ export function extractClaudeTokenDetails(
   model?: string,
 ): SessionState["claude_token_details"] | undefined {
   if (!modelUsage) return undefined;
-  const usage = Object.values(modelUsage).find((entry) => entry && typeof entry === "object");
-  if (!usage) return undefined;
-
-  const inputTokens = Number(usage.inputTokens || 0);
-  const outputTokens = Number(usage.outputTokens || 0);
-  const cachedInputTokens = Number(usage.cacheReadInputTokens || 0) + Number(usage.cacheCreationInputTokens || 0);
-  const rawContextWindow = Number(usage.contextWindow || 0);
-  const inferredContextWindow = inferContextWindowFromModel(model) ?? 0;
-  const modelContextWindow = Math.max(rawContextWindow, inferredContextWindow);
+  // modelUsage has one entry per model the CLI called (for example a Haiku
+  // helper next to the main model, in no particular order), so totals sum every
+  // entry and the window follows the same rule as the context percentage.
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cachedInputTokens = 0;
+  for (const usage of Object.values(modelUsage)) {
+    if (!usage || typeof usage !== "object") continue;
+    inputTokens += Number(usage.inputTokens || 0);
+    outputTokens += Number(usage.outputTokens || 0);
+    cachedInputTokens += Number(usage.cacheReadInputTokens || 0) + Number(usage.cacheCreationInputTokens || 0);
+  }
+  const modelContextWindow = resolveResultContextWindow(model, modelUsage) ?? 0;
 
   if (inputTokens <= 0 && outputTokens <= 0 && cachedInputTokens <= 0 && modelContextWindow <= 0) {
     return undefined;
@@ -114,6 +118,20 @@ export function extractClaudeTokenDetails(
     cachedInputTokens,
     modelContextWindow,
   };
+}
+
+/**
+ * Context window for a mid-turn Claude usage report. Assistant messages carry no
+ * window, so use the one the CLI last reported for this session (stored in
+ * `claude_token_details` and reset on model switch); model-name inference is
+ * only a fallback before the first result, since it cannot know provider windows.
+ */
+export function resolveLiveClaudeContextWindow(
+  model: string | undefined,
+  tokenDetails: SessionState["claude_token_details"] | undefined,
+): number | undefined {
+  const reported = tokenDetails?.modelContextWindow ?? 0;
+  return reported > 0 ? reported : inferContextWindowFromModel(model);
 }
 
 interface ContextUsageHistorySessionLike {

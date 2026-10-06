@@ -1752,4 +1752,37 @@ describe("assistant-message-controller", () => {
     expect(msg.type === "assistant" ? msg.questId : undefined).toBeUndefined();
     expect(msg.type === "assistant" ? msg.threadRefs : undefined).toBeUndefined();
   });
+
+  // Mid-turn assistant usage has no window of its own. Model-name inference
+  // assumes 200k for "claude-opus-5.5", but the CLI reported a 1M window on the
+  // previous result. Using the inferred window showed 89% (later clamped to 100%)
+  // for ~178k tokens while the turn-end result showed 18%.
+  it("computes mid-turn Claude context usage against the CLI-reported window", () => {
+    const session = makeSession();
+    session.state.model = "claude-opus-5.5";
+    session.state.claude_token_details = {
+      inputTokens: 2,
+      outputTokens: 110,
+      cachedInputTokens: 177_799,
+      modelContextWindow: 1_000_000,
+    };
+    const updates: BrowserIncomingMessage[] = [];
+    const assistant = makeAssistant([{ type: "text", text: "working" }]);
+    assistant.message.usage = {
+      input_tokens: 2,
+      output_tokens: 50,
+      cache_creation_input_tokens: 300,
+      cache_read_input_tokens: 179_700,
+    };
+
+    handleAssistantMessage(session, assistant, {
+      hasAssistantReplay: () => false,
+      getLauncherSessionInfo: () => null,
+      broadcastToBrowsers: (_session, msg) => updates.push(msg),
+      persistSession: () => {},
+    });
+
+    expect(session.state.context_used_percent).toBe(18);
+    expect(updates).toContainEqual({ type: "session_update", session: { context_used_percent: 18 } });
+  });
 });

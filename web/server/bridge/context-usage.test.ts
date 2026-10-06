@@ -5,6 +5,7 @@ import {
   computeResultContextUsedPercent,
   extractClaudeTokenDetails,
   recordContextUsageHistory,
+  resolveLiveClaudeContextWindow,
 } from "./context-usage.js";
 
 describe("context-usage helpers", () => {
@@ -81,6 +82,56 @@ describe("context-usage helpers", () => {
       cachedInputTokens: 5,
       modelContextWindow: 200_000,
     });
+  });
+
+  it("sums every model's tokens and keeps the main model's window when a helper model is listed first", () => {
+    // modelUsage lists each model the CLI called; a Haiku helper can precede the
+    // main model. Reading only the first entry reported Haiku's tokens and its
+    // 200k window, which then drove mid-turn context percentages.
+    expect(
+      extractClaudeTokenDetails(
+        {
+          "claude-haiku-4-5-20251001": {
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            contextWindow: 200_000,
+            maxOutputTokens: 8_192,
+            costUSD: 0,
+          },
+          "claude-opus-5.5": {
+            inputTokens: 20,
+            outputTokens: 40,
+            cacheReadInputTokens: 900,
+            cacheCreationInputTokens: 100,
+            contextWindow: 1_000_000,
+            maxOutputTokens: 64_000,
+            costUSD: 0,
+          },
+        },
+        "claude-opus-5.5",
+      ),
+    ).toEqual({
+      inputTokens: 30,
+      outputTokens: 45,
+      cachedInputTokens: 1_000,
+      modelContextWindow: 1_000_000,
+    });
+  });
+
+  it("prefers the CLI-reported window for live usage and infers only before any report", () => {
+    // Before the first result, only the model name is available; afterwards the
+    // reported window (1M for Opus 5.5 on Copilot) must win over the 200k guess.
+    expect(resolveLiveClaudeContextWindow("claude-opus-5.5", undefined)).toBe(200_000);
+    expect(
+      resolveLiveClaudeContextWindow("claude-opus-5.5", {
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedInputTokens: 0,
+        modelContextWindow: 1_000_000,
+      }),
+    ).toBe(1_000_000);
   });
 
   it("overrides modelContextWindow with 1M for [1m] model variants", () => {

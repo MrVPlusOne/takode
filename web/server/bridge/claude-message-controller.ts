@@ -27,7 +27,7 @@ import {
   computeResultContextUsedPercent,
   extractClaudeTokenDetails,
   recordContextUsageHistory,
-  resolveResultContextWindow,
+  resolveLiveClaudeContextWindow,
   type TokenUsage,
 } from "./context-usage.js";
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
@@ -1743,7 +1743,7 @@ function maybeUpdateContextUsedPercentFromAssistantUsage(
 ): void {
   if (!usage) return;
   const model = session.state.model || modelHint;
-  const contextWindow = resolveResultContextWindow(model, undefined);
+  const contextWindow = resolveLiveClaudeContextWindow(model, session.state.claude_token_details);
   if (!contextWindow) return;
   const nextContextPct = computeContextUsedPercent(usage, contextWindow);
   if (typeof nextContextPct !== "number" || session.state.context_used_percent === nextContextPct) return;
