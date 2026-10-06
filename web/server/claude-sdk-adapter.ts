@@ -28,6 +28,7 @@ import { trafficStats } from "./traffic-stats.js";
 import type {
   BackendAdapter,
   CompactRequestedAwareAdapter,
+  ClaudeTurnAwareAdapter,
   PendingOutgoingAwareAdapter,
 } from "./bridge/adapter-interface.js";
 
@@ -100,7 +101,11 @@ interface PendingPermission {
 // ─── Adapter ────────────────────────────────────────────────────────────────────
 
 export class ClaudeSdkAdapter
-  implements BackendAdapter<ClaudeSdkSessionMeta>, PendingOutgoingAwareAdapter, CompactRequestedAwareAdapter
+  implements
+    BackendAdapter<ClaudeSdkSessionMeta>,
+    PendingOutgoingAwareAdapter,
+    CompactRequestedAwareAdapter,
+    ClaudeTurnAwareAdapter
 {
   private sessionId: string;
   private options: ClaudeSdkAdapterOptions;
@@ -116,6 +121,8 @@ export class ClaudeSdkAdapter
   private compactRequestedCb: (() => void) | null = null;
   private pendingPermissions = new Map<string, PendingPermission>();
   private pendingOutgoing: BrowserOutgoingMessage[] = [];
+  /** True from handing Claude a prompt until its turn's result arrives. */
+  private turnInFlight = false;
   /** Cached MCP servers from the last session_init, used to respond to mcp_get_status. */
   private cachedMcpServers: Array<{ name: string; status: string }> = [];
 
@@ -173,6 +180,7 @@ export class ClaudeSdkAdapter
 
   async disconnect(): Promise<void> {
     this.connected = false;
+    this.turnInFlight = false;
     try {
       this.sdkSession?.close();
     } catch {
@@ -187,6 +195,19 @@ export class ClaudeSdkAdapter
 
   drainPendingOutgoing(): BrowserOutgoingMessage[] {
     return this.pendingOutgoing.splice(0);
+  }
+
+  /** Whether Claude has a prompt from Takode that has not produced a result yet. */
+  hasTurnInFlight(): boolean {
+    return this.turnInFlight;
+  }
+
+  /** Drop user messages still waiting for the process to start; returns how many. */
+  discardPendingUserMessages(): number {
+    const kept = this.pendingOutgoing.filter((msg) => msg.type !== "user_message");
+    const discarded = this.pendingOutgoing.length - kept.length;
+    this.pendingOutgoing = kept;
+    return discarded;
   }
 
   // ─── Initialization ─────────────────────────────────────────────────────────
@@ -537,9 +558,13 @@ export class ClaudeSdkAdapter
         break;
       }
 
+      case "result":
+        this.turnInFlight = false;
+        this.emitBrowserMessage(msg as BrowserIncomingMessage);
+        break;
+
       case "assistant":
       case "stream_event":
-      case "result":
       case "tool_progress":
       case "tool_use_summary":
       case "keep_alive":
@@ -671,10 +696,12 @@ export class ClaudeSdkAdapter
             parent_tool_use_id: null,
             session_id: this.sessionId,
           };
+          this.turnInFlight = true;
           this.sdkSession.send(sdkMsg).catch((err: Error) => {
             console.error(`[claude-sdk-adapter] Send failed for session ${this.sessionId}:`, err);
           });
         } else {
+          this.turnInFlight = true;
           this.sdkSession.send(content).catch((err: Error) => {
             console.error(`[claude-sdk-adapter] Send failed for session ${this.sessionId}:`, err);
           });
@@ -837,6 +864,7 @@ export class ClaudeSdkAdapter
   private handleDisconnect(error = "Claude process ended"): void {
     if (!this.connected) return;
     this.connected = false;
+    this.turnInFlight = false;
     this.settleStarted(false);
     // Reject pending permissions
     for (const [, pending] of this.pendingPermissions) {

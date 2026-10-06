@@ -53,6 +53,12 @@ export interface CompactRequestedAwareAdapter {
   onCompactRequested(cb: () => void): void;
 }
 
+/** Claude adapter state that lets the bridge end a turn Claude never received. */
+export interface ClaudeTurnAwareAdapter {
+  hasTurnInFlight(): boolean;
+  discardPendingUserMessages(): number;
+}
+
 export interface PendingOutgoingAwareAdapter {
   drainPendingOutgoing(): BrowserOutgoingMessage[];
 }

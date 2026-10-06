@@ -996,6 +996,8 @@ describe("CLI message routing", () => {
     // interrupt signal), turnWasInterrupted was false and the reminder fired.
     const adapter = makeClaudeSdkAdapterMock();
     adapter.sendBrowserMessage.mockReturnValue(true);
+    // Claude is running the user's turn, so the interrupt waits for its result.
+    (adapter as any).hasTurnInFlight = vi.fn(() => true);
     bridge.setLauncher({
       touchActivity: vi.fn(),
       touchUserMessage: vi.fn(),

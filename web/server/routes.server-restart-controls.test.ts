@@ -33,10 +33,11 @@ import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
 type TestClaudeAdapter = {
   sendBrowserMessage: ReturnType<typeof vi.fn>;
   isConnected: () => boolean;
+  hasTurnInFlight: () => boolean;
   disconnect: ReturnType<typeof vi.fn>;
 };
 
-/** Stand-in for a connected Claude SDK adapter that records interrupts in order. */
+/** Stand-in for a connected Claude SDK adapter, running a turn, that records interrupts in order. */
 function makeClaudeAdapter(sessionId: string, sentOrder: string[]): TestClaudeAdapter {
   return {
     sendBrowserMessage: vi.fn((msg: { type: string }) => {
@@ -44,6 +45,7 @@ function makeClaudeAdapter(sessionId: string, sentOrder: string[]): TestClaudeAd
       return true;
     }),
     isConnected: () => true,
+    hasTurnInFlight: () => true,
     disconnect: vi.fn(async () => {}),
   };
 }

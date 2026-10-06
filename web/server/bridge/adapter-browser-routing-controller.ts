@@ -12,6 +12,7 @@ import {
   handleForceCompact,
   isCliSlashCommand,
 } from "./adapter-browser-routing-commands.js";
+import { interruptClaudeSdkTurn } from "./claude-sdk-interrupt.js";
 import {
   buildNeedsInputReminderHistoryEntry,
   buildNeedsInputReminderTextForDirectUserMessage,
@@ -1513,6 +1514,10 @@ export function routeAdapterBrowserMessage(
         );
         maybeRequestAdapterRelaunchForUserMessage(session, deps);
       }
+      return true;
+    }
+    if (msg.type === "interrupt" && session.backendType === "claude-sdk") {
+      interruptClaudeSdkTurn(session, msg.interruptSource ?? "user", deps);
       return true;
     }
     if (msg.type === "interrupt") {

@@ -17,6 +17,7 @@ export const RECOVERY_REASONS = new Set([
   "system_init_reset",
   "cli_disconnect",
   "user_message_timeout",
+  "interrupt_without_backend_turn",
 ]);
 
 /** Reasons that are internal lifecycle bookkeeping boundaries, not

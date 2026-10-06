@@ -89,6 +89,7 @@ export interface AdapterBrowserRoutingSessionLike {
   pendingStartupMemoryCatalogInjection?: boolean;
   compactionMemoryCatalog?: import("./memory-catalog-prelude.js").CompactionMemoryCatalogState;
   isGenerating: boolean;
+  restartPrepInterruptOrigin?: "restart_prep" | null;
   recentAskVisibleResponseThreads?: Set<string>;
   activeCodexReasoningPreview?: ActiveCodexReasoningPreview | null;
   codexReasoningPreviews?: CodexReasoningPreviewsByThread;
@@ -105,6 +106,8 @@ export interface AdapterBrowserRoutingSessionLike {
   claudeSdkAdapter: {
     sendBrowserMessage(msg: unknown): boolean;
     isConnected?(): boolean;
+    hasTurnInFlight?(): boolean;
+    discardPendingUserMessages?(): number;
   } | null;
 }
 
