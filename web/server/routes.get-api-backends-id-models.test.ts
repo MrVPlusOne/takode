@@ -674,4 +674,22 @@ describe("GET /api/backends/:id/models", () => {
 
     expect(res.status).toBe(404);
   });
+
+  it("serves the catalog a Claude session reported once one is recorded", async () => {
+    // With no LiteLLM proxy, the Claude menus should follow what the Claude CLI
+    // itself offers (recorded by the SDK adapter) instead of static fallbacks.
+    const { recordClaudeModelCatalog } = await import("./claude-model-catalog.js");
+    recordClaudeModelCatalog([
+      { value: "default", resolvedModel: "claude-opus-5.5", displayName: "Default (recommended)", description: "" },
+      { value: "haiku", resolvedModel: "claude-haiku-4.5", displayName: "claude-haiku-4.5", description: "" },
+    ]);
+
+    const res = await app.request("/api/backends/claude/models", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([
+      { value: "claude-opus-5.5", label: "Opus 5.5 (default)", description: "", isDefault: true },
+      { value: "claude-haiku-4.5", label: "Haiku 4.5", description: "" },
+    ]);
+  });
 });

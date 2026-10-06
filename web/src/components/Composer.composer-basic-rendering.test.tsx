@@ -859,6 +859,42 @@ describe("Composer basic rendering", () => {
     expectNoOverflowHiddenAncestorWithin(screen.getByTestId("composer-model-menu"), footer);
   });
 
+  it("lists the Claude CLI's catalog without a conflicting settings-file default", async () => {
+    // Regression: a Copilot-routed session running claude-opus-5.5 listed
+    // "Default (claude-opus-4-6[1m])" from ~/.claude/settings.json plus stale
+    // 4.6-era entries. The CLI-reported catalog already carries the default its
+    // own launcher settings resolve to, so the settings-file guess must not appear.
+    mockGetBackendModels.mockResolvedValue([
+      { value: "claude-opus-5.5", label: "Opus 5.5 (default)", description: "", isDefault: true },
+      { value: "claude-haiku-4.5", label: "Haiku 4.5", description: "" },
+    ]);
+    mockGetSettings.mockResolvedValue({ claudeDefaultModel: "claude-opus-4-6[1m]" });
+    setupMockStore({ session: { model: "claude-opus-5.5", permissionMode: "acceptEdits" } });
+
+    render(<Composer sessionId="s1" />);
+
+    await waitFor(() => expect(mockGetBackendModels).toHaveBeenCalledWith("claude"));
+    await userEvent.click(screen.getByTitle("Model: claude-opus-5.5 (click to change)"));
+    const menu = screen.getByTestId("composer-model-menu");
+    await waitFor(() => expect(within(menu).getByText("Opus 5.5 (default)")).toBeTruthy());
+    expect(within(menu).queryByText(/4-6|4\.6/)).toBeNull();
+
+    await userEvent.click(within(menu).getByText("Haiku 4.5"));
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", { type: "set_model", model: "claude-haiku-4.5" });
+  });
+
+  it("keeps the running Claude model in the menu when the model list omits it", async () => {
+    // Without a CLI catalog the static fallback cannot know every model, but
+    // the session's own model must still be shown and marked current.
+    setupMockStore({ session: { model: "claude-opus-5.5", permissionMode: "acceptEdits" } });
+
+    render(<Composer sessionId="s1" />);
+
+    await userEvent.click(screen.getByTitle("Model: claude-opus-5.5 (click to change)"));
+    const current = within(screen.getByTestId("composer-model-menu")).getByText("claude-opus-5.5");
+    expect(current.closest("button")?.className).toContain("text-cc-primary");
+  });
+
   it("keeps the moved codex reasoning menu outside overflow-hidden ancestors", async () => {
     setupMockStore({
       session: {

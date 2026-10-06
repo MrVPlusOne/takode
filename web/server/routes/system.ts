@@ -36,6 +36,7 @@ import {
 import type { VsCodeSelectionState, VsCodeWindowState } from "../session-types.js";
 import { trafficStats } from "../traffic-stats.js";
 import { loadCodexModelCatalog } from "../codex-model-catalog.js";
+import { getClaudeModelCatalog } from "../claude-model-catalog.js";
 import type { FrontendAvailability } from "../frontend-availability.js";
 import { getTakodeProcessBuildId, TAKODE_DEVELOPMENT_BUILD_ID } from "../build-identity.js";
 
@@ -625,7 +626,9 @@ export function createSystemRoutes(ctx: RouteContext) {
           .map((id) => ({ value: id, label: modelIdToLabel(id), description: "" }));
         if (models.length > 0) return c.json(models);
       }
-      // No proxy available — frontend will use hardcoded defaults
+      const cliCatalog = getClaudeModelCatalog();
+      if (cliCatalog) return c.json(cliCatalog);
+      // No proxy and no Claude session has reported its catalog yet — frontend uses static fallbacks
       return c.json({ error: "Use frontend defaults for this backend" }, 404);
     }
 

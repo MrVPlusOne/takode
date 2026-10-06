@@ -121,11 +121,12 @@ describe("static model/mode lists", () => {
     }
   });
 
-  it("has claude models with claude- prefix (except Default which is empty)", () => {
-    for (const m of CLAUDE_MODELS) {
-      if (m.value === "") continue; // "Default" uses CLI's own setting
-      expect(m.value).toMatch(/^claude-/);
-    }
+  it("uses version-free Claude CLI aliases as the static fallback", () => {
+    // The fallback applies only before a Claude session reports the CLI's own
+    // catalog. Pinned model IDs went stale (Opus 4.6 listed while sessions ran
+    // Opus 5.5), whereas the CLI resolves these aliases to its current models.
+    // "Default" (empty) uses the CLI's own setting.
+    expect(CLAUDE_MODELS.map((m) => m.value)).toEqual(["", "opus", "sonnet", "haiku"]);
   });
 
   it("has at least 2 modes for each backend", () => {

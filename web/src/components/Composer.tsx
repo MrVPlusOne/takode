@@ -49,6 +49,7 @@ import { useVoiceInput } from "../hooks/useVoiceInput.js";
 import { useComposerSessionView } from "./use-composer-session-view.js";
 import {
   api,
+  type BackendModelInfo,
   type VoiceRecordingTiming,
   type VoiceTranscriptionClientTiming,
   type VoiceTranscriptionFrontendTimingEvent,
@@ -792,8 +793,14 @@ export function Composer({
   // never send an empty string to set_model (which would make the model
   // selector disappear since sessionData.model becomes falsy).
   const claudeModelOptions = useMemo(() => {
-    return (dynamicClaudeModels || getModelsForBackend("claude")).filter((m) => m.value !== "");
-  }, [dynamicClaudeModels]);
+    const options = (dynamicClaudeModels || getModelsForBackend("claude")).filter((m) => m.value !== "");
+    const current = sessionView.model;
+    // Keep the running model visible and selectable even when the catalog does not list it.
+    if (current && !options.some((m) => m.value === current)) {
+      return [{ value: current, label: current, icon: "" }, ...options];
+    }
+    return options;
+  }, [dynamicClaudeModels, sessionView.model]);
   const resetCodexModelSettings = useResetCodexModelSettings({
     sessionId,
     isLeaderSession: sessionView.isLeaderSession,
@@ -855,16 +862,16 @@ export function Composer({
     if (isCodex) return;
     let cancelled = false;
     // Fetch dynamic models and the user's configured default in parallel
-    Promise.all([
-      api.getBackendModels("claude").catch(() => [] as { value: string; label: string; description: string }[]),
-      loadPersistedSettings(),
-    ]).then(([models, settings]) => {
+    const loadModels = api.getBackendModels("claude").catch(() => [] as BackendModelInfo[]);
+    Promise.all([loadModels, loadPersistedSettings()]).then(([models, settings]) => {
       if (cancelled) return;
       const options = models.length > 0 ? toModelOptions(models) : [];
       // If the user has a default model configured in ~/.claude/settings.json,
       // prepend a "Default (model)" option that sends the actual model ID
       // instead of an empty string (which would hide the model selector).
-      const defaultModel = settings?.claudeDefaultModel;
+      // A catalog reported by the Claude CLI already carries its own resolved
+      // default, which also honors launcher-specific settings files.
+      const defaultModel = models.some((m) => m.isDefault) ? undefined : settings?.claudeDefaultModel;
       if (defaultModel) {
         const defaultOption: ModelOption = {
           value: defaultModel,

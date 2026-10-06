@@ -479,6 +479,8 @@ export interface BackendModelInfo {
   value: string;
   label: string;
   description: string;
+  /** True for the model the Claude CLI's own default resolves to. */
+  isDefault?: boolean;
   contextWindow?: number;
   maxContextWindow?: number;
   effectiveContextWindowPercent?: number;

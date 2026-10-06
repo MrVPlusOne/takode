@@ -82,12 +82,14 @@ export function toModelOptions(models: BackendModelInfo[]): ModelOption[] {
 
 // ─── Static fallbacks ────────────────────────────────────────────────────────
 
+// Used only until a Claude session reports the CLI's own catalog. Claude Code
+// resolves these aliases to its current models, including any user overrides,
+// so the fallback never pins a model version that goes stale.
 export const CLAUDE_MODELS: ModelOption[] = [
   { value: "", label: "Default", icon: "\u25C6" },
-  { value: "claude-opus-4-6[1m]", label: "Opus 4.6 [1M]", icon: "\u2733" },
-  { value: "claude-opus-4-6", label: "Opus 4.6 [200K]", icon: "\u2733" },
-  { value: "claude-sonnet-4-5-20250929", label: "Sonnet 4.5 [200K]", icon: "\u25D5" },
-  { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5 [200K]", icon: "\u26A1" },
+  { value: "opus", label: "Opus", icon: "\u2733" },
+  { value: "sonnet", label: "Sonnet", icon: "\u25D5" },
+  { value: "haiku", label: "Haiku", icon: "\u26A1" },
 ];
 
 export const CODEX_MODELS: ModelOption[] = [

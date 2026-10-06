@@ -49,12 +49,12 @@ describe("new-session-defaults", () => {
 
   it("falls back to the global defaults when a group has no saved config", () => {
     scopedSetItem("cc-backend", "claude");
-    scopedSetItem("cc-model-claude", "claude-opus-4-6");
+    scopedSetItem("cc-model-claude", "opus");
     scopedSetItem("cc-worktree", "false");
 
     expect(getGroupNewSessionDefaults("/repo-a")).toEqual({
       backend: "claude",
-      model: "claude-opus-4-6",
+      model: "opus",
       mode: "acceptEdits",
       askPermission: true,
       sessionRole: "worker",
@@ -69,7 +69,7 @@ describe("new-session-defaults", () => {
 
   it("returns the per-group defaults without disturbing the global defaults", () => {
     scopedSetItem("cc-backend", "claude");
-    scopedSetItem("cc-model-claude", "claude-opus-4-6");
+    scopedSetItem("cc-model-claude", "opus");
 
     // Group defaults remember the last comparable role/worktree choice, so a
     // leader worktree selection in one project group should be offered again.
@@ -109,7 +109,7 @@ describe("new-session-defaults", () => {
 
     expect(getGlobalNewSessionDefaults()).toEqual({
       backend: "claude",
-      model: "claude-opus-4-6",
+      model: "opus",
       mode: "acceptEdits",
       askPermission: true,
       sessionRole: "worker",

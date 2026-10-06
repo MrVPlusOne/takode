@@ -14,6 +14,7 @@ import { serverWorkAdmission } from "./server-work-admission.js";
 import { randomUUID } from "node:crypto";
 import { stripInheritedTelemetryEnv, withNonInteractiveGitEditorEnv } from "./cli-launcher-env.js";
 import { getEnrichedPath } from "./path-resolver.js";
+import { recordClaudeModelCatalog } from "./claude-model-catalog.js";
 import {
   formatVsCodeSelectionPrompt,
   type BrowserIncomingMessage,
@@ -420,6 +421,7 @@ export class ClaudeSdkAdapter
 
     this.connected = true;
     this.watchProcessStart();
+    this.recordModelCatalog();
     console.log(
       `[claude-sdk-adapter] Session ${this.sessionId} initialized${this.options.cliSessionId ? " (resumed)" : ""}`,
     );
@@ -815,6 +817,18 @@ export class ClaudeSdkAdapter
     }
     proc.once("spawn", () => this.settleStarted(true));
     proc.once("error", () => this.settleStarted(false));
+  }
+
+  /** Record the CLI's model catalog once initialization completes, so model menus list what this CLI offers. */
+  private recordModelCatalog(): void {
+    const query = this.sdkSession?.query;
+    if (typeof query?.supportedModels !== "function") return;
+    query.supportedModels().then(recordClaudeModelCatalog, (err: unknown) => {
+      console.warn(
+        `[claude-sdk-adapter] Could not read the model catalog for session ${this.sessionId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    });
   }
 
   private handleDisconnect(error = "Claude process ended"): void {
