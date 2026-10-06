@@ -87,6 +87,8 @@ For tracked code/test changes, run the full gate:
 
 `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now.
 
+This gate is the delivery's one full test-suite run. Use focused tests while iterating in Work rather than also running the full suite there.
+
 For a remote-backed target, run it now in your worker worktree (`<GATE_CHECKOUT>` is the worktree), after the rebase and seal and while holding the port lease. Your worktree then has exactly the tree the target will have after the cherry-picks, so this is the pre-push gate, and nothing unverified ever sits on the shared checkout.
 
 For a worktree target, skip this step and run the same gate against the target in step 6. Do not run the full gate in the base repo unless the handoff explicitly asks for it.

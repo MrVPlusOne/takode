@@ -125,6 +125,7 @@ cd web && bun --no-install run format:check
   - `cd web && bun --no-install run typecheck`
   - `cd web && bun --no-install run test`
   - `cd web && bun --no-install run format:check`
+- Run that full gate once per delivery, right before merge or push (for worktree sessions, the `/port-changes` gate). While working, run focused tests for the code you change instead of the full suite. A full test run takes about 1,000 CPU-seconds, and several agents often run at once, so repeated full runs starve the machine and cause timeout flakes.
 - `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now.
 - If a full run is infeasible, document the exception explicitly in your quest summary, review handoff, or other acceptance notes before asking for merge or final acceptance.
 - **Never remove or delete existing tests.** If a test is failing, fix the code or the test. If you believe a test should be removed, you must first explain to the user why and get explicit approval before removing it.
