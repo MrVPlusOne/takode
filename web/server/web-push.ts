@@ -124,17 +124,14 @@ export class WebPushChannel implements WebPushDelivery {
   async sendAlert(alert: WebPushAlert): Promise<string[]> {
     const targets = (this.store?.subscriptions ?? []).filter((s) => !this.isViewing(s.endpoint));
     const payload: WebPushPayload = { type: "alert", ...alert };
-    const results = await Promise.all(targets.map((s) => this.send(s, payload, alert.tag)));
-    return targets.filter((_, i) => results[i]).map((s) => s.endpoint);
+    const errors = await Promise.all(targets.map((s) => this.send(s, payload)));
+    return targets.filter((_, i) => errors[i] === null).map((s) => s.endpoint);
   }
 
   async sendRetraction(endpoints: string[], tags: string[]): Promise<void> {
     if (tags.length === 0) return;
     const targets = (this.store?.subscriptions ?? []).filter((s) => endpoints.includes(s.endpoint));
-    // Sharing the alert's Topic lets the push service replace a still-undelivered alert,
-    // so an offline phone never shows a prompt that was already answered.
-    const topic = tags.length === 1 ? tags[0] : undefined;
-    await Promise.all(targets.map((s) => this.send(s, { type: "retract", tags }, topic)));
+    await Promise.all(targets.map((s) => this.send(s, { type: "retract", tags })));
   }
 
   /** Sends a test alert to one device regardless of presence, optionally retracting it later. */
@@ -145,21 +142,22 @@ export class WebPushChannel implements WebPushDelivery {
     const body = retractAfterMs
       ? `Web Push works. This notification should disappear in ${Math.round(retractAfterMs / 1000)}s.`
       : "Web Push works.";
-    const ok = await this.send(subscription, { type: "alert", title: "Takode test", body, url: "/", tag }, tag);
-    if (!ok) return { ok: false, error: "Push service rejected the test notification (see server log)" };
+    const error = await this.send(subscription, { type: "alert", title: "Takode test", body, url: "/", tag });
+    if (error) return { ok: false, error: `Push service rejected the test notification: ${error}` };
     if (retractAfterMs) {
       setTimeout(() => void this.sendRetraction([endpoint], [tag]), retractAfterMs);
     }
     return { ok: true };
   }
 
-  private async send(subscription: WebPushSubscriptionRecord, payload: WebPushPayload, topic?: string) {
+  /** Resolves to null on success, otherwise a short failure reason. */
+  private async send(subscription: WebPushSubscriptionRecord, payload: WebPushPayload): Promise<string | null> {
     try {
+      // No Topic header: Apple's push service rejects any Topic with 400 BadWebPushTopic.
       // VAPID auth is added separately so one JWT can be reused per push service.
       const details = webpush.generateRequestDetails(subscription, JSON.stringify(payload), {
         TTL: MESSAGE_TTL_SECONDS,
         urgency: "high",
-        ...(topic ? { topic } : {}),
       });
       const res = await fetch(details.endpoint, {
         method: "POST",
@@ -172,17 +170,18 @@ export class WebPushChannel implements WebPushDelivery {
       if (res.status === 404 || res.status === 410) {
         console.log(`[web-push] Removing expired subscription (${res.status})`);
         await this.unsubscribe(subscription.endpoint);
-        return false;
+        return `subscription expired (${res.status})`;
       }
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        console.warn(`[web-push] Push service error ${res.status}: ${text.slice(0, 200)}`);
-        return false;
+        const text = (await res.text().catch(() => "")).slice(0, 200);
+        console.warn(`[web-push] Push service error ${res.status}: ${text}`);
+        return `${res.status} ${text}`.trim();
       }
-      return true;
+      return null;
     } catch (err) {
-      console.warn(`[web-push] Send failed: ${err instanceof Error ? err.message : String(err)}`);
-      return false;
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[web-push] Send failed: ${message}`);
+      return message;
     }
   }
 
@@ -224,7 +223,7 @@ export class WebPushChannel implements WebPushDelivery {
   }
 }
 
-/** Unique, Topic-header-safe (base64url, <= 32 chars) tag for one delivered alert. */
+/** Unique tag for one delivered alert. */
 export function newAlertTag(): string {
   return `t${crypto.randomUUID().replaceAll("-", "").slice(0, 24)}`;
 }

@@ -90,7 +90,7 @@ describe("WebPushChannel", () => {
     expect(await readFile(filePath, "utf-8")).toBe("{not json");
   });
 
-  it("sends an encrypted alert with VAPID auth, urgency and topic, and returns reached endpoints", async () => {
+  it("sends an encrypted alert with VAPID auth and urgency, and returns reached endpoints", async () => {
     const channel = makeChannel();
     await channel.load();
     const device = makeBrowserSubscription(APPLE_ENDPOINT_A);
@@ -108,7 +108,8 @@ describe("WebPushChannel", () => {
     const headers = init!.headers as Record<string, string>;
     expect(headers.Authorization).toMatch(new RegExp(`^vapid t=.+, k=${channel.getPublicKey()}$`));
     expect(headers.Urgency).toBe("high");
-    expect(headers.Topic).toBe("tabc");
+    // Apple's push service answers 400 BadWebPushTopic to any Topic header (seen on a real iPhone).
+    expect(headers).not.toHaveProperty("Topic");
     expect(device.decrypt(init!.body as Uint8Array)).toEqual({
       type: "alert",
       title: "Takode needs input",
@@ -141,7 +142,7 @@ describe("WebPushChannel", () => {
     expect(await channel.sendAlert(alert)).toEqual([APPLE_ENDPOINT_A, APPLE_ENDPOINT_B]);
   });
 
-  it("sends retractions only to the given endpoints, sharing the alert topic", async () => {
+  it("sends retractions only to the given endpoints", async () => {
     const channel = makeChannel();
     await channel.load();
     const phone = makeBrowserSubscription(APPLE_ENDPOINT_A);
@@ -153,7 +154,6 @@ describe("WebPushChannel", () => {
 
     expect(fetchCallsTo(APPLE_ENDPOINT_B)).toHaveLength(0);
     const [, init] = fetchCallsTo(APPLE_ENDPOINT_A)[0]!;
-    expect((init!.headers as Record<string, string>).Topic).toBe("tabc");
     expect(phone.decrypt(init!.body as Uint8Array)).toEqual({ type: "retract", tags: ["tabc"] });
   });
 
@@ -201,5 +201,20 @@ describe("WebPushChannel", () => {
 
     expect(await channel.sendAlert({ title: "t", body: "b", url: "/", tag: "t1" })).toEqual([]);
     expect(channel.hasSubscriptions()).toBe(true);
+  });
+
+  it("shows the push service's rejection reason to the device that sent a test", async () => {
+    // Settings displays this text, so a failed phone test explains itself without the server log.
+    const channel = makeChannel();
+    await channel.load();
+    const device = makeBrowserSubscription(APPLE_ENDPOINT_A);
+    await channel.subscribe({ endpoint: device.endpoint, keys: device.keys });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('{"reason":"BadJwtToken"}', { status: 403 }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(await channel.sendTest(APPLE_ENDPOINT_A)).toEqual({
+      ok: false,
+      error: 'Push service rejected the test notification: 403 {"reason":"BadJwtToken"}',
+    });
   });
 });
