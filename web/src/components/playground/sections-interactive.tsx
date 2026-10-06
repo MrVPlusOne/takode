@@ -38,6 +38,7 @@ import { PlaygroundQuestJourneyPalette } from "./PlaygroundQuestJourneyPalette.j
 import { PlaygroundQuestStatusPanelSection, PlaygroundQuestmasterCompactSection } from "./PlaygroundQuestSections.js";
 import { PlaygroundTodoStates } from "./PlaygroundTodoStates.js";
 import { PlaygroundTimerStates } from "./PlaygroundTimerStates.js";
+import { PlaygroundStreamingComposerStates } from "./StreamingComposerStates.js";
 import { PlaygroundCodexInstructionsSection } from "./PlaygroundCodexInstructionsSection.js";
 import { PlaygroundTurnWindowStabilitySection } from "./PlaygroundTurnWindowStabilitySection.js";
 import { buildPlaygroundProjectedJourney } from "./leader-thread-tabs-projection-fixtures.js";
@@ -332,102 +333,10 @@ export function PlaygroundInteractiveSections() {
       {/* ─── Composer ──────────────────────────────── */}
       <Section
         title="Composer"
-        description="Message input bar with backend-native permission selector, image upload, and independent Stop plus Send controls while a follow-up is ready during generation"
+        description="Message input bar with backend-native permission selector, image upload, and a far-left Stop control during generation that never moves the mic or Send"
       >
         <div className="max-w-3xl">
-          <Card label="Running with a sendable follow-up">
-            <div className="border-t border-cc-border bg-cc-card px-4 py-3">
-              <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-visible">
-                <div className="px-4 pt-3 pb-2">
-                  <div className="inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-lg border border-cc-border/80 bg-cc-hover/70 px-2 py-1 text-[11px] text-cc-muted">
-                    <svg viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 shrink-0 opacity-70">
-                      <path d="M3.75 1.5A2.25 2.25 0 001.5 3.75v8.5A2.25 2.25 0 003.75 14.5h8.5a2.25 2.25 0 002.25-2.25v-5a.75.75 0 00-1.5 0v5A.75.75 0 0112.25 13h-8.5a.75.75 0 01-.75-.75v-8.5A.75.75 0 013.75 3h5a.75.75 0 000-1.5h-5z" />
-                      <path d="M9.53 1.47a.75.75 0 011.06 0l3.94 3.94a.75.75 0 010 1.06l-5.5 5.5a.75.75 0 01-.33.2l-2.5.63a.75.75 0 01-.91-.91l.63-2.5a.75.75 0 01.2-.33l5.5-5.5z" />
-                    </svg>
-                    <span className="min-w-0 truncate rounded px-0.5 font-mono-code">OverflowTarget.tsx:438-444</span>
-                    <span className="text-cc-muted/60">&middot;</span>
-                    <span className="shrink-0">7 lines selected</span>
-                    <button
-                      type="button"
-                      className="shrink-0 rounded p-0.5 hover:bg-cc-border/60 cursor-pointer"
-                      aria-label="Dismiss selection"
-                    >
-                      <svg
-                        width="10"
-                        height="10"
-                        viewBox="0 0 10 10"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                      >
-                        <path d="M2.5 2.5L7.5 7.5M7.5 2.5L2.5 7.5" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                <textarea
-                  readOnly
-                  value="Can you refactor the auth module to use JWT?"
-                  rows={1}
-                  className="w-full px-4 pt-3 pb-1 text-sm bg-transparent resize-none text-cc-fg font-sans-ui"
-                  style={{ minHeight: "36px" }}
-                />
-                <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
-                  <div className="flex min-w-0 items-center gap-2 overflow-hidden text-[11px] text-cc-muted">
-                    <div className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium">
-                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-                        <path
-                          d="M2.5 4l4 4-4 4"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          fill="none"
-                        />
-                        <path
-                          d="M8.5 4l4 4-4 4"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          fill="none"
-                        />
-                      </svg>
-                      <span>Full access</span>
-                    </div>
-                    <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-                      <span className="truncate font-mono-code">jiayi</span>
-                      <span className="shrink-0 text-cc-muted/40">&middot;</span>
-                      <span className="truncate font-mono-code">sonnet-4.5</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-muted">
-                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-                        <rect x="2" y="2" width="12" height="12" rx="2" />
-                        <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
-                        <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </div>
-                    <div
-                      className="flex items-center justify-center w-8 h-8 rounded-full bg-cc-error/10 text-cc-error"
-                      title="Stop generation"
-                    >
-                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-                        <rect x="3" y="3" width="10" height="10" rx="1" />
-                      </svg>
-                    </div>
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-cc-primary text-white">
-                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-                        <path d="M2 2.5L14 8 2 13.5 2 9.5 9 8 2 6.5Z" />
-                      </svg>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </Card>
+          <PlaygroundStreamingComposerStates />
           <div className="mt-4" />
           <Card label="Claude permission selector menu">
             <PlaygroundComposerPermissionToolbar backend="claude" state="menu" />

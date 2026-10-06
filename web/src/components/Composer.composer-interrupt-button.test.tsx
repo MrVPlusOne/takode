@@ -533,13 +533,34 @@ beforeEach(() => {
 // ─── Basic rendering ────────────────────────────────────────────────────────
 
 describe("Composer interrupt button", () => {
-  it("stop button shown when running with empty composer, no send button", () => {
+  // Users re-click the mic's usual spot to stop recording, so mic and send must keep
+  // the same slots whether or not a turn is streaming and whether or not the draft has
+  // content (e.g. after a voice transcript lands). Stop may only appear to their left.
+  function expectFixedTrailingControls() {
+    const voice = screen.getByRole("button", { name: "Voice input" });
+    const send = screen.getByRole("button", { name: "Send message" });
+    const group = voice.parentElement!;
+    expect(voice.nextElementSibling?.contains(send)).toBe(true);
+    expect(group.lastElementChild?.contains(send)).toBe(true);
+    return { group, send };
+  }
+
+  it("shows stop at the far left and a disabled send in its usual slot when running with an empty draft", () => {
     setupMockStore({ sessionStatus: "running" });
     render(<Composer sessionId="s1" />);
 
-    // Unified button: empty composer + running → stop button
-    expect(screen.getByTitle("Stop generation")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+    const { group, send } = expectFixedTrailingControls();
+    expect(group.firstElementChild).toBe(screen.getByRole("button", { name: "Stop generation" }));
+    expect(send.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("keeps the same control order when a running session gains a sendable draft", () => {
+    setupMockStore({ sessionStatus: "running", draftText: "Transcribed follow-up" });
+    render(<Composer sessionId="s1" />);
+
+    const { group, send } = expectFixedTrailingControls();
+    expect(group.firstElementChild).toBe(screen.getByRole("button", { name: "Stop generation" }));
+    expect(send.hasAttribute("disabled")).toBe(false);
   });
 
   it("interrupt button sends interrupt message", () => {
@@ -589,8 +610,8 @@ describe("Composer interrupt button", () => {
     setupMockStore({ sessionStatus: "idle" });
     render(<Composer sessionId="s1" />);
 
-    expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
-    // Unified button: stop button only shows when running + empty composer
-    expect(screen.queryByTitle("Stop generation")).toBeNull();
+    expectFixedTrailingControls();
+    // Stop only exists while a turn is streaming.
+    expect(screen.queryByRole("button", { name: "Stop generation" })).toBeNull();
   });
 });

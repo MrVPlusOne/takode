@@ -689,7 +689,23 @@ export function ComposerMetaToolbar({
         )}
       </div>
 
+      {/* Mic and send keep fixed positions in every state: users re-click the mic's usual spot to stop
+          recording, so a control appearing to their right could turn that click into an interrupt.
+          Stop therefore only ever appears at the far left of the group. */}
       <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-1">
+        {isRunning && (
+          <button
+            onClick={handleInterrupt}
+            aria-label="Stop generation"
+            className="flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-full transition-colors bg-cc-error/10 hover:bg-cc-error/20 text-cc-error cursor-pointer"
+            title="Stop generation"
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 sm:w-3.5 sm:h-3.5">
+              <rect x="3" y="3" width="10" height="10" rx="1" />
+            </svg>
+          </button>
+        )}
+
         <button
           onClick={onOpenFilePicker}
           disabled={imageUploadDisabled}
@@ -733,45 +749,32 @@ export function ComposerMetaToolbar({
           <VoiceInputIcon active={isRecording || isPreparing} />
         </button>
 
-        {isRunning && (
+        <div className="relative group">
           <button
-            onClick={handleInterrupt}
-            className="flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-full transition-colors bg-cc-error/10 hover:bg-cc-error/20 text-cc-error cursor-pointer"
-            title="Stop generation"
+            onClick={handleSend}
+            disabled={!canSend}
+            aria-label="Send message"
+            className={`flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-full transition-colors ${
+              canSend
+                ? "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
+                : "bg-cc-hover text-cc-muted cursor-not-allowed"
+            } ${sendPressing ? "animate-[send-morph_500ms_ease-out]" : ""}`}
+            title={sendButtonTitle}
           >
-            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 sm:w-3.5 sm:h-3.5">
-              <rect x="3" y="3" width="10" height="10" rx="1" />
-            </svg>
-          </button>
-        )}
-        {(canSend || !isRunning) && (
-          <div className="relative group">
-            <button
-              onClick={handleSend}
-              disabled={!canSend}
-              aria-label="Send message"
-              className={`flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-full transition-colors ${
-                canSend
-                  ? "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
-                  : "bg-cc-hover text-cc-muted cursor-not-allowed"
-              } ${sendPressing ? "animate-[send-morph_500ms_ease-out]" : ""}`}
-              title={sendButtonTitle}
-            >
-              {sendPressing ? (
-                <CatPawAvatar className="w-5 h-5 sm:w-4 sm:h-4" />
-              ) : (
-                <PaperPlaneIcon className="w-5 h-5 sm:w-4 sm:h-4" />
-              )}
-            </button>
-            {!canSend && sendButtonTitle !== "Send message" && (
-              <div className="pointer-events-none absolute bottom-full right-0 mb-2 hidden group-hover:block">
-                <div className="whitespace-nowrap rounded-lg border border-cc-border bg-cc-card px-3 py-1.5 text-[11px] text-cc-muted shadow-lg">
-                  {sendButtonTitle}
-                </div>
-              </div>
+            {sendPressing ? (
+              <CatPawAvatar className="w-5 h-5 sm:w-4 sm:h-4" />
+            ) : (
+              <PaperPlaneIcon className="w-5 h-5 sm:w-4 sm:h-4" />
             )}
-          </div>
-        )}
+          </button>
+          {!canSend && sendButtonTitle !== "Send message" && (
+            <div className="pointer-events-none absolute bottom-full right-0 mb-2 hidden group-hover:block">
+              <div className="whitespace-nowrap rounded-lg border border-cc-border bg-cc-card px-3 py-1.5 text-[11px] text-cc-muted shadow-lg">
+                {sendButtonTitle}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
