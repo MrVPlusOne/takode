@@ -568,6 +568,24 @@ describe("POST /api/sessions/create permission mode resolution", () => {
     );
   });
 
+  it("seeds the explicitly selected Claude permission mode into session state", async () => {
+    // The New Session dialog sends permissionMode directly (e.g. Full access =
+    // bypassPermissions). The bridge state must receive that exact mode, not
+    // only askPermission/uiMode, or the session shows and enforces "default".
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test", backend: "claude", permissionMode: "bypassPermissions" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: "bypassPermissions" }));
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ permissionMode: "bypassPermissions", askPermission: false, uiMode: "agent" }),
+    );
+  });
+
   it("defaults to 'plan' permission mode when askPermission is omitted", async () => {
     // When askPermission is not provided, default to secure (plan mode).
     const res = await app.request("/api/sessions/create", {

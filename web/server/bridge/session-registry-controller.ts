@@ -317,6 +317,7 @@ export function applyInitialSessionState(
     cwd?: string;
     treeGroupId?: string;
     memorySessionSpaceSlug?: string;
+    permissionMode?: string;
     askPermission?: boolean;
     uiMode?: "plan" | "agent";
     resumedFromExternal?: boolean;
@@ -362,6 +363,12 @@ export function applyInitialSessionState(
     if (diffBase && !session.state.diff_base_branch_explicit && !session.state.diff_base_branch) {
       session.state.diff_base_branch = diffBase;
     }
+  }
+  // Seed the creation-time mode: Claude SDK session_init keeps the server's mode
+  // (the CLI reports "default" because Takode answers permissions via canUseTool).
+  if (options.permissionMode) {
+    session.state.permissionMode = options.permissionMode;
+    shouldPersist = true;
   }
   if (options.askPermission !== undefined) {
     session.state.askPermission = options.askPermission;

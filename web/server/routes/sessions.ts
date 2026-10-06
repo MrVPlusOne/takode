@@ -358,6 +358,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       cwd: sessionConfig.initialCwd,
       treeGroupId: initialTreeGroupId,
       memorySessionSpaceSlug: sessionConfig.memorySessionSpaceSlug,
+      permissionMode: sessionConfig.initialModeState.permissionMode,
       askPermission: sessionConfig.initialModeState.askPermission,
       uiMode: sessionConfig.initialModeState.uiMode,
       ...(sessionConfig.resumeCliSessionId ? { resumedFromExternal: true } : {}),

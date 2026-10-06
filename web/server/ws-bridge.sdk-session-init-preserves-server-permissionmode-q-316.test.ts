@@ -606,6 +606,40 @@ describe("SDK session_init preserves server permissionMode (q-316)", () => {
     expect(session.state.permissionMode).toBe("bypassPermissions");
   });
 
+  it("keeps the creation-time Full access mode through the real initial-state path", () => {
+    // Regression: session creation seeded askPermission/uiMode but never the
+    // permissionMode itself, so a Claude SDK session created with Full access
+    // kept the default "default" mode. The composer then showed Default and the
+    // permission pipeline did not auto-approve Bash. Exercise the same
+    // applyInitialSessionState call the create route makes instead of setting
+    // session.state directly.
+    const sid = "sdk-full-access-created";
+    const adapter = makeClaudeSdkAdapterMock();
+    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+    (bridge as any).applyInitialSessionState(sid, {
+      cwd: "/tmp/test",
+      permissionMode: "bypassPermissions",
+      askPermission: false,
+      uiMode: "agent",
+    });
+
+    adapter.emitBrowserMessage({
+      type: "session_init",
+      session: {
+        session_id: `cli-${sid}`,
+        model: "claude-opus-5.5",
+        cwd: "/tmp/test",
+        tools: [],
+        permissionMode: "default",
+      },
+    });
+
+    const session = bridge.getSession(sid)!;
+    expect(session.state.permissionMode).toBe("bypassPermissions");
+    expect(session.state.askPermission).toBe(false);
+    expect(session.state.uiMode).toBe("agent");
+  });
+
   it("auto-approves Bash after session_init when server mode is bypassPermissions", () => {
     // End-to-end: session created with bypassPermissions → CLI session_init
     // overwrites mode → Bash request should still be auto-approved.
