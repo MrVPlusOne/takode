@@ -1555,6 +1555,12 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
             ? ` --target ${evt.data.notificationId}`
             : "";
       const actions: string[] = [];
+      if (typeof evt.data.body === "string" && evt.data.body.trim()) {
+        const body = evt.data.body.trim();
+        const shown =
+          body.length > 2000 ? `${body.slice(0, 2000)}\n...(full context: takode pending ${evt.sessionNum})` : body;
+        actions.push(`Context:\n${shown.replace(/^/gm, "    ")}`);
+      }
       if (Array.isArray(evt.data.questions) && evt.data.questions.length > 0) {
         evt.data.questions.forEach((question, index) => {
           const prompt =

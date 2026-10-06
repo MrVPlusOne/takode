@@ -14,6 +14,7 @@ import {
   getNotificationSourceContext,
   shouldShowNeedsInputQuestionPrompt,
 } from "../utils/notification-source-context.js";
+import { MarkdownContent } from "./MarkdownContent.js";
 import { NeedsInputAnswerField } from "./NeedsInputAnswerField.js";
 import { NeedsInputResponseHistory } from "./NeedsInputResponseHistory.js";
 
@@ -64,6 +65,7 @@ export function NotificationMarker({
   const isToggleReady = !!onToggleDone || !!notif;
   const showReplyButton = !!showReplyAction && !!notif && !!sessionId && (isAction ? !isDone : isReview);
   const questionViews = useMemo(() => (isAction && notif ? getNeedsInputQuestionViews(notif) : []), [isAction, notif]);
+  const body = isAction ? notif?.body?.trim() : undefined;
   const messages = useStore((s) => (sessionId ? (s.messages?.get(sessionId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES));
   const sourceContext = useMemo(
     () => (notif ? getNotificationSourceContext(notif, messages, messageId) : null),
@@ -221,7 +223,7 @@ export function NotificationMarker({
   return (
     <div
       className={`inline-flex max-w-full flex-col items-start gap-1 mt-2 px-2 py-0.5 rounded-xl text-[11px] font-medium border transition-opacity ${
-        questionViews.length > 0 ? "w-full sm:w-[min(30rem,100%)]" : ""
+        body ? "w-full sm:w-[min(44rem,100%)]" : questionViews.length > 0 ? "w-full sm:w-[min(30rem,100%)]" : ""
       } ${
         isDone
           ? `border-cc-border bg-cc-hover/30 text-cc-muted ${isAction ? "" : "opacity-60"}`
@@ -293,6 +295,7 @@ export function NotificationMarker({
           className="w-full space-y-3 border-t border-cc-border pt-2 pb-1 pl-5 text-[11px]"
           data-testid="notification-response-history"
         >
+          {body && <NotificationBody body={body} sessionId={sessionId} />}
           <div className="space-y-2">
             <div className="font-medium">{questionViews.length > 1 ? "Original questions" : "Original question"}</div>
             {(questionViews.length ? questionViews.map((question) => question.prompt) : [label]).map(
@@ -312,6 +315,12 @@ export function NotificationMarker({
           ) : (
             <div>No saved response is available.</div>
           )}
+        </div>
+      )}
+
+      {!isDone && body && (
+        <div className="w-full pl-5 pb-1">
+          <NotificationBody body={body} sessionId={sessionId} />
         </div>
       )}
 
@@ -390,6 +399,18 @@ export function NotificationMarker({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Decision context carried by the notification itself, so it stays visible even when no chat text precedes it. */
+function NotificationBody({ body, sessionId }: { body: string; sessionId?: string }) {
+  return (
+    <div
+      className="w-full min-w-0 border-t border-cc-attention-border/40 pt-1.5 font-normal text-cc-fg"
+      data-testid="notification-body"
+    >
+      <MarkdownContent text={body} size="sm" sessionId={sessionId} questLinkSurface="chat-feed" wrapLongContent />
     </div>
   );
 }

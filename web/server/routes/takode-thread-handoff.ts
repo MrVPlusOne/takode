@@ -110,6 +110,7 @@ export function registerTakodeThreadHandoffRoute(api: Hono, ctx: RouteContext): 
           id: notification.id,
           category: notification.category,
           summary: notification.summary,
+          body: notification.body,
           questions: notification.questions,
           suggestedAnswers: notification.suggestedAnswers,
           timestamp: notification.timestamp,

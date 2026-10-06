@@ -71,6 +71,7 @@ type NotifyUserDeps = PersistNotificationDeps & {
 };
 
 type NotifyUserOptions = {
+  body?: string;
   suggestedAnswers?: string[];
   questions?: NeedsInputNotificationQuestion[];
   threadRoute?: ThreadRouteMetadata;
@@ -318,12 +319,14 @@ export function notifyUser(
   const suggestedAnswers =
     category === "needs-input" && options.suggestedAnswers?.length ? options.suggestedAnswers : undefined;
   const questions = category === "needs-input" && options.questions?.length ? options.questions : undefined;
+  const body = category === "needs-input" && options.body ? options.body : undefined;
 
   const existingNeedsInput =
     category === "needs-input"
       ? findExactActiveNeedsInputNotification(
           session,
           summary,
+          body,
           suggestedAnswers,
           questions,
           candidateThreadRoute,
@@ -387,6 +390,7 @@ export function notifyUser(
       category,
       timestamp,
       summary,
+      ...(body ? { body } : {}),
       ...(suggestedAnswers ? { suggestedAnswers } : {}),
       ...(questions ? { questions } : {}),
     },
@@ -398,6 +402,7 @@ export function notifyUser(
       id: notificationId,
       category,
       summary,
+      ...(body ? { body } : {}),
       ...(suggestedAnswers ? { suggestedAnswers } : {}),
       ...(questions ? { questions } : {}),
       timestamp,
@@ -421,6 +426,7 @@ export function notifyUser(
         summary,
         notificationId: notif.id,
         messageId: anchoredMessageId,
+        ...(body ? { body } : {}),
         ...(suggestedAnswers ? { suggestedAnswers } : {}),
         ...(questions ? { questions } : {}),
         ...(anchorIndex !== undefined ? { msg_index: anchorIndex } : {}),
@@ -849,6 +855,7 @@ function hasNonEmptyText(value: unknown): value is string {
 function findExactActiveNeedsInputNotification(
   session: SessionLike,
   summary: string,
+  body: string | undefined,
   suggestedAnswers: string[] | undefined,
   questions: NeedsInputNotificationQuestion[] | undefined,
   threadRoute: ThreadRouteMetadata,
@@ -858,7 +865,7 @@ function findExactActiveNeedsInputNotification(
     (session.notifications ?? []).find((notification: SessionNotification) => {
       if (notification.category !== "needs-input" || notification.done || notification.muted) return false;
       if (timestamp - notification.timestamp > EXACT_NEEDS_INPUT_RETRY_DEDUPE_WINDOW_MS) return false;
-      if (notification.summary !== summary) return false;
+      if (notification.summary !== summary || notification.body !== body) return false;
       const notificationRoute = normalizeThreadRoute(notification.threadKey, notification.questId) ?? {
         threadKey: "main",
       };
@@ -898,6 +905,7 @@ function buildAnchoredNotification(notification: SessionNotification): Omit<Sess
     category: notification.category,
     timestamp: notification.timestamp,
     ...(notification.summary ? { summary: notification.summary } : {}),
+    ...(notification.body ? { body: notification.body } : {}),
     ...(notification.suggestedAnswers ? { suggestedAnswers: notification.suggestedAnswers } : {}),
     ...(notification.questions ? { questions: notification.questions } : {}),
   };

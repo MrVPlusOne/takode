@@ -54,7 +54,7 @@ Prepare a User Checkpoint packet for [q-XX](quest:q-XX) without doing more Work.
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/user-checkpoint/assignee.md`
 
-Return a self-contained user-facing packet with findings, named options, tradeoffs, recommendation, exact requested answer, and any shortcut labels explained in visible text. Add or refresh the checkpoint note, then stop.
+Return a self-contained user-facing packet with findings, named options, tradeoffs, recommendation, exact requested answer, and any shortcut labels explained in the packet. Add or refresh the checkpoint note, then stop.
 
 Decision needed: <what is outside the approved Work envelope>.
 

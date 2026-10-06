@@ -20,6 +20,7 @@ import {
   getCliDefaultModelForBackend,
   parseFlags,
   readOptionalRichTextOption,
+  readOptionTextFile,
   readStdinText,
   resolveBooleanToggleFlag,
   resolveSessionInfoJsonOptions,
@@ -49,7 +50,7 @@ Answer a pending needs-input question or approve/reject an ExitPlanMode prompt f
 `;
 
 const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--thread <main|q-N> | --quest <q-N>] [--suggest <answer>]... [--json]
-       takode notify needs-input <summary> [--thread <main|q-N> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
+       takode notify needs-input <summary> [--body <markdown> | --body-file <path|->] [--thread <main|q-N> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
        takode notify list [--muted] [--json]
        takode notify mute <notification-id> [--json]
        takode notify unmute <notification-id> [--json]
@@ -60,13 +61,19 @@ Categories:
   review       Ready for user review
   waiting      Transient non-user wait marker; not listed or resolved
 
+Put the decision context (findings, options, tradeoffs, recommendation) in
+--body or --body-file as Markdown; it is shown in the question card. If earlier
+visible messages already explain the decision, the body may briefly point to
+them instead of repeating them. Use --body-file - with a quoted heredoc for
+multiline or shell-sensitive text.
+
 Whenever you ask the user a question, include one or two concise suggested replies
 with --suggest so the UI can render convenient response buttons. For a binary
 question, provide both choices. These are shortcuts, not preselected answers or
 authorization; custom replies must remain available. Keep the complete question
-and all valid decision alternatives visible in chat. This guidance does not impose
-a tool-level limit on suggestions. With multiple --question flags, provide replies
-after each question.
+and all valid decision alternatives in the question card. This guidance does not
+impose a tool-level limit on suggestions. With multiple --question flags, provide
+replies after each question.
 `;
 
 const WORKER_STREAM_HELP = `Usage: takode worker-stream [--json]
@@ -1176,6 +1183,7 @@ export async function handlePending(base: string, args: string[]): Promise<void>
       timestamp: number;
       notification_id?: string;
       summary?: string;
+      body?: string;
       suggestedAnswers?: string[];
       msg_index?: number;
       threadKey?: string;
@@ -1219,6 +1227,7 @@ export async function handlePending(base: string, args: string[]): Promise<void>
     if (p.kind === "notification" || p.tool_name === "takode.notify") {
       const summary = p.summary?.trim() || "Needs input";
       console.log(`\n[needs-input]${msgRef} ${formatInlineText(summary)}`);
+      if (p.body) console.log(`\n${p.body}\n`);
       if (msgRef) {
         console.log(`\nFull message: takode read ${safeSessionRef} ${p.msg_index}`);
       }
@@ -1520,6 +1529,7 @@ export async function handleSetBase(base: string, args: string[]): Promise<void>
 function parseNotifyCreateArgs(args: string[]): {
   jsonMode: boolean;
   summary: string | undefined;
+  body?: { inline: string } | { file: string };
   suggestedAnswers: string[];
   questions: Array<{ prompt: string; suggestedAnswers: string[] }>;
   threadKey?: string;
@@ -1528,6 +1538,7 @@ function parseNotifyCreateArgs(args: string[]): {
   let jsonMode = false;
   let threadKey: string | undefined;
   let questId: string | undefined;
+  let body: { inline: string } | { file: string } | undefined;
   const suggestedAnswers: string[] = [];
   const questions: Array<{ prompt: string; suggestedAnswers: string[] }> = [];
   let currentQuestion: { prompt: string; suggestedAnswers: string[] } | null = null;
@@ -1550,6 +1561,20 @@ function parseNotifyCreateArgs(args: string[]): {
       const value = args[i + 1];
       if (value === undefined || value.startsWith("--")) err("--quest requires q-N.");
       questId = value;
+      i += 1;
+      continue;
+    }
+    if (arg === "--body" || arg === "--body-file") {
+      const value = args[i + 1];
+      if (body) err("Use either --body or --body-file, once.");
+      if (value === undefined || value.startsWith("--")) {
+        err(
+          arg === "--body"
+            ? "--body requires a value; use --body-file <path|-> for text beginning with '--'"
+            : "--body-file requires a path or '-' for stdin",
+        );
+      }
+      body = arg === "--body" ? { inline: value } : { file: value };
       i += 1;
       continue;
     }
@@ -1586,6 +1611,7 @@ function parseNotifyCreateArgs(args: string[]): {
   return {
     jsonMode,
     summary: summaryParts.length > 0 ? summaryParts.join(" ") : undefined,
+    ...(body ? { body } : {}),
     suggestedAnswers,
     questions,
     ...(threadKey ? { threadKey } : {}),
@@ -1757,6 +1783,13 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
   }
   const payload: Record<string, unknown> = { category };
   if (summary) payload.summary = summary;
+  if (parsed.body) {
+    if (category !== "needs-input") err("--body is only supported for needs-input notifications.");
+    const bodyText =
+      "inline" in parsed.body ? parsed.body.inline : await readOptionTextFile(parsed.body.file, "--body-file");
+    if (!bodyText.trim()) err("Notification body is empty.");
+    payload.body = bodyText;
+  }
   if (parsed.threadKey) payload.threadKey = parsed.threadKey;
   if (parsed.questId) payload.questId = parsed.questId;
   if (parsed.suggestedAnswers.length > 0) payload.suggestedAnswers = parsed.suggestedAnswers;

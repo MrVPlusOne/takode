@@ -240,7 +240,7 @@ Refresh git branch info for a session after checkout, rebase, or other branch ch
 `;
 
 const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--thread <main|q-N> | --quest <q-N>] [--suggest <answer>]... [--json]
-       takode notify needs-input <summary> [--thread <main|q-N> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
+       takode notify needs-input <summary> [--body <markdown> | --body-file <path|->] [--thread <main|q-N> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
        takode notify list [--json]
        takode notify resolve <notification-id> [--json]
 
@@ -251,16 +251,24 @@ Categories:
   waiting      Transient non-user wait marker; not listed or resolved
 
 Options:
+  --body <markdown>   Decision context shown in the needs-input question card
+  --body-file <path|-> Read the decision context from a file, or '-' for stdin
   --suggest <answer>  Suggested answer for needs-input notifications (repeat for each quick reply)
   --question <prompt> Add a separate needs-input question; following --suggest flags apply to that question
+
+Put the decision context (findings, options, tradeoffs, recommendation) in
+--body or --body-file as Markdown; it is shown in the question card. If earlier
+visible messages already explain the decision, the body may briefly point to
+them instead of repeating them. Use --body-file - with a quoted heredoc for
+multiline or shell-sensitive text.
 
 Whenever you ask the user a question, include one or two concise suggested replies
 with --suggest so the UI can render convenient response buttons. For a binary
 question, provide both choices. These are shortcuts, not preselected answers or
 authorization; custom replies must remain available. Keep the complete question
-and all valid decision alternatives visible in chat. This guidance does not impose
-a tool-level limit on suggestions. With multiple --question flags, provide replies
-after each question.
+and all valid decision alternatives in the question card. This guidance does not
+impose a tool-level limit on suggestions. With multiple --question flags, provide
+replies after each question.
 `;
 
 const WORKER_STREAM_HELP = `Usage: takode worker-stream [--json]

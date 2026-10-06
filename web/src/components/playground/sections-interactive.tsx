@@ -50,6 +50,7 @@ import {
   PlaygroundDedupedNotificationMessage,
   PlaygroundHoverCrossLinkDemo,
   PlaygroundMessageLinkHoverDemo,
+  PlaygroundBodyNotificationMarker,
   PlaygroundMultiQuestionNotificationMarker,
   PlaygroundReviewNotificationMarker,
   PlaygroundSectionGroup,
@@ -1081,6 +1082,11 @@ export function PlaygroundInteractiveSections() {
               <p className="mb-1">The release is ready for a final launch decision.</p>
               <p className="text-cc-muted">Answer both parts without moving focus to the composer.</p>
               <PlaygroundMultiQuestionNotificationMarker />
+            </div>
+          </Card>
+          <Card label="needs-input with decision context body">
+            <div className="text-cc-fg text-sm">
+              <PlaygroundBodyNotificationMarker />
             </div>
           </Card>
           <Card label="needs-input card history">

@@ -238,7 +238,7 @@ describe("takode notify self-resolution workflow", () => {
     expect(output).toContain("For a binary question, provide both choices");
     expect(output).toContain("not preselected answers or authorization");
     expect(output).toContain("custom replies must remain available");
-    expect(output).toContain("all valid decision alternatives visible in chat");
+    expect(output).toContain("all valid decision alternatives in the question card");
     expect(output).toContain("does not impose a tool-level limit on suggestions");
     expect(output).toContain("provide replies after each question");
     expect(requestBodies).toEqual([]);
@@ -361,6 +361,37 @@ describe("takode notify self-resolution workflow", () => {
         { prompt: "When?", suggestedAnswers: ["now"] },
       ],
     });
+  });
+
+  it("sends the decision context body from stdin and inline text", async () => {
+    // The body carries the decision surface, so multiline shell-sensitive stdin
+    // must arrive verbatim alongside the usual summary and suggestions.
+    const env = { ...process.env, COMPANION_SESSION_ID: "worker-7", COMPANION_AUTH_TOKEN: "auth-7" };
+    const body = "**Options**\n- `$(keep)` A\n- B\n";
+    const fromStdin = await runTakode(
+      ["notify", "needs-input", "Pick", "--body-file", "-", "--suggest", "A", "--port", String(port)],
+      env,
+      process.cwd(),
+      body,
+    );
+    const inline = await runTakode(["notify", "needs-input", "Pick", "--body", "Short", "--port", String(port)], env);
+
+    expect(fromStdin.status).toBe(0);
+    expect(inline.status).toBe(0);
+    expect(requestBodies[0]).toEqual({ category: "needs-input", summary: "Pick", body, suggestedAnswers: ["A"] });
+    expect(requestBodies[1]).toEqual({ category: "needs-input", summary: "Pick", body: "Short" });
+  });
+
+  it("rejects a body on non-needs-input notifications", async () => {
+    const result = await runTakode(["notify", "review", "Done", "--body", "context", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "worker-7",
+      COMPANION_AUTH_TOKEN: "auth-7",
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("--body is only supported for needs-input notifications.");
+    expect(requestBodies).toEqual([]);
   });
 
   it("rejects mixed legacy and per-question suggestions", async () => {

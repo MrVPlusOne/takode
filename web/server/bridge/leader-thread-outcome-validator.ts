@@ -734,7 +734,7 @@ function buildNeedsInputPromptReminderContent(missing: TouchedThread[]): string 
     "Needs-input notification reminder: this leader response appears to ask for a blocking user decision, but no fresh same-thread `takode notify needs-input` notification was created.",
     `Blocking prompt detected for: ${formatThreadLabels(missing)}.`,
     "This is about a missing same-thread needs-input notification after routed leader output; it is not diagnosing missing `[thread:...]` visible-text markers or `# thread:...` shell-command markers.",
-    "Send the blocking prompt as routed commentary with `[thread:main:C]` or `[thread:q-N:C]`, then create the fresh same-thread needs-input notification. After the user answers, use a later explicit `[thread:main:A:u1]` or `[thread:q-N:A:u1]` answer.",
+    "Create the fresh same-thread needs-input notification with the decision context in its body (`--body-file -`), or have the body briefly point to the visible prompt; do not repeat the prompt in chat. After the user answers, use a later explicit `[thread:main:A:u1]` or `[thread:q-N:A:u1]` answer.",
     "Existing unresolved needs-input prompts do not cover a new approval or decision prompt.",
   ].join("\n");
 }

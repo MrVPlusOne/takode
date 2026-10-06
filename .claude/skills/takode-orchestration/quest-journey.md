@@ -47,7 +47,7 @@ Independent review is no longer an embedded phase. When review materially reduce
 
 ## User Checkpoint
 
-Use User Checkpoint when Work needs user authority or judgment outside the approved envelope. Apply `leader-decision-communication` before publishing; it owns decision-first wording and the necessity filter. The visible user prompt must remain self-contained: findings, named options, key tradeoffs, recommendation, exact requested answer, and every notification shortcut explained in visible text before `takode notify needs-input` runs.
+Use User Checkpoint when Work needs user authority or judgment outside the approved envelope. Apply `leader-decision-communication` before publishing; it owns decision-first wording and the necessity filter. The user prompt must remain self-contained: findings, named options, key tradeoffs, recommendation, exact requested answer, and every notification shortcut explained in the `takode notify needs-input` body shown in the question card.
 
 User Checkpoints are required by default. A planned checkpoint is optional only when its approved phase note states a concrete skip condition, for example `Optional: skip if Work confirms there is no user-visible tradeoff.` For a direct optional suffix `[work, user-checkpoint, memory]`, if Work proves that condition, the worker skips it only through guarded `work-to-memory` with `--skip-optional-checkpoint "<reason>"`; the reason is recorded. Generic `board advance --skip-optional-checkpoint` remains blocked when it would land directly in Memory because it cannot replace the Work evidence boundary.
 

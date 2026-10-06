@@ -893,6 +893,8 @@ export interface TakodeNotificationPayload {
   id?: string;
   category: NotificationCategory;
   summary?: string;
+  /** Markdown decision context shown in the needs-input question card. */
+  body?: string;
   suggestedAnswers?: string[];
   questions?: NeedsInputNotificationQuestion[];
   timestamp: number;
@@ -1619,6 +1621,8 @@ export interface SessionNotification {
   id: string;
   category: NotificationCategory;
   summary?: string;
+  /** Markdown decision context shown in the needs-input question card. */
+  body?: string;
   suggestedAnswers?: string[];
   questions?: NeedsInputNotificationQuestion[];
   timestamp: number;
@@ -1884,6 +1888,7 @@ export interface TakodeUserMessageEventData {
 
 export interface TakodeNotificationNeedsInputEventData {
   summary?: string;
+  body?: string;
   suggestedAnswers?: string[];
   questions?: NeedsInputNotificationQuestion[];
   notificationId?: string;

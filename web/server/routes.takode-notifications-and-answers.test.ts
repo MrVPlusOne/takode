@@ -1100,6 +1100,49 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
+  it("stores a needs-input body on the notification and its anchored card", async () => {
+    // The body is the decision surface shown in the question card, so it must
+    // survive on both the notification record and the anchored message copy.
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory.push({
+      type: "assistant",
+      message: { id: "asst-1", content: [{ type: "tool_use", id: "t1", name: "Bash", input: {} }] },
+      timestamp: 1000,
+    });
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Approve?", body: "  **Plan:** ship it.\n" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge._sessions["orch-1"].notifications[0]).toMatchObject({ body: "**Plan:** ship it." });
+    expect(bridge._sessions["orch-1"].messageHistory[0].notification).toMatchObject({ body: "**Plan:** ship it." });
+  });
+
+  it("rejects invalid needs-input bodies", async () => {
+    setupTakodeSessions();
+    const post = (payload: Record<string, unknown>) =>
+      app.request("/api/sessions/orch-1/notify", {
+        method: "POST",
+        headers: authHeaders("orch-1", "tok-1"),
+        body: JSON.stringify({ summary: "Ask", ...payload }),
+      });
+
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ category: "review", body: "context" }, "body is only supported for needs-input notifications"],
+      [{ category: "needs-input", body: "   " }, "body must be nonempty when provided"],
+      [{ category: "needs-input", body: 42 }, "body must be a string"],
+      [{ category: "needs-input", body: "x".repeat(20_001) }, "body must be 20000 characters or less"],
+    ];
+    for (const [payload, error] of cases) {
+      const res = await post(payload);
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe(error);
+    }
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+  });
+
   it("rejects suggested answers outside needs-input notifications", async () => {
     setupTakodeSessions();
 

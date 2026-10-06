@@ -109,6 +109,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         threadKey?: string;
         questId?: string;
         summary?: string;
+        body?: string;
         suggestedAnswers?: string[];
         questions?: NeedsInputNotificationQuestion[];
         messageId: string | null;
@@ -317,6 +318,23 @@ export function createTakodeRoutes(ctx: RouteContext) {
     return result;
   };
 
+  const NEEDS_INPUT_BODY_MAX_CHARS = 20_000;
+
+  const normalizeNeedsInputBody = (
+    value: unknown,
+    category: TakodeNotifyCategory,
+  ): { ok: true; body?: string } | { ok: false; error: string } => {
+    if (value === undefined || value === null) return { ok: true };
+    if (typeof value !== "string") return { ok: false, error: "body must be a string" };
+    if (category !== "needs-input") return { ok: false, error: "body is only supported for needs-input notifications" };
+    const body = value.trim();
+    if (!body) return { ok: false, error: "body must be nonempty when provided" };
+    if (body.length > NEEDS_INPUT_BODY_MAX_CHARS) {
+      return { ok: false, error: `body must be ${NEEDS_INPUT_BODY_MAX_CHARS} characters or less` };
+    }
+    return { ok: true, body };
+  };
+
   const normalizeNeedsInputQuestions = (
     value: unknown,
     category: TakodeNotifyCategory,
@@ -364,6 +382,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       notificationId: number;
       rawNotificationId: string;
       summary?: string;
+      body?: string;
       suggestedAnswers?: string[];
       questions?: NeedsInputNotificationQuestion[];
       timestamp: number;
@@ -383,6 +402,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         notificationId: numericId,
         rawNotificationId: notification.id,
         summary: notification.summary,
+        ...(notification.body ? { body: notification.body } : {}),
         ...(notification.suggestedAnswers?.length ? { suggestedAnswers: notification.suggestedAnswers } : {}),
         ...(notification.questions?.length ? { questions: notification.questions } : {}),
         timestamp: notification.timestamp,
@@ -1227,6 +1247,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         threadKey: notif.threadKey ?? "main",
         ...(notif.questId ? { questId: notif.questId } : {}),
         ...(notif.summary ? { summary: notif.summary } : {}),
+        ...(notif.body ? { body: notif.body } : {}),
         ...(notif.suggestedAnswers?.length ? { suggestedAnswers: notif.suggestedAnswers } : {}),
         ...(notif.questions?.length ? { questions: notif.questions } : {}),
         messageId: notif.messageId,
@@ -1656,6 +1677,10 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (!questionsResult.ok) {
       return c.json({ error: questionsResult.error }, 400);
     }
+    const bodyResult = normalizeNeedsInputBody(body.body, category);
+    if (!bodyResult.ok) {
+      return c.json({ error: bodyResult.error }, 400);
+    }
     if (questionsResult.questions.length > 0 && suggestedAnswersResult.answers.length > 0) {
       return c.json({ error: "Use per-question suggestedAnswers inside questions when questions are provided" }, 400);
     }
@@ -1677,6 +1702,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       });
     }
     const result = notifyUserController(session, category, summary, notificationRouteDeps, {
+      ...(bodyResult.body ? { body: bodyResult.body } : {}),
       suggestedAnswers: suggestedAnswersResult.answers,
       questions: questionsResult.questions,
       ...(threadRouteResult.route ? { threadRoute: threadRouteResult.route } : {}),

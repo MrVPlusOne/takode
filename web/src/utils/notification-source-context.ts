@@ -9,11 +9,13 @@ export function getNotificationTitle(notification: Pick<SessionNotification, "ca
   return "Ready for review";
 }
 
+/** Decision context for a notification: its own body when present, else the anchored message's visible text. */
 export function getNotificationSourceContext(
-  notification: Pick<SessionNotification, "summary" | "questions" | "messageId">,
+  notification: Pick<SessionNotification, "summary" | "body" | "questions" | "messageId">,
   messages: ReadonlyArray<ChatMessage>,
   sourceMessageId?: string | null,
 ): string | null {
+  if (notification.body?.trim()) return normalizeNotificationSourceContext(notification.body, notification);
   const messageId = sourceMessageId ?? notification.messageId;
   if (!messageId) return null;
   const message = messages.find((entry) => entry.id === messageId);

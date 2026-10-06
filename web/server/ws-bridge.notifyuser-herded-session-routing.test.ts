@@ -687,11 +687,11 @@ describe("notifyUser herded session routing", () => {
       "needs-input",
       "Need decision on auth",
       getNotificationTestDeps(bridge),
-      { suggestedAnswers: ["yes", "no"] },
+      { suggestedAnswers: ["yes", "no"], body: "JWT keeps the API stateless." },
     );
     expect(result.ok).toBe(true);
 
-    // Should emit notification_needs_input event
+    // Should emit notification_needs_input event, carrying the decision context body
     const needsInputEvents = capturedEvents.filter((e) => e.event === "notification_needs_input");
     expect(needsInputEvents).toHaveLength(1);
     expect(needsInputEvents[0].data.summary).toBe("Need decision on auth");
@@ -699,7 +699,9 @@ describe("notifyUser herded session routing", () => {
     expect(needsInputEvents[0].data.messageId).toBe("asst-1");
     expect(needsInputEvents[0].data.msg_index).toBe(0);
     expect(needsInputEvents[0].data.suggestedAnswers).toEqual(["yes", "no"]);
+    expect(needsInputEvents[0].data.body).toBe("JWT keeps the API stateless.");
     expect(session.notifications[0].suggestedAnswers).toEqual(["yes", "no"]);
+    expect(session.notifications[0].body).toBe("JWT keeps the API stateless.");
     expect((session.messageHistory[0] as any).notification).toBeUndefined();
 
     // Attention should NOT be set for herded session
@@ -833,6 +835,27 @@ describe("notifyUser herded session routing", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("treats a same-summary needs-input with a different body as a new prompt", () => {
+    // Exact-retry dedupe must not swallow a revised decision context.
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ sessionId: "s1", state: "connected" })),
+    } as any);
+    const session = bridge.getSession("s1")!;
+    const deps = getNotificationTestDeps(bridge);
+
+    const first = notifyUserController(session, "needs-input", "Approve?", deps, { body: "Plan A" });
+    const retry = notifyUserController(session, "needs-input", "Approve?", deps, { body: "Plan A" });
+    const revised = notifyUserController(session, "needs-input", "Approve?", deps, { body: "Plan B" });
+
+    expect(retry).toMatchObject({ notificationId: first.notificationId, reused: true });
+    expect(revised.notificationId).not.toBe(first.notificationId);
+    expect(session.notifications.map((n) => n.body)).toEqual(["Plan A", "Plan B"]);
   });
 
   it("notifies user directly for non-herded sessions (no herdedBy)", () => {

@@ -931,6 +931,50 @@ export function PlaygroundMultiQuestionNotificationMarker() {
   );
 }
 
+export function PlaygroundBodyNotificationMarker() {
+  useEffect(() => {
+    const previous = useStore.getState().sessionNotifications;
+    const next = new Map(previous);
+    next.set("playground-body-notify", [
+      {
+        id: "n-body-1",
+        category: "needs-input",
+        timestamp: Date.now() - 30_000,
+        messageId: "playground-body-notify-msg",
+        summary: "Approve the permission-menu quest",
+        body: [
+          "The Claude permission menu offers six modes, but you use only three.",
+          "",
+          "**Proposal:** keep *Manual*, *Accept edits* and *Full access*; hide the rest.",
+          "",
+          "- **Keep Default as the label**: no change for existing users.",
+          "- **Rename Default to Manual**: matches the desktop app; recommended.",
+        ].join("\n"),
+        questions: [
+          { prompt: "Approve the quest?", suggestedAnswers: ["approve", "change something"] },
+          { prompt: "Rename Default to Manual?", suggestedAnswers: ["yes", "no"] },
+        ],
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: next });
+
+    return () => {
+      useStore.setState({ sessionNotifications: previous });
+    };
+  }, []);
+
+  return (
+    <NotificationMarker
+      category="needs-input"
+      summary="Approve the permission-menu quest"
+      sessionId="playground-body-notify"
+      messageId="playground-body-notify-msg"
+      notificationId="n-body-1"
+    />
+  );
+}
+
 export function PlaygroundDedupedNotificationMessage() {
   useEffect(() => {
     const previous = useStore.getState().sessionNotifications;
