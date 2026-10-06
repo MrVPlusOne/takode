@@ -29,9 +29,10 @@ function formatSidebarBuildLabel(buildTime: string): string {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-    timeZone: "America/Los_Angeles",
+    // Browser-local zone: the server's zone is irrelevant to (and misread by) a user elsewhere.
+    timeZoneName: "short",
   }).formatToParts(new Date(buildTime));
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
 
-  return `Built ${part("month")} ${part("day")}, ${part("hour")}:${part("minute")} ${part("dayPeriod")} PT`;
+  return `Built ${part("month")} ${part("day")}, ${part("hour")}:${part("minute")} ${part("dayPeriod")} ${part("timeZoneName")}`;
 }
