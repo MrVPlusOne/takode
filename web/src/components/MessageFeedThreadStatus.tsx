@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from "react";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import { threadStatusKey } from "../../shared/thread-status-marker.js";
 import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
+import { WaitingWorkerPreview, type WaitingWorkerTarget } from "./WaitingWorkerPreview.js";
 
 export function getVisibleCurrentThreadStatuses(
   currentStatuses: Readonly<Record<string, LeaderThreadStatus>> | undefined,
@@ -103,11 +104,13 @@ function ThreadStatusMetadata({
 
 export function TurnThreadStatusFooter({
   statuses,
+  workerPreviewTarget = null,
   currentThreadKey,
   onSelectThread,
   onLayoutContributionChange,
 }: {
   statuses: LeaderThreadStatus[];
+  workerPreviewTarget?: WaitingWorkerTarget | null;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
   onLayoutContributionChange?: (height: number) => void;
@@ -130,16 +133,17 @@ export function TurnThreadStatusFooter({
     if (root.parentElement) observer.observe(root.parentElement);
     if (root.previousElementSibling) observer.observe(root.previousElementSibling);
     return () => observer.disconnect();
-  }, [onLayoutContributionChange, statuses]);
+  }, [onLayoutContributionChange, statuses, workerPreviewTarget]);
 
   return (
     <div
       ref={rootRef}
-      className="-mt-1 flex items-center gap-1.5 pl-9 font-mono-code text-[10px] text-cc-muted/70"
+      className="-mt-1 flex flex-col items-start gap-1.5 pl-9 font-mono-code text-[10px] text-cc-muted/70"
       data-feed-thread-status-footer="true"
       data-testid="turn-thread-status-footer"
     >
       <ThreadStatusMetadata statuses={statuses} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
+      {workerPreviewTarget && <WaitingWorkerPreview target={workerPreviewTarget} />}
     </div>
   );
 }

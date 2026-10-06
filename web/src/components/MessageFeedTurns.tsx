@@ -25,6 +25,7 @@ import { ReadyThreadResponseRows, readyThreadResponseTurnHasContent } from "./Re
 import { getTurnSummaryDurationMs } from "./message-feed-turn-duration.js";
 import { InlineMessageTimingVisibilityContext } from "./MessageTimestamp.js";
 import { TurnThreadStatusFooter } from "./MessageFeedThreadStatus.js";
+import type { WaitingWorkerTarget } from "./WaitingWorkerPreview.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 
 function entryHasModelActivity(entry: FeedEntry): boolean {
@@ -254,6 +255,7 @@ export const TurnEntries = memo(function TurnEntries({
   threadResponsePresentation,
   activeNeedsInputAnchorMessageIds,
   visibleThreadStatuses,
+  workerPreviewTarget = null,
   onThreadStatusLayoutContributionChange,
 }: {
   sections: FeedSection[];
@@ -272,6 +274,8 @@ export const TurnEntries = memo(function TurnEntries({
   threadResponsePresentation?: ThreadResponsePresentation | null;
   activeNeedsInputAnchorMessageIds: ReadonlySet<string>;
   visibleThreadStatuses: LeaderThreadStatus[];
+  /** Worker the thread waits on; its live preview renders under the status footer. */
+  workerPreviewTarget?: WaitingWorkerTarget | null;
   onThreadStatusLayoutContributionChange?: (height: number) => void;
 }) {
   const turns = useMemo(() => sections.flatMap((section) => section.turns), [sections]);
@@ -286,9 +290,10 @@ export const TurnEntries = memo(function TurnEntries({
     visibleThreadStatuses.some((status) => status.kind === "ready" && status.timestamp >= latestThreadResponseUpdatedAt)
       ? threadResponsePresentation
       : null;
+  const hasThreadStatusFooter = visibleThreadStatuses.length > 0 || workerPreviewTarget !== null;
   const threadStatusFooterTurnId = useMemo(
-    () => (visibleThreadStatuses.length > 0 ? latestStatusHostTurnId(sections) : null),
-    [sections, visibleThreadStatuses.length],
+    () => (hasThreadStatusFooter ? latestStatusHostTurnId(sections) : null),
+    [sections, hasThreadStatusFooter],
   );
   const minuteBoundaryLabels = useMemo(() => {
     const visibleTimedMessages: ChatMessage[] = [];
@@ -350,6 +355,7 @@ export const TurnEntries = memo(function TurnEntries({
               const threadStatusFooter = showThreadStatusFooter ? (
                 <TurnThreadStatusFooter
                   statuses={visibleThreadStatuses}
+                  workerPreviewTarget={workerPreviewTarget}
                   currentThreadKey={currentThreadKey}
                   onSelectThread={onSelectThread}
                   onLayoutContributionChange={onThreadStatusLayoutContributionChange}

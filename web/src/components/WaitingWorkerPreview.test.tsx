@@ -9,11 +9,9 @@ import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { BoardRowSessionStatus } from "../types.js";
 import { createLeaderThreadTabsProjectionValue } from "../test-fixtures/leader-thread-tabs-projection.js";
 import type { BoardRowData } from "./BoardTable.js";
-import {
-  WAITING_WORKER_PREVIEW_HOLD_MS,
-  WaitingWorkerPreview,
-  resolveWaitingWorkerGate,
-} from "./WaitingWorkerPreview.js";
+import { WAITING_WORKER_PREVIEW_HOLD_MS, resolveWaitingWorkerGate } from "./WaitingWorkerPreview.js";
+import { TurnThreadStatusFooter } from "./MessageFeedThreadStatus.js";
+import { useMessageFeedStatusLayout } from "./use-message-feed-status-layout.js";
 
 const getSessionActivityPreview = vi.fn();
 const navigateToSession = vi.fn();
@@ -26,6 +24,19 @@ vi.mock("../utils/routing.js", () => ({
   navigateToSession: (...args: unknown[]) => navigateToSession(...args),
   navigateToSessionMessage: (...args: unknown[]) => navigateToSessionMessage(...args),
 }));
+
+/** Mirrors MessageFeed: the feed's status layout resolves the target, the status footer renders it. */
+function FeedFooterHost({ threadKey = "q-42" }: { threadKey?: string }) {
+  const { visibleThreadStatuses, workerPreviewTarget } = useMessageFeedStatusLayout(LEADER, threadKey);
+  if (visibleThreadStatuses.length === 0 && !workerPreviewTarget) return null;
+  return (
+    <TurnThreadStatusFooter
+      statuses={visibleThreadStatuses}
+      workerPreviewTarget={workerPreviewTarget}
+      currentThreadKey={threadKey}
+    />
+  );
+}
 
 const LEADER = "leader-1";
 const WORKER = "worker-7";
@@ -119,7 +130,7 @@ afterEach(() => {
 describe("resolveWaitingWorkerGate", () => {
   const base = {
     threadKey: "q-42",
-    statuses: { "q-42": waiting() },
+    statuses: [waiting()],
     boardRows: [boardRow()],
     rowStatuses: rowStatuses(),
   };
@@ -139,13 +150,13 @@ describe("resolveWaitingWorkerGate", () => {
   });
 
   it("treats a cleared status as soft so a re-written marker does not flash", () => {
-    expect(resolveWaitingWorkerGate({ ...base, statuses: {} }).kind).toBe("soft");
+    expect(resolveWaitingWorkerGate({ ...base, statuses: [] }).kind).toBe("soft");
   });
 
   it("hides immediately for Ready, Main, completed rows, unassigned or archived workers", () => {
     // Each case is a definitive change, not churn, so no hold applies.
     const ready = { ...waiting(), kind: "ready" as const, label: "Thread Ready" as const };
-    expect(resolveWaitingWorkerGate({ ...base, statuses: { "q-42": ready } }).kind).toBe("hide");
+    expect(resolveWaitingWorkerGate({ ...base, statuses: [ready] }).kind).toBe("hide");
     expect(resolveWaitingWorkerGate({ ...base, threadKey: "main" }).kind).toBe("hide");
     expect(resolveWaitingWorkerGate({ ...base, boardRows: [boardRow({ completedAt: 5 })] }).kind).toBe("hide");
     expect(
@@ -157,15 +168,14 @@ describe("resolveWaitingWorkerGate", () => {
 
 describe("WaitingWorkerPreview", () => {
   it("renders the latest worker lines and opens the worker session or a specific line", async () => {
-    localStorage.setItem("cc-worker-preview-collapsed", "false");
     setLeaderState();
-    render(<WaitingWorkerPreview leaderSessionId={LEADER} threadKey="q-42" />);
+    render(<FeedFooterHost />);
 
     const lines = await screen.findByTestId("waiting-worker-preview-lines");
     expect(lines).toHaveTextContent("Checking the composer layout.");
     expect(lines).toHaveTextContent("Run focused tests");
     expect(screen.getByTestId("waiting-worker-preview-status")).toHaveTextContent("working");
-    // The panel never shows a second "Purring..." activity label.
+    // The preview never shows a second "Purring..." activity label.
     expect(screen.queryByText(/Purring/)).not.toBeInTheDocument();
     expect(getSessionActivityPreview).toHaveBeenCalledWith(WORKER);
 
@@ -176,44 +186,38 @@ describe("WaitingWorkerPreview", () => {
   });
 
   it("shows idle time since the last activity while the thread still waits", async () => {
-    localStorage.setItem("cc-worker-preview-collapsed", "false");
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(PREVIEW.lastActivityAt + 3 * 60_000);
     setLeaderState({ participants: rowStatuses("idle") });
-    render(<WaitingWorkerPreview leaderSessionId={LEADER} threadKey="q-42" />);
+    render(<FeedFooterHost />);
 
     await waitFor(() =>
       expect(screen.getByTestId("waiting-worker-preview-status")).toHaveTextContent("idle · last activity 3m ago"),
     );
   });
 
-  it("remembers the collapsed choice and defaults to collapsed on phone widths", async () => {
-    // No stored choice + phone-width media query -> collapsed single line.
-    const matchMedia = vi.fn((query: string) => ({ matches: query.includes("max-width"), media: query }));
-    vi.stubGlobal("matchMedia", matchMedia);
+  it("renders in the feed's status footer below the Waiting chip, and only in quest threads", async () => {
+    // The preview is part of the chat feed: it sits inside the thread status footer, under
+    // the Waiting chip, so it scrolls with the conversation instead of being pinned.
     setLeaderState();
-    const { unmount } = render(<WaitingWorkerPreview leaderSessionId={LEADER} threadKey="q-42" />);
-    const panel = screen.getByTestId("waiting-worker-preview");
-    expect(panel).toHaveAttribute("data-collapsed", "true");
-    await waitFor(() =>
-      expect(screen.getByTestId("waiting-worker-preview-latest")).toHaveTextContent("Run focused tests"),
-    );
+    render(<FeedFooterHost />);
+    const footer = screen.getByTestId("turn-thread-status-footer");
+    const chip = screen.getByLabelText(/Thread Waiting for thread:q-42/);
+    const preview = screen.getByTestId("waiting-worker-preview");
+    expect(footer).toContainElement(preview);
+    expect(chip.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await screen.findByText("Run focused tests");
 
-    fireEvent.click(screen.getByRole("button", { name: "Expand worker preview" }));
-    expect(panel).toHaveAttribute("data-collapsed", "false");
-    expect(localStorage.getItem("cc-worker-preview-collapsed")).toBe("false");
-    unmount();
-
-    // The stored choice wins over the phone default on the next mount.
-    render(<WaitingWorkerPreview leaderSessionId={LEADER} threadKey="q-42" />);
-    expect(screen.getByTestId("waiting-worker-preview")).toHaveAttribute("data-collapsed", "false");
-    vi.unstubAllGlobals();
+    // Main never hosts a worker preview, even with a Waiting status.
+    setLeaderState({ statuses: { main: { ...waiting("main"), questId: undefined } } });
+    const { container } = render(<FeedFooterHost threadKey="main" />);
+    expect(container.querySelector('[data-testid="waiting-worker-preview"]')).toBeNull();
   });
 
   it("does not flash while the leader clears and re-writes the Waiting marker", () => {
     vi.useFakeTimers();
     setLeaderState();
-    render(<WaitingWorkerPreview leaderSessionId={LEADER} threadKey="q-42" />);
+    render(<FeedFooterHost />);
     const panel = screen.getByTestId("waiting-worker-preview");
 
     // Leader activity in the thread clears the status for the whole leader turn.
@@ -233,7 +237,7 @@ describe("WaitingWorkerPreview", () => {
   it("removes the panel after the grace period when no Waiting status returns, and immediately on Ready", () => {
     vi.useFakeTimers();
     setLeaderState();
-    const { unmount } = render(<WaitingWorkerPreview leaderSessionId={LEADER} threadKey="q-42" />);
+    const { unmount } = render(<FeedFooterHost />);
 
     setLeaderState({ statuses: {} });
     act(() => vi.advanceTimersByTime(WAITING_WORKER_PREVIEW_HOLD_MS - 100));
@@ -247,7 +251,7 @@ describe("WaitingWorkerPreview", () => {
     unmount();
 
     setLeaderState();
-    render(<WaitingWorkerPreview leaderSessionId={LEADER} threadKey="q-42" />);
+    render(<FeedFooterHost />);
     expect(screen.getByTestId("waiting-worker-preview")).toBeInTheDocument();
     setLeaderState({ statuses: { "q-42": { ...waiting(), kind: "ready", label: "Thread Ready" } } });
     expect(screen.queryByTestId("waiting-worker-preview")).not.toBeInTheDocument();
@@ -256,7 +260,7 @@ describe("WaitingWorkerPreview", () => {
   it("polls only while the worker is generating", async () => {
     vi.useFakeTimers();
     setLeaderState({ participants: rowStatuses("idle") });
-    render(<WaitingWorkerPreview leaderSessionId={LEADER} threadKey="q-42" />);
+    render(<FeedFooterHost />);
     expect(getSessionActivityPreview).toHaveBeenCalledTimes(1);
     await act(async () => vi.advanceTimersByTime(10_000));
     expect(getSessionActivityPreview).toHaveBeenCalledTimes(1);

@@ -6,6 +6,7 @@ import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { getVisibleCurrentThreadStatuses } from "./MessageFeedThreadStatus.js";
 import type { MessageFeedEndSlackProps } from "./MessageFeedEndSlack.js";
 import { useComposerScrollSpace } from "./ComposerFeedLayout.js";
+import { useWaitingWorkerPreviewTarget } from "./WaitingWorkerPreview.js";
 
 const FEED_EXTRA_SCROLL_SLACK_PX = 12;
 const FLOATING_STATUS_SPACER_MARGIN_PX = 4;
@@ -36,16 +37,19 @@ export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: 
     () => getVisibleCurrentThreadStatuses(currentThreadStatuses, normalizedThreadKey),
     [currentThreadStatuses, normalizedThreadKey],
   );
+  // The waiting worker's preview lives in the same feed footer as the thread status.
+  const workerPreviewTarget = useWaitingWorkerPreviewTarget(sessionId, normalizedThreadKey, visibleThreadStatuses);
   const visibleThreadStatusContentSignature = useMemo(
     () =>
-      visibleThreadStatuses
-        .map((status) =>
+      [
+        ...visibleThreadStatuses.map((status) =>
           [status.threadKey, status.kind, status.label, status.summary, status.messageId, status.updatedAt].join(
             "\u0001",
           ),
-        )
-        .join("\u0002"),
-    [visibleThreadStatuses],
+        ),
+        workerPreviewTarget ? `worker-preview\u0001${workerPreviewTarget.workerSessionId}` : "",
+      ].join("\u0002"),
+    [visibleThreadStatuses, workerPreviewTarget],
   );
   const [floatingStatusHeight, setFloatingStatusHeight] = useState(0);
   const [floatingStatusRunwayHeight, setFloatingStatusRunwayHeight] = useState(0);
@@ -69,7 +73,7 @@ export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: 
   const threadStatusVisibilityRef = useRef<ReadonlyMap<string, ThreadStatusVisibility>>(new Map());
   const activeThreadStatusScopeRef = useRef<string | null>(null);
   const [, setThreadStatusMeasurementRevision] = useState(0);
-  const threadStatusVisible = visibleThreadStatuses.length > 0;
+  const threadStatusVisible = visibleThreadStatuses.length > 0 || workerPreviewTarget !== null;
   const previousVisibility = threadStatusVisibilityRef.current.get(statusScope);
   const appearanceEpoch =
     threadStatusVisible && (previousVisibility?.visible !== true || activeThreadStatusScopeRef.current !== statusScope)
@@ -173,6 +177,7 @@ export function useMessageFeedStatusLayout(sessionId: string, currentThreadKey: 
     setFloatingStatusRunwayHeight,
     handleThreadStatusLayoutContributionChange,
     visibleThreadStatuses,
+    workerPreviewTarget,
     visibleThreadStatusSignature,
     threadStatusLayoutKey,
   };

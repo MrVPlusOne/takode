@@ -170,6 +170,7 @@ export function MessageFeed({
     setFloatingStatusRunwayHeight,
     handleThreadStatusLayoutContributionChange,
     visibleThreadStatuses,
+    workerPreviewTarget,
     threadStatusLayoutKey,
   } = useMessageFeedStatusLayout(sessionId, normalizedThreadKey);
   const savedScrollPos = readSavedViewportPosition({
@@ -1851,6 +1852,7 @@ export function MessageFeed({
                     threadResponsePresentation={threadResponsePresentation}
                     activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
                     visibleThreadStatuses={visibleThreadStatuses}
+                    workerPreviewTarget={workerPreviewTarget}
                     onThreadStatusLayoutContributionChange={handleThreadStatusLayoutContributionChange}
                   />
                   {hasNewerSections && (
