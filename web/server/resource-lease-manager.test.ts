@@ -8,6 +8,7 @@ import { ResourceLeaseStore } from "./resource-lease-store.js";
 function createBridge() {
   return {
     injectUserMessage: vi.fn(() => "sent" as const),
+    invalidateSessionNavigation: vi.fn(),
   };
 }
 
@@ -88,6 +89,62 @@ describe("ResourceLeaseManager", () => {
       expect.stringContaining("You now hold `agent-browser`."),
       { sessionId: "resource-lease:agent-browser", sessionLabel: "Resource Lease" },
     );
+  });
+
+  it("reports queued pools per session and republishes status when waiting starts or ends", async () => {
+    // Session rows show lease waits from getWaitingResourceKeys, so every queue
+    // entry and promotion must invalidate the waiter's navigation row, and the
+    // getter must already reflect the new queue when that happens.
+    await manager.acquire({ resourceKey: "port:companion", callerSessionId: "owner", purpose: "Port" });
+    await manager.acquire({ resourceKey: "agent-browser", callerSessionId: "owner", purpose: "Inspect UI" });
+    bridge.invalidateSessionNavigation.mockClear();
+
+    for (const resourceKey of ["port:companion", "agent-browser"]) {
+      await manager.wait({ resourceKey, callerSessionId: "waiter", purpose: "Next", waitIfUnavailable: true });
+    }
+    expect(manager.getWaitingResourceKeys("waiter").sort()).toEqual(["agent-browser", "port:companion"]);
+    expect(manager.getWaitingResourceKeys("owner")).toEqual([]);
+    expect(bridge.invalidateSessionNavigation.mock.calls).toEqual([["waiter"], ["waiter"]]);
+
+    // Re-queueing an existing waiter changes nothing and publishes nothing.
+    await manager.wait({
+      resourceKey: "port:companion",
+      callerSessionId: "waiter",
+      purpose: "Next",
+      waitIfUnavailable: true,
+    });
+    expect(bridge.invalidateSessionNavigation).toHaveBeenCalledTimes(2);
+
+    let keysAtInvalidation: string[] = [];
+    bridge.invalidateSessionNavigation.mockImplementation((sessionId: string) => {
+      keysAtInvalidation = manager.getWaitingResourceKeys(sessionId);
+    });
+    await manager.release("port:companion", "owner");
+    expect(bridge.invalidateSessionNavigation).toHaveBeenLastCalledWith("waiter");
+    expect(keysAtInvalidation).toEqual(["agent-browser"]);
+    expect(manager.getWaitingResourceKeys("waiter")).toEqual(["agent-browser"]);
+  });
+
+  it("republishes restored waiters once the persisted queue loads", async () => {
+    await manager.acquire({ resourceKey: "port:companion", callerSessionId: "owner", purpose: "Port" });
+    await manager.wait({
+      resourceKey: "port:companion",
+      callerSessionId: "waiter",
+      purpose: "Next",
+      waitIfUnavailable: true,
+    });
+    manager.destroy();
+
+    const restoredBridge = createBridge();
+    const restored = new ResourceLeaseManager(restoredBridge, new ResourceLeaseStore("test-server", tempDir));
+    try {
+      expect(restored.getWaitingResourceKeys("waiter")).toEqual([]);
+      await restored.startAll();
+      expect(restored.getWaitingResourceKeys("waiter")).toEqual(["port:companion"]);
+      expect(restoredBridge.invalidateSessionNavigation).toHaveBeenCalledWith("waiter");
+    } finally {
+      restored.destroy();
+    }
   });
 
   it("promotes the first waiter when a lease expires", async () => {

@@ -291,6 +291,7 @@ wsBridge.store = sessionStore;
 wsBridge.recorder = recorder;
 wsBridge.imageStore = imageStore;
 wsBridge.timerManager = timerManager;
+wsBridge.resourceLeaseManager = resourceLeaseManager;
 wsBridge.pushoverNotifier = pushoverNotifier;
 wsBridge.launcher = launcher;
 const bridgeAny = wsBridge as any;

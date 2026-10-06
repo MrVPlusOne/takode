@@ -41,7 +41,7 @@ describe("resource lease routes", () => {
     ]);
     tempDir = mkdtempSync(join(tmpdir(), "resource-lease-routes-"));
     manager = new ResourceLeaseManager(
-      { injectUserMessage: vi.fn(() => "sent" as const) },
+      { injectUserMessage: vi.fn(() => "sent" as const), invalidateSessionNavigation: vi.fn() },
       new ResourceLeaseStore("route-test", tempDir),
     );
     await manager.startAll();

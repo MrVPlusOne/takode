@@ -63,6 +63,7 @@ function projectionController(session: ReturnType<typeof leaderSession>) {
     getLauncherSessionInfo: (sessionId) => (sessionId === session.id ? ({ isOrchestrator: true } as any) : undefined),
     getSessionName: () => undefined,
     getPendingTimerCount: () => 0,
+    getLeaseWaitResourceKeys: () => [],
     getBackendConnected: () => false,
     getSessionStatus: () => null,
     getLastActivityAt: () => undefined,

@@ -360,6 +360,7 @@ export class WsBridge {
     getSessionName: (sessionId) =>
       this.sessionStoredNameGetter?.(sessionId) ?? this.launcher?.getSession(sessionId)?.name,
     getPendingTimerCount: (sessionId) => this.timerManager?.listTimers(sessionId).length ?? 0,
+    getLeaseWaitResourceKeys: (sessionId) => this.resourceLeaseManager?.getWaitingResourceKeys(sessionId) ?? [],
     getBackendConnected: (sessionId) => this.isBackendConnected(sessionId),
     getSessionStatus: (sessionId) => {
       const session = this.sessions.get(sessionId);
@@ -395,6 +396,7 @@ export class WsBridge {
   store: SessionStore | null = null;
   recorder: RecorderManager | null = null;
   timerManager: import("./timer-manager.js").TimerManager | null = null;
+  resourceLeaseManager: import("./resource-lease-manager.js").ResourceLeaseManager | null = null;
   imageStore: ImageStore | null = null;
   pushoverNotifier: PushoverNotifier | null = null;
   launcher: CliLauncher | null = null;

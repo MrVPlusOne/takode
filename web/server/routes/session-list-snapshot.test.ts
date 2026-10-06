@@ -70,6 +70,7 @@ function makeDeps(launcherSession: ReturnType<typeof makeLauncherSession>, bridg
             getLauncherSessionInfo: () => launcherSession,
             getSessionName: () => launcherSession.name,
             getPendingTimerCount: () => 0,
+            getLeaseWaitResourceKeys: () => [],
             getBackendConnected: () => false,
             getSessionStatus: () => ((bridgeSession as any).isGenerating ? "running" : null),
             getLastActivityAt: () => launcherSession.lastActivityAt,

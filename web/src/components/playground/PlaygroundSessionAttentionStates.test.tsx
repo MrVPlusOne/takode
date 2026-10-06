@@ -36,6 +36,10 @@ describe("PlaygroundSessionAttentionStates", () => {
     );
 
     expect(row("timer").getByTestId("session-status-timer-icon")).toHaveAttribute("data-count", "1");
+    expect(row("lease").getByTestId("session-status-timer-icon")).toHaveAttribute(
+      "title",
+      "Waiting for lease port:companion",
+    );
     expect(row("needs-input").getByTestId("session-attention-marker")).toHaveAttribute("data-attention", "action");
     expect(row("needs-input").queryByTestId("session-status-timer-icon")).toBeNull();
     // A prompt is amber attention, not an unread result; keep the status idle.

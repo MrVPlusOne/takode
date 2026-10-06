@@ -5,7 +5,7 @@ export type SessionVisualStatus =
   | "running"
   | "compacting"
   | "completed_unread"
-  | "scheduled_timer"
+  | "waiting"
   | "idle";
 
 export interface SessionVisualStatusInput {
@@ -25,6 +25,8 @@ export interface SessionVisualStatusInput {
   idleKilled?: boolean;
   /** Number of active timers waiting on an otherwise idle session */
   activeTimerCount?: number;
+  /** Resource lease pool(s) an otherwise idle session is queued for */
+  leaseWaitResource?: string | null;
 }
 
 /**
@@ -32,7 +34,17 @@ export interface SessionVisualStatusInput {
  * Exported for testability.
  */
 export function deriveSessionStatus(props: SessionVisualStatusInput): SessionVisualStatus {
-  const { archived, permCount, isConnected, sdkState, status, hasUnread, idleKilled, activeTimerCount = 0 } = props;
+  const {
+    archived,
+    permCount,
+    isConnected,
+    sdkState,
+    status,
+    hasUnread,
+    idleKilled,
+    activeTimerCount = 0,
+    leaseWaitResource,
+  } = props;
 
   if (archived) return "archived";
   if (permCount > 0) return "permission";
@@ -46,6 +58,8 @@ export function deriveSessionStatus(props: SessionVisualStatusInput): SessionVis
   if (status === "running") return "running";
   if (status === "compacting" || status === "reverting") return "compacting";
   if (hasUnread) return "completed_unread";
-  if (activeTimerCount > 0) return "scheduled_timer";
+  // Timers and lease queues share one "waiting" state so an idle session that
+  // is actually blocked on something does not read as plain idle.
+  if (activeTimerCount > 0 || leaseWaitResource) return "waiting";
   return "idle";
 }

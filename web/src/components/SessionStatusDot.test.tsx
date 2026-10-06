@@ -14,7 +14,7 @@ import { deriveSessionStatus, SessionStatusDot, type SessionStatusDotProps } fro
  *   4. running         -> green dot, breathing glow
  *   5. compacting      -> green dot, breathing glow
  *   6. completed_unread -> blue dot, no glow
- *   7. scheduled_timer -> green timer icon, no glow
+ *   7. waiting         -> green timer icon, no glow (timers or lease queue)
  *   8. idle            -> gray dot, no glow
  */
 
@@ -122,11 +122,22 @@ describe("deriveSessionStatus", () => {
     expect(result).toBe("completed_unread");
   });
 
-  it("returns 'scheduled_timer' when an otherwise idle session has active timers", () => {
+  it("returns 'waiting' when an otherwise idle session has active timers", () => {
     // Timers are a presentation-only waiting state, below active/attention
     // states but above a plain idle dot.
     const result = deriveSessionStatus(makeProps({ activeTimerCount: 2 }));
-    expect(result).toBe("scheduled_timer");
+    expect(result).toBe("waiting");
+  });
+
+  it("returns 'waiting' when an otherwise idle session is queued for a resource lease", () => {
+    // A session parked in a lease queue is blocked, not idle, so it shares the
+    // timer waiting state instead of the gray idle dot.
+    expect(deriveSessionStatus(makeProps({ leaseWaitResource: "port:companion" }))).toBe("waiting");
+    expect(deriveSessionStatus(makeProps({ leaseWaitResource: null }))).toBe("idle");
+    // Unread results still outrank the waiting state, as they do for timers.
+    expect(deriveSessionStatus(makeProps({ leaseWaitResource: "port:companion", hasUnread: true }))).toBe(
+      "completed_unread",
+    );
   });
 
   it("returns 'running' over 'completed_unread' when still running", () => {
@@ -135,7 +146,7 @@ describe("deriveSessionStatus", () => {
     expect(result).toBe("running");
   });
 
-  it("returns 'running' over 'scheduled_timer' when still running", () => {
+  it("returns 'running' over 'waiting' when still running", () => {
     const result = deriveSessionStatus(makeProps({ status: "running", activeTimerCount: 1 }));
     expect(result).toBe("running");
   });
@@ -145,7 +156,7 @@ describe("deriveSessionStatus", () => {
     expect(result).toBe("permission");
   });
 
-  it("returns 'permission' over 'scheduled_timer'", () => {
+  it("returns 'permission' over 'waiting'", () => {
     const result = deriveSessionStatus(makeProps({ permCount: 1, activeTimerCount: 1 }));
     expect(result).toBe("permission");
   });
@@ -155,7 +166,7 @@ describe("deriveSessionStatus", () => {
     expect(result).toBe("disconnected");
   });
 
-  it("returns 'disconnected' over 'scheduled_timer'", () => {
+  it("returns 'disconnected' over 'waiting'", () => {
     const result = deriveSessionStatus(makeProps({ isConnected: false, sdkState: "exited", activeTimerCount: 1 }));
     expect(result).toBe("disconnected");
   });
@@ -341,11 +352,21 @@ describe("SessionStatusDot component", () => {
     expect(screen.getByTitle("Completed — needs review")).toBeInTheDocument();
   });
 
-  it("renders the timer icon instead of a rounded dot for scheduled_timer state", () => {
+  it("renders the timer icon instead of a rounded dot for waiting state", () => {
     render(<SessionStatusDot {...makeProps({ activeTimerCount: 2 })} />);
     const timerIcon = screen.getByTestId("session-status-timer-icon");
     expect(timerIcon).toHaveAttribute("data-count", "2");
     expect(timerIcon).toHaveAttribute("title", "2 scheduled timers");
+    expect(screen.queryByTestId("session-status-dot")).toBeNull();
+  });
+
+  it("reuses the timer icon for a lease wait and names the queued pool", () => {
+    // The top bar and participant chips render through this component, so a
+    // lease-queued session must show the waiting icon with a lease label.
+    render(<SessionStatusDot {...makeProps({ leaseWaitResource: "port:companion", activeTimerCount: 1 })} />);
+    const icon = screen.getByTestId("session-status-timer-icon");
+    expect(icon).toHaveAttribute("data-status", "waiting");
+    expect(icon).toHaveAttribute("title", "Waiting for lease port:companion; 1 scheduled timer");
     expect(screen.queryByTestId("session-status-dot")).toBeNull();
   });
 

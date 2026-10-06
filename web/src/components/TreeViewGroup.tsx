@@ -288,7 +288,6 @@ export function TreeViewGroup({
     isDraggable,
     onMobileReorderHandleActiveChange,
   };
-  const getTreeTimerCount = (session: SessionItemType) => session.pendingTimerCount ?? 0;
 
   function renderSessionItem(s: SessionItemType, opts?: { compact?: boolean; reviewerSession?: SessionItemType }) {
     const permCount = s.permCount;
@@ -322,7 +321,6 @@ export function TreeViewGroup({
     const countSession = (s: SessionItemType) => {
       const sPermCount = s.permCount;
       const sAttention = sessionAttention?.get(s.id) ?? null;
-      const timerCount = getTreeTimerCount(s);
       const status = deriveSessionStatus({
         archived: s.archived,
         permCount: sPermCount,
@@ -332,9 +330,10 @@ export function TreeViewGroup({
         hasUnread: hasUnreadSessionAttention(sAttention),
         idleKilled: s.idleKilled,
       });
-      const showsTimerWaitingStatus =
-        !(s.paused ?? !!s.pause?.pausedAt) && status === "idle" && !sAttention && sPermCount === 0 && timerCount > 0;
-      if (showsTimerWaitingStatus) waiting++;
+      const isWaiting = (s.pendingTimerCount ?? 0) > 0 || !!s.leaseWaitResource;
+      const showsWaitingStatus =
+        !(s.paused ?? !!s.pause?.pausedAt) && status === "idle" && !sAttention && sPermCount === 0 && isWaiting;
+      if (showsWaitingStatus) waiting++;
       else if (status === "running" || status === "compacting") running++;
       else if (status === "permission") permission++;
       else if (status === "completed_unread") unread++;

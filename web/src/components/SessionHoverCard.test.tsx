@@ -310,6 +310,30 @@ describe("SessionHoverCard", () => {
     expect(screen.queryByText("idle")).toBeNull();
   });
 
+  it("shows the queued lease pool instead of plain idle for a lease-waiting session", () => {
+    // A worker parked in a lease queue should read as waiting in the hover
+    // card, matching the sidebar row's timer icon.
+    render(
+      <SessionHoverCard
+        session={makeSession({ leaseWaitResource: "port:companion" })}
+        sessionName="Lease Hover"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("session-status-timer-icon")).toHaveAttribute(
+      "title",
+      "Waiting for lease port:companion",
+    );
+    expect(screen.getByText("lease port:companion")).toBeInTheDocument();
+    expect(screen.queryByText("idle")).toBeNull();
+  });
+
   it("keeps running status ahead of hover-card timer state", () => {
     render(
       <SessionHoverCard

@@ -1766,7 +1766,7 @@ describe("synchronized projection performance controls", () => {
       requiredWireBytesTotal: 0,
     });
     expect(navigation.singleChange.metrics).toEqual(
-      changedMetrics({ invalidations: 2, valueBytes: 1_497, cachedValueBytes: 5, updateValueBytes: 20 }),
+      changedMetrics({ invalidations: 2, valueBytes: 1_522, cachedValueBytes: 5, updateValueBytes: 20 }),
     );
     expect(navigation.singleChange.messagesPerBrowser).toBe(1);
     expect(navigation.singleChange.requiredWireBytesTotal).toBe(
@@ -1775,7 +1775,7 @@ describe("synchronized projection performance controls", () => {
     expect(navigation.burstChange.metrics).toEqual(
       changedMetrics({
         invalidations: PROJECTION_PERFORMANCE_FIXTURE.burstInvalidations * 2,
-        valueBytes: 1_497,
+        valueBytes: 1_522,
         cachedValueBytes: 5,
         updateValueBytes: 20,
       }),
@@ -1784,7 +1784,7 @@ describe("synchronized projection performance controls", () => {
     expect(navigation.burstChange.requiredWireBytesTotal).toBe(
       navigation.burstChange.requiredWireBytesPerBrowser * PROJECTION_PERFORMANCE_FIXTURE.browserCount,
     );
-    expect(navigation.reconnect.metrics).toEqual(reconnectMetrics(1_492));
+    expect(navigation.reconnect.metrics).toEqual(reconnectMetrics(1_517));
     expect(navigation.reconnect.projectionSubscriptionResponseMessages).toBe(2);
 
     // Status-only navigation activity is fully projection-owned in the current
@@ -1795,9 +1795,9 @@ describe("synchronized projection performance controls", () => {
       requiredProjectionStatusUpdate: 180,
       matchedCompatiblePairStatusChange: 180,
     });
-    expect(navigation.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(1_787);
-    expect(navigation.initialProjectionSubscriptionMetrics).toEqual(initialSubscriptionMetrics(1_492));
-    expect(navigation.reconnect.projectionSubscriptionResponseBytes).toBe(1_787);
+    expect(navigation.initialProjectionSubscriptionResponseBytesPerBrowser).toBe(1_812);
+    expect(navigation.initialProjectionSubscriptionMetrics).toEqual(initialSubscriptionMetrics(1_517));
+    expect(navigation.reconnect.projectionSubscriptionResponseBytes).toBe(1_812);
 
     // The executable historical controls have no subscription work and emit one
     // full activity payload for every producer frame, including semantic no-ops.
@@ -1819,7 +1819,7 @@ describe("synchronized projection performance controls", () => {
         projectionBytesPerBrowser: 180,
         runtimeMetrics: changedMetrics({
           invalidations: 2,
-          valueBytes: 1_497,
+          valueBytes: 1_522,
           cachedValueBytes: 5,
           updateValueBytes: 20,
         }),
@@ -1830,7 +1830,7 @@ describe("synchronized projection performance controls", () => {
         projectionBytesPerBrowser: 180,
         runtimeMetrics: changedMetrics({
           invalidations: 50,
-          valueBytes: 1_497,
+          valueBytes: 1_522,
           cachedValueBytes: 5,
           updateValueBytes: 20,
         }),

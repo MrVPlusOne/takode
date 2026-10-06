@@ -23,6 +23,7 @@ const DEMOS: Demo[] = [
   ["permission", "Permission > attention", "action", "needs-input", 1, 2, 2],
   ["error", "Error attention", "error", null, 1],
   ["leader-checkpoint", "Read leader + checkpoint", "action", "needs-input"],
+  ["lease", "Idle + lease wait", null, null],
 ];
 const value = ([, , attentionReason, urgency, , , count = 1]: Demo): Value => ({
   attentionReason,
@@ -34,6 +35,7 @@ const session = ([slug, , , , pendingTimerCount = 0, permCount = 0]: Demo, index
   sessionNum: 2101 + index,
   createdAt: Date.now() - (index + 1) * 60_000,
   pendingTimerCount,
+  leaseWaitResource: slug === "lease" ? "port:companion" : undefined,
   permCount,
   isOrchestrator: slug === "leader-checkpoint",
   ...(slug === "leader-checkpoint"
@@ -46,7 +48,7 @@ const sessions = DEMOS.map(session);
 const reviewed = sessions[4];
 const reviewerDemo: Demo = ["reviewer", "Reviewer", "review", "review"];
 const reviewer = {
-  ...session(reviewerDemo, 8),
+  ...session(reviewerDemo, DEMOS.length),
   reviewerOf: reviewed.sessionNum,
 };
 const SEEDED = DEMOS.map((demo, index) => ({

@@ -31,6 +31,7 @@ function controllerFor(sessions: Map<string, any>, persistSession = vi.fn()) {
     getLauncherSessionInfo: () => null,
     getSessionName: () => undefined,
     getPendingTimerCount: () => 0,
+    getLeaseWaitResourceKeys: () => [],
     getBackendConnected: () => false,
     getSessionStatus: () => null,
     getLastActivityAt: () => undefined,

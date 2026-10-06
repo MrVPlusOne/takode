@@ -33,6 +33,8 @@ interface ResourceLeaseBridge {
     content: string,
     agentSource?: { sessionId: string; sessionLabel?: string },
   ) => "sent" | "queued" | "paused_queued" | "dropped" | "no_session";
+  /** Republish a session's navigation row after its waiter state changes. */
+  invalidateSessionNavigation: (sessionId: string) => void;
 }
 
 export class ResourceLeaseManager {
@@ -162,6 +164,14 @@ export class ResourceLeaseManager {
     });
   }
 
+  /** Pools the session is queued for, read synchronously for session status projections. */
+  getWaitingResourceKeys(sessionId: string): string[] {
+    return Object.values(this.data.waiters)
+      .flat()
+      .filter((waiter) => waiter.waiterSessionId === sessionId)
+      .map((waiter) => waiter.resourceKey);
+  }
+
   async sweepExpiredNow(now = Date.now()): Promise<void> {
     return this.runExclusive(async () => {
       await this.ensureLoaded();
@@ -232,6 +242,7 @@ export class ResourceLeaseManager {
       slot = this.lowestFreeSlot(resourceKey);
     }
     this.setWaiters(resourceKey, waiters);
+    for (const lease of promoted) this.bridge.invalidateSessionNavigation(lease.ownerSessionId);
     return promoted;
   }
 
@@ -291,6 +302,7 @@ export class ResourceLeaseManager {
       ttlMs: input.ttlMs,
     };
     this.setWaiters(input.resourceKey, [...this.getWaiters(input.resourceKey), waiter]);
+    this.bridge.invalidateSessionNavigation(waiter.waiterSessionId);
     return waiter;
   }
 
@@ -374,6 +386,10 @@ export class ResourceLeaseManager {
       this.loading = this.store.load().then((data) => {
         this.data = data;
         this.loaded = true;
+        // Rows projected before the persisted queue loaded showed no lease wait.
+        for (const waiter of Object.values(data.waiters).flat()) {
+          this.bridge.invalidateSessionNavigation(waiter.waiterSessionId);
+        }
       });
     }
     await this.loading;

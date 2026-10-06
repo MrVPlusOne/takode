@@ -8,8 +8,8 @@ import { SessionPathSummary } from "./SessionPathSummary.js";
 import { SessionContextStats, SessionPayloadStats } from "./SessionPayloadStats.js";
 import {
   deriveSessionStatus,
-  scheduledTimerStatusLabel,
   SessionStatusDot,
+  waitingStatusShortLabel,
   type SessionStatusDotProps,
 } from "./SessionStatusDot.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
@@ -56,7 +56,11 @@ function normalizeQuestId(questId: string): string {
   return questId.toLowerCase();
 }
 
-function sessionHoverStatusLabel(visualStatus: ReturnType<typeof deriveSessionStatus>, timerCount: number): string {
+function sessionHoverStatusLabel(
+  visualStatus: ReturnType<typeof deriveSessionStatus>,
+  timerCount: number,
+  leaseWaitResource: string | null,
+): string {
   switch (visualStatus) {
     case "archived":
       return "archived";
@@ -70,8 +74,8 @@ function sessionHoverStatusLabel(visualStatus: ReturnType<typeof deriveSessionSt
       return "compacting";
     case "completed_unread":
       return "unread";
-    case "scheduled_timer":
-      return scheduledTimerStatusLabel(timerCount);
+    case "waiting":
+      return waitingStatusShortLabel(timerCount, leaseWaitResource);
     case "idle":
       return "idle";
   }
@@ -146,7 +150,9 @@ export function SessionHoverCard({
 
   // Status info
   const timerCount = s.pendingTimerCount ?? 0;
-  const activeTimerCount = projectedAttentionStatus?.urgency === "needs-input" ? 0 : timerCount;
+  const needsInput = projectedAttentionStatus?.urgency === "needs-input";
+  const activeTimerCount = needsInput ? 0 : timerCount;
+  const leaseWaitResource = needsInput ? null : (s.leaseWaitResource ?? null);
   const statusDotProps: SessionStatusDotProps = {
     archived: s.archived,
     permCount: s.permCount,
@@ -155,9 +161,10 @@ export function SessionHoverCard({
     status: s.status,
     idleKilled: s.idleKilled,
     activeTimerCount,
+    leaseWaitResource,
   };
   const visualStatus = deriveSessionStatus(statusDotProps);
-  const statusLabel = sessionHoverStatusLabel(visualStatus, activeTimerCount);
+  const statusLabel = sessionHoverStatusLabel(visualStatus, activeTimerCount, leaseWaitResource);
   const attentionStatus = s.archived
     ? null
     : getSessionHoverAttentionStatus(s.permCount > 0 ? null : projectedAttentionStatus);

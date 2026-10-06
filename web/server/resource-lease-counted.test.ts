@@ -13,6 +13,7 @@ describe("counted resource leases", () => {
     injectUserMessage: vi.fn(
       (_sessionId: string, _content: string, _source?: { sessionId: string; sessionLabel?: string }) => "sent" as const,
     ),
+    invalidateSessionNavigation: vi.fn(),
   };
   const acquire = (callerSessionId: string, ttlMs = 60_000, waitIfUnavailable = true) =>
     manager.acquire({ resourceKey: "test-server", callerSessionId, purpose: "Check pool", ttlMs, waitIfUnavailable });

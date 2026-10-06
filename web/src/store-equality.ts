@@ -237,6 +237,7 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.cronJobId === b.cronJobId &&
     a.cronJobName === b.cronJobName &&
     a.pendingTimerCount === b.pendingTimerCount &&
+    a.leaseWaitResource === b.leaseWaitResource &&
     a.notificationUrgency === b.notificationUrgency &&
     a.activeNotificationCount === b.activeNotificationCount &&
     a.activeNeedsInputNotificationCount === b.activeNeedsInputNotificationCount &&

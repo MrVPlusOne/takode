@@ -1572,6 +1572,28 @@ export function PlaygroundOverviewSections() {
                 <span className="text-xs text-cc-muted">Compacting</span>
               </div>
               <div className="flex items-center gap-2">
+                <SessionStatusDot
+                  archived={false}
+                  permCount={0}
+                  isConnected={true}
+                  sdkState="connected"
+                  status="idle"
+                  activeTimerCount={2}
+                />
+                <span className="text-xs text-cc-muted">Waiting (timers)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <SessionStatusDot
+                  archived={false}
+                  permCount={0}
+                  isConnected={true}
+                  sdkState="connected"
+                  status="idle"
+                  leaseWaitResource="port:companion"
+                />
+                <span className="text-xs text-cc-muted">Waiting (lease)</span>
+              </div>
+              <div className="flex items-center gap-2">
                 <SessionStatusDot archived permCount={0} isConnected={false} sdkState={null} status={null} />
                 <span className="text-xs text-cc-muted">Archived</span>
               </div>

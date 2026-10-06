@@ -839,6 +839,19 @@ describe("SessionItem status dot", () => {
     expect(container.querySelector('[data-testid="session-status-dot"]')).toBeNull();
   });
 
+  it("replaces the idle dot with the timer icon while the session waits for a lease", () => {
+    // A worker queued for a resource lease ends its turn and would otherwise
+    // read as idle. The server-projected lease wait reuses the timer icon.
+    const { container } = renderSessionItem({
+      session: makeSession({ status: "idle", sdkState: "connected", leaseWaitResource: "port:companion" }),
+      permCount: 0,
+    });
+
+    const icon = screen.getByTestId("session-status-timer-icon");
+    expect(icon).toHaveAttribute("title", "Waiting for lease port:companion");
+    expect(container.querySelector('[data-testid="session-status-dot"]')).toBeNull();
+  });
+
   it("shows a pause badge with held-input count instead of the timer icon", () => {
     const { container } = renderSessionItem({
       session: makeSession({

@@ -3,7 +3,7 @@ export type { ArchiveConfirmationState } from "./SessionArchiveConfirmation.js";
 import { memo, useRef, useCallback, useState, type RefObject } from "react";
 import { hasUnreadSessionAttention } from "../utils/session-attention-status.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
-import { deriveSessionStatus, ScheduledTimerStatusIcon, type SessionVisualStatus } from "./SessionStatusDot.js";
+import { deriveSessionStatus, WaitingStatusIcon, type SessionVisualStatus } from "./SessionStatusDot.js";
 import { useStore } from "../store.js";
 import { navigateToSession } from "../utils/routing.js";
 import { getHighlightParts } from "../utils/highlight.js";
@@ -45,7 +45,7 @@ const STATUS_COUNT_STYLES = [
 ];
 
 function waitingSessionStatusLabel(count: number): string {
-  return `${count} waiting session${count === 1 ? "" : "s"} with scheduled timer${count === 1 ? "" : "s"}`;
+  return `${count} session${count === 1 ? "" : "s"} waiting on timers or leases`;
 }
 
 /** Renders colored dot/icon+count indicators for running/permission/unread/waiting statuses. */
@@ -72,7 +72,7 @@ export function StatusCountDots({ counts }: { counts: StatusCounts }) {
           aria-label={waitingSessionStatusLabel(waiting)}
         >
           {waiting}
-          <ScheduledTimerStatusIcon timerCount={waiting} decorative />
+          <WaitingStatusIcon timerCount={waiting} decorative />
         </span>
       )}
     </span>
@@ -99,7 +99,7 @@ const STATUS_DOT_CLASS: Record<SessionVisualStatus, string> = {
   running: "bg-emerald-500",
   compacting: "bg-emerald-500",
   completed_unread: "bg-blue-500",
-  scheduled_timer: "bg-emerald-500",
+  waiting: "bg-emerald-500",
   idle: "bg-cc-muted/50",
 };
 
@@ -110,7 +110,7 @@ const STATUS_RING_CLASS: Record<SessionVisualStatus, string> = {
   running: "ring-2 ring-emerald-500/80",
   compacting: "ring-2 ring-emerald-500/80",
   completed_unread: "ring-2 ring-blue-500/70",
-  scheduled_timer: "ring-2 ring-emerald-500/70",
+  waiting: "ring-2 ring-emerald-500/70",
   idle: "ring-2 ring-cc-muted/35",
 };
 
@@ -127,7 +127,7 @@ const REVIEWER_BADGE_THEME: Record<
   compacting: { border: "border-emerald-500/50", text: "text-emerald-400", glow: "rgba(34, 197, 94, 0.35)" },
   permission: { border: "border-amber-400/50", text: "text-amber-400", glow: "rgba(245, 158, 11, 0.35)" },
   completed_unread: { border: "border-blue-500/40", text: "text-blue-400", glow: "" },
-  scheduled_timer: { border: "border-emerald-500/35", text: "text-emerald-400", glow: "" },
+  waiting: { border: "border-emerald-500/35", text: "text-emerald-400", glow: "" },
   idle: { border: "border-cc-muted/15", text: "text-cc-muted", glow: "" },
   disconnected: { border: "border-cc-muted/15", text: "text-cc-muted", glow: "" },
   archived: { border: "border-cc-muted/15", text: "text-cc-muted", glow: "" },
@@ -496,19 +496,20 @@ function SessionItemComponent({
     idleKilled: s.idleKilled,
   });
   const timerCount = s.pendingTimerCount ?? 0;
+  const leaseWaitResource = s.leaseWaitResource ?? null;
   const isPaused = s.paused ?? !!s.pause?.pausedAt;
   const pausedHeldCount = s.pausedInputQueueCount ?? s.pause?.queuedMessages.length ?? 0;
-  const showScheduledTimerIcon =
+  const showWaitingIcon =
     !isPaused &&
     !archived &&
     visualStatus === "idle" &&
     permCount === 0 &&
     !effectiveAttention &&
-    timerCount > 0 &&
+    (timerCount > 0 || !!leaseWaitResource) &&
     inboxUrgency !== "needs-input" &&
     inboxUrgency !== "muted-needs-input";
-  const statusColorClass = showScheduledTimerIcon ? "bg-emerald-500" : STATUS_DOT_CLASS[visualStatus];
-  const glowColor = showScheduledTimerIcon
+  const statusColorClass = showWaitingIcon ? "bg-emerald-500" : STATUS_DOT_CLASS[visualStatus];
+  const glowColor = showWaitingIcon
     ? ""
     : visualStatus === "permission"
       ? "rgba(245, 158, 11, 0.7)"
@@ -658,9 +659,9 @@ function SessionItemComponent({
             className={`flex min-w-0 items-center gap-1.5 ${usesExpandedLeaderPortrait ? "col-start-2 row-start-1" : ""}`}
             data-testid={usesExpandedLeaderPortrait ? "session-title-row" : undefined}
           >
-            {/* Status marker for sidebar rows. Scheduled timers replace the idle dot. */}
-            {showScheduledTimerIcon ? (
-              <ScheduledTimerStatusIcon timerCount={timerCount} />
+            {/* Status marker for sidebar rows. Timer and lease waits replace the idle dot. */}
+            {showWaitingIcon ? (
+              <WaitingStatusIcon timerCount={timerCount} leaseWaitResource={leaseWaitResource} />
             ) : (
               !useStatusBar &&
               !usesExpandedLeaderPortrait && (
@@ -1088,8 +1089,8 @@ function SessionItemComponent({
         />
       )}
 
-      {/* Projection-owned muted marker (shown when no stronger attention, permission, or timer icon is active). */}
-      {!archived && !effectiveAttention && permCount === 0 && !showScheduledTimerIcon && (
+      {/* Projection-owned muted marker (shown when no stronger attention, permission, or waiting icon is active). */}
+      {!archived && !effectiveAttention && permCount === 0 && !showWaitingIcon && (
         <NotificationMarker urgency={inboxUrgency} />
       )}
 
