@@ -602,7 +602,7 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
   });
 }
 
-describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () => {
+describe("injectUserMessage triggers relaunch for exited sessions", () => {
   // injectUserMessage is called by the takode send REST endpoint. Before q-15,
   // the endpoint rejected exited sessions outright. Now it lets the message
   // queue and relies on injectUserMessage to trigger a relaunch — matching the

@@ -576,142 +576,244 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
   });
 }
 
-describe("SDK session_init preserves server permissionMode (q-316)", () => {
-  it("preserves bypassPermissions when CLI session_init reports a different mode", () => {
-    // Bug: the SDK adapter's canUseTool callback causes the CLI to report
-    // permissionMode: "default" in session_init, overwriting the server's
-    // "bypassPermissions" set at session creation. This caused Bash commands
-    // to fall through to human approval instead of being auto-approved.
-    const sid = "sdk-bypass-preserved";
-    const adapter = makeClaudeSdkAdapterMock();
-    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+describe("Codex recovery timeout", () => {
+  it("resets recovering to disconnected after timeout when no adapter attaches", async () => {
+    // Validates Fix 2: requestCodexAutoRecovery sets a safety timeout that
+    // resets backend_state from "recovering" to "disconnected" if the adapter
+    // never connects. This prevents indefinite stuck states.
+    vi.useFakeTimers();
+    const sid = "s-recovery-timeout";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      getSession: vi.fn(() => ({ state: "exited" })),
+    } as any);
 
-    const session = bridge.getSession(sid)!;
-    // Simulate server-side mode set at session creation
-    session.state.permissionMode = "bypassPermissions";
+    const session = bridge.getOrCreateSession(sid, "codex");
+    session.state.backend_state = "disconnected";
+    const capturedEvents: any[] = [];
+    bridge.subscribeTakodeEvents(new Set([sid]), (evt) => capturedEvents.push(evt));
 
-    // SDK adapter emits session_init with CLI's own mode (may differ)
-    adapter.emitBrowserMessage({
-      type: "session_init",
-      session: {
-        session_id: `cli-${sid}`,
-        model: "claude-sonnet-4-5-20250929",
-        cwd: "/tmp/different-cwd",
-        tools: [],
-        permissionMode: "default", // CLI reports "default" because canUseTool is provided
-      },
-    });
+    (bridge as any).requestCodexAutoRecovery(session, "test_reason");
 
-    // Server's permissionMode should be preserved, not overwritten
-    expect(session.state.permissionMode).toBe("bypassPermissions");
+    expect(session.state.backend_state).toBe("recovering");
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+
+    // Fast-forward past the recovery timeout (30s)
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    expect(session.state.backend_state).toBe("disconnected");
+    expect(capturedEvents).toContainEqual(
+      expect.objectContaining({
+        sessionId: sid,
+        event: "session_disconnected",
+        data: expect.objectContaining({ reason: "recovery_timeout", wasGenerating: false }),
+      }),
+    );
+    vi.useRealTimers();
   });
 
-  it("keeps the creation-time Full access mode through the real initial-state path", () => {
-    // Regression: session creation seeded askPermission/uiMode but never the
-    // permissionMode itself, so a Claude SDK session created with Full access
-    // kept the default "default" mode. The composer then showed Default and the
-    // permission pipeline did not auto-approve Bash. Exercise the same
-    // applyInitialSessionState call the create route makes instead of setting
-    // session.state directly.
-    const sid = "sdk-full-access-created";
-    const adapter = makeClaudeSdkAdapterMock();
-    bridge.attachClaudeSdkAdapter(sid, adapter as any);
-    (bridge as any).applyInitialSessionState(sid, {
-      cwd: "/tmp/test",
-      permissionMode: "bypassPermissions",
-      askPermission: false,
-      uiMode: "agent",
-    });
-
-    adapter.emitBrowserMessage({
-      type: "session_init",
-      session: {
-        session_id: `cli-${sid}`,
-        model: "claude-opus-5.5",
-        cwd: "/tmp/test",
-        tools: [],
-        permissionMode: "default",
+  it("keeps provider-result recovery alive beyond the ordinary 30-second timeout", async () => {
+    // Result-level recovery uses delayed bounded retries while connectivity may
+    // still be down; the generic 30s timeout must not cancel that retry timer.
+    vi.useFakeTimers();
+    const sid = "s-provider-result-recovery-timeout";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({ getSession: vi.fn(() => ({ state: "exited" })) } as any);
+    const session = bridge.getOrCreateSession(sid, "codex");
+    session.state.backend_state = "disconnected";
+    session.pendingCodexTurns.push({
+      adapterMsg: {
+        type: "codex_start_pending",
+        pendingInputIds: ["provider-owner"],
+        inputs: [{ content: "retry exact request" }],
       },
+      userMessageId: "provider-owner",
+      pendingInputIds: ["provider-owner"],
+      userContent: "retry exact request",
+      historyIndex: 0,
+      status: "queued",
+      dispatchCount: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      acknowledgedAt: null,
+      turnTarget: "current",
+      lastError: null,
+      turnId: null,
+      disconnectedAt: null,
+      resumeConfirmedAt: null,
+      providerRecoveryFamily: "model_backend_stream_error",
+      providerRecoveryAttempts: 1,
     });
 
-    const session = bridge.getSession(sid)!;
-    expect(session.state.permissionMode).toBe("bypassPermissions");
-    expect(session.state.askPermission).toBe(false);
-    expect(session.state.uiMode).toBe("agent");
+    (bridge as any).requestCodexAutoRecovery(session, "provider_result:model_backend_stream_error:attempt_1");
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    expect(session.state.backend_state).toBe("recovering");
+    vi.useRealTimers();
   });
 
-  it("auto-approves Bash after session_init when server mode is bypassPermissions", () => {
-    // End-to-end: session created with bypassPermissions → CLI session_init
-    // overwrites mode → Bash request should still be auto-approved.
-    const sid = "sdk-bypass-e2e";
-    const adapter = makeClaudeSdkAdapterMock();
-    bridge.attachClaudeSdkAdapter(sid, adapter as any);
+  it("keeps an exact recoverable Codex planning turn active beyond one timeout", async () => {
+    vi.useFakeTimers();
+    const sid = "s-recovery-timeout-generating";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ state: "exited", killedByIdleManager: false })),
+    } as any);
 
-    const session = bridge.getSession(sid)!;
-    session.state.permissionMode = "bypassPermissions";
-
-    // CLI sends session_init with different mode
-    adapter.emitBrowserMessage({
-      type: "session_init",
-      session: {
-        session_id: `cli-${sid}`,
-        model: "claude-sonnet-4-5-20250929",
-        cwd: "/tmp/test",
-        tools: [],
-        permissionMode: "default",
-      },
-    });
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-recovery-timeout-generating" });
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    session.cliInitReceived = true;
-    browser.send.mockClear();
 
-    // SDK adapter emits a permission_request for Bash cp
-    adapter.emitBrowserMessage({
-      type: "permission_request",
-      request: {
-        request_id: "perm-cp",
-        tool_name: "Bash",
-        input: { command: "cp file1.txt file2.txt" },
-        tool_use_id: "tool-cp",
-        timestamp: Date.now(),
-      },
-    } as any);
+    const spy = vi.spyOn(bridge, "emitTakodeEvent");
 
-    // Should be auto-approved (not forwarded to browser as permission_request)
-    const sent = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const permReqs = sent.filter((m: any) => m.type === "permission_request");
-    expect(permReqs).toHaveLength(0);
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "keep planning",
+      }),
+    );
+    await Promise.resolve();
+    adapter.emitTurnStarted("turn-timeout-generating");
+    adapter.emitDisconnect("turn-timeout-generating");
+    await Promise.resolve();
 
-    const approvals = sent.filter((m: any) => m.type === "permission_approved");
-    expect(approvals).toHaveLength(1);
-    expect(approvals[0].tool_name).toBe("Bash");
+    vi.advanceTimersByTime(16_000);
+    await Promise.resolve();
+
+    let turnEndCalls = spy.mock.calls.filter(([eventSid, eventType]) => eventSid === sid && eventType === "turn_end");
+    expect(turnEndCalls).toHaveLength(0);
+    expect(bridge.getSession(sid)!.isGenerating).toBe(true);
+    expect(bridge.getSession(sid)!.state.backend_state).toBe("recovering");
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    turnEndCalls = spy.mock.calls.filter(([eventSid, eventType]) => eventSid === sid && eventType === "turn_end");
+    expect(turnEndCalls).toHaveLength(0);
+    expect(bridge.getSession(sid)!.isGenerating).toBe(true);
+    expect(bridge.getSession(sid)!.state.backend_state).toBe("recovering");
+
+    spy.mockRestore();
+    vi.useRealTimers();
   });
 
-  it("does not preserve permissionMode when server has no mode set (fresh session)", () => {
-    // If the server has no permissionMode set (undefined), the CLI's reported
-    // mode from session_init should be accepted as-is.
-    const sid = "sdk-no-mode";
-    const adapter = makeClaudeSdkAdapterMock();
-    bridge.attachClaudeSdkAdapter(sid, adapter as any);
-
-    const session = bridge.getSession(sid)!;
-    // No permissionMode set on server (simulate fresh session before init)
-    (session.state as any).permissionMode = undefined;
-
-    adapter.emitBrowserMessage({
-      type: "session_init",
-      session: {
-        session_id: `cli-${sid}`,
-        model: "claude-sonnet-4-5-20250929",
-        cwd: "/tmp/test",
-        tools: [],
-        permissionMode: "plan",
-      },
+  it("turns a restored non-generating interrupted owner into durable action required on timeout", async () => {
+    vi.useFakeTimers();
+    const sid = "s-restored-recovery-timeout";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({ getSession: vi.fn(() => ({ state: "exited", cliSessionId: "thread-restored" })) } as any);
+    const session = bridge.getOrCreateSession(sid, "codex");
+    session.state.backend_state = "disconnected";
+    session.state.isOrchestrator = true;
+    session.state.codex_turn_recovery = {
+      recoveryId: "original-owner",
+      originalOwnerId: "original-owner",
+      originalProviderTurnId: "turn-original",
+      originalHistoryIndex: 0,
+      continuationOwnerId: null,
+      threadKey: "main",
+      status: "recovering",
+      reason: "adapter_disconnect",
+      attempt: 0,
+      maxAttempts: 1,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    session.messageHistory.push({
+      type: "user_message",
+      id: "original-owner",
+      content: "finish the work",
+      timestamp: 1,
     });
+    session.pendingCodexTurns.push({
+      adapterMsg: { type: "codex_start_pending", pendingInputIds: ["original-owner"], inputs: [] },
+      userMessageId: "original-owner",
+      pendingInputIds: ["original-owner"],
+      userContent: "finish the work",
+      historyIndex: 0,
+      status: "backend_acknowledged",
+      dispatchCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      acknowledgedAt: 2,
+      turnTarget: "current",
+      lastError: null,
+      turnId: "turn-original",
+      disconnectedAt: 3,
+      resumeConfirmedAt: null,
+    });
+    const eventSpy = vi.spyOn(bridge, "emitTakodeEvent");
 
-    // CLI's mode should be accepted
-    expect(session.state.permissionMode).toBe("plan");
+    (bridge as any).requestCodexAutoRecovery(session, "adapter_disconnect");
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    expect(session.state.codex_turn_recovery).toMatchObject({
+      status: "action_required",
+      reason: "recovery_timeout",
+      raisedAttention: false,
+    });
+    expect(session.pendingCodexTurns).toHaveLength(0);
+    expect(session.isGenerating).toBe(false);
+    expect(session.attentionReason).toBeNull();
+    expect(eventSpy.mock.calls.filter(([, event]) => event === "turn_end")).toHaveLength(0);
+    vi.useRealTimers();
+  });
+
+  it("does not reset if adapter attaches within timeout", async () => {
+    // The timeout should be a no-op if the adapter reconnects in time.
+    vi.useFakeTimers();
+    const sid = "s-recovery-timeout-ok";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      getSession: vi.fn(() => ({ state: "exited" })),
+    } as any);
+
+    const session = bridge.getOrCreateSession(sid, "codex");
+    session.state.backend_state = "disconnected";
+
+    (bridge as any).requestCodexAutoRecovery(session, "test_reason");
+    expect(session.state.backend_state).toBe("recovering");
+
+    // Adapter attaches before timeout
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter);
+
+    expect(session.state.backend_state).toBe("connected");
+
+    // Timeout fires but should be a no-op (state is no longer "recovering")
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(session.state.backend_state).toBe("connected");
+    vi.useRealTimers();
+  });
+
+  it("re-requests relaunch even when already recovering (coalesced by relaunch queue)", () => {
+    // requestCodexAutoRecovery allows re-entry when already recovering —
+    // the relaunch queue handles deduplication. This ensures a second
+    // recovery request (e.g. from a user message) reaches the launcher
+    // even if an earlier disconnect-triggered request was suppressed.
+    const sid = "s-recovery-reentry";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      getSession: vi.fn(() => ({ state: "exited" })),
+    } as any);
+
+    const session = bridge.getOrCreateSession(sid, "codex");
+    session.state.backend_state = "recovering";
+
+    const result = (bridge as any).requestCodexAutoRecovery(session, "test_reason");
+    expect(result).toBe(true);
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
   });
 });

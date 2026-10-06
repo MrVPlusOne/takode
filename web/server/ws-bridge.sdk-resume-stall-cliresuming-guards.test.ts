@@ -581,7 +581,7 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
   });
 }
 
-describe("SDK resume stall: cliResuming guards (q-220)", () => {
+describe("SDK resume stall: cliResuming guards", () => {
   // When an SDK session is resumed after server restart, the CLI replays
   // historical messages including stale status_change:"running" events.
   // Without cliResuming guards, these get broadcast to browsers, overriding

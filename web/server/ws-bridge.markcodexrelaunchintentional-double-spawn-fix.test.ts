@@ -577,7 +577,7 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
   });
 }
 
-describe("markCodexRelaunchIntentional (q-16 double-spawn fix)", () => {
+describe("markCodexRelaunchIntentional double-spawn fix", () => {
   it("suppresses auto-relaunch when disconnect is marked intentional before it fires", () => {
     const sid = "s-mark-intentional";
     const relaunchCb = vi.fn();

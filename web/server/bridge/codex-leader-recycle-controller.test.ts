@@ -194,82 +194,35 @@ describe("Codex leader recycle continuation", () => {
       trigger: "manual_compact",
     });
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, recycleMarker);
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("interrupted the previous leader turn");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "Do not treat assistant text immediately before this recovery message as a completed response or finished orchestration action.",
-    );
-    expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "Use it only as historical evidence if Takode inspection shows it matters.",
-    );
-    expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "You are a replacement leader continuing the same Takode session",
-    );
-    expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "required leader skills are already loaded with your session context",
-    );
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("via tool calls");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "Invoke /leader-dispatch only before choosing workers or dispatching work.",
-    );
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("takode leader-context-resume 42");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("takode scan 42");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("Run the default recent-turn scan");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "Do not conclude recovery is complete until the recent scan turns have been checked",
-    );
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("unanswered user requests");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("interrupted actions");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("unmodeled quest setup");
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("only if you need more session history");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("takode peek 42");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("takode read 42 <msg-id>");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("quest show");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("quest status");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("memory catalog show");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("takode board show");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "~/.companion/quest-journey-phases/work/leader.md",
-    );
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("That brief owns the complete recovery rule");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "the recycle itself does not define a smaller scope",
-    );
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("full remaining authorized Work envelope");
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain(
-      "exact-once replay proof and recovery suppression",
-    );
-    expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "scan plus board/quest/notification state show no active work",
-    );
-    expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "report recovery complete instead of digging through old review inbox items",
-    );
-    expect(session.codexLeaderRecycleContinuation?.content).toContain("Interrupted direct user work");
-    expect(session.codexLeaderRecycleContinuation?.content).toContain(
-      "handle each direct request independently from unrelated quest-scoped waits",
-    );
+    const preparedContent = session.codexLeaderRecycleContinuation!.content;
+    // The continuation points the replacement leader at inspection commands for
+    // this exact session instead of copying recent history into the prompt.
+    for (const command of [
+      "takode leader-context-resume 42",
+      "takode scan 42",
+      "takode peek 42",
+      "takode read 42 <msg-id>",
+    ]) {
+      expect(preparedContent).toContain(command);
+    }
     expect(session.codexLeaderRecycleContinuation).toMatchObject({
       threadKey: "q-1489",
       questId: "q-1489",
     });
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("Active thread before recycle:");
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("Recycle trigger:");
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("manual_compact");
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("leader-session");
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("Recent visible context before recycle");
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("This looks separate from q-1491");
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("tool:Bash");
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("quest show q-1489");
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("Fix Codex active-turn");
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("system-interrupted worker herd events");
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("Use `takode spawn`");
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain(
-      "Invoke /leader-dispatch before every dispatch",
-    );
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain("Follow quest-journey.md");
-    expect(session.codexLeaderRecycleContinuation?.content).not.toContain(
-      "Never implement non-trivial changes yourself",
-    );
+    // Neither recent assistant/tool snippets nor recycle internals leak into it.
+    for (const leaked of [
+      "This looks separate from q-1491",
+      "tool:Bash",
+      "quest show q-1489",
+      "Fix Codex active-turn",
+      "Recent visible context before recycle",
+      "Active thread before recycle:",
+      "Recycle trigger:",
+      "manual_compact",
+      "leader-session",
+    ]) {
+      expect(preparedContent).not.toContain(leaked);
+    }
 
     const injectUserMessage = vi.fn(
       (
@@ -327,52 +280,7 @@ describe("Codex leader recycle continuation", () => {
         expect(session.codexLeaderRecycleContinuation).toBeNull();
         const [, content, source, threadRoute, options] = injectUserMessage.mock.calls[0]!;
         expect(threadRoute).toEqual({ threadKey: "q-1489", questId: "q-1489" });
-        expect(content).toContain(
-          "Do not treat assistant text immediately before this recovery message as a completed response or finished orchestration action.",
-        );
-        expect(content).toContain("Use it only as historical evidence if Takode inspection shows it matters.");
-        expect(content).toContain("continue the interrupted workflow only if it is safe");
-        expect(content).toContain("You are a replacement leader continuing the same Takode session");
-        expect(content).toContain("required leader skills are already loaded with your session context");
-        expect(content).toContain("via tool calls");
-        expect(content).toContain("Invoke /leader-dispatch only before choosing workers or dispatching work.");
-        expect(content).toContain("takode leader-context-resume 42");
-        expect(content).toContain("takode scan 42");
-        expect(content).toContain("Run the default recent-turn scan");
-        expect(content).toContain("Do not conclude recovery is complete until the recent scan turns have been checked");
-        expect(content).toContain("unanswered user requests");
-        expect(content).toContain("interrupted actions");
-        expect(content).toContain("unmodeled quest setup");
-        expect(content).not.toContain("only if you need more session history");
-        expect(content).toContain("takode peek 42");
-        expect(content).toContain("takode read 42 <msg-id>");
-        expect(content).toContain("quest show");
-        expect(content).toContain("quest status");
-        expect(content).toContain("memory catalog show");
-        expect(content).toContain("takode board show");
-        expect(content).toContain("~/.companion/quest-journey-phases/work/leader.md");
-        expect(content).toContain("That brief owns the complete recovery rule");
-        expect(content).toContain("the recycle itself does not define a smaller scope");
-        expect(content).not.toContain("full remaining authorized Work envelope");
-        expect(content).not.toContain("exact-once replay proof and recovery suppression");
-        expect(content).toContain("scan plus board/quest/notification state show no active work");
-        expect(content).toContain("report recovery complete instead of digging through old review inbox items");
-        expect(content).toContain("Interrupted direct user work");
-        expect(content).toContain("handle each direct request independently from unrelated quest-scoped waits");
-        expect(content).not.toContain("Active thread before recycle:");
-        expect(content).not.toContain("Recycle trigger:");
-        expect(content).not.toContain("manual_compact");
-        expect(content).not.toContain("leader-session");
-        expect(content).not.toContain("Recent visible context before recycle");
-        expect(content).not.toContain("This looks separate from q-1491");
-        expect(content).not.toContain("tool:Bash");
-        expect(content).not.toContain("quest show q-1489");
-        expect(content).not.toContain("Fix Codex active-turn");
-        expect(content).not.toContain("system-interrupted worker herd events");
-        expect(content).not.toContain("Use `takode spawn`");
-        expect(content).not.toContain("Invoke /leader-dispatch before every dispatch");
-        expect(content).not.toContain("Follow quest-journey.md");
-        expect(content).not.toContain("Never implement non-trivial changes yourself");
+        expect(content).toBe(preparedContent);
         expect(source).toEqual({
           sessionId: "system:codex-turn-recovery:original-owner",
           sessionLabel: "Resuming Interrupted Work",

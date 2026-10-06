@@ -576,17 +576,72 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
   });
 }
 
-describe("isBackendAttached public wrapper (q-385)", () => {
-  it("returns false when no backend is attached", () => {
-    const sid = "s-not-attached";
-    bridge.getOrCreateSession(sid, "codex");
-    expect(bridge.isBackendAttached(sid)).toBe(false);
+describe("Stuck pending delivery watchdog", () => {
+  it("triggers recovery for Codex sessions with old pending inputs and no adapter", async () => {
+    // Validates Fix 3: the watchdog detects pending delivery inputs that have
+    // been stuck for longer than the threshold and triggers auto-recovery.
+    vi.useFakeTimers();
+    const sid = "s-stuck-pending";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      getSession: vi.fn(() => ({ state: "exited" })),
+    } as any);
+
+    // Create a Codex session with no adapter (simulates post-restart state)
+    const session = bridge.getOrCreateSession(sid, "codex");
+    session.state.backend_state = "disconnected";
+
+    // Directly inject a stale pending input (as if a message arrived
+    // while the adapter was down and recovery failed)
+    session.pendingCodexInputs.push({
+      id: "stuck-input-1",
+      content: "stuck message",
+      timestamp: Date.now() - 70_000,
+      cancelable: true,
+    } as any);
+
+    relaunchCb.mockClear();
+
+    // Start watchdog and advance past check interval (30s)
+    bridge.startStuckSessionWatchdog();
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    expect(session.state.backend_state).toBe("recovering");
+    vi.useRealTimers();
   });
 
-  it("returns true when Codex adapter is attached", () => {
-    const sid = "s-codex-attached";
+  it("does not trigger recovery for sessions with connected adapter", async () => {
+    // Sessions with a live adapter should not trigger the watchdog even if
+    // pending inputs exist (they'll be dispatched normally).
+    vi.useFakeTimers();
+    const sid = "s-pending-with-adapter";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      getSession: vi.fn(() => ({ state: "connected" })),
+    } as any);
+
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter(sid, adapter as any);
-    expect(bridge.isBackendAttached(sid)).toBe(true);
+    emitCodexSessionReady(adapter);
+    const session = bridge.getSession(sid)!;
+
+    // Add a stale pending input manually
+    session.pendingCodexInputs.push({
+      id: "test-input-1",
+      content: "pending message",
+      timestamp: Date.now() - 70_000,
+      cancelable: true,
+    } as any);
+
+    relaunchCb.mockClear();
+    bridge.startStuckSessionWatchdog();
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    // No recovery triggered — adapter is attached
+    expect(session.state.backend_state).toBe("connected");
+    vi.useRealTimers();
   });
 });
