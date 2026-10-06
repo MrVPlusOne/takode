@@ -211,20 +211,38 @@ describe("CompactToolActivity", () => {
     expect(screen.getByText("Full worker-event details")).toBeTruthy();
   });
 
-  it("renders a single tool's own chip directly instead of a one-item disclosure", () => {
-    // A lone "Ran command" row would only hide the more specific chip (e.g. the
-    // Bash description) one level deeper, so the children render immediately.
+  it("shows a single tool as one light row naming the tool, with no preview lines", () => {
+    // A generic "Ran command" label would hide the more specific Bash
+    // description, so a lone tool's row shows that description instead.
     render(
       <CompactToolActivity
         items={[{ id: "bash-1", name: "Bash", input: { command: "rg flush", description: "Find flush origin" } }]}
       >
-        <div>Find flush origin chip</div>
+        <div>Find flush origin details</div>
       </CompactToolActivity>,
     );
 
-    expect(screen.getByText("Find flush origin chip")).toBeTruthy();
     expect(screen.queryByText("Ran command")).toBeNull();
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByTestId("compact-tool-activity-preview")).toBeNull();
+    expect(screen.queryByText("Find flush origin details")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show 1 tool call: Find flush origin" }));
+    expect(screen.getByText("Find flush origin details")).toBeTruthy();
+  });
+
+  it("previews the first three tools of a run and counts the rest", () => {
+    // Collapsed runs grow with the work (capped), so several commands read
+    // heavier than one; expanding replaces the preview with the full details.
+    render(
+      <CompactToolActivity items={bashItems(5)}>
+        <div>Run details</div>
+      </CompactToolActivity>,
+    );
+
+    const preview = screen.getByTestId("compact-tool-activity-preview");
+    expect(Array.from(preview.children, (line) => line.textContent)).toEqual(["echo 1", "echo 2", "echo 3", "+2 more"]);
+    fireEvent.click(screen.getByRole("button", { name: /Show 5 tool calls/ }));
+    expect(screen.queryByTestId("compact-tool-activity-preview")).toBeNull();
+    expect(screen.getByText("Run details")).toBeTruthy();
   });
 
   it("keeps the deliberate summary for a single worker send or worker event", () => {

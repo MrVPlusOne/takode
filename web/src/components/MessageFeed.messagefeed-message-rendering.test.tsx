@@ -723,7 +723,9 @@ describe("MessageFeed - message rendering", () => {
 
     expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
     expect(screen.getByText("Read file, ran command")).toBeTruthy();
-    expect(screen.queryByText("bun test")).toBeNull();
+    // Collapsed runs show short preview lines; the chips stay hidden until expanded.
+    expect(screen.getByTestId("compact-tool-activity-preview").textContent).toContain("bun test");
+    expect(screen.queryByText("a.ts")).toBeNull();
     expect(screen.getByText("Everything passes.")).toBeTruthy();
     const compactRow = screen.getByTestId("compact-tool-activity").closest("[data-compact-tool-activity-row]");
     expect(compactRow).toBeTruthy();
@@ -928,12 +930,14 @@ describe("MessageFeed - message rendering", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    // A single compact tool shows its own chip instead of a one-item "Ran command" disclosure.
+    // A single compact tool is one light row naming its own command, not a generic "Ran command".
     expect(screen.queryByText("Ran command")).toBeNull();
-    expect(screen.queryByRole("button", { name: /Show 1 tool call/ })).toBeNull();
-    expect(screen.getByText('takode notify review "Ready for review"')).toBeTruthy();
+    const row = screen.getByRole("button", { name: /Show 1 tool call: takode notify review/ });
     expect(screen.getAllByText("Ready for review")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Mark as reviewed" })).toBeTruthy();
+
+    fireEvent.click(row);
+    expect(screen.getAllByText("Ready for review")).toHaveLength(1);
   });
 
   it("renders user and assistant messages", () => {

@@ -1345,6 +1345,7 @@ function AssistantMessage({
                   <DetailedToolGroup
                     key={`${detailGroup.items[0]?.id ?? detailIndex}`}
                     group={detailGroup}
+                    flat
                     sessionId={sessionId}
                     parentMessageId={message.id}
                     suppressNotificationMarker={suppressToolNotificationMarker}
@@ -1414,6 +1415,7 @@ function DetailedToolGroup({
   toolResultOverrides,
   toolResultScope,
   questLinkSurface,
+  flat = false,
 }: {
   group: Extract<GroupedBlock, { kind: "tool_group" }>;
   sessionId?: string;
@@ -1425,7 +1427,34 @@ function DetailedToolGroup({
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope: ToolResultScope;
   questLinkSurface: QuestLinkSurface;
+  /** Inside a compact activity row: list the items without the group header. */
+  flat?: boolean;
 }) {
+  if (flat) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        {group.items.map((item) => (
+          <ToolBlock
+            key={item.id}
+            name={item.name}
+            input={item.input}
+            toolUseId={item.id}
+            sessionId={sessionId}
+            parentMessageId={parentMessageId}
+            hideLabel={group.items.length > 1 && group.name === "Bash"}
+            suppressNotificationMarker={suppressNotificationMarker}
+            currentThreadKey={currentThreadKey}
+            onSelectThread={onSelectThread}
+            disableInlineSpecialCases={readOnly}
+            resultOverride={toolResultOverrides?.get(item.id)}
+            suppressStoredResult={toolResultScope === "overrides-only"}
+            readOnly={readOnly}
+            questLinkSurface={questLinkSurface}
+          />
+        ))}
+      </div>
+    );
+  }
   if (group.items.length === 1) {
     const item = group.items[0];
     return (

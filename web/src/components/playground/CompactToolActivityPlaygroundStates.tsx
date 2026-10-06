@@ -175,10 +175,10 @@ export function PlaygroundCompactToolActivityStates() {
   return (
     <Section
       title="Compact Tool Activity"
-      description="Single tools show their own chip; small groups stay descriptive; large or growing Bash/MCP groups use stable invocation counts with lossless expansion."
+      description="A single tool is one light row naming the tool; runs preview their first three tools and grow with the work; large or growing Bash/MCP groups use stable invocation counts with lossless expansion and no inner group header."
     >
       <div className="space-y-4 max-w-3xl">
-        <Card label="Single described commands (no one-item disclosure)">
+        <Card label="Single described commands (light rows that open straight to details)">
           <div className="space-y-2" data-testid="playground-single-command-chips">
             {SINGLE_DESCRIBED_COMMAND_GROUPS.map((group) => (
               <CompactToolMessageGroups

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../store.js";
-import { getPreview, ToolBlock } from "./ToolBlock.js";
+import { getPreview, ToolBlock, ToolBlockEmbeddedContext } from "./ToolBlock.js";
 
 vi.mock("../api.js", () => ({
   api: {
@@ -18,6 +18,57 @@ beforeEach(() => {
 });
 
 describe("ToolBlock Bash previews", () => {
+  it("shows a short description once: in the header, not again in the details", () => {
+    // The header already uses a short Bash description as its preview, so the
+    // opened details should go straight to the command.
+    render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "rg flush", description: "Find flush origin" }}
+        toolUseId="bash-description-once"
+        sessionId="preview-session"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Find flush origin/ }));
+    expect(screen.getAllByText("Find flush origin")).toHaveLength(1);
+    expect(screen.getByText("rg flush")).toBeTruthy();
+  });
+
+  it("keeps a long description in the details because the header shows the command", () => {
+    const description = "Find where the replay-gated flush starts and which tests assert it today";
+    render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "rg flush", description }}
+        toolUseId="bash-long-description"
+        sessionId="preview-session"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /rg flush/ }));
+    expect(screen.getByText(description)).toBeTruthy();
+  });
+
+  it("renders only the details when an enclosing row is its header", () => {
+    // A compact row standing for one tool already shows the description, so
+    // the embedded block has no header of its own and starts open.
+    render(
+      <ToolBlockEmbeddedContext.Provider value>
+        <ToolBlock
+          name="Bash"
+          input={{ command: "rg flush", description: "Find flush origin" }}
+          toolUseId="bash-embedded"
+          sessionId="preview-session"
+        />
+      </ToolBlockEmbeddedContext.Provider>,
+    );
+
+    expect(screen.queryByRole("button", { name: /Find flush origin/ })).toBeNull();
+    expect(screen.queryByText("Find flush origin")).toBeNull();
+    expect(screen.getByText("rg flush")).toBeTruthy();
+  });
+
   it("renders embedded command newlines as visible markers in the collapsed header", () => {
     // A single Bash tool call can contain several shell lines. The collapsed
     // chip must signal those line breaks instead of letting inline whitespace

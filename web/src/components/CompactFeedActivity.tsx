@@ -75,6 +75,7 @@ export function CompactFeedActivity({
                 activeCodexTerminalIds={activeCodexTerminalIds}
                 onOpenCodexTerminal={onOpenCodexTerminal}
                 suppressNotificationMarker
+                flat
                 interactionMode={interactionMode}
                 toolResultOverrides={toolResultOverrides}
                 toolResultScope={toolResultScope}

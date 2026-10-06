@@ -171,7 +171,10 @@ describe("CompactFeedActivity", () => {
       name: "Show 9 activity items: 7 tool calls, 2 worker events",
     });
     expect(summary.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByText("echo 1")).toBeNull();
+    // Tool calls preview as short lines; worker events contribute no preview lines.
+    const preview = screen.getByTestId("compact-tool-activity-preview");
+    expect(preview.textContent).toContain("echo 1");
+    expect(preview.textContent).toContain("+4 more");
     expect(screen.queryByText(/preserved recovery detail/)).toBeNull();
 
     fireEvent.click(summary);

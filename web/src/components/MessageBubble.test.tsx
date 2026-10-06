@@ -1412,9 +1412,9 @@ describe("MessageBubble - assistant messages", () => {
   });
 
   it("keeps notification UI visible outside a compacted notify command", () => {
-    // A single compact tool renders its own chip directly (no one-item
-    // "Ran command" disclosure); the separately rendered notification panel
-    // must stay actionable and must not be duplicated by the chip.
+    // A single compact tool is one light row showing its own command, and
+    // opening it shows the tool's details at once. The separately rendered
+    // notification panel must stay actionable and never be duplicated.
     useStore.setState({ compactToolActivity: true });
     const msg = makeMessage({
       id: "asst-compact-review-tool",
@@ -1428,10 +1428,12 @@ describe("MessageBubble - assistant messages", () => {
     render(<MessageBubble message={msg} sessionId="review-session" />);
 
     expect(screen.queryByText("Ran command")).toBeNull();
-    expect(screen.queryByRole("button", { name: /Show 1 tool call/ })).toBeNull();
-    expect(screen.getByText("takode notify review")).toBeTruthy();
+    const row = screen.getByRole("button", { name: "Show 1 tool call: takode notify review" });
     expect(screen.getAllByText("Ready for review")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Mark as reviewed" })).toBeTruthy();
+
+    fireEvent.click(row);
+    expect(screen.getAllByText("Ready for review")).toHaveLength(1);
   });
 
   it("marks the matching review notification done from the in-message checkbox", async () => {
@@ -1812,9 +1814,13 @@ describe("MessageBubble - content block grouping", () => {
     expect(screen.getByText("I will inspect the implementation.")).toBeTruthy();
     expect(screen.getByText("The focused tests pass.")).toBeTruthy();
     expect(screen.getByText("Read file, ran command, searched for compact")).toBeTruthy();
-    expect(screen.queryByText("bun test")).toBeNull();
+    // Collapsed runs list their tools as short preview lines, not as chips.
+    const preview = screen.getByTestId("compact-tool-activity-preview");
+    expect(preview.textContent).toContain("bun test");
+    expect(screen.queryByText("a.ts")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Show 3 tool calls/ }));
+    expect(screen.queryByTestId("compact-tool-activity-preview")).toBeNull();
     expect(screen.getByText("bun test")).toBeTruthy();
     expect(screen.getByText("a.ts")).toBeTruthy();
   });
@@ -1876,7 +1882,10 @@ describe("MessageBubble - content block grouping", () => {
 
     expect(screen.getByText("7 tool calls")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Show 7 tool calls: 7 tool calls" })).toBeTruthy();
-    expect(screen.queryByText("echo 1")).toBeNull();
+    // The collapsed run previews its first three calls and counts the rest.
+    const preview = screen.getByTestId("compact-tool-activity-preview");
+    expect(preview.textContent).toContain("echo 1");
+    expect(preview.textContent).toContain("+4 more");
 
     fireEvent.click(screen.getByRole("button", { name: "Show 7 tool calls: 7 tool calls" }));
     expect(screen.getByText("echo 1")).toBeTruthy();

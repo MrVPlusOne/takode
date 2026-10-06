@@ -234,9 +234,8 @@ describe("structured chat-feed quest-link producers", () => {
       />,
     );
 
-    // A single tool renders its chip directly, so open the chip itself.
-    expect(screen.queryByRole("button", { name: /Show 1 tool call/i })).toBeNull();
-    fireEvent.click(container.querySelector<HTMLElement>('div[role="button"]')!);
+    // Opening a single-tool row shows the tool's details directly.
+    fireEvent.click(screen.getByRole("button", { name: /Show 1 tool call/i }));
     expectPreview("q-210");
   });
 

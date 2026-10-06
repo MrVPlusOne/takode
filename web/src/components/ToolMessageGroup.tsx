@@ -27,6 +27,8 @@ interface ToolMessageGroupProps {
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope?: ToolResultScope;
   questLinkSurface?: QuestLinkSurface;
+  /** Inside a compact activity row the row already names the run, so list the items without a group header. */
+  flat?: boolean;
 }
 
 export function ToolMessageGroup(props: ToolMessageGroupProps) {
@@ -54,6 +56,7 @@ export function ToolMessageGroupContent({
   toolResultOverrides,
   toolResultScope = "session",
   questLinkSurface = "legacy",
+  flat = false,
 }: ToolMessageGroupProps) {
   const [open, setOpen] = useState(true);
   const iconType = getToolIcon(group.toolName);
@@ -71,11 +74,16 @@ export function ToolMessageGroupContent({
     questLinkSurface,
   };
 
-  if (group.mixedToolNames) {
+  if (group.mixedToolNames || flat) {
     return (
       <div className="flex flex-col gap-1.5" data-feed-block-id={getToolGroupFeedBlockId(group)}>
         {group.items.map((item, index) => (
-          <ToolMessageItem key={item.id || index} item={item} {...itemProps} />
+          <ToolMessageItem
+            key={item.id || index}
+            item={item}
+            {...itemProps}
+            hideLabel={!group.mixedToolNames && group.toolName === "Bash"}
+          />
         ))}
       </div>
     );
@@ -197,7 +205,7 @@ export function CompactToolMessageGroups({
         containedMessageIds={groups.map((group) => group.firstId)}
       >
         {groups.map((group) => (
-          <ToolMessageGroupContent key={group.firstId} group={group} {...props} suppressNotificationMarker />
+          <ToolMessageGroupContent key={group.firstId} group={group} {...props} suppressNotificationMarker flat />
         ))}
       </CompactToolActivity>
       {props.interactionMode !== "read-only" &&

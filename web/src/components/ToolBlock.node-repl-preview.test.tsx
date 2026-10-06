@@ -33,7 +33,8 @@ describe("Node REPL call previews", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Show 3 tool calls: Used node_repl:js" }));
-    expect(screen.getByRole("button", { name: /^node_repl:js\s*3$/ })).toBeTruthy();
+    // The compact row already names the run, so there is no inner "node_repl:js 3" group header.
+    expect(screen.queryByRole("button", { name: /^node_repl:js\s*3$/ })).toBeNull();
     const firstCall = screen.getByRole("button", { name: /^Read the sample window\s*1.4s$/ });
     expect(screen.getByRole("button", { name: /Inspect the sample page.*18s/ })).toBeTruthy();
     const failedCall = screen.getByRole("button", { name: /^node_repl:js\s*5.0s$/ });

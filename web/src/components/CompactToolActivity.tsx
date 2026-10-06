@@ -3,7 +3,7 @@ import { useStore } from "../store.js";
 import { parseTakodeBoardCommand } from "../utils/takode-tool-command.js";
 import { parseFileReadCommand } from "../utils/terminal-command-preview.js";
 import { isPureTakodeSendCommand } from "../utils/takode-send-command.js";
-import { getToolIcon, getToolLabel, ToolIcon } from "./ToolBlock.js";
+import { getPreview, getToolIcon, getToolLabel, ToolBlockEmbeddedContext, ToolIcon } from "./ToolBlock.js";
 import { summarizeWorkerEventActivity } from "../utils/herd-event-classification.js";
 
 export interface CompactToolActivityItem {
@@ -19,6 +19,8 @@ export interface CompactToolActivityItem {
 const MAX_DESCRIPTIVE_TOOL_CALLS = 6;
 const MAX_DESCRIPTIVE_TOOL_CATEGORIES = 3;
 const MAX_DESCRIPTIVE_SUMMARY_LENGTH = 56;
+// Collapsed runs list at most this many tools before "+N more".
+const MAX_PREVIEW_LINES = 3;
 
 /** Return whether a tool can be safely hidden behind a passive activity summary. */
 export function isCompactToolActivityItem(item: CompactToolActivityItem): boolean {
@@ -166,6 +168,17 @@ export function summarizeToolActivity(items: CompactToolActivityItem[]): string 
   return joinSummaryParts(countSummaryParts);
 }
 
+/** Return whether an item keeps a semantic summary instead of its own preview. */
+function hasSemanticSummary(item: CompactToolActivityItem): boolean {
+  const category = getActivityCategory(item);
+  return category === "worker-event" || category === "worker-send";
+}
+
+/** One-line description of a single tool, as its chip header would show it. */
+function previewLabel(item: CompactToolActivityItem): string {
+  return getPreview(item.name, item.input) || getToolLabel(item.name);
+}
+
 export function CompactToolActivity({
   items,
   sessionId,
@@ -181,6 +194,15 @@ export function CompactToolActivity({
   const expandTargetId = useStore((state) => (sessionId ? state.expandAllInTurn.get(sessionId) : undefined));
   const uniqueItems = useMemo(() => uniqueActivityItems(items), [items]);
   const summary = useMemo(() => summarizeToolActivity(uniqueItems), [uniqueItems]);
+  // Collapsed rows grow with the run: a lone tool is one light line showing its
+  // own description, and a run lists its first few tools under the summary, so
+  // more work reads as more weight without opening anything.
+  const single = uniqueItems.length === 1 && !hasSemanticSummary(uniqueItems[0]);
+  const previewItems = useMemo(
+    () => (single ? [] : uniqueItems.filter((item) => item.kind !== "worker_event" && !hasSemanticSummary(item))),
+    [single, uniqueItems],
+  );
+  const label = single ? previewLabel(uniqueItems[0]) : summary;
   const iconType = getToolIcon(items[0]?.name ?? "");
   const itemCount = uniqueItems.length;
   const itemKindLabel = uniqueItems.some((item) => item.kind === "worker_event")
@@ -192,12 +214,6 @@ export function CompactToolActivity({
   }, [containedMessageIds, expandTargetId]);
 
   if (uniqueItems.length === 0) return null;
-  // A one-item disclosure would only hide the item's own, more specific chip
-  // behind a generic label such as "Ran command", so show that chip directly.
-  // Pure worker sends keep their deliberate "Sent a message" summary.
-  if (uniqueItems.length === 1 && !["worker-event", "worker-send"].includes(getActivityCategory(uniqueItems[0]))) {
-    return <>{children}</>;
-  }
 
   return (
     <div data-testid="compact-tool-activity">
@@ -205,8 +221,8 @@ export function CompactToolActivity({
         type="button"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
-        aria-label={`${open ? "Hide" : "Show"} ${itemCount} ${itemKindLabel}: ${summary}`}
-        title={`${open ? "Hide" : "Show"} ${itemCount} ${itemKindLabel}`}
+        aria-label={`${open ? "Hide" : "Show"} ${itemCount} ${itemKindLabel}: ${label}`}
+        title={single ? label : `${open ? "Hide" : "Show"} ${itemCount} ${itemKindLabel}`}
         className="group flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12px] text-cc-muted transition-colors hover:bg-cc-hover/50 hover:text-cc-fg cursor-pointer"
       >
         <svg
@@ -219,11 +235,26 @@ export function CompactToolActivity({
         <span className="opacity-65">
           <ToolIcon type={iconType} />
         </span>
-        <span className="truncate">{summary}</span>
+        <span className={single ? "truncate font-mono-code" : "truncate text-cc-fg/80"}>{label}</span>
       </button>
+      {!open && previewItems.length > 0 && (
+        <div
+          className="ml-[13px] mb-0.5 space-y-0.5 border-l border-cc-border/70 pl-[18px]"
+          data-testid="compact-tool-activity-preview"
+        >
+          {previewItems.slice(0, MAX_PREVIEW_LINES).map((item, index) => (
+            <div key={item.id || index} className="truncate font-mono-code text-[11px] text-cc-muted/80">
+              {previewLabel(item)}
+            </div>
+          ))}
+          {previewItems.length > MAX_PREVIEW_LINES && (
+            <div className="text-[11px] text-cc-muted/60">+{previewItems.length - MAX_PREVIEW_LINES} more</div>
+          )}
+        </div>
+      )}
       {open && (
         <div className="mt-1.5 space-y-2 border-l border-cc-border/70 pl-3" data-activity-details>
-          {children}
+          <ToolBlockEmbeddedContext.Provider value={single}>{children}</ToolBlockEmbeddedContext.Provider>
         </div>
       )}
     </div>

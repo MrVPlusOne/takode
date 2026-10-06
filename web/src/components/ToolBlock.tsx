@@ -1,4 +1,15 @@
-import { useState, useEffect, useRef, useMemo, memo, Component, type ReactNode, type ErrorInfo } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  memo,
+  Component,
+  createContext,
+  useContext,
+  type ReactNode,
+  type ErrorInfo,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import { isSubagentToolName } from "../types.js";
 import { DiffViewer, formatFileHeaderPath } from "./DiffViewer.js";
@@ -266,6 +277,13 @@ function ToolDurationBadge({
   );
 }
 
+/**
+ * True when an enclosing row already acts as this ToolBlock's header (a compact
+ * activity row standing for one tool). The block then shows only its details,
+ * so opening that row reveals them at once without repeating the description.
+ */
+export const ToolBlockEmbeddedContext = createContext(false);
+
 interface ToolBlockProps {
   name: string;
   input: Record<string, unknown>;
@@ -312,6 +330,7 @@ const ToolBlockInner = memo(function ToolBlockInner({
   readOnly = false,
   questLinkSurface = "legacy",
 }: ToolBlockProps) {
+  const embedded = useContext(ToolBlockEmbeddedContext);
   const [open, setOpen] = useState(() => {
     if (defaultOpen !== undefined) return defaultOpen;
     const isEditOrWrite = name === "Write" || name === "Edit";
@@ -415,6 +434,36 @@ const ToolBlockInner = memo(function ToolBlockInner({
     );
   }
 
+  const details = (
+    <ToolBlockErrorBoundary toolName={name}>
+      <div className="mt-2">
+        <ToolDetail
+          name={name}
+          input={input}
+          sessionId={sessionId}
+          readOnly={readOnly}
+          questLinkSurface={questLinkSurface}
+          hideDescription={preview === input.description}
+        />
+      </div>
+      {sessionId && !isSubagentToolName(name) && (
+        <ToolResultSection
+          toolUseId={toolUseId}
+          sessionId={sessionId}
+          toolName={name}
+          input={input}
+          resultOverride={resultOverride}
+          suppressStoredResult={suppressStoredResult}
+          readOnly={readOnly}
+        />
+      )}
+    </ToolBlockErrorBoundary>
+  );
+
+  if (embedded) {
+    return <div className="rounded-[10px] border border-cc-border bg-cc-card px-3 pb-3 pt-0">{details}</div>;
+  }
+
   return (
     <div className="border border-cc-border rounded-[10px] overflow-hidden bg-cc-card">
       <div
@@ -483,28 +532,7 @@ const ToolBlockInner = memo(function ToolBlockInner({
 
       {open && (
         <div className="px-3 pb-3 pt-0 border-t border-cc-border">
-          <ToolBlockErrorBoundary toolName={name}>
-            <div className="mt-2">
-              <ToolDetail
-                name={name}
-                input={input}
-                sessionId={sessionId}
-                readOnly={readOnly}
-                questLinkSurface={questLinkSurface}
-              />
-            </div>
-            {sessionId && !isSubagentToolName(name) && (
-              <ToolResultSection
-                toolUseId={toolUseId}
-                sessionId={sessionId}
-                toolName={name}
-                input={input}
-                resultOverride={resultOverride}
-                suppressStoredResult={suppressStoredResult}
-                readOnly={readOnly}
-              />
-            )}
-          </ToolBlockErrorBoundary>
+          {details}
           <CollapseFooter headerRef={headerRef} onCollapse={() => setOpen(false)} />
         </div>
       )}
@@ -960,16 +988,19 @@ function ToolDetail({
   sessionId,
   readOnly,
   questLinkSurface,
+  hideDescription = false,
 }: {
   name: string;
   input: Record<string, unknown>;
   sessionId?: string;
   readOnly?: boolean;
   questLinkSurface: QuestLinkSurface;
+  /** The Bash description is already shown in the header or enclosing row. */
+  hideDescription?: boolean;
 }) {
   switch (name) {
     case "Bash":
-      return <BashDetail input={input} />;
+      return <BashDetail input={input} hideDescription={hideDescription} />;
     case "Edit":
       return <EditToolDetail input={input} sessionId={sessionId} readOnly={readOnly} />;
     case "Write":
@@ -1112,11 +1143,13 @@ const DiffOpenFileButton = memo(function DiffOpenFileButton({
   );
 });
 
-function BashDetail({ input }: { input: Record<string, unknown> }) {
+function BashDetail({ input, hideDescription }: { input: Record<string, unknown>; hideDescription: boolean }) {
   const command = String(input.command || "");
   return (
     <div className="space-y-1.5">
-      {!!input.description && <div className="text-[11px] text-cc-muted italic">{String(input.description)}</div>}
+      {!!input.description && !hideDescription && (
+        <div className="text-[11px] text-cc-muted italic">{String(input.description)}</div>
+      )}
       <div className="group/code relative rounded-lg overflow-hidden">
         <div className="absolute top-1.5 right-1.5 z-10">
           <CodeCopyButton text={command} />
