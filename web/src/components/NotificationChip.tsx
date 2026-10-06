@@ -25,7 +25,11 @@ import {
 import { getActionableNotificationMessageId } from "../utils/notification-targets.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
-import { NeedsInputAnswerField } from "./NeedsInputAnswerField.js";
+import {
+  NEEDS_INPUT_SEND_BUTTON_CLASS,
+  NeedsInputAnswerField,
+  NeedsInputSuggestedAnswers,
+} from "./NeedsInputAnswerField.js";
 
 const EMPTY: SessionNotification[] = [];
 const EMPTY_MESSAGES: ChatMessage[] = [];
@@ -634,24 +638,13 @@ function NotificationItem({
                     {question.prompt}
                   </div>
                 )}
-                {question.suggestedAnswers.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {question.suggestedAnswers.map((answer) => (
-                      <button
-                        key={answer}
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setQuestionAnswer(question.key, answer);
-                        }}
-                        className="max-w-full truncate rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-0.5 text-[11px] text-cc-attention transition-colors hover:bg-cc-attention-bg/80 cursor-pointer"
-                        title={`Use suggested answer: ${answer}`}
-                      >
-                        {answer}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <NeedsInputSuggestedAnswers
+                  answers={question.suggestedAnswers}
+                  onSelect={(answer, event) => {
+                    event.stopPropagation();
+                    setQuestionAnswer(question.key, answer);
+                  }}
+                />
                 <NeedsInputAnswerField
                   sessionId={sessionId}
                   notification={notif}
@@ -663,7 +656,6 @@ function NotificationItem({
                   sourceContext={sourceContext}
                   threadKey={ownerThreadKey}
                   threadTitle={voiceThreadTitle}
-                  textareaClassName="border-cc-border/60 px-2 py-1 text-[12px] text-cc-fg"
                 />
               </div>
             ))}
@@ -672,14 +664,14 @@ function NotificationItem({
                 type="button"
                 onClick={sendResponse}
                 disabled={!canSendResponse}
-                className="rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-0.5 text-[11px] text-cc-attention transition-colors hover:bg-cc-attention-bg/80 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
+                className={NEEDS_INPUT_SEND_BUTTON_CLASS}
               >
                 Send Response
               </button>
               <button
                 type="button"
                 onClick={startReply()}
-                className="rounded border border-cc-border/60 px-2 py-0.5 text-[11px] cc-muted-readable transition-colors hover:border-cc-primary/40 hover:text-cc-fg cursor-pointer"
+                className="rounded-md border border-cc-border/60 px-2.5 py-1 text-[11px] cc-muted-readable transition-colors hover:border-cc-primary/40 hover:text-cc-fg cursor-pointer"
               >
                 Use composer
               </button>

@@ -15,7 +15,12 @@ import {
   shouldShowNeedsInputQuestionPrompt,
 } from "../utils/notification-source-context.js";
 import { MarkdownContent } from "./MarkdownContent.js";
-import { NeedsInputAnswerField } from "./NeedsInputAnswerField.js";
+import {
+  NEEDS_INPUT_CARD_CLASS,
+  NEEDS_INPUT_SEND_BUTTON_CLASS,
+  NeedsInputAnswerField,
+  NeedsInputSuggestedAnswers,
+} from "./NeedsInputAnswerField.js";
 import { NeedsInputResponseHistory } from "./NeedsInputResponseHistory.js";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
@@ -143,15 +148,6 @@ export function NotificationMarker({
     [sessionId, notificationId, messageId, label, notif, category, currentThreadKey, onSelectThread],
   );
 
-  const handleSuggestedAnswer = useCallback(
-    ({ questionKey, value }: { questionKey: string; value: string }) =>
-      (e: MouseEvent) => {
-        e.stopPropagation();
-        setAnswersByQuestion((prev) => ({ ...prev, [questionKey]: value }));
-      },
-    [],
-  );
-
   const sendQuickReply = useCallback(
     (e: MouseEvent) => {
       e.stopPropagation();
@@ -222,16 +218,16 @@ export function NotificationMarker({
 
   return (
     <div
-      className={`inline-flex max-w-full flex-col items-start gap-1 mt-2 px-2 py-0.5 rounded-xl text-[11px] font-medium border transition-opacity ${
+      className={`inline-flex max-w-full flex-col items-start gap-1 mt-2 px-2 py-0.5 rounded-xl text-[11px] font-medium transition-opacity ${
         body ? "w-full sm:w-[min(44rem,100%)]" : questionViews.length > 0 ? "w-full sm:w-[min(30rem,100%)]" : ""
       } ${
         isDone
-          ? `border-cc-border bg-cc-hover/30 text-cc-muted ${isAction ? "" : "opacity-60"}`
+          ? `border border-cc-border bg-cc-hover/30 text-cc-muted ${isAction ? "" : "opacity-60"}`
           : isAction
-            ? "border-cc-attention-border bg-cc-attention-bg text-cc-attention"
+            ? `${NEEDS_INPUT_CARD_CLASS} text-cc-attention`
             : isReview
-              ? "border-emerald-500/20 bg-emerald-500/5 text-cc-muted"
-              : "border-cc-border/60 bg-cc-hover/20 text-cc-muted"
+              ? "border border-emerald-500/20 bg-emerald-500/5 text-cc-muted"
+              : "border border-cc-border/60 bg-cc-hover/20 text-cc-muted"
       }`}
       data-notification-id={notif?.id ?? notificationId ?? ""}
       data-notification-category={category}
@@ -336,23 +332,18 @@ export function NotificationMarker({
                 title: label,
                 questionCount: questionViews.length,
               }) && (
-                <div className="text-[10px] leading-snug text-cc-attention">
+                <div className="text-[11px] font-medium leading-snug text-cc-fg">
                   {questionViews.length > 1 && <span className="text-cc-muted">{index + 1}. </span>}
                   {question.prompt}
                 </div>
               )}
-              {question.suggestedAnswers.map((answer) => (
-                <button
-                  key={answer}
-                  type="button"
-                  onClick={handleSuggestedAnswer({ questionKey: question.key, value: answer })}
-                  className="w-full min-w-0 whitespace-normal break-words rounded border border-cc-attention-border bg-cc-attention-bg px-1.5 py-1 text-left text-[10px] leading-snug text-cc-attention transition-colors hover:bg-cc-attention-bg/80 cursor-pointer"
-                  title={`Use suggested answer: ${answer}`}
-                  aria-label={`Use suggested answer: ${answer}`}
-                >
-                  {answer}
-                </button>
-              ))}
+              <NeedsInputSuggestedAnswers
+                answers={question.suggestedAnswers}
+                onSelect={(answer, event) => {
+                  event.stopPropagation();
+                  setQuestionAnswer(question.key, answer);
+                }}
+              />
               {sessionId && notif && (
                 <NeedsInputAnswerField
                   sessionId={sessionId}
@@ -366,7 +357,6 @@ export function NotificationMarker({
                   threadKey={voiceThreadKey}
                   threadTitle={voiceThreadTitle}
                   className="w-full min-w-0"
-                  textareaClassName="border-cc-attention-border px-1.5 py-1 text-[11px] text-cc-fg"
                 />
               )}
               {questionViews.length === 1 && (
@@ -375,7 +365,7 @@ export function NotificationMarker({
                     type="button"
                     onClick={sendQuickReply}
                     disabled={!canSendQuickReply}
-                    className="rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-1 text-[11px] text-cc-attention transition-colors hover:bg-cc-attention-bg/80 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
+                    className={NEEDS_INPUT_SEND_BUTTON_CLASS}
                   >
                     Reply
                   </button>
@@ -390,7 +380,7 @@ export function NotificationMarker({
                 type="button"
                 onClick={sendQuickReply}
                 disabled={!canSendQuickReply}
-                className="rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-1 text-[11px] text-cc-attention transition-colors hover:bg-cc-attention-bg/80 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
+                className={NEEDS_INPUT_SEND_BUTTON_CLASS}
               >
                 Reply
               </button>
@@ -411,7 +401,7 @@ export function NotificationMarker({
 function NotificationBody({ body, sessionId }: { body: string; sessionId?: string }) {
   return (
     <div
-      className="w-full min-w-0 border-t border-cc-attention-border/40 pt-1.5 font-normal text-cc-fg"
+      className="w-full min-w-0 border-t border-cc-border pt-1.5 font-normal text-cc-fg"
       data-testid="notification-body"
     >
       <MarkdownContent

@@ -487,9 +487,9 @@ describe("NotificationChip", () => {
     render(<NotificationChip sessionId="s1" />);
     fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
     expect(screen.getByTestId("notification-answer-actions")).toContainElement(
-      screen.getByRole("button", { name: "yes" }),
+      screen.getByRole("button", { name: "Use suggested answer: yes" }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "yes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
     expect(screen.getByLabelText("Answer for Deploy now?")).toHaveValue("yes");
     fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
 
@@ -629,7 +629,7 @@ describe("NotificationChip", () => {
     expect(
       within(mutedRow).getByRole("button", { name: "Go to source for Choose deferred rollout" }),
     ).toBeInTheDocument();
-    expect(within(mutedRow).getByRole("button", { name: "canary" })).toBeInTheDocument();
+    expect(within(mutedRow).getByRole("button", { name: "Use suggested answer: canary" })).toBeInTheDocument();
     expect(within(mutedRow).getByLabelText("Answer for Use canary or hold?")).toBeInTheDocument();
     expect(within(mutedRow).getByRole("button", { name: "Send Response" })).toBeDisabled();
     expect(within(mutedRow).getByRole("button", { name: "Use composer" })).toBeInTheDocument();
@@ -839,7 +839,7 @@ describe("NotificationChip", () => {
     try {
       render(<NotificationChip sessionId="s1" currentThreadKey="all" onSelectThread={onSelectThread} />);
       fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
-      fireEvent.click(screen.getByRole("button", { name: "yes" }));
+      fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
       fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
 
       expect(onSelectThread).toHaveBeenCalledWith("q-977");
@@ -919,7 +919,7 @@ describe("NotificationChip", () => {
       .find((row) => within(row).queryByText("Deploy now?"))!;
     expect(doneRow).not.toBeNull();
     expect(within(doneRow).queryByTestId("notification-answer-actions")).toBeNull();
-    expect(within(doneRow).queryByRole("button", { name: "yes" })).toBeNull();
+    expect(within(doneRow).queryByRole("button", { name: "Use suggested answer: yes" })).toBeNull();
     expect(within(doneRow).queryByRole("button", { name: "Use composer" })).toBeNull();
   });
 
@@ -944,12 +944,12 @@ describe("NotificationChip", () => {
 
     expect(screen.getAllByTestId("notification-question-block")).toHaveLength(2);
     const firstQuestion = screen.getAllByTestId("notification-question-block")[0]!;
-    expect(within(firstQuestion).getByRole("button", { name: "staged" })).toBeInTheDocument();
-    expect(within(firstQuestion).getByRole("button", { name: "full" })).toBeInTheDocument();
-    expect(within(firstQuestion).getByRole("button", { name: "pause" })).toBeInTheDocument();
-    expect(within(firstQuestion).getByRole("button", { name: "rollback" })).toBeInTheDocument();
+    expect(within(firstQuestion).getByRole("button", { name: "Use suggested answer: staged" })).toBeInTheDocument();
+    expect(within(firstQuestion).getByRole("button", { name: "Use suggested answer: full" })).toBeInTheDocument();
+    expect(within(firstQuestion).getByRole("button", { name: "Use suggested answer: pause" })).toBeInTheDocument();
+    expect(within(firstQuestion).getByRole("button", { name: "Use suggested answer: rollback" })).toBeInTheDocument();
     expect(within(firstQuestion).getByLabelText("Answer for Which rollout?")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "staged" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: staged" }));
     expect(screen.getByLabelText("Answer for Which rollout?")).toHaveValue("staged");
     expect(screen.getByLabelText("Answer for When should it start?")).toHaveValue("");
     fireEvent.change(screen.getByLabelText("Answer for When should it start?"), {

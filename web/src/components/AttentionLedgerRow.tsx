@@ -9,6 +9,7 @@ import {
   normalizeThreadKey,
 } from "../utils/thread-projection.js";
 import { CatPawAvatar } from "./CatIcons.js";
+import { NEEDS_INPUT_CARD_CLASS } from "./NeedsInputAnswerField.js";
 import { NotificationMarker } from "./NotificationMarker.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 
@@ -292,7 +293,7 @@ function NeedsInputDecisionLedgerRow({
 
   return (
     <div
-      className="rounded-lg border border-cc-attention-border bg-cc-attention-bg px-3 py-2.5 text-cc-attention"
+      className={`rounded-lg px-3 py-2.5 text-cc-attention ${NEEDS_INPUT_CARD_CLASS}`}
       data-testid="needs-input-decision-row"
       data-notification-id={notificationId}
       data-attention-type={record.type}
@@ -311,7 +312,7 @@ function NeedsInputDecisionLedgerRow({
           <button
             type="button"
             onClick={loadDetails}
-            className="shrink-0 rounded-md border border-cc-attention-border bg-cc-attention-bg px-2.5 py-1 text-xs font-medium text-cc-attention transition-colors hover:bg-cc-attention-bg/80 cursor-pointer"
+            className="shrink-0 rounded-md border border-cc-border bg-cc-hover px-2.5 py-1 text-xs font-medium text-cc-fg transition-colors hover:bg-cc-active cursor-pointer"
           >
             Retry
           </button>

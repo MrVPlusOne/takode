@@ -644,12 +644,12 @@ describe("GlobalNeedsInputMenu", () => {
     render(<GlobalNeedsInputMenu />);
     fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
     const firstQuestion = screen.getAllByTestId("global-needs-input-question-block")[0]!;
-    expect(within(firstQuestion).getByRole("button", { name: "staged" })).toBeInTheDocument();
-    expect(within(firstQuestion).getByRole("button", { name: "full" })).toBeInTheDocument();
-    expect(within(firstQuestion).getByRole("button", { name: "pause" })).toBeInTheDocument();
-    expect(within(firstQuestion).getByRole("button", { name: "rollback" })).toBeInTheDocument();
+    expect(within(firstQuestion).getByRole("button", { name: "Use suggested answer: staged" })).toBeInTheDocument();
+    expect(within(firstQuestion).getByRole("button", { name: "Use suggested answer: full" })).toBeInTheDocument();
+    expect(within(firstQuestion).getByRole("button", { name: "Use suggested answer: pause" })).toBeInTheDocument();
+    expect(within(firstQuestion).getByRole("button", { name: "Use suggested answer: rollback" })).toBeInTheDocument();
     expect(within(firstQuestion).getByLabelText("Answer for Which rollout?")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "staged" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: staged" }));
     expect(screen.getByLabelText("Answer for Which rollout?")).toHaveValue("staged");
     expect(screen.getByLabelText("Answer for When should it start?")).toHaveValue("");
     fireEvent.change(screen.getByLabelText("Answer for When should it start?"), {
@@ -703,7 +703,7 @@ describe("GlobalNeedsInputMenu", () => {
 
     render(<GlobalNeedsInputMenu />);
     fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
-    fireEvent.click(screen.getByRole("button", { name: "yes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
     fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
 
     await waitFor(() =>
@@ -744,7 +744,7 @@ describe("GlobalNeedsInputMenu", () => {
 
     render(<GlobalNeedsInputMenu />);
     fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
-    fireEvent.click(screen.getByRole("button", { name: "yes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
     fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
 
     expect(await screen.findByText(/Response could not be delivered/)).toHaveTextContent("Session is archived");
@@ -780,7 +780,7 @@ describe("GlobalNeedsInputMenu", () => {
 
     render(<GlobalNeedsInputMenu />);
     fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
-    fireEvent.click(screen.getByRole("button", { name: "yes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
     fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
     await screen.findByRole("button", { name: "Retry" });
 

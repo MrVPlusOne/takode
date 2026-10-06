@@ -13,6 +13,41 @@ import {
 
 export const NEEDS_INPUT_ANSWER_MAX_HEIGHT_PX = 132;
 
+// Shared needs-input decision styles, so the feed card, both notification panels and their Playground
+// mocks keep one look: a neutral card with an amber accent stripe and Takode's filled primary send button.
+export const NEEDS_INPUT_CARD_CLASS = "border border-cc-border border-l-[3px] border-l-cc-attention/70 bg-cc-card";
+export const NEEDS_INPUT_SEND_BUTTON_CLASS =
+  "rounded-md bg-cc-primary px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-cc-primary-hover disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer";
+export const NEEDS_INPUT_ANSWER_TEXTAREA_CLASS =
+  "min-h-[30px] min-w-0 flex-1 resize-none overflow-y-hidden rounded border border-cc-border bg-cc-bg/70 px-2 py-1 text-xs text-cc-fg outline-none transition-colors placeholder:text-cc-muted/50 focus:border-cc-attention";
+
+/** Suggested answers as full-width option rows, one per line so each stays an easy tap target on phones. */
+export function NeedsInputSuggestedAnswers({
+  answers,
+  onSelect,
+}: {
+  answers: string[];
+  onSelect: (answer: string, event: MouseEvent<HTMLButtonElement>) => void;
+}) {
+  if (answers.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      {answers.map((answer) => (
+        <button
+          key={answer}
+          type="button"
+          onClick={(event) => onSelect(answer, event)}
+          className="w-full min-w-0 whitespace-normal break-words rounded-lg border border-cc-primary/20 bg-cc-primary/5 px-2.5 py-1.5 text-left text-xs leading-snug text-cc-fg transition-colors hover:border-cc-primary/40 hover:bg-cc-primary/10 cursor-pointer"
+          title={`Use suggested answer: ${answer}`}
+          aria-label={`Use suggested answer: ${answer}`}
+        >
+          {answer}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 interface FailedNeedsInputTranscription {
   blob: Blob;
   selection: TextSelectionRange | null;
@@ -44,7 +79,6 @@ export function NeedsInputAnswerField({
   threadKey,
   threadTitle,
   className = "",
-  textareaClassName = "",
   onClickStopsPropagation = true,
 }: {
   sessionId: string;
@@ -58,7 +92,6 @@ export function NeedsInputAnswerField({
   threadKey?: string;
   threadTitle?: string;
   className?: string;
-  textareaClassName?: string;
   onClickStopsPropagation?: boolean;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -231,7 +264,7 @@ export function NeedsInputAnswerField({
             autoResizeNeedsInputAnswerTextarea(event.currentTarget);
           }}
           aria-label={`Answer for ${question.prompt}`}
-          className={`min-h-[30px] min-w-0 flex-1 resize-none overflow-y-hidden rounded border bg-cc-bg/70 outline-none transition-colors placeholder:text-cc-muted/50 focus:border-cc-attention ${textareaClassName}`}
+          className={NEEDS_INPUT_ANSWER_TEXTAREA_CLASS}
           style={{ maxHeight: NEEDS_INPUT_ANSWER_MAX_HEIGHT_PX }}
           placeholder={placeholder}
         />

@@ -1,4 +1,10 @@
-import { NeedsInputRecordingStatus, NeedsInputTranscriptionFailureStatus } from "../NeedsInputAnswerField.js";
+import {
+  NEEDS_INPUT_ANSWER_TEXTAREA_CLASS,
+  NEEDS_INPUT_CARD_CLASS,
+  NEEDS_INPUT_SEND_BUTTON_CLASS,
+  NeedsInputRecordingStatus,
+  NeedsInputTranscriptionFailureStatus,
+} from "../NeedsInputAnswerField.js";
 
 const PLAYGROUND_NEEDS_INPUT_RECORDING_HISTORY = [
   { time: 1, level: 0.1 },
@@ -11,7 +17,7 @@ const PLAYGROUND_NEEDS_INPUT_RECORDING_HISTORY = [
 
 export function PlaygroundNeedsInputRecordingPreview() {
   return (
-    <div className="rounded-lg border border-cc-attention-border/70 bg-cc-attention-bg/45 p-3">
+    <div className={`rounded-lg p-3 ${NEEDS_INPUT_CARD_CLASS}`}>
       <div className="mb-2 flex min-w-0 items-center gap-2 text-xs font-medium text-cc-attention">
         <span className="h-2 w-2 rounded-full border border-current" />
         <span className="min-w-0 truncate">Approve the rollout?</span>
@@ -22,7 +28,7 @@ export function PlaygroundNeedsInputRecordingPreview() {
           value="Continue the rollout once the on-call confirms the final smoke check."
           rows={2}
           aria-label="Answer for Approve the rollout?"
-          className="min-h-[30px] min-w-0 flex-1 resize-none rounded border border-cc-attention-border bg-cc-bg/70 px-2 py-1 text-xs text-cc-fg outline-none"
+          className={NEEDS_INPUT_ANSWER_TEXTAREA_CLASS}
           style={{ maxHeight: 132 }}
         />
         <button
@@ -41,10 +47,7 @@ export function PlaygroundNeedsInputRecordingPreview() {
       </div>
       <NeedsInputRecordingStatus volumeLevel={0.74} volumeHistory={PLAYGROUND_NEEDS_INPUT_RECORDING_HISTORY} />
       <div className="mt-2 flex justify-end">
-        <button
-          type="button"
-          className="rounded border border-cc-attention-border bg-cc-attention-bg px-3 py-1 text-xs font-medium text-cc-attention"
-        >
+        <button type="button" className={NEEDS_INPUT_SEND_BUTTON_CLASS}>
           Reply
         </button>
       </div>
@@ -54,7 +57,7 @@ export function PlaygroundNeedsInputRecordingPreview() {
 
 export function PlaygroundNeedsInputTranscriptionFailurePreview() {
   return (
-    <div className="rounded-lg border border-cc-attention-border/70 bg-cc-attention-bg/45 p-3">
+    <div className={`rounded-lg p-3 ${NEEDS_INPUT_CARD_CLASS}`}>
       <div className="mb-2 flex min-w-0 items-center gap-2 text-xs font-medium text-cc-attention">
         <span className="h-2 w-2 rounded-full border border-current" />
         <span className="min-w-0 truncate">Approve the rollout?</span>
@@ -65,7 +68,7 @@ export function PlaygroundNeedsInputTranscriptionFailurePreview() {
           value="Continue after the smoke check passes."
           rows={2}
           aria-label="Answer for Approve the rollout?"
-          className="min-h-[30px] min-w-0 flex-1 resize-none rounded border border-cc-attention-border bg-cc-bg/70 px-2 py-1 text-xs text-cc-fg outline-none"
+          className={NEEDS_INPUT_ANSWER_TEXTAREA_CLASS}
           style={{ maxHeight: 132 }}
         />
         <button
@@ -86,10 +89,7 @@ export function PlaygroundNeedsInputTranscriptionFailurePreview() {
         onDismiss={() => undefined}
       />
       <div className="mt-2 flex justify-end">
-        <button
-          type="button"
-          className="rounded border border-cc-attention-border bg-cc-attention-bg px-3 py-1 text-xs font-medium text-cc-attention"
-        >
+        <button type="button" className={NEEDS_INPUT_SEND_BUTTON_CLASS}>
           Reply
         </button>
       </div>

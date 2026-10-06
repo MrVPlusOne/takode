@@ -17,7 +17,11 @@ import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.
 import { navigateToSessionMessageId, navigateToSessionThread, routeSessionRefForId } from "../utils/routing.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
-import { NeedsInputAnswerField } from "./NeedsInputAnswerField.js";
+import {
+  NEEDS_INPUT_SEND_BUTTON_CLASS,
+  NeedsInputAnswerField,
+  NeedsInputSuggestedAnswers,
+} from "./NeedsInputAnswerField.js";
 import {
   getGlobalMutedNeedsInputEntries,
   getGlobalNeedsInputEntries,
@@ -323,21 +327,10 @@ function GlobalNeedsInputRow({
                   {question.prompt}
                 </div>
               )}
-              {question.suggestedAnswers.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {question.suggestedAnswers.map((answer) => (
-                    <button
-                      key={answer}
-                      type="button"
-                      onClick={() => setQuestionAnswer(question.key, answer)}
-                      className="max-w-full truncate rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-0.5 text-[11px] text-cc-attention transition-colors hover:bg-cc-attention-bg/80 cursor-pointer"
-                      title={`Use suggested answer: ${answer}`}
-                    >
-                      {answer}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <NeedsInputSuggestedAnswers
+                answers={question.suggestedAnswers}
+                onSelect={(answer) => setQuestionAnswer(question.key, answer)}
+              />
               <NeedsInputAnswerField
                 sessionId={entry.sessionId}
                 notification={entry.notification}
@@ -349,7 +342,6 @@ function GlobalNeedsInputRow({
                 sourceContext={sourceContext}
                 threadKey={ownerThreadKey}
                 threadTitle={voiceThreadTitle}
-                textareaClassName="border-cc-border/60 px-2 py-1 text-[12px] text-cc-fg"
                 onClickStopsPropagation={false}
               />
             </div>
@@ -358,7 +350,7 @@ function GlobalNeedsInputRow({
             type="button"
             onClick={sendResponse}
             disabled={!canSubmitResponse}
-            className="rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-0.5 text-[11px] text-cc-attention transition-colors hover:bg-cc-attention-bg/80 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
+            className={NEEDS_INPUT_SEND_BUTTON_CLASS}
           >
             {sending ? "Sending..." : deliveryError ? "Retry" : "Send Response"}
           </button>
