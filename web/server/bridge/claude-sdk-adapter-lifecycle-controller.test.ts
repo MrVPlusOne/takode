@@ -139,9 +139,12 @@ describe("claude-sdk-adapter-lifecycle-controller", () => {
 
     vi.advanceTimersByTime(2000);
 
+    // The replacement adapter runs its own quiet period from attach, so the
+    // queued input is delivered through it, never through the old adapter.
     expect(adapter1.sendBrowserMessage).not.toHaveBeenCalled();
     expect(session.claudeSdkAdapter).toBe(adapter2);
-    expect(session.cliResuming).toBe(true);
+    expect(adapter2.sendBrowserMessage).toHaveBeenCalledWith({ type: "user_message", content: "queued" });
+    expect(session.cliResuming).toBe(false);
   });
 
   it("requests relaunch on init error for an active browser session", () => {
