@@ -1693,11 +1693,21 @@ function handleToolProgressMessage(
   session.lastToolProgressAt = Date.now();
   deps.broadcastToBrowsers(session, {
     type: "tool_progress",
-    tool_use_id: msg.tool_use_id,
+    tool_use_id: progressToolUseId(msg),
     tool_name: msg.tool_name,
     elapsed_time_seconds: msg.elapsed_time_seconds,
     ...(typeof msg.output_delta === "string" ? { output_delta: msg.output_delta } : {}),
   });
+}
+
+/**
+ * Claude CLI heartbeats for a long-running tool arrive as `tool_progress` with
+ * `heartbeat: true` and a fresh `<toolUseId>-heartbeat-<n>` id every 30s.
+ * Report them under the real tool id so the browser keeps one entry per tool
+ * that the tool's result clears, instead of a growing list of stale entries.
+ */
+function progressToolUseId(msg: CLIToolProgressMessage): string {
+  return msg.heartbeat === true ? msg.tool_use_id.replace(/-heartbeat-\d+$/, "") : msg.tool_use_id;
 }
 
 function handleToolUseSummaryMessage(

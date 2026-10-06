@@ -1024,6 +1024,36 @@ describe("CLI message routing", () => {
     expect(progressMsg.output_delta).toBe("hello\n");
   });
 
+  it("tool_progress: reports CLI heartbeats under the real tool id", () => {
+    // Claude CLI 2.1.289 sends a keepalive every 30s for a long-running tool
+    // with a fresh `<id>-heartbeat-<n>` id. Forwarding those ids made the
+    // browser keep one stale "Terminal Ns" entry per heartbeat.
+    for (const [index, elapsed] of [
+      [0, 30],
+      [1, 60],
+    ]) {
+      cli.message(
+        JSON.stringify({
+          type: "tool_progress",
+          tool_use_id: `toolu_long-heartbeat-${index}`,
+          tool_name: "Bash",
+          parent_tool_use_id: null,
+          elapsed_time_seconds: elapsed,
+          heartbeat: true,
+          uuid: `uuid-heartbeat-${index}`,
+          session_id: "s1",
+        }),
+      );
+    }
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const progress = calls.filter((c: any) => c.type === "tool_progress");
+    expect(progress.map((c: any) => [c.tool_use_id, c.elapsed_time_seconds])).toEqual([
+      ["toolu_long", 30],
+      ["toolu_long", 60],
+    ]);
+  });
+
   it("tool_use_summary: broadcasts", () => {
     const msg = JSON.stringify({
       type: "tool_use_summary",

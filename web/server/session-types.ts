@@ -258,6 +258,8 @@ export interface CLIToolProgressMessage {
   parent_tool_use_id: string | null;
   elapsed_time_seconds: number;
   output_delta?: string;
+  /** Set on CLI keepalive progress for a long-running tool; its id gets a `-heartbeat-<n>` suffix. */
+  heartbeat?: boolean;
   uuid: string;
   session_id: string;
 }
