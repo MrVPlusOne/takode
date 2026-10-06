@@ -14,6 +14,7 @@ import { THREAD_ROUTING_REMINDER_SOURCE_ID } from "../../shared/thread-routing-r
 import { isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
 import { isAssistantMessageRenderable, isToolHiddenFromChat } from "../utils/assistant-message-renderability.js";
 import { isBoardProposalMessage } from "../utils/takode-tool-command.js";
+import { isCompactToolActivityItem } from "../components/CompactToolActivity.js";
 import { normalizeCodexMessagePhase } from "../../shared/codex-message-phase.js";
 import type { TakodeHerdEventLifecycle } from "../../shared/herd-event-lifecycle.js";
 import { getHerdEventCount, getHerdEventLifecycles } from "../utils/herd-event-classification.js";
@@ -150,8 +151,11 @@ function groupToolMessages(messages: ChatMessage[], anchoredNotificationMessageI
   const entries: FeedEntry[] = [];
 
   for (const originalMsg of messages) {
-    const msg = filterHiddenToolUseBlocks(originalMsg);
-    if (!msg) continue;
+    const filteredMsg = filterHiddenToolUseBlocks(originalMsg);
+    if (!filteredMsg) continue;
+    const split = splitTrailingToolBlocks(filteredMsg, anchoredNotificationMessageIds);
+    if (split) entries.push({ kind: "message", msg: split.head });
+    const msg = split?.tail ?? filteredMsg;
     const toolGroup = getToolOnlyGroup(msg, anchoredNotificationMessageIds);
 
     if (toolGroup) {
@@ -172,7 +176,7 @@ function groupToolMessages(messages: ChatMessage[], anchoredNotificationMessageI
         kind: "tool_msg_group",
         toolName: toolGroup.toolName,
         items: toolGroup.items,
-        firstId: msg.id,
+        firstId: split ? `${msg.id}:tools` : msg.id,
         ...(toolGroup.mixedToolNames ? { mixedToolNames: true } : {}),
       });
     } else {
@@ -181,6 +185,43 @@ function groupToolMessages(messages: ChatMessage[], anchoredNotificationMessageI
   }
 
   return entries;
+}
+
+/**
+ * Claude often sends a short note and the commands that follow it as one
+ * assistant message ("Now a quick check." + Bash). Codex sends them as separate
+ * messages. Split such a message into its leading content and its trailing
+ * passive tools, so those tools can join the neighboring tool run instead of
+ * staying behind as a lone chip inside the message.
+ */
+function splitTrailingToolBlocks(
+  msg: ChatMessage,
+  anchoredNotificationMessageIds?: ReadonlySet<string>,
+): { head: ChatMessage; tail: ChatMessage } | null {
+  if (msg.role !== "assistant" || msg.notification || msg.metadata?.codexSubagent) return null;
+  if (isBoardProposalMessage(msg) || anchoredNotificationMessageIds?.has(msg.id)) return null;
+  // Leader thread messages and phased responses are presented as whole units
+  // (answers, previews, collapsed representatives), so keep them intact.
+  if (msg.metadata?.leaderThreadRole || msg.metadata?.threadAnswer || msg.metadata?.codexMessagePhase) return null;
+  const blocks = msg.contentBlocks ?? [];
+  let start = blocks.length;
+  while (start > 0 && blocks[start - 1].type === "tool_use") start--;
+  if (start === 0 || start === blocks.length) return null;
+  const head = blocks.slice(0, start);
+  const tail = blocks.slice(start);
+  if (head.some((block) => block.type === "tool_use")) return null;
+  // A head with nothing visible (e.g. only an empty thinking block) means the
+  // whole message is already tool-only; splitting would leave an empty entry.
+  const headMessage = { ...msg, contentBlocks: head };
+  if (!isAssistantMessageRenderable(headMessage)) return null;
+  const tailIsPassive = tail.every(
+    (block) =>
+      block.type === "tool_use" &&
+      isCompactToolActivityItem({ id: block.id, name: block.name, input: block.input }) &&
+      !isSubagentToolName(block.name),
+  );
+  if (!tailIsPassive) return null;
+  return { head: headMessage, tail: { ...msg, content: "", contentBlocks: tail } };
 }
 
 /** Build feed entries with subagent nesting.

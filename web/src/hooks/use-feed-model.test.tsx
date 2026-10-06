@@ -197,7 +197,7 @@ describe("Claude empty thinking blocks", () => {
     });
   });
 
-  it("keeps a message with visible thinking as its own entry", () => {
+  it("keeps visible thinking as its own entry while its command joins the next run", () => {
     const entries = groupMessages([
       claudeBash("a", ""),
       claudeBash("b", "Check the flush path first."),
@@ -206,6 +206,70 @@ describe("Claude empty thinking blocks", () => {
 
     expect(entries.map((entry) => entry.kind)).toEqual(["tool_msg_group", "message", "tool_msg_group"]);
     expect(entries[1]).toMatchObject({ kind: "message", msg: { id: "b" } });
+    expect(entries[1].kind === "message" && entries[1].msg.contentBlocks).toEqual([
+      { type: "thinking", thinking: "Check the flush path first." },
+    ]);
+    expect(entries[2]).toMatchObject({ kind: "tool_msg_group", items: [{ id: "b-tool" }, { id: "c-tool" }] });
+  });
+});
+
+describe("Claude notes followed by commands in the same message", () => {
+  // Claude often sends "short note + Bash" as one assistant message, as stored
+  // in real sessions. The note stays a message; the trailing commands join the
+  // neighboring command run instead of staying behind as a lone chip.
+  function noteWithBash(id: string, text: string, toolName = "Bash"): ChatMessage {
+    return makeMessage({
+      id,
+      role: "assistant",
+      content: text,
+      contentBlocks: [
+        { type: "text", text },
+        { type: "tool_use", id: `${id}-tool`, name: toolName, input: { command: `echo ${id}` } },
+      ],
+    });
+  }
+  function bashOnly(id: string): ChatMessage {
+    return makeMessage({
+      id,
+      role: "assistant",
+      contentBlocks: [{ type: "tool_use", id: `${id}-tool`, name: "Bash", input: { command: `echo ${id}` } }],
+    });
+  }
+
+  it("moves trailing commands into the following command run", () => {
+    const entries = groupMessages([noteWithBash("a", "Now a quick browser check."), bashOnly("b"), bashOnly("c")]);
+
+    expect(entries.map((entry) => entry.kind)).toEqual(["message", "tool_msg_group"]);
+    expect(entries[0].kind === "message" && entries[0].msg.contentBlocks).toEqual([
+      { type: "text", text: "Now a quick browser check." },
+    ]);
+    expect(entries[1]).toMatchObject({
+      kind: "tool_msg_group",
+      firstId: "a:tools",
+      items: [
+        { id: "a-tool", messageId: "a" },
+        { id: "b-tool", messageId: "b" },
+        { id: "c-tool", messageId: "c" },
+      ],
+    });
+  });
+
+  it("keeps interactive tools and interleaved content inside their message", () => {
+    const interleaved = makeMessage({
+      id: "mixed",
+      role: "assistant",
+      content: "Before and after",
+      contentBlocks: [
+        { type: "text", text: "Before" },
+        { type: "tool_use", id: "mixed-tool", name: "Bash", input: { command: "ls" } },
+        { type: "text", text: "after" },
+      ],
+    });
+    const entries = groupMessages([noteWithBash("ask", "Which option?", "AskUserQuestion"), interleaved]);
+
+    expect(entries.map((entry) => entry.kind)).toEqual(["message", "message"]);
+    expect(entries[0].kind === "message" && entries[0].msg.contentBlocks).toHaveLength(2);
+    expect(entries[1].kind === "message" && entries[1].msg.contentBlocks).toHaveLength(3);
   });
 });
 
