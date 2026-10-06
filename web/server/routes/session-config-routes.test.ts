@@ -70,6 +70,7 @@ function createApp(
     setSessionModel: vi.fn(async () => true),
     setSessionPermissionMode: vi.fn(async () => true),
     setCodexServiceTier: vi.fn(async () => true),
+    setClaudeReasoningEffort: vi.fn(async () => true),
     broadcastToSession: vi.fn(),
     persistSessionById: vi.fn(),
   };
@@ -323,5 +324,33 @@ describe("session config routes", () => {
     expect(await res.json()).toMatchObject({
       error: "claudeMaxContextLength currently supports only 1000000 or null",
     });
+  });
+
+  it("applies Claude reasoning effort to a running session without restart", async () => {
+    // Claude Code accepts effort changes mid-session, so Configure Session must
+    // apply it live like the composer does instead of asking for a restart.
+    const { app, launcher, wsBridge } = createApp({
+      info: {
+        backendType: "claude",
+        model: "claude-opus-5.5",
+        permissionMode: "default",
+        claudeReasoningEffort: "high",
+      },
+    });
+
+    const res = await app.request("/sessions/s1/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claudeReasoningEffort: "xhigh" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      restartRequired: false,
+      immediateFields: ["claudeReasoningEffort"],
+      session: { claudeReasoningEffort: "xhigh" },
+    });
+    expect(launcher.updateSessionLaunchConfig).toHaveBeenCalledWith("s1", { claudeReasoningEffort: "xhigh" });
+    expect(wsBridge.setClaudeReasoningEffort).toHaveBeenCalledWith("s1", "xhigh");
   });
 });

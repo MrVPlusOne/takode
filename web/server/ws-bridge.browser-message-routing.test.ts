@@ -1617,6 +1617,37 @@ describe("Browser message routing", () => {
     expect(cli.query.setModel).toHaveBeenCalledWith("claude-opus-4-5-20250929");
   });
 
+  it("set_claude_reasoning_effort: applies effort to the running Claude process and the next launch", () => {
+    // Claude Code changes effort mid-session through its flag-settings layer,
+    // so the composer's choice must reach the live process without a relaunch
+    // and be recorded for later resumes.
+    const session = bridge.getSession("s1")!;
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "set_claude_reasoning_effort", effort: "XHigh" }));
+
+    expect(cli.query.applyFlagSettings).toHaveBeenCalledWith({ effortLevel: "xhigh" });
+    expect(session.state.claude_reasoning_effort).toBe("xhigh");
+    const sent = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(sent).toContainEqual(
+      expect.objectContaining({ type: "session_update", session: { claude_reasoning_effort: "xhigh" } }),
+    );
+
+    // An empty effort returns the process to Claude's default effort.
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "set_claude_reasoning_effort", effort: "" }));
+    expect(cli.query.applyFlagSettings).toHaveBeenLastCalledWith({ effortLevel: null });
+    expect(session.state.claude_reasoning_effort).toBeNull();
+  });
+
+  it("set_claude_reasoning_effort: ignores unsupported and unchanged values", () => {
+    const session = bridge.getSession("s1")!;
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "set_claude_reasoning_effort", effort: "ultra" }));
+    expect(cli.query.applyFlagSettings).not.toHaveBeenCalled();
+    expect(Object.hasOwn(session.state, "claude_reasoning_effort")).toBe(false);
+
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "set_claude_reasoning_effort", effort: "low" }));
+    bridge.handleBrowserMessage(browser, JSON.stringify({ type: "set_claude_reasoning_effort", effort: "low" }));
+    expect(cli.query.applyFlagSettings).toHaveBeenCalledTimes(1);
+  });
+
   it("set_permission_mode: applies the mode and notifies the Claude adapter", () => {
     bridge.handleBrowserMessage(
       browser,

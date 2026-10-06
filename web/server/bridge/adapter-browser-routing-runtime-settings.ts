@@ -12,7 +12,7 @@ import {
   normalizeClaudePermissionMode,
   normalizeCodexPermissionProfile,
 } from "../../shared/permission-modes.js";
-import { isSafeCodexReasoningEffort } from "../../shared/session-defaults.js";
+import { isSafeCodexReasoningEffort, normalizeClaudeReasoningEffort } from "../../shared/session-defaults.js";
 import { markCodexModelSwitchCompactionGuard } from "./codex-model-switch-compaction.js";
 import { resolveModelAuthority } from "../model-identity-contract.js";
 import { getCachedCodexModelCatalog } from "../codex-model-catalog.js";
@@ -47,6 +47,32 @@ export function handleSetModel(
     type: "session_update",
     session: { model, claude_token_details: session.state.claude_token_details },
   });
+  deps.persistSession(session);
+}
+
+/**
+ * Claude Code changes effort mid-session, so a running process applies it from
+ * its next request without a relaunch; the launch config carries it to resumes.
+ * An empty effort returns to Claude's default; unsupported values are ignored.
+ */
+export function handleClaudeSetReasoningEffort(
+  session: AdapterBrowserRoutingSessionLike,
+  effort: string,
+  deps: Pick<AdapterBrowserRoutingDeps, "getLauncherSessionInfo" | "broadcastToBrowsers" | "persistSession">,
+): void {
+  const next = normalizeClaudeReasoningEffort(effort) || null;
+  if (!next && effort.trim()) return;
+  // Live state appears only after a first change; before that, apply unconditionally (re-applying is harmless).
+  if (
+    Object.hasOwn(session.state, "claude_reasoning_effort") &&
+    (session.state.claude_reasoning_effort ?? null) === next
+  )
+    return;
+  session.claudeSdkAdapter?.sendBrowserMessage({ type: "set_claude_reasoning_effort", effort: next ?? "" });
+  session.state.claude_reasoning_effort = next;
+  const launchInfo = deps.getLauncherSessionInfo(session.id);
+  if (launchInfo) launchInfo.claudeReasoningEffort = next ?? undefined;
+  deps.broadcastToBrowsers(session, { type: "session_update", session: { claude_reasoning_effort: next } });
   deps.persistSession(session);
 }
 

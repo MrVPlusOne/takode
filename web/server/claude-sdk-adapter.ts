@@ -789,6 +789,22 @@ export class ClaudeSdkAdapter
         return true;
       }
 
+      case "set_claude_reasoning_effort": {
+        // Effort set through the flag-settings layer replaces the process's
+        // live effort, including one passed as --effort at launch; null
+        // returns to Claude's default.
+        const effortLevel = (msg as { effort: string }).effort || null;
+        const queryForEffort = (this.sdkSession as any)?.query;
+        if (queryForEffort?.applyFlagSettings) {
+          queryForEffort.applyFlagSettings({ effortLevel }).catch((err: Error) => {
+            console.error(`[claude-sdk-adapter] Effort change failed for session ${this.sessionId}:`, err);
+          });
+        } else {
+          console.warn(`[claude-sdk-adapter] No applyFlagSettings method available for session ${this.sessionId}`);
+        }
+        return true;
+      }
+
       case "mcp_get_status": {
         // The Claude Code SDK doesn't expose runtime MCP status queries.
         // Return the cached server list from the last session_init -- this

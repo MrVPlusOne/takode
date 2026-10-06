@@ -877,10 +877,26 @@ describe("Composer basic rendering", () => {
     await userEvent.click(screen.getByTitle("Model: claude-opus-5.5 (click to change)"));
     const menu = screen.getByTestId("composer-model-menu");
     await waitFor(() => expect(within(menu).getByText("Opus 5.5 (default)")).toBeTruthy());
+    await userEvent.click(within(menu).getByRole("menuitem", { name: /Model/ }));
     expect(within(menu).queryByText(/4-6|4\.6/)).toBeNull();
 
     await userEvent.click(within(menu).getByText("Haiku 4.5"));
     expect(mockSendToSession).toHaveBeenCalledWith("s1", { type: "set_model", model: "claude-haiku-4.5" });
+  });
+
+  it("shows the session's Claude effort and sends effort changes to the server", async () => {
+    // The server owns Claude effort state; the composer only displays it and
+    // requests changes, which the server applies to the running process.
+    setupMockStore({
+      session: { model: "claude-opus-5.5", permissionMode: "acceptEdits", claude_reasoning_effort: "high" },
+    });
+
+    render(<Composer sessionId="s1" />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Model and effort: opus-5.5 High" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /Effort/ }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Max" }));
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", { type: "set_claude_reasoning_effort", effort: "max" });
   });
 
   it("keeps the running Claude model in the menu when the model list omits it", async () => {
@@ -891,8 +907,9 @@ describe("Composer basic rendering", () => {
     render(<Composer sessionId="s1" />);
 
     await userEvent.click(screen.getByTitle("Model: claude-opus-5.5 (click to change)"));
+    await userEvent.click(screen.getByRole("menuitem", { name: /Model/ }));
     const current = within(screen.getByTestId("composer-model-menu")).getByText("claude-opus-5.5");
-    expect(current.closest("button")?.className).toContain("text-cc-primary");
+    expect(current.closest("button")?.getAttribute("aria-checked")).toBe("true");
   });
 
   it("keeps the moved codex reasoning menu outside overflow-hidden ancestors", async () => {

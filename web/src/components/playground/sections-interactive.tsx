@@ -141,6 +141,25 @@ const PLAYGROUND_CODEX_MODEL_OPTIONS = [
   },
 ];
 
+const PLAYGROUND_CLAUDE_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"].map((effort) => ({ effort }));
+
+// Shaped like the Claude CLI catalog: Haiku reports no effort levels, so its menu has no Effort row.
+const PLAYGROUND_CLAUDE_MODEL_OPTIONS = [
+  {
+    value: "claude-opus-5.5",
+    label: "Opus 5.5 (default)",
+    icon: "◆",
+    supportedReasoningLevels: PLAYGROUND_CLAUDE_EFFORT_LEVELS,
+  },
+  {
+    value: "claude-sonnet-5.5",
+    label: "Sonnet 5.5",
+    icon: "●",
+    supportedReasoningLevels: PLAYGROUND_CLAUDE_EFFORT_LEVELS,
+  },
+  { value: "claude-haiku-4.5", label: "Haiku 4.5", icon: "◕", supportedReasoningLevels: [] },
+];
+
 function PlaygroundCollapseAllButton() {
   return (
     <button
@@ -200,6 +219,8 @@ function PlaygroundComposerPermissionToolbar({
           claudeModelOptions={CLAUDE_MODELS.filter((model) => model.value)}
           codexModelOptions={codexModelOptions}
           onSelectModel={() => {}}
+          claudeReasoningEffort=""
+          onSelectClaudeReasoning={() => {}}
           codexReasoningEffort={isCodex ? "high" : ""}
           codexEffectiveReasoningEffort={isCodex ? "high" : null}
           codexEffectiveReasoningEffortReported={isCodex}
@@ -248,9 +269,16 @@ function PlaygroundComposerPermissionToolbar({
   );
 }
 
-function PlaygroundCodexModelToolbar({ narrow = false }: { narrow?: boolean }) {
-  const [model, setModel] = useState("gpt-5.6-sol");
-  const [effort, setEffort] = useState("ultra");
+function PlaygroundModelToolbar({
+  backend = "codex",
+  narrow = false,
+}: {
+  backend?: "claude" | "codex";
+  narrow?: boolean;
+}) {
+  const isCodex = backend === "codex";
+  const [model, setModel] = useState(isCodex ? "gpt-5.6-sol" : "claude-opus-5.5");
+  const [effort, setEffort] = useState(isCodex ? "ultra" : "xhigh");
   const [serviceTier, setServiceTier] = useState<string | null>("priority");
   const [showModelDropdown, setShowModelDropdown] = useState(!narrow);
   const modelDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -262,9 +290,9 @@ function PlaygroundCodexModelToolbar({ narrow = false }: { narrow?: boolean }) {
     <div className={`border-t border-cc-border bg-cc-card px-3 py-3 ${narrow ? "max-w-[330px]" : ""}`}>
       <div className={`rounded-[14px] border border-cc-border bg-cc-input-bg ${showModelDropdown ? "pt-56" : "pt-10"}`}>
         <ComposerMetaToolbar
-          sessionId={`playground-codex-model-${narrow ? "narrow" : "menu"}`}
+          sessionId={`playground-${backend}-model-${narrow ? "narrow" : "menu"}`}
           sessionView={{ model, gitAhead: 0, gitBehind: 0 }}
-          isCodex={true}
+          isCodex={isCodex}
           isConnected={true}
           canEditLaunchSettings={true}
           imageUploadDisabled={false}
@@ -272,9 +300,11 @@ function PlaygroundCodexModelToolbar({ narrow = false }: { narrow?: boolean }) {
           showModelDropdown={showModelDropdown}
           setShowModelDropdown={setShowModelDropdown}
           modelDropdownRef={modelDropdownRef}
-          claudeModelOptions={[]}
-          codexModelOptions={PLAYGROUND_CODEX_MODEL_OPTIONS}
+          claudeModelOptions={isCodex ? [] : PLAYGROUND_CLAUDE_MODEL_OPTIONS}
+          codexModelOptions={isCodex ? PLAYGROUND_CODEX_MODEL_OPTIONS : []}
           onSelectModel={setModel}
+          claudeReasoningEffort={effort}
+          onSelectClaudeReasoning={setEffort}
           codexReasoningEffort={effort}
           codexEffectiveReasoningEffort={narrow ? effort : "high"}
           codexEffectiveReasoningEffortReported={true}
@@ -316,9 +346,11 @@ function PlaygroundCodexModelToolbar({ narrow = false }: { narrow?: boolean }) {
         />
       </div>
       <p className="mt-2 text-[11px] leading-snug text-cc-muted">
-        {narrow
-          ? "Narrow-width state: the friendly model and effort label truncates before essential composer actions."
-          : "Choose Model, Effort, and Speed independently. A runtime mismatch stays a compact warning instead of becoming a second selector; Reset restores the playground defaults."}
+        {!isCodex
+          ? "Claude applies Model and Effort to the running session without a restart. Haiku has no effort control, so choosing it hides the Effort row."
+          : narrow
+            ? "Narrow-width state: the friendly model and effort label truncates before essential composer actions."
+            : "Choose Model, Effort, and Speed independently. A runtime mismatch stays a compact warning instead of becoming a second selector; Reset restores the playground defaults."}
       </p>
     </div>
   );
@@ -351,12 +383,16 @@ export function PlaygroundInteractiveSections() {
             <PlaygroundComposerPermissionToolbar backend="codex" state="popover" />
           </Card>
           <div className="mt-4" />
+          <Card label="Claude model and effort selector">
+            <PlaygroundModelToolbar backend="claude" />
+          </Card>
+          <div className="mt-4" />
           <Card label="Codex model and effort selector">
-            <PlaygroundCodexModelToolbar />
+            <PlaygroundModelToolbar />
           </Card>
           <div className="mt-4" />
           <Card label="Codex model selector — narrow layout">
-            <PlaygroundCodexModelToolbar narrow />
+            <PlaygroundModelToolbar narrow />
           </Card>
           <div className="mt-4" />
           <PlaygroundAutoPauseBannerStates />

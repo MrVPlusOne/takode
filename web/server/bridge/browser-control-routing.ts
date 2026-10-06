@@ -45,6 +45,23 @@ export async function setCodexServiceTier(
   return true;
 }
 
+export async function setClaudeReasoningEffort(
+  sessions: Map<string, Session>,
+  browserRoutingDeps: AdapterBrowserRoutingDeps,
+  sessionId: string,
+  effort: string | null,
+): Promise<boolean> {
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+  await routeBrowserMessageController(
+    session,
+    { type: "set_claude_reasoning_effort", effort: effort ?? "" },
+    undefined,
+    browserRoutingDeps,
+  );
+  return true;
+}
+
 export async function interruptSession(
   sessions: Map<string, Session>,
   browserRoutingDeps: AdapterBrowserRoutingDeps,

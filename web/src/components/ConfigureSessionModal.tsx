@@ -7,6 +7,7 @@ import {
   CODEX_PERMISSION_MODES,
   getCodexReasoningEffortOptions,
   getModelsForBackend,
+  labelForReasoningEffort,
   toModelOptions,
   type CodexPermissionMode,
   type ModelOption,
@@ -338,9 +339,7 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
         "codexMaxContextLength",
         "codexLeaderCompactionMode",
       ].some((key) => changedFields.has(key as keyof SessionConfigForm))
-    : ["claudeReasoningEffort", "claudeMaxContextLength"].some((key) =>
-        changedFields.has(key as keyof SessionConfigForm),
-      );
+    : changedFields.has("claudeMaxContextLength");
   const hasChanges = changedFields.size > 0;
   const primaryLabel = !cliConnected
     ? "Save for Next Resume"
@@ -531,7 +530,7 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
                 </>
               ) : (
                 <div>
-                  <FieldLabel label="Reasoning effort" effect={fieldEffect(true)} />
+                  <FieldLabel label="Reasoning effort" effect={fieldEffect(false)} />
                   <select
                     aria-label="Session Claude reasoning effort"
                     value={form.claudeReasoningEffort}
@@ -543,7 +542,7 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
                     <option value="">Backend default</option>
                     {CLAUDE_REASONING_EFFORTS.map((value) => (
                       <option key={value} value={value}>
-                        {value === "max" ? "Max" : value[0].toUpperCase() + value.slice(1)}
+                        {labelForReasoningEffort(value)}
                       </option>
                     ))}
                   </select>

@@ -4,6 +4,7 @@ import {
   getClaudePermissionMenuOptions,
   getCodexReasoningEffortOptions,
   getModelsForBackend,
+  labelForReasoningEffort,
   toModelOptions,
   type ModelOption,
 } from "../utils/backends.js";
@@ -240,7 +241,7 @@ function RoleDefaultsEditor({
           <option value="">Backend default</option>
           {CLAUDE_REASONING_EFFORTS.map((value) => (
             <option key={value} value={value}>
-              {value === "max" ? "Max" : value[0].toUpperCase() + value.slice(1)}
+              {labelForReasoningEffort(value)}
             </option>
           ))}
         </select>

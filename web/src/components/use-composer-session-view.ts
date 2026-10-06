@@ -34,6 +34,11 @@ export function useComposerSessionView(sessionId: string) {
           ? sessionData?.codex_effective_reasoning_effort_reported === true
           : sdkSession?.codexEffectiveReasoningEffortReported === true,
         codexServiceTier: sessionData?.codex_service_tier ?? null,
+        // Live state appears once effort changes; until then the launch config holds it.
+        claudeReasoningEffort:
+          (sessionData && Object.hasOwn(sessionData, "claude_reasoning_effort")
+            ? sessionData.claude_reasoning_effort
+            : sdkSession?.claudeReasoningEffort) || "",
         slashCommands: sessionData?.slash_commands ?? EMPTY_STRING_ARRAY,
         skills: sessionData?.skills ?? EMPTY_STRING_ARRAY,
         skillMetadata: sessionData?.skill_metadata ?? EMPTY_SKILL_REFERENCES,

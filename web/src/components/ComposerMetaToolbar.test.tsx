@@ -36,20 +36,31 @@ const MODEL_OPTIONS: ModelOption[] = [
   },
 ];
 
+const CLAUDE_LEVELS = ["low", "medium", "high", "xhigh", "max"].map((effort) => ({ effort }));
+// Shaped like the server's Claude CLI catalog: Haiku has no effort control, so it reports no levels.
+const CLAUDE_MODEL_OPTIONS: ModelOption[] = [
+  { value: "claude-opus-5.5", label: "Opus 5.5 (default)", icon: "◆", supportedReasoningLevels: CLAUDE_LEVELS },
+  { value: "claude-haiku-4.5", label: "Haiku 4.5", icon: "⚡", supportedReasoningLevels: [] },
+];
+
 function ToolbarHarness({
-  initialModel = "gpt-5.6-sol",
+  backend = "codex",
+  initialModel = backend === "codex" ? "gpt-5.6-sol" : "claude-opus-5.5",
   initialEffort = "ultra",
   initialTier = "priority",
   effectiveEffort = initialEffort,
   effectiveReported = true,
   onReset = async () => {},
+  onSelectClaudeReasoning = () => {},
 }: {
+  backend?: "claude" | "codex";
   initialModel?: string;
   initialEffort?: string;
   initialTier?: string | null;
   effectiveEffort?: string | null;
   effectiveReported?: boolean;
   onReset?: () => Promise<void>;
+  onSelectClaudeReasoning?: (effort: string) => void;
 }) {
   const [model, setModel] = useState(initialModel);
   const [effort, setEffort] = useState(initialEffort);
@@ -67,7 +78,7 @@ function ToolbarHarness({
       <ComposerMetaToolbar
         sessionId="session-1"
         sessionView={{ model, gitAhead: 0, gitBehind: 0 }}
-        isCodex={true}
+        isCodex={backend === "codex"}
         isConnected={true}
         canEditLaunchSettings={true}
         imageUploadDisabled={false}
@@ -75,12 +86,17 @@ function ToolbarHarness({
         showModelDropdown={showModelDropdown}
         setShowModelDropdown={setShowModelDropdown}
         modelDropdownRef={modelDropdownRef}
-        claudeModelOptions={[]}
-        codexModelOptions={MODEL_OPTIONS}
+        claudeModelOptions={backend === "claude" ? CLAUDE_MODEL_OPTIONS : []}
+        codexModelOptions={backend === "codex" ? MODEL_OPTIONS : []}
         onSelectModel={(next) => {
           setModel(next);
           setRuntimeEffort(null);
           setRuntimeReported(false);
+        }}
+        claudeReasoningEffort={effort}
+        onSelectClaudeReasoning={(next) => {
+          onSelectClaudeReasoning(next);
+          setEffort(next);
         }}
         codexReasoningEffort={effort}
         codexEffectiveReasoningEffort={runtimeEffort}
@@ -143,7 +159,7 @@ describe("ComposerMetaToolbar Codex model selector", () => {
     await user.click(within(summary).getByRole("menuitem", { name: /Model/ }));
     const models = screen.getByTestId("composer-model-options-menu");
     await user.click(within(models).getByRole("menuitemradio", { name: /5.4 Mini/ }));
-    expect(screen.getByTestId("composer-model-menu").dataset.codexPanel).toBe("summary");
+    expect(screen.getByTestId("composer-model-menu").dataset.modelMenuPanel).toBe("summary");
     expect(screen.getByRole("button", { name: "Model and effort: 5.4 Mini Ultra" })).toBeTruthy();
     expect(screen.queryByTestId("composer-reasoning-warning")).toBeNull();
     expect(within(screen.getByTestId("composer-model-summary-menu")).queryByText("Speed")).toBeNull();
@@ -216,7 +232,7 @@ describe("ComposerMetaToolbar Codex model selector", () => {
     await user.click(trigger);
     await user.click(screen.getByRole("menuitem", { name: /Effort/ }));
     await user.keyboard("{ArrowLeft}");
-    expect(screen.getByTestId("composer-model-menu").dataset.codexPanel).toBe("summary");
+    expect(screen.getByTestId("composer-model-menu").dataset.modelMenuPanel).toBe("summary");
     await user.keyboard("{Escape}");
     expect(screen.queryByTestId("composer-model-menu")).toBeNull();
     expect(document.activeElement).toBe(trigger);
@@ -235,5 +251,53 @@ describe("ComposerMetaToolbar Codex model selector", () => {
       />,
     );
     expect(screen.getByRole("button", { name: "Model and effort: Basic Chat" })).toBeTruthy();
+  });
+});
+
+describe("ComposerMetaToolbar Claude model selector", () => {
+  it("offers the model's CLI-reported effort levels and shows the chosen effort on the trigger", async () => {
+    // Claude gets the same Model/Effort summary menu as Codex, without the
+    // Codex-only Speed, runtime-warning, and Reset rows.
+    const onSelectClaudeReasoning = vi.fn();
+    render(<ToolbarHarness backend="claude" initialEffort="" onSelectClaudeReasoning={onSelectClaudeReasoning} />);
+    const user = userEvent.setup();
+
+    const trigger = screen.getByRole("button", { name: "Model and effort: opus-5.5" });
+    expect(trigger.getAttribute("title")).toBe("Model: claude-opus-5.5 (click to change)");
+    await user.click(trigger);
+    const summary = screen.getByTestId("composer-model-summary-menu");
+    expect(within(summary).getByRole("menuitem", { name: /Model/ }).textContent).toContain("Opus 5.5 (default)");
+    expect(within(summary).getByRole("menuitem", { name: /Effort/ }).textContent).toContain("Default");
+    expect(within(summary).queryByText("Speed")).toBeNull();
+    expect(within(summary).queryByText("Reset to default")).toBeNull();
+
+    await user.click(within(summary).getByRole("menuitem", { name: /Effort/ }));
+    const efforts = screen.getByTestId("composer-reasoning-menu");
+    expect(
+      within(efforts)
+        .getAllByRole("menuitemradio")
+        .map((item) => item.textContent),
+    ).toEqual(["Default", "Low", "Medium", "High", "Extra high", "Max"]);
+    await user.click(within(efforts).getByRole("menuitemradio", { name: "Extra high" }));
+
+    expect(onSelectClaudeReasoning).toHaveBeenCalledWith("xhigh");
+    const updated = screen.getByRole("button", { name: "Model and effort: opus-5.5 Extra high" });
+    expect(updated.getAttribute("title")).toBe("Model: claude-opus-5.5; effort: Extra high (click to change)");
+  });
+
+  it("hides effort for a model without effort control", async () => {
+    // Claude ignores effort on Haiku, so a configured effort must neither be
+    // offered nor shown as if it applied.
+    render(<ToolbarHarness backend="claude" initialEffort="high" />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Model and effort: opus-5.5 High" }));
+    await user.click(screen.getByRole("menuitem", { name: /Model/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: /Haiku 4.5/ }));
+
+    expect(screen.getByRole("button", { name: "Model and effort: haiku-4.5" })).toBeTruthy();
+    expect(
+      within(screen.getByTestId("composer-model-summary-menu")).queryByRole("menuitem", { name: /Effort/ }),
+    ).toBeNull();
   });
 });

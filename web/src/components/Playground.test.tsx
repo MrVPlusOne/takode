@@ -578,14 +578,22 @@ describe("Playground", () => {
     expect(composer.getByTestId("composer-permission-mode-popover")).toHaveTextContent(
       "Change permissions to Full access?",
     );
+    expect(composer.getByText("Claude model and effort selector")).toBeTruthy();
     expect(composer.getByText("Codex model and effort selector")).toBeTruthy();
     expect(composer.getByText("Codex model selector — narrow layout")).toBeTruthy();
+    expect(composer.getByRole("button", { name: "Model and effort: opus-5.5 Extra high" })).toBeTruthy();
     expect(composer.getAllByRole("button", { name: "Model and effort: 5.6 Sol Ultra" }).length).toBeGreaterThan(0);
-    expect(composer.getByTestId("composer-model-summary-menu")).toHaveTextContent("Model");
-    expect(composer.getByTestId("composer-model-summary-menu")).toHaveTextContent("Effort");
-    expect(composer.getByTestId("composer-model-summary-menu")).not.toHaveTextContent("Effective");
-    expect(composer.getByTestId("composer-model-summary-menu")).toHaveTextContent("Speed");
-    expect(composer.getByTestId("composer-model-summary-menu")).toHaveTextContent("Reset to default");
+    // Claude's open menu has Model and Effort only; Speed and Reset are Codex-only rows.
+    const [claudeSummary, codexSummary] = composer.getAllByTestId("composer-model-summary-menu");
+    expect(claudeSummary).toHaveTextContent("Effort");
+    expect(claudeSummary).toHaveTextContent("Extra high");
+    expect(claudeSummary).not.toHaveTextContent("Speed");
+    expect(claudeSummary).not.toHaveTextContent("Reset to default");
+    expect(codexSummary).toHaveTextContent("Model");
+    expect(codexSummary).toHaveTextContent("Effort");
+    expect(codexSummary).not.toHaveTextContent("Effective");
+    expect(codexSummary).toHaveTextContent("Speed");
+    expect(codexSummary).toHaveTextContent("Reset to default");
     expect(composer.getByTestId("composer-reasoning-warning")).toHaveTextContent(
       "Runtime is using High instead of Ultra.",
     );

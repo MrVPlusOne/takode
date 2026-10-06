@@ -1799,6 +1799,10 @@ export function Composer({
                 claudeModelOptions={claudeModelOptions}
                 codexModelOptions={codexModelOptions}
                 onSelectModel={(model) => sendToSession(sessionId, { type: "set_model", model })}
+                claudeReasoningEffort={sessionView.claudeReasoningEffort}
+                onSelectClaudeReasoning={(effort) =>
+                  sendToSession(sessionId, { type: "set_claude_reasoning_effort", effort })
+                }
                 codexReasoningEffort={codexReasoningEffort}
                 codexEffectiveReasoningEffort={codexEffectiveReasoningEffort}
                 codexEffectiveReasoningEffortReported={codexEffectiveReasoningEffortReported}

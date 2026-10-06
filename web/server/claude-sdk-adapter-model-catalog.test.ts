@@ -10,7 +10,14 @@ import { ClaudeSdkAdapter } from "./claude-sdk-adapter.js";
 // the initialize response, without contacting any provider.
 const FAKE_CLI = `
 const models = [
-  { value: "default", resolvedModel: "claude-opus-5.5", displayName: "Default (recommended)", description: "" },
+  {
+    value: "default",
+    resolvedModel: "claude-opus-5.5",
+    displayName: "Default (recommended)",
+    description: "",
+    supportsEffort: true,
+    supportedEffortLevels: ["high", "max"],
+  },
   { value: "haiku", resolvedModel: "claude-haiku-4.5", displayName: "claude-haiku-4.5", description: "" },
 ];
 let buffer = "";
@@ -56,8 +63,14 @@ describe("ClaudeSdkAdapter model catalog", () => {
     await expect(adapter.started).resolves.toBe(true);
     await vi.waitFor(() =>
       expect(getClaudeModelCatalog()).toEqual([
-        { value: "claude-opus-5.5", label: "Opus 5.5 (default)", description: "", isDefault: true },
-        { value: "claude-haiku-4.5", label: "Haiku 4.5", description: "" },
+        {
+          value: "claude-opus-5.5",
+          label: "Opus 5.5 (default)",
+          description: "",
+          isDefault: true,
+          supportedReasoningLevels: [{ effort: "high" }, { effort: "max" }],
+        },
+        { value: "claude-haiku-4.5", label: "Haiku 4.5", description: "", supportedReasoningLevels: [] },
       ]),
     );
   });

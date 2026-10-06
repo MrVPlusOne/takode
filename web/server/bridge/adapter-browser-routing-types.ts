@@ -49,6 +49,7 @@ export interface AdapterBrowserRoutingSessionLike {
     | "backend_error"
     | "backend_reconnect"
     | "backend_state"
+    | "claude_reasoning_effort"
     | "claude_token_details"
     | "codex_rate_limits"
     | "codex_image_send_stage"
@@ -190,6 +191,7 @@ export interface AdapterBrowserRoutingDeps {
         archived?: boolean;
         askPermission?: boolean;
         cliSessionId?: string;
+        claudeReasoningEffort?: string;
         codexLeaderCompactionMode?: string;
         codexReasoningEffort?: string;
         codexServiceTier?: string | null;
@@ -231,6 +233,7 @@ export interface AdapterBrowserRoutingDeps {
   handleCodexSetPermissionMode: (session: AdapterBrowserRoutingSessionLike, mode: string) => void;
   handleCodexSetUiMode: (session: AdapterBrowserRoutingSessionLike, uiMode: "plan" | "agent") => void;
   handleCodexSetReasoningEffort: (session: AdapterBrowserRoutingSessionLike, effort: string) => void;
+  handleClaudeSetReasoningEffort: (session: AdapterBrowserRoutingSessionLike, effort: string) => void;
   handleCodexSetServiceTier: (session: AdapterBrowserRoutingSessionLike, serviceTier: string | null) => void;
   handleSetAskPermission: (session: AdapterBrowserRoutingSessionLike, askPermission: boolean) => void;
 }

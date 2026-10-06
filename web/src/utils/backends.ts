@@ -1,5 +1,6 @@
 import type { BackendModelInfo } from "../api.js";
 import { getBackendFamily, getDefaultModelForBackend, type BackendSelection } from "../../shared/backend-defaults.js";
+import { CLAUDE_REASONING_EFFORTS } from "../../shared/session-defaults.js";
 import {
   deriveAskPermissionForMode as deriveSharedAskPermissionForMode,
   deriveCodexPermissionMode as deriveSharedCodexPermissionMode,
@@ -123,7 +124,7 @@ export const CODEX_REASONING_EFFORTS: ModeOption[] = [
   { value: "ultra", label: "Ultra" },
 ];
 
-function labelForReasoningEffort(effort: string): string {
+export function labelForReasoningEffort(effort: string): string {
   const known = CODEX_REASONING_EFFORTS.find((option) => option.value === effort);
   if (known) return known.label;
   return effort
@@ -161,6 +162,20 @@ export function getCodexReasoningEffortOptions(options?: {
     seen.add(option.value);
     return true;
   });
+}
+
+/**
+ * Claude effort menu options for `model`: Default plus the levels its CLI
+ * catalog entry reports, or every Claude level when the catalog has no entry
+ * for it. Empty when the model has no effort control (e.g. Haiku).
+ */
+export function getClaudeReasoningEffortOptions(model: ModelOption | undefined): ModeOption[] {
+  const levels = model?.supportedReasoningLevels?.map((level) => level.effort) ?? CLAUDE_REASONING_EFFORTS;
+  if (levels.length === 0) return [];
+  return [
+    { value: "", label: "Default" },
+    ...levels.map((value) => ({ value, label: labelForReasoningEffort(value) })),
+  ];
 }
 
 /** Claude permission modes offered in permission menus, in menu order. */

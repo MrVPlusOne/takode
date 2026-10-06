@@ -41,7 +41,7 @@ const CODEX_RESTART_FIELDS = new Set<ConfigField>([
   "codexMaxContextLength",
   "codexLeaderCompactionMode",
 ]);
-const CLAUDE_RESTART_FIELDS = new Set<ConfigField>(["claudeReasoningEffort", "claudeMaxContextLength"]);
+const CLAUDE_RESTART_FIELDS = new Set<ConfigField>(["claudeMaxContextLength"]);
 
 function hasOwn(body: Record<string, unknown>, key: ConfigField): boolean {
   return Object.prototype.hasOwnProperty.call(body, key);
@@ -327,6 +327,9 @@ export function registerSessionConfigRoutes(api: Hono, ctx: Pick<RouteContext, "
         }
         if (backendType === "codex" && changedFields.includes("codexServiceTier")) {
           await wsBridge.setCodexServiceTier(id, launchPatch.codexServiceTier ?? null);
+        }
+        if (backendType !== "codex" && changedFields.includes("claudeReasoningEffort")) {
+          await wsBridge.setClaudeReasoningEffort(id, launchPatch.claudeReasoningEffort ?? null);
         }
       } else {
         Object.assign(session.state, statePatch);

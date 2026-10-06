@@ -1,5 +1,5 @@
 export const CODEX_REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max", "ultra"] as const;
-export const CLAUDE_REASONING_EFFORTS = ["low", "medium", "high", "max"] as const;
+export const CLAUDE_REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export const CODEX_DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95;
 export const CODEX_LEADER_RECYCLE_BUFFER_TOKENS = 25_000;
 export const CLAUDE_1M_CONTEXT_TOKENS = 1_000_000;
@@ -102,7 +102,8 @@ function normalizeCodexReasoningEffort(value: unknown): CodexReasoningEffort | s
   return normalized && isSafeCodexReasoningEffort(normalized) ? normalized : "";
 }
 
-function normalizeClaudeReasoningEffort(value: unknown): ClaudeReasoningEffort | "" {
+/** Lowercased Claude effort level, or "" for the backend default and for anything unsupported. */
+export function normalizeClaudeReasoningEffort(value: unknown): ClaudeReasoningEffort | "" {
   const normalized = stringOrEmpty(value).toLowerCase();
   return CLAUDE_REASONING_EFFORTS.includes(normalized as ClaudeReasoningEffort)
     ? (normalized as ClaudeReasoningEffort)

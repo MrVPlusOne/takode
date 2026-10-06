@@ -748,6 +748,8 @@ export type BrowserOutgoingMessage =
   | { type: "release_codex_auto_paused_inputs"; pausedAt: number; client_msg_id?: string }
   | { type: "set_model"; model: string; client_msg_id?: string }
   | { type: "set_codex_reasoning_effort"; effort: string; client_msg_id?: string }
+  /** Empty `effort` returns Claude to its default effort. */
+  | { type: "set_claude_reasoning_effort"; effort: string; client_msg_id?: string }
   | { type: "set_codex_service_tier"; serviceTier: string | null; client_msg_id?: string }
   | { type: "set_codex_ui_mode"; uiMode: "plan" | "agent"; client_msg_id?: string }
   | { type: "set_permission_mode"; mode: string; client_msg_id?: string }
@@ -1375,7 +1377,7 @@ export interface SessionState extends BackendSessionState {
   codex_context_window_diagnostics?: CodexContextWindowDiagnostics;
   /** Server-owned Codex leader context management mode for the next launch/resume. */
   codex_leader_compaction_mode?: import("../shared/codex-leader-compaction-mode.js").CodexLeaderCompactionMode;
-  /** Server-owned configured Claude reasoning effort for the next launch/resume. */
+  /** Server-owned configured Claude reasoning effort; applied live to a running process and on launch/resume. */
   claude_reasoning_effort?: string | null;
   /** Server-owned configured Claude max-context override for the next launch/resume. */
   claude_max_context_length?: number | null;

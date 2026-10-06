@@ -18,7 +18,11 @@ export interface ClaudeSdkTestBackend {
   /** Prompts delivered to Claude (`SDKSession.send` arguments). */
   readonly userTurns: ReturnType<typeof vi.fn>;
   /** `SDKSession.query` control calls. */
-  readonly query: { interrupt: ReturnType<typeof vi.fn>; setModel: ReturnType<typeof vi.fn> };
+  readonly query: {
+    interrupt: ReturnType<typeof vi.fn>;
+    setModel: ReturnType<typeof vi.fn>;
+    applyFlagSettings: ReturnType<typeof vi.fn>;
+  };
   /** Messages Takode routed to the adapter, in order. */
   readonly outgoing: BrowserOutgoingMessage[];
   /** Answers given to Claude's permission requests, keyed by request ID. */
@@ -41,7 +45,11 @@ export function createClaudeSdkTestBackend(sessionId: string): ClaudeSdkTestBack
   initialize.mockRestore();
 
   const userTurns = vi.fn(async (_prompt: unknown) => {});
-  const query = { interrupt: vi.fn(async () => {}), setModel: vi.fn(async () => {}) };
+  const query = {
+    interrupt: vi.fn(async () => {}),
+    setModel: vi.fn(async () => {}),
+    applyFlagSettings: vi.fn(async (_settings: unknown) => {}),
+  };
   const internals = adapter as any;
   internals.sdkSession = { send: userTurns, close: vi.fn(), query };
   internals.connected = true;
@@ -93,6 +101,7 @@ export function createClaudeSdkTestBackend(sessionId: string): ClaudeSdkTestBack
       userTurns.mockClear();
       query.interrupt.mockClear();
       query.setModel.mockClear();
+      query.applyFlagSettings.mockClear();
       outgoing.length = 0;
     },
     attach(bridge) {

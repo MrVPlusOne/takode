@@ -24,6 +24,7 @@ import {
 import {
   handleCodexSetModel,
   handleCodexSetPermissionMode,
+  handleClaudeSetReasoningEffort,
   handleCodexSetReasoningEffort,
   handleCodexSetServiceTier,
   handleCodexSetUiMode,
@@ -99,6 +100,7 @@ export {
 export {
   handleCodexSetModel,
   handleCodexSetPermissionMode,
+  handleClaudeSetReasoningEffort,
   handleCodexSetReasoningEffort,
   handleCodexSetServiceTier,
   handleCodexSetUiMode,
@@ -1288,6 +1290,10 @@ export function routeAdapterBrowserMessage(
     }
     if (msg.type === "set_codex_reasoning_effort") {
       deps.handleCodexSetReasoningEffort(session, msg.effort);
+      return true;
+    }
+    if (msg.type === "set_claude_reasoning_effort") {
+      if (session.backendType === "claude-sdk") deps.handleClaudeSetReasoningEffort(session, msg.effort);
       return true;
     }
     if (msg.type === "set_codex_service_tier") {

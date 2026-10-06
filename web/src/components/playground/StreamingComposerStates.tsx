@@ -49,6 +49,8 @@ function PlaygroundStreamingComposer({ initialDraft }: { initialDraft: string })
           claudeModelOptions={CLAUDE_MODELS.filter((model) => model.value)}
           codexModelOptions={[]}
           onSelectModel={() => {}}
+          claudeReasoningEffort=""
+          onSelectClaudeReasoning={() => {}}
           codexReasoningEffort=""
           codexEffectiveReasoningEffort={null}
           codexEffectiveReasoningEffortReported={false}

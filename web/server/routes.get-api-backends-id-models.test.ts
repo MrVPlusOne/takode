@@ -680,7 +680,14 @@ describe("GET /api/backends/:id/models", () => {
     // itself offers (recorded by the SDK adapter) instead of static fallbacks.
     const { recordClaudeModelCatalog } = await import("./claude-model-catalog.js");
     recordClaudeModelCatalog([
-      { value: "default", resolvedModel: "claude-opus-5.5", displayName: "Default (recommended)", description: "" },
+      {
+        value: "default",
+        resolvedModel: "claude-opus-5.5",
+        displayName: "Default (recommended)",
+        description: "",
+        supportsEffort: true,
+        supportedEffortLevels: ["high", "max"],
+      },
       { value: "haiku", resolvedModel: "claude-haiku-4.5", displayName: "claude-haiku-4.5", description: "" },
     ]);
 
@@ -688,8 +695,14 @@ describe("GET /api/backends/:id/models", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([
-      { value: "claude-opus-5.5", label: "Opus 5.5 (default)", description: "", isDefault: true },
-      { value: "claude-haiku-4.5", label: "Haiku 4.5", description: "" },
+      {
+        value: "claude-opus-5.5",
+        label: "Opus 5.5 (default)",
+        description: "",
+        isDefault: true,
+        supportedReasoningLevels: [{ effort: "high" }, { effort: "max" }],
+      },
+      { value: "claude-haiku-4.5", label: "Haiku 4.5", description: "", supportedReasoningLevels: [] },
     ]);
   });
 });

@@ -2,7 +2,9 @@ import { VoiceInputIcon } from "./VoiceInputIcon.js";
 import { useEffect, useRef, useState, type KeyboardEvent, type RefObject, type ReactNode } from "react";
 import {
   formatModel,
+  getClaudeReasoningEffortOptions,
   getCodexReasoningEffortOptions,
+  labelForReasoningEffort,
   type PermissionOption,
   type ModelOption,
 } from "../utils/backends.js";
@@ -17,7 +19,7 @@ function PaperPlaneIcon({ className = "w-4 h-4" }: { className?: string }) {
   );
 }
 
-type CodexMenuPanel = "summary" | "model" | "effort" | "speed";
+type ModelMenuPanel = "summary" | "model" | "effort" | "speed";
 
 function ChevronRightIcon() {
   return (
@@ -75,6 +77,8 @@ export function ComposerMetaToolbar({
   claudeModelOptions,
   codexModelOptions,
   onSelectModel,
+  claudeReasoningEffort,
+  onSelectClaudeReasoning,
   codexReasoningEffort,
   codexEffectiveReasoningEffort,
   codexEffectiveReasoningEffortReported,
@@ -130,6 +134,8 @@ export function ComposerMetaToolbar({
   claudeModelOptions: ModelOption[];
   codexModelOptions: ModelOption[];
   onSelectModel: (model: string) => void;
+  claudeReasoningEffort: string;
+  onSelectClaudeReasoning: (effort: string) => void;
   codexReasoningEffort: string;
   codexEffectiveReasoningEffort: string | null;
   codexEffectiveReasoningEffortReported: boolean;
@@ -166,11 +172,11 @@ export function ComposerMetaToolbar({
   sendButtonTitle: string;
   sendPressing: boolean;
 }) {
-  const [codexMenuPanel, setCodexMenuPanel] = useState<CodexMenuPanel>("summary");
+  const [menuPanel, setMenuPanel] = useState<ModelMenuPanel>("summary");
   const [resettingCodexSettings, setResettingCodexSettings] = useState(false);
   const [resetCodexSettingsError, setResetCodexSettingsError] = useState("");
   const modelTriggerRef = useRef<HTMLButtonElement>(null);
-  const codexMenuRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const pendingFocusRef = useRef<{ kind: "summary" | "option"; value: string } | null>(null);
   const selectedPermission =
     permissionOptions.find((option) => option.value === permissionMode) ?? permissionOptions[0];
@@ -233,7 +239,26 @@ export function ComposerMetaToolbar({
   const combinedCodexLabel = reasoningAuthority.triggerSuffix
     ? `${selectedModelLabel} ${reasoningAuthority.triggerSuffix}`
     : selectedModelLabel;
-  const hasReasoningChoices = codexReasoningOptions.some((option) => option.value !== "");
+  const selectedClaudeModel = claudeModelOptions.find((option) => option.value === sessionView.model);
+  const claudeReasoningOptions = getClaudeReasoningEffortOptions(selectedClaudeModel);
+  // A model without effort control (e.g. Haiku) ignores any configured effort, so don't show it.
+  const claudeEffortLabel =
+    claudeReasoningEffort && claudeReasoningOptions.length > 0 ? labelForReasoningEffort(claudeReasoningEffort) : "";
+  // One menu serves both backends; Codex adds speed, runtime-effort warnings and reset.
+  const menuModelOptions = isCodex ? selectableCodexModelOptions : claudeModelOptions;
+  const menuModelLabel = (option: ModelOption) => (isCodex ? friendlyCodexModelLabel(option.label) : option.label);
+  const summaryModelLabel = isCodex
+    ? selectedModelLabel
+    : selectedClaudeModel?.label || formatModel(sessionView.model || "");
+  const reasoningOptions = isCodex ? codexReasoningOptions : claudeReasoningOptions;
+  const currentReasoningEffort = isCodex ? codexReasoningEffort : claudeReasoningEffort;
+  const summaryReasoningLabel = isCodex ? selectedReasoningLabel : claudeEffortLabel || "Default";
+  const defaultEffortLabel = isCodex ? defaultReasoningLabel : "";
+  const onSelectReasoning = isCodex ? onSelectCodexReasoning : onSelectClaudeReasoning;
+  const hasReasoningChoices = reasoningOptions.some((option) => option.value !== "");
+  const triggerLabel = isCodex
+    ? combinedCodexLabel
+    : [formatModel(sessionView.model || ""), claudeEffortLabel].filter(Boolean).join(" ");
   const settingsDisabled = !canEditLaunchSettings;
   const quietSettingsDisabledClass = settingsDisabled
     ? "opacity-30 cursor-not-allowed text-cc-muted"
@@ -243,16 +268,13 @@ export function ComposerMetaToolbar({
     : isConnected
       ? `${selectedPermission.label}: ${selectedPermission.description}`
       : "Applies on resume";
-  const claudeModelTitle = settingsDisabled
+  const modelTitle = settingsDisabled
     ? "Reconnect to Takode to change model"
-    : isConnected
-      ? `Model: ${sessionView.model} (click to change)`
-      : "Applies on resume";
-  const codexModelTitle = settingsDisabled
-    ? "Reconnect to Takode to change model"
-    : isConnected
-      ? `Model: ${sessionView.model}; speed: ${selectedSpeedLabel}; ${reasoningAuthority.title} (click to change)`
-      : "Applies on resume";
+    : !isConnected
+      ? "Applies on resume"
+      : isCodex
+        ? `Model: ${sessionView.model}; speed: ${selectedSpeedLabel}; ${reasoningAuthority.title} (click to change)`
+        : `Model: ${sessionView.model}${claudeEffortLabel ? `; effort: ${claudeEffortLabel}` : ""} (click to change)`;
   const permissionChangeDetail = isConnected
     ? "This will restart the CLI session. Any in-progress operation will be interrupted. Your conversation will be preserved."
     : "This will apply when the session resumes. Your conversation will be preserved.";
@@ -260,61 +282,61 @@ export function ComposerMetaToolbar({
 
   useEffect(() => {
     if (showModelDropdown) return;
-    setCodexMenuPanel("summary");
+    setMenuPanel("summary");
     setResetCodexSettingsError("");
   }, [showModelDropdown]);
 
   useEffect(() => {
-    if (!showModelDropdown || !isCodex || !pendingFocusRef.current) return;
+    if (!showModelDropdown || !pendingFocusRef.current) return;
     const pending = pendingFocusRef.current;
     pendingFocusRef.current = null;
     const selector =
       pending.kind === "summary"
-        ? `[data-codex-summary-key="${pending.value}"]`
-        : `[data-codex-option-value="${pending.value}"]`;
-    codexMenuRef.current?.querySelector<HTMLButtonElement>(selector)?.focus();
-  }, [codexMenuPanel, isCodex, showModelDropdown]);
+        ? `[data-model-summary-key="${pending.value}"]`
+        : `[data-model-option-value="${pending.value}"]`;
+    menuRef.current?.querySelector<HTMLButtonElement>(selector)?.focus();
+  }, [menuPanel, showModelDropdown]);
 
-  function openCodexPanel(panel: Exclude<CodexMenuPanel, "summary">, focusValue: string) {
+  function openMenuPanel(panel: Exclude<ModelMenuPanel, "summary">, focusValue: string) {
     pendingFocusRef.current = { kind: "option", value: focusValue };
-    setCodexMenuPanel(panel);
+    setMenuPanel(panel);
   }
 
-  function returnToCodexSummary(summaryKey: "model" | "effort" | "speed") {
+  function returnToMenuSummary(summaryKey: "model" | "effort" | "speed") {
     pendingFocusRef.current = { kind: "summary", value: summaryKey };
-    setCodexMenuPanel("summary");
+    setMenuPanel("summary");
   }
 
   function closeModelMenu() {
     setShowModelDropdown(false);
-    setCodexMenuPanel("summary");
+    setMenuPanel("summary");
     modelTriggerRef.current?.focus();
   }
 
-  function toggleCodexModelMenu() {
+  function toggleModelMenu() {
     if (showModelDropdown) {
       closeModelMenu();
       return;
     }
     pendingFocusRef.current = { kind: "summary", value: "model" };
-    setCodexMenuPanel("summary");
+    setMenuPanel("summary");
     setShowModelDropdown(true);
   }
 
-  function handleCodexMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+  function handleModelMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
-      if (codexMenuPanel === "summary") closeModelMenu();
-      else returnToCodexSummary(codexMenuPanel);
+      if (menuPanel === "summary") closeModelMenu();
+      else returnToMenuSummary(menuPanel);
       return;
     }
-    if (event.key === "ArrowLeft" && codexMenuPanel !== "summary") {
+    if (event.key === "ArrowLeft" && menuPanel !== "summary") {
       event.preventDefault();
-      returnToCodexSummary(codexMenuPanel);
+      returnToMenuSummary(menuPanel);
       return;
     }
     if (!new Set(["ArrowDown", "ArrowUp", "Home", "End"]).has(event.key)) return;
-    const buttons = focusableMenuButtons(codexMenuRef.current);
+    const buttons = focusableMenuButtons(menuRef.current);
     if (buttons.length === 0) return;
     event.preventDefault();
     const currentIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
@@ -410,281 +432,239 @@ export function ComposerMetaToolbar({
 
         {sessionView.model && (
           <div data-testid="composer-footer-meta" className="flex min-w-0 items-center gap-2 text-[11px] text-cc-muted">
-            {!isCodex ? (
-              <div className="relative min-w-0" ref={modelDropdownRef}>
-                <button
-                  onClick={() => setShowModelDropdown(!showModelDropdown)}
-                  disabled={settingsDisabled}
-                  className={`flex min-w-0 max-w-[132px] items-center gap-1 rounded-md px-2 py-1 font-mono-code transition-colors select-none sm:max-w-[180px] ${
-                    settingsDisabled
-                      ? "cursor-not-allowed opacity-30"
-                      : "cursor-pointer hover:bg-cc-hover hover:text-cc-fg"
-                  }`}
-                  title={claudeModelTitle}
+            <div className="relative min-w-0" ref={modelDropdownRef}>
+              <button
+                ref={modelTriggerRef}
+                onClick={toggleModelMenu}
+                disabled={settingsDisabled}
+                aria-expanded={showModelDropdown}
+                aria-haspopup="menu"
+                aria-label={`Model and effort: ${triggerLabel}`}
+                className={`flex min-w-0 max-w-[148px] items-center gap-1 rounded-md px-2 py-1 transition-colors select-none sm:max-w-[210px] ${
+                  settingsDisabled
+                    ? "cursor-not-allowed opacity-30"
+                    : "cursor-pointer hover:bg-cc-hover hover:text-cc-fg"
+                }`}
+                title={modelTitle}
+              >
+                <span
+                  data-testid="composer-model-trigger-label"
+                  className={`truncate ${isCodex ? "font-medium" : "font-mono-code"}`}
                 >
-                  <span className="truncate">{formatModel(sessionView.model)}</span>
-                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
-                    <path d="M4 6l4 4 4-4" />
-                  </svg>
-                </button>
-                {showModelDropdown && (
-                  <div
-                    data-testid="composer-model-menu"
-                    className="absolute left-0 bottom-full z-10 mb-1 max-h-64 w-52 overflow-y-auto rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg"
-                  >
-                    {claudeModelOptions.map((m) => (
+                  {triggerLabel}
+                </span>
+                <svg viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5 shrink-0 opacity-50">
+                  <path d="M4 6l4 4 4-4" />
+                </svg>
+              </button>
+              {showModelDropdown && (
+                <div
+                  ref={menuRef}
+                  data-testid="composer-model-menu"
+                  data-model-menu-panel={menuPanel}
+                  role="menu"
+                  aria-label="Model and effort settings"
+                  onKeyDown={handleModelMenuKeyDown}
+                  className="absolute right-0 bottom-full z-10 mb-1 max-h-[min(22rem,calc(100vh-8rem))] w-48 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-[12px] border border-cc-border bg-cc-card p-1.5 shadow-lg sm:right-auto sm:left-0 sm:w-72"
+                >
+                  {menuPanel === "summary" && (
+                    <div data-testid="composer-model-summary-menu">
                       <button
-                        key={m.value}
-                        onClick={() => {
-                          onSelectModel(m.value);
-                          setShowModelDropdown(false);
-                        }}
-                        className={`w-full cursor-pointer px-3 py-2 text-left text-xs transition-colors hover:bg-cc-hover ${
-                          m.value === sessionView.model ? "font-medium text-cc-primary" : "text-cc-fg"
-                        }`}
+                        data-model-summary-key="model"
+                        role="menuitem"
+                        onClick={() => openMenuPanel("model", sessionView.model || menuModelOptions[0]?.value || "")}
+                        className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left text-cc-fg transition-colors hover:bg-cc-hover focus-visible:bg-cc-hover focus-visible:outline-none"
                       >
-                        <span className="mr-1.5">{m.icon}</span>
-                        {m.label}
+                        <span className="text-sm font-medium">Model</span>
+                        <span className="ml-auto max-w-[9.5rem] truncate text-sm text-cc-muted">
+                          {summaryModelLabel}
+                        </span>
+                        <span className="shrink-0 text-cc-muted">
+                          <ChevronRightIcon />
+                        </span>
                       </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="relative min-w-0" ref={modelDropdownRef}>
-                <button
-                  ref={modelTriggerRef}
-                  onClick={toggleCodexModelMenu}
-                  disabled={settingsDisabled}
-                  aria-expanded={showModelDropdown}
-                  aria-haspopup="menu"
-                  aria-label={`Model and effort: ${combinedCodexLabel}`}
-                  className={`flex min-w-0 max-w-[148px] items-center gap-1 rounded-md px-2 py-1 transition-colors select-none sm:max-w-[210px] ${
-                    settingsDisabled
-                      ? "cursor-not-allowed opacity-30"
-                      : "cursor-pointer hover:bg-cc-hover hover:text-cc-fg"
-                  }`}
-                  title={codexModelTitle}
-                >
-                  <span data-testid="composer-model-trigger-label" className="truncate font-medium">
-                    {combinedCodexLabel}
-                  </span>
-                  <svg viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5 shrink-0 opacity-50">
-                    <path d="M4 6l4 4 4-4" />
-                  </svg>
-                </button>
-                {showModelDropdown && (
-                  <div
-                    ref={codexMenuRef}
-                    data-testid="composer-model-menu"
-                    data-codex-panel={codexMenuPanel}
-                    role="menu"
-                    aria-label="Model and effort settings"
-                    onKeyDown={handleCodexMenuKeyDown}
-                    className="absolute right-0 bottom-full z-10 mb-1 max-h-[min(22rem,calc(100vh-8rem))] w-48 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-[12px] border border-cc-border bg-cc-card p-1.5 shadow-lg sm:right-auto sm:left-0 sm:w-72"
-                  >
-                    {codexMenuPanel === "summary" && (
-                      <div data-testid="composer-model-summary-menu">
+                      {hasReasoningChoices && (
                         <button
-                          data-codex-summary-key="model"
+                          data-model-summary-key="effort"
                           role="menuitem"
-                          onClick={() =>
-                            openCodexPanel("model", sessionView.model || selectableCodexModelOptions[0]?.value || "")
-                          }
+                          onClick={() => openMenuPanel("effort", currentReasoningEffort || "default")}
                           className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left text-cc-fg transition-colors hover:bg-cc-hover focus-visible:bg-cc-hover focus-visible:outline-none"
                         >
-                          <span className="text-sm font-medium">Model</span>
+                          <span className="text-sm font-medium">Effort</span>
                           <span className="ml-auto max-w-[9.5rem] truncate text-sm text-cc-muted">
-                            {selectedModelLabel}
+                            {summaryReasoningLabel}
                           </span>
                           <span className="shrink-0 text-cc-muted">
                             <ChevronRightIcon />
                           </span>
                         </button>
-                        {hasReasoningChoices && (
-                          <button
-                            data-codex-summary-key="effort"
-                            role="menuitem"
-                            onClick={() => openCodexPanel("effort", codexReasoningEffort || "default")}
-                            className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left text-cc-fg transition-colors hover:bg-cc-hover focus-visible:bg-cc-hover focus-visible:outline-none"
-                          >
-                            <span className="text-sm font-medium">Effort</span>
-                            <span className="ml-auto max-w-[9.5rem] truncate text-sm text-cc-muted">
-                              {selectedReasoningLabel}
-                            </span>
-                            <span className="shrink-0 text-cc-muted">
-                              <ChevronRightIcon />
-                            </span>
-                          </button>
-                        )}
-                        {reasoningAuthority.warningLabel && (
-                          <div
-                            data-testid="composer-reasoning-warning"
-                            role="status"
-                            className="mx-2 mb-1 flex items-start gap-2 rounded-md border border-cc-warning/25 bg-cc-warning/10 px-2.5 py-2 text-[11px] leading-snug text-cc-warning"
-                            title={reasoningAuthority.title}
-                          >
-                            <span aria-hidden="true" className="mt-px shrink-0 font-semibold">
-                              !
-                            </span>
-                            <span>{reasoningAuthority.warningLabel}</span>
-                          </div>
-                        )}
-                        {fastSupported && (
-                          <button
-                            data-codex-summary-key="speed"
-                            role="menuitem"
-                            onClick={() =>
-                              openCodexPanel(
-                                "speed",
-                                fastSelected ? codexFastServiceTier?.id || "standard" : "standard",
-                              )
-                            }
-                            className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left text-cc-fg transition-colors hover:bg-cc-hover focus-visible:bg-cc-hover focus-visible:outline-none"
-                          >
-                            <span className="text-sm font-medium">Speed</span>
-                            <span className="ml-auto max-w-[9.5rem] truncate text-sm text-cc-muted">
-                              {selectedSpeedLabel}
-                            </span>
-                            <span className="shrink-0 text-cc-muted">
-                              <ChevronRightIcon />
-                            </span>
-                          </button>
-                        )}
-                        <div className="my-1 border-t border-cc-border/70" />
-                        <button
-                          role="menuitem"
-                          onClick={() => void handleResetCodexSettings()}
-                          disabled={resettingCodexSettings}
-                          className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:bg-cc-hover focus-visible:outline-none disabled:cursor-wait disabled:opacity-50"
+                      )}
+                      {isCodex && reasoningAuthority.warningLabel && (
+                        <div
+                          data-testid="composer-reasoning-warning"
+                          role="status"
+                          className="mx-2 mb-1 flex items-start gap-2 rounded-md border border-cc-warning/25 bg-cc-warning/10 px-2.5 py-2 text-[11px] leading-snug text-cc-warning"
+                          title={reasoningAuthority.title}
                         >
-                          <span>{resettingCodexSettings ? "Resetting…" : "Reset to default"}</span>
-                          <span className="ml-auto">
-                            <ResetIcon />
+                          <span aria-hidden="true" className="mt-px shrink-0 font-semibold">
+                            !
+                          </span>
+                          <span>{reasoningAuthority.warningLabel}</span>
+                        </div>
+                      )}
+                      {isCodex && fastSupported && (
+                        <button
+                          data-model-summary-key="speed"
+                          role="menuitem"
+                          onClick={() =>
+                            openMenuPanel("speed", fastSelected ? codexFastServiceTier?.id || "standard" : "standard")
+                          }
+                          className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left text-cc-fg transition-colors hover:bg-cc-hover focus-visible:bg-cc-hover focus-visible:outline-none"
+                        >
+                          <span className="text-sm font-medium">Speed</span>
+                          <span className="ml-auto max-w-[9.5rem] truncate text-sm text-cc-muted">
+                            {selectedSpeedLabel}
+                          </span>
+                          <span className="shrink-0 text-cc-muted">
+                            <ChevronRightIcon />
                           </span>
                         </button>
-                        {resetCodexSettingsError && (
-                          <p role="alert" className="px-3 pb-1 pt-0.5 text-[11px] leading-snug text-cc-error">
-                            {resetCodexSettingsError}
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    {codexMenuPanel === "model" && (
-                      <div data-testid="composer-model-options-menu">
-                        <button
-                          role="menuitem"
-                          onClick={() => returnToCodexSummary("model")}
-                          className="mb-1 flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:bg-cc-hover focus-visible:outline-none"
-                        >
-                          <BackIcon /> Model
-                        </button>
-                        {selectableCodexModelOptions.map((model) => (
+                      )}
+                      {isCodex && (
+                        <>
+                          <div className="my-1 border-t border-cc-border/70" />
                           <button
-                            key={model.value}
-                            data-codex-option-value={model.value}
+                            role="menuitem"
+                            onClick={() => void handleResetCodexSettings()}
+                            disabled={resettingCodexSettings}
+                            className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:bg-cc-hover focus-visible:outline-none disabled:cursor-wait disabled:opacity-50"
+                          >
+                            <span>{resettingCodexSettings ? "Resetting…" : "Reset to default"}</span>
+                            <span className="ml-auto">
+                              <ResetIcon />
+                            </span>
+                          </button>
+                          {resetCodexSettingsError && (
+                            <p role="alert" className="px-3 pb-1 pt-0.5 text-[11px] leading-snug text-cc-error">
+                              {resetCodexSettingsError}
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {menuPanel === "model" && (
+                    <div data-testid="composer-model-options-menu">
+                      <button
+                        role="menuitem"
+                        onClick={() => returnToMenuSummary("model")}
+                        className="mb-1 flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:bg-cc-hover focus-visible:outline-none"
+                      >
+                        <BackIcon /> Model
+                      </button>
+                      {menuModelOptions.map((model) => (
+                        <button
+                          key={model.value}
+                          data-model-option-value={model.value}
+                          role="menuitemradio"
+                          aria-checked={model.value === sessionView.model}
+                          onClick={() => {
+                            onSelectModel(model.value);
+                            returnToMenuSummary("model");
+                          }}
+                          className={`flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors hover:bg-cc-hover focus-visible:bg-cc-hover focus-visible:outline-none ${
+                            model.value === sessionView.model ? "font-medium text-cc-primary" : "text-cc-fg"
+                          }`}
+                        >
+                          <span className="w-4 shrink-0 text-center">{model.icon}</span>
+                          <span className="truncate">{menuModelLabel(model)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {menuPanel === "effort" && (
+                    <div data-testid="composer-reasoning-menu">
+                      <button
+                        role="menuitem"
+                        onClick={() => returnToMenuSummary("effort")}
+                        className="mb-1 flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:bg-cc-hover focus-visible:outline-none"
+                      >
+                        <BackIcon /> Effort
+                      </button>
+                      {reasoningOptions.map((effort) => {
+                        const isDefault = effort.value === "";
+                        const label =
+                          isDefault && defaultEffortLabel ? `Default (${defaultEffortLabel})` : effort.label;
+                        return (
+                          <button
+                            key={effort.value || "default"}
+                            data-model-option-value={effort.value || "default"}
                             role="menuitemradio"
-                            aria-checked={model.value === sessionView.model}
+                            aria-checked={effort.value === currentReasoningEffort}
                             onClick={() => {
-                              onSelectModel(model.value);
-                              returnToCodexSummary("model");
+                              onSelectReasoning(effort.value);
+                              returnToMenuSummary("effort");
                             }}
-                            className={`flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors hover:bg-cc-hover focus-visible:bg-cc-hover focus-visible:outline-none ${
-                              model.value === sessionView.model ? "font-medium text-cc-primary" : "text-cc-fg"
+                            className={`w-full cursor-pointer rounded-lg px-3 py-2 text-left transition-colors hover:bg-cc-hover focus-visible:bg-cc-hover focus-visible:outline-none ${
+                              effort.value === currentReasoningEffort ? "text-cc-primary" : "text-cc-fg"
                             }`}
                           >
-                            <span className="w-4 shrink-0 text-center">{model.icon}</span>
-                            <span className="truncate">{friendlyCodexModelLabel(model.label)}</span>
+                            <div className="text-xs font-medium">{label}</div>
+                            {effort.description && (
+                              <div className="mt-0.5 text-[11px] leading-snug text-cc-muted">{effort.description}</div>
+                            )}
                           </button>
-                        ))}
-                      </div>
-                    )}
+                        );
+                      })}
+                    </div>
+                  )}
 
-                    {codexMenuPanel === "effort" && (
-                      <div data-testid="composer-reasoning-menu">
-                        <button
-                          role="menuitem"
-                          onClick={() => returnToCodexSummary("effort")}
-                          className="mb-1 flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:bg-cc-hover focus-visible:outline-none"
-                        >
-                          <BackIcon /> Effort
-                        </button>
-                        {codexReasoningOptions.map((effort) => {
-                          const isDefault = effort.value === "";
-                          const label =
-                            isDefault && defaultReasoningLabel ? `Default (${defaultReasoningLabel})` : effort.label;
-                          return (
-                            <button
-                              key={effort.value || "default"}
-                              data-codex-option-value={effort.value || "default"}
-                              role="menuitemradio"
-                              aria-checked={effort.value === codexReasoningEffort}
-                              onClick={() => {
-                                onSelectCodexReasoning(effort.value);
-                                returnToCodexSummary("effort");
-                              }}
-                              className={`w-full cursor-pointer rounded-lg px-3 py-2 text-left transition-colors hover:bg-cc-hover focus-visible:bg-cc-hover focus-visible:outline-none ${
-                                effort.value === codexReasoningEffort ? "text-cc-primary" : "text-cc-fg"
-                              }`}
-                            >
-                              <div className="text-xs font-medium">{label}</div>
-                              {effort.description && (
-                                <div className="mt-0.5 text-[11px] leading-snug text-cc-muted">
-                                  {effort.description}
-                                </div>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {codexMenuPanel === "speed" && codexFastServiceTier && (
-                      <div data-testid="composer-speed-menu">
-                        <button
-                          role="menuitem"
-                          onClick={() => returnToCodexSummary("speed")}
-                          className="mb-1 flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:bg-cc-hover focus-visible:outline-none"
-                        >
-                          <BackIcon /> Speed
-                        </button>
-                        <button
-                          data-codex-option-value="standard"
-                          role="menuitemradio"
-                          aria-checked={!fastSelected}
-                          onClick={() => {
-                            onSelectCodexServiceTier(null);
-                            returnToCodexSummary("speed");
-                          }}
-                          className={`w-full cursor-pointer rounded-lg px-3 py-2 text-left transition-colors hover:bg-cc-hover focus-visible:bg-cc-hover focus-visible:outline-none ${
-                            !fastSelected ? "text-cc-primary" : "text-cc-fg"
-                          }`}
-                        >
-                          <div className="text-xs font-medium">Standard</div>
-                          <div className="mt-0.5 text-[11px] leading-snug text-cc-muted">Default Codex speed.</div>
-                        </button>
-                        <button
-                          data-codex-option-value={codexFastServiceTier.id}
-                          role="menuitemradio"
-                          aria-checked={fastSelected}
-                          onClick={() => {
-                            onSelectCodexServiceTier(codexFastServiceTier.id);
-                            returnToCodexSummary("speed");
-                          }}
-                          className={`w-full cursor-pointer rounded-lg px-3 py-2 text-left transition-colors hover:bg-cc-hover focus-visible:bg-cc-hover focus-visible:outline-none ${
-                            fastSelected ? "text-cc-primary" : "text-cc-fg"
-                          }`}
-                        >
-                          <div className="text-xs font-medium">{codexFastServiceTier.name}</div>
-                          <div className="mt-0.5 text-[11px] leading-snug text-cc-muted">{fastDescription}</div>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+                  {menuPanel === "speed" && codexFastServiceTier && (
+                    <div data-testid="composer-speed-menu">
+                      <button
+                        role="menuitem"
+                        onClick={() => returnToMenuSummary("speed")}
+                        className="mb-1 flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:bg-cc-hover focus-visible:outline-none"
+                      >
+                        <BackIcon /> Speed
+                      </button>
+                      <button
+                        data-model-option-value="standard"
+                        role="menuitemradio"
+                        aria-checked={!fastSelected}
+                        onClick={() => {
+                          onSelectCodexServiceTier(null);
+                          returnToMenuSummary("speed");
+                        }}
+                        className={`w-full cursor-pointer rounded-lg px-3 py-2 text-left transition-colors hover:bg-cc-hover focus-visible:bg-cc-hover focus-visible:outline-none ${
+                          !fastSelected ? "text-cc-primary" : "text-cc-fg"
+                        }`}
+                      >
+                        <div className="text-xs font-medium">Standard</div>
+                        <div className="mt-0.5 text-[11px] leading-snug text-cc-muted">Default Codex speed.</div>
+                      </button>
+                      <button
+                        data-model-option-value={codexFastServiceTier.id}
+                        role="menuitemradio"
+                        aria-checked={fastSelected}
+                        onClick={() => {
+                          onSelectCodexServiceTier(codexFastServiceTier.id);
+                          returnToMenuSummary("speed");
+                        }}
+                        className={`w-full cursor-pointer rounded-lg px-3 py-2 text-left transition-colors hover:bg-cc-hover focus-visible:bg-cc-hover focus-visible:outline-none ${
+                          fastSelected ? "text-cc-primary" : "text-cc-fg"
+                        }`}
+                      >
+                        <div className="text-xs font-medium">{codexFastServiceTier.name}</div>
+                        <div className="mt-0.5 text-[11px] leading-snug text-cc-muted">{fastDescription}</div>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

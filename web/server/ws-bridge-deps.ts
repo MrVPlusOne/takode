@@ -175,6 +175,7 @@ import {
   handleSetModel as handleSetModelController,
   handleCodexSetModel as handleCodexSetModelController,
   handleCodexSetReasoningEffort as handleCodexSetReasoningEffortController,
+  handleClaudeSetReasoningEffort as handleClaudeSetReasoningEffortController,
   handleCodexSetServiceTier as handleCodexSetServiceTierController,
   routeBrowserMessage as routeBrowserMessageController,
   handleSdkPermissionRequest as handleSdkPermissionRequestController,
@@ -313,6 +314,7 @@ const WS_BRIDGE_IDEMPOTENT_BROWSER_MESSAGE_TYPES = new Set<string>([
   "release_codex_auto_paused_inputs",
   "set_model",
   "set_codex_reasoning_effort",
+  "set_claude_reasoning_effort",
   "set_codex_service_tier",
   "set_permission_mode",
   "mcp_get_status",
@@ -1584,6 +1586,8 @@ export function getBrowserRoutingDeps(host: any) {
       handleCodexSetUiModeController(targetSession as Session, uiMode, host.getBrowserRoutingDeps()),
     handleCodexSetReasoningEffort: (targetSession: unknown, effort: string) =>
       handleCodexSetReasoningEffortController(targetSession as Session, effort, host.getBrowserRoutingDeps()),
+    handleClaudeSetReasoningEffort: (targetSession: unknown, effort: string) =>
+      handleClaudeSetReasoningEffortController(targetSession as Session, effort, host.getBrowserRoutingDeps()),
     handleCodexSetServiceTier: (targetSession: unknown, serviceTier: string | null) =>
       handleCodexSetServiceTierController(targetSession as Session, serviceTier, host.getBrowserRoutingDeps()),
     handleSetAskPermission: (targetSession: unknown, askPermission: boolean) =>

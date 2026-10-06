@@ -198,6 +198,7 @@ import {
 } from "./bridge/adapter-browser-routing-controller.js";
 import {
   interruptSession as interruptSessionController,
+  setClaudeReasoningEffort as setClaudeReasoningEffortController,
   setCodexServiceTier as setCodexServiceTierController,
   setSessionModel as setSessionModelController,
   setSessionPermissionMode as setSessionPermissionModeController,
@@ -1037,6 +1038,10 @@ export class WsBridge {
 
   async setCodexServiceTier(sessionId: string, serviceTier: string | null): Promise<boolean> {
     return setCodexServiceTierController(this.sessions, this.getBrowserRoutingDeps(), sessionId, serviceTier);
+  }
+
+  async setClaudeReasoningEffort(sessionId: string, effort: string | null): Promise<boolean> {
+    return setClaudeReasoningEffortController(this.sessions, this.getBrowserRoutingDeps(), sessionId, effort);
   }
 
   async interruptSession(

@@ -3,16 +3,25 @@ import { getClaudeModelCatalog, mapClaudeCatalogModels, recordClaudeModelCatalog
 
 // Shape reported by Claude Code 2.1.289's `supportedModels()` for a Copilot
 // gateway setup whose settings map the Opus and Haiku aliases to dotted IDs.
+const EFFORT = { supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] };
 const CLI_CATALOG = [
   {
     value: "default",
     resolvedModel: "claude-opus-5.5",
     displayName: "Default (recommended)",
     description: "Use the default model (currently Opus 5) · $5/$25 per Mtok",
+    ...EFFORT,
   },
-  { value: "opus", resolvedModel: "claude-opus-5.5", displayName: "claude-opus-5.5", description: "Custom Opus model" },
-  { value: "fable", resolvedModel: "claude-fable-5-1", displayName: "Fable", description: "Fable 5.1" },
-  { value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet", description: "Sonnet 5.5" },
+  {
+    value: "opus",
+    resolvedModel: "claude-opus-5.5",
+    displayName: "claude-opus-5.5",
+    description: "Custom Opus model",
+    ...EFFORT,
+  },
+  { value: "fable", resolvedModel: "claude-fable-5-1", displayName: "Fable", description: "Fable 5.1", ...EFFORT },
+  { value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet", description: "Sonnet 5.5", ...EFFORT },
+  // Haiku has no effort control, so the CLI reports no effort fields for it.
   {
     value: "haiku",
     resolvedModel: "claude-haiku-4.5",
@@ -20,6 +29,7 @@ const CLI_CATALOG = [
     description: "Custom Haiku model",
   },
 ];
+const LEVELS = EFFORT.supportedEffortLevels.map((effort) => ({ effort }));
 
 describe("mapClaudeCatalogModels", () => {
   it("keys options by resolved model and folds aliases of the default model into one entry", () => {
@@ -32,10 +42,16 @@ describe("mapClaudeCatalogModels", () => {
         label: "Opus 5.5 (default)",
         description: "Use the default model (currently Opus 5) · $5/$25 per Mtok",
         isDefault: true,
+        supportedReasoningLevels: LEVELS,
       },
-      { value: "claude-fable-5-1", label: "Fable 5.1", description: "Fable 5.1" },
-      { value: "claude-sonnet-5-5", label: "Sonnet 5.5", description: "Sonnet 5.5" },
-      { value: "claude-haiku-4.5", label: "Haiku 4.5", description: "Custom Haiku model" },
+      { value: "claude-fable-5-1", label: "Fable 5.1", description: "Fable 5.1", supportedReasoningLevels: LEVELS },
+      { value: "claude-sonnet-5-5", label: "Sonnet 5.5", description: "Sonnet 5.5", supportedReasoningLevels: LEVELS },
+      {
+        value: "claude-haiku-4.5",
+        label: "Haiku 4.5",
+        description: "Custom Haiku model",
+        supportedReasoningLevels: [],
+      },
     ]);
   });
 
@@ -47,8 +63,14 @@ describe("mapClaudeCatalogModels", () => {
         { value: "sonnet[1m]", displayName: "Sonnet (1M context)", description: "" },
       ]),
     ).toEqual([
-      { value: "default", label: "Default (recommended)", description: "", isDefault: true },
-      { value: "sonnet[1m]", label: "Sonnet (1M context)", description: "" },
+      {
+        value: "default",
+        label: "Default (recommended)",
+        description: "",
+        isDefault: true,
+        supportedReasoningLevels: [],
+      },
+      { value: "sonnet[1m]", label: "Sonnet (1M context)", description: "", supportedReasoningLevels: [] },
     ]);
   });
 

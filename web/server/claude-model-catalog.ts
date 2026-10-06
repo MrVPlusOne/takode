@@ -14,6 +14,8 @@ export interface ClaudeBackendModelInfo {
   description: string;
   /** True for the entry the CLI's own default resolves to; lets menus skip other default-model guesses. */
   isDefault?: boolean;
+  /** Effort levels the CLI accepts for this model; empty when the model has no effort control. */
+  supportedReasoningLevels: Array<{ effort: string }>;
 }
 
 let latestCatalog: ClaudeBackendModelInfo[] | null = null;
@@ -41,7 +43,7 @@ export function mapClaudeCatalogModels(raw: unknown): ClaudeBackendModelInfo[] {
   const models: ClaudeBackendModelInfo[] = [];
   for (const entry of raw) {
     if (!entry || typeof entry !== "object") continue;
-    const { value, resolvedModel, displayName, description } = entry as Record<string, unknown>;
+    const { value, resolvedModel, displayName, description, supportedEffortLevels } = entry as Record<string, unknown>;
     if (typeof value !== "string" || !value) continue;
     // `resolvedModel` is reported by newer CLIs but not yet typed by the SDK.
     const resolved = typeof resolvedModel === "string" && resolvedModel ? resolvedModel : null;
@@ -55,6 +57,10 @@ export function mapClaudeCatalogModels(raw: unknown): ClaudeBackendModelInfo[] {
       label: isDefault && resolved ? `${name} (default)` : name,
       description: typeof description === "string" ? description : "",
       ...(isDefault ? { isDefault } : {}),
+      // The CLI omits effort levels for models without effort support (e.g. Haiku).
+      supportedReasoningLevels: Array.isArray(supportedEffortLevels)
+        ? supportedEffortLevels.filter((level) => typeof level === "string").map((effort) => ({ effort }))
+        : [],
     });
   }
   return models;
