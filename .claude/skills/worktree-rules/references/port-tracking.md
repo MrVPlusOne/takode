@@ -59,7 +59,7 @@ Before landing, inspect `takode port status q-N <preparation-id>` and report onl
 
 ## 3. Port and record each landing
 
-Check the target again and perform the existing chronological cherry-picks. Immediately record each successful target SHA before any subsequent port or cleanup:
+Check the target again and perform the existing chronological cherry-picks. For a remote-backed target this happens while holding the port lease and after the worktree gate, as the main skill describes. Immediately record each successful target SHA before any subsequent port or cleanup:
 
 ```bash
 git -C <selected-target-checkout> cherry-pick <final-worker-sha>
@@ -73,7 +73,7 @@ A successful target write is a boundary even if validation, push, or metadata re
 
 ## 4. Verify, publish, and attach delivery evidence
 
-Run the existing selected-target full gate and publication rules, then perform the normal sync/post-sync checks. Only final target commits enter normal quest code evidence; original review increments remain separate.
+Follow the main skill's remaining gate and publication rules (a remote-backed port was already gated before landing), then perform the normal sync/post-sync checks. Only final target commits enter normal quest code evidence; original review increments remain separate.
 
 ```bash
 takode board work-to-memory q-N --work-note <index> --commits <target-sha>,<another-target-sha> --preparation <preparation-id>

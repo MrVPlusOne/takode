@@ -29,7 +29,7 @@ For an explicitly approved independent publication outside the inherited target,
 
 There are two valid target modes:
 
-- **Remote-backed target**: no "Port target worktree" is injected. Port into the **Base repo checkout** on **Base branch / port target**, then push `origin <BASE_BRANCH>`.
+- **Remote-backed target**: no "Port target worktree" is injected. Port into the **Base repo checkout** on **Base branch / port target**, one port at a time under the port lease, then push your own commits to `origin <BASE_BRANCH>`.
 - **Worktree target**: "Port target worktree" is injected. Port into that exact checkout. Do not fetch, pull, push, or assume `origin/<BASE_BRANCH>` exists for this target unless the handoff explicitly says to publish it.
 
 For a remote-backed target, first inspect the base repo branch and compare the output to `<BASE_BRANCH>`:
@@ -38,6 +38,13 @@ git -C <BASE_REPO> symbolic-ref --short HEAD
 ```
 
 If the current base-repo branch is not exactly `<BASE_BRANCH>`, stop and report the mismatch. Do not use `git checkout` or port into whatever branch is currently checked out.
+
+The base repo checkout is shared by every worker that ports to it, and a push publishes everything on its branch. So remote-backed ports land one at a time: acquire the target's port lease before checking status and pulling, and hold it until your push in step 7 completes. `<REPO>` is the base repo directory name, so the Takode repo uses `port:companion`. Use only this key; other names for the same checkout, such as `git:<REPO>`, do not coordinate with it.
+```bash
+takode lease acquire port:<REPO> --purpose "Port <quest or change> to <BASE_BRANCH>" --ttl 30m --wait
+```
+
+While you hold the lease, nothing else lands on the target, so the gate you run in your worktree (step 3) covers exactly what you will push. Renew the lease if the gate runs long. If you stop before landing anything (gate failure, rebase conflict, a question for the user), release the lease, and start again from this step when ready because the target may have moved. If you stop after landing commits but before pushing, keep the lease and report.
 
 Only after the current branch is proven to match `<BASE_BRANCH>`, check status and pull remote changes:
 ```bash
@@ -70,7 +77,27 @@ git rebase --onto <BASE_BRANCH> <VERIFIED_PRIVATE_BASE_SHA>
 
 Resolve all merge conflicts here in the worktree -- this is the safe place to do it. Review integration changes, refresh retained review when the base/SHAs changed, then squash cohesive private groups and run `takode port seal` as described in the tracking reference. The helper verifies resulting trees and parents; it does not replace review or run Git rewriting commands for you.
 
-### 3. Cherry-pick clean commits to the selected target
+### 3. Run the required gate
+
+For tracked code/test changes, run the full gate:
+- focused affected tests for the accepted change
+- `cd <GATE_CHECKOUT>/web && bun --no-install run test`
+- `cd <GATE_CHECKOUT>/web && bun --no-install run typecheck`
+- `cd <GATE_CHECKOUT>/web && bun --no-install run format:check`
+
+`format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now.
+
+For a remote-backed target, run it now in your worker worktree (`<GATE_CHECKOUT>` is the worktree), after the rebase and seal and while holding the port lease. Your worktree then has exactly the tree the target will have after the cherry-picks, so this is the pre-push gate, and nothing unverified ever sits on the shared checkout.
+
+For a worktree target, skip this step and run the same gate against the target in step 6. Do not run the full gate in the base repo unless the handoff explicitly asks for it.
+
+If a full run is infeasible, the exception must already be explicit in the Work handoff or be reported before final acceptance. Do not silently narrow the gate to focused tests.
+
+If the required gate fails:
+- If the failure is likely related to the current quest or port, do not land, publish, or hand off as complete. Report the failure and the target's sync state so the leader can route the worker back to fix it before the quest can be marked done. For a remote-backed target nothing has landed yet: release the port lease.
+- If the failure appears unrelated to the current port, do not hide it. Report the red-target risk explicitly; the leader should open an immediate fix quest unless there is already an active quest for that failure being worked by another leader.
+
+### 4. Cherry-pick clean commits to the selected target
 
 Once the worktree branch is cleanly rebased with your new commits on top, cherry-pick only your new commits into the selected target.
 
@@ -88,46 +115,35 @@ Cherry-pick one at a time in chronological order. Immediately run `takode port l
 
 Track the resulting **target SHAs** in the same order as you cherry-pick them. These synced SHAs are the ones that matter for quest verification metadata. Do not reuse the worktree-only pre-port SHAs when the target now has different cherry-picked copies.
 
-### 4. Handle unexpected conflicts
+Run `git -C <SELECTED_TARGET> log --oneline -5` to confirm the commits landed correctly. For a remote-backed target, also confirm from your worktree that the target now has exactly the tree your gate ran on:
+```bash
+test "$(git -C <BASE_REPO> rev-parse 'HEAD^{tree}')" = "$(git rev-parse 'HEAD^{tree}')"
+```
+
+If the trees differ, something landed on the target that your gate did not cover. Do not push; keep the lease and report.
+
+### 5. Handle unexpected conflicts
 
 If cherry-pick still conflicts (it shouldn't after a clean rebase), tell the user the conflicting files and ask how to proceed. Do not force-resolve or abort without asking.
 
-### 5. Run the required pre-push gate / pre-handoff gate
+### 6. Run the pre-handoff gate on a worktree target
 
-Run `git -C <SELECTED_TARGET> log --oneline -5` to confirm the commits landed correctly.
+For a worktree target, run the step 3 gate against the target before handing off (`<GATE_CHECKOUT>` is `<PORT_TARGET_WORKTREE>`). The same infeasibility and failure rules apply. Remote-backed targets were already gated in step 3.
 
-For tracked code/test changes, verify the main repo before pushing when the selected target is `<BASE_REPO>`:
-- focused affected tests for the accepted change
-- `cd <BASE_REPO>/web && bun --no-install run test`
-- `cd <BASE_REPO>/web && bun --no-install run typecheck`
-- `cd <BASE_REPO>/web && bun --no-install run format:check`
+### 7. Publish only remote-backed targets
 
-For a worktree target, run the same gate against the selected target before handing off:
-- focused affected tests for the accepted change
-- `cd <SELECTED_TARGET>/web && bun --no-install run test`
-- `cd <SELECTED_TARGET>/web && bun --no-install run typecheck`
-- `cd <SELECTED_TARGET>/web && bun --no-install run format:check`
-
-`format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now.
-
-If the selected target is the base repo, this is the normal pre-push gate. If the selected target is a leader worktree, this is the pre-handoff gate for the leader target; do not run the full gate in the base repo unless the handoff explicitly asks for it.
-
-If a full run is infeasible, the exception must already be explicit in the Work handoff or be reported before final acceptance. Do not silently narrow the gate to focused tests.
-
-If the required gate fails:
-- If the failure is likely related to the current quest or port, do not publish or hand off as complete. Report the failure and the target's sync state so the leader can route the worker back to fix it before the quest can be marked done.
-- If the failure appears unrelated to the current port, do not hide it. Report the red-target risk explicitly; the leader should open an immediate fix quest unless there is already an active quest for that failure being worked by another leader.
-
-### 6. Publish only remote-backed targets
-
-For a remote-backed target, after the required pre-push gate passes or an explicit infeasibility exception is visible, push:
+For a remote-backed target, after the step 3 gate passes or an explicit infeasibility exception is visible, list what the push will publish, push your last landed target SHA rather than the branch, and release the port lease:
 ```bash
-git -C <BASE_REPO> push origin <BASE_BRANCH>
+git -C <BASE_REPO> log --oneline origin/<BASE_BRANCH>..<LAST_TARGET_SHA>
+git -C <BASE_REPO> push origin <LAST_TARGET_SHA>:refs/heads/<BASE_BRANCH>
+takode lease release port:<REPO>
 ```
+
+The log must list only your own landed target SHAs. If it lists anything else, do not push; keep the lease and report. Pushing the explicit SHA means a commit that someone lands without the lease is never published with yours. If the push is rejected because the remote moved, do not force-push; keep the lease and reconcile as in step 1.
 
 For a worktree target, do not push by default. The port has landed in the leader's target worktree. Report that the target is local-only unless the handoff explicitly asked you to publish it.
 
-### 7. Sync the worker worktree
+### 8. Sync the worker worktree
 
 Confirm `takode port status` reports the preparation landed and that no additional worker changes would be discarded. Preserve/reconcile any uncertain or partial state before cleanup. Reset this worker worktree branch to match the target branch: `git reset --hard <BASE_BRANCH>`.
 
@@ -138,7 +154,7 @@ git -C <BASE_REPO> merge --ff-only origin/<BASE_BRANCH>
 
 Do not run `git checkout <BASE_BRANCH>` in the base repo as a cleanup shortcut. If the base repo is not already on `<BASE_BRANCH>`, that should have been caught in step 1 and the port should have stopped.
 
-### 8. Run post-sync verification
+### 9. Run post-sync verification
 
 After resetting, verify that the worker worktree and selected target are synced. Run cheap consistency checks such as `git status`, `git log --oneline -5`, and `git diff --check` in both the worker worktree and selected target, plus any post-push/post-handoff reruns required by the Port handoff or by non-obvious verification risk. If post-sync verification fails, report it explicitly and route a fix before final quest closure.
 
@@ -146,10 +162,10 @@ After resetting, verify that the worker worktree and selected target are synced.
 
 Do NOT report the sync as complete until ALL of the following are true:
 - [ ] Selected target log shows the cherry-picked commits
-- [ ] Required verification passed in the selected target, or an explicitly documented infeasibility exception is visible before final acceptance
+- [ ] Required verification passed (in the worker worktree before landing for a remote-backed target, in the target for a worktree target), or an explicitly documented infeasibility exception is visible before final acceptance
 - [ ] Worker worktree has been reset to match the target branch
 - [ ] Required post-sync verification has been run after the reset and passed
-- [ ] Remote-backed targets have been pushed to the remote, or worktree targets are explicitly reported as local-only target ports
+- [ ] Remote-backed targets have been pushed to the remote up to your last landed target SHA and the port lease is released, or worktree targets are explicitly reported as local-only target ports
 
 ## Quest Work-to-Memory Rule
 

@@ -11,6 +11,52 @@ function readWorktreeRulesSkill(): string {
   return readFileSync(skillPath, "utf8");
 }
 
+function createGitFixture() {
+  // Three-repository fixtures live only under a fresh temp root. Never use real remotes
+  // or inherit Git path/config overrides from the calling environment.
+  const root = mkdtempSync(join(tmpdir(), "port-update-test-"));
+  const target = join(root, "target");
+  const remote = join(root, "remote.git");
+  const other = join(root, "other");
+  const hooks = join(root, "empty-hooks");
+  mkdirSync(target);
+  mkdirSync(hooks);
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+  for (const key of Object.keys(env)) {
+    if (
+      /^GIT_(DIR|WORK_TREE|COMMON_DIR|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|PREFIX|TEMPLATE_DIR|CONFIG_PARAMETERS|CONFIG_COUNT|CONFIG_KEY_.*|CONFIG_VALUE_.*)$/.test(
+        key,
+      )
+    )
+      delete env[key];
+  }
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["--no-optional-locks", "-C", cwd, ...args], { env, encoding: "utf8", stdio: "pipe" }).trim();
+  const configure = (cwd: string) => {
+    git(cwd, "config", "user.name", "Fixture");
+    git(cwd, "config", "user.email", "fixture@example.invalid");
+    git(cwd, "config", "core.hooksPath", hooks);
+  };
+  const commit = (cwd: string, name: string) => {
+    writeFileSync(join(cwd, name), `${name}\n`);
+    git(cwd, "add", name);
+    git(cwd, "commit", "-m", name);
+    return git(cwd, "rev-parse", "HEAD");
+  };
+  // Target starts with one commit on "integration", published to a bare remote,
+  // with a second clone standing in for another publisher.
+  git(target, "-c", `init.templateDir=${hooks}`, "init", "-b", "integration");
+  configure(target);
+  commit(target, "base");
+  git(root, "clone", "--bare", target, remote);
+  git(remote, "config", "core.hooksPath", hooks);
+  git(target, "remote", "add", "origin", remote);
+  git(root, "clone", remote, other);
+  configure(other);
+  const cleanup = () => rmSync(root, { recursive: true, force: true });
+  return { target, remote, other, git, commit, cleanup };
+}
+
 describe("worktree-rules skill", () => {
   it("orders remote-backed branch mismatch stop before mutating pull commands", () => {
     const skill = readWorktreeRulesSkill();
@@ -30,48 +76,12 @@ describe("worktree-rules skill", () => {
   it("fast-forwards a clean target but preserves a landed commit when the documented pull encounters divergence", () => {
     // Exercise the documented update flag only in three freshly created local repositories.
     // Never execute arbitrary shell text from a skill, use real remotes, or inherit Git path/config overrides.
-    const root = mkdtempSync(join(tmpdir(), "port-update-test-"));
-    const target = join(root, "target");
-    const remote = join(root, "remote.git");
-    const other = join(root, "other");
-    const hooks = join(root, "empty-hooks");
-    mkdirSync(target);
-    mkdirSync(hooks);
-    const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
-    for (const key of Object.keys(env)) {
-      if (
-        /^GIT_(DIR|WORK_TREE|COMMON_DIR|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|PREFIX|TEMPLATE_DIR|CONFIG_PARAMETERS|CONFIG_COUNT|CONFIG_KEY_.*|CONFIG_VALUE_.*)$/.test(
-          key,
-        )
-      )
-        delete env[key];
-    }
-    const git = (cwd: string, ...args: string[]) =>
-      execFileSync("git", ["--no-optional-locks", "-C", cwd, ...args], { env, encoding: "utf8", stdio: "pipe" }).trim();
-    const configure = (cwd: string) => {
-      git(cwd, "config", "user.name", "Fixture");
-      git(cwd, "config", "user.email", "fixture@example.invalid");
-      git(cwd, "config", "core.hooksPath", hooks);
-    };
-    const commit = (cwd: string, name: string) => {
-      writeFileSync(join(cwd, name), `${name}\n`);
-      git(cwd, "add", name);
-      git(cwd, "commit", "-m", name);
-      return git(cwd, "rev-parse", "HEAD");
-    };
+    const { target, remote, other, git, commit, cleanup } = createGitFixture();
     const flag = readWorktreeRulesSkill().match(
       /git -C <BASE_REPO> pull (--ff-only|--rebase) origin <BASE_BRANCH>/,
     )?.[1];
     try {
       expect(flag).toBeDefined();
-      git(target, "-c", `init.templateDir=${hooks}`, "init", "-b", "integration");
-      configure(target);
-      commit(target, "base");
-      git(root, "clone", "--bare", target, remote);
-      git(remote, "config", "core.hooksPath", hooks);
-      git(target, "remote", "add", "origin", remote);
-      git(root, "clone", remote, other);
-      configure(other);
       const firstRemote = commit(other, "first-remote");
       git(other, "push", "origin", "integration");
       git(target, "pull", flag!, "origin", "integration");
@@ -83,7 +93,27 @@ describe("worktree-rules skill", () => {
       expect(() => git(target, "pull", flag!, "origin", "integration")).toThrow();
       expect(git(target, "rev-parse", "HEAD")).toBe(landed);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+
+  it("publishes only up to the porter's own commit when another commit landed on top", () => {
+    // A push of the whole shared branch used to publish commits other sessions had
+    // landed after ours, before their own gates finished. The documented push names
+    // the porter's last landed SHA, so a commit landed above it must stay unpublished.
+    const pushCommand = readWorktreeRulesSkill().match(
+      /git -C <BASE_REPO> push origin (<LAST_TARGET_SHA>):refs\/heads\/<BASE_BRANCH>/,
+    );
+    const { target, remote, git, commit, cleanup } = createGitFixture();
+    try {
+      expect(pushCommand).not.toBeNull();
+      const mine = commit(target, "mine");
+      commit(target, "landed-by-another-session");
+      git(target, "push", "origin", `${mine}:refs/heads/integration`);
+      expect(git(remote, "rev-parse", "integration")).toBe(mine);
+      expect(git(target, "log", "--format=%s", "origin/integration..integration")).toBe("landed-by-another-session");
+    } finally {
+      cleanup();
     }
   });
 });
