@@ -856,25 +856,35 @@ describe("CLI message routing", () => {
     expect(bridge.getSession("s1")!.state.context_used_percent).toBe(34);
   });
 
-  it("stream_event: broadcasts without storing", () => {
-    const msg = JSON.stringify({
-      type: "stream_event",
-      event: { type: "content_block_delta", delta: { type: "text_delta", text: "hi" } },
-      parent_tool_use_id: null,
-      uuid: "uuid-6",
-      session_id: "s1",
-    });
-
-    cli.message(msg);
+  it("stream_event: withholds live text deltas from browsers and stores nothing", () => {
+    // Browsers render text only once a message completes; stream boundaries
+    // still reach them so generation stats and stream cleanup keep working.
+    cli.message(
+      JSON.stringify({
+        type: "stream_event",
+        event: { type: "content_block_delta", delta: { type: "text_delta", text: "hi" } },
+        parent_tool_use_id: null,
+        uuid: "uuid-6",
+        session_id: "s1",
+      }),
+    );
+    cli.message(
+      JSON.stringify({
+        type: "stream_event",
+        event: { type: "message_start" },
+        parent_tool_use_id: null,
+        uuid: "uuid-6a",
+        session_id: "s1",
+      }),
+    );
 
     const session = bridge.getSession("s1")!;
     expect(session.messageHistory).toHaveLength(0);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const streamEvent = calls.find((c: any) => c.type === "stream_event");
-    expect(streamEvent).toBeDefined();
-    expect(streamEvent.event.delta.text).toBe("hi");
-    expect(streamEvent.parent_tool_use_id).toBeNull();
+    const streamEvents = calls.filter((c: any) => c.type === "stream_event");
+    expect(streamEvents.map((c: any) => c.event.type)).toEqual(["message_start"]);
+    expect(streamEvents[0].parent_tool_use_id).toBeNull();
   });
 
   it("stream_event: does not log zero-browser warnings when no browser is connected", () => {

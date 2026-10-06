@@ -675,60 +675,62 @@ describe("quest_list_updated replay-buffer exclusion", () => {
   });
 });
 
-describe("leader text stream replay-buffer exclusion", () => {
-  it("sends top-level leader text deltas live without storing them for reconnect replay", () => {
-    const socket = makeViewingSocket();
-    const sendFn = socket.send;
-    const session = makeSession({
-      browserSockets: new Set([socket]),
+describe("live content deltas stay server-side", () => {
+  // Browsers render answer and thinking text only once a message completes.
+  // Backends keep streaming deltas to the server (they count as liveness for
+  // the stuck-turn watchdog), but none of them may reach a browser socket,
+  // consume a sequence number, or enter the reconnect replay buffer.
+  it("withholds text and thinking deltas for leaders, workers, and nested agents", () => {
+    const leaderSocket = makeViewingSocket();
+    const workerSocket = makeViewingSocket();
+    const leaderSession = makeSession({
+      browserSockets: new Set([leaderSocket]),
       state: { permissionMode: "default", isOrchestrator: true } as any,
     });
+    const workerSession = makeSession({ id: "worker-session", browserSockets: new Set([workerSocket]) });
+    const deps = makeDeps();
+    const delta = (parent: string | null, delta: Record<string, unknown>): BrowserIncomingMessage => ({
+      type: "stream_event",
+      parent_tool_use_id: parent,
+      event: { type: "content_block_delta", delta },
+    });
+
+    broadcastToBrowsers(leaderSession, delta(null, { type: "text_delta", text: "[thread:q-1] " }), deps);
+    broadcastToBrowsers(leaderSession, delta("agent-1", { type: "text_delta", text: "nested" }), deps);
+    broadcastToBrowsers(workerSession, delta(null, { type: "text_delta", text: "worker" }), deps);
+    broadcastToBrowsers(workerSession, delta(null, { type: "thinking_delta", thinking: "hmm" }), deps);
+
+    expect(leaderSocket.send).not.toHaveBeenCalled();
+    expect(workerSocket.send).not.toHaveBeenCalled();
+    expect(leaderSession.eventBuffer).toHaveLength(0);
+    expect(workerSession.eventBuffer).toHaveLength(0);
+    expect(leaderSession.nextEventSeq).toBe(1);
+    expect(workerSession.nextEventSeq).toBe(1);
+    expect(deps.recordOutgoingRaw).not.toHaveBeenCalled();
+  });
+
+  it("still delivers stream boundaries that drive generation stats and stream cleanup", () => {
+    const socket = makeViewingSocket();
+    const session = makeSession({ browserSockets: new Set([socket]) });
     const deps = makeDeps();
 
     broadcastToBrowsers(
       session,
-      {
-        type: "stream_event",
-        parent_tool_use_id: null,
-        event: { type: "content_block_delta", delta: { type: "text_delta", text: "[thread:q-1] " } },
-      },
-      deps,
-    );
-
-    expect(sendFn).toHaveBeenCalledTimes(1);
-    const sent = JSON.parse(sendFn.mock.calls[0][0]);
-    expect(sent.type).toBe("stream_event");
-    expect(sent.seq).toBeDefined();
-    expect(session.eventBuffer).toHaveLength(0);
-    expect(deps.persistSession).not.toHaveBeenCalled();
-  });
-
-  it("keeps worker top-level text deltas and nested leader text deltas in the replay buffer", () => {
-    const leaderSession = makeSession({ state: { permissionMode: "default", isOrchestrator: true } as any });
-    const workerSession = makeSession({ id: "worker-session" });
-    const deps = makeDeps();
-
-    broadcastToBrowsers(
-      workerSession,
-      {
-        type: "stream_event",
-        parent_tool_use_id: null,
-        event: { type: "content_block_delta", delta: { type: "text_delta", text: "worker" } },
-      },
+      { type: "stream_event", parent_tool_use_id: null, event: { type: "message_start" } },
       deps,
     );
     broadcastToBrowsers(
-      leaderSession,
-      {
-        type: "stream_event",
-        parent_tool_use_id: "agent-1",
-        event: { type: "content_block_delta", delta: { type: "text_delta", text: "nested" } },
-      },
+      session,
+      { type: "stream_event", parent_tool_use_id: null, event: { type: "message_stop" } },
       deps,
     );
 
-    expect(workerSession.eventBuffer).toHaveLength(1);
-    expect(leaderSession.eventBuffer).toHaveLength(1);
+    expect(socket.send).toHaveBeenCalledTimes(2);
+    expect(socket.send.mock.calls.map((call: unknown[]) => JSON.parse(call[0] as string).event.type)).toEqual([
+      "message_start",
+      "message_stop",
+    ]);
+    expect(session.eventBuffer).toHaveLength(2);
   });
 });
 

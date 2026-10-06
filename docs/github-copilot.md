@@ -85,8 +85,9 @@ with `gh` replaced by its full path:
 
 The launcher also clears Anthropic credentials and other provider settings
 from its environment, because they would override Copilot. When Takode asks
-for streaming output, the launcher adds `--include-partial-messages` so replies
-appear while they are written.
+for streaming output, the launcher adds `--include-partial-messages` so Claude
+Code reports progress while it writes a reply. Takode shows each reply once it
+is complete, but uses this progress to tell a long reply from a stuck turn.
 
 ## Checking which models Copilot serves
 

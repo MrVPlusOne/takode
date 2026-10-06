@@ -100,8 +100,9 @@ cat >"$LAUNCHER.new" <<EOF
 # Other credentials or providers in the environment would override Copilot.
 unset ANTHROPIC_AUTH_TOKEN ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN
 unset CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY
-# Takode's Claude sessions read streaming output; ask for partial messages so
-# replies appear while they are written.
+# Ask for partial messages so Claude Code reports progress while it writes.
+# Takode shows each reply once complete, but uses this progress to tell a long
+# reply from a stuck turn.
 previous=
 for argument do
   if [ "\$previous" = "--output-format" ] && [ "\$argument" = "stream-json" ]; then

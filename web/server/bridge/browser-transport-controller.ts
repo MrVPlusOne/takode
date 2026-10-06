@@ -1523,6 +1523,7 @@ export function broadcastToBrowsers(
     Partial<Pick<BrowserTransportDeps, "getLauncherSessionInfo">>,
   options?: { skipBuffer?: boolean },
 ): void {
+  if (isLiveContentDelta(msg)) return;
   msg = projectBrowserMessage(msg);
   msg = attachRecentHistoryIndex(session.messageHistory, msg);
   if (session.browserSockets.size === 0 && msg.type === "result") {
@@ -1555,6 +1556,15 @@ export function broadcastToBrowsers(
     }
   }
   deferBrowserTrafficStats(json, session.id, msg.type, successfulFanout);
+}
+
+/**
+ * Browsers show answer and thinking text only once a message completes.
+ * Backends still stream these deltas to the server, where they keep long
+ * generations visibly alive to the stuck-turn watchdog and recovery.
+ */
+function isLiveContentDelta(msg: BrowserIncomingMessage): boolean {
+  return msg.type === "stream_event" && (msg.event as { type?: unknown } | null)?.type === "content_block_delta";
 }
 
 export function sendToBrowser(ws: BrowserTransportSocketLike, msg: BrowserIncomingMessage): boolean {

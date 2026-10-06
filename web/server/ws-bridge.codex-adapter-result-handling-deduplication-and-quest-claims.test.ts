@@ -612,6 +612,7 @@ describe("Codex adapter result handling", () => {
     const messages = browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
     expect(messages.filter((message: any) => message.type === "assistant")).toHaveLength(0);
     expect(bridge.getSession("s1")!.messageHistory.filter((message) => message.type === "assistant")).toHaveLength(1);
+    // Live text deltas stay server-side; browsers only see the stop boundary.
     expect(
       messages.filter(
         (message: any) =>
@@ -619,7 +620,7 @@ describe("Codex adapter result handling", () => {
           message.event.type === "content_block_delta" &&
           message.event.delta.type === "text_delta",
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
     expect(
       messages.filter((message: any) => message.type === "stream_event" && message.event.type === "message_stop"),
     ).toHaveLength(1);

@@ -926,7 +926,7 @@ describe("Browser handlers", () => {
     cli.message(
       JSON.stringify({
         type: "stream_event",
-        event: { type: "content_block_delta", delta: { type: "text_delta", text: "a" } },
+        event: { type: "message_delta", delta: { stop_reason: null }, usage: { output_tokens: 1 } },
         parent_tool_use_id: null,
         uuid: "u1",
         session_id: "s1",
@@ -935,7 +935,7 @@ describe("Browser handlers", () => {
     cli.message(
       JSON.stringify({
         type: "stream_event",
-        event: { type: "content_block_delta", delta: { type: "text_delta", text: "b" } },
+        event: { type: "message_delta", delta: { stop_reason: null }, usage: { output_tokens: 2 } },
         parent_tool_use_id: null,
         uuid: "u2",
         session_id: "s1",
@@ -1050,7 +1050,7 @@ describe("Browser handlers", () => {
     cli.message(
       JSON.stringify({
         type: "stream_event",
-        event: { type: "content_block_delta", delta: { type: "text_delta", text: "1" } },
+        event: { type: "message_delta", delta: { stop_reason: null }, usage: { output_tokens: 1 } },
         parent_tool_use_id: null,
         uuid: "se-u1",
         session_id: "s1",
@@ -1059,7 +1059,7 @@ describe("Browser handlers", () => {
     cli.message(
       JSON.stringify({
         type: "stream_event",
-        event: { type: "content_block_delta", delta: { type: "text_delta", text: "2" } },
+        event: { type: "message_delta", delta: { stop_reason: null }, usage: { output_tokens: 2 } },
         parent_tool_use_id: null,
         uuid: "se-u2",
         session_id: "s1",
@@ -1358,7 +1358,7 @@ describe("Browser handlers", () => {
     cli.message(
       JSON.stringify({
         type: "stream_event",
-        event: { type: "content_block_delta", delta: { type: "text_delta", text: "a" } },
+        event: { type: "message_delta", delta: { stop_reason: null }, usage: { output_tokens: 1 } },
         parent_tool_use_id: null,
         uuid: "se-t1",
         session_id: "s1",
@@ -1367,7 +1367,7 @@ describe("Browser handlers", () => {
     cli.message(
       JSON.stringify({
         type: "stream_event",
-        event: { type: "content_block_delta", delta: { type: "text_delta", text: "b" } },
+        event: { type: "message_delta", delta: { stop_reason: null }, usage: { output_tokens: 2 } },
         parent_tool_use_id: null,
         uuid: "se-t2",
         session_id: "s1",
