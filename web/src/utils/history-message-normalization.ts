@@ -42,6 +42,21 @@ export function extractTextFromBlocks(blocks: ContentBlock[]): string {
     .join("\n");
 }
 
+/**
+ * Whether a Claude task_notification deserves a visible "task completed" row.
+ *
+ * Claude reports every tracked task, including foreground Bash commands and
+ * subagents that merely ran long enough to be backgroundable. Those already
+ * show as their own tool rows, so a notice would only repeat the tool's
+ * description. Tasks that actually ran in the background write an output file,
+ * and their completion is what can prompt the model to start a new turn.
+ */
+export function isVisibleTaskCompletionNotice<T extends { output_file?: string; summary?: string }>(
+  notification: T,
+): notification is T & { output_file: string; summary: string } {
+  return Boolean(notification.summary && notification.output_file);
+}
+
 function dedupeAssistantContentBlocks(blocks: ContentBlock[]): ContentBlock[] {
   const seenToolIds = new Set<string>();
   const result: ContentBlock[] = [];
@@ -539,7 +554,7 @@ export function normalizeHistoryMessageToChatMessages(
   }
 
   if (histMsg.type === "task_notification") {
-    if (!histMsg.summary) return [];
+    if (!isVisibleTaskCompletionNotice(histMsg)) return [];
     return [
       {
         id: `task-notif-${histMsg.task_id || historyIndex}`,

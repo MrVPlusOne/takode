@@ -21,6 +21,24 @@ function makeBashGroup(count: number, prefix: string): ToolMsgGroup {
   };
 }
 
+// Claude Bash calls carry a short description; a lone call shows its own chip.
+const SINGLE_DESCRIBED_COMMAND_GROUPS: ToolMsgGroup[] = [
+  "Inspect SDK v2 session stream and resume",
+  "Look at v2 session stream and constructor",
+].map((description, index) => ({
+  kind: "tool_msg_group",
+  toolName: "Bash",
+  firstId: `compact-single-command-${index + 1}`,
+  items: [
+    {
+      id: `compact-single-command-bash-${index + 1}`,
+      name: "Bash",
+      input: { command: `rg -n "session stream" sdk.mjs | head -${index + 3}`, description },
+      messageId: `compact-single-command-${index + 1}`,
+    },
+  ],
+}));
+
 const SMALL_MCP_GROUP: ToolMsgGroup = {
   kind: "tool_msg_group",
   toolName: "mcp:slack:search",
@@ -135,9 +153,23 @@ export function PlaygroundCompactToolActivityStates() {
   return (
     <Section
       title="Compact Tool Activity"
-      description="Small groups stay descriptive; large or growing Bash/MCP groups use stable invocation counts with lossless expansion."
+      description="Single tools show their own chip; small groups stay descriptive; large or growing Bash/MCP groups use stable invocation counts with lossless expansion."
     >
       <div className="space-y-4 max-w-3xl">
+        <Card label="Single described commands (no one-item disclosure)">
+          <div className="space-y-2" data-testid="playground-single-command-chips">
+            {SINGLE_DESCRIBED_COMMAND_GROUPS.map((group) => (
+              <CompactToolMessageGroups
+                key={group.firstId}
+                groups={[group]}
+                sessionId={MOCK_SESSION_ID}
+                isCodexSession={false}
+                activeCodexTerminalIds={new Set()}
+                onOpenCodexTerminal={() => {}}
+              />
+            ))}
+          </div>
+        </Card>
         <Card label="Node REPL titles and fallback">
           <div data-testid="playground-node-repl-titles">
             <CompactToolMessageGroups

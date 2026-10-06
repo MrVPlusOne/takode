@@ -98,14 +98,10 @@ describe("MessageBubble mixed text and tool result rendering", () => {
     render(<MessageBubble message={makeMixedToolMessage()} sessionId={SESSION_ID} currentThreadKey="q-1596" />);
 
     expect(screen.getByText("Searching the rendered routing evidence now.")).toBeTruthy();
-    const toolActivity = screen.getByRole("button", {
-      name: "Show 1 tool call: Searched web for recent thread fallback evidence",
-    });
-    expect(toolActivity.getAttribute("aria-expanded")).toBe("false");
+    // The single tool renders its own chip directly, without a one-item disclosure.
+    expect(screen.queryByRole("button", { name: /Show 1 tool call/ })).toBeNull();
     expect(screen.queryByText(/Recent Thread Fallback Evidence/)).toBeNull();
 
-    fireEvent.click(toolActivity);
-    expect(toolActivity.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("Web Search")).toBeTruthy();
     fireEvent.click(screen.getByText("Web Search").closest('[role="button"]')!);
     expect(screen.getByText("Result")).toBeTruthy();

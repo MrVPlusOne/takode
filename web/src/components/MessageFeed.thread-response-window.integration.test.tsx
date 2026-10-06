@@ -1934,8 +1934,8 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     expect(expand).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.click(expand);
-    const toolDisclosure = within(turn).getByRole("button", { name: /Show 1 tool call: Ran command/ });
-    fireEvent.click(toolDisclosure);
+    // The single tool renders its own chip directly, without a nested one-item disclosure.
+    expect(within(turn).queryByRole("button", { name: /Show 1 tool call/ })).not.toBeInTheDocument();
     expect(within(turn).getByText("quest show q-2024")).toBeVisible();
     expect(within(turn).getByRole("button", { name: /Hide turn activity/ })).toHaveAttribute("aria-expanded", "true");
 

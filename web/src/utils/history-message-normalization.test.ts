@@ -857,6 +857,23 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     now.mockRestore();
   });
 
+  it("drops task_notification rows for foreground tasks that wrote no output file", () => {
+    // Claude CLI 2.1.289 emits a completion notification for any foreground Bash
+    // command or subagent that ran long enough to be backgroundable. Its summary
+    // is just the tool's own description and output_file is empty, so a visible
+    // row would duplicate the tool row (observed in a real Claude SDK session).
+    const message: BrowserIncomingMessage = {
+      type: "task_notification",
+      status: "completed",
+      task_id: "bgqgrl7bn",
+      summary: "Find origin of replay-gated flush",
+      tool_use_id: "toolu_foreground",
+      output_file: "",
+    };
+
+    expect(normalizeHistoryMessageToChatMessages(message, 4)).toEqual([]);
+  });
+
   it("normalizes a server-authored recovery summary without making it a user/model message", () => {
     // The browser history projection is a system row with authoritative structured receipts and thread routing.
     const message: BrowserIncomingMessage = {

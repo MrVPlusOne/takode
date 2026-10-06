@@ -15,6 +15,7 @@ import { playNotificationSound } from "./utils/notification-sound.js";
 import { getRecoveryModelDeliveryContent } from "./utils/injected-event-message.js";
 import {
   extractTextFromBlocks,
+  isVisibleTaskCompletionNotice,
   normalizeCodexReasoningDetailMessage,
   normalizeHistoryMessageToChatMessages,
   normalizeLiveAssistantThreadMetadata,
@@ -1670,7 +1671,7 @@ function handleParsedMessage(
       }
       // Add a visible system message so the user can see what background task
       // completed and why the model may start a new auto-triggered turn.
-      if (data.summary) {
+      if (isVisibleTaskCompletionNotice(data)) {
         store.appendMessage(sessionId, {
           id: `task-notif-${data.task_id || Date.now()}`,
           role: "system",

@@ -196,7 +196,8 @@ describe("Playground", () => {
       within(childReasoning).getByText("The exact child-owned result remains bounded and readable."),
     ).toBeInTheDocument();
     expect(within(inspector).getByText("Child-only failure stays in the inspector.")).toHaveClass("text-cc-error");
-    fireEvent.click(within(inspector).getByRole("button", { name: /Show 1 tool call: Read file/i }));
+    // The lone child Read renders its own chip directly (no one-item disclosure).
+    expect(within(inspector).queryByRole("button", { name: /Show 1 tool call/i })).toBeNull();
     fireEvent.click(within(inspector).getByRole("button", { name: /Read File.*src\/child-only\.ts/i }));
     expect(within(inspector).getByText("child-only tool result")).toBeInTheDocument();
   });

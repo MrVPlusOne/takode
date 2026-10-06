@@ -113,6 +113,7 @@ describe("selected thread leading-turn identity", () => {
       task_id: "background-task",
       tool_use_id: "tool",
       status: "completed",
+      output_file: "/tmp/background-task.output",
       summary: "Done",
     },
   ])("omits an unproven $type prefix identity while retaining later human identity", (source) => {

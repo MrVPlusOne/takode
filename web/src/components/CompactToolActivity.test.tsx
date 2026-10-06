@@ -211,6 +211,43 @@ describe("CompactToolActivity", () => {
     expect(screen.getByText("Full worker-event details")).toBeTruthy();
   });
 
+  it("renders a single tool's own chip directly instead of a one-item disclosure", () => {
+    // A lone "Ran command" row would only hide the more specific chip (e.g. the
+    // Bash description) one level deeper, so the children render immediately.
+    render(
+      <CompactToolActivity
+        items={[{ id: "bash-1", name: "Bash", input: { command: "rg flush", description: "Find flush origin" } }]}
+      >
+        <div>Find flush origin chip</div>
+      </CompactToolActivity>,
+    );
+
+    expect(screen.getByText("Find flush origin chip")).toBeTruthy();
+    expect(screen.queryByText("Ran command")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("keeps the deliberate summary for a single worker send or worker event", () => {
+    // These categories are semantic summaries that hide bulky message bodies,
+    // not a generic label over a more specific chip.
+    const { unmount } = render(
+      <CompactToolActivity items={[{ id: "send-1", name: "Bash", input: { command: 'takode send 17 "Continue"' } }]}>
+        <div>Send details</div>
+      </CompactToolActivity>,
+    );
+    expect(screen.getByText("Sent a message")).toBeTruthy();
+    expect(screen.queryByText("Send details")).toBeNull();
+    unmount();
+
+    render(
+      <CompactToolActivity items={[{ id: "worker-1", name: "SendMessage", kind: "worker_event", input: {} }]}>
+        <div>Worker event details</div>
+      </CompactToolActivity>,
+    );
+    expect(screen.queryByText("Worker event details")).toBeNull();
+    expect(screen.getByRole("button", { name: /Show 1 activity item/ })).toBeTruthy();
+  });
+
   it("keeps interactive tools visible while allowing notification commands to compact", () => {
     // Notification panels render separately, so their underlying Bash command should remain passive tool activity.
     expect(isCompactToolActivityItem({ id: "ask", name: "AskUserQuestion", input: {} })).toBe(false);

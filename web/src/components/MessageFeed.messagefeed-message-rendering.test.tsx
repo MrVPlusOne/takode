@@ -958,13 +958,12 @@ describe("MessageFeed - message rendering", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("Ran command")).toBeTruthy();
-    expect(screen.queryByText('takode notify review "Ready for review"')).toBeNull();
-    expect(screen.getByText("Ready for review")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Mark as reviewed" })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: /Show 1 tool call/ }));
+    // A single compact tool shows its own chip instead of a one-item "Ran command" disclosure.
+    expect(screen.queryByText("Ran command")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Show 1 tool call/ })).toBeNull();
+    expect(screen.getByText('takode notify review "Ready for review"')).toBeTruthy();
     expect(screen.getAllByText("Ready for review")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Mark as reviewed" })).toBeTruthy();
   });
 
   it("renders user and assistant messages", () => {

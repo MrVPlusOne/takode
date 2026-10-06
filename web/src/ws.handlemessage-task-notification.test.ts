@@ -146,6 +146,35 @@ describe("handleMessage: task_notification", () => {
     expect(notif!.summary).toBe("Found 3 files matching the pattern");
   });
 
+  it("shows a feed row only for tasks that actually ran in the background", () => {
+    // Foreground Bash/subagent completions (empty output_file) only repeat the
+    // tool's own description, so they keep the subagent chip state but add no
+    // feed row. Background completions explain an auto-started turn and stay.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "task_notification",
+      task_id: "task-fg",
+      tool_use_id: "tu-fg",
+      status: "completed",
+      output_file: "",
+      summary: "Find origin of replay-gated flush",
+    });
+    fireMessage({
+      type: "task_notification",
+      task_id: "task-bg",
+      tool_use_id: "tu-bg",
+      status: "completed",
+      output_file: "/tmp/task-bg.output",
+      summary: "Run full test suite",
+    });
+
+    const rows = (useStore.getState().messages.get("s1") ?? []).filter((msg) => msg.variant === "task_completed");
+    expect(rows.map((msg) => msg.content)).toEqual(["Run full test suite"]);
+    expect(useStore.getState().backgroundAgentNotifs.get("s1")?.get("tu-fg")?.status).toBe("completed");
+  });
+
   it("ignores task_notification without tool_use_id", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

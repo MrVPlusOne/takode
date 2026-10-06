@@ -201,6 +201,8 @@ describe("turn activity disclosure integration", () => {
       task_id: "guide-check",
       tool_use_id: "activity-first-tools-0",
       status: "completed",
+      // A real background task writes an output file; foreground ones get no row.
+      output_file: "/tmp/guide-check.output",
       summary: "Background filter check finished.",
     },
   ] satisfies BrowserIncomingMessage[])("keeps $type events visible without breaking the guide", (event) => {

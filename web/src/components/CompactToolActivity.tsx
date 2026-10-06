@@ -192,6 +192,12 @@ export function CompactToolActivity({
   }, [containedMessageIds, expandTargetId]);
 
   if (uniqueItems.length === 0) return null;
+  // A one-item disclosure would only hide the item's own, more specific chip
+  // behind a generic label such as "Ran command", so show that chip directly.
+  // Pure worker sends keep their deliberate "Sent a message" summary.
+  if (uniqueItems.length === 1 && !["worker-event", "worker-send"].includes(getActivityCategory(uniqueItems[0]))) {
+    return <>{children}</>;
+  }
 
   return (
     <div data-testid="compact-tool-activity">
