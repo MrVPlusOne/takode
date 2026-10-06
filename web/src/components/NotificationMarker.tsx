@@ -403,14 +403,25 @@ export function NotificationMarker({
   );
 }
 
-/** Decision context carried by the notification itself, so it stays visible even when no chat text precedes it. */
+/**
+ * Decision context carried by the notification itself, so it stays visible even when no chat text precedes it.
+ * Its Markdown opts into the feed's Comment / Copy selection menu; the card renders after the anchoring
+ * assistant message's own content, so comments anchor to that message without shifting earlier passages.
+ */
 function NotificationBody({ body, sessionId }: { body: string; sessionId?: string }) {
   return (
     <div
       className="w-full min-w-0 border-t border-cc-attention-border/40 pt-1.5 font-normal text-cc-fg"
       data-testid="notification-body"
     >
-      <MarkdownContent text={body} size="sm" sessionId={sessionId} questLinkSurface="chat-feed" wrapLongContent />
+      <MarkdownContent
+        text={body}
+        size="sm"
+        sessionId={sessionId}
+        questLinkSurface="chat-feed"
+        wrapLongContent
+        enableChatSelectionMenu
+      />
     </div>
   );
 }

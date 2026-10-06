@@ -1749,10 +1749,11 @@ export function PlaygroundSelectionContextMenu() {
     <div ref={containerRef} className="space-y-3" data-testid="playground-full-block-selection">
       <p className="text-xs text-cc-muted">
         Select the complete paragraph and list, or begin inside the paragraph and select later bullets. Both should open
-        the same menu without clearing the highlight.
+        the same menu without clearing the highlight. Selections inside the needs-input card body open it too.
       </p>
       <div data-message-id="playground-full-block-selection-message" data-message-role="assistant">
         <MarkdownContent text={demoText} enableChatSelectionMenu data-testid="playground-full-block-selection-source" />
+        <PlaygroundBodyNotificationMarker />
       </div>
       <div
         data-testid="playground-full-block-selection-quote"
