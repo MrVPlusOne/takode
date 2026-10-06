@@ -4,7 +4,7 @@ The work board (`takode board show`) tracks Quest Journey v2 coordination: propo
 
 Active v2 states are:
 
-`PROPOSED`, `QUEUED`, `PLANNING`, `WORKING`, `USER_CHECKPOINTING`, `MEMORY`
+`PROPOSED`, `QUEUED`, `WORKING`, `USER_CHECKPOINTING`, `MEMORY`. Existing `PLANNING` occurrences remain readable and keep their approval boundary.
 
 Legacy v1 states and phase IDs are historical-read compatibility only.
 
@@ -25,19 +25,19 @@ takode board detail q-12
 Create the default active Journey after authorization:
 
 ```bash
-takode board set q-12 --worker 5 --phases alignment,work,memory --preset v2-work
+takode board set q-12 --worker 5 --phases work,memory --preset v2-work
 ```
 
 Create a proposed approval-hold row:
 
 ```bash
-takode board propose q-12 --phases alignment,work,memory --summary "Goal, key tradeoff, scheduling, and exact approval question."
+takode board propose q-12 --phases work,memory --summary "Goal, key tradeoff, scheduling, and exact approval question."
 takode board promote q-12 --worker 5
 ```
 
 For a multiline approval packet, replace `--summary` with `--summary-file -` and a quoted heredoc. Keep `--phases` inline; only one input field can consume stdin. Saved packets remain supported through `--summary-file <path>`. A single phase note similarly accepts `takode board note q-12 2 --text-file -` or a saved file.
 
-Advance from Alignment to Work:
+Advance a queued authorized Journey into Work, or resume after a recorded checkpoint:
 
 ```bash
 takode board advance q-12
@@ -76,8 +76,8 @@ takode board set q-12 --status WORKING --clear-wait-for-input
 
 ## Rules
 
-- `alignment`, `work`, `user-checkpoint`, and `memory` are the only active phase IDs.
-- The default phase plan is `alignment,work,memory`.
+- New plans use `work`, `user-checkpoint`, and `memory`. Existing Alignment occurrences are retained; they cannot be added to new plans.
+- The default phase plan is `work,memory`.
 - User Checkpoint is a pause/resume state inside Work. Link it with `--wait-for-input`; do not turn it into `QUEUED`.
 - User Checkpoints are required by default. An approved phase note may mark one optional only with a concrete skip condition. A direct `[work,user-checkpoint,memory]` skip uses guarded `work-to-memory ... --skip-optional-checkpoint <reason>`; required or taken checkpoints need a later Work occurrence before Memory, so revise the suffix before entering when necessary.
 - Generic `board advance` cannot skip directly from Work into Memory. It may advance or resume repeated plans into a later Work occurrence, including an approved optional skip whose destination is later Work.

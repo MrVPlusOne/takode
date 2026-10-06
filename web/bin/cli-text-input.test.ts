@@ -117,7 +117,7 @@ const cases: Array<{
   },
   {
     entry: "takode",
-    args: ["board", "propose", "q-1", "--phases", "alignment,work,memory", "--json"],
+    args: ["board", "propose", "q-1", "--phases", "work,memory", "--json"],
     inline: "--summary",
     file: "--summary-file",
     path: "/api/sessions/cli-input-fixture/board",

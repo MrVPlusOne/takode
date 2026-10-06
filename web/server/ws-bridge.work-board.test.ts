@@ -1265,7 +1265,7 @@ describe("work board", () => {
 
   // ─── advanceBoardRow ──────────────────────────────────────────────────────
 
-  it("advanceBoardRow advances from QUEUED to PLANNING", () => {
+  it("advanceBoardRow dispatches new queued Journeys directly into Work", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
@@ -1274,8 +1274,8 @@ describe("work board", () => {
     expect(result).not.toBeNull();
     expect(result!.removed).toBe(false);
     expect(result!.previousState).toBe("QUEUED");
-    expect(result!.newState).toBe("PLANNING");
-    expect(result!.board[0].status).toBe("PLANNING");
+    expect(result!.newState).toBe("WORKING");
+    expect(result!.board[0].status).toBe("WORKING");
   });
 
   it("advanceBoardRow clears waitFor when moving a queued row into active work", () => {
@@ -1285,7 +1285,7 @@ describe("work board", () => {
     bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED", waitFor: ["q-2", "#9"] });
     const result = bridge.advanceBoardRow("s1", "q-1");
 
-    expect(result?.newState).toBe("PLANNING");
+    expect(result?.newState).toBe("WORKING");
     expect(result?.board[0].waitFor).toBeUndefined();
   });
 
@@ -1482,7 +1482,7 @@ describe("work board", () => {
     );
     expect(result).toEqual(
       expect.objectContaining({
-        error: expect.stringContaining("active v2 Alignment -> Work -> Memory"),
+        error: expect.stringContaining("active v2 Work -> Memory"),
       }),
     );
     expect(bridge.getBoard("s1")).toEqual([
@@ -1503,7 +1503,14 @@ describe("work board", () => {
     bridge.handleBrowserOpen(browser, "s1");
 
     bridge.upsertBoardRow("s1", { questId: "q-459", title: "Upstream quest", status: "MEMORY" });
-    bridge.upsertBoardRow("s1", { questId: "q-460", title: "Middle quest", status: "QUEUED", waitFor: ["q-459"] });
+    // This historical chain retains its original Alignment plan; new default rows start in Work.
+    bridge.upsertBoardRow("s1", {
+      questId: "q-460",
+      title: "Middle quest",
+      status: "QUEUED",
+      waitFor: ["q-459"],
+      journey: { phaseIds: ["alignment", "work", "memory"] },
+    });
     bridge.upsertBoardRow("s1", { questId: "q-461", title: "Dependent quest", status: "QUEUED", waitFor: ["q-460"] });
 
     bridge.removeBoardRows("s1", ["q-459"]);

@@ -96,6 +96,8 @@ function detectFromResult(resultText: string): DetectedQuestEvent | null {
   const parseCandidate = (candidate: string) => {
     try {
       const parsed = JSON.parse(candidate) as Record<string, unknown>;
+      // A report's quest ID is a source pointer, not confirmation of command examples in its text.
+      if (parsed.recorded === true && typeof parsed.reportId === "string") return null;
       const questId = normalizeQuestId(
         typeof parsed.questId === "string" ? parsed.questId : typeof parsed.id === "string" ? parsed.id : undefined,
       );

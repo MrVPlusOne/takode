@@ -4,11 +4,15 @@ import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 async function runTakode(
   args: string[],
   env: Record<string, string | undefined>,
+  stdin = "",
 ): Promise<{
   status: number | null;
   stdout: string;
@@ -17,8 +21,9 @@ async function runTakode(
   const takodePath = fileURLToPath(new URL("./takode.ts", import.meta.url));
   const child = spawn(process.execPath, [takodePath, ...args], {
     env,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
+  child.stdin.end(stdin);
 
   let stdout = "";
   let stderr = "";
@@ -69,6 +74,80 @@ function createWorkerStreamServer(result: Record<string, unknown>, requests: str
 }
 
 describe("takode worker-stream", () => {
+  // Authored reports must cross the real CLI boundary byte-for-byte, including shell-like text.
+  it.each(["text", "file", "stdin"])("posts literal authored report input from %s", async (mode) => {
+    const requests: string[] = [];
+    const server = createWorkerStreamServer(
+      {
+        ok: true,
+        recorded: true,
+        queued: true,
+        reused: false,
+        questId: "q-1",
+        feedbackIndex: 2,
+        reportId: "report-id",
+      },
+      requests,
+    );
+    const directory = await mkdtemp(join(tmpdir(), "worker-report-cli-"));
+    const text = "  Literal `code` and $(example)\nSecond line.\n";
+    await writeFile(join(directory, "report.txt"), text);
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const inputArgs =
+        mode === "text" ? ["--text", text] : ["--text-file", mode === "stdin" ? "-" : join(directory, "report.txt")];
+      const result = await runTakode(
+        ["worker-stream", ...inputArgs, "--port", String(port)],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: "worker-1",
+          COMPANION_AUTH_TOKEN: "auth-worker",
+        },
+        mode === "stdin" ? text : "",
+      );
+      expect(result.status).toBe(0);
+      expect(requests).toContain(`body ${JSON.stringify({ text })}`);
+      expect(result.stdout).toContain("quest:q-1:feedback:2");
+      expect(result.stdout).not.toContain(text);
+    } finally {
+      server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  // Conflicting input forms must fail before any report POST can mutate the store.
+  it("rejects ambiguous report inputs", async () => {
+    const requests: string[] = [];
+    const server = createWorkerStreamServer({}, requests);
+    server.listen(0);
+    await once(server, "listening");
+    try {
+      const result = await runTakode(
+        [
+          "worker-stream",
+          "--text",
+          "one",
+          "--text-file",
+          "-",
+          "--port",
+          String((server.address() as AddressInfo).port),
+        ],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: "worker-1",
+          COMPANION_AUTH_TOKEN: "auth-worker",
+        },
+      );
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("not both");
+      expect(requests.some((request) => request.startsWith("POST"))).toBe(false);
+    } finally {
+      server.close();
+    }
+  });
+
   it("posts a self-session checkpoint and prints the streamed range", async () => {
     const requests: string[] = [];
     const server = createWorkerStreamServer(

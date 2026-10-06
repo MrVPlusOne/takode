@@ -12,7 +12,6 @@ const ACTIVE_PHASE_PALETTE: Array<{
   status: QuestJourneyState;
   description: string;
 }> = [
-  { id: "alignment", status: "PLANNING", description: "Sky/cyan read-in" },
   { id: "work", status: "WORKING", description: "Existing green execution" },
   { id: "user-checkpoint", status: "USER_CHECKPOINTING", description: "Amber decision pause" },
   { id: "memory", status: "MEMORY", description: "Violet durable closure" },
@@ -20,8 +19,8 @@ const ACTIVE_PHASE_PALETTE: Array<{
 
 const PROPOSED_JOURNEY: QuestJourneyPlanState = {
   mode: "proposed",
-  phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
-  phaseNotes: { "2": "Confirm the delivery choice before Work resumes." },
+  phaseIds: ["work", "user-checkpoint", "work", "memory"],
+  phaseNotes: { "1": "Confirm the delivery choice before Work resumes." },
 };
 
 export function PlaygroundQuestJourneyPalette() {
@@ -61,6 +60,19 @@ export function PlaygroundQuestJourneyPalette() {
           </div>
         );
       })}
+      <div className="rounded-md border border-cc-border bg-cc-bg/60 p-2.5" data-testid="playground-retained-alignment">
+        <p className="mb-2 text-xs font-semibold">Existing Journey awaiting Alignment approval</p>
+        <QuestJourneyTimeline
+          compact
+          status="PLANNING"
+          journey={{
+            mode: "active",
+            phaseIds: ["alignment", "work", "memory"],
+            activePhaseIndex: 0,
+            currentPhaseId: "alignment",
+          }}
+        />
+      </div>
       <div
         className="min-w-0 rounded-md border border-cc-border bg-cc-bg/60 p-2.5 sm:col-span-2 xl:col-span-4"
         data-testid="playground-proposed-journey-summary"

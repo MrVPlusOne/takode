@@ -40,6 +40,19 @@ function createTestApp(options?: {
 }
 
 describe("POST /api/sessions/:id/worker-stream", () => {
+  // Invalid report requests must not fall through to broadcasting surrounding activity.
+  it.each([
+    "{",
+    "[]",
+    '{"text":" "}',
+    '{"text":42}',
+    '{"message":"unsupported"}',
+  ])("rejects invalid input %s", async (body) => {
+    const { app, checkpoint } = createTestApp();
+    const res = await app.request("/api/sessions/worker-1/worker-stream", { method: "POST", body });
+    expect(res.status).toBe(400);
+    expect(checkpoint).not.toHaveBeenCalled();
+  });
   it("allows a herded worker to stream its own checkpoint", async () => {
     const { app, checkpoint } = createTestApp();
 

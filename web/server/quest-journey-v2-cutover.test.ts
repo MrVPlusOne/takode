@@ -137,12 +137,12 @@ describe("Quest Journey v2 data-preserving cutover", () => {
   });
 
   it("keeps active discovery and new-row validation v2-only while accepting stored legacy rows", () => {
-    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.id)).toEqual(["alignment", "work", "user-checkpoint", "memory"]);
+    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.id)).toEqual(["work", "user-checkpoint", "memory"]);
 
     const invalid = getInvalidQuestJourneyPhaseIds(["alignment", "implement", "code-review", "memory"]);
-    expect(invalid).toEqual(["implement", "code-review"]);
+    expect(invalid).toEqual(["alignment", "implement", "code-review"]);
     expect(validateQuestJourneyPhaseSequence(["alignment", "implement", "memory"])).toContain(
-      "Legacy v1 phase IDs are historical-read only",
+      "legacy v1 phase IDs are historical-read only",
     );
 
     const normalizedLegacy = normalizeQuestJourneyPlan(legacyRow().journey, "IMPLEMENTING");

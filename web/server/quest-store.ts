@@ -1319,11 +1319,14 @@ export async function patchQuest(
   return updated;
 }
 
-/** Atomically patch an unowned quest or one owned by the exact provider-aware owner. */
+/** Atomically patch an unowned quest or one owned by the exact provider-aware owner.
+ * A callback computes its patch from the latest quest while the mutation lock is held;
+ * returning null preserves the record without another write.
+ */
 export async function patchQuestForOwner(
   questId: string,
   owner: QuestOwnerRef,
-  patch: QuestPatchInput,
+  patch: QuestPatchInput | ((current: QuestmasterTask) => QuestPatchInput | null),
 ): Promise<QuestmasterTask | null> {
   const normalizedOwner = normalizeQuestOwnerRef(owner);
   if (!normalizedOwner) throw new Error("A valid quest owner is required");
@@ -1333,8 +1336,10 @@ export async function patchQuestForOwner(
       const current = stripDerivedQuestRelationships(getLiveQuestById(store, questId));
       if (!current) return { store, result: null, write: false };
       assertQuestMutationOwner(current, normalizedOwner, "edit");
-      const updated = applyQuestPatch(current, questId, patch);
-      if (patch.lastModifiedBy) updated.lastModifiedBy = patch.lastModifiedBy;
+      const resolvedPatch = typeof patch === "function" ? patch(current) : patch;
+      if (resolvedPatch === null) return { store, result: normalizeLiveQuest(current), write: false };
+      const updated = applyQuestPatch(current, questId, resolvedPatch);
+      if (resolvedPatch.lastModifiedBy) updated.lastModifiedBy = resolvedPatch.lastModifiedBy;
       return { store: upsertLiveQuest(store, updated), result: normalizeLiveQuest(updated) };
     });
   }
@@ -1343,8 +1348,10 @@ export async function patchQuestForOwner(
     const current = stripDerivedQuestRelationships(await getQuest(questId));
     if (!current) return null;
     assertQuestMutationOwner(current, normalizedOwner, "edit");
-    const updated = applyQuestPatch(current, questId, patch);
-    if (patch.lastModifiedBy) updated.lastModifiedBy = patch.lastModifiedBy;
+    const resolvedPatch = typeof patch === "function" ? patch(current) : patch;
+    if (resolvedPatch === null) return current;
+    const updated = applyQuestPatch(current, questId, resolvedPatch);
+    if (resolvedPatch.lastModifiedBy) updated.lastModifiedBy = resolvedPatch.lastModifiedBy;
     await writeQuest(updated);
     return updated;
   });

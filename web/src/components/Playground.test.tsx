@@ -1252,7 +1252,6 @@ describe("Playground", () => {
 
     const palette = screen.getByTestId("playground-v2-phase-palette");
     const expected = [
-      { id: "alignment", name: "alignment", text: "#0369a1", accent: "#0ea5e9" },
       { id: "work", name: "work", text: "#166534", accent: "#4ade80" },
       { id: "user-checkpoint", name: "amber", text: "#8a4b00", accent: "#fbbf24" },
       { id: "memory", name: "memory", text: "#6d28d9", accent: "#8b5cf6" },
@@ -1272,6 +1271,9 @@ describe("Playground", () => {
         within(card).getByTestId(`playground-v2-phase-${phase.id}-text`).textContent ?? "",
       );
     }
+    // An existing approval remains visible while the active phase library starts at Work.
+    expect(within(palette).queryByTestId("playground-v2-phase-alignment")).toBeNull();
+    expect(within(palette).getByTestId("playground-retained-alignment")).toHaveTextContent("Alignment approval");
   });
 
   it("documents the desktop Work Board Bar tab crowd overflowing into More before labels collapse", () => {

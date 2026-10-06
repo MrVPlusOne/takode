@@ -30,14 +30,18 @@ async function makeCompanionHome(): Promise<string> {
 }
 
 describe("Quest Journey v2 phase directory loading", () => {
-  it("seeds only active v2 phase directories from canonical repo data", async () => {
+  it("loads the active library and retains the old Alignment brief without listing it", async () => {
     const companionHome = await makeCompanionHome();
     await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
 
     const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
 
     expect(phases.map((phase) => phase.id)).toEqual(QUEST_JOURNEY_PHASES.map((phase) => phase.id));
-    expect(phases.map((phase) => phase.id)).toEqual(["alignment", "work", "user-checkpoint", "memory"]);
+    expect(phases.map((phase) => phase.id)).toEqual(["work", "user-checkpoint", "memory"]);
+    // Existing pending Alignment needs its actual source brief, not a new authority grant.
+    expect(await readFile(getQuestJourneyPhaseAssigneeBriefPath("alignment", { companionHome }), "utf-8")).toBe(
+      await readFile(join(PACKAGE_ROOT, "shared", "quest-journey-phases", "alignment", "assignee.md"), "utf-8"),
+    );
     expect(getQuestJourneyPhaseDisplayRoot()).toBe("~/.companion/quest-journey-phases");
 
     for (const phase of phases) {
@@ -138,14 +142,14 @@ describe("Quest Journey v2 phase directory loading", () => {
 
     const catalog = await loadQuestJourneyPhaseCatalog({ packageRoot: PACKAGE_ROOT, companionHome });
 
-    expect(catalog.map((phase) => phase.id)).toEqual(["alignment", "work", "user-checkpoint", "memory"]);
+    expect(catalog.map((phase) => phase.id)).toEqual(["work", "user-checkpoint", "memory"]);
     expect(catalog[0]).toEqual(
       expect.objectContaining({
-        id: "alignment",
-        label: "Alignment",
+        id: "work",
+        label: "Work",
         sourceType: "built-in",
-        leaderBriefDisplayPath: "~/.companion/quest-journey-phases/alignment/leader.md",
-        assigneeBriefDisplayPath: "~/.companion/quest-journey-phases/alignment/assignee.md",
+        leaderBriefDisplayPath: "~/.companion/quest-journey-phases/work/leader.md",
+        assigneeBriefDisplayPath: "~/.companion/quest-journey-phases/work/assignee.md",
       }),
     );
     expect(catalog.find((phase) => phase.id === "work")).toEqual(

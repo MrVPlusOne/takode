@@ -1,5 +1,7 @@
 # Alignment -- Assignee Brief
 
+Compatibility only: this brief serves an already-created Alignment occurrence. New Journeys start in Work, where understanding and exception-based pauses are required without a mandatory read-in report. Do not create a new Alignment occurrence or silently skip this existing approval boundary.
+
 You are doing a concise read-in on a leader-authorized Journey before deeper work starts. The output is a leader-verification packet, not a planning report.
 
 Boundary:

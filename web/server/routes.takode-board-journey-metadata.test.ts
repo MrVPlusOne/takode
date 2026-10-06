@@ -178,8 +178,8 @@ describe("Takode board Journey metadata route", () => {
 
     const res = await postBoard({
       questId: "q-9",
-      status: "PLANNING",
-      phases: ["alignment", "work", "memory"],
+      status: "WORKING",
+      phases: ["work", "memory"],
       presetId: "v2-work",
     });
 
@@ -189,9 +189,9 @@ describe("Takode board Journey metadata route", () => {
     expect(stored.questTldr).toBe("Make Journey chips easier to scan.");
     expect(stored.journey).toMatchObject({
       presetId: "v2-work",
-      phaseIds: ["alignment", "work", "memory"],
+      phaseIds: ["work", "memory"],
       activePhaseIndex: 0,
-      currentPhaseId: "alignment",
+      currentPhaseId: "work",
     });
   });
 
@@ -267,14 +267,14 @@ describe("Takode board Journey metadata route", () => {
       questId: "q-9",
       worker: "worker-1",
       status: "WORKING",
-      phases: ["alignment", "work", "memory"],
-      activePhaseIndex: 1,
+      phases: ["work", "memory"],
+      activePhaseIndex: 0,
     });
 
     const pause = await postBoard({
       questId: "q-9",
       status: "USER_CHECKPOINTING",
-      activePhaseIndex: 1,
+      activePhaseIndex: 0,
       waitForInput: ["n-4"],
     });
     expect(pause.status).toBe(200);
@@ -284,7 +284,7 @@ describe("Takode board Journey metadata route", () => {
     const resume = await postBoard({
       questId: "q-9",
       status: "WORKING",
-      activePhaseIndex: 1,
+      activePhaseIndex: 0,
       clearWaitForInput: true,
     });
     expect(resume.status).toBe(200);
@@ -1109,7 +1109,7 @@ describe("Takode board Journey metadata route", () => {
   });
 
   it.each([
-    ["with an explicit phase plan", { phases: ["alignment", "work", "memory"], activePhaseIndex: 2 }],
+    ["with an explicit phase plan", { phases: ["work", "memory"], activePhaseIndex: 1 }],
     ["without an explicit phase plan", {}],
   ])("blocks direct creation of an active Memory row %s", async (_label, extra) => {
     const res = await postBoard({ questId: "q-10", status: "MEMORY", ...extra });

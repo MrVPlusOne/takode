@@ -68,6 +68,7 @@ import { getPauseState, isSessionPaused } from "../session-pause.js";
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
 import { normalizeNotifyThreadRoute } from "./takode-route-thread-helpers.js";
 import { registerTakodeReconnectRoute } from "./takode-reconnect.js";
+import { publishWorkerReport } from "../worker-report.js";
 import { registerTakodeThreadHandoffRoute } from "./takode-thread-handoff.js";
 import { buildTakodeCodexPendingDeliveryFields, buildTakodeInfoSafeSession } from "./session-detail-response.js";
 import {
@@ -1633,6 +1634,25 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found in bridge" }, 404);
+    let body: Record<string, unknown>;
+    try {
+      const raw = await c.req.text();
+      body = raw ? JSON.parse(raw) : {};
+      if (!body || Array.isArray(body) || typeof body !== "object") throw new Error("Expected an object");
+    } catch {
+      return c.json({ error: "Worker stream input must be a JSON object" }, 400);
+    }
+    if (Object.keys(body).some((key) => key !== "text")) {
+      return c.json({ error: "Worker stream input supports only the optional text field" }, 400);
+    }
+    if ("text" in body) {
+      if (typeof body.text !== "string" || !body.text.trim()) return c.json({ error: "Report text is required" }, 400);
+      try {
+        return c.json(await publishWorkerReport(ctx, id, body.text));
+      } catch (error) {
+        return c.json({ error: error instanceof Error ? error.message : String(error) }, 409);
+      }
+    }
     if (typeof bridgeAny.emitWorkerStreamCheckpoint !== "function") {
       return c.json({ error: "worker-stream is unavailable" }, 500);
     }

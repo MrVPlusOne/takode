@@ -6,7 +6,6 @@ import {
 } from "../../shared/quest-code-commit-evidence.js";
 import { verifyReplacementWorkEvidence } from "../work-evidence-replacement.js";
 import {
-  canonicalizeQuestJourneyPhaseId,
   FREE_WORKER_WAIT_FOR_TOKEN,
   getQuestJourneyCurrentPhaseIndex,
   getQuestJourneyPhase,
@@ -959,7 +958,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       return c.json(
         {
           error:
-            "Board no-code markers were removed. Use the active v2 Alignment -> Work -> Memory flow; Work owns tracked sync duties when needed.",
+            "Board no-code markers were removed. Use the active v2 Work -> Memory flow; Work owns tracked sync duties when needed.",
         },
         400,
       );
@@ -1121,11 +1120,19 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     let firstPlannedPhaseState: string | undefined;
     const explicitStatus = typeof body.status === "string" ? body.status.trim() || undefined : undefined;
     const explicitStatusUpper = explicitStatus?.toUpperCase();
-    if (explicitStatusUpper && !(QUEST_JOURNEY_STATES as readonly string[]).includes(explicitStatusUpper)) {
+    const retainsAlignmentBoundary =
+      existingRow?.status === "PLANNING" ||
+      ((existingRow?.status === "QUEUED" || existingRow?.status === "PROPOSED") &&
+        normalizeKnownQuestJourneyPhaseIds(existingRow.journey?.phaseIds)[0] === "alignment");
+    if (
+      explicitStatusUpper &&
+      !(QUEST_JOURNEY_STATES as readonly string[]).includes(explicitStatusUpper) &&
+      !(explicitStatusUpper === "PLANNING" && retainsAlignmentBoundary)
+    ) {
       return c.json(
         {
           error:
-            "Invalid active Quest Journey state. Active v2 states are PROPOSED, QUEUED, PLANNING, WORKING, USER_CHECKPOINTING, and MEMORY. Legacy v1 states are historical-read only.",
+            "Invalid active Quest Journey state. New Journeys use PROPOSED, QUEUED, WORKING, USER_CHECKPOINTING, and MEMORY. PLANNING is retained only for existing Alignment occurrences.",
         },
         400,
       );
@@ -1194,7 +1201,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       if (invalid.length > 0) {
         return c.json(
           {
-            error: `Invalid Quest Journey phase(s): ${invalid.join(", ")}. Active v2 phases are alignment, work, user-checkpoint, and memory; legacy v1 phase IDs are historical-read only.`,
+            error: `Invalid Quest Journey phase(s): ${invalid.join(", ")}. New Journeys use work, user-checkpoint, and memory; Alignment cannot be added and legacy v1 phase IDs are historical-read only.`,
           },
           400,
         );
@@ -1230,14 +1237,13 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
 
     const resolvedPhaseIds = typedPhaseIds ?? existingPhaseIds;
-    const resolvedSequenceError =
-      existingJourney && existingMode === "active"
-        ? validateQuestJourneyPhaseSequenceMutation({
-            existingPlan: existingJourney,
-            existingStatus: existingRow?.status,
-            nextPhaseIds: resolvedPhaseIds,
-          })
-        : validateQuestJourneyPhaseSequence(resolvedPhaseIds);
+    const resolvedSequenceError = existingJourney
+      ? validateQuestJourneyPhaseSequenceMutation({
+          existingPlan: existingJourney,
+          existingStatus: existingRow?.status,
+          nextPhaseIds: resolvedPhaseIds,
+        })
+      : validateQuestJourneyPhaseSequence(resolvedPhaseIds);
     if (resolvedSequenceError) return c.json({ error: resolvedSequenceError }, 400);
     if (typedPhaseIds && existingJourney && existingMode === "active") {
       const removalError = validateQuestJourneyUserCheckpointRemoval(
@@ -1682,7 +1688,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
 
     const expectedPhaseId =
-      typeof body.expectedPhaseId === "string" ? canonicalizeQuestJourneyPhaseId(body.expectedPhaseId) : null;
+      typeof body.expectedPhaseId === "string" ? getQuestJourneyPhase(body.expectedPhaseId)?.id : null;
     if (!expectedPhaseId) {
       return c.json({ error: "expectedPhaseId must name a valid Journey phase." }, 400);
     }

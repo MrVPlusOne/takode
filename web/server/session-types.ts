@@ -1818,7 +1818,8 @@ export interface TakodeWorkerStreamEventData
     | "questId"
     | "phaseNote"
   > {
-  reason?: "checkpoint";
+  reason?: "checkpoint" | "report";
+  report?: import("../shared/worker-report.js").WorkerReportReference;
 }
 
 export interface TakodeCompactionEventData {

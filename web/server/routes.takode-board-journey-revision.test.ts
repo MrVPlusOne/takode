@@ -180,18 +180,18 @@ describe("Takode board Journey v2 revision route", () => {
       journey: {
         mode: "proposed",
         presetId: "v2-work",
-        phaseIds: ["alignment", "work", "memory"],
+        phaseIds: ["work", "memory"],
         presentation: { state: "presented", summary: "Approve the draft.", presentedAt: 1, signature: "old" },
       },
     });
 
     const res = await postRevise("q-9", {
       fromIndex: 0,
-      expectedPhaseId: "alignment",
+      expectedPhaseId: "work",
       status: "PROPOSED",
       journeyMode: "proposed",
-      phases: ["alignment", "work", "user-checkpoint", "memory"],
-      phaseNoteEdits: [{ index: 2, note: "Ask before publishing the external artifact." }],
+      phases: ["work", "user-checkpoint", "memory"],
+      phaseNoteEdits: [{ index: 1, note: "Ask before publishing the external artifact." }],
       presentation: { summary: "Approve the updated draft." },
     });
 
@@ -203,8 +203,8 @@ describe("Takode board Journey v2 revision route", () => {
           status: "PROPOSED",
           journey: {
             mode: "proposed",
-            phaseIds: ["alignment", "work", "user-checkpoint", "memory"],
-            phaseNotes: { "2": "Ask before publishing the external artifact." },
+            phaseIds: ["work", "user-checkpoint", "memory"],
+            phaseNotes: { "1": "Ask before publishing the external artifact." },
             presentation: { state: "draft" },
           },
         },
@@ -215,8 +215,8 @@ describe("Takode board Journey v2 revision route", () => {
   it("rejects optional User Checkpoints without concrete skip conditions", async () => {
     const res = await postBoard({
       questId: "q-9",
-      phases: ["alignment", "work", "user-checkpoint", "memory"],
-      phaseNoteEdits: [{ index: 2, note: "Optional checkpoint." }],
+      phases: ["work", "user-checkpoint", "memory"],
+      phaseNoteEdits: [{ index: 1, note: "Optional checkpoint." }],
     });
 
     expect(res.status).toBe(400);
@@ -267,7 +267,7 @@ describe("Takode board Journey v2 revision route", () => {
     const res = await postRevise("q-9", {
       fromIndex: 2,
       expectedPhaseId: "user-checkpoint",
-      phases: ["alignment", "work", "user-checkpoint", "work", "memory"],
+      phases: ["work", "user-checkpoint", "work", "memory"],
     });
 
     expect(res.status).toBe(400);

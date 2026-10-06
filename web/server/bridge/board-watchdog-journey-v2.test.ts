@@ -53,11 +53,6 @@ describe("board watchdog v2 Journey progression", () => {
 
     expect(advance(session, "q-1")).toMatchObject({
       previousState: "QUEUED",
-      newState: "PLANNING",
-      removed: false,
-    });
-    expect(advance(session, "q-1")).toMatchObject({
-      previousState: "PLANNING",
       newState: "WORKING",
       removed: false,
     });
@@ -70,7 +65,7 @@ describe("board watchdog v2 Journey progression", () => {
     upsert(session, {
       questId: "q-1",
       status: "MEMORY",
-      journey: { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 2, currentPhaseId: "memory" },
+      journey: { phaseIds: ["work", "memory"], activePhaseIndex: 1, currentPhaseId: "memory" },
     });
     expect(advance(session, "q-1")).toMatchObject({
       removed: true,
@@ -82,16 +77,16 @@ describe("board watchdog v2 Journey progression", () => {
   it("initializes default phase bookkeeping for the built-in v2 Work Quest Journey", () => {
     const session = makeSession();
 
-    upsert(session, { questId: "q-1", status: "PLANNING" });
+    upsert(session, { questId: "q-1", status: "WORKING" });
 
     expect(session.board.get("q-1")).toEqual(
       expect.objectContaining({
-        status: "PLANNING",
+        status: "WORKING",
         journey: expect.objectContaining({
           presetId: "v2-work",
           phaseIds: DEFAULT_QUEST_JOURNEY_PHASE_IDS,
-          currentPhaseId: "alignment",
-          nextLeaderAction: expect.stringContaining("alignment leader brief"),
+          currentPhaseId: "work",
+          nextLeaderAction: expect.stringContaining("Work note"),
         }),
       }),
     );

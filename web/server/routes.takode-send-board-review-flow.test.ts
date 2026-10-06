@@ -968,7 +968,7 @@ describe("Takode server-authoritative auth", () => {
       body: JSON.stringify({
         questId: "q-9",
         journeyMode: "proposed",
-        phases: ["alignment", "work", "memory"],
+        phases: ["work", "memory"],
         presetId: "v2-work",
         presentation: {
           summary: "Approve the proposed goal, constraints, and scheduling.",
@@ -986,7 +986,7 @@ describe("Takode server-authoritative auth", () => {
           waitForInput: ["n-3"],
           journey: {
             mode: "proposed",
-            phaseIds: ["alignment", "work", "memory"],
+            phaseIds: ["work", "memory"],
             presentation: {
               state: "presented",
               summary: "Approve the proposed goal, constraints, and scheduling.",
@@ -1011,7 +1011,7 @@ describe("Takode server-authoritative auth", () => {
       body: JSON.stringify({
         questId: "q-9",
         journeyMode: "proposed",
-        phases: ["alignment", "work", "memory"],
+        phases: ["work", "memory"],
         presentation: {
           summary: "   ",
         },
@@ -1723,7 +1723,7 @@ describe("Takode server-authoritative auth", () => {
     const res = await app.request("/api/sessions/orch-1/board", {
       method: "POST",
       headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({ questId: "q-9", status: "PLANNING", phases: ["planning", "human-verification"] }),
+      body: JSON.stringify({ questId: "q-9", status: "WORKING", phases: ["planning", "human-verification"] }),
     });
 
     expect(res.status).toBe(400);
@@ -1738,7 +1738,7 @@ describe("Takode server-authoritative auth", () => {
     const res = await app.request("/api/sessions/orch-1/board", {
       method: "POST",
       headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({ questId: "q-9", status: "PLANNING", phases: [" ", ""] }),
+      body: JSON.stringify({ questId: "q-9", status: "WORKING", phases: [" ", ""] }),
     });
 
     expect(res.status).toBe(400);
@@ -1864,6 +1864,6 @@ describe("Takode server-authoritative auth", () => {
     expect(responseBody).toMatchObject({
       error: expect.stringContaining("Board no-code markers were removed"),
     });
-    expect(responseBody.error).toContain("Alignment -> Work -> Memory");
+    expect(responseBody.error).toContain("Work -> Memory");
   });
 });

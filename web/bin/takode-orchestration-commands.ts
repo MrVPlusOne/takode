@@ -76,9 +76,10 @@ impose a tool-level limit on suggestions. With multiple --question flags, provid
 replies after each question.
 `;
 
-const WORKER_STREAM_HELP = `Usage: takode worker-stream [--json]
+const WORKER_STREAM_HELP = `Usage: takode worker-stream [--text <report> | --text-file <path|->] [--json]
 
-Stream the current worker/reviewer turn activity to the leader as an internal herd checkpoint.
+With text, record an optional report for your current Work and notify its leader without awaiting a reply.
+Without text, stream the current worker/reviewer turn activity as an internal herd checkpoint.
 `;
 
 const PHASES_HELP = `Usage: takode phases [--json]
@@ -1831,19 +1832,40 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
 
 export async function handleWorkerStream(base: string, args: string[]): Promise<void> {
   const flags = parseFlags(args);
-  assertKnownFlags(flags, new Set(["json"]), WORKER_STREAM_HELP.trim());
-  const positional = args.filter((arg) => !arg.startsWith("--"));
-  if (positional.length > 0) err(WORKER_STREAM_HELP.trim());
+  assertKnownFlags(flags, new Set(["json", "text", "text-file"]), WORKER_STREAM_HELP.trim());
+  const text = await readOptionalRichTextOption(flags, {
+    inlineFlag: "text",
+    fileFlag: "text-file",
+    label: "Report text",
+  });
+  for (let index = 0; index < args.length; index += 1) {
+    if (!args[index]!.startsWith("--")) err(WORKER_STREAM_HELP.trim());
+    if (args[index] === "--text" || args[index] === "--text-file") index += 1;
+  }
 
   const selfId = getCallerSessionId();
-  const result = (await apiPost(base, `/sessions/${encodeURIComponent(selfId)}/worker-stream`, {})) as {
+  const result = (await apiPost(
+    base,
+    `/sessions/${encodeURIComponent(selfId)}/worker-stream`,
+    text === undefined ? {} : { text },
+  )) as {
     ok: boolean;
     streamed: boolean;
     reason: string;
     msgRange?: { from: number; to: number };
+    recorded?: boolean;
+    queued?: boolean;
+    questId?: string;
+    feedbackIndex?: number;
   };
   if (flags.json === true) {
     console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.recorded) {
+    const source = `[${result.questId} feedback #${result.feedbackIndex}](quest:${result.questId}:feedback:${result.feedbackIndex})`;
+    console.log(`Worker report recorded${result.queued ? " and queued" : "; notification not queued"}: ${source}.`);
     return;
   }
 

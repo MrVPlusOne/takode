@@ -51,16 +51,16 @@ Quests are more than issue rows. They are the units that leader agents orchestra
 Each Quest Journey gives the task enough structure to make more autonomous work easier to trust:
 
 - **Who does what**: leader, worker, reviewer, or user checkpoint
-- **What good looks like**: alignment, scope, success criteria, and the phase responsibilities for the work
+- **What good looks like**: shared understanding, scope, success criteria, and the responsibilities for the work
 - **What evidence matters**: code review findings, browser evidence, external results, user decisions, synced changes, or durable-state updates
-- **When to challenge the work**: reviewer phases can check correctness, missing tests, maintainability, UX evidence, or workflow risks before acceptance
+- **When to challenge the work**: independent review can check correctness, missing tests, maintainability, UX evidence, or workflow risks before acceptance
 - **Where the story lives**: phase notes, TLDRs, reviews, and debriefs stay attached to the quest instead of disappearing into raw session history
 
 For tracked code changes, the normal path is:
 
-`alignment -> implement -> code-review -> port -> memory`
+`work -> memory`
 
-More complex work can add phases like `explore`, `mental-simulation`, `execute`, `outcome-review`, or `user-checkpoint`. Work with no tracked code changes can omit `port`, but non-cancelled quests still finish with final `memory` closure.
+Workers read the request, check prerequisites, investigate, implement and verify within authorized Work. They pause for significant ambiguity or decisions that need leader/user authority, rather than waiting for a separate initial Alignment approval. Optional reports can keep the leader informed without requiring acknowledgment. Work also owns approved publication; a needed `user-checkpoint` resumes into Work before final `memory`. Independent reviews use their own quests. Existing Journeys retain their recorded history and pending approval boundaries.
 
 ## Completed Work Becomes Searchable Project Memory
 

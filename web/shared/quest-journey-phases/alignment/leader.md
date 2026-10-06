@@ -1,5 +1,7 @@
 # Alignment -- Leader Brief
 
+Compatibility only: use this brief for an already-created Alignment occurrence. New quests dispatch Work directly. Preserve this occurrence's pending approval and history; do not silently advance it or add fresh Alignment occurrences.
+
 Use this phase after the leader has authorized the initial Journey and scheduling plan, either through the direct-dispatch rubric or explicit user approval.
 
 Leader actions:

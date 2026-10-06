@@ -6,20 +6,20 @@ Fresh human feedback overrides stale in-flight work. If new human feedback lands
 
 1. Record the feedback on the quest.
 2. Reset the board row to the earliest valid phase for the fresh cycle:
-   - `PLANNING` if the same worker is still the intended owner and should produce a fresh Alignment read-in.
+   - `WORKING` if the same worker is still the intended owner and has authority for the revised Work.
    - `QUEUED` if you need to choose a worker again or prior ownership is no longer valid.
 3. If old-scope work is still generating, interrupt it before sending the correction.
 4. Do not let stale review acceptance, stale Port confirmation, or old-scope completion advance the board after reset.
 
 When same-thread user feedback appears unrelated, cross-cutting, or cleaner as its own work item, propose a separate quest/Journey instead of mutating the current quest. If unclear, ask a short clarifying question and pause only the affected quest.
 
-For feedback rework Alignment, add this to the normal dispatch:
+For feedback rework, add this to the normal dispatch:
 
 ```text
-The quest has unaddressed human feedback -- read it carefully and factor it into your alignment read-in.
+The quest has unaddressed human feedback -- read it carefully and address it within the authorized Work.
 ```
 
-Feedback addressing happens during implementation or the appropriate substantive phase, not during Alignment.
+Feedback addressing belongs to the authorized Work; a read-only understanding report does not by itself satisfy it.
 
 ## Screenshots And Images
 

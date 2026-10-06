@@ -7,7 +7,7 @@ import type {
 } from "./quest-types.js";
 import type { BoardRow } from "./session-types.js";
 import {
-  canonicalizeQuestJourneyPhaseId,
+  canonicalizeKnownQuestJourneyPhaseId,
   getQuestJourneyCurrentPhaseIndex,
   getQuestJourneyPhase,
   getQuestJourneyPhaseForState,
@@ -178,7 +178,7 @@ function parseDocumentationRequest(
   const kind = parseKind(request.kind);
   if (kind === null)
     return { error: "Invalid feedback kind. Use comment, phase-summary, phase-finding, review, artifact, or system." };
-  const phaseId = typeof request.phase === "string" ? canonicalizeQuestJourneyPhaseId(request.phase) : null;
+  const phaseId = typeof request.phase === "string" ? canonicalizeKnownQuestJourneyPhaseId(request.phase) : null;
   if (typeof request.phase === "string" && request.phase.trim() && !phaseId) {
     return { error: `Invalid Quest Journey phase: ${request.phase}` };
   }

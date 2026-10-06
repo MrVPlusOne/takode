@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   getQuestJourneyPhase,
   QUEST_JOURNEY_PHASES,
+  RETAINED_QUEST_JOURNEY_PHASES,
   type QuestJourneyPhase,
   type QuestJourneyPhaseId,
 } from "../shared/quest-journey.js";
@@ -130,7 +131,7 @@ export async function ensureBuiltInQuestJourneyPhaseData(options?: QuestJourneyP
   await mkdir(dataRoot, { recursive: true });
   await removeDeprecatedQuestJourneyPhaseDataDirs(dataRoot);
 
-  for (const phase of QUEST_JOURNEY_PHASES) {
+  for (const phase of [...QUEST_JOURNEY_PHASES, ...RETAINED_QUEST_JOURNEY_PHASES]) {
     const canonicalDir = join(canonicalRoot, phase.id);
     const dataDir = getQuestJourneyPhaseDataDir(phase.id, options);
     await mkdir(dataDir, { recursive: true });

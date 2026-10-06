@@ -53,16 +53,11 @@ export interface BoardQueueWarning {
  * Quest Journey state values. `QUEUED` remains a board-only pre-phase state.
  * Active rows use canonical states derived from the active phase contract.
  */
-export const QUEST_JOURNEY_STATES = [
-  "PROPOSED",
-  "QUEUED",
-  "PLANNING",
-  "WORKING",
-  "USER_CHECKPOINTING",
-  "MEMORY",
-] as const;
+export const QUEST_JOURNEY_STATES = ["PROPOSED", "QUEUED", "WORKING", "USER_CHECKPOINTING", "MEMORY"] as const;
 
 export type QuestJourneyState = (typeof QUEST_JOURNEY_STATES)[number];
+/** Retained for already-created Journeys; never inserted into new plans. */
+export type RetainedQuestJourneyState = "PLANNING";
 export const LEGACY_QUEST_JOURNEY_STATES = [
   "EXPLORING",
   "IMPLEMENTING",
@@ -74,7 +69,7 @@ export const LEGACY_QUEST_JOURNEY_STATES = [
   "BOOKKEEPING",
 ] as const;
 export type LegacyQuestJourneyState = (typeof LEGACY_QUEST_JOURNEY_STATES)[number];
-export type KnownQuestJourneyState = QuestJourneyState | LegacyQuestJourneyState;
+export type KnownQuestJourneyState = QuestJourneyState | LegacyQuestJourneyState | RetainedQuestJourneyState;
 export const QUEST_JOURNEY_LIFECYCLE_MODES = ["active", "proposed"] as const;
 export type QuestJourneyLifecycleMode = (typeof QUEST_JOURNEY_LIFECYCLE_MODES)[number];
 export type QuestJourneyPresentationState = "draft" | "presented";
@@ -84,7 +79,7 @@ export type QuestJourneyPresentationState = "draft" | "presented";
  * assemble into a Quest Journey and are backed by canonical phase.json files.
  */
 export type QuestJourneyAssigneeRole = "worker" | "reviewer";
-const ACTIVE_QUEST_JOURNEY_PHASE_IDS = ["alignment", "work", "user-checkpoint", "memory"] as const;
+const ACTIVE_QUEST_JOURNEY_PHASE_IDS = ["work", "user-checkpoint", "memory"] as const;
 
 const LEGACY_QUEST_JOURNEY_PHASE_IDS = [
   "explore",
@@ -99,7 +94,7 @@ const LEGACY_QUEST_JOURNEY_PHASE_IDS = [
 
 export type ActiveQuestJourneyPhaseId = (typeof ACTIVE_QUEST_JOURNEY_PHASE_IDS)[number];
 export type LegacyQuestJourneyPhaseId = (typeof LEGACY_QUEST_JOURNEY_PHASE_IDS)[number];
-export type QuestJourneyPhaseId = ActiveQuestJourneyPhaseId | LegacyQuestJourneyPhaseId;
+export type QuestJourneyPhaseId = ActiveQuestJourneyPhaseId | LegacyQuestJourneyPhaseId | "alignment";
 
 export interface QuestJourneyPhase {
   id: QuestJourneyPhaseId;
@@ -170,10 +165,14 @@ function defineQuestJourneyPhase<Id extends ActiveQuestJourneyPhaseId>(
 }
 
 export const QUEST_JOURNEY_PHASES: readonly QuestJourneyPhase[] = [
-  defineQuestJourneyPhase("alignment", alignmentPhase),
   defineQuestJourneyPhase("work", workPhase),
   defineQuestJourneyPhase("user-checkpoint", userCheckpointPhase),
   defineQuestJourneyPhase("memory", memoryPhase),
+];
+
+/** Existing Alignment occurrences retain their metadata and approval boundary. */
+export const RETAINED_QUEST_JOURNEY_PHASES: readonly QuestJourneyPhase[] = [
+  { ...alignmentPhase, id: "alignment", boardState: "PLANNING", assigneeRole: "worker" },
 ];
 
 const LEGACY_QUEST_JOURNEY_PHASES: readonly QuestJourneyPhase[] = [
@@ -264,15 +263,12 @@ const LEGACY_QUEST_JOURNEY_PHASES: readonly QuestJourneyPhase[] = [
 
 export const KNOWN_QUEST_JOURNEY_PHASES: readonly QuestJourneyPhase[] = [
   ...QUEST_JOURNEY_PHASES,
+  ...RETAINED_QUEST_JOURNEY_PHASES,
   ...LEGACY_QUEST_JOURNEY_PHASES,
 ];
 
 export const DEFAULT_QUEST_JOURNEY_PRESET_ID = "v2-work";
-export const DEFAULT_QUEST_JOURNEY_PHASE_IDS = [
-  "alignment",
-  "work",
-  "memory",
-] as const satisfies readonly QuestJourneyPhaseId[];
+export const DEFAULT_QUEST_JOURNEY_PHASE_IDS = ["work", "memory"] as const satisfies readonly QuestJourneyPhaseId[];
 
 const QUEST_JOURNEY_PHASE_ALIAS_MAP: Record<string, QuestJourneyPhaseId> = Object.fromEntries(
   QUEST_JOURNEY_PHASES.flatMap((phase) => phase.aliases.map((alias) => [alias, phase.id])),
@@ -474,6 +470,7 @@ export function canonicalizeKnownQuestJourneyState(value?: string | null): Known
   if (!value) return null;
   const normalized = value.trim().toUpperCase();
   if (!normalized) return null;
+  if (normalized === "PLANNING") return normalized;
   if ((QUEST_JOURNEY_STATES as readonly string[]).includes(normalized)) return normalized as QuestJourneyState;
   if ((LEGACY_QUEST_JOURNEY_STATES as readonly string[]).includes(normalized)) {
     return normalized as LegacyQuestJourneyState;
@@ -556,7 +553,7 @@ export function validateQuestJourneyPhaseSequence(
 ): string | undefined {
   const invalid = getInvalidQuestJourneyPhaseIds(values);
   if (invalid.length > 0) {
-    return `Invalid active Quest Journey phase(s): ${invalid.join(", ")}. Active v2 phases are alignment, work, user-checkpoint, and memory. Legacy v1 phase IDs are historical-read only.`;
+    return `Invalid active Quest Journey phase(s): ${invalid.join(", ")}. New Journeys use work, user-checkpoint, and memory. Alignment is retained only for existing Journeys; legacy v1 phase IDs are historical-read only.`;
   }
   const phaseIds = normalizeQuestJourneyPhaseIds(values);
   const allowedIndices = new Set(options.allowedAdjacentExploreImplementIndices ?? []);
@@ -583,7 +580,7 @@ export function validateQuestJourneyPhaseSequenceMutation(
         (phaseId) => canonicalizeKnownQuestJourneyPhaseId(phaseId as string) as QuestJourneyPhaseId,
       )
     : [];
-  const nextPhaseIds = normalizeQuestJourneyPhaseIds(mutation.nextPhaseIds);
+  const nextPhaseIds = normalizeKnownQuestJourneyPhaseIds(mutation.nextPhaseIds);
   const existingMode = canonicalizeQuestJourneyLifecycleMode(mutation.existingPlan?.mode);
   const normalizedStatus =
     typeof mutation.existingStatus === "string" ? mutation.existingStatus.trim().toUpperCase() : "";
@@ -591,6 +588,13 @@ export function validateQuestJourneyPhaseSequenceMutation(
   const allowedIndices = new Set<number>();
   const isActiveExistingPlan =
     existingMode !== "proposed" && normalizedStatus !== "PROPOSED" && normalizedStatus !== "QUEUED";
+
+  for (const [index, phaseId] of nextPhaseIds.entries()) {
+    if (phaseId !== "alignment") continue;
+    if (existingPhaseIds[index] !== phaseId) {
+      return "New Alignment occurrences are not supported; perform understanding and exception-based pauses within Work.";
+    }
+  }
 
   // A q-1705 transition becomes immutable history once Implement is current or completed.
   // Match by position in both plans so the allowance cannot move to a later repeated occurrence.
@@ -611,9 +615,12 @@ export function validateQuestJourneyPhaseSequenceMutation(
     allowedIndices.add(mutation.allowedAdjacentExploreImplementIndex);
   }
 
-  return validateQuestJourneyPhaseSequence(nextPhaseIds, {
-    allowedAdjacentExploreImplementIndices: [...allowedIndices],
-  });
+  return validateQuestJourneyPhaseSequence(
+    nextPhaseIds.filter((phaseId) => phaseId !== "alignment"),
+    {
+      allowedAdjacentExploreImplementIndices: [...allowedIndices],
+    },
+  );
 }
 
 export function validateQuestJourneyUserCheckpointNotes(
@@ -815,7 +822,7 @@ export function rebaseQuestJourneyPhaseNotes(
 }
 
 export function reviseQuestJourneySuffix(revision: QuestJourneySuffixRevision): QuestJourneySuffixRevisionResult {
-  const existingPhaseIds = normalizeQuestJourneyPhaseIds(revision.existingPhaseIds);
+  const existingPhaseIds = normalizeKnownQuestJourneyPhaseIds(revision.existingPhaseIds);
   const replacementPhaseIds = normalizeQuestJourneyPhaseIds(revision.replacementPhaseIds);
   const fromIndex = revision.fromIndex;
 
@@ -877,7 +884,7 @@ export function getQuestJourneyCompletedPrefixLength(
   plan: Partial<QuestJourneyPlanState> | undefined,
   status?: string | null,
 ): QuestJourneyCompletedPrefixResult {
-  const phaseIds = normalizeQuestJourneyPhaseIds(plan?.phaseIds);
+  const phaseIds = normalizeKnownQuestJourneyPhaseIds(plan?.phaseIds);
   const mode = canonicalizeQuestJourneyLifecycleMode(plan?.mode);
   const normalizedStatus = typeof status === "string" ? status.trim().toUpperCase() : "";
   if (
@@ -911,9 +918,9 @@ export function validateQuestJourneyCompletedPrefixRevision(
   const completedPrefixLength = prefixResult.ok ? (prefixResult.prefixLength ?? 0) : (explicitPrefixLength ?? 0);
   if (completedPrefixLength <= 0) return undefined;
 
-  const existingPhaseIds = normalizeQuestJourneyPhaseIds(revision.existingPlan?.phaseIds);
+  const existingPhaseIds = normalizeKnownQuestJourneyPhaseIds(revision.existingPlan?.phaseIds);
   if (revision.nextPhaseIds) {
-    const nextPhaseIds = normalizeQuestJourneyPhaseIds(revision.nextPhaseIds);
+    const nextPhaseIds = normalizeKnownQuestJourneyPhaseIds(revision.nextPhaseIds);
     const changedCompletedPrefix =
       nextPhaseIds.length < completedPrefixLength ||
       existingPhaseIds.slice(0, completedPrefixLength).some((phaseId, index) => nextPhaseIds[index] !== phaseId);
@@ -945,9 +952,11 @@ function getExplicitQuestJourneyCompletedPrefixLength(
     return undefined;
   }
 
-  const existingPhaseIds = normalizeQuestJourneyPhaseIds(revision.existingPlan?.phaseIds);
+  const existingPhaseIds = normalizeKnownQuestJourneyPhaseIds(revision.existingPlan?.phaseIds);
   if (existingPhaseIds.length === 0) return undefined;
-  const nextPhaseIds = revision.nextPhaseIds ? normalizeQuestJourneyPhaseIds(revision.nextPhaseIds) : existingPhaseIds;
+  const nextPhaseIds = revision.nextPhaseIds
+    ? normalizeKnownQuestJourneyPhaseIds(revision.nextPhaseIds)
+    : existingPhaseIds;
   if (revision.nextActivePhaseIndex >= nextPhaseIds.length) return undefined;
   return Math.min(revision.nextActivePhaseIndex, existingPhaseIds.length);
 }
@@ -1086,7 +1095,7 @@ export function getQuestJourneyTotalElapsedMs(
   plan: Partial<QuestJourneyPlanState> | undefined,
   now = Date.now(),
 ): number | undefined {
-  const phaseIds = normalizeQuestJourneyPhaseIds(plan?.phaseIds);
+  const phaseIds = normalizeKnownQuestJourneyPhaseIds(plan?.phaseIds);
   if (phaseIds.length === 0) return undefined;
   let total = 0;
   let hasTiming = false;
@@ -1145,7 +1154,7 @@ function normalizeQuestJourneyProposalPresentation(
 }
 
 export function getQuestJourneyProposalSignature(plan: Partial<QuestJourneyPlanState> | undefined): string {
-  const phaseIds = normalizeQuestJourneyPhaseIds(plan?.phaseIds);
+  const phaseIds = normalizeKnownQuestJourneyPhaseIds(plan?.phaseIds);
   const phaseNotes = normalizeQuestJourneyPhaseNotes(plan?.phaseNotes, phaseIds.length);
   return JSON.stringify({
     presetId: typeof plan?.presetId === "string" && plan.presetId.trim() ? plan.presetId.trim() : undefined,
@@ -1209,7 +1218,12 @@ export function normalizeQuestJourneyPlan(
   status?: string | null,
 ): QuestJourneyPlanState {
   const phaseIds = normalizeKnownQuestJourneyPhaseIds(plan?.phaseIds);
-  const nonEmptyPhaseIds = phaseIds.length > 0 ? phaseIds : [...DEFAULT_QUEST_JOURNEY_PHASE_IDS];
+  const nonEmptyPhaseIds =
+    phaseIds.length > 0
+      ? phaseIds
+      : status?.toUpperCase() === "PLANNING"
+        ? (["alignment", "work", "memory"] as QuestJourneyPhaseId[])
+        : [...DEFAULT_QUEST_JOURNEY_PHASE_IDS];
   const mode = canonicalizeQuestJourneyLifecycleMode(plan?.mode) ?? "active";
   const normalizedStatus = typeof status === "string" ? status.trim().toUpperCase() : "";
   const phaseNotes = normalizeQuestJourneyPhaseNotes(plan?.phaseNotes, nonEmptyPhaseIds.length);

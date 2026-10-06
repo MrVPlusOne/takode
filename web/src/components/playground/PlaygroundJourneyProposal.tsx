@@ -37,8 +37,8 @@ const proposal: BoardProposalReviewPayload = {
   journey: {
     mode: "proposed",
     presetId: "custom",
-    phaseIds: ["alignment", "work", "user-checkpoint", "work", "memory"],
-    phaseNotes: { "2": "Confirm the remaining scope before Work resumes." },
+    phaseIds: ["work", "user-checkpoint", "work", "memory"],
+    phaseNotes: { "1": "Confirm the remaining scope before Work resumes." },
   },
 };
 const board: BoardRowData[] = [

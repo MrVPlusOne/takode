@@ -187,7 +187,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Board no-code flags were removed");
-    expect(result.stderr).toContain("Alignment -> Work -> Memory");
+    expect(result.stderr).toContain("Work -> Memory");
     expect(capturedBodies).toHaveLength(0);
   });
 
@@ -200,7 +200,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Board no-code flags were removed");
-    expect(result.stderr).toContain("Alignment -> Work -> Memory");
+    expect(result.stderr).toContain("Work -> Memory");
     expect(capturedBodies).toHaveLength(0);
   });
 
@@ -213,7 +213,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
         "--worker",
         "3",
         "--phases",
-        "alignment,work,memory",
+        "work,memory",
         "--preset",
         "v2-work",
         "--port",
@@ -230,7 +230,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(capturedBodies).toHaveLength(1);
     expect(capturedBodies[0].worker).toBe("worker-session-abc");
     expect(capturedBodies[0].workerNum).toBe(3);
-    expect(capturedBodies[0].phases).toEqual(["alignment", "work", "memory"]);
+    expect(capturedBodies[0].phases).toEqual(["work", "memory"]);
     expect(capturedBodies[0].presetId).toBe("v2-work");
   });
 
@@ -244,7 +244,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
         summary: "Approve the proposal goal, tradeoff, and scheduling.",
         journey: {
           mode: "proposed",
-          phaseIds: ["alignment", "work", "memory"],
+          phaseIds: ["work", "memory"],
         },
       },
     };
@@ -255,7 +255,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
         "propose",
         "q-1",
         "--phases",
-        "alignment,work,memory",
+        "work,memory",
         "--preset",
         "v2-work",
         "--summary",
@@ -277,7 +277,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
       questId: "q-1",
       journeyMode: "proposed",
       status: "PROPOSED",
-      phases: ["alignment", "work", "memory"],
+      phases: ["work", "memory"],
       presetId: "v2-work",
       waitForInput: ["n-3"],
       presentation: {
@@ -335,7 +335,6 @@ describe("takode board set --worker auto-clears waitFor", () => {
         title: "Draft proposal workflow",
         presetId: "v2-work",
         phases: [
-          { id: "alignment" },
           { id: "work", note: "Classify the noisy log source during Work." },
           { id: "user-checkpoint", note: "Present classification options before Work resumes." },
           { id: "memory", note: "" },
@@ -372,13 +371,12 @@ describe("takode board set --worker auto-clears waitFor", () => {
       title: "Draft proposal workflow",
       journeyMode: "proposed",
       status: "PROPOSED",
-      phases: ["alignment", "work", "user-checkpoint", "memory"],
+      phases: ["work", "user-checkpoint", "memory"],
       presetId: "v2-work",
       phaseNoteEdits: [
-        { index: 0, note: null },
-        { index: 1, note: "Classify the noisy log source during Work." },
-        { index: 2, note: "Present classification options before Work resumes." },
-        { index: 3, note: null },
+        { index: 0, note: "Classify the noisy log source during Work." },
+        { index: 1, note: "Present classification options before Work resumes." },
+        { index: 2, note: null },
       ],
       presentation: {
         summary: "Approve the proposed goal and scheduling.",
@@ -395,12 +393,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
     writeFileSync(
       specPath,
       JSON.stringify({
-        phases: [
-          { id: "alignment" },
-          { id: "work" },
-          { id: "user-checkpoint", note: "Optional checkpoint." },
-          { id: "memory" },
-        ],
+        phases: [{ id: "work" }, { id: "user-checkpoint", note: "Optional checkpoint." }, { id: "memory" }],
       }),
     );
 
@@ -593,8 +586,8 @@ describe("takode board set --worker auto-clears waitFor", () => {
           createdAt: 1,
           updatedAt: 2,
           journey: {
-            phaseIds: ["alignment", "work", "user-checkpoint", "work", "user-checkpoint", "work", "memory"],
-            activePhaseIndex: 4,
+            phaseIds: ["work", "user-checkpoint", "work", "user-checkpoint", "work", "memory"],
+            activePhaseIndex: 3,
             currentPhaseId: "user-checkpoint",
           },
         },
@@ -609,9 +602,9 @@ describe("takode board set --worker auto-clears waitFor", () => {
         "--status",
         "USER_CHECKPOINTING",
         "--active-phase-position",
-        "5",
+        "4",
         "--phases",
-        "alignment,work,user-checkpoint,work,user-checkpoint,work,memory",
+        "work,user-checkpoint,work,user-checkpoint,work,memory",
         "--full",
         "--port",
         String(port),
@@ -627,11 +620,11 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(capturedBodies[0]).toMatchObject({
       questId: "q-1",
       status: "USER_CHECKPOINTING",
-      activePhaseIndex: 4,
-      phases: ["alignment", "work", "user-checkpoint", "work", "user-checkpoint", "work", "memory"],
+      activePhaseIndex: 3,
+      phases: ["work", "user-checkpoint", "work", "user-checkpoint", "work", "memory"],
     });
     expect(result.stdout).toContain(
-      "journey: 1. Alignment -> 2. Work -> 3. User Checkpoint -> 4. Work -> [5. User Checkpoint] -> 6. Work -> 7. Memory",
+      "journey: 1. Work -> 2. User Checkpoint -> 3. Work -> [4. User Checkpoint] -> 5. Work -> 6. Memory",
     );
   });
 
@@ -788,6 +781,6 @@ describe("takode board set --worker auto-clears waitFor", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Board no-code flags were removed");
-    expect(result.stderr).toContain("Alignment -> Work -> Memory");
+    expect(result.stderr).toContain("Work -> Memory");
   });
 });

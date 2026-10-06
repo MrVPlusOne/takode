@@ -271,10 +271,12 @@ impose a tool-level limit on suggestions. With multiple --question flags, provid
 replies after each question.
 `;
 
-const WORKER_STREAM_HELP = `Usage: takode worker-stream [--json]
+const WORKER_STREAM_HELP = `Usage: takode worker-stream [--text <report> | --text-file <path|->] [--json]
 
-Stream the current worker/reviewer turn activity to the leader as an internal herd checkpoint.
-Use after a substantive nontrivial phase outcome is ready, before finishing remaining paperwork.
+With text, preserve an optional report as phase-scoped agent feedback for your current Work
+and notify the leader with a compact preview and source link. No acknowledgment is required.
+Reports do not grant approval or complete Work. Use --text-file - with a quoted heredoc for stdin.
+Without text, stream the current worker/reviewer turn activity as an internal herd checkpoint.
 `;
 
 const PHASES_HELP = `Usage: takode phases [--json]
@@ -508,7 +510,7 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
       } else if (sub === "advance") {
         console.log(BOARD_ADVANCE_HELP);
       } else if (sub === "advance-no-groom") {
-        console.log("`takode board advance-no-groom` was removed. Use the active v2 Alignment -> Work -> Memory flow.");
+        console.log("`takode board advance-no-groom` was removed. Use the active v2 Work -> Memory flow.");
       } else if (sub === "rm") {
         console.log(BOARD_RM_HELP);
       } else {

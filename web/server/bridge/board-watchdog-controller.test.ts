@@ -395,7 +395,7 @@ describe("Work Board leader thread tabs", () => {
 
     const result = advanceBoardRow(session, "q-9", QUEST_JOURNEY_STATES, deps);
 
-    expect(result && "newState" in result ? result.newState : undefined).toBe("PLANNING");
+    expect(result && "newState" in result ? result.newState : undefined).toBe("WORKING");
     expect(session.board.get("q-9")?.threadTabActivatedAt).toBeGreaterThan(closedAt);
     expect((session.state.leaderOpenThreadTabs as any)?.orderedOpenThreadKeys).toEqual(["q-9"]);
     expect((session.state.leaderOpenThreadTabs as any)?.closedThreadTombstones).toEqual([]);

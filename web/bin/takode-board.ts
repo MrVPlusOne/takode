@@ -24,7 +24,7 @@ import {
 
 import {
   FREE_WORKER_WAIT_FOR_TOKEN,
-  canonicalizeQuestJourneyPhaseId,
+  canonicalizeKnownQuestJourneyPhaseId,
   formatWaitForRefLabel,
   type BoardQueueWarning,
   getInvalidQuestJourneyPhaseIds,
@@ -71,13 +71,13 @@ Examples:
   takode board show
   takode board show --full
   takode board detail q-12
-  takode board set q-12 --status PLANNING
-  takode board set q-12 --phases alignment,work,memory --preset v2-work
-  takode board revise q-12 --from-position 2 --expect-phase work --phases work,memory
-  takode board set q-12 --status WORKING --active-phase-position 2
-  takode board propose q-12 --phases alignment,work,memory --summary "Approve the goal, constraints, and scheduling for this proposed Journey." --preset v2-work --wait-for-input 3
+  takode board set q-12 --status WORKING
+  takode board set q-12 --phases work,memory --preset v2-work
+  takode board revise q-12 --from-position 2 --expect-phase memory --phases user-checkpoint,work,memory
+  takode board set q-12 --status WORKING --active-phase-position 1
+  takode board propose q-12 --phases work,memory --summary "Approve the goal, constraints, and scheduling for this proposed Journey." --preset v2-work --wait-for-input 3
   takode board promote q-12 --worker 5
-  takode board note q-12 3 --text "Inspect only the follow-up diff"
+  takode board note q-12 1 --text "Inspect only the follow-up diff"
   takode board work-to-memory q-12 --work-note 4 --commits "abc1234,def5678"
   takode board work-to-memory q-13 --work-note 5 --no-code
   takode board replace-work-evidence q-13 --expected-commits "bad1234" --commits "abc1234" --reason "Correct mistyped delivery evidence"
@@ -85,7 +85,7 @@ Examples:
   takode board set q-12 --status USER_CHECKPOINTING --wait-for-input 3,4
   takode board set q-12 --clear-wait-for-input
   takode board set q-12 --worker 5 --wait-for q-7,#9
-  takode board advance q-12 --skip-optional-checkpoint "Alignment found no user-visible tradeoff"
+  takode board advance q-12 --skip-optional-checkpoint "Work confirmed the approved skip condition"
   takode board advance q-12
   takode board rm q-12
 `;
@@ -101,15 +101,15 @@ export const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <ses
 Add or update a board row for a quest. Use this to create the initial Journey; once a row already has a Journey, use takode board revise for phase-plan changes.
 
 Quest Journey phases:
-  --phases alignment,work,memory
-  --phases alignment,work,user-checkpoint,work,memory  # only for preset checkpoint pauses
+  --phases work,memory
+  --phases work,user-checkpoint,work,memory  # only for preset checkpoint pauses
   --journey-file <path|-> reads { phases: [{ id, note? }] } JSON for initial Journey creation
   --preset <id> labels the planned phase sequence; use with --phases
   --active-phase-position <n> pins the active occurrence for repeated phases using a 1-based phase position
   --wait-for-input links active rows to same-session needs-input notifications by ID (for example 3 or n-3)
   --clear-wait-for-input removes any existing linked needs-input wait state
 
-Quest Journey v2 has one active workflow: Alignment -> Work -> Memory. User Checkpoint is a durable pause/resume inside Work for decisions outside the approved envelope. Legacy v1 phase IDs are historical-read only and are rejected for new active rows.
+Quest Journey v2 has one active workflow: Work -> Memory. User Checkpoint is a durable pause/resume inside Work for decisions outside the approved envelope. Legacy v1 phase IDs are historical-read only and are rejected for new active rows.
 
 Zero-tracked-change work still ends in Memory. Work owns any necessary sync/push duties for tracked changes inside the approved envelope.
 `;
@@ -878,7 +878,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     if (fromPosition === undefined) err("--from-position is required.");
     if (fromPosition <= 0) err("--from-position must be a positive integer.");
     const expectedPhaseId =
-      typeof flags["expect-phase"] === "string" ? canonicalizeQuestJourneyPhaseId(flags["expect-phase"]) : null;
+      typeof flags["expect-phase"] === "string" ? canonicalizeKnownQuestJourneyPhaseId(flags["expect-phase"]) : null;
     if (!expectedPhaseId) err("--expect-phase must name a valid Journey phase.");
     if (typeof flags.phases === "string" && typeof flags["journey-file"] === "string") {
       err("Use either --phases or --journey-file, not both.");
@@ -904,7 +904,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       const invalid = getInvalidQuestJourneyPhaseIds(phases);
       if (invalid.length > 0) {
         err(
-          `Invalid Quest Journey phase(s): ${invalid.join(", ")} -- active v2 phases are alignment, work, user-checkpoint, and memory`,
+          `Invalid Quest Journey phase(s): ${invalid.join(", ")} -- new Journeys use work, user-checkpoint, and memory`,
         );
       }
       body.phases = normalizeQuestJourneyPhaseIds(phases);
@@ -953,7 +953,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     const isPromoteCommand = sub === "promote";
     const activePhasePosition = parseIntegerFlag(flags, "active-phase-position", "active phase position");
     if (flags["no-code"] === true || flags["code-change"] === true) {
-      err("Board no-code flags were removed. Use the active v2 Alignment -> Work -> Memory flow.");
+      err("Board no-code flags were removed. Use the active v2 Work -> Memory flow.");
     }
 
     const body: Record<string, unknown> = { questId };
@@ -1023,7 +1023,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       const invalid = getInvalidQuestJourneyPhaseIds(phases);
       if (invalid.length > 0) {
         err(
-          `Invalid Quest Journey phase(s): ${invalid.join(", ")} -- active v2 phases are alignment, work, user-checkpoint, and memory`,
+          `Invalid Quest Journey phase(s): ${invalid.join(", ")} -- new Journeys use work, user-checkpoint, and memory`,
         );
       }
       body.phases = normalizeQuestJourneyPhaseIds(phases);
@@ -1227,7 +1227,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
   }
 
   if (sub === "advance-no-groom") {
-    err("`takode board advance-no-groom` was removed. Use the active v2 Alignment -> Work -> Memory flow.");
+    err("`takode board advance-no-groom` was removed. Use the active v2 Work -> Memory flow.");
   }
 
   if (sub === "replace-work-evidence") {

@@ -15,7 +15,7 @@ This section is the visible reference catalog. Decide whether to open these file
 
 | Source | Read when | Skip when |
 |--------|-----------|-----------|
-| `references/edge-cases.md` | The dispatch involves human feedback rework, a stale worker/reviewer completion, user screenshots or generated image evidence, 413/payload-size recovery, user-facing links into unported worker/reviewer worktrees, or memory-specific handoff/completion deltas. | Routine quest creation, worker choice, initial Alignment dispatch, or ordinary phase advancement. |
+| `references/edge-cases.md` | The dispatch involves human feedback rework, a stale worker/reviewer completion, user screenshots or generated image evidence, 413/payload-size recovery, user-facing links into unported worker/reviewer worktrees, or memory-specific handoff/completion deltas. | Routine quest creation, worker choice, initial Work dispatch, or ordinary phase advancement. |
 | `references/phase-handoff-examples.md` | You need concrete wording for a v2 phase handoff, direct worker errand, Work rework instruction, User Checkpoint packet, Memory handoff, or separate review-quest dispatch. | You can write a short phase-explicit handoff or errand request from the current guidance and quest-specific deltas. |
 | `quest-design` | You are creating a quest, refining an `idea` quest, materially changing quest title/description/tags, or checking whether a true follow-up relationship needs approval and persistence. | The quest already exists/refined and you are only choosing a worker, advancing phases, or adding routine phase feedback. |
 | `leader-decision-communication` | You will publish a user-facing proposal, approval, choice, clarification, action request, or material status update. | The dispatch has no user-facing decision or action message. |
@@ -39,7 +39,7 @@ Keep the top-level checklist open for routine dispatch. Load references only whe
 - **Preserve source authority in every leader-authored worker context.** Apply this to quest text, on-behalf-of human feedback, initial dispatch, phase handoffs, corrections, recovery steering, and direct worker errands. Forward the user's requested outcome and corrections faithfully. Binding requirements may come only from the user's request or later explicit approval, applicable repository, Journey, or safety guidance, or a specific accepted contract. Keep the durable quest record self-contained with a faithful outcome summary. In later phase, correction, or recovery handoffs, name or link authority when it would not already be clear and point to accessible sources instead of restating them. Preserve genuinely useful factual, reproduction, dependency, scheduling, safety, and external-state context the worker cannot otherwise access, but keep context distinguishable from scope. Persistence, a leader label, or Alignment approval does not make a requirement user-approved.
 - **Do not promote leader synthesis into accepted scope.** Leader-inferred product behavior, implementation approaches, test seams, failure policies, validators, thresholds, and hard gates remain non-binding unless the user or an applicable authoritative source approved that exact requirement. When recording feedback on the user's behalf, keep the human-attributed entry to what the user expressed, using a minimal faithful outcome summary when needed. Put additional policy, contract, or factual context in separately attributed leader text and state its source and authority; keep leader analysis explicitly non-binding. Omit optional leader ideas by default. If a new choice would materially change scope, fidelity, effort, outcome, or acceptance and lacks existing authority, route it to the user.
 - **Keep handoffs natural and minimal.** Do not require a fixed heading, section, or empty-context marker. If the worker already has what it needs, a short phase authorization is enough. Otherwise add only genuinely useful context the worker cannot already access; do not restate available material or prescribe Work.
-- **Initial dispatch authorizes Alignment only.** The first worker message sends the Alignment brief and asks for a read-in; it does not authorize Work or Memory yet.
+- **Initial dispatch starts authorized Work.** Send the Work brief and quest/source pointers. Understanding and prerequisite checks happen inside Work. Do not require an initial report, stop, or leader acknowledgment; request a non-blocking read-in only when useful. Genuine authority decisions still pause dependent work.
 - **Fresh worker by default.** Reuse only when there is a real context advantage. A disconnected or idle worker is not automatically a good reuse target.
 - **User waits are scoped.** A `needs-input` prompt blocks only its owning thread, quest, or board row unless the visible prompt explicitly concerns safety, global orchestration, worker-slot scheduling, shared resources, or cross-quest dependency.
 - **New blocking prompt means new `needs-input`.** Call `takode notify needs-input` with the self-contained decision text in its body; existing unresolved prompts do not cover a separate decision.
@@ -105,7 +105,7 @@ Direct create/dispatch is allowed only when all of these are true:
 Even on direct dispatch:
 
 - Quests remain the unit of work; create/refine the quest with enough worker context.
-- Initial new-worker dispatch remains Alignment-only.
+- Initial new-worker dispatch authorizes Work within the approved quest envelope.
 - Write the Journey to the board before or with dispatch.
 - Work owns implementation, self-review, validation, sync/push duties when authorized, phase documentation, and transition-time structured code evidence; final Memory still applies and may attach only separate memory-repository commits.
 - Add a compact rationale only when the direct choice is non-obvious, for example: `direct dispatch: low-risk reversible docs/tests change; no external side effects`.
@@ -196,34 +196,29 @@ Never use `--no-worktree` unless the user explicitly asks for it or repo instruc
 
 Default to your own backend type unless the user specifies otherwise.
 
-## Alignment Dispatch
+## Work Dispatch
 
 Send this only after authorization and board recording:
 
 ```text
-Work on [q-XX](quest:q-XX). Load the quest skill first, then read the quest and claim it: `quest show q-XX && quest claim q-XX`.
+Work on [q-XX](quest:q-XX). Load the quest skill, read and claim the quest.
 
-Read this phase brief first:
-- `~/.companion/quest-journey-phases/alignment/assignee.md`
+Read this phase brief first: ~/.companion/quest-journey-phases/work/assignee.md
 
-Add or refresh the Alignment phase note with the concise read-in details. In final chat, point to that feedback index and include only blockers, surprises, or Journey-revision evidence that need immediate leader routing. Avoid broad implementation plans, exhaustive evidence inventories, routine file lists, long command/test details, and repeated quest history unless needed to explain a blocker or misunderstanding risk. After you send it, stop and wait for approval.
+Proceed within the approved envelope. Keep the Work note current and stop after the guarded Work-to-Memory transition.
 ```
 
-If the quest has unaddressed human feedback, add one sentence after the claim instruction:
+Point to exact user corrections, relevant memory, or other useful sources the worker cannot otherwise recover. For unaddressed human feedback, tell the worker to read and address it during Work. Do not repeat available context or prescribe a technical plan.
 
-```text
-The quest has unaddressed human feedback -- read it carefully and factor it into your alignment read-in.
-```
+The Work brief owns understanding, exception-based pauses and optional reports. Deliberately requested reports can use `takode worker-stream --text <report>` or `--text-file <path>|-`; receipt is informational and never requires acknowledgment. Do not add this report to every dispatch as boilerplate.
 
-Intent-first worker context belongs in the quest record or in exact source pointers. If relevant prior messages, quests, artifacts, or memory files are known, preserve those pointers so Alignment can inspect targeted sources instead of rediscovering broadly, without converting leader-authored analysis into a Work plan.
-
-If prior memory may matter, use visible memory reads. Either inspect the relevant memory files yourself for leader routing, or tell the worker the exact catalog/direct-file workflow and likely files or terms to inspect.
+Existing Alignment occurrences retain their original approval boundary and historical brief. Do not silently advance them or add new Alignment occurrences.
 
 ## Phase Handoffs
 
-After Alignment, the leader decides whether the compact verification packet matches the user's intent and authorizes entry into Work. Leaders own user intent and corrections, approved scope/Journey, checkpoint state, and genuine Journey revisions; workers own technical Work and the guarded Work -> Memory transition with synchronized selected-target SHAs or explicit zero-code evidence. Escalate to the user only for significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another real blocker.
+Initial dispatch already authorizes Work within the recorded envelope. Leaders own user intent and corrections, approved scope/Journey, checkpoint state, and genuine Journey revisions; workers own technical Work and the guarded Work -> Memory transition with synchronized selected-target SHAs or explicit zero-code evidence. Escalate to the user only for significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another real blocker.
 
-Do not convert the worker-authored Alignment note into a Work prompt. The worker already has the quest, source pointers, phase briefs, project guidance, and its own findings. After a clean Alignment, identify the Work assignee brief; when there is no new context, a short natural Work authorization is sufficient. When new context exists, add only genuinely useful facts the worker cannot already access and that originate from later user decisions, dependencies, scheduling, external state, safety, or authority. Write them naturally rather than requiring a dedicated context heading or empty marker. Their presence explains why the worker needs the context; it does not create acceptance scope. Do not restate the quest, generic phase duties, worker findings, likely approaches, or completion mechanics.
+Do not turn an informational worker report into a second technical Work prompt or routine acknowledgment loop. The worker owns its findings and source reading. Add only genuinely useful new context or corrections, preserving source authority; a report or its review does not create requirements.
 
 When an accepted outcome includes both design and implementation, a design-selection User Checkpoint pauses the same Work occurrence. Its visible packet must identify same-quest implementation, design-only closure, or a separate implementation successor. The leader records and applies the user-approved continuation and any approved scope expansion. If same-quest routing expands a previously design-only current quest, the leader revises the title when it still reads as design-only and updates the description/TLDR when they no longer cover the full approved design-and-build scope before clearing the wait and returning the quest to Work; final Memory is only the backstop. The leader updates the remaining Journey only when needed, clears the checkpoint wait, and returns the current quest to its assigned worker in Work. Same-quest routing continues implementation; design-only or successor routing closes the current quest's accepted scope before the guarded Work -> Memory transition. Apply the separation, reopening, and active-successor rules in `takode-orchestration/quest-journey.md`; the lifecycle guide and current phase briefs own the complete mechanics.
 
@@ -237,9 +232,9 @@ Every phase instruction must be phase-explicit:
 - Provide only genuinely useful context the assignee cannot infer from the phase brief, quest record, current artifacts, or its own context: accepted refs; user-approved or otherwise authoritative unusual scope boundaries and verification constraints; factual safety warnings; exact prior messages; files or memory decisions already inspected; explicit memory-writing assignments; later user decisions; cross-quest dependencies; external-state changes; scheduling constraints; or authority boundaries. Apply the source-authority rule above rather than creating new scope through this list. Do not pass synchronized Work SHAs in a Memory handoff merely so Memory can attach them; the guarded transition must already have done so.
 - Require phase documentation before reporting back.
 - Tell the assignee to keep the final chat handoff compact: point to the phase feedback index and include only the concise outcome/verdict plus urgent blockers, safety facts, or narrow phase-required exceptions.
-- Tell Alignment assignees to stop after the compact read-in.
+- Stop only at an actual decision boundary, guarded Work-to-Memory handoff, or the current retained historical phase boundary.
 
-After Alignment approval, Work is intentionally broader: the assigned worker may investigate, implement, self-review, run approved operations, sync/push when authorized, iterate, maintain the Work note, and use the worker-owned Work -> Memory transition when its guard conditions are satisfied. That transition requires exactly one fresh evidence mode: synchronized selected-target SHAs with `--commit` / `--commits`, or `--no-code` only for genuine zero-git-tracked-change Work. A direct approved optional `[work,user-checkpoint,memory]` suffix may add `--skip-optional-checkpoint <reason>` only after Work proves its concrete condition. Required or taken checkpoints must resume into later Work before Memory; revise the suffix before entering the checkpoint when necessary. Do not reintroduce embedded v1 review/Port/Execute handoffs. Independent review, when needed, is a separate quest.
+Within the dispatched envelope, Work is intentionally broad: the assigned worker may investigate, implement, self-review, run approved operations, sync/push when authorized, iterate, maintain the Work note, and use the worker-owned Work -> Memory transition when its guard conditions are satisfied. That transition requires exactly one fresh evidence mode: synchronized selected-target SHAs with `--commit` / `--commits`, or `--no-code` only for genuine zero-git-tracked-change Work. A direct approved optional `[work,user-checkpoint,memory]` suffix may add `--skip-optional-checkpoint <reason>` only after Work proves its concrete condition. Required or taken checkpoints must resume into later Work before Memory; revise the suffix before entering the checkpoint when necessary. Do not reintroduce embedded v1 review/Port/Execute handoffs. Independent review, when needed, is a separate quest.
 
 For recovery of an active Work occurrence, follow the canonical Work leader brief at `~/.companion/quest-journey-phases/work/leader.md`; it owns the complete rule, and recovery instructions must not narrow already-authorized Work.
 
@@ -249,7 +244,7 @@ Routine dispatch usually needs only:
 
 ```bash
 takode board show
-takode board set <quest-id> --worker <session> --phases alignment,work,memory
+takode board set <quest-id> --worker <session> --phases work,memory
 takode board promote <quest-id> --worker <session>
 takode board advance <quest-id>
 takode board work-to-memory <quest-id> --work-note <feedback-index> --commits "sha1,sha2"

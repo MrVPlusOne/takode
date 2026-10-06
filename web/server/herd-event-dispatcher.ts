@@ -1,4 +1,6 @@
 import { serverWorkAdmission } from "./server-work-admission.js";
+import { isCurrentWorkerReport } from "./worker-report-event.js";
+import { formatWorkerReport } from "../shared/worker-report.js";
 /**
  * Push-based event delivery for herded sessions.
  *
@@ -29,6 +31,7 @@ import type {
   TakodeEventType,
   BrowserIncomingMessage,
   TakodeHerdBatchSnapshot,
+  BoardRow,
 } from "./session-types.js";
 import { HERD_EVENT_LIFECYCLE_LABELS } from "../shared/herd-event-lifecycle.js";
 import { getHerdEventLifecycle } from "./herd-event-browser-metadata.js";
@@ -143,6 +146,7 @@ export interface WsBridgeHandle {
         claudeSdkAdapter?: unknown;
         cliInitReceived?: boolean;
         isGenerating?: boolean;
+        board?: Map<string, BoardRow>;
         pendingCodexInputs?: Array<{
           id: string;
           agentSource?: { sessionId: string };
@@ -855,6 +859,12 @@ export class HerdEventDispatcher {
   private getDeliverablePendingEntries(orchId: string, inbox: HerdInbox): InboxEntry[] {
     const deliverable: InboxEntry[] = [];
     for (const entry of this.getPendingEntries(inbox)) {
+      if (!isCurrentWorkerReport(entry.event, orchId, this.wsBridge.getSession(orchId)?.board)) {
+        this.markDeliveryHistoryStatus(inbox, entry, "suppressed");
+        inbox.entries = inbox.entries.filter((candidate) => candidate !== entry);
+        this.recomputeInboxWatermarks(inbox);
+        continue;
+      }
       const policy = this.getRestartPrepDeliveryPolicy(orchId, entry.event);
       if (policy.kind === "deliver") {
         if (entry.heldByRestartPrepOperationId) {
@@ -1422,6 +1432,7 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
       return statusLine;
     }
     case "worker_stream": {
+      if (evt.data.report) return formatWorkerReport(evt.data.questId!, evt.data.report, label);
       const duration = formatDuration(evt.data.duration_ms);
       const tools = formatToolCounts(evt.data.tools);
       const resultPreview =
@@ -1737,6 +1748,7 @@ function getStableHerdEventKey(event: TakodeEvent): string | null {
     return keyParts.map(stableKeyPart).join("|");
   }
   if (event.event === "worker_stream") {
+    if (event.data.report) return `worker_stream|${event.sessionId}|report|${event.data.report.id}`;
     const range = event.data.msgRange;
     if (!range) return null;
     return [

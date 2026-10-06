@@ -3,6 +3,7 @@ import { HerdEventMessage } from "../MessageBubble.js";
 import { CompactFeedActivity } from "../CompactFeedActivity.js";
 import { MOCK_SESSION_ID } from "./fixtures.js";
 import { Card, PlaygroundHerdEventDemo, Section } from "./shared.js";
+import { formatWorkerReport } from "../../../shared/worker-report.js";
 
 const ROUTINE_HERD_MESSAGES: ChatMessage[] = [
   {
@@ -121,6 +122,38 @@ export function PlaygroundHerdEventStates() {
       description="Worker events collapse to count-only activity, while expansion preserves lifecycle labels, navigation, and full original details."
     >
       <div className="space-y-4 max-w-3xl">
+        <Card label="Optional worker report: informational, no acknowledgment">
+          <div data-testid="playground-worker-report">
+            <HerdEventMessage
+              showTimestamp={false}
+              message={{
+                id: "herd-authored-report",
+                role: "user",
+                timestamp: Date.now(),
+                agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+                content:
+                  "1 event from 1 session\n\n" +
+                  formatWorkerReport(
+                    "q-901",
+                    {
+                      id: "worker-report:fixture",
+                      leaderSessionId: "playground-leader",
+                      journeyRunId: "run-fixture",
+                      phaseOccurrenceId: "run-fixture:p1",
+                      phasePosition: 1,
+                      boardCreatedAt: 1,
+                      feedbackIndex: 3,
+                      preview: "The compatibility check passed. Continuing within the approved scope.",
+                    },
+                    "#8",
+                  ),
+                takodeHerdEvents: [
+                  { event: "worker_stream", sessionId: "worker-8", sessionNum: 8, ts: Date.now(), routine: true },
+                ],
+              }}
+            />
+          </div>
+        </Card>
         <Card label="Routine worker events grouped as activity">
           <CompactFeedActivity
             segments={[{ kind: "worker_event", messages: ROUTINE_HERD_MESSAGES }]}

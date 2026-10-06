@@ -67,29 +67,26 @@ describe("quest and wait-for refs", () => {
 
 describe("active v2 phase catalog", () => {
   it("exposes only the v2 active phase library", () => {
-    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.id)).toEqual(["alignment", "work", "user-checkpoint", "memory"]);
+    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.id)).toEqual(["work", "user-checkpoint", "memory"]);
     // Active phases use semantic color names so their palette can change
     // without mutating the generic colors retained by historical v1 rows.
     expect(QUEST_JOURNEY_PHASES.map((phase) => ({ id: phase.id, color: phase.color }))).toEqual([
-      { id: "alignment", color: { name: "alignment", accent: "#0ea5e9" } },
       { id: "work", color: { name: "work", accent: "#4ade80" } },
       { id: "user-checkpoint", color: { name: "amber", accent: "#fbbf24" } },
       { id: "memory", color: { name: "memory", accent: "#8b5cf6" } },
     ]);
-    expect(DEFAULT_QUEST_JOURNEY_PHASE_IDS).toEqual(["alignment", "work", "memory"]);
-    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.boardState)).toEqual([
-      "PLANNING",
-      "WORKING",
-      "USER_CHECKPOINTING",
-      "MEMORY",
-    ]);
+    expect(DEFAULT_QUEST_JOURNEY_PHASE_IDS).toEqual(["work", "memory"]);
+    expect(QUEST_JOURNEY_PHASES.map((phase) => phase.boardState)).toEqual(["WORKING", "USER_CHECKPOINTING", "MEMORY"]);
   });
 
   it("rejects legacy phase ids for active plans while preserving known historical metadata", () => {
     expect(canonicalizeQuestJourneyPhaseId("work")).toBe("work");
     expect(canonicalizeQuestJourneyPhaseId("implement")).toBeNull();
     expect(canonicalizeQuestJourneyPhaseId("planning")).toBeNull();
-    expect(getInvalidQuestJourneyPhaseIds(["alignment", "implement", "memory"])).toEqual(["implement"]);
+    expect(getInvalidQuestJourneyPhaseIds(["alignment", "implement", "memory"])).toEqual(["alignment", "implement"]);
+    // Retired Alignment remains v2 history, not a legacy-v1 escape from completion guards.
+    expect(isLegacyQuestJourneyPhaseId("alignment")).toBe(false);
+    expect(getQuestJourneyPhase("alignment")?.color).toEqual({ name: "alignment", accent: "#0ea5e9" });
 
     expect(canonicalizeKnownQuestJourneyPhaseId("planning")).toBe("alignment");
     expect(canonicalizeKnownQuestJourneyPhaseId("implement")).toBe("implement");
@@ -127,9 +124,10 @@ describe("active v2 phase catalog", () => {
 
 describe("active Journey validation and normalization", () => {
   it("validates only active v2 phases for new plans", () => {
-    expect(validateQuestJourneyPhaseSequence(["alignment", "work", "memory"])).toBeUndefined();
+    expect(validateQuestJourneyPhaseSequence(["work", "memory"])).toBeUndefined();
+    expect(validateQuestJourneyPhaseSequence(["alignment", "work", "memory"])).toContain("retained only");
     expect(validateQuestJourneyPhaseSequence(["alignment", "implement", "memory"])).toContain(
-      "Legacy v1 phase IDs are historical-read only",
+      "legacy v1 phase IDs are historical-read only",
     );
     expect(validateQuestJourneyPersistedPhaseOccurrences(["alignment", "implement", "port"])).toBeUndefined();
     expect(validateQuestJourneyPersistedPhaseOccurrences(["alignment", "unknown"])).toContain("repair required");
@@ -138,8 +136,8 @@ describe("active Journey validation and normalization", () => {
   it("normalizes default v2 plans and checkpoint pause over Work", () => {
     expect(normalizeQuestJourneyPlan(undefined, "WORKING")).toMatchObject({
       presetId: "v2-work",
-      phaseIds: ["alignment", "work", "memory"],
-      activePhaseIndex: 1,
+      phaseIds: ["work", "memory"],
+      activePhaseIndex: 0,
       currentPhaseId: "work",
       nextLeaderAction: expect.stringContaining("Work note"),
     });
@@ -386,7 +384,7 @@ describe("durations and lifecycle mode", () => {
 
   it("returns current phase helpers", () => {
     const plan = { phaseIds: ["alignment", "work", "memory"], activePhaseIndex: 1, currentPhaseId: "work" } as const;
-    expect(normalizeQuestJourneyPhaseIds(["alignment", "work", "memory"])).toEqual(["alignment", "work", "memory"]);
+    expect(normalizeQuestJourneyPhaseIds(["alignment", "work", "memory"])).toEqual(["work", "memory"]);
     expect(getQuestJourneyCurrentPhaseIndex(plan, "WORKING")).toBe(1);
     expect(getQuestJourneyCurrentPhaseId(plan, "WORKING")).toBe("work");
   });

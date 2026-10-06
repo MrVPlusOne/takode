@@ -2,7 +2,7 @@
 
 Quest Journey v2 has one active workflow for quest-backed work:
 
-`alignment -> work -> memory`
+`work -> memory`
 
 `user-checkpoint` is a durable pause state for decisions inside the same Work occurrence. It is not a separate default phase handoff and does not create a new worker. Direct worker errands are not Quest Journey states; they are narrow one-turn, context-rich, read-only follow-ups handled by `leader-dispatch` and promoted to a normal quest if scope expands. Legacy v1 phase IDs such as `explore`, `implement`, `code-review`, `execute`, `outcome-review`, `port`, and `bookkeeping` are historical-read compatibility only. Do not dispatch or propose them for new active work.
 
@@ -14,7 +14,7 @@ Built-in phase directories are seeded into `~/.companion/quest-journey-phases/<p
 
 | Phase | Board State | Purpose |
 |-------|-------------|---------|
-| Alignment | `PLANNING` | Fresh worker gives a concise leader-verification read-in. The leader approves or corrects the authorization envelope once before Work. |
+| Retained Alignment | `PLANNING` | Existing occurrences preserve their pending approval and history. New Journeys start at Work. |
 | Work | `WORKING` | Assigned worker completes the authorized work end-to-end, syncs tracked changes, maintains one current Work note, and attaches synchronized target code SHAs or explicit zero-code evidence through the guarded transition. |
 | User Checkpoint | `USER_CHECKPOINTING` | Visible decision pause when Work needs user authority or judgment outside the approved envelope. The assigned worker resumes the current quest in Work to apply the approved routing; same-quest choices continue implementation. |
 | Memory | `MEMORY` | Final durable closure: memory triage/update/deferral, quest metadata/debrief/quiz/check hygiene, cleanup/follow-up routing, and quest completion. |
@@ -25,7 +25,7 @@ Historical v1 phase metadata remains available only so stored Quest Detail timel
 
 Before first dispatch, use `/leader-dispatch` to choose direct low-risk quest dispatch, pre-dispatch approval, delayed approval through User Checkpoint, or the narrower direct worker errand path. Direct quest dispatch is allowed only for clear, low-risk, reversible repo-local work with no material ambiguity, external side effect, security/privacy/global/shared-resource risk, product/policy choice, or user-level scheduling tradeoff.
 
-Initial dispatch authorizes Alignment only. After the worker's read-in, the leader either corrects/escalates or approves Work and Memory within a clear envelope. That envelope may include sync/push and approved operations, but it does not expand authority: project-specific safety, durable-data, permission, lease, cluster/job, credential/privacy/security, external-effect, strong verification, and no-force Git rules remain authoritative.
+Initial dispatch authorizes Work within the recorded quest envelope. The worker reads sources, checks prerequisites and resolves understanding within Work, pausing only for genuine ambiguity, blockers or missing authority. An optional report does not require acknowledgment. Existing Alignment occurrences are retained with their original approval boundary; do not insert new ones. Project safety, durable-data, permissions, leases, external effects, verification and Git rules still apply.
 
 ## Work
 
@@ -43,7 +43,7 @@ If an explicitly design-only quest gains implementation scope before completion,
 
 Before telling the user that a feature is implemented, available, or ready to test, verify the responsible implementation quest and state, accepted Work evidence, synchronized commit or artifact evidence, and any required activation, restart, or deployment state. A design selection, design-memory record, probe, or generic tool result is not delivery evidence. If that evidence is absent, say the feature is not yet delivered before attempting a test. When the accepted outcome still includes implementation or another delivery that requires commit, artifact, or activation evidence, perform the same check before Work enters Memory; design-only or investigation quests may enter Memory once their accepted non-implementation result and validation are complete.
 
-Independent review is no longer an embedded phase. When review materially reduces risk, create a separate quest with its own Alignment -> Work -> Memory flow.
+Independent review is no longer an embedded phase. When review materially reduces risk, create a separate quest with its own Work -> Memory flow.
 
 ## User Checkpoint
 
@@ -110,14 +110,14 @@ Memory must not edit project-tracked implementation files. Missing tracked work 
 Common v2 flow:
 
 ```bash
-takode board set q-12 --worker 5 --phases alignment,work,memory --preset v2-work
+takode board set q-12 --worker 5 --phases work,memory --preset v2-work
 takode board advance q-12
 takode board work-to-memory q-12 --work-note 3 --commits "abc1234,def5678"
 # Or, only when Work produced zero git-tracked changes:
 takode board work-to-memory q-12 --work-note 3 --no-code
 ```
 
-Use `takode board propose --summary ... --phases alignment,work,memory` when pre-dispatch approval should be durable on the board. Use `QUEUED --wait-for ...` only for pre-active scheduling/dependency waits. Use `--wait-for-input` only for active/proposed rows intentionally paused on a same-session needs-input notification.
+Use `takode board propose --summary ... --phases work,memory` when pre-dispatch approval should be durable on the board. Use `QUEUED --wait-for ...` only for pre-active scheduling/dependency waits. Use `--wait-for-input` only for active/proposed rows intentionally paused on a same-session needs-input notification.
 
 Legacy v1 phase IDs are rejected for new active rows and revisions. Existing persisted legacy rows, completed historical runs, phase notes, and timings remain readable exactly as stored so they can finish without a rewrite.
 

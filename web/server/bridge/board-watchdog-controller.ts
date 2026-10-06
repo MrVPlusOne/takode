@@ -10,7 +10,6 @@ import {
   isQuestWaitForBlockingState,
   normalizeQuestJourneyPlan,
   normalizeKnownQuestJourneyPhaseIds,
-  normalizeQuestJourneyPhaseIds,
   type BoardQueueWarning,
   type QuestJourneyPhaseId,
   type QuestJourneyPhaseTiming,
@@ -374,10 +373,14 @@ export function buildBoardCompletionSummary(rows: BoardRow[]): string {
   return `${rows.length} quests ready for review: ${rows.map((row) => row.questId).join(", ")}`;
 }
 
-function getBoardRowPhaseIds(row: Pick<BoardRow, "journey" | "noCode">): QuestJourneyPhaseId[] {
+function getBoardRowPhaseIds(row: Pick<BoardRow, "journey" | "noCode">, status?: string): QuestJourneyPhaseId[] {
   const explicitPhaseIds = normalizeKnownQuestJourneyPhaseIds(row.journey?.phaseIds);
   if (explicitPhaseIds.length > 0) return explicitPhaseIds;
-  return row.noCode === true ? [...LEGACY_NO_CODE_COMPAT_PHASE_IDS] : [...DEFAULT_QUEST_JOURNEY_PHASE_IDS];
+  if (row.noCode === true) return [...LEGACY_NO_CODE_COMPAT_PHASE_IDS];
+  // Old rows without an explicit plan still own their pending Alignment approval.
+  return status === "PLANNING"
+    ? ["alignment", ...DEFAULT_QUEST_JOURNEY_PHASE_IDS]
+    : [...DEFAULT_QUEST_JOURNEY_PHASE_IDS];
 }
 
 function normalizeBoardRowJourneyPlan(
@@ -387,7 +390,7 @@ function normalizeBoardRowJourneyPlan(
   return normalizeQuestJourneyPlan(
     {
       ...row.journey,
-      phaseIds: getBoardRowPhaseIds(row),
+      phaseIds: getBoardRowPhaseIds(row, status),
     },
     status,
   );
@@ -413,7 +416,7 @@ function hasBoardJourneyPhasePlanRevision(
 ): boolean {
   if (!existing || !incoming?.phaseIds) return false;
   return (
-    normalizeQuestJourneyPhaseIds(incoming.phaseIds).join("\0") !==
+    normalizeKnownQuestJourneyPhaseIds(incoming.phaseIds).join("\0") !==
     normalizeKnownQuestJourneyPhaseIds(existing.phaseIds).join("\0")
   );
 }
@@ -1221,7 +1224,7 @@ export function advanceBoardRowNoGroom(
 
   const previousState = row.status;
   return {
-    error: "The no-code board shortcut was removed. Use the active v2 Alignment -> Work -> Memory flow.",
+    error: "The no-code board shortcut was removed. Use the active v2 Work -> Memory flow.",
     previousState,
   };
 }

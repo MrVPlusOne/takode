@@ -701,6 +701,23 @@ export class WsBridge {
     return { ok: true, streamed: true, reason: "streamed", msgRange: range };
   }
 
+  /** Queue a recorded report without streaming its surrounding turn or ending Work. */
+  emitWorkerReportCheckpoint(
+    sessionId: string,
+    questId: string,
+    report: import("../shared/worker-report.js").WorkerReportReference,
+  ): boolean {
+    if (!this.herdEventDispatcher || !this.sessions.get(sessionId)?.isGenerating) return false;
+    this.emitTakodeEvent(sessionId, "worker_stream", {
+      reason: "report",
+      duration_ms: 0,
+      threadKey: questId,
+      questId,
+      report,
+    });
+    return true;
+  }
+
   /** Subscribe to takode events for a set of sessions. Returns an unsubscribe function.
    *  If sinceEventId is provided, immediately replays buffered events with id > sinceEventId. */
   subscribeTakodeEvents(

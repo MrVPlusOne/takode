@@ -52,13 +52,14 @@ describe("takode phase catalog route", () => {
     const body = (await res.json()) as { phases: Array<Record<string, unknown>> };
     expect(body.phases[0]).toEqual(
       expect.objectContaining({
-        id: "alignment",
-        label: "Alignment",
+        id: "work",
+        label: "Work",
         sourceType: "built-in",
-        assigneeBriefDisplayPath: "~/.companion/quest-journey-phases/alignment/assignee.md",
+        assigneeBriefDisplayPath: "~/.companion/quest-journey-phases/work/assignee.md",
       }),
     );
     expect(body.phases.map((phase) => phase.id)).not.toContain("port");
+    expect(body.phases.map((phase) => phase.id)).not.toContain("alignment");
     expect(body.phases.map((phase) => phase.id)).toContain("work");
     expect(body.phases.map((phase) => phase.id)).toContain("memory");
     expect(body.phases).toEqual(

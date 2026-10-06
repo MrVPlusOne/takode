@@ -2,15 +2,15 @@
 
 Keep actual handoffs shorter than these examples and include only genuinely useful context the worker cannot already access. Generic behavior belongs in the active phase briefs.
 
-## Alignment
+## Initial Work
 
 ```text
 Work on [q-XX](quest:q-XX). Load the quest skill first, then read and claim the quest: `quest show q-XX && quest claim q-XX`.
 
 Read this phase brief first:
-- `~/.companion/quest-journey-phases/alignment/assignee.md`
+- `~/.companion/quest-journey-phases/work/assignee.md`
 
-Add or refresh the Alignment phase note with the concise read-in details. In final chat, point to that feedback index and include only blockers, surprises, or Journey-revision evidence that need immediate leader routing. After you send it, stop and wait for Work authorization.
+Proceed within the authorized envelope. Keep the Work note current and stop after the guarded Work-to-Memory transition.
 
 ```
 
@@ -33,7 +33,7 @@ Do not claim or reopen a quest, write phase notes, mutate code/config/data/state
 ## Work
 
 ```text
-Alignment approved. Proceed with Work for [q-XX](quest:q-XX).
+Resume the authorized Work for [q-XX](quest:q-XX).
 
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/work/assignee.md`
@@ -82,9 +82,9 @@ When the worker cannot otherwise access a relevant debrief decision, memory file
 Work on [q-YY](quest:q-YY), a separate review quest for [q-XX](quest:q-XX).
 
 Read this phase brief first:
-- `~/.companion/quest-journey-phases/alignment/assignee.md`
+- `~/.companion/quest-journey-phases/work/assignee.md`
 
-Use the accepted Work note, target diff/commit range, and evidence listed below. Alignment should confirm the review objective and constraints, then stop for Work authorization.
+Use the accepted Work note, target diff/commit range, and evidence listed below. Read the review objective and constraints, then perform the authorized review within Work.
 
 Review target: <session, message range, Work note, commit range, artifact, or evidence>.
 ```
