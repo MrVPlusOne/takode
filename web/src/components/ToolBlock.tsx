@@ -202,7 +202,7 @@ export type ToolResultScope = "session" | "overrides-only";
 
 /** Live duration badge — shows a counting timer while the tool runs,
  *  then switches to the server-reported ground-truth duration on completion. */
-function ToolDurationBadge({
+export function ToolDurationBadge({
   toolUseId,
   sessionId,
   resultOverride,

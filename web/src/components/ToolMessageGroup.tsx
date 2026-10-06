@@ -27,8 +27,6 @@ interface ToolMessageGroupProps {
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope?: ToolResultScope;
   questLinkSurface?: QuestLinkSurface;
-  /** Inside a compact activity row the row already names the run, so list the items without a group header. */
-  flat?: boolean;
 }
 
 export function ToolMessageGroup(props: ToolMessageGroupProps) {
@@ -56,7 +54,6 @@ export function ToolMessageGroupContent({
   toolResultOverrides,
   toolResultScope = "session",
   questLinkSurface = "legacy",
-  flat = false,
 }: ToolMessageGroupProps) {
   const [open, setOpen] = useState(true);
   const iconType = getToolIcon(group.toolName);
@@ -74,7 +71,7 @@ export function ToolMessageGroupContent({
     questLinkSurface,
   };
 
-  if (group.mixedToolNames || flat) {
+  if (group.mixedToolNames) {
     return (
       <div className="flex flex-col gap-1.5" data-feed-block-id={getToolGroupFeedBlockId(group)}>
         {group.items.map((item, index) => (
@@ -136,7 +133,8 @@ export function ToolMessageGroupContent({
   );
 }
 
-function ToolMessageItem({
+/** One tool call; inside a compact activity line it renders only its details. */
+export function ToolMessageItem({
   item,
   sessionId,
   isCodexSession,
@@ -191,7 +189,14 @@ export function CompactToolMessageGroups({
 }: Omit<ToolMessageGroupProps, "group"> & {
   groups: ToolMsgGroup[];
 }) {
-  const items = groups.flatMap((group) => group.items);
+  const items = groups.flatMap((group) =>
+    group.items.map((item, index) => ({
+      ...item,
+      resultOverride: item.resultOverride ?? props.toolResultOverrides?.get(item.id),
+      ...(index === 0 ? { feedBlockId: getToolGroupFeedBlockId(group) } : {}),
+    })),
+  );
+  const toolItemsById = new Map(items.map((item) => [item.id, item]));
   const inlineNotifications = items.flatMap((item) => {
     if (item.name !== "Bash") return [];
     const match = parseTakodeNotifyCommand(String(item.input.command ?? ""));
@@ -203,11 +208,11 @@ export function CompactToolMessageGroups({
         items={items}
         sessionId={props.sessionId}
         containedMessageIds={groups.map((group) => group.firstId)}
-      >
-        {groups.map((group) => (
-          <ToolMessageGroupContent key={group.firstId} group={group} {...props} suppressNotificationMarker flat />
-        ))}
-      </CompactToolActivity>
+        renderDetails={(item) => {
+          const toolItem = toolItemsById.get(item.id);
+          return toolItem ? <ToolMessageItem item={toolItem} {...props} suppressNotificationMarker /> : null;
+        }}
+      />
       {props.interactionMode !== "read-only" &&
         inlineNotifications.map((notification, index) => (
           <div key={`${notification.messageId ?? "notify"}:${notification.category}:${index}`} className="mt-2">

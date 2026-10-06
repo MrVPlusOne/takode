@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useStore } from "../../store.js";
 import { groupMessages, type ToolMsgGroup } from "../../hooks/use-feed-model.js";
 import { NODE_REPL_TOOL_MESSAGES, NODE_REPL_TOOL_RESULTS } from "../../test-fixtures/node-repl-tools.js";
-import type { ChatMessage } from "../../types.js";
+import type { ChatMessage, ToolResultPreview } from "../../types.js";
 import { CompactFeedActivity } from "../CompactFeedActivity.js";
 import { CompactToolMessageGroups } from "../ToolMessageGroup.js";
 import { MOCK_SESSION_ID } from "./fixtures.js";
@@ -149,6 +150,196 @@ const WORKER_EVENTS: ChatMessage[] = [
   },
 ];
 
+// ─── Activity groups: only agent text splits them ───────────────────────────
+
+const ACTIVITY_SESSION_ID = "playground-activity-groups";
+const LIVE_ACTIVITY_SESSION_ID = "playground-activity-live";
+
+const ACTIVITY_THOUGHT: ChatMessage = {
+  id: "activity-thought",
+  role: "assistant",
+  content: "",
+  timestamp: Date.now() - 60_000,
+  contentBlocks: [
+    {
+      type: "thinking",
+      thinking:
+        "**Check where the preview falls back**\nThe 60-character cap makes long descriptions show the command.",
+    },
+  ],
+};
+
+// A realistic mixed run between two pieces of agent text: read, search, edit and test.
+const ACTIVITY_TOOLS: Array<{ id: string; name: string; input: Record<string, unknown> }> = [
+  { id: "activity-read", name: "Read", input: { file_path: "web/src/components/ToolBlock.tsx" } },
+  { id: "activity-grep", name: "Grep", input: { pattern: "getPreview(", path: "web/src" } },
+  {
+    id: "activity-callers",
+    name: "Bash",
+    input: { command: "rg -n 'getPreview(' src", description: "Find getPreview callers" },
+  },
+  { id: "activity-edit-1", name: "Edit", input: { file_path: "web/src/components/ToolBlock.tsx" } },
+  { id: "activity-edit-2", name: "Edit", input: { file_path: "web/src/components/ToolBlock.bash-preview.test.tsx" } },
+  {
+    id: "activity-test-1",
+    name: "Bash",
+    input: {
+      command: "bun --no-install x vitest run src/components/ToolBlock",
+      description: "Run focused ToolBlock tests",
+    },
+  },
+  { id: "activity-edit-3", name: "Edit", input: { file_path: "web/src/components/ToolBlock.bash-preview.test.tsx" } },
+  {
+    id: "activity-test-2",
+    name: "Bash",
+    input: {
+      command: "bun --no-install x vitest run src/components/ToolBlock",
+      description: "Run focused ToolBlock tests",
+    },
+  },
+  {
+    id: "activity-commit",
+    name: "Bash",
+    input: { command: "git commit -m 'fix(feed): prefer descriptions'", description: "Commit the description fix" },
+  },
+];
+
+function toolGroup(id: string, tools: typeof ACTIVITY_TOOLS): ToolMsgGroup {
+  return {
+    kind: "tool_msg_group",
+    toolName: tools[0]?.name ?? "Bash",
+    firstId: id,
+    mixedToolNames: tools.some((tool) => tool.name !== tools[0]?.name),
+    items: tools.map((tool) => ({ ...tool, messageId: id })),
+  };
+}
+
+function activityResult(id: string, durationSeconds: number, isError = false): ToolResultPreview {
+  return {
+    tool_use_id: id,
+    content: isError ? "FAIL  ToolBlock Bash previews > prefers a long description" : "ok",
+    is_error: isError,
+    total_size: 2,
+    is_truncated: false,
+    duration_seconds: durationSeconds,
+  };
+}
+
+const ACTIVITY_SEGMENTS = [
+  { kind: "thought" as const, messages: [ACTIVITY_THOUGHT] },
+  { kind: "tool" as const, groups: [toolGroup("activity-tools", ACTIVITY_TOOLS)] },
+];
+
+const SINGLE_ACTIVITY_GROUP = toolGroup("activity-single", [
+  {
+    id: "activity-single-bash",
+    name: "Bash",
+    input: {
+      command: "quest feedback add q-1 --kind comment --text 'User Checkpoint decision'",
+      description: "Record the decision, resume Work, and instruct the worker",
+    },
+  },
+]);
+
+const NO_IDS: string[] = [];
+
+/** Seed this fixture's own session results so lines show failed and finished states. */
+// Pass stable arrays: the effect re-seeds whenever they change identity.
+function useSeededActivityResults(sessionId: string, results: ToolResultPreview[], runningIds: string[] = NO_IDS) {
+  useEffect(() => {
+    useStore.setState((state) => ({
+      toolResults: new Map(state.toolResults).set(sessionId, new Map(results.map((r) => [r.tool_use_id, r]))),
+      toolStartTimestamps: new Map(state.toolStartTimestamps).set(
+        sessionId,
+        new Map(runningIds.map((id) => [id, Date.now() - 4_000])),
+      ),
+    }));
+  }, [sessionId, results, runningIds]);
+}
+
+const ACTIVITY_RESULTS = ACTIVITY_TOOLS.map((tool, index) =>
+  activityResult(tool.id, tool.name === "Bash" ? 3.8 : 0.1, index === 5),
+);
+
+function AgentText({ children }: { children: string }) {
+  return <p className="text-[14px] leading-relaxed text-cc-fg">{children}</p>;
+}
+
+function PlaygroundActivityConversation() {
+  useSeededActivityResults(ACTIVITY_SESSION_ID, ACTIVITY_RESULTS);
+  return (
+    <div className="space-y-2" data-testid="playground-activity-conversation">
+      <AgentText>
+        The collapsed header falls back to the raw command for long descriptions. Fixing that first.
+      </AgentText>
+      <CompactFeedActivity
+        segments={ACTIVITY_SEGMENTS}
+        sessionId={ACTIVITY_SESSION_ID}
+        isCodexSession={false}
+        activeCodexTerminalIds={new Set()}
+        onOpenCodexTerminal={() => {}}
+      />
+      <AgentText>Fixed and committed. Now recording the decision.</AgentText>
+      <CompactToolMessageGroups
+        groups={[SINGLE_ACTIVITY_GROUP]}
+        sessionId={ACTIVITY_SESSION_ID}
+        isCodexSession={false}
+        activeCodexTerminalIds={new Set()}
+        onOpenCodexTerminal={() => {}}
+      />
+      <AgentText>Recorded. The worker is resuming Work.</AgentText>
+    </div>
+  );
+}
+
+function PlaygroundExpandedActivityGroup() {
+  useSeededActivityResults(ACTIVITY_SESSION_ID, ACTIVITY_RESULTS);
+  return (
+    <div data-testid="playground-activity-expanded">
+      <CompactFeedActivity
+        segments={ACTIVITY_SEGMENTS}
+        sessionId={ACTIVITY_SESSION_ID}
+        isCodexSession={false}
+        activeCodexTerminalIds={new Set()}
+        onOpenCodexTerminal={() => {}}
+        defaultExpanded
+      />
+    </div>
+  );
+}
+
+/** A live group: the newest activity is running, and adding one rolls the oldest into "+N earlier". */
+function PlaygroundLiveActivityGroup() {
+  const [count, setCount] = useState(5);
+  const tools = useMemo(() => ACTIVITY_TOOLS.slice(0, count), [count]);
+  const results = useMemo(() => ACTIVITY_RESULTS.slice(0, count - 1), [count]);
+  const runningIds = useMemo(() => [ACTIVITY_TOOLS[count - 1].id], [count]);
+  useSeededActivityResults(LIVE_ACTIVITY_SESSION_ID, results, runningIds);
+  return (
+    <div className="space-y-3" data-testid="playground-activity-live">
+      <AgentText>Fixing that first.</AgentText>
+      <CompactFeedActivity
+        segments={[
+          { kind: "thought", messages: [ACTIVITY_THOUGHT] },
+          { kind: "tool", groups: [toolGroup("activity-live-tools", tools)] },
+        ]}
+        sessionId={LIVE_ACTIVITY_SESSION_ID}
+        isCodexSession={false}
+        activeCodexTerminalIds={new Set()}
+        onOpenCodexTerminal={() => {}}
+      />
+      <button
+        type="button"
+        disabled={count >= ACTIVITY_TOOLS.length}
+        onClick={() => setCount((current) => current + 1)}
+        className="rounded-md border border-cc-border px-2.5 py-1 text-xs text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg disabled:opacity-50"
+      >
+        Next activity arrives
+      </button>
+    </div>
+  );
+}
+
 function PlaygroundGrowingToolActivity() {
   const [count, setCount] = useState(7);
   return (
@@ -175,10 +366,19 @@ export function PlaygroundCompactToolActivityStates() {
   return (
     <Section
       title="Compact Tool Activity"
-      description="A single tool is one light row naming the tool; runs preview their first three tools and grow with the work; large or growing Bash/MCP groups use stable invocation counts with lossless expansion and no inner group header."
+      description="Only agent text splits activity: tools of any type, thoughts and routine worker events between two pieces of text form one group. A lone activity is one light line; a group is a card with a summary heading over a rolling window of its newest three activities, older ones folded into +N earlier. Expanding fills older lines in place, and every line opens to its own details."
     >
       <div className="space-y-4 max-w-3xl">
-        <Card label="Single described commands (light rows that open straight to details)">
+        <Card label="Conversation: agent text alternates with activity groups (collapsed)">
+          <PlaygroundActivityConversation />
+        </Card>
+        <Card label="Group expanded: older lines fill in above">
+          <PlaygroundExpandedActivityGroup />
+        </Card>
+        <Card label="Live group: newest activity running">
+          <PlaygroundLiveActivityGroup />
+        </Card>
+        <Card label="Single described commands (light lines that open straight to details)">
           <div className="space-y-2" data-testid="playground-single-command-chips">
             {SINGLE_DESCRIBED_COMMAND_GROUPS.map((group) => (
               <CompactToolMessageGroups

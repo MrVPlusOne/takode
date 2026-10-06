@@ -1250,7 +1250,8 @@ describe("CodexSubagentInspector", () => {
     render(<CodexSubagentInspector sessionId="session-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: /Schema probe, Working/ }));
-    const summary = await screen.findByText("Official reasoning details");
+    // The summary is a thought line inside the child's activity group.
+    const summary = await screen.findByRole("button", { name: "Show Thought: Verified official summary" });
     const back = screen.getByRole("button", {
       name: "Back to Codex subagent list",
     });

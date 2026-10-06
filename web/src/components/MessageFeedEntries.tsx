@@ -9,7 +9,7 @@ import type {
   ToolResultPreview,
 } from "../types.js";
 import { isSubagentToolName } from "../types.js";
-import { type FeedEntry, type SubagentBatch, type SubagentGroup, type ToolMsgGroup } from "../hooks/use-feed-model.js";
+import { type FeedEntry, type SubagentBatch, type SubagentGroup } from "../hooks/use-feed-model.js";
 import { HerdEventMessage, MessageBubble } from "./MessageBubble.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils/herd-event-parser.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon, type ToolResultScope } from "./ToolBlock.js";
@@ -43,7 +43,11 @@ import { DelegateTrace, extractDelegateId, useDelegateCommandTrace } from "./Del
 import { parseSubagentResultText, SubagentResult } from "./SubagentResult.js";
 import { isCompactToolActivityItem } from "./CompactToolActivity.js";
 import { ToolMessageGroup } from "./ToolMessageGroup.js";
-import { CompactFeedActivity, type CompactFeedActivitySegment } from "./CompactFeedActivity.js";
+import {
+  CompactFeedActivity,
+  isCompactThoughtMessage,
+  type CompactFeedActivitySegment,
+} from "./CompactFeedActivity.js";
 import { isCompactableHerdEventMessage } from "../utils/herd-event-classification.js";
 import { canGroupCodexReasoningDetails, isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
 import { CodexReasoningDetailGroup } from "./CodexReasoningDetail.js";
@@ -211,6 +215,32 @@ function isHerdEventEntry(entry: FeedEntry): entry is { kind: "message"; msg: Ch
 
 export function isCompactableHerdEventEntry(entry: FeedEntry): entry is { kind: "message"; msg: ChatMessage } {
   return isHerdEventEntry(entry) && isCompactableHerdEventMessage(entry.msg);
+}
+
+type CompactActivityKind = CompactFeedActivitySegment["kind"];
+
+function getCompactActivityKind(entry: FeedEntry): CompactActivityKind | null {
+  if (entry.kind === "tool_msg_group") return entry.items.every(isCompactToolActivityItem) ? "tool" : null;
+  if (entry.kind !== "message") return null;
+  if (isCompactThoughtMessage(entry.msg)) return "thought";
+  return isCompactableHerdEventEntry(entry) ? "worker_event" : null;
+}
+
+/** Add an entry to the group, extending the trailing segment when it has the same kind. */
+function appendCompactActivitySegment(
+  segments: CompactFeedActivitySegment[],
+  kind: CompactActivityKind,
+  entry: FeedEntry,
+): void {
+  const last = segments[segments.length - 1];
+  if (kind === "tool" && entry.kind === "tool_msg_group") {
+    if (last?.kind === "tool") last.groups.push(entry);
+    else segments.push({ kind: "tool", groups: [entry] });
+    return;
+  }
+  if (entry.kind !== "message" || kind === "tool") return;
+  if (last && last.kind === kind) last.messages.push(entry.msg);
+  else segments.push({ kind, messages: [entry.msg] });
 }
 
 function isThreadSystemMarkerMessage(message: ChatMessage): boolean {
@@ -674,50 +704,27 @@ export const FeedEntries = memo(function FeedEntries({
         i = timerBatch.nextIndex;
         continue;
       }
-      if (
-        compactToolActivity &&
-        ((entry.kind === "tool_msg_group" && entry.items.every(isCompactToolActivityItem)) ||
-          isCompactableHerdEventEntry(entry))
-      ) {
+      // Only agent text splits activity: tools, thoughts and routine worker
+      // events between two pieces of text form one compact activity group.
+      if (compactToolActivity && getCompactActivityKind(entry)) {
         const segments: CompactFeedActivitySegment[] = [];
-        let j = i + 1;
-        let pendingToolGroups: ToolMsgGroup[] = [];
-        let pendingHerdMessages: ChatMessage[] = [];
-        const flushToolGroups = () => {
-          if (pendingToolGroups.length > 0) segments.push({ kind: "tool", groups: pendingToolGroups });
-          pendingToolGroups = [];
-        };
-        const flushHerdMessages = () => {
-          if (pendingHerdMessages.length > 0) segments.push({ kind: "worker_event", messages: pendingHerdMessages });
-          pendingHerdMessages = [];
-        };
-        if (entry.kind === "tool_msg_group") pendingToolGroups.push(entry);
-        else pendingHerdMessages.push(entry.msg);
+        let j = i;
         while (j < entries.length) {
           const candidate = entries[j];
-          if (candidate.kind === "tool_msg_group" && candidate.items.every(isCompactToolActivityItem)) {
-            flushHerdMessages();
-            pendingToolGroups.push(candidate);
-            j++;
-            continue;
-          }
-          if (isCompactableHerdEventEntry(candidate)) {
-            flushToolGroups();
-            pendingHerdMessages.push(candidate.msg);
-            j++;
-            continue;
-          }
+          // Check visibility first: a hidden message (such as suppressed root
+          // Codex thinking) must neither join nor split the group.
           if (isInvisibleFeedEntry(candidate, suppressThreadSystemMarkers, assistantIsRenderable)) {
             j++;
             continue;
           }
-          break;
+          const kind = getCompactActivityKind(candidate);
+          if (!kind) break;
+          appendCompactActivitySegment(segments, kind, candidate);
+          j++;
         }
-        flushToolGroups();
-        flushHerdMessages();
         result.push(
           <CompactFeedActivity
-            key={`compact-activity:${entry.kind === "tool_msg_group" ? entry.firstId : entry.msg.id}`}
+            key={`compact-activity:${entry.kind === "tool_msg_group" ? entry.firstId : entry.kind === "message" ? entry.msg.id : i}`}
             segments={segments}
             sessionId={sessionId}
             isCodexSession={isCodexSession}

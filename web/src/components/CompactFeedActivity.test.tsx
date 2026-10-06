@@ -126,8 +126,14 @@ afterEach(() => {
   useStore.getState().reset();
 });
 
+function lineTexts(): string[] {
+  return screen.getAllByTestId("compact-tool-activity-line").map((line) => line.textContent ?? "");
+}
+
 describe("CompactFeedActivity", () => {
-  it("keeps lifecycle detail behind a count-only compact worker-event group", () => {
+  it("previews worker events by their header summary and keeps event bodies behind each line", () => {
+    // Each herd message is one line naming the session, event and lifecycle state;
+    // the full event body only renders when that line is opened.
     render(
       <CompactFeedActivity
         segments={[{ kind: "worker_event", messages: LIFECYCLE_MESSAGES }]}
@@ -140,16 +146,17 @@ describe("CompactFeedActivity", () => {
 
     const summary = screen.getByText("3 worker events");
     expect(summary.className).toContain("truncate");
-    expect(screen.queryByText(/waiting for decision; Work preserved/)).toBeNull();
-    expect(screen.queryByText(/same Work resumed after decision wait/)).toBeNull();
-    expect(screen.queryByText(/context compacted; same Work continued/)).toBeNull();
-    expect(screen.queryByText(/#2485/)).toBeNull();
+    expect(lineTexts()).toEqual([
+      "Event#2485 | turn_end | waiting for decision; Work preserved",
+      "Event#2485 | turn_end | same Work resumed after decision wait",
+      "Event#2485 | turn_end | context compacted; same Work continued",
+    ]);
+    expect(screen.queryByText(/turn complete 12s/)).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Show 3 activity items: 3 worker events" }));
-    expect(screen.getAllByText(/#2485/)).toHaveLength(3);
-    expect(screen.getByText(/waiting for decision; Work preserved/)).toBeTruthy();
-    expect(screen.getByText(/same Work resumed after decision wait/)).toBeTruthy();
-    expect(screen.getByText(/context compacted; same Work continued/)).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show Event: #2485 | turn_end | waiting for decision; Work preserved" }),
+    );
+    expect(screen.getByText(/turn complete 12s/)).toBeTruthy();
   });
 
   it("keeps producer-shaped worker-event counts beside a large tool-call fallback", () => {
@@ -168,18 +175,18 @@ describe("CompactFeedActivity", () => {
     );
 
     const summary = screen.getByRole("button", {
-      name: "Show 9 activity items: 7 tool calls, 2 worker events",
+      name: "Show all 9 activity items: 7 tool calls, 2 worker events",
     });
     expect(summary.getAttribute("aria-expanded")).toBe("false");
-    // Tool calls preview as short lines; worker events contribute no preview lines.
-    const preview = screen.getByTestId("compact-tool-activity-preview");
-    expect(preview.textContent).toContain("echo 1");
-    expect(preview.textContent).toContain("+4 more");
+    // The rolling window shows the newest three activities and folds the rest.
+    expect(screen.getByTestId("compact-tool-activity-earlier").textContent).toBe("+6 earlier");
+    expect(lineTexts()[0]).toBe("Bashecho 7");
     expect(screen.queryByText(/preserved recovery detail/)).toBeNull();
 
     fireEvent.click(summary);
-    expect(screen.getByText("echo 1")).toBeTruthy();
-    expect(screen.getByText("echo 7")).toBeTruthy();
+    expect(lineTexts()).toHaveLength(9);
+    expect(lineTexts()[0]).toBe("Bashecho 1");
+    fireEvent.click(screen.getByRole("button", { name: /^Show Event: #2486 \| session_error/ }));
     expect(screen.getByText(/preserved recovery detail/)).toBeTruthy();
   });
 
@@ -216,9 +223,12 @@ describe("CompactFeedActivity", () => {
     );
 
     expect(screen.getByText("Sent a message, ran command, 1 worker event")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Show 3 activity items/ }));
+    // The send line never previews the message body.
+    expect(lineTexts()[0]).toBe("SendSent a message");
+    expect(screen.queryByText(/takode send 17/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show Send: Sent a message" }));
     expect(screen.getByText(/takode send 17/)).toBeTruthy();
-    expect(screen.getByText("git status")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Show Event: #2485/ }));
     expect(screen.getByText(/completed the command run/)).toBeTruthy();
   });
 
@@ -272,11 +282,38 @@ describe("CompactFeedActivity", () => {
       />,
     );
 
-    expect(screen.getByText("Sent a message")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Show 1 tool call/ }));
-    const command = screen.getByText(/takode send 17/);
-    expect(command).toBeTruthy();
-    fireEvent.click(command.closest('[role="button"]')!);
+    expect(lineTexts()).toEqual(["SendSent a messagefailed"]);
+    fireEvent.click(screen.getByRole("button", { name: "Show Send: Sent a message" }));
+    expect(screen.getByText(/takode send 17/)).toBeTruthy();
     expect(screen.getByText("Cannot send to archived session #17.")).toBeTruthy();
+  });
+
+  it("folds thinking into the group as thought lines with the full text behind each line", () => {
+    // Only agent text splits activity groups, so thinking-only messages join the group.
+    const thought: ChatMessage = {
+      id: "thought-1",
+      role: "assistant",
+      content: "",
+      timestamp: 1_786_340_005_000,
+      contentBlocks: [{ type: "thinking", thinking: "**Check the flush path**\nThe replay gate starts it." }],
+    };
+    render(
+      <CompactFeedActivity
+        segments={[
+          { kind: "thought", messages: [thought] },
+          { kind: "tool", groups: [largeBashGroup(2)] },
+        ]}
+        sessionId="compact-feed-session"
+        isCodexSession={false}
+        activeCodexTerminalIds={new Set()}
+        onOpenCodexTerminal={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Thought, ran 2 commands")).toBeTruthy();
+    expect(lineTexts()).toEqual(["ThoughtCheck the flush path", "Bashecho 1", "Bashecho 2"]);
+    expect(screen.queryByText(/The replay gate starts it/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show Thought: Check the flush path" }));
+    expect(screen.getByText(/The replay gate starts it/)).toBeTruthy();
   });
 });

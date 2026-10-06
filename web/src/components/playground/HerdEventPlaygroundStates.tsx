@@ -163,7 +163,7 @@ export function PlaygroundHerdEventStates() {
             onOpenCodexTerminal={() => {}}
           />
         </Card>
-        <Card label="Lifecycle detail behind count-only grouping">
+        <Card label="Lifecycle summaries in a worker-event group">
           <CompactFeedActivity
             segments={[{ kind: "worker_event", messages: LIFECYCLE_HERD_MESSAGES }]}
             sessionId={MOCK_SESSION_ID}

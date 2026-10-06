@@ -180,8 +180,14 @@ describe("Playground", () => {
 
     const feed = within(screen.getByTestId("playground-codex-root-only-feed"));
     expect(feed.getByText("Show only the root agent's activity here.")).toBeInTheDocument();
-    expect(feed.getByTestId("codex-reasoning-detail-group")).toHaveTextContent("Confirming root-only activity");
-    expect(feed.getByText("2 summaries")).toBeInTheDocument();
+    // Root reasoning summaries join the root activity group as thought lines.
+    expect(feed.getByText("Thought, ran 2 commands")).toBeInTheDocument();
+    expect(feed.getByText("2 Thought")).toBeInTheDocument();
+    expect(
+      feed
+        .getAllByTestId("compact-tool-activity-line")
+        .some((line) => line.textContent?.includes("Confirming root-only")),
+    ).toBe(true);
     expect(feed.getAllByTestId("codex-live-terminal-chip")).toHaveLength(1);
     expect(feed.getByTestId("codex-live-terminal-chip")).toHaveTextContent("tail");
     expect(feed.queryByText("Child-only answer stays in the inspector.")).toBeNull();
@@ -196,17 +202,17 @@ describe("Playground", () => {
     fireEvent.click(within(inspector).getByRole("button", { name: /schema_audit, Working, Transcript available/i }));
 
     expect(await within(inspector).findByText("Child-only answer stays in the inspector.")).toBeInTheDocument();
-    const childReasoning = within(inspector).getByTestId("codex-reasoning-detail-group");
-    expect(childReasoning).toHaveTextContent("Checking child result");
-    expect(within(inspector).getByText("2 summaries")).toBeInTheDocument();
-    fireEvent.click(within(childReasoning).getByTestId("codex-reasoning-group-title"));
-    expect(within(childReasoning).getByText("This official summary belongs in the inspector.")).toBeInTheDocument();
+    // Child reasoning joins the child's activity group as thought lines, each opening to its full summary.
+    expect(within(inspector).getByText("2 Thought")).toBeInTheDocument();
+    fireEvent.click(within(inspector).getByRole("button", { name: "Show Thought: Child-only reasoning" }));
+    fireEvent.click(within(inspector).getByRole("button", { name: "Show Thought: Checking child result" }));
+    expect(within(inspector).getByText(/This official summary belongs in the inspector\./)).toBeInTheDocument();
     expect(
-      within(childReasoning).getByText("The exact child-owned result remains bounded and readable."),
+      within(inspector).getByText(/The exact child-owned result remains bounded and readable\./),
     ).toBeInTheDocument();
     expect(within(inspector).getByText("Child-only failure stays in the inspector.")).toHaveClass("text-cc-error");
-    // The lone child Read is one row naming its file; opening it shows the result directly.
-    fireEvent.click(within(inspector).getByRole("button", { name: /Show 1 tool call: .*src\/child-only\.ts/i }));
+    // The child Read is a line naming its file; opening it shows the result directly.
+    fireEvent.click(within(inspector).getByRole("button", { name: "Show Read: src/child-only.ts" }));
     expect(within(inspector).getByText("child-only tool result")).toBeInTheDocument();
   });
 
@@ -662,16 +668,16 @@ describe("Playground", () => {
     expect(realChat.getByText("Herd Events · turn_end")).toBeTruthy();
     expect(realChat.getByText("Herd Events · board_stalled")).toBeTruthy();
 
-    const lifecycleCard = screen.getByText("Lifecycle detail behind count-only grouping").closest(".border");
+    const lifecycleCard = screen.getByText("Lifecycle summaries in a worker-event group").closest(".border");
     expect(lifecycleCard).toBeTruthy();
     const lifecycle = within(lifecycleCard as HTMLElement);
     expect(lifecycle.getByText("4 worker events")).toBeTruthy();
-    expect(lifecycle.queryByText(/waiting for decision; Work preserved/)).toBeNull();
-    expect(lifecycle.queryByText(/same Work resumed after decision wait/)).toBeNull();
-    expect(lifecycle.queryByText(/context compacted; same Work continued/)).toBeNull();
-    expect(lifecycle.queryByText(/Work interrupted/)).toBeNull();
+    // The rolling window shows the newest three events by header summary and folds the oldest.
+    expect(lifecycle.getByTestId("compact-tool-activity-earlier")).toHaveTextContent("+1 earlier");
+    expect(lifecycle.getAllByTestId("compact-tool-activity-line")).toHaveLength(3);
 
-    fireEvent.click(lifecycle.getByRole("button", { name: "Show 4 activity items: 4 worker events" }));
+    fireEvent.click(lifecycle.getByRole("button", { name: "Show all 4 activity items: 4 worker events" }));
+    expect(lifecycle.getAllByTestId("compact-tool-activity-line")).toHaveLength(4);
     expect(lifecycle.getByText(/waiting for decision; Work preserved/)).toBeTruthy();
     expect(lifecycle.getByText(/same Work resumed after decision wait/)).toBeTruthy();
     expect(lifecycle.getByText(/context compacted; same Work continued/)).toBeTruthy();

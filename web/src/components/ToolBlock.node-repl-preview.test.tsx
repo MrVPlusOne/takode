@@ -32,17 +32,21 @@ describe("Node REPL call previews", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show 3 tool calls: Used node_repl:js" }));
-    // The compact row already names the run, so there is no inner "node_repl:js 3" group header.
+    // Each call is one line titled by its own description; the group has no inner "node_repl:js 3" header.
+    expect(screen.getAllByTestId("compact-tool-activity-line").map((line) => line.textContent)).toEqual([
+      "MCPRead the sample window",
+      "MCPInspect the sample page and summarize the available entries while preserving the complete descriptive title in the expanded input",
+      "MCPnode_repl:jsfailed",
+    ]);
     expect(screen.queryByRole("button", { name: /^node_repl:js\s*3$/ })).toBeNull();
-    const firstCall = screen.getByRole("button", { name: /^Read the sample window\s*1.4s$/ });
-    expect(screen.getByRole("button", { name: /Inspect the sample page.*18s/ })).toBeTruthy();
-    const failedCall = screen.getByRole("button", { name: /^node_repl:js\s*5.0s$/ });
-    fireEvent.click(firstCall);
+    // Opening a line shows its timing and full audit details.
+    fireEvent.click(screen.getByRole("button", { name: "Show MCP: Read the sample window" }));
+    expect(screen.getByText("1.4s")).toBeTruthy();
     const input = groups[0].items[0].input;
     expect(screen.getByText(JSON.stringify(input, null, 2), { normalizer: (text) => text })).toBeTruthy();
     expect(screen.getByText("Sample window")).toBeTruthy();
-    fireEvent.click(failedCall);
+    fireEvent.click(screen.getByRole("button", { name: "Show MCP: node_repl:js" }));
+    expect(screen.getByText("5.0s")).toBeTruthy();
     expect(screen.getByText("error")).toBeTruthy();
     expect(screen.getByText("Sample failure")).toBeTruthy();
   });

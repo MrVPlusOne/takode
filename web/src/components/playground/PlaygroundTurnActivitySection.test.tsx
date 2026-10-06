@@ -106,14 +106,15 @@ function assertDisclosureFlow(container: HTMLElement) {
   // Expanding each worker event retains its complete audit text in place and
   // does not add an answer or replace the turn's persistent control.
   for (const run of [runs[0]!, runs[1]!]) {
-    fireEvent.click(within(run).getByRole("button", { name: /^Show .*activity item/ }));
+    fireEvent.click(within(run).getByRole("button", { name: /^Show Event:/ }));
   }
   expect(within(runs[0]!).getByText(/Filter restoration checks passed\./)).toBeVisible();
   expect(within(runs[1]!).getByText(/Separate-list filter checks passed\./)).toBeVisible();
 
   // The post-answer tool batch remains inspectable rather than moving before the answers.
-  fireEvent.click(within(runs[2]!).getByRole("button", { name: /Show 2 tool calls/ }));
   expect(within(runs[2]!).getByText("inspect regression cases")).toBeVisible();
+  fireEvent.click(within(runs[2]!).getByRole("button", { name: /^Show .*: inspect regression cases$/ }));
+  expect(within(runs[2]!).getByRole("button", { name: /^Hide .*: inspect regression cases$/ })).toBeVisible();
   fireEvent.click(disclosure);
   expect(view.getByRole("button", { name: /Show turn activity/ })).toBe(disclosure);
   expect(document.activeElement).toBe(disclosure);

@@ -1428,7 +1428,7 @@ describe("MessageBubble - assistant messages", () => {
     render(<MessageBubble message={msg} sessionId="review-session" />);
 
     expect(screen.queryByText("Ran command")).toBeNull();
-    const row = screen.getByRole("button", { name: "Show 1 tool call: takode notify review" });
+    const row = screen.getByRole("button", { name: "Show Bash: takode notify review" });
     expect(screen.getAllByText("Ready for review")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Mark as reviewed" })).toBeTruthy();
 
@@ -1814,15 +1814,18 @@ describe("MessageBubble - content block grouping", () => {
     expect(screen.getByText("I will inspect the implementation.")).toBeTruthy();
     expect(screen.getByText("The focused tests pass.")).toBeTruthy();
     expect(screen.getByText("Read file, ran command, searched for compact")).toBeTruthy();
-    // Collapsed runs list their tools as short preview lines, not as chips.
-    const preview = screen.getByTestId("compact-tool-activity-preview");
-    expect(preview.textContent).toContain("bun test");
-    expect(screen.queryByText("a.ts")).toBeNull();
+    // A run of three hides nothing: each tool is a short line, and its chip
+    // details render only when that line is opened.
+    expect(screen.getAllByTestId("compact-tool-activity-line").map((line) => line.textContent)).toEqual([
+      "Read/a.ts",
+      "Bashbun test",
+      "Grepcompact in src",
+    ]);
+    expect(screen.queryByTestId("compact-tool-activity-earlier")).toBeNull();
+    expect(screen.getAllByText("bun test")).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole("button", { name: /Show 3 tool calls/ }));
-    expect(screen.queryByTestId("compact-tool-activity-preview")).toBeNull();
-    expect(screen.getByText("bun test")).toBeTruthy();
-    expect(screen.getByText("a.ts")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show Bash: bun test" }));
+    expect(screen.getAllByText("bun test")).toHaveLength(2);
   });
 
   it("counts producer-shaped large Bash and MCP runs without counting result state", () => {
@@ -1881,13 +1884,12 @@ describe("MessageBubble - content block grouping", () => {
     render(<MessageBubble message={msg} sessionId="large-tool-session" />);
 
     expect(screen.getByText("7 tool calls")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Show 7 tool calls: 7 tool calls" })).toBeTruthy();
-    // The collapsed run previews its first three calls and counts the rest.
-    const preview = screen.getByTestId("compact-tool-activity-preview");
-    expect(preview.textContent).toContain("echo 1");
-    expect(preview.textContent).toContain("+4 more");
+    expect(screen.getByRole("button", { name: "Show all 7 tool calls: 7 tool calls" })).toBeTruthy();
+    // The collapsed run shows its newest three calls and folds the rest.
+    expect(screen.getByTestId("compact-tool-activity-earlier").textContent).toBe("+4 earlier");
+    expect(screen.queryByText("echo 1")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Show 7 tool calls: 7 tool calls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show all 7 tool calls: 7 tool calls" }));
     expect(screen.getByText("echo 1")).toBeTruthy();
     expect(screen.getAllByText("slack:search_messages").length).toBeGreaterThan(0);
   });

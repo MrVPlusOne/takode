@@ -99,7 +99,7 @@ describe("MessageBubble mixed text and tool result rendering", () => {
 
     expect(screen.getByText("Searching the rendered routing evidence now.")).toBeTruthy();
     // The single tool is one row naming its query; opening it shows the result directly.
-    const toolRow = screen.getByRole("button", { name: "Show 1 tool call: recent thread fallback evidence" });
+    const toolRow = screen.getByRole("button", { name: "Show WebSearch: recent thread fallback evidence" });
     expect(screen.queryByText(/Recent Thread Fallback Evidence/)).toBeNull();
 
     fireEvent.click(toolRow);

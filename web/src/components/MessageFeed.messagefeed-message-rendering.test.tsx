@@ -723,18 +723,65 @@ describe("MessageFeed - message rendering", () => {
 
     expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
     expect(screen.getByText("Read file, ran command")).toBeTruthy();
-    // Collapsed runs show short preview lines; the chips stay hidden until expanded.
-    expect(screen.getByTestId("compact-tool-activity-preview").textContent).toContain("bun test");
-    expect(screen.queryByText("a.ts")).toBeNull();
+    // Each tool is a short line; its chip details stay hidden until that line is opened.
+    expect(screen.getAllByTestId("compact-tool-activity-line").map((line) => line.textContent)).toEqual([
+      "Read/src/a.ts",
+      "Bashbun test",
+    ]);
+    expect(screen.getAllByText("bun test")).toHaveLength(1);
     expect(screen.getByText("Everything passes.")).toBeTruthy();
     const compactRow = screen.getByTestId("compact-tool-activity").closest("[data-compact-tool-activity-row]");
     expect(compactRow).toBeTruthy();
     expect(compactRow?.querySelector(".rounded-full")).toBeNull();
     expect(compactRow?.closest(".turn-container")?.className).toContain("sm:space-y-3");
 
-    fireEvent.click(screen.getByRole("button", { name: /Show 2 tool calls/ }));
-    expect(screen.getByText("bun test")).toBeTruthy();
-    expect(screen.getByText("a.ts")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show Bash: bun test" }));
+    expect(screen.getAllByText("bun test")).toHaveLength(2);
+  });
+
+  it("lets only agent text split an activity group, folding thinking in as thought lines", () => {
+    // Thinking-only messages, and the thinking that precedes a tool in the same
+    // message, join the surrounding activity group instead of breaking it.
+    const sid = "test-compact-thought-run";
+    mockStoreValues.compactToolActivity = true;
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Inspect and verify" }),
+      makeMessage({
+        id: "think-read",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "thinking", thinking: "Plan the check" },
+          { type: "tool_use", id: "read-1", name: "Read", input: { file_path: "/src/a.ts" } },
+        ],
+      }),
+      makeMessage({
+        id: "tools-bash",
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "tool_use", id: "bash-1", name: "Bash", input: { command: "bun test" } }],
+      }),
+      makeMessage({
+        id: "think-only",
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "thinking", thinking: "Verify the result" }],
+      }),
+      makeMessage({ id: "a-final", role: "assistant", content: "Everything passes." }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
+    expect(screen.getByTestId("compact-tool-activity-earlier").textContent).toBe("+1 earlier");
+    fireEvent.click(screen.getByTestId("compact-tool-activity-earlier"));
+    expect(screen.getAllByTestId("compact-tool-activity-line").map((line) => line.textContent)).toEqual([
+      "ThoughtPlan the check",
+      "Read/src/a.ts",
+      "Bashbun test",
+      "ThoughtVerify the result",
+    ]);
+    expect(screen.getByText("Everything passes.")).toBeTruthy();
   });
 
   it("merges a mixed tool message with the following tool-only message", () => {
@@ -857,11 +904,15 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
     expect(screen.getByText("Ran command, 2 worker events")).toBeTruthy();
     expect(screen.queryByText(/tools: 5/)).toBeNull();
+    // Worker events are lines naming the session and event; their bodies stay behind each line.
+    expect(screen.getAllByTestId("compact-tool-activity-line").map((line) => line.textContent)).toEqual([
+      "Bashtakode scan 2444",
+      "Event#2444 | turn_end",
+      "Event#2444 | turn_end",
+    ]);
 
-    fireEvent.click(screen.getByRole("button", { name: /Show 3 activity items/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Show Event: #2444 | turn_end" })[0]);
 
-    expect(screen.getByText(/takode scan 2444/)).toBeTruthy();
-    expect(screen.getAllByText(/#2444/)).toHaveLength(2);
     expect(screen.getByText(/31\.3s.*tools: 5/)).toBeTruthy();
     expect(screen.getByText(/Low remains healthy/)).toBeTruthy();
     expect(screen.getByText("Worker is still healthy.")).toBeTruthy();
@@ -932,7 +983,7 @@ describe("MessageFeed - message rendering", () => {
 
     // A single compact tool is one light row naming its own command, not a generic "Ran command".
     expect(screen.queryByText("Ran command")).toBeNull();
-    const row = screen.getByRole("button", { name: /Show 1 tool call: takode notify review/ });
+    const row = screen.getByRole("button", { name: /Show Bash: takode notify review/ });
     expect(screen.getAllByText("Ready for review")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Mark as reviewed" })).toBeTruthy();
 

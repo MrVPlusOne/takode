@@ -1,17 +1,27 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useStore } from "../store.js";
+import type { ToolResultPreview } from "../types.js";
 import { parseTakodeBoardCommand } from "../utils/takode-tool-command.js";
 import { parseFileReadCommand } from "../utils/terminal-command-preview.js";
 import { isPureTakodeSendCommand } from "../utils/takode-send-command.js";
-import { getPreview, getToolIcon, getToolLabel, ToolBlockEmbeddedContext, ToolIcon } from "./ToolBlock.js";
+import { formatDuration, getPreview, getToolLabel, ToolBlockEmbeddedContext, ToolDurationBadge } from "./ToolBlock.js";
 import { summarizeWorkerEventActivity } from "../utils/herd-event-classification.js";
 
 export interface CompactToolActivityItem {
   id: string;
   name: string;
+  /**
+   * Tool input. A `thought` item carries its one-line preview in `text` (and
+   * `streaming` while it is being written); a `worker_event` item carries
+   * `eventCount` and an optional `summary` line.
+   */
   input: Record<string, unknown>;
   messageId?: string;
-  kind?: "tool" | "worker_event";
+  kind?: "tool" | "worker_event" | "thought";
+  /** Result owned by this item (e.g. a native child tool); replaces the stored session result. */
+  resultOverride?: ToolResultPreview;
+  /** Feed navigation anchor rendered on this item's line. */
+  feedBlockId?: string;
 }
 
 // Keep the fallback independent of viewport measurement so desktop/mobile and
@@ -19,8 +29,8 @@ export interface CompactToolActivityItem {
 const MAX_DESCRIPTIVE_TOOL_CALLS = 6;
 const MAX_DESCRIPTIVE_TOOL_CATEGORIES = 3;
 const MAX_DESCRIPTIVE_SUMMARY_LENGTH = 56;
-// Collapsed runs list at most this many tools before "+N more".
-const MAX_PREVIEW_LINES = 3;
+// A collapsed group shows only its newest activities; older ones fold into "+N earlier".
+const ROLLING_WINDOW_SIZE = 3;
 
 /** Return whether a tool can be safely hidden behind a passive activity summary. */
 export function isCompactToolActivityItem(item: CompactToolActivityItem): boolean {
@@ -46,6 +56,7 @@ interface ActivityCategory {
 
 function getActivityCategory(item: CompactToolActivityItem): string {
   if (item.kind === "worker_event") return "worker-event";
+  if (item.kind === "thought") return "thought";
   const name = item.name.toLowerCase();
   if (name === "bash") {
     if (isPureTakodeSendCommand(item.input.command)) return "worker-send";
@@ -97,10 +108,18 @@ function conciseValue(value: unknown): string | null {
   return normalized.length > 48 ? `${normalized.slice(0, 47)}…` : normalized;
 }
 
+function workerEventCount(item: CompactToolActivityItem): number {
+  const count = item.input.eventCount;
+  return typeof count === "number" && count > 0 ? count : 1;
+}
+
 function describeCategory(category: ActivityCategory): string {
   const count = category.items.length;
   const first = category.items[0];
-  if (category.key === "worker-event") return summarizeWorkerEventActivity(count);
+  if (category.key === "worker-event") {
+    return summarizeWorkerEventActivity(category.items.reduce((sum, item) => sum + workerEventCount(item), 0));
+  }
+  if (category.key === "thought") return "Thought";
   if (category.key === "worker-send") return count === 1 ? "Sent a message" : `Sent ${count} messages`;
   if (category.key === "read") return count === 1 ? "Read file" : "Read files";
   if (category.key === "command") return count === 1 ? "Ran command" : `Ran ${count} commands`;
@@ -117,6 +136,11 @@ function describeCategory(category: ActivityCategory): string {
     return subject ? `Searched web for ${subject}` : "Searched web";
   }
   return `Used ${getToolLabel(first.name)}`;
+}
+
+/** Categories that keep their own wording instead of joining the tool-call count. */
+function isSemanticCategory(key: string): boolean {
+  return key === "worker-event" || key === "worker-send" || key === "thought";
 }
 
 function lowercaseFirst(value: string): string {
@@ -148,9 +172,7 @@ export function summarizeToolActivity(items: CompactToolActivityItem[]): string 
   const uniqueItems = uniqueActivityItems(items);
   const categories = groupActivity(uniqueItems);
   const descriptiveSummary = joinSummaryParts(categories.map(describeCategory));
-  const ordinaryToolCategories = categories.filter(
-    (category) => category.key !== "worker-event" && category.key !== "worker-send",
-  );
+  const ordinaryToolCategories = categories.filter((category) => !isSemanticCategory(category.key));
   const ordinaryToolCallCount = ordinaryToolCategories.reduce((count, category) => count + category.items.length, 0);
   const ordinaryToolCategoryCount = ordinaryToolCategories.length;
 
@@ -160,7 +182,7 @@ export function summarizeToolActivity(items: CompactToolActivityItem[]): string 
 
   let includedToolCount = false;
   const countSummaryParts = categories.flatMap((category) => {
-    if (category.key === "worker-event" || category.key === "worker-send") return [describeCategory(category)];
+    if (isSemanticCategory(category.key)) return [describeCategory(category)];
     if (includedToolCount) return [];
     includedToolCount = true;
     return [formatToolCallCount(ordinaryToolCallCount)];
@@ -168,93 +190,298 @@ export function summarizeToolActivity(items: CompactToolActivityItem[]): string 
   return joinSummaryParts(countSummaryParts);
 }
 
-/** Return whether an item keeps a semantic summary instead of its own preview. */
-function hasSemanticSummary(item: CompactToolActivityItem): boolean {
-  const category = getActivityCategory(item);
-  return category === "worker-event" || category === "worker-send";
+interface LineStatus {
+  running: boolean;
+  failed: boolean;
+  durationSeconds?: number;
 }
 
-/** One-line description of a single tool, as its chip header would show it. */
-function previewLabel(item: CompactToolActivityItem): string {
+function itemKey(item: CompactToolActivityItem): string {
+  return `${item.kind ?? "tool"}:${item.id}`;
+}
+
+/** Short type label shown before each line, like the worker-preview card. */
+function lineLabel(item: CompactToolActivityItem): string {
+  if (item.kind === "thought") return "Thought";
+  if (item.kind === "worker_event") return "Event";
+  if (getActivityCategory(item) === "worker-send") return "Send";
+  if (item.name.startsWith("mcp:") || item.name === "mcp_tool_call") return "MCP";
+  return item.name;
+}
+
+function nonBlank(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** One-line description of an activity, as its own chip header would show it. */
+function linePreview(item: CompactToolActivityItem): string {
+  if (item.kind === "thought") return nonBlank(item.input.text) ?? "Thinking";
+  if (item.kind === "worker_event") {
+    return nonBlank(item.input.summary) ?? summarizeWorkerEventActivity(workerEventCount(item));
+  }
+  // A worker send's command carries the message body, so never preview it.
+  if (getActivityCategory(item) === "worker-send") return nonBlank(item.input.description) ?? "Sent a message";
   return getPreview(item.name, item.input) || getToolLabel(item.name);
 }
 
+/** Prose previews (descriptions, thoughts) read better in the UI font than in mono. */
+function isProsePreview(item: CompactToolActivityItem): boolean {
+  if (item.kind === "thought" || item.kind === "worker_event") return true;
+  if (getActivityCategory(item) === "worker-send") return true;
+  return item.name === "Bash" && nonBlank(item.input.description) != null;
+}
+
+/** Read every line's status once per group from the session's result maps. */
+function useLineStatuses(sessionId: string | undefined, items: CompactToolActivityItem[]): Map<string, LineStatus> {
+  const results = useStore((state) => (sessionId ? state.toolResults.get(sessionId) : undefined));
+  const startTimes = useStore((state) => (sessionId ? state.toolStartTimestamps.get(sessionId) : undefined));
+  return useMemo(() => {
+    const statuses = new Map<string, LineStatus>();
+    for (const item of items) {
+      if (item.kind === "thought") {
+        statuses.set(itemKey(item), { running: item.input.streaming === true, failed: false });
+        continue;
+      }
+      if (item.kind === "worker_event") {
+        statuses.set(itemKey(item), { running: false, failed: false });
+        continue;
+      }
+      const result = item.resultOverride ?? results?.get(item.id);
+      statuses.set(itemKey(item), {
+        running: !result && startTimes?.has(item.id) === true,
+        failed: result?.is_error === true,
+        durationSeconds: result?.duration_seconds,
+      });
+    }
+    return statuses;
+  }, [items, results, startTimes]);
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={`h-3 w-3 shrink-0 opacity-60 transition-transform ${open ? "rotate-90" : ""}`}
+    >
+      <path d="M6 4l4 4-4 4" />
+    </svg>
+  );
+}
+
+function PulseDot() {
+  return <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-cc-primary" />;
+}
+
+/**
+ * A run of agent activity between two pieces of agent text.
+ *
+ * One activity is a single light line. Several form a card: a summary heading
+ * over a rolling window of the newest activities, with older ones folded into
+ * "+N earlier". Expanding fills the older lines in above without moving the
+ * newest ones, and every line opens in place to its own details.
+ */
 export function CompactToolActivity({
   items,
   sessionId,
   containedMessageIds = [],
-  children,
+  renderDetails,
+  defaultExpanded = false,
 }: {
   items: CompactToolActivityItem[];
   sessionId?: string;
   containedMessageIds?: string[];
-  children: ReactNode;
+  /** Details for one opened line; rendered with no header of its own. */
+  renderDetails: (item: CompactToolActivityItem) => ReactNode;
+  defaultExpanded?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [openKeys, setOpenKeys] = useState<ReadonlySet<string>>(() => new Set());
   const expandTargetId = useStore((state) => (sessionId ? state.expandAllInTurn.get(sessionId) : undefined));
   const uniqueItems = useMemo(() => uniqueActivityItems(items), [items]);
   const summary = useMemo(() => summarizeToolActivity(uniqueItems), [uniqueItems]);
-  // Collapsed rows grow with the run: a lone tool is one light line showing its
-  // own description, and a run lists its first few tools under the summary, so
-  // more work reads as more weight without opening anything.
-  const single = uniqueItems.length === 1 && !hasSemanticSummary(uniqueItems[0]);
-  const previewItems = useMemo(
-    () => (single ? [] : uniqueItems.filter((item) => item.kind !== "worker_event" && !hasSemanticSummary(item))),
-    [single, uniqueItems],
-  );
-  const label = single ? previewLabel(uniqueItems[0]) : summary;
-  const iconType = getToolIcon(items[0]?.name ?? "");
-  const itemCount = uniqueItems.length;
-  const itemKindLabel = uniqueItems.some((item) => item.kind === "worker_event")
-    ? `activity item${itemCount === 1 ? "" : "s"}`
-    : `tool call${itemCount === 1 ? "" : "s"}`;
+  const statuses = useLineStatuses(sessionId, uniqueItems);
 
   useEffect(() => {
-    if (expandTargetId && containedMessageIds.includes(expandTargetId)) setOpen(true);
-  }, [containedMessageIds, expandTargetId]);
+    if (!expandTargetId || !containedMessageIds.includes(expandTargetId)) return;
+    setExpanded(true);
+    if (uniqueItems.length === 1) setOpenKeys(new Set([itemKey(uniqueItems[0])]));
+  }, [containedMessageIds, expandTargetId, uniqueItems]);
 
   if (uniqueItems.length === 0) return null;
 
+  const toggleLine = (key: string) =>
+    setOpenKeys((current) => {
+      const next = new Set(current);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  const hiddenCount = expanded ? 0 : Math.max(0, uniqueItems.length - ROLLING_WINDOW_SIZE);
+  const lines = uniqueItems.slice(hiddenCount).map((item) => {
+    const key = itemKey(item);
+    return (
+      <ActivityLine
+        key={key}
+        item={item}
+        sessionId={sessionId}
+        status={statuses.get(key)}
+        open={openKeys.has(key)}
+        onToggle={() => toggleLine(key)}
+        renderDetails={renderDetails}
+      />
+    );
+  });
+
+  if (uniqueItems.length === 1) return <div data-testid="compact-tool-activity">{lines}</div>;
+
   return (
-    <div data-testid="compact-tool-activity">
+    <div
+      data-testid="compact-tool-activity"
+      className="w-full max-w-2xl rounded-lg border border-cc-border/70 bg-cc-card/60 px-1.5 py-1"
+    >
+      <ActivityHeading
+        items={uniqueItems}
+        statuses={statuses}
+        summary={summary}
+        collapsible={uniqueItems.length > ROLLING_WINDOW_SIZE}
+        expanded={expanded}
+        onToggle={() => setExpanded((current) => !current)}
+      />
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="flex h-5 w-full items-center rounded pl-[27px] text-left text-[11px] text-cc-muted/70 hover:text-cc-fg cursor-pointer"
+          data-testid="compact-tool-activity-earlier"
+        >
+          +{hiddenCount} earlier
+        </button>
+      )}
+      {lines}
+    </div>
+  );
+}
+
+function ActivityHeading({
+  items,
+  statuses,
+  summary,
+  collapsible,
+  expanded,
+  onToggle,
+}: {
+  items: CompactToolActivityItem[];
+  statuses: Map<string, LineStatus>;
+  summary: string;
+  collapsible: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const lineStatuses = items.map((item) => statuses.get(itemKey(item)));
+  const running = lineStatuses.some((status) => status?.running);
+  const failedCount = lineStatuses.filter((status) => status?.failed).length;
+  const knownDurations = lineStatuses.flatMap((status) =>
+    status?.durationSeconds != null ? [status.durationSeconds] : [],
+  );
+  const totalSeconds = knownDurations.reduce((sum, seconds) => sum + seconds, 0);
+  // Per-type counts only add information when the group mixes activity types.
+  const typeCounts = new Map<string, number>();
+  for (const item of items) typeCounts.set(lineLabel(item), (typeCounts.get(lineLabel(item)) ?? 0) + 1);
+  const itemKindLabel = items.some((item) => item.kind === "worker_event") ? "activity items" : "tool calls";
+
+  const content = (
+    <>
+      {collapsible ? <Chevron open={expanded} /> : <span className="w-3 shrink-0" />}
+      {running && <PulseDot />}
+      <span className="min-w-0 truncate text-cc-fg/85">{summary}</span>
+      <span className="flex-1" />
+      {failedCount > 0 && <span className="shrink-0 text-[10px] text-cc-error">{failedCount} failed</span>}
+      {typeCounts.size > 1 && (
+        <span className="hidden shrink-0 gap-2 font-mono-code text-[10px] text-cc-muted sm:flex">
+          {[...typeCounts].map(([label, count]) => (
+            <span key={label}>
+              {count} {label}
+            </span>
+          ))}
+        </span>
+      )}
+      {!running && knownDurations.length > 0 && (
+        <span className="shrink-0 text-[10px] tabular-nums text-cc-muted">{formatDuration(totalSeconds)}</span>
+      )}
+    </>
+  );
+  const className = "flex h-6 w-full min-w-0 items-center gap-1.5 rounded px-1 text-left text-[12px] text-cc-muted";
+  if (!collapsible) return <div className={className}>{content}</div>;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      aria-label={`${expanded ? "Hide" : "Show"} all ${items.length} ${itemKindLabel}: ${summary}`}
+      className={`${className} hover:bg-cc-hover/50 cursor-pointer`}
+    >
+      {content}
+    </button>
+  );
+}
+
+function ActivityLine({
+  item,
+  sessionId,
+  status,
+  open,
+  onToggle,
+  renderDetails,
+}: {
+  item: CompactToolActivityItem;
+  sessionId?: string;
+  status?: LineStatus;
+  open: boolean;
+  onToggle: () => void;
+  renderDetails: (item: CompactToolActivityItem) => ReactNode;
+}) {
+  const label = lineLabel(item);
+  const preview = linePreview(item);
+  const failed = status?.failed === true;
+  const running = status?.running === true;
+  const isTool = item.kind !== "thought" && item.kind !== "worker_event";
+  return (
+    <div data-testid="compact-tool-activity-line" data-feed-block-id={item.feedBlockId}>
       <button
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={onToggle}
         aria-expanded={open}
-        aria-label={`${open ? "Hide" : "Show"} ${itemCount} ${itemKindLabel}: ${label}`}
-        title={single ? label : `${open ? "Hide" : "Show"} ${itemCount} ${itemKindLabel}`}
-        className="group flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12px] text-cc-muted transition-colors hover:bg-cc-hover/50 hover:text-cc-fg cursor-pointer"
+        aria-label={`${open ? "Hide" : "Show"} ${label}: ${preview}`}
+        title={preview}
+        className={`group flex h-6 w-full min-w-0 items-center gap-1.5 rounded px-1 text-left text-[12px] hover:bg-cc-hover/50 cursor-pointer ${open ? "bg-cc-hover/40" : ""}`}
       >
-        <svg
-          viewBox="0 0 16 16"
-          fill="currentColor"
-          className={`h-3 w-3 shrink-0 opacity-60 transition-transform ${open ? "rotate-90" : ""}`}
-        >
-          <path d="M6 4l4 4-4 4" />
-        </svg>
-        <span className="opacity-65">
-          <ToolIcon type={iconType} />
+        <span className="text-cc-muted">
+          <Chevron open={open} />
         </span>
-        <span className={single ? "truncate font-mono-code" : "truncate text-cc-fg/80"}>{label}</span>
-      </button>
-      {!open && previewItems.length > 0 && (
-        <div
-          className="ml-[13px] mb-0.5 space-y-0.5 border-l border-cc-border/70 pl-[18px]"
-          data-testid="compact-tool-activity-preview"
+        <span
+          className={`min-w-[2.25rem] shrink-0 font-mono-code text-[11px] ${
+            failed ? "text-cc-error" : isTool ? "text-cc-primary/80" : "text-cc-muted"
+          }`}
         >
-          {previewItems.slice(0, MAX_PREVIEW_LINES).map((item, index) => (
-            <div key={item.id || index} className="truncate font-mono-code text-[11px] text-cc-muted/80">
-              {previewLabel(item)}
-            </div>
-          ))}
-          {previewItems.length > MAX_PREVIEW_LINES && (
-            <div className="text-[11px] text-cc-muted/60">+{previewItems.length - MAX_PREVIEW_LINES} more</div>
-          )}
-        </div>
-      )}
+          {label}
+        </span>
+        <span
+          className={`min-w-0 flex-1 truncate ${isProsePreview(item) ? "" : "font-mono-code text-[11px]"} ${
+            open ? "text-cc-fg" : "text-cc-muted group-hover:text-cc-fg"
+          }`}
+        >
+          {preview}
+        </span>
+        {running && <PulseDot />}
+        {/* Live time while running; an opened line also shows its final duration. */}
+        {(running || open) && isTool && sessionId && (
+          <ToolDurationBadge toolUseId={item.id} sessionId={sessionId} resultOverride={item.resultOverride} />
+        )}
+        {failed && <span className="shrink-0 text-[10px] text-cc-error">failed</span>}
+      </button>
       {open && (
-        <div className="mt-1.5 space-y-2 border-l border-cc-border/70 pl-3" data-activity-details>
-          <ToolBlockEmbeddedContext.Provider value={single}>{children}</ToolBlockEmbeddedContext.Provider>
+        <div className="mb-1 ml-[22px] mt-1 min-w-0">
+          <ToolBlockEmbeddedContext.Provider value>{renderDetails(item)}</ToolBlockEmbeddedContext.Provider>
         </div>
       )}
     </div>

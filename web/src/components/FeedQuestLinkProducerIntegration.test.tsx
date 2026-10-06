@@ -201,7 +201,9 @@ describe("chat-feed quest-link producer forwarding", () => {
         },
       }),
     ]);
-    fireEvent.click(screen.getByTestId("codex-reasoning-detail-group").querySelector("summary")!);
+    // Reasoning summaries are thought lines in an activity group; each opens to its Markdown.
+    fireEvent.click(screen.getByRole("button", { name: "Show Thought: First producer summary" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show Thought: Second producer summary" }));
     expectPreview("q-309");
     expectPreview("q-310");
     cleanup();

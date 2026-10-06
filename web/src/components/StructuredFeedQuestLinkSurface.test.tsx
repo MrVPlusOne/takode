@@ -234,8 +234,8 @@ describe("structured chat-feed quest-link producers", () => {
       />,
     );
 
-    // Opening a single-tool row shows the tool's details directly.
-    fireEvent.click(screen.getByRole("button", { name: /Show 1 tool call/i }));
+    // Opening a single-tool line shows the tool's details directly.
+    fireEvent.click(screen.getByRole("button", { name: /^Show ExitPlanMode:/ }));
     expectPreview("q-210");
   });
 

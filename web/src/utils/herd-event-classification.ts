@@ -103,16 +103,20 @@ export function isCompactableHerdEventMessage(message: ChatMessage): boolean {
   return eventTypes.every((eventType) => !DECISION_EVENT_TYPES.has(eventType));
 }
 
+/** One compact activity item per herd message; a lone event also carries its header summary. */
 export function makeWorkerEventActivityItems(messages: ChatMessage[]) {
-  return messages.flatMap((message) =>
-    Array.from({ length: Math.max(getHerdEventCount(message), 1) }, (_, index) => ({
-      id: `${message.id}:worker-event:${index}`,
+  return messages.map((message) => {
+    const events = parseHerdEvents(message.content);
+    const eventCount = Math.max(getHerdEventCount(message), 1);
+    const summary = eventCount === 1 && events[0] ? getHerdEventHeaderSummary(events[0].header) : undefined;
+    return {
+      id: `${message.id}:worker-event`,
       name: "SendMessage",
       kind: "worker_event" as const,
-      input: {},
+      input: { eventCount, ...(summary ? { summary } : {}) },
       messageId: message.id,
-    })),
-  );
+    };
+  });
 }
 
 export function getHerdEventLifecycles(message: ChatMessage): TakodeHerdEventLifecycle[] {

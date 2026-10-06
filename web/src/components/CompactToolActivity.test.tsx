@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useStore } from "../store.js";
+import type { ToolResultPreview } from "../types.js";
 import {
   CompactToolActivity,
   isCompactToolActivityItem,
@@ -29,6 +31,20 @@ function mcpItems(count: number): CompactToolActivityItem[] {
     input: { query: `query ${index + 1}` },
   }));
 }
+
+const renderDetails = (item: CompactToolActivityItem) => <div>details for {item.id}</div>;
+
+function lineTexts(): string[] {
+  return screen.getAllByTestId("compact-tool-activity-line").map((line) => line.textContent ?? "");
+}
+
+function toolResult(id: string, overrides: Partial<ToolResultPreview>): ToolResultPreview {
+  return { tool_use_id: id, content: "", is_error: false, total_size: 0, is_truncated: false, ...overrides };
+}
+
+beforeEach(() => {
+  useStore.setState({ toolResults: new Map(), toolStartTimestamps: new Map(), expandAllInTurn: new Map() });
+});
 
 describe("CompactToolActivity", () => {
   it("summarizes a mixed run by intent instead of exposing command previews", () => {
@@ -147,52 +163,42 @@ describe("CompactToolActivity", () => {
     expect(summarizeToolActivity([...items, { ...items[0] }])).toBe("7 tool calls");
   });
 
-  it("keeps full tool details hidden until the summary is expanded", () => {
-    // This verifies the core quiet-view contract: concise by default, with lossless details one click away.
-    render(
-      <CompactToolActivity items={MIXED_ACTIVITY}>
-        <div>Full command and result details</div>
-      </CompactToolActivity>,
-    );
+  it("keeps full tool details hidden until a line is opened", () => {
+    // Core quiet-view contract: concise by default, with lossless details one click away.
+    // Each line opens in place to its own details.
+    render(<CompactToolActivity items={MIXED_ACTIVITY} renderDetails={renderDetails} />);
 
     expect(screen.getByText("Read files, ran command, searched for quietMode")).toBeTruthy();
-    expect(screen.queryByText("Full command and result details")).toBeNull();
+    expect(screen.queryByText("details for grep-1")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Show 4 tool calls/ }));
-    expect(screen.getByText("Full command and result details")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Hide 4 tool calls/ }).getAttribute("aria-expanded")).toBe("true");
+    const line = screen.getByRole("button", { name: "Show Grep: quietMode in src" });
+    fireEvent.click(line);
+    expect(screen.getByText("details for grep-1")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Hide Grep: quietMode in src" }).getAttribute("aria-expanded")).toBe(
+      "true",
+    );
   });
 
   it("updates a large active run as new tool calls arrive", () => {
-    // Re-rendering with the producer's append-only active items should advance the visible count immediately.
-    const { rerender } = render(
-      <CompactToolActivity items={bashItems(7)}>
-        <div>Seven command details</div>
-      </CompactToolActivity>,
-    );
+    // Re-rendering with the producer's append-only active items should advance the count and roll the window.
+    const { rerender } = render(<CompactToolActivity items={bashItems(7)} renderDetails={renderDetails} />);
     expect(screen.getByText("7 tool calls")).toBeTruthy();
+    expect(screen.getByTestId("compact-tool-activity-earlier").textContent).toBe("+4 earlier");
 
-    rerender(
-      <CompactToolActivity items={bashItems(8)}>
-        <div>Eight command details</div>
-      </CompactToolActivity>,
-    );
+    rerender(<CompactToolActivity items={bashItems(8)} renderDetails={renderDetails} />);
     expect(screen.getByText("8 tool calls")).toBeTruthy();
     expect(screen.queryByText("7 tool calls")).toBeNull();
+    expect(lineTexts()).toEqual(["Bashecho 6", "Bashecho 7", "Bashecho 8"]);
+    expect(screen.getByTestId("compact-tool-activity-earlier").textContent).toBe("+5 earlier");
   });
 
   it("keeps every large-run detail available after expansion", () => {
-    render(
-      <CompactToolActivity items={bashItems(7)}>
-        {bashItems(7).map((item) => (
-          <div key={item.id}>{String(item.input.command)} result</div>
-        ))}
-      </CompactToolActivity>,
-    );
+    render(<CompactToolActivity items={bashItems(7)} renderDetails={renderDetails} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /Show 7 tool calls/ }));
-    expect(screen.getByText("echo 1 result")).toBeTruthy();
-    expect(screen.getByText("echo 7 result")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show all 7 tool calls: 7 tool calls" }));
+    expect(lineTexts()).toHaveLength(7);
+    fireEvent.click(screen.getByRole("button", { name: "Show Bash: echo 1" }));
+    expect(screen.getByText("details for bash-1")).toBeTruthy();
   });
 
   it("labels mixed worker-event activity without calling every item a tool call", () => {
@@ -200,70 +206,114 @@ describe("CompactToolActivity", () => {
       <CompactToolActivity
         items={[
           { id: "bash-1", name: "Bash", input: { command: "bun test" } },
-          { id: "worker-1", name: "SendMessage", kind: "worker_event", input: {} },
+          { id: "worker-1", name: "SendMessage", kind: "worker_event", input: { eventCount: 1 } },
+          ...bashItems(3).map((item) => ({ ...item, id: `more-${item.id}` })),
         ]}
-      >
-        <div>Full worker-event details</div>
-      </CompactToolActivity>,
+        renderDetails={renderDetails}
+      />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Show 2 activity items/ }));
-    expect(screen.getByText("Full worker-event details")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Show all 5 activity items/ })).toBeTruthy();
+    fireEvent.click(screen.getByTestId("compact-tool-activity-earlier"));
+    fireEvent.click(screen.getByRole("button", { name: "Show Event: 1 worker event" }));
+    expect(screen.getByText("details for worker-1")).toBeTruthy();
   });
 
-  it("shows a single tool as one light row naming the tool, with no preview lines", () => {
-    // A generic "Ran command" label would hide the more specific Bash
-    // description, so a lone tool's row shows that description instead.
+  it("shows a single tool as one light line with its description and no group card", () => {
+    // A lone activity hides nothing, so it is just its line; opening it shows the details.
     render(
       <CompactToolActivity
         items={[{ id: "bash-1", name: "Bash", input: { command: "rg flush", description: "Find flush origin" } }]}
-      >
-        <div>Find flush origin details</div>
-      </CompactToolActivity>,
+        renderDetails={renderDetails}
+      />,
     );
 
     expect(screen.queryByText("Ran command")).toBeNull();
-    expect(screen.queryByTestId("compact-tool-activity-preview")).toBeNull();
-    expect(screen.queryByText("Find flush origin details")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Show 1 tool call: Find flush origin" }));
-    expect(screen.getByText("Find flush origin details")).toBeTruthy();
+    expect(screen.queryByTestId("compact-tool-activity-earlier")).toBeNull();
+    expect(screen.queryByText("details for bash-1")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show Bash: Find flush origin" }));
+    expect(screen.getByText("details for bash-1")).toBeTruthy();
   });
 
-  it("previews the first three tools of a run and counts the rest", () => {
-    // Collapsed runs grow with the work (capped), so several commands read
-    // heavier than one; expanding replaces the preview with the full details.
-    render(
-      <CompactToolActivity items={bashItems(5)}>
-        <div>Run details</div>
-      </CompactToolActivity>,
-    );
+  it("shows the newest three activities of a run and folds older ones into +N earlier", () => {
+    // The collapsed group is a rolling window: newest work stays visible, height stays capped.
+    // Expanding fills the older lines in above without moving the newest ones.
+    render(<CompactToolActivity items={bashItems(5)} renderDetails={renderDetails} />);
 
-    const preview = screen.getByTestId("compact-tool-activity-preview");
-    expect(Array.from(preview.children, (line) => line.textContent)).toEqual(["echo 1", "echo 2", "echo 3", "+2 more"]);
-    fireEvent.click(screen.getByRole("button", { name: /Show 5 tool calls/ }));
-    expect(screen.queryByTestId("compact-tool-activity-preview")).toBeNull();
-    expect(screen.getByText("Run details")).toBeTruthy();
+    expect(lineTexts()).toEqual(["Bashecho 3", "Bashecho 4", "Bashecho 5"]);
+    expect(screen.getByTestId("compact-tool-activity-earlier").textContent).toBe("+2 earlier");
+    fireEvent.click(screen.getByTestId("compact-tool-activity-earlier"));
+    expect(screen.queryByTestId("compact-tool-activity-earlier")).toBeNull();
+    expect(lineTexts()).toEqual(["Bashecho 1", "Bashecho 2", "Bashecho 3", "Bashecho 4", "Bashecho 5"]);
   });
 
   it("keeps the deliberate summary for a single worker send or worker event", () => {
-    // These categories are semantic summaries that hide bulky message bodies,
-    // not a generic label over a more specific chip.
+    // These lines use semantic summaries that hide bulky message bodies.
     const { unmount } = render(
-      <CompactToolActivity items={[{ id: "send-1", name: "Bash", input: { command: 'takode send 17 "Continue"' } }]}>
-        <div>Send details</div>
-      </CompactToolActivity>,
+      <CompactToolActivity
+        items={[{ id: "send-1", name: "Bash", input: { command: 'takode send 17 "Continue"' } }]}
+        renderDetails={renderDetails}
+      />,
     );
-    expect(screen.getByText("Sent a message")).toBeTruthy();
-    expect(screen.queryByText("Send details")).toBeNull();
+    expect(lineTexts()).toEqual(["SendSent a message"]);
+    expect(screen.queryByText(/Continue/)).toBeNull();
     unmount();
 
     render(
-      <CompactToolActivity items={[{ id: "worker-1", name: "SendMessage", kind: "worker_event", input: {} }]}>
-        <div>Worker event details</div>
-      </CompactToolActivity>,
+      <CompactToolActivity
+        items={[{ id: "worker-1", name: "SendMessage", kind: "worker_event", input: { eventCount: 2 } }]}
+        renderDetails={renderDetails}
+      />,
     );
-    expect(screen.queryByText("Worker event details")).toBeNull();
-    expect(screen.getByRole("button", { name: /Show 1 activity item/ })).toBeTruthy();
+    expect(lineTexts()).toEqual(["Event2 worker events"]);
+    expect(screen.queryByText("details for worker-1")).toBeNull();
+  });
+
+  it("shows thoughts as lines inside the group without counting them as tool calls", () => {
+    // Only agent text splits groups, so thinking joins the run as its own line.
+    const items: CompactToolActivityItem[] = [
+      { id: "thought-1", name: "Thought", kind: "thought", input: { text: "Check the flush path first" } },
+      ...bashItems(2),
+    ];
+    expect(summarizeToolActivity(items)).toBe("Thought, ran 2 commands");
+    render(<CompactToolActivity items={items} renderDetails={renderDetails} />);
+    expect(lineTexts()).toEqual(["ThoughtCheck the flush path first", "Bashecho 1", "Bashecho 2"]);
+  });
+
+  it("marks failed and running lines from the session's tool results", () => {
+    // Line status comes from the stored results: an error result is "failed", and a
+    // started tool without a result is still running, which hides the total time.
+    useStore.setState({
+      toolResults: new Map([
+        [
+          "s1",
+          new Map([
+            ["bash-1", toolResult("bash-1", { is_error: true, duration_seconds: 2 })],
+            ["bash-2", toolResult("bash-2", { duration_seconds: 1 })],
+          ]),
+        ],
+      ]),
+      toolStartTimestamps: new Map([["s1", new Map([["bash-3", Date.now()]])]]),
+    });
+    const { rerender } = render(
+      <CompactToolActivity sessionId="s1" items={bashItems(2)} renderDetails={renderDetails} />,
+    );
+    expect(screen.getByText("1 failed")).toBeTruthy();
+    expect(screen.getByText("failed")).toBeTruthy();
+    expect(screen.getByText("3.0s")).toBeTruthy();
+
+    rerender(<CompactToolActivity sessionId="s1" items={bashItems(3)} renderDetails={renderDetails} />);
+    expect(screen.queryByText("3.0s")).toBeNull();
+  });
+
+  it("shows per-type counts only when a group mixes activity types", () => {
+    const { unmount } = render(<CompactToolActivity items={MIXED_ACTIVITY} renderDetails={renderDetails} />);
+    expect(screen.getByText("2 Read")).toBeTruthy();
+    expect(screen.getByText("1 Grep")).toBeTruthy();
+    unmount();
+
+    render(<CompactToolActivity items={bashItems(4)} renderDetails={renderDetails} />);
+    expect(screen.queryByText("4 Bash")).toBeNull();
   });
 
   it("keeps interactive tools visible while allowing notification commands to compact", () => {

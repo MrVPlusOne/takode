@@ -1340,12 +1340,9 @@ function AssistantMessage({
                 items={group.items as CompactToolActivityItem[]}
                 sessionId={sessionId}
                 containedMessageIds={[message.id]}
-              >
-                {group.groups.map((detailGroup, detailIndex) => (
-                  <DetailedToolGroup
-                    key={`${detailGroup.items[0]?.id ?? detailIndex}`}
-                    group={detailGroup}
-                    flat
+                renderDetails={(item) => (
+                  <InlineToolBlock
+                    item={item}
                     sessionId={sessionId}
                     parentMessageId={message.id}
                     suppressNotificationMarker={suppressToolNotificationMarker}
@@ -1356,8 +1353,8 @@ function AssistantMessage({
                     toolResultScope={toolResultScope}
                     questLinkSurface={questLinkSurface}
                   />
-                ))}
-              </CompactToolActivity>
+                )}
+              />
             );
           }
           return (
@@ -1404,20 +1401,7 @@ function AssistantMessage({
   );
 }
 
-function DetailedToolGroup({
-  group,
-  sessionId,
-  parentMessageId,
-  suppressNotificationMarker,
-  currentThreadKey,
-  onSelectThread,
-  readOnly,
-  toolResultOverrides,
-  toolResultScope,
-  questLinkSurface,
-  flat = false,
-}: {
-  group: Extract<GroupedBlock, { kind: "tool_group" }>;
+interface InlineToolProps {
   sessionId?: string;
   parentMessageId?: string;
   suppressNotificationMarker: boolean;
@@ -1427,70 +1411,48 @@ function DetailedToolGroup({
   toolResultOverrides?: ReadonlyMap<string, ToolResultPreview>;
   toolResultScope: ToolResultScope;
   questLinkSurface: QuestLinkSurface;
-  /** Inside a compact activity row: list the items without the group header. */
-  flat?: boolean;
-}) {
-  if (flat) {
-    return (
-      <div className="flex flex-col gap-1.5">
-        {group.items.map((item) => (
-          <ToolBlock
-            key={item.id}
-            name={item.name}
-            input={item.input}
-            toolUseId={item.id}
-            sessionId={sessionId}
-            parentMessageId={parentMessageId}
-            hideLabel={group.items.length > 1 && group.name === "Bash"}
-            suppressNotificationMarker={suppressNotificationMarker}
-            currentThreadKey={currentThreadKey}
-            onSelectThread={onSelectThread}
-            disableInlineSpecialCases={readOnly}
-            resultOverride={toolResultOverrides?.get(item.id)}
-            suppressStoredResult={toolResultScope === "overrides-only"}
-            readOnly={readOnly}
-            questLinkSurface={questLinkSurface}
-          />
-        ))}
-      </div>
-    );
-  }
-  if (group.items.length === 1) {
-    const item = group.items[0];
-    return (
-      <ToolBlock
-        name={item.name}
-        input={item.input}
-        toolUseId={item.id}
-        sessionId={sessionId}
-        parentMessageId={parentMessageId}
-        suppressNotificationMarker={suppressNotificationMarker}
-        currentThreadKey={currentThreadKey}
-        onSelectThread={onSelectThread}
-        disableInlineSpecialCases={readOnly}
-        resultOverride={toolResultOverrides?.get(item.id)}
-        suppressStoredResult={toolResultScope === "overrides-only"}
-        readOnly={readOnly}
-        questLinkSurface={questLinkSurface}
-      />
-    );
-  }
+}
 
+/** One tool call inside an assistant message; inside a compact activity line it renders only its details. */
+function InlineToolBlock({
+  item,
+  sessionId,
+  parentMessageId,
+  suppressNotificationMarker,
+  currentThreadKey,
+  onSelectThread,
+  readOnly,
+  toolResultOverrides,
+  toolResultScope,
+  questLinkSurface,
+}: InlineToolProps & { item: { id: string; name: string; input: Record<string, unknown> } }) {
   return (
-    <ToolGroupBlock
-      name={group.name}
-      items={group.items}
+    <ToolBlock
+      name={item.name}
+      input={item.input}
+      toolUseId={item.id}
       sessionId={sessionId}
       parentMessageId={parentMessageId}
       suppressNotificationMarker={suppressNotificationMarker}
       currentThreadKey={currentThreadKey}
       onSelectThread={onSelectThread}
+      disableInlineSpecialCases={readOnly}
+      resultOverride={toolResultOverrides?.get(item.id)}
+      suppressStoredResult={toolResultScope === "overrides-only"}
       readOnly={readOnly}
-      toolResultOverrides={toolResultOverrides}
-      toolResultScope={toolResultScope}
       questLinkSurface={questLinkSurface}
     />
   );
+}
+
+function DetailedToolGroup({
+  group,
+  ...props
+}: InlineToolProps & {
+  group: Extract<GroupedBlock, { kind: "tool_group" }>;
+}) {
+  if (group.items.length === 1) return <InlineToolBlock item={group.items[0]} {...props} />;
+  return <ToolGroupBlock name={group.name} items={group.items} {...props} />;
 }
 
 /** Auto-approved chip — shows what was approved on line 1, LLM rationale on line 2 in muted text. */

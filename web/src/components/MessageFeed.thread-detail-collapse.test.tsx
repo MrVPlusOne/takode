@@ -1399,7 +1399,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(screen.getByText("Sent a message")).toBeTruthy();
     expect(screen.getByText("The worker has the follow-up.")).toBeTruthy();
     expect(screen.queryByText(/takode send 17/)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Show 1 tool call/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Show Send: Sent a message" }));
     expect(screen.getByText(/takode send 17/)).toBeTruthy();
   });
   it("uses Codex final-answer metadata for a collapsed worker turn and keeps commentary expanded", () => {
