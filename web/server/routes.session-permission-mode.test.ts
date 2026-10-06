@@ -85,6 +85,24 @@ describe("session permission mode route", () => {
     expect(wsBridge.setSessionPermissionMode).not.toHaveBeenCalled();
   });
 
+  it("accepts Claude's auto mode and still accepts retired saved Claude modes", async () => {
+    // Auto is a new Claude menu option; Delegate and Don't ask left the menu but
+    // stay valid so sessions and leader tooling that still use them keep working.
+    const { api, wsBridge } = createPermissionModeRouteApp({
+      worker: { backendType: "claude-sdk" },
+    });
+
+    for (const mode of ["auto", "dontAsk"]) {
+      const res = await api.request("/sessions/worker/permission-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      expect(res.status).toBe(200);
+      expect(wsBridge.setSessionPermissionMode).toHaveBeenLastCalledWith("worker", mode);
+    }
+  });
+
   it("rejects unsupported backend types before touching bridge state", async () => {
     // Unknown backends should fail clearly instead of being treated as Claude.
     const { api, wsBridge } = createPermissionModeRouteApp({

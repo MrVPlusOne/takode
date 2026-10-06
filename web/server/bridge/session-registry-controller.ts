@@ -364,8 +364,8 @@ export function applyInitialSessionState(
       session.state.diff_base_branch = diffBase;
     }
   }
-  // Seed the creation-time mode: Claude SDK session_init keeps the server's mode
-  // (the CLI reports "default" because Takode answers permissions via canUseTool).
+  // Seed the creation-time mode: Claude SDK session_init keeps the server's
+  // existing mode rather than adopting the CLI-reported one.
   if (options.permissionMode) {
     session.state.permissionMode = options.permissionMode;
     shouldPersist = true;

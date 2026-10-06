@@ -8,7 +8,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { sendToSession } from "../ws.js";
 import {
-  CLAUDE_PERMISSION_MODES,
+  getClaudePermissionMenuOptions,
   CODEX_PERMISSION_MODES,
   deriveUiMode,
   deriveCodexPermissionMode,
@@ -769,7 +769,7 @@ export function Composer({
   const isPlan = uiMode === "plan";
   const codexPermissionMode = deriveCodexPermissionMode(currentMode);
   const claudePermissionMode = normalizeClaudePermission(currentMode);
-  const permissionOptions = isCodex ? CODEX_PERMISSION_MODES : CLAUDE_PERMISSION_MODES;
+  const permissionOptions = isCodex ? CODEX_PERMISSION_MODES : getClaudePermissionMenuOptions(claudePermissionMode);
   const permissionMode = isCodex ? codexPermissionMode : claudePermissionMode;
   const codexReasoningEffort = sessionView.codexReasoningEffort;
   const codexEffectiveReasoningEffort = sessionView.codexEffectiveReasoningEffort;

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type BackendModelInfo } from "../api.js";
 import {
-  CLAUDE_PERMISSION_MODES,
+  getClaudePermissionMenuOptions,
   getCodexReasoningEffortOptions,
   getModelsForBackend,
   toModelOptions,
@@ -217,7 +217,7 @@ function RoleDefaultsEditor({
           className={inputClass}
         >
           <option value="">Backend default</option>
-          {CLAUDE_PERMISSION_MODES.map((option) => (
+          {getClaudePermissionMenuOptions(defaults.claude.permissionMode).map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>

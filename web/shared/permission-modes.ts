@@ -1,8 +1,11 @@
+// Every mode Takode accepts for Claude, including modes no longer offered in the
+// menu ("delegate", "dontAsk") so sessions and defaults saved with them keep working.
 export const CLAUDE_PERMISSION_MODES = [
   "default",
   "acceptEdits",
   "bypassPermissions",
   "plan",
+  "auto",
   "delegate",
   "dontAsk",
 ] as const;

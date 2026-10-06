@@ -728,17 +728,20 @@ export class ClaudeSdkAdapter
       }
 
       case "set_permission_mode": {
-        // SDK sessions use --permission-prompt-tool stdio, so ALL tool permission
-        // decisions go through the canUseTool callback — the CLI's internal mode
-        // is irrelevant. Mode-based auto-approval is handled server-side in
-        // ws-bridge's handleSdkPermissionRequest().
-        //
-        // DO NOT send setPermissionMode to the CLI subprocess — it corrupts the
-        // SDK's stdin/stdout stream, breaking subsequent tool calls with
-        // "Stream closed" errors.
-        console.log(
-          `[claude-sdk-adapter] Permission mode change to "${(msg as any).mode}" for session ${this.sessionId} (server-side only)`,
-        );
+        // The CLI's own mode decides which tool calls reach canUseTool at all:
+        // bypassPermissions never asks, and auto lets Claude's classifier approve
+        // safe actions itself. A server-only change would leave the CLI in its old
+        // mode, so forward it (same internal Query path as interrupt/setModel).
+        const mode = this.mapPermissionMode((msg as any).mode) ?? "default";
+        const query = (this.sdkSession as any)?.query;
+        if (query?.setPermissionMode) {
+          query.setPermissionMode(mode).catch((err: Error) => {
+            console.error(`[claude-sdk-adapter] setPermissionMode failed for session ${this.sessionId}:`, err);
+          });
+          console.log(`[claude-sdk-adapter] Permission mode changed to "${mode}" for session ${this.sessionId}`);
+        } else {
+          console.warn(`[claude-sdk-adapter] No setPermissionMode method available for session ${this.sessionId}`);
+        }
         return true;
       }
 
@@ -850,6 +853,7 @@ export class ClaudeSdkAdapter
       case "bypassPermissions":
       case "acceptEdits":
       case "plan":
+      case "auto":
       case "delegate":
       case "dontAsk":
         return mode;

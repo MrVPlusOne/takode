@@ -22,6 +22,7 @@ import {
   CODEX_MODES,
   CODEX_REASONING_EFFORTS,
   CLAUDE_PERMISSION_MODES,
+  getClaudePermissionMenuOptions,
 } from "./backends.js";
 
 describe("toModelOptions", () => {
@@ -242,6 +243,28 @@ describe("resolveClaudePermissionCliMode", () => {
     for (const option of CLAUDE_PERMISSION_MODES) {
       expect(resolveClaudePermissionCliMode(option.value)).toBe(option.value);
     }
+  });
+});
+
+describe("getClaudePermissionMenuOptions", () => {
+  it("offers Auto, Default, Accept edits, Plan and Full access in that order", () => {
+    expect(getClaudePermissionMenuOptions("default").map((option) => [option.value, option.label])).toEqual([
+      ["auto", "Auto"],
+      ["default", "Default"],
+      ["acceptEdits", "Accept edits"],
+      ["plan", "Plan"],
+      ["bypassPermissions", "Full access"],
+    ]);
+  });
+
+  it("keeps a retired mode visible only while it is the current value", () => {
+    // Sessions or defaults saved as Don't ask/Delegate must still show their real
+    // label instead of falling back to the first menu entry.
+    const values = (mode: string) => getClaudePermissionMenuOptions(mode).map((option) => option.value);
+    expect(values("dontAsk")).toEqual(["auto", "default", "acceptEdits", "plan", "bypassPermissions", "dontAsk"]);
+    expect(getClaudePermissionMenuOptions("delegate").at(-1)?.label).toBe("Delegate");
+    expect(values("auto")).not.toContain("dontAsk");
+    expect(values("auto")).not.toContain("delegate");
   });
 });
 

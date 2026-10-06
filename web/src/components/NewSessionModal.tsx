@@ -12,7 +12,7 @@ import {
 import { getRecentDirs } from "../utils/recent-dirs.js";
 import { queuePendingSession } from "../utils/pending-creation.js";
 import {
-  CLAUDE_PERMISSION_MODES,
+  getClaudePermissionMenuOptions,
   CODEX_PERMISSION_MODES,
   getCodexReasoningEffortOptions,
   getModelsForBackend,
@@ -529,9 +529,10 @@ export function NewSessionModal({
         )
       : MODELS;
   const selectedModel = displayModels.find((m) => m.value === model) || displayModels[0];
+  const claudePermissionOptions = getClaudePermissionMenuOptions(normalizeClaudePermission(mode));
   const selectedClaudePermission =
-    CLAUDE_PERMISSION_MODES.find((option) => option.value === normalizeClaudePermission(mode)) ||
-    CLAUDE_PERMISSION_MODES[0];
+    claudePermissionOptions.find((option) => option.value === normalizeClaudePermission(mode)) ||
+    claudePermissionOptions[0];
   const selectedCodexPermission =
     CODEX_PERMISSION_MODES.find((option) => option.value === codexPermissionMode) || CODEX_PERMISSION_MODES[0];
   const codexReasoningOptions = getCodexReasoningEffortOptions({
@@ -1078,7 +1079,7 @@ export function NewSessionModal({
                           </button>
                           {showCodexPermissionDropdown && (
                             <div className="absolute left-0 top-full mt-1 w-64 bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 py-1 overflow-hidden">
-                              {CLAUDE_PERMISSION_MODES.map((option) => (
+                              {claudePermissionOptions.map((option) => (
                                 <button
                                   key={option.value}
                                   onClick={() => {

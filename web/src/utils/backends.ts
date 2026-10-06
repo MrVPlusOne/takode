@@ -1,7 +1,6 @@
 import type { BackendModelInfo } from "../api.js";
 import { getBackendFamily, getDefaultModelForBackend, type BackendSelection } from "../../shared/backend-defaults.js";
 import {
-  CLAUDE_PERMISSION_MODES as CLAUDE_PERMISSION_MODE_VALUES,
   deriveAskPermissionForMode as deriveSharedAskPermissionForMode,
   deriveCodexPermissionMode as deriveSharedCodexPermissionMode,
   deriveUiModeForMode,
@@ -102,6 +101,7 @@ export const CLAUDE_MODES: ModeOption[] = [
   { value: "bypassPermissions", label: "Full access" },
   { value: "plan", label: "Plan" },
   { value: "default", label: "Default" },
+  { value: "auto", label: "Auto" },
   { value: "delegate", label: "Delegate" },
   { value: "dontAsk", label: "Don't ask" },
 ];
@@ -163,7 +163,13 @@ export function getCodexReasoningEffortOptions(options?: {
   });
 }
 
+/** Claude permission modes offered in permission menus, in menu order. */
 export const CLAUDE_PERMISSION_MODES: ClaudePermissionOption[] = [
+  {
+    value: "auto",
+    label: "Auto",
+    description: "Claude's classifier approves safe actions; others come to Takode for approval.",
+  },
   {
     value: "default",
     label: "Default",
@@ -175,26 +181,40 @@ export const CLAUDE_PERMISSION_MODES: ClaudePermissionOption[] = [
     description: "Auto-approve file edits; ask before other tools.",
   },
   {
-    value: "bypassPermissions",
-    label: "Full access",
-    description: "Auto-approve all tools locally.",
-  },
-  {
     value: "plan",
     label: "Plan",
     description: "Start in planning mode before executing changes.",
   },
   {
+    value: "bypassPermissions",
+    label: "Full access",
+    description: "Auto-approve all tools locally.",
+  },
+];
+
+// Modes no longer offered but still accepted for sessions and defaults saved with them.
+const CLAUDE_RETIRED_PERMISSION_MODES: ClaudePermissionOption[] = [
+  {
     value: "delegate",
     label: "Delegate",
-    description: "Use Claude Code's delegate permission mode.",
+    description: "No longer offered. Choose another mode to switch.",
   },
   {
     value: "dontAsk",
     label: "Don't ask",
-    description: "Use Claude Code's non-prompting permission mode.",
+    description: "No longer offered. Choose another mode to switch.",
   },
 ];
+
+/**
+ * Claude permission menu options for a control currently set to `currentMode`.
+ * A retired mode is listed only while it is the current value, so its label
+ * stays visible until the user picks one of the offered modes.
+ */
+export function getClaudePermissionMenuOptions(currentMode?: string | null): ClaudePermissionOption[] {
+  const retired = CLAUDE_RETIRED_PERMISSION_MODES.find((option) => option.value === currentMode);
+  return retired ? [...CLAUDE_PERMISSION_MODES, retired] : CLAUDE_PERMISSION_MODES;
+}
 
 export const CODEX_PERMISSION_MODES: CodexPermissionOption[] = [
   {
@@ -365,10 +385,6 @@ export function deriveCodexUiMode(cliMode: string): "plan" | "agent" {
 /** Derive askPermission state from a raw Codex mode string. */
 export function deriveCodexAskPermission(cliMode: string): boolean {
   return deriveSharedAskPermissionForMode("codex", normalizeCodexPermissionProfile(cliMode));
-}
-
-export function getClaudePermissionOptions(): ClaudePermissionOption[] {
-  return CLAUDE_PERMISSION_MODES.filter((option) => CLAUDE_PERMISSION_MODE_VALUES.includes(option.value));
 }
 
 export function deriveAskPermissionForMode(backend: "claude" | "codex", permissionMode: string): boolean {

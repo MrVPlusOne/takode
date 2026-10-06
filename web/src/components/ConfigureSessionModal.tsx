@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { api, type BackendModelInfo, type SessionConfigPatch } from "../api.js";
 import { useStore } from "../store.js";
 import {
-  CLAUDE_PERMISSION_MODES,
+  getClaudePermissionMenuOptions,
   CODEX_PERMISSION_MODES,
   getCodexReasoningEffortOptions,
   getModelsForBackend,
@@ -465,7 +465,7 @@ export function ConfigureSessionModal({ sessionId, onClose }: ConfigureSessionMo
                           {option.label}
                         </option>
                       ))
-                    : CLAUDE_PERMISSION_MODES.map((option) => (
+                    : getClaudePermissionMenuOptions(form.permissionMode).map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>

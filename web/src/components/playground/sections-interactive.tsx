@@ -9,7 +9,12 @@ import { ComposerMetaToolbar } from "../ComposerMetaToolbar.js";
 import { PausedInputChip, PauseOtherSourcesButton } from "../SessionPauseComposerControls.js";
 import { WorkBoardBar } from "../WorkBoardBar.js";
 import { useStore } from "../../store.js";
-import { CLAUDE_MODELS, CLAUDE_PERMISSION_MODES, CODEX_MODELS, CODEX_PERMISSION_MODES } from "../../utils/backends.js";
+import {
+  CLAUDE_MODELS,
+  CODEX_MODELS,
+  CODEX_PERMISSION_MODES,
+  getClaudePermissionMenuOptions,
+} from "../../utils/backends.js";
 import type { QuestJourneyPhaseId } from "../../../shared/quest-journey.js";
 import {
   LEADER_THREAD_TABS_PROJECTION,
@@ -152,9 +157,11 @@ function PlaygroundCollapseAllButton() {
 function PlaygroundComposerPermissionToolbar({
   backend,
   state,
+  claudePermissionMode = "acceptEdits",
 }: {
   backend: "claude" | "codex";
   state: "menu" | "popover";
+  claudePermissionMode?: string;
 }) {
   const modelDropdownRef = useRef<HTMLDivElement | null>(null);
   const permissionDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -172,7 +179,7 @@ function PlaygroundComposerPermissionToolbar({
           {isCodex ? "Codex profile selector with pending restart confirmation." : "Claude permission selector menu."}
         </div>
         <ComposerMetaToolbar
-          sessionId={`playground-permission-${backend}-${state}`}
+          sessionId={`playground-permission-${backend}-${state}-${claudePermissionMode}`}
           sessionView={{
             gitBranch: isCodex ? "feature/codex-profile" : "feature/claude-mode",
             model: isCodex ? "gpt-5.4" : "claude-sonnet-4-5-20250929",
@@ -199,8 +206,8 @@ function PlaygroundComposerPermissionToolbar({
           codexFastServiceTier={isCodex ? (codexModelOptions[1]?.serviceTiers?.[0] ?? null) : null}
           onSelectCodexServiceTier={() => {}}
           onResetCodexSettings={async () => {}}
-          permissionOptions={isCodex ? CODEX_PERMISSION_MODES : CLAUDE_PERMISSION_MODES}
-          permissionMode={isCodex ? "auto-review" : "acceptEdits"}
+          permissionOptions={isCodex ? CODEX_PERMISSION_MODES : getClaudePermissionMenuOptions(claudePermissionMode)}
+          permissionMode={isCodex ? "auto-review" : claudePermissionMode}
           showPermissionDropdown={state === "menu"}
           setShowPermissionDropdown={() => {}}
           permissionDropdownRef={permissionDropdownRef}
@@ -424,6 +431,10 @@ export function PlaygroundInteractiveSections() {
           <div className="mt-4" />
           <Card label="Claude permission selector menu">
             <PlaygroundComposerPermissionToolbar backend="claude" state="menu" />
+          </Card>
+          <div className="mt-4" />
+          <Card label="Claude permission menu with a retired saved mode">
+            <PlaygroundComposerPermissionToolbar backend="claude" state="menu" claudePermissionMode="dontAsk" />
           </Card>
           <div className="mt-4" />
           <Card label="Codex permission change confirmation">

@@ -555,8 +555,15 @@ describe("Playground", () => {
 
     expect(composer.getByText("Claude permission selector menu")).toBeTruthy();
     expect(composer.getByText("Codex permission change confirmation")).toBeTruthy();
-    expect(composer.getByTestId("composer-permission-mode-menu")).toHaveTextContent("Delegate");
-    expect(composer.getByTestId("composer-permission-mode-menu")).toHaveTextContent("Don't ask");
+    // The normal Claude menu offers only the current modes; a retired saved mode
+    // (Don't ask) appears only in the fixture where it is the session's value.
+    expect(composer.getByText("Claude permission menu with a retired saved mode")).toBeTruthy();
+    const [claudeMenu, retiredModeMenu] = composer.getAllByTestId("composer-permission-mode-menu");
+    expect(claudeMenu).toHaveTextContent("Auto");
+    expect(claudeMenu).toHaveTextContent("Full access");
+    expect(claudeMenu).not.toHaveTextContent("Delegate");
+    expect(claudeMenu).not.toHaveTextContent("Don't ask");
+    expect(retiredModeMenu).toHaveTextContent("Don't ask");
     expect(composer.getByTestId("composer-permission-mode-popover")).toHaveTextContent(
       "Change permissions to Full access?",
     );
