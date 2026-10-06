@@ -1500,9 +1500,10 @@ function handleParsedMessage(
         store.clearStreamingState(sessionId);
         store.clearToolProgress(sessionId);
         store.setSessionStuck(sessionId, false);
-      } else if (data.generationStartedAt && !store.streamingStartedAt.has(sessionId)) {
-        // Restore generation timer from server so switching sessions
-        // doesn't reset the "Purring..." counter.
+      } else if (typeof data.generationStartedAt === "number") {
+        // The server's generation start is authoritative for the "Purring..."
+        // counter. Subscribe replay (sent before this snapshot) can already
+        // have started a browser-local timer at replay time, so overwrite it.
         store.setStreamingStats(sessionId, { startedAt: data.generationStartedAt });
       }
       // Sync board state from server on connect/reconnect

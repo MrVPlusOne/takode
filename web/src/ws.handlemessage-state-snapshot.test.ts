@@ -174,6 +174,39 @@ describe("handleMessage: state_snapshot", () => {
     expect(useStore.getState().askPermission.get("s1")).toBe(false);
   });
 
+  it("uses the server generation start even when subscribe replay already started the timer", () => {
+    // Opening an active session replays the running turn's stream events before
+    // the state_snapshot. The replayed message_start starts a browser-local timer
+    // at replay time; the snapshot's server start must replace it so the
+    // "Purring..." counter shows the real elapsed time instead of restarting at 0s.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    const serverStartedAt = Date.now() - 12 * 60_000;
+
+    fireMessage({
+      type: "event_replay",
+      events: [
+        {
+          seq: 1,
+          message: { type: "stream_event", event: { type: "message_start" }, parent_tool_use_id: null },
+        },
+      ],
+    });
+    expect(useStore.getState().streamingStartedAt.get("s1")).toBeGreaterThan(serverStartedAt);
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "running",
+      permissionMode: "default",
+      backendConnected: true,
+      uiMode: null,
+      askPermission: true,
+      generationStartedAt: serverStartedAt,
+    });
+
+    expect(useStore.getState().streamingStartedAt.get("s1")).toBe(serverStartedAt);
+  });
+
   it("keeps an idle leader idle when reconnect hydrates a running worker projection", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: { ...makeSession("s1"), isOrchestrator: true } });
