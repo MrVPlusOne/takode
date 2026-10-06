@@ -3,16 +3,19 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardRow } from "../session-types.js";
 import type { CompletePublishedDeliveryTarget } from "../../shared/quest-delivery.js";
 
 const home = vi.hoisted(() => ({ path: "" }));
 vi.mock("node:os", async (original) => ({ ...(await original<typeof import("node:os")>()), homedir: () => home.path }));
+// Tests run real git commands through the guarded routes; under concurrent suite
+// load they can exceed the default 10s budget.
+vi.setConfig({ testTimeout: 30_000 });
 let root: string;
 let inherited: string;
 let source: string;
@@ -66,25 +69,43 @@ function evidence(id?: string) {
   };
 }
 
+// The inherited repo, published source and bare remote are built once and copied per test:
+// recreating them took about two dozen git processes per test and dominated this file under load.
+let template: string;
+let templateRefs: { ref: string; sha: string }[];
+beforeAll(() => {
+  template = realpathSync(mkdtempSync(join(tmpdir(), "independent-delivery-template-")));
+  initRepo(join(template, "inherited"));
+  const templateSource = join(template, "published-source");
+  initRepo(templateSource);
+  git(template, "init", "--bare", join(template, "published.git"));
+  git(templateSource, "remote", "add", "origin", join(template, "published.git"));
+  templateRefs = ["runtime", "eval", "training"].map((name) => ({
+    ref: `refs/heads/user/${name}`,
+    sha: commit(templateSource, name),
+  }));
+  git(templateSource, "push", "--atomic", "origin", ...templateRefs.map(({ ref, sha }) => `${sha}:${ref}`));
+});
+afterAll(() => {
+  rmSync(template, { recursive: true, force: true });
+});
+
 beforeEach(async () => {
   // Both mutable Questmaster stores and every Git operation live inside this disposable root.
   root = realpathSync(mkdtempSync(join(tmpdir(), "independent-delivery-test-")));
   home.path = root;
+  cpSync(template, root, { recursive: true });
   inherited = join(root, "inherited");
   source = join(root, "published-source");
-  initRepo(inherited);
-  initRepo(source);
   const remote = join(root, "published.git");
-  git(root, "init", "--bare", remote);
-  git(source, "remote", "add", "origin", remote);
-  target = { checkoutPath: source, remote: "origin", repositoryUrl: remote, refs: [], commitShas: [] };
-  for (const name of ["runtime", "eval", "training"]) {
-    const sha = commit(source, name);
-    const ref = `refs/heads/user/${name}`;
-    target.refs.push({ ref, sha });
-    target.commitShas.push(sha);
-  }
-  git(source, "push", "--atomic", "origin", ...target.refs.map(({ ref, sha }) => `${sha}:${ref}`));
+  git(source, "remote", "set-url", "origin", remote);
+  target = {
+    checkoutPath: source,
+    remote: "origin",
+    repositoryUrl: remote,
+    refs: templateRefs.map((entry) => ({ ...entry })),
+    commitShas: templateRefs.map(({ sha }) => sha),
+  };
   // Deliberately keep the checkout on integration, not on any published branch.
   vi.resetModules();
   store = await import("../quest-store.js");

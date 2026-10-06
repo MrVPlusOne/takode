@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, renameSync, symlinkSync } from "node:fs";
+import { cpSync, mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, renameSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuxiliaryWorktreeRegistry } from "./auxiliary-worktree-registry.js";
 import { AuxiliaryWorktreeLifecycle } from "./auxiliary-worktrees.js";
 import type { WorktreeTracker, WorktreeMapping } from "./worktree-tracker.js";
@@ -33,21 +33,39 @@ function checkout(name = "auxiliary") {
   return path;
 }
 
+function isolateGitEnvironment() {
+  for (const key of Object.keys(process.env)) if (key.startsWith("GIT_")) vi.stubEnv(key, undefined);
+  vi.stubEnv("GIT_CONFIG_GLOBAL", "/dev/null");
+  vi.stubEnv("GIT_CONFIG_NOSYSTEM", "1");
+}
+
+// The base repository is built once and copied per test; rebuilding it spawned
+// several git processes per test, which added up under concurrent suite load.
+let templateRoot: string;
+beforeAll(() => {
+  isolateGitEnvironment();
+  templateRoot = mkdtempSync(join(tmpdir(), "auxiliary-lifecycle-template-"));
+  const templateRepo = join(templateRoot, "repo");
+  mkdirSync(templateRepo);
+  git(templateRepo, "-c", "init.templateDir=", "init", "-b", "main");
+  git(templateRepo, "config", "user.name", "Fixture");
+  git(templateRepo, "config", "user.email", "fixture@example.invalid");
+  writeFileSync(join(templateRepo, ".gitignore"), "environment/\n");
+  git(templateRepo, "add", ".gitignore");
+  git(templateRepo, "commit", "-m", "Fixture base");
+  vi.unstubAllEnvs();
+});
+afterAll(() => {
+  rmSync(templateRoot, { recursive: true, force: true });
+});
+
 beforeEach(() => {
   // Every Git write and destructive path is contained by this disposable root.
   root = mkdtempSync(join(tmpdir(), "auxiliary-lifecycle-test-"));
   repo = join(root, "repo");
-  mkdirSync(repo);
-  for (const key of Object.keys(process.env)) if (key.startsWith("GIT_")) vi.stubEnv(key, undefined);
-  vi.stubEnv("GIT_CONFIG_GLOBAL", "/dev/null");
-  vi.stubEnv("GIT_CONFIG_NOSYSTEM", "1");
-  git(repo, "-c", "init.templateDir=", "init", "-b", "main");
-  git(repo, "config", "user.name", "Fixture");
-  git(repo, "config", "user.email", "fixture@example.invalid");
+  cpSync(join(templateRoot, "repo"), repo, { recursive: true });
+  isolateGitEnvironment();
   git(repo, "config", "core.hooksPath", join(root, "no-hooks"));
-  writeFileSync(join(repo, ".gitignore"), "environment/\n");
-  git(repo, "add", ".gitignore");
-  git(repo, "commit", "-m", "Fixture base");
   registry = new AuxiliaryWorktreeRegistry(join(root, "metadata", "auxiliary-worktrees.json"));
   owners = [{ sessionId: "owner", cwd: repo, archived: false }];
   mappings = [];

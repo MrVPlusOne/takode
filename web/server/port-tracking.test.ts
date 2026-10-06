@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, writeFile, rm, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readGit, readCommitPatch, readCommitSummary } from "./git-commit-reader.js";
 import {
   preparePort,
@@ -13,6 +13,10 @@ import {
 } from "./port-tracking.js";
 import { loadPortPlan } from "./port-tracking-store.js";
 import { buildCodeDelivery } from "./quest-code-deliveries.js";
+
+// Each test drives over a hundred real git processes, which can exceed the default
+// 10s budget when several suites share the machine.
+vi.setConfig({ testTimeout: 30_000 });
 
 let root: string;
 let repo: string;

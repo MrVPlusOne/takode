@@ -52,6 +52,15 @@ function setMeasuredRailWidth(width: number) {
   );
 }
 
+function getPlaygroundSectionByTitle(title: string) {
+  const heading = [...document.querySelectorAll<HTMLElement>("section h2")].find((h) => h.textContent === title);
+  const section = heading?.closest<HTMLElement>("section");
+  if (!section) {
+    throw new Error(`Playground section "${title}" was not rendered`);
+  }
+  return within(section);
+}
+
 function getPlaygroundSection(sectionId: string) {
   const section = document.querySelector<HTMLElement>(`[data-playground-section-id="${sectionId}"]`);
   if (!section) {
@@ -351,17 +360,21 @@ describe("Playground", () => {
     expect(routedFinalStates.queryByText("Leader activity")).not.toBeInTheDocument();
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);
     scrollIntoView.mockClear();
-    fireEvent.click(screen.getByRole("button", { name: "Routed Answers" }));
+    // Role queries are scoped to the navigation or owning section: a document-wide
+    // accessible-name query over the full Playground took ~16s on its own.
+    const navigation = within(document.querySelector<HTMLElement>("aside")!);
+    fireEvent.click(navigation.getByRole("button", { name: "Routed Answers" }));
     expect(scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "smooth" });
-    expect(screen.getByRole("heading", { name: "Inline Quest Preview" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Show idle state" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Inline Quest Preview" })).toBeTruthy();
+    const inlineQuestPreview = getPlaygroundSectionByTitle("Inline Quest Preview");
+    expect(inlineQuestPreview.getByRole("heading", { name: "Inline Quest Preview" })).toBeTruthy();
+    expect(inlineQuestPreview.getByRole("button", { name: "Show idle state" })).toHaveAttribute("aria-pressed", "true");
+    expect(navigation.getByRole("button", { name: "Inline Quest Preview" })).toBeTruthy();
     expect(screen.getByText("Real Chat Stack")).toBeTruthy();
-    expect(screen.getByText("Leader Session Return Stability")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Show activity chip" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Show thread status" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Show both status chips" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Show needs-input pill" })).toBeTruthy();
+    const leaderSessionReturn = getPlaygroundSectionByTitle("Leader Session Return Stability");
+    expect(leaderSessionReturn.getByRole("button", { name: "Show activity chip" })).toBeTruthy();
+    expect(leaderSessionReturn.getByRole("button", { name: "Show thread status" })).toBeTruthy();
+    expect(leaderSessionReturn.getByRole("button", { name: "Show both status chips" })).toBeTruthy();
+    expect(leaderSessionReturn.getByRole("button", { name: "Show needs-input pill" })).toBeTruthy();
     expect(screen.getByTestId("playground-leader-session-return")).toBeTruthy();
     expect(screen.getByText("Shortcut Hints")).toBeTruthy();
     expect(screen.getByText("Timer Messages")).toBeTruthy();

@@ -931,8 +931,8 @@ describe("work board", () => {
       status: "WORKING",
     });
 
-    // Wait for debounced write
-    await new Promise((r) => setTimeout(r, 200));
+    // Flush the debounced write instead of sleeping past it, which raced under load.
+    await store.flushAll();
 
     // Restore from disk
     const restored = attachBoardFacade(new WsBridge());
@@ -1908,8 +1908,8 @@ describe("work board", () => {
     bridge.upsertBoardRow("s1", { questId: "q-42", title: "Fix sidebar", status: "MEMORY" });
     bridge.advanceBoardRow("s1", "q-42"); // moves to completed
 
-    // Wait for debounced write
-    await new Promise((r) => setTimeout(r, 200));
+    // Flush the debounced write instead of sleeping past it, which raced under load.
+    await store.flushAll();
 
     // Restore from disk
     const restored = attachBoardFacade(new WsBridge());
@@ -1948,7 +1948,7 @@ describe("work board", () => {
       waitFor: ["q-460"],
     });
 
-    await new Promise((r) => setTimeout(r, 200));
+    await store.flushAll();
 
     const restored = attachBoardFacade(new WsBridge());
     restored.setStore(store);

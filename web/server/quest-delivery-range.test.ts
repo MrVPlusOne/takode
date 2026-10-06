@@ -149,9 +149,15 @@ describe("read-only delivery range browsing", () => {
   });
 
   it("rejects oversized ranges instead of authoring a silently truncated selection", async () => {
-    let tip = range.tipSha;
-    const tree = git("write-tree");
-    for (let index = 0; index < 198; index++) tip = git("commit-tree", tree, "-p", tip, "-m", `Increment ${index}`);
+    // One fast-import call builds the 198 tree-preserving commits; a git process per commit dominated this test.
+    const stream = Array.from({ length: 198 }, (_, index) => {
+      const message = `Increment ${index}\n`;
+      const parent = index === 0 ? `from ${range.tipSha}\n` : "";
+      return `commit refs/heads/oversized\ncommitter Range test <range@example.test> ${index + 1} +0000\ndata ${message.length}\n${message}${parent}\n`;
+    }).join("");
+    execFileSync("git", ["--no-optional-locks", "-C", root, "fast-import", "--quiet"], { input: stream });
+    const tip = git("rev-parse", "refs/heads/oversized");
+    expect(git("rev-list", "--count", `${range.tipSha}..${tip}`)).toBe("198");
     range.tipSha = tip;
     delivery.commits = [await readCommitSummary(root, tip)];
     await expect(resolveDeliveryRange(delivery, [tip], range)).rejects.toThrow("exceeds 200");
