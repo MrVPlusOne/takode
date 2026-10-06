@@ -233,7 +233,6 @@ export function collectLiveSubagentEntries(
       summary?: string;
     }
   >,
-  parentStreamingByToolUseId?: Map<string, string>,
 ): LiveSubagentEntry[] {
   const entries: LiveSubagentEntry[] = [];
   const seen = new Set<string>();
@@ -283,7 +282,6 @@ export function collectLiveSubagentEntries(
         if (!isEffectivelyComplete && !isAbandoned && !seen.has(entry.taskToolUseId)) {
           seen.add(entry.taskToolUseId);
           const childSignature = getEntrySignature(entry.children);
-          const rawStreamingText = parentStreamingByToolUseId?.get(entry.taskToolUseId) || "";
           entries.push({
             taskToolUseId: entry.taskToolUseId,
             label: entry.description || "Subagent",
@@ -292,7 +290,7 @@ export function collectLiveSubagentEntries(
             turnId,
             startTimestamp: toolStartTimestamps?.get(entry.taskToolUseId),
             progressElapsedSeconds: toolProgress?.get(entry.taskToolUseId)?.elapsedSeconds,
-            freshnessToken: `${childSignature.count}:${childSignature.lastKey}:${rawStreamingText.length}`,
+            freshnessToken: `${childSignature.count}:${childSignature.lastKey}`,
           });
         }
         visitEntries(entry.children, turnId);

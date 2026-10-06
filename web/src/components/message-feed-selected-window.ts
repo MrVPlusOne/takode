@@ -32,7 +32,6 @@ export interface SelectedThreadWindowLoadingInput {
   messageCount: number;
   pendingUserUploadCount: number;
   pendingCodexInputCount: number;
-  hasStreamingText: boolean;
   selectedFeedWindowEnabled: boolean;
   hasActiveThreadWindow: boolean;
   missingSelectedWindowHasContext: boolean;
@@ -44,7 +43,6 @@ export function shouldShowSelectedThreadWindowLoading({
   messageCount,
   pendingUserUploadCount,
   pendingCodexInputCount,
-  hasStreamingText,
   selectedFeedWindowEnabled,
   hasActiveThreadWindow,
   missingSelectedWindowHasContext,
@@ -55,7 +53,6 @@ export function shouldShowSelectedThreadWindowLoading({
     messageCount === 0 &&
     pendingUserUploadCount === 0 &&
     pendingCodexInputCount === 0 &&
-    !hasStreamingText &&
     selectedFeedWindowEnabled &&
     !hasActiveThreadWindow &&
     (missingSelectedWindowHasContext || pendingInitialThreadWindowKey === normalizedThreadKey)

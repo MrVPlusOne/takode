@@ -54,14 +54,6 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
     syncedProjectionKeys.delete(entryId);
     syncedProjectionOrderings.delete(entryId);
   }
-  const streaming = new Map(s.streaming);
-  streaming.delete(sessionId);
-  const streamingByParentToolUseId = new Map(s.streamingByParentToolUseId);
-  streamingByParentToolUseId.delete(sessionId);
-  const streamingThinking = new Map(s.streamingThinking);
-  streamingThinking.delete(sessionId);
-  const streamingThinkingByParentToolUseId = new Map(s.streamingThinkingByParentToolUseId);
-  streamingThinkingByParentToolUseId.delete(sessionId);
   const codexReasoningPreviews = new Map(s.codexReasoningPreviews);
   codexReasoningPreviews.delete(sessionId);
   const streamingStartedAt = new Map(s.streamingStartedAt);
@@ -175,10 +167,6 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
     syncedProjectionVersions,
     syncedProjectionKeys,
     syncedProjectionOrderings,
-    streaming,
-    streamingByParentToolUseId,
-    streamingThinking,
-    streamingThinkingByParentToolUseId,
     codexReasoningPreviews,
     streamingStartedAt,
     streamingOutputTokens,

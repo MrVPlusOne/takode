@@ -69,10 +69,6 @@ vi.mock("../store.js", () => {
       messageFrozenRevisions: mockStoreValues.messageFrozenRevisions ?? new Map(),
       historyLoading: mockStoreValues.historyLoading ?? new Map(),
       historyWindows: mockStoreValues.historyWindows ?? new Map(),
-      streaming: mockStoreValues.streaming ?? new Map(),
-      streamingByParentToolUseId: mockStoreValues.streamingByParentToolUseId ?? new Map(),
-      streamingThinking: mockStoreValues.streamingThinking ?? new Map(),
-      streamingThinkingByParentToolUseId: mockStoreValues.streamingThinkingByParentToolUseId ?? new Map(),
       streamingStartedAt: mockStoreValues.streamingStartedAt ?? new Map(),
       streamingOutputTokens: mockStoreValues.streamingOutputTokens ?? new Map(),
       streamingPausedDuration: mockStoreValues.streamingPausedDuration ?? new Map(),
@@ -231,18 +227,6 @@ function setStoreMessages(sessionId: string, msgs: ChatMessage[]) {
   mockStoreValues.messages = map;
 }
 
-function setStoreStreaming(sessionId: string, text: string | undefined) {
-  const map = new Map();
-  if (text !== undefined) map.set(sessionId, text);
-  mockStoreValues.streaming = map;
-}
-
-function setStoreThinking(sessionId: string, text: string | undefined) {
-  const map = new Map();
-  if (text !== undefined) map.set(sessionId, text);
-  mockStoreValues.streamingThinking = map;
-}
-
 function setStorePendingCodexInputs(sessionId: string, inputs: PendingCodexInput[]) {
   const map = new Map();
   map.set(sessionId, inputs);
@@ -287,18 +271,6 @@ function setStoreFeedScrollPosition(
   const map = new Map();
   map.set(sessionId, pos);
   mockStoreValues.feedScrollPosition = map;
-}
-
-function setStoreParentStreaming(sessionId: string, entries: Record<string, string>) {
-  const map = new Map();
-  map.set(sessionId, new Map(Object.entries(entries)));
-  mockStoreValues.streamingByParentToolUseId = map;
-}
-
-function setStoreParentThinking(sessionId: string, entries: Record<string, string>) {
-  const map = new Map();
-  map.set(sessionId, new Map(Object.entries(entries)));
-  mockStoreValues.streamingThinkingByParentToolUseId = map;
 }
 
 function setStoreStatus(sessionId: string, status: string | null) {
@@ -412,8 +384,6 @@ function resetStore() {
   mockStoreValues.messageFrozenCounts = new Map();
   mockStoreValues.messageFrozenRevisions = new Map();
   mockStoreValues.historyWindows = new Map();
-  mockStoreValues.streaming = new Map();
-  mockStoreValues.streamingByParentToolUseId = new Map();
   mockStoreValues.streamingStartedAt = new Map();
   mockStoreValues.streamingOutputTokens = new Map();
   mockStoreValues.streamingPausedDuration = new Map();

@@ -150,10 +150,6 @@ export const useStore = create<AppState>((set, get) => ({
   threadWindowAppliedRevisions: new Map(),
   pendingThreadWindowRequests: new Map(),
   ...createSyncedProjectionStoreSlice(set),
-  streaming: new Map(),
-  streamingByParentToolUseId: new Map(),
-  streamingThinking: new Map(),
-  streamingThinkingByParentToolUseId: new Map(),
   codexReasoningPreviews: new Map(),
   streamingStartedAt: new Map(),
   streamingOutputTokens: new Map(),
@@ -706,58 +702,6 @@ export const useStore = create<AppState>((set, get) => ({
       return { messageFrozenCounts };
     }),
 
-  setStreaming: (sessionId, text, parentToolUseId) =>
-    set((s) => {
-      if (parentToolUseId) {
-        const streamingByParentToolUseId = new Map(s.streamingByParentToolUseId);
-        const sessionStreaming = new Map(streamingByParentToolUseId.get(sessionId) || []);
-        if (text === null) {
-          sessionStreaming.delete(parentToolUseId);
-        } else {
-          sessionStreaming.set(parentToolUseId, text);
-        }
-        if (sessionStreaming.size === 0) {
-          streamingByParentToolUseId.delete(sessionId);
-        } else {
-          streamingByParentToolUseId.set(sessionId, sessionStreaming);
-        }
-        return { streamingByParentToolUseId };
-      }
-      const streaming = new Map(s.streaming);
-      if (text === null) {
-        streaming.delete(sessionId);
-      } else {
-        streaming.set(sessionId, text);
-      }
-      return { streaming };
-    }),
-
-  setStreamingThinking: (sessionId, text, parentToolUseId) =>
-    set((s) => {
-      if (parentToolUseId) {
-        const streamingThinkingByParentToolUseId = new Map(s.streamingThinkingByParentToolUseId);
-        const sessionStreaming = new Map(streamingThinkingByParentToolUseId.get(sessionId) || []);
-        if (text === null) {
-          sessionStreaming.delete(parentToolUseId);
-        } else {
-          sessionStreaming.set(parentToolUseId, text);
-        }
-        if (sessionStreaming.size === 0) {
-          streamingThinkingByParentToolUseId.delete(sessionId);
-        } else {
-          streamingThinkingByParentToolUseId.set(sessionId, sessionStreaming);
-        }
-        return { streamingThinkingByParentToolUseId };
-      }
-      const streamingThinking = new Map(s.streamingThinking);
-      if (text === null) {
-        streamingThinking.delete(sessionId);
-      } else {
-        streamingThinking.set(sessionId, text);
-      }
-      return { streamingThinking };
-    }),
-
   setCodexReasoningPreviews: (sessionId, previews) =>
     set((s) => {
       const codexReasoningPreviews = new Map(s.codexReasoningPreviews);
@@ -792,14 +736,6 @@ export const useStore = create<AppState>((set, get) => ({
 
   clearStreamingState: (sessionId) =>
     set((s) => {
-      const streaming = new Map(s.streaming);
-      streaming.delete(sessionId);
-      const streamingByParentToolUseId = new Map(s.streamingByParentToolUseId);
-      streamingByParentToolUseId.delete(sessionId);
-      const streamingThinking = new Map(s.streamingThinking);
-      streamingThinking.delete(sessionId);
-      const streamingThinkingByParentToolUseId = new Map(s.streamingThinkingByParentToolUseId);
-      streamingThinkingByParentToolUseId.delete(sessionId);
       const streamingStartedAt = new Map(s.streamingStartedAt);
       streamingStartedAt.delete(sessionId);
       const streamingOutputTokens = new Map(s.streamingOutputTokens);
@@ -809,10 +745,6 @@ export const useStore = create<AppState>((set, get) => ({
       const streamingPauseStartedAt = new Map(s.streamingPauseStartedAt);
       streamingPauseStartedAt.delete(sessionId);
       return {
-        streaming,
-        streamingByParentToolUseId,
-        streamingThinking,
-        streamingThinkingByParentToolUseId,
         streamingStartedAt,
         streamingOutputTokens,
         streamingPausedDuration,
@@ -836,14 +768,6 @@ export const useStore = create<AppState>((set, get) => ({
       threadWindowResponseStates.delete(sessionId);
       const threadWindowRefreshRevisions = new Map(s.threadWindowRefreshRevisions);
       threadWindowRefreshRevisions.set(sessionId, (threadWindowRefreshRevisions.get(sessionId) ?? 0) + 1);
-      const streaming = new Map(s.streaming);
-      streaming.delete(sessionId);
-      const streamingByParentToolUseId = new Map(s.streamingByParentToolUseId);
-      streamingByParentToolUseId.delete(sessionId);
-      const streamingThinking = new Map(s.streamingThinking);
-      streamingThinking.delete(sessionId);
-      const streamingThinkingByParentToolUseId = new Map(s.streamingThinkingByParentToolUseId);
-      streamingThinkingByParentToolUseId.delete(sessionId);
       const streamingStartedAt = new Map(s.streamingStartedAt);
       streamingStartedAt.delete(sessionId);
       const streamingOutputTokens = new Map(s.streamingOutputTokens);
@@ -896,10 +820,6 @@ export const useStore = create<AppState>((set, get) => ({
         historyWindows,
         threadWindowResponseStates,
         threadWindowRefreshRevisions,
-        streaming,
-        streamingByParentToolUseId,
-        streamingThinking,
-        streamingThinkingByParentToolUseId,
         streamingStartedAt,
         streamingOutputTokens,
         streamingPausedDuration,
@@ -1736,10 +1656,6 @@ export const useStore = create<AppState>((set, get) => ({
       syncedProjectionVersions: new Map(),
       syncedProjectionKeys: new Set(),
       syncedProjectionOrderings: new Map(),
-      streaming: new Map(),
-      streamingByParentToolUseId: new Map(),
-      streamingThinking: new Map(),
-      streamingThinkingByParentToolUseId: new Map(),
       codexReasoningPreviews: new Map(),
       streamingStartedAt: new Map(),
       streamingOutputTokens: new Map(),

@@ -109,10 +109,10 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Quest Detail Modal",
     "Hover Cross-links",
   ]),
-  createNavGroup("states", "States", "Streaming, grouped activity, and state-heavy component demos.", [
+  createNavGroup("states", "States", "Generation indicators, grouped activity, and state-heavy component demos.", [
     "Side Chat",
     "Composer — Voice Recording",
-    "Streaming Indicator",
+    "Generation Indicators",
     "Tool Message Groups",
     "Subagent Groups",
     "Collapsed Activity Bars",

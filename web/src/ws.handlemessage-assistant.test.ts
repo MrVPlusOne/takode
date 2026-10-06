@@ -176,12 +176,9 @@ describe("handleMessage: assistant", () => {
     });
   });
 
-  it("appends a chat message and clears streaming", () => {
+  it("appends a chat message", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
-
-    // Set some streaming text first
-    useStore.getState().setStreaming("s1", "partial text...");
 
     fireMessage({
       type: "assistant",
@@ -205,7 +202,6 @@ describe("handleMessage: assistant", () => {
     expect(msgs[0].content).toBe("Hello world");
     expect(msgs[0].id).toBe("msg-1");
     expect(msgs[0].historyIndex).toBe(18);
-    expect(state.streaming.has("s1")).toBe(false);
     expect(state.sessionStatus.get("s1")).toBe("running");
   });
 
@@ -561,32 +557,6 @@ describe("handleMessage: assistant", () => {
     const msgs = useStore.getState().messages.get("s1")!;
     expect(msgs[0]).not.toHaveProperty("leaderUserAddressed");
     expect(msgs[0].content).toBe("Here's the status @to(user)");
-  });
-
-  it("clears only parented streaming for matching subagent assistant messages", () => {
-    wsModule.connectSession("s1");
-    fireMessage({ type: "session_init", session: makeSession("s1") });
-
-    useStore.getState().setStreaming("s1", "top level");
-    useStore.getState().setStreaming("s1", "child partial", "agent-1");
-
-    fireMessage({
-      type: "assistant",
-      message: {
-        id: "msg-subagent-1",
-        type: "message",
-        role: "assistant",
-        model: "gpt-5",
-        content: [{ type: "text", text: "Child final" }],
-        stop_reason: "end_turn",
-        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-      },
-      parent_tool_use_id: "agent-1",
-    });
-
-    const state = useStore.getState();
-    expect(state.streaming.get("s1")).toBe("top level");
-    expect(state.streamingByParentToolUseId.has("s1")).toBe(false);
   });
 
   it("updates timestamp when an existing assistant message is re-broadcast with newer data", () => {

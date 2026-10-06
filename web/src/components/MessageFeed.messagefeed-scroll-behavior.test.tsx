@@ -69,10 +69,6 @@ vi.mock("../store.js", () => {
       messageFrozenRevisions: mockStoreValues.messageFrozenRevisions ?? new Map(),
       historyLoading: mockStoreValues.historyLoading ?? new Map(),
       historyWindows: mockStoreValues.historyWindows ?? new Map(),
-      streaming: mockStoreValues.streaming ?? new Map(),
-      streamingByParentToolUseId: mockStoreValues.streamingByParentToolUseId ?? new Map(),
-      streamingThinking: mockStoreValues.streamingThinking ?? new Map(),
-      streamingThinkingByParentToolUseId: mockStoreValues.streamingThinkingByParentToolUseId ?? new Map(),
       streamingStartedAt: mockStoreValues.streamingStartedAt ?? new Map(),
       streamingOutputTokens: mockStoreValues.streamingOutputTokens ?? new Map(),
       streamingPausedDuration: mockStoreValues.streamingPausedDuration ?? new Map(),
@@ -231,18 +227,6 @@ function setStoreMessages(sessionId: string, msgs: ChatMessage[]) {
   mockStoreValues.messages = map;
 }
 
-function setStoreStreaming(sessionId: string, text: string | undefined) {
-  const map = new Map();
-  if (text !== undefined) map.set(sessionId, text);
-  mockStoreValues.streaming = map;
-}
-
-function setStoreThinking(sessionId: string, text: string | undefined) {
-  const map = new Map();
-  if (text !== undefined) map.set(sessionId, text);
-  mockStoreValues.streamingThinking = map;
-}
-
 function setStorePendingCodexInputs(sessionId: string, inputs: Array<Record<string, unknown>>) {
   const map = new Map();
   map.set(sessionId, inputs);
@@ -282,18 +266,6 @@ function setStoreFeedScrollPosition(
   const map = new Map();
   map.set(getFeedViewportKey(sessionId, threadKey), pos);
   mockStoreValues.feedScrollPosition = map;
-}
-
-function setStoreParentStreaming(sessionId: string, entries: Record<string, string>) {
-  const map = new Map();
-  map.set(sessionId, new Map(Object.entries(entries)));
-  mockStoreValues.streamingByParentToolUseId = map;
-}
-
-function setStoreParentThinking(sessionId: string, entries: Record<string, string>) {
-  const map = new Map();
-  map.set(sessionId, new Map(Object.entries(entries)));
-  mockStoreValues.streamingThinkingByParentToolUseId = map;
 }
 
 function setStoreStatus(sessionId: string, status: string | null) {
@@ -407,8 +379,6 @@ function resetStore() {
   mockStoreValues.messageFrozenCounts = new Map();
   mockStoreValues.messageFrozenRevisions = new Map();
   mockStoreValues.historyWindows = new Map();
-  mockStoreValues.streaming = new Map();
-  mockStoreValues.streamingByParentToolUseId = new Map();
   mockStoreValues.streamingStartedAt = new Map();
   mockStoreValues.streamingOutputTokens = new Map();
   mockStoreValues.streamingPausedDuration = new Map();
@@ -913,10 +883,10 @@ describe("MessageFeed - scroll behavior", () => {
     }
   });
 
-  it("uses immediate bottom alignment while streaming when the user is near bottom", async () => {
+  it("uses immediate bottom alignment while generating when the user is near bottom", async () => {
     const sid = "test-bottom-follow-streaming";
     setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Question" })]);
-    setStoreStreaming(sid, "Thinking...");
+    setStoreStatus(sid, "running");
 
     const { container, rerender } = render(<MessageFeed sessionId={sid} />);
     const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
@@ -1100,9 +1070,13 @@ describe("MessageFeed - scroll behavior", () => {
     expect(scrollTopValue).toBe(520);
   });
 
-  it("does not jump upward to an older subagent when newer bottom streaming content is still active", async () => {
+  it("does not jump upward to an older subagent when newer bottom activity is still active", async () => {
     const sid = "test-subagent-does-not-yank-follow-upward";
-    setStoreMessages(sid, [
+    // The live tool-progress footer stays the newest content while an older
+    // subagent card above it keeps growing.
+    const subagentChild = (id: string, content: string) =>
+      makeMessage({ id, role: "assistant", content, parentToolUseId: "task-follow-floor" });
+    const baseMessages = [
       makeMessage({ id: "u1", role: "user", content: "Question" }),
       makeMessage({
         id: "a1",
@@ -1117,10 +1091,10 @@ describe("MessageFeed - scroll behavior", () => {
           },
         ],
       }),
-    ]);
+    ];
+    setStoreMessages(sid, [...baseMessages, subagentChild("child-1", "Older subagent output")]);
     setStoreStatus(sid, "running");
-    setStoreStreaming(sid, "Latest bottom output");
-    setStoreParentStreaming(sid, { "task-follow-floor": "Older subagent output" });
+    setStoreToolProgress(sid, [{ toolUseId: "bash-bottom", toolName: "Bash", elapsedSeconds: 3 }]);
 
     const { container, rerender } = render(<MessageFeed sessionId={sid} />);
     fireEvent.click(screen.getByText("Inspect event routing"));
@@ -1151,19 +1125,23 @@ describe("MessageFeed - scroll behavior", () => {
     });
 
     const subagentBlock = container.querySelector('[data-feed-block-id="subagent:task-follow-floor"]') as HTMLElement;
-    const footerBlock = container.querySelector('[data-feed-block-id="footer:streaming"]') as HTMLElement;
+    const footerBlock = container.querySelector('[data-feed-block-id="footer:tool-progress"]') as HTMLElement;
     setElementOffsetMetrics(subagentBlock, 900, 400);
     setElementOffsetMetrics(footerBlock, 1600, 160);
 
     fireEvent.scroll(scrollContainer);
 
-    setStoreParentStreaming(sid, { "task-follow-floor": "Older subagent output that keeps growing" });
+    setStoreMessages(sid, [
+      ...baseMessages,
+      subagentChild("child-1", "Older subagent output"),
+      subagentChild("child-2", "More subagent output"),
+    ]);
     rerender(<MessageFeed sessionId={sid} />);
 
     const rerenderedSubagentBlock = container.querySelector(
       '[data-feed-block-id="subagent:task-follow-floor"]',
     ) as HTMLElement;
-    const rerenderedFooterBlock = container.querySelector('[data-feed-block-id="footer:streaming"]') as HTMLElement;
+    const rerenderedFooterBlock = container.querySelector('[data-feed-block-id="footer:tool-progress"]') as HTMLElement;
     setElementOffsetMetrics(rerenderedSubagentBlock, 900, 400);
     setElementOffsetMetrics(rerenderedFooterBlock, 1600, 160);
 
@@ -1730,115 +1708,6 @@ describe("MessageFeed - scroll behavior", () => {
     fireEvent.click(screen.getByLabelText("Go to bottom"));
 
     expect(mockScrollTo).toHaveBeenCalledWith({ top: 988, behavior: "smooth" });
-  });
-
-  it("renders streaming text with cursor animation", () => {
-    const sid = "test-streaming";
-    setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Hello" })]);
-    setStoreStreaming(sid, "I am currently thinking about");
-
-    const { container } = render(<MessageFeed sessionId={sid} />);
-
-    expect(screen.getByText("I am currently thinking about")).toBeTruthy();
-    // Check for the blinking cursor element (animate class with pulse-dot)
-    const cursor = container.querySelector('[class*="animate-"]');
-    expect(cursor).toBeTruthy();
-  });
-
-  it("uses markdown rendering for codex streaming text", () => {
-    const sid = "test-streaming-codex";
-    setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Hello" })]);
-    setStoreStreaming(sid, "Codex is streaming\nStill hidden");
-    setStoreSessionBackend(sid, "codex");
-
-    const { container } = render(<MessageFeed sessionId={sid} />);
-
-    // The user message also renders via MarkdownContent now, so multiple
-    // [data-testid="markdown"] elements exist. The streaming bubble is the last one.
-    const markdownEls = screen.getAllByTestId("markdown");
-    expect(markdownEls[markdownEls.length - 1].textContent).toContain("Codex is streaming");
-    expect(screen.queryByText("Still hidden")).toBeNull();
-    expect(container.querySelector("pre.font-mono-code")).toBeNull();
-  });
-
-  it("commits completed math lines without exposing an incomplete Codex tail", () => {
-    // Codex streaming only sends newline-complete text through MarkdownContent;
-    // an unfinished delimiter must remain withheld until the next commit.
-    const sid = "test-streaming-codex-math";
-    setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Hello" })]);
-    setStoreStreaming(
-      sid,
-      String.raw`Completed \(x + 1\)
-Partial \(`,
-    );
-    setStoreSessionBackend(sid, "codex");
-
-    render(<MessageFeed sessionId={sid} />);
-
-    const markdownEls = screen.getAllByTestId("markdown");
-    const streamingText = markdownEls[markdownEls.length - 1].textContent ?? "";
-    expect(streamingText).toContain("Completed");
-    expect(streamingText).toContain("x + 1");
-    expect(streamingText).not.toContain("Partial");
-  });
-
-  it("withholds root codex thinking from the legacy footer when no assistant text is streaming yet", () => {
-    const sid = "test-streaming-codex-thinking";
-    setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Hello" })]);
-    setStoreSessionBackend(sid, "codex");
-    setStoreThinking(sid, "Checking session restore flow");
-
-    render(<MessageFeed sessionId={sid} />);
-
-    expect(screen.queryByText("Checking session restore flow")).toBeNull();
-  });
-
-  it("withholds partial codex lines until a newline commits them", () => {
-    const sid = "test-streaming-codex-partial";
-    setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Hello" })]);
-    setStoreStreaming(sid, "Uncommitted partial");
-    setStoreSessionBackend(sid, "codex");
-
-    const { unmount } = render(<MessageFeed sessionId={sid} />);
-
-    // The user message also renders via MarkdownContent, so get the last
-    // markdown element (the streaming bubble).
-    const els1 = screen.getAllByTestId("markdown");
-    expect(els1[els1.length - 1].textContent).toBe("");
-    expect(screen.queryByText("Uncommitted partial")).toBeNull();
-
-    unmount();
-    setStoreStreaming(sid, "Uncommitted partial\n");
-    render(<MessageFeed sessionId={sid} />);
-
-    const els2 = screen.getAllByTestId("markdown");
-    expect(els2[els2.length - 1].textContent).toContain("Uncommitted partial");
-  });
-
-  it("keeps serif streaming typography for claude sessions", () => {
-    const sid = "test-streaming-claude";
-    setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Hello" })]);
-    setStoreStreaming(sid, "Claude is streaming");
-    setStoreSessionBackend(sid, "claude");
-
-    render(<MessageFeed sessionId={sid} />);
-
-    const text = screen.getByText("Claude is streaming");
-    const pre = text.closest("pre");
-    expect(pre).toBeTruthy();
-    expect(pre?.className).toContain("font-serif-assistant");
-    expect(pre?.className).not.toContain("font-mono-code");
-  });
-
-  it("does not render streaming indicator when no streaming text", () => {
-    const sid = "test-no-stream";
-    setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Hello" })]);
-
-    const { container } = render(<MessageFeed sessionId={sid} />);
-
-    // No pre element with streaming content
-    const preElements = container.querySelectorAll("pre.font-serif-assistant");
-    expect(preElements.length).toBe(0);
   });
 
   it("shows an explicit loading conversation state instead of the empty state during cold history hydration", () => {

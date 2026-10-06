@@ -546,8 +546,6 @@ describe("handleMessage: history_sync", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
-    useStore.getState().setStreaming("s1", "child output", "task-live-1");
-    useStore.getState().setStreamingThinking("s1", "child reasoning", "task-live-1");
     useStore.getState().setToolProgress("s1", "task-live-1", {
       toolName: "Task",
       elapsedSeconds: 120,
@@ -590,8 +588,6 @@ describe("handleMessage: history_sync", () => {
     });
 
     const state = useStore.getState();
-    expect(state.streamingByParentToolUseId.has("s1")).toBe(false);
-    expect(state.streamingThinkingByParentToolUseId.has("s1")).toBe(false);
     expect(state.toolProgress.has("s1")).toBe(false);
     expect(state.toolResults.has("s1")).toBe(false);
     expect(state.backgroundAgentNotifs.has("s1")).toBe(false);

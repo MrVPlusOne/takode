@@ -223,7 +223,6 @@ export function MessageFeed({
   const historyWindow = useStore((s) => s.historyWindows.get(sessionId) ?? null);
   const leaderProjection = useStore((s) => s.leaderProjections?.get(sessionId) ?? null);
   const starredMessages = useStore((s) => s.sessions.get(sessionId)?.starredMessages);
-  const streamingText = useStore((s) => s.streaming.get(sessionId));
   const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
   const toolResults = useStore((s) => s.toolResults.get(sessionId));
@@ -231,7 +230,6 @@ export function MessageFeed({
   const backgroundAgentNotifs = useStore((s) => s.backgroundAgentNotifs.get(sessionId));
   const currentSessionStatus = useStore((s) => s.sessionStatus.get(sessionId) ?? null);
   const activeTurnRoute = useStore((s) => s.activeTurnRoutes?.get(sessionId) ?? null);
-  const parentStreamingByToolUseId = useStore((s) => s.streamingByParentToolUseId.get(sessionId));
   const shouldBottomAlignNextUserMessage = useStore((s) => s.bottomAlignNextUserMessage.has(sessionId));
   const pawCounter = useRef<import("./PawTrail.js").PawCounterState>({ next: 0, cache: new Map() });
   const containerRef = useRef<HTMLDivElement>(null);
@@ -350,17 +348,8 @@ export function MessageFeed({
         toolProgress,
         toolStartTimestamps,
         backgroundAgentNotifs,
-        parentStreamingByToolUseId,
       ),
-    [
-      backgroundAgentNotifs,
-      currentSessionStatus,
-      parentStreamingByToolUseId,
-      toolProgress,
-      toolResults,
-      toolStartTimestamps,
-      turns,
-    ],
+    [backgroundAgentNotifs, currentSessionStatus, toolProgress, toolResults, toolStartTimestamps, turns],
   );
   const activeCodexTerminalEntries = useMemo(
     () => (currentSessionStatus === "running" ? codexTerminalEntries.filter((entry) => entry.result == null) : []),
@@ -519,7 +508,6 @@ export function MessageFeed({
         selectedFeedWindowEnabled,
         historyWindow,
         selectedFeedWindow,
-        streamingText,
         historyLoading,
         messageCount: messages.length,
       }),
@@ -531,7 +519,6 @@ export function MessageFeed({
       sectionWindowStart,
       selectedFeedWindow,
       selectedFeedWindowEnabled,
-      streamingText,
       turns,
     ],
   );
@@ -1333,14 +1320,7 @@ export function MessageFeed({
   useEffect(() => {
     if (showConversationLoading) return;
     updateLatestPillForContentBottom(getRealContentBottom());
-  }, [
-    getRealContentBottom,
-    messages.length,
-    showConversationLoading,
-    streamingText,
-    toolProgress,
-    updateLatestPillForContentBottom,
-  ]);
+  }, [getRealContentBottom, messages.length, showConversationLoading, toolProgress, updateLatestPillForContentBottom]);
 
   useEffect(() => {
     onLatestIndicatorVisibleChange?.(showLatestPill);
@@ -1756,7 +1736,6 @@ export function MessageFeed({
     messageCount: messages.length,
     pendingUserUploadCount: pendingUserUploads.length,
     pendingCodexInputCount: pendingCodexInputs.length,
-    hasStreamingText: Boolean(streamingText),
     selectedFeedWindowEnabled,
     hasActiveThreadWindow: Boolean(activeThreadWindow),
     missingSelectedWindowHasContext,
@@ -1794,7 +1773,7 @@ export function MessageFeed({
     );
   }
 
-  if (messages.length === 0 && pendingUserUploads.length === 0 && pendingCodexInputs.length === 0 && !streamingText) {
+  if (messages.length === 0 && pendingUserUploads.length === 0 && pendingCodexInputs.length === 0) {
     return (
       <MessageFeedCenteredState
         variant="empty"
@@ -1904,11 +1883,7 @@ export function MessageFeed({
                   {isCodexSession && pendingCodexInputs.length > 0 && (
                     <PendingCodexInputList sessionId={sessionId} inputs={pendingCodexInputs} />
                   )}
-                  <FeedFooter
-                    sessionId={sessionId}
-                    visibleToolUseIds={visibleToolUseIds}
-                    questLinkSurface="chat-feed"
-                  />
+                  <FeedFooter sessionId={sessionId} visibleToolUseIds={visibleToolUseIds} />
                   <MessageFeedEndSlack {...feedEndSlackProps} />
                 </div>
               </PawCounterContext.Provider>

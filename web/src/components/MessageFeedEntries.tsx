@@ -10,10 +10,9 @@ import type {
 } from "../types.js";
 import { isSubagentToolName } from "../types.js";
 import { type FeedEntry, type SubagentBatch, type SubagentGroup, type ToolMsgGroup } from "../hooks/use-feed-model.js";
-import { CodexThinkingInline, HerdEventMessage, MessageBubble } from "./MessageBubble.js";
+import { HerdEventMessage, MessageBubble } from "./MessageBubble.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE } from "../utils/herd-event-parser.js";
 import { ToolBlock, getToolIcon, getToolLabel, ToolIcon, type ToolResultScope } from "./ToolBlock.js";
-import { MarkdownContent } from "./MarkdownContent.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { CollapseFooter } from "./CollapseFooter.js";
 import { LiveCodexTerminalStub, LiveDurationBadge } from "./MessageFeedLiveActivity.js";
@@ -982,13 +981,6 @@ export const FeedEntries = memo(function FeedEntries({
   return <>{rendered}</>;
 });
 
-function getCommittedCodexStreamingText(raw: string): string {
-  if (!raw) return "";
-  const lastNewline = raw.lastIndexOf("\n");
-  if (lastNewline < 0) return "";
-  return raw.slice(0, lastNewline + 1);
-}
-
 function SubagentBatchContainer({
   batch,
   sessionId,
@@ -1097,14 +1089,6 @@ function SubagentContainer({
     group.resultOverride ??
     toolResultOverrides?.get(group.taskToolUseId) ??
     (isolateToolState ? undefined : storedResultPreview);
-  const storedStreamingText = useStore(
-    (s) => s.streamingByParentToolUseId.get(sessionId)?.get(group.taskToolUseId) || "",
-  );
-  const rawStreamingText = readOnly || isolateToolState ? "" : storedStreamingText;
-  const storedThinkingText = useStore(
-    (s) => s.streamingThinkingByParentToolUseId.get(sessionId)?.get(group.taskToolUseId) || "",
-  );
-  const rawThinkingText = readOnly || isolateToolState ? "" : storedThinkingText;
   const storedProgressElapsedSeconds = useStore(
     (s) => s.toolProgress.get(sessionId)?.get(group.taskToolUseId)?.elapsedSeconds,
   );
@@ -1112,10 +1096,6 @@ function SubagentContainer({
   const storedStartTimestamp = useStore((s) => s.toolStartTimestamps.get(sessionId)?.get(group.taskToolUseId));
   const startTimestamp = isolateToolState ? undefined : storedStartTimestamp;
   const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
-  const streamingText = useMemo(
-    () => (isCodexSession ? getCommittedCodexStreamingText(rawStreamingText) : rawStreamingText),
-    [isCodexSession, rawStreamingText],
-  );
   const storedBgNotif = useStore((s) => s.backgroundAgentNotifs.get(sessionId)?.get(group.taskToolUseId));
   const bgNotif = readOnly || isolateToolState ? undefined : storedBgNotif;
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
@@ -1156,16 +1136,8 @@ function SubagentContainer({
       const text = parsedResultPreview.trim();
       return text.length > 120 ? text.slice(0, 120) + "..." : text;
     }
-    if (streamingText) {
-      const text = streamingText.trim();
-      return text.length > 120 ? text.slice(0, 120) + "..." : text;
-    }
-    if (rawThinkingText && !isCodexSession) {
-      const text = rawThinkingText.trim();
-      return text.length > 120 ? text.slice(0, 120) + "..." : text;
-    }
     return lastPreview;
-  }, [delegatePrompt, isCodexSession, isDelegate, lastPreview, parsedResultPreview, rawThinkingText, streamingText]);
+  }, [delegatePrompt, isDelegate, lastPreview, parsedResultPreview]);
 
   const {
     trace: delegateTrace,
@@ -1253,11 +1225,7 @@ function SubagentContainer({
             </div>
           )}
 
-          {(childCount > 0 ||
-            delegateTraceCount > 0 ||
-            rawStreamingText ||
-            (rawThinkingText && !isCodexSession) ||
-            delegateTraceError) && (
+          {(childCount > 0 || delegateTraceCount > 0 || delegateTraceError) && (
             <div className="border-b border-cc-border/50">
               <SubagentSectionHeader
                 label="Activities"
@@ -1286,30 +1254,6 @@ function SubagentContainer({
                   {delegateTraceError && delegateTraceCount === 0 && (
                     <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2 text-[11px] text-cc-muted">
                       Delegate trace unavailable: {delegateTraceError}
-                    </div>
-                  )}
-                  {rawThinkingText && !isCodexSession && (
-                    <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2">
-                      <CodexThinkingInline text={rawThinkingText} />
-                    </div>
-                  )}
-                  {rawStreamingText && (
-                    <div className="rounded-[8px] border border-cc-border/50 bg-cc-hover/20 px-3 py-2">
-                      {isCodexSession ? (
-                        <div className="text-[13px] text-cc-fg">
-                          <MarkdownContent
-                            text={streamingText}
-                            sessionId={sessionId}
-                            questLinkSurface={questLinkSurface}
-                          />
-                          <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle -translate-y-[2px] animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
-                        </div>
-                      ) : (
-                        <pre className="font-serif-assistant text-[14px] text-cc-fg whitespace-pre-wrap break-words leading-relaxed">
-                          {streamingText}
-                          <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
-                        </pre>
-                      )}
                     </div>
                   )}
                 </div>
@@ -1343,17 +1287,12 @@ function SubagentContainer({
             </div>
           )}
 
-          {childCount === 0 &&
-            delegateTraceCount === 0 &&
-            !rawStreamingText &&
-            !(rawThinkingText && !isCodexSession) &&
-            !isEffectivelyComplete &&
-            !isAbandoned && (
-              <div className="px-3 py-2 flex items-center gap-1.5 text-[11px] text-cc-muted">
-                <YarnBallSpinner className="w-3.5 h-3.5" />
-                <span>{group.isBackground ? "Running in background..." : "Agent starting..."}</span>
-              </div>
-            )}
+          {childCount === 0 && delegateTraceCount === 0 && !isEffectivelyComplete && !isAbandoned && (
+            <div className="px-3 py-2 flex items-center gap-1.5 text-[11px] text-cc-muted">
+              <YarnBallSpinner className="w-3.5 h-3.5" />
+              <span>{group.isBackground ? "Running in background..." : "Agent starting..."}</span>
+            </div>
+          )}
 
           {childCount === 0 && isAbandoned && (
             <div className="px-3 py-2 text-[11px] text-cc-muted">Agent interrupted</div>
@@ -1402,24 +1341,17 @@ function SubagentContainer({
 export const FeedFooter = memo(function FeedFooter({
   sessionId,
   visibleToolUseIds,
-  questLinkSurface = "legacy",
 }: {
   sessionId: string;
   visibleToolUseIds?: Set<string>;
-  questLinkSurface?: QuestLinkSurface;
 }) {
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
-  const rawStreamingText = useStore((s) => s.streaming.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
-  const streamingText = useMemo(
-    () => (isCodexSession ? getCommittedCodexStreamingText(rawStreamingText || "") : rawStreamingText || ""),
-    [isCodexSession, rawStreamingText],
-  );
 
   return (
     <>
-      {sessionStatus === "compacting" && !rawStreamingText && (
+      {sessionStatus === "compacting" && (
         <div
           className="flex items-center gap-2 text-[12px] text-cc-muted font-mono-code pl-9 py-1 animate-[fadeSlideIn_0.2s_ease-out]"
           data-feed-block-id={getFooterFeedBlockId("compacting")}
@@ -1431,7 +1363,6 @@ export const FeedFooter = memo(function FeedFooter({
 
       {toolProgress &&
         toolProgress.size > 0 &&
-        !rawStreamingText &&
         !isCodexSession &&
         (() => {
           const nonTaskProgress = Array.from(toolProgress.entries())
@@ -1455,31 +1386,6 @@ export const FeedFooter = memo(function FeedFooter({
             </div>
           );
         })()}
-
-      {rawStreamingText && (
-        <div
-          className="animate-[fadeSlideIn_0.2s_ease-out]"
-          data-feed-streaming-message="true"
-          data-feed-block-id={getFooterFeedBlockId("streaming")}
-        >
-          <div className="flex items-start gap-3">
-            <PawTrailAvatar isStreaming />
-            <div className="flex-1 min-w-0">
-              {isCodexSession ? (
-                <div>
-                  <MarkdownContent text={streamingText} sessionId={sessionId} questLinkSurface={questLinkSurface} />
-                  <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle -translate-y-[2px] animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
-                </div>
-              ) : (
-                <pre className="font-serif-assistant text-[15px] text-cc-fg whitespace-pre-wrap break-words leading-relaxed">
-                  {streamingText}
-                  <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
-                </pre>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 });

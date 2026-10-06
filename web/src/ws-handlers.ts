@@ -893,10 +893,7 @@ function handleParsedMessage(
         parentToolUseId: message.parentToolUseId,
         metadata: message.metadata,
       });
-      if (!data.codexSubagent) {
-        store.setStreamingThinking(sessionId, null, data.parent_tool_use_id);
-        if (data.status === "streaming") store.setSessionStatus(sessionId, "running");
-      }
+      if (!data.codexSubagent && data.status === "streaming") store.setSessionStatus(sessionId, "running");
       break;
     }
 
@@ -963,12 +960,8 @@ function handleParsedMessage(
         store.appendMessage(sessionId, chatMsg);
       }
       // Native child rows are audit content only. They must not mutate the
-      // root session's live streaming, task, progress, or lifecycle state.
+      // root session's task, progress, or lifecycle state.
       if (data.codexSubagent) break;
-      store.setStreaming(sessionId, null, data.parent_tool_use_id);
-      if (msg.content?.some((block) => block.type === "thinking")) {
-        store.setStreamingThinking(sessionId, null, data.parent_tool_use_id);
-      }
       // Clear progress only for completed tools (tool_result blocks), not all tools.
       // Blanket clear would cause flickering during concurrent tool execution.
       if (msg.content?.length) {

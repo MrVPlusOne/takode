@@ -128,7 +128,7 @@ export function PawScrollProvider({
  * PawScrollProvider that drives updates via a single listener + rAF.
  * Style updates are written directly to DOM refs — no React re-renders.
  */
-export function PawTrailAvatar({ isStreaming }: { isStreaming?: boolean }) {
+export function PawTrailAvatar() {
   const componentId = useId();
   const counter = useContext(PawCounterContext);
   const [index] = useState(() => {

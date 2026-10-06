@@ -144,13 +144,12 @@ describe("Codex native subagent browser authority", () => {
     expect(native?.turns["turn-old-child"]).toBeUndefined();
   });
 
-  it("keeps live child activity out of root streaming, task, progress, and lifecycle state", () => {
+  it("keeps live child activity out of root generation stats, task, progress, and lifecycle state", () => {
     wsModule.connectSession("s1");
     fire({ type: "session_init", session: session("s1", snapshot("safe-child", 1)) });
 
     const store = useStore.getState();
-    store.setStreaming("s1", "root stream");
-    store.setStreamingThinking("s1", "root reasoning");
+    store.setStreamingStats("s1", { startedAt: 5, outputTokens: 7 });
     store.setSessionStatus("s1", "idle");
     store.setTasks("s1", [
       { id: "root-task", subject: "Keep root task", description: "Root-owned task", status: "pending" },
@@ -160,7 +159,7 @@ describe("Codex native subagent browser authority", () => {
     const ownership = { childId: "safe-child", rootTurnId: "turn-safe-child" };
     fire({
       type: "stream_event",
-      event: { type: "content_block_delta", delta: { type: "text_delta", text: "child stream" } },
+      event: { type: "message_delta", delta: { stop_reason: null }, usage: { output_tokens: 99 } },
       parent_tool_use_id: null,
       codexSubagent: ownership,
     });
@@ -206,8 +205,7 @@ describe("Codex native subagent browser authority", () => {
     });
 
     const next = useStore.getState();
-    expect(next.streaming.get("s1")).toBe("root stream");
-    expect(next.streamingThinking.get("s1")).toBe("root reasoning");
+    expect(next.streamingOutputTokens.get("s1")).toBe(7);
     expect(next.sessionStatus.get("s1")).toBe("idle");
     expect(next.sessionTasks.get("s1")).toEqual([
       { id: "root-task", subject: "Keep root task", description: "Root-owned task", status: "pending" },
@@ -228,7 +226,7 @@ describe("Codex native subagent browser authority", () => {
     const ownership = { childId: "safe-child", rootTurnId: "turn-safe-child" };
     const store = useStore.getState();
     store.setSessionStatus("s1", "running");
-    store.setStreaming("s1", "root stream");
+    store.setStreamingStats("s1", { startedAt: 5, outputTokens: 7 });
     store.setToolProgress("s1", "root-tool", { toolName: "Bash", elapsedSeconds: 9 });
 
     fire({
@@ -249,7 +247,7 @@ describe("Codex native subagent browser authority", () => {
 
     const next = useStore.getState();
     expect(next.sessionStatus.get("s1")).toBe("running");
-    expect(next.streaming.get("s1")).toBe("root stream");
+    expect(next.streamingStartedAt.get("s1")).toBe(5);
     expect(next.toolProgress.get("s1")?.has("root-tool")).toBe(true);
     expect(next.messages.get("s1")?.some((message) => message.content.includes("child failed"))).toBe(false);
   });

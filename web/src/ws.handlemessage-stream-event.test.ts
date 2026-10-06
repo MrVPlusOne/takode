@@ -125,68 +125,30 @@ function fireMessage(data: Record<string, unknown>) {
 // ===========================================================================
 // Connection
 // ===========================================================================
-describe("handleMessage: stream_event content_block_delta", () => {
-  it("accumulates streaming text from text_delta events", () => {
+describe("handleMessage: stream_event", () => {
+  it("keeps generation stats through message boundaries", () => {
+    // Live text never reaches the browser; stream events only drive the
+    // generation timer and token count, which a message stop must not reset.
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
+    fireMessage({ type: "stream_event", event: { type: "message_start" }, parent_tool_use_id: null });
+    const startedAt = useStore.getState().streamingStartedAt.get("s1");
+    expect(startedAt).toEqual(expect.any(Number));
     fireMessage({
       type: "stream_event",
-      event: { type: "content_block_delta", delta: { type: "text_delta", text: "Hello " } },
+      event: { type: "message_delta", delta: { stop_reason: null }, usage: { output_tokens: 34 } },
       parent_tool_use_id: null,
     });
-
-    fireMessage({
-      type: "stream_event",
-      event: { type: "content_block_delta", delta: { type: "text_delta", text: "world" } },
-      parent_tool_use_id: null,
-    });
-
-    expect(useStore.getState().streaming.get("s1")).toBe("Hello world");
-  });
-
-  it("routes parented streaming text into the matching subagent buffer", () => {
-    wsModule.connectSession("s1");
-    fireMessage({ type: "session_init", session: makeSession("s1") });
-
-    fireMessage({
-      type: "stream_event",
-      event: { type: "content_block_delta", delta: { type: "text_delta", text: "Nested " } },
-      parent_tool_use_id: "agent-1",
-    });
-    fireMessage({
-      type: "stream_event",
-      event: { type: "content_block_delta", delta: { type: "text_delta", text: "output" } },
-      parent_tool_use_id: "agent-1",
-    });
+    fireMessage({ type: "stream_event", event: { type: "message_stop" }, parent_tool_use_id: null });
 
     const state = useStore.getState();
-    expect(state.streaming.has("s1")).toBe(false);
-    expect(state.streamingByParentToolUseId.get("s1")?.get("agent-1")).toBe("Nested output");
+    expect(state.streamingStartedAt.get("s1")).toBe(startedAt);
+    expect(state.streamingOutputTokens.get("s1")).toBe(34);
   });
 
-  it("drops only top-level leader text deltas while preserving nested leader streams", () => {
-    wsModule.connectSession("leader-1");
-    fireMessage({ type: "session_init", session: { ...makeSession("leader-1"), isOrchestrator: true } });
-
-    fireMessage({
-      type: "stream_event",
-      event: { type: "content_block_delta", delta: { type: "text_delta", text: "[thread:q-1] hidden" } },
-      parent_tool_use_id: null,
-    });
-    fireMessage({
-      type: "stream_event",
-      event: { type: "content_block_delta", delta: { type: "text_delta", text: "Nested visible" } },
-      parent_tool_use_id: "agent-1",
-    });
-
-    const state = useStore.getState();
-    expect(state.streaming.has("leader-1")).toBe(false);
-    expect(state.streamingByParentToolUseId.get("leader-1")?.get("agent-1")).toBe("Nested visible");
-  });
-
-  it("accumulates live Codex thinking without inventing retained rows in the browser", () => {
-    // The server publishes routed retained rows separately; raw stream events only drive generic streaming buffers.
+  it("does not invent retained reasoning rows from raw thinking stream events", () => {
+    // The server publishes routed retained rows separately; raw stream events never create them in the browser.
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     fireMessage({
@@ -206,7 +168,6 @@ describe("handleMessage: stream_event content_block_delta", () => {
       parent_tool_use_id: null,
     });
 
-    expect(useStore.getState().streamingThinking.get("s1")).toBe("Inspecting session state");
     expect(useStore.getState().codexReasoningPreviews.has("s1")).toBe(false);
   });
 
@@ -270,26 +231,5 @@ describe("handleMessage: stream_event content_block_delta", () => {
     });
 
     expect(useStore.getState().codexReasoningPreviews.has("s1")).toBe(false);
-  });
-
-  it("routes parented thinking into the matching subagent buffer", () => {
-    wsModule.connectSession("s1");
-    fireMessage({ type: "session_init", session: makeSession("s1") });
-
-    fireMessage({
-      type: "stream_event",
-      event: { type: "content_block_start", content_block: { type: "thinking", thinking: "" } },
-      parent_tool_use_id: "agent-1",
-    });
-    fireMessage({
-      type: "stream_event",
-      event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "Nested reasoning" } },
-      parent_tool_use_id: "agent-1",
-    });
-
-    const state = useStore.getState();
-    expect(state.streamingThinking.has("s1")).toBe(false);
-    expect(state.streamingThinkingByParentToolUseId.get("s1")?.get("agent-1")).toBe("Nested reasoning");
-    expect(state.codexReasoningPreviews.has("s1")).toBe(false);
   });
 });

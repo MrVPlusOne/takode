@@ -109,7 +109,6 @@ export function usePlaygroundSeed() {
     const prevCliDisconnectReason = new Map(demoSessionIds.map((id) => [id, snapshot.cliDisconnectReason.get(id)]));
     const prevStatus = new Map(demoSessionIds.map((id) => [id, snapshot.sessionStatus.get(id)]));
     const prevActiveTurnRoutes = new Map(demoSessionIds.map((id) => [id, snapshot.activeTurnRoutes.get(id)]));
-    const prevStreaming = new Map(demoSessionIds.map((id) => [id, snapshot.streaming.get(id)]));
     const prevStreamingStartedAt = new Map(demoSessionIds.map((id) => [id, snapshot.streamingStartedAt.get(id)]));
     const prevStreamingOutputTokens = new Map(demoSessionIds.map((id) => [id, snapshot.streamingOutputTokens.get(id)]));
     const prevFeedScrollPositions = new Map(demoSessionIds.map((id) => [id, snapshot.feedScrollPosition.get(id)]));
@@ -299,7 +298,6 @@ export function usePlaygroundSeed() {
       section_turn_count: 10,
       visible_section_count: 3,
     });
-    store.setStreaming(sessionId, "I'm updating tests and then I'll run the full suite.");
     store.setStreamingStats(sessionId, { startedAt: Date.now() - 12000, outputTokens: 1200 });
     store.addPermission(sessionId, PERM_BASH);
     store.addPermission(sessionId, PERM_DYNAMIC);
@@ -1816,7 +1814,6 @@ export function usePlaygroundSeed() {
         const cliEverConnected = new Map(s.cliEverConnected);
         const sessionStatus = new Map(s.sessionStatus);
         const activeTurnRoutes = new Map(s.activeTurnRoutes);
-        const streaming = new Map(s.streaming);
         const streamingStartedAt = new Map(s.streamingStartedAt);
         const streamingOutputTokens = new Map(s.streamingOutputTokens);
         const cliDisconnectReason = new Map(s.cliDisconnectReason);
@@ -1845,7 +1842,6 @@ export function usePlaygroundSeed() {
           const prevDisconnectReason = prevCliDisconnectReason.get(demoId);
           const prevSessionState = prevStatus.get(demoId);
           const prevActiveTurnRoute = prevActiveTurnRoutes.get(demoId);
-          const prevStream = prevStreaming.get(demoId);
           const prevStreamStarted = prevStreamingStartedAt.get(demoId);
           const prevStreamTokens = prevStreamingOutputTokens.get(demoId);
           const prevFeedScrollPosition = prevFeedScrollPositions.get(demoId);
@@ -1887,8 +1883,6 @@ export function usePlaygroundSeed() {
           else sessionStatus.delete(demoId);
           if (prevActiveTurnRoute !== undefined) activeTurnRoutes.set(demoId, prevActiveTurnRoute);
           else activeTurnRoutes.delete(demoId);
-          if (typeof prevStream === "string") streaming.set(demoId, prevStream);
-          else streaming.delete(demoId);
           if (typeof prevStreamStarted === "number") streamingStartedAt.set(demoId, prevStreamStarted);
           else streamingStartedAt.delete(demoId);
           if (typeof prevStreamTokens === "number") streamingOutputTokens.set(demoId, prevStreamTokens);
@@ -1941,7 +1935,6 @@ export function usePlaygroundSeed() {
           cliDisconnectReason,
           sessionStatus,
           activeTurnRoutes,
-          streaming,
           streamingStartedAt,
           streamingOutputTokens,
           feedScrollPosition,

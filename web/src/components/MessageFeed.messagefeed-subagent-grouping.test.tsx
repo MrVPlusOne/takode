@@ -77,10 +77,6 @@ vi.mock("../store.js", () => {
       messageFrozenRevisions: mockStoreValues.messageFrozenRevisions ?? new Map(),
       historyLoading: mockStoreValues.historyLoading ?? new Map(),
       historyWindows: mockStoreValues.historyWindows ?? new Map(),
-      streaming: mockStoreValues.streaming ?? new Map(),
-      streamingByParentToolUseId: mockStoreValues.streamingByParentToolUseId ?? new Map(),
-      streamingThinking: mockStoreValues.streamingThinking ?? new Map(),
-      streamingThinkingByParentToolUseId: mockStoreValues.streamingThinkingByParentToolUseId ?? new Map(),
       streamingStartedAt: mockStoreValues.streamingStartedAt ?? new Map(),
       streamingOutputTokens: mockStoreValues.streamingOutputTokens ?? new Map(),
       streamingPausedDuration: mockStoreValues.streamingPausedDuration ?? new Map(),
@@ -238,18 +234,6 @@ function setStoreMessages(sessionId: string, msgs: ChatMessage[]) {
   mockStoreValues.messages = map;
 }
 
-function setStoreStreaming(sessionId: string, text: string | undefined) {
-  const map = new Map();
-  if (text !== undefined) map.set(sessionId, text);
-  mockStoreValues.streaming = map;
-}
-
-function setStoreThinking(sessionId: string, text: string | undefined) {
-  const map = new Map();
-  if (text !== undefined) map.set(sessionId, text);
-  mockStoreValues.streamingThinking = map;
-}
-
 function setStorePendingCodexInputs(sessionId: string, inputs: Array<Record<string, unknown>>) {
   const map = new Map();
   map.set(sessionId, inputs);
@@ -288,18 +272,6 @@ function setStoreFeedScrollPosition(
   const map = new Map();
   map.set(sessionId, pos);
   mockStoreValues.feedScrollPosition = map;
-}
-
-function setStoreParentStreaming(sessionId: string, entries: Record<string, string>) {
-  const map = new Map();
-  map.set(sessionId, new Map(Object.entries(entries)));
-  mockStoreValues.streamingByParentToolUseId = map;
-}
-
-function setStoreParentThinking(sessionId: string, entries: Record<string, string>) {
-  const map = new Map();
-  map.set(sessionId, new Map(Object.entries(entries)));
-  mockStoreValues.streamingThinkingByParentToolUseId = map;
 }
 
 function setStoreStatus(sessionId: string, status: string | null) {
@@ -415,8 +387,6 @@ function resetStore() {
   mockStoreValues.messageFrozenCounts = new Map();
   mockStoreValues.messageFrozenRevisions = new Map();
   mockStoreValues.historyWindows = new Map();
-  mockStoreValues.streaming = new Map();
-  mockStoreValues.streamingByParentToolUseId = new Map();
   mockStoreValues.streamingStartedAt = new Map();
   mockStoreValues.streamingOutputTokens = new Map();
   mockStoreValues.streamingPausedDuration = new Map();
@@ -828,37 +798,6 @@ describe("MessageFeed - subagent grouping", () => {
     expect(rawLink.getAttribute("href")).toBe("#/session/hidden-child-live");
   });
 
-  it("renders live parented streaming inside the subagent card instead of the top-level streaming bubble", () => {
-    const sid = "test-subagent-streaming";
-    setStoreMessages(sid, [
-      makeMessage({
-        id: "a1",
-        role: "assistant",
-        content: "",
-        contentBlocks: [
-          {
-            type: "tool_use",
-            id: "task-streaming",
-            name: "Agent",
-            input: { description: "Inspect event routing", subagent_type: "explorer" },
-          },
-        ],
-      }),
-    ]);
-    setStoreSessionBackend(sid, "codex");
-    setStoreStatus(sid, "running");
-    setStoreParentStreaming(sid, { "task-streaming": "Streaming from the subagent\nStill hidden" });
-
-    render(<MessageFeed sessionId={sid} />);
-
-    expect(screen.getByText("Inspect event routing")).toBeTruthy();
-    fireEvent.click(screen.getByText("Inspect event routing"));
-    fireEvent.click(screen.getByText("Activities"));
-    expect(screen.getByTestId("markdown").textContent).toContain("Streaming from the subagent");
-    expect(screen.queryByText("Still hidden")).toBeNull();
-    expect(screen.queryByText("Agent starting...")).toBeNull();
-  });
-
   it("keeps a parented Codex reasoning detail out of the collapsed card and available under Activities", () => {
     const sid = "test-subagent-thinking";
     setStoreMessages(sid, [
@@ -895,43 +834,6 @@ describe("MessageFeed - subagent grouping", () => {
     expect(screen.getByText("Summarizing the routing plan")).toBeTruthy();
     expect(screen.queryByText("Full scoped provider detail.")).toBeNull();
     expect(screen.queryByText("Agent starting...")).toBeNull();
-  });
-
-  it("withholds partial codex subagent lines until a newline commits them", () => {
-    const sid = "test-subagent-streaming-partial";
-    setStoreMessages(sid, [
-      makeMessage({
-        id: "a1",
-        role: "assistant",
-        content: "",
-        contentBlocks: [
-          {
-            type: "tool_use",
-            id: "task-streaming-partial",
-            name: "Agent",
-            input: { description: "Inspect event routing", subagent_type: "explorer" },
-          },
-        ],
-      }),
-    ]);
-    setStoreSessionBackend(sid, "codex");
-    setStoreStatus(sid, "running");
-    setStoreParentStreaming(sid, { "task-streaming-partial": "Hidden partial" });
-
-    const { unmount } = render(<MessageFeed sessionId={sid} />);
-
-    fireEvent.click(screen.getByText("Inspect event routing"));
-    fireEvent.click(screen.getByText("Activities"));
-    expect(screen.queryByText("Hidden partial")).toBeNull();
-    expect(screen.getByTestId("markdown").textContent).toBe("");
-
-    unmount();
-    setStoreParentStreaming(sid, { "task-streaming-partial": "Hidden partial\n" });
-    render(<MessageFeed sessionId={sid} />);
-
-    fireEvent.click(screen.getByText("Inspect event routing"));
-    fireEvent.click(screen.getByText("Activities"));
-    expect(screen.getByTestId("markdown").textContent).toContain("Hidden partial");
   });
 
   it("shows a live subagent timer while the task tool is running", () => {
@@ -1133,9 +1035,9 @@ describe("MessageFeed - subagent grouping", () => {
     expect(screen.getByText("Checked middleware entrypoint")).toBeTruthy();
   });
 
-  it("keeps the Activities section collapsed while new subagent activity streams in", () => {
+  it("keeps the Activities section collapsed while new subagent activity arrives", () => {
     const sid = "test-subagent-activities-stay-collapsed";
-    setStoreMessages(sid, [
+    const initialMessages = [
       makeMessage({
         id: "a1",
         role: "assistant",
@@ -1156,7 +1058,8 @@ describe("MessageFeed - subagent grouping", () => {
         parentToolUseId: "task-collapse-stream",
         contentBlocks: [{ type: "text", text: "Initial child activity" }],
       }),
-    ]);
+    ];
+    setStoreMessages(sid, initialMessages);
     setStoreSessionBackend(sid, "codex");
     setStoreStatus(sid, "running");
 
@@ -1165,11 +1068,20 @@ describe("MessageFeed - subagent grouping", () => {
     fireEvent.click(screen.getByText("Inspect event routing"));
     expect(screen.queryByText("Initial child activity")).toBeNull();
 
-    setStoreParentStreaming(sid, { "task-collapse-stream": "Streaming from the subagent\n" });
+    setStoreMessages(sid, [
+      ...initialMessages,
+      makeMessage({
+        id: "child-collapse-new",
+        role: "assistant",
+        content: "New child activity",
+        parentToolUseId: "task-collapse-stream",
+        contentBlocks: [{ type: "text", text: "New child activity" }],
+      }),
+    ]);
     rerender(<MessageFeed sessionId={sid} />);
 
     expect(screen.queryByText("Initial child activity")).toBeNull();
-    expect(screen.queryByText("Streaming from the subagent")).toBeNull();
+    expect(screen.queryByText("New child activity")).toBeNull();
   });
 
   it("does not render Task tool_use as ToolBlock in mixed message with text and Task", () => {

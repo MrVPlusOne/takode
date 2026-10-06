@@ -1,7 +1,6 @@
 import { CodexThinkingInline, MessageBubble } from "../MessageBubble.js";
 import { SideChatPanel } from "../SideChatPanel.js";
 import { DiffViewer } from "../DiffViewer.js";
-import { MarkdownContent } from "../MarkdownContent.js";
 import { SessionCreationProgress } from "../SessionCreationProgress.js";
 import { StepList } from "../SessionCreationView.js";
 import { CodexInstructionsCollapsible } from "../TaskPanel.js";
@@ -37,7 +36,6 @@ import { PlaygroundHerdEventStates } from "./HerdEventPlaygroundStates.js";
 import { PlaygroundCompactToolActivityStates } from "./CompactToolActivityPlaygroundStates.js";
 import { PlaygroundTimerMessageStates } from "./TimerMessagePlaygroundStates.js";
 import { PlaygroundCodexSubagentStates } from "./CodexSubagentPlaygroundStates.js";
-import { ActiveStreamReplayPlayground } from "./ActiveStreamReplayPlayground.js";
 import { PlaygroundDiffViewerSection } from "./DiffViewerPlaygroundSection.js";
 import { CompactToolMessageGroups } from "../ToolMessageGroup.js";
 import {
@@ -1027,39 +1025,9 @@ export function PlaygroundStateSections() {
         </div>
       </Section>
 
-      {/* ─── Streaming Indicator ──────────────────────────────── */}
-      <Section title="Streaming Indicator" description="Live typing animation shown while the assistant is generating">
+      {/* ─── Generation Indicators ────────────────────────────── */}
+      <Section title="Generation Indicators" description="Live activity shown while the assistant is generating">
         <div className="space-y-4 max-w-3xl">
-          <Card label="Active output after reconnect">
-            <ActiveStreamReplayPlayground />
-          </Card>
-          <Card label="Codex streaming (complete lines only)">
-            <div className="flex items-start gap-3">
-              <div className="w-6 h-6 rounded-full bg-cc-primary/10 flex items-center justify-center shrink-0 mt-0.5 -ml-0.5">
-                <CatPawLeft className="w-3 h-3 text-cc-primary animate-[paw-walk_0.8s_ease-in-out_infinite]" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <MarkdownContent
-                  text={"I'll start by creating the JWT utility module with sign and verify helpers.\n"}
-                />
-                <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle -translate-y-[2px] animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
-              </div>
-            </div>
-          </Card>
-          <Card label="Claude streaming (serif)">
-            <div className="flex items-start gap-3">
-              <div className="w-6 h-6 rounded-full bg-cc-primary/10 flex items-center justify-center shrink-0 mt-0.5 -ml-0.5">
-                <CatPawLeft className="w-3 h-3 text-cc-primary animate-[paw-walk_0.8s_ease-in-out_infinite]" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <pre className="font-serif-assistant text-[15px] text-cc-fg whitespace-pre-wrap break-words leading-relaxed">
-                  I'll start by creating the JWT utility module with sign and verify helpers. Let me first check what
-                  dependencies are already installed...
-                  <span className="inline-block w-0.5 h-4 bg-cc-primary ml-0.5 align-middle animate-[pulse-dot_0.8s_ease-in-out_infinite]" />
-                </pre>
-              </div>
-            </div>
-          </Card>
           <Card label="Codex live thinking">
             <div className="flex items-start gap-3">
               <div className="w-6 h-6 rounded-full bg-cc-primary/10 flex items-center justify-center shrink-0 mt-0.5 -ml-0.5">

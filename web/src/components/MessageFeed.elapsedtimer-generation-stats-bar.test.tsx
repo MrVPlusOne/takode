@@ -69,10 +69,6 @@ vi.mock("../store.js", () => {
       messageFrozenRevisions: mockStoreValues.messageFrozenRevisions ?? new Map(),
       historyLoading: mockStoreValues.historyLoading ?? new Map(),
       historyWindows: mockStoreValues.historyWindows ?? new Map(),
-      streaming: mockStoreValues.streaming ?? new Map(),
-      streamingByParentToolUseId: mockStoreValues.streamingByParentToolUseId ?? new Map(),
-      streamingThinking: mockStoreValues.streamingThinking ?? new Map(),
-      streamingThinkingByParentToolUseId: mockStoreValues.streamingThinkingByParentToolUseId ?? new Map(),
       codexReasoningPreviews: mockStoreValues.codexReasoningPreviews ?? new Map(),
       streamingStartedAt: mockStoreValues.streamingStartedAt ?? new Map(),
       streamingOutputTokens: mockStoreValues.streamingOutputTokens ?? new Map(),
@@ -237,18 +233,6 @@ function setStoreMessages(sessionId: string, msgs: ChatMessage[]) {
   mockStoreValues.messages = map;
 }
 
-function setStoreStreaming(sessionId: string, text: string | undefined) {
-  const map = new Map();
-  if (text !== undefined) map.set(sessionId, text);
-  mockStoreValues.streaming = map;
-}
-
-function setStoreThinking(sessionId: string, text: string | undefined) {
-  const map = new Map();
-  if (text !== undefined) map.set(sessionId, text);
-  mockStoreValues.streamingThinking = map;
-}
-
 function setStorePendingCodexInputs(sessionId: string, inputs: Array<Record<string, unknown>>) {
   const map = new Map();
   map.set(sessionId, inputs);
@@ -287,18 +271,6 @@ function setStoreFeedScrollPosition(
   const map = new Map();
   map.set(sessionId, pos);
   mockStoreValues.feedScrollPosition = map;
-}
-
-function setStoreParentStreaming(sessionId: string, entries: Record<string, string>) {
-  const map = new Map();
-  map.set(sessionId, new Map(Object.entries(entries)));
-  mockStoreValues.streamingByParentToolUseId = map;
-}
-
-function setStoreParentThinking(sessionId: string, entries: Record<string, string>) {
-  const map = new Map();
-  map.set(sessionId, new Map(Object.entries(entries)));
-  mockStoreValues.streamingThinkingByParentToolUseId = map;
 }
 
 function setStoreStatus(sessionId: string, status: string | null) {
@@ -531,10 +503,6 @@ function resetStore() {
   mockStoreValues.messageFrozenCounts = new Map();
   mockStoreValues.messageFrozenRevisions = new Map();
   mockStoreValues.historyWindows = new Map();
-  mockStoreValues.streaming = new Map();
-  mockStoreValues.streamingByParentToolUseId = new Map();
-  mockStoreValues.streamingThinking = new Map();
-  mockStoreValues.streamingThinkingByParentToolUseId = new Map();
   mockStoreValues.codexReasoningPreviews = new Map();
   mockStoreValues.streamingStartedAt = new Map();
   mockStoreValues.streamingOutputTokens = new Map();
@@ -824,21 +792,6 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.getByTestId("codex-reasoning-body").textContent).toContain(
       "full available message line without truncation.",
     );
-  });
-
-  it("does not render root Codex streaming thinking through the legacy footer", () => {
-    const sid = "test-root-streaming-thinking-footer";
-    setStoreSessionBackend(sid, "codex");
-    setStoreStatus(sid, "running");
-    setStoreThinking(
-      sid,
-      "**Considering tool constraints**\n\nI need to look at the patch tool, which is currently long enough to trigger the old compact footer truncation.",
-    );
-
-    render(<FeedFooter sessionId={sid} visibleToolUseIds={new Set()} />);
-
-    expect(screen.queryByText(/\*\*Considering tool constraints/)).toBeNull();
-    expect(screen.queryByText(/I need to look at the patch tool/)).toBeNull();
   });
 
   it("uses the approved generic Reasoning label for titleless official summaries", () => {

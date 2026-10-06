@@ -73,10 +73,6 @@ vi.mock("../store.js", () => {
       messageFrozenRevisions: mockStoreValues.messageFrozenRevisions ?? new Map(),
       historyLoading: mockStoreValues.historyLoading ?? new Map(),
       historyWindows: mockStoreValues.historyWindows ?? new Map(),
-      streaming: mockStoreValues.streaming ?? new Map(),
-      streamingByParentToolUseId: mockStoreValues.streamingByParentToolUseId ?? new Map(),
-      streamingThinking: mockStoreValues.streamingThinking ?? new Map(),
-      streamingThinkingByParentToolUseId: mockStoreValues.streamingThinkingByParentToolUseId ?? new Map(),
       streamingStartedAt: mockStoreValues.streamingStartedAt ?? new Map(),
       streamingOutputTokens: mockStoreValues.streamingOutputTokens ?? new Map(),
       streamingPausedDuration: mockStoreValues.streamingPausedDuration ?? new Map(),
@@ -219,8 +215,6 @@ function resetStore() {
   mockStoreValues.messageFrozenCounts = new Map();
   mockStoreValues.messageFrozenRevisions = new Map();
   mockStoreValues.historyWindows = new Map();
-  mockStoreValues.streaming = new Map();
-  mockStoreValues.streamingByParentToolUseId = new Map();
   mockStoreValues.streamingStartedAt = new Map();
   mockStoreValues.streamingOutputTokens = new Map();
   mockStoreValues.streamingPausedDuration = new Map();

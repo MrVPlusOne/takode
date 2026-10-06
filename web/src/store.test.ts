@@ -319,7 +319,6 @@ describe("Session management", () => {
     useStore.getState().addSession(session);
     useStore.getState().setCurrentSession("s1");
     useStore.getState().appendMessage("s1", makeMessage());
-    useStore.getState().setStreaming("s1", "partial text");
     useStore.getState().setStreamingStats("s1", { startedAt: 100, outputTokens: 50 });
     useStore.getState().addPermission("s1", makePermission());
     useStore.getState().addTask("s1", makeTask());
@@ -352,7 +351,6 @@ describe("Session management", () => {
     expect(state.threadWindowResponseStates.has("s1")).toBe(false);
     expect(state.threadWindowRefreshRevisions.has("s1")).toBe(false);
     expect(state.threadWindowAppliedRevisions.has("s1")).toBe(false);
-    expect(state.streaming.has("s1")).toBe(false);
     expect(state.streamingStartedAt.has("s1")).toBe(false);
     expect(state.streamingOutputTokens.has("s1")).toBe(false);
     expect(state.pendingPermissions.has("s1")).toBe(false);
@@ -1273,17 +1271,6 @@ describe("Messages", () => {
 // ─── Streaming ──────────────────────────────────────────────────────────────
 
 describe("Streaming", () => {
-  it("setStreaming: sets text for a session", () => {
-    useStore.getState().setStreaming("s1", "partial output");
-    expect(useStore.getState().streaming.get("s1")).toBe("partial output");
-  });
-
-  it("setStreaming(null): deletes entry", () => {
-    useStore.getState().setStreaming("s1", "some text");
-    useStore.getState().setStreaming("s1", null);
-    expect(useStore.getState().streaming.has("s1")).toBe(false);
-  });
-
   it("setStreamingStats: sets startedAt and outputTokens", () => {
     useStore.getState().setStreamingStats("s1", { startedAt: 12345, outputTokens: 42 });
     expect(useStore.getState().streamingStartedAt.get("s1")).toBe(12345);
@@ -1569,7 +1556,6 @@ describe("reset", () => {
     useStore.getState().addSession(makeSession("s1"));
     useStore.getState().setCurrentSession("s1");
     useStore.getState().appendMessage("s1", makeMessage());
-    useStore.getState().setStreaming("s1", "text");
     useStore.getState().setStreamingStats("s1", { startedAt: 1, outputTokens: 2 });
     useStore.getState().addPermission("s1", makePermission());
     useStore.getState().addTask("s1", makeTask());
@@ -1589,7 +1575,6 @@ describe("reset", () => {
     expect(state.currentSessionId).toBeNull();
     expect(state.messages.size).toBe(0);
     expect(state.historyDelivered.size).toBe(0);
-    expect(state.streaming.size).toBe(0);
     expect(state.streamingStartedAt.size).toBe(0);
     expect(state.streamingOutputTokens.size).toBe(0);
     expect(state.pendingPermissions.size).toBe(0);

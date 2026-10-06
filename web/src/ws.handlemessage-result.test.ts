@@ -160,7 +160,7 @@ describe("handleMessage: result", () => {
     }
   });
 
-  it("updates cost/turns, clears streaming, sets idle", () => {
+  it("updates cost/turns, clears generation stats, sets idle", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     useStore.getState().appendMessage("s1", {
@@ -175,7 +175,6 @@ describe("handleMessage: result", () => {
       content: "world",
       timestamp: 2000,
     });
-    useStore.getState().setStreaming("s1", "partial");
     useStore.getState().setStreamingStats("s1", { startedAt: Date.now() });
 
     fireMessage({
@@ -198,7 +197,6 @@ describe("handleMessage: result", () => {
     const state = useStore.getState();
     expect(state.sessions.get("s1")!.total_cost_usd).toBe(0.05);
     expect(state.sessions.get("s1")!.num_turns).toBe(3);
-    expect(state.streaming.has("s1")).toBe(false);
     expect(state.streamingStartedAt.has("s1")).toBe(false);
     expect(state.sessionStatus.get("s1")).toBe("idle");
     expect(state.messageFrozenCounts.get("s1")).toBe(2);

@@ -74,7 +74,7 @@ describe("MessageFeed quest-link surface wiring", () => {
     expect(screen.getByRole("button", { name: "Preview q-81 feedback #2" })).toBeInTheDocument();
   });
 
-  it("threads the feed surface into pending user rows and committed Codex streaming Markdown", () => {
+  it("threads the feed surface into pending user rows", () => {
     const session = useStore.getState().sessions.get(SESSION_ID)!;
     const sdkSession = useStore.getState().sdkSessions[0]!;
     useStore.setState({
@@ -94,13 +94,11 @@ describe("MessageFeed quest-link surface wiring", () => {
           ],
         ],
       ]),
-      streaming: new Map([[SESSION_ID, "Streaming [q-83 feedback #4](quest:q-83:feedback:4)\n"]]),
     });
 
     render(<MessageFeed sessionId={SESSION_ID} />);
 
     expect(screen.getByRole("button", { name: "Preview q-82" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Preview q-83 feedback #4" })).toBeInTheDocument();
   });
 
   it("keeps the reused read-only Codex transcript producer on legacy links", () => {

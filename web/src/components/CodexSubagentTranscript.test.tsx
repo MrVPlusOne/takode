@@ -33,8 +33,6 @@ function installSession() {
     toolResults: new Map(),
     toolProgress: new Map(),
     toolStartTimestamps: new Map(),
-    streamingByParentToolUseId: new Map(),
-    streamingThinkingByParentToolUseId: new Map(),
     backgroundAgentNotifs: new Map(),
     sessionStatus: new Map([["session-1", "idle"]]),
     sessionTasks: new Map(),

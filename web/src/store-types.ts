@@ -86,10 +86,6 @@ export interface AppState {
     subscriptions: readonly import("../shared/synced-projection.js").SyncedProjectionSubscription[],
     options?: import("./store-synced-projections.js").SyncedProjectionAuthorityReconcileOptions,
   ) => void;
-  streaming: Map<string, string>;
-  streamingByParentToolUseId: Map<string, Map<string, string>>;
-  streamingThinking: Map<string, string>;
-  streamingThinkingByParentToolUseId: Map<string, Map<string, string>>;
   codexReasoningPreviews: Map<string, Map<string, ActiveCodexReasoningPreview>>;
   streamingStartedAt: Map<string, number>;
   streamingOutputTokens: Map<string, number>;
@@ -300,8 +296,6 @@ export interface AppState {
   ) => void;
   updateLastAssistantMessage: (sessionId: string, updater: (msg: ChatMessage) => ChatMessage) => void;
   commitMessagesAsFrozen: (sessionId: string) => void;
-  setStreaming: (sessionId: string, text: string | null, parentToolUseId?: string | null) => void;
-  setStreamingThinking: (sessionId: string, text: string | null, parentToolUseId?: string | null) => void;
   setCodexReasoningPreviews: (sessionId: string, previews: readonly ActiveCodexReasoningPreview[]) => void;
   setStreamingStats: (sessionId: string, stats: { startedAt?: number; outputTokens?: number } | null) => void;
   clearStreamingState: (sessionId: string) => void;

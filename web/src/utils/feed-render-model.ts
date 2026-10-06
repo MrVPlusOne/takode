@@ -277,7 +277,6 @@ export interface BuildFeedWindowModelInput {
   selectedFeedWindowEnabled: boolean;
   historyWindow: HistoryWindowState | null;
   selectedFeedWindow: ThreadWindowState | null;
-  streamingText?: string;
   historyLoading: boolean;
   messageCount: number;
 }
@@ -355,7 +354,7 @@ export function buildFeedWindowModel(input: BuildFeedWindowModelInput): FeedWind
     visibleSections,
     visibleWindowSignature,
     visibleTurns,
-    showConversationLoading: input.historyLoading && input.messageCount === 0 && !input.streamingText,
+    showConversationLoading: input.historyLoading && input.messageCount === 0,
     previousSectionStartIndex,
     nextSectionStartIndex,
     hasOlderSections,
