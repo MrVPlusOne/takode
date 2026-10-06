@@ -45,6 +45,7 @@ import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
 import { registerArchivedSessionPageRoute } from "./session-archived-page-route.js";
 import { registerSessionMessageSearchRoute } from "./session-message-search-route.js";
 import { registerSessionStarredMessagesRoute } from "./session-starred-messages-route.js";
+import { registerSessionActivityPreviewRoute } from "./session-activity-preview-route.js";
 import { registerSessionModelProvenanceMigrationRoute } from "./session-model-provenance-migration-route.js";
 import { registerGlobalStarredMessageSearchRoute } from "./global-starred-message-search-route.js";
 import { registerGlobalRecentAsksRoute } from "./global-recent-asks-route.js";
@@ -1195,6 +1196,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
   registerGlobalRecentAsksRoute(api, { launcher, wsBridge });
   registerSessionMessageSearchRoute(api, { launcher, wsBridge, resolveId });
   registerSessionStarredMessagesRoute(api, { launcher, wsBridge, resolveId });
+  registerSessionActivityPreviewRoute(api, { wsBridge, resolveId });
   registerSessionModelProvenanceMigrationRoute(api, ctx);
   api.get("/sessions/:id", (c) => {
     const id = resolveId(c.req.param("id"));

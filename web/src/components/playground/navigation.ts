@@ -67,6 +67,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Chronological Answers",
     "Routed Answers",
     "Turn Activity",
+    "Waiting Worker Preview",
     "Temporary Continuation Notices",
     "Original Thread Visibility",
     "Copy Features",

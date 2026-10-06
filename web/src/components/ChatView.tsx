@@ -31,6 +31,7 @@ import {
 } from "./PermissionBanner.js";
 import { TaskOutlineBar } from "./TaskOutlineBar.js";
 import { TodoStatusLine } from "./TodoStatusLine.js";
+import { WaitingWorkerPreview } from "./WaitingWorkerPreview.js";
 import { WorkBoardBar, type WorkBoardThreadNavigationRow } from "./WorkBoardBar.js";
 import { YarnBallDot } from "./CatIcons.js";
 import { SearchBar } from "./SearchBar.js";
@@ -1848,6 +1849,14 @@ export function ChatView({
 
       {/* Active todo status — shows current in-progress task */}
       {!preview && <TodoStatusLine sessionId={sessionId} />}
+
+      {!preview && isLeaderSession && (
+        <WaitingWorkerPreview
+          key={`${sessionId}:${normalizeThreadKey(selectedThreadKey)}`}
+          leaderSessionId={sessionId}
+          threadKey={selectedThreadKey}
+        />
+      )}
 
       {/* Composer */}
       {!preview && (
