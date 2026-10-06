@@ -95,7 +95,12 @@ function getToolOnlyGroup(
   const childToolResults = msg.metadata?.codexSubagentToolResults;
   for (const b of blocks) {
     if (b.type === "text" && b.text.trim()) return null;
-    if (b.type === "thinking") return null;
+    // Claude often sends a thinking block with no visible text. Rendering
+    // already hides it, so it must not stop the message grouping as tool-only.
+    if (b.type === "thinking") {
+      if (b.thinking.trim()) return null;
+      continue;
+    }
     if (b.type === "tool_use") {
       items.push({
         id: b.id,

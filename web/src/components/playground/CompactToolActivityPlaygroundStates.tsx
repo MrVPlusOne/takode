@@ -52,6 +52,28 @@ const SMALL_MCP_GROUP: ToolMsgGroup = {
 
 const NODE_REPL_GROUPS = groupMessages(NODE_REPL_TOOL_MESSAGES).filter((entry) => entry.kind === "tool_msg_group");
 
+// Claude assistant messages that each carry an empty thinking block plus one
+// command, as Opus sends them; the empty blocks must not split the run.
+const CLAUDE_EMPTY_THINKING_GROUPS = groupMessages(
+  ["Inspect SDK v2 session stream", "Look at v2 session constructor", "Find origin of replay-gated flush"].map(
+    (description, index): ChatMessage => ({
+      id: `claude-empty-thinking-${index + 1}`,
+      role: "assistant",
+      content: "",
+      timestamp: Date.now() - (3 - index) * 1_000,
+      contentBlocks: [
+        { type: "thinking", thinking: "" },
+        {
+          type: "tool_use",
+          id: `claude-empty-thinking-bash-${index + 1}`,
+          name: "Bash",
+          input: { command: `rg -n "stream" sdk.mjs | head -${index + 3}`, description },
+        },
+      ],
+    }),
+  ),
+).filter((entry) => entry.kind === "tool_msg_group");
+
 const LARGE_MIXED_GROUP: ToolMsgGroup = {
   kind: "tool_msg_group",
   toolName: "Bash",
@@ -168,6 +190,17 @@ export function PlaygroundCompactToolActivityStates() {
                 onOpenCodexTerminal={() => {}}
               />
             ))}
+          </div>
+        </Card>
+        <Card label="Claude commands with empty thinking blocks (one group)">
+          <div data-testid="playground-claude-empty-thinking-group">
+            <CompactToolMessageGroups
+              groups={CLAUDE_EMPTY_THINKING_GROUPS}
+              sessionId={MOCK_SESSION_ID}
+              isCodexSession={false}
+              activeCodexTerminalIds={new Set()}
+              onOpenCodexTerminal={() => {}}
+            />
           </div>
         </Card>
         <Card label="Node REPL titles and fallback">

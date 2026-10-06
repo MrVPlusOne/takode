@@ -170,6 +170,45 @@ function collapsedEntryIds(turn: {
   });
 }
 
+describe("Claude empty thinking blocks", () => {
+  // Opus via the Claude Agent SDK attaches a thinking block with no visible
+  // text (only a signature) to most assistant messages, as stored in real
+  // sessions. It renders as nothing, so it must not split command runs.
+  function claudeBash(id: string, thinking: string | null): ChatMessage {
+    return makeMessage({
+      id,
+      role: "assistant",
+      contentBlocks: [
+        ...(thinking === null ? [] : [{ type: "thinking" as const, thinking }]),
+        { type: "tool_use", id: `${id}-tool`, name: "Bash", input: { command: `echo ${id}` } },
+      ],
+    });
+  }
+
+  it("groups consecutive commands whose thinking blocks are empty", () => {
+    const entries = groupMessages([claudeBash("a", ""), claudeBash("b", null), claudeBash("c", "  ")]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      kind: "tool_msg_group",
+      toolName: "Bash",
+      firstId: "a",
+      items: [{ id: "a-tool" }, { id: "b-tool" }, { id: "c-tool" }],
+    });
+  });
+
+  it("keeps a message with visible thinking as its own entry", () => {
+    const entries = groupMessages([
+      claudeBash("a", ""),
+      claudeBash("b", "Check the flush path first."),
+      claudeBash("c", ""),
+    ]);
+
+    expect(entries.map((entry) => entry.kind)).toEqual(["tool_msg_group", "message", "tool_msg_group"]);
+    expect(entries[1]).toMatchObject({ kind: "message", msg: { id: "b" } });
+  });
+});
+
 describe("canonical native Codex child transcript grouping", () => {
   it("keeps parented child rows top-level and isolates adjacent child/root tool groups", () => {
     const ownership = { childId: "opaque-child", rootTurnId: "root-turn" };
