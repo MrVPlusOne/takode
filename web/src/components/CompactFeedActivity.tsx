@@ -27,7 +27,8 @@ export function isCompactThoughtMessage(msg: ChatMessage): boolean {
   const metadata = msg.metadata;
   if (metadata?.leaderThreadRole || metadata?.threadAnswer || metadata?.codexMessagePhase) return false;
   if (isCodexReasoningDetailMessage(msg)) return true;
-  if (msg.content.trim()) return false;
+  // Judge by blocks, not `content`: history normalization copies thinking text
+  // into `content`, so a thinking-only message has non-empty content.
   const blocks = msg.contentBlocks ?? [];
   return (
     blocks.length > 0 &&

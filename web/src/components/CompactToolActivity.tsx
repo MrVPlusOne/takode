@@ -458,9 +458,10 @@ function ActivityLine({
         <span className="text-cc-muted">
           <Chevron open={open} />
         </span>
+        {/* Labels stay neutral so only a failed line reads red; the accent color looked red beside it. */}
         <span
           className={`min-w-[2.25rem] shrink-0 font-mono-code text-[11px] ${
-            failed ? "text-cc-error" : isTool ? "text-cc-primary/80" : "text-cc-muted"
+            failed ? "text-cc-error" : isTool ? "text-cc-fg/60" : "text-cc-muted"
           }`}
         >
           {label}

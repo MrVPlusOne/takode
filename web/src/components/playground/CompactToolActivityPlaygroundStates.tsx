@@ -155,10 +155,11 @@ const WORKER_EVENTS: ChatMessage[] = [
 const ACTIVITY_SESSION_ID = "playground-activity-groups";
 const LIVE_ACTIVITY_SESSION_ID = "playground-activity-live";
 
+// Producer-shaped: history normalization copies thinking text into `content`.
 const ACTIVITY_THOUGHT: ChatMessage = {
   id: "activity-thought",
   role: "assistant",
-  content: "",
+  content: "**Check where the preview falls back**\nThe 60-character cap makes long descriptions show the command.",
   timestamp: Date.now() - 60_000,
   contentBlocks: [
     {

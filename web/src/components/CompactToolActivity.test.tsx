@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useStore } from "../store.js";
 import type { ToolResultPreview } from "../types.js";
 import {
@@ -304,6 +304,21 @@ describe("CompactToolActivity", () => {
 
     rerender(<CompactToolActivity sessionId="s1" items={bashItems(3)} renderDetails={renderDetails} />);
     expect(screen.queryByText("3.0s")).toBeNull();
+  });
+
+  it("colors only the failed line's label as an error", () => {
+    // One failed command must not make every "Bash" label look failed: ordinary
+    // labels stay neutral rather than using the reddish accent color.
+    useStore.setState({
+      toolResults: new Map([["s1", new Map([["bash-2", toolResult("bash-2", { is_error: true })]])]]),
+    });
+    render(<CompactToolActivity sessionId="s1" items={bashItems(3)} renderDetails={renderDetails} />);
+
+    const labels = screen
+      .getAllByTestId("compact-tool-activity-line")
+      .map((line) => within(line).getByText("Bash").className.includes("text-cc-error"));
+    expect(labels).toEqual([false, true, false]);
+    expect(screen.getAllByText("Bash")[0].className).not.toContain("text-cc-primary");
   });
 
   it("shows per-type counts only when a group mixes activity types", () => {

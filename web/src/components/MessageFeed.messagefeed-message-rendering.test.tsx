@@ -29,7 +29,8 @@ beforeAll(() => {
 });
 
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
-import type { ChatMessage, SessionNotification } from "../types.js";
+import type { ChatMessage, ContentBlock, SessionNotification } from "../types.js";
+import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 import {
   LEADER_THREAD_TABS_PROJECTION,
@@ -740,45 +741,47 @@ describe("MessageFeed - message rendering", () => {
   });
 
   it("lets only agent text split an activity group, folding thinking in as thought lines", () => {
-    // Thinking-only messages, and the thinking that precedes a tool in the same
-    // message, join the surrounding activity group instead of breaking it.
+    // Producer-shaped Claude history (as in a real leader thread): normalization
+    // copies thinking text into `content`, and a thinking block with text can
+    // precede a tool in one message. Both must join the group, not split it.
     const sid = "test-compact-thought-run";
     mockStoreValues.compactToolActivity = true;
+    const assistant = (id: string, content: ContentBlock[], historyIndex: number) =>
+      normalizeHistoryMessageToChatMessages(
+        {
+          type: "assistant",
+          message: { id, type: "message", role: "assistant", model: "claude-opus-5-5", content, stop_reason: null },
+          parent_tool_use_id: null,
+          timestamp: 1_791_272_100_000 + historyIndex,
+        } as Parameters<typeof normalizeHistoryMessageToChatMessages>[0],
+        historyIndex,
+      )[0];
+    const bash = (id: string, description: string): ContentBlock => ({
+      type: "tool_use",
+      id,
+      name: "Bash",
+      input: { command: `echo ${id}`, description },
+    });
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Inspect and verify" }),
-      makeMessage({
-        id: "think-read",
-        role: "assistant",
-        content: "",
-        contentBlocks: [
-          { type: "thinking", thinking: "Plan the check" },
-          { type: "tool_use", id: "read-1", name: "Read", input: { file_path: "/src/a.ts" } },
-        ],
-      }),
-      makeMessage({
-        id: "tools-bash",
-        role: "assistant",
-        content: "",
-        contentBlocks: [{ type: "tool_use", id: "bash-1", name: "Bash", input: { command: "bun test" } }],
-      }),
-      makeMessage({
-        id: "think-only",
-        role: "assistant",
-        content: "",
-        contentBlocks: [{ type: "thinking", thinking: "Verify the result" }],
-      }),
+      assistant("m1", [{ type: "thinking", thinking: "" }, bash("t1", "Revise Journey suffix")], 1),
+      assistant("m2", [bash("t2", "Check board revise syntax")], 2),
+      assistant("m3", [{ type: "thinking", thinking: "Plan the retest notice" }, bash("t3", "Notify user")], 3),
+      assistant("m4", [bash("t4", "Link board wait")], 4),
+      assistant("m5", [{ type: "thinking", thinking: "Verify the result" }], 5),
       makeMessage({ id: "a-final", role: "assistant", content: "Everything passes." }),
     ]);
 
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.getAllByTestId("compact-tool-activity")).toHaveLength(1);
-    expect(screen.getByTestId("compact-tool-activity-earlier").textContent).toBe("+1 earlier");
     fireEvent.click(screen.getByTestId("compact-tool-activity-earlier"));
     expect(screen.getAllByTestId("compact-tool-activity-line").map((line) => line.textContent)).toEqual([
-      "ThoughtPlan the check",
-      "Read/src/a.ts",
-      "Bashbun test",
+      "BashRevise Journey suffix",
+      "BashCheck board revise syntax",
+      "ThoughtPlan the retest notice",
+      "BashNotify user",
+      "BashLink board wait",
       "ThoughtVerify the result",
     ]);
     expect(screen.getByText("Everything passes.")).toBeTruthy();
