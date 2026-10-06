@@ -39,6 +39,16 @@ Run these from the repository root unless noted otherwise.
     changing relay/sshd state is an approval-gated Execute action. See
     [`docs/relay-tunnel-supervision.md`](../docs/relay-tunnel-supervision.md).
 
+- [`setup-claude-copilot.sh`](./setup-claude-copilot.sh)
+  - Sets up Takode's Claude sessions to run through GitHub Copilot: writes
+    `~/.companion/claude-copilot/settings.json` (from
+    [`claude-copilot-settings.json`](./claude-copilot-settings.json)) and a
+    launcher to set as Takode's Claude Code binary.
+  - Requires `claude` (2.1.289 or newer) and a signed-in `gh`; backs up any
+    file it would change.
+  - Example: `./scripts/setup-claude-copilot.sh`
+  - Guide: [`docs/github-copilot.md`](../docs/github-copilot.md).
+
 ## Bun script
 
 - [`audit-recordings.ts`](./audit-recordings.ts)
