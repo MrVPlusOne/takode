@@ -11,7 +11,6 @@
  * Usage: bun serve.ts          (or: bun run serve)
  */
 import { spawn } from "bun";
-import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -26,18 +25,16 @@ import {
   COMPANION_FRONTEND_RUNTIME_ROOT_ENV,
   consumeFrontendRestartHandoff,
 } from "./server/frontend-restart-preparation.js";
-import { RESTART_EXIT_CODE } from "./server/constants.js";
+import { DEPENDENCY_INSTALL_COMMAND, findOutdatedDependencies } from "./server/backend-startup-check.js";
+import { DEFAULT_PORT_PROD, RESTART_EXIT_CODE } from "./server/constants.js";
+import { appendServerLogEntry } from "./server/server-logger.js";
 import { waitForBackendShutdown } from "./server/supervised-backend-shutdown.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webDir = resolve(__dirname);
 const bunExec = process.execPath;
 const autoInstall = process.env.TAKODE_AUTO_INSTALL === "1";
-const dependencyMarkers = [
-  resolve(webDir, "node_modules/.bin/vite"),
-  resolve(webDir, "node_modules/hono/package.json"),
-  resolve(webDir, "node_modules/react/package.json"),
-];
+const port = Number(process.env.PORT) || DEFAULT_PORT_PROD;
 
 let shuttingDown = false;
 let serverProc: ReturnType<typeof spawn> | null = null;
@@ -50,24 +47,24 @@ let shutdownOperation: Promise<never> | null = null;
 // The backend may need its own 5s grace window to terminate an in-flight Vite
 // child before it can finish shutdown, so the supervisor must wait longer.
 const CHILD_TERMINATION_GRACE_MS = 15_000;
-
-function missingDependencyMarker(): string | null {
-  return dependencyMarkers.find((marker) => !existsSync(marker)) ?? null;
-}
+const STDERR_TAIL_CHARS = 8_000;
+// A crashed backend's grandchildren may still hold its stderr pipe open, so the
+// exit record waits only briefly for trailing output.
+const STDERR_DRAIN_MS = 1_000;
 
 async function ensureDependencies(): Promise<boolean> {
   if (shuttingDown) return false;
-  const missingMarker = missingDependencyMarker();
-  if (!missingMarker) return true;
+  const outdated = await findOutdatedDependencies(webDir);
+  if (outdated.length === 0) return true;
 
   if (!autoInstall) {
     console.error(
       [
-        "\x1b[31m[serve] Local web dependencies are missing.\x1b[0m",
-        `Expected install artifact not found: ${missingMarker}`,
+        "\x1b[31m[serve] Local web dependencies are out of date.\x1b[0m",
+        ...outdated.map((problem) => `  ${problem}`),
         "",
         "Run from the repository root:",
-        "  bun install --cwd web --frozen-lockfile",
+        `  ${DEPENDENCY_INSTALL_COMMAND}`,
         "",
         "Or opt into explicit frozen auto-install:",
         "  cd web && TAKODE_AUTO_INSTALL=1 bun --no-install run serve",
@@ -131,6 +128,30 @@ async function buildFrontendSnapshot(): Promise<ValidatedFrontendBuildCandidate 
     if (buildAbortController === abortController) buildAbortController = null;
     if (buildOperation === operation) buildOperation = null;
   }
+}
+
+/** Forwards the backend's stderr unchanged while keeping its tail for the exit record. */
+function forwardStderr(stream: ReadableStream<Uint8Array>): { tail: string; done: Promise<void> } {
+  const state = { tail: "", done: Promise.resolve() };
+  const decoder = new TextDecoder();
+  state.done = (async () => {
+    for await (const chunk of stream) {
+      process.stderr.write(chunk);
+      state.tail = (state.tail + decoder.decode(chunk, { stream: true })).slice(-STDERR_TAIL_CHARS);
+    }
+  })().catch((error) => console.error("[serve] Lost backend stderr:", error));
+  return state;
+}
+
+/** Records an unexpected backend exit in the server log, where it survives the supervisor and the terminal. */
+async function recordBackendExit(code: number | null, stderr: { tail: string; done: Promise<void> }): Promise<void> {
+  await Promise.race([stderr.done, new Promise((resolvePromise) => setTimeout(resolvePromise, STDERR_DRAIN_MS))]);
+  await appendServerLogEntry(port, {
+    level: "error",
+    component: "supervisor",
+    message: `Backend exited with code ${code}; the production supervisor is stopping`,
+    meta: { exitCode: code, stderrTail: stderr.tail },
+  }).catch((error) => console.error("[serve] Failed to record the backend exit in the server log:", error));
 }
 
 async function removeRuntimeRoot(): Promise<void> {
@@ -207,10 +228,10 @@ async function run(): Promise<void> {
   while (true) {
     if (shuttingDown) return;
     console.log("\x1b[36m[serve] Starting server with validated frontend snapshot...\x1b[0m");
-    serverProc = spawn([bunExec, "--no-install", "server/index.ts"], {
+    const proc = spawn([bunExec, "--no-install", "server/index.ts"], {
       cwd: webDir,
       stdout: "inherit",
-      stderr: "inherit",
+      stderr: "pipe",
       env: {
         ...process.env,
         NODE_ENV: "production",
@@ -221,14 +242,19 @@ async function run(): Promise<void> {
         UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE || "32",
       },
     });
-
-    const code = await serverProc.exited;
+    serverProc = proc;
+    const stderr = forwardStderr(proc.stderr);
+    const code = await proc.exited;
     serverProc = null;
 
     if (shuttingDown) return;
 
+    // There is no previous backend to fall back to, and restarting the same
+    // code would only repeat the failure, so an unexpected exit stops the
+    // supervisor after recording why.
     if (code !== RESTART_EXIT_CODE) {
       console.log(`\x1b[31m[serve] Server exited with code ${code}, stopping.\x1b[0m`);
+      await recordBackendExit(code, stderr);
       await requestShutdown(code ?? 1);
     }
 

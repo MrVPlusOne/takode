@@ -41,6 +41,8 @@ export interface RouteContext {
   options?: {
     requestRestart?: () => void;
     prepareRestart?: () => Promise<PreparedFrontendRestart>;
+    /** Rejects with an actionable reason when the backend on disk could not start. */
+    checkBackendStartup?: () => Promise<void>;
     restartSupported?: boolean;
     buildIdentity?: TakodeRuntimeBuildIdentity;
     codexSidecarRegistry?: import("../codex-sidecar-auth.js").CodexSidecarRegistry;

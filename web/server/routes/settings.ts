@@ -541,6 +541,15 @@ export function createSettingsRoutes(ctx: RouteContext) {
     };
 
     try {
+      if (options.checkBackendStartup) {
+        try {
+          // The replacement backend runs the code now on disk and has no fallback, so check it before anything stops.
+          await options.checkBackendStartup();
+        } catch (error) {
+          return c.json({ error: `Restart blocked: ${error instanceof Error ? error.message : String(error)}` }, 409);
+        }
+      }
+
       if (options.prepareRestart) {
         try {
           // Production builds the candidate before interrupting sessions or stopping the current compatible pair.

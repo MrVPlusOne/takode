@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   _resetServerLoggerForTest,
+  appendServerLogEntry,
   createLogger,
   initServerLogger,
   queryServerLogs,
@@ -21,6 +22,32 @@ describe("server-logger", () => {
   afterEach(async () => {
     _resetServerLoggerForTest();
     await rm(logDir, { recursive: true, force: true });
+  });
+
+  it("shows supervisor-appended entries to a later server's log queries", async () => {
+    // The production supervisor records a backend crash from outside the server process, possibly
+    // before any logger ran. The next server on that port must find it through normal log queries.
+    await appendServerLogEntry(
+      3456,
+      {
+        level: "error",
+        component: "supervisor",
+        message: "Backend exited with code 1",
+        meta: { exitCode: 1, stderrTail: "error: Cannot find package 'web-push'" },
+      },
+      join(logDir, "nested"),
+    );
+    initServerLogger(3456, { logDir: join(logDir, "nested"), captureConsole: false });
+
+    const result = await queryServerLogs({ components: ["supervisor"] });
+
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]).toMatchObject({
+      level: "error",
+      component: "supervisor",
+      message: "Backend exited with code 1",
+      meta: { exitCode: 1, stderrTail: "error: Cannot find package 'web-push'" },
+    });
   });
 
   it("writes structured log entries and filters them by query", async () => {

@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs"; // sync-ok: cold path, once at startup
-import { appendFile, readFile, rename, stat, unlink } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -22,6 +22,10 @@ const COLOR_YELLOW = "\x1b[33m";
 const COLOR_RED = "\x1b[31m";
 
 type LogSink = (entry: ServerLogEntry) => void;
+
+function defaultLogDir(): string {
+  return join(homedir(), ".companion", "logs");
+}
 
 interface LoggerOptions {
   baseMeta?: Record<string, unknown>;
@@ -455,7 +459,7 @@ async function readAllEntries(): Promise<ServerLogEntry[]> {
 }
 
 export function initServerLogger(port: number, options: InitLoggerOptions = {}): void {
-  const configuredLogDir = options.logDir || join(homedir(), ".companion", "logs");
+  const configuredLogDir = options.logDir || defaultLogDir();
   mkdirSync(configuredLogDir, { recursive: true }); // sync-ok: cold path, once at startup
   logDirPath = configuredLogDir;
   logPath = join(configuredLogDir, `server-${port}.jsonl`);
@@ -465,6 +469,21 @@ export function initServerLogger(port: number, options: InitLoggerOptions = {}):
   if (options.captureConsole !== false) {
     installConsoleCapture();
   }
+}
+
+/**
+ * Appends one entry to `server-<port>.jsonl` from outside the server process.
+ * The production supervisor records backend exits this way, including crashes
+ * before the backend's own logger starts; it writes only while no backend runs.
+ */
+export async function appendServerLogEntry(
+  port: number,
+  entry: { level: LogLevel; component: string; message: string; meta?: Record<string, unknown> },
+  logDir = defaultLogDir(),
+): Promise<void> {
+  await mkdir(logDir, { recursive: true });
+  const line = JSON.stringify(buildEntry(entry.level, entry.component, entry.message, entry.meta));
+  await appendFile(join(logDir, `server-${port}.jsonl`), `${line}\n`);
 }
 
 export async function flushServerLogger(): Promise<void> {

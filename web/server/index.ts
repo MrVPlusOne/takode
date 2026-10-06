@@ -116,6 +116,7 @@ const STARTUP_SKILL_SYMLINKS = [
 ];
 
 import { DEFAULT_PORT_DEV, DEFAULT_PORT_PROD, RESTART_EXIT_CODE } from "./constants.js";
+import { checkBackendStartup } from "./backend-startup-check.js";
 import { createLogger, flushServerLogger, initServerLogger } from "./server-logger.js";
 import {
   getState as getTreeGroupState,
@@ -969,6 +970,7 @@ app.route(
     {
       requestRestart,
       prepareRestart: prepareProductionFrontendRestart,
+      checkBackendStartup: () => checkBackendStartup(packageRoot),
       restartSupported,
       buildIdentity: runtimeBuildIdentity,
       codexSidecarRegistry,

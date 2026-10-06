@@ -211,6 +211,46 @@ describe("server restart controls", () => {
     expect(discardPreparedRestart).not.toHaveBeenCalled();
   });
 
+  it("blocks restart before building or interrupting anything when the backend on disk cannot start", async () => {
+    // Incident shape: a commit added a backend dependency that was never installed. The live server must
+    // stay up and report the fix instead of exiting into a replacement backend that crashes on import.
+    launcher.listSessions.mockReturnValue([{ sessionId: "worker", state: "connected", name: "Worker session" }]);
+    attachBlockingSession("worker", { isGenerating: true });
+    const checkBackendStartup = vi.fn(async (): Promise<void> => {
+      throw new Error("Dependencies are out of date (web-push is not installed).");
+    });
+    const checkedApp = new Hono();
+    checkedApp.route(
+      "/api",
+      createSettingsRoutes({
+        launcher,
+        wsBridge: bridge,
+        sessionStore: { directory: tempDir },
+        options: { requestRestart, prepareRestart, checkBackendStartup },
+        pushoverNotifier: undefined,
+      } as any),
+    );
+
+    const res = await checkedApp.request("/api/server/restart", { method: "POST" });
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toEqual({
+      error: "Restart blocked: Dependencies are out of date (web-push is not installed).",
+    });
+    expect(checkBackendStartup).toHaveBeenCalledOnce();
+    expect(prepareRestart).not.toHaveBeenCalled();
+    expect(claudeAdapters.worker.sendBrowserMessage).not.toHaveBeenCalled();
+    expect(requestRestart).not.toHaveBeenCalled();
+
+    // The in-flight guard is released, so a retry after fixing dependencies proceeds normally.
+    checkBackendStartup.mockResolvedValueOnce(undefined);
+    launcher.listSessions.mockReturnValue([]);
+    const retry = await checkedApp.request("/api/server/restart", { method: "POST" });
+    expect(retry.status).toBe(200);
+    expect(prepareRestart).toHaveBeenCalledOnce();
+    expect(requestRestart).toHaveBeenCalledOnce();
+  });
+
   it("rejects restart before interruption when the resident supervisor lacks current handoff capability", async () => {
     const staleSupervisorApp = new Hono();
     staleSupervisorApp.route(
