@@ -15,6 +15,7 @@ export type SettingsSectionId =
   | "sessions"
   | "leader-profiles"
   | "pushover"
+  | "web-push"
   | "auto-approval"
   | "session-namer"
   | "voice-transcription"
@@ -139,6 +140,14 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       { id: "event-types", text: "Event types needs user input ready for review errors filters" },
       { id: "test", text: "Send Test save Pushover configured" },
     ],
+  },
+  {
+    id: "web-push",
+    title: "Phone Notifications (Web Push)",
+    description:
+      "Alerts on this device through the browser, with no third-party app. Answered questions are removed from the phone.",
+    aliases: ["push", "phone", "iphone", "alerts", "notification", "home screen", "web push"],
+    items: [{ id: "device", text: "Enable on this device Disable Send Test subscribed devices Home Screen" }],
   },
   {
     id: "auto-approval",

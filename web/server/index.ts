@@ -40,6 +40,7 @@ import * as sessionNames from "./session-names.js";
 import { bootstrapQuestStore, getActiveQuestForSession, getQuest } from "./quest-store.js";
 import { getServerId, getServerSlug, getSettings, getServerName, initWithPort } from "./settings-manager.js";
 import { PushoverNotifier } from "./pushover.js";
+import { WebPushChannel } from "./web-push.js";
 import { PRPoller } from "./pr-poller.js";
 import { RecorderManager } from "./recorder.js";
 import { CronScheduler } from "./cron-scheduler.js";
@@ -241,6 +242,31 @@ void refreshCodexModelCatalogOnStartup()
     });
   });
 
+const webPush = new WebPushChannel({
+  filePath: join(homedir(), ".companion", "web-push", `${serverId}.json`),
+  getSubject: () => webPushSubject(getSettings().pushoverBaseUrl),
+});
+const webPushAvailable = await webPush.load().then(
+  () => true,
+  (error) => {
+    serverLog.warn("Web Push store could not be loaded; Web Push is disabled until it is repaired", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  },
+);
+
+/** Apple rejects localhost VAPID subjects, so only a public https base URL is used. */
+function webPushSubject(baseUrl: string): string {
+  try {
+    const url = new URL(baseUrl);
+    if (url.protocol === "https:" && url.hostname !== "localhost") return url.origin;
+  } catch {
+    // Fall through to the generic contact address.
+  }
+  return "mailto:takode-web-push@example.com";
+}
+
 const pushoverNotifier = new PushoverNotifier({
   getSettings: () => {
     const s = getSettings();
@@ -257,6 +283,7 @@ const pushoverNotifier = new PushoverNotifier({
   getSessionName: (id) => sessionNames.getName(id),
   getSessionActivity: (id) => wsBridge.getSession(id)?.lastActivityPreview,
   getLastReadAt: (id) => wsBridge.getSession(id)?.lastReadAt ?? 0,
+  webPush: webPushAvailable ? webPush : undefined,
 });
 
 function persistSessionTaskHistory(sessionId: string): void {
@@ -946,6 +973,7 @@ app.route(
       buildIdentity: runtimeBuildIdentity,
       codexSidecarRegistry,
       checkFrontendAvailability: checkCurrentFrontendAvailability,
+      webPush: webPushAvailable ? webPush : undefined,
     },
     perfTracer,
     sleepInhibitor,

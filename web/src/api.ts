@@ -1430,6 +1430,13 @@ export const api = {
   testBinary: (binary: string) =>
     post<{ ok: boolean; resolvedPath?: string; version?: string }>("/settings/test-binary", { binary }),
   testPushover: () => post<{ ok: boolean }>("/pushover/test"),
+  getWebPushInfo: () => get<{ available: boolean; publicKey: string | null; subscriptionCount: number }>("/web-push"),
+  subscribeWebPush: (subscription: PushSubscriptionJSON) =>
+    post<{ ok: boolean; subscriptionCount: number }>("/web-push/subscriptions", subscription),
+  unsubscribeWebPush: (endpoint: string) =>
+    del<{ ok: boolean; subscriptionCount: number }>("/web-push/subscriptions", { endpoint }),
+  testWebPush: (endpoint: string, retractAfterSeconds?: number) =>
+    post<{ ok: boolean }>("/web-push/test", { endpoint, retractAfterSeconds }),
   getCaffeinateStatus: () =>
     get<{ active: boolean; engagedAt: number | null; expiresAt: number | null }>("/caffeinate-status"),
 

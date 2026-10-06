@@ -5,6 +5,7 @@ import App from "./App.js";
 import { AppErrorBoundary } from "./components/AppErrorBoundary.js";
 import { installBrowserPerfDebugHooks } from "./utils/browser-perf-debug.js";
 import { installUiCrashDebugHooks } from "./utils/ui-crash-debug.js";
+import { resumeWebPushOnThisDevice } from "./utils/web-push.js";
 import "./index.css";
 
 installUiCrashDebugHooks();
@@ -19,3 +20,5 @@ createRoot(document.getElementById("root")!).render(
     </AppErrorBoundary>
   </StrictMode>,
 );
+
+resumeWebPushOnThisDevice().catch((error) => console.warn("[web-push] Could not resume on this device", error));

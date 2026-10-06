@@ -37,6 +37,7 @@ import { createStreamRoutes } from "./streams.js";
 import { createMemoryRoutes } from "./memory.js";
 import { createCodexSidecarRoutes } from "./codex-sidecar.js";
 import { createLogsRoutes } from "./logs.js";
+import { createWebPushRoutes } from "./web-push.js";
 import type { InitialModeState, RouteContext } from "./context.js";
 import {
   deriveAskPermissionForMode,
@@ -170,6 +171,7 @@ export function createRoutes(
     buildIdentity?: TakodeRuntimeBuildIdentity;
     codexSidecarRegistry?: import("../codex-sidecar-auth.js").CodexSidecarRegistry;
     checkFrontendAvailability?: FrontendAvailabilityChecker;
+    webPush?: import("../web-push.js").WebPushChannel;
   },
   perfTracer?: PerfTracer,
   sleepInhibitor?: import("../sleep-inhibitor.js").SleepInhibitor,
@@ -261,6 +263,7 @@ export function createRoutes(
   api.route("/", createStreamRoutes(ctx));
   api.route("/", createMemoryRoutes(ctx));
   api.route("/", createCodexSidecarRoutes(ctx));
+  api.route("/", createWebPushRoutes(options?.webPush));
 
   return api;
 }

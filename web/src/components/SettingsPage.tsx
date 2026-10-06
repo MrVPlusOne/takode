@@ -26,6 +26,7 @@ import { SettingsAutoApprovalSection } from "./SettingsAutoApprovalSection.js";
 import { SettingsLeaderProfilesSection } from "./SettingsLeaderProfilesSection.js";
 import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSection.js";
 import { SettingsSessionDefaultsSection } from "./SettingsSessionDefaultsSection.js";
+import { SettingsWebPushSection } from "./SettingsWebPushSection.js";
 import { SettingsShortcutSection } from "./SettingsShortcutSection.js";
 import {
   BUILT_IN_STT_MODELS,
@@ -1547,7 +1548,7 @@ export function SettingsPage({
                 <div>
                   <div className="text-sm font-medium">Event types</div>
                   <p className="mt-1 text-xs text-cc-muted">
-                    Choose which categories can send a Pushover notification.
+                    Choose which categories can send a phone notification (Pushover or Web Push).
                   </p>
                 </div>
                 <div className="rounded-lg border border-cc-border overflow-hidden">
@@ -1659,6 +1660,8 @@ export function SettingsPage({
                 </button>
               </div>
             </CollapsibleSection>
+
+            <SettingsWebPushSection sectionSearchProps={settingsSearch.sectionSearch("web-push")} />
 
             <SettingsAutoApprovalSection
               sectionSearchProps={settingsSearch.sectionSearch("auto-approval")}

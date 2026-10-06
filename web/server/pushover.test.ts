@@ -199,7 +199,7 @@ describe("PushoverNotifier", () => {
 
     await vi.advanceTimersByTimeAsync(30_000);
     const body = lastFetchBody();
-    expect(body.get("url")).toBe("http://localhost:3456/#/sess-1");
+    expect(body.get("url")).toBe("http://localhost:3456/#/session/sess-1");
     expect(body.get("url_title")).toBe("Open in Companion");
   });
 
@@ -213,7 +213,7 @@ describe("PushoverNotifier", () => {
 
     await vi.advanceTimersByTimeAsync(30_000);
     const body = lastFetchBody();
-    expect(body.get("url")).toBe("https://companion.example.com/#/sess-1");
+    expect(body.get("url")).toBe("https://companion.example.com/#/session/sess-1");
   });
 
   it("strips trailing slashes from base URL", async () => {
@@ -226,7 +226,7 @@ describe("PushoverNotifier", () => {
 
     await vi.advanceTimersByTimeAsync(30_000);
     const body = lastFetchBody();
-    expect(body.get("url")).toBe("https://example.com/#/sess-1");
+    expect(body.get("url")).toBe("https://example.com/#/session/sess-1");
   });
 
   // ── Batching ────────────────────────────────────────────────────────
