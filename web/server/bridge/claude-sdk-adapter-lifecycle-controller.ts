@@ -66,12 +66,41 @@ export function attachClaudeSdkAdapterLifecycle(
   }
   const isActiveAdapter = () => session.claudeSdkAdapter === adapter && deps.isCurrentSession(sessionId, session);
 
-  if (!!launcherInfo?.cliSessionId && session.messageHistory.length > 0) {
-    if (session.cliResumingClearTimer) {
-      clearTimeout(session.cliResumingClearTimer);
+  // The resume window ends once the backend has been quiet for the debounce
+  // period. Restart it on every backend message so any replay finishes first.
+  const scheduleResumeSettled = () => {
+    if (session.cliResumingClearTimer) clearTimeout(session.cliResumingClearTimer);
+    session.cliResumingClearTimer = setTimeout(() => {
+      if (!isActiveAdapter()) return;
       session.cliResumingClearTimer = null;
-    }
+      session.cliResuming = false;
+      session.dropReplayHistoryAfterRevert = false;
+      console.log(`[ws-bridge] cliResuming cleared for SDK session ${sessionTag(session.id)} — replay done`);
+      const compactPending = deps.hasPendingForceCompact(session);
+      session.forceCompactPending = compactPending;
+      session.state.is_compacting = compactPending;
+      session.awaitingCompactSummary = false;
+      session.compactedDuringTurn = false;
+      if (compactPending) {
+        deps.broadcastToBrowsers(session, { type: "status_change", status: "compacting" });
+      }
+      if (session.pendingMessages.length > 0) {
+        flushQueuedSdkMessages(session, adapter, `after SDK replay done for session ${sessionTag(session.id)}`);
+      }
+      const launcherInfoAfterReplay = deps.getLauncherSessionInfo(session.id);
+      if (launcherInfoAfterReplay?.isOrchestrator) {
+        deps.onOrchestratorTurnEnd(session.id);
+      }
+    }, 2000);
+  };
+
+  if (!!launcherInfo?.cliSessionId && session.messageHistory.length > 0) {
     session.cliResuming = true;
+    // A resumed SDK process emits nothing until it receives input, so the
+    // window must also close without any backend output. Otherwise input
+    // queued before the relaunch (such as a restart continuation) would wait
+    // forever for a replay that only that input can trigger.
+    scheduleResumeSettled();
   }
 
   if (!session.cliResuming && session.pendingMessages.length > 0) {
@@ -94,31 +123,7 @@ export function attachClaudeSdkAdapterLifecycle(
     session.lastCliMessageAt = Date.now();
     deps.clearOptimisticRunningTimer(session, `sdk_output:${msg.type}`);
 
-    if (session.cliResuming) {
-      if (session.cliResumingClearTimer) clearTimeout(session.cliResumingClearTimer);
-      session.cliResumingClearTimer = setTimeout(() => {
-        if (!isActiveAdapter()) return;
-        session.cliResumingClearTimer = null;
-        session.cliResuming = false;
-        session.dropReplayHistoryAfterRevert = false;
-        console.log(`[ws-bridge] cliResuming cleared for SDK session ${sessionTag(session.id)} — replay done`);
-        const compactPending = deps.hasPendingForceCompact(session);
-        session.forceCompactPending = compactPending;
-        session.state.is_compacting = compactPending;
-        session.awaitingCompactSummary = false;
-        session.compactedDuringTurn = false;
-        if (compactPending) {
-          deps.broadcastToBrowsers(session, { type: "status_change", status: "compacting" });
-        }
-        if (session.pendingMessages.length > 0) {
-          flushQueuedSdkMessages(session, adapter, `after SDK replay done for session ${sessionTag(session.id)}`);
-        }
-        const launcherInfoAfterReplay = deps.getLauncherSessionInfo(session.id);
-        if (launcherInfoAfterReplay?.isOrchestrator) {
-          deps.onOrchestratorTurnEnd(session.id);
-        }
-      }, 2000);
-    }
+    if (session.cliResuming) scheduleResumeSettled();
 
     if (msg.type === "result") {
       session.consecutiveAdapterFailures = 0;

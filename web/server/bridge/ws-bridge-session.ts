@@ -304,10 +304,11 @@ export interface Session {
    *  overwrite uiMode — the replayed mode is stale and would revert
    *  user-approved mode transitions (e.g. ExitPlanMode → agent). */
   cliResuming: boolean;
-  /** Debounce timer for clearing cliResuming after the last replayed system.init.
-   *  The CLI replays ALL historical system.init messages (one per subagent),
-   *  so we can't clear cliResuming on the first one — must wait for the replay
-   *  to finish (no more system.init within the debounce window). */
+  /** Debounce timer for clearing cliResuming once the backend goes quiet.
+   *  The CLI may replay several historical system.init messages (one per
+   *  subagent), so we can't clear cliResuming on the first one. The SDK
+   *  backend starts the timer at adapter attach because a resumed SDK
+   *  process may emit nothing until it receives input. */
   cliResumingClearTimer: ReturnType<typeof setTimeout> | null;
   /** True only for the first replay after a revert. While set, replayed
    *  history-backed Claude messages that are no longer present in the truncated

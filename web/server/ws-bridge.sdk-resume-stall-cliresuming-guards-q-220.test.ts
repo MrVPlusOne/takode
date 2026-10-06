@@ -17,6 +17,11 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
+import {
+  buildRestartContinuationPlan,
+  resumeRestartContinuations,
+  saveRestartContinuationPlan,
+} from "./restart-continuation-store.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -883,6 +888,45 @@ describe("SDK resume stall: cliResuming guards (q-220)", () => {
     // Message should NOT have been flushed yet
     expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
     expect(session.pendingMessages).toHaveLength(1);
+  });
+
+  it("delivers a queued restart continuation when the resumed SDK process stays silent", async () => {
+    // Regression: after a server restart, the restart continuation is queued
+    // before the Claude process is relaunched. A resumed SDK process prints
+    // nothing until it receives input, so if the resume window only closed on
+    // backend output, the queued "Continue." waited forever and the session
+    // showed "Session may be stuck". The window must close on a quiet period
+    // measured from adapter attach as well.
+    vi.useFakeTimers();
+    try {
+      const session = createResumedSdkSession("s1");
+      const relaunch = vi.fn();
+      bridge.onCLIRelaunchNeeded = relaunch;
+      await saveRestartContinuationPlan(
+        tempDir,
+        buildRestartContinuationPlan({ operationId: "op-1", sessions: [{ sessionId: "s1", label: "#1" }] }),
+      );
+
+      const resumed = await resumeRestartContinuations(tempDir, bridge);
+      expect(resumed.queued).toBe(1);
+      expect(relaunch).toHaveBeenCalledWith("s1");
+      expect(session.pendingMessages).toHaveLength(1);
+
+      // The relaunched process attaches but emits no output at all.
+      const backend = makeCliSocket("s1").attach(bridge);
+      expect(session.cliResuming).toBe(true);
+      expect(backend.promptTexts()).toEqual([]);
+
+      vi.advanceTimersByTime(2100);
+
+      expect(session.cliResuming).toBe(false);
+      expect(session.pendingMessages).toHaveLength(0);
+      // Delivery adds the usual source prefix in front of the message.
+      expect(backend.promptTexts()).toEqual([expect.stringMatching(/ Continue\.$/)]);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
   });
 
   it("flushes pendingMessages immediately for fresh SDK sessions (no resume)", () => {
