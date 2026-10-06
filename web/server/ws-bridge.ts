@@ -820,10 +820,14 @@ export class WsBridge {
     this.store.saveSync(buildPersistedSessionPayloadController(session));
   }
 
-  persistSessionById(sessionId: string): void {
+  /** Persist a session. Pass the indices of existing history entries edited in place. */
+  persistSessionById(sessionId: string, editedHistoryIndices?: readonly number[]): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;
-    this.persistSession(session);
+    if (!editedHistoryIndices?.length || !this.store) return this.persistSession(session);
+    this.syncedProjections.invalidateSession(session);
+    clampFrozenCountController(session);
+    void this.store.saveHistoryEdits(buildPersistedSessionPayloadController(session), editedHistoryIndices);
   }
 
   pauseSession(sessionId: string, options?: { pausedBy?: string; reason?: string }) {

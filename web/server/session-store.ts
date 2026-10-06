@@ -16,6 +16,7 @@ import {
 import { deriveCodexNativeSubagentSnapshot } from "./codex-native-subagent-state.js";
 import { repairRestoredCodexNativeSubagentAuthority } from "./codex-native-subagent-ownership-repair.js";
 import { isRootAgentHistoryMessage } from "./root-agent-feed-message.js";
+import { restoreUnpersistedHandoffRefs } from "./leader-thread-handoff.js";
 import type {
   SessionState,
   BrowserIncomingMessage,
@@ -80,6 +81,10 @@ export interface SearchExcerpt {
 // freeze. The compact marker summary always arrives before the next user
 // message (CLI protocol guarantee). So by the time we freeze a completed
 // turn, every message is in its final form.
+//
+// Edits made after a turn froze, such as thread handoffs and attachments that
+// add refs to older messages, must use saveHistoryEdits(), which rewrites the
+// frozen log; an ordinary save would never write them.
 //
 // Tool results are frozen at the same boundary. They only arrive via
 // buildToolResultPreviews() inside handleResultMessage() — the same moment
@@ -763,6 +768,22 @@ export class SessionStore {
     if (!(await request.done)) throw request.error;
   }
 
+  /**
+   * Persist in-place edits to existing history entries. The frozen log is
+   * append-only, so an edited entry it already holds requires a rewrite;
+   * otherwise this is an ordinary immediate save.
+   */
+  saveHistoryEdits(session: PersistedSession, editedIndices: readonly number[]): Promise<boolean> {
+    if (this.isHistoryRevert(session)) return this.saveSync(session);
+    this.cancelDebouncedSave(session.id);
+    this.requestedHistoryLengths.set(session.id, session.messageHistory.length);
+    return this.enqueueWrite(session.id, () => {
+      // Decide when the write runs: earlier queued writes may freeze an edited entry.
+      const frozen = this.frozenCounts.get(session.id) ?? session._frozenCount ?? 0;
+      return this.writeSnapshot(session, editedIndices.some((index) => index < frozen) ? frozen : undefined);
+    }).done;
+  }
+
   /** Queue an ordered metadata repair; reject if its frozen prefix has since advanced. */
   async rewriteFrozenHistoryMetadata(session: PersistedSession, expectedFrozenCount: number): Promise<void> {
     const request = this.enqueueWrite(session.id, () => this.writeSnapshot(session, expectedFrozenCount));
@@ -1017,19 +1038,20 @@ export class SessionStore {
     };
     const authorityRepair = repairRestoredCodexAuthority(restored);
     restored = authorityRepair.session;
+    const restoredHandoffRefs = restoreUnpersistedHandoffRefs(restored.messageHistory);
+    if (restoredHandoffRefs > 0) {
+      console.warn(`[session-store] Restored ${restoredHandoffRefs} unpersisted handoff ref(s) for ${sessionId}`);
+    }
 
     this.frozenCounts.set(sessionId, actualFrozenMsgs);
     this.frozenToolResultCounts.set(sessionId, frozen.toolResults.length);
-    if (authorityRepair.changed) {
+    if (authorityRepair.changed || restoredHandoffRefs > 0) {
       try {
         await this.rewriteFrozenHistoryMetadata(restored, actualFrozenMsgs);
       } catch (error) {
-        // Keep the in-memory replay fail-closed even if persistence fails. The
-        // same repair will retry on the next load before browser subscribe.
-        console.error(
-          `[session-store] Failed to persist restored Codex child ownership repair for ${sessionId}:`,
-          error,
-        );
+        // Keep the in-memory repair even if persistence fails. The same
+        // repair will retry on the next load before browser subscribe.
+        console.error(`[session-store] Failed to persist restored history repair for ${sessionId}:`, error);
       }
     } else if (cleanedHistory.removedCount > 0 || sanitizedBuffer.changed) {
       await this.writeHotJson(

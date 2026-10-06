@@ -1107,7 +1107,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         ranges: marker && marker.type === "thread_attachment_marker" ? marker.ranges : [],
         count: attached.length,
       });
-      wsBridge.persistSessionById(id);
+      wsBridge.persistSessionById(id, attached);
     }
     return c.json({ ok: true, sessionId: id, questId, attached, alreadyAttached, outOfRange, marker });
   });

@@ -811,7 +811,8 @@ describe("Takode server-authoritative auth", () => {
         ],
       }),
     );
-    expect(bridge.persistSessionById).toHaveBeenCalledWith("orch-1");
+    // The attached entries are edited in place, so persistence must know which.
+    expect(bridge.persistSessionById).toHaveBeenCalledWith("orch-1", [1, 2]);
     expect(bridge.promoteLeaderThreadTabForAttachment).toHaveBeenCalledWith("orch-1", "q-941", expect.any(Number));
   });
 

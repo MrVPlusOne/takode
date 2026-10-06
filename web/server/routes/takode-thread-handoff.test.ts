@@ -113,6 +113,8 @@ describe("Main-to-quest responsibility handoff", () => {
     expect(ready(session, "main").records).toEqual([]);
     expect(ready(session, "q-42").records).toEqual([]);
     expect(bridge.persistSessionById).toHaveBeenCalledTimes(1);
+    // The request is edited in place, so persistence must rewrite it if already frozen.
+    expect(bridge.persistSessionById).toHaveBeenCalledWith("leader", [0]);
 
     await handoff({ questId: "q-42", userMessageIds: ["u2"] });
     expect(ready(session, "main").records).toHaveLength(1);

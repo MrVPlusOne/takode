@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import { isValidQuestId } from "../../shared/quest-journey.js";
-import { prepareLeaderThreadHandoff } from "../leader-thread-handoff.js";
+import { handoffThreadRef, prepareLeaderThreadHandoff } from "../leader-thread-handoff.js";
 import { broadcastNotificationRefresh } from "../bridge/session-notification-controller.js";
 import { clearLeaderThreadStatusForActivity } from "../bridge/thread-routing-reminder.js";
 import type { BrowserIncomingMessage, ThreadAttachmentMarker, ThreadRef } from "../session-types.js";
@@ -95,7 +95,7 @@ export function registerTakodeThreadHandoffRoute(api: Hono, ctx: RouteContext): 
       return c.json({ error: "Cannot establish a newer authoritative handoff timestamp" }, 409);
     }
     const target = { threadKey: questId, questId };
-    const ref: ThreadRef = { ...target, source: "explicit", attachedAt: timestamp, attachedBy: id };
+    const ref: ThreadRef = handoffThreadRef(questId, timestamp, id);
     for (const request of requestPlan.requests) {
       request.message.threadRefs = [...(request.message.threadRefs ?? []), ref];
     }
@@ -165,10 +165,10 @@ export function registerTakodeThreadHandoffRoute(api: Hono, ctx: RouteContext): 
     if (notificationPlan.notifications.length > 0) {
       broadcastNotificationRefresh(session, {
         broadcastToBrowsers: (_session, message) => wsBridge.broadcastToSession(id, message),
-        persistSession: () => wsBridge.persistSessionById(id),
+        persistSession: () => wsBridge.persistSessionById(id, changedIndices),
       });
     } else {
-      wsBridge.persistSessionById(id);
+      wsBridge.persistSessionById(id, changedIndices);
     }
     return c.json(result);
   });

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parseThreadStatusMarkerLine, type LeaderThreadStatus } from "../shared/thread-status-marker.js";
-import { prepareLeaderThreadHandoff } from "./leader-thread-handoff.js";
+import {
+  handoffThreadRef,
+  prepareLeaderThreadHandoff,
+  restoreUnpersistedHandoffRefs,
+} from "./leader-thread-handoff.js";
 import {
   buildLeaderThreadResponseState,
   finalizeRoutedLeaderResponseMessage,
@@ -10,7 +14,7 @@ import {
   clearLeaderThreadStatusForCoveredUserMessage,
   updateLeaderThreadStatusesForAssistantOutput,
 } from "./bridge/thread-routing-reminder.js";
-import type { BrowserIncomingMessage, SessionNotification } from "./session-types.js";
+import type { BrowserIncomingMessage, SessionNotification, ThreadAttachmentMarker } from "./session-types.js";
 
 type UserMessage = Extract<BrowserIncomingMessage, { type: "user_message" }>;
 
@@ -308,5 +312,64 @@ describe("Main-to-quest request handoff preparation", () => {
       }).rejectedReadyRoutes,
     ).toMatchObject([{ threadKey: "main" }]);
     expect(notification).toEqual(before);
+  });
+});
+
+describe("restoring handoffs that older servers never persisted", () => {
+  function handoffMarker(target: LeaderThreadResponseSession, index: number): ThreadAttachmentMarker {
+    return {
+      type: "thread_attachment_marker",
+      id: `thread-handoff-100-${target.messageHistory.length}`,
+      markerKey: `handoff:thread-attachment:q-42:${(target.messageHistory[index] as UserMessage).id}`,
+      timestamp: 100,
+      sourceThreadKey: "main",
+      threadKey: "q-42",
+      questId: "q-42",
+      attachedAt: 100,
+      attachedBy: target.id,
+      messageIds: [(target.messageHistory[index] as UserMessage).id!],
+      messageIndices: [index],
+      ranges: [String(index)],
+      count: 1,
+    };
+  }
+
+  const pending = (target: LeaderThreadResponseSession, threadKey: string) =>
+    buildLeaderThreadResponseState(target, threadKey).projection.pendingMessages.map((row) => row.userMessageId);
+
+  it("re-applies the marker's exact ref so the quest answer counts again, once", () => {
+    // The answer settled while the ref was still in memory, sealing q-42 as
+    // owner; the restart then dropped the ref. Restoring it revalidates that
+    // answer and clears the request from Main.
+    const target = session(human("u1"));
+    target.messageHistory.push(handoffMarker(target, 0));
+    const answer = appendAnswer(target, ["u1"], "q-42");
+    answer.threadAnswer!.ownerGroups = [{ threadKey: "q-42", userMessageIds: ["u1"] }];
+    expect(pending(target, "main")).toEqual(["u1"]);
+
+    expect(restoreUnpersistedHandoffRefs(target.messageHistory)).toBe(1);
+    expect(target.messageHistory[0]).toMatchObject({ threadRefs: [handoffThreadRef("q-42", 100, "leader")] });
+    expect(pending(target, "main")).toEqual([]);
+    expect(pending(target, "q-42")).toEqual([]);
+    expect(restoreUnpersistedHandoffRefs(target.messageHistory)).toBe(0);
+  });
+
+  it("leaves a request alone when a later answer sealed a different owner", () => {
+    // After the loss the leader answered in Main, sealing Main as owner. Restoring
+    // the quest ref would invalidate that valid answer, so restore skips it.
+    const target = session(human("u1"));
+    target.messageHistory.push(handoffMarker(target, 0));
+    appendAnswer(target, ["u1"]);
+    expect(restoreUnpersistedHandoffRefs(target.messageHistory)).toBe(0);
+    expect(target.messageHistory[0]).not.toHaveProperty("threadRefs");
+    expect(pending(target, "main")).toEqual([]);
+  });
+
+  it("restores an unanswered handoff so the request waits in its quest, not Main", () => {
+    const target = session(human("u1"));
+    target.messageHistory.push(handoffMarker(target, 0));
+    expect(restoreUnpersistedHandoffRefs(target.messageHistory)).toBe(1);
+    expect(pending(target, "main")).toEqual([]);
+    expect(pending(target, "q-42")).toEqual(["u1"]);
   });
 });
