@@ -470,8 +470,21 @@ export class ClaudeSdkAdapter
     // The session stays alive between turns — only truly disconnects when closed.
     while (this.connected && this.sdkSession) {
       try {
+        let sawResult = false;
         for await (const msg of this.sdkSession.stream()) {
           this.handleSdkMessage(msg);
+          sawResult = msg?.type === "result";
+        }
+        // stream() returns without a result only once Claude's output has
+        // closed (e.g. the process died from a signal). Calling it again would
+        // return at once forever, spinning on microtasks and starving the
+        // event loop, so treat it as the process ending.
+        if (!sawResult) {
+          if (this.connected) {
+            console.warn(`[claude-sdk-adapter] Stream closed without a result for session ${this.sessionId}`);
+          }
+          this.handleDisconnect();
+          return;
         }
         // Stream ended normally (result received) -- session is still alive,
         // just waiting for the next send(). Don't disconnect.
