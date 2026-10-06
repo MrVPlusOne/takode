@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { DEFAULT_PORT_PROD } from "./constants.js";
 import { SessionStore } from "./session-store.js";
+import { readSessionHistory, type HistoryReference } from "./session-history-journal.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 
 export type DevboxMigrationCommand = "inventory" | "export" | "import" | "start-help";
@@ -607,8 +608,13 @@ async function writeHistoricalSessionHotJson(sourceHotPath: string, frozenLogPat
     return;
   }
   const hotHistory = Array.isArray(hot.messageHistory) ? (hot.messageHistory as BrowserIncomingMessage[]) : [];
-  const frozenHistory = await readFrozenMessages(frozenLogPath);
-  const excerpts = SessionStore.extractSearchExcerpts([...frozenHistory, ...hotHistory]);
+  // copyPath already copied the complete generation. Derive excerpts from the
+  // packaged committed bundle, never from a retained superseded frozen file.
+  const history = Object.hasOwn(hot, "_historyRef")
+    ? ((await readSessionHistory(dirname(destinationHotPath), String(hot.id), hot._historyRef as HistoryReference))
+        .messages as unknown as BrowserIncomingMessage[])
+    : [...(await readFrozenMessages(frozenLogPath)), ...hotHistory];
+  const excerpts = SessionStore.extractSearchExcerpts(history);
   const archivedAt = numberOrZero(hot.archivedAt) || Date.now();
   await writeJson(destinationHotPath, {
     ...hot,

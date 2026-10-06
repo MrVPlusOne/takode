@@ -1,3 +1,10 @@
+import { captureJson, isLargeHistory, valueDigest, type JsonValue } from "./session-history-codec.js";
+import {
+  SessionHistoryJournal,
+  SessionHistoryError,
+  readSessionHistory,
+  type HistoryReference,
+} from "./session-history-journal.js";
 import { formatAnnotatedMessage } from "../shared/conversation-annotations.js";
 import { createReadStream, mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -179,6 +186,7 @@ export interface PersistedSession {
    * are persisted in the append-only JSONL frozen log. The hot JSON only
    * stores messages[_frozenCount..]. On load, frozen + hot are concatenated.
    */
+  _historyRef?: HistoryReference;
   _frozenCount?: number;
   /**
    * Number of toolResults entries persisted in the frozen log.
@@ -284,6 +292,9 @@ interface SessionWriteRequest {
  */
 export class SessionStore {
   private dir: string;
+  private historyJournal: SessionHistoryJournal;
+  private historyReferences = new Map<string, HistoryReference>();
+  private diskHistoryHints?: Promise<Set<string>>;
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private pendingSaves = new Map<string, PersistedSession>();
   /** Track in-flight async writes so flushAll can await them. */
@@ -313,6 +324,7 @@ export class SessionStore {
       this.dir = port ? join(DEFAULT_BASE_DIR, String(port)) : DEFAULT_BASE_DIR;
     }
     mkdirSync(this.dir, { recursive: true });
+    this.historyJournal = new SessionHistoryJournal(this.dir);
   }
 
   private filePath(sessionId: string): string {
@@ -514,14 +526,16 @@ export class SessionStore {
     if (message.type !== "tool_result_preview" || !Array.isArray(message.previews) || message.previews.length === 0) {
       return null;
     }
-    return JSON.stringify(
-      message.previews.map((preview) => ({
-        tool_use_id: preview.tool_use_id,
-        content: preview.content,
-        is_error: preview.is_error,
-        total_size: preview.total_size,
-        is_truncated: preview.is_truncated,
-      })),
+    return valueDigest(
+      captureJson(
+        message.previews.map((preview) => ({
+          tool_use_id: preview.tool_use_id,
+          content: preview.content,
+          is_error: preview.is_error,
+          total_size: preview.total_size,
+          is_truncated: preview.is_truncated,
+        })),
+      ),
     );
   }
 
@@ -816,6 +830,14 @@ export class SessionStore {
   }
 
   private async writeSnapshot(session: PersistedSession, repairCount?: number): Promise<void> {
+    // Admission captures nested payload and pending ownership before any await.
+    try {
+      session = captureJson(session);
+    } catch (error) {
+      this.failedSaves.set(session.id, session);
+      this.persistenceFailures.set(`hot:${session.id}`, error);
+      throw error;
+    }
     const cleaned = this.trimDuplicateReplayPreviewTail(session.messageHistory);
     const messages = cleaned.messages.slice();
     const toolResults = (session.toolResults ?? []).slice();
@@ -842,6 +864,58 @@ export class SessionStore {
     }
     let failureKey = `hot:${session.id}`;
     try {
+      // A caller can save an existing session without loading it through this
+      // store first. A sidecar is only a hint: the hot head remains authoritative.
+      const hints = await (this.diskHistoryHints ??= readdir(this.dir)
+        .then(
+          (files) =>
+            new Set(
+              files.flatMap((name) => {
+                const match = /^(.*)\.history-[0-9a-f-]{36}\.data$/.exec(name);
+                return match ? [match[1]] : [];
+              }),
+            ),
+        )
+        .catch((error) => {
+          this.diskHistoryHints = undefined;
+          throw error;
+        }));
+      if (hints.has(session.id) && !this.historyReferences.has(session.id)) {
+        try {
+          const hot = JSON.parse(await readFile(this.filePath(session.id), "utf8")) as PersistedSession;
+          if (Object.hasOwn(hot, "_historyRef")) {
+            if (!hot._historyRef || hot.id !== session.id)
+              throw new SessionHistoryError("Invalid existing history head");
+            this.historyReferences.set(session.id, hot._historyRef);
+          }
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+        hints.delete(session.id);
+      }
+      if (session._historyRef || this.historyReferences.has(session.id) || isLargeHistory([messages, toolResults])) {
+        const head = await this.historyJournal.write(
+          session.id,
+          messages as unknown as JsonValue[],
+          toolResults as unknown as JsonValue[],
+          frozenCount,
+          frozenTools,
+          async (head) => {
+            await replaceSessionFile(this.filePath(session.id), [
+              this.encodeHotJson({ ...session, _historyRef: head }, [], [], frozenCount, frozenTools),
+            ]);
+          },
+          this.historyReferences.get(session.id) ?? session._historyRef,
+        );
+        this.historyReferences.set(session.id, head);
+        this.frozenCounts.set(session.id, frozenCount);
+        this.frozenToolResultCounts.set(session.id, frozenTools);
+        this.persistenceFailures.delete(`hot:${session.id}`);
+        this.persistenceFailures.delete(`frozen:${session.id}`);
+        this.failedSaves.delete(session.id);
+        if (session.archived) this.historyJournal.release(session.id);
+        return;
+      }
       // Capture active state before the first await. Pending updates get their own
       // later admitted snapshot; completed records retain their existing finality contract.
       const data = this.encodeHotJson(
@@ -907,30 +981,41 @@ export class SessionStore {
     return data;
   }
 
-  private writeHotJson(
+  private async writeHotJson(
     session: PersistedSession,
     messages: BrowserIncomingMessage[],
     toolResults: PersistedSession["toolResults"],
     frozenCount: number,
     frozenTools: number,
   ): Promise<boolean> {
-    return this.enqueueWrite(session.id, async () => {
-      try {
-        await replaceSessionFile(this.filePath(session.id), [
-          this.encodeHotJson(session, messages, toolResults, frozenCount, frozenTools),
-        ]);
-        this.persistenceFailures.delete(`hot:${session.id}`);
-      } catch (error) {
-        this.persistenceFailures.set(`hot:${session.id}`, error);
-        this.failedSaves.set(session.id, session);
-        throw error;
-      }
-    }).done;
+    try {
+      await replaceSessionFile(this.filePath(session.id), [
+        this.encodeHotJson(session, messages, toolResults, frozenCount, frozenTools),
+      ]);
+      this.persistenceFailures.delete(`hot:${session.id}`);
+      return true;
+    } catch (error) {
+      this.persistenceFailures.set(`hot:${session.id}`, error);
+      this.failedSaves.set(session.id, session);
+      throw error;
+    }
+  }
+
+  private async withSession<T>(sessionId: string, run: () => Promise<T>): Promise<T> {
+    let result!: T;
+    const request = this.enqueueWrite(sessionId, async () => {
+      result = await run();
+    });
+    if (!(await request.done)) throw request.error;
+    return result;
   }
 
   /** Load a single session from disk, combining frozen log + hot state. */
   async load(sessionId: string, restoreMetrics?: SessionRestoreMetrics): Promise<PersistedSession | null> {
-    while (this.writeQueues.get(sessionId)?.length) await this.writeQueues.get(sessionId)!.at(-1)!.done;
+    return this.withSession(sessionId, () => this.loadOwned(sessionId, restoreMetrics));
+  }
+
+  private async loadOwned(sessionId: string, restoreMetrics?: SessionRestoreMetrics): Promise<PersistedSession | null> {
     let hot: PersistedSession;
     let raw: string;
     try {
@@ -942,7 +1027,15 @@ export class SessionStore {
 
     const rawBytes = Buffer.byteLength(raw);
     raw = "";
-    return this.restoreSession(hot, rawBytes, restoreMetrics);
+    try {
+      if (Object.hasOwn(hot, "_historyRef") && hot.id !== sessionId)
+        throw new SessionHistoryError("Session history head identity mismatch");
+      return await this.restoreSession(hot, rawBytes, restoreMetrics);
+    } catch (error) {
+      if (Object.hasOwn(hot, "_historyRef"))
+        throw new SessionHistoryError(`Cannot restore committed history session ${sessionId}`, { cause: error });
+      throw error;
+    }
   }
 
   private async restoreSession(
@@ -967,6 +1060,39 @@ export class SessionStore {
 
     const expectedFrozenMsgs = hot._frozenCount ?? 0;
     const expectedFrozenToolResults = hot._frozenToolResultCount ?? 0;
+
+    if (Object.hasOwn(hot, "_historyRef")) {
+      if (!hot._historyRef) throw new SessionHistoryError(`Invalid committed history reference for ${sessionId}`);
+      const history = await readSessionHistory(this.dir, sessionId, hot._historyRef);
+      this.historyReferences.set(sessionId, hot._historyRef);
+      this.frozenCounts.set(sessionId, hot._historyRef.frozenCount);
+      this.frozenToolResultCounts.set(sessionId, hot._historyRef.frozenToolCount);
+      const restored = repairRestoredCodexAuthority({
+        ...hot,
+        messageHistory: history.messages as unknown as BrowserIncomingMessage[],
+        toolResults: history.tools as unknown as PersistedSession["toolResults"],
+        _frozenCount: hot._historyRef.frozenCount,
+        _frozenToolResultCount: hot._historyRef.frozenToolCount,
+      });
+      // Offline-converted histories can predate persisted handoff edits.
+      const restoredHandoffRefs = restoreUnpersistedHandoffRefs(restored.session.messageHistory);
+      if (restoredHandoffRefs > 0) {
+        console.warn(`[session-store] Restored ${restoredHandoffRefs} unpersisted handoff ref(s) for ${sessionId}`);
+      }
+      if (sanitizedBuffer.changed || restored.changed || restoredHandoffRefs > 0) {
+        try {
+          await this.writeSnapshot(restored.session, hot._historyRef.frozenCount);
+        } catch (error) {
+          // Same policy as the frozen-log path: keep the in-memory repair and retry on the next load.
+          console.error(`[session-store] Failed to persist restored history repair for ${sessionId}:`, error);
+        }
+      }
+      if (restoreMetrics) {
+        restoreMetrics.restoredHistoryMessages += history.messages.length;
+        restoreMetrics.restoredToolResults += history.tools.length;
+      }
+      return restored.session;
+    }
 
     // No frozen data — either legacy format (full history in JSON) or a
     // brand-new session with no completed turns yet. Return as-is.
@@ -1047,7 +1173,7 @@ export class SessionStore {
     this.frozenToolResultCounts.set(sessionId, frozen.toolResults.length);
     if (authorityRepair.changed || restoredHandoffRefs > 0) {
       try {
-        await this.rewriteFrozenHistoryMetadata(restored, actualFrozenMsgs);
+        await this.writeSnapshot(restored, actualFrozenMsgs);
       } catch (error) {
         // Keep the in-memory repair even if persistence fails. The same
         // repair will retry on the next load before browser subscribe.
@@ -1093,36 +1219,46 @@ export class SessionStore {
       );
       for (const file of files) {
         const sessionId = file.replace(/\.json$/, "");
+        let incremental = false;
         try {
-          // Peek at hot JSON to check archived flag before deciding load path
-          let raw: string;
-          try {
-            raw = await readFile(this.filePath(sessionId), "utf-8");
-          } catch {
-            metrics.skippedSessions++;
-            continue;
-          }
-          const hot = JSON.parse(raw) as PersistedSession;
-          const rawBytes = Buffer.byteLength(raw);
-          raw = "";
-          metrics.totalSessions++;
+          await this.withSession(sessionId, async () => {
+            // Peek at hot JSON to check archived flag before deciding load path
+            let raw: string;
+            try {
+              raw = await readFile(this.filePath(sessionId), "utf-8");
+            } catch {
+              metrics.skippedSessions++;
+              return;
+            }
+            const hot = JSON.parse(raw) as PersistedSession;
+            incremental = Object.hasOwn(hot, "_historyRef");
+            if (incremental && hot.id !== sessionId)
+              throw new SessionHistoryError("Session history head identity mismatch");
+            const rawBytes = Buffer.byteLength(raw);
+            raw = "";
+            metrics.totalSessions++;
 
-          const launcherState = launcherRestoreState.get(hot.id);
-          if (hot.archived || launcherState?.archived) {
-            metrics.searchOnlySessions++;
-            metrics.searchOnlyHotJsonBytes += rawBytes;
-            // Search-data-only: skip JSONL frozen log entirely
-            sessions.push(this.buildSearchDataOnlySession(hot, launcherState));
-          } else {
-            const session = await this.restoreSession(hot, rawBytes, metrics);
-            if (session) sessions.push(session);
-          }
-        } catch {
+            const launcherState = launcherRestoreState.get(hot.id);
+            if (hot.archived || launcherState?.archived) {
+              metrics.searchOnlySessions++;
+              metrics.searchOnlyHotJsonBytes += rawBytes;
+              // Search-data-only: skip JSONL frozen log entirely
+              sessions.push(this.buildSearchDataOnlySession(hot, launcherState));
+            } else {
+              const session = await this.restoreSession(hot, rawBytes, metrics);
+              if (session) sessions.push(session);
+            }
+          });
+        } catch (error) {
+          if (incremental)
+            throw new SessionHistoryError(`Cannot restore committed history session ${sessionId}`, { cause: error });
+          if (error instanceof SessionHistoryError) throw error;
           // Skip corrupt files
           metrics.skippedSessions++;
         }
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof SessionHistoryError) throw error;
       // Dir doesn't exist yet
     }
     if (metrics.totalSessions > 0 || metrics.skippedSessions > 0) {
@@ -1133,15 +1269,19 @@ export class SessionStore {
 
   /** Set the archived flag on a persisted session. Extracts search excerpts when archiving. */
   async setArchived(sessionId: string, archived: boolean): Promise<boolean> {
-    const session = await this.load(sessionId);
-    if (!session) return false;
-    session.archived = archived;
-    session.archivedAt = archived ? Date.now() : undefined;
-    if (archived) {
-      session._searchExcerpts = SessionStore.extractSearchExcerpts(session.messageHistory);
-    }
-    this.saveSync(session);
-    return true;
+    // Commit already accepted debounced state before reading and changing its
+    // archived flag. A later timer must not restore an older unarchived snapshot.
+    const pending = this.pendingSaves.get(sessionId);
+    if (pending) this.saveSync(pending);
+    return this.withSession(sessionId, async () => {
+      const session = await this.loadOwned(sessionId);
+      if (!session) return false;
+      session.archived = archived;
+      session.archivedAt = archived ? Date.now() : undefined;
+      if (archived) session._searchExcerpts = SessionStore.extractSearchExcerpts(session.messageHistory);
+      await this.writeSnapshot(session);
+      return true;
+    });
   }
 
   /** Flush accepted state, including writes queued while earlier saves settle. Reject on unsaved data. */
@@ -1166,13 +1306,25 @@ export class SessionStore {
   remove(sessionId: string): void {
     this.cancelDebouncedSave(sessionId);
     this.enqueueWrite(sessionId, async () => {
-      for (const path of [this.filePath(sessionId), this.frozenLogPath(sessionId)]) {
+      const generations = (await readdir(this.dir)).filter(
+        (name) =>
+          name.startsWith(`${sessionId}.history-`) &&
+          /^[0-9a-f-]{36}\.data$/.test(name.slice(`${sessionId}.history-`.length)),
+      );
+      for (const path of [
+        this.filePath(sessionId),
+        this.frozenLogPath(sessionId),
+        ...generations.map((name) => join(this.dir, name)),
+      ]) {
         try {
           await unlink(path);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
       }
+      this.historyJournal.release(sessionId);
+      this.historyReferences.delete(sessionId);
+      (await this.diskHistoryHints)?.delete(sessionId);
       this.frozenCounts.delete(sessionId);
       this.frozenToolResultCounts.delete(sessionId);
       this.requestedHistoryLengths.delete(sessionId);

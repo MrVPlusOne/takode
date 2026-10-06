@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtemp } from "node:fs/promises";
@@ -67,6 +67,34 @@ async function seedSourceHome(root: string): Promise<void> {
 }
 
 describe("devbox migration planner", () => {
+  it("exports and restores an incremental history bundle with current archived search excerpts", async () => {
+    // The packaged data generation is required; retained legacy files cannot supply current excerpts.
+    const root = await mkdtemp(join(tmpdir(), "incremental-history-package-"));
+    const source = join(root, "source"),
+      target = join(root, "target"),
+      packageDir = join(root, "package");
+    try {
+      await seedSourceHome(source);
+      const store = new SessionStore(join(source, "sessions", "3456"));
+      const session = (await store.load("session-a"))!;
+      session.messageHistory = [
+        { type: "user_message", content: "incremental-current-search " + "x".repeat(550000), timestamp: 1 },
+      ];
+      await store.saveImmediate(session);
+      await exportDevboxMigrationPackage({ sourceHome: source, packageDir });
+      await importDevboxMigrationPackage({
+        packageDir,
+        targetHome: target,
+        backupRoot: join(root, "recovery"),
+        apply: true,
+      });
+      const imported = new SessionStore(join(target, "sessions", "3456"));
+      expect((await imported.load("session-a"))?.messageHistory).toEqual(session.messageHistory);
+      expect((await imported.loadAll())[0]._searchExcerpts?.[0].content).toContain("incremental-current-search");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it("plans core state and excludes secret-bearing paths", async () => {
     const root = await mkdtemp(join(tmpdir(), "takode-devbox-source-"));
     await seedSourceHome(root);

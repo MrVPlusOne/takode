@@ -48,15 +48,20 @@ it("coalesces a blocked writer's ordinary revisions before allocating snapshots"
   const hold = gate();
   const replace = io.replaceSessionFile;
   const snapshots: PersistedSession[] = [];
+  const admitted = gate();
   vi.spyOn(io, "replaceSessionFile").mockImplementation(async (path, chunks) => {
     const data = [...chunks].join("");
     snapshots.push(JSON.parse(data));
-    if (snapshots.length === 1) await hold.promise;
+    if (snapshots.length === 1) {
+      admitted.release();
+      await hold.promise;
+    }
     await replace(path, [data]);
   });
   const value = session("coalesced");
   value.messageHistory[0] = { type: "user_message", content: "x".repeat(256 * 1024), timestamp: 1 };
   const first = store.saveSync(value);
+  await admitted.promise;
   let latest!: Promise<boolean>;
   try {
     for (let revision = 0; revision < 100; revision++) {
@@ -87,10 +92,12 @@ it("bounds aggregate admitted snapshots and lets other sessions progress", async
   const hold = gate();
   const replace = io.replaceSessionFile;
   const order: string[] = [];
+  const admitted = gate();
   let active = 0;
   let peak = 0;
   vi.spyOn(io, "replaceSessionFile").mockImplementation(async (path, chunks) => {
     order.push(JSON.parse([...chunks].join("")).id);
+    if (order.length === 2) admitted.release();
     active++;
     peak = Math.max(peak, active);
     try {
@@ -102,6 +109,7 @@ it("bounds aggregate admitted snapshots and lets other sessions progress", async
   });
   const saves = Array.from({ length: 8 }, (_, index) => store.saveSync(session(`session-${index}`)));
   saves.push(store.saveSync(session("session-0", "newer")));
+  await admitted.promise;
   try {
     expect(order).toEqual(["session-0", "session-1"]);
   } finally {

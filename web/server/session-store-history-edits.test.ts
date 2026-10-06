@@ -167,3 +167,70 @@ it("restores handoffs that an older server never persisted, and persists the rep
   expect(reloaded.messageHistory).toEqual(restored.messageHistory);
   expect(console.warn).toHaveBeenCalledTimes(1);
 });
+
+/** Push the fixture past the large-history threshold so it saves in the chunked history format. */
+function makeLarge(session: PersistedSession): void {
+  const ack = session.messageHistory[1] as Assistant;
+  ack.message.content = [{ type: "text", text: `[thread:main:C]\nFiling a quest.\n${"x".repeat(600_000)}` }];
+}
+
+async function hasHistoryRef(root: string, sessionId: string): Promise<boolean> {
+  return Object.hasOwn(JSON.parse(await readFile(join(root, `${sessionId}.json`), "utf-8")), "_historyRef");
+}
+
+it("keeps a handoff of an already-frozen request in a large chunked-format history across restart", async () => {
+  // Large histories use the chunked history format instead of the frozen log.
+  // Its rows are content-addressed, so a handoff edit to a frozen row must
+  // still publish a replacement row rather than being skipped.
+  const root = await tempRoot();
+  const store = new SessionStore(root);
+  const session = leaderWithCompletedRequest();
+  makeLarge(session);
+  await store.saveSync(session);
+  expect(await hasHistoryRef(root, session.id)).toBe(true);
+
+  handOffFirstRequest(session);
+  await store.saveHistoryEdits(session, [0]);
+  answerInQuest(session);
+  await store.saveSync(session);
+  await store.flushAll();
+
+  vi.spyOn(console, "warn");
+  const restored = (await new SessionStore(root).load(session.id))!;
+  // No warning: the ref was written directly, not recovered by the restore-time repair.
+  expect(console.warn).not.toHaveBeenCalled();
+  expect(restored.messageHistory).toEqual(session.messageHistory);
+  expect(leaderResponseProvenCurrentOwnerThreadKey(restored.messageHistory[0] as never)).toBe("q-42");
+  expect(pending(restored, "main")).toEqual([]);
+  expect(pending(restored, "q-42")).toEqual([]);
+});
+
+it("restores unpersisted handoffs in a chunked-format history, such as offline-converted data, and persists the repair", async () => {
+  // The offline converter can produce chunked histories from a branch that
+  // never persisted handoff edits. Restore must apply the same marker-based
+  // repair as the frozen-log path.
+  const root = await tempRoot();
+  const store = new SessionStore(root);
+  const session = leaderWithCompletedRequest();
+  makeLarge(session);
+  handOffFirstRequest(session);
+  answerInQuest(session);
+  const saved = structuredClone(session);
+  delete (saved.messageHistory[0] as { threadRefs?: unknown }).threadRefs;
+  await store.saveSync(saved);
+  await store.flushAll();
+  expect(await hasHistoryRef(root, session.id)).toBe(true);
+
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  const restoringStore = new SessionStore(root);
+  const restored = (await restoringStore.load(session.id))!;
+  await restoringStore.flushAll();
+  expect(restored.messageHistory[0]).toMatchObject({ threadRefs: [handoffThreadRef("q-42", 50, "leader")] });
+  expect(pending(restored, "main")).toEqual([]);
+  expect(pending(restored, "q-42")).toEqual([]);
+
+  // The repair is written back, so the next restart reads the ref without repairing again.
+  const reloaded = (await new SessionStore(root).load(session.id))!;
+  expect(reloaded.messageHistory).toEqual(restored.messageHistory);
+  expect(console.warn).toHaveBeenCalledTimes(1);
+});
