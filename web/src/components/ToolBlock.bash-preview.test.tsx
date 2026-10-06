@@ -35,7 +35,10 @@ describe("ToolBlock Bash previews", () => {
     expect(screen.getByText("rg flush")).toBeTruthy();
   });
 
-  it("keeps a long description in the details because the header shows the command", () => {
+  it("prefers a long description in the header and repeats it in the details", () => {
+    // The collapsed header must always prefer the description over the raw
+    // command, however long (a 68-character description used to fall back to
+    // the command). The header truncates it, so the details keep the full text.
     const description = "Find where the replay-gated flush starts and which tests assert it today";
     render(
       <ToolBlock
@@ -46,8 +49,14 @@ describe("ToolBlock Bash previews", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /rg flush/ }));
-    expect(screen.getByText(description)).toBeTruthy();
+    expect(screen.queryByText("rg flush")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(description) }));
+    expect(screen.getAllByText(description)).toHaveLength(2);
+    expect(screen.getByText("rg flush")).toBeTruthy();
+  });
+
+  it("falls back to the command when the description is blank", () => {
+    expect(getPreview("Bash", { command: "rg flush", description: "   " })).toBe("rg flush");
   });
 
   it("renders only the details when an enclosing row is its header", () => {

@@ -284,6 +284,10 @@ function ToolDurationBadge({
  */
 export const ToolBlockEmbeddedContext = createContext(false);
 
+// A header may truncate a longer Bash description, so the opened details repeat
+// it in full; shorter ones are shown only once, in the header.
+const HEADER_FITTING_DESCRIPTION_LENGTH = 60;
+
 interface ToolBlockProps {
   name: string;
   input: Record<string, unknown>;
@@ -443,7 +447,7 @@ const ToolBlockInner = memo(function ToolBlockInner({
           sessionId={sessionId}
           readOnly={readOnly}
           questLinkSurface={questLinkSurface}
-          hideDescription={preview === input.description}
+          hideDescription={preview === input.description && preview.length <= HEADER_FITTING_DESCRIPTION_LENGTH}
         />
       </div>
       {sessionId && !isSubagentToolName(name) && (
@@ -1724,11 +1728,9 @@ export function getPreview(name: string, input: Record<string, unknown>): string
     return input.title;
   }
   if (name === "Bash" && typeof input.command === "string") {
-    // Prefer description if short enough, otherwise show command
-    if (input.description && typeof input.description === "string" && input.description.length <= 60) {
-      return input.description;
-    }
-    return formatBashCommandPreview(input.command);
+    // Always prefer the agent's description; headers truncate long ones with CSS.
+    const description = typeof input.description === "string" ? input.description.trim() : "";
+    return description || formatBashCommandPreview(input.command);
   }
   if ((name === "Read" || name === "Write" || name === "Edit") && input.file_path) {
     return String(input.file_path);
