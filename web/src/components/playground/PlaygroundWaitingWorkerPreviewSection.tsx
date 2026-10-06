@@ -2,6 +2,8 @@ import type { SessionActivityPreview } from "../../../server/session-activity-pr
 import type { LeaderThreadStatus } from "../../../shared/thread-status-marker.js";
 import { TurnThreadStatusFooter } from "../MessageFeedThreadStatus.js";
 import { WaitingWorkerPreviewPanel, type WaitingWorkerTarget } from "../WaitingWorkerPreview.js";
+import type { ToolMsgGroup } from "../../hooks/use-feed-model.js";
+import { CompactToolMessageGroups } from "../ToolMessageGroup.js";
 import { PlaygroundSectionGroup, Section } from "./shared.js";
 
 const NOW = Date.now();
@@ -50,6 +52,22 @@ const IDLE_PREVIEW: SessionActivityPreview = {
   lastActivityAt: NOW - 8 * MINUTE,
 };
 
+// The leader's own activity just before the preview: the same faint card, so the
+// preview's status edge is what tells the two apart.
+const LEADER_ACTIVITY: ToolMsgGroup = {
+  kind: "tool_msg_group",
+  toolName: "Bash",
+  firstId: "playground-leader-activity",
+  items: ["Find the quest's open feedback", "Record the user decision", "Dispatch the worker"].map(
+    (description, index) => ({
+      id: `playground-leader-activity-${index + 1}`,
+      name: "Bash",
+      input: { command: `quest show q-101 # ${index + 1}`, description },
+      messageId: "playground-leader-activity",
+    }),
+  ),
+};
+
 function waitingStatus(summary: string): LeaderThreadStatus {
   return {
     kind: "waiting",
@@ -75,6 +93,15 @@ function FeedFooterDemo({
 }) {
   return (
     <div className="max-w-3xl space-y-2 rounded-xl border border-cc-border bg-cc-bg px-3 py-4 sm:px-6">
+      <div className="pl-9">
+        <CompactToolMessageGroups
+          groups={[LEADER_ACTIVITY]}
+          sessionId="playground-waiting-leader"
+          isCodexSession={false}
+          activeCodexTerminalIds={new Set()}
+          onOpenCodexTerminal={() => {}}
+        />
+      </div>
       <div className="pl-9 text-sm text-cc-fg/85">
         I sent #2781 to build the preview. I'll check back when it reports.
       </div>
@@ -91,7 +118,7 @@ export function PlaygroundWaitingWorkerPreviewSection() {
     <PlaygroundSectionGroup groupId="overview">
       <Section
         title="Waiting Worker Preview"
-        description="Part of the chat feed under the Thread Waiting status while a quest thread waits on its worker: working and idle-while-waiting."
+        description="Part of the chat feed under the Thread Waiting status while a quest thread waits on its worker: working and idle-while-waiting. A status-keyed left edge (green while working) sets it apart from the leader's own activity group above."
       >
         <div className="space-y-4" data-testid="playground-waiting-worker-preview">
           <FeedFooterDemo target={WORKING} preview={WORKING_PREVIEW} summary="#2781 implementing the preview" />

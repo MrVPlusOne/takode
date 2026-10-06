@@ -185,6 +185,21 @@ describe("WaitingWorkerPreview", () => {
     expect(navigateToSession).toHaveBeenCalledWith(WORKER);
   });
 
+  it("keys the card's left edge to the worker status so it stands apart from activity groups", async () => {
+    // A working worker gets a green edge and tint; an idle one a neutral edge.
+    setLeaderState();
+    const { unmount } = render(<FeedFooterHost />);
+    const working = await screen.findByTestId("waiting-worker-preview");
+    expect(working.className).toContain("border-l-cc-success/70");
+    unmount();
+
+    setLeaderState({ participants: rowStatuses("idle") });
+    render(<FeedFooterHost />);
+    const idle = await screen.findByTestId("waiting-worker-preview");
+    expect(idle.className).toContain("border-l-cc-muted/50");
+    expect(idle.className).not.toContain("border-l-cc-success");
+  });
+
   it("shows idle time since the last activity while the thread still waits", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(PREVIEW.lastActivityAt + 3 * 60_000);

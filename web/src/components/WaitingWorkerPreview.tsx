@@ -216,8 +216,13 @@ export function WaitingWorkerPreviewPanel({
   const running = target.workerStatus === "running";
 
   return (
+    // The status-keyed left edge and tint set this live view of another session
+    // apart from the leader's own activity groups, which use the same faint card.
     <section
-      className="w-full max-w-2xl rounded-lg border border-cc-border/70 bg-cc-card/60 px-2.5 py-1.5 font-sans-ui"
+      className={`w-full max-w-2xl rounded-lg border border-l-2 border-cc-border/70 px-2.5 py-1.5 font-sans-ui ${
+        running ? "border-l-cc-success/70 bg-cc-success/[0.05]" : "border-l-cc-muted/50 bg-cc-card/60"
+      }`}
+      data-worker-status={target.workerStatus}
       aria-label={`${workerLabel} live preview for ${target.questId}`}
       data-testid="waiting-worker-preview"
     >
