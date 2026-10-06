@@ -54,8 +54,7 @@ export function createWebPushRoutes(webPush: WebPushChannel | undefined) {
     const body = await c.req.json().catch(() => null);
     const endpoint = readEndpoint(body);
     if (!endpoint) return c.json({ error: "endpoint is required" }, 400);
-    const retractAfterSeconds = typeof body?.retractAfterSeconds === "number" ? body.retractAfterSeconds : 0;
-    const result = await webPush.sendTest(endpoint, Math.min(Math.max(retractAfterSeconds, 0), 300) * 1000);
+    const result = await webPush.sendTest(endpoint);
     return result.ok ? c.json({ ok: true }) : c.json({ error: result.error }, 400);
   });
 

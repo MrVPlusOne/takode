@@ -89,15 +89,15 @@ describe("SettingsWebPushSection", () => {
     expect(screen.getByText(/1 device subscribed/)).toBeInTheDocument();
   });
 
-  it("sends a self-retracting test and can disable an existing subscription", async () => {
+  it("sends a test and can disable an existing subscription", async () => {
     const { subscription } = installPushBrowser();
     installPushBrowser(subscription);
     mockApi.getWebPushInfo.mockResolvedValue({ available: true, publicKey: PUBLIC_KEY, subscriptionCount: 1 });
     render(<SettingsWebPushSection sectionSearchProps={sectionSearchProps} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Send Test" }));
-    expect(await screen.findByText(/should disappear about 20s/)).toBeInTheDocument();
-    expect(mockApi.testWebPush).toHaveBeenCalledWith(ENDPOINT, 20);
+    expect(await screen.findByText("Test sent.")).toBeInTheDocument();
+    expect(mockApi.testWebPush).toHaveBeenCalledWith(ENDPOINT);
 
     fireEvent.click(screen.getByRole("button", { name: "Disable on this device" }));
     expect(await screen.findByText("Notifications disabled on this device.")).toBeInTheDocument();

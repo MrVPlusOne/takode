@@ -4,37 +4,23 @@ import type { WebPushAlert, WebPushDelivery } from "./web-push.js";
 
 /**
  * Tests for Web Push delivery through the shared phone-alert scheduler: Web Push
- * works without Pushover, shares its delay, and retracts delivered alerts once
- * their question is answered, their session is read, or their Notify Me result
- * is acknowledged. The channel itself is faked; web-push.test.ts covers it.
+ * works without Pushover, shares its delay and cancellation, and never sends any
+ * follow-up push for an alert already shown. On iOS a follow-up "retraction" push
+ * could not close the shown alert and only added another notification, so the
+ * scheduler must not send one. The channel itself is faked; web-push.test.ts covers it.
  */
 
 const PUSHOVER_API_URL = "https://api.pushover.net/1/messages.json";
-const PHONE = "https://web.push.apple.com/phone";
-
 class FakeWebPush implements WebPushDelivery {
   alerts: WebPushAlert[] = [];
-  retractions: Array<{ endpoints: string[]; tags: string[] }> = [];
   subscribed = true;
-  /** Lets a test hold an alert "in flight" to the push service. */
-  release: (() => void) | null = null;
-  holdNextAlert = false;
 
   hasSubscriptions() {
     return this.subscribed;
   }
 
-  sendAlert(alert: WebPushAlert): Promise<string[]> {
+  async sendAlert(alert: WebPushAlert) {
     this.alerts.push(alert);
-    if (!this.holdNextAlert) return Promise.resolve([PHONE]);
-    this.holdNextAlert = false;
-    return new Promise((resolve) => {
-      this.release = () => resolve([PHONE]);
-    });
-  }
-
-  async sendRetraction(endpoints: string[], tags: string[]) {
-    this.retractions.push({ endpoints, tags });
   }
 }
 
@@ -120,105 +106,42 @@ describe("PushoverNotifier with Web Push", () => {
     expect(vi.mocked(fetch).mock.calls[0]![0]).toBe(PUSHOVER_API_URL);
   });
 
-  it("retracts a delivered needs-input alert once its question is answered", async () => {
+  it("does not send an alert whose question was answered before the delay", async () => {
     makeNotifier().scheduleNotification("sess-1", "question", "q", undefined, { notificationId: "n-1" });
-    await vi.advanceTimersByTimeAsync(30_000);
-    const tag = webPush.alerts[0]!.tag;
-
+    await vi.advanceTimersByTimeAsync(10_000);
     notifier.cancelNotification("sess-1", "n-1");
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(webPush.retractions).toEqual([{ endpoints: [PHONE], tags: [tag] }]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(webPush.alerts).toHaveLength(0);
   });
 
-  it("keeps a batched alert until every question in it is answered", async () => {
-    // Two permission requests batch into one "2 permissions waiting" alert; answering one
-    // must not hide the phone alert for the other.
-    makeNotifier();
-    notifier.scheduleNotification("sess-1", "permission", "Bash: a", "req-1");
-    notifier.scheduleNotification("sess-1", "permission", "Bash: b", "req-2");
+  it("sends no follow-up push once a delivered question is answered", async () => {
+    makeNotifier().scheduleNotification("sess-1", "question", "q", undefined, { notificationId: "n-1" });
     await vi.advanceTimersByTimeAsync(30_000);
     expect(webPush.alerts).toHaveLength(1);
 
-    notifier.cancelPermission("sess-1", "req-1");
-    await vi.advanceTimersByTimeAsync(0);
-    expect(webPush.retractions).toHaveLength(0);
+    notifier.cancelNotification("sess-1", "n-1");
+    await vi.advanceTimersByTimeAsync(120_000);
 
-    notifier.cancelPermission("sess-1", "req-2");
-    await vi.advanceTimersByTimeAsync(0);
-    expect(webPush.retractions).toEqual([{ endpoints: [PHONE], tags: [webPush.alerts[0]!.tag] }]);
+    expect(webPush.alerts).toHaveLength(1);
   });
 
-  it("does not retract a needs-input alert just because the session was read", async () => {
-    makeNotifier().scheduleNotification("sess-1", "question", "q", undefined, {
-      notificationId: "n-1",
-      skipReadCheck: true,
-    });
-    await vi.advanceTimersByTimeAsync(30_000);
-
-    lastReadAt = Date.now();
-    await vi.advanceTimersByTimeAsync(60_000);
-
-    expect(webPush.retractions).toHaveLength(0);
-  });
-
-  it("retracts a review alert once the session is read after delivery", async () => {
+  it("sends no follow-up push when a delivered review alert's session is read", async () => {
     makeNotifier().scheduleNotification("sess-1", "completed");
     await vi.advanceTimersByTimeAsync(30_000);
     expect(webPush.alerts).toHaveLength(1);
 
-    // Still unread: the periodic check leaves the alert alone.
-    await vi.advanceTimersByTimeAsync(20_000);
-    expect(webPush.retractions).toHaveLength(0);
-
     lastReadAt = Date.now();
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(webPush.retractions).toEqual([{ endpoints: [PHONE], tags: [webPush.alerts[0]!.tag] }]);
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    expect(webPush.alerts).toHaveLength(1);
   });
 
-  it("retracts a Notify Me alert once its result is no longer pending", async () => {
-    let pending = true;
+  it("links a Notify Me alert to its thread", async () => {
     makeNotifier().scheduleNotification("sess-1", "monitored-result", "Result", undefined, {
       notificationId: "monitor:q-1:r1",
-      monitoredResult: { threadKey: "q-1", isPending: () => pending },
+      monitoredResult: { threadKey: "q-1", isPending: () => true },
     });
     await vi.advanceTimersByTimeAsync(30_000);
     expect(webPush.alerts[0]!.url).toBe("/#/session/sess-1?thread=q-1");
-
-    pending = false;
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(webPush.retractions).toHaveLength(1);
-  });
-
-  it("still retracts when the question is answered while the alert is in flight", async () => {
-    // The answer can land between handing the alert to the push service and its reply;
-    // the retraction must wait for delivery rather than being lost.
-    webPush.holdNextAlert = true;
-    makeNotifier().scheduleNotification("sess-1", "question", "q", undefined, { notificationId: "n-1" });
-    await vi.advanceTimersByTimeAsync(30_000);
-
-    notifier.cancelNotification("sess-1", "n-1");
-    await vi.advanceTimersByTimeAsync(0);
-    expect(webPush.retractions).toHaveLength(0);
-
-    webPush.release!();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(webPush.retractions).toEqual([{ endpoints: [PHONE], tags: [webPush.alerts[0]!.tag] }]);
-  });
-
-  it("gives every delivered alert its own tag so retraction never hides a different alert", async () => {
-    makeNotifier();
-    notifier.scheduleNotification("sess-1", "question", "first", undefined, { notificationId: "n-1" });
-    await vi.advanceTimersByTimeAsync(30_000);
-    // Past the per-session cooldown so the second alert is delivered too.
-    await vi.advanceTimersByTimeAsync(60_000);
-    notifier.scheduleNotification("sess-1", "question", "second", undefined, { notificationId: "n-2" });
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(webPush.alerts).toHaveLength(2);
-    expect(webPush.alerts[0]!.tag).not.toBe(webPush.alerts[1]!.tag);
-
-    notifier.cancelNotification("sess-1", "n-2");
-    await vi.advanceTimersByTimeAsync(0);
-    expect(webPush.retractions).toEqual([{ endpoints: [PHONE], tags: [webPush.alerts[1]!.tag] }]);
   });
 });

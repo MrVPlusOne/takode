@@ -5,9 +5,6 @@ import { CollapsibleSection } from "./CollapsibleSection.js";
 
 type SectionSearchProps = Pick<ComponentProps<typeof CollapsibleSection>, "hidden" | "searchQuery" | "matchCount">;
 
-/** Seconds before the Settings test notification retracts itself, exercising retraction on the device. */
-const TEST_RETRACT_AFTER_SECONDS = 20;
-
 /**
  * Per-device Web Push enrollment. Delay and event types are shared with the
  * Pushover section because both channels are driven by the same alert scheduler.
@@ -75,8 +72,8 @@ export function SettingsWebPushSection({ sectionSearchProps }: { sectionSearchPr
   function onTest() {
     if (!subscription) return;
     void run(async () => {
-      await api.testWebPush(subscription.endpoint, TEST_RETRACT_AFTER_SECONDS);
-      return `Test sent. It should disappear about ${TEST_RETRACT_AFTER_SECONDS}s after it arrives.`;
+      await api.testWebPush(subscription.endpoint);
+      return "Test sent.";
     });
   }
 
@@ -86,7 +83,7 @@ export function SettingsWebPushSection({ sectionSearchProps }: { sectionSearchPr
     <CollapsibleSection
       id="web-push"
       title="Phone Notifications (Web Push)"
-      description="Alerts on this device through the browser, with no third-party app. Answered questions are removed from the phone."
+      description="Alerts on this device through the browser, with no third-party app."
       {...sectionSearchProps}
     >
       <p className="text-xs text-cc-muted">

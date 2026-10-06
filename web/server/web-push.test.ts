@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { WEB_PUSH_PRESENCE_TTL_MS, WebPushChannel, type WebPushPayload } from "./web-push.js";
+import { WEB_PUSH_PRESENCE_TTL_MS, type WebPushAlert, WebPushChannel } from "./web-push.js";
 
 /**
  * Tests for the Web Push delivery channel: VAPID key persistence, subscription
@@ -28,7 +28,7 @@ function makeBrowserSubscription(endpoint: string) {
 }
 
 /** RFC 8291/8188 single-record decryption, as a browser would do it. */
-function decryptAes128gcm(body: Buffer, browserKey: ECDH, authSecret: Buffer): WebPushPayload {
+function decryptAes128gcm(body: Buffer, browserKey: ECDH, authSecret: Buffer): WebPushAlert {
   const salt = body.subarray(0, 16);
   const keyIdLength = body[20]!;
   const serverPublicKey = body.subarray(21, 21 + keyIdLength);
@@ -42,11 +42,18 @@ function decryptAes128gcm(body: Buffer, browserKey: ECDH, authSecret: Buffer): W
   const padded = Buffer.concat([decipher.update(record.subarray(0, record.length - 16)), decipher.final()]);
   // The last record ends with a 0x02 delimiter followed by optional zero padding.
   const end = padded.lastIndexOf(2);
-  return JSON.parse(padded.subarray(0, end).toString("utf-8")) as WebPushPayload;
+  return JSON.parse(padded.subarray(0, end).toString("utf-8")) as WebPushAlert;
 }
 
 function fetchCallsTo(endpoint: string) {
   return vi.mocked(fetch).mock.calls.filter(([url]) => url === endpoint);
+}
+
+/** Endpoints that received a push since the last call, in request order. */
+function takeSentEndpoints(): string[] {
+  const endpoints = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+  vi.mocked(fetch).mockClear();
+  return endpoints;
 }
 
 describe("WebPushChannel", () => {
@@ -90,20 +97,14 @@ describe("WebPushChannel", () => {
     expect(await readFile(filePath, "utf-8")).toBe("{not json");
   });
 
-  it("sends an encrypted alert with VAPID auth and urgency, and returns reached endpoints", async () => {
+  it("sends an encrypted alert with VAPID auth and urgency", async () => {
     const channel = makeChannel();
     await channel.load();
     const device = makeBrowserSubscription(APPLE_ENDPOINT_A);
     await channel.subscribe({ endpoint: device.endpoint, keys: device.keys });
 
-    const reached = await channel.sendAlert({
-      title: "Takode needs input",
-      body: "Server - Session",
-      url: "/#/session/s1",
-      tag: "tabc",
-    });
+    await channel.sendAlert({ title: "Takode needs input", body: "Server - Session", url: "/#/session/s1" });
 
-    expect(reached).toEqual([APPLE_ENDPOINT_A]);
     const [, init] = fetchCallsTo(APPLE_ENDPOINT_A)[0]!;
     const headers = init!.headers as Record<string, string>;
     expect(headers.Authorization).toMatch(new RegExp(`^vapid t=.+, k=${channel.getPublicKey()}$`));
@@ -111,11 +112,9 @@ describe("WebPushChannel", () => {
     // Apple's push service answers 400 BadWebPushTopic to any Topic header (seen on a real iPhone).
     expect(headers).not.toHaveProperty("Topic");
     expect(device.decrypt(init!.body as Uint8Array)).toEqual({
-      type: "alert",
       title: "Takode needs input",
       body: "Server - Session",
       url: "/#/session/s1",
-      tag: "tabc",
     });
   });
 
@@ -128,33 +127,42 @@ describe("WebPushChannel", () => {
     const tablet = makeBrowserSubscription(APPLE_ENDPOINT_B);
     await channel.subscribe({ endpoint: phone.endpoint, keys: phone.keys });
     await channel.subscribe({ endpoint: tablet.endpoint, keys: tablet.keys });
-    const alert = { title: "t", body: "b", url: "/", tag: "t1" };
+    const alert = { title: "t", body: "b", url: "/" };
 
     channel.reportPresence(APPLE_ENDPOINT_A, true);
-    expect(await channel.sendAlert(alert)).toEqual([APPLE_ENDPOINT_B]);
+    await channel.sendAlert(alert);
+    expect(takeSentEndpoints()).toEqual([APPLE_ENDPOINT_B]);
 
     channel.reportPresence(APPLE_ENDPOINT_A, false);
-    expect(await channel.sendAlert(alert)).toEqual([APPLE_ENDPOINT_A, APPLE_ENDPOINT_B]);
+    await channel.sendAlert(alert);
+    expect(takeSentEndpoints()).toEqual([APPLE_ENDPOINT_A, APPLE_ENDPOINT_B]);
 
     // A visible report with no later heartbeat (e.g. iOS suspended the app first) expires.
     channel.reportPresence(APPLE_ENDPOINT_A, true);
     now += WEB_PUSH_PRESENCE_TTL_MS + 1;
-    expect(await channel.sendAlert(alert)).toEqual([APPLE_ENDPOINT_A, APPLE_ENDPOINT_B]);
+    await channel.sendAlert(alert);
+    expect(takeSentEndpoints()).toEqual([APPLE_ENDPOINT_A, APPLE_ENDPOINT_B]);
   });
 
-  it("sends retractions only to the given endpoints", async () => {
+  it("sends a Settings test to that one device even while it is on screen", async () => {
+    // The test is tapped from the device itself, so presence must not suppress it.
     const channel = makeChannel();
     await channel.load();
     const phone = makeBrowserSubscription(APPLE_ENDPOINT_A);
     const tablet = makeBrowserSubscription(APPLE_ENDPOINT_B);
     await channel.subscribe({ endpoint: phone.endpoint, keys: phone.keys });
     await channel.subscribe({ endpoint: tablet.endpoint, keys: tablet.keys });
+    channel.reportPresence(APPLE_ENDPOINT_A, true);
 
-    await channel.sendRetraction([APPLE_ENDPOINT_A], ["tabc"]);
+    expect(await channel.sendTest(APPLE_ENDPOINT_A)).toEqual({ ok: true });
 
     expect(fetchCallsTo(APPLE_ENDPOINT_B)).toHaveLength(0);
     const [, init] = fetchCallsTo(APPLE_ENDPOINT_A)[0]!;
-    expect(phone.decrypt(init!.body as Uint8Array)).toEqual({ type: "retract", tags: ["tabc"] });
+    expect(phone.decrypt(init!.body as Uint8Array)).toEqual({
+      title: "Takode test",
+      body: "Web Push works.",
+      url: "/",
+    });
   });
 
   it("reuses one VAPID JWT per push service instead of minting one per request", async () => {
@@ -164,15 +172,15 @@ describe("WebPushChannel", () => {
     const device = makeBrowserSubscription(APPLE_ENDPOINT_A);
     await channel.subscribe({ endpoint: device.endpoint, keys: device.keys });
 
-    await channel.sendAlert({ title: "t", body: "b", url: "/", tag: "t1" });
-    await channel.sendRetraction([APPLE_ENDPOINT_A], ["t1"]);
+    await channel.sendAlert({ title: "t", body: "b", url: "/" });
+    await channel.sendAlert({ title: "t", body: "b", url: "/" });
     const [first, second] = fetchCallsTo(APPLE_ENDPOINT_A).map(
       ([, init]) => (init!.headers as Record<string, string>).Authorization,
     );
     expect(second).toBe(first);
 
     now += 60 * 60 * 1000;
-    await channel.sendAlert({ title: "t", body: "b", url: "/", tag: "t2" });
+    await channel.sendAlert({ title: "t", body: "b", url: "/" });
     const third = (fetchCallsTo(APPLE_ENDPOINT_A)[2]![1]!.headers as Record<string, string>).Authorization;
     expect(third).not.toBe(first);
   });
@@ -184,14 +192,14 @@ describe("WebPushChannel", () => {
     await channel.subscribe({ endpoint: device.endpoint, keys: device.keys });
     vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 410 }));
 
-    expect(await channel.sendAlert({ title: "t", body: "b", url: "/", tag: "t1" })).toEqual([]);
+    await channel.sendAlert({ title: "t", body: "b", url: "/" });
     expect(channel.hasSubscriptions()).toBe(false);
     const reloaded = makeChannel();
     await reloaded.load();
     expect(reloaded.subscriptionCount()).toBe(0);
   });
 
-  it("does not report a device as reached when the push service rejects the alert", async () => {
+  it("keeps a subscription when the push service rejects an alert for another reason", async () => {
     const channel = makeChannel();
     await channel.load();
     const device = makeBrowserSubscription(APPLE_ENDPOINT_A);
@@ -199,7 +207,7 @@ describe("WebPushChannel", () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response('{"reason":"BadJwtToken"}', { status: 403 }));
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    expect(await channel.sendAlert({ title: "t", body: "b", url: "/", tag: "t1" })).toEqual([]);
+    await channel.sendAlert({ title: "t", body: "b", url: "/" });
     expect(channel.hasSubscriptions()).toBe(true);
   });
 

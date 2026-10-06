@@ -1435,8 +1435,7 @@ export const api = {
     post<{ ok: boolean; subscriptionCount: number }>("/web-push/subscriptions", subscription),
   unsubscribeWebPush: (endpoint: string) =>
     del<{ ok: boolean; subscriptionCount: number }>("/web-push/subscriptions", { endpoint }),
-  testWebPush: (endpoint: string, retractAfterSeconds?: number) =>
-    post<{ ok: boolean }>("/web-push/test", { endpoint, retractAfterSeconds }),
+  testWebPush: (endpoint: string) => post<{ ok: boolean }>("/web-push/test", { endpoint }),
   getCaffeinateStatus: () =>
     get<{ active: boolean; engagedAt: number | null; expiresAt: number | null }>("/caffeinate-status"),
 

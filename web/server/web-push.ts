@@ -2,10 +2,14 @@
  * Web Push delivery for phone alerts (iOS 16.4+ Home Screen apps and other browsers).
  *
  * Owns this server's VAPID keys, the browser subscriptions registered from Settings,
- * and per-device "currently viewing Takode" presence. The scheduling, batching and
- * retraction policy lives in the shared phone-alert scheduler (`pushover.ts`); this
- * module only knows how to reach devices. The service worker that renders these
- * payloads is `web/public/sw.js`.
+ * and per-device "currently viewing Takode" presence. The scheduling and batching
+ * policy lives in the shared phone-alert scheduler (`pushover.ts`); this module only
+ * knows how to reach devices. The service worker that renders these payloads is
+ * `web/public/sw.js`.
+ *
+ * Delivered alerts are never retracted: on iOS a service worker handling a push could
+ * not close an already-shown notification (seen on a real iPhone), and every iOS push
+ * must show something, so a retraction push would only add a notification.
  */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -19,27 +23,19 @@ export interface WebPushSubscriptionRecord {
   userAgent?: string;
 }
 
-/** Payloads understood by `web/public/sw.js`. */
-export type WebPushPayload =
-  | { type: "alert"; title: string; body: string; url: string; tag: string }
-  | { type: "retract"; tags: string[] };
-
+/** The push payload `web/public/sw.js` renders as a notification. */
 export interface WebPushAlert {
   title: string;
   body: string;
   /** Same-origin path the notification opens, e.g. `/#/session/<id>`. */
   url: string;
-  /** Unique per delivered alert; retraction closes notifications carrying this tag. */
-  tag: string;
 }
 
 /** The delivery surface the phone-alert scheduler depends on. */
 export interface WebPushDelivery {
   hasSubscriptions(): boolean;
-  /** Sends to every subscribed device that is not currently viewing Takode; resolves to the reached endpoints. */
-  sendAlert(alert: WebPushAlert): Promise<string[]>;
-  /** Asks the given devices to close the notifications carrying these tags. */
-  sendRetraction(endpoints: string[], tags: string[]): Promise<void>;
+  /** Sends to every subscribed device that is not currently viewing Takode. */
+  sendAlert(alert: WebPushAlert): Promise<void>;
 }
 
 interface WebPushStoreFile {
@@ -121,37 +117,22 @@ export class WebPushChannel implements WebPushDelivery {
     return !!state?.visible && this.now() - state.at <= WEB_PUSH_PRESENCE_TTL_MS;
   }
 
-  async sendAlert(alert: WebPushAlert): Promise<string[]> {
+  async sendAlert(alert: WebPushAlert): Promise<void> {
     const targets = (this.store?.subscriptions ?? []).filter((s) => !this.isViewing(s.endpoint));
-    const payload: WebPushPayload = { type: "alert", ...alert };
-    const errors = await Promise.all(targets.map((s) => this.send(s, payload)));
-    return targets.filter((_, i) => errors[i] === null).map((s) => s.endpoint);
+    await Promise.all(targets.map((s) => this.send(s, alert)));
   }
 
-  async sendRetraction(endpoints: string[], tags: string[]): Promise<void> {
-    if (tags.length === 0) return;
-    const targets = (this.store?.subscriptions ?? []).filter((s) => endpoints.includes(s.endpoint));
-    await Promise.all(targets.map((s) => this.send(s, { type: "retract", tags })));
-  }
-
-  /** Sends a test alert to one device regardless of presence, optionally retracting it later. */
-  async sendTest(endpoint: string, retractAfterMs?: number): Promise<{ ok: boolean; error?: string }> {
+  /** Sends a test alert to one device regardless of presence. */
+  async sendTest(endpoint: string): Promise<{ ok: boolean; error?: string }> {
     const subscription = this.store?.subscriptions.find((s) => s.endpoint === endpoint);
     if (!subscription) return { ok: false, error: "This device is not subscribed" };
-    const tag = newAlertTag();
-    const body = retractAfterMs
-      ? `Web Push works. This notification should disappear in ${Math.round(retractAfterMs / 1000)}s.`
-      : "Web Push works.";
-    const error = await this.send(subscription, { type: "alert", title: "Takode test", body, url: "/", tag });
+    const error = await this.send(subscription, { title: "Takode test", body: "Web Push works.", url: "/" });
     if (error) return { ok: false, error: `Push service rejected the test notification: ${error}` };
-    if (retractAfterMs) {
-      setTimeout(() => void this.sendRetraction([endpoint], [tag]), retractAfterMs);
-    }
     return { ok: true };
   }
 
   /** Resolves to null on success, otherwise a short failure reason. */
-  private async send(subscription: WebPushSubscriptionRecord, payload: WebPushPayload): Promise<string | null> {
+  private async send(subscription: WebPushSubscriptionRecord, payload: WebPushAlert): Promise<string | null> {
     try {
       // No Topic header: Apple's push service rejects any Topic with 400 BadWebPushTopic.
       // VAPID auth is added separately so one JWT can be reused per push service.
@@ -221,9 +202,4 @@ export class WebPushChannel implements WebPushDelivery {
   private now(): number {
     return this.opts.now?.() ?? Date.now();
   }
-}
-
-/** Unique tag for one delivered alert. */
-export function newAlertTag(): string {
-  return `t${crypto.randomUUID().replaceAll("-", "").slice(0, 24)}`;
 }

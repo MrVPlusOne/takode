@@ -144,8 +144,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     id: "web-push",
     title: "Phone Notifications (Web Push)",
-    description:
-      "Alerts on this device through the browser, with no third-party app. Answered questions are removed from the phone.",
+    description: "Alerts on this device through the browser, with no third-party app.",
     aliases: ["push", "phone", "iphone", "alerts", "notification", "home screen", "web push"],
     items: [{ id: "device", text: "Enable on this device Disable Send Test subscribed devices Home Screen" }],
   },

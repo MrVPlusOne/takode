@@ -3,11 +3,10 @@
  *
  * Sends delayed notifications when attention-requiring events (permission requests,
  * questions, completions, errors) remain unresolved. Supports batching, cancellation,
- * and per-session rate limiting. Web Push alerts can also be retracted after delivery
- * once their question is answered or their session is read; Pushover alerts cannot.
+ * and per-session rate limiting.
  */
 
-import { newAlertTag, type WebPushDelivery } from "./web-push.js";
+import type { WebPushDelivery } from "./web-push.js";
 
 export type PushoverEventType = "permission" | "question" | "completed" | "error" | "monitored-result";
 export type PushoverNotificationCategory = "needs-input" | "review" | "notify-me" | "error";
@@ -74,24 +73,6 @@ interface PendingNotification {
   monitoredResult?: PushoverScheduleOptions["monitoredResult"];
 }
 
-/** A Web Push alert already shown on devices, kept until it is retracted or expires. */
-interface DeliveredWebPushAlert {
-  tag: string;
-  sessionId: string;
-  deliveredAt: number;
-  /**
-   * resolved: retract once every listed request/notification is answered.
-   * read: retract once the session is read after delivery.
-   * monitored: retract once the Notify Me result is no longer pending.
-   */
-  retractWhen: "resolved" | "read" | "monitored";
-  requestIds: string[];
-  notificationIds: string[];
-  monitoredResult?: PushoverScheduleOptions["monitoredResult"];
-  /** Endpoints the alert reached; retraction waits for delivery to settle. */
-  endpoints: Promise<string[]>;
-}
-
 interface SessionCooldown {
   lastNotifiedAt: number;
   windowStart: number;
@@ -110,10 +91,6 @@ const SESSION_WINDOW_MS = 300_000;
 const SESSION_WINDOW_MAX = 5;
 /** Batching window for rapid-fire permissions on the same session */
 const PERMISSION_BATCH_WINDOW_MS = 3_000;
-/** How often delivered Web Push alerts are checked for read/monitored retraction. */
-const RETRACTION_SWEEP_MS = 10_000;
-/** Stop tracking delivered alerts after this long; the phone keeps whatever it shows. */
-const DELIVERED_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 const EVENT_PRIORITY: Record<PushoverEventType, number> = {
   permission: 1,
@@ -145,8 +122,6 @@ export class PushoverNotifier {
   private pending = new Map<string, PendingNotification>();
   private cooldowns = new Map<string, SessionCooldown>();
   private globalLastSent = 0;
-  private delivered: DeliveredWebPushAlert[] = [];
-  private retractionSweep: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: PushoverNotifierOpts) {
     this.opts = opts;
@@ -247,7 +222,6 @@ export class PushoverNotifier {
 
   /** Cancel a specific permission/question request from a pending batch. */
   cancelPermission(sessionId: string, requestId: string): void {
-    this.retireDeliveredItem(sessionId, "requestIds", requestId);
     for (const eventType of ["permission", "question"] as const) {
       const key = `${sessionId}:${eventType}`;
       const pending = this.pending.get(key);
@@ -268,7 +242,6 @@ export class PushoverNotifier {
 
   /** Cancel a specific Takode notification from a pending Pushover batch. */
   cancelNotification(sessionId: string, notificationId: string): void {
-    this.retireDeliveredItem(sessionId, "notificationIds", notificationId);
     for (const [key, pending] of this.pending) {
       if (pending.sessionId !== sessionId) continue;
 
@@ -312,8 +285,6 @@ export class PushoverNotifier {
     }
     this.pending.clear();
     this.cooldowns.clear();
-    this.delivered = [];
-    this.stopRetractionSweep();
   }
 
   private async fire(key: string): Promise<void> {
@@ -393,70 +364,11 @@ export class PushoverNotifier {
     const path = this.buildDeepLinkPath(sessionId, pending.monitoredResult?.threadKey);
 
     console.log(`[pushover] Sending ${eventType} notification for ${sessionId.slice(0, 8)}`);
-    if (this.opts.webPush?.hasSubscriptions()) this.deliverWebPush(pending, title, message, path);
+    if (this.opts.webPush?.hasSubscriptions()) void this.opts.webPush.sendAlert({ title, body: message, url: path });
     if (this.isPushoverConfigured()) {
       const url = this.opts.getBaseUrl().replace(/\/+$/, "") + path;
       await this.sendToApi(settings, title, message, EVENT_PRIORITY[eventType], url, !pending.monitoredResult);
     }
-  }
-
-  private deliverWebPush(pending: PendingNotification, title: string, body: string, url: string): void {
-    const tag = newAlertTag();
-    const isQuestion = pending.eventType === "permission" || pending.eventType === "question";
-    const hasItems = pending.requestIds.length + pending.notificationIds.length > 0;
-    this.delivered.push({
-      tag,
-      sessionId: pending.sessionId,
-      deliveredAt: Date.now(),
-      retractWhen: pending.monitoredResult ? "monitored" : isQuestion && hasItems ? "resolved" : "read",
-      requestIds: [...pending.requestIds],
-      notificationIds: [...pending.notificationIds],
-      monitoredResult: pending.monitoredResult,
-      endpoints: this.opts.webPush!.sendAlert({ title, body, url, tag }),
-    });
-    this.startRetractionSweep();
-  }
-
-  /** Drops one answered item from delivered alerts, retracting alerts with nothing left to answer. */
-  private retireDeliveredItem(sessionId: string, field: "requestIds" | "notificationIds", id: string): void {
-    for (const record of [...this.delivered]) {
-      if (record.sessionId !== sessionId || record.retractWhen !== "resolved") continue;
-      const idx = record[field].indexOf(id);
-      if (idx === -1) continue;
-      record[field].splice(idx, 1);
-      if (record.requestIds.length === 0 && record.notificationIds.length === 0) this.retract(record);
-    }
-  }
-
-  private retract(record: DeliveredWebPushAlert): void {
-    this.delivered = this.delivered.filter((r) => r !== record);
-    void record.endpoints.then((endpoints) => {
-      if (endpoints.length === 0) return;
-      console.log(`[pushover] Retracting web push alert for ${record.sessionId.slice(0, 8)}`);
-      return this.opts.webPush?.sendRetraction(endpoints, [record.tag]);
-    });
-    if (this.delivered.length === 0) this.stopRetractionSweep();
-  }
-
-  private sweepDelivered(): void {
-    const expiredBefore = Date.now() - DELIVERED_RETENTION_MS;
-    this.delivered = this.delivered.filter((r) => r.deliveredAt >= expiredBefore);
-    for (const record of [...this.delivered]) {
-      if (record.retractWhen === "monitored" && !record.monitoredResult?.isPending()) this.retract(record);
-      if (record.retractWhen === "read" && this.opts.getLastReadAt(record.sessionId) >= record.deliveredAt) {
-        this.retract(record);
-      }
-    }
-    if (this.delivered.length === 0) this.stopRetractionSweep();
-  }
-
-  private startRetractionSweep(): void {
-    this.retractionSweep ??= setInterval(() => this.sweepDelivered(), RETRACTION_SWEEP_MS);
-  }
-
-  private stopRetractionSweep(): void {
-    if (this.retractionSweep) clearInterval(this.retractionSweep);
-    this.retractionSweep = null;
   }
 
   private async sendToApi(
