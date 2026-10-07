@@ -82,6 +82,7 @@ export function CompactFeedActivity({
   toolResultScope = "session",
   questLinkSurface = "legacy",
   defaultExpanded = false,
+  active = true,
 }: {
   segments: CompactFeedActivitySegment[];
   sessionId: string;
@@ -93,6 +94,8 @@ export function CompactFeedActivity({
   toolResultScope?: ToolResultScope;
   questLinkSurface?: QuestLinkSurface;
   defaultExpanded?: boolean;
+  /** Whether nothing has followed the group yet (see `CompactToolActivity`). */
+  active?: boolean;
 }) {
   const items = useMemo(
     () =>
@@ -189,6 +192,7 @@ export function CompactFeedActivity({
         containedMessageIds={containedMessageIds}
         renderDetails={renderDetails}
         defaultExpanded={defaultExpanded}
+        active={active}
       />
       {interactionMode !== "read-only" &&
         reviewNotifyMessageIds.map((messageId, index) => (

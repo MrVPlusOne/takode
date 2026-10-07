@@ -27,17 +27,13 @@ describe("Compact tool activity Playground states", () => {
     // they must exercise the real group component with seeded result state.
     render(<PlaygroundCompactToolActivityStates />);
 
-    // Collapsed: a thought plus nine tools roll into the newest three lines, and
-    // the seeded failing test run is counted in the heading.
+    // Collapsed history: agent text follows the group, so it shows only its
+    // heading, which still counts the seeded failing test run.
     const conversation = screen.getByTestId("playground-activity-conversation");
     const [group, single] = within(conversation).getAllByTestId("compact-tool-activity");
-    expect(within(group).getByTestId("compact-tool-activity-earlier")).toHaveTextContent("+7 earlier");
+    expect(within(group).queryAllByTestId("compact-tool-activity-line")).toHaveLength(0);
+    expect(within(group).queryByTestId("compact-tool-activity-earlier")).toBeNull();
     expect(within(group).getByText("1 failed")).toBeTruthy();
-    expect(lineTexts(group)).toEqual([
-      "Edit.../src/components/ToolBlock.bash-preview.test.tsx",
-      "BashRun focused ToolBlock tests",
-      "BashCommit the description fix",
-    ]);
     // A lone activity between two pieces of text is just its line, without a heading.
     expect(lineTexts(single)).toEqual(["BashRecord the decision, resume Work, and instruct the worker"]);
 

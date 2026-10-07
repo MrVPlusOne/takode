@@ -90,6 +90,7 @@ export function CodexSubagentTranscript({ sessionId, messages }: { sessionId: st
           toolResultOverrides={model.toolResults}
           toolResultScope="overrides-only"
           suppressThreadSystemMarkers
+          endsFeed
         />
       </div>
     </PawCounterContext.Provider>

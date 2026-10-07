@@ -204,6 +204,8 @@ describe("Playground", () => {
     expect(await within(inspector).findByText("Child-only answer stays in the inspector.")).toBeInTheDocument();
     // Child reasoning joins the child's activity group as thought lines, each opening to its full summary.
     expect(within(inspector).getByText("2 Thought")).toBeInTheDocument();
+    // The child's answer follows that group, so it is collapsed to its heading until expanded.
+    fireEvent.click(within(inspector).getByRole("button", { name: /^Show all \d+ tool calls/ }));
     fireEvent.click(within(inspector).getByRole("button", { name: "Show Thought: Child-only reasoning" }));
     fireEvent.click(within(inspector).getByRole("button", { name: "Show Thought: Checking child result" }));
     expect(within(inspector).getByText(/This official summary belongs in the inspector\./)).toBeInTheDocument();

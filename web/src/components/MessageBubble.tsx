@@ -1298,6 +1298,9 @@ function AssistantMessage({
                 items={group.items as CompactToolActivityItem[]}
                 sessionId={sessionId}
                 containedMessageIds={[message.id]}
+                // Text later in the message makes the group inactive; trailing passive tools are
+                // split out into feed-level groups, so an in-message group is usually followed by text.
+                active={i === renderedGroups.length - 1}
                 renderDetails={(item) => (
                   <InlineToolBlock
                     item={item}

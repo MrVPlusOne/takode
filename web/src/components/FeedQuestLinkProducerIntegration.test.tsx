@@ -36,6 +36,8 @@ function renderProducerEntries(messages: ChatMessage[]) {
       activeCodexTerminalIds={new Set()}
       onOpenCodexTerminal={() => {}}
       questLinkSurface="chat-feed"
+      // These entries are the whole feed, so a trailing activity group is still active.
+      endsFeed
     />,
   );
 }

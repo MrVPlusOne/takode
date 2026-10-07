@@ -331,6 +331,7 @@ function PlaygroundActivityConversation() {
         isCodexSession={false}
         activeCodexTerminalIds={new Set()}
         onOpenCodexTerminal={() => {}}
+        active={false}
       />
       <AgentText>Fixed and committed. Now recording the decision.</AgentText>
       <CompactToolMessageGroups
@@ -419,16 +420,16 @@ export function PlaygroundCompactToolActivityStates() {
   return (
     <Section
       title="Compact Tool Activity"
-      description="Only agent text splits activity: tools of any type, thoughts and routine worker events between two pieces of text form one group. A lone activity is one light line; a group is a card with a summary heading over a rolling window of its newest three activities, older ones folded into +N earlier. Expanding fills older lines in place, and every line opens to its own details."
+      description="Only agent text splits activity: tools of any type, thoughts and routine worker events between two pieces of text form one group. A lone activity is one light line; a group is a card with a summary heading. While the group is active (nothing has followed it yet), the heading sits over a rolling window of its newest three activities, older ones folded into +N earlier; once later content follows, the collapsed group shows only its heading. Expanding fills older lines in place, and every line opens to its own details."
     >
       <div className="space-y-4 max-w-3xl">
-        <Card label="Conversation: agent text alternates with activity groups (collapsed)">
+        <Card label="Conversation: agent text alternates with inactive activity groups (collapsed to headings)">
           <PlaygroundActivityConversation />
         </Card>
         <Card label="Group expanded: older lines fill in above">
           <PlaygroundExpandedActivityGroup />
         </Card>
-        <Card label="Live group: newest activity running">
+        <Card label="Live group: active, rolling window of the newest three, newest activity running">
           <PlaygroundLiveActivityGroup />
         </Card>
         <Card label="Line previews: skill names, long paths cut like diff headers, multi-file edits, MCP names">

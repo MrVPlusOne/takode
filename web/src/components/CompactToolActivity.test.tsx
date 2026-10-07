@@ -247,6 +247,22 @@ describe("CompactToolActivity", () => {
     expect(lineTexts()).toEqual(["Bashecho 1", "Bashecho 2", "Bashecho 3", "Bashecho 4", "Bashecho 5"]);
   });
 
+  it("collapses an inactive group to its heading and keeps a lone inactive activity as one line", () => {
+    // Once later content follows a group it is history: collapsed, even a short
+    // run shows only its heading, and expanding still lists every activity.
+    const { rerender } = render(
+      <CompactToolActivity items={bashItems(2)} renderDetails={renderDetails} active={false} />,
+    );
+    expect(screen.queryAllByTestId("compact-tool-activity-line")).toHaveLength(0);
+    expect(screen.queryByTestId("compact-tool-activity-earlier")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Show all 2 tool calls/ }));
+    expect(lineTexts()).toEqual(["Bashecho 1", "Bashecho 2"]);
+
+    // A lone activity is already a single heading-height line, so it stays as is.
+    rerender(<CompactToolActivity items={bashItems(1)} renderDetails={renderDetails} active={false} />);
+    expect(lineTexts()).toEqual(["Bashecho 1"]);
+  });
+
   it("cuts long file paths like the diff viewer so the file name stays visible", () => {
     // A worktree path is mostly an uninformative prefix. Lines keep the last two
     // folders after "..." plus the whole file name, while hover keeps the full path.

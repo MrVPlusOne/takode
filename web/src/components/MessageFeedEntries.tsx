@@ -642,6 +642,7 @@ export const FeedEntries = memo(function FeedEntries({
   toolResultScope = "session",
   questLinkSurface = "legacy",
   threadResponsePresentation,
+  endsFeed = false,
 }: {
   entries: FeedEntry[];
   sessionId: string;
@@ -657,6 +658,8 @@ export const FeedEntries = memo(function FeedEntries({
   toolResultScope?: ToolResultScope;
   questLinkSurface?: QuestLinkSurface;
   threadResponsePresentation?: ThreadResponsePresentation | null;
+  /** These entries end the feed, so a trailing activity group is still active. */
+  endsFeed?: boolean;
 }) {
   const compactToolActivity = useStore((state) => state.compactToolActivity);
   const inboxNotifications = useStore((state) => state.sessionNotifications?.get(sessionId));
@@ -734,6 +737,7 @@ export const FeedEntries = memo(function FeedEntries({
             toolResultOverrides={toolResultOverrides}
             toolResultScope={toolResultScope}
             questLinkSurface={questLinkSurface}
+            active={endsFeed && j === entries.length}
           />,
         );
         i = j;
@@ -972,6 +976,7 @@ export const FeedEntries = memo(function FeedEntries({
     activeCodexTerminalIds,
     anchoredNotificationMessageIds,
     compactToolActivity,
+    endsFeed,
     entries,
     isCodexSession,
     currentThreadKey,
@@ -1256,6 +1261,7 @@ function SubagentContainer({
                       toolResultOverrides={toolResultOverrides}
                       toolResultScope={group.codexSubagent ? "overrides-only" : toolResultScope}
                       questLinkSurface={questLinkSurface}
+                      endsFeed
                     />
                   )}
                   {delegateTraceCount > 0 && (

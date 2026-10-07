@@ -311,8 +311,10 @@ function PulseDot() {
  *
  * One activity is a single light line. Several form a card: a summary heading
  * over a rolling window of the newest activities, with older ones folded into
- * "+N earlier". Expanding fills the older lines in above without moving the
- * newest ones, and every line opens in place to its own details.
+ * "+N earlier". Once later content follows the group it is no longer active,
+ * and collapsed it shows only its heading. Expanding fills the older lines in
+ * above without moving the newest ones, and every line opens in place to its
+ * own details.
  */
 export function CompactToolActivity({
   items,
@@ -320,6 +322,7 @@ export function CompactToolActivity({
   containedMessageIds = [],
   renderDetails,
   defaultExpanded = false,
+  active = true,
 }: {
   items: CompactToolActivityItem[];
   sessionId?: string;
@@ -327,6 +330,8 @@ export function CompactToolActivity({
   /** Details for one opened line; rendered with no header of its own. */
   renderDetails: (item: CompactToolActivityItem) => ReactNode;
   defaultExpanded?: boolean;
+  /** Whether nothing has followed the group yet; only an active group keeps its rolling window while collapsed. */
+  active?: boolean;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [openKeys, setOpenKeys] = useState<ReadonlySet<string>>(() => new Set());
@@ -349,7 +354,9 @@ export function CompactToolActivity({
       if (!next.delete(key)) next.add(key);
       return next;
     });
-  const hiddenCount = expanded ? 0 : Math.max(0, uniqueItems.length - ROLLING_WINDOW_SIZE);
+  const isCard = uniqueItems.length > 1;
+  const windowSize = active ? ROLLING_WINDOW_SIZE : 0;
+  const hiddenCount = expanded || !isCard ? 0 : Math.max(0, uniqueItems.length - windowSize);
   const lines = uniqueItems.slice(hiddenCount).map((item) => {
     const key = itemKey(item);
     return (
@@ -365,7 +372,7 @@ export function CompactToolActivity({
     );
   });
 
-  if (uniqueItems.length === 1) return <div data-testid="compact-tool-activity">{lines}</div>;
+  if (!isCard) return <div data-testid="compact-tool-activity">{lines}</div>;
 
   return (
     <div
@@ -376,11 +383,11 @@ export function CompactToolActivity({
         items={uniqueItems}
         statuses={statuses}
         summary={summary}
-        collapsible={uniqueItems.length > ROLLING_WINDOW_SIZE}
+        collapsible={uniqueItems.length > windowSize}
         expanded={expanded}
         onToggle={() => setExpanded((current) => !current)}
       />
-      {hiddenCount > 0 && (
+      {hiddenCount > 0 && active && (
         <button
           type="button"
           onClick={() => setExpanded(true)}

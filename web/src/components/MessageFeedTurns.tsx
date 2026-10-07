@@ -208,19 +208,24 @@ function groupTurnActivity(turn: Turn, presentation?: ThreadResponsePresentation
 export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   turn,
   threadStatusFooter,
+  isLatestTurn = false,
   ...feedProps
 }: {
   turn: Turn;
   threadStatusFooter?: ReactNode;
-} & Omit<ComponentProps<typeof FeedEntries>, "entries">) {
+  /** The feed's last turn, whose trailing activity group is still active. */
+  isLatestTurn?: boolean;
+} & Omit<ComponentProps<typeof FeedEntries>, "entries" | "endsFeed">) {
   const runs = useMemo(
     () => groupTurnActivity(turn, feedProps.threadResponsePresentation),
     [turn, feedProps.threadResponsePresentation],
   );
   return (
     <>
-      {runs.map((run) => {
-        const content = <FeedEntries {...feedProps} entries={run.entries} />;
+      {runs.map((run, runIndex) => {
+        const content = (
+          <FeedEntries {...feedProps} entries={run.entries} endsFeed={isLatestTurn && runIndex === runs.length - 1} />
+        );
         return (
           <div
             key={run.key}
@@ -405,6 +410,7 @@ export const TurnEntries = memo(function TurnEntries({
                       turnPresentationEntries(turn).length > 0 && (
                         <TurnEntriesExpanded
                           turn={turn}
+                          isLatestTurn={turnIndex === turns.length - 1}
                           sessionId={sessionId}
                           currentThreadKey={currentThreadKey}
                           threadStatusFooter={threadStatusFooter}
