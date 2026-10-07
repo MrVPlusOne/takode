@@ -615,7 +615,7 @@ function extractSubConclusions(entries: FeedEntry[], excludedMessageIds: Set<str
     if (
       entry.kind === "message" &&
       entry.msg.role === "assistant" &&
-      entry.msg.content?.trim() &&
+      messageText(entry.msg) &&
       !isCodexReasoningDetailMessage(entry.msg) &&
       !isExplicitCommentary(entry.msg)
     ) {
@@ -684,7 +684,17 @@ function shouldShowAttentionRecordInCollapsedTurn(record: SessionAttentionRecord
   return !(record.type === "needs_input" && record.source.kind === "notification");
 }
 
+/** Text the agent wrote. Thinking is not agent text, even though history
+ *  normalization copies it into `content`, so it never ranks as a response,
+ *  preview or sub-conclusion that would pull it out of an activity group. */
 function messageText(msg: ChatMessage): string {
+  const blocks = msg.contentBlocks ?? [];
+  if (blocks.some((block) => block.type === "thinking" && block.thinking.trim())) {
+    return blocks
+      .flatMap((block) => (block.type === "text" ? [block.text] : []))
+      .join("\n")
+      .trim();
+  }
   const content = msg.content.trim();
   if (content) return content;
   return (msg.contentBlocks ?? [])
