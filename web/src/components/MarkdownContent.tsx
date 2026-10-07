@@ -696,6 +696,41 @@ export const MarkdownContent = memo(function MarkdownContent({
     [hl],
   );
 
+  const renderFileLink = (href: string, children: ReactNode): ReactNode | null => {
+    let fileTarget = parseFileLinkFromHref(href);
+    if (
+      !fileTarget &&
+      fileBasePath &&
+      !/^[a-z][a-z\d+.-]*:/i.test(href) &&
+      !href.startsWith("#") &&
+      !href.startsWith("//")
+    ) {
+      try {
+        const base = new URL("file:///");
+        base.pathname = fileBasePath;
+        fileTarget = parseFileLinkFromHref(`file:${decodeURIComponent(new URL(href, base).pathname)}`);
+      } catch {
+        // Keep malformed source links readable; they must not crash the entire report.
+        fileTarget = null;
+      }
+    }
+    fileTarget ??= parseStandardFileLinkFromHref(href);
+    if (!fileTarget) return null;
+    if (fileLinkMode === "text-only") {
+      return <TextOnlyFileMarkdownLink wrapLongContent={wrapLongContent}>{children}</TextOnlyFileMarkdownLink>;
+    }
+    return (
+      <FileMarkdownLink
+        target={fileTarget}
+        sessionId={sessionId}
+        wrapLongContent={wrapLongContent}
+        stopPropagation={stopLinkPropagation}
+      >
+        {children}
+      </FileMarkdownLink>
+    );
+  };
+
   return (
     <div
       id={id}
@@ -810,59 +845,8 @@ export const MarkdownContent = memo(function MarkdownContent({
                 </SessionMarkdownLink>
               );
             }
-            let fileTarget = parseFileLinkFromHref(href);
-            if (
-              !fileTarget &&
-              fileBasePath &&
-              href &&
-              !/^[a-z][a-z\d+.-]*:/i.test(href) &&
-              !href.startsWith("#") &&
-              !href.startsWith("//")
-            ) {
-              try {
-                const base = new URL("file:///");
-                base.pathname = fileBasePath;
-                fileTarget = parseFileLinkFromHref(`file:${decodeURIComponent(new URL(href, base).pathname)}`);
-              } catch {
-                // Keep malformed source links readable; they must not crash the entire report.
-                fileTarget = null;
-              }
-            }
-            if (fileTarget) {
-              if (fileLinkMode === "text-only") {
-                return (
-                  <TextOnlyFileMarkdownLink wrapLongContent={wrapLongContent}>{children}</TextOnlyFileMarkdownLink>
-                );
-              }
-              return (
-                <FileMarkdownLink
-                  target={fileTarget}
-                  sessionId={sessionId}
-                  wrapLongContent={wrapLongContent}
-                  stopPropagation={stopLinkPropagation}
-                >
-                  {children}
-                </FileMarkdownLink>
-              );
-            }
-            const standardFileTarget = parseStandardFileLinkFromHref(href);
-            if (standardFileTarget) {
-              if (fileLinkMode === "text-only") {
-                return (
-                  <TextOnlyFileMarkdownLink wrapLongContent={wrapLongContent}>{children}</TextOnlyFileMarkdownLink>
-                );
-              }
-              return (
-                <FileMarkdownLink
-                  target={standardFileTarget}
-                  sessionId={sessionId}
-                  wrapLongContent={wrapLongContent}
-                  stopPropagation={stopLinkPropagation}
-                >
-                  {children}
-                </FileMarkdownLink>
-              );
-            }
+            const fileLink = renderFileLink(href, children);
+            if (fileLink) return fileLink;
             return (
               <a
                 href={href}
@@ -876,6 +860,13 @@ export const MarkdownContent = memo(function MarkdownContent({
                 {children}
               </a>
             );
+          },
+          img: ({ node: _node, src, alt, ...props }) => {
+            // A browser cannot load a local path as <img src>. Render it as a file link instead; feed
+            // surfaces show local image paths as thumbnails below the text.
+            const source = typeof src === "string" ? src : "";
+            const fileLink = source ? renderFileLink(source, alt || getPathBasename(source) || source) : null;
+            return fileLink ?? <img src={src} alt={alt} {...props} />;
           },
           blockquote: ({ children }) => (
             <blockquote className="border-l-2 border-cc-primary/30 pl-3 my-2 text-cc-muted italic">

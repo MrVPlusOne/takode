@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { NotificationMarker, UserReplyChip } from "../MessageBubble.js";
+import { PlaygroundVisualDecisionNotification } from "./PlaygroundVisualDecisionNotification.js";
 import { PlaygroundNeedsInputHistory } from "./PlaygroundNeedsInputHistory.js";
 import { BoardBlock } from "../BoardBlock.js";
 import type { BoardRowData } from "../BoardTable.js";
@@ -1124,6 +1125,11 @@ export function PlaygroundInteractiveSections() {
           <Card label="needs-input with context (question-only card)">
             <div className="text-cc-fg text-sm">
               <PlaygroundContextNotificationMessage />
+            </div>
+          </Card>
+          <Card label="needs-input with screenshots in the context">
+            <div className="text-cc-fg text-sm">
+              <PlaygroundVisualDecisionNotification />
             </div>
           </Card>
           <Card label="needs-input with legacy in-card body">

@@ -931,6 +931,23 @@ describe("MarkdownContent quest links", () => {
     expect(screen.getByRole("link", { name: "app.ts" }).getAttribute("href")).toBe("file:/tmp/project/app.ts:42");
   });
 
+  it("renders Markdown images with local paths as file links instead of broken images", () => {
+    // Agents write ![alt](/abs/shot.png) for screenshots. The browser cannot load a local
+    // path as <img src>, so the image must become a working file link (thumbnails come from
+    // the surface's preview strip), while remote images still render as images.
+    const { container } = render(
+      <MarkdownContent
+        text={"![Option A](/tmp/shots/a.png) ![](file:/tmp/shots/b.png) ![remote](https://example.com/c.png)"}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "Option A" }).getAttribute("href")).toContain("/tmp/shots/a.png");
+    expect(screen.getByRole("link", { name: "b.png" }).getAttribute("href")).toContain("/tmp/shots/b.png");
+    const images = container.querySelectorAll("img");
+    expect(images).toHaveLength(1);
+    expect(images[0]?.getAttribute("src")).toBe("https://example.com/c.png");
+  });
+
   it("opens file: line-range links at the range start for local VS Code URIs", async () => {
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);

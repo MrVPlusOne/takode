@@ -57,6 +57,10 @@ Example:
 
 > Two things block the test run: the input bundle still needs preparation, which should take about 2–6 hours and use up to 200 GB, and the current worker expires too soon. I recommend preparing the bundle and reserving a replacement worker. Neither choice starts the test run. Reply **Bundle: yes/no** and **Replacement: yes/no**. Exact commands, checksums, and retry evidence are in the referenced phase note.
 
+## Show Visual Evidence Inline
+
+When the user must judge something visual, such as design alternatives, a checkpoint sign-off, or a before/after comparison, show the screenshots in the decision surface itself rather than only pointing to quest feedback. Write each image's absolute path, as plain text, inline code, or an absolute `file:` link, beside the option it shows. Takode shows local image paths in message text, including needs-input context, as thumbnails the user can open. Resolve worktree-relative paths to absolute ones first. The images support the written options; they do not replace them.
+
 ## Preserve Authority and Delivery Safety
 
 This skill guides recommendations and their presentation; it does not grant authority. Continue to follow the applicable User Checkpoint brief and Takode orchestration rules.
@@ -74,6 +78,7 @@ Before publishing, ask:
 
 - Can the user understand the problem and consequence before any implementation detail?
 - Can the user decide without understanding internal implementation?
+- If the decision is visual, are the screenshots shown inline?
 - Is the recommendation explicit, and is the requested answer easy to copy or select?
 - Does every visible detail pass the necessity filter?
 - Are all material tradeoffs and safety boundaries still present?
