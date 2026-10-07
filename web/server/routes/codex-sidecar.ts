@@ -9,7 +9,7 @@ import type {
 import { TODO_STATUSES } from "../../shared/todo-types.js";
 import { deriveTodoMarkdown } from "../../shared/todo-markdown.js";
 import { classifyQuestCommand } from "../../shared/quest-command-classification.js";
-import type { MemoryRecallQuery, MemoryRepoOptions } from "../workstream-memory-types.js";
+import type { MemoryRepoOptions } from "../workstream-memory-types.js";
 import {
   CODEX_SIDECAR_BINDING_HEADER,
   CODEX_SIDECAR_CAPABILITY_HEADER,
@@ -24,7 +24,6 @@ import type { RouteContext } from "./context.js";
 import { broadcastQuestUpdate } from "./quest-helpers.js";
 
 type MemoryServiceApi = {
-  recall(query?: MemoryRecallQuery, options?: MemoryRepoOptions): Promise<unknown>;
   readRecord(path: string, options?: MemoryRepoOptions): Promise<unknown>;
 };
 
@@ -192,22 +191,6 @@ export function createCodexSidecarRoutes(ctx: RouteContext, dependencies: CodexS
       const item = await store.setItemArchived(c.req.param("id"), true, todoProvenance(body.actor, now()));
       await broadcastTodoUpdate(ctx, store);
       return c.json({ item });
-    } catch (error) {
-      return sidecarError(c, error);
-    }
-  });
-
-  api.get("/integrations/codex/memory/recall", async (c) => {
-    const transport = authorizeTransport(c, ctx, dependencies);
-    if ("response" in transport) return transport.response;
-    try {
-      const service = await resolveMemoryService(dependencies);
-      return c.json(
-        await service.recall(
-          { query: c.req.query("q"), limit: positiveLimit(c.req.query("limit"), 10, 50), includeContent: false },
-          { readOnly: true },
-        ),
-      );
     } catch (error) {
       return sidecarError(c, error);
     }
@@ -407,12 +390,6 @@ function requiredTodoStatus(value: unknown): TodoStatus {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function positiveLimit(raw: string | undefined, fallback: number, maximum: number): number {
-  if (!raw) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, maximum) : fallback;
 }
 
 function sameActor(left: CodexSidecarActor, right: CodexSidecarActor): boolean {

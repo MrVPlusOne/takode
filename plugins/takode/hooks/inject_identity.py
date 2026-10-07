@@ -17,7 +17,6 @@ TAKODE_MCP_TOOL_NAMES = {
     "mcp__takode__todo_edit",
     "mcp__takode__todo_set_status",
     "mcp__takode__todo_archive",
-    "mcp__takode__memory_recall",
     "mcp__takode__memory_read",
     "mcp__takode__lease_status",
 }

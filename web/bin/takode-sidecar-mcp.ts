@@ -314,26 +314,10 @@ function registerTodoTools(server: Pick<McpServer, "registerTool">): void {
 
 function registerMemoryAndLeaseTools(server: Pick<McpServer, "registerTool">): void {
   server.registerTool(
-    "memory_recall",
-    {
-      title: "Recall Takode memory",
-      description: "Search curated Takode workstream memory for relevant records.",
-      inputSchema: {
-        query: z.string().min(1),
-        limit: z.number().int().min(1).max(20).default(10),
-        _takodeContext: contextSchema,
-      },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    ({ query, limit, _takodeContext }) =>
-      callTakodeIntegration({ path: "/memory/recall", query: { q: query, limit }, context: _takodeContext }),
-  );
-
-  server.registerTool(
     "memory_read",
     {
       title: "Read Takode memory",
-      description: "Read one curated Takode memory file returned by memory_recall.",
+      description: "Read one Takode memory note by its repo-relative path, as listed by `memory catalog show`.",
       inputSchema: { path: z.string().min(1), _takodeContext: contextSchema },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },

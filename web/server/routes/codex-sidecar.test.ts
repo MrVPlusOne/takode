@@ -16,7 +16,6 @@ let registry: CodexSidecarRegistry;
 let optionalCaller: any = null;
 let boardRow: unknown = null;
 const broadcastGlobal = vi.fn();
-const memoryRecall = vi.fn();
 const memoryRead = vi.fn();
 const getLeaseStatus = vi.fn();
 const questCommandRunner = vi.fn();
@@ -30,7 +29,6 @@ beforeEach(async () => {
   optionalCaller = null;
   boardRow = null;
   broadcastGlobal.mockReset();
-  memoryRecall.mockReset().mockResolvedValue({ repo: { root }, matches: [], issues: [] });
   memoryRead.mockReset().mockResolvedValue({ repo: { root }, file: { path: "knowledge/example.md", content: "body" } });
   getLeaseStatus
     .mockReset()
@@ -53,7 +51,7 @@ beforeEach(async () => {
     createCodexSidecarRoutes(ctx, {
       registry,
       todoStore,
-      memoryService: { recall: memoryRecall, readRecord: memoryRead },
+      memoryService: { readRecord: memoryRead },
       questCommandRunner,
       now: () => 123,
     }),
@@ -260,14 +258,13 @@ describe("Codex sidecar routes", () => {
   });
 
   it("keeps Memory read-only and leases status-only", async () => {
-    // The first slice must not create Memory repositories or mutate shared leases.
-    const memory = await request("/integrations/codex/memory/recall?q=sidecar&limit=5");
+    // The sidecar must not create Memory repositories or mutate shared leases. Weighted memory
+    // recall was retired: Codex agents use the catalog and folder listings like Claude agents.
+    const recall = await request("/integrations/codex/memory/recall?q=sidecar&limit=5");
+    expect(recall.status).toBe(404);
+    const memory = await request("/integrations/codex/memory/read?path=voice%2Fnote.md");
     expect(memory.status).toBe(200);
-    expect(memoryRecall).toHaveBeenCalledWith(
-      { query: "sidecar", limit: 5, includeContent: false },
-      { readOnly: true },
-    );
-    expect(memoryRead).not.toHaveBeenCalled();
+    expect(memoryRead).toHaveBeenCalledWith("voice/note.md", { readOnly: true });
 
     const lease = await request("/integrations/codex/leases/dev-server%3Atest");
     expect(lease.status).toBe(200);

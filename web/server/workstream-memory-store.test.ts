@@ -600,41 +600,6 @@ source: [q-1220]
     );
   });
 
-  it("recalls matching files by query, kind, facet, and optional content", async () => {
-    await writeMemoryFile(
-      "procedures/run-service-x.md",
-      `
-description: Starts Service X for local validation.
-source:
-  - q-1220
-facets:
-  project: takode
-`,
-      "Use bun run dev to launch the service.",
-    );
-    await writeMemoryFile(
-      "knowledge/service-y.md",
-      `
-description: Unrelated service notes.
-source:
-  - q-1220
-facets:
-  project: other
-`,
-    );
-
-    const result = await memoryStore.recallMemory({
-      query: "bun service",
-      types: ["procedure"],
-      facets: { project: ["takode"] },
-      includeContent: true,
-    });
-
-    expect(result.matches).toHaveLength(1);
-    expect(result.matches[0]?.entry.id).toBe("procedures/run-service-x.md");
-    expect(result.matches[0]?.content).toContain("bun run dev");
-  });
-
   it("serializes direct edits with one repo-level write lock", async () => {
     const first = await memoryStore.acquireMemoryLock({ owner: "worker-1", ttlMs: 30_000 });
     expect(first.locked).toBe(true);

@@ -55,7 +55,6 @@ describe("Takode sidecar MCP bridge", () => {
       "todo_edit",
       "todo_set_status",
       "todo_archive",
-      "memory_recall",
       "memory_read",
       "lease_status",
     ]);
@@ -185,7 +184,7 @@ describe("Takode plugin identity hook", () => {
     };
 
     expect(config.hooks.PreToolUse.map(({ matcher }) => matcher)).toEqual([
-      "^mcp__takode__(todo_list|todo_show|todo_create|todo_edit|todo_set_status|todo_archive|memory_recall|memory_read|lease_status)$",
+      "^mcp__takode__(todo_list|todo_show|todo_create|todo_edit|todo_set_status|todo_archive|memory_read|lease_status)$",
       "^Bash$",
     ]);
   });

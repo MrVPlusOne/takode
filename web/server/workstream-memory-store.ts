@@ -47,9 +47,6 @@ import {
   type MemoryLockAcquireInput,
   type MemoryLockInfo,
   type MemoryRecentCommit,
-  type MemoryRecallMatch,
-  type MemoryRecallQuery,
-  type MemoryRecallResult,
   type MemoryRepoInfo,
   type MemoryRepoOptions,
   type MemorySpaceInfo,
@@ -513,35 +510,6 @@ function memoryOptionsForSpace(space: MemorySpaceInfo): MemoryRepoOptions {
     readOnly: space.serverId !== current.serverId,
     ...(space.serverId ? { serverId: space.serverId } : {}),
   };
-}
-
-export async function recallMemory(
-  query: MemoryRecallQuery = {},
-  options: MemoryRepoOptions = {},
-): Promise<MemoryRecallResult> {
-  const catalog = await scanMemoryCatalog(options);
-  const terms = tokenize(query.query ?? "");
-  const typeSet = query.types?.length ? new Set(query.types) : undefined;
-  const limit = query.limit && query.limit > 0 ? query.limit : 20;
-  const matches: MemoryRecallMatch[] = [];
-
-  for (const entry of catalog.entries) {
-    if (typeSet && (!entry.type || !typeSet.has(entry.type))) continue;
-    if (!matchesFacets(entry, query.facets)) continue;
-    const file =
-      query.includeContent || terms.length ? await readEntryContent(catalog.repo.root, entry.path) : undefined;
-    const scored = scoreEntry(entry, terms, file?.content);
-    if (terms.length && scored.score === 0) continue;
-    matches.push({
-      entry,
-      score: scored.score,
-      reasons: scored.reasons,
-      ...(query.includeContent && file ? { content: file.content } : {}),
-    });
-  }
-
-  matches.sort((a, b) => b.score - a.score || a.entry.path.localeCompare(b.entry.path));
-  return { repo: catalog.repo, matches: matches.slice(0, limit), issues: catalog.issues };
 }
 
 export async function getMemoryLock(options: MemoryRepoOptions = {}): Promise<MemoryLockInfo> {
@@ -1143,45 +1111,6 @@ function parseOperation(value: string | undefined): MemoryCommitOperation | unde
   throw new Error(`Invalid memory operation "${value}". Expected one of: ${MEMORY_COMMIT_OPERATIONS.join(", ")}`);
 }
 
-function matchesFacets(entry: MemoryCatalogEntry, facets: Record<string, string[]> | undefined): boolean {
-  if (!facets) return true;
-  for (const [key, wanted] of Object.entries(facets)) {
-    const values = entry.facets[key] ?? [];
-    if (!wanted.every((item) => values.includes(item))) return false;
-  }
-  return true;
-}
-
-function scoreEntry(entry: MemoryCatalogEntry, terms: string[], content = ""): { score: number; reasons: string[] } {
-  if (terms.length === 0) return { score: 1, reasons: ["catalog"] };
-  const haystacks = [
-    { label: "id", text: entry.id, weight: 6 },
-    { label: "path", text: entry.path, weight: 4 },
-    { label: "description", text: entry.description, weight: 3 },
-    { label: "source", text: entry.source.join(" "), weight: 2 },
-    { label: "content", text: content, weight: 1 },
-  ];
-  let score = 0;
-  const reasons = new Set<string>();
-  for (const term of terms) {
-    for (const haystack of haystacks) {
-      if (haystack.text.toLowerCase().includes(term)) {
-        score += haystack.weight;
-        reasons.add(haystack.label);
-      }
-    }
-  }
-  return { score, reasons: [...reasons] };
-}
-
-async function readEntryContent(root: string, path: string): Promise<{ content: string } | undefined> {
-  try {
-    return { content: await readFile(join(root, path), "utf-8") };
-  } catch {
-    return undefined;
-  }
-}
-
 async function listMarkdownFiles(dir: string): Promise<string[]> {
   const entries = await safeReaddir(dir);
   const files: string[] = [];
@@ -1606,14 +1535,6 @@ function isPathInside(parent: string, child: string): boolean {
 
 function memoryLockPath(root: string): string {
   return join(root, ".git", LOCK_DIR_NAME);
-}
-
-function tokenize(query: string): string[] {
-  return query
-    .toLowerCase()
-    .split(/[^a-z0-9._-]+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
 }
 
 function errorMessage(error: unknown): string {

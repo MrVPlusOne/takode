@@ -12,7 +12,6 @@ import {
   memoryGitDiff,
   memoryGitStatus,
   readMemoryRecord,
-  recallMemory,
   releaseMemoryLock,
   resolveMemoryOptionsForSpace,
   resolveMemoryRepo,
@@ -22,12 +21,7 @@ import {
 import { renderMemoryCatalogView, type MemoryCatalogViewRequest } from "./memory-catalog-view.js";
 import { localDate, readHelpfulMarks, writeHelpfulMarks } from "./memory-repo-layout.js";
 import { moveMemoryNotes, type MemoryMove } from "./memory-move.js";
-import type {
-  MemoryCommitInput,
-  MemoryLockAcquireInput,
-  MemoryRecallQuery,
-  MemoryRepoOptions,
-} from "./workstream-memory-types.js";
+import type { MemoryCommitInput, MemoryLockAcquireInput, MemoryRepoOptions } from "./workstream-memory-types.js";
 
 export class WorkstreamMemoryService {
   resolveRepo(options?: MemoryRepoOptions) {
@@ -75,10 +69,6 @@ export class WorkstreamMemoryService {
 
   markCatalogSeen(catalog: Awaited<ReturnType<typeof scanMemoryCatalog>>, options?: MemoryRepoOptions) {
     return markMemoryCatalogSeen(catalog, options);
-  }
-
-  recall(query?: MemoryRecallQuery, options?: MemoryRepoOptions) {
-    return recallMemory(query, options);
   }
 
   lint(options?: MemoryRepoOptions, lintOptions?: Parameters<typeof lintMemory>[1]) {

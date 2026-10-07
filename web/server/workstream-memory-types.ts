@@ -174,27 +174,6 @@ export interface MemoryLintIssue {
   blocksCommitOfNote?: boolean;
 }
 
-export interface MemoryRecallQuery {
-  query?: string;
-  types?: MemoryNoteType[];
-  facets?: Record<string, string[]>;
-  includeContent?: boolean;
-  limit?: number;
-}
-
-export interface MemoryRecallMatch {
-  entry: MemoryCatalogEntry;
-  score: number;
-  reasons: string[];
-  content?: string;
-}
-
-export interface MemoryRecallResult {
-  repo: MemoryRepoInfo;
-  matches: MemoryRecallMatch[];
-  issues: MemoryLintIssue[];
-}
-
 export interface MemoryLockInfo {
   locked: boolean;
   lockPath: string;
