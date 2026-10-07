@@ -6,8 +6,7 @@ import { isCodexReasoningDetailMessage, parseCodexReasoningDetail } from "../uti
 import { CompactToolActivity, type CompactToolActivityItem } from "./CompactToolActivity.js";
 import { HerdEventMessage } from "./MessageBubble.js";
 import { MarkdownContent } from "./MarkdownContent.js";
-import { ToolMessageItem } from "./ToolMessageGroup.js";
-import { parseTakodeNotifyCommand } from "./ToolBlock.js";
+import { getReviewNotifyMessageIds, ToolMessageItem } from "./ToolMessageGroup.js";
 import { NotificationMarker } from "./NotificationMarker.js";
 import type { ToolResultScope } from "./ToolBlock.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
@@ -142,15 +141,7 @@ export function CompactFeedActivity({
       ),
     [segments],
   );
-  const inlineNotifications = useMemo(
-    () =>
-      items.flatMap((item) => {
-        if (item.name !== "Bash") return [];
-        const match = parseTakodeNotifyCommand(String(item.input.command ?? ""));
-        return match ? [{ ...match, messageId: item.messageId }] : [];
-      }),
-    [items],
-  );
+  const reviewNotifyMessageIds = useMemo(() => getReviewNotifyMessageIds(items), [items]);
 
   const renderDetails = (item: CompactToolActivityItem) => {
     const message = item.messageId ? messagesById.get(item.messageId) : undefined;
@@ -200,13 +191,9 @@ export function CompactFeedActivity({
         defaultExpanded={defaultExpanded}
       />
       {interactionMode !== "read-only" &&
-        inlineNotifications.map((notification, index) => (
-          <div key={`${notification.messageId ?? "notify"}:${notification.category}:${index}`} className="mt-2">
-            <NotificationMarker
-              category={notification.category}
-              sessionId={sessionId}
-              messageId={notification.messageId}
-            />
+        reviewNotifyMessageIds.map((messageId, index) => (
+          <div key={`${messageId ?? "notify"}:${index}`} className="mt-2">
+            <NotificationMarker category="review" sessionId={sessionId} messageId={messageId} />
           </div>
         ))}
     </div>

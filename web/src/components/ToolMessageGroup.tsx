@@ -197,11 +197,7 @@ export function CompactToolMessageGroups({
     })),
   );
   const toolItemsById = new Map(items.map((item) => [item.id, item]));
-  const inlineNotifications = items.flatMap((item) => {
-    if (item.name !== "Bash") return [];
-    const match = parseTakodeNotifyCommand(String(item.input.command ?? ""));
-    return match ? [{ ...match, messageId: item.messageId }] : [];
-  });
+  const reviewNotifyMessageIds = getReviewNotifyMessageIds(items);
   return (
     <div className="animate-[fadeSlideIn_0.2s_ease-out] min-w-0" data-compact-tool-activity-row>
       <CompactToolActivity
@@ -214,15 +210,27 @@ export function CompactToolMessageGroups({
         }}
       />
       {props.interactionMode !== "read-only" &&
-        inlineNotifications.map((notification, index) => (
-          <div key={`${notification.messageId ?? "notify"}:${notification.category}:${index}`} className="mt-2">
-            <NotificationMarker
-              category={notification.category}
-              sessionId={props.sessionId}
-              messageId={notification.messageId}
-            />
+        reviewNotifyMessageIds.map((messageId, index) => (
+          <div key={`${messageId ?? "notify"}:${index}`} className="mt-2">
+            <NotificationMarker category="review" sessionId={props.sessionId} messageId={messageId} />
           </div>
         ))}
     </div>
+  );
+}
+
+/**
+ * Message IDs of `takode notify review` commands in compact activity, which keep an inline review
+ * marker. A needs-input decision already renders as its own card on the message the server anchors
+ * it to, often earlier prose, so its command stays an ordinary activity line. A marker for it would
+ * find no notification on the command's message and show an empty "Needs input" chip.
+ */
+export function getReviewNotifyMessageIds(
+  items: ReadonlyArray<Pick<ToolItem, "name" | "input" | "messageId">>,
+): Array<string | undefined> {
+  return items.flatMap((item) =>
+    item.name === "Bash" && parseTakodeNotifyCommand(String(item.input.command ?? ""))?.category === "review"
+      ? [item.messageId]
+      : [],
   );
 }

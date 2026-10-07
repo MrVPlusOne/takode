@@ -5,6 +5,7 @@ import type { ToolMsgGroup } from "../hooks/use-feed-model.js";
 import { useStore } from "../store.js";
 import type { ChatMessage } from "../types.js";
 import { CompactFeedActivity } from "./CompactFeedActivity.js";
+import { CompactToolMessageGroups } from "./ToolMessageGroup.js";
 
 vi.mock("../api.js", () => ({
   api: {
@@ -315,5 +316,82 @@ describe("CompactFeedActivity", () => {
     expect(screen.queryByText(/The replay gate starts it/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Show Thought: Check the flush path" }));
     expect(screen.getByText(/The replay gate starts it/)).toBeTruthy();
+  });
+
+  it.each([
+    "feed activity",
+    "tool groups",
+  ])("adds no Needs input chip for a needs-input notify command in %s, but keeps the review marker", (variant) => {
+    // Producer shape from a Claude leader: each command is its own assistant
+    // message, grouped at feed level, and the server anchors the needs-input
+    // notification to earlier decision prose, which renders the full card. A
+    // marker drawn from the command found no notification on the command's own
+    // message and showed a bare "Needs input" chip below the card.
+    useStore.setState({
+      sessionNotifications: new Map([
+        [
+          "compact-feed-session",
+          [
+            {
+              id: "n-110",
+              category: "needs-input",
+              summary: "Choose how to move the note",
+              timestamp: 1_786_340_006_000,
+              messageId: "earlier-decision-prose",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+    });
+    const groups: ToolMsgGroup[] = [
+      {
+        kind: "tool_msg_group",
+        toolName: "Bash",
+        firstId: "notify-needs-input-message",
+        items: [
+          {
+            id: "notify-needs-input",
+            name: "Bash",
+            input: {
+              command: 'takode notify needs-input "Choose how to move the note" --body-file -',
+              description: "Ask the user how to handle the note",
+            },
+            messageId: "notify-needs-input-message",
+          },
+        ],
+      },
+      {
+        kind: "tool_msg_group",
+        toolName: "Bash",
+        firstId: "notify-review-message",
+        items: [
+          {
+            id: "notify-review",
+            name: "Bash",
+            input: { command: 'takode notify review "q-1 ready"' },
+            messageId: "notify-review-message",
+          },
+        ],
+      },
+    ];
+    const shared = {
+      sessionId: "compact-feed-session",
+      isCodexSession: false,
+      activeCodexTerminalIds: new Set<string>(),
+      onOpenCodexTerminal: () => {},
+    };
+    const view = render(
+      variant === "feed activity" ? (
+        <CompactFeedActivity segments={[{ kind: "tool", groups }]} {...shared} />
+      ) : (
+        <CompactToolMessageGroups groups={groups} {...shared} />
+      ),
+    );
+
+    expect(view.container.querySelectorAll('[data-notification-category="needs-input"]')).toHaveLength(0);
+    expect(screen.queryByText("Needs input")).toBeNull();
+    expect(lineTexts()[0]).toContain("Ask the user how to handle the note");
+    expect(view.container.querySelectorAll('[data-notification-category="review"]')).toHaveLength(1);
   });
 });

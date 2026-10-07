@@ -109,6 +109,34 @@ const PURE_WORKER_SEND_GROUP: ToolMsgGroup = {
   ],
 };
 
+// The needs-input decision renders as its own card on the anchored prose, so
+// the command that raised it is an ordinary line with no extra chip.
+const NEEDS_INPUT_NOTIFY_GROUP: ToolMsgGroup = {
+  kind: "tool_msg_group",
+  toolName: "Bash",
+  firstId: "compact-needs-input-notify",
+  items: [
+    {
+      id: "compact-needs-input-notify-1",
+      name: "Bash",
+      input: {
+        command: 'takode notify needs-input "Choose how to move the note" --body-file -',
+        description: "Ask the user how to handle the note",
+      },
+      messageId: "compact-needs-input-notify",
+    },
+    {
+      id: "compact-needs-input-notify-2",
+      name: "Bash",
+      input: {
+        command: "takode board set q-1 --wait-for-input 110",
+        description: "Link the question to the board row",
+      },
+      messageId: "compact-needs-input-notify",
+    },
+  ],
+};
+
 const MIXED_WORKER_SEND_GROUP: ToolMsgGroup = {
   kind: "tool_msg_group",
   toolName: "Bash",
@@ -442,6 +470,15 @@ export function PlaygroundCompactToolActivityStates() {
         <Card label="Worker message">
           <CompactToolMessageGroups
             groups={[PURE_WORKER_SEND_GROUP]}
+            sessionId={MOCK_SESSION_ID}
+            isCodexSession={false}
+            activeCodexTerminalIds={new Set()}
+            onOpenCodexTerminal={() => {}}
+          />
+        </Card>
+        <Card label="Needs-input notify command (ordinary lines; the decision card lives on its anchor)">
+          <CompactToolMessageGroups
+            groups={[NEEDS_INPUT_NOTIFY_GROUP]}
             sessionId={MOCK_SESSION_ID}
             isCodexSession={false}
             activeCodexTerminalIds={new Set()}
