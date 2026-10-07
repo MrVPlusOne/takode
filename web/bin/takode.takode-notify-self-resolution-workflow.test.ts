@@ -234,12 +234,11 @@ describe("takode notify self-resolution workflow", () => {
     const text = status === 0 ? result.stdout : (JSON.parse(result.stderr).error as string);
     const output = text.replace(/\s+/g, " ");
 
-    expect(output).toContain("include one or two concise suggested replies");
+    expect(output).toContain("give one reply per named option");
     expect(output).toContain("For a binary question, provide both choices");
+    expect(output).toContain("Each reply must be 32 characters or less");
     expect(output).toContain("not preselected answers or authorization");
     expect(output).toContain("custom replies must remain available");
-    expect(output).toContain("Keep every valid decision alternative in the context or the questions");
-    expect(output).toContain("does not impose a tool-level limit on suggestions");
     expect(output).toContain("provide replies after each question");
     expect(requestBodies).toEqual([]);
   });

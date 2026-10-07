@@ -75,13 +75,16 @@ Leaders only: when the context responds to earlier user messages, name them with
 it only when the context is the substantive response to that request, not when
 requested delivered work is still owed.
 
-Whenever you ask the user a question, include one or two concise suggested replies
-with --suggest so the UI can render convenient response buttons. For a binary
-question, provide both choices. These are shortcuts, not preselected answers or
-authorization; custom replies must remain available. Keep every valid decision
-alternative in the context or the questions. This guidance does not
-impose a tool-level limit on suggestions. With multiple --question flags, provide
-replies after each question.
+Whenever you ask the user a question, include concise suggested replies with
+--suggest so the UI can render convenient response buttons. When the question
+names discrete options, give one reply per named option, including options you
+do not recommend, so the buttons match the options described. For a binary
+question, provide both choices; for an open question, suggest one or two likely
+answers. Each reply must be 32 characters or less, so use a short label that
+matches how the context names the option. These are shortcuts, not preselected
+answers or authorization; custom replies must remain available, so open-ended
+alternatives such as a custom value need no button. With multiple --question
+flags, provide replies after each question.
 `;
 
 const WORKER_STREAM_HELP = `Usage: takode worker-stream [--text <report> | --text-file <path|->] [--json]
