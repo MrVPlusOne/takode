@@ -1637,7 +1637,9 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.queryByTestId("thread-source-badge")).toBeNull();
   });
 
-  it("keeps moved and cross-thread provenance badges in quest-thread views", () => {
+  it("links attached and handed-off messages to the thread they were written in", () => {
+    // Attachment (backfill) and handoff (a later explicit ref) both leave a
+    // message in the thread it was written in: Main for the route-less one.
     const sid = "test-quest-thread-keeps-provenance-badges";
     setStoreMessages(sid, [
       makeMessage({
@@ -1663,7 +1665,7 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.getByText("Attached historical context")).toBeTruthy();
     expect(screen.getByText("Cross-thread origin context")).toBeTruthy();
     expect(screen.getAllByTestId("thread-source-badge").map((badge) => badge.textContent)).toEqual([
-      "thread:q-941",
+      "thread:main",
       "thread:q-942",
     ]);
   });

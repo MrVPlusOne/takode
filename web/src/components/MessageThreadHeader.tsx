@@ -1,5 +1,6 @@
 import { createContext, type ReactNode } from "react";
 import type { ChatMessage } from "../types.js";
+import { leaderResponseOriginalThreadKey } from "../../shared/leader-thread-response-routing.js";
 import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
 
 /**
@@ -8,46 +9,41 @@ import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.
  */
 export const MessageThreadHeaderOwnedContext = createContext(false);
 
-type ThreadLinkCandidate = {
-  threadKey: string;
-  source?: NonNullable<NonNullable<ChatMessage["metadata"]>["threadRefs"]>[number]["source"];
-};
-
-function threadLinkCandidates(message: ChatMessage): ThreadLinkCandidate[] {
+/**
+ * The one thread a message belongs to: the thread it was written in.
+ * - An answer belongs to the thread it was authored in. Its stored route may be
+ *   normalized to Main so the answer can also show in other tabs.
+ * - Any other message belongs to its stored route; a message routed only
+ *   through thread references belongs to the earliest non-backfill one.
+ *   Later references (handoffs) transfer responsibility, and backfill
+ *   references only add visibility; neither moves the message.
+ * Leader-thread messages without a valid route default to Main. Messages with
+ * no thread metadata at all (non-leader sessions) belong to no thread.
+ */
+export function getMessageThreadKey(message: ChatMessage): string | null {
   const metadata = message.metadata;
-  if (!metadata) return [];
-  const candidates: ThreadLinkCandidate[] = [];
-  const add = (threadKey: string | undefined, source?: ThreadLinkCandidate["source"]) => {
-    const normalized = threadKey?.trim();
-    if (!normalized) return;
-    candidates.push(source ? { threadKey: normalized, source } : { threadKey: normalized });
-  };
-  add(metadata.threadKey);
-  add(metadata.questId);
-  for (const ref of metadata.threadRefs ?? []) {
-    add(ref.threadKey, ref.source);
-  }
-  return candidates;
+  if (!metadata) return null;
+  const authored = metadata.threadAnswer?.authoredThreadKey;
+  if (authored) return normalizeThreadKey(authored);
+  const original = leaderResponseOriginalThreadKey(metadata);
+  if (original) return original;
+  const firstRoutedRef = metadata.threadRefs?.find((ref) => ref.source !== "backfill");
+  const routed = firstRoutedRef ? leaderResponseOriginalThreadKey(firstRoutedRef) : null;
+  if (routed) return routed;
+  const hasThreadMetadata =
+    metadata.threadKey !== undefined || metadata.questId !== undefined || (metadata.threadRefs?.length ?? 0) > 0;
+  return hasThreadMetadata ? "main" : null;
 }
 
 /**
  * The thread a message's header should link to while `currentThreadKey` is
- * viewed: another thread the message belongs to, or its backfilled source.
- * Without a single selected thread (All Threads), the message's own thread.
+ * viewed: the message's own thread, unless that is the viewed thread. Without
+ * a single selected thread (All Threads), always the message's own thread.
  */
 export function getMessageThreadLinkKey(message: ChatMessage, currentThreadKey?: string): string | null {
-  const candidates = threadLinkCandidates(message);
-  const fallback = candidates[0]?.threadKey ?? null;
-  if (!currentThreadKey || isAllThreadsKey(currentThreadKey)) return fallback;
-
-  const normalizedCurrentThread = normalizeThreadKey(currentThreadKey);
-  const crossThreadCandidate = candidates.find(
-    (candidate) => normalizeThreadKey(candidate.threadKey) !== normalizedCurrentThread,
-  );
-  if (crossThreadCandidate) return crossThreadCandidate.threadKey;
-
-  const backfillCandidate = candidates.find((candidate) => candidate.source === "backfill");
-  return backfillCandidate?.threadKey ?? null;
+  const threadKey = getMessageThreadKey(message);
+  if (!threadKey || !currentThreadKey || isAllThreadsKey(currentThreadKey)) return threadKey;
+  return threadKey === normalizeThreadKey(currentThreadKey) ? null : threadKey;
 }
 
 /**
