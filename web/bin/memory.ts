@@ -7,17 +7,15 @@ import { memoryHealthSummary } from "../server/memory-repo-health.js";
 import { parseMovePlan } from "../server/memory-move.js";
 import { getServerSlug, initWithPort } from "../server/settings-manager.js";
 import {
-  LEGACY_TYPE_FOLDERS,
   MEMORY_COMMIT_OPERATIONS,
   MEMORY_DESCRIPTION_CHAR_LIMIT,
   MEMORY_NOTE_TYPES,
   type MemoryCommitOperation,
-  type MemoryNoteType,
 } from "../server/workstream-memory-types.js";
 
 const VALUE_OPTIONS = new Set(["--root", "--server-id", "--server-slug", "--session-space"]);
 /** Flags that never take a value, so the next token stays positional. */
-const BOOLEAN_FLAGS = new Set(["--json", "--all", "--content", "--no-steal-stale", "--help"]);
+const BOOLEAN_FLAGS = new Set(["--json", "--all", "--no-steal-stale", "--help"]);
 const args = process.argv.slice(2);
 const commandIndex = findCommandIndex(args);
 const command = commandIndex === -1 ? undefined : args[commandIndex];
@@ -160,35 +158,6 @@ function parseCsv(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-/** Recall filter. `--kind` also accepts the legacy folder names (decisions, procedures, ...). */
-function parseTypes(): MemoryNoteType[] | undefined {
-  const raw = [
-    ...options("type"),
-    ...options("kind"),
-    ...parseCsv(option("types")),
-    ...parseCsv(option("kinds")),
-  ].flatMap((item) => parseCsv(item));
-  if (!raw.length) return undefined;
-  return raw.map((value) => {
-    const type = (LEGACY_TYPE_FOLDERS as Record<string, MemoryNoteType>)[value] ?? value;
-    if (!MEMORY_NOTE_TYPES.includes(type as MemoryNoteType))
-      die(`--type must be one of: ${MEMORY_NOTE_TYPES.join(", ")}`);
-    return type as MemoryNoteType;
-  });
-}
-
-function parseFacets(): Record<string, string[]> | undefined {
-  const values = [...options("facet"), ...parseCsv(option("facets"))];
-  if (!values.length) return undefined;
-  const facets: Record<string, string[]> = {};
-  for (const token of values) {
-    const [key, value] = token.split(":", 2);
-    if (!key?.trim() || !value?.trim()) die(`Invalid --facet token: ${token}`);
-    facets[key.trim()] = [...(facets[key.trim()] ?? []), value.trim()];
-  }
-  return facets;
-}
-
 function parsePositiveInt(raw: string | undefined, label: string): number | undefined {
   if (!raw) return undefined;
   const parsed = Number(raw);
@@ -244,20 +213,6 @@ function printIssues(issues: { severity: string; path?: string; message: string 
     const path = issue.path ? `${issue.path}: ` : "";
     console.log(`  ${issue.severity}: ${path}${issue.message}`);
   }
-}
-
-function filterNormalReadIssues(
-  issues: { severity: string; path?: string; message: string }[],
-): { severity: string; path?: string; message: string }[] {
-  return issues.filter((issue) => !isSafelyIgnoredObsoleteFrontmatterWarning(issue));
-}
-
-function isSafelyIgnoredObsoleteFrontmatterWarning(issue: { severity: string; message: string }): boolean {
-  return (
-    issue.severity === "warning" &&
-    issue.message.startsWith("Obsolete memory frontmatter field ") &&
-    issue.message.includes(" is ignored; derive it from path or use description/source.")
-  );
 }
 
 async function main(): Promise<void> {
@@ -328,33 +283,6 @@ async function main(): Promise<void> {
       console.log(
         `Moved ${result.moved} note(s); rewrote references in ${result.rewrittenNotes} other note(s). Commit with --operation repair.`,
       );
-    return;
-  }
-
-  if (command === "recall") {
-    const result = await workstreamMemoryService.recall(
-      {
-        query: positional(0),
-        types: parseTypes(),
-        facets: parseFacets(),
-        includeContent: flag("content"),
-        limit: parsePositiveInt(option("limit"), "--limit"),
-      },
-      repoOptions(),
-    );
-    if (jsonOutput) {
-      out(result);
-      return;
-    }
-    console.log(`Memory repo: ${result.repo.root}`);
-    if (!result.matches.length) console.log("No matching memory files found.");
-    for (const match of result.matches) {
-      console.log(`${match.entry.id} [${match.entry.type ?? "untyped"}] score=${match.score} ${match.entry.path}`);
-      console.log(`  ${match.entry.description}`);
-      if (match.entry.source.length) console.log(`  source: ${match.entry.source.join(", ")}`);
-      if (match.content) console.log(`\n${match.content.trim()}\n`);
-    }
-    printIssues(filterNormalReadIssues(result.issues));
     return;
   }
 

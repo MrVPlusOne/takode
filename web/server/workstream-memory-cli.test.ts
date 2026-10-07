@@ -55,7 +55,7 @@ describe("memory CLI", () => {
     await writeFile(absolutePath, `---\n${frontmatter.trim()}\n---\n\n${body}\n`, "utf-8");
   }
 
-  it("auto-initializes, catalogs, and recalls authored memory files", async () => {
+  it("auto-initializes and catalogs authored memory files", async () => {
     await writeMemoryFile(
       "procedures/run-service-x.md",
       `
@@ -91,13 +91,6 @@ facets:
         source: ["q-1218"],
       }),
     );
-
-    const recall = await runMemory(
-      ["recall", "bun service", "--kind", "procedures", "--facet", "project:takode", "--content", "--json"],
-      env,
-    );
-    expect(recall.status).toBe(0);
-    expect(JSON.parse(recall.stdout).matches[0].content).toContain("bun run dev");
   });
 
   it("shows catalog entries relative to the printed memory repo root", async () => {
@@ -430,7 +423,7 @@ source:
     );
   });
 
-  it("keeps obsolete-field compatibility warnings out of normal catalog and recall output", async () => {
+  it("keeps obsolete-field compatibility warnings out of normal catalog output", async () => {
     await writeMemoryFile(
       "knowledge/dual-schema.md",
       `
@@ -454,12 +447,6 @@ source:
     expect(catalog.stdout).not.toContain("source: q-1220");
     expect(catalog.stdout).not.toContain("Obsolete memory frontmatter field");
     expect(catalog.stdout).not.toContain("Issues:");
-
-    const recall = await runMemory(["recall", "schema"], env);
-    expect(recall.status).toBe(0);
-    expect(recall.stdout).toContain("knowledge/dual-schema.md");
-    expect(recall.stdout).not.toContain("Obsolete memory frontmatter field");
-    expect(recall.stdout).not.toContain("Issues:");
 
     const lint = await runMemory(["lint"], env);
     expect(lint.status).toBe(0);
@@ -570,6 +557,11 @@ source:
   });
 
   it("treats old workstream/upsert/check commands as unknown and omits migration guidance", async () => {
+    // `recall` was retired with the topic-folder catalog; it is now an unknown command too.
+    const recall = await runMemory(["recall", "anything"], env);
+    expect(recall.status).toBe(1);
+    expect(recall.stderr).toContain("Unknown memory command: recall");
+
     const result = await runMemory(["upsert", "current", "takode/key"], env);
 
     expect(result.status).toBe(1);
