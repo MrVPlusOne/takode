@@ -1840,6 +1840,7 @@ export function MessageFeed({
                     sessionId={sessionId}
                     currentThreadKey={threadKey}
                     leaderMode={collapseLeaderThreadActivity}
+                    leaderSession={isLeaderSession}
                     showInlineMessageTiming={!isLeaderSession}
                     isCodexSession={isCodexSession}
                     activeCodexTerminalIds={activeCodexTerminalIds}

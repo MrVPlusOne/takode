@@ -462,6 +462,22 @@ const EXPANDED_ENTRIES: FeedEntry[] = [
   CURRENT_RESPONSE,
 ];
 const EXPANDED_TURN: Turn = { ...READY_TURN, allEntries: EXPANDED_ENTRIES, presentationEntries: EXPANDED_ENTRIES };
+const HANDOFF_NOTE = assistantEntry(
+  "playground-handoff-note",
+  "You're right, that's a bug in the thread link q-2042 just delivered. I've reopened that quest, and I'll follow the fix there.",
+  "commentary",
+);
+// The request was handed off to a quest, so this turn has no answer of its own.
+const HANDOFF_TURN: Turn = {
+  ...READY_TURN,
+  id: "playground-user-handed-off",
+  allEntries: [HANDOFF_NOTE],
+  presentationEntries: [HANDOFF_NOTE],
+  agentEntries: [HANDOFF_NOTE],
+  notificationEntries: [],
+  lastMessageEntry: HANDOFF_NOTE,
+  stats: { messageCount: 1, toolCount: 2, subagentCount: 0, herdEventCount: 0 },
+};
 
 const NOOP = () => {};
 
@@ -523,6 +539,24 @@ export function PlaygroundThreadResponseSection() {
                 renderEntry={renderEntry}
                 sessionId={SESSION_ID}
                 currentThreadKey="q-2042"
+                onSelectThread={NOOP}
+                questLinkSurface="chat-feed"
+              />
+            </div>
+          </Card>
+          <Card label="Collapsed Ready · handed off, no answer · last message">
+            <div
+              className="min-w-0 w-full max-w-[430px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"
+              data-testid="playground-unanswered-handoff-turn"
+            >
+              <TurnActivityDisclosure stats={HANDOFF_TURN.stats} durationMs={null} expanded={false} onToggle={NOOP} />
+              <ReadyThreadResponseRows
+                turn={HANDOFF_TURN}
+                presentation={ANSWER_ONLY_PRESENTATION}
+                unansweredMessageEntry={HANDOFF_NOTE}
+                renderEntry={renderEntry}
+                sessionId={SESSION_ID}
+                currentThreadKey="main"
                 onSelectThread={NOOP}
                 questLinkSurface="chat-feed"
               />

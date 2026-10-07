@@ -17,11 +17,16 @@ import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
 import { getAssistantVisibleMarkdown } from "../utils/assistant-message-renderability.js";
 import { CompactFeedActivity } from "./CompactFeedActivity.js";
 import {
+  collapsedResponseEntry,
   readyThreadResponseAppliesToTurn,
   threadResponsePresentationTouchesTurn,
   type ThreadResponsePresentation,
 } from "./thread-response-presentation.js";
-import { ReadyThreadResponseRows, readyThreadResponseTurnHasContent } from "./ReadyThreadResponseRows.js";
+import {
+  ReadyThreadResponseRows,
+  readyThreadResponseTurnHasContent,
+  readyThreadResponseTurnHasMessage,
+} from "./ReadyThreadResponseRows.js";
 import { getTurnSummaryDurationMs } from "./message-feed-turn-duration.js";
 import { InlineMessageTimingVisibilityContext } from "./MessageTimestamp.js";
 import { TurnThreadStatusFooter } from "./MessageFeedThreadStatus.js";
@@ -67,6 +72,7 @@ function CollapsedTurnRows({
   threadResponsePresentation,
   activeNeedsInputAnchorMessageIds,
   preserveHostQuestQuiz,
+  unansweredMessageEntry,
 }: {
   turn: Turn;
   sessionId: string;
@@ -80,8 +86,23 @@ function CollapsedTurnRows({
   threadResponsePresentation?: ThreadResponsePresentation | null;
   activeNeedsInputAnchorMessageIds: ReadonlySet<string>;
   preserveHostQuestQuiz: boolean;
+  unansweredMessageEntry: Extract<FeedEntry, { kind: "message" }> | null;
 }) {
   const collapsedEntries = turn.collapsedEntries ?? [];
+  const renderEntry = (entry: FeedEntry) => (
+    <FeedEntries
+      entries={[entry]}
+      sessionId={sessionId}
+      currentThreadKey={currentThreadKey}
+      minuteBoundaryLabels={minuteBoundaryLabels}
+      isCodexSession={isCodexSession}
+      activeCodexTerminalIds={activeCodexTerminalIds}
+      onOpenCodexTerminal={onOpenCodexTerminal}
+      onSelectThread={onSelectThread}
+      suppressThreadSystemMarkers
+      questLinkSurface={questLinkSurface}
+    />
+  );
   if (threadResponsePresentation) {
     return (
       <ReadyThreadResponseRows
@@ -92,20 +113,8 @@ function CollapsedTurnRows({
         onSelectThread={onSelectThread}
         questLinkSurface={questLinkSurface}
         activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
-        renderEntry={(entry) => (
-          <FeedEntries
-            entries={[entry]}
-            sessionId={sessionId}
-            currentThreadKey={currentThreadKey}
-            minuteBoundaryLabels={minuteBoundaryLabels}
-            isCodexSession={isCodexSession}
-            activeCodexTerminalIds={activeCodexTerminalIds}
-            onOpenCodexTerminal={onOpenCodexTerminal}
-            onSelectThread={onSelectThread}
-            suppressThreadSystemMarkers
-            questLinkSurface={questLinkSurface}
-          />
-        )}
+        unansweredMessageEntry={unansweredMessageEntry}
+        renderEntry={renderEntry}
       />
     );
   }
@@ -149,23 +158,17 @@ function CollapsedTurnRows({
                   questLinkSurface={questLinkSurface}
                 />
               ) : (
-                <FeedEntries
-                  entries={[row.entry]}
-                  sessionId={sessionId}
-                  currentThreadKey={currentThreadKey}
-                  minuteBoundaryLabels={minuteBoundaryLabels}
-                  isCodexSession={isCodexSession}
-                  activeCodexTerminalIds={activeCodexTerminalIds}
-                  onOpenCodexTerminal={onOpenCodexTerminal}
-                  onSelectThread={onSelectThread}
-                  suppressThreadSystemMarkers
-                  questLinkSurface={questLinkSurface}
-                />
+                renderEntry(row.entry)
               )}
             </HidePawContext.Provider>
           </div>
         );
       })}
+      {unansweredMessageEntry && (
+        <div className="px-2.5 py-2 sm:px-3" data-testid="collapsed-turn-unanswered-message">
+          <HidePawContext.Provider value={true}>{renderEntry(unansweredMessageEntry)}</HidePawContext.Provider>
+        </div>
+      )}
       {hiddenHostQuizIds.length > 0 && (
         <div className="min-w-0 px-2.5 pb-2 sm:px-3" data-testid="thread-response-quiz">
           <AssistantQuestQuizContent
@@ -250,6 +253,7 @@ export const TurnEntries = memo(function TurnEntries({
   sessionId,
   currentThreadKey,
   leaderMode,
+  leaderSession = false,
   showInlineMessageTiming,
   isCodexSession,
   activeCodexTerminalIds,
@@ -269,6 +273,8 @@ export const TurnEntries = memo(function TurnEntries({
   sessionId: string;
   currentThreadKey: string;
   leaderMode: boolean;
+  /** Collapsed turns without an answer show their last message (leader feeds only). */
+  leaderSession?: boolean;
   showInlineMessageTiming: boolean;
   isCodexSession: boolean;
   activeCodexTerminalIds: Set<string>;
@@ -346,14 +352,33 @@ export const TurnEntries = memo(function TurnEntries({
                   threadResponsePresentationTouchesTurn(turn, turnResponsePresentation))
                   ? turnResponsePresentation
                   : null;
-              const hasCollapsedContent = collapsedThreadResponsePresentation
-                ? readyThreadResponseTurnHasContent(
+              const collapsedShowsMessage = collapsedThreadResponsePresentation
+                ? readyThreadResponseTurnHasMessage(
                     turn,
                     collapsedThreadResponsePresentation,
                     activeNeedsInputAnchorMessageIds,
                   )
-                : (turn.collapsedEntries?.some((row) => row.kind === "entry") ?? false) ||
-                  turn.subConclusions.length > 0;
+                : turn.subConclusions.length > 0 ||
+                  (turn.collapsedEntries?.some(
+                    (row) => row.kind === "entry" && row.entry.kind === "message" && row.entry.msg.role === "assistant",
+                  ) ??
+                    false);
+              // Display only: a handed-off or dispatch-only turn keeps its last note
+              // visible, while answer coverage and Ready state stay unchanged.
+              const unansweredMessageEntry =
+                leaderSession && !isActivityExpanded && !collapsedShowsMessage && turn.lastMessageEntry
+                  ? collapsedResponseEntry(turn.lastMessageEntry)
+                  : null;
+              const hasCollapsedContent =
+                unansweredMessageEntry !== null ||
+                (collapsedThreadResponsePresentation
+                  ? readyThreadResponseTurnHasContent(
+                      turn,
+                      collapsedThreadResponsePresentation,
+                      activeNeedsInputAnchorMessageIds,
+                    )
+                  : (turn.collapsedEntries?.some((row) => row.kind === "entry") ?? false) ||
+                    turn.subConclusions.length > 0);
               const hasCollapsedCurrentAnswer =
                 collapsedThreadResponsePresentation?.currentResponses.some((item) => item.sourceTurnId === turn.id) ??
                 false;
@@ -482,6 +507,7 @@ export const TurnEntries = memo(function TurnEntries({
                                 threadResponsePresentation={collapsedThreadResponsePresentation}
                                 activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
                                 preserveHostQuestQuiz={preserveHostQuestQuiz}
+                                unansweredMessageEntry={unansweredMessageEntry}
                               />
                             </div>
                           </div>

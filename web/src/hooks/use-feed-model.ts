@@ -12,7 +12,12 @@ import { isInjectedEventMessage } from "../utils/injected-event-message.js";
 import { THREAD_OUTCOME_REMINDER_SOURCE_ID } from "../../shared/thread-outcome-reminder.js";
 import { THREAD_ROUTING_REMINDER_SOURCE_ID } from "../../shared/thread-routing-reminder.js";
 import { isCodexReasoningDetailMessage } from "../utils/codex-reasoning-detail.js";
-import { isAssistantMessageRenderable, isToolHiddenFromChat } from "../utils/assistant-message-renderability.js";
+import {
+  getAssistantVisibleMarkdown,
+  isAssistantMessageRenderable,
+  isToolHiddenFromChat,
+} from "../utils/assistant-message-renderability.js";
+import { stripQuestQuizMarkers } from "../components/AssistantQuestQuizContent.js";
 import { isBoardProposalMessage } from "../utils/takode-tool-command.js";
 import { isCompactToolActivityItem } from "../components/CompactToolActivity.js";
 import { normalizeCodexMessagePhase } from "../../shared/codex-message-phase.js";
@@ -463,6 +468,9 @@ export interface Turn {
   subConclusions: SubConclusion[];
   /** Chronological collapsed-turn projection of hidden activity and priority entries. */
   collapsedEntries?: CollapsedTurnEntry[];
+  /** Last human-facing assistant text. Collapsed leader turns that show no
+   *  answer render it, so handoff or dispatch notes don't collapse to nothing. */
+  lastMessageEntry?: Extract<FeedEntry, { kind: "message" }> | null;
   stats: TurnStats;
 }
 
@@ -1126,6 +1134,29 @@ function buildCollapsedTurnEntries(
   return { collapsedEntries, promotedEntryKeys };
 }
 
+/** Replies to model-only reminders answer Takode, not the human, so they are skipped. */
+function findLastHumanFacingMessage(rawAgentEntries: FeedEntry[]): Extract<FeedEntry, { kind: "message" }> | null {
+  // Scan backward so dense turns stop at the latest segment with a message.
+  let candidate: Extract<FeedEntry, { kind: "message" }> | null = null;
+  for (let index = rawAgentEntries.length - 1; index >= 0; index--) {
+    const entry = rawAgentEntries[index]!;
+    if (entry.kind === "message" && entry.msg.role === "user" && entry.msg.agentSource?.sessionId) {
+      // This injected message opens the segment that holds the candidate.
+      if (candidate && !isModelOnlyReminderSource(entry.msg.agentSource.sessionId)) return candidate;
+      candidate = null;
+      continue;
+    }
+    if (
+      !candidate &&
+      isAssistantTextResponseEntry(entry) &&
+      stripQuestQuizMarkers(getAssistantVisibleMarkdown(entry.msg)).trim().length > 0
+    ) {
+      candidate = entry;
+    }
+  }
+  return candidate;
+}
+
 /** Build a Turn from accumulated entries */
 function isFeedEntryRenderable(
   entry: FeedEntry,
@@ -1279,6 +1310,7 @@ function makeTurn(
     responseEntry,
     subConclusions,
     collapsedEntries,
+    lastMessageEntry: findLastHumanFacingMessage(presentationAgentEntries),
     stats: {
       // Subtract responseEntry and notificationEntries; remaining count reflects
       // messages still inside the collapsible agent activity section.

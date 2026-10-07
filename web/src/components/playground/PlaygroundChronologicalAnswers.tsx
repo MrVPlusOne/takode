@@ -74,6 +74,7 @@ export function PlaygroundChronologicalAnswers() {
             sessionId={chronologicalAnswersFixture.sessionId}
             currentThreadKey={threadKey}
             leaderMode
+            leaderSession
             showInlineMessageTiming={false}
             isCodexSession
             activeCodexTerminalIds={EMPTY_IDS}

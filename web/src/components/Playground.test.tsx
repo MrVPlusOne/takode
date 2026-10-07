@@ -288,6 +288,11 @@ describe("Playground", () => {
     expect(withoutTools.getByRole("button", { name: "Message options" })).toBeVisible();
     expect(withoutTools.queryByText(/tools?/i)).not.toBeInTheDocument();
 
+    // A handed-off turn has no answer, so its collapsed view shows the last message instead of nothing.
+    const handoff = within(routedFinalStates.getByTestId("playground-unanswered-handoff-turn"));
+    expect(handoff.getByTestId("thread-response-unanswered-message")).toHaveTextContent(/I'll follow the fix there/);
+    expect(handoff.queryByTestId("thread-response-current")).not.toBeInTheDocument();
+
     // An answer from another thread joins its thread link and answer chip in one header tag.
     const crossThreadHeader = within(routedFinalStates.getByTestId("playground-cross-thread-answer")).getByTestId(
       "message-thread-header",

@@ -37,17 +37,24 @@ function sourceDecisionEntries(
   });
 }
 
+/** Whether the collapsed turn shows an answer or decision message of its own. */
+export function readyThreadResponseTurnHasMessage(
+  turn: Turn,
+  presentation: ThreadResponsePresentation,
+  activeNeedsInputAnchorMessageIds: ReadonlySet<string> = new Set(),
+): boolean {
+  return (
+    presentation.currentResponses.some((item) => item.sourceTurnId === turn.id) ||
+    sourceDecisionEntries(turn, activeNeedsInputAnchorMessageIds, presentation.currentResponseMessageIds).length > 0
+  );
+}
+
 export function readyThreadResponseTurnHasContent(
   turn: Turn,
   presentation: ThreadResponsePresentation,
   activeNeedsInputAnchorMessageIds: ReadonlySet<string> = new Set(),
 ): boolean {
-  if (presentation.currentResponses.some((item) => item.sourceTurnId === turn.id)) return true;
-  if (
-    sourceDecisionEntries(turn, activeNeedsInputAnchorMessageIds, presentation.currentResponseMessageIds).length > 0
-  ) {
-    return true;
-  }
+  if (readyThreadResponseTurnHasMessage(turn, presentation, activeNeedsInputAnchorMessageIds)) return true;
   if (presentation.quizGroups.some((group) => group.hostTurnId === turn.id && group.questIds.length > 0)) return true;
   return false;
 }
@@ -61,6 +68,7 @@ export function ReadyThreadResponseRows({
   onSelectThread,
   questLinkSurface,
   activeNeedsInputAnchorMessageIds = new Set(),
+  unansweredMessageEntry = null,
 }: {
   turn: Turn;
   presentation: ThreadResponsePresentation;
@@ -70,6 +78,8 @@ export function ReadyThreadResponseRows({
   onSelectThread?: (threadKey: string) => void;
   questLinkSurface: QuestLinkSurface;
   activeNeedsInputAnchorMessageIds?: ReadonlySet<string>;
+  /** Shown only when the turn has no answer or decision row of its own. */
+  unansweredMessageEntry?: Extract<FeedEntry, { kind: "message" }> | null;
 }) {
   const responses = presentation.currentResponses.filter((item) => item.sourceTurnId === turn.id);
   const responseMessageIds = new Set(responses.map((item) => item.response.currentMessageId));
@@ -128,6 +138,11 @@ export function ReadyThreadResponseRows({
             <HidePawContext.Provider value={true}>{renderEntry(row.entry)}</HidePawContext.Provider>
           </div>
         ),
+      )}
+      {unansweredMessageEntry && (
+        <div className="min-w-0 px-2.5 py-2 sm:px-3" data-testid="thread-response-unanswered-message">
+          <HidePawContext.Provider value={true}>{renderEntry(unansweredMessageEntry)}</HidePawContext.Provider>
+        </div>
       )}
       {quizGroup && quizGroup.questIds.length > 0 && (
         <div className="min-w-0 px-2.5 pb-2 sm:px-3" data-testid="thread-response-quiz">
