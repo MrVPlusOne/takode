@@ -41,6 +41,7 @@ import type {
 import type { VoiceTranscriptionFrontendTimingReport, VoiceTranscriptionTiming } from "./transcription-progress.js";
 import type { ShortcutSettings } from "./shortcuts.js";
 import type { SessionDefaultsSettings } from "../shared/session-defaults.js";
+import type { SendKeyScheme } from "../shared/send-key-scheme.js";
 import type { CodexLeaderCompactionMode } from "../shared/codex-leader-compaction-mode.js";
 import { observedThreadMonitorResultId } from "./utils/thread-monitoring.js";
 
@@ -662,6 +663,7 @@ export interface AppSettings {
   questmasterViewMode: QuestmasterViewMode;
   questmasterCompactSort: QuestmasterCompactSort;
   chatMessageLineHeight?: number;
+  sendKeyScheme?: SendKeyScheme;
   codexLeaderContextWindowOverrideTokens: number;
   codexNonLeaderAutoCompactThresholdPercent?: number;
   codexLeaderRecycleThresholdTokens: number;
@@ -1411,6 +1413,7 @@ export const api = {
     questmasterViewMode?: QuestmasterViewMode;
     questmasterCompactSort?: QuestmasterCompactSort;
     chatMessageLineHeight?: number;
+    sendKeyScheme?: SendKeyScheme;
     codexLeaderContextWindowOverrideTokens?: number;
     codexNonLeaderAutoCompactThresholdPercent?: number;
     codexLeaderRecycleThresholdTokens?: number;

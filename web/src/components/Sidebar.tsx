@@ -18,6 +18,7 @@ import {
   type PendingSession,
 } from "../store.js";
 import { api, type SessionSearchResult } from "../api.js";
+import { normalizeSendKeyScheme } from "../../shared/send-key-scheme.js";
 import { connectSession } from "../ws.js";
 import { navigateToSession, navigateToMostRecentSession, parseHash } from "../utils/routing.js";
 import { cancelPendingCreation } from "../utils/pending-creation.js";
@@ -256,6 +257,7 @@ export function Sidebar() {
           console.warn("[sidebar] shortcut settings hydration failed:", err);
         });
         hydrateChatDisplaySettingsFromServer(s);
+        useStore.setState({ sendKeyScheme: normalizeSendKeyScheme(s.sendKeyScheme) });
       })
       .catch(() => {});
   }, []);

@@ -194,6 +194,7 @@ export interface AppState {
   showUsageBars: boolean;
   compactToolActivity: boolean;
   chatMessageLineHeight: number;
+  sendKeyScheme: import("../shared/send-key-scheme.js").SendKeyScheme;
   shortcutSettings: import("./shortcuts.js").ShortcutSettings;
   sidebarOpen: boolean;
   sessionInfoOpenSessionId: string | null;
@@ -237,6 +238,8 @@ export interface AppState {
   setCompactToolActivity: (v: boolean) => void;
   toggleCompactToolActivity: () => void;
   setChatMessageLineHeight: (lineHeight: number) => void;
+  /** Apply the scheme locally and persist it server-side; reverts if the save fails. */
+  setSendKeyScheme: (scheme: import("../shared/send-key-scheme.js").SendKeyScheme) => void;
   setShortcutsEnabled: (enabled: boolean) => void;
   setShortcutPreset: (preset: import("./shortcuts.js").ShortcutPresetId) => void;
   setShortcutOverride: (

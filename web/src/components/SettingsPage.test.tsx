@@ -12,6 +12,7 @@ interface MockStoreState {
   showUsageBars: boolean;
   compactToolActivity: boolean;
   chatMessageLineHeight: number;
+  sendKeyScheme: "enter" | "mod-enter";
   shortcutSettings: {
     enabled: boolean;
     preset: "standard" | "vscode-light" | "vim-light";
@@ -27,6 +28,7 @@ interface MockStoreState {
   toggleShowUsageBars: ReturnType<typeof vi.fn>;
   toggleCompactToolActivity: ReturnType<typeof vi.fn>;
   setChatMessageLineHeight: ReturnType<typeof vi.fn>;
+  setSendKeyScheme: ReturnType<typeof vi.fn>;
   setShortcutsEnabled: ReturnType<typeof vi.fn>;
   setShortcutPreset: ReturnType<typeof vi.fn>;
   setShortcutOverride: ReturnType<typeof vi.fn>;
@@ -48,6 +50,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     showUsageBars: false,
     compactToolActivity: true,
     chatMessageLineHeight: 1.45,
+    sendKeyScheme: "enter",
     shortcutSettings: {
       enabled: false,
       preset: "standard",
@@ -63,6 +66,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     toggleShowUsageBars: vi.fn(),
     toggleCompactToolActivity: vi.fn(),
     setChatMessageLineHeight: vi.fn(),
+    setSendKeyScheme: vi.fn(),
     setShortcutsEnabled: vi.fn(),
     setShortcutPreset: vi.fn(),
     setShortcutOverride: vi.fn(),
@@ -733,6 +737,17 @@ describe("SettingsPage", () => {
     ).toBeInTheDocument();
     expect(within(shortcutsSection as HTMLElement).queryByLabelText("Preset")).not.toBeInTheDocument();
     expect(within(shortcutsSection as HTMLElement).queryByText("Universal Search")).not.toBeInTheDocument();
+  });
+
+  it("offers the send key scheme even while shortcuts are disabled", async () => {
+    // Send keys always apply, so the choice must not hide behind the shortcuts toggle.
+    render(<SettingsPage />);
+
+    await waitForSettingsPage();
+    const select = within(settingsSection("Shortcuts") as HTMLElement).getByLabelText("Send Key");
+    expect(select).toHaveValue("enter");
+    fireEvent.change(select, { target: { value: "mod-enter" } });
+    expect(mockState.setSendKeyScheme).toHaveBeenCalledWith("mod-enter");
   });
 
   it("shows shortcut preset controls when shortcuts are enabled", async () => {

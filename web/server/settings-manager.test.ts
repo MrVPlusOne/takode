@@ -75,6 +75,7 @@ describe("settings-manager", () => {
       questmasterViewMode: "cards",
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,
+      sendKeyScheme: "enter",
       leaderProfilePools: { tako: true, shmi: true },
       shortcutSettings: undefined,
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
@@ -606,6 +607,7 @@ describe("settings-manager", () => {
       questmasterViewMode: "cards",
       questmasterCompactSort: { column: "updated", direction: "desc" },
       chatMessageLineHeight: 1.45,
+      sendKeyScheme: "enter",
       leaderProfilePools: { tako: true, shmi: true },
       shortcutSettings: undefined,
       sessionDefaults: DEFAULT_SESSION_DEFAULTS,
@@ -871,6 +873,25 @@ describe("chatMessageLineHeight settings", () => {
     writeFileSync(settingsPath, JSON.stringify({ chatMessageLineHeight: 2.2, updatedAt: 0 }), "utf-8");
     _resetForTest(settingsPath);
     expect(getSettings().chatMessageLineHeight).toBe(1.45);
+  });
+});
+
+describe("sendKeyScheme settings", () => {
+  // Enter-to-send stays the default so existing users keep their current keybindings.
+  it("defaults to enter and persists an explicit mod-enter choice", async () => {
+    expect(getSettings().sendKeyScheme).toBe("enter");
+    const updated = updateSettings({ sendKeyScheme: "mod-enter" });
+    expect(updated.sendKeyScheme).toBe("mod-enter");
+
+    await _flushForTest();
+    const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    expect(saved.sendKeyScheme).toBe("mod-enter");
+  });
+
+  it("normalizes unknown persisted schemes to the default", () => {
+    writeFileSync(settingsPath, JSON.stringify({ sendKeyScheme: "ctrl-enter", updatedAt: 0 }), "utf-8");
+    _resetForTest(settingsPath);
+    expect(getSettings().sendKeyScheme).toBe("enter");
   });
 });
 

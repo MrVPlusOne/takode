@@ -258,6 +258,23 @@ describe("Chat display settings hydration", () => {
   });
 });
 
+describe("Send key scheme", () => {
+  it("persists a chosen scheme to the server and reverts when the save fails", async () => {
+    // The choice is a server-side setting; a failed save must not leave the browser on an unsaved scheme.
+    useStore.getState().setSendKeyScheme("mod-enter");
+    expect(useStore.getState().sendKeyScheme).toBe("mod-enter");
+    expect(mockUpdateSettings).toHaveBeenCalledWith({ sendKeyScheme: "mod-enter" });
+
+    mockUpdateSettings.mockRejectedValueOnce(new Error("offline"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    useStore.getState().setSendKeyScheme("enter");
+    expect(useStore.getState().sendKeyScheme).toBe("enter");
+    await vi.waitFor(() => expect(useStore.getState().sendKeyScheme).toBe("mod-enter"));
+    warn.mockRestore();
+    useStore.setState({ sendKeyScheme: "enter" });
+  });
+});
+
 // ─── Session management ─────────────────────────────────────────────────────
 
 describe("Session management", () => {

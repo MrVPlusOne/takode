@@ -86,6 +86,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       "Keyboard shortcuts stay off by default. Choose a preset, then optionally override individual actions.",
     aliases: ["keyboard", "keys", "hotkeys", "vim", "vscode"],
     items: [
+      { id: "send-key", text: "Send Key Enter Shift+Enter Cmd+Enter Ctrl+Enter new line newline submit save comment" },
       { id: "enabled", text: "Enabled keyboard shortcuts hotkeys" },
       { id: "preset", text: "Preset standard vscode vim shortcut preset", aliases: ["vscode"] },
       { id: "bindings", text: "Record shortcut override actions reset bindings" },

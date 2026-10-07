@@ -64,6 +64,26 @@ describe("settings routes", () => {
     expect(getSettings().shortcutSettings).toEqual(shortcutSettings);
   });
 
+  it("accepts a valid send key scheme and rejects unknown schemes", async () => {
+    // The scheme is a fixed enum; unknown values must not silently persist.
+    const app = createApp();
+    const put = (sendKeyScheme: unknown) =>
+      app.request("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sendKeyScheme }),
+      });
+
+    const ok = await put("mod-enter");
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).sendKeyScheme).toBe("mod-enter");
+    expect(getSettings().sendKeyScheme).toBe("mod-enter");
+
+    const bad = await put("ctrl-enter");
+    expect(bad.status).toBe(400);
+    expect(getSettings().sendKeyScheme).toBe("mod-enter");
+  });
+
   it("accepts centralized session defaults settings updates", async () => {
     const app = createApp();
     const sessionDefaults = {

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { ComposerMetaToolbar } from "../ComposerMetaToolbar.js";
 import { CLAUDE_MODELS, getClaudePermissionMenuOptions } from "../../utils/backends.js";
 import { Card } from "./shared.js";
+import { useSendKey } from "../../hooks/useSendKey.js";
 
 /** Streaming composer states: stop sits at the far left while mic and send keep their idle slots. */
 export function PlaygroundStreamingComposerStates() {
@@ -23,6 +24,7 @@ function PlaygroundStreamingComposer({ initialDraft }: { initialDraft: string })
   const modelDropdownRef = useRef<HTMLDivElement | null>(null);
   const permissionDropdownRef = useRef<HTMLDivElement | null>(null);
   const canSend = draft.trim().length > 0;
+  const sendKey = useSendKey();
 
   return (
     <div className="border-t border-cc-border bg-cc-card px-4 py-3">
@@ -83,7 +85,7 @@ function PlaygroundStreamingComposer({ initialDraft }: { initialDraft: string })
           isRunning={true}
           handleInterrupt={() => {}}
           handleSend={() => {}}
-          sendButtonTitle={canSend ? "Send: Enter; New line: Shift+Enter" : "Send message"}
+          sendButtonTitle={canSend ? sendKey.hint : "Send message"}
           sendPressing={false}
         />
       </div>

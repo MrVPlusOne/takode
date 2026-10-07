@@ -5,6 +5,7 @@ import type { ConversationAnnotation } from "../../shared/conversation-annotatio
 import { buildAnnotationVoiceReference, type AnnotationVoiceContext } from "../../shared/annotation-voice-context.js";
 import { api } from "../api.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
+import { useSendKey } from "../hooks/useSendKey.js";
 import { createVoiceTranscriptionRequestId } from "./composer-voice-transcription-utils.js";
 import { VoiceRecordingStatus } from "./VoiceRecordingStatus.js";
 
@@ -59,6 +60,8 @@ export function AnnotationEditor({
     },
   });
   const busy = voice.isRecording || voice.isPreparing || voice.isTranscribing;
+  const canSave = !!text.trim() && !busy && !proposal;
+  const saveKey = useSendKey("Save");
   const hint = buildAnnotationVoiceReference(context, text);
 
   useEffect(() => {
@@ -199,6 +202,11 @@ export function AnnotationEditor({
           value={text}
           disabled={busy || !!proposal}
           onChange={(event) => changeText(event.target.value)}
+          onKeyDown={(event) => {
+            if (!saveKey.isSendKey(event)) return;
+            event.preventDefault();
+            if (canSave) onSave(text);
+          }}
           placeholder="Add your comment…"
           rows={4}
           className="w-full resize-y rounded-xl border border-cc-border bg-cc-input-bg p-3 text-sm outline-none focus:border-cc-primary"
@@ -301,8 +309,9 @@ export function AnnotationEditor({
             Cancel
           </button>
           <button
-            disabled={!text.trim() || busy || !!proposal}
+            disabled={!canSave}
             onClick={() => onSave(text)}
+            title={saveKey.hint}
             className="rounded-lg bg-cc-primary px-3 py-1.5 text-white disabled:opacity-40"
           >
             Save

@@ -47,6 +47,7 @@ import {
   isValidChatMessageLineHeight,
   normalizeChatMessageLineHeight,
 } from "../../shared/chat-display-settings.js";
+import { isSendKeyScheme, normalizeSendKeyScheme } from "../../shared/send-key-scheme.js";
 import {
   CLAUDE_1M_CONTEXT_TOKENS,
   DEFAULT_SESSION_DEFAULTS,
@@ -891,6 +892,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       questmasterViewMode: normalizeQuestmasterViewMode(settings.questmasterViewMode),
       questmasterCompactSort: normalizeQuestmasterCompactSort(settings.questmasterCompactSort),
       chatMessageLineHeight: normalizeChatMessageLineHeight(settings.chatMessageLineHeight),
+      sendKeyScheme: normalizeSendKeyScheme(settings.sendKeyScheme),
       codexLeaderContextWindowOverrideTokens: settings.codexLeaderContextWindowOverrideTokens,
       ...(typeof settings.codexNonLeaderAutoCompactThresholdPercent === "number"
         ? { codexNonLeaderAutoCompactThresholdPercent: settings.codexNonLeaderAutoCompactThresholdPercent }
@@ -1130,6 +1132,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
         400,
       );
     }
+    if (body.sendKeyScheme !== undefined && !isSendKeyScheme(body.sendKeyScheme)) {
+      return c.json({ error: 'sendKeyScheme must be "enter" or "mod-enter"' }, 400);
+    }
     if (
       body.codexLeaderContextWindowOverrideTokens !== undefined &&
       (typeof body.codexLeaderContextWindowOverrideTokens !== "number" ||
@@ -1229,6 +1234,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "questmasterViewMode",
       "questmasterCompactSort",
       "chatMessageLineHeight",
+      "sendKeyScheme",
       "codexLeaderContextWindowOverrideTokens",
       "codexNonLeaderAutoCompactThresholdPercent",
       "codexLeaderRecycleThresholdTokens",
@@ -1281,6 +1287,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       ...(typeof body.chatMessageLineHeight === "number"
         ? { chatMessageLineHeight: normalizeChatMessageLineHeight(body.chatMessageLineHeight) }
         : {}),
+      sendKeyScheme: isSendKeyScheme(body.sendKeyScheme) ? body.sendKeyScheme : undefined,
       codexLeaderContextWindowOverrideTokens:
         typeof body.codexLeaderContextWindowOverrideTokens === "number"
           ? body.codexLeaderContextWindowOverrideTokens

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, api } from "../api.js";
 import { useStore } from "../store.js";
+import { useSendKey } from "../hooks/useSendKey.js";
 import { connectSession } from "../ws.js";
 import type { ChatMessage, PendingCodexInput, SideChatRecord } from "../types.js";
 import { getRecoverableSessionConnectionPresentation } from "../utils/recoverable-session-connection.js";
@@ -252,6 +253,7 @@ export function SideChatPanel({
     serverReachable,
   ]);
 
+  const sendKey = useSendKey();
   const send = async () => {
     const content = text.trim();
     if (!content || sending || !canSend) return;
@@ -344,7 +346,7 @@ export function SideChatPanel({
             value={text}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
+              if (sendKey.isSendKey(event)) {
                 event.preventDefault();
                 void send();
               }
@@ -362,6 +364,7 @@ export function SideChatPanel({
               type="button"
               onClick={() => void send()}
               disabled={!text.trim() || sending || !canSend}
+              title={sendKey.hint}
               className="rounded-md bg-cc-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-cc-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               {sending ? "Sending" : pendingCodexInputs.length > 0 ? "Queue" : "Send"}

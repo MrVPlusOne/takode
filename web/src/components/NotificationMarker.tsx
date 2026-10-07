@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { MouseEvent } from "react";
+import type { MouseEvent, SyntheticEvent } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { ChatMessage, SessionNotification } from "../types.js";
@@ -151,7 +151,7 @@ export function NotificationMarker({
   );
 
   const sendQuickReply = useCallback(
-    (e: MouseEvent) => {
+    (e: SyntheticEvent) => {
       e.stopPropagation();
       if (!sessionId || !notif || !canSendQuickReply) return;
       runAfterNotificationOwnerThreadSelected({
@@ -359,6 +359,7 @@ export function NotificationMarker({
                   threadKey={voiceThreadKey}
                   threadTitle={voiceThreadTitle}
                   className="w-full min-w-0"
+                  onSubmit={sendQuickReply}
                 />
               )}
               {questionViews.length === 1 && (

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
+import { useSendKey } from "../hooks/useSendKey.js";
 import { api } from "../api.js";
 import { navigateToSession, withoutQuestIdInHash } from "../utils/routing.js";
 import { markdownToPlainText } from "../utils/copy-utils.js";
@@ -86,6 +87,7 @@ export function QuestDetailPanel() {
   const [editorAutocompleteTarget, setEditorAutocompleteTarget] = useState<EditorTarget | null>(null);
 
   const [feedbackDraft, setFeedbackDraft] = useState("");
+  const feedbackSaveKey = useSendKey("Save");
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [feedbackImages, setFeedbackImages] = useState<QuestImage[]>([]);
   const [uploadingFeedbackImage, setUploadingFeedbackImage] = useState(false);
@@ -1229,9 +1231,9 @@ export function QuestDetailPanel() {
                                       className="w-full text-sm bg-cc-bg border border-amber-500/30 rounded-lg px-2.5 py-1.5 text-cc-fg focus:outline-none focus:ring-1 focus:ring-amber-500/30 resize-none"
                                       rows={2}
                                       onKeyDown={(e) => {
-                                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                                        if (feedbackSaveKey.isSendKey(e)) {
                                           e.preventDefault();
-                                          handleEditFeedbackSave();
+                                          if (!feedbackSubmitting) handleEditFeedbackSave();
                                         } else if (e.key === "Escape") {
                                           setEditingFeedback(null);
                                         }
@@ -1371,9 +1373,9 @@ export function QuestDetailPanel() {
                         className="w-full text-sm bg-cc-input-bg border border-cc-border rounded-lg px-2.5 py-2 text-cc-fg placeholder-cc-muted/50 focus:outline-none focus:ring-1 focus:ring-amber-500/30 resize-none"
                         rows={2}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                          if (feedbackSaveKey.isSendKey(e)) {
                             e.preventDefault();
-                            handleAddFeedback(quest.questId, feedbackDraft);
+                            if (!feedbackSubmitting) handleAddFeedback(quest.questId, feedbackDraft);
                           }
                         }}
                         onPaste={(e) => {
@@ -1408,9 +1410,7 @@ export function QuestDetailPanel() {
                         {uploadingFeedbackImage && (
                           <span className="text-xs text-cc-muted animate-pulse">Uploading...</span>
                         )}
-                        <span className="text-[11px] text-cc-muted/40 ml-auto">
-                          {navigator.platform.includes("Mac") ? "\u2318" : "Ctrl"}+Enter
-                        </span>
+                        <span className="text-[11px] text-cc-muted/40 ml-auto">{feedbackSaveKey.hint}</span>
                       </div>
                     </div>
                   </div>

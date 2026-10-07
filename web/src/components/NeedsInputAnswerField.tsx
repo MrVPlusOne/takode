@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { api, type VoiceTranscriptionPhase } from "../api.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
+import { useSendKey } from "../hooks/useSendKey.js";
 import type { VoiceLevelSample } from "./composer-voice-types.js";
 import type { SessionNotification } from "../types.js";
 import type { NeedsInputQuestionView } from "../utils/notification-questions.js";
@@ -80,6 +81,7 @@ export function NeedsInputAnswerField({
   threadTitle,
   className = "",
   onClickStopsPropagation = true,
+  onSubmit,
 }: {
   sessionId: string;
   notification: SessionNotification;
@@ -93,8 +95,11 @@ export function NeedsInputAnswerField({
   threadTitle?: string;
   className?: string;
   onClickStopsPropagation?: boolean;
+  /** Called when the user presses the send key; the caller decides whether the response is ready to send. */
+  onSubmit?: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const sendKey = useSendKey();
   const valueRef = useRef(value);
   const selectionRef = useRef<TextSelectionRange | null>(null);
   const [failedTranscription, setFailedTranscription] = useState<FailedNeedsInputTranscription | null>(null);
@@ -262,6 +267,11 @@ export function NeedsInputAnswerField({
           onChange={(event) => {
             onChange(event.currentTarget.value);
             autoResizeNeedsInputAnswerTextarea(event.currentTarget);
+          }}
+          onKeyDown={(event) => {
+            if (!onSubmit || !sendKey.isSendKey(event)) return;
+            event.preventDefault();
+            onSubmit(event);
           }}
           aria-label={`Answer for ${question.prompt}`}
           className={NEEDS_INPUT_ANSWER_TEXTAREA_CLASS}

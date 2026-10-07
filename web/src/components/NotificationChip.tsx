@@ -441,7 +441,7 @@ function NotificationItem({
     questionViews.length > 0 &&
     questionViews.every((q) => answersByQuestion[q.key]?.trim());
   const sendResponse = useCallback(
-    (e: React.MouseEvent) => {
+    (e: React.SyntheticEvent) => {
       e.stopPropagation();
       if (!canSendResponse) return;
       runAfterNotificationOwnerThreadSelected({
@@ -656,6 +656,7 @@ function NotificationItem({
                   sourceContext={sourceContext}
                   threadKey={ownerThreadKey}
                   threadTitle={voiceThreadTitle}
+                  onSubmit={sendResponse}
                 />
               </div>
             ))}

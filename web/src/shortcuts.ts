@@ -454,7 +454,7 @@ function bindingMatchesEventKey(bindingKey: string, event: Pick<KeyboardEvent, "
   return false;
 }
 
-function platformIsMac(platform?: string): boolean {
+export function platformIsMac(platform?: string): boolean {
   if (!platform) return false;
   return /mac|iphone|ipad|ipod/i.test(platform);
 }

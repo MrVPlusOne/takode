@@ -348,6 +348,7 @@ function GlobalNeedsInputRow({
                 threadKey={ownerThreadKey}
                 threadTitle={voiceThreadTitle}
                 onClickStopsPropagation={false}
+                onSubmit={() => void sendResponse()}
               />
             </div>
           ))}

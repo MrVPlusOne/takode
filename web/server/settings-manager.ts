@@ -11,6 +11,7 @@ import {
   type LeaderProfilePoolSettings,
 } from "../shared/leader-profile-portraits.js";
 import { DEFAULT_CHAT_MESSAGE_LINE_HEIGHT, normalizeChatMessageLineHeight } from "../shared/chat-display-settings.js";
+import { DEFAULT_SEND_KEY_SCHEME, normalizeSendKeyScheme, type SendKeyScheme } from "../shared/send-key-scheme.js";
 import { CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS } from "./codex-leader-recycle-threshold.js";
 import {
   DEFAULT_SESSION_DEFAULTS,
@@ -83,6 +84,8 @@ export interface CompanionSettings {
   questmasterCompactSort?: QuestmasterCompactSort;
   /** Chat/message markdown line-height multiplier. Optional for backward-compatible tests/mocks. */
   chatMessageLineHeight?: number;
+  /** Which keys send or save in multi-line text boxes. Optional for backward-compatible tests/mocks. */
+  sendKeyScheme?: SendKeyScheme;
   /** Legacy Codex leader context override retained for settings compatibility; new launches derive this internally. */
   codexLeaderContextWindowOverrideTokens: number;
   /** Percent of each non-leader Codex model's effective window to use before auto-compact. */
@@ -244,6 +247,7 @@ let settings: CompanionSettings = {
   questmasterViewMode: "cards",
   questmasterCompactSort: DEFAULT_QUESTMASTER_COMPACT_SORT,
   chatMessageLineHeight: DEFAULT_CHAT_MESSAGE_LINE_HEIGHT,
+  sendKeyScheme: DEFAULT_SEND_KEY_SCHEME,
   codexLeaderContextWindowOverrideTokens: 1_000_000,
   codexNonLeaderAutoCompactThresholdPercent: 90,
   codexLeaderRecycleThresholdTokens: CODEX_LEADER_RECYCLE_FALLBACK_THRESHOLD_TOKENS,
@@ -514,6 +518,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
         : "cards",
     questmasterCompactSort: normalizeQuestmasterCompactSort(raw?.questmasterCompactSort),
     chatMessageLineHeight: normalizeChatMessageLineHeight(raw?.chatMessageLineHeight),
+    sendKeyScheme: normalizeSendKeyScheme(raw?.sendKeyScheme),
     codexLeaderContextWindowOverrideTokens:
       typeof raw?.codexLeaderContextWindowOverrideTokens === "number" && raw.codexLeaderContextWindowOverrideTokens >= 1
         ? Math.floor(raw.codexLeaderContextWindowOverrideTokens)
@@ -633,6 +638,7 @@ export function updateSettings(
       | "questmasterViewMode"
       | "questmasterCompactSort"
       | "chatMessageLineHeight"
+      | "sendKeyScheme"
       | "codexLeaderContextWindowOverrideTokens"
       | "codexNonLeaderAutoCompactThresholdPercent"
       | "codexLeaderRecycleThresholdTokens"

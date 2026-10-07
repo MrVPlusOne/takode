@@ -662,6 +662,24 @@ describe("Composer sending messages", () => {
     expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
+  it("with the Cmd+Enter scheme, Enter adds a newline and Cmd+Enter sends", () => {
+    // Opt-in alternate scheme from Settings; the send button tooltip must describe it too.
+    mockStoreState.sendKeyScheme = "mod-enter";
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "line 1" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(mockSendToSession).not.toHaveBeenCalled();
+    expect(screen.getByTitle(/Send: (⌘|Ctrl)\+Enter; New line: Enter/)).toBeTruthy();
+
+    fireEvent.keyDown(textarea, { key: "Enter", metaKey: true });
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ type: "user_message", content: "line 1" }),
+    );
+  });
+
   it("pressing Enter still sends on narrow desktop layouts", () => {
     setViewportWidth(500);
     mediaState.touchDevice = false;

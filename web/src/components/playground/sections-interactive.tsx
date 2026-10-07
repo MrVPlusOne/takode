@@ -10,6 +10,7 @@ import { ComposerMetaToolbar } from "../ComposerMetaToolbar.js";
 import { PausedInputChip, PauseOtherSourcesButton } from "../SessionPauseComposerControls.js";
 import { WorkBoardBar } from "../WorkBoardBar.js";
 import { useStore } from "../../store.js";
+import { useSendKey } from "../../hooks/useSendKey.js";
 import {
   CLAUDE_MODELS,
   CODEX_MODELS,
@@ -188,6 +189,7 @@ function PlaygroundComposerPermissionToolbar({
 }) {
   const modelDropdownRef = useRef<HTMLDivElement | null>(null);
   const permissionDropdownRef = useRef<HTMLDivElement | null>(null);
+  const sendKey = useSendKey();
   const isCodex = backend === "codex";
   const codexModelOptions = isCodex
     ? CODEX_MODELS.map((model) =>
@@ -263,7 +265,7 @@ function PlaygroundComposerPermissionToolbar({
           isRunning={false}
           handleInterrupt={() => {}}
           handleSend={() => {}}
-          sendButtonTitle="Send: Enter; New line: Shift+Enter"
+          sendButtonTitle={sendKey.hint}
           sendPressing={false}
         />
       </div>

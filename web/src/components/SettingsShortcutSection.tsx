@@ -4,9 +4,12 @@ import {
   formatShortcut,
   getEffectiveShortcutBinding,
   getShortcutPresetBindings,
+  platformIsMac,
   type ShortcutActionId,
   type ShortcutSettings,
 } from "../shortcuts.js";
+import { useStore } from "../store.js";
+import type { SendKeyScheme } from "../../shared/send-key-scheme.js";
 import { CollapsibleSection } from "./CollapsibleSection.js";
 import type { SettingsSearchResults, SettingsSectionId } from "./settings-search.js";
 
@@ -50,6 +53,8 @@ export function SettingsShortcutSection({
       searchQuery={sectionSearch?.results.query}
       matchCount={sectionSearch ? (sectionSearch.results.sectionMatchCounts.get(sectionSearch.id) ?? 0) : 0}
     >
+      <SendKeySchemeSetting shortcutPlatform={shortcutPlatform} />
+
       <button
         type="button"
         onClick={() => setShortcutsEnabled(!shortcutSettings.enabled)}
@@ -171,5 +176,32 @@ export function SettingsShortcutSection({
         <p className="text-xs text-cc-muted">Enable shortcuts to edit presets and bindings.</p>
       )}
     </CollapsibleSection>
+  );
+}
+
+/** Send-key scheme for multi-line send/save boxes. Always active, independent of the shortcut toggle below. */
+function SendKeySchemeSetting({ shortcutPlatform }: { shortcutPlatform?: string }) {
+  const sendKeyScheme = useStore((s) => s.sendKeyScheme);
+  const setSendKeyScheme = useStore((s) => s.setSendKeyScheme);
+  const modEnter = platformIsMac(shortcutPlatform) ? "⌘+Enter" : "Ctrl+Enter";
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1.5" htmlFor="send-key-scheme">
+        Send Key
+      </label>
+      <select
+        id="send-key-scheme"
+        value={sendKeyScheme}
+        onChange={(e) => setSendKeyScheme(e.target.value as SendKeyScheme)}
+        className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
+      >
+        <option value="enter">Enter sends, Shift+Enter adds a new line</option>
+        <option value="mod-enter">{modEnter} sends, Enter adds a new line</option>
+      </select>
+      <p className="mt-1.5 text-xs text-cc-muted">
+        Applies to the message composer, comments, quest feedback, Side Chat and needs-input answers. On touch
+        keyboards, Enter always adds a new line.
+      </p>
+    </div>
   );
 }

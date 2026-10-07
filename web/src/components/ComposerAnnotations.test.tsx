@@ -82,6 +82,35 @@ describe("composer annotation attachments", () => {
     expect(mocks.send).not.toHaveBeenCalled();
   });
 
+  it("saves the comment with the active send key, matching the composer", () => {
+    // Default scheme: Enter saves and Shift+Enter keeps editing (newline); the alternate scheme
+    // makes Enter a newline and saves on Cmd/Ctrl+Enter.
+    const saved = () => useStore.getState().composerDrafts.get("session")?.annotations?.[1]?.comment;
+    openNewComment();
+    const textarea = screen.getByLabelText("Comment");
+    fireEvent.change(textarea, { target: { value: "Keyboard comment" } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
+    expect(saved()).toBeUndefined();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(saved()).toBe("Keyboard comment");
+    cleanup();
+
+    useStore.setState({ sendKeyScheme: "mod-enter" });
+    try {
+      useStore.getState().setAnnotationEditor({ sessionId: "session", annotation: { ...second, id: "third" } });
+      render(<ComposerAnnotations sessionId="session" threadKey="main" />);
+      const next = screen.getByLabelText("Comment");
+      fireEvent.change(next, { target: { value: "Mod comment" } });
+      fireEvent.keyDown(next, { key: "Enter" });
+      expect(useStore.getState().composerDrafts.get("session")?.annotations).toHaveLength(2);
+      fireEvent.keyDown(next, { key: "Enter", metaKey: true });
+      expect(useStore.getState().composerDrafts.get("session")?.annotations?.[2]?.comment).toBe("Mod comment");
+      expect(screen.queryByLabelText("Comment")).toBeNull();
+    } finally {
+      useStore.setState({ sendKeyScheme: "enter" });
+    }
+  });
+
   it("keeps contextual dictation confined to the current unsaved comment", async () => {
     openNewComment();
     fireEvent.click(screen.getByLabelText("Voice comment"));

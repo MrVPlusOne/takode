@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useState } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { UseVoiceInputOptions } from "../hooks/useVoiceInput.js";
 import type { SessionNotification } from "../types.js";
@@ -63,6 +63,7 @@ vi.mock("../hooks/useVoiceInput.js", async () => {
   };
 });
 
+import { useStore } from "../store.js";
 import {
   autoResizeNeedsInputAnswerTextarea,
   NEEDS_INPUT_ANSWER_MAX_HEIGHT_PX,
@@ -98,6 +99,38 @@ describe("NeedsInputAnswerField", () => {
     voiceState.current.isRecording = false;
     voiceState.current.volumeLevel = 0;
     voiceState.current.volumeHistory = [];
+  });
+
+  it("submits on the active send key and keeps Shift+Enter as a newline", () => {
+    // Quick-reply answers follow the same send-key setting as the composer.
+    const onSubmit = vi.fn();
+    render(
+      <NeedsInputAnswerField
+        sessionId="s1"
+        notification={notification}
+        question={question}
+        questionCount={1}
+        value="yes"
+        onChange={() => {}}
+        placeholder="Answer"
+        onSubmit={onSubmit}
+      />,
+    );
+    const textarea = screen.getByLabelText(`Answer for ${question.prompt}`);
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+
+    act(() => useStore.setState({ sendKeyScheme: "mod-enter" }));
+    try {
+      fireEvent.keyDown(textarea, { key: "Enter" });
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+      fireEvent.keyDown(textarea, { key: "Enter", ctrlKey: true });
+      expect(onSubmit).toHaveBeenCalledTimes(2);
+    } finally {
+      act(() => useStore.setState({ sendKeyScheme: "enter" }));
+    }
   });
 
   it("auto-expands textarea height up to a capped internal scroll area", () => {

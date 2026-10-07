@@ -114,6 +114,7 @@ export function isDarkTheme(theme: ColorTheme): boolean {
 // ─── Pending Session (client-only, pre-creation) ────────────────────────────
 
 import { scopedGetItem, scopedSetItem, scopedRemoveItem } from "./utils/scoped-storage.js";
+import { DEFAULT_SEND_KEY_SCHEME } from "../shared/send-key-scheme.js";
 
 export {
   reconcileQuestList,
@@ -247,6 +248,7 @@ export const useStore = create<AppState>((set, get) => ({
   compactToolActivity:
     typeof window !== "undefined" ? localStorage.getItem("cc-compact-tool-activity") !== "false" : true,
   chatMessageLineHeight: getInitialChatMessageLineHeight(),
+  sendKeyScheme: DEFAULT_SEND_KEY_SCHEME,
   shortcutSettings: getInitialShortcutSettings(),
   sidebarOpen: typeof window !== "undefined" ? isDesktopShellLayout(getInitialZoomLevel()) : true,
   sessionInfoOpenSessionId: null,
@@ -389,6 +391,14 @@ export const useStore = create<AppState>((set, get) => ({
       return { compactToolActivity: next };
     }),
   setChatMessageLineHeight: (lineHeight) => set({ chatMessageLineHeight: normalizeChatMessageLineHeight(lineHeight) }),
+  setSendKeyScheme: (scheme) => {
+    const previous = get().sendKeyScheme;
+    set({ sendKeyScheme: scheme });
+    api.updateSettings({ sendKeyScheme: scheme }).catch((err) => {
+      console.warn("[send-key] failed to persist send key scheme", err);
+      if (get().sendKeyScheme === scheme) set({ sendKeyScheme: previous });
+    });
+  },
   setShortcutsEnabled: (enabled) =>
     set((s) => {
       const shortcutSettings = { ...s.shortcutSettings, enabled };
@@ -1709,6 +1719,7 @@ export const useStore = create<AppState>((set, get) => ({
       compactToolActivity:
         typeof window !== "undefined" ? localStorage.getItem("cc-compact-tool-activity") !== "false" : true,
       chatMessageLineHeight: getInitialChatMessageLineHeight(),
+      sendKeyScheme: DEFAULT_SEND_KEY_SCHEME,
       shortcutSettings: DEFAULT_SHORTCUT_SETTINGS,
       annotationEditor: null,
       annotationHover: null,

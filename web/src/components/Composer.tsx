@@ -46,6 +46,7 @@ import { collectPlainTakodeReferences, parseCodexModeSlashCommand } from "./comp
 import { useComposerAutocomplete } from "./use-composer-autocomplete.js";
 import type { AlternateVoiceRerun, FailedTranscription, VoiceEditProposal } from "./composer-voice-types.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
+import { useSendKey } from "../hooks/useSendKey.js";
 import { useComposerSessionView } from "./use-composer-session-view.js";
 import {
   api,
@@ -686,6 +687,7 @@ export function Composer({
 
   const [isNarrowLayout, setIsNarrowLayout] = useState(() => isNarrowComposerLayout(zoomLevel));
   const usesTouchKeyboard = isTouchDevice();
+  const sendKey = useSendKey();
   useEffect(() => {
     const updateLayout = () => setIsNarrowLayout(isNarrowComposerLayout(zoomLevel));
     updateLayout();
@@ -1178,17 +1180,7 @@ export function Composer({
       e.preventDefault();
       return;
     }
-    // Desktop: Enter sends, Shift+Enter inserts newline.
-    // Mobile: Enter always inserts newline (users tap the Send button).
-    // Skip during IME composition (e.g. CJK input) -- Enter confirms the
-    // candidate character, not a send intent. keyCode 229 covers older browsers.
-    if (
-      e.key === "Enter" &&
-      !e.shiftKey &&
-      !usesTouchKeyboard &&
-      !e.nativeEvent.isComposing &&
-      e.nativeEvent.keyCode !== 229
-    ) {
+    if (sendKey.isSendKey(e)) {
       e.preventDefault();
       handleSend();
     }
@@ -1616,10 +1608,7 @@ export function Composer({
     : !canUseInput
       ? "Resume session to upload images"
       : "Upload image";
-  const sendButtonShortcutTitle = usesTouchKeyboard
-    ? "Send: tap button; New line: Enter"
-    : "Send: Enter; New line: Shift+Enter";
-  const sendButtonTitle = attachmentBlockReason ?? (canSend ? sendButtonShortcutTitle : "Send message");
+  const sendButtonTitle = attachmentBlockReason ?? (canSend ? sendKey.hint : "Send message");
   const plainReferencePreviews = useMemo(() => {
     const questIds = new Set(previewQuestIds);
     const sessionNums = new Set(previewSessionNums);
