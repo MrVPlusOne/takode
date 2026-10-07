@@ -405,8 +405,10 @@ describe("MemoryPage", () => {
     expect(screen.getByTestId("memory-side-panel")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Records" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Recent updates" })).toHaveAttribute("aria-selected", "false");
-    expect(await screen.findByRole("button", { name: /knowledge.*1/i })).toHaveAttribute("aria-expanded", "true");
+    // Folders start collapsed; expanding one shows its records.
+    expect(await screen.findByRole("button", { name: /knowledge.*1/i })).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByRole("button", { name: /procedures.*1/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /knowledge.*1/i }));
 
     const knowledgeGroup = screen.getByRole("region", { name: "knowledge memory records" });
     expect(within(knowledgeGroup).getByText("service-x.md")).toBeInTheDocument();
@@ -651,26 +653,39 @@ describe("MemoryPage", () => {
     });
   });
 
-  it("collapses folder groups and filters simple record rows without clearing selected detail", async () => {
+  it("starts folders collapsed, toggles them, and opens matching folders while filtering", async () => {
     render(<MemoryPage embedded />);
 
-    expect(await screen.findByText("service-x.md")).toBeInTheDocument();
-    const knowledgeGroup = screen.getByRole("region", { name: "knowledge memory records" });
-    fireEvent.click(screen.getByRole("button", { name: /knowledge.*1/i }));
+    // All folders start collapsed, even though the first record is selected in the detail pane.
+    const knowledgeGroup = await screen.findByRole("region", { name: "knowledge memory records" });
+    expect(await screen.findByText("Service X is started through a local dev command.")).toBeInTheDocument();
     expect(within(knowledgeGroup).queryByText("service-x.md")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /knowledge.*1/i }));
     expect(within(knowledgeGroup).getByText("service-x.md")).toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText("Filter memory"), { target: { value: "run-service" } });
-    expect(screen.getByText("run-service.md")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /knowledge.*1/i }));
     expect(within(knowledgeGroup).queryByText("service-x.md")).not.toBeInTheDocument();
+
+    // A filter opens the folders holding matches without touching the selected detail.
+    fireEvent.change(screen.getByLabelText("Filter memory"), { target: { value: "run-service" } });
+    const proceduresGroup = screen.getByRole("region", { name: "procedures memory records" });
+    expect(within(proceduresGroup).getByText("run-service.md")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "knowledge memory records" })).not.toBeInTheDocument();
     expect(screen.getByText("Service X is started through a local dev command.")).toBeInTheDocument();
+    // Folders can still be collapsed while filtering.
+    fireEvent.click(screen.getByRole("button", { name: /procedures.*1/i }));
+    expect(within(proceduresGroup).queryByText("run-service.md")).not.toBeInTheDocument();
+
+    // Clearing the filter restores the user's own (collapsed) state rather than leaving folders open.
+    fireEvent.change(screen.getByLabelText("Filter memory"), { target: { value: "" } });
+    expect(screen.getByRole("button", { name: /procedures.*1/i })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: /knowledge.*1/i })).toHaveAttribute("aria-expanded", "false");
   });
 
   it("opens mobile drill-in detail and supports next/previous record navigation", async () => {
     render(<MemoryPage embedded />);
 
     const knowledgeGroup = await screen.findByRole("region", { name: "knowledge memory records" });
+    fireEvent.click(screen.getByRole("button", { name: /knowledge.*1/i }));
     fireEvent.click(within(knowledgeGroup).getByRole("button", { name: /service-x\.md/ }));
 
     const mobileDetail = screen.getByTestId("memory-mobile-detail");
@@ -678,6 +693,8 @@ describe("MemoryPage", () => {
     fireEvent.click(within(mobileDetail).getByRole("button", { name: "Next" }));
 
     expect(await within(mobileDetail).findByText("bun run dev")).toBeInTheDocument();
+    // Next landed in the collapsed procedures folder, which opens so the selected row stays visible.
+    expect(screen.getByRole("button", { name: /procedures.*1/i })).toHaveAttribute("aria-expanded", "true");
     fireEvent.click(within(mobileDetail).getByRole("button", { name: "Previous" }));
     expect(
       await within(mobileDetail).findByText("Service X is started through a local dev command."),

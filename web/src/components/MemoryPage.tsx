@@ -838,10 +838,13 @@ function entryMatches(entry: MemoryCatalogEntry, query: string): boolean {
     .includes(needle);
 }
 
+function folderOf(entry: MemoryCatalogEntry): string {
+  return entry.folder.split("/")[0] || ROOT_GROUP;
+}
+
 /** Group by top-level folder (sorted), so both topic folders and older type folders read naturally. */
 function groupEntries(entries: MemoryCatalogEntry[]): Map<string, MemoryCatalogEntry[]> {
   const map = new Map<string, MemoryCatalogEntry[]>();
-  const folderOf = (entry: MemoryCatalogEntry) => entry.folder.split("/")[0] || ROOT_GROUP;
   for (const folder of [...new Set(entries.map(folderOf))].sort()) map.set(folder, []);
   for (const entry of entries) map.get(folderOf(entry))?.push(entry);
   return map;
@@ -881,7 +884,12 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [selectedUpdateSha, setSelectedUpdateSha] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  // Folders start collapsed so the list reads as a table of contents. While a filter is active,
+  // matching folders show expanded instead (tracked separately, so clearing the filter restores
+  // the user's own expand state). Both are local UI state and reset when the space changes.
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [filterCollapsedFolders, setFilterCollapsedFolders] = useState<Set<string>>(new Set());
+  const filtering = query.trim().length > 0;
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [sidePanelTab, setSidePanelTab] = useState<MemorySidePanelTab>("records");
   const [recentLimit, setRecentLimit] = useState(INITIAL_RECENT_LIMIT);
@@ -1021,6 +1029,19 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
     [catalog?.entries, query],
   );
   const entriesByFolder = useMemo(() => groupEntries(filteredEntries), [filteredEntries]);
+  const collapsedFolders = useMemo(
+    () =>
+      new Set(
+        [...entriesByFolder.keys()].filter((folder) =>
+          filtering ? filterCollapsedFolders.has(folder) : !expandedFolders.has(folder),
+        ),
+      ),
+    [entriesByFolder, expandedFolders, filterCollapsedFolders, filtering],
+  );
+
+  useEffect(() => {
+    if (!filtering) setFilterCollapsedFolders(new Set());
+  }, [filtering]);
   const selectedSpace = spacesState.data?.spaces.find((space) => space.root === selectedRoot) ?? null;
   const selectedSpaceLabel = selectedSpace ? spaceLabel(selectedSpace) : null;
   const selectedEntry = selectedPath ? (catalog?.entries.find((entry) => entry.path === selectedPath) ?? null) : null;
@@ -1048,6 +1069,8 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
     setSelectedUpdateSha(null);
     setMobileDetailOpen(false);
     setRecentLimit(INITIAL_RECENT_LIMIT);
+    setExpandedFolders(new Set());
+    setFilterCollapsedFolders(new Set());
   }
 
   function selectEntry(entry: MemoryCatalogEntry): void {
@@ -1063,10 +1086,24 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
   }
 
   function toggleFolder(folder: string): void {
-    setCollapsedFolders((current) => {
+    const toggle = (current: Set<string>) => {
       const next = new Set(current);
       if (next.has(folder)) next.delete(folder);
       else next.add(folder);
+      return next;
+    };
+    if (filtering) setFilterCollapsedFolders(toggle);
+    else setExpandedFolders(toggle);
+  }
+
+  /** Previous/Next can land in a collapsed folder; open it so the selected row stays visible. */
+  function revealFolder(entry: MemoryCatalogEntry): void {
+    const folder = folderOf(entry);
+    setExpandedFolders((current) => (current.has(folder) ? current : new Set(current).add(folder)));
+    setFilterCollapsedFolders((current) => {
+      if (!current.has(folder)) return current;
+      const next = new Set(current);
+      next.delete(folder);
       return next;
     });
   }
@@ -1077,6 +1114,7 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
     const nextIndex = Math.min(Math.max(baseIndex + offset, 0), filteredEntries.length - 1);
     const nextEntry = filteredEntries[nextIndex];
     if (!nextEntry) return;
+    revealFolder(nextEntry);
     setSelectedPath(nextEntry.path);
     setMobileDetailOpen(true);
   }
