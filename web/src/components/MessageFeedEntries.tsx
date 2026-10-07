@@ -951,6 +951,9 @@ export const FeedEntries = memo(function FeedEntries({
             {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
             {currentResponse ? (
               <ExpandedCurrentThreadResponse
+                message={entry.msg}
+                currentThreadKey={currentThreadKey}
+                onSelectThread={onSelectThread}
                 messageCount={currentResponse.response.answerUserMessageIds.length}
                 referencedMessages={currentResponse.referencedUserMessages}
               >

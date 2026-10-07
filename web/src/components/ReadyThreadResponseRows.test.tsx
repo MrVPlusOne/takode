@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 import type { ThreadResponsePresentation } from "./thread-response-presentation.js";
+import { MessageBubble } from "./MessageBubble.js";
 import { ReadyThreadResponseRows } from "./ReadyThreadResponseRows.js";
 
 function entry(id: string, content: string, historyIndex?: number): Extract<FeedEntry, { kind: "message" }> {
@@ -278,5 +279,64 @@ describe("ReadyThreadResponseRows", () => {
 
     expect(screen.queryByText("Decision no longer unresolved")).not.toBeInTheDocument();
     expect(screen.getByText("Current polished response")).toBeVisible();
+  });
+
+  it("joins the cross-thread link and the answer chip in one header without repeating the link", () => {
+    // An answer from q-9 viewed in the q-2 tab: the row header shows the
+    // thread link first, joined with the answered chip. The real bubble
+    // inside must not render its own copy of the link.
+    const current = presentation(["u1"]);
+    const answer = current.currentResponses[0]!.collapsedMessageEntry;
+    answer.msg.metadata = { threadKey: "q-9" };
+    const onSelectThread = vi.fn();
+    render(
+      <ReadyThreadResponseRows
+        turn={turn([answer])}
+        presentation={current}
+        sessionId="leader"
+        currentThreadKey="q-2"
+        onSelectThread={onSelectThread}
+        questLinkSurface="chat-feed"
+        renderEntry={(item) =>
+          item.kind === "message" ? (
+            <MessageBubble message={item.msg} currentThreadKey="q-2" onSelectThread={onSelectThread} />
+          ) : null
+        }
+      />,
+    );
+
+    const header = screen.getByTestId("message-thread-header");
+    const link = screen.getByTestId("thread-source-badge");
+    const chip = screen.getByTestId("thread-response-answer-count");
+    expect(screen.getAllByTestId("thread-source-badge")).toHaveLength(1);
+    expect(header).toContainElement(link);
+    expect(header).toContainElement(chip);
+    expect(link.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(link).toHaveTextContent("thread:q-9");
+    expect(chip).toHaveTextContent("Answers 1 message");
+
+    fireEvent.click(link);
+    expect(onSelectThread).toHaveBeenCalledWith("q-9");
+  });
+
+  it("shows only the answer chip for an answer from the viewed thread", () => {
+    const current = presentation(["u1"]);
+    const answer = current.currentResponses[0]!.collapsedMessageEntry;
+    answer.msg.metadata = { threadKey: "q-2" };
+    render(
+      <ReadyThreadResponseRows
+        turn={turn([answer])}
+        presentation={current}
+        sessionId="leader"
+        currentThreadKey="q-2"
+        questLinkSurface="chat-feed"
+        renderEntry={(item) => <div>{item.kind === "message" ? item.msg.content : "activity"}</div>}
+      />,
+    );
+
+    expect(screen.getByTestId("message-thread-header")).toContainElement(
+      screen.getByTestId("thread-response-answer-count"),
+    );
+    expect(screen.queryByTestId("thread-source-badge")).not.toBeInTheDocument();
   });
 });

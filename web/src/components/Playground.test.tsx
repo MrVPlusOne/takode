@@ -286,11 +286,20 @@ describe("Playground", () => {
     expect(withoutTools.getByRole("button", { name: "Message options" })).toBeVisible();
     expect(withoutTools.queryByText(/tools?/i)).not.toBeInTheDocument();
 
+    // An answer from another thread joins its thread link and answer chip in one header tag.
+    const crossThreadHeader = within(routedFinalStates.getByTestId("playground-cross-thread-answer")).getByTestId(
+      "message-thread-header",
+    );
+    expect(within(crossThreadHeader).getByTestId("thread-source-badge")).toHaveTextContent("thread:q-2043");
+    expect(within(crossThreadHeader).getByTestId("thread-response-answer-count")).toHaveTextContent(
+      "Answers 1 message",
+    );
+
     const associatedMainCard = routedFinalStates.getByTestId("playground-associated-main-answer");
     expect(associatedMainCard).toHaveClass("min-w-0", "w-full", "max-w-[430px]", "overflow-hidden");
     const associatedMain = within(associatedMainCard);
     expect(associatedMain.getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
-    expect(associatedMain.getByTestId("thread-source-badge")).toHaveTextContent("[thread:main]");
+    expect(associatedMain.getByTestId("thread-source-badge")).toHaveTextContent("thread:main");
     expect(associatedMain.getByRole("button", { name: /Show turn activity.*1 tool/ })).toHaveAttribute(
       "aria-expanded",
       "false",
@@ -360,7 +369,7 @@ describe("Playground", () => {
       expect(preview).toHaveTextContent("[⏰ Timer t2 reminder] Check build health");
       fireEvent.click(badge);
     }
-    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(10);
+    expect(routedFinalStates.getAllByTestId("thread-response-answer-count")).toHaveLength(11);
     expect(routedFinalStates.queryByText("Current answer")).not.toBeInTheDocument();
     expect(routedFinalStates.queryByText("Leader activity")).not.toBeInTheDocument();
     const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView);

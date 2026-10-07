@@ -289,7 +289,10 @@ describe("MessageFeed - thread movement rows", () => {
     expect(screen.getByText("Main setup")).toBeTruthy();
     expect(screen.getByText("Attached historical context")).toBeTruthy();
     expect(screen.queryByTestId("thread-attachment-marker")).toBeNull();
-    expect(screen.queryByRole("button", { name: "thread:q-941" })).toBeNull();
+    // The only q-941 link is the attached message's own thread link, not a movement row.
+    expect(screen.getByRole("button", { name: "thread:q-941" }).getAttribute("data-testid")).toBe(
+      "thread-source-badge",
+    );
   });
 
   it("keeps source quest messages visible without source-visible attachment markers", () => {

@@ -88,6 +88,8 @@ function CollapsedTurnRows({
         turn={turn}
         presentation={threadResponsePresentation}
         sessionId={sessionId}
+        currentThreadKey={currentThreadKey}
+        onSelectThread={onSelectThread}
         questLinkSurface={questLinkSurface}
         activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
         renderEntry={(entry) => (

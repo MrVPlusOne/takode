@@ -26,6 +26,11 @@ import { useStore } from "../store.js";
 import { formatVsCodeSelectionAttachmentLabel } from "../utils/vscode-context.js";
 import { navigateToSession } from "../utils/routing.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
+import {
+  getMessageThreadLinkKey,
+  MessageThreadHeader,
+  MessageThreadHeaderOwnedContext,
+} from "./MessageThreadHeader.js";
 import { QuestClaimBlock } from "./QuestClaimBlock.js";
 import { getDisplayReplyContext } from "../utils/reply-context.js";
 import { getSingleAnchoredNotification } from "../utils/anchored-notifications.js";
@@ -37,8 +42,6 @@ import { FILE_TOOL_NAMES } from "../hooks/use-feed-model.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import { resolveSessionNavigation } from "../utils/session-navigation-resolver.js";
 import { NotificationMarker } from "./NotificationMarker.js";
-import { formatThreadMarker } from "../../shared/thread-routing.js";
-import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
 import { ImagePreviewGroup } from "./ImagePreviewGroup.js";
 import {
   buildAssistantImagePreviewItems,
@@ -312,6 +315,7 @@ export const MessageBubble = memo(function MessageBubble({
         showTimestamp={showTimestamp}
         searchHighlight={searchHighlight}
         currentThreadKey={currentThreadKey}
+        onSelectThread={onSelectThread}
         readOnly={interactionMode === "read-only"}
         questLinkSurface={questLinkSurface}
       />
@@ -440,56 +444,6 @@ function AgentSourceBadge({ source }: { source: { sessionId: string; sessionLabe
         <span className="font-mono-code">via {label}</span>
       </button>
       {menuPos && <ContextMenu x={menuPos.x} y={menuPos.y} items={items} onClose={() => setMenuPos(null)} />}
-    </div>
-  );
-}
-
-type MessageThreadBadgeCandidate = {
-  threadKey: string;
-  source?: NonNullable<NonNullable<ChatMessage["metadata"]>["threadRefs"]>[number]["source"];
-};
-
-function getMessageThreadBadgeCandidates(message: ChatMessage): MessageThreadBadgeCandidate[] {
-  const metadata = message.metadata;
-  if (!metadata) return [];
-  const candidates: MessageThreadBadgeCandidate[] = [];
-  const add = (threadKey: string | undefined, source?: MessageThreadBadgeCandidate["source"]) => {
-    const normalized = threadKey?.trim();
-    if (!normalized) return;
-    candidates.push(source ? { threadKey: normalized, source } : { threadKey: normalized });
-  };
-  add(metadata.threadKey);
-  add(metadata.questId);
-  for (const ref of metadata.threadRefs ?? []) {
-    add(ref.threadKey, ref.source);
-  }
-  return candidates;
-}
-
-function getMessageThreadBadgeKey(message: ChatMessage, currentThreadKey?: string): string | null {
-  const candidates = getMessageThreadBadgeCandidates(message);
-  const fallback = candidates[0]?.threadKey ?? null;
-  if (!currentThreadKey || isAllThreadsKey(currentThreadKey)) return fallback;
-
-  const normalizedCurrentThread = normalizeThreadKey(currentThreadKey);
-  const crossThreadCandidate = candidates.find(
-    (candidate) => normalizeThreadKey(candidate.threadKey) !== normalizedCurrentThread,
-  );
-  if (crossThreadCandidate) return crossThreadCandidate.threadKey;
-
-  const backfillCandidate = candidates.find((candidate) => candidate.source === "backfill");
-  return backfillCandidate?.threadKey ?? null;
-}
-
-function ThreadSourceBadge({ threadKey }: { threadKey: string }) {
-  return (
-    <div className="mb-1.5">
-      <span
-        className="inline-flex max-w-full items-center rounded-md border border-cc-border/40 bg-cc-hover/35 px-1.5 py-0.5 font-mono-code text-[10px] leading-none text-cc-muted/80"
-        data-testid="thread-source-badge"
-      >
-        {formatThreadMarker(threadKey)}
-      </span>
     </div>
   );
 }
@@ -826,6 +780,7 @@ function UserMessage({
   showTimestamp,
   searchHighlight,
   currentThreadKey,
+  onSelectThread,
   readOnly,
   questLinkSurface,
 }: {
@@ -834,6 +789,7 @@ function UserMessage({
   showTimestamp: boolean;
   searchHighlight?: SearchHighlightInfo;
   currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
   readOnly: boolean;
   questLinkSurface: QuestLinkSurface;
 }) {
@@ -935,7 +891,8 @@ function UserMessage({
   useEffect(() => {
     setLightboxSelection(null);
   }, [message.id]);
-  const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
+  const threadHeaderOwned = useContext(MessageThreadHeaderOwnedContext);
+  const threadKey = threadHeaderOwned ? null : getMessageThreadLinkKey(message, currentThreadKey);
   const pendingLabel =
     message.pendingState === "uploading"
       ? "Uploading image…"
@@ -960,7 +917,7 @@ function UserMessage({
         data-testid="user-message-bubble"
         className="relative z-10 min-w-0 max-w-[calc(100%_-_2rem)] sm:max-w-[80%] sm:min-w-[200px] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg"
       >
-        {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
+        <MessageThreadHeader threadKey={threadKey} onSelectThread={onSelectThread} />
         {message.agentSource && <AgentSourceBadge source={message.agentSource} />}
         {replyContext && <UserReplyChip previewText={replyContext.previewText} messageId={replyContext.messageId} />}
         {message.metadata?.vscodeSelection && (
@@ -1157,7 +1114,8 @@ function AssistantMessage({
   );
   const resolvedNotification = notificationStateLoaded ? inboxAnchoredNotification : message.notification;
   const compactToolActivity = useStore((state) => state.compactToolActivity);
-  const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
+  const threadHeaderOwned = useContext(MessageThreadHeaderOwnedContext);
+  const threadKey = threadHeaderOwned ? null : getMessageThreadLinkKey(message, currentThreadKey);
   const starred = useFeedStarredMessage(sessionId, message);
   const starAction = useMessageStarActions(sessionId, message);
   const sideChat = useSideChatForMessage(sessionId, message);
@@ -1208,7 +1166,7 @@ function AssistantMessage({
           {!readOnly && (
             <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />
           )}
-          {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
+          <MessageThreadHeader threadKey={threadKey} onSelectThread={onSelectThread} />
           {!readOnly && hasTextContent && (
             <AssistantMessageMenu
               message={message}
@@ -1266,7 +1224,7 @@ function AssistantMessage({
         ))}
       <div ref={contentRef} className="relative flex-1 min-w-0 space-y-3">
         {!readOnly && <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />}
-        {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
+        <MessageThreadHeader threadKey={threadKey} onSelectThread={onSelectThread} />
         {projection.shouldRenderContentFallback && (
           <div className="flow-root">
             {!readOnly && hasTextContent && (

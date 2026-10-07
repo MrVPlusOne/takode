@@ -1353,7 +1353,12 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     )!;
     assertOneAnswerIdentity();
     expect(within(questTurn).getByTestId("thread-response-answer-count")).toHaveTextContent("Answers 1 message");
-    expect(within(collapsedAnswerRow).getByTestId("thread-source-badge")).toHaveTextContent("[thread:main]");
+    // Collapsed answers carry the thread link in their row header, joined with the answer chip.
+    const collapsedAnswerHeader = within(
+      collapsedAnswerRow.closest<HTMLElement>('[data-testid="thread-response-current"]')!,
+    ).getByTestId("message-thread-header");
+    expect(within(collapsedAnswerHeader).getByTestId("thread-source-badge")).toHaveTextContent("thread:main");
+    expect(within(collapsedAnswerHeader).getByTestId("thread-response-answer-count")).toBeInTheDocument();
     expect(
       within(questTurn).queryByText("Quest-side implementation detail stays behind expansion."),
     ).not.toBeInTheDocument();
@@ -1367,7 +1372,7 @@ describe("MessageFeed explicit answer selected-window integration", () => {
     const expandedAnswerRow = view.container.querySelector<HTMLElement>(
       `[data-message-id="${ASSOCIATED_MAIN_ANSWER_ID}"]`,
     )!;
-    expect(within(expandedAnswerRow).getByTestId("thread-source-badge")).toHaveTextContent("[thread:main]");
+    expect(within(expandedAnswerRow).getByTestId("thread-source-badge")).toHaveTextContent("thread:main");
     // This quest only displays the Main-owned answer; current-answer chrome
     // follows the selected thread's own request coverage.
     expect(

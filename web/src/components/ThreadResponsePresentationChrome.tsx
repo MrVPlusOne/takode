@@ -12,7 +12,27 @@ import {
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
 import { getVisualViewportRect } from "./quest-feed-preview-geometry.js";
+import type { ChatMessage } from "../types.js";
+import {
+  getMessageThreadLinkKey,
+  MessageThreadHeader,
+  MessageThreadHeaderOwnedContext,
+} from "./MessageThreadHeader.js";
 import type { ThreadResponseReferencedUserMessage } from "./thread-response-presentation.js";
+
+function ReplyIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="h-3 w-3 shrink-0">
+      <path
+        d="M6.5 4 3 7.5 6.5 11M3.5 7.5h6a3.5 3.5 0 0 1 3.5 3.5v1"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 const FOCUSABLE_CONTROL_SELECTOR =
   'a[href],area[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),summary,iframe,audio[controls],video[controls],[contenteditable]:not([contenteditable="false"]),[tabindex]:not([tabindex="-1"])';
@@ -110,11 +130,9 @@ function hasCompletePreview(
 export function ThreadResponseCoverageBadge({
   messageCount,
   referencedMessages,
-  className = "",
 }: {
   messageCount: number;
   referencedMessages?: readonly ThreadResponseReferencedUserMessage[];
-  className?: string;
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -265,11 +283,18 @@ export function ThreadResponseCoverageBadge({
 
   if (messageCount <= 0) return null;
 
-  const badgeClass = `${className} inline-flex max-w-full items-center rounded-full border border-cc-primary/25 bg-cc-primary/10 px-2 py-0.5 text-[10px] font-medium text-cc-primary`;
+  const badgeClass =
+    "inline-flex max-w-full shrink-0 items-center gap-1 whitespace-nowrap bg-cc-primary/10 px-2 py-1 text-[11px] leading-none font-medium text-cc-primary";
+  const content = (
+    <>
+      <ReplyIcon />
+      {label}
+    </>
+  );
   if (!previewAvailable) {
     return (
       <div className={badgeClass} data-testid="thread-response-answer-count">
-        {label}
+        {content}
       </div>
     );
   }
@@ -364,7 +389,7 @@ export function ThreadResponseCoverageBadge({
       <button
         ref={buttonRef}
         type="button"
-        className={`${badgeClass} cursor-pointer transition-colors hover:border-cc-primary/45 hover:bg-cc-primary/15 focus:outline-none focus:ring-2 focus:ring-cc-primary/35`}
+        className={`${badgeClass} cursor-pointer transition-colors hover:bg-cc-primary/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cc-primary/35`}
         data-testid="thread-response-answer-count"
         aria-label={`${label}; preview referenced ${messageCount === 1 ? "message" : "messages"}`}
         aria-haspopup="dialog"
@@ -389,33 +414,55 @@ export function ThreadResponseCoverageBadge({
           else open("explicit", focusPreviewOnOpenRef.current || event.detail === 0);
         }}
       >
-        {label}
+        {content}
       </button>
       {preview}
     </>
   );
 }
 
-export function ExpandedCurrentThreadResponse({
+/**
+ * An answer message under its header line: the thread link joined with the
+ * answered-message chip. The message bubble inside skips its own thread link.
+ */
+export function AnsweredMessage({
+  message,
+  currentThreadKey,
+  onSelectThread,
   messageCount,
   referencedMessages,
   children,
 }: {
+  message: ChatMessage;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
   messageCount: number;
   referencedMessages?: readonly ThreadResponseReferencedUserMessage[];
   children: ReactNode;
 }) {
   return (
+    <>
+      <MessageThreadHeader
+        threadKey={getMessageThreadLinkKey(message, currentThreadKey)}
+        onSelectThread={onSelectThread}
+        answerChip={
+          messageCount > 0 ? (
+            <ThreadResponseCoverageBadge messageCount={messageCount} referencedMessages={referencedMessages} />
+          ) : null
+        }
+      />
+      <MessageThreadHeaderOwnedContext.Provider value={true}>{children}</MessageThreadHeaderOwnedContext.Provider>
+    </>
+  );
+}
+
+export function ExpandedCurrentThreadResponse(props: Parameters<typeof AnsweredMessage>[0]) {
+  return (
     <div
       className="rounded-xl border border-cc-primary/25 px-2.5 py-2 sm:px-3"
       data-testid="thread-response-current-expanded"
     >
-      <ThreadResponseCoverageBadge
-        messageCount={messageCount}
-        referencedMessages={referencedMessages}
-        className="mb-1.5"
-      />
-      {children}
+      <AnsweredMessage {...props} />
     </div>
   );
 }

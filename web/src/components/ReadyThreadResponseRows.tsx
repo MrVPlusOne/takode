@@ -4,7 +4,7 @@ import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { AssistantQuestQuizContent } from "./AssistantQuestQuizContent.js";
 import { HidePawContext } from "./PawTrail.js";
 import { collapsedResponseEntry, type ThreadResponsePresentation } from "./thread-response-presentation.js";
-import { ThreadResponseCoverageBadge } from "./ThreadResponsePresentationChrome.js";
+import { AnsweredMessage } from "./ThreadResponsePresentationChrome.js";
 import { isBoardProposalMessage, isNeedsInputNotifyMessage } from "../utils/takode-tool-command.js";
 
 function presentationEntries(turn: Turn): readonly FeedEntry[] {
@@ -57,6 +57,8 @@ export function ReadyThreadResponseRows({
   presentation,
   renderEntry,
   sessionId,
+  currentThreadKey,
+  onSelectThread,
   questLinkSurface,
   activeNeedsInputAnchorMessageIds = new Set(),
 }: {
@@ -64,6 +66,8 @@ export function ReadyThreadResponseRows({
   presentation: ThreadResponsePresentation;
   renderEntry: (entry: FeedEntry) => ReactNode;
   sessionId: string;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
   questLinkSurface: QuestLinkSurface;
   activeNeedsInputAnchorMessageIds?: ReadonlySet<string>;
 }) {
@@ -103,14 +107,17 @@ export function ReadyThreadResponseRows({
             className="min-w-0 px-2.5 py-2 sm:px-3"
             data-testid="thread-response-current"
           >
-            <ThreadResponseCoverageBadge
+            <AnsweredMessage
+              message={row.item.collapsedMessageEntry.msg}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
               messageCount={row.item.response.answerUserMessageIds.length}
               referencedMessages={row.item.referencedUserMessages}
-              className="mb-1.5"
-            />
-            <HidePawContext.Provider value={true}>
-              {renderEntry(row.item.collapsedMessageEntry)}
-            </HidePawContext.Provider>
+            >
+              <HidePawContext.Provider value={true}>
+                {renderEntry(row.item.collapsedMessageEntry)}
+              </HidePawContext.Provider>
+            </AnsweredMessage>
           </div>
         ) : (
           <div

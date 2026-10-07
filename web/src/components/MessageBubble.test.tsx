@@ -210,7 +210,7 @@ describe("MessageBubble - user messages", () => {
 
     render(<MessageBubble message={msg} />);
 
-    expect(screen.getByTestId("thread-source-badge").textContent).toBe("[thread:q-941]");
+    expect(screen.getByTestId("thread-source-badge").textContent).toBe("thread:q-941");
   });
 
   it("renders a VS Code selection attachment above the user message content", () => {
@@ -686,7 +686,50 @@ describe("MessageBubble - assistant thread source", () => {
 
     render(<MessageBubble message={msg} />);
 
-    expect(screen.getByTestId("thread-source-badge").textContent).toBe("[thread:main]");
+    expect(screen.getByTestId("thread-source-badge").textContent).toBe("thread:main");
+  });
+
+  it("opens the message's thread when its thread link is clicked", () => {
+    // The thread tag on a message from another thread is a link: clicking it
+    // selects that thread, for user and assistant messages alike.
+    const onSelectThread = vi.fn();
+    const assistant = makeMessage({
+      id: "assistant-from-quest",
+      role: "assistant",
+      content: "Quest answer",
+      contentBlocks: [{ type: "text", text: "Quest answer" }],
+      metadata: { threadKey: "q-2288" },
+    });
+    const user = makeMessage({
+      id: "user-from-main",
+      role: "user",
+      content: "Main ask",
+      metadata: { threadKey: "main" },
+    });
+
+    render(
+      <>
+        <MessageBubble message={assistant} currentThreadKey="q-2287" onSelectThread={onSelectThread} />
+        <MessageBubble message={user} currentThreadKey="q-2287" onSelectThread={onSelectThread} />
+      </>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "thread:q-2288" }));
+    fireEvent.click(screen.getByRole("button", { name: "thread:main" }));
+    expect(onSelectThread.mock.calls).toEqual([["q-2288"], ["main"]]);
+  });
+
+  it("disables the thread link when the feed cannot switch threads", () => {
+    const msg = makeMessage({
+      role: "assistant",
+      content: "Main response",
+      contentBlocks: [{ type: "text", text: "Main response" }],
+      metadata: { threadKey: "main" },
+    });
+
+    render(<MessageBubble message={msg} />);
+
+    expect((screen.getByTestId("thread-source-badge") as HTMLButtonElement).disabled).toBe(true);
   });
 });
 

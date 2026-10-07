@@ -213,6 +213,48 @@ const ANSWER_ONLY_PRESENTATION: ThreadResponsePresentation = {
   quizGroups: [],
   layoutSignature: "playground-answer-only-r1",
 };
+const CROSS_THREAD_RESPONSE_BASE = assistantEntry(
+  "playground-cross-thread-answer",
+  "Done. The follow-up landed in its own quest, so this answer links back to that thread.",
+  "answer",
+);
+const CROSS_THREAD_RESPONSE: Extract<FeedEntry, { kind: "message" }> = {
+  ...CROSS_THREAD_RESPONSE_BASE,
+  msg: {
+    ...CROSS_THREAD_RESPONSE_BASE.msg,
+    metadata: {
+      leaderThreadRole: "answer",
+      threadKey: "q-2043",
+      threadAnswer: { version: 2, answerUserMessageIds: ["u3"], observedHistoryLength: 7 },
+    },
+  },
+};
+const CROSS_THREAD_TURN: Turn = {
+  ...ANSWER_ONLY_TURN,
+  id: "playground-cross-thread-answer-turn",
+  allEntries: [CROSS_THREAD_RESPONSE],
+  presentationEntries: [CROSS_THREAD_RESPONSE],
+  notificationEntries: [CROSS_THREAD_RESPONSE],
+  responseEntry: CROSS_THREAD_RESPONSE,
+  stats: { messageCount: 5, toolCount: 1, subagentCount: 0, herdEventCount: 0 },
+};
+const CROSS_THREAD_PRESENTATION: ThreadResponsePresentation = {
+  ...ANSWER_ONLY_PRESENTATION,
+  currentResponses: [
+    {
+      ...ANSWER_ONLY_PRESENTATION.currentResponses[0]!,
+      response: {
+        ...ANSWER_ONLY_PRESENTATION.currentResponses[0]!.response,
+        currentMessageId: CROSS_THREAD_RESPONSE.msg.id,
+      },
+      sourceTurnId: CROSS_THREAD_TURN.id,
+      messageEntry: CROSS_THREAD_RESPONSE,
+      collapsedMessageEntry: CROSS_THREAD_RESPONSE,
+    },
+  ],
+  currentResponseMessageIds: new Set([CROSS_THREAD_RESPONSE.msg.id]),
+  layoutSignature: "playground-cross-thread-answer",
+};
 const ASSOCIATED_MAIN_RESPONSE_BASE = assistantEntry(
   "playground-associated-main-answer",
   "This Main answer remains visible here because its covered request is associated with this quest.",
@@ -432,6 +474,7 @@ function renderEntry(entry: FeedEntry) {
       isCodexSession={false}
       activeCodexTerminalIds={new Set()}
       onOpenCodexTerminal={NOOP}
+      onSelectThread={NOOP}
       questLinkSurface="chat-feed"
     />
   );
@@ -457,6 +500,8 @@ export function PlaygroundThreadResponseSection() {
                 presentation={PRESENTATION}
                 renderEntry={renderEntry}
                 sessionId={SESSION_ID}
+                currentThreadKey="q-2042"
+                onSelectThread={NOOP}
                 questLinkSurface="chat-feed"
               />
             </div>
@@ -477,6 +522,30 @@ export function PlaygroundThreadResponseSection() {
                 presentation={ANSWER_ONLY_PRESENTATION}
                 renderEntry={renderEntry}
                 sessionId={SESSION_ID}
+                currentThreadKey="q-2042"
+                onSelectThread={NOOP}
+                questLinkSurface="chat-feed"
+              />
+            </div>
+          </Card>
+          <Card label="Collapsed answer from another thread · joined thread link">
+            <div
+              className="min-w-0 w-full max-w-[430px] overflow-hidden rounded-xl border border-cc-border/30 bg-cc-card/20"
+              data-testid="playground-cross-thread-answer"
+            >
+              <TurnActivityDisclosure
+                stats={CROSS_THREAD_TURN.stats}
+                durationMs={null}
+                expanded={false}
+                onToggle={NOOP}
+              />
+              <ReadyThreadResponseRows
+                turn={CROSS_THREAD_TURN}
+                presentation={CROSS_THREAD_PRESENTATION}
+                renderEntry={renderEntry}
+                sessionId={SESSION_ID}
+                currentThreadKey="q-2042"
+                onSelectThread={NOOP}
                 questLinkSurface="chat-feed"
               />
             </div>
@@ -498,6 +567,8 @@ export function PlaygroundThreadResponseSection() {
                 activeNeedsInputAnchorMessageIds={new Set([QUIZ_PROMPT.msg.id])}
                 renderEntry={renderEntry}
                 sessionId={SESSION_ID}
+                currentThreadKey="q-2042"
+                onSelectThread={NOOP}
                 questLinkSurface="chat-feed"
               />
             </div>
@@ -518,6 +589,8 @@ export function PlaygroundThreadResponseSection() {
                 presentation={ASSOCIATED_MAIN_PRESENTATION}
                 renderEntry={renderEntry}
                 sessionId={SESSION_ID}
+                currentThreadKey="q-2042"
+                onSelectThread={NOOP}
                 questLinkSurface="chat-feed"
               />
             </div>
@@ -556,6 +629,8 @@ export function PlaygroundThreadResponseSection() {
                 presentation={TIMER_REPORT_PRESENTATION}
                 renderEntry={renderEntry}
                 sessionId={SESSION_ID}
+                currentThreadKey="q-2042"
+                onSelectThread={NOOP}
                 questLinkSurface="chat-feed"
               />
             </div>
@@ -576,6 +651,8 @@ export function PlaygroundThreadResponseSection() {
                 presentation={MULTI_OWNER_PRESENTATION}
                 renderEntry={renderEntry}
                 sessionId={SESSION_ID}
+                currentThreadKey="q-2042"
+                onSelectThread={NOOP}
                 questLinkSurface="chat-feed"
               />
             </div>

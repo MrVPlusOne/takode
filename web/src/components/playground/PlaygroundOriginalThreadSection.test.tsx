@@ -14,14 +14,14 @@ describe("original-thread Playground fixture", () => {
     expectOneSource();
     fireEvent.click(within(fixture).getByRole("button", { name: "Destination thread" }));
     expectOneSource();
-    expect(within(fixture).getByTestId("thread-source-badge").textContent).toBe("[thread:main]");
+    expect(within(fixture).getByTestId("thread-source-badge").textContent).toBe("thread:main");
     fireEvent.click(within(fixture).getByRole("button", { name: "Original thread" }));
     expectOneSource();
     fireEvent.click(within(fixture).getByRole("button", { name: "Quest attachment" }));
     expectOneSource();
     fireEvent.click(within(fixture).getByRole("button", { name: "Destination thread" }));
     expectOneSource();
-    expect(within(fixture).getByTestId("thread-source-badge").textContent).toBe("[thread:q-41]");
+    expect(within(fixture).getByTestId("thread-source-badge").textContent).toBe("thread:q-41");
     fireEvent.click(within(fixture).getByRole("button", { name: "All Threads" }));
     expectOneSource();
   });
