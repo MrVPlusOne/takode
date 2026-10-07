@@ -272,6 +272,30 @@ const SINGLE_ACTIVITY_GROUP = toolGroup("activity-single", [
 
 const NO_IDS: string[] = [];
 
+// Line previews that used to say nothing: a skill call ("Skill Skill"), absolute
+// worktree paths cut off before the file name, a multi-file Codex edit and a Claude MCP name.
+const WORKTREE = "/Users/me/.companion/worktrees/companion/wt-1019";
+const PREVIEW_LINES_GROUP = toolGroup("activity-preview-lines", [
+  { id: "preview-skill", name: "Skill", input: { skill: "quest" } },
+  {
+    id: "preview-edit",
+    name: "Edit",
+    input: { file_path: `${WORKTREE}/web/src/components/ThreadReplyChip.tsx`, old_string: "a", new_string: "b" },
+  },
+  {
+    id: "preview-patch",
+    name: "Edit",
+    input: {
+      file_path: `${WORKTREE}/web/src/components/CompactToolActivity.tsx`,
+      changes: [
+        { path: `${WORKTREE}/web/src/components/CompactToolActivity.tsx`, kind: "update" },
+        { path: `${WORKTREE}/web/src/components/CompactToolActivity.test.tsx`, kind: "update" },
+      ],
+    },
+  },
+  { id: "preview-mcp", name: "mcp__slack__slack_get_thread", input: { channel_id: "C0123", thread_ts: "1.2" } },
+]);
+
 /** Seed this fixture's own session results so lines show failed and finished states. */
 // Pass stable arrays: the effect re-seeds whenever they change identity.
 function useSeededActivityResults(sessionId: string, results: ToolResultPreview[], runningIds: string[] = NO_IDS) {
@@ -406,6 +430,18 @@ export function PlaygroundCompactToolActivityStates() {
         </Card>
         <Card label="Live group: newest activity running">
           <PlaygroundLiveActivityGroup />
+        </Card>
+        <Card label="Line previews: skill names, long paths cut like diff headers, multi-file edits, MCP names">
+          <div data-testid="playground-activity-preview-lines">
+            <CompactFeedActivity
+              segments={[{ kind: "tool", groups: [PREVIEW_LINES_GROUP] }]}
+              sessionId={MOCK_SESSION_ID}
+              isCodexSession={false}
+              activeCodexTerminalIds={new Set()}
+              onOpenCodexTerminal={() => {}}
+              defaultExpanded
+            />
+          </div>
         </Card>
         <Card label="Single described commands (light lines that open straight to details)">
           <div className="space-y-2" data-testid="playground-single-command-chips">

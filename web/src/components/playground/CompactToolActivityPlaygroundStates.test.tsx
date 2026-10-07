@@ -34,7 +34,7 @@ describe("Compact tool activity Playground states", () => {
     expect(within(group).getByTestId("compact-tool-activity-earlier")).toHaveTextContent("+7 earlier");
     expect(within(group).getByText("1 failed")).toBeTruthy();
     expect(lineTexts(group)).toEqual([
-      "Editweb/src/components/ToolBlock.bash-preview.test.tsx",
+      "Edit.../src/components/ToolBlock.bash-preview.test.tsx",
       "BashRun focused ToolBlock tests",
       "BashCommit the description fix",
     ]);
@@ -52,5 +52,13 @@ describe("Compact tool activity Playground states", () => {
     fireEvent.click(within(live).getByRole("button", { name: "Next activity arrives" }));
     expect(within(live).getByTestId("compact-tool-activity-earlier")).toHaveTextContent("+4 earlier");
     expect(lineTexts(live).at(-1)).toContain("Run focused ToolBlock tests");
+
+    // Line previews: each line names what it touched instead of repeating its label.
+    expect(lineTexts(screen.getByTestId("playground-activity-preview-lines"))).toEqual([
+      "Skillquest",
+      "Edit.../src/components/ThreadReplyChip.tsx",
+      "Edit.../src/components/CompactToolActivity.tsx+1 more",
+      "MCPslack:slack_get_thread",
+    ]);
   });
 });

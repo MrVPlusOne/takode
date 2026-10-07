@@ -247,6 +247,100 @@ describe("CompactToolActivity", () => {
     expect(lineTexts()).toEqual(["Bashecho 1", "Bashecho 2", "Bashecho 3", "Bashecho 4", "Bashecho 5"]);
   });
 
+  it("cuts long file paths like the diff viewer so the file name stays visible", () => {
+    // A worktree path is mostly an uninformative prefix. Lines keep the last two
+    // folders after "..." plus the whole file name, while hover keeps the full path.
+    const longPath = "/Users/me/.companion/worktrees/companion/wt-1019/web/src/components/ThreadReplyChip.tsx";
+    render(
+      <CompactToolActivity
+        items={[
+          { id: "edit-1", name: "Edit", input: { file_path: longPath, old_string: "a", new_string: "b" } },
+          { id: "read-1", name: "Read", input: { file_path: "README.md" } },
+          { id: "image-1", name: "view_image", input: { path: "/tmp/shots/after.png" } },
+        ]}
+        renderDetails={renderDetails}
+      />,
+    );
+
+    expect(lineTexts()).toEqual([
+      "Edit.../src/components/ThreadReplyChip.tsx",
+      "ReadREADME.md",
+      "view_image/tmp/shots/after.png",
+    ]);
+    expect(screen.getByRole("button", { name: `Show Edit: ${longPath}` }).getAttribute("title")).toBe(longPath);
+  });
+
+  it("names the first file and counts the rest for a multi-file Codex edit", () => {
+    // Codex fileChange edits carry every changed file in `changes`; `file_path` is only the first.
+    render(
+      <CompactToolActivity
+        items={[
+          {
+            id: "patch-1",
+            name: "Edit",
+            input: {
+              file_path: "/repo/web/src/a/One.tsx",
+              changes: [
+                { path: "/repo/web/src/a/One.tsx", kind: "update" },
+                { path: "/repo/web/src/b/Two.tsx", kind: "update" },
+                { path: "/repo/web/src/b/Three.tsx", kind: "add" },
+              ],
+            },
+          },
+        ]}
+        renderDetails={renderDetails}
+      />,
+    );
+
+    expect(lineTexts()).toEqual(["Edit.../src/a/One.tsx+2 more"]);
+  });
+
+  it("previews a skill call by its skill name instead of repeating the tool name", () => {
+    // "Skill Skill" told the reader nothing; the skill name (and arguments) is the useful part.
+    render(
+      <CompactToolActivity
+        items={[
+          { id: "skill-1", name: "Skill", input: { skill: "quest" } },
+          { id: "skill-2", name: "Skill", input: { skill: "worktree-rules", args: "port q-1" } },
+        ]}
+        renderDetails={renderDetails}
+      />,
+    );
+
+    expect(lineTexts()).toEqual(["Skillquest", "Skillworktree-rules port q-1"]);
+  });
+
+  it("names a lone skill in the group summary", () => {
+    // "Used Skill" repeated the tool name; one skill call names the skill, several fall back to a plural.
+    const commands = bashItems(2);
+    expect(summarizeToolActivity([{ id: "skill-1", name: "Skill", input: { skill: "quest" } }, ...commands])).toBe(
+      "Used quest skill, ran 2 commands",
+    );
+    expect(
+      summarizeToolActivity([
+        { id: "skill-1", name: "Skill", input: { skill: "quest" } },
+        { id: "skill-2", name: "Skill", input: { skill: "memory" } },
+      ]),
+    ).toBe("Used skills");
+  });
+
+  it("never repeats the line label as the preview of a tool with nothing to show", () => {
+    // Claude MCP names (mcp__server__tool) read as server:tool under an MCP label; task tools show
+    // their task id; an unknown tool without a preview shows only its label.
+    render(
+      <CompactToolActivity
+        items={[
+          { id: "mcp-1", name: "mcp__slack__slack_get_thread", input: { channel_id: "C1" } },
+          { id: "stop-1", name: "TaskStop", input: { task_id: "bxys2qdq5" } },
+          { id: "other-1", name: "CustomTool", input: { flag: true } },
+        ]}
+        renderDetails={renderDetails}
+      />,
+    );
+
+    expect(lineTexts()).toEqual(["MCPslack:slack_get_thread", "TaskStopbxys2qdq5", "CustomTool"]);
+  });
+
   it("keeps the deliberate summary for a single worker send or worker event", () => {
     // These lines use semantic summaries that hide bulky message bodies.
     const { unmount } = render(

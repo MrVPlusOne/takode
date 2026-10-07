@@ -186,6 +186,8 @@ export function getToolLabel(name: string): string {
   if (name === "mcp_tool_call") return "MCP Tool";
   // Codex MCP tools come as "mcp:server:tool"
   if (name.startsWith("mcp:")) return name.split(":").slice(1).join(":");
+  // Claude MCP tools come as "mcp__server__tool"
+  if (name.startsWith("mcp__")) return name.slice("mcp__".length).replace("__", ":");
   return name;
 }
 
@@ -1760,6 +1762,11 @@ export function getPreview(name: string, input: Record<string, unknown>): string
     }
   }
   if (isSubagentToolName(name) && input.description) return String(input.description);
+  if (name === "Skill" && typeof input.skill === "string" && input.skill.trim()) {
+    const args = typeof input.args === "string" ? input.args.trim() : "";
+    return args ? `${input.skill.trim()} ${args}` : input.skill.trim();
+  }
+  if ((name === "TaskStop" || name === "TaskOutput") && input.task_id) return String(input.task_id);
   if (name === "TodoWrite" && Array.isArray(input.todos)) {
     const todos = input.todos as Array<{ content?: string; activeForm?: string; status?: string }>;
     const completed = todos.filter((t) => t.status === "completed").length;

@@ -4,6 +4,8 @@ import type { ToolResultPreview } from "../types.js";
 import { parseTakodeBoardCommand } from "../utils/takode-tool-command.js";
 import { parseFileReadCommand } from "../utils/terminal-command-preview.js";
 import { isPureTakodeSendCommand } from "../utils/takode-send-command.js";
+import { getDistinctChangeFilePaths } from "../utils/tool-rendering.js";
+import { formatFileHeaderPath } from "./DiffViewer.js";
 import { formatDuration, getPreview, getToolLabel, ToolBlockEmbeddedContext, ToolDurationBadge } from "./ToolBlock.js";
 import { summarizeWorkerEventActivity } from "../utils/herd-event-classification.js";
 
@@ -135,6 +137,10 @@ function describeCategory(category: ActivityCategory): string {
     const subject = count === 1 ? conciseValue(first.input.query) : null;
     return subject ? `Searched web for ${subject}` : "Searched web";
   }
+  if (category.key === "tool:Skill") {
+    const skill = count === 1 ? conciseValue(first.input.skill) : null;
+    return skill ? `Used ${skill} skill` : "Used skills";
+  }
   return `Used ${getToolLabel(first.name)}`;
 }
 
@@ -205,12 +211,33 @@ function lineLabel(item: CompactToolActivityItem): string {
   if (item.kind === "thought") return "Thought";
   if (item.kind === "worker_event") return "Event";
   if (getActivityCategory(item) === "worker-send") return "Send";
-  if (item.name.startsWith("mcp:") || item.name === "mcp_tool_call") return "MCP";
+  if (item.name.startsWith("mcp:") || item.name.startsWith("mcp__") || item.name === "mcp_tool_call") return "MCP";
   return item.name;
 }
 
 function nonBlank(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+interface LineFilePath {
+  path: string;
+  /** Further files changed by the same call (multi-file Codex edits). */
+  moreCount: number;
+}
+
+/** The file a file tool touches; rendered with the diff viewer's long-path rule. */
+function lineFilePath(item: CompactToolActivityItem): LineFilePath | null {
+  if (item.kind === "thought" || item.kind === "worker_event") return null;
+  const { name, input } = item;
+  if (name === "Write" || name === "Edit") {
+    const changedPaths = getDistinctChangeFilePaths(input);
+    if (changedPaths.length > 1) return { path: changedPaths[0], moreCount: changedPaths.length - 1 };
+  }
+  let path: string | null = null;
+  if (name === "Read" || name === "Write" || name === "Edit") path = nonBlank(input.file_path);
+  else if (name === "NotebookEdit") path = nonBlank(input.notebook_path);
+  else if (name === "view_image") path = nonBlank(input.path);
+  return path ? { path, moreCount: 0 } : null;
 }
 
 /** One-line description of an activity, as its own chip header would show it. */
@@ -221,7 +248,13 @@ function linePreview(item: CompactToolActivityItem): string {
   }
   // A worker send's command carries the message body, so never preview it.
   if (getActivityCategory(item) === "worker-send") return nonBlank(item.input.description) ?? "Sent a message";
-  return getPreview(item.name, item.input) || getToolLabel(item.name);
+  const filePath = lineFilePath(item);
+  if (filePath) return filePath.moreCount > 0 ? `${filePath.path} +${filePath.moreCount} more` : filePath.path;
+  const preview = getPreview(item.name, item.input);
+  if (preview) return preview;
+  // Repeating the line label ("Skill Skill") says nothing; a friendlier tool name still helps.
+  const toolLabel = getToolLabel(item.name);
+  return toolLabel === lineLabel(item) ? "" : toolLabel;
 }
 
 /** Prose previews (descriptions, thoughts) read better in the UI font than in mono. */
@@ -442,9 +475,11 @@ function ActivityLine({
 }) {
   const label = lineLabel(item);
   const preview = linePreview(item);
+  const filePath = lineFilePath(item);
   const failed = status?.failed === true;
   const running = status?.running === true;
   const isTool = item.kind !== "thought" && item.kind !== "worker_event";
+  const previewColor = open ? "text-cc-fg" : "text-cc-muted group-hover:text-cc-fg";
   return (
     <div data-testid="compact-tool-activity-line" data-feed-block-id={item.feedBlockId}>
       <button
@@ -466,13 +501,15 @@ function ActivityLine({
         >
           {label}
         </span>
-        <span
-          className={`min-w-0 flex-1 truncate ${isProsePreview(item) ? "" : "font-mono-code text-[11px]"} ${
-            open ? "text-cc-fg" : "text-cc-muted group-hover:text-cc-fg"
-          }`}
-        >
-          {preview}
-        </span>
+        {filePath ? (
+          <LineFilePathPreview filePath={filePath} className={previewColor} />
+        ) : (
+          <span
+            className={`min-w-0 flex-1 truncate ${isProsePreview(item) ? "" : "font-mono-code text-[11px]"} ${previewColor}`}
+          >
+            {preview}
+          </span>
+        )}
         {running && <PulseDot />}
         {/* Live time while running; an opened line also shows its final duration. */}
         {(running || open) && isTool && sessionId && (
@@ -486,5 +523,23 @@ function ActivityLine({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * A file path cut the way the diff viewer's file headers cut it: the last two
+ * folders after "...", with the file name kept whole while the folders truncate.
+ */
+function LineFilePathPreview({ filePath, className }: { filePath: LineFilePath; className: string }) {
+  const { dirLabel, baseLabel } = formatFileHeaderPath(filePath.path);
+  return (
+    <span
+      className={`flex min-w-0 flex-1 items-baseline overflow-hidden font-mono-code text-[11px] ${className}`}
+      data-testid="compact-tool-activity-path"
+    >
+      {dirLabel && <span className="min-w-0 truncate opacity-70">{dirLabel}</span>}
+      <span className="max-w-[70%] shrink-0 truncate">{baseLabel}</span>
+      {filePath.moreCount > 0 && <span className="shrink-0 pl-1.5 opacity-70">+{filePath.moreCount} more</span>}
+    </span>
   );
 }

@@ -1817,7 +1817,7 @@ describe("MessageBubble - content block grouping", () => {
     // A run of three hides nothing: each tool is a short line, and its chip
     // details render only when that line is opened.
     expect(screen.getAllByTestId("compact-tool-activity-line").map((line) => line.textContent)).toEqual([
-      "Read/a.ts",
+      "Reada.ts",
       "Bashbun test",
       "Grepcompact in src",
     ]);
