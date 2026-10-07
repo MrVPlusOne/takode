@@ -897,8 +897,10 @@ export interface TakodeNotificationPayload {
   id?: string;
   category: NotificationCategory;
   summary?: string;
-  /** Markdown decision context shown in the needs-input question card. */
+  /** Legacy in-card decision context; new prompts carry context as the anchored feed message. */
   body?: string;
+  /** Question-only prompt; see SessionNotification.questionOnly. */
+  questionOnly?: boolean;
   suggestedAnswers?: string[];
   questions?: NeedsInputNotificationQuestion[];
   timestamp: number;
@@ -1625,8 +1627,15 @@ export interface SessionNotification {
   id: string;
   category: NotificationCategory;
   summary?: string;
-  /** Markdown decision context shown in the needs-input question card. */
+  /** Legacy decision context rendered inside the card. Only prompts created before question-only cards have it. */
   body?: string;
+  /**
+   * Question-only prompt: cards, phone alerts and attention panels show only the question. Any decision
+   * context is the anchored feed message (`contextMessageId`), rendered as ordinary assistant text.
+   */
+  questionOnly?: boolean;
+  /** History message holding this prompt's decision context; equals `messageId` when present. */
+  contextMessageId?: string;
   suggestedAnswers?: string[];
   questions?: NeedsInputNotificationQuestion[];
   timestamp: number;
@@ -1893,7 +1902,8 @@ export interface TakodeUserMessageEventData {
 
 export interface TakodeNotificationNeedsInputEventData {
   summary?: string;
-  body?: string;
+  /** Decision context the worker supplied with the prompt. */
+  context?: string;
   suggestedAnswers?: string[];
   questions?: NeedsInputNotificationQuestion[];
   notificationId?: string;

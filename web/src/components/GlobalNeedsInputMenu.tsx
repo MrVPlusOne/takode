@@ -288,7 +288,12 @@ function GlobalNeedsInputRow({
                   {formatRelativeTime(entry.notification.timestamp)}
                 </span>
               </div>
-              <NeedsInputSourceTarget title={summary} sourceContext={sourceContext} testIdPrefix="global-needs-input" />
+              {/* Question-only prompts keep their context in the feed; voice answers still receive it below. */}
+              <NeedsInputSourceTarget
+                title={summary}
+                sourceContext={entry.notification.questionOnly ? null : sourceContext}
+                testIdPrefix="global-needs-input"
+              />
             </div>
             <div className="mt-4 flex shrink-0 items-center gap-1">
               <button

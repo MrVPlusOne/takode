@@ -152,6 +152,6 @@ say `Hygiene fixes: none`.]
 - Focus on **work integrity**, not code style. `/reviewer-groom` handles the default code-quality pass.
 - Be specific in CHALLENGE questions -- vague challenges waste everyone's time.
 - Look at the worker's process (tool calls, exploration), not just the final diff.
-- If the task, scope, or claimed behavior is ambiguous enough that you cannot review confidently, ask the leader: call `takode notify needs-input` with a short summary, the question context in its body, and suggested replies under the `takode-orchestration` notification rule, and stop instead of guessing.
+- If the task, scope, or claimed behavior is ambiguous enough that you cannot review confidently, ask the leader: call `takode notify needs-input` with a short summary, the question, any needed explanation as its context, and suggested replies under the `takode-orchestration` notification rule, and stop instead of guessing.
 - The leader manages your lifecycle. You may be asked to re-review after the
   worker addresses your challenges, or to check reviewer-groom follow-up later.

@@ -512,6 +512,41 @@ describe("GlobalNeedsInputMenu", () => {
     expect(screen.getAllByText("Confirm scope")).toHaveLength(1);
   });
 
+  it("shows only the question for question-only prompts whose context lives in the feed", async () => {
+    // The context is already a full-size feed message; the panel stays a short
+    // question list instead of repeating a clipped copy of that explanation.
+    mockFetchNotificationContext.mockResolvedValueOnce("A long explanation of the tradeoffs.");
+    resetStore({
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "n-question-only",
+              category: "needs-input",
+              summary: "Resume the run?",
+              questionOnly: true,
+              contextMessageId: "needs-input-context-n-question-only",
+              suggestedAnswers: ["yes", "no"],
+              timestamp: Date.now(),
+              messageId: "needs-input-context-n-question-only",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      sdkSessions: [{ sessionId: "s1", sessionNum: 41, name: "Worker", createdAt: 1 }],
+    });
+
+    render(<GlobalNeedsInputMenu />);
+    fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
+
+    await waitFor(() => expect(mockFetchNotificationContext).toHaveBeenCalled());
+    expect(screen.getByText("Resume the run?")).toBeInTheDocument();
+    expect(screen.queryByTestId("global-needs-input-source-context")).not.toBeInTheDocument();
+    expect(screen.queryByText("A long explanation of the tradeoffs.")).not.toBeInTheDocument();
+  });
+
   it("excludes stale needs-input notifications when sessions are archived or removed from the active list", () => {
     // Stale sessionNotifications can outlive the session-list snapshot; only
     // current non-archived sdkSessions should be allowed into the global count.

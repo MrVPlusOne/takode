@@ -19,7 +19,7 @@ The pause is instruction-scoped: it applies to the request being confirmed, not 
 - Prefer easy-to-read bullet points over long paragraphs.
 - Put major assumptions and important non-goals directly in `Understanding` when misunderstanding them could materially change the outcome.
 - Ask the most important clarification questions first. A second round is fine when the first answers expose deeper ambiguity.
-- Put the detailed confirmation text in the `needs-input` notification body; do not split it between chat and the notification.
+- Put the detailed confirmation text in the `needs-input` context; do not split it between chat and the notification.
 
 ## Required Response Structure
 
@@ -41,10 +41,10 @@ Always structure the confirmation with these 2 sections in this order:
 
 Deliver the confirmation through a notification instead of chat text that precedes a tool call, because text written before a tool call in the same response may never be shown:
 
-- Run `takode notify needs-input "<brief summary>" --body-file -` with the full two-section confirmation as the body (quoted heredoc). The question card shows it; do not repeat it in chat.
+- Run `takode notify needs-input "<brief summary>" --context-file -` with the full two-section confirmation as the context (quoted heredoc) and the confirmation as its question. Takode shows the context right before the question card; do not repeat it in chat. Leaders add `--answers uN` for the user message being confirmed.
 - Keep the notification summary short and specific to the decision or confirmation needed.
 - Include suggested replies for each question or confirmation under the `takode-orchestration` notification rule.
-- Do not use suggested answers instead of writing the full confirmation context and questions in the body.
+- Do not use suggested answers instead of writing the full confirmation context and questions.
 - Do not add a final one-sentence confirmation prompt such as `Please confirm or correct.`
 - Do not add a horizontal divider for a final confirmation sentence.
 - After the notification, end the turn with at most a brief text-only line; leaders mark it as commentary (`[thread:main:C]` or `[thread:q-N:C]`).
@@ -62,7 +62,7 @@ Prioritize questions in this order:
 
 ## After the User Responds
 
-- If the user corrects or clarifies the request and ambiguity remains, produce the same response structure again with the updated understanding as the body of a fresh `takode notify needs-input` notification.
+- If the user corrects or clarifies the request and ambiguity remains, produce the same response structure again with the updated understanding as the context of a fresh `takode notify needs-input` notification.
 - If the user confirms the understanding, proceed with execution following that confirmed understanding.
 
 ## Quality Bar

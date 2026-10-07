@@ -49,7 +49,7 @@ Do not use a hard length limit. A short prompt that hides a material tradeoff is
 
 ## Use Progressive Disclosure Without Hiding the Decision
 
-Put the complete technical or safety packet in durable quest feedback or an artifact and reference the exact entry when useful. The decision surface may bind the requested approval to that exact record without duplicating it. For a user wait, the decision surface is the `takode notify needs-input` body shown in the question card.
+Put the complete technical or safety packet in durable quest feedback or an artifact and reference the exact entry when useful. The decision surface may bind the requested approval to that exact record without duplicating it. For a user wait, the decision surface is the `takode notify needs-input` call: its context, shown as a normal message right before the question card, plus the card's questions.
 
 The reference is not a substitute for the decision surface. The user must still see every option, its material tradeoffs, the recommendation, and the requested answer without opening the technical packet or understanding internal implementation.
 
@@ -64,7 +64,7 @@ This skill guides recommendations and their presentation; it does not grant auth
 - Keep option meanings and relevant tradeoffs self-contained in the decision surface; explain every shortcut there.
 - State what yes authorizes and what no declines or preserves.
 - Keep material risks, irreversible effects, and approval-defining values visible.
-- Preserve fresh explicit approval, revised-packet, decision-context-in-notification-body, fresh-notification, board-wait, and scoped-wait requirements.
+- Preserve fresh explicit approval, revised-packet, decision-context-in-notification, fresh-notification, board-wait, and scoped-wait requirements.
 - Do not broaden permissions or treat an edit, question, or ambiguous reply as approval.
 - If an injected or recovery-message path is involved, preserve its interruption, replay, idempotence, and routing policy.
 

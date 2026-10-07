@@ -259,6 +259,11 @@ export function createTakodeRoutes(ctx: RouteContext) {
     return undefined;
   };
 
+  const historyMessageText = (entry: BridgeSession["messageHistory"][number] | undefined): string => {
+    if (entry?.type !== "assistant") return "";
+    return entry.message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
+  };
+
   const parseNotificationNumericId = (notificationId: string): number | null => {
     const match = /^n-(\d+)$/.exec(notificationId);
     return match ? Number.parseInt(match[1], 10) : null;
@@ -319,21 +324,39 @@ export function createTakodeRoutes(ctx: RouteContext) {
     return result;
   };
 
-  const NEEDS_INPUT_BODY_MAX_CHARS = 20_000;
+  const NEEDS_INPUT_CONTEXT_MAX_CHARS = 20_000;
 
-  const normalizeNeedsInputBody = (
+  const normalizeNeedsInputContext = (
     value: unknown,
     category: TakodeNotifyCategory,
-  ): { ok: true; body?: string } | { ok: false; error: string } => {
+  ): { ok: true; context?: string } | { ok: false; error: string } => {
     if (value === undefined || value === null) return { ok: true };
-    if (typeof value !== "string") return { ok: false, error: "body must be a string" };
-    if (category !== "needs-input") return { ok: false, error: "body is only supported for needs-input notifications" };
-    const body = value.trim();
-    if (!body) return { ok: false, error: "body must be nonempty when provided" };
-    if (body.length > NEEDS_INPUT_BODY_MAX_CHARS) {
-      return { ok: false, error: `body must be ${NEEDS_INPUT_BODY_MAX_CHARS} characters or less` };
+    if (typeof value !== "string") return { ok: false, error: "context must be a string" };
+    if (category !== "needs-input") {
+      return { ok: false, error: "context is only supported for needs-input notifications" };
     }
-    return { ok: true, body };
+    const context = value.trim();
+    if (!context) return { ok: false, error: "context must be nonempty when provided" };
+    if (context.length > NEEDS_INPUT_CONTEXT_MAX_CHARS) {
+      return { ok: false, error: `context must be ${NEEDS_INPUT_CONTEXT_MAX_CHARS} characters or less` };
+    }
+    return { ok: true, context };
+  };
+
+  /** Shape-check `answers`; ownership and visibility are proven by the normal turn-end answer settlement. */
+  const normalizeNeedsInputAnswers = (
+    value: unknown,
+    context: string | undefined,
+    isLeader: boolean,
+  ): { ok: true; answers: string[] } | { ok: false; error: string } => {
+    if (value === undefined || value === null) return { ok: true, answers: [] };
+    if (!Array.isArray(value) || value.length === 0 || !value.every(isCanonicalLeaderAnswerMessageId)) {
+      return { ok: false, error: "answers must be a nonempty list of message IDs such as u12 or timer-m3" };
+    }
+    if (new Set(value).size !== value.length) return { ok: false, error: "answers must not repeat an ID" };
+    if (!isLeader) return { ok: false, error: "answers is only supported for leader sessions" };
+    if (!context) return { ok: false, error: "answers requires context: the context is the answer" };
+    return { ok: true, answers: [...value] };
   };
 
   const normalizeNeedsInputQuestions = (
@@ -1249,6 +1272,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
         ...(notif.questId ? { questId: notif.questId } : {}),
         ...(notif.summary ? { summary: notif.summary } : {}),
         ...(notif.body ? { body: notif.body } : {}),
+        ...(notif.contextMessageId && msg_index !== undefined
+          ? { context: historyMessageText(session.messageHistory[msg_index]) }
+          : {}),
         ...(notif.suggestedAnswers?.length ? { suggestedAnswers: notif.suggestedAnswers } : {}),
         ...(notif.questions?.length ? { questions: notif.questions } : {}),
         messageId: notif.messageId,
@@ -1697,9 +1723,17 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (!questionsResult.ok) {
       return c.json({ error: questionsResult.error }, 400);
     }
-    const bodyResult = normalizeNeedsInputBody(body.body, category);
-    if (!bodyResult.ok) {
-      return c.json({ error: bodyResult.error }, 400);
+    const contextResult = normalizeNeedsInputContext(body.context, category);
+    if (!contextResult.ok) {
+      return c.json({ error: contextResult.error }, 400);
+    }
+    const answersResult = normalizeNeedsInputAnswers(
+      body.answers,
+      contextResult.context,
+      launcher.getSession(id)?.isOrchestrator === true,
+    );
+    if (!answersResult.ok) {
+      return c.json({ error: answersResult.error }, 400);
     }
     if (questionsResult.questions.length > 0 && suggestedAnswersResult.answers.length > 0) {
       return c.json({ error: "Use per-question suggestedAnswers inside questions when questions are provided" }, 400);
@@ -1722,7 +1756,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
       });
     }
     const result = notifyUserController(session, category, summary, notificationRouteDeps, {
-      ...(bodyResult.body ? { body: bodyResult.body } : {}),
+      ...(contextResult.context ? { context: contextResult.context } : {}),
+      ...(answersResult.answers.length ? { answerUserMessageIds: answersResult.answers } : {}),
       suggestedAnswers: suggestedAnswersResult.answers,
       questions: questionsResult.questions,
       ...(threadRouteResult.route ? { threadRoute: threadRouteResult.route } : {}),

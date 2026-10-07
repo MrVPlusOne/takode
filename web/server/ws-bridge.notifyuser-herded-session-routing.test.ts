@@ -687,21 +687,26 @@ describe("notifyUser herded session routing", () => {
       "needs-input",
       "Need decision on auth",
       getNotificationTestDeps(bridge),
-      { suggestedAnswers: ["yes", "no"], body: "JWT keeps the API stateless." },
+      { suggestedAnswers: ["yes", "no"], context: "JWT keeps the API stateless." },
     );
     expect(result.ok).toBe(true);
 
-    // Should emit notification_needs_input event, carrying the decision context body
+    // The context becomes the worker's own feed message and anchors the prompt;
+    // the herd event carries it so the leader sees it without reading history.
     const needsInputEvents = capturedEvents.filter((e) => e.event === "notification_needs_input");
     expect(needsInputEvents).toHaveLength(1);
     expect(needsInputEvents[0].data.summary).toBe("Need decision on auth");
     expect(needsInputEvents[0].data.notificationId).toBe("n-1");
-    expect(needsInputEvents[0].data.messageId).toBe("asst-1");
-    expect(needsInputEvents[0].data.msg_index).toBe(0);
+    expect(needsInputEvents[0].data.messageId).toBe("needs-input-context-n-1");
+    expect(needsInputEvents[0].data.msg_index).toBe(1);
     expect(needsInputEvents[0].data.suggestedAnswers).toEqual(["yes", "no"]);
-    expect(needsInputEvents[0].data.body).toBe("JWT keeps the API stateless.");
+    expect(needsInputEvents[0].data.context).toBe("JWT keeps the API stateless.");
     expect(session.notifications[0].suggestedAnswers).toEqual(["yes", "no"]);
-    expect(session.notifications[0].body).toBe("JWT keeps the API stateless.");
+    expect(session.notifications[0]).toMatchObject({ questionOnly: true, contextMessageId: "needs-input-context-n-1" });
+    expect(session.notifications[0].body).toBeUndefined();
+    expect((session.messageHistory[1] as any).message.content).toEqual([
+      { type: "text", text: "JWT keeps the API stateless." },
+    ]);
     expect((session.messageHistory[0] as any).notification).toBeUndefined();
 
     // Attention should NOT be set for herded session
@@ -837,7 +842,7 @@ describe("notifyUser herded session routing", () => {
     }
   });
 
-  it("treats a same-summary needs-input with a different body as a new prompt", () => {
+  it("treats a same-summary needs-input with different context as a new prompt", () => {
     // Exact-retry dedupe must not swallow a revised decision context.
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -849,13 +854,18 @@ describe("notifyUser herded session routing", () => {
     const session = bridge.getSession("s1")!;
     const deps = getNotificationTestDeps(bridge);
 
-    const first = notifyUserController(session, "needs-input", "Approve?", deps, { body: "Plan A" });
-    const retry = notifyUserController(session, "needs-input", "Approve?", deps, { body: "Plan A" });
-    const revised = notifyUserController(session, "needs-input", "Approve?", deps, { body: "Plan B" });
+    const first = notifyUserController(session, "needs-input", "Approve?", deps, { context: "Plan A" });
+    const retry = notifyUserController(session, "needs-input", "Approve?", deps, { context: "Plan A" });
+    const revised = notifyUserController(session, "needs-input", "Approve?", deps, { context: "Plan B" });
 
+    // An exact retry reuses the prompt without writing a second context message.
     expect(retry).toMatchObject({ notificationId: first.notificationId, reused: true });
     expect(revised.notificationId).not.toBe(first.notificationId);
-    expect(session.notifications.map((n) => n.body)).toEqual(["Plan A", "Plan B"]);
+    const contextTexts = session.messageHistory
+      .filter((entry) => entry.type === "assistant")
+      .map((entry) => (entry as any).message.content[0].text);
+    expect(contextTexts).toEqual(["Plan A", "Plan B"]);
+    expect(session.notifications.map((n) => n.messageId)).toEqual(session.notifications.map((n) => n.contextMessageId));
   });
 
   it("notifies user directly for non-herded sessions (no herdedBy)", () => {

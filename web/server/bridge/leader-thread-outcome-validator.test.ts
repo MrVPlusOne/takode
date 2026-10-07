@@ -1164,7 +1164,7 @@ describe("explicit answer reminders", () => {
     expect(validateLeaderThreadOutcomes(session, deps)).toEqual({ checked: true, missing: ["main"], injected: true });
     const reminder = deps.injectUserMessage.mock.calls[0]?.[1] ?? "";
     expect(reminder).toContain("Needs-input notification reminder");
-    expect(reminder).toContain("decision context in its body (`--body-file -`)");
+    expect(reminder).toContain("its context (`--context-file -`) may briefly point to the visible prompt");
     expect(reminder).toContain("later explicit `[thread:main:A:u1]` or `[thread:q-N:A:u1]` answer");
     expect(reminder).not.toContain("Publish or revise the covering thread response");
   });

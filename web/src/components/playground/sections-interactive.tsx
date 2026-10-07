@@ -51,6 +51,7 @@ import {
   PlaygroundHoverCrossLinkDemo,
   PlaygroundMessageLinkHoverDemo,
   PlaygroundBodyNotificationMarker,
+  PlaygroundContextNotificationMessage,
   PlaygroundMultiQuestionNotificationMarker,
   PlaygroundReviewNotificationMarker,
   PlaygroundSectionGroup,
@@ -1120,7 +1121,12 @@ export function PlaygroundInteractiveSections() {
               <PlaygroundMultiQuestionNotificationMarker />
             </div>
           </Card>
-          <Card label="needs-input with decision context body">
+          <Card label="needs-input with context (question-only card)">
+            <div className="text-cc-fg text-sm">
+              <PlaygroundContextNotificationMessage />
+            </div>
+          </Card>
+          <Card label="needs-input with legacy in-card body">
             <div className="text-cc-fg text-sm">
               <PlaygroundBodyNotificationMarker />
             </div>

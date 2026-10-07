@@ -1634,8 +1634,9 @@ describe("synchronized projection performance controls", () => {
       {
         scenario: attention.firstNeedsInput,
         metrics: changedMetrics({ invalidations: 3, valueBytes: 73, cachedValueBytes: 35 }),
-        current: { inbox: [459, 0], global: [325, 325], projection: [232, 232], total: 1_573 },
-        control: { inbox: [451, 0], global: [1_254, 1_254], raw: [128, 0], total: 3_087 },
+        // Needs-input inbox entries carry `"questionOnly":true` (20 bytes each) since cards became question-only.
+        current: { inbox: [479, 0], global: [325, 325], projection: [232, 232], total: 1_593 },
+        control: { inbox: [471, 0], global: [1_254, 1_254], raw: [128, 0], total: 3_107 },
         sends: { inbox: 1, global: 1, controlGlobal: 3, controlRaw: 2 },
       },
       {
@@ -1655,8 +1656,8 @@ describe("synchronized projection performance controls", () => {
       {
         scenario: attention.burstNeedsInput,
         metrics: changedMetrics({ invalidations: 51, valueBytes: 74, cachedValueBytes: 36 }),
-        current: { inbox: [55_041, 0], global: [8_193, 8_189], projection: [233, 233], total: 71_889 },
-        control: { inbox: [54_820, 0], global: [21_414, 21_414], raw: [1_664, 0], total: 99_312 },
+        current: { inbox: [61_541, 0], global: [8_193, 8_189], projection: [233, 233], total: 78_389 },
+        control: { inbox: [61_320, 0], global: [21_414, 21_414], raw: [1_664, 0], total: 105_812 },
         sends: { inbox: 25, global: 25, controlGlobal: 51, controlRaw: 26 },
       },
       {
@@ -1736,17 +1737,17 @@ describe("synchronized projection performance controls", () => {
 
     expect(attention.noSubscriber).toMatchObject({
       metrics: { ...zeroMetrics(), invalidations: 3 },
-      exactOwnerInbox: { logicalSends: 1, deliveries: 1, bytesByBrowser: [454, 0], totalBytes: 454 },
+      exactOwnerInbox: { logicalSends: 1, deliveries: 1, bytesByBrowser: [474, 0], totalBytes: 474 },
       compactGlobalSummary: { logicalSends: 1, deliveries: 2, bytesByBrowser: [325, 325], totalBytes: 650 },
       projection: emptyAttentionTraffic(),
       forbidden: noForbiddenTraffic,
-      combinedRequiredBytes: 1_104,
+      combinedRequiredBytes: 1_124,
     });
     expect(attention.noSubscriber.historicalControl.combined).toEqual({
       logicalSends: 6,
       deliveries: 9,
-      bytesByBrowser: [1_828, 1_254],
-      totalBytes: 3_082,
+      bytesByBrowser: [1_848, 1_254],
+      totalBytes: 3_102,
     });
   });
 

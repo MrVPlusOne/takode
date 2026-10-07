@@ -1100,28 +1100,76 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
-  it("stores a needs-input body on the notification and its anchored card", async () => {
-    // The body is the decision surface shown in the question card, so it must
-    // survive on both the notification record and the anchored message copy.
+  it("writes needs-input context as a routed feed message that anchors a question-only card", async () => {
+    // The context is shown as ordinary assistant text before the card, so it must
+    // be a real root history message on the prompt's thread, and the card itself
+    // carries only the question. A leader's named messages make it an answer that
+    // the normal turn-end settlement later proves.
     setupTakodeSessions();
-    bridge._sessions["orch-1"].messageHistory.push({
+    const history = bridge._sessions["orch-1"].messageHistory;
+    history.push({ type: "user_message", content: "Propose a plan", id: "user-1", timestamp: 900 });
+    bridge._sessions["orch-1"].userMessageIdsThisTurn = [0];
+    history.push({
       type: "assistant",
       message: { id: "asst-1", content: [{ type: "tool_use", id: "t1", name: "Bash", input: {} }] },
+      parent_tool_use_id: null,
       timestamp: 1000,
     });
     const res = await app.request("/api/sessions/orch-1/notify", {
       method: "POST",
       headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({ category: "needs-input", summary: "Approve?", body: "  **Plan:** ship it.\n" }),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Approve?",
+        context: "  **Plan:** ship it.\n",
+        answers: ["u1"],
+        threadKey: "q-7",
+      }),
     });
 
     expect(res.status).toBe(200);
-    expect(bridge._sessions["orch-1"].notifications[0]).toMatchObject({ body: "**Plan:** ship it." });
-    expect(bridge._sessions["orch-1"].messageHistory[0].notification).toMatchObject({ body: "**Plan:** ship it." });
+    expect(await res.json()).toMatchObject({ anchoredMessageId: "needs-input-context-n-1" });
+    const contextMessage = history[2];
+    expect(contextMessage).toMatchObject({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: { id: "needs-input-context-n-1", content: [{ type: "text", text: "**Plan:** ship it." }] },
+      threadKey: "q-7",
+      questId: "q-7",
+      leaderThreadRole: "answer",
+      leaderAnswerUserMessageIds: ["u1"],
+      leaderAnswerObservedHistoryLength: 1,
+      notification: { id: "n-1", questionOnly: true },
+    });
+    expect(contextMessage.notification.body).toBeUndefined();
+    expect(bridge._sessions["orch-1"].notifications[0]).toMatchObject({
+      messageId: "needs-input-context-n-1",
+      contextMessageId: "needs-input-context-n-1",
+      questionOnly: true,
+      threadKey: "q-7",
+    });
+    expect(bridge._sessions["orch-1"].notifications[0].body).toBeUndefined();
   });
 
-  it("rejects invalid needs-input bodies", async () => {
+  it("routes context without named answers as leader commentary", async () => {
     setupTakodeSessions();
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "needs-input", summary: "Pick one", context: "A is faster." }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge._sessions["orch-1"].messageHistory[0]).toMatchObject({
+      message: { content: [{ type: "text", text: "A is faster." }] },
+      threadKey: "main",
+      leaderThreadRole: "commentary",
+    });
+    expect(bridge._sessions["orch-1"].messageHistory[0].leaderAnswerUserMessageIds).toBeUndefined();
+  });
+
+  it("rejects invalid needs-input context and answers", async () => {
+    const sessions = setupTakodeSessions();
     const post = (payload: Record<string, unknown>) =>
       app.request("/api/sessions/orch-1/notify", {
         method: "POST",
@@ -1130,17 +1178,30 @@ describe("Takode server-authoritative auth", () => {
       });
 
     const cases: Array<[Record<string, unknown>, string]> = [
-      [{ category: "review", body: "context" }, "body is only supported for needs-input notifications"],
-      [{ category: "needs-input", body: "   " }, "body must be nonempty when provided"],
-      [{ category: "needs-input", body: 42 }, "body must be a string"],
-      [{ category: "needs-input", body: "x".repeat(20_001) }, "body must be 20000 characters or less"],
+      [{ category: "review", context: "context" }, "context is only supported for needs-input notifications"],
+      [{ category: "needs-input", context: "   " }, "context must be nonempty when provided"],
+      [{ category: "needs-input", context: 42 }, "context must be a string"],
+      [{ category: "needs-input", context: "x".repeat(20_001) }, "context must be 20000 characters or less"],
+      [{ category: "needs-input", answers: ["u1"] }, "answers requires context: the context is the answer"],
+      [
+        { category: "needs-input", context: "c", answers: ["msg-1"] },
+        "answers must be a nonempty list of message IDs such as u12 or timer-m3",
+      ],
+      [{ category: "needs-input", context: "c", answers: ["u1", "u1"] }, "answers must not repeat an ID"],
     ];
     for (const [payload, error] of cases) {
       const res = await post(payload);
       expect(res.status).toBe(400);
       expect((await res.json()).error).toBe(error);
     }
+
+    // Workers have no answer coverage, so naming answered messages is leader-only.
+    sessions["orch-1"].isOrchestrator = false;
+    const workerRes = await post({ category: "needs-input", context: "c", answers: ["u1"] });
+    expect(workerRes.status).toBe(400);
+    expect((await workerRes.json()).error).toBe("answers is only supported for leader sessions");
     expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+    expect(bridge._sessions["orch-1"].messageHistory).toEqual([]);
   });
 
   it("rejects suggested answers outside needs-input notifications", async () => {

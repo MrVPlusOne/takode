@@ -238,7 +238,7 @@ describe("takode notify self-resolution workflow", () => {
     expect(output).toContain("For a binary question, provide both choices");
     expect(output).toContain("not preselected answers or authorization");
     expect(output).toContain("custom replies must remain available");
-    expect(output).toContain("all valid decision alternatives in the question card");
+    expect(output).toContain("Keep every valid decision alternative in the context or the questions");
     expect(output).toContain("does not impose a tool-level limit on suggestions");
     expect(output).toContain("provide replies after each question");
     expect(requestBodies).toEqual([]);
@@ -363,34 +363,49 @@ describe("takode notify self-resolution workflow", () => {
     });
   });
 
-  it("sends the decision context body from stdin and inline text", async () => {
-    // The body carries the decision surface, so multiline shell-sensitive stdin
-    // must arrive verbatim alongside the usual summary and suggestions.
+  it("sends decision context from stdin and inline text", async () => {
+    // The context is the decision explanation, so multiline shell-sensitive
+    // stdin must arrive verbatim alongside the usual summary and suggestions.
     const env = { ...process.env, COMPANION_SESSION_ID: "worker-7", COMPANION_AUTH_TOKEN: "auth-7" };
-    const body = "**Options**\n- `$(keep)` A\n- B\n";
+    const context = "**Options**\n- `$(keep)` A\n- B\n";
     const fromStdin = await runTakode(
-      ["notify", "needs-input", "Pick", "--body-file", "-", "--suggest", "A", "--port", String(port)],
+      ["notify", "needs-input", "Pick", "--context-file", "-", "--suggest", "A", "--port", String(port)],
       env,
       process.cwd(),
-      body,
+      context,
     );
-    const inline = await runTakode(["notify", "needs-input", "Pick", "--body", "Short", "--port", String(port)], env);
+    const inline = await runTakode(
+      ["notify", "needs-input", "Pick", "--context", "Short", "--answers", "u3,u4", "--port", String(port)],
+      env,
+    );
+    // Sessions launched with older instructions still pass --body; it maps to context.
+    const legacy = await runTakode(["notify", "needs-input", "Pick", "--body", "Old", "--port", String(port)], env);
 
     expect(fromStdin.status).toBe(0);
     expect(inline.status).toBe(0);
-    expect(requestBodies[0]).toEqual({ category: "needs-input", summary: "Pick", body, suggestedAnswers: ["A"] });
-    expect(requestBodies[1]).toEqual({ category: "needs-input", summary: "Pick", body: "Short" });
+    expect(legacy.status).toBe(0);
+    expect(requestBodies[0]).toEqual({ category: "needs-input", summary: "Pick", context, suggestedAnswers: ["A"] });
+    expect(requestBodies[1]).toEqual({
+      category: "needs-input",
+      summary: "Pick",
+      context: "Short",
+      answers: ["u3", "u4"],
+    });
+    expect(requestBodies[2]).toEqual({ category: "needs-input", summary: "Pick", context: "Old" });
   });
 
-  it("rejects a body on non-needs-input notifications", async () => {
-    const result = await runTakode(["notify", "review", "Done", "--body", "context", "--port", String(port)], {
-      ...process.env,
-      COMPANION_SESSION_ID: "worker-7",
-      COMPANION_AUTH_TOKEN: "auth-7",
-    });
+  it("rejects context on non-needs-input notifications and answers without context", async () => {
+    const env = { ...process.env, COMPANION_SESSION_ID: "worker-7", COMPANION_AUTH_TOKEN: "auth-7" };
+    const review = await runTakode(["notify", "review", "Done", "--context", "context", "--port", String(port)], env);
+    const answersOnly = await runTakode(
+      ["notify", "needs-input", "Pick", "--answers", "u3", "--port", String(port)],
+      env,
+    );
 
-    expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("--body is only supported for needs-input notifications.");
+    expect(review.status).not.toBe(0);
+    expect(review.stderr).toContain("--context is only supported for needs-input notifications.");
+    expect(answersOnly.status).not.toBe(0);
+    expect(answersOnly.stderr).toContain("--answers requires --context: the context is the answer.");
     expect(requestBodies).toEqual([]);
   });
 

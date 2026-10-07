@@ -572,7 +572,7 @@ function NotificationItem({
               <div className="min-w-0 flex-1">
                 <NeedsInputSourceTarget
                   title={label}
-                  sourceContext={sourceContext}
+                  sourceContext={notif.questionOnly ? null : sourceContext}
                   titleClassName={labelClassName}
                   testIdPrefix="notification"
                 />

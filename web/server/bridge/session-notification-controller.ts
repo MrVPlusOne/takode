@@ -27,6 +27,8 @@ import {
 } from "../../shared/leader-thread-tab-priority.js";
 import { THREAD_OUTCOME_REMINDER_SOURCE_ID } from "../../shared/thread-outcome-reminder.js";
 import { leaderResponseMessageIsAssociatedWithThread } from "../../shared/leader-thread-response-routing.js";
+import { randomUUID } from "node:crypto";
+import { leaderTurnObservedHistoryLength } from "./thread-routing-reminder.js";
 
 type SessionLike = any;
 
@@ -71,7 +73,10 @@ type NotifyUserDeps = PersistNotificationDeps & {
 };
 
 type NotifyUserOptions = {
-  body?: string;
+  /** Needs-input decision context, written to the feed as an ordinary assistant message before the card. */
+  context?: string;
+  /** Leader-only: direct-user (or timer firing) IDs the context answers, settled like an explicit answer. */
+  answerUserMessageIds?: string[];
   suggestedAnswers?: string[];
   questions?: NeedsInputNotificationQuestion[];
   threadRoute?: ThreadRouteMetadata;
@@ -319,14 +324,16 @@ export function notifyUser(
   const suggestedAnswers =
     category === "needs-input" && options.suggestedAnswers?.length ? options.suggestedAnswers : undefined;
   const questions = category === "needs-input" && options.questions?.length ? options.questions : undefined;
-  const body = category === "needs-input" && options.body ? options.body : undefined;
+  const context = category === "needs-input" && options.context ? options.context : undefined;
+  const answerUserMessageIds =
+    context && isLeaderSession && options.answerUserMessageIds?.length ? options.answerUserMessageIds : undefined;
 
   const existingNeedsInput =
     category === "needs-input"
       ? findExactActiveNeedsInputNotification(
           session,
           summary,
-          body,
+          context,
           suggestedAnswers,
           questions,
           candidateThreadRoute,
@@ -334,7 +341,8 @@ export function notifyUser(
         )
       : null;
   if (existingNeedsInput) {
-    if (anchor) {
+    // A retried prompt with context keeps its own context message as the anchor.
+    if (anchor && !existingNeedsInput.contextMessageId) {
       maybeReanchorReusedNotification(existingNeedsInput, anchor, candidateThreadRoute);
       (anchor.message as Record<string, unknown>).notification = withThreadRoute(
         buildAnchoredNotification(existingNeedsInput),
@@ -359,8 +367,30 @@ export function notifyUser(
   }
 
   let createdFallbackMessage: BrowserIncomingMessage | null = null;
+  let createdContextMessage: Extract<BrowserIncomingMessage, { type: "assistant" }> | null = null;
+  let threadRoute: ThreadRouteMetadata | undefined;
+  const nextNotificationCounter = Number.isInteger(session.notificationCounter) ? session.notificationCounter + 1 : 1;
+  session.notificationCounter = nextNotificationCounter;
+  const notificationId = `n-${nextNotificationCounter}`;
 
-  if (!anchor && isLeaderSession && category === "needs-input" && !deps.isHerdedWorkerSession?.(session)) {
+  // Outcome reminders answered by this prompt sit after the latest decision source, which precedes
+  // a newly written context message.
+  const reminderAnchorIndex = anchorIndex;
+  if (context) {
+    threadRoute =
+      preferredThreadRoute ??
+      resolveConsistentNotificationThreadRoute(session.messageHistory, anchorIndex, notificationId);
+    createdContextMessage = buildNeedsInputContextMessage(session, {
+      context,
+      notificationId,
+      timestamp,
+      leaderRoute: isLeaderSession ? threadRoute : null,
+      answerUserMessageIds,
+    });
+    session.messageHistory.push(createdContextMessage);
+    anchorIndex = session.messageHistory.length - 1;
+    anchor = getNotificationAnchor(createdContextMessage);
+  } else if (!anchor && isLeaderSession && category === "needs-input" && !deps.isHerdedWorkerSession?.(session)) {
     createdFallbackMessage = {
       type: "leader_user_message",
       id: `leader-needs-input-${timestamp}-${session.messageHistory.length}`,
@@ -373,12 +403,10 @@ export function notifyUser(
   }
 
   const anchoredMessageId = anchor?.id ?? null;
-  const nextNotificationCounter = Number.isInteger(session.notificationCounter) ? session.notificationCounter + 1 : 1;
-  session.notificationCounter = nextNotificationCounter;
-  const notificationId = `n-${nextNotificationCounter}`;
-  const threadRoute =
+  threadRoute ??=
     preferredThreadRoute ??
     resolveConsistentNotificationThreadRoute(session.messageHistory, anchorIndex, notificationId);
+  const questionOnly = category === "needs-input";
   if (createdFallbackMessage) {
     createdFallbackMessage.threadKey = threadRoute.threadKey;
     if (threadRoute.questId) createdFallbackMessage.questId = threadRoute.questId;
@@ -390,7 +418,7 @@ export function notifyUser(
       category,
       timestamp,
       summary,
-      ...(body ? { body } : {}),
+      ...(questionOnly ? { questionOnly } : {}),
       ...(suggestedAnswers ? { suggestedAnswers } : {}),
       ...(questions ? { questions } : {}),
     },
@@ -402,7 +430,8 @@ export function notifyUser(
       id: notificationId,
       category,
       summary,
-      ...(body ? { body } : {}),
+      ...(questionOnly ? { questionOnly } : {}),
+      ...(createdContextMessage ? { contextMessageId: createdContextMessage.message.id } : {}),
       ...(suggestedAnswers ? { suggestedAnswers } : {}),
       ...(questions ? { questions } : {}),
       timestamp,
@@ -414,11 +443,13 @@ export function notifyUser(
   session.notifications.push(notif);
   if (notif.category === "needs-input") {
     surfaceCreatedNeedsInputThreadTab(session, threadRoute, timestamp, deps);
-    markSatisfiedThreadOutcomeReminders(session, notif, anchorIndex);
+    markSatisfiedThreadOutcomeReminders(session, notif, reminderAnchorIndex);
   } else if (notif.category === "review" && !options.suppressThreadTabPromotion) {
     deps.promoteLeaderThreadTabForAttention?.(session.id, threadRoute.threadKey, timestamp, "review");
   }
   touchNotificationStatus(session);
+
+  if (createdContextMessage) deps.broadcastToBrowsers?.(session, createdContextMessage);
 
   if (deps.isHerdedWorkerSession?.(session)) {
     if (category === "needs-input") {
@@ -426,7 +457,7 @@ export function notifyUser(
         summary,
         notificationId: notif.id,
         messageId: anchoredMessageId,
-        ...(body ? { body } : {}),
+        ...(context ? { context } : {}),
         ...(suggestedAnswers ? { suggestedAnswers } : {}),
         ...(questions ? { questions } : {}),
         ...(anchorIndex !== undefined ? { msg_index: anchorIndex } : {}),
@@ -855,7 +886,7 @@ function hasNonEmptyText(value: unknown): value is string {
 function findExactActiveNeedsInputNotification(
   session: SessionLike,
   summary: string,
-  body: string | undefined,
+  context: string | undefined,
   suggestedAnswers: string[] | undefined,
   questions: NeedsInputNotificationQuestion[] | undefined,
   threadRoute: ThreadRouteMetadata,
@@ -865,17 +896,72 @@ function findExactActiveNeedsInputNotification(
     (session.notifications ?? []).find((notification: SessionNotification) => {
       if (notification.category !== "needs-input" || notification.done || notification.muted) return false;
       if (timestamp - notification.timestamp > EXACT_NEEDS_INPUT_RETRY_DEDUPE_WINDOW_MS) return false;
-      if (notification.summary !== summary || notification.body !== body) return false;
+      if (notification.summary !== summary || !notification.questionOnly) return false;
       const notificationRoute = normalizeThreadRoute(notification.threadKey, notification.questId) ?? {
         threadKey: "main",
       };
       if (!sameThreadRoute(notificationRoute, threadRoute)) return false;
       return (
         stringArraysEqual(notification.suggestedAnswers, suggestedAnswers) &&
-        questionsEqual(notification.questions, questions)
+        questionsEqual(notification.questions, questions) &&
+        notificationContextText(session, notification) === context
       );
     }) ?? null
   );
+}
+
+function notificationContextText(session: SessionLike, notification: SessionNotification): string | undefined {
+  if (!notification.contextMessageId) return undefined;
+  const entry = (session.messageHistory as BrowserIncomingMessage[]).findLast(
+    (message) => message.type === "assistant" && message.message.id === notification.contextMessageId,
+  );
+  if (entry?.type !== "assistant") return undefined;
+  return entry.message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
+}
+
+/**
+ * The context is a real root assistant message so the feed renders it as ordinary full-size text, with the
+ * usual selection, Comment and copy behavior, and the card anchors to it. For leaders it carries the
+ * notification's thread route, and naming answered messages makes it an explicit answer that the normal
+ * turn-end settlement validates exactly like a `[thread:...:A:uN]` message.
+ */
+function buildNeedsInputContextMessage(
+  session: SessionLike,
+  options: {
+    context: string;
+    notificationId: string;
+    timestamp: number;
+    leaderRoute: ThreadRouteMetadata | null;
+    answerUserMessageIds?: string[];
+  },
+): Extract<BrowserIncomingMessage, { type: "assistant" }> {
+  const message: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
+    type: "assistant",
+    message: {
+      id: `needs-input-context-${options.notificationId}`,
+      type: "message",
+      role: "assistant",
+      model: session.state?.model || "",
+      content: [{ type: "text", text: options.context }],
+      stop_reason: null,
+      usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    },
+    parent_tool_use_id: null,
+    timestamp: options.timestamp,
+    uuid: randomUUID(),
+  };
+  if (!options.leaderRoute) return message;
+  const observedHistoryLength = options.answerUserMessageIds ? leaderTurnObservedHistoryLength(session) : undefined;
+  return {
+    ...withThreadRoute(message, options.leaderRoute),
+    ...(options.answerUserMessageIds
+      ? {
+          leaderThreadRole: "answer" as const,
+          leaderAnswerUserMessageIds: [...options.answerUserMessageIds],
+          ...(observedHistoryLength !== undefined ? { leaderAnswerObservedHistoryLength: observedHistoryLength } : {}),
+        }
+      : { leaderThreadRole: "commentary" as const }),
+  };
 }
 
 function stringArraysEqual(left: string[] | undefined, right: string[] | undefined): boolean {
@@ -906,6 +992,7 @@ function buildAnchoredNotification(notification: SessionNotification): Omit<Sess
     timestamp: notification.timestamp,
     ...(notification.summary ? { summary: notification.summary } : {}),
     ...(notification.body ? { body: notification.body } : {}),
+    ...(notification.questionOnly ? { questionOnly: true } : {}),
     ...(notification.suggestedAnswers ? { suggestedAnswers: notification.suggestedAnswers } : {}),
     ...(notification.questions ? { questions: notification.questions } : {}),
   };

@@ -50,7 +50,7 @@ Answer a pending needs-input question or approve/reject an ExitPlanMode prompt f
 `;
 
 const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--thread <main|q-N> | --quest <q-N>] [--suggest <answer>]... [--json]
-       takode notify needs-input <summary> [--body <markdown> | --body-file <path|->] [--thread <main|q-N> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
+       takode notify needs-input <summary> [--context <markdown> | --context-file <path|->] [--answers <u1,u2>] [--thread <main|q-N> | --quest <q-N>] --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
        takode notify list [--muted] [--json]
        takode notify mute <notification-id> [--json]
        takode notify unmute <notification-id> [--json]
@@ -61,17 +61,25 @@ Categories:
   review       Ready for user review
   waiting      Transient non-user wait marker; not listed or resolved
 
-Put the decision context (findings, options, tradeoffs, recommendation) in
---body or --body-file as Markdown; it is shown in the question card. If earlier
-visible messages already explain the decision, the body may briefly point to
-them instead of repeating them. Use --body-file - with a quoted heredoc for
-multiline or shell-sensitive text.
+A needs-input prompt has two parts. The context (--context or --context-file,
+Markdown, optional) explains the situation, findings, options, tradeoffs and
+recommendation; it appears in the chat as a normal message right before the
+question card. The question card shows only the summary, the --question prompts
+and their suggested replies. This call is the whole decision surface: do not
+explain the question again in a separate message. Simple questions need no
+context. Use --context-file - with a quoted heredoc for multiline or
+shell-sensitive text.
+
+Leaders only: when the context responds to earlier user messages, name them with
+--answers u12[,u13] so the context counts as your explicit answer to them. Use
+it only when the context is the substantive response to that request, not when
+requested delivered work is still owed.
 
 Whenever you ask the user a question, include one or two concise suggested replies
 with --suggest so the UI can render convenient response buttons. For a binary
 question, provide both choices. These are shortcuts, not preselected answers or
-authorization; custom replies must remain available. Keep the complete question
-and all valid decision alternatives in the question card. This guidance does not
+authorization; custom replies must remain available. Keep every valid decision
+alternative in the context or the questions. This guidance does not
 impose a tool-level limit on suggestions. With multiple --question flags, provide
 replies after each question.
 `;
@@ -1185,6 +1193,7 @@ export async function handlePending(base: string, args: string[]): Promise<void>
       notification_id?: string;
       summary?: string;
       body?: string;
+      context?: string;
       suggestedAnswers?: string[];
       msg_index?: number;
       threadKey?: string;
@@ -1228,7 +1237,8 @@ export async function handlePending(base: string, args: string[]): Promise<void>
     if (p.kind === "notification" || p.tool_name === "takode.notify") {
       const summary = p.summary?.trim() || "Needs input";
       console.log(`\n[needs-input]${msgRef} ${formatInlineText(summary)}`);
-      if (p.body) console.log(`\n${p.body}\n`);
+      const context = p.context?.trim() || p.body;
+      if (context) console.log(`\n${context}\n`);
       if (msgRef) {
         console.log(`\nFull message: takode read ${safeSessionRef} ${p.msg_index}`);
       }
@@ -1530,7 +1540,8 @@ export async function handleSetBase(base: string, args: string[]): Promise<void>
 function parseNotifyCreateArgs(args: string[]): {
   jsonMode: boolean;
   summary: string | undefined;
-  body?: { inline: string } | { file: string };
+  context?: { inline: string } | { file: string };
+  answers?: string[];
   suggestedAnswers: string[];
   questions: Array<{ prompt: string; suggestedAnswers: string[] }>;
   threadKey?: string;
@@ -1539,7 +1550,8 @@ function parseNotifyCreateArgs(args: string[]): {
   let jsonMode = false;
   let threadKey: string | undefined;
   let questId: string | undefined;
-  let body: { inline: string } | { file: string } | undefined;
+  let context: { inline: string } | { file: string } | undefined;
+  let answers: string[] | undefined;
   const suggestedAnswers: string[] = [];
   const questions: Array<{ prompt: string; suggestedAnswers: string[] }> = [];
   let currentQuestion: { prompt: string; suggestedAnswers: string[] } | null = null;
@@ -1565,17 +1577,30 @@ function parseNotifyCreateArgs(args: string[]): {
       i += 1;
       continue;
     }
-    if (arg === "--body" || arg === "--body-file") {
+    // --body and --body-file are undocumented aliases kept for sessions launched with older instructions.
+    if (arg === "--context" || arg === "--context-file" || arg === "--body" || arg === "--body-file") {
       const value = args[i + 1];
-      if (body) err("Use either --body or --body-file, once.");
+      const inline = arg === "--context" || arg === "--body";
+      if (context) err("Use either --context or --context-file, once.");
       if (value === undefined || value.startsWith("--")) {
         err(
-          arg === "--body"
-            ? "--body requires a value; use --body-file <path|-> for text beginning with '--'"
-            : "--body-file requires a path or '-' for stdin",
+          inline
+            ? `${arg} requires a value; use --context-file <path|-> for text beginning with '--'`
+            : `${arg} requires a path or '-' for stdin`,
         );
       }
-      body = arg === "--body" ? { inline: value } : { file: value };
+      context = inline ? { inline: value } : { file: value };
+      i += 1;
+      continue;
+    }
+    if (arg === "--answers") {
+      const value = args[i + 1];
+      if (answers) err("Use --answers once, with a comma-separated list.");
+      if (value === undefined || value.startsWith("--")) err("--answers requires message IDs such as u12 or u12,u13.");
+      answers = value
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean);
       i += 1;
       continue;
     }
@@ -1612,7 +1637,8 @@ function parseNotifyCreateArgs(args: string[]): {
   return {
     jsonMode,
     summary: summaryParts.length > 0 ? summaryParts.join(" ") : undefined,
-    ...(body ? { body } : {}),
+    ...(context ? { context } : {}),
+    ...(answers ? { answers } : {}),
     suggestedAnswers,
     questions,
     ...(threadKey ? { threadKey } : {}),
@@ -1784,12 +1810,18 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
   }
   const payload: Record<string, unknown> = { category };
   if (summary) payload.summary = summary;
-  if (parsed.body) {
-    if (category !== "needs-input") err("--body is only supported for needs-input notifications.");
-    const bodyText =
-      "inline" in parsed.body ? parsed.body.inline : await readOptionTextFile(parsed.body.file, "--body-file");
-    if (!bodyText.trim()) err("Notification body is empty.");
-    payload.body = bodyText;
+  if (parsed.context) {
+    if (category !== "needs-input") err("--context is only supported for needs-input notifications.");
+    const contextText =
+      "inline" in parsed.context
+        ? parsed.context.inline
+        : await readOptionTextFile(parsed.context.file, "--context-file");
+    if (!contextText.trim()) err("Notification context is empty.");
+    payload.context = contextText;
+  }
+  if (parsed.answers) {
+    if (!parsed.context) err("--answers requires --context: the context is the answer.");
+    payload.answers = parsed.answers;
   }
   if (parsed.threadKey) payload.threadKey = parsed.threadKey;
   if (parsed.questId) payload.questId = parsed.questId;

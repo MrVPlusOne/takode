@@ -975,6 +975,53 @@ export function PlaygroundBodyNotificationMarker() {
   );
 }
 
+/** A question-only prompt: its context is an ordinary assistant message and the card holds only the questions. */
+export function PlaygroundContextNotificationMessage() {
+  useEffect(() => {
+    const previous = useStore.getState().sessionNotifications;
+    const next = new Map(previous);
+    next.set("playground-context-notify", [
+      {
+        id: "n-context-1",
+        category: "needs-input",
+        timestamp: Date.now() - 30_000,
+        messageId: "needs-input-context-n-context-1",
+        contextMessageId: "needs-input-context-n-context-1",
+        questionOnly: true,
+        summary: "Approve resuming QA generation without the 3 orphaned containers",
+        questions: [
+          {
+            prompt: "Resume now and skip the 3 inputs that depend on those containers?",
+            suggestedAnswers: ["yes, resume", "wait for cleanup"],
+          },
+        ],
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: next });
+
+    return () => {
+      useStore.setState({ sessionNotifications: previous });
+    };
+  }, []);
+
+  const message: ChatMessage = {
+    id: "needs-input-context-n-context-1",
+    role: "assistant",
+    content: [
+      "**No, three containers shouldn't hold up the run.** They were treated as a hard blocker because the previous run required every container from the crashed attempt to be confirmed closed before restarting. For three idle containers that is disproportionate: CaaS expires idle containers on its own, and only three of the 158,814 remaining inputs depended on them.",
+      "",
+      "- **Resume now**: skips about 0.002% of the data, well within the 5% budget.",
+      "- **Wait for cleanup**: keeps every input but leaves the run blocked until the containers expire.",
+      "",
+      "I recommend resuming now.",
+    ].join("\n"),
+    timestamp: Date.now() - 30_000,
+  };
+
+  return <MessageBubble message={message} sessionId="playground-context-notify" showTimestamp={false} />;
+}
+
 export function PlaygroundDedupedNotificationMessage() {
   useEffect(() => {
     const previous = useStore.getState().sessionNotifications;

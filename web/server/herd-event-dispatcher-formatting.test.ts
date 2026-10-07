@@ -234,19 +234,19 @@ describe("formatHerdEventBatch", () => {
     expect(result).toContain("Read: takode read 5 18");
   });
 
-  it("shows a needs-input body as bounded decision context for the leader", () => {
-    // The body is the worker's decision surface; the leader must see it without
-    // reading worker history, but an oversized body must not flood the leader.
+  it("shows needs-input context as bounded decision context for the leader", () => {
+    // The context explains the worker's question; the leader must see it without
+    // reading worker history, but oversized context must not flood the leader.
     const short = formatHerdEventBatch([
       makeEvent({
         event: "notification_needs_input",
-        data: { summary: "Pick a rollout", body: "Staged is safer.\nFull is faster.", msg_index: 3 },
+        data: { summary: "Pick a rollout", context: "Staged is safer.\nFull is faster.", msg_index: 3 },
       }),
     ]);
     expect(short).toContain("  Context:\n    Staged is safer.\n    Full is faster.\n  Answer:");
 
     const long = formatHerdEventBatch([
-      makeEvent({ event: "notification_needs_input", data: { summary: "Pick", body: "x".repeat(2500) } }),
+      makeEvent({ event: "notification_needs_input", data: { summary: "Pick", context: "x".repeat(2500) } }),
     ]);
     expect(long).toContain("...(full context: takode pending 5)");
     expect(long).not.toContain("x".repeat(2001));

@@ -71,6 +71,8 @@ export function NotificationMarker({
   const showReplyButton = !!showReplyAction && !!notif && !!sessionId && (isAction ? !isDone : isReview);
   const questionViews = useMemo(() => (isAction && notif ? getNeedsInputQuestionViews(notif) : []), [isAction, notif]);
   const body = isAction ? notif?.body?.trim() : undefined;
+  // Question-only cards hold no explanation, so their question reads at chat-adjacent size.
+  const textSize = isAction && notif?.questionOnly ? "text-[13px]" : "text-[11px]";
   const messages = useStore((s) => (sessionId ? (s.messages?.get(sessionId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES));
   const sourceContext = useMemo(
     () => (notif ? getNotificationSourceContext(notif, messages, messageId) : null),
@@ -218,7 +220,7 @@ export function NotificationMarker({
 
   return (
     <div
-      className={`inline-flex max-w-full flex-col items-start gap-1 mt-2 px-2 py-0.5 rounded-xl text-[11px] font-medium transition-opacity ${
+      className={`inline-flex max-w-full flex-col items-start gap-1 mt-2 px-2 py-0.5 rounded-xl ${textSize} font-medium transition-opacity ${
         body ? "w-full sm:w-[min(44rem,100%)]" : questionViews.length > 0 ? "w-full sm:w-[min(30rem,100%)]" : ""
       } ${
         isDone
@@ -332,7 +334,7 @@ export function NotificationMarker({
                 title: label,
                 questionCount: questionViews.length,
               }) && (
-                <div className="text-[11px] font-medium leading-snug text-cc-fg">
+                <div className={`${textSize} font-medium leading-snug text-cc-fg`}>
                   {questionViews.length > 1 && <span className="text-cc-muted">{index + 1}. </span>}
                   {question.prompt}
                 </div>

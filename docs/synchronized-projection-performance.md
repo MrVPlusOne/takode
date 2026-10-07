@@ -193,10 +193,10 @@ Counts use two browsers and separate required owner detail, compact global summa
 | Attention scenario | Historical control sends / deliveries / total bytes | Current compatible pair | Result |
 | --- | ---: | ---: | --- |
 | Equal invalidation | 0 / 0 / 0 B | 0 / 0 / 0 B | Equal; one dependency check suppresses derivation and publication |
-| First needs-input | 6 / 9 / 3,087 B | 3 / 5 / 1,573 B | Better; one owner inbox, one compact global summary, one projection update |
+| First needs-input | 6 / 9 / 3,107 B | 3 / 5 / 1,593 B | Better; one owner inbox, one compact global summary, one projection update |
 | First review | 6 / 9 / 3,042 B | 3 / 5 / 1,538 B | Better; same separated-authority shape |
 | Same urgency, count 1 → 2 | 4 / 6 / 2,299 B | 3 / 5 / 1,685 B | Better; count changes without reviving raw attention delivery |
-| 25-notification burst | 102 / 153 / 99,312 B | 51 / 77 / 71,889 B | Better; required detail/summary frames remain, projection work coalesces once |
+| 25-notification burst | 102 / 153 / 105,812 B | 51 / 77 / 78,389 B | Better; required detail/summary frames remain, projection work coalesces once |
 | Explicit read/clear | 4 / 6 / 2,042 B | 3 / 5 / 1,321 B | Better; clear is projected without a raw attention/read session update |
 | Permission appears | 2 / 3 / 1,029 B | 2 / 3 / 695 B | Same sends; owner permission detail plus scoped projection replaces global permission summary |
 
