@@ -4,6 +4,7 @@ import { mkdir, open, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { hasUsableNetwork } from "../network-availability.js";
 import { dirname } from "node:path";
+import { getEnrichedPath } from "../path-resolver.js";
 import {
   HOST_HEARTBEAT_MS,
   HOST_LINK_PATH,
@@ -301,6 +302,9 @@ export class HostAgent {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...(prepared?.env ?? command.env),
+      // Like on the coordinator, agents find Takode's CLI wrappers and the user's
+      // shell tools first. A prepared Codex launch already built this PATH here.
+      ...(prepared ? {} : { PATH: getEnrichedPath() }),
       // Agent CLIs on this host reach the coordinator through the local API proxy.
       COMPANION_PORT: port,
       ...(command.env.TAKODE_API_PORT ? { TAKODE_API_PORT: port } : {}),

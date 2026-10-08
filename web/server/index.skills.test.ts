@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ensureSkillSymlinks } from "./skill-symlink.js";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
-const INDEX_PATH = join(SERVER_DIR, "index.ts");
+const INDEX_PATH = join(SERVER_DIR, "startup-readiness.ts");
 const REPO_ROOT = join(SERVER_DIR, "..", "..");
 const QUEST_JOURNEY_SKILL_SLUGS = [
   "quest-journey-alignment",
@@ -30,7 +30,7 @@ describe("index startup skill registration", () => {
   it("registers canonical startup skills without stale hardcoded slugs", async () => {
     // If a nonexistent project skill is reintroduced here, startup will recreate
     // warning spam and potentially broken symlink state. Guard the actual
-    // STARTUP_SKILL_SYMLINKS registration list in index.ts directly.
+    // STARTUP_SKILL_SYMLINKS registration list in startup-readiness.ts directly.
     const source = await readFile(INDEX_PATH, "utf-8");
     const match = source.match(/STARTUP_SKILL_SYMLINKS = \[([\s\S]*?)\];/);
     expect(match).toBeTruthy();

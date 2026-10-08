@@ -3,7 +3,7 @@
 import { readFile } from "node:fs/promises";
 import {
   isMemoryServerCommand,
-  memoryCommandPlanPath,
+  memoryCommandInputFile,
   runMemoryCommand,
   splitMemoryCommand,
   type MemoryCommandResult,
@@ -22,8 +22,14 @@ const args = process.argv.slice(2);
 const { command, rest } = splitMemoryCommand(args);
 trackCliLatency("memory", command, rest);
 
+/**
+ * Commands run on the Takode server that owns the repo, so they work the same
+ * on machines without a copy of it. Reading commands fall back to the local
+ * repo when no server is named or reachable; writing commands never do.
+ */
 async function main(): Promise<void> {
-  const result = isMemoryServerCommand(args) ? await runOnServer() : await runLocally();
+  const origin = await serverOrigin();
+  const result = origin ? await runOnServer(origin) : isMemoryServerCommand(args) ? noServer() : await runLocally();
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
   process.exitCode = result.exitCode;
@@ -32,23 +38,23 @@ async function main(): Promise<void> {
 /** Reads run here without creating, migrating or indexing any repo. */
 async function runLocally(): Promise<MemoryCommandResult> {
   await scopeSettingsFromEnv();
-  return runMemoryCommand(args, { readOnly: true, readTextFile: (path) => readFile(path, "utf-8") });
+  return runMemoryCommand(args, { readOnly: true, readTextFile: readInputFile });
+}
+
+function noServer(): MemoryCommandResult {
+  return failure(
+    "No Takode server is configured for this command. Memory changes are written by the Takode server: " +
+      "run it from a Takode session or set COMPANION_PORT to the server's port.",
+  );
 }
 
 /**
- * The Takode server is the only writer of memory data, so commands that write
- * (including catalog freshness and handle bookkeeping) run there. Values the
- * command would otherwise take from this process's environment travel with it.
+ * The Takode server is the only writer of memory data and the only machine
+ * guaranteed to hold the repo. Values the command would otherwise take from
+ * this process's environment, and files it names, travel with it.
  */
-async function runOnServer(): Promise<MemoryCommandResult> {
-  const origin = await serverOrigin();
-  if (!origin) {
-    return failure(
-      "No Takode server is configured for this command. Memory changes are written by the Takode server: " +
-        "run it from a Takode session or set COMPANION_PORT to the server's port.",
-    );
-  }
-  const planPath = memoryCommandPlanPath(args);
+async function runOnServer(origin: string): Promise<MemoryCommandResult> {
+  const inputFile = memoryCommandInputFile(args);
   const request: MemoryServerCommandRequest = {
     args,
     context: {
@@ -64,7 +70,7 @@ async function runOnServer(): Promise<MemoryCommandResult> {
           process.env.COMPANION_SESSION_ID || process.env.COMPANION_SESSION_NUM || process.env.TAKODE_SESSION_ID,
       }),
     },
-    ...(planPath ? { files: { [planPath]: await readFile(planPath, "utf-8") } } : {}),
+    ...(inputFile ? { files: { [inputFile]: await readInputFile(inputFile) } } : {}),
   };
   const server = `the Takode server at ${origin}`;
   let response: Response;
@@ -77,6 +83,7 @@ async function runOnServer(): Promise<MemoryCommandResult> {
     });
   } catch (error) {
     const name = (error as { name?: string } | null)?.name;
+    if (!isMemoryServerCommand(args) && name !== "TimeoutError" && name !== "AbortError") return runLocally();
     return failure(
       name === "TimeoutError" || name === "AbortError"
         ? `The Takode server at ${origin} did not answer within ${MEMORY_SERVER_COMMAND_TIMEOUT_MS / 1000}s. ` +
@@ -112,6 +119,14 @@ function authHeaders(): Record<string, string> {
   const authToken = process.env.COMPANION_AUTH_TOKEN?.trim();
   if (!sessionId || !authToken) return {};
   return { "x-companion-session-id": sessionId, "x-companion-auth-token": authToken };
+}
+
+async function readInputFile(path: string): Promise<string> {
+  if (path !== "-") return readFile(path, "utf-8");
+  let text = "";
+  process.stdin.setEncoding("utf8");
+  for await (const chunk of process.stdin) text += chunk;
+  return text;
 }
 
 function failure(message: string): MemoryCommandResult {

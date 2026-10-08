@@ -10,10 +10,21 @@
  * Usage:
  *   takode-node --coordinator <url> (--token-file <path> | TAKODE_HOST_TOKEN=...) [--api-port <n>] [--claude <path>] [--codex <path>] [--allow-insecure]
  *
- * Register the host on the coordinator first (POST /api/hosts) to obtain its token.
+ * Before connecting it installs the agent CLI wrappers, skills and Quest
+ * Journey phase briefs from this machine's Takode checkout, as the server does
+ * at startup.
+ *
+ * Register the host on the coordinator first (`takode host add <name>`) to obtain its token.
  */
 import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { HostAgent, insecureCoordinatorUrlProblem, startApiProxy } from "../server/remote-host/host-agent.js";
+import { ensureBuiltInQuestJourneyPhaseData } from "../server/quest-journey-phases.js";
+import { ensureQuestmasterIntegration } from "../server/quest-integration.js";
+import { ensureSkillSymlinks } from "../server/skill-symlink.js";
+import { ensureTakodeIntegration } from "../server/takode-integration.js";
+import { runPreListenStartupReadiness, STARTUP_SKILL_SYMLINKS } from "../server/startup-readiness.js";
 
 const args = process.argv.slice(2);
 
@@ -51,6 +62,16 @@ async function main(): Promise<void> {
   if (codex) commands.codex = codex;
 
   const proxy = startApiProxy({ coordinatorUrl, port: apiPort });
+  // Agents here need the same CLI wrappers, skills and phase briefs as on the
+  // coordinator, installed from this machine's own Takode checkout.
+  await runPreListenStartupReadiness(
+    { ensureQuestmasterIntegration, ensureTakodeIntegration, ensureBuiltInQuestJourneyPhaseData, ensureSkillSymlinks },
+    {
+      port: proxy.port,
+      packageRoot: resolve(dirname(fileURLToPath(import.meta.url)), ".."),
+      startupSkillSlugs: STARTUP_SKILL_SYMLINKS,
+    },
+  );
   const agent = new HostAgent({
     coordinatorUrl,
     token,

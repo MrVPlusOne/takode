@@ -9,7 +9,7 @@ description: "How to read, write and keep healthy the Takode memory repo (Markdo
 
 Memory is a Git repository of Markdown notes that every session can read and that Memory-phase agents keep up to date. The injected catalog is the map; the notes are the source of truth. This skill explains how the repo is organized, how to find things, how to write, and how to keep the repo healthy so the catalog stays small and useful as memory grows.
 
-Run `memory --help` for exact command syntax. `memory repo path` prints the repo root.
+The repo lives on the Takode server's machine. Use the `memory` commands to read, search and write notes: they run on the server, so they work the same from every machine, including hosts that have no copy of the repo. Run `memory --help` for exact command syntax.
 
 ## How the repo is organized
 
@@ -37,8 +37,8 @@ Good folder names are short subject nouns a reader would look for (`codex-recove
    - **Recently updated notes**: about 50 notes in full, so you notice fresh decisions without searching. A note counts as updated when it is edited or marked helpful. `current` notes are always included; evidence (`artifact`) and `reference` notes are left out of this part.
    - **One line per top-level folder**: its note count, how many of its notes are already in the recent list, and its description. A parent folder's line also names its subfolders.
 2. You may read a relevant recent note right away. **Before relying on memory for a task, list every folder whose description matches the task** with `memory catalog show <folder>`. The listing shows every note on that topic, including older notes you did not know to look for. A task that touches several topics needs several listings.
-3. Read the notes in those listings that are relevant. Don't stop at the first note that answers the question if others also apply.
-4. Use `rg` under `$(memory repo path)` for exact terms, such as a file name or an error message, or when no folder description fits.
+3. Read the notes in those listings that are relevant with `memory read <path>...`. Don't stop at the first note that answers the question if others also apply.
+4. Use `memory grep <pattern> [<folder>...]` for exact terms, such as a file name or an error message, or when no folder description fits.
 5. Use `memory catalog diff` to see which notes changed since this session last looked.
 6. When a note materially helped your work, mark it: `memory helpful <path>...`. A mark counts like an update, so useful notes stay in the recent list.
 
@@ -52,13 +52,13 @@ Good folder names are short subject nouns a reader would look for (`codex-recove
 
 ## Writing memory
 
-1. **Update before you create.** List the folder for the subject, find the existing note there (or with `rg`), and integrate the new facts into it. Create a note only for a genuinely new subject.
+1. **Update before you create.** List the folder for the subject, find the existing note there (or with `memory grep`), and integrate the new facts into it. Create a note only for a genuinely new subject.
 2. **Choose the folder** a future reader would open first when about to use or change this subject. When a note fits two folders, choose by what the note is about, not by which backend or tool it touches. Evidence and reference notes go in the same folder as the decision or knowledge they support. Use an existing folder whenever one fits; create a new folder only when at least 5 notes belong in it, and give it a README description.
 3. **Write the description** as a "Read when/before/for…" line of at most 250 characters, using the subject words people will search for.
 4. **Write the body** starting with the current answer or dated present state, its scope, material limits and genuine open questions. Integrate updates into that account and label historical or superseded material so it cannot be read as current guidance or authorization. Give detailed evidence one authoritative home and link to it, keeping the key result and caveat beside the current claim. Keep executable instructions in their authoritative instruction surface (skills, briefs, repo docs) and store only a pointer and the lesson in memory.
 5. **Commit under the lock:**
    1. `memory lock acquire --owner <session-or-role>`
-   2. edit the files (move notes only with `memory mv`)
+   2. for each note, write its full new text to a draft file and save it with `memory write <path> --file <draft>` (or `--file -` to read stdin); delete a note with `memory rm <path>` and move notes only with `memory mv`
    3. `memory lint`
    4. `memory diff`
    5. `memory commit --message "..." --source q-N --memory-id <path>` (one coherent update per commit)
@@ -89,7 +89,7 @@ Commit moves, README edits and description rewrites with `memory commit --operat
 
 Use this when lint shows structure warnings across the repo (for example legacy type folders after the upgrade to topic folders), or when asked to curate memory. A repo of a few hundred notes takes one agent roughly 5-10 minutes plus description rewrites. Memory is durable user data: work under the lock, keep every note, and change only frontmatter descriptions, READMEs and references, never note bodies' substance.
 
-1. **Back up first.** Copy the whole repo directory, including `.git`, to a dated backup location outside the repo (for example `tar -czf <backup-dir>/memory-<space>-<date>.tgz -C "$(dirname "$(memory repo path)")" "$(basename "$(memory repo path)")"`) and record its path and checksum in your quest notes.
+1. **Back up first.** On the Takode server's machine, copy the whole repo directory, including `.git`, to a dated backup location outside the repo (for example `tar -czf <backup-dir>/memory-<space>-<date>.tgz -C "$(dirname "$(memory repo path)")" "$(basename "$(memory repo path)")"`) and record its path and checksum in your quest notes.
 2. Take the lock and run `memory lint` to see the warnings and the current catalog size.
 3. Run `memory catalog show --all` to see every note with its description. Reuse folders that already fit. On older notes, `facets: topic:` lists in the frontmatter are useful grouping hints.
 4. Group notes by **subject**, meaning what a future reader would be looking for, not by note type or date:

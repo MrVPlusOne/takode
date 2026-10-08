@@ -2,8 +2,9 @@
 /**
  * Questmaster CLI — standalone tool for managing quests.
  *
- * Imports quest-store.ts directly (no HTTP for data operations).
- * After mutations, notifies the Companion server so browsers refresh.
+ * The Takode server is the only writer of quest data, so every change goes
+ * through its API. Reads ask the server too and fall back to the local store
+ * when no server answers.
  *
  * Usage:  quest <command> [options]
  *
@@ -51,7 +52,6 @@ import {
 import type { QuestHistoryView, QuestmasterTask } from "../server/quest-types.js";
 import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "../server/quest-types.js";
 import { applyQuestListFilters } from "../server/quest-list-filters.js";
-import { grepQuests } from "../server/quest-grep.js";
 import { getName } from "../server/session-names.js";
 import { formatQuestLine, formatSessionLabel } from "./quest-format.js";
 import { parseCommitShas } from "./quest-commit-flags.js";
@@ -87,6 +87,7 @@ import { collectSessionIds, fetchSessionMetadataMap, type SessionMetadata } from
 import { runCommitLinksCommand } from "./quest-commit-links.js";
 import { runShowCommand } from "./quest-show-command.js";
 import { runTagsCommand } from "./quest-tags-command.js";
+import { grepQuestsForCli, type QuestCliGrep } from "../server/routes/quest-cli-reads.js";
 import { runQuizCommand } from "./quest-quiz.js";
 import { runClaimCommand, runReassignCommand } from "./quest-ownership-command.js";
 import { parseCommaSeparatedTags } from "./quest-tag-options.js";
@@ -354,6 +355,31 @@ async function getQuestHistoryView(id: string): Promise<QuestHistoryView> {
   );
 }
 
+/**
+ * Whole-store reads (`list`, `mine`, `grep`, `tags`) ask the server too, so a
+ * CLI on a machine without the quest store sees the same quests. `local`
+ * answers from this machine's store when no server answers.
+ */
+async function readQuestsFromServer<T>(
+  path: string,
+  params: Record<string, string | undefined>,
+  local: () => Promise<T>,
+): Promise<T> {
+  if (directCodexExecution) return local();
+  const query = new URLSearchParams(Object.entries(params).filter((entry): entry is [string, string] => !!entry[1]));
+  return (await questServer.read<T>(`${path}?${query}`)) ?? local();
+}
+
+async function questTagCounts(): Promise<Record<string, number>> {
+  return readQuestsFromServer("/quests/_tag-counts", {}, async () => {
+    const counts: Record<string, number> = {};
+    for (const quest of await listQuests()) {
+      for (const tag of quest.tags ?? []) counts[tag] = (counts[tag] ?? 0) + 1;
+    }
+    return counts;
+  });
+}
+
 /** Session labels for the sessions that `shown` (the quests being printed) can mention. */
 async function getSessionMetadataMap(shown: unknown): Promise<Map<string, SessionMetadata>> {
   const sessionIds = collectSessionIds(shown);
@@ -585,14 +611,17 @@ async function cmdList(): Promise<void> {
         "Valid values: all, inbox, reviewed (aliases: verification, needs_verification, unread, new, non-inbox, non_inbox, read, acknowledged).",
     );
   }
-  const quests = applyQuestListFilters(await listQuests(), {
+  const filters = {
     status: option("status"),
     tags: option("tags"),
     tag: option("tag"),
     session: option("session"),
     text: option("text"),
     verification,
-  });
+  };
+  const quests = await readQuestsFromServer("/quests/_list", filters, async () =>
+    applyQuestListFilters(await listQuests(), filters),
+  );
 
   if (jsonOutput) {
     out(quests);
@@ -667,13 +696,15 @@ async function cmdGrep(): Promise<void> {
 
   if (!query) die("Usage: quest grep <pattern> [--count N] [--json]");
 
-  const quests = await listQuests();
-  let result;
+  let found: QuestCliGrep;
   try {
-    result = grepQuests(quests, query, { limit });
+    found = await readQuestsFromServer("/quests/_grep", { q: query, count: String(limit) }, async () =>
+      grepQuestsForCli(await listQuests(), query, limit),
+    );
   } catch (error) {
     die(error instanceof Error ? error.message : String(error));
   }
+  const { grep: result, feedbackTimes } = found;
   if (jsonOutput) {
     out(result);
     return;
@@ -714,8 +745,6 @@ async function cmdGrep(): Promise<void> {
     });
   }
 
-  const questById = new Map(quests.map((quest) => [quest.questId, quest] as const));
-
   for (const group of groupedMatches.values()) {
     const title = truncate(group.title, 48);
     const status = STATUS_LABELS[group.status] ?? group.status;
@@ -726,10 +755,7 @@ async function cmdGrep(): Promise<void> {
       if (match.feedbackAuthor) parts.push(match.feedbackAuthor);
       const phaseScope = formatPhaseScopeLabel(match);
       if (phaseScope) parts.push(phaseScope);
-      const quest = questById.get(match.questId);
-      const feedbackEntries =
-        quest && "feedback" in quest ? (quest as { feedback?: Array<{ ts?: number }> }).feedback : undefined;
-      const feedbackTs = match.feedbackIndex !== undefined ? feedbackEntries?.[match.feedbackIndex]?.ts : undefined;
+      const feedbackTs = feedbackTimes[`${match.questId}:${match.feedbackIndex}`];
       if (feedbackTs) parts.push(timeAgo(feedbackTs));
       console.log(`        ${parts.join(" | ")}`);
       console.log(`        ${compactSnippet(match.snippet, 96)}`);
@@ -1617,7 +1643,11 @@ async function cmdMine(): Promise<void> {
     kind: codexInvocation && !managedCompanionIdentity ? ("codex" as const) : ("takode" as const),
     sessionId: currentSessionId,
   };
-  const quests = (await listQuests()).filter((quest) => sameQuestOwner(getQuestOwner(quest), currentOwner));
+  const quests = await readQuestsFromServer(
+    "/quests/_list",
+    { ownerKind: currentOwner.kind, ownerSession: currentOwner.sessionId },
+    async () => (await listQuests()).filter((quest) => sameQuestOwner(getQuestOwner(quest), currentOwner)),
+  );
 
   if (jsonOutput) {
     out(quests);
@@ -1758,7 +1788,7 @@ async function main(): Promise<void> {
         timeAgo,
       });
     case "tags":
-      return runTagsCommand({ listQuests, validateFlags, jsonOutput, out });
+      return runTagsCommand({ tagCounts: questTagCounts, validateFlags, jsonOutput, out });
     case "create":
       return cmdCreate();
     case "claim":

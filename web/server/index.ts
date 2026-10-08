@@ -87,7 +87,7 @@ import { ensureQuestmasterIntegration } from "./quest-integration.js";
 import { ensureTakodeIntegration } from "./takode-integration.js";
 import { ensureBuiltInQuestJourneyPhaseData } from "./quest-journey-phases.js";
 import { ensureSkillSymlinks } from "./skill-symlink.js";
-import { runPreListenStartupReadiness } from "./startup-readiness.js";
+import { runPreListenStartupReadiness, STARTUP_SKILL_SYMLINKS } from "./startup-readiness.js";
 import { recreateWorktreeIfMissing } from "./migration.js";
 import { access } from "node:fs/promises";
 import { RelaunchQueue } from "./relaunch-queue.js";
@@ -108,17 +108,6 @@ import type { ServerWebSocket } from "bun";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = process.env.__COMPANION_PACKAGE_ROOT || resolve(__dirname, "..");
-const STARTUP_SKILL_SYMLINKS = [
-  "takode-orchestration",
-  "leader-dispatch",
-  "leader-decision-communication",
-  "confirm",
-  "self-groom",
-  "reviewer-groom",
-  "skeptic-review",
-  "worktree-rules",
-  "random-memory-ideas",
-];
 
 import { DEFAULT_PORT_DEV, DEFAULT_PORT_PROD, RESTART_EXIT_CODE } from "./constants.js";
 import { checkBackendStartup } from "./backend-startup-check.js";

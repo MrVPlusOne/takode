@@ -25,7 +25,7 @@ Boundary:
 
 File-based memory:
 - Load the `memory` skill before writing memory. It owns the note format, the lock/lint/commit flow, source rules, upkeep and the curation procedure.
-- Triage with the catalog: read relevant recent notes, and list every topic folder that matches the quest's subjects with `memory catalog show <folder>`, passing the newest memory handle with `--seen`. Use `memory catalog diff` when changes since the last observed catalog matter; it detects body and metadata changes, not individual file reads. Inspect plausible notes directly, and use targeted `rg` under `$(memory repo path)` only for exact terms or when no folder fits.
+- Triage with the catalog: read relevant recent notes, and list every topic folder that matches the quest's subjects with `memory catalog show <folder>`, passing the newest memory handle with `--seen`. Use `memory catalog diff` when changes since the last observed catalog matter; it detects body and metadata changes, not individual file reads. Read plausible notes with `memory read <path>`, and use targeted `memory grep <pattern>` only for exact terms or when no folder fits.
 - Memory upkeep duties:
   1. Mark the notes that materially helped this quest with `memory helpful <path>...`; skip this when none did. A mark keeps a useful note in the catalog's recent list.
   2. Update an existing note before creating one; create a note only for a genuinely new subject, in the folder a future reader would open first.

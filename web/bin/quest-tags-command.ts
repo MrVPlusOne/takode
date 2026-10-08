@@ -1,22 +1,16 @@
-import type { QuestmasterTask } from "../server/quest-types.js";
-
 export async function runTagsCommand(deps: {
-  listQuests: () => Promise<QuestmasterTask[]>;
+  /** Number of quests carrying each tag. */
+  tagCounts: () => Promise<Record<string, number>>;
   validateFlags: (known: string[]) => void;
   jsonOutput: boolean;
   out: (value: unknown) => void;
 }): Promise<void> {
   deps.validateFlags(["json"]);
-  const quests = await deps.listQuests();
-  const tagCounts = new Map<string, number>();
-  for (const quest of quests) {
-    for (const tag of quest.tags ?? []) {
-      tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
-    }
-  }
+  const counts = await deps.tagCounts();
+  const tagCounts = new Map(Object.entries(counts));
 
   if (deps.jsonOutput) {
-    deps.out(Object.fromEntries(tagCounts));
+    deps.out(counts);
     return;
   }
 

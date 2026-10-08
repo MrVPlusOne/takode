@@ -9,6 +9,7 @@ import { startCliWriteServer, type CliWriteServer } from "./test-fixtures/cli-wr
 async function runMemory(
   args: string[],
   env: Record<string, string | undefined>,
+  input?: string,
 ): Promise<{ status: number | null; stdout: string; stderr: string }> {
   const memoryPath = fileURLToPath(new URL("../bin/memory.ts", import.meta.url));
   const child = spawn(process.execPath, [memoryPath, ...args], {
@@ -18,8 +19,9 @@ async function runMemory(
       BUN_INSTALL_CACHE_DIR:
         process.env.BUN_INSTALL_CACHE_DIR || join(process.env.HOME || "", ".bun", "install", "cache"),
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
   });
+  child.stdin?.end(input);
   let stdout = "";
   let stderr = "";
   child.stdout?.on("data", (chunk) => {
@@ -104,6 +106,22 @@ facets:
         source: ["q-1218"],
       }),
     );
+  });
+
+  // A session on another machine has no copy of the repo: it drafts a note,
+  // sends it on stdin, and reads it back, all through the server.
+  it("writes a note from stdin and reads it back through the server", async () => {
+    const draft =
+      '---\ndescription: "Read when testing remote notes."\ntype: knowledge\nsource: [q-1]\n---\n\nRemote body.\n';
+    const remoteHost = { ...env, HOME: await mkdtemp(join(tmpdir(), "memory-cli-host-")) };
+    expect((await runMemory(["lock", "acquire", "--owner", "test"], remoteHost)).status).toBe(0);
+
+    const written = await runMemory(["write", "testing/remote.md", "--file", "-"], remoteHost, draft);
+    expect(written).toMatchObject({ status: 0, stdout: "Wrote testing/remote.md.\n" });
+    await expect(readFile(join(tempDir, "memory", "testing", "remote.md"), "utf-8")).resolves.toBe(draft);
+    expect((await runMemory(["read", "testing/remote.md"], remoteHost)).stdout).toBe(draft);
+    expect((await runMemory(["grep", "Remote body"], remoteHost)).stdout).toBe("testing/remote.md:7:Remote body.\n");
+    await rm(remoteHost.HOME, { recursive: true, force: true });
   });
 
   it("shows catalog entries relative to the printed memory repo root", async () => {

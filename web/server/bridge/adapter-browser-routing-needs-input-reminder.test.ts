@@ -1256,7 +1256,7 @@ describe("direct user needs-input reminders", () => {
     const delivered = sentClaudeContent(session);
     expect(delivered).toContain("Do the assigned work");
     expect(delivered).toContain("Memory catalog preloaded");
-    expect(delivered).toContain("inspect actual memory Markdown files directly");
+    expect(delivered).toContain("read the notes themselves with `memory read <path>`");
     expect(session.messageHistory).toEqual([
       expect.objectContaining({ type: "user_message", content: "Do the assigned work" }),
       expect.objectContaining({

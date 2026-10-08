@@ -2,6 +2,7 @@ import { workstreamMemoryService } from "./workstream-memory-service.js";
 import { applyMemoryHandle, noteViewLine, type MemoryViewLine } from "./memory-catalog-view.js";
 import { memoryHealthSummary } from "./memory-repo-health.js";
 import { parseMovePlan } from "./memory-move.js";
+import { grepMemoryNotes, readMemoryNotes, removeMemoryNote, writeMemoryNote } from "./memory-note-files.js";
 import {
   MEMORY_COMMIT_OPERATIONS,
   MEMORY_DESCRIPTION_CHAR_LIMIT,
@@ -27,13 +28,13 @@ export interface MemoryCommandContext {
   catalogSessionKey?: string;
   /** Inspect repos without creating, migrating or indexing them. */
   readOnly?: boolean;
-  /** Read a file named on the command line (`mv --plan`). */
+  /** Read a file named on the command line (`mv --plan`, `write --file`); `-` is the caller's stdin. */
   readTextFile: (path: string) => Promise<string>;
 }
 
 const VALUE_OPTIONS = new Set(["--root", "--server-id", "--server-slug", "--session-space"]);
 /** Flags that never take a value, so the next token stays positional. */
-const BOOLEAN_FLAGS = new Set(["--json", "--all", "--no-steal-stale", "--help"]);
+const BOOLEAN_FLAGS = new Set(["--json", "--all", "--no-steal-stale", "--help", "--ignore-case"]);
 
 /**
  * Commands that change the memory repo or its bookkeeping (locks, helpful marks,
@@ -47,6 +48,8 @@ export function isMemoryServerCommand(args: readonly string[]): boolean {
     case "catalog":
     case "helpful":
     case "mv":
+    case "write":
+    case "rm":
     case "commit":
       return true;
     case "lock": {
@@ -64,10 +67,12 @@ export function splitMemoryCommand(args: readonly string[]): { command: string |
   return index === -1 ? { command: undefined, rest: [] } : { command: args[index], rest: args.slice(index + 1) };
 }
 
-/** The `--plan` file a server command needs from the caller's filesystem, if any. */
-export function memoryCommandPlanPath(args: readonly string[]): string | undefined {
+/** The file a command reads from the caller's machine (`mv --plan`, `write --file`), if any. */
+export function memoryCommandInputFile(args: readonly string[]): string | undefined {
   const parsed = parseMemoryArgs(args);
-  return parsed.command === "mv" ? parsed.option("plan") : undefined;
+  if (parsed.command === "mv") return parsed.option("plan");
+  if (parsed.command === "write") return parsed.option("file");
+  return undefined;
 }
 
 /** Run one `memory` command and capture its output instead of writing to the process. */
@@ -184,13 +189,21 @@ Reading:
   Every catalog output ends with a memory handle. Pass the newest handle with --seen on your next
   read to leave out entries already shown (they are counted, not listed). Without --seen the output
   is complete. --json prints full machine-readable fields without dedupe.
+  read <path>...
+      Print notes in full (repo-relative paths, as the catalog shows them).
+  grep <pattern> [<folder-or-note>...] [--ignore-case] [--limit N]
+      Matching lines as path:line:text. The pattern is a JavaScript regular expression.
   helpful <path>...
       Record that notes helped. A mark counts as touching the note for the recent list.
   repo path
-      Print the resolved repo root.
+      Print the resolved repo root (on the Takode server's machine).
 
 Writing (hold the lock):
   lock status|acquire|release [--owner NAME] [--ttl-ms N]
+  write <path> --file <draft>|-
+      Create or replace a note or folder README with the draft's full text (- reads stdin).
+  rm <path>
+      Delete a note.
   mv <old-path> <new-path> | mv --plan <file>
       Move notes and rewrite every reference to them. A plan has one "old new" pair per line.
   lint
@@ -201,8 +214,9 @@ Writing (hold the lock):
       Commit with provenance trailers. Stamps \`updated:\` on changed notes unless --operation repair
       (use repair for moves, README edits and description fixes).
 
-The Takode server performs catalog reads, helpful marks, moves, locking and commits; run them
-from a Takode session or set COMPANION_PORT to the server's port.
+Commands run on the Takode server that owns the repo, so they work the same from any machine;
+run them from a Takode session or set COMPANION_PORT to the server's port. Without a server,
+reading commands run against the local repo and writing commands fail.
 
 Options:
   --root PATH            Override the memory repo root for this command.
@@ -221,7 +235,7 @@ Notes live in topic folders (5-25 notes each), each with a README.md holding a o
 
 Write flow:
   memory lock acquire --owner <session-or-role>
-  edit Markdown files directly (move notes only with memory mv)
+  memory write <path> --file <draft>   (move notes only with memory mv)
   memory lint
   memory diff
   memory commit --message "Update memory" --source <source-ref> --memory-id <repo-relative-path>
@@ -293,6 +307,58 @@ async function executeMemoryCommand(
     const { catalog, view } = await workstreamMemoryService.catalogView(request, repoOptions(), option("seen"));
     io.print(view.text);
     if (!folder) await workstreamMemoryService.markCatalogSeen(catalog, repoOptions());
+    return 0;
+  }
+
+  if (command === "read") {
+    const paths = positionals();
+    if (!paths.length) throw new Error("read needs at least one repo-relative note path");
+    const notes = await readMemoryNotes(paths, repoOptions());
+    if (jsonOutput) out(notes);
+    else
+      io.print(
+        notes.map((note) => (notes.length > 1 ? `==> ${note.path} <==\n` : "") + note.content.trimEnd()).join("\n\n"),
+      );
+    return 0;
+  }
+
+  if (command === "grep") {
+    const [pattern, ...paths] = positionals();
+    if (!pattern) throw new Error("grep needs a pattern");
+    const result = await grepMemoryNotes(
+      pattern,
+      { paths, ignoreCase: flag("ignore-case"), limit: parsePositiveInt(option("limit"), "--limit") ?? 200 },
+      repoOptions(),
+    );
+    if (jsonOutput) out(result);
+    else if (!result.lines.length) io.print("No matches.");
+    else {
+      io.print(result.lines.join("\n"));
+      if (result.omitted)
+        io.print(`(${result.omitted} more matching lines; narrow the pattern, pass a folder, or raise --limit)`);
+    }
+    return 0;
+  }
+
+  if (command === "write") {
+    const path = positional(0);
+    if (!path) throw new Error("write needs a repo-relative note path");
+    const written = await writeMemoryNote(
+      path,
+      await context.readTextFile(requireOption(option, "file")),
+      repoOptions(),
+    );
+    if (jsonOutput) out({ written });
+    else io.print(`Wrote ${written}.`);
+    return 0;
+  }
+
+  if (command === "rm") {
+    const path = positional(0);
+    if (!path) throw new Error("rm needs a repo-relative note path");
+    const removed = await removeMemoryNote(path, repoOptions());
+    if (jsonOutput) out({ removed });
+    else io.print(`Removed ${removed}.`);
     return 0;
   }
 

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { isAbsolute } from "node:path";
 import * as questStore from "../quest-store.js";
 import { registerQuestDeliveryRoutes } from "./quest-deliveries.js";
+import { registerQuestCliReadRoutes } from "./quest-cli-reads.js";
 import { readCommitDetails } from "../git-commit-reader.js";
 import { recordedCommitStats } from "../../shared/quest-delivery.js";
 import type {
@@ -464,6 +465,7 @@ export function createQuestRoutes(ctx: RouteContext) {
   const api = new Hono();
   const searchQuestPage = createQuestListSearch(() => questStore.listQuests());
   registerQuestDeliveryRoutes(api);
+  registerQuestCliReadRoutes(api);
   const { launcher, wsBridge, imageStore, authenticateCompanionCallerOptional, execCaptureStdoutAsync, resolveId } =
     ctx;
   const bridgeAny = wsBridge as any;

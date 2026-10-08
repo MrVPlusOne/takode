@@ -3,6 +3,22 @@ import type { ensureQuestmasterIntegration } from "./quest-integration.js";
 import type { ensureSkillSymlinks } from "./skill-symlink.js";
 import type { ensureTakodeIntegration } from "./takode-integration.js";
 
+/**
+ * Project skills linked into the global skill homes at startup, on the
+ * coordinator and on every host that runs its sessions.
+ */
+export const STARTUP_SKILL_SYMLINKS = [
+  "takode-orchestration",
+  "leader-dispatch",
+  "leader-decision-communication",
+  "confirm",
+  "self-groom",
+  "reviewer-groom",
+  "skeptic-review",
+  "worktree-rules",
+  "random-memory-ideas",
+];
+
 export interface PreListenStartupReadinessDeps {
   ensureQuestmasterIntegration: typeof ensureQuestmasterIntegration;
   ensureTakodeIntegration: typeof ensureTakodeIntegration;

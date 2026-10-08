@@ -54,7 +54,7 @@ describe("explain-clearly project skill", () => {
     await expect(access(join(REPO_ROOT, ".agents", "skills", "explain-clearly"))).rejects.toThrow();
     await expect(access(join(REPO_ROOT, ".codex", "skills", "explain-clearly"))).rejects.toThrow();
 
-    const indexSource = await readFile(join(SERVER_DIR, "index.ts"), "utf-8");
+    const indexSource = await readFile(join(SERVER_DIR, "startup-readiness.ts"), "utf-8");
     const startupMatch = indexSource.match(/STARTUP_SKILL_SYMLINKS = \[([\s\S]*?)\];/);
     expect(startupMatch).toBeTruthy();
     expect(startupMatch![1]).not.toContain('"explain-clearly"');
