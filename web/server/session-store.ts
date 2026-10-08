@@ -1230,7 +1230,18 @@ export class SessionStore {
               metrics.skippedSessions++;
               return;
             }
-            const hot = JSON.parse(raw) as PersistedSession;
+            let hot: PersistedSession;
+            try {
+              hot = JSON.parse(raw) as PersistedSession;
+            } catch (error) {
+              // Truncated or corrupt hot JSON cannot be restored. Leave the file untouched for manual
+              // recovery; this is a read, so it must not surface as a failed persist.
+              console.warn(
+                `[session-store] Skipping unreadable session file ${this.filePath(sessionId)}: ${error instanceof Error ? error.message : String(error)}`,
+              );
+              metrics.skippedSessions++;
+              return;
+            }
             incremental = Object.hasOwn(hot, "_historyRef");
             if (incremental && hot.id !== sessionId)
               throw new SessionHistoryError("Session history head identity mismatch");

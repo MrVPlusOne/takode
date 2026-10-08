@@ -36,6 +36,11 @@ The failed snapshot remains owned, flush reports the failure, and the existing
 shutdown policy continues to retain the inactive process when saving fails or
 stalls. Physical suffix bytes past the committed extent are not authoritative.
 
+A read decodes the committed extent in one sequential pass, materializing strings
+and rows as their records end. Startup reads every active session this way, so
+reads must not open a separate stream per string or row: that once made restart
+take about a minute with several hundred MiB of history.
+
 When obsolete saved bytes outweigh live referenced bytes, the writer commits a
 replacement generation. Old generations are retired only after successful head
 publication and after earlier reads have finished. This removes unreachable

@@ -45,6 +45,16 @@ interface JournalIndex {
   messages: Map<number, RowRange>;
   tools: Map<number, RowRange>;
 }
+/** A row is decoded when its record ends; one that does not decode yet keeps its tokens until the scan ends. */
+type DecodedRow = { value: JsonValue } | { tokens: unknown[][] };
+/** Values materialized during the index scan, so a read needs one sequential pass instead of one stream per record. */
+interface DecodedJournal {
+  strings: Map<number, string>;
+  messages: Map<number, DecodedRow>;
+  tools: Map<number, DecodedRow>;
+}
+
+const HISTORY_SCAN_SLICE_MS = 20;
 
 /** Committed new-format corruption must survive the legacy startup skip policy. */
 export class SessionHistoryError extends Error {
@@ -88,8 +98,14 @@ export async function* historyFrames(
   const input = createReadStream(path, { start: range.start, end: range.end - 1, highWaterMark: 64 * 1024 });
   let pending = Buffer.alloc(0);
   let offset = range.start;
+  let sliceStart = performance.now();
   try {
     for await (const chunk of input) {
+      // Buffered stream chunks resolve as microtasks, so a long scan would otherwise hold the event loop.
+      if (performance.now() - sliceStart > HISTORY_SCAN_SLICE_MS) {
+        await new Promise((resolve) => setImmediate(resolve));
+        sliceStart = performance.now();
+      }
       pending = Buffer.concat([pending, chunk as Buffer]);
       let start = 0;
       for (;;) {
@@ -116,12 +132,19 @@ export function historyCommitFrame(head: HistoryReference): unknown[] {
   return ["commit", head.revision, head.messageCount, head.toolCount, head.frozenCount, head.frozenToolCount];
 }
 
-async function indexJournal(path: string, sessionId: string, head: HistoryReference): Promise<JournalIndex> {
+async function indexJournal(
+  path: string,
+  sessionId: string,
+  head: HistoryReference,
+  decoded?: DecodedJournal,
+): Promise<JournalIndex> {
   validateHistoryReference(head);
   const index: JournalIndex = { strings: new Map(), messages: new Map(), tools: new Map() };
   let string: StringRange | undefined;
   let stringChars = 0;
+  let parts: string[] = [];
   let row: { kind: "message" | "tool"; index: number; range: RowRange } | undefined;
+  let tokens: unknown[][] = [];
   let last: unknown[] = [];
   let first = true;
   for await (const frame of historyFrames(path, { start: 0, end: head.bytes })) {
@@ -131,23 +154,31 @@ async function indexJournal(path: string, sessionId: string, head: HistoryRefere
       if (JSON.stringify(v) !== JSON.stringify(["history", 1, sessionId, head.generation]))
         throw new SessionHistoryError("History identity mismatch");
     } else if (string) {
-      if (v[0] === "part" && v.length === 2 && typeof v[1] === "string" && v[1].length <= HISTORY_STRING_CHARS)
+      if (v[0] === "part" && v.length === 2 && typeof v[1] === "string" && v[1].length <= HISTORY_STRING_CHARS) {
         stringChars += v[1].length;
-      else if (v[0] === "endString" && v.length === 1 && stringChars === string.length) {
+        if (decoded) parts.push(v[1]);
+      } else if (v[0] === "endString" && v.length === 1 && stringChars === string.length) {
         string.end = frame.end;
         index.strings.set(string.id, string);
+        decoded?.strings.set(string.id, parts.join(""));
         string = undefined;
       } else throw new SessionHistoryError("Invalid chunked history string");
     } else if (row) {
       if (v[0] === "endRow" && v.length === 1) {
         row.range.end = frame.end;
         (row.kind === "message" ? index.messages : index.tools).set(row.index, row.range);
+        if (decoded) {
+          const values = row.kind === "message" ? decoded.messages : decoded.tools;
+          values.set(row.index, decodeRow(tokens, row.range.digest, decoded));
+        }
         row = undefined;
       } else if (!["null", "bool", "number", "ref", "array", "object"].includes(v[0] as string))
         throw new SessionHistoryError("Invalid history value token");
+      else if (decoded) tokens.push(v);
     } else if (v[0] === "string" && v.length === 3 && integer(v[1]) && integer(v[2]) && !index.strings.has(v[1])) {
       string = { id: v[1], length: v[2], start: frame.start, end: 0 };
       stringChars = 0;
+      parts = [];
     } else if (
       (v[0] === "message" || v[0] === "tool") &&
       v.length === 3 &&
@@ -156,13 +187,18 @@ async function indexJournal(path: string, sessionId: string, head: HistoryRefere
       /^[a-f0-9]{64}$/.test(v[2])
     ) {
       row = { kind: v[0], index: v[1], range: { start: frame.start, end: 0, digest: v[2] } };
+      tokens = [];
     } else if (v[0] === "commit" && v.length === 6 && v.slice(1).every(integer)) {
-      for (const [rows, count] of [
-        [index.messages, v[2]],
-        [index.tools, v[3]],
+      for (const [rows, values, count] of [
+        [index.messages, decoded?.messages, v[2]],
+        [index.tools, decoded?.tools, v[3]],
       ] as const) {
         if ((count as number) > rows.size) throw new SessionHistoryError("Missing committed history rows");
-        for (const key of rows.keys()) if (key >= (count as number)) rows.delete(key);
+        for (const key of rows.keys()) {
+          if (key < (count as number)) continue;
+          rows.delete(key);
+          values?.delete(key);
+        }
         if (rows.size !== count) throw new SessionHistoryError("Noncontiguous committed history rows");
       }
     } else throw new SessionHistoryError("Unknown history record");
@@ -173,63 +209,77 @@ async function indexJournal(path: string, sessionId: string, head: HistoryRefere
   return index;
 }
 
-async function readString(path: string, range: StringRange): Promise<string> {
-  const parts: string[] = [];
-  for await (const { value } of historyFrames(path, range)) if (value[0] === "part") parts.push(value[1] as string);
-  const result = parts.join("");
-  if (result.length !== range.length) throw new SessionHistoryError("Incomplete history string");
-  return result;
-}
-
-async function readRow(path: string, range: RowRange, getString: (id: number) => Promise<string>): Promise<JsonValue> {
-  const frames = historyFrames(path, range);
-  await frames.next(); // indexed row header
-  async function value(): Promise<JsonValue> {
-    const next = await frames.next();
-    if (next.done) throw new SessionHistoryError("Incomplete history value");
-    const v = next.value.value;
-    if (v[0] === "null" && v.length === 1) return null;
-    if (v[0] === "bool" && v.length === 2 && typeof v[1] === "boolean") return v[1];
-    if (v[0] === "number" && v.length === 2 && typeof v[1] === "number" && Number.isFinite(v[1])) return v[1];
-    if (v[0] === "ref" && v.length === 2 && integer(v[1])) return getString(v[1]);
-    if ((v[0] !== "array" && v[0] !== "object") || v.length !== 2 || !integer(v[1]) || v[1] > range.end - range.start)
-      throw new SessionHistoryError("Invalid history container");
-    if (v[0] === "array") {
-      const result: JsonValue[] = [];
-      for (let i = 0; i < v[1]; i++) result.push(await value());
-      return result;
-    }
-    const result: Record<string, JsonValue> = {};
-    for (let i = 0; i < v[1]; i++) {
-      const key = await value();
-      if (typeof key !== "string" || Object.hasOwn(result, key))
-        throw new SessionHistoryError("Invalid history object key");
-      Object.defineProperty(result, key, {
-        value: await value(),
-        enumerable: true,
-        writable: true,
-        configurable: true,
-      });
-    }
-    return result;
-  }
+/**
+ * Decode and verify a row while the scan still interleaves with file reads, so a large history
+ * never verifies in one long synchronous stretch.
+ */
+function decodeRow(tokens: unknown[][], digest: string, decoded: DecodedJournal): DecodedRow {
   try {
-    const result = await value();
-    const end = await frames.next();
-    if (
-      end.done ||
-      JSON.stringify(end.value.value) !== '["endRow"]' ||
-      !(await frames.next()).done ||
-      valueDigest(result) !== range.digest
-    )
-      throw new SessionHistoryError("History row content mismatch");
-    return result;
-  } finally {
-    await frames.return(undefined);
+    const value = buildRowValue(tokens, decoded.strings);
+    if (valueDigest(value) === digest) return { value };
+  } catch {
+    // Handled below: the row is only invalid if it is still committed when the scan ends.
   }
+  // Writers emit strings before the rows that use them, and superseded rows need not be valid.
+  // Keep the tokens so the final pass decodes this row, or reports its error, only if it is live.
+  return { tokens };
 }
 
-/** Reads materialize only current records/strings; they never populate writer caches. */
+/** Rebuild one row from its value tokens, synchronously and without recursion. */
+function buildRowValue(tokens: unknown[][], strings: Map<number, string>): JsonValue {
+  const open: { container: JsonValue[] | Record<string, JsonValue>; remaining: number; key?: string }[] = [];
+  let result: { value: JsonValue } | undefined;
+  for (const v of tokens) {
+    if (result) throw new SessionHistoryError("History row content mismatch");
+    let value: JsonValue;
+    if (v[0] === "null" && v.length === 1) value = null;
+    else if (v[0] === "bool" && v.length === 2 && typeof v[1] === "boolean") value = v[1];
+    else if (v[0] === "number" && v.length === 2 && typeof v[1] === "number" && Number.isFinite(v[1])) value = v[1];
+    else if (v[0] === "ref" && v.length === 2 && integer(v[1])) {
+      const text = strings.get(v[1]);
+      if (text === undefined) throw new SessionHistoryError("Missing history string");
+      value = text;
+    } else if ((v[0] === "array" || v[0] === "object") && v.length === 2 && integer(v[1])) {
+      const container = v[0] === "array" ? [] : {};
+      if (v[1] > 0) {
+        open.push({ container, remaining: v[1] });
+        continue;
+      }
+      value = container;
+    } else throw new SessionHistoryError("Invalid history container");
+
+    // Attach the finished value to its parent, closing every parent it completes.
+    for (;;) {
+      const parent = open.at(-1);
+      if (!parent) {
+        result = { value };
+        break;
+      }
+      if (Array.isArray(parent.container)) parent.container.push(value);
+      else if (parent.key === undefined) {
+        if (typeof value !== "string" || Object.hasOwn(parent.container, value))
+          throw new SessionHistoryError("Invalid history object key");
+        parent.key = value;
+        break;
+      } else {
+        Object.defineProperty(parent.container, parent.key, {
+          value,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
+        parent.key = undefined;
+      }
+      if (--parent.remaining > 0) break;
+      open.pop();
+      value = parent.container;
+    }
+  }
+  if (!result) throw new SessionHistoryError("Incomplete history value");
+  return result.value;
+}
+
+/** One sequential pass; returns only the committed rows (obsolete values are dropped) and never populates writer caches. */
 export async function readSessionHistory(
   dir: string,
   sessionId: string,
@@ -237,21 +287,20 @@ export async function readSessionHistory(
 ): Promise<{ messages: JsonValue[]; tools: JsonValue[] }> {
   try {
     const path = historyPath(dir, sessionId, head.generation);
-    const index = await indexJournal(path, sessionId, head);
-    const strings = new Map<number, string>();
-    async function getString(id: number): Promise<string> {
-      if (strings.has(id)) return strings.get(id)!;
-      const range = index.strings.get(id);
-      if (!range) throw new SessionHistoryError("Missing history string");
-      const value = await readString(path, range);
-      strings.set(id, value);
-      return value;
-    }
-    const messages: JsonValue[] = [],
-      tools: JsonValue[] = [];
-    for (let i = 0; i < head.messageCount; i++) messages.push(await readRow(path, index.messages.get(i)!, getString));
-    for (let i = 0; i < head.toolCount; i++) tools.push(await readRow(path, index.tools.get(i)!, getString));
-    return { messages, tools };
+    const decoded: DecodedJournal = { strings: new Map(), messages: new Map(), tools: new Map() };
+    const index = await indexJournal(path, sessionId, head, decoded);
+    const rows = (ranges: Map<number, RowRange>, values: Map<number, DecodedRow>, count: number): JsonValue[] =>
+      Array.from({ length: count }, (_, i) => {
+        const row = values.get(i)!;
+        if ("value" in row) return row.value;
+        const value = buildRowValue(row.tokens, decoded.strings);
+        if (valueDigest(value) !== ranges.get(i)!.digest) throw new SessionHistoryError("History row content mismatch");
+        return value;
+      });
+    return {
+      messages: rows(index.messages, decoded.messages, head.messageCount),
+      tools: rows(index.tools, decoded.tools, head.toolCount),
+    };
   } catch (cause) {
     throw new SessionHistoryError(`Cannot reconstruct committed history for ${sessionId}`, { cause });
   }

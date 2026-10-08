@@ -1,9 +1,15 @@
-import { mkdtemp, readFile, writeFile, appendFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, open, readFile, writeFile, appendFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { SessionStore, type PersistedSession } from "./session-store.js";
-import { historyPath, HistoryFrameWriter, type HistoryReference } from "./session-history-journal.js";
+import {
+  historyPath,
+  HistoryFrameWriter,
+  readSessionHistory,
+  type HistoryReference,
+} from "./session-history-journal.js";
+import { stringFrames, valueDigest } from "./session-history-codec.js";
 import * as io from "./session-persistence-io.js";
 import * as historyIO from "./session-history-journal.js";
 
@@ -274,4 +280,51 @@ it("archives the latest accepted debounced state without a later timer undoing t
   const loaded = await new SessionStore(root).load(value.id);
   expect(loaded?.archived).toBe(true);
   expect(loaded?.pendingMessages).toEqual(value.pendingMessages);
+});
+
+it("reads a hand-written journal whose rows reference later strings and whose superseded row is invalid", async () => {
+  // The single-pass reader decodes each row when it ends. Our writers emit strings before the rows
+  // using them, but the format does not require it, and only committed live rows must be valid, so
+  // a forward reference or a broken superseded row must still read exactly as the old reader did.
+  const root = await mkdtemp(join(tmpdir(), "incremental-history-"));
+  roots.push(root);
+  const generation = "00000000-0000-4000-8000-000000000001";
+  const message = { text: "later", nested: [1, true, null, {}] };
+  const file = await open(historyPath(root, "hand", generation), "wx");
+  const writer = new HistoryFrameWriter(file, 0);
+  for (const frame of [
+    ["history", 1, "hand", generation],
+    ["message", 0, "0".repeat(64)],
+    ["object", 3],
+    ["endRow"],
+    ["message", 0, valueDigest(message)],
+    ["object", 2],
+    ["ref", 0],
+    ["ref", 1],
+    ["ref", 2],
+    ["array", 4],
+    ["number", 1],
+    ["bool", true],
+    ["null"],
+    ["object", 0],
+    ["endRow"],
+    ...stringFrames(0, "text"),
+    ...stringFrames(1, "later"),
+    ...stringFrames(2, "nested"),
+    ["commit", 1, 1, 0, 1, 0],
+  ])
+    await writer.frame(frame);
+  const ref: HistoryReference = {
+    version: 1,
+    generation,
+    bytes: writer.position,
+    revision: 1,
+    messageCount: 1,
+    toolCount: 0,
+    frozenCount: 1,
+    frozenToolCount: 0,
+  };
+  await writer.flush();
+  await file.close();
+  expect(await readSessionHistory(root, "hand", ref)).toEqual({ messages: [message], tools: [] });
 });

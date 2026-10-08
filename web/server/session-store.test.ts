@@ -433,13 +433,22 @@ describe("loadAll", () => {
   });
 
   it("skips corrupt JSON files", async () => {
+    // A truncated hot file is a read failure: startup reports which file it skipped, leaves it on
+    // disk, and does not log it as a failed persist (which misdirected an earlier investigation).
     store.saveSync(makeSession("good"));
     await store.flushAll();
-    writeFileSync(join(tempDir, "bad.json"), "not-json!", "utf-8");
+    writeFileSync(join(tempDir, "bad.json"), '{"id":"bad","state":{"x":"unterminated', "utf-8");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const all = await store.loadAll();
     expect(all).toHaveLength(1);
     expect(all[0].id).toBe("good");
+    expect(warnSpy.mock.calls.map(([message]) => String(message))).toContainEqual(
+      expect.stringContaining(`Skipping unreadable session file ${join(tempDir, "bad.json")}`),
+    );
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(readFileSync(join(tempDir, "bad.json"), "utf-8")).toBe('{"id":"bad","state":{"x":"unterminated');
   });
 
   it("excludes launcher.json from results", async () => {
