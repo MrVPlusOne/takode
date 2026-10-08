@@ -307,6 +307,8 @@ export interface CreateSessionOpts {
   memorySessionSpaceSlug?: string;
   /** CLI session ID to resume (from an external CLI session, e.g. VS Code or terminal) */
   resumeCliSessionId?: string;
+  /** Registered remote host to run the session on; `cwd` is then a path on that host. */
+  hostId?: string;
 }
 
 export interface SessionConfigPatch {

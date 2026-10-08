@@ -46,6 +46,7 @@ import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { ModelProvenanceMigrationBanner } from "./ModelProvenanceMigrationBanner.js";
+import { HostOfflineBanner } from "./HostBadge.js";
 import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
 import {
   QUEST_PARTICIPANT_CHIP_CLASS,
@@ -1823,6 +1824,8 @@ export function ChatView({
             ))}
           </div>
         ))}
+
+      {!preview && <HostOfflineBanner sessionId={sessionId} />}
 
       {liveConnectionStatus && (!preview || liveConnectionStatus === "server-unreachable") && (
         <LiveConnectionStatusBanner

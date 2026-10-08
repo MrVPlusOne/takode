@@ -165,6 +165,7 @@ export function buildSessionNavigationProjectionValue<TSubscriber>(
     repoRoot: boundedText(state.repo_root || launcherInfo?.repoRoot, SESSION_NAVIGATION_PATH_MAX_LENGTH),
     isWorktree: state.is_worktree === true || launcherInfo?.isWorktree === true,
     isContainerized: state.is_containerized === true || typeof launcherInfo?.containerId === "string",
+    hostId: boundedNullableText(state.host_id ?? launcherInfo?.hostId, SESSION_NAVIGATION_ID_MAX_LENGTH),
     isAssistant: launcherInfo?.isAssistant === true,
     isOrchestrator,
     herdedBy: boundedNullableText(launcherInfo?.herdedBy, SESSION_NAVIGATION_ID_MAX_LENGTH),

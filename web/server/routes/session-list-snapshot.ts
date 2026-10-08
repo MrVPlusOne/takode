@@ -236,7 +236,8 @@ export async function buildEnrichedSessionsSnapshotFromEntries(
           ...notificationSummary,
           ...projectionFields,
           ...(attention ?? {}),
-          ...(s.isWorktree && s.archived ? { worktreeExists: await archivedWorktreeExists(s.cwd) } : {}),
+          // A remote checkout cannot be checked on this machine.
+          ...(s.isWorktree && s.archived && !s.hostId ? { worktreeExists: await archivedWorktreeExists(s.cwd) } : {}),
         };
       } catch (e) {
         console.warn(`[routes] Failed to enrich session ${s.sessionId}:`, e);

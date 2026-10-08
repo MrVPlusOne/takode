@@ -6,6 +6,7 @@ import {
   getCurrentTurnTriggerSource as getCurrentTurnTriggerSourceController,
 } from "./session-registry-controller.js";
 import type { Session } from "./ws-bridge-session.js";
+import { hostIsOnline } from "../remote-host/session-machine.js";
 import { getCodexTurnInRecovery } from "./codex-turn-queue.js";
 import {
   markCodexTurnRecoveryActionRequired,
@@ -49,7 +50,12 @@ export interface StuckSessionWatchdogBridgeDeps {
 }
 
 export function runWsBridgeStuckSessionWatchdogSweep(deps: StuckSessionWatchdogBridgeDeps): void {
-  runStuckSessionWatchdogSweep(deps.sessions, deps.now, {
+  // A session whose remote host is offline is waiting for the host, not stuck;
+  // its output replays when the host reconnects.
+  const sessions = [...deps.sessions].filter(
+    (session) => !session.state.host_id || hostIsOnline(session.state.host_id),
+  );
+  runStuckSessionWatchdogSweep(sessions, deps.now, {
     stuckPendingDeliveryMs: STUCK_PENDING_DELIVERY_MS,
     stuckThresholdMs: STUCK_GENERATION_THRESHOLD_MS,
     autoRecoverMs: 300_000,

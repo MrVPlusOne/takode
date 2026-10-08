@@ -84,6 +84,11 @@ export function configureRemoteMachines(links: HostLinkManager | null): void {
   hostLinks = links;
 }
 
+/** Whether a remote host's link is up. */
+export function hostIsOnline(hostId: string): boolean {
+  return hostLinks?.status(hostId).online ?? false;
+}
+
 /** Whether a remote host is reachable and reports a usable network of its own. */
 export function hostHasUsableNetwork(hostId: string): boolean {
   return hostLinks?.hasUsableNetwork(hostId) ?? false;

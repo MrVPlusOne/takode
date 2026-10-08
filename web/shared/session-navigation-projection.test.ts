@@ -21,6 +21,7 @@ function value(): SessionNavigationProjectionValue {
     repoRoot: "/repo",
     isWorktree: true,
     isContainerized: false,
+    hostId: null,
     isAssistant: false,
     isOrchestrator: false,
     herdedBy: "leader",

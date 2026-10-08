@@ -17,6 +17,7 @@ import { projectedSessionAttentionStatus } from "../utils/session-attention-stat
 import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-projection.js";
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { selectLeaderActivePhaseSummary } from "../utils/leader-thread-tabs-resolver.js";
+import { HostBadge } from "./HostBadge.js";
 
 type SearchMatchedField =
   | "session_number"
@@ -827,6 +828,7 @@ function SessionItemComponent({
                   </svg>
                 </span>
               )}
+              {s.hostId && <HostBadge hostId={s.hostId} />}
               {s.isContainerized && (
                 <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-cc-info bg-cc-info-bg">
                   Docker

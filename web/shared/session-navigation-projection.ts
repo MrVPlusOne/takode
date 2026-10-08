@@ -20,6 +20,8 @@ const RULES = {
   repoRoot: ["string", SESSION_NAVIGATION_PATH_MAX_LENGTH],
   isWorktree: "boolean",
   isContainerized: "boolean",
+  /** Remote host the session runs on; null for the coordinator's machine. */
+  hostId: ["nullable-string", SESSION_NAVIGATION_ID_MAX_LENGTH],
   isAssistant: "boolean",
   isOrchestrator: "boolean",
   herdedBy: ["nullable-string", SESSION_NAVIGATION_ID_MAX_LENGTH],

@@ -39,6 +39,7 @@ import {
 } from "../utils/new-session-defaults.js";
 import { EnvManager } from "./EnvManager.js";
 import { FolderPicker } from "./FolderPicker.js";
+import { useRemoteHosts } from "../remote-hosts.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import { resolveSessionDefaultsForRole } from "../../shared/session-defaults.js";
 
@@ -167,6 +168,9 @@ export function NewSessionModal({
   const [showReasoningDropdown, setShowReasoningDropdown] = useState(false);
   const [showCodexPermissionDropdown, setShowCodexPermissionDropdown] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const remoteHosts = useRemoteHosts().hosts;
+  /** Registered remote host to run on; empty for this machine. Its paths are not browsable here. */
+  const [hostId, setHostId] = useState("");
 
   // Git branch state
   const [gitRepoInfo, setGitRepoInfo] = useState<GitRepoInfo | null>(null);
@@ -280,6 +284,7 @@ export function NewSessionModal({
   useEffect(() => {
     if (!open) return;
     cwdUserEditedRef.current = false;
+    setHostId("");
     resetDefaultFieldEdits();
     const d = defaultsKey ? getGroupNewSessionDefaults(defaultsKey) : getGlobalNewSessionDefaults();
     applyDefaults(d);
@@ -459,7 +464,8 @@ export function NewSessionModal({
 
   // Detect git repo when cwd changes; restore saved branch if valid
   useEffect(() => {
-    if (!open || !cwd) {
+    // A remote host's repo is inspected by the server when the session is created.
+    if (!open || !cwd || hostId) {
       setGitRepoInfo(null);
       setRepoInfoLoading(false);
       return;
@@ -492,7 +498,7 @@ export function NewSessionModal({
       .finally(() => {
         setRepoInfoLoading(false);
       });
-  }, [open, cwd]);
+  }, [open, cwd, hostId]);
 
   // Load CLI sessions when entering resume mode or switching backend
   const resumeBackend = backend === "codex" ? "codex" : ("claude" as const);
@@ -614,9 +620,11 @@ export function NewSessionModal({
       askPermission: effectiveAskPermission,
       role: sessionRole === "leader" ? ("orchestrator" as const) : undefined,
       treeGroupId: treeGroupId || undefined,
+      ...(hostId ? { hostId } : {}),
     };
 
-    const defaultsGroupKey = (defaultsKey || gitRepoInfo?.repoRoot || cwdSnapshot || "").trim();
+    // Defaults and recent folders describe this machine; a remote host's path does not belong there.
+    const defaultsGroupKey = hostId ? "" : (defaultsKey || gitRepoInfo?.repoRoot || cwdSnapshot || "").trim();
     if (defaultsGroupKey) {
       const defaultsToPersist: NewSessionDefaults = {
         backend: backend as NewSessionBackend,
@@ -641,11 +649,12 @@ export function NewSessionModal({
       }
     }
 
-    saveLastSessionCreationContext({
-      cwd: cwdSnapshot,
-      treeGroupId: treeGroupId || undefined,
-      newSessionDefaultsKey: defaultsGroupKey || undefined,
-    });
+    if (!hostId)
+      saveLastSessionCreationContext({
+        cwd: cwdSnapshot,
+        treeGroupId: treeGroupId || undefined,
+        newSessionDefaultsKey: defaultsGroupKey || undefined,
+      });
 
     // Close modal and navigate to the pending session
     onClose();
@@ -1176,32 +1185,63 @@ export function NewSessionModal({
 
                 <NewSessionConfigSection title="Workspace">
                   <div className="space-y-2">
+                    {remoteHosts.length > 0 && (
+                      <NewSessionField label="Machine">
+                        <select
+                          value={hostId}
+                          aria-label="Machine"
+                          onChange={(event) => {
+                            setHostId(event.target.value);
+                            // Paths name a folder on one machine only.
+                            setUserSelectedCwd(event.target.value ? "" : defaults.cwd || "");
+                          }}
+                          className="px-2 py-1 rounded-md bg-cc-input-bg border border-cc-border text-xs text-cc-fg"
+                        >
+                          <option value="">This machine</option>
+                          {remoteHosts.map((host) => (
+                            <option key={host.id} value={host.id}>
+                              {host.online ? host.name : `${host.name} (offline)`}
+                            </option>
+                          ))}
+                        </select>
+                      </NewSessionField>
+                    )}
                     <div data-testid="new-session-workspace-folder-row" className="flex items-end">
                       <NewSessionField label="Folder" className="flex-[1_1_12rem]">
-                        <div>
-                          <button
-                            onClick={() => setShowFolderPicker(true)}
-                            className="flex max-w-full items-center gap-1.5 px-2 py-1 text-xs text-cc-muted hover:text-cc-fg rounded-md hover:bg-cc-hover transition-colors cursor-pointer"
-                          >
-                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-60 shrink-0">
-                              <path d="M1 3.5A1.5 1.5 0 012.5 2h3.379a1.5 1.5 0 011.06.44l.622.621a.5.5 0 00.353.146H13.5A1.5 1.5 0 0115 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z" />
-                            </svg>
-                            <span className="max-w-[180px] truncate font-mono-code">{dirLabel}</span>
-                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-50 shrink-0">
-                              <path d="M4 6l4 4 4-4" />
-                            </svg>
-                          </button>
-                          {showFolderPicker && (
-                            <FolderPicker
-                              initialPath={cwd || ""}
-                              recentDirsKey={defaultsKey || undefined}
-                              onSelect={(path) => {
-                                setUserSelectedCwd(path);
-                              }}
-                              onClose={() => setShowFolderPicker(false)}
-                            />
-                          )}
-                        </div>
+                        {hostId ? (
+                          <input
+                            value={cwd}
+                            onChange={(event) => setUserSelectedCwd(event.target.value)}
+                            placeholder="Absolute path on that machine"
+                            aria-label="Folder on the selected machine"
+                            className="w-full px-2 py-1 rounded-md bg-cc-input-bg border border-cc-border text-xs font-mono-code text-cc-fg"
+                          />
+                        ) : (
+                          <div>
+                            <button
+                              onClick={() => setShowFolderPicker(true)}
+                              className="flex max-w-full items-center gap-1.5 px-2 py-1 text-xs text-cc-muted hover:text-cc-fg rounded-md hover:bg-cc-hover transition-colors cursor-pointer"
+                            >
+                              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-60 shrink-0">
+                                <path d="M1 3.5A1.5 1.5 0 012.5 2h3.379a1.5 1.5 0 011.06.44l.622.621a.5.5 0 00.353.146H13.5A1.5 1.5 0 0115 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z" />
+                              </svg>
+                              <span className="max-w-[180px] truncate font-mono-code">{dirLabel}</span>
+                              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-50 shrink-0">
+                                <path d="M4 6l4 4 4-4" />
+                              </svg>
+                            </button>
+                            {showFolderPicker && (
+                              <FolderPicker
+                                initialPath={cwd || ""}
+                                recentDirsKey={defaultsKey || undefined}
+                                onSelect={(path) => {
+                                  setUserSelectedCwd(path);
+                                }}
+                                onClose={() => setShowFolderPicker(false)}
+                              />
+                            )}
+                          </div>
+                        )}
                       </NewSessionField>
                     </div>
 

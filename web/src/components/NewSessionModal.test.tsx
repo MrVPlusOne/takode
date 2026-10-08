@@ -43,6 +43,11 @@ vi.mock("../api.js", () => ({
   },
 }));
 
+let mockRemoteHosts: Array<{ id: string; name: string; online: boolean }> = [];
+vi.mock("../remote-hosts.js", () => ({
+  useRemoteHosts: () => ({ hosts: mockRemoteHosts, loaded: true }),
+}));
+
 vi.mock("../utils/recent-dirs.js", () => ({
   getRecentDirs: (...args: unknown[]) => mockGetRecentDirs(...args),
 }));
@@ -88,6 +93,7 @@ function latestQueuedCreateOpts() {
 describe("NewSessionModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRemoteHosts = [];
     mockGetGlobalNewSessionDefaults.mockReturnValue({
       backend: "claude",
       model: "",
@@ -772,6 +778,24 @@ describe("NewSessionModal", () => {
         }),
       );
     });
+  });
+
+  // A session on a remote host names a folder on that host: the dialog takes a
+  // typed path, does not inspect it on this machine, and keeps it out of this
+  // machine's defaults.
+  it("creates a session on a selected remote host with a typed path", async () => {
+    const user = userEvent.setup();
+    mockRemoteHosts = [{ id: "h1", name: "devbox", online: true }];
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+
+    await user.selectOptions(await screen.findByLabelText("Machine"), "h1");
+    await user.type(screen.getByLabelText("Folder on the selected machine"), "/srv/app");
+    await user.click(await screen.findByRole("button", { name: "Create Session" }));
+
+    await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalled());
+    expect(latestQueuedCreateOpts()).toEqual(expect.objectContaining({ hostId: "h1", cwd: "/srv/app" }));
+    expect(mockApi.getRepoInfo).not.toHaveBeenCalledWith("/srv/app");
+    expect(mockApi.saveNewSessionDefaults).not.toHaveBeenCalled();
   });
 
   it("sends branch and worktree options when creating a worktree-backed leader from a repo", async () => {

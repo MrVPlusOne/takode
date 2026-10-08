@@ -15,6 +15,7 @@ export interface SessionNavigationProjectionOverrides {
     | "repoRoot"
     | "isWorktree"
     | "isContainerized"
+    | "hostId"
     | "isAssistant"
     | "isOrchestrator"
     | "herdedBy"
@@ -118,6 +119,7 @@ export function createSessionNavigationProjectionValue(
     repoRoot: "/repo",
     isWorktree: true,
     isContainerized: false,
+    hostId: null,
     isAssistant: false,
     isOrchestrator: false,
     herdedBy: null,

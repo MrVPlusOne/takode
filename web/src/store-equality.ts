@@ -250,6 +250,7 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.lastMessagePreview === b.lastMessagePreview &&
     a.cliConnected === b.cliConnected &&
     a.isWorktree === b.isWorktree &&
+    a.hostId === b.hostId &&
     a.repoRoot === b.repoRoot &&
     a.worktreeExists === b.worktreeExists &&
     a.worktreeDirty === b.worktreeDirty &&

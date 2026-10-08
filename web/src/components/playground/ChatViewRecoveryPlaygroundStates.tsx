@@ -1,6 +1,7 @@
 import type { ModelProvenanceMigration } from "../../types.js";
 import { ChatView } from "../ChatView.js";
 import { ModelProvenanceMigrationBanner } from "../ModelProvenanceMigrationBanner.js";
+import { HostOfflineNotice } from "../HostBadge.js";
 import {
   PLAYGROUND_BROKEN_SESSION_ID,
   PLAYGROUND_DISCONNECTED_SESSION_ID,
@@ -116,6 +117,12 @@ export function PlaygroundChatViewRecoveryStates() {
             defaultDetailsOpen
             onAcknowledge={async () => {}}
           />
+        </Card>
+        <Card label="Remote host offline">
+          <HostOfflineNotice hostName="devbox" />
+        </Card>
+        <Card label="Remote host removed">
+          <HostOfflineNotice hostName={null} />
         </Card>
         <Card label="Acknowledged migration hidden">
           <div data-testid="playground-acknowledged-migration-hidden" className="min-h-8">

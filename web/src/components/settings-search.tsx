@@ -19,6 +19,7 @@ export type SettingsSectionId =
   | "auto-approval"
   | "session-namer"
   | "voice-transcription"
+  | "hosts"
   | "server";
 
 export type SettingsSectionMeta = {
@@ -187,6 +188,13 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       { id: "vocabulary", text: "Custom Vocabulary terms model mishears vocabulary hints" },
       { id: "tester", text: "Enhancement Tester debug panel" },
     ],
+  },
+  {
+    id: "hosts",
+    title: "Hosts",
+    description: "Other machines that run sessions for this server.",
+    aliases: ["remote", "machine", "devbox", "takode node", "token", "coordinator"],
+    items: [{ id: "list", text: "Add host Remove online offline token takode node" }],
   },
   {
     id: "server",

@@ -27,6 +27,7 @@ import { SettingsLeaderProfilesSection } from "./SettingsLeaderProfilesSection.j
 import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSection.js";
 import { SettingsSessionDefaultsSection } from "./SettingsSessionDefaultsSection.js";
 import { SettingsWebPushSection } from "./SettingsWebPushSection.js";
+import { SettingsHostsSection } from "./SettingsHostsSection.js";
 import { SettingsShortcutSection } from "./SettingsShortcutSection.js";
 import {
   BUILT_IN_STT_MODELS,
@@ -1890,6 +1891,8 @@ export function SettingsPage({
               transcriptionError={transcriptionError}
               setTranscriptionError={setTranscriptionError}
             />
+
+            <SettingsHostsSection sectionSearchProps={settingsSearch.sectionSearch("hosts")} />
 
             <SettingsServerDiagnosticsSection
               logFile={logFile}
