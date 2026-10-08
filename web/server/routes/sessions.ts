@@ -1190,6 +1190,16 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const enriched = await buildEnrichedSessions(includeArchived ? undefined : (session) => !session.archived);
     return c.json(enriched);
   });
+  // Session labels for CLI output such as `quest show`: the same name, number and
+  // archived state as GET /sessions, for only the requested sessions.
+  api.post("/sessions/_labels", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { sessionIds?: unknown };
+    const wanted = new Set(Array.isArray(body.sessionIds) ? body.sessionIds : []);
+    const sessions = await buildEnrichedSessions((session) => wanted.has(session.sessionId));
+    return c.json(
+      sessions.map(({ sessionId, archived, sessionNum, name }) => ({ sessionId, archived, sessionNum, name })),
+    );
+  });
   registerArchivedSessionPageRoute(api, sessionSnapshotDeps);
   registerSessionSearchRoute(api, { launcher, wsBridge, authenticateCompanionCallerOptional });
   registerGlobalStarredMessageSearchRoute(api, { launcher, wsBridge });

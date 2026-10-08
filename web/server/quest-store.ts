@@ -38,6 +38,12 @@ import {
   saveQuestImageFile,
 } from "./quest-store-images.js";
 import { stripDerivedQuestRelationships, withQuestRelationshipSummaries } from "./quest-relationships.js";
+import {
+  _clearCachedJsonFilesForTests,
+  deepFreeze,
+  readCachedJsonFile,
+  rememberWrittenJsonFile,
+} from "./cached-json-file.js";
 import { applyQuestPatch } from "./quest-store-patch.js";
 import { normalizeLiveQuest } from "./quest-store-normalize.js";
 import {
@@ -360,27 +366,46 @@ async function readLiveQuestStoreAtPath(
   ensureParentDir: () => Promise<void>,
 ): Promise<LiveQuestStore | null> {
   await ensureParentDir();
-  try {
-    const raw = await readFile(path, "utf-8");
-    return normalizeLiveQuestStore(JSON.parse(raw));
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException | undefined)?.code;
-    if (code === "ENOENT") return null;
-    throw error;
-  }
+  return readCachedJsonFile(path, (raw) => normalizeLiveQuestStore(JSON.parse(raw)));
 }
 
-async function writeLiveQuestStore(store: LiveQuestStore): Promise<void> {
+/**
+ * Write the store and cache exactly what the next read would parse from the file.
+ * Quests reused unchanged from `previous` (a cached, already-normalized read)
+ * stay as they are; only new or edited quests are normalized and passed
+ * through JSON, so a write does not cost a full re-parse.
+ */
+async function writeLiveQuestStore(store: LiveQuestStore, previous?: LiveQuestStore): Promise<void> {
   await ensureLiveDir();
   const tempPath = liveStoreTempPath();
+  const unchanged = new Set(previous?.quests);
   const normalized = {
-    ...store,
-    quests: sortLatestQuests(store.quests.map((quest) => normalizeLiveQuest(quest))),
+    format: "mutable_current_record",
+    version: 1,
+    quests: sortLatestQuests(
+      store.quests.map((quest) =>
+        unchanged.has(quest) ? quest : (JSON.parse(JSON.stringify(normalizeLiveQuest(quest))) as QuestmasterTask),
+      ),
+    ),
     nextQuestNumber: Math.max(store.nextQuestNumber, computeNextQuestNumber(store.quests)),
     updatedAt: Date.now(),
+    ...(store.legacyBackupDir?.trim() ? { legacyBackupDir: store.legacyBackupDir } : {}),
   } satisfies LiveQuestStore;
   await writeFile(tempPath, JSON.stringify(normalized, null, 2), "utf-8");
   await rename(tempPath, LIVE_STORE_FILE);
+  await rememberWrittenJsonFile(LIVE_STORE_FILE, normalized);
+}
+
+const relationshipViews = new WeakMap<LiveQuestStore, QuestmasterTask[]>();
+
+/** The store's quests with derived relationship summaries, computed once per cached store. Returns a fresh array. */
+function liveQuestsWithRelationships(store: LiveQuestStore): QuestmasterTask[] {
+  let quests = relationshipViews.get(store);
+  if (!quests) {
+    quests = deepFreeze(withQuestRelationshipSummaries(store.quests));
+    relationshipViews.set(store, quests);
+  }
+  return [...quests];
 }
 
 async function isLiveStoreLockStale(): Promise<boolean> {
@@ -449,7 +474,7 @@ async function mutateLiveQuestStore<T>(
     const { store, result, write = true } = await fn(current);
     if (write) {
       await recordQuestStoreMutationBackup(current, store);
-      await writeLiveQuestStore(store);
+      await writeLiveQuestStore(store, current);
     }
     return result;
   });
@@ -1219,7 +1244,7 @@ function removeLiveQuest(store: LiveQuestStore, questId: string): LiveQuestStore
 /** List the latest version of every quest. */
 export async function listQuests(): Promise<QuestmasterTask[]> {
   const liveStore = await readLiveQuestStore();
-  if (liveStore) return withQuestRelationshipSummaries(liveStore.quests);
+  if (liveStore) return liveQuestsWithRelationships(liveStore);
   const snapshot = await loadLatestSnapshot();
   return withQuestRelationshipSummaries(snapshot.quests);
 }
@@ -1227,10 +1252,7 @@ export async function listQuests(): Promise<QuestmasterTask[]> {
 /** Get the latest version of a quest by questId. */
 export async function getQuest(questId: string): Promise<QuestmasterTask | null> {
   const liveStore = await readLiveQuestStore();
-  if (liveStore) {
-    const quests = withQuestRelationshipSummaries(liveStore.quests);
-    return getLiveQuestById({ ...liveStore, quests }, questId);
-  }
+  if (liveStore) return getLiveQuestById({ ...liveStore, quests: liveQuestsWithRelationships(liveStore) }, questId);
   const snapshot = await loadLatestSnapshot();
   const quests = withQuestRelationshipSummaries(snapshot.quests);
   return quests.find((quest) => quest.questId === questId) ?? null;
@@ -1953,6 +1975,7 @@ export async function readQuestImageFile(imageId: string): Promise<{ data: Buffe
 /** Reset the store directory. Only for tests. */
 export async function _resetForTests(): Promise<void> {
   assertSafeQuestmasterTestRoot(COMPANION_DIR);
+  _clearCachedJsonFilesForTests();
   for (const dir of [QUESTMASTER_DIR, LIVE_QUESTMASTER_DIR]) {
     await mkdir(dir, { recursive: true });
     try {

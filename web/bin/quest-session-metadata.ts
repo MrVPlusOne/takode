@@ -22,14 +22,37 @@ export function parseSessionMetadataMap(payload: SessionPayload): Map<string, Se
   );
 }
 
+/** Quest fields that hold session IDs: `sessionId`, `leaderSessionId`, `previousOwnerSessionIds` and the like. */
+const SESSION_ID_KEY = /sessionids?$/i;
+
+/** The session IDs held anywhere inside `value`, so labels are fetched only for sessions the output can mention. */
+export function collectSessionIds(value: unknown, ids = new Set<string>()): Set<string> {
+  if (!value || typeof value !== "object") return ids;
+  for (const [key, item] of Object.entries(value)) {
+    if (SESSION_ID_KEY.test(key)) {
+      for (const id of Array.isArray(item) ? item : [item]) if (typeof id === "string" && id) ids.add(id);
+    } else {
+      collectSessionIds(item, ids);
+    }
+  }
+  return ids;
+}
+
+/**
+ * Fetch name, number and archived state for the given sessions. The labels are
+ * best effort: without a reachable server, output falls back to raw session IDs.
+ */
 export async function fetchSessionMetadataMap(
   companionPort: string | undefined,
   headers: Record<string, string>,
+  sessionIds: Set<string>,
 ): Promise<Map<string, SessionMetadata>> {
-  if (!companionPort) return new Map();
+  if (!companionPort || sessionIds.size === 0) return new Map();
   try {
-    const res = await fetch(`http://localhost:${companionPort}/api/sessions`, {
-      headers,
+    const res = await fetch(`http://localhost:${companionPort}/api/sessions/_labels`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionIds: [...sessionIds] }),
       signal: AbortSignal.timeout(2000),
     });
     if (!res.ok) throw new Error(res.statusText);

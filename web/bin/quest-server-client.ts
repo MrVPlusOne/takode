@@ -9,9 +9,18 @@ export const QUEST_SERVER_TIMEOUT_MS = 30_000;
 
 export type QuestServerResponse<T> = { value: T; headers: Headers };
 
+/** Reads give up on the server sooner than writes and fall back to the local store. */
+export const QUEST_SERVER_READ_TIMEOUT_MS = 5_000;
+
 export interface QuestServerClient {
   /** Send one request to `/api<path>` and return the parsed JSON body, or exit with a clear error. */
   request<T>(method: string, path: string, body?: unknown): Promise<QuestServerResponse<T>>;
+  /**
+   * GET `/api<path>` from the server's cached store. Returns undefined when no
+   * server is configured or it does not answer with the data (including 404),
+   * so the caller reads the local store instead and keeps its usual messages.
+   */
+  read<T>(path: string): Promise<T | undefined>;
 }
 
 /**
@@ -51,6 +60,19 @@ export function createQuestServerClient(deps: {
         deps.die(failure.error || response.statusText);
       }
       return { value: (await response.json()) as T, headers: response.headers };
+    },
+    async read<T>(path: string): Promise<T | undefined> {
+      if (!deps.port) return undefined;
+      try {
+        const response = await fetch(`http://localhost:${deps.port}/api${path}`, {
+          headers: deps.authHeaders(),
+          signal: AbortSignal.timeout(QUEST_SERVER_READ_TIMEOUT_MS),
+        });
+        return response.ok ? ((await response.json()) as T) : undefined;
+      } catch {
+        // Reads are safe to answer from the local store when the server is down.
+        return undefined;
+      }
     },
   };
 }

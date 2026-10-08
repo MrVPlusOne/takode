@@ -393,4 +393,57 @@ describe("quest CLI feedback inspection", () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it("reads single quests and session labels from the server, and the local store when it is down", async () => {
+    // The server answers from its in-memory store in a few ms, while a local read
+    // parses the whole store file. Session labels are fetched only for sessions
+    // the quest mentions, never the full session list.
+    const tmp = mkdtempSync(join(tmpdir(), "quest-server-reads-"));
+    const quest = {
+      id: "q-6-v1",
+      questId: "q-6",
+      version: 1,
+      title: "Local title",
+      createdAt: Date.now() - 60_000,
+      status: "in_progress",
+      description: "Read path.",
+      sessionId: "session-test",
+      claimedAt: Date.now() - 30_000,
+    };
+    seedQuest(tmp, quest);
+    const requests: string[] = [];
+    let labelIds: unknown;
+    const server = createServer(async (req, res) => {
+      requests.push(`${req.method} ${req.url}`);
+      res.writeHead(200, { "content-type": "application/json" });
+      if (req.method === "GET" && req.url === "/api/quests/q-6") {
+        res.end(JSON.stringify({ ...quest, title: "Server title" }));
+      } else if (req.method === "POST" && req.url === "/api/sessions/_labels") {
+        labelIds = (await readJson(req)).sessionIds;
+        res.end(JSON.stringify([{ sessionId: "session-test", sessionNum: 9, name: "Labelled Worker" }]));
+      } else {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: "not found" }));
+      }
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const viaServer = await runQuest(["show", "q-6"], baseEnv(tmp, port), tmp);
+      expect(viaServer.status).toBe(0);
+      expect(viaServer.stdout).toContain("Server title");
+      expect(viaServer.stdout).toContain("Labelled Worker");
+      expect(labelIds).toEqual(["session-test"]);
+      expect(requests).not.toContain("GET /api/sessions");
+
+      const local = await runQuest(["show", "q-6"], baseEnv(tmp), tmp);
+      expect(local.status).toBe(0);
+      expect(local.stdout).toContain("Local title");
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });

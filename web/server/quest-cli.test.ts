@@ -8,7 +8,7 @@ import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { formatQuestDetail, type SessionMetadata } from "../bin/quest-format.js";
-import { fetchSessionMetadataMap } from "../bin/quest-session-metadata.js";
+import { collectSessionIds, fetchSessionMetadataMap } from "../bin/quest-session-metadata.js";
 import type { QuestmasterTask } from "./quest-types.js";
 import { getSessionAuthDir, getSessionAuthPath } from "../shared/session-auth.js";
 import { startCliWriteServer } from "./test-fixtures/cli-write-server-harness.js";
@@ -1156,14 +1156,19 @@ describe("quest CLI show session numbers", () => {
     expect(detail).toContain('Previous:    "Earlier Worker" (prevless)');
   });
 
-  it("loads session numbers from the real /api/sessions payload shape used by quest show", async () => {
+  it("loads session numbers for the requested sessions from the labels route used by quest show", async () => {
     // Spawning the full Bun CLI from this harness is blocked in this workspace
     // because quest.ts transitively imports sharp and Bun resolves that optional
     // dependency through a temp HOME-scoped cache before cmdShow() runs. This
     // test still covers the live session-metadata fetch path that quest show
-    // depends on, rather than only the pure formatter output.
-    const server = createServer((req, res) => {
-      if (req.method === "GET" && req.url === "/api/sessions") {
+    // depends on, rather than only the pure formatter output. The CLI asks only
+    // for the sessions a quest mentions instead of downloading every session.
+    let requestedIds: unknown;
+    const server = createServer(async (req, res) => {
+      if (req.method === "POST" && req.url === "/api/sessions/_labels") {
+        let raw = "";
+        for await (const chunk of req) raw += chunk;
+        requestedIds = JSON.parse(raw).sessionIds;
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify([
@@ -1181,7 +1186,13 @@ describe("quest CLI show session numbers", () => {
     const port = String((server.address() as AddressInfo).port);
 
     try {
-      const metadata = await fetchSessionMetadataMap(port, {});
+      const quest = {
+        sessionId: "active-12345678",
+        previousOwnerSessionIds: ["prev-11111111"],
+        feedback: [{ text: "mentions active-99999999 only in prose" }],
+      };
+      const metadata = await fetchSessionMetadataMap(port, {}, collectSessionIds(quest));
+      expect(requestedIds).toEqual(["active-12345678", "prev-11111111"]);
       expect(metadata.get("active-12345678")).toEqual({
         archived: false,
         sessionNum: 42,

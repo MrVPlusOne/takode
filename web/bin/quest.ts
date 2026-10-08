@@ -35,8 +35,8 @@
 
 import {
   listQuests,
-  getQuest,
-  getQuestHistoryView,
+  getQuest as getStoredQuest,
+  getQuestHistoryView as getStoredQuestHistoryView,
   createQuest,
   completeQuest,
   markDone,
@@ -48,7 +48,7 @@ import {
   deleteQuest,
   cancelQuestForOwner,
 } from "../server/quest-store.js";
-import type { QuestmasterTask } from "../server/quest-types.js";
+import type { QuestHistoryView, QuestmasterTask } from "../server/quest-types.js";
 import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "../server/quest-types.js";
 import { applyQuestListFilters } from "../server/quest-list-filters.js";
 import { grepQuests } from "../server/quest-grep.js";
@@ -83,7 +83,7 @@ import { showHelp } from "./quest-help.js";
 import { runOptimizeImageCommand, runResizeImageCommand } from "./quest-image.js";
 import { runHistoryCommand } from "./quest-history-command.js";
 import { parseRelationshipFlags } from "./quest-relationship-flags.js";
-import { fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
+import { collectSessionIds, fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
 import { runCommitLinksCommand } from "./quest-commit-links.js";
 import { runShowCommand } from "./quest-show-command.js";
 import { runTagsCommand } from "./quest-tags-command.js";
@@ -336,12 +336,29 @@ const companionPort = getCompanionPort();
 // own Codex Quest command worker (`directCodexExecution`), which it runs itself.
 const questServer = createQuestServerClient({ port: companionPort, authHeaders: companionAuthHeaders, die });
 
-let sessionMetadataCache: Map<string, SessionMetadata> | null = null;
+/**
+ * Single-quest reads come from the server's in-memory store in a few ms instead
+ * of parsing the whole store file in this process. The server's own Codex
+ * Quest command worker, and a CLI without a reachable server, read the local store.
+ */
+async function getQuest(id: string): Promise<QuestmasterTask | null> {
+  if (directCodexExecution) return getStoredQuest(id);
+  return (await questServer.read<QuestmasterTask>(`/quests/${encodeURIComponent(id)}`)) ?? getStoredQuest(id);
+}
 
-async function getSessionMetadataMap(): Promise<Map<string, SessionMetadata>> {
-  if (sessionMetadataCache) return sessionMetadataCache;
-  sessionMetadataCache = await fetchSessionMetadataMap(companionPort, companionAuthHeaders());
-  return sessionMetadataCache;
+async function getQuestHistoryView(id: string): Promise<QuestHistoryView> {
+  if (directCodexExecution) return getStoredQuestHistoryView(id);
+  return (
+    (await questServer.read<QuestHistoryView>(`/quests/${encodeURIComponent(id)}/history`)) ??
+    getStoredQuestHistoryView(id)
+  );
+}
+
+/** Session labels for the sessions that `shown` (the quests being printed) can mention. */
+async function getSessionMetadataMap(shown: unknown): Promise<Map<string, SessionMetadata>> {
+  const sessionIds = collectSessionIds(shown);
+  if (currentSessionId) sessionIds.add(currentSessionId);
+  return fetchSessionMetadataMap(companionPort, companionAuthHeaders(), sessionIds);
 }
 
 function die(message: string): never {
@@ -576,12 +593,12 @@ async function cmdList(): Promise<void> {
     text: option("text"),
     verification,
   });
-  const sessionMetadata = await getSessionMetadataMap();
 
   if (jsonOutput) {
     out(quests);
     return;
   }
+  const sessionMetadata = await getSessionMetadataMap(quests);
 
   if (quests.length === 0) {
     console.log("No quests found.");
@@ -618,7 +635,7 @@ async function cmdStatus(): Promise<void> {
     out(questStatusSummaryForJson(quest));
     return;
   }
-  const sessionMetadata = await getSessionMetadataMap();
+  const sessionMetadata = await getSessionMetadataMap(quest);
   console.log(
     formatQuestStatusSummary(quest, sessionMetadata, {
       currentSessionId,
@@ -1703,6 +1720,7 @@ async function main(): Promise<void> {
     case "commit-links":
       validateFlags(["delivery", "commits", "range", "json"]);
       await runCommitLinksCommand({
+        getQuest,
         questId: positionalArgs[0] ?? "",
         deliveryId: option("delivery") ?? "",
         commitShas: option("commits")?.split(","),

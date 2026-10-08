@@ -50,7 +50,7 @@ export function withQuestRelationshipSummaries<T extends QuestmasterTask>(quests
   }
 
   for (const quest of quests) {
-    for (const targetQuestId of extractQuestReferencesFromQuest(quest)) {
+    for (const targetQuestId of questReferences(quest)) {
       if (!knownQuestIds.has(targetQuestId.toLowerCase()) || sameQuestId(quest.questId, targetQuestId)) continue;
       if (explicitlyRelatedPairs.has(pairKey(quest.questId, targetQuestId))) continue;
       addRelated(relatedByQuestId, quest.questId, {
@@ -85,6 +85,19 @@ function normalizeQuestIdList(value: unknown, ownQuestId?: string): string[] {
     .map(normalizeQuestRelationshipId)
     .filter((questId): questId is string => !!questId && !sameQuestId(questId, ownQuestId));
   return Array.from(new Set(normalized)).sort(compareQuestIds);
+}
+
+/** Text references per quest object. Only frozen (cached, immutable) quests are memoized. */
+const referencesByQuest = new WeakMap<QuestmasterTask, string[]>();
+
+function questReferences(quest: QuestmasterTask): string[] {
+  if (!Object.isFrozen(quest)) return extractQuestReferencesFromQuest(quest);
+  let references = referencesByQuest.get(quest);
+  if (!references) {
+    references = extractQuestReferencesFromQuest(quest);
+    referencesByQuest.set(quest, references);
+  }
+  return references;
 }
 
 function extractQuestReferencesFromQuest(quest: QuestmasterTask): string[] {

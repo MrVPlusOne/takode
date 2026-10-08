@@ -555,6 +555,43 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
   return events;
 }
 
+describe("POST /api/sessions/_labels", () => {
+  it("returns only the requested sessions' name, number and archived state", async () => {
+    // quest show/status/list label the few sessions a quest mentions; this must
+    // match GET /api/sessions labels without downloading every session.
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "s1", state: "running", cwd: "/a" },
+      { sessionId: "s2", state: "exited", cwd: "/b", archived: true },
+      { sessionId: "s3", state: "running", cwd: "/c" },
+    ]);
+    vi.mocked(sessionNames.getName).mockImplementation((sessionId: string) =>
+      sessionId === "s1" ? "Fix auth bug" : undefined,
+    );
+
+    const res = await app.request("/api/sessions/_labels", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionIds: ["s1", "s2", "missing"] }),
+    });
+
+    expect(res.status).toBe(200);
+    // Same values GET /api/sessions reports for these sessions; absent fields stay absent.
+    const labels = await res.json();
+    expect(labels).toEqual([
+      { sessionId: "s1", sessionNum: null, name: "Fix auth bug" },
+      { sessionId: "s2", archived: true },
+    ]);
+    const full = (await (await app.request("/api/sessions", { method: "GET" })).json()) as Record<string, unknown>[];
+    expect(labels).toEqual(
+      full
+        .filter((session) => session.sessionId !== "s3")
+        .map(({ sessionId, archived, sessionNum, name }) =>
+          JSON.parse(JSON.stringify({ sessionId, archived, sessionNum, name })),
+        ),
+    );
+  });
+});
+
 describe("GET /api/sessions", () => {
   it("returns the list of sessions enriched with names", async () => {
     const sessions = [

@@ -1,4 +1,5 @@
-import { getQuest } from "../server/quest-store.js";
+import { getQuest as getStoredQuest } from "../server/quest-store.js";
+import type { QuestmasterTask } from "../server/quest-types.js";
 import { readDeliveryRange } from "../server/quest-delivery-range.js";
 import {
   DELIVERY_ID_PATTERN,
@@ -9,6 +10,8 @@ import {
 
 /** Produce fixed, copy-ready links without publishing messages or mutating evidence. */
 export async function runCommitLinksCommand(input: {
+  /** Defaults to the local store; the quest CLI passes its server-first read. */
+  getQuest?: (questId: string) => Promise<QuestmasterTask | null>;
   questId: string;
   deliveryId: string;
   commitShas?: string[];
@@ -17,7 +20,7 @@ export async function runCommitLinksCommand(input: {
 }): Promise<void> {
   if (!/^q-\d+$/.test(input.questId) || !DELIVERY_ID_PATTERN.test(input.deliveryId))
     throw new Error("Supply an exact quest and delivery ID.");
-  const quest = await getQuest(input.questId);
+  const quest = await (input.getQuest ?? getStoredQuest)(input.questId);
   const delivery = quest?.codeDeliveries?.find((item) => item.id === input.deliveryId);
   if (!delivery) throw new Error("Recorded delivery not found. Do not infer historical delivery provenance.");
   const selection = input.range?.match(/^([a-f0-9]{7,40})\.\.([a-f0-9]{7,40})$/i);

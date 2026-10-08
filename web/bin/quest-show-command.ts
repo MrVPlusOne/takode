@@ -7,7 +7,7 @@ type QuestShowCommandDeps = {
   flag: (name: string) => boolean;
   option: (name: string) => string | undefined;
   getQuest: (id: string) => Promise<QuestmasterTask | null>;
-  getSessionMetadataMap: () => Promise<Map<string, SessionMetadata>>;
+  getSessionMetadataMap: (shown: QuestmasterTask) => Promise<Map<string, SessionMetadata>>;
   currentSessionId?: string;
   getSessionName: (sessionId: string) => string | undefined;
   jsonOutput: boolean;
@@ -31,7 +31,7 @@ export async function runShowCommand(deps: QuestShowCommandDeps): Promise<void> 
     return;
   }
 
-  const sessionMetadata = await deps.getSessionMetadataMap();
+  const sessionMetadata = await deps.getSessionMetadataMap(quest);
   console.log(
     formatQuestDetail(quest, sessionMetadata, {
       currentSessionId: deps.currentSessionId,
