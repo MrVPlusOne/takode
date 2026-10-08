@@ -55,11 +55,12 @@ export function PlaygroundAnnotationsSection() {
       <h2 className="text-lg font-semibold">Conversation annotations</h2>
       <p className="text-sm text-cc-muted">
         Attached passages stay dimly highlighted, including across bold and italic text. Click a chip to open its editor
-        at the passage, or hover to strengthen its highlight and preview the comment. Minimize the draft to read more of
-        the feed: an ellipsis indicates more text, and small image/comment counts keep attachments discoverable. Clear
-        the text to try an attachment-only draft. Click the compact draft to expand and focus it. Moving the pointer
-        over or away from the composer leaves it unchanged. Simulate voice completion to insert text and release focus
-        without leaving the composer. This preview changes only local fixture state and records no audio.
+        at the passage, or hover to strengthen its highlight and preview the comment. Clicking outside an open comment
+        editor saves a non-empty comment; Cancel or Escape discards it. Minimize the draft to read more of the feed: an
+        ellipsis indicates more text, and small image/comment counts keep attachments discoverable. Clear the text to
+        try an attachment-only draft. Click the compact draft to expand and focus it. Moving the pointer over or away
+        from the composer leaves it unchanged. Simulate voice completion to insert text and release focus without
+        leaving the composer. This preview changes only local fixture state and records no audio.
       </p>
       <div
         ref={root}

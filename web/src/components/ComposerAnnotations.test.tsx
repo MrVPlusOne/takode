@@ -111,6 +111,79 @@ describe("composer annotation attachments", () => {
     }
   });
 
+  it("saves a non-empty comment when clicking outside, and only Cancel or Escape discard", () => {
+    // Accidental outside clicks used to discard the draft. A press and release on the backdrop now behaves like
+    // Save for new and existing comments; with empty text it just closes and keeps the saved comment unchanged.
+    const annotations = () => useStore.getState().composerDrafts.get("session")?.annotations;
+    const clickOutside = () => {
+      const backdrop = screen.getByRole("dialog").parentElement!;
+      fireEvent.pointerDown(backdrop);
+      fireEvent.click(backdrop);
+    };
+    openNewComment();
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Kept comment" } });
+    clickOutside();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(annotations()).toEqual([first, { ...second, comment: "Kept comment" }]);
+
+    fireEvent.click(screen.getByLabelText("Comment 2"));
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Revised outside" } });
+    clickOutside();
+    expect(annotations()?.[1].comment).toBe("Revised outside");
+
+    fireEvent.click(screen.getByLabelText("Comment 2"));
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "  " } });
+    clickOutside();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(annotations()?.[1].comment).toBe("Revised outside");
+
+    fireEvent.click(screen.getByLabelText("Comment 2"));
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Discarded by Escape" } });
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Comment 2"));
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Discarded by Cancel" } });
+    fireEvent.click(screen.getByText("Cancel"));
+    expect(annotations()?.[1].comment).toBe("Revised outside");
+  });
+
+  it("stays open when the outside click ends a selection drag or voice work is unsettled", async () => {
+    // A selection that starts in the textarea and is released over the backdrop produces a click on the backdrop;
+    // only a press that also started outside counts. Pending transcription and an undecided voice edit stay open
+    // so the outside click neither saves stale text nor drops the proposal.
+    const clickOutside = (pressTarget?: Element) => {
+      const backdrop = screen.getByRole("dialog").parentElement!;
+      fireEvent.pointerDown(pressTarget ?? backdrop);
+      fireEvent.click(backdrop);
+    };
+    let complete!: (result: { text: string }) => void;
+    mocks.transcribe.mockReturnValue(
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    );
+    useStore.getState().setAnnotationEditor({ sessionId: "session", annotation: first });
+    render(<ComposerAnnotations sessionId="session" threadKey="main" />);
+    clickOutside(screen.getByLabelText("Comment"));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Comment voice mode"), { target: { value: "edit" } });
+    fireEvent.click(screen.getByLabelText("Voice comment"));
+    act(() => mocks.audioReady?.(new Blob(["audio"])));
+    clickOutside();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+
+    await act(async () => complete({ text: "Proposed text" }));
+    expect(screen.getByText("Proposed text")).toBeTruthy();
+    clickOutside();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Accept edit"));
+    clickOutside();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(useStore.getState().composerDrafts.get("session")?.annotations?.[0].comment).toBe("Proposed text");
+  });
+
   it("keeps contextual dictation confined to the current unsaved comment", async () => {
     openNewComment();
     fireEvent.click(screen.getByLabelText("Voice comment"));
