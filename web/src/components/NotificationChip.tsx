@@ -25,6 +25,7 @@ import {
 import { getActionableNotificationMessageId } from "../utils/notification-targets.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
+import { NeedsInputSnoozeControl } from "./NeedsInputSnoozeControl.js";
 import {
   NEEDS_INPUT_SEND_BUTTON_CLASS,
   NeedsInputAnswerField,
@@ -435,6 +436,7 @@ function NotificationItem({
   const isNeedsInput = notif.category === "needs-input";
   const isMutableNeedsInput = isNeedsInput && !notif.done;
   const isMutedNeedsInput = isMutableNeedsInput && Boolean(notif.muted);
+  const isSnoozedNeedsInput = isMutedNeedsInput && notif.snoozedUntil !== undefined;
   const canSendResponse =
     isNeedsInput &&
     !notif.done &&
@@ -593,15 +595,18 @@ function NotificationItem({
           </div>
           {isMutableNeedsInput && (
             <div className="flex shrink-0 flex-wrap items-center gap-1 pl-3 sm:justify-end sm:pl-0">
-              <button
-                type="button"
-                onClick={toggleMuted}
-                disabled={togglingMute}
-                className="inline-flex items-center rounded border border-cc-border/70 bg-cc-card px-2 py-0.5 text-[11px] font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-muted/45 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
-                aria-label={`${isMutedNeedsInput ? "Unmute" : "Mute"} ${label}`}
-              >
-                {togglingMute ? "..." : isMutedNeedsInput ? "Unmute" : "Mute"}
-              </button>
+              {/* A snoozed prompt is cancelled from its snooze control, which also unmutes it. */}
+              {!isSnoozedNeedsInput && (
+                <button
+                  type="button"
+                  onClick={toggleMuted}
+                  disabled={togglingMute}
+                  className="inline-flex items-center rounded border border-cc-border/70 bg-cc-card px-2 py-0.5 text-[11px] font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-muted/45 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                  aria-label={`${isMutedNeedsInput ? "Unmute" : "Mute"} ${label}`}
+                >
+                  {togglingMute ? "..." : isMutedNeedsInput ? "Unmute" : "Mute"}
+                </button>
+              )}
               {jumpTargetMessageId && (
                 <button
                   type="button"
@@ -619,7 +624,7 @@ function NotificationItem({
           )}
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-1 pl-3 text-[10px] text-cc-muted">
-          {isMutedNeedsInput && (
+          {isMutedNeedsInput && !isSnoozedNeedsInput && (
             <span className="rounded border border-cc-border/70 bg-cc-hover/35 px-1 py-px font-medium">Muted</span>
           )}
           <span className="text-cc-muted">{formatRelativeTime(notif.timestamp)}</span>
@@ -676,6 +681,7 @@ function NotificationItem({
               >
                 Use composer
               </button>
+              <NeedsInputSnoozeControl sessionId={sessionId} notification={notif} />
             </div>
           </div>
         )}

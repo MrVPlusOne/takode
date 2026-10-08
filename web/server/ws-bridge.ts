@@ -175,6 +175,7 @@ import {
   setAttention as setAttentionController,
   trackCodexQuestCommands as trackCodexQuestCommandsController,
   closeSession as closeSessionController,
+  wakeDueSnoozedNotifications as wakeDueSnoozedNotificationsController,
 } from "./bridge/session-registry-controller.js";
 import { isDuplicateCodexAssistantReplay as isDuplicateCodexAssistantReplayController } from "./bridge/codex-assistant-replay-dedup.js";
 import { markCodexTurnRecoveryActionRequired } from "./bridge/codex-interrupted-turn-recovery.js";
@@ -605,6 +606,7 @@ export class WsBridge {
       });
       this.sweepBoardStallWarnings(now);
       this.sweepBoardDispatchableWarnings(now);
+      wakeDueSnoozedNotificationsController(this.sessions.values(), now, this.getSessionNotificationDeps());
     }, 30_000);
     if (timer.unref) timer.unref();
   }

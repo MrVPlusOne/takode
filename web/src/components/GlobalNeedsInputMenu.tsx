@@ -17,6 +17,7 @@ import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.
 import { navigateToSessionMessageId, navigateToSessionThread, routeSessionRefForId } from "../utils/routing.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
+import { NeedsInputSnoozeControl } from "./NeedsInputSnoozeControl.js";
 import {
   NEEDS_INPUT_SEND_BUTTON_CLASS,
   NeedsInputAnswerField,
@@ -186,6 +187,7 @@ function GlobalNeedsInputRow({
   const canSubmitResponse = canSendResponse && !sending;
   const sessionLabel = entry.sessionNum == null ? entry.sessionName : `#${entry.sessionNum} ${entry.sessionName}`;
   const summary = getNotificationTitle(entry.notification);
+  const snoozed = entry.notification.snoozedUntil !== undefined;
   const ownerThreadKey = resolveNotificationOwnerThreadKey(entry.notification);
   const voiceThreadTitle =
     ownerThreadKey === MAIN_THREAD_KEY ? "Main Thread" : (entry.notification.questId ?? ownerThreadKey);
@@ -279,7 +281,7 @@ function GlobalNeedsInputRow({
                 <span className="truncate text-[11px] font-medium text-cc-muted" title={sessionLabel}>
                   {sessionLabel}
                 </span>
-                {muted && (
+                {muted && !snoozed && (
                   <span className="shrink-0 rounded border border-cc-border/70 bg-cc-hover/35 px-1 py-px text-[10px] font-medium text-cc-muted">
                     Muted
                   </span>
@@ -296,15 +298,18 @@ function GlobalNeedsInputRow({
               />
             </div>
             <div className="mt-4 flex shrink-0 items-center gap-1">
-              <button
-                type="button"
-                onClick={toggleMuted}
-                disabled={togglingMute}
-                className="inline-flex items-center rounded border border-cc-border/70 bg-cc-card px-2 py-0.5 text-[11px] font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-muted/45 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
-                aria-label={`${muted ? "Unmute" : "Mute"} ${summary}`}
-              >
-                {togglingMute ? "..." : muted ? "Unmute" : "Mute"}
-              </button>
+              {/* A snoozed prompt is cancelled from its snooze control, which also unmutes it. */}
+              {!snoozed && (
+                <button
+                  type="button"
+                  onClick={toggleMuted}
+                  disabled={togglingMute}
+                  className="inline-flex items-center rounded border border-cc-border/70 bg-cc-card px-2 py-0.5 text-[11px] font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-muted/45 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                  aria-label={`${muted ? "Unmute" : "Mute"} ${summary}`}
+                >
+                  {togglingMute ? "..." : muted ? "Unmute" : "Mute"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={jump}
@@ -352,14 +357,17 @@ function GlobalNeedsInputRow({
               />
             </div>
           ))}
-          <button
-            type="button"
-            onClick={sendResponse}
-            disabled={!canSubmitResponse}
-            className={NEEDS_INPUT_SEND_BUTTON_CLASS}
-          >
-            {sending ? "Sending..." : deliveryError ? "Retry" : "Send Response"}
-          </button>
+          <div className="flex flex-wrap items-center gap-1">
+            <button
+              type="button"
+              onClick={sendResponse}
+              disabled={!canSubmitResponse}
+              className={NEEDS_INPUT_SEND_BUTTON_CLASS}
+            >
+              {sending ? "Sending..." : deliveryError ? "Retry" : "Send Response"}
+            </button>
+            <NeedsInputSnoozeControl sessionId={entry.sessionId} notification={entry.notification} />
+          </div>
           {deliveryError && <p className="text-[10px] leading-snug text-cc-attention">{deliveryError}</p>}
           {muteError && <p className="text-[10px] leading-snug text-cc-error">{muteError}</p>}
         </div>

@@ -22,6 +22,7 @@ import {
   NeedsInputSuggestedAnswers,
 } from "./NeedsInputAnswerField.js";
 import { NeedsInputResponseHistory } from "./NeedsInputResponseHistory.js";
+import { NeedsInputSnoozeControl } from "./NeedsInputSnoozeControl.js";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
@@ -215,6 +216,8 @@ export function NotificationMarker({
       </svg>
     </button>
   ) : null;
+  const snoozeControl =
+    isAction && sessionId && notif ? <NeedsInputSnoozeControl sessionId={sessionId} notification={notif} /> : null;
   const voiceThreadKey = notif ? resolveNotificationOwnerThreadKey(notif) : MAIN_THREAD_KEY;
   const voiceThreadTitle = voiceThreadKey === MAIN_THREAD_KEY ? "Main Thread" : (notif?.questId ?? voiceThreadKey);
 
@@ -373,12 +376,13 @@ export function NotificationMarker({
                     Reply
                   </button>
                   {replyButton}
+                  {snoozeControl}
                 </div>
               )}
             </div>
           ))}
           {questionViews.length > 1 && (
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               <button
                 type="button"
                 onClick={sendQuickReply}
@@ -388,6 +392,7 @@ export function NotificationMarker({
                 Reply
               </button>
               {replyButton}
+              {snoozeControl}
             </div>
           )}
         </div>

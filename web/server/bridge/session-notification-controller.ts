@@ -740,7 +740,8 @@ export function setNotificationMuted(
   const notif = session.notifications.find((entry: SessionNotification) => entry.id === notifId);
   if (!notif || notif.category !== "needs-input" || notif.done) return false;
   const currentlyMuted = notif.muted === true;
-  if (currentlyMuted === muted) {
+  // Muting a snoozed prompt still changes it: the timed snooze becomes an indefinite mute.
+  if (currentlyMuted === muted && !(muted && notif.snoozedUntil !== undefined)) {
     broadcastNotificationRefresh(session, deps);
     return true;
   }
@@ -748,9 +749,11 @@ export function setNotificationMuted(
   if (muted) {
     notif.muted = true;
     notif.mutedAt = Date.now();
+    delete notif.snoozedUntil;
   } else {
     delete notif.muted;
     delete notif.mutedAt;
+    delete notif.snoozedUntil;
   }
 
   touchNotificationStatus(session);
@@ -774,6 +777,79 @@ export function setNotificationMutedBySessionId(
   const session = sessions.get(sessionId);
   if (!session) return false;
   return setNotificationMuted(session, notifId, muted, deps);
+}
+
+/**
+ * "Remind me later": mute an unresolved needs-input prompt until `until`. Snoozing is not an answer, so the
+ * prompt stays unresolved and the asking agent keeps waiting. A still-pending phone alert is cancelled so
+ * nothing reaches the phone while snoozed; `wakeDueSnoozedNotifications` alerts again when the time comes.
+ */
+export function snoozeNotification(
+  session: SessionLike,
+  notifId: string,
+  until: number,
+  deps: NotificationMuteDeps & Pick<NotificationDoneDeps, "cancelScheduledNotification">,
+): boolean {
+  const notif = session.notifications.find((entry: SessionNotification) => entry.id === notifId);
+  if (!notif || notif.category !== "needs-input" || notif.done) return false;
+  notif.muted = true;
+  notif.mutedAt = Date.now();
+  notif.snoozedUntil = until;
+  deps.cancelScheduledNotification?.(session.id, notifId);
+  touchNotificationStatus(session);
+  deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
+  clearActionAttentionIfNoNotifications(session, deps);
+  deps.persistSession(session);
+  return true;
+}
+
+/**
+ * Return every snoozed prompt whose time has come to the active queue and alert for it as if it were newly
+ * created: attention, thread-tab surfacing and a phone alert. Snooze times are persisted, so prompts that
+ * came due while the server was down wake on the first sweep after restart. Archived sessions stay snoozed.
+ */
+export function wakeDueSnoozedNotifications(
+  sessions: Iterable<SessionLike>,
+  now: number,
+  deps: NotifyUserDeps,
+): number {
+  let woken = 0;
+  for (const session of sessions) {
+    if (deps.getLauncherSessionInfo?.(session.id)?.archived) continue;
+    const due = (session.notifications ?? []).filter(
+      (notif: SessionNotification) =>
+        notif.category === "needs-input" &&
+        !notif.done &&
+        notif.snoozedUntil !== undefined &&
+        notif.snoozedUntil <= now,
+    );
+    if (due.length === 0) continue;
+    for (const notif of due) {
+      delete notif.muted;
+      delete notif.mutedAt;
+      delete notif.snoozedUntil;
+      surfaceCreatedNeedsInputThreadTab(
+        session,
+        normalizeThreadRoute(notif.threadKey, notif.questId) ?? { threadKey: "main" },
+        now,
+        deps,
+      );
+    }
+    touchNotificationStatus(session);
+    deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
+    if (!deps.isHerdedWorkerSession?.(session)) {
+      setAttention(session, "action", deps);
+      for (const notif of due) {
+        deps.scheduleNotification?.(session.id, "question", notif.summary ?? "Needs input", {
+          skipReadCheck: true,
+          notificationId: notif.id,
+        });
+      }
+    }
+    deps.persistSession(session);
+    woken += due.length;
+  }
+  return woken;
 }
 
 export function markAllNotificationsDone(

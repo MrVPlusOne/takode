@@ -3,10 +3,13 @@ import {
   markAllNotificationsDone as markAllNotificationsDoneController,
   markNotificationDone as markNotificationDoneController,
   setNotificationMuted as setNotificationMutedController,
+  snoozeNotification as snoozeNotificationController,
 } from "../bridge/session-registry-controller.js";
 import type { RouteContext } from "./context.js";
 
 type NotificationPersistDeps = Parameters<typeof markNotificationDoneController>[3];
+
+const MAX_SNOOZE_MS = 30 * 24 * 60 * 60 * 1000;
 
 export function registerTakodeNotificationInboxRoutes(
   api: Hono,
@@ -100,7 +103,30 @@ export function registerTakodeNotificationInboxRoutes(
       rawNotificationId: notifId,
       muted,
       changed: wasMuted !== muted,
+      notification,
     });
+  });
+
+  api.post("/sessions/:id/notifications/:notifId/snooze", async (c) => {
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    const notifId = c.req.param("notifId");
+    const body = await c.req.json().catch(() => ({}));
+    const durationMs = body.durationMs;
+    if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 60_000) {
+      return c.json({ error: "durationMs must be at least one minute" }, 400);
+    }
+    if (durationMs > MAX_SNOOZE_MS) return c.json({ error: "Snooze can last at most 30 days" }, 400);
+    const session = wsBridge.getSession(id);
+    if (!session) return c.json({ error: "Session not found" }, 404);
+    const notification = session.notifications.find(
+      (entry) => entry.id === notifId && entry.category === "needs-input",
+    );
+    if (!notification) return c.json({ error: "Notification not found" }, 404);
+    if (notification.done) return c.json({ error: "Cannot snooze a resolved notification" }, 409);
+
+    snoozeNotificationController(session, notifId, Date.now() + durationMs, notificationPersistDeps);
+    return c.json({ ok: true, notification });
   });
 
   api.post("/sessions/:id/notifications/:notifId/done", async (c) => {

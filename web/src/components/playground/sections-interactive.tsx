@@ -57,6 +57,7 @@ import {
   PlaygroundContextNotificationMessage,
   PlaygroundMultiQuestionNotificationMarker,
   PlaygroundReviewNotificationMarker,
+  PlaygroundSnoozedNotificationMarker,
   PlaygroundSectionGroup,
   PlaygroundSelectionContextMenu,
   PlaygroundSuggestedAnswerNotificationMarker,
@@ -1100,6 +1101,11 @@ export function PlaygroundInteractiveSections() {
               <p className="mb-1">The canary is healthy and ready for the next step.</p>
               <p className="text-cc-muted">Choose whether to continue the rollout now or hold for manual checks.</p>
               <PlaygroundSuggestedAnswerNotificationMarker />
+            </div>
+          </Card>
+          <Card label="needs-input snoozed (remind me later)">
+            <div className="text-cc-fg text-sm">
+              <PlaygroundSnoozedNotificationMarker />
             </div>
           </Card>
           <Card label="needs-input custom answer recording state">

@@ -71,6 +71,8 @@ export {
   setNotificationMuted,
   setNotificationMutedBySessionId,
   setAttention,
+  snoozeNotification,
+  wakeDueSnoozedNotifications,
 } from "./session-notification-controller.js";
 export type { NotificationStatusSnapshot } from "./session-notification-controller.js";
 

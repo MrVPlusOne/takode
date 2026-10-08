@@ -1523,6 +1523,7 @@ describe("Takode server-authoritative auth", () => {
       rawNotificationId: "n-7",
       muted: true,
       changed: true,
+      notification: expect.objectContaining({ id: "n-7", muted: true }),
     });
     expect(bridge._sessions["worker-1"].notifications[0]).toMatchObject({ done: false, muted: true });
     expect(bridge._sessions["worker-1"].notifications[0].resolutionNotice).toBeUndefined();
@@ -1539,6 +1540,40 @@ describe("Takode server-authoritative auth", () => {
     expect(bridge._sessions["worker-1"].notifications[0]).toMatchObject({ done: false });
     expect(bridge._sessions["worker-1"].notifications[0].muted).toBeUndefined();
     expect(bridge._sessions["worker-1"].attentionReason).toBe("action");
+  });
+
+  it("lets the browser snooze an unresolved needs-input prompt until a server-computed time", async () => {
+    // Snooze is a timed mute: the server computes the wake time from the requested duration and cancels
+    // any still-pending phone alert, while the prompt stays unresolved.
+    setupTakodeSessions();
+    bridge._sessions["worker-1"].notifications = [
+      { id: "n-7", category: "needs-input", summary: "Snooze me", timestamp: 1000, messageId: null, done: false },
+    ];
+    const before = Date.now();
+
+    const res = await app.request("/api/sessions/worker-1/notifications/n-7/snooze", {
+      method: "POST",
+      body: JSON.stringify({ durationMs: 15 * 60_000 }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.notification).toMatchObject({ id: "n-7", muted: true, done: false });
+    expect(body.notification.snoozedUntil).toBeGreaterThanOrEqual(before + 15 * 60_000);
+    expect(pushoverNotifier.cancelNotification).toHaveBeenCalledWith("worker-1", "n-7");
+
+    // Durations under a minute are rejected, as is snoozing an answered prompt.
+    const tooShort = await app.request("/api/sessions/worker-1/notifications/n-7/snooze", {
+      method: "POST",
+      body: JSON.stringify({ durationMs: 1000 }),
+    });
+    expect(tooShort.status).toBe(400);
+    bridge._sessions["worker-1"].notifications[0].done = true;
+    const resolved = await app.request("/api/sessions/worker-1/notifications/n-7/snooze", {
+      method: "POST",
+      body: JSON.stringify({ durationMs: 60_000 }),
+    });
+    expect(resolved.status).toBe(409);
   });
 
   it("clears linked board wait-for-input state when a needs-input notification is resolved", async () => {

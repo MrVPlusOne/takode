@@ -1203,9 +1203,15 @@ export const api = {
     ),
 
   setNotificationMuted: (sessionId: string, notifId: string, muted: boolean) =>
-    post<{ ok: boolean; muted: boolean; changed: boolean }>(
+    post<{ ok: boolean; muted: boolean; changed: boolean; notification: SessionNotification }>(
       `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/muted`,
       { muted },
+    ),
+
+  snoozeNotification: (sessionId: string, notifId: string, durationMs: number) =>
+    post<{ ok: boolean; notification: SessionNotification }>(
+      `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/snooze`,
+      { durationMs },
     ),
 
   sendNeedsInputResponse: (

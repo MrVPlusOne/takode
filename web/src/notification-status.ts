@@ -283,3 +283,13 @@ export function applySessionNotifications(
   });
   return applied;
 }
+
+/** Store a server-returned notification after a request that changed it, such as snooze or its cancellation. */
+export function applyServerNotification(sessionId: string, notification: SessionNotification): void {
+  const state = useStore.getState();
+  const notifications = state.sessionNotifications.get(sessionId);
+  if (!notifications) return;
+  const next = notifications.map((entry) => (entry.id === notification.id ? notification : entry));
+  const session = state.sdkSessions.find((entry) => entry.sessionId === sessionId);
+  applySessionNotifications(sessionId, next, notificationStatusFromSession(session));
+}

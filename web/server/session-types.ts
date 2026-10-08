@@ -1654,6 +1654,8 @@ export interface SessionNotification {
   /** Muted unresolved needs-input prompts stay answerable but leave active attention counts. */
   muted?: boolean;
   mutedAt?: number;
+  /** Snoozed prompts are muted until this time, then return as a fresh alert ("remind me later"). */
+  snoozedUntil?: number;
   resolutionNotice?: {
     status: "pending" | "queued" | "delivered";
     source: "manual" | "response";

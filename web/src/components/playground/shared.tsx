@@ -895,6 +895,43 @@ export function PlaygroundSuggestedAnswerNotificationMarker() {
   );
 }
 
+/** A "remind me later" prompt: still answerable in the feed, with its return time and a cancel action. */
+export function PlaygroundSnoozedNotificationMarker() {
+  useEffect(() => {
+    const previous = useStore.getState().sessionNotifications;
+    const next = new Map(previous);
+    next.set("playground-snoozed-notify", [
+      {
+        id: "n-snoozed-1",
+        category: "needs-input",
+        timestamp: Date.now() - 600_000,
+        messageId: "playground-snoozed-notify-msg",
+        summary: "How did the phone test go?",
+        questionOnly: true,
+        suggestedAnswers: ["no prompt at step 2", "still prompted"],
+        done: false,
+        muted: true,
+        snoozedUntil: Date.now() + 45 * 60_000,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: next });
+
+    return () => {
+      useStore.setState({ sessionNotifications: previous });
+    };
+  }, []);
+
+  return (
+    <NotificationMarker
+      category="needs-input"
+      summary="How did the phone test go?"
+      sessionId="playground-snoozed-notify"
+      messageId="playground-snoozed-notify-msg"
+      notificationId="n-snoozed-1"
+    />
+  );
+}
+
 export function PlaygroundMultiQuestionNotificationMarker() {
   useEffect(() => {
     const previous = useStore.getState().sessionNotifications;
