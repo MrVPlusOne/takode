@@ -432,11 +432,12 @@ function normalizeResourceKey(resourceKey: string): string {
   if (key.length > MAX_RESOURCE_KEY_LENGTH) {
     throw new ResourceLeaseError("invalid", `resource key must be ${MAX_RESOURCE_KEY_LENGTH} characters or less`);
   }
-  // An optional `@<host>` suffix names the machine a machine-local resource is on.
-  if (!/^[a-z0-9][a-z0-9._:-]*(@[a-z0-9][a-z0-9._-]*)?$/.test(key)) {
+  // Slashes allow branch names in port keys. An optional `@<host>` suffix names
+  // the machine a machine-local resource is on.
+  if (!/^[a-z0-9][a-z0-9._:/-]*(@[a-z0-9][a-z0-9._-]*)?$/.test(key)) {
     throw new ResourceLeaseError(
       "invalid",
-      "resource key must use letters, numbers, dot, underscore, colon, or hyphen, optionally followed by @<host>",
+      "resource key must use letters, numbers, dot, underscore, colon, slash, or hyphen, optionally followed by @<host>",
     );
   }
   return key;

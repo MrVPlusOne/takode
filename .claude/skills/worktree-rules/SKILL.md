@@ -39,9 +39,9 @@ git -C <BASE_REPO> symbolic-ref --short HEAD
 
 If the current base-repo branch is not exactly `<BASE_BRANCH>`, stop and report the mismatch. Do not use `git checkout` or port into whatever branch is currently checked out.
 
-The base repo checkout is shared by every worker that ports to it, and a push publishes everything on its branch. So remote-backed ports land one at a time: acquire the target's port lease before checking status and pulling, and hold it until your push in step 7 completes. `<REPO>` is the base repo directory name, so the Takode repo uses `port:companion`. Use only this key; other names for the same checkout, such as `git:<REPO>`, do not coordinate with it.
+The target branch is shared by every worker that ports to it, from any machine, and a push publishes everything on the checkout's branch. So remote-backed ports land one at a time: acquire the target's port lease before checking status and pulling, and hold it until your push in step 7 completes. The key is `port:<REPO>:<BASE_BRANCH>`, where `<REPO>` is the repository name in the base repo's `origin` URL (`basename -s .git "$(git -C <BASE_REPO> remote get-url origin)"`), not a local path, so a port of the Takode repo to `jiayi` uses `port:takode:jiayi` on every machine (the base checkout directory is `companion`, but the repository is `takode`). Takode never adds `@<host>` to a `port:` key, so ports from any machine queue in the same pool. Use only this key; other names for the same target, such as `git:<REPO>` or `port:<REPO>` without the branch, do not coordinate with it.
 ```bash
-takode lease acquire port:<REPO> --purpose "Port <quest or change> to <BASE_BRANCH>" --ttl 30m --wait
+takode lease acquire port:<REPO>:<BASE_BRANCH> --purpose "Port <quest or change> to <BASE_BRANCH>" --ttl 30m --wait
 ```
 
 While you hold the lease, nothing else lands on the target, so the gate you run in your worktree (step 3) covers exactly what you will push. Renew the lease if the gate runs long. If you stop before landing anything (gate failure, rebase conflict, a question for the user), release the lease, and start again from this step when ready because the target may have moved. If you stop after landing commits but before pushing, keep the lease and report.
@@ -138,7 +138,7 @@ For a remote-backed target, after the step 3 gate passes or an explicit infeasib
 ```bash
 git -C <BASE_REPO> log --oneline origin/<BASE_BRANCH>..<LAST_TARGET_SHA>
 git -C <BASE_REPO> push origin <LAST_TARGET_SHA>:refs/heads/<BASE_BRANCH>
-takode lease release port:<REPO>
+takode lease release port:<REPO>:<BASE_BRANCH>
 ```
 
 The log must list only your own landed target SHAs. If it lists anything else, do not push; keep the lease and report. Pushing the explicit SHA means a commit that someone lands without the lease is never published with yours. If the push is rejected because the remote moved, do not force-push; keep the lease and reconcile as in step 1.

@@ -117,6 +117,37 @@ describe("resource lease routes", () => {
     expect(explicit.result).toMatchObject({ status: "unavailable", leases: [{ ownerSessionId: "remote" }] });
   });
 
+  // A port lease guards a remote branch that every machine pushes to, so a
+  // remote session and a local session porting to the same branch must queue
+  // in one pool, while another branch of the same repo stays independent.
+  it("shares a port lease for one repository branch across machines", async () => {
+    const acquire = (sessionId: string, key: string) =>
+      app.request(`/api/resource-leases/${encodeURIComponent(key)}/acquire`, {
+        method: "POST",
+        headers: authHeaders(sessionId),
+        body: JSON.stringify({ purpose: "Port a change", wait: true }),
+      });
+
+    const remote = await (await acquire("remote", "port:companion:jiayi")).json();
+    expect(remote.result).toMatchObject({ status: "acquired", lease: { resourceKey: "port:companion:jiayi" } });
+    const local = await (await acquire("owner", "port:companion:jiayi")).json();
+    expect(local.result).toMatchObject({ status: "queued", leases: [{ ownerSessionId: "remote" }] });
+
+    // Branch names may contain slashes; each branch is its own pool.
+    const otherBranch = await (await acquire("other", "port:companion:jiayi/feature")).json();
+    expect(otherBranch.result).toMatchObject({
+      status: "acquired",
+      lease: { resourceKey: "port:companion:jiayi/feature" },
+    });
+
+    // Releasing on the remote machine hands the branch to the local waiter.
+    const released = await app.request(`/api/resource-leases/${encodeURIComponent("port:companion:jiayi")}/release`, {
+      method: "POST",
+      headers: authHeaders("remote"),
+    });
+    expect((await released.json()).result.promoted).toMatchObject({ ownerSessionId: "owner" });
+  });
+
   it("enriches queued acquire responses with owner and waiter session labels", async () => {
     await app.request("/api/resource-leases/agent-browser/acquire", {
       method: "POST",

@@ -168,9 +168,12 @@ export function createResourceLeaseRoutes(ctx: RouteContext) {
  * key without `@<host>` means the caller's own machine: for a session on a
  * remote host it is qualified with that host's name, and otherwise it means
  * the coordinator's machine. A key that names a host is used as given.
+ *
+ * Port leases (`port:<repo>:<branch>`) are the exception: they guard a remote
+ * branch, which every machine pushes to, so all machines share one pool.
  */
 async function leaseKey(ctx: RouteContext, callerId: string, key: string): Promise<string> {
-  if (key.includes("@")) return key;
+  if (key.includes("@") || key.trim().toLowerCase().startsWith("port:")) return key;
   const hostId = ctx.launcher?.getSession?.(callerId)?.hostId;
   if (!hostId) return key;
   const host = await ctx.launcher.remoteHosts?.registry.get(hostId);
