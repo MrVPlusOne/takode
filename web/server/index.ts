@@ -53,6 +53,8 @@ import { ResourceLeaseManager } from "./resource-lease-manager.js";
 import { ResourceLeaseStore } from "./resource-lease-store.js";
 import { HostRegistry } from "./remote-host/host-registry.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
+import { hostCanRestart } from "./remote-host/host-restart-gate.js";
+import { readCheckoutCommit } from "./remote-host/host-update.js";
 import { configureRemoteMachines } from "./remote-host/session-machine.js";
 import { configureRemoteAttachmentDirectories } from "./attachment-paths.js";
 import { authenticateHostRequest, createHostRoutes } from "./routes/hosts.js";
@@ -223,7 +225,16 @@ const timerManager = new TimerManager(wsBridge);
 const resourceLeaseManager = new ResourceLeaseManager(wsBridge, new ResourceLeaseStore(serverId));
 const hostRegistry = HostRegistry.forServer(serverId);
 const browserLogin = await BrowserLogin.forServer(serverId);
-const hostLinks = new HostLinkManager();
+const hostLinks = new HostLinkManager({ build: await readCheckoutCommit(packageRoot) });
+const coordinatorStartedAt = Date.now();
+// Hosts that opted in are updated to this server's commit only while none of their sessions is in a turn.
+hostLinks.canRestartHost = (hostId) =>
+  hostCanRestart(hostId, {
+    sessions: launcher.listSessions(),
+    awaitingReattach: (sessionId) => launcher.isAwaitingHostReattach(sessionId),
+    bridgeSession: (sessionId) => wsBridge.getSession(sessionId),
+    coordinatorStartedAt,
+  });
 hostLinks.start();
 launcher.setRemoteHosts({ registry: hostRegistry, links: hostLinks });
 configureRemoteMachines(hostLinks);

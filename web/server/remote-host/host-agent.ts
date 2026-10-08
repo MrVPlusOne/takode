@@ -55,6 +55,14 @@ export interface HostAgentOptions {
     spawnCwd: string | undefined;
     [setting: string]: unknown;
   }>;
+  /** Git commit this node's Takode checkout was at when it started, reported to the coordinator. */
+  build?: string | null;
+  /**
+   * Accept the coordinator's `update`: switch this machine's Takode checkout to
+   * the named commit and restart. It returns only if the switch failed (by
+   * throwing); omit it to keep the coordinator from updating this host.
+   */
+  update?: (commit: string) => Promise<void>;
   /** First reconnect delay after a link drop; doubles up to 15s. */
   reconnectDelayMs?: number;
   /** Overrides for tests. */
@@ -110,6 +118,7 @@ export class HostAgent {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelayMs: number;
   private stopped = false;
+  private updating = false;
   private readonly log: (message: string) => void;
 
   constructor(private readonly options: HostAgentOptions) {
@@ -155,6 +164,8 @@ export class HostAgent {
         appliedFrom: this.coordinatorInstanceId,
         homeDir: homedir(),
         processes: [...this.processes.keys()],
+        ...(this.options.build ? { build: this.options.build } : {}),
+        ...(this.options.update ? { autoUpdate: true } : {}),
       });
     };
     socket.onmessage = (event) => {
@@ -234,6 +245,23 @@ export class HostAgent {
         return;
       case "heartbeat":
         return;
+      case "update":
+        void this.applyUpdate(message.commit);
+        return;
+    }
+  }
+
+  private async applyUpdate(commit: string): Promise<void> {
+    if (!this.options.update || this.updating) return;
+    this.updating = true;
+    this.log(`Coordinator asked to update to ${commit}`);
+    try {
+      await this.options.update(commit);
+    } catch (error) {
+      this.log(`Update to ${commit} failed: ${errorMessage(error)}`);
+      this.send({ t: "update_failed", commit, error: errorMessage(error) });
+    } finally {
+      this.updating = false;
     }
   }
 

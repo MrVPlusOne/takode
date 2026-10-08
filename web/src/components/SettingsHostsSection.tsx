@@ -1,12 +1,18 @@
 import { useState } from "react";
-import { registerRemoteHost, removeRemoteHost, useRemoteHosts, type RemoteHost } from "../remote-hosts.js";
+import {
+  hostBuildWarning,
+  registerRemoteHost,
+  removeRemoteHost,
+  useRemoteHosts,
+  type RemoteHost,
+} from "../remote-hosts.js";
 
 /**
  * Machines that run sessions for this server. Each runs `takode node`, which
  * connects out to this server with the token issued here.
  */
 export function SettingsHostsSection() {
-  const { hosts } = useRemoteHosts();
+  const { hosts, serverBuild } = useRemoteHosts();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -65,7 +71,10 @@ export function SettingsHostsSection() {
                   {host.lastSeenAt
                     ? ` · last seen ${new Date(host.lastSeenAt).toLocaleString()}`
                     : " · never connected"}
+                  {host.build && !host.buildMismatch ? ` · Takode ${host.build.slice(0, 8)}` : ""}
+                  {host.autoUpdate && !host.buildMismatch ? " · auto-update on" : ""}
                 </div>
+                <HostBuildWarning host={host} serverBuild={serverBuild} />
               </div>
               <button
                 type="button"
@@ -111,7 +120,9 @@ export function SettingsHostsSection() {
               `bun web/bin/takode-node.ts --coordinator ${window.location.origin} --token-file ~/.takode-host-token`}
           </pre>
           <p className="text-cc-muted">
-            Use an address of this server that the host can reach. Addresses other than this machine need https.
+            Use an address of this server that the host can reach. Addresses other than this machine need https. Add
+            --auto-update to let this server switch the host's checkout to its own commit, with a frozen install and
+            restart, whenever none of the host's sessions is in a turn.
           </p>
           <button
             type="button"
@@ -123,5 +134,19 @@ export function SettingsHostsSection() {
         </div>
       )}
     </>
+  );
+}
+
+/** The host's build differs from this server's: say so, and what auto-update is doing about it. */
+function HostBuildWarning({ host, serverBuild }: { host: RemoteHost; serverBuild: string | null }) {
+  const warning = hostBuildWarning(host, serverBuild);
+  if (!warning) return null;
+  return (
+    <div
+      data-testid="host-build-warning"
+      className={`mt-0.5 ${host.updateError ? "text-cc-error" : "text-cc-warning"}`}
+    >
+      {warning}
+    </div>
   );
 }

@@ -1,20 +1,31 @@
 import { useStore } from "../store.js";
-import { useRemoteHosts } from "../remote-hosts.js";
+import { hostBuildWarning, useRemoteHosts } from "../remote-hosts.js";
 
-/** Sidebar chip naming the remote host a session runs on, muted while it is offline. */
+/**
+ * Sidebar chip naming the remote host a session runs on: muted while it is
+ * offline, in warning colors while it runs another Takode build than this server.
+ */
 export function HostBadge({ hostId }: { hostId: string }) {
-  const host = useRemoteHosts().hosts.find((candidate) => candidate.id === hostId);
+  const { hosts, serverBuild } = useRemoteHosts();
+  const host = hosts.find((candidate) => candidate.id === hostId);
   const online = host?.online ?? false;
+  const buildWarning = online && host ? hostBuildWarning(host, serverBuild) : null;
   return (
     <span
       data-testid="session-host-badge"
       className={`text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 ${
-        online ? "text-cc-info bg-cc-info-bg" : "text-cc-muted bg-cc-muted/10"
+        !online
+          ? "text-cc-muted bg-cc-muted/10"
+          : buildWarning
+            ? "text-cc-warning bg-cc-warning/10"
+            : "text-cc-info bg-cc-info-bg"
       }`}
       title={
-        online
-          ? `Runs on ${host?.name}`
-          : `Runs on ${host?.name ?? "a removed host"}, which is offline; the session continues when it reconnects`
+        !online
+          ? `Runs on ${host?.name ?? "a removed host"}, which is offline; the session continues when it reconnects`
+          : buildWarning
+            ? `Runs on ${host?.name}. ${buildWarning}`
+            : `Runs on ${host?.name}`
       }
     >
       {host?.name ?? "remote"}

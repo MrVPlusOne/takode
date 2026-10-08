@@ -11,7 +11,8 @@ export function createHostRoutes(registry: HostRegistry, links: HostLinkManager)
 
   api.get("/hosts", async (c) => {
     const hosts = await registry.list();
-    return c.json({ hosts: hosts.map((host) => ({ ...host, ...links.status(host.id) })) });
+    // `build` is this server's commit, which each host's `build` is compared with.
+    return c.json({ hosts: hosts.map((host) => ({ ...host, ...links.status(host.id) })), build: links.build });
   });
 
   api.post("/hosts", async (c) => {

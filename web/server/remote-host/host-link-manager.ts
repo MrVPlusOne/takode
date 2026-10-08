@@ -12,6 +12,7 @@ import {
   type HostResponse,
   type HostToCoordinator,
 } from "../../shared/host-protocol.js";
+import { shortCommit } from "./host-update.js";
 
 /** The host could not be asked: it is offline or the link dropped before it answered. */
 export class HostUnavailableError extends Error {
@@ -39,6 +40,16 @@ export interface HostLinkStatus {
   lastSeenAt: number | null;
   /** Processes this coordinator is running on the host, including ones waiting for it to come back. */
   processes: number;
+  /** Git commit the host's `takode node` runs, as last reported; null when unknown. */
+  build: string | null;
+  /** The host runs a different (or unknown) build than this coordinator. */
+  buildMismatch: boolean;
+  /** The host lets this coordinator update it (`takode node --auto-update`). */
+  autoUpdate: boolean;
+  /** An update to this coordinator's commit was sent to the running host instance and has not failed. */
+  updating: boolean;
+  /** Why the host's last update attempt failed, until it restarts. */
+  updateError: string | null;
 }
 
 /** What a caller needs to start a process on a host; mirrors the Agent SDK's spawn options. */
@@ -73,6 +84,13 @@ interface HostLink {
   homeDir: string | null;
   /** Whether the host last reported a usable network of its own. */
   network: boolean;
+  build: string | null;
+  autoUpdate: boolean;
+  /** Commit this coordinator asked the current host instance to switch to. */
+  updateRequested: string | null;
+  updateError: string | null;
+  /** A host operation was already logged as sent to a mismatched build of this host instance. */
+  mismatchWarned: boolean;
   nextCommandSeq: number;
   unacked: QueuedCommand[];
   processes: Map<string, RemoteProcess>;
@@ -100,10 +118,21 @@ export class HostLinkManager {
    * older ones. Zero until the server has claimed it.
    */
   epoch: number;
+  /**
+   * Git commit this coordinator runs, which hosts are compared against and
+   * auto-updated to. Null when unknown, which disables both.
+   */
+  build: string | null;
+  /**
+   * Whether a host can be restarted now without ending a turn. Hosts are
+   * auto-updated only when this says yes; without it they never are.
+   */
+  canRestartHost: ((hostId: string) => boolean) | null = null;
   private readonly now: () => number;
 
-  constructor(options: { epoch?: number; now?: () => number } = {}) {
+  constructor(options: { epoch?: number; build?: string | null; now?: () => number } = {}) {
     this.epoch = options.epoch ?? 0;
+    this.build = options.build ?? null;
     this.now = options.now ?? Date.now;
   }
 
@@ -131,6 +160,11 @@ export class HostLinkManager {
       online: link?.online ?? false,
       lastSeenAt: link?.lastSeenAt ?? null,
       processes: link?.processes.size ?? 0,
+      build: link?.build ?? null,
+      buildMismatch: link ? this.buildMismatch(link) : false,
+      autoUpdate: link?.autoUpdate ?? false,
+      updating: Boolean(link?.updateRequested && link.updateRequested === this.build && !link.updateError),
+      updateError: link?.updateError ?? null,
     };
   }
 
@@ -182,6 +216,11 @@ export class HostLinkManager {
       case "heartbeat":
         if (typeof message.network === "boolean") link.network = message.network;
         return;
+      case "update_failed":
+        if (message.commit !== link.updateRequested) return;
+        link.updateError = message.error;
+        console.warn(`[host-link] Host ${hostId} could not update to ${shortCommit(message.commit)}: ${message.error}`);
+        return;
     }
   }
 
@@ -199,7 +238,13 @@ export class HostLinkManager {
     if (!link?.online || !link.socket) return Promise.reject(new HostUnavailableError(hostId));
     const socket = link.socket;
     const id = randomUUID();
-    return new Promise<HostResponse>((resolve, reject) => {
+    const operation = request.kind === "operation" ? (request as { name: string }).name : null;
+    const mismatch = operation && this.buildMismatch(link) ? this.mismatchText(hostId, link) : null;
+    if (mismatch && !link.mismatchWarned) {
+      link.mismatchWarned = true;
+      console.warn(`[host-link] Sending host operation ${operation} although ${mismatch}`);
+    }
+    const answer = new Promise<HostResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
         link.requests.delete(id);
         reject(new Error(`Host ${hostId} did not answer within ${timeoutMs / 1000}s`));
@@ -208,6 +253,13 @@ export class HostLinkManager {
       link.requests.set(id, { resolve, reject, timer });
       send(socket, { t: "request", id, request });
     }) as Promise<Extract<HostResponse, { kind: K }>>;
+    if (!mismatch) return answer;
+    // An operation the host's build lacks or implements differently fails there;
+    // name the likely cause instead of leaving a bare error.
+    return answer.catch((error: Error) => {
+      if (error instanceof HostUnavailableError) throw error;
+      throw new Error(`${error.message} (${mismatch}; update takode on the host)`);
+    });
   }
 
   /** Close a host's link, e.g. after its registration is removed. Its processes wait as if it were away. */
@@ -325,6 +377,11 @@ export class HostLinkManager {
         .map((queued, index) => ({ seq: index + 1, command: queued.command }));
       link.nextCommandSeq = link.unacked.length + 1;
       link.hostInstanceId = hello.instanceId;
+      link.build = hello.build ?? null;
+      link.autoUpdate = hello.autoUpdate === true;
+      link.updateRequested = null;
+      link.updateError = null;
+      link.mismatchWarned = false;
     }
     if (hello.homeDir) link.homeDir = hello.homeDir;
     const received: Record<string, number> = {};
@@ -336,6 +393,32 @@ export class HostLinkManager {
       if (queued.seq > applied) send(socket, { t: "command", seq: queued.seq, command: queued.command });
     }
     this.setOnline(hostId, link, true);
+    // Auto-update is checked on the next heartbeat tick, not here: sessions are
+    // still taking over this host's processes right after it connects.
+  }
+
+  /** Whether the host runs a build other than this coordinator's, or one it does not report. */
+  private buildMismatch(link: HostLink): boolean {
+    return link.hostInstanceId !== null && this.build !== null && link.build !== this.build;
+  }
+
+  private mismatchText(hostId: string, link: HostLink): string {
+    const hostBuild = link.build ? `Takode ${shortCommit(link.build)}` : "an unknown Takode build";
+    return `host ${hostId} runs ${hostBuild} and this server runs ${shortCommit(this.build ?? "")}`;
+  }
+
+  /**
+   * Ask an auto-updating host that runs another build to switch to this
+   * coordinator's commit, once per host instance, when it can restart without
+   * ending a turn. A failed attempt is not repeated until the host restarts.
+   */
+  private updateIfIdle(hostId: string, link: HostLink): void {
+    if (!link.online || !link.socket || !link.autoUpdate || !this.build || !this.buildMismatch(link)) return;
+    if (link.updateRequested === this.build || !this.canRestartHost?.(hostId)) return;
+    link.updateRequested = this.build;
+    link.updateError = null;
+    console.log(`[host-link] Updating host ${hostId} to ${shortCommit(this.build)}`);
+    send(link.socket, { t: "update", commit: this.build });
   }
 
   private handleEvent(
@@ -371,6 +454,11 @@ export class HostLinkManager {
         hostInstanceId: null,
         homeDir: null,
         network: true,
+        build: null,
+        autoUpdate: false,
+        updateRequested: null,
+        updateError: null,
+        mismatchWarned: false,
         nextCommandSeq: 1,
         unacked: [],
         processes: new Map(),
@@ -407,6 +495,7 @@ export class HostLinkManager {
         continue;
       }
       send(link.socket, { t: "heartbeat" });
+      this.updateIfIdle(hostId, link);
     }
   }
 }

@@ -5,13 +5,28 @@ import { useStore } from "../store.js";
 import { refreshRemoteHosts } from "../remote-hosts.js";
 
 // The host list comes from the server's GET /api/hosts; stub it per test.
-function serveHosts(hosts: Array<{ id: string; name: string; online: boolean }>) {
+function serveHosts(hosts: Array<{ id: string; name: string; online: boolean; build?: string }>) {
+  const serverBuild = "b".repeat(40);
+  const row = (host: (typeof hosts)[number]) => {
+    const build = host.build ?? serverBuild;
+    return {
+      ...host,
+      build,
+      buildMismatch: build !== serverBuild,
+      autoUpdate: false,
+      updating: false,
+      updateError: null,
+    };
+  };
   vi.stubGlobal(
     "fetch",
     vi.fn(
       async () =>
         new Response(
-          JSON.stringify({ hosts: hosts.map((h) => ({ ...h, createdAt: 0, lastSeenAt: null, processes: 0 })) }),
+          JSON.stringify({
+            hosts: hosts.map((h) => ({ ...row(h), createdAt: 0, lastSeenAt: null, processes: 0 })),
+            build: serverBuild,
+          }),
         ),
     ),
   );
@@ -54,5 +69,15 @@ describe("remote host session UI", () => {
       await refreshRemoteHosts();
     });
     expect(screen.queryByTestId("host-offline-banner")).toBeNull();
+    expect(screen.getByTestId("session-host-badge").className).toContain("text-cc-info");
+
+    // An online host on another build turns the chip into a warning that names both builds.
+    serveHosts([{ id: "h1", name: "devbox", online: true, build: "a".repeat(40) }]);
+    await act(async () => {
+      await refreshRemoteHosts();
+    });
+    const badge = screen.getByTestId("session-host-badge");
+    expect(badge.className).toContain("text-cc-warning");
+    expect(badge.getAttribute("title")).toContain("Runs Takode aaaaaaaa, this server runs bbbbbbbb");
   });
 });

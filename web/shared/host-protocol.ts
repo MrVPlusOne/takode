@@ -122,8 +122,16 @@ export type HostToCoordinator =
       appliedCommandSeq: number;
       /** Coordinator instance whose numbering `appliedCommandSeq` uses; null before the first welcome. */
       appliedFrom: string | null;
-      /** Build of the `takode node` code, for diagnostics. */
+      /**
+       * Git commit of the Takode checkout this `takode node` process started
+       * from; absent when it is not a Git checkout or from older hosts.
+       */
       build?: string;
+      /**
+       * Whether this host accepts `update`: the coordinator may switch it to the
+       * coordinator's own commit (`takode node --auto-update`).
+       */
+      autoUpdate?: boolean;
       /** The host user's home directory, for host paths the coordinator writes (attachments). */
       homeDir?: string;
       /**
@@ -139,7 +147,9 @@ export type HostToCoordinator =
   | { t: "response"; id: string; ok: true; response: HostResponse }
   | { t: "response"; id: string; ok: false; error: string }
   /** `network`: whether this host has a usable network interface (see `network-availability.ts`). */
-  | { t: "heartbeat"; network?: boolean };
+  | { t: "heartbeat"; network?: boolean }
+  /** The host could not switch to the commit an `update` named; it keeps running its current build. */
+  | { t: "update_failed"; commit: string; error: string };
 
 export type CoordinatorToHost =
   | {
@@ -162,4 +172,10 @@ export type CoordinatorToHost =
   | { t: "event_ack"; procId: string; seq: number }
   | { t: "request"; id: string; request: HostRequest }
   | { t: "heartbeat" }
-  | { t: "rejected"; reason: string };
+  | { t: "rejected"; reason: string }
+  /**
+   * Switch to this commit and restart, sent only to hosts that offered
+   * `autoUpdate` and only while none of their sessions is in a turn. Restarting
+   * ends the host's processes; their sessions relaunch with their resume ids.
+   */
+  | { t: "update"; commit: string };

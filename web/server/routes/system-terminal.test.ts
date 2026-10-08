@@ -45,7 +45,7 @@ describe("terminal spawn route", () => {
   // passes the session's host to the terminal manager.
   it("opens a remote session's terminal on its host", async () => {
     const links = new HostLinkManager();
-    vi.spyOn(links, "status").mockReturnValue({ hostId: "host-1", online: true, lastSeenAt: 1, processes: 0 });
+    vi.spyOn(links, "status").mockReturnValue({ ...links.status("host-1"), online: true, lastSeenAt: 1 });
     const request = vi.spyOn(links, "request").mockResolvedValue({
       kind: "stat",
       stat: { size: 0, isFile: false, isDirectory: true, mtimeMs: 0 },
@@ -68,7 +68,7 @@ describe("terminal spawn route", () => {
   // attaches, so the route checks the host folder and reports the problem itself.
   it("reports a folder missing on the session's host", async () => {
     const links = new HostLinkManager();
-    vi.spyOn(links, "status").mockReturnValue({ hostId: "host-1", online: true, lastSeenAt: 1, processes: 0 });
+    vi.spyOn(links, "status").mockReturnValue({ ...links.status("host-1"), online: true, lastSeenAt: 1 });
     vi.spyOn(links, "request").mockResolvedValue({ kind: "stat", stat: null });
     configureRemoteMachines(links);
     const spawn = vi.fn();

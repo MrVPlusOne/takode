@@ -4,7 +4,18 @@
  * command that starts `takode node` on that machine.
  */
 
-type HostRow = { id: string; name: string; online?: boolean; lastSeenAt?: number | null; processes?: number };
+type HostRow = {
+  id: string;
+  name: string;
+  online?: boolean;
+  lastSeenAt?: number | null;
+  processes?: number;
+  build?: string | null;
+  buildMismatch?: boolean;
+  autoUpdate?: boolean;
+  updating?: boolean;
+  updateError?: string | null;
+};
 
 export async function handleHost(base: string, args: string[]): Promise<void> {
   const [subcommand, ...rest] = args;
@@ -50,7 +61,7 @@ async function addHost(base: string, args: string[], json: boolean): Promise<voi
 }
 
 async function listHosts(base: string, json: boolean): Promise<void> {
-  const { hosts } = (await request(base, "GET", "/hosts")) as { hosts: HostRow[] };
+  const { hosts, build } = (await request(base, "GET", "/hosts")) as { hosts: HostRow[]; build?: string | null };
   if (json) {
     console.log(JSON.stringify(hosts, null, 2));
     return;
@@ -63,7 +74,31 @@ async function listHosts(base: string, json: boolean): Promise<void> {
     const state = host.online ? "online" : "offline";
     const seen = host.lastSeenAt ? `, last seen ${new Date(host.lastSeenAt).toISOString()}` : "";
     console.log(`${host.name}  ${state}  ${host.processes ?? 0} process(es)${seen}  [${host.id}]`);
+    const version = hostVersionLine(host, build ?? null);
+    if (version) console.log(`  ${version}`);
   }
+}
+
+/** The host's Takode build compared with this server's, and its auto-update state. */
+function hostVersionLine(host: HostRow, serverBuild: string | null): string {
+  const parts: string[] = [];
+  if (host.build) parts.push(`takode ${host.build.slice(0, 8)}`);
+  if (host.buildMismatch) {
+    const server = serverBuild ? serverBuild.slice(0, 8) : "unknown";
+    parts.push(host.build ? `differs from this server (${server})` : "build unknown: update takode on the host");
+  }
+  if (host.autoUpdate) {
+    parts.push(
+      host.updateError
+        ? `auto-update failed: ${host.updateError}`
+        : host.updating
+          ? "updating"
+          : host.buildMismatch
+            ? "auto-update waits until its sessions are idle"
+            : "auto-update on",
+    );
+  }
+  return parts.join(", ");
 }
 
 async function removeHost(base: string, args: string[]): Promise<void> {
