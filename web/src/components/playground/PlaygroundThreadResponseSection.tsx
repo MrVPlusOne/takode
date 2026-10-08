@@ -6,6 +6,7 @@ import { TurnActivityDisclosure } from "../TurnActivitySummary.js";
 import { TurnEntriesExpanded } from "../MessageFeedTurns.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 import { PlaygroundChronologicalAnswers } from "./PlaygroundChronologicalAnswers.js";
+import { PlaygroundQuestCompletionSummary } from "./PlaygroundQuestCompletionSummary.js";
 
 const SESSION_ID = "playground-thread-responses";
 
@@ -500,6 +501,7 @@ export function PlaygroundThreadResponseSection() {
   return (
     <PlaygroundSectionGroup groupId="overview">
       <PlaygroundChronologicalAnswers />
+      <PlaygroundQuestCompletionSummary />
       <Section
         title="Routed Answers"
         description="Every valid routed answer remains visible in source chronology with its original coverage preview; later answers add or correct substance, Ready controls whole-thread collapse, and expanded history preserves all commentary and answer rows."

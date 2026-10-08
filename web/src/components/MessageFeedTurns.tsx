@@ -32,6 +32,8 @@ import { InlineMessageTimingVisibilityContext } from "./MessageTimestamp.js";
 import { TurnThreadStatusFooter } from "./MessageFeedThreadStatus.js";
 import type { WaitingWorkerTarget } from "./WaitingWorkerPreview.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
+import { QuestCompletionSummaryCard, QuestCompletionSummaryContext } from "./QuestCompletionSummaryCard.js";
+import { isQuestThreadKey } from "../../shared/thread-routing.js";
 
 function entryHasModelActivity(entry: FeedEntry): boolean {
   if (entry.kind !== "message") return true;
@@ -57,6 +59,31 @@ function latestStatusHostTurnId(sections: FeedSection[]): string | null {
     }
   }
   return latestTurnId;
+}
+
+function turnQuestQuizIds(turn: Turn): string[] {
+  return turnPresentationEntries(turn).flatMap((entry) =>
+    entry.kind === "message" && entry.msg.role === "assistant"
+      ? extractQuestQuizMarkerIds(getAssistantVisibleMarkdown(entry.msg))
+      : [],
+  );
+}
+
+/**
+ * Where a completed quest's summary card belongs in its leader quest thread: above the
+ * latest Quiz for that quest, or at the end of the thread when no Quiz was posted. The
+ * end-of-thread fallback waits until the newest section is loaded.
+ */
+function questCompletionSummaryHost(
+  turns: readonly Turn[],
+  questId: string,
+  hasNewerSections: boolean,
+): { turnId: string; withQuiz: boolean } | null {
+  for (let index = turns.length - 1; index >= 0; index--) {
+    if (turnQuestQuizIds(turns[index]).includes(questId)) return { turnId: turns[index].id, withQuiz: true };
+  }
+  const latest = turns.at(-1);
+  return latest && !hasNewerSections ? { turnId: latest.id, withQuiz: false } : null;
 }
 
 function CollapsedTurnRows({
@@ -129,15 +156,7 @@ function CollapsedTurnRows({
               : [],
           ),
         );
-        return [
-          ...new Set(
-            turnPresentationEntries(turn).flatMap((entry) =>
-              entry.kind === "message" && entry.msg.role === "assistant"
-                ? extractQuestQuizMarkerIds(getAssistantVisibleMarkdown(entry.msg))
-                : [],
-            ),
-          ),
-        ].filter((questId) => !visibleQuizIds.has(questId));
+        return [...new Set(turnQuestQuizIds(turn))].filter((questId) => !visibleQuizIds.has(questId));
       })()
     : [];
   return (
@@ -268,6 +287,7 @@ export const TurnEntries = memo(function TurnEntries({
   visibleThreadStatuses,
   workerPreviewTarget = null,
   onThreadStatusLayoutContributionChange,
+  hasNewerSections = false,
 }: {
   sections: FeedSection[];
   sessionId: string;
@@ -290,8 +310,16 @@ export const TurnEntries = memo(function TurnEntries({
   /** Worker the thread waits on; its live preview renders under the status footer. */
   workerPreviewTarget?: WaitingWorkerTarget | null;
   onThreadStatusLayoutContributionChange?: (height: number) => void;
+  /** The loaded window ends before the thread's newest section. */
+  hasNewerSections?: boolean;
 }) {
   const turns = useMemo(() => sections.flatMap((section) => section.turns), [sections]);
+  const completionQuestId =
+    leaderSession && isQuestThreadKey(currentThreadKey.toLowerCase()) ? currentThreadKey.toLowerCase() : null;
+  const completionSummaryHost = useMemo(
+    () => (completionQuestId ? questCompletionSummaryHost(turns, completionQuestId, hasNewerSections) : null),
+    [completionQuestId, hasNewerSections, turns],
+  );
   const latestThreadResponseUpdatedAt = Math.max(
     0,
     ...(threadResponsePresentation?.currentResponses
@@ -384,139 +412,161 @@ export const TurnEntries = memo(function TurnEntries({
                 false;
               const turnSummaryDuration = getTurnSummaryDurationMs(turn, turns[turnIndex + 1] ?? null, leaderMode);
               const showThreadStatusFooter = turn.id === threadStatusFooterTurnId;
-              const threadStatusFooter = showThreadStatusFooter ? (
-                <TurnThreadStatusFooter
-                  statuses={visibleThreadStatuses}
-                  workerPreviewTarget={workerPreviewTarget}
-                  currentThreadKey={currentThreadKey}
-                  onSelectThread={onSelectThread}
-                  onLayoutContributionChange={onThreadStatusLayoutContributionChange}
-                />
-              ) : null;
-
-              return (
-                <div key={turn.id}>
-                  <div
-                    data-turn-id={turn.id}
-                    data-feed-block-id={getTurnFeedBlockId(turn.id)}
-                    className="turn-container space-y-2 sm:space-y-3"
-                    data-user-turn={
-                      isUserBoundaryEntry(turn.userEntry, userBoundarySourceSessionId) ? "true" : undefined
-                    }
-                  >
-                    {turn.userEntry && (
-                      <FeedEntries
-                        entries={[turn.userEntry]}
-                        sessionId={sessionId}
+              const isCompletionHost = completionSummaryHost?.turnId === turn.id;
+              const completionSummaryCard =
+                completionQuestId && isCompletionHost && !completionSummaryHost.withQuiz ? (
+                  <div className="min-w-0 pl-9">
+                    <QuestCompletionSummaryCard
+                      questId={completionQuestId}
+                      sessionId={sessionId}
+                      questLinkSurface={questLinkSurface}
+                    />
+                  </div>
+                ) : null;
+              const threadStatusFooter =
+                showThreadStatusFooter || completionSummaryCard ? (
+                  <>
+                    {completionSummaryCard}
+                    {showThreadStatusFooter && (
+                      <TurnThreadStatusFooter
+                        statuses={visibleThreadStatuses}
+                        workerPreviewTarget={workerPreviewTarget}
                         currentThreadKey={currentThreadKey}
-                        minuteBoundaryLabels={minuteBoundaryLabels}
-                        isCodexSession={isCodexSession}
-                        activeCodexTerminalIds={activeCodexTerminalIds}
-                        onOpenCodexTerminal={onOpenCodexTerminal}
                         onSelectThread={onSelectThread}
-                        questLinkSurface={questLinkSurface}
+                        onLayoutContributionChange={onThreadStatusLayoutContributionChange}
                       />
                     )}
+                  </>
+                ) : null;
 
-                    {turnPresentationEntries(turn).length > 0 && (
-                      <div className="min-w-0">
-                        <TurnActivityDisclosure
-                          stats={turn.stats}
-                          durationMs={turnSummaryDuration}
-                          expanded={isActivityExpanded}
-                          onToggle={() => toggleTurn(turn.id)}
-                        />
-                      </div>
-                    )}
-                    {!isActivityExpanded && !collapsedThreadResponsePresentation && (
-                      <CodexSubagentTurnSegment sessionId={sessionId} turnId={turn.id} />
-                    )}
-                    {isActivityExpanded ? (
-                      turnPresentationEntries(turn).length > 0 && (
-                        <TurnEntriesExpanded
-                          turn={turn}
-                          isLatestTurn={turnIndex === turns.length - 1}
+              return (
+                <QuestCompletionSummaryContext.Provider
+                  key={turn.id}
+                  value={isCompletionHost && completionSummaryHost.withQuiz ? completionQuestId : null}
+                >
+                  <div>
+                    <div
+                      data-turn-id={turn.id}
+                      data-feed-block-id={getTurnFeedBlockId(turn.id)}
+                      className="turn-container space-y-2 sm:space-y-3"
+                      data-user-turn={
+                        isUserBoundaryEntry(turn.userEntry, userBoundarySourceSessionId) ? "true" : undefined
+                      }
+                    >
+                      {turn.userEntry && (
+                        <FeedEntries
+                          entries={[turn.userEntry]}
                           sessionId={sessionId}
                           currentThreadKey={currentThreadKey}
-                          threadStatusFooter={threadStatusFooter}
                           minuteBoundaryLabels={minuteBoundaryLabels}
                           isCodexSession={isCodexSession}
                           activeCodexTerminalIds={activeCodexTerminalIds}
                           onOpenCodexTerminal={onOpenCodexTerminal}
                           onSelectThread={onSelectThread}
                           questLinkSurface={questLinkSurface}
-                          threadResponsePresentation={turnResponsePresentation}
                         />
-                      )
-                    ) : (
-                      <>
-                        {!collapsedThreadResponsePresentation && turn.systemEntries.length > 0 && (
-                          <FeedEntries
-                            entries={turn.systemEntries}
+                      )}
+
+                      {turnPresentationEntries(turn).length > 0 && (
+                        <div className="min-w-0">
+                          <TurnActivityDisclosure
+                            stats={turn.stats}
+                            durationMs={turnSummaryDuration}
+                            expanded={isActivityExpanded}
+                            onToggle={() => toggleTurn(turn.id)}
+                          />
+                        </div>
+                      )}
+                      {!isActivityExpanded && !collapsedThreadResponsePresentation && (
+                        <CodexSubagentTurnSegment sessionId={sessionId} turnId={turn.id} />
+                      )}
+                      {isActivityExpanded ? (
+                        turnPresentationEntries(turn).length > 0 && (
+                          <TurnEntriesExpanded
+                            turn={turn}
+                            isLatestTurn={turnIndex === turns.length - 1}
                             sessionId={sessionId}
                             currentThreadKey={currentThreadKey}
+                            threadStatusFooter={threadStatusFooter}
                             minuteBoundaryLabels={minuteBoundaryLabels}
                             isCodexSession={isCodexSession}
                             activeCodexTerminalIds={activeCodexTerminalIds}
                             onOpenCodexTerminal={onOpenCodexTerminal}
                             onSelectThread={onSelectThread}
-                            suppressThreadSystemMarkers
                             questLinkSurface={questLinkSurface}
+                            threadResponsePresentation={turnResponsePresentation}
                           />
-                        )}
-                        {hasCollapsedContent && (
-                          <div
-                            className={
-                              hasCollapsedCurrentAnswer
-                                ? "flex min-w-0 items-start"
-                                : "flex min-w-0 items-start gap-2 sm:gap-3"
-                            }
-                            data-testid={hasCollapsedCurrentAnswer ? "thread-response-collapsed-shell" : undefined}
-                          >
-                            {!hasCollapsedCurrentAnswer && <PawTrailAvatar />}
-                            <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
-                              {!collapsedThreadResponsePresentation && turn.subConclusions.length > 0 && (
-                                <div className="px-3 pt-2 space-y-1.5">
-                                  <HidePawContext.Provider value={true}>
-                                    {turn.subConclusions.map((sc, scIdx) => (
-                                      <FeedEntries
-                                        key={scIdx}
-                                        entries={[sc.entry]}
-                                        sessionId={sessionId}
-                                        currentThreadKey={currentThreadKey}
-                                        isCodexSession={isCodexSession}
-                                        activeCodexTerminalIds={activeCodexTerminalIds}
-                                        onOpenCodexTerminal={onOpenCodexTerminal}
-                                        onSelectThread={onSelectThread}
-                                        questLinkSurface={questLinkSurface}
-                                      />
-                                    ))}
-                                  </HidePawContext.Provider>
-                                </div>
-                              )}
-                              <CollapsedTurnRows
-                                turn={turn}
-                                sessionId={sessionId}
-                                currentThreadKey={currentThreadKey}
-                                minuteBoundaryLabels={minuteBoundaryLabels}
-                                isCodexSession={isCodexSession}
-                                activeCodexTerminalIds={activeCodexTerminalIds}
-                                onOpenCodexTerminal={onOpenCodexTerminal}
-                                onSelectThread={onSelectThread}
-                                questLinkSurface={questLinkSurface}
-                                threadResponsePresentation={collapsedThreadResponsePresentation}
-                                activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
-                                preserveHostQuestQuiz={preserveHostQuestQuiz}
-                                unansweredMessageEntry={unansweredMessageEntry}
-                              />
+                        )
+                      ) : (
+                        <>
+                          {!collapsedThreadResponsePresentation && turn.systemEntries.length > 0 && (
+                            <FeedEntries
+                              entries={turn.systemEntries}
+                              sessionId={sessionId}
+                              currentThreadKey={currentThreadKey}
+                              minuteBoundaryLabels={minuteBoundaryLabels}
+                              isCodexSession={isCodexSession}
+                              activeCodexTerminalIds={activeCodexTerminalIds}
+                              onOpenCodexTerminal={onOpenCodexTerminal}
+                              onSelectThread={onSelectThread}
+                              suppressThreadSystemMarkers
+                              questLinkSurface={questLinkSurface}
+                            />
+                          )}
+                          {hasCollapsedContent && (
+                            <div
+                              className={
+                                hasCollapsedCurrentAnswer
+                                  ? "flex min-w-0 items-start"
+                                  : "flex min-w-0 items-start gap-2 sm:gap-3"
+                              }
+                              data-testid={hasCollapsedCurrentAnswer ? "thread-response-collapsed-shell" : undefined}
+                            >
+                              {!hasCollapsedCurrentAnswer && <PawTrailAvatar />}
+                              <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
+                                {!collapsedThreadResponsePresentation && turn.subConclusions.length > 0 && (
+                                  <div className="px-3 pt-2 space-y-1.5">
+                                    <HidePawContext.Provider value={true}>
+                                      {turn.subConclusions.map((sc, scIdx) => (
+                                        <FeedEntries
+                                          key={scIdx}
+                                          entries={[sc.entry]}
+                                          sessionId={sessionId}
+                                          currentThreadKey={currentThreadKey}
+                                          isCodexSession={isCodexSession}
+                                          activeCodexTerminalIds={activeCodexTerminalIds}
+                                          onOpenCodexTerminal={onOpenCodexTerminal}
+                                          onSelectThread={onSelectThread}
+                                          questLinkSurface={questLinkSurface}
+                                        />
+                                      ))}
+                                    </HidePawContext.Provider>
+                                  </div>
+                                )}
+                                <CollapsedTurnRows
+                                  turn={turn}
+                                  sessionId={sessionId}
+                                  currentThreadKey={currentThreadKey}
+                                  minuteBoundaryLabels={minuteBoundaryLabels}
+                                  isCodexSession={isCodexSession}
+                                  activeCodexTerminalIds={activeCodexTerminalIds}
+                                  onOpenCodexTerminal={onOpenCodexTerminal}
+                                  onSelectThread={onSelectThread}
+                                  questLinkSurface={questLinkSurface}
+                                  threadResponsePresentation={collapsedThreadResponsePresentation}
+                                  activeNeedsInputAnchorMessageIds={activeNeedsInputAnchorMessageIds}
+                                  preserveHostQuestQuiz={preserveHostQuestQuiz}
+                                  unansweredMessageEntry={unansweredMessageEntry}
+                                />
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-                    {(!isActivityExpanded || turnPresentationEntries(turn).length === 0) && threadStatusFooter}
+                          )}
+                        </>
+                      )}
+                      {(!isActivityExpanded || turnPresentationEntries(turn).length === 0) && threadStatusFooter}
+                    </div>
                   </div>
-                </div>
+                </QuestCompletionSummaryContext.Provider>
               );
             })}
           </div>

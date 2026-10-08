@@ -209,4 +209,25 @@ describe("MessageBubble quest quiz directives", () => {
     expect(screen.queryByTestId("quest-quiz-inline")).toBeNull();
     expect(getQuestValidatedMock).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps the quest-complete card out of quizzes outside a leader quest thread", () => {
+    // Worker completion messages already explain the outcome; only the leader quest
+    // thread's completion turn provides the summary card above its Quiz.
+    useStore.setState({
+      quests: [
+        {
+          questId: "q-9",
+          title: "Finished quest",
+          status: "done",
+          debrief: "Full debrief.",
+          debriefTldr: "Short debrief.",
+          quizItems: [{ id: "q9", question: "What changed?", answer: "The thing." }],
+        } as any,
+      ],
+    });
+    render(<MessageBubble message={makeMessage({ role: "assistant", content: "{[(Quest Quiz: q-9)]}" })} />);
+
+    expect(screen.getByTestId("quest-quiz-inline")).toBeTruthy();
+    expect(screen.queryByTestId("quest-completion-summary")).toBeNull();
+  });
 });

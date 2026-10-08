@@ -1243,6 +1243,8 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     // Regression coverage for quest tabs: selected thread windows can contain
     // the completion message before the frontend has full quest quiz metadata.
     // The hidden directive should fetch detail and then render the inline quiz.
+    // The done quest's completion summary card revalidates the same record, so
+    // every detail request receives the same server response.
     const sid = "test-thread-window-quest-quiz";
     const threadWindow = {
       thread_key: "q-1652",
@@ -1253,7 +1255,7 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
       section_item_count: 30,
       visible_item_count: 10,
     };
-    mockGetQuestValidated.mockResolvedValueOnce({
+    mockGetQuestValidated.mockResolvedValue({
       status: "fresh",
       etag: '"q-1652-detail"',
       data: {

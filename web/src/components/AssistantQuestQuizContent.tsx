@@ -1,10 +1,11 @@
-import { useEffect, useMemo } from "react";
+import { Fragment, useContext, useEffect, useMemo } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { QuestmasterTask } from "../types.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { QuestQuizSection } from "./QuestQuizSection.js";
+import { QuestCompletionSummaryCard, QuestCompletionSummaryContext } from "./QuestCompletionSummaryCard.js";
 
 const QUEST_QUIZ_DIRECTIVE_RE = /^\s*\{\[\(Quest Quiz:\s*(q-\d+)\)\]\}\s*$/i;
 const FENCE_RE = /^\s*(`{3,}|~{3,})/;
@@ -180,6 +181,7 @@ export function AssistantQuestQuizContent({
   const questDetails = useStore((state) => state.questDetails);
   const questDetailEtags = useStore((state) => state.questDetailEtags);
   const quizQuestIds = useMemo(() => uniqueQuestQuizIds(segments), [segments]);
+  const completionSummaryQuestId = useContext(QuestCompletionSummaryContext);
 
   useEffect(() => {
     for (const questId of quizQuestIds) {
@@ -210,17 +212,27 @@ export function AssistantQuestQuizContent({
         }
 
         const quest = findRenderableQuest(questDetails, quests, segment.questId);
-        if (!quest || (quest.quizItems?.length ?? 0) === 0) return null;
-        return (
-          <QuestQuizSection
-            key={`quiz-${segment.questId}-${index}`}
-            items={quest.quizItems}
-            questId={quest.questId}
-            questTitle={quest.title}
-            variant="inline"
+        const summary = segment.questId === completionSummaryQuestId && (
+          <QuestCompletionSummaryCard
+            questId={segment.questId}
             sessionId={sessionId}
             questLinkSurface={questLinkSurface}
           />
+        );
+        return (
+          <Fragment key={`quiz-${segment.questId}-${index}`}>
+            {summary}
+            {quest && (quest.quizItems?.length ?? 0) > 0 && (
+              <QuestQuizSection
+                items={quest.quizItems}
+                questId={quest.questId}
+                questTitle={quest.title}
+                variant="inline"
+                sessionId={sessionId}
+                questLinkSurface={questLinkSurface}
+              />
+            )}
+          </Fragment>
         );
       })}
     </>

@@ -1855,6 +1855,7 @@ export function MessageFeed({
                     visibleThreadStatuses={visibleThreadStatuses}
                     workerPreviewTarget={workerPreviewTarget}
                     onThreadStatusLayoutContributionChange={handleThreadStatusLayoutContributionChange}
+                    hasNewerSections={hasNewerSections}
                   />
                   {hasNewerSections && (
                     <div className="flex justify-center pt-1" aria-live="polite">
