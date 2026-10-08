@@ -11,6 +11,7 @@ Validate Takode UI changes with `agent-browser`, scoped leases, an explicit stat
 
 - Use `agent-browser` for interactive Takode browser validation.
 - Never stop, kill, restart, bind over, or replace an existing server on `:3456`. In this project, `:3456` is the live/session server agents depend on.
+- Stop a validation server you started by its own task, PID or port (`lsof -tiTCP:<port> -sTCP:LISTEN`), never by a command-line pattern such as `pkill -f server/index.ts`: the live `:3456` server runs with the same command line.
 - Default normal Takode E2E/browser validation to the authorized shared persistent validation state when one is documented or explicitly authorized. Treat this as persistent validation state, not as permission to mutate live `:3456`.
 - Use isolated temp HOME/state only for destructive tests, privacy-sensitive data, reset-sensitive scenarios, narrow frontend-only checks, or when retained shared state would make the result misleading. Playground/browser fixtures and sanitized copied-live snapshots remain valid for their narrower cases.
 - Do not treat "the accepted code is only in my worktree / not ported yet" as an isolation reason by itself. Code and state are separable: run the worker worktree process on safe alternate ports, but point it at an authorized persistent validation profile when that profile is safe to reuse. Prefer that, or a sanitized copied persistent snapshot, before falling back to an empty temp HOME.

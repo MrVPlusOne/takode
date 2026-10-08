@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -11,12 +11,16 @@ let tempDir: string;
 let fakeBinDir: string;
 let fakeScreenshotPath: string;
 let delegateArgsPath: string;
+let caffeinateArgsPath: string;
+let delegatePidPath: string;
 
 beforeEach(async () => {
   tempDir = mkdtempSync(join(tmpdir(), "agent-browser-shim-test-"));
   fakeBinDir = join(tempDir, "fake-bin");
   fakeScreenshotPath = join(tempDir, "source.png");
   delegateArgsPath = join(tempDir, "delegate-args.txt");
+  caffeinateArgsPath = join(tempDir, "caffeinate-args.txt");
+  delegatePidPath = join(tempDir, "delegate.pid");
   await mkdir(fakeBinDir, { recursive: true });
   await writeFile(
     fakeScreenshotPath,
@@ -27,6 +31,7 @@ beforeEach(async () => {
       .toBuffer(),
   );
   installFakeDelegate();
+  installFakeCaffeinate();
 });
 
 afterEach(() => {
@@ -111,6 +116,41 @@ describe("agent-browser shim", () => {
     );
   });
 
+  // Headless Chrome on macOS waits for a display frame before capturing, so a
+  // screenshot hangs while the display sleeps. The shim wakes the display with
+  // `caffeinate -u` for screenshots only, and only on macOS.
+  it("wakes the display before screenshots on macOS only", async () => {
+    const statusResult = runShim(["status"]);
+    expect(statusResult.status).toBe(0);
+    expect(existsSync(caffeinateArgsPath)).toBe(false);
+
+    const result = runShim(["screenshot", join(tempDir, "wake.png"), "--json"]);
+    expect(result.status).toBe(0);
+    if (process.platform !== "darwin") {
+      expect(existsSync(caffeinateArgsPath)).toBe(false);
+      return;
+    }
+    // caffeinate is fire-and-forget, so it may finish after the shim exits.
+    await vi.waitFor(() => expect(readFileSync(caffeinateArgsPath, "utf-8").trim()).toBe("-u -t 2"));
+  });
+
+  // Killing a hung shim used to leave the real screenshot process running,
+  // which kept holding the browser session.
+  it("forwards SIGTERM to a hung screenshot delegate", async () => {
+    const shim = spawn(process.execPath, [shimPath(), "screenshot", join(tempDir, "hung.png")], {
+      env: shimEnv({ FAKE_SCREENSHOT_HANG: "1", DELEGATE_PID_FILE: delegatePidPath }),
+      stdio: "ignore",
+    });
+    const exited = new Promise<void>((resolveExit) => shim.on("close", () => resolveExit()));
+    await vi.waitFor(() => expect(existsSync(delegatePidPath)).toBe(true), { timeout: 5000 });
+    const delegatePid = Number(readFileSync(delegatePidPath, "utf-8").trim());
+
+    shim.kill("SIGTERM");
+    await exited;
+
+    await vi.waitFor(() => expect(isAlive(delegatePid)).toBe(false), { timeout: 5000 });
+  });
+
   it("fails clearly when no external delegate is available", () => {
     const result = runShim(["status"], { PATH: "/usr/bin:/bin" });
 
@@ -120,19 +160,40 @@ describe("agent-browser shim", () => {
 });
 
 function runShim(args: string[], envOverrides: Record<string, string> = {}) {
-  const scriptPath = fileURLToPath(new URL("./agent-browser.ts", import.meta.url));
-  return spawnSync(process.execPath, [scriptPath, ...args], {
-    env: {
-      ...process.env,
-      HOME: tempDir,
-      PATH: `${fakeBinDir}:/usr/bin:/bin`,
-      FAKE_SCREENSHOT_SOURCE: fakeScreenshotPath,
-      DELEGATE_ARGS_FILE: delegateArgsPath,
-      TMPDIR: tempDir,
-      ...envOverrides,
-    },
-    encoding: "utf-8",
-  });
+  return spawnSync(process.execPath, [shimPath(), ...args], { env: shimEnv(envOverrides), encoding: "utf-8" });
+}
+
+function shimPath(): string {
+  return fileURLToPath(new URL("./agent-browser.ts", import.meta.url));
+}
+
+function shimEnv(envOverrides: Record<string, string>): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    HOME: tempDir,
+    PATH: `${fakeBinDir}:/usr/bin:/bin`,
+    FAKE_SCREENSHOT_SOURCE: fakeScreenshotPath,
+    DELEGATE_ARGS_FILE: delegateArgsPath,
+    CAFFEINATE_ARGS_FILE: caffeinateArgsPath,
+    TMPDIR: tempDir,
+    ...envOverrides,
+  };
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Records its arguments instead of waking the real display during tests. */
+function installFakeCaffeinate(): void {
+  const caffeinatePath = join(fakeBinDir, "caffeinate");
+  writeFileSync(caffeinatePath, `#!/bin/sh\nprintf '%s\\n' "$*" > "$CAFFEINATE_ARGS_FILE"\n`, "utf-8");
+  chmodSync(caffeinatePath, 0o755);
 }
 
 function installFakeDelegate(): void {
@@ -165,6 +226,10 @@ if [ "$cmd" != "screenshot" ]; then
   exit 0
 fi
 shift
+if [ "$FAKE_SCREENSHOT_HANG" = "1" ]; then
+  echo $$ > "$DELEGATE_PID_FILE"
+  exec sleep 30
+fi
 json=0
 path=""
 while [ "$#" -gt 0 ]; do

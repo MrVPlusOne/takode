@@ -137,6 +137,10 @@ agent-browser screenshot /tmp/takode-q-N/mobile-playground.png
 
 Prefer semantic interactions and visible UI checks. Use DOM probes only when they answer an objective question that screenshots or visible interaction cannot, such as bounding boxes, aria state, or exact row counts.
 
+### Screenshots While The Display Sleeps
+
+On macOS, headless Chrome waits for a display frame before capturing, so `agent-browser screenshot` hangs indefinitely while the display is asleep (`open`, `eval` and `snapshot` still work). The Takode wrapper runs `caffeinate -u -t 2` before each screenshot, which wakes the display (the lock screen is enough) and lets the capture finish; the display then sleeps again on its normal idle timer. If you call the real `agent-browser` binary directly, or a capture still hangs, run `caffeinate -u -t 2` yourself and retry. Stop a hung capture by its own PID (`pgrep -fl "agent-browser.*screenshot"`); the wrapper forwards termination signals to it.
+
 ### Click Targets During Layout Changes
 
 When hover or focus changes layout, validate the complete approach -> transition -> click sequence. Choose the intended click position before the layout-changing approach or focus event, then click that original position without retargeting. Do not silently reposition the pointer, locate the moved control again with a selector, or programmatically focus it to turn a failed interaction into a pass. Verify that the intended action occurred, such as the input receiving focus and accepting typing.
@@ -154,7 +158,7 @@ takode lease release agent-browser
 
 Clean up only resources you own. Do not kill unrelated Chrome, browser, server, or validation-profile processes, and never touch live `:3456` as part of browser cleanup.
 
-On macOS, screenshot or capture work can leave a stale `Google Chrome for Testing` process holding a display-sleep assertion. The observed symptom is a `NoDisplaySleepAssertion` named `Capturing` / `PreventUserIdleDisplaySleep`, which can keep an external display awake even though headless/browser automation itself does not inherently require the display to stay on. When practical after screenshot/capture-heavy validation, check that no stale Chrome-for-testing display assertion remains:
+On macOS, screenshot or capture work can leave a stale `Google Chrome for Testing` process holding a display-sleep assertion. The observed symptom is a `NoDisplaySleepAssertion` named `Capturing` / `PreventUserIdleDisplaySleep`, which can keep an external display awake long after the capture that needed it has finished. When practical after screenshot/capture-heavy validation, check that no stale Chrome-for-testing display assertion remains:
 
 ```bash
 pmset -g assertions | rg -i 'PreventUserIdleDisplaySleep|NoDisplaySleepAssertion|Google Chrome for Testing|Capturing'

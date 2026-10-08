@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, realpath } from "node:fs/promises";
 import { delimiter, resolve } from "node:path";
@@ -37,6 +37,7 @@ async function main(): Promise<void> {
     process.exit(code);
   }
 
+  wakeDisplayForCapture();
   const cleanedArgs = args.filter((arg) => arg !== TAKODE_ORIGINAL_FLAG);
   if (args.includes(TAKODE_ORIGINAL_FLAG) || process.env.TAKODE_AGENT_BROWSER_ORIGINAL === "1") {
     const code = await runDelegate(delegate, cleanedArgs, "inherit");
@@ -153,9 +154,31 @@ function optionTakesValue(arg: string): boolean {
   return GLOBAL_OPTIONS_WITH_VALUES.has(arg);
 }
 
+/**
+ * Headless Chrome on macOS paces frames from the display, so while the display
+ * sleeps a screenshot waits forever for a frame. Declaring user activity wakes
+ * the display (the lock screen is enough) and lets the capture complete.
+ */
+function wakeDisplayForCapture(): void {
+  if (process.platform !== "darwin") return;
+  const child = spawn("caffeinate", ["-u", "-t", "2"], { stdio: "ignore" });
+  child.on("error", (err) => {
+    console.error(`agent-browser: could not wake the display before the screenshot: ${err.message}`);
+  });
+  child.unref();
+}
+
+/** Pass termination signals on, so killing the wrapper does not orphan a hung delegate. */
+function forwardTerminationSignals(child: ChildProcess): void {
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.on(signal, () => child.kill(signal));
+  }
+}
+
 function runDelegate(delegate: string, args: string[], stdio: "inherit"): Promise<number> {
   return new Promise((resolveCode) => {
     const child = spawn(delegate, args, { stdio, env: process.env });
+    forwardTerminationSignals(child);
     child.on("error", (err) => {
       console.error(`agent-browser: failed to run ${delegate}: ${(err as Error).message}`);
       resolveCode(127);
@@ -173,6 +196,7 @@ function runDelegateCaptured(
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolveResult) => {
     const child = spawn(delegate, args, { stdio: ["ignore", "pipe", "pipe"], env: process.env });
+    forwardTerminationSignals(child);
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => {
