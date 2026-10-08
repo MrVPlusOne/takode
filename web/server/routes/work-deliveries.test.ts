@@ -2,14 +2,13 @@ import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerWorkDeliveryRoutes } from "./work-deliveries.js";
 import * as store from "../quest-store.js";
-import { buildCodeDelivery, portContext } from "../quest-code-deliveries.js";
-import * as tracking from "../port-tracking.js";
+import { buildCodeDelivery, runPortCommand } from "../quest-code-deliveries.js";
 import { appendCodeEvidence } from "../quest-delivery-evidence.js";
 import type { QuestmasterTask } from "../quest-types.js";
 import { deliveryFixture, FIRST_DELIVERY_SHA } from "../../src/test-fixtures/commit-delivery-fixture.js";
 
 vi.mock("../quest-store.js", () => ({ getQuest: vi.fn(), appendQuestCodeCommitEvidenceForOwner: vi.fn() }));
-vi.mock("../quest-code-deliveries.js", () => ({ buildCodeDelivery: vi.fn(), portContext: vi.fn() }));
+vi.mock("../quest-code-deliveries.js", () => ({ buildCodeDelivery: vi.fn(), runPortCommand: vi.fn() }));
 
 let app: Hono;
 let quest: QuestmasterTask;
@@ -23,6 +22,7 @@ let row: {
   journey: object;
 };
 let callerId: string;
+let callerHostId: string | undefined;
 let release = vi.fn(() => {});
 let locked: boolean;
 let broadcast: ReturnType<typeof vi.fn>;
@@ -36,6 +36,7 @@ const delivery = {
 beforeEach(() => {
   vi.resetAllMocks();
   callerId = "worker";
+  callerHostId = undefined;
   locked = false;
   release = vi.fn(() => {
     locked = false;
@@ -86,7 +87,10 @@ beforeEach(() => {
   app = new Hono();
   registerWorkDeliveryRoutes(app, {
     launcher: {} as never,
-    authenticateTakodeCaller: (() => ({ callerId, caller: { sessionId: callerId, isOrchestrator: false } })) as never,
+    authenticateTakodeCaller: (() => ({
+      callerId,
+      caller: { sessionId: callerId, isOrchestrator: false, hostId: callerHostId },
+    })) as never,
     wsBridge: {
       findAssignedBoardRowsForWorker: () => [{ leaderSessionId: "leader", row }],
       broadcastGlobal: broadcast,
@@ -109,15 +113,7 @@ function recordDelivery() {
 describe("guarded delivery recording before Memory", () => {
   it("allows read-only receipt inspection after Work while mutation remains gated", async () => {
     row.status = "MEMORY";
-    vi.mocked(portContext).mockResolvedValue({
-      questId: "q-9904",
-      actorSessionId: "worker",
-      phaseOccurrenceId: "inspection",
-      cwd: "/fixture/worker",
-      branch: "private",
-      target: delivery.target,
-    });
-    vi.spyOn(tracking, "inspectPort").mockResolvedValue({
+    vi.mocked(runPortCommand).mockResolvedValue({
       id: delivery.id,
       state: "landed",
       landed: [],
@@ -125,8 +121,21 @@ describe("guarded delivery recording before Memory", () => {
       nextAction: "Recorded",
     });
     expect((await app.request(`/takode/port/q-9904/${delivery.id}`)).status).toBe(200);
+    expect(runPortCommand).toHaveBeenCalledWith(expect.objectContaining({ phaseOccurrenceId: "inspection" }), {
+      action: "inspect",
+      id: delivery.id,
+    });
     expect((await recordDelivery()).status).toBe(409);
     expect(store.appendQuestCodeCommitEvidenceForOwner).not.toHaveBeenCalled();
+  });
+
+  it("runs a remote worker's port tracking on its host, never on this machine", async () => {
+    // No host link is up, so the request fails; it must not fall back to this machine's Git.
+    callerHostId = "devbox";
+    const response = await app.request(`/takode/port/q-9904/${delivery.id}`);
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toContain("devbox");
+    expect(runPortCommand).not.toHaveBeenCalled();
   });
 
   it("records provenance and code SHAs together, remains in Work, and deduplicates a retry", async () => {

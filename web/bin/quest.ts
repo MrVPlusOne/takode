@@ -85,6 +85,7 @@ import { runHistoryCommand } from "./quest-history-command.js";
 import { parseRelationshipFlags } from "./quest-relationship-flags.js";
 import { collectSessionIds, fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
 import { runCommitLinksCommand } from "./quest-commit-links.js";
+import { readDeliveryRange } from "../server/quest-delivery-range.js";
 import { runShowCommand } from "./quest-show-command.js";
 import { runTagsCommand } from "./quest-tags-command.js";
 import { grepQuestsForCli, type QuestCliGrep } from "../server/routes/quest-cli-reads.js";
@@ -353,6 +354,16 @@ async function getQuestHistoryView(id: string): Promise<QuestHistoryView> {
     (await questServer.read<QuestHistoryView>(`/quests/${encodeURIComponent(id)}/history`)) ??
     getStoredQuestHistoryView(id)
   );
+}
+
+/** The server reads a delivery's Git range on the machine holding its checkout; this machine may not have it. */
+async function readDeliveryRangeFromServer(
+  ...args: Parameters<typeof readDeliveryRange>
+): ReturnType<typeof readDeliveryRange> {
+  const [questId, delivery, , range] = args;
+  if (directCodexExecution) return readDeliveryRange(...args);
+  const path = `/quests/${encodeURIComponent(questId)}/deliveries/${delivery.id}?base=${range.baseSha}&tip=${range.tipSha}`;
+  return (await questServer.read<Awaited<ReturnType<typeof readDeliveryRange>>>(path)) ?? readDeliveryRange(...args);
 }
 
 /**
@@ -1753,6 +1764,7 @@ async function main(): Promise<void> {
       validateFlags(["delivery", "commits", "range", "json"]);
       await runCommitLinksCommand({
         getQuest,
+        readRange: readDeliveryRangeFromServer,
         questId: positionalArgs[0] ?? "",
         deliveryId: option("delivery") ?? "",
         commitShas: option("commits")?.split(","),

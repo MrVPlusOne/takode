@@ -121,7 +121,7 @@ The JSON separates publication receipts (`refs`) from the complete ordered final
 }
 ```
 
-Use full lowercase SHAs and a unique list of 1-100 final commits. The leader reviews completeness and relevance against the Work evidence; Git verifies each selected commit exists and is reachable from an approved published head, and verifies the exact remote heads. The approval binds both lists. This command records existing approval; it does not grant permission for new external operations, infer authorship or move/fetch/push any ref. Only the leader owning the unique active assignment can approve. Approval alone does not attach code evidence.
+`checkoutPath` names a checkout on the machine holding the worker's port target: for a worker whose target is on a remote host, a path on that host. Takode runs the Git checks there. Use full lowercase SHAs and a unique list of 1-100 final commits. The leader reviews completeness and relevance against the Work evidence; Git verifies each selected commit exists and is reachable from an approved published head, and verifies the exact remote heads. The approval binds both lists. This command records existing approval; it does not grant permission for new external operations, infer authorship or move/fetch/push any ref. Only the leader owning the unique active assignment can approve. Approval alone does not attach code evidence.
 
 The worker supplies the returned approval ID and exactly `commitShas` in its approved order, not the `refs` head list:
 

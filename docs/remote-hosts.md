@@ -68,7 +68,11 @@ process it needs.
    created on the host. Folder browsing needs the host's `takode node` to run a
    build that includes it. A running session's Git status, diffs, the diff
    panel's base-branch and commit choices, and pulls all read its checkout on
-   the host.
+   the host. Quest delivery checks (`takode board approve-delivery-target`,
+   `record-work-delivery`, `work-to-memory` and port tracking) run on the
+   machine holding the worker's port target, and recorded delivery commits are
+   read there later; these need the host's `takode node` on a build that
+   includes them.
 
 ## Machine names
 

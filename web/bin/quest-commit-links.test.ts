@@ -79,4 +79,28 @@ describe("exact commit-link authoring", () => {
     expect(original.commits[0].comparison).toBe("Vs first parent (merge)");
     expect(all).toHaveLength(3);
   });
+
+  it("reads a range through the supplied reader, which the quest CLI points at the server", async () => {
+    // The server reads the range where the delivery's checkout lives, which may not be this machine.
+    const range = { baseSha: "0".repeat(40), tipSha: FIRST_DELIVERY_SHA };
+    const readRange = vi.fn(async () => ({
+      id: deliveryFixture.id,
+      questId: "q-9904",
+      branch: "main",
+      recordedAt: 1,
+      commits: [{ ...deliveryFixture.commits[0]!, reviewCount: 0 }],
+      earlierReviewCount: 0,
+      range,
+    }));
+    await runCommitLinksCommand({
+      readRange,
+      questId: "q-9904",
+      deliveryId: deliveryFixture.id,
+      range: `${range.baseSha}..${range.tipSha}`,
+      json: true,
+    });
+    expect(readRange).toHaveBeenCalledWith("q-9904", deliveryFixture, expect.any(Array), range);
+    const output = JSON.parse(vi.mocked(console.log).mock.calls[0]![0] as string);
+    expect(output).toMatchObject({ range, commits: [{ sha: FIRST_DELIVERY_SHA }] });
+  });
 });

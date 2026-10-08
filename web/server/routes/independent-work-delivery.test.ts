@@ -25,10 +25,11 @@ let app: Hono;
 let row: BoardRow;
 let caller: string;
 let workerTarget: {
+  hostId?: string;
   isWorktree: boolean;
   cwd: string;
   actualBranch: string;
-  worktreePortTarget?: { repoRoot: string; branch: string; worktreePath?: string };
+  worktreePortTarget?: { repoRoot: string; branch: string; worktreePath?: string; hostId?: string };
 };
 let questId: string;
 let broadcast: ReturnType<typeof vi.fn>;
@@ -157,7 +158,7 @@ beforeEach(async () => {
     };
     app = new Hono();
     registerTakodeBoardRoutes(app, {
-      launcher: {} as never,
+      launcher: { getSession: (id: string) => (id === "worker" ? workerTarget : undefined) } as never,
       wsBridge: {
         getSession: (id: string) => (id === "leader" ? session : null),
         findAssignedBoardRowsForWorker: (worker: string) =>
@@ -570,5 +571,88 @@ describe("independent published delivery through real guarded routes", () => {
     expect(response.status, JSON.stringify(await response.json())).toBe(200);
     expect((await store.getQuest(questId))?.codeDeliveries?.[0]?.target.mode).toBe(mode);
     // The same real target resolver still enforces each original operational checkout mode.
+  });
+});
+
+describe("delivery evidence on a remote host", () => {
+  // The worker and its port target live on host "devbox". An in-process HostAgent plays
+  // that host, reached only through the host link, so each operation the link carries
+  // ran on the host rather than on the coordinator.
+  let sent: string[];
+  let stopHost: () => Promise<void>;
+  beforeEach(async () => {
+    const { HostLinkManager } = await import("../remote-host/host-link-manager.js");
+    const { HostAgent } = await import("../remote-host/host-agent.js");
+    const { configureRemoteMachines } = await import("../remote-host/session-machine.js");
+    const { FakeHostLink } = await import("../test-fixtures/fake-host-link.js");
+    const manager = new HostLinkManager();
+    configureRemoteMachines(manager);
+    const agent = new HostAgent({
+      coordinatorUrl: "http://coordinator.test",
+      token: "token",
+      apiProxyPort: 45_678,
+      log: () => {},
+      connect: () => new FakeHostLink(manager, "devbox").agentSide,
+    });
+    agent.start();
+    await vi.waitFor(() => expect(manager.status("devbox").online).toBe(true));
+    sent = [];
+    const request = manager.request.bind(manager);
+    vi.spyOn(manager, "request").mockImplementation((hostId, message, timeoutMs) => {
+      if (message.kind === "operation") sent.push(`${hostId}:${(message as { name: string }).name}`);
+      return request(hostId, message, timeoutMs);
+    });
+    workerTarget.hostId = "devbox";
+    workerTarget.worktreePortTarget!.hostId = "devbox";
+    stopHost = async () => {
+      agent.stop();
+      configureRemoteMachines(null);
+    };
+  });
+  afterEach(() => stopHost());
+
+  it("approves, records and reads a published target on the worker's host", async () => {
+    const id = await approve();
+    const completed = await post("work-to-memory", evidence(id));
+    expect(completed.status, JSON.stringify(await completed.json())).toBe(200);
+    const delivery = (await store.getQuest(questId))!.codeDeliveries![0]!;
+    expect(delivery.hostId).toBe("devbox");
+    const href = `/quests/${questId}/deliveries/${delivery.id}/commits/${target.commitShas[0]}`;
+    expect(await (await app.request(href)).json()).toMatchObject({ available: true, diff: expect.any(String) });
+    expect(sent).toEqual([
+      "devbox:verifyPublishedDeliveryTarget",
+      "devbox:buildCodeDelivery",
+      "devbox:readCommitDetails",
+    ]);
+  });
+
+  it("records an inherited target's commits on the target's host", async () => {
+    const sha = git(inherited, "rev-parse", "HEAD");
+    const response = await post("work-to-memory", { commitShas: [sha], workFeedbackIndex: 0 });
+    expect(response.status, JSON.stringify(await response.json())).toBe(200);
+    expect((await store.getQuest(questId))?.codeDeliveries?.[0]).toMatchObject({ hostId: "devbox" });
+    expect(sent).toEqual(["devbox:buildCodeDelivery"]);
+  });
+
+  it("checks a remote worker's commits here when its port target is on this machine", async () => {
+    // Such a worker hands its commits over as a bundle; they land, and are verified, on the target's machine.
+    delete workerTarget.worktreePortTarget!.hostId;
+    const sha = git(inherited, "rev-parse", "HEAD");
+    const response = await post("work-to-memory", { commitShas: [sha], workFeedbackIndex: 0 });
+    expect(response.status, JSON.stringify(await response.json())).toBe(200);
+    expect((await store.getQuest(questId))?.codeDeliveries?.[0]?.hostId).toBeUndefined();
+    expect(sent).toEqual([]);
+  });
+
+  it("fails with the host's reason instead of checking this machine when the host is offline", async () => {
+    await stopHost();
+    const { configureRemoteMachines } = await import("../remote-host/session-machine.js");
+    const { HostLinkManager } = await import("../remote-host/host-link-manager.js");
+    configureRemoteMachines(new HostLinkManager());
+    caller = "leader";
+    const response = await post("approve-delivery-target", { target });
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toContain("devbox");
+    expect((await store.getQuest(questId))?.deliveryTargetApprovals).toBeUndefined();
   });
 });

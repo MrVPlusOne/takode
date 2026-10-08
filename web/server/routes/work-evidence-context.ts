@@ -8,6 +8,36 @@ import { indexedLiveQuestFeedbackEntries } from "../../shared/quest-feedback.js"
 import type { BoardRow } from "../session-types.js";
 import type { QuestmasterTask } from "../quest-types.js";
 import type { RouteContext } from "./context.js";
+import { DeliveryEvidenceError } from "../published-delivery-target.js";
+import { onMachine, type HostOperationName, type HostOperations } from "../remote-host/host-operations.js";
+import { hostIsOnline } from "../remote-host/session-machine.js";
+
+/**
+ * Run a delivery evidence operation on the machine that holds the checkout: a
+ * remote host, or this one when `hostId` is absent. A host's failure keeps its message.
+ */
+export async function onCheckoutMachine<K extends HostOperationName>(
+  hostId: string | undefined,
+  name: K,
+  ...args: Parameters<HostOperations[K]>
+): Promise<Awaited<ReturnType<HostOperations[K]>>> {
+  if (!hostId) return onMachine(undefined, name, ...args);
+  try {
+    return await onMachine(hostId, name, ...args);
+  } catch (error) {
+    // Errors cross the host link as plain messages, so their HTTP status is gone.
+    const message = error instanceof Error ? error.message : String(error);
+    throw new DeliveryEvidenceError(message, hostIsOnline(hostId) ? 409 : 503);
+  }
+}
+
+/** The quest evidence a delivery check reads, without the rest of the quest record. */
+export function deliveryEvidenceOf(
+  quest: QuestmasterTask,
+): Pick<QuestmasterTask, "commitShas" | "codeDeliveries" | "deliveryTargetApprovals"> {
+  const { commitShas, codeDeliveries, deliveryTargetApprovals } = quest;
+  return { commitShas, codeDeliveries, deliveryTargetApprovals };
+}
 
 export function hasUnaddressedHumanFeedback(quest: QuestmasterTask): boolean {
   return indexedLiveQuestFeedbackEntries(quest.feedback).some(

@@ -4,15 +4,17 @@ import type { BoardRow } from "../session-types.js";
 import * as questStore from "../quest-store.js";
 import { getTakodeQuestOwnerSessionId } from "../../shared/quest-owner.js";
 import { normalizeCommitShas } from "../quest-store-helpers.js";
-import { buildCodeDelivery, portContext } from "../quest-code-deliveries.js";
-import { preparePort, sealPort, recordLandedCommit, inspectPort } from "../port-tracking.js";
+import type { PortCommand } from "../quest-code-deliveries.js";
+import { workEvidenceCaller, workEvidenceHost } from "../work-evidence-replacement.js";
 import { projectQuestDelivery } from "../../shared/quest-delivery.js";
 import { broadcastQuestUpdate } from "./quest-helpers.js";
 import { registerWorkDeliveryTargetRoutes } from "./work-delivery-targets.js";
 import { DeliveryEvidenceError } from "../published-delivery-target.js";
 import {
+  deliveryEvidenceOf,
   findAssignedBoardRowsForWorker,
   hasUnaddressedHumanFeedback,
+  onCheckoutMachine,
   resolveActiveWorkPhaseContext,
   resolveCurrentWorkFeedback,
 } from "./work-evidence-context.js";
@@ -66,34 +68,35 @@ export function registerWorkDeliveryRoutes(api: Hono, deps: WorkDeliveryRoutesDe
       const worker = await resolveWorker(c, questId);
       release = deps.acquireWorkEvidenceMutationLock(worker.match.leaderSessionId, questId);
       if (!release) throw new WorkRouteError("Another Work evidence operation is active.", 409);
-      const context = await portContext({
-        questId,
-        actorSessionId: worker.auth.callerId,
-        phaseOccurrenceId: worker.scope.phaseOccurrenceId,
-        caller: worker.auth.caller,
-      });
-      let id = typeof body.id === "string" ? body.id : "";
+      const id = typeof body.id === "string" ? body.id : "";
+      let command: PortCommand;
       if (action === "prepare") {
-        const plan = await preparePort(context, {
+        command = {
+          action,
           baseSha: typeof body.baseSha === "string" ? body.baseSha : "",
           groupTips: body.groupTips === undefined ? undefined : normalizeCommitShas(body.groupTips),
           confirmPrivate: body.confirmPrivate === true,
           previousId: typeof body.previousId === "string" ? body.previousId : undefined,
-        });
-        id = plan.id;
+        };
       } else if (action === "seal") {
-        await sealPort(context, id, normalizeCommitShas(body.commitShas));
+        command = { action, id, commitShas: normalizeCommitShas(body.commitShas) };
       } else if (action === "landed") {
-        await recordLandedCommit(
-          context,
+        command = {
+          action,
           id,
-          typeof body.workerSha === "string" ? body.workerSha : "",
-          typeof body.targetSha === "string" ? body.targetSha : "",
-        );
+          workerSha: typeof body.workerSha === "string" ? body.workerSha : "",
+          targetSha: typeof body.targetSha === "string" ? body.targetSha : "",
+        };
       } else {
         throw new WorkRouteError("Unknown port action; use prepare, seal, or landed.", 400);
       }
-      return c.json(await inspectPort(context, id));
+      const input = {
+        questId,
+        actorSessionId: worker.auth.callerId,
+        phaseOccurrenceId: worker.scope.phaseOccurrenceId,
+        caller: workEvidenceCaller(worker.auth.caller),
+      };
+      return c.json(await onCheckoutMachine(worker.auth.caller.hostId, "portCommand", input, command));
     } catch (error) {
       return workError(c, error);
     } finally {
@@ -108,13 +111,14 @@ export function registerWorkDeliveryRoutes(api: Hono, deps: WorkDeliveryRoutesDe
       const auth = deps.authenticateTakodeCaller(c);
       if ("response" in auth) return auth.response;
       // The immutable journal's actor/quest/branch/target checks still apply after Work ends.
-      const context = await portContext({
+      const input = {
         questId,
         actorSessionId: auth.callerId,
         phaseOccurrenceId: "inspection",
-        caller: auth.caller,
-      });
-      return c.json(await inspectPort(context, c.req.param("id")));
+        caller: workEvidenceCaller(auth.caller),
+      };
+      const command: PortCommand = { action: "inspect", id: c.req.param("id") };
+      return c.json(await onCheckoutMachine(auth.caller.hostId, "portCommand", input, command));
     } catch (error) {
       return workError(c, error);
     }
@@ -138,12 +142,12 @@ export function registerWorkDeliveryRoutes(api: Hono, deps: WorkDeliveryRoutesDe
       const worker = await resolveWorker(c, questId, true, workNote);
       release = deps.acquireWorkEvidenceMutationLock(worker.match.leaderSessionId, questId);
       if (!release) throw new WorkRouteError("Another Work evidence operation is active.", 409);
-      const delivery = await buildCodeDelivery({
+      const delivery = await onCheckoutMachine(workEvidenceHost(worker.auth.caller), "buildCodeDelivery", {
         questId,
         actorSessionId: worker.auth.callerId,
         phaseOccurrenceId: worker.scope.phaseOccurrenceId,
-        caller: worker.auth.caller,
-        existing: worker.quest,
+        caller: workEvidenceCaller(worker.auth.caller),
+        existing: deliveryEvidenceOf(worker.quest),
         leaderSessionId: worker.match.leaderSessionId,
         deliveryTargetId: body.deliveryTargetId,
         commitShas: normalizeCommitShas(body.commitShas),

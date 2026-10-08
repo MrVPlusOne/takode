@@ -11,11 +11,28 @@ interface WorkEvidenceTargetConfig {
 }
 
 export interface WorkEvidenceTargetCaller {
+  /** Registered remote host the session runs on; absent for the coordinator's machine. */
+  hostId?: string;
   isWorktree?: boolean;
   cwd?: string;
   branch?: string;
   actualBranch?: string;
-  worktreePortTarget?: { repoRoot?: string; branch?: string; worktreePath?: string };
+  worktreePortTarget?: { repoRoot?: string; branch?: string; worktreePath?: string; hostId?: string };
+}
+
+/**
+ * The machine holding a session's selected target, where its commits land and
+ * evidence is checked: the port target's machine for a worktree session (which
+ * can differ from the session's own), otherwise the session's.
+ */
+export function workEvidenceHost(caller: WorkEvidenceTargetCaller): string | undefined {
+  return caller.isWorktree === true ? caller.worktreePortTarget?.hostId : caller.hostId;
+}
+
+/** The fields evidence checks read from a session, small enough to send to another machine. */
+export function workEvidenceCaller(session: WorkEvidenceTargetCaller): WorkEvidenceTargetCaller {
+  const { hostId, isWorktree, cwd, branch, actualBranch, worktreePortTarget } = session;
+  return { hostId, isWorktree, cwd, branch, actualBranch, worktreePortTarget };
 }
 
 export interface VerifiedWorkEvidenceTarget extends WorkEvidenceTargetConfig {

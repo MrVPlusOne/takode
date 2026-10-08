@@ -68,6 +68,8 @@ export interface QuestCodeDelivery {
   actorSessionId: string;
   phaseOccurrenceId: string;
   target: DeliveryTarget;
+  /** Registered remote host holding the target checkout; absent for the coordinator's machine. */
+  hostId?: string;
   targetHeadSha: string;
   commits: QuestDeliveredCommit[];
   earlierReviews?: RetainedReviewRange[];

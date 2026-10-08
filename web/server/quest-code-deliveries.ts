@@ -1,8 +1,21 @@
 import { createHash } from "node:crypto";
 import type { QuestCodeDelivery, QuestDeliveredCommit, RetainedReviewRange } from "../shared/quest-delivery.js";
 import { readCommitSummary, readGit } from "./git-commit-reader.js";
-import { verifyReplacementWorkEvidence, type WorkEvidenceTargetCaller } from "./work-evidence-replacement.js";
-import { inspectPort, ownedPlan, verifyReview, type PortTrackingContext } from "./port-tracking.js";
+import {
+  verifyReplacementWorkEvidence,
+  workEvidenceHost,
+  type WorkEvidenceTargetCaller,
+} from "./work-evidence-replacement.js";
+import {
+  inspectPort,
+  ownedPlan,
+  preparePort,
+  recordLandedCommit,
+  sealPort,
+  verifyReview,
+  type PortTrackingContext,
+  type PortTrackingStatus,
+} from "./port-tracking.js";
 import {
   DeliveryEvidenceError,
   parsePublishedDeliveryTarget,
@@ -52,6 +65,7 @@ export async function buildCodeDelivery(input: {
     );
   }
   if (verified.commitShas.length === 0) throw new Error("A delivery requires at least one synchronized commit.");
+  const hostId = workEvidenceHost(input.caller);
   const target = {
     repoRoot: verified.repoRoot ?? verified.checkoutPath,
     checkoutPath: verified.checkoutPath,
@@ -73,6 +87,7 @@ export async function buildCodeDelivery(input: {
         delivery.target.checkoutPath === target.checkoutPath &&
         delivery.target.mode === target.mode &&
         delivery.target.publication?.approvalId === target.publication?.approvalId &&
+        delivery.hostId === hostId &&
         delivery.commits.every((commit) => requested.has(commit.sha)),
     );
     if (!existing)
@@ -137,6 +152,7 @@ export async function buildCodeDelivery(input: {
     actorSessionId: input.actorSessionId,
     phaseOccurrenceId: input.phaseOccurrenceId,
     target,
+    ...(hostId ? { hostId } : {}),
     targetHeadSha: verified.headSha,
     commits,
     ...(earlierReviews?.length ? { earlierReviews } : {}),
@@ -160,8 +176,35 @@ async function assertDeliveryHead(target: QuestCodeDelivery["target"], expected:
   }
 }
 
-export async function portContext(
-  input: { questId: string; actorSessionId: string; phaseOccurrenceId: string; caller: WorkEvidenceTargetCaller },
+type PortContextInput = {
+  questId: string;
+  actorSessionId: string;
+  phaseOccurrenceId: string;
+  caller: WorkEvidenceTargetCaller;
+};
+
+export type PortCommand =
+  | { action: "prepare"; baseSha: string; groupTips?: string[]; confirmPrivate: boolean; previousId?: string }
+  | { action: "seal"; id: string; commitShas: string[] }
+  | { action: "landed"; id: string; workerSha: string; targetSha: string }
+  | { action: "inspect"; id: string };
+
+/** One port-tracking step and the resulting status; it runs on the machine holding the worker's checkout. */
+export async function runPortCommand(input: PortContextInput, command: PortCommand): Promise<PortTrackingStatus> {
+  const context = await portContext(input);
+  let id: string;
+  if (command.action === "prepare") {
+    id = (await preparePort(context, command)).id;
+  } else {
+    id = command.id;
+    if (command.action === "seal") await sealPort(context, id, command.commitShas);
+    if (command.action === "landed") await recordLandedCommit(context, id, command.workerSha, command.targetSha);
+  }
+  return inspectPort(context, id);
+}
+
+async function portContext(
+  input: PortContextInput,
   target?: QuestCodeDelivery["target"],
 ): Promise<PortTrackingContext> {
   if (input.caller.isWorktree !== true || !input.caller.cwd)

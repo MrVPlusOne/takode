@@ -12,6 +12,8 @@ import {
 export async function runCommitLinksCommand(input: {
   /** Defaults to the local store; the quest CLI passes its server-first read. */
   getQuest?: (questId: string) => Promise<QuestmasterTask | null>;
+  /** Defaults to Git on this machine; the quest CLI asks the server, which reads where the delivery's checkout lives. */
+  readRange?: typeof readDeliveryRange;
   questId: string;
   deliveryId: string;
   commitShas?: string[];
@@ -26,7 +28,7 @@ export async function runCommitLinksCommand(input: {
   const selection = input.range?.match(/^([a-f0-9]{7,40})\.\.([a-f0-9]{7,40})$/i);
   if (input.range !== undefined && !selection) throw new Error("Supply --range <base-sha>..<recorded-tip-sha>.");
   const view = selection
-    ? await readDeliveryRange(input.questId, delivery, quest!.commitShas ?? [], {
+    ? await (input.readRange ?? readDeliveryRange)(input.questId, delivery, quest!.commitShas ?? [], {
         baseSha: selection[1]!,
         tipSha: selection[2]!,
       })

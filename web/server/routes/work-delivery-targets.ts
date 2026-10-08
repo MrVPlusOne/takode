@@ -6,13 +6,14 @@ import {
   DeliveryEvidenceError,
   deliveryTargetApprovalId,
   parsePublishedDeliveryTarget,
-  verifyPublishedDeliveryTarget,
 } from "../published-delivery-target.js";
 import {
   findAssignedBoardRowsForWorker,
   hasUnaddressedHumanFeedback,
+  onCheckoutMachine,
   resolveActiveWorkPhaseContext,
 } from "./work-evidence-context.js";
+import { workEvidenceHost } from "../work-evidence-replacement.js";
 import type { WorkDeliveryRoutesDeps } from "./work-deliveries.js";
 
 /** Approval is a leader-owned, occurrence-scoped decision; it never changes the session integration target. */
@@ -46,7 +47,9 @@ export function registerWorkDeliveryTargetRoutes(api: Hono, deps: WorkDeliveryRo
       const target = parsePublishedDeliveryTarget(body.target);
       release = deps.acquireWorkEvidenceMutationLock(scope.leaderSessionId, questId);
       if (!release) throw new DeliveryEvidenceError("Another Work evidence operation is active.");
-      await verifyPublishedDeliveryTarget(target);
+      // Verify where the worker's evidence is checked, so recording sees the same checkout.
+      const worker = deps.launcher.getSession(scope.workerSessionId);
+      await onCheckoutMachine(worker && workEvidenceHost(worker), "verifyPublishedDeliveryTarget", target);
       if (JSON.stringify(await leaderScope(c, questId)) !== JSON.stringify(scope))
         throw new DeliveryEvidenceError("Work assignment changed during target approval; refresh before approving.");
       const approval: QuestDeliveryTargetApproval = {

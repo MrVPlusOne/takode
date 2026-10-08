@@ -7,9 +7,7 @@ import {
   recordedCommitStats,
   type QuestCodeDelivery,
 } from "../../shared/quest-delivery.js";
-import { readCommitDetails } from "../git-commit-reader.js";
-import { verifyReview } from "../port-tracking.js";
-import { readDeliveryRange, resolveDeliveryRange } from "../quest-delivery-range.js";
+import { onMachine } from "../remote-host/host-operations.js";
 
 export function registerQuestDeliveryRoutes(api: Hono): void {
   api.get("/quests/:questId/deliveries/:deliveryId", async (c) => {
@@ -21,8 +19,9 @@ export function registerQuestDeliveryRoutes(api: Hono): void {
       if (!validRange(baseSha, tipSha)) return c.json({ error: "Supply full base and tip commit SHAs." }, 400);
       const questId = c.req.param("questId");
       try {
+        const authoritative = (await getQuest(questId))?.commitShas ?? [];
         return c.json(
-          await readDeliveryRange(questId, delivery, (await getQuest(questId))?.commitShas ?? [], {
+          await onMachine(delivery.hostId, "readDeliveryRange", questId, delivery, authoritative, {
             baseSha: baseSha!,
             tipSha: tipSha!,
           }),
@@ -64,13 +63,20 @@ export function registerQuestDeliveryRoutes(api: Hono): void {
     if (baseSha !== undefined || tipSha !== undefined) {
       if (isReview || !validRange(baseSha, tipSha)) return c.json({ error: "Invalid range selection." }, 400);
       try {
-        const { commitShas } = await resolveDeliveryRange(delivery, (await getQuest(questId))?.commitShas ?? [], {
+        const authoritative = (await getQuest(questId))?.commitShas ?? [];
+        const { commitShas } = await onMachine(delivery.hostId, "resolveDeliveryRange", delivery, authoritative, {
           baseSha: baseSha!,
           tipSha: tipSha!,
         });
         if (!commitShas.includes(sha)) return c.json({ error: "Commit is outside the verified range." }, 404);
         return c.json({
-          ...(await readCommitDetails(delivery.target.repoRoot, sha, c.req.query("includeDiff") !== "false")),
+          ...(await onMachine(
+            delivery.hostId,
+            "readCommitDetails",
+            delivery.target.repoRoot,
+            sha,
+            c.req.query("includeDiff") !== "false",
+          )),
           available: true,
         });
       } catch (error) {
@@ -92,8 +98,9 @@ export function registerQuestDeliveryRoutes(api: Hono): void {
     if (!isReview && !includeDiff)
       return c.json({ ...selected, workerSha: undefined, review: undefined, available: true });
     try {
-      if (review) await verifyReview(delivery.target.repoRoot, review);
-      const details = await readCommitDetails(delivery.target.repoRoot, sha, includeDiff);
+      // A recorded delivery is read where its checkout lives.
+      if (review) await onMachine(delivery.hostId, "verifyReview", delivery.target.repoRoot, review);
+      const details = await onMachine(delivery.hostId, "readCommitDetails", delivery.target.repoRoot, sha, includeDiff);
       return c.json({
         ...details,
         recordedStats: isReview ? undefined : recordedCommitStats(selected, details),

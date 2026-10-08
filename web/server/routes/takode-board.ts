@@ -4,7 +4,7 @@ import {
   MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_COMMITS,
   MAX_QUEST_CODE_COMMIT_EVIDENCE_REPLACEMENT_REASON_LENGTH,
 } from "../../shared/quest-code-commit-evidence.js";
-import { verifyReplacementWorkEvidence } from "../work-evidence-replacement.js";
+import { workEvidenceCaller, workEvidenceHost } from "../work-evidence-replacement.js";
 import {
   FREE_WORKER_WAIT_FOR_TOKEN,
   getQuestJourneyCurrentPhaseIndex,
@@ -50,14 +50,15 @@ import { normalizeCommitShas } from "../quest-store-helpers.js";
 import { broadcastQuestUpdate } from "./quest-helpers.js";
 import { getQuestDisplayOwner, getTakodeQuestOwnerSessionId } from "../../shared/quest-owner.js";
 import {
+  deliveryEvidenceOf,
   hasUnaddressedHumanFeedback,
+  onCheckoutMachine,
   resolveActiveWorkPhaseContext,
   resolveCurrentWorkFeedback,
   findAssignedBoardRowsForWorker,
   type ActiveWorkPhaseContext,
 } from "./work-evidence-context.js";
 import { registerWorkDeliveryRoutes } from "./work-deliveries.js";
-import { buildCodeDelivery } from "../quest-code-deliveries.js";
 import { projectQuestDelivery } from "../../shared/quest-delivery.js";
 import { DeliveryEvidenceError } from "../published-delivery-target.js";
 
@@ -494,13 +495,13 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
 
       if (commitShas) {
         try {
-          const delivery = await buildCodeDelivery({
+          const delivery = await onCheckoutMachine(workEvidenceHost(auth.caller), "buildCodeDelivery", {
             questId,
             actorSessionId: auth.callerId,
             phaseOccurrenceId: initialWorkContext.phaseOccurrenceId,
-            caller: auth.caller,
+            caller: workEvidenceCaller(auth.caller),
             commitShas,
-            existing: quest,
+            existing: deliveryEvidenceOf(quest),
             leaderSessionId: initialMatch.leaderSessionId,
             deliveryTargetId: body.deliveryTargetId,
             ...(typeof body.preparationId === "string" ? { preparationId: body.preparationId } : {}),
@@ -820,7 +821,15 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
 
     try {
-      const verifiedTarget = await verifyReplacementWorkEvidence(auth.caller, replacementCommitShas);
+      const verifiedTarget = await onCheckoutMachine(
+        workEvidenceHost(auth.caller),
+        "verifyWorkEvidence",
+        workEvidenceCaller(auth.caller),
+        replacementCommitShas,
+      ).catch((error: unknown) => ({
+        error: error instanceof Error ? error.message : "Cannot verify replacement Work evidence.",
+        status: error instanceof DeliveryEvidenceError ? error.status : 503,
+      }));
       if ("error" in verifiedTarget) return c.json({ error: verifiedTarget.error }, verifiedTarget.status);
 
       const refreshedMatches = findAssignedBoardRowsForWorker({

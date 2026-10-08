@@ -4,7 +4,7 @@ import { isAbsolute } from "node:path";
 import * as questStore from "../quest-store.js";
 import { registerQuestDeliveryRoutes } from "./quest-deliveries.js";
 import { registerQuestCliReadRoutes } from "./quest-cli-reads.js";
-import { readCommitDetails } from "../git-commit-reader.js";
+import { onMachine } from "../remote-host/host-operations.js";
 import { recordedCommitStats } from "../../shared/quest-delivery.js";
 import type {
   QuestAutocompleteCandidate,
@@ -264,13 +264,18 @@ function feedbackEntryWithoutTldr(entry: QuestFeedbackEntry): QuestFeedbackEntry
   return rest;
 }
 
-function questRepoCandidates(quest: QuestmasterTask, launcher: RouteContext["launcher"], sha: string): string[] {
+/** Checkouts that may hold a quest commit, each on the machine it lives on. */
+function questRepoCandidates(
+  quest: QuestmasterTask,
+  launcher: RouteContext["launcher"],
+  sha: string,
+): Array<{ path: string; hostId?: string }> {
   // Recorded delivery provenance remains authoritative after session cleanup or a target change.
   // Missing retained objects must not silently redirect the viewer to today's session checkout.
   const delivery = quest.codeDeliveries?.find((item) => item.commits.some((commit) => commit.sha === sha));
   if (delivery) {
     const path = delivery.target.repoRoot;
-    return typeof path === "string" && isAbsolute(path) ? [path] : [];
+    return typeof path === "string" && isAbsolute(path) ? [{ path, hostId: delivery.hostId }] : [];
   }
   const activeTakodeOwner = getTakodeQuestOwnerSessionId(quest);
   const sessionIds = [
@@ -280,19 +285,20 @@ function questRepoCandidates(quest: QuestmasterTask, launcher: RouteContext["lau
       .map((owner) => owner.sessionId),
   ];
   const seen = new Set<string>();
-  const paths: string[] = [];
+  const candidates: Array<{ path: string; hostId?: string }> = [];
 
   for (const sessionId of sessionIds) {
     const session = launcher.getSession(sessionId);
     if (!session) continue;
     for (const path of [session.repoRoot, session.cwd]) {
-      if (!path || seen.has(path)) continue;
-      seen.add(path);
-      paths.push(path);
+      const key = `${session.hostId ?? ""}:${path}`;
+      if (!path || seen.has(key)) continue;
+      seen.add(key);
+      candidates.push({ path, hostId: session.hostId });
     }
   }
 
-  return paths;
+  return candidates;
 }
 
 function memoryRepoCandidates(quest: QuestmasterTask, launcher: RouteContext["launcher"]): MemoryRepoOptions[] {
@@ -1098,9 +1104,9 @@ export function createQuestRoutes(ctx: RouteContext) {
       return c.json({ sha, available: false, reason: "repo_unavailable" });
     }
 
-    for (const repoRoot of repoCandidates) {
+    for (const { path, hostId } of repoCandidates) {
       try {
-        const details = await readCommitDetails(repoRoot, sha, includeDiff, MAX_DIFF_BYTES);
+        const details = await onMachine(hostId, "readCommitDetails", path, sha, includeDiff, MAX_DIFF_BYTES);
         const recorded = quest.codeDeliveries
           ?.flatMap((delivery) => delivery.commits)
           .find((commit) => commit.sha === details.sha);

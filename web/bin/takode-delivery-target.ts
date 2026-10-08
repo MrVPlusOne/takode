@@ -11,6 +11,8 @@ Target JSON: { "checkoutPath": "/absolute/independent-checkout", "remote": "orig
   "repositoryUrl": "https://example.com/team/project.git",
   "refs": [{ "ref": "refs/heads/user/change", "sha": "<published head SHA>" }],
   "commitShas": ["<first final Work commit SHA>", "<last final Work commit SHA>"] }
+checkoutPath is on the machine holding the worker's port target (its remote host,
+if any), where Takode verifies it.
 List all relevant final target commits in delivery order, separately from ref heads.
 Both lists require full lowercase SHAs. Each commit must be reachable from an exact
 published head. Use Work/publication receipts to establish the complete set; exclude
