@@ -7,6 +7,11 @@ import type { CodexMultiAgentVersion } from "../shared/codex-multi-agent-version
 export interface LaunchOptions {
   /** Registered remote host to run the session on; the coordinator's own machine when absent. */
   hostId?: string;
+  /**
+   * A process the previous coordinator left running on the session's host;
+   * the session takes it over instead of starting a new one.
+   */
+  reattachHostProcess?: import("./remote-host/host-link-manager.js").RemoteProcess;
   model?: string;
   /** Persisted explanation of the managed Codex model winner and overridden candidates. */
   modelAuthority?: ModelAuthorityDecision;

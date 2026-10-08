@@ -71,6 +71,13 @@ export interface ClaudeSdkAdapterOptions {
     env: Record<string, string | undefined>;
     signal: AbortSignal;
   }) => unknown;
+  /**
+   * `spawnProcess` hands over a Claude process a previous coordinator started,
+   * still running on a remote host after a coordinator restart. Claude answers
+   * the SDK's `initialize` with "Already initialized" and the permission
+   * requests it is still waiting for, which the SDK then asks again.
+   */
+  reattach?: boolean;
   debugFile?: string;
   recorder?: RecorderManager | null;
   /** Plugin directories to pass to Claude Code */
@@ -196,6 +203,11 @@ export class ClaudeSdkAdapter
 
   isConnected(): boolean {
     return this.connected;
+  }
+
+  /** Whether this adapter took over a running Claude process (see `reattach`). */
+  get reattached(): boolean {
+    return !!this.options.reattach;
   }
 
   async disconnect(): Promise<void> {
@@ -473,7 +485,8 @@ export class ClaudeSdkAdapter
 
     this.connected = true;
     this.watchProcessStart();
-    this.recordModelCatalog();
+    // A reattached process answers `initialize` with an error, so it reports no catalog.
+    if (!this.options.reattach) this.recordModelCatalog();
     console.log(
       `[claude-sdk-adapter] Session ${this.sessionId} initialized${this.options.cliSessionId ? " (resumed)" : ""}`,
     );

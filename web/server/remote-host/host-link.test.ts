@@ -167,4 +167,54 @@ describe("host link", () => {
     proc.kill("SIGTERM");
     await once(proc, "exit");
   });
+
+  // A restarted coordinator that saved a process id takes the process over: the
+  // host keeps it running, and the new coordinator receives everything the old
+  // one had not acknowledged, starting with the partial line the old one saw
+  // only part of, so the new reader gets whole lines. Stdin keeps working.
+  it("hands a running process to a restarted coordinator that adopts it", async () => {
+    const program = [
+      "process.stdin.on('data', (chunk) => {",
+      "  const text = String(chunk);",
+      "  if (!text.includes('half')) return process.stdout.write(text.toUpperCase());",
+      "  process.stdout.write('HALF-');",
+      "  setTimeout(() => process.stdout.write('LINE\\nNEXT\\n'), 400);",
+      "});",
+    ].join("\n");
+    agent = startAgent();
+    const old = manager.spawn(hostId, { command: process.execPath, args: ["-e", program], env: {} });
+    const oldOutput = collect(old);
+    old.stdin.write("half\n");
+    await waitFor(() => oldOutput.text() === "HALF-");
+    // Let the old coordinator's acknowledgement reach the host.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    manager = new HostLinkManager();
+    const adopted = manager.adopt(hostId, old.procId);
+    const output = collect(adopted);
+    links.at(-1)!.drop();
+    await waitFor(() => output.text() === "HALF-LINE\nNEXT\n");
+    adopted.stdin.write("still here\n");
+    await waitFor(() => output.text().endsWith("STILL HERE\n"));
+    adopted.kill("SIGTERM");
+    const [, signal] = await once(adopted, "exit");
+    expect(signal).toBe("SIGTERM");
+  });
+
+  // An adopted process the host no longer runs (the host restarted while the
+  // coordinator was down, or it already connected without it) fails instead of
+  // waiting forever, so the session can be relaunched.
+  it("fails an adopted process the host no longer runs", async () => {
+    const errors: string[] = [];
+    const exitOf = (proc: RemoteProcess) => {
+      proc.on("error", (error) => errors.push(error.message));
+      return new Promise((resolve) => proc.once("exit", resolve));
+    };
+    const missing = exitOf(manager.adopt(hostId, "proc-from-before"));
+    agent = startAgent();
+    await missing;
+
+    await exitOf(manager.adopt(hostId, "proc-adopted-too-late"));
+    expect(errors).toEqual(["The host no longer runs this process", "The host no longer runs this process"]);
+  });
 });

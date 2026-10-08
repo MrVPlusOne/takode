@@ -131,6 +131,8 @@ export function createSettingsRoutes(ctx: RouteContext) {
   function getRestartBlockingSessions(): RestartBlockingSession[] {
     return launcher.listSessions().flatMap((sessionInfo, originalIndex) => {
       if (sessionInfo.state === "exited") return [];
+      // Its host keeps the process running through the restart, and the next server takes it over.
+      if (sessionInfo.hostId) return [];
       const bridgeSession = wsBridge.getSession(sessionInfo.sessionId);
       if (!bridgeSession) return [];
 

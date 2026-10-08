@@ -68,6 +68,9 @@ export class JsonRpcTransport {
   >();
   private notificationHandler: ((method: string, params: Record<string, unknown>) => void) | null = null;
   private requestHandler: ((method: string, id: number, params: Record<string, unknown>) => void) | null = null;
+  /** Codex requests this side has not answered, when tracking is on (see `trackUnansweredRequests`). */
+  private unanswered: Map<number, JsonRpcRequest> | null = null;
+  private unansweredChangeCb: ((requests: JsonRpcRequest[]) => void) | null = null;
   private rawInCbs: Array<(line: string) => void> = [];
   private rawOutCbs: Array<(data: string) => void> = [];
   private closeCb: (() => void) | null = null;
@@ -207,6 +210,10 @@ export class JsonRpcTransport {
   private dispatch(msg: JsonRpcMessage): void {
     if ("id" in msg && msg.id !== undefined) {
       if ("method" in msg && msg.method) {
+        if (this.unanswered) {
+          this.unanswered.set(msg.id as number, msg as JsonRpcRequest);
+          this.unansweredChangeCb?.([...this.unanswered.values()]);
+        }
         try {
           this.requestHandler?.(msg.method, msg.id as number, (msg as JsonRpcRequest).params || {});
         } catch (err) {
@@ -278,8 +285,29 @@ export class JsonRpcTransport {
   }
 
   async respond(id: number, result: unknown): Promise<void> {
+    if (this.unanswered?.delete(id)) this.unansweredChangeCb?.([...this.unanswered.values()]);
     const response = JSON.stringify({ id, result });
     await this.writeRaw(response + "\n");
+  }
+
+  /**
+   * Report every change to the set of Codex requests this side has not
+   * answered yet, so a coordinator that restarts while the process keeps
+   * running can answer them (see `redeliverRequests`).
+   */
+  trackUnansweredRequests(onChange: (requests: JsonRpcRequest[]) => void): void {
+    this.unanswered = new Map();
+    this.unansweredChangeCb = onChange;
+  }
+
+  /** Handle requests an earlier client of this process received but never answered, as if they just arrived. */
+  redeliverRequests(requests: JsonRpcRequest[]): void {
+    for (const request of requests) this.dispatch(request);
+  }
+
+  /** Number this side's requests from `firstId`, clear of ids an earlier client of the process used. */
+  startRequestIdsAt(firstId: number): void {
+    this.nextId = firstId;
   }
 
   onNotification(handler: (method: string, params: Record<string, unknown>) => void): void {

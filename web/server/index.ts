@@ -225,7 +225,7 @@ const hostRegistry = HostRegistry.forServer(serverId);
 const browserLogin = await BrowserLogin.forServer(serverId);
 const hostLinks = new HostLinkManager();
 hostLinks.start();
-launcher.remoteHosts = { registry: hostRegistry, links: hostLinks };
+launcher.setRemoteHosts({ registry: hostRegistry, links: hostLinks });
 configureRemoteMachines(hostLinks);
 configureRemoteAttachmentDirectories((sessionId) => {
   const hostId = launcher.getSession(sessionId)?.hostId;
@@ -594,6 +594,8 @@ wsBridge.onCLIRelaunchNeeded = (sessionId) => {
   // "starting" but the old process is orphaned (connected to the dead
   // server's WebSocket) -- relaunching is safe and necessary (q-385).
   if (info.state === "starting" && wsBridge.isBackendAttached(sessionId)) return;
+  // The session's process survived the restart on its host and is taken over when the host connects.
+  if (launcher.isAwaitingHostReattach(sessionId)) return;
   console.log(`[server] Auto-relaunch requested for session ${sessionId}`);
   relaunchQueue.request(sessionId, { trailing: false });
 };

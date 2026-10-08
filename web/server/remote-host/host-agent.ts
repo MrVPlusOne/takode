@@ -69,6 +69,11 @@ interface HostedProcess {
   nextSeq: number;
   /** Events the coordinator has not acknowledged yet, oldest first. */
   pending: { seq: number; event: HostProcessEvent }[];
+  /**
+   * Acknowledged stdout after its last newline: the start of a line the
+   * coordinator has not seen whole. A new coordinator receives it again.
+   */
+  unfinishedLine: Buffer;
   exited: boolean;
 }
 
@@ -149,6 +154,7 @@ export class HostAgent {
         appliedCommandSeq: this.appliedCommandSeq,
         appliedFrom: this.coordinatorInstanceId,
         homeDir: homedir(),
+        processes: [...this.processes.keys()],
       });
     };
     socket.onmessage = (event) => {
@@ -211,6 +217,10 @@ export class HostAgent {
       case "event_ack": {
         const hosted = this.processes.get(message.procId);
         if (!hosted) return;
+        for (const { seq, event } of hosted.pending) {
+          if (seq > message.seq) break;
+          if (event.kind === "stdout") hosted.unfinishedLine = lineRemainder(hosted.unfinishedLine, event.data);
+        }
         hosted.pending = hosted.pending.filter((pending) => pending.seq > message.seq);
         this.forgetIfDone(message.procId, hosted);
         return;
@@ -230,15 +240,7 @@ export class HostAgent {
   private handleWelcome(coordinatorInstanceId: string, received: Record<string, number>): void {
     this.reconnectDelayMs = this.options.reconnectDelayMs ?? 1_000;
     if (this.coordinatorInstanceId !== coordinatorInstanceId) {
-      // A restarted coordinator has lost the sessions reading these processes and
-      // numbers its commands from 1 again.
-      if (this.coordinatorInstanceId !== null)
-        this.log("Coordinator restarted; ending processes it can no longer read");
-      for (const hosted of this.processes.values()) hosted.control?.kill("SIGTERM");
-      this.processes.clear();
-      this.coordinatorInstanceId = coordinatorInstanceId;
-      this.appliedCommandSeq = 0;
-      this.log("Connected to coordinator");
+      this.adoptBy(coordinatorInstanceId, received);
       return;
     }
     for (const [procId, hosted] of this.processes) {
@@ -255,6 +257,37 @@ export class HostAgent {
       }
     }
     this.log("Reconnected to coordinator");
+  }
+
+  /**
+   * A new coordinator instance: keep the processes it takes over and end the
+   * rest. Each kept process replays what the old coordinator did not
+   * acknowledge, after the partial line it saw only part of, numbered from 1
+   * for the new coordinator. Commands are numbered from 1 again too.
+   */
+  private adoptBy(coordinatorInstanceId: string, received: Record<string, number>): void {
+    const restarted = this.coordinatorInstanceId !== null;
+    this.coordinatorInstanceId = coordinatorInstanceId;
+    this.appliedCommandSeq = 0;
+    this.preparedLaunches.clear();
+    let kept = 0;
+    for (const [procId, hosted] of this.processes) {
+      if (!(procId in received)) {
+        hosted.control?.kill("SIGTERM");
+        this.processes.delete(procId);
+        continue;
+      }
+      kept++;
+      const events = hosted.pending.map((pending) => pending.event);
+      if (hosted.unfinishedLine.length > 0) {
+        events.unshift({ kind: "stdout", data: hosted.unfinishedLine.toString("base64") });
+      }
+      hosted.unfinishedLine = Buffer.alloc(0);
+      hosted.pending = events.map((event, index) => ({ seq: index + 1, event }));
+      hosted.nextSeq = hosted.pending.length + 1;
+      for (const { seq, event } of hosted.pending) this.send({ t: "event", procId, seq, event });
+    }
+    this.log(restarted ? `Coordinator restarted; it took over ${kept} process(es)` : "Connected to coordinator");
   }
 
   private async answer(id: string, request: HostRequest): Promise<void> {
@@ -318,7 +351,13 @@ export class HostAgent {
   }
 
   private spawn(command: Extract<HostCommand, { kind: "spawn" }>): void {
-    const hosted: HostedProcess = { control: null, nextSeq: 1, pending: [], exited: false };
+    const hosted: HostedProcess = {
+      control: null,
+      nextSeq: 1,
+      pending: [],
+      unfinishedLine: Buffer.alloc(0),
+      exited: false,
+    };
     this.processes.set(command.procId, hosted);
     const port = String(this.options.apiProxyPort);
     const prepared = command.preparedLaunchId ? this.preparedLaunches.get(command.preparedLaunchId) : undefined;
@@ -375,7 +414,13 @@ export class HostAgent {
   }
 
   private spawnTerminal(command: Extract<HostCommand, { kind: "spawn_terminal" }>): void {
-    const hosted: HostedProcess = { control: null, nextSeq: 1, pending: [], exited: false };
+    const hosted: HostedProcess = {
+      control: null,
+      nextSeq: 1,
+      pending: [],
+      unfinishedLine: Buffer.alloc(0),
+      exited: false,
+    };
     this.processes.set(command.procId, hosted);
     let terminal: TerminalProcess;
     try {
@@ -429,36 +474,82 @@ export class HostAgent {
   }
 }
 
+/** How long agent CLIs on a host wait for an unreachable coordinator, e.g. one that is restarting. */
+const COORDINATOR_WAIT_MS = 120_000;
+const COORDINATOR_POLL_MS = 250;
+
 /**
  * Serve the coordinator's `/api` on a loopback port of this host, so agent CLIs
  * running here keep using `http://localhost:$COMPANION_PORT/api` unchanged.
  * Requests and responses pass through as-is, including session auth headers
  * and the Server-Timing header the CLI latency log reads.
+ *
+ * Sessions here keep running while the coordinator restarts, so their CLI
+ * calls wait for it (up to `waitMs`, or until the caller gives up) instead of
+ * failing: requests are held while `coordinatorConnected` reports the host
+ * link down, and sent again when the connection is refused.
  */
-export function startApiProxy(options: { coordinatorUrl: string; port: number }): { port: number; stop: () => void } {
+export function startApiProxy(options: {
+  coordinatorUrl: string;
+  port: number;
+  coordinatorConnected?: () => boolean;
+  waitMs?: number;
+}): { port: number; stop: () => void } {
   const base = options.coordinatorUrl.replace(/\/+$/, "");
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: options.port,
+    // Requests may wait for the coordinator far longer than Bun's 10s default.
+    idleTimeout: 0,
     async fetch(request) {
       const url = new URL(request.url);
       if (!url.pathname.startsWith("/api/")) return new Response("Not found", { status: 404 });
       const headers = new Headers(request.headers);
       headers.delete("host");
+      const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer();
       const started = performance.now();
-      const response = await fetch(`${base}${url.pathname}${url.search}`, {
-        method: request.method,
-        headers,
-        ...(request.method === "GET" || request.method === "HEAD" ? {} : { body: await request.arrayBuffer() }),
-        redirect: "manual",
-      });
-      // Report the hop to the coordinator so the CLI latency log can separate it from local overhead.
+      let response: Response;
+      try {
+        response = await forwardWhenReachable(
+          `${base}${url.pathname}${url.search}`,
+          { method: request.method, headers, body, redirect: "manual" },
+          {
+            connected: options.coordinatorConnected ?? (() => true),
+            deadline: Date.now() + (options.waitMs ?? COORDINATOR_WAIT_MS),
+            signal: request.signal,
+          },
+        );
+      } catch (error) {
+        return new Response(`The Takode coordinator at ${base} is unreachable: ${errorMessage(error)}`, {
+          status: 502,
+        });
+      }
+      // Report the hop, including any wait for the coordinator, so the CLI
+      // latency log can separate it from local overhead.
       const relayed = new Headers(response.headers);
       relayed.append("server-timing", `${HOST_HOP_TIMING_METRIC};dur=${(performance.now() - started).toFixed(1)}`);
       return new Response(response.body, { status: response.status, headers: relayed });
     },
   });
   return { port: server.port!, stop: () => server.stop(true) };
+}
+
+async function forwardWhenReachable(
+  url: string,
+  init: RequestInit,
+  wait: { connected: () => boolean; deadline: number; signal: AbortSignal },
+): Promise<Response> {
+  const waiting = () => Date.now() < wait.deadline && !wait.signal.aborted;
+  for (;;) {
+    while (!wait.connected() && waiting()) await Bun.sleep(COORDINATOR_POLL_MS);
+    try {
+      return await fetch(url, init);
+    } catch (error) {
+      // A refused connection never reached the coordinator, so even a write is safe to send again.
+      if ((error as { code?: string }).code !== "ConnectionRefused" || !waiting()) throw error;
+      await Bun.sleep(COORDINATOR_POLL_MS);
+    }
+  }
 }
 
 /**
@@ -576,6 +667,13 @@ async function prepareCodexWithThisInstall(sessionId: string, info: unknown, opt
     info as Parameters<typeof prepareCodexSpawn>[1],
     options as Parameters<typeof prepareCodexSpawn>[2],
   );
+}
+
+/** The bytes after the last newline of `previous` followed by the base64 `data`. */
+function lineRemainder(previous: Buffer, data: string): Buffer {
+  const chunk = Buffer.from(data, "base64");
+  const newline = chunk.lastIndexOf(0x0a);
+  return newline === -1 ? Buffer.concat([previous, chunk]) : chunk.subarray(newline + 1);
 }
 
 function linkUrl(coordinatorUrl: string): string {

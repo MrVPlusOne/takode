@@ -4,8 +4,8 @@
  *
  * The helper dials out to the coordinator (no inbound ports on this machine),
  * runs the session processes the coordinator asks for, buffers their output
- * across link drops, and serves the coordinator's API on a loopback port so
- * agent CLIs here work unchanged.
+ * across link drops and coordinator restarts, and serves the coordinator's API
+ * on a loopback port so agent CLIs here work unchanged.
  *
  * Usage:
  *   takode-node --coordinator <url> (--token-file <path> | TAKODE_HOST_TOKEN=...) [--api-port <n>] [--claude <path>] [--codex <path>] [--allow-insecure]
@@ -61,7 +61,9 @@ async function main(): Promise<void> {
   if (claude) commands.claude = claude;
   if (codex) commands.codex = codex;
 
-  const proxy = startApiProxy({ coordinatorUrl, port: apiPort });
+  let agent: HostAgent | null = null;
+  // Agent CLIs wait while the coordinator is away (e.g. restarting) instead of failing.
+  const proxy = startApiProxy({ coordinatorUrl, port: apiPort, coordinatorConnected: () => agent?.connected ?? false });
   // Agents here need the same CLI wrappers, skills and phase briefs as on the
   // coordinator, installed from this machine's own Takode checkout.
   await runPreListenStartupReadiness(
@@ -72,7 +74,7 @@ async function main(): Promise<void> {
       startupSkillSlugs: STARTUP_SKILL_SYMLINKS,
     },
   );
-  const agent = new HostAgent({
+  agent = new HostAgent({
     coordinatorUrl,
     token,
     apiProxyPort: proxy.port,
@@ -82,7 +84,7 @@ async function main(): Promise<void> {
   console.log(`[takode node] Serving the coordinator API on 127.0.0.1:${proxy.port}; connecting to ${coordinatorUrl}`);
 
   const shutdown = () => {
-    agent.stop();
+    agent?.stop();
     proxy.stop();
     process.exit(0);
   };

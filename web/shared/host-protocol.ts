@@ -13,10 +13,13 @@
  *   the rest after a reconnect, so output produced while the link was down is
  *   delivered in order exactly once.
  *
- * Neither side survives the other's restart: a new host instance has lost its
- * processes, and a new coordinator instance has lost the adapters reading them.
- * The `instanceId` in `hello` and `welcome` lets each side detect that and
- * settle the affected processes instead of guessing.
+ * Processes survive a coordinator restart but not a host restart. The
+ * `instanceId` in `hello` and `welcome` lets each side detect the other's
+ * restart. A new host instance has lost its processes, so the coordinator ends
+ * them. A new coordinator names in `welcome` the processes it takes over (it
+ * saved their ids); the host keeps those, ends the rest, and replays each kept
+ * process's unacknowledged output, starting with any partial stdout line the
+ * old coordinator only saw part of, numbered from 1.
  */
 
 export const HOST_PROTOCOL_VERSION = 3;
@@ -123,6 +126,13 @@ export type HostToCoordinator =
       build?: string;
       /** The host user's home directory, for host paths the coordinator writes (attachments). */
       homeDir?: string;
+      /**
+       * Processes this host instance still has, including exited ones whose
+       * output is not yet acknowledged. A coordinator taking over processes
+       * after its restart ends the ones missing here. Absent from older hosts,
+       * which keep no processes across a coordinator restart.
+       */
+      processes?: string[];
     }
   | { t: "event"; procId: string; seq: number; event: HostProcessEvent }
   | { t: "command_ack"; seq: number }
@@ -141,7 +151,11 @@ export type CoordinatorToHost =
        * whose epoch is lower than one it has seen: that process was replaced.
        */
       epoch: number;
-      /** Highest event sequence the coordinator has received, per process it still tracks. */
+      /**
+       * Highest event sequence the coordinator has received, per process it
+       * still tracks. The host ends processes missing here. After a coordinator
+       * restart, the processes it takes over appear with 0.
+       */
       received: Record<string, number>;
     }
   | { t: "command"; seq: number; command: HostCommand }

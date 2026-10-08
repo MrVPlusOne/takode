@@ -620,4 +620,25 @@ describe("Codex adapter sets cliInitReceived on attach", () => {
     expect(session.isGenerating).toBe(true);
     expect(isSessionIdleRuntime(bridge.getSession(sid) as any)).toBe(false);
   });
+
+  // After a coordinator restart, a session on a remote host reattaches to its
+  // running app-server, which asks again, under new ids, the requests Codex is
+  // still waiting for. The restored banners for the old ids are retired so the
+  // user is not left with two prompts, one of which can no longer be answered.
+  it("retires restored permission prompts when the adapter took over a running app-server", () => {
+    const sid = "s-codex-reattach";
+    const session = bridge.getOrCreateSession(sid, "codex");
+    session.pendingPermissions.set("restored-request", { request_id: "restored-request" } as any);
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    bridge.attachCodexAdapter(sid, Object.assign(makeCodexAdapterMock(), { reattached: true }) as any);
+
+    expect(session.pendingPermissions.size).toBe(0);
+    const sent = browser.send.mock.calls.map(([raw]: [string]) => JSON.parse(raw));
+    expect(sent).toContainEqual(
+      expect.objectContaining({ type: "permission_cancelled", request_id: "restored-request" }),
+    );
+  });
 });

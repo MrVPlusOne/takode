@@ -26,7 +26,6 @@ import {
   type BrowserOutgoingMessage,
   type CodexAppReference,
   type CodexSkillReference,
-  type SessionState,
   type CLIResultMessage,
 } from "./session-types.js";
 import type { CodexAdapterOptions, CodexInstructionSnapshot, CodexSessionMeta } from "./codex-adapter-types.js";
@@ -57,7 +56,6 @@ import {
 import {
   codexGoalCapabilityPatch,
   codexGoalStatePatch,
-  CODEX_GOAL_UNKNOWN_CAPABILITY,
   normalizeCodexGoal,
   type CodexGoalSetInput,
   type CodexGoalSetMode,
@@ -108,17 +106,14 @@ import type {
 } from "./bridge/adapter-interface.js";
 import { classifyCodexTurnSteerFailure } from "./codex-steer-failure.js";
 import {
+  buildCodexInitialSessionState,
   configureCodexDeveloperInstructions,
   forkCodexThread,
+  initializeCodexConnection,
   handleCodexTurnStartDispatchFailure,
 } from "./codex-adapter-initialization.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
-import { CODEX_LOCAL_SLASH_COMMANDS } from "../shared/codex-slash-commands.js";
-import {
-  codexEffectiveReasoningEffortPatch,
-  readCodexReasoningEffortReport,
-  UNREPORTED_CODEX_REASONING_EFFORT,
-} from "../shared/codex-reasoning-effort.js";
+import { readCodexReasoningEffortReport, UNREPORTED_CODEX_REASONING_EFFORT } from "../shared/codex-reasoning-effort.js";
 import type {
   CodexSkillRefreshCause,
   CodexSkillRefreshDiagnostics,
@@ -249,6 +244,11 @@ export class CodexAdapter
       options.recorder,
       options.cwd || "",
     );
+    if (options.onUnansweredServerRequestsChange) {
+      this.transport.trackUnansweredRequests(options.onUnansweredServerRequestsChange);
+    }
+    // Keep this client's request ids clear of the ones the previous coordinator used on this process.
+    if (options.reattach) this.transport.startRequestIdsAt(Date.now());
     this.outgoingDispatch = new CodexAsyncDispatchQueue(
       (label, error) =>
         console.warn(`[codex-adapter] Outgoing dispatch failed (${label}) for session ${this.sessionId}:`, error),
@@ -855,6 +855,11 @@ export class CodexAdapter
     return this.connected;
   }
 
+  /** Whether this adapter took over an app-server a previous coordinator started (see `reattach`). */
+  get reattached(): boolean {
+    return !!this.options.reattach;
+  }
+
   hasNativeCompactionRecovery(): boolean {
     return this.nativeRecoveryInstructionsConfigured;
   }
@@ -956,20 +961,7 @@ export class CodexAdapter
       let runtimeReasoningEffort = UNREPORTED_CODEX_REASONING_EFFORT;
       let threadLifecycle: CodexInstructionSnapshot["lifecycle"] = "thread_start";
       let threadInstructionResult: { thread: { id: string; path?: unknown }; instructionSources?: unknown } | undefined;
-      // Step 1: Send initialize request
-      const result = (await this.transport.call("initialize", {
-        clientInfo: {
-          name: "thecompanion",
-          title: "The Companion",
-          version: "1.0.0",
-        },
-        capabilities: {
-          experimentalApi: true,
-        },
-      })) as Record<string, unknown>;
-
-      // Step 2: Send initialized notification
-      await this.transport.notify("initialized", {});
+      await initializeCodexConnection(this.transport, !!this.options.reattach);
 
       this.options.instructions = await buildCodexRecoveryInstructions(
         this.options.instructions,
@@ -1005,17 +997,23 @@ export class CodexAdapter
           // Fresh or partially-initialized Codex threads may fail resume with
           // "no rollout found". Fall back to a fresh thread to avoid a stuck session.
           if (!isMissingCodexRolloutError(err) || this.options.requireResumeThreadId) throw err;
-          console.warn(
-            `[codex-adapter] thread/resume failed for ${this.options.threadId}: ${err}. Starting a fresh thread.`,
-          );
-          const threadResult = (await this.transport.call("thread/start", this.buildThreadParams())) as {
-            thread: { id: string; path?: unknown };
-            instructionSources?: unknown;
-          };
-          this.threadId = threadResult.thread.id;
-          threadLifecycle = "thread_start";
-          threadInstructionResult = threadResult;
-          runtimeReasoningEffort = readCodexReasoningEffortReport(threadResult);
+          if (this.options.reattach) {
+            // A reattached app-server still has this thread loaded; it just has no turns yet.
+            this.threadId = this.options.threadId;
+            threadLifecycle = "thread_resume";
+          } else {
+            console.warn(
+              `[codex-adapter] thread/resume failed for ${this.options.threadId}: ${err}. Starting a fresh thread.`,
+            );
+            const threadResult = (await this.transport.call("thread/start", this.buildThreadParams())) as {
+              thread: { id: string; path?: unknown };
+              instructionSources?: unknown;
+            };
+            this.threadId = threadResult.thread.id;
+            threadLifecycle = "thread_start";
+            threadInstructionResult = threadResult;
+            runtimeReasoningEffort = readCodexReasoningEffortReport(threadResult);
+          }
         }
       } else {
         // Start a new thread
@@ -1052,51 +1050,13 @@ export class CodexAdapter
         instructionSnapshot,
       });
 
-      // Send session_init to browser
-      const state: SessionState = {
-        session_id: this.sessionId,
-        backend_type: "codex",
-        model: this.options.model || "",
-        codex_service_tier: normalizeCodexServiceTier(this.options.serviceTier),
-        codex_goal: null,
-        codex_goal_capability: CODEX_GOAL_UNKNOWN_CAPABILITY,
-        cwd: this.options.cwd || "",
-        tools: [],
-        permissionMode: this.options.approvalMode || "suggest",
-        ...(this.options.uiMode ? { uiMode: this.options.uiMode } : {}),
-        claude_code_version: "",
-        mcp_servers: [],
-        agents: [],
-        slash_commands: [...CODEX_LOCAL_SLASH_COMMANDS],
-        skills: [],
-        skill_metadata: [],
-        apps: [],
-        skills_stale: false,
-        apps_stale: false,
-        skills_stale_since: null,
-        skills_last_changed_at: null,
-        skills_last_change_reason: null,
-        skills_change_count: 0,
-        total_cost_usd: 0,
-        user_turn_count: 0,
-        agent_turn_count: 0,
-        num_turns: 0,
-        context_used_percent: 0,
-        codex_retained_payload_bytes: 0,
-        is_compacting: false,
-        git_branch: "",
-        is_worktree: false,
-        is_containerized: false,
-        repo_root: "",
-        git_ahead: 0,
-        git_behind: 0,
-        total_lines_added: 0,
-        total_lines_removed: 0,
-        ...(this.options.reasoningEffort ? { codex_reasoning_effort: this.options.reasoningEffort } : {}),
-        ...codexEffectiveReasoningEffortPatch(runtimeReasoningEffort),
-      };
-
-      this.emit({ type: "session_init", session: state });
+      this.emit({
+        type: "session_init",
+        session: buildCodexInitialSessionState(this.sessionId, this.options, runtimeReasoningEffort),
+      });
+      if (this.options.unansweredServerRequests?.length) {
+        this.transport.redeliverRequests(this.options.unansweredServerRequests);
+      }
 
       // Fetch initial rate limits — await so the RPC completes before flushing
       // queued messages. Without this, a concurrent rateLimits write and

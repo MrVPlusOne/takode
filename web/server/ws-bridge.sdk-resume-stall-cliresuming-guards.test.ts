@@ -645,6 +645,17 @@ describe("SDK resume stall: cliResuming guards", () => {
     expect(session.cliResuming).toBe(false);
   });
 
+  it("does NOT set cliResuming for an adapter that took over a still-running host process", () => {
+    // After a coordinator restart, a session on a remote host reattaches to its
+    // running Claude process. Nothing is replayed: everything it sends is new
+    // output, so compaction markers and status must not be suppressed as replay.
+    createResumedSdkSession("s1");
+    const adapter = Object.assign(makeClaudeSdkAdapterMock(), { reattached: true });
+    bridge.attachClaudeSdkAdapter("s1", adapter as any);
+
+    expect(bridge.getSession("s1")!.cliResuming).toBe(false);
+  });
+
   it("suppresses status_change broadcasts during SDK resume replay", () => {
     // Stale status_change:"running" from completed historical turns must not
     // reach browsers — they would override the correct "idle" snapshot.

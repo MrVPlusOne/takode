@@ -85,9 +85,11 @@ interface HostLink {
  * carrying process commands out and process events back. Sessions talk to
  * {@link RemoteProcess} objects and never see whether the host is connected:
  * commands wait in order while it is away and output replays when it returns.
+ * Host processes outlive this coordinator; a restarted coordinator takes them
+ * over with {@link HostLinkManager.adopt}.
  */
 export class HostLinkManager {
-  /** Changes every time the coordinator starts, so hosts can drop processes it can no longer read. */
+  /** Changes every time the coordinator starts, so hosts can tell they must hand over their processes again. */
   readonly instanceId = randomUUID();
   private readonly links = new Map<string, HostLink>();
   private readonly statusListeners = new Set<(status: HostLinkStatus) => void>();
@@ -274,6 +276,23 @@ export class HostLinkManager {
     return proc;
   }
 
+  /**
+   * Take over a process a previous coordinator instance started on a host,
+   * by the id it saved. The process counts as started; its output since the
+   * old coordinator's last acknowledgement arrives once the host connects.
+   * It fails if the host no longer runs it, including when the host already
+   * connected to this coordinator without it.
+   */
+  adopt(hostId: string, procId: string): RemoteProcess {
+    const link = this.link(hostId);
+    const proc = new RemoteProcess(procId, (command) => this.enqueue(link, command));
+    proc.started = true;
+    link.processes.set(procId, proc);
+    proc.once("exit", () => link.processes.delete(procId));
+    if (link.hostInstanceId !== null) queueMicrotask(() => proc.fail("The host no longer runs this process"));
+    return proc;
+  }
+
   private handleHello(
     hostId: string,
     link: HostLink,
@@ -289,11 +308,16 @@ export class HostLinkManager {
       return;
     }
     if (link.hostInstanceId !== hello.instanceId) {
-      // A different `takode node` process: everything the old one ran is gone, and
-      // its command numbering starts over. Commands for processes that never
-      // started (queued while no host was connected) still apply.
+      // The first host instance since this coordinator started keeps the
+      // processes it reports, which this coordinator may have adopted. A later
+      // instance is a restarted `takode node` that has lost everything the old
+      // one ran. Either way command numbering starts over, and commands for
+      // processes that never started (queued while no host was connected) still apply.
+      const firstContact = link.hostInstanceId === null;
+      const running = new Set(firstContact ? (hello.processes ?? []) : []);
       for (const proc of link.processes.values()) {
-        if (proc.started) proc.fail("The host restarted and its processes ended");
+        if (!proc.started || running.has(proc.procId)) continue;
+        proc.fail(firstContact ? "The host no longer runs this process" : "The host restarted and its processes ended");
       }
       link.unacked = link.unacked
         .filter((queued) => !("procId" in queued.command) || link.processes.has(queued.command.procId))
@@ -448,7 +472,7 @@ export class RemoteProcess extends EventEmitter {
         this.stderr.write(Buffer.from(event.data, "base64"));
         return;
       case "error":
-        this.emit("error", new Error(event.message));
+        this.emitError(event.message);
         return;
       case "exit":
         this.finish(event.code, event.signal as NodeJS.Signals | null);
@@ -459,8 +483,13 @@ export class RemoteProcess extends EventEmitter {
   /** End the process from the coordinator's side when the host lost it. */
   fail(message: string): void {
     if (this.exited) return;
-    this.emit("error", new Error(message));
+    this.emitError(message);
     this.finish(null, "SIGKILL");
+  }
+
+  /** An adopted process may fail before anything reads it; an unheard error must not throw. */
+  private emitError(message: string): void {
+    if (this.listenerCount("error") > 0) this.emit("error", new Error(message));
   }
 
   private finish(code: number | null, signal: NodeJS.Signals | null): void {

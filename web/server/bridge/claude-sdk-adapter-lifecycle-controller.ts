@@ -56,8 +56,9 @@ export function attachClaudeSdkAdapterLifecycle(
   }
   session.claudeSdkAdapter = adapter;
   session.cliInitReceived = true;
-  // Each adapter is a new Claude process: permission requests restored from disk
-  // or left by a previous process can no longer be answered.
+  // Permission requests restored from disk or left by a previous adapter cannot
+  // be answered through this one. A reattached Claude process asks its open
+  // requests again.
   if (session.pendingPermissions.size > 0) {
     for (const [requestId] of session.pendingPermissions) {
       deps.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: requestId });
@@ -95,7 +96,8 @@ export function attachClaudeSdkAdapterLifecycle(
     }, 2000);
   };
 
-  if (!!launcherInfo?.cliSessionId && session.messageHistory.length > 0) {
+  // A reattached process replays nothing: everything it sends is new output.
+  if (!!launcherInfo?.cliSessionId && session.messageHistory.length > 0 && !adapter.reattached) {
     session.cliResuming = true;
     // A resumed SDK process emits nothing until it receives input, so the
     // window must also close without any backend output. Otherwise input

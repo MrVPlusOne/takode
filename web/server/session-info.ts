@@ -29,6 +29,14 @@ export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
   pid?: number;
   /** Registered remote host running this session's process; absent for sessions on the coordinator's machine. */
   hostId?: string;
+  /**
+   * Host link id of the session's current process on `hostId`. The process
+   * outlives a coordinator restart, and the restarted coordinator takes it
+   * over by this id.
+   */
+  hostProcId?: string;
+  /** Codex requests the session's host process is still waiting to have answered, for the next coordinator. */
+  hostCodexRequests?: import("./codex-jsonrpc-transport.js").JsonRpcRequest[];
   state: "starting" | "connected" | "running" | "exited";
   exitCode?: number | null;
   model?: string;

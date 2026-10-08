@@ -63,6 +63,16 @@ export interface CodexAdapterOptions {
   instructionContext?: import("./codex-instruction-snapshot.js").CodexInstructionContext;
   /** Optional stderr/context captured by the launcher for early startup failures. */
   failureContextProvider?: () => string | null;
+  /**
+   * The process is an app-server a previous coordinator started and
+   * initialized, still running on a remote host after a coordinator restart.
+   * The adapter joins its loaded thread instead of initializing it again.
+   */
+  reattach?: boolean;
+  /** Codex requests the previous coordinator never answered; handled again after a reattach. */
+  unansweredServerRequests?: import("./codex-jsonrpc-transport.js").JsonRpcRequest[];
+  /** Called whenever the Codex requests awaiting an answer change, so they can be saved for a reattach. */
+  onUnansweredServerRequestsChange?: (requests: import("./codex-jsonrpc-transport.js").JsonRpcRequest[]) => void;
 }
 
 export interface CodexSessionMeta {

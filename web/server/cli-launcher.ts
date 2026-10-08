@@ -109,8 +109,13 @@ export class CliLauncher {
   /** Callback for herd relationship changes (set by server bootstrap). */
   onHerdChange: ((event: HerdChangeEvent) => void) | null = null;
 
-  /** Registered remote hosts and their links (set by server bootstrap); sessions with a `hostId` run there. */
+  /** Registered remote hosts and their links (see `setRemoteHosts`); sessions with a `hostId` run there. */
   remoteHosts: { registry: HostRegistry; links: HostLinkManager } | null = null;
+  /**
+   * Host processes the previous coordinator left running, by session, waiting
+   * for their host to connect so the session can take them over.
+   */
+  private hostReattach = new Map<string, RemoteProcess>();
 
   // ─── Integer session ID tracking ───────────────────────────────────────────
   private nextSessionNum = 0;
@@ -128,11 +133,63 @@ export class CliLauncher {
     );
   }
 
-  /** Process spawner for a remote host, in the shape the Agent SDK's custom spawn hook expects. */
-  private remoteSpawner(hostId: string): (options: RemoteSpawnOptions) => RemoteProcess {
+  /**
+   * Use these registered hosts. Call before `restoreFromDisk`: sessions whose
+   * host processes outlived the previous coordinator take them over when
+   * their host connects.
+   */
+  setRemoteHosts(remoteHosts: { registry: HostRegistry; links: HostLinkManager }): void {
+    this.remoteHosts = remoteHosts;
+    remoteHosts.links.onStatusChange((status) => {
+      if (!status.online) return;
+      for (const [sessionId] of this.hostReattach) {
+        if (this.sessions.get(sessionId)?.hostId === status.hostId) void this.relaunch(sessionId);
+      }
+    });
+  }
+
+  /** Whether the session waits for its host to connect so it can take over its still-running process. */
+  isAwaitingHostReattach(sessionId: string): boolean {
+    return this.hostReattach.has(sessionId);
+  }
+
+  /**
+   * Process spawner for a remote host, in the shape the Agent SDK's custom
+   * spawn hook expects. It hands over `adopted` when given, and otherwise
+   * starts a process and saves its id for a later coordinator to take over.
+   */
+  private remoteSpawner(info: SdkSessionInfo, adopted?: RemoteProcess): (options: RemoteSpawnOptions) => RemoteProcess {
     const links = this.remoteHosts?.links;
+    const hostId = info.hostId!;
     if (!links) throw new Error(`Remote hosts are not available on this server; cannot run on host ${hostId}`);
-    return (options) => links.spawn(hostId, options);
+    return (options) => {
+      if (!adopted) return this.startHostProcess(info, options);
+      options.signal?.addEventListener("abort", () => adopted.kill("SIGTERM"), { once: true });
+      // It started long ago; the SDK still waits for the event.
+      queueMicrotask(() => adopted.emit("spawn"));
+      return adopted;
+    };
+  }
+
+  private startHostProcess(info: SdkSessionInfo, options: RemoteSpawnOptions): RemoteProcess {
+    const proc = this.remoteHosts!.links.spawn(info.hostId!, options);
+    info.hostProcId = proc.procId;
+    delete info.hostCodexRequests;
+    this.persistState();
+    return proc;
+  }
+
+  /** Wait for the session's host to connect, then take over the process the previous coordinator left there. */
+  private awaitHostProcess(sessionId: string, hostId: string, procId: string): void {
+    const proc = this.remoteHosts!.links.adopt(hostId, procId);
+    this.hostReattach.set(sessionId, proc);
+    proc.once("exit", () => {
+      if (this.hostReattach.get(sessionId) !== proc) return;
+      // The host lost it, e.g. it restarted too; start the session afresh as before.
+      this.hostReattach.delete(sessionId);
+      console.log(`[cli-launcher] Host process of session ${sessionTag(sessionId)} is gone; relaunching`);
+      void this.relaunch(sessionId);
+    });
   }
 
   /** Get the server port number. */
@@ -373,6 +430,16 @@ export class CliLauncher {
       // Migrate legacy herdedBy array → string (pre-single-leader refactor)
       if (Array.isArray(info.herdedBy)) {
         info.herdedBy = (info.herdedBy as unknown as string[])[0] ?? undefined;
+      }
+
+      // A remote host keeps the session's process running across a coordinator
+      // restart; the session takes it over when the host connects.
+      if (info.hostId && info.hostProcId && info.state !== "exited" && !info.archived && this.remoteHosts) {
+        info.state = "starting";
+        this.sessions.set(info.sessionId, info);
+        this.awaitHostProcess(info.sessionId, info.hostId, info.hostProcId);
+        recovered++;
+        continue;
       }
 
       // Check if the process is still alive
@@ -681,6 +748,9 @@ export class CliLauncher {
   private async relaunchAccepted(sessionId: string): Promise<{ ok: boolean; error?: string }> {
     const info = this.sessions.get(sessionId);
     if (!info) return { ok: false, error: "Session not found" };
+    // Taken now, before any await, so a second relaunch cannot take it as well.
+    const reattachHostProcess = this.hostReattach.get(sessionId);
+    this.hostReattach.delete(sessionId);
     const binSettings = this.settingsGetter?.() ?? { claudeBinary: "", codexBinary: "" };
     const bt = info.backendType ?? "claude-sdk";
     if (bt === "codex") {
@@ -861,6 +931,7 @@ export class CliLauncher {
             containerImage: info.containerImage,
             env: runtimeEnv,
             extraInstructions,
+            reattachHostProcess,
           });
           break;
         case "claude-sdk":
@@ -873,6 +944,7 @@ export class CliLauncher {
             claudeBinary: binSettings.claudeBinary || undefined,
             env: runtimeEnv,
             extraInstructions,
+            reattachHostProcess,
           });
           break;
         default:
@@ -881,6 +953,7 @@ export class CliLauncher {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[cli-launcher] Spawn failed during relaunch for session ${sessionTag(sessionId)}: ${msg}`);
+      reattachHostProcess?.kill("SIGTERM");
       info.state = "exited";
       info.exitCode = 1;
       this.persistState();
@@ -918,7 +991,10 @@ export class CliLauncher {
    * Get restored sessions whose live backend process has not reattached since a server restart.
    */
   getStartingSessions(): SdkSessionInfo[] {
-    return Array.from(this.sessions.values()).filter((s) => s.state === "starting");
+    // Sessions waiting for their host take over their process whenever it connects, however long that takes.
+    return Array.from(this.sessions.values()).filter(
+      (s) => s.state === "starting" && !this.hostReattach.has(s.sessionId),
+    );
   }
 
   /**
@@ -960,7 +1036,12 @@ export class CliLauncher {
       resumeSessionAt: info.resumeAt,
       env: options.env as Record<string, string | undefined>,
       claudeBinary: options.claudeBinary,
-      ...(info.hostId ? { spawnProcess: this.remoteSpawner(info.hostId) } : {}),
+      ...(info.hostId
+        ? {
+            spawnProcess: this.remoteSpawner(info, options.reattachHostProcess),
+            reattach: !!options.reattachHostProcess,
+          }
+        : {}),
       recorder: this.recorder,
       pluginDirs: options.pluginDirs,
       allowedTools: options.allowedTools,
@@ -1064,7 +1145,9 @@ export class CliLauncher {
         return;
       }
       if (info.hostId) {
-        // The host is away or could not prepare Codex; the next message relaunches the session.
+        // The host is away or could not prepare Codex; the next message relaunches the session,
+        // and a process to take over waits for the host to connect again.
+        if (options.reattachHostProcess) this.hostReattach.set(sessionId, options.reattachHostProcess);
         console.error(
           `[cli-launcher] Could not prepare Codex on host for session ${sessionTag(sessionId)}: ${err instanceof Error ? err.message : err}`,
         );
@@ -1089,12 +1172,8 @@ export class CliLauncher {
       proc =
         remoteLaunchId && info.hostId && this.remoteHosts
           ? remoteSubprocess(
-              this.remoteHosts.links.spawn(info.hostId, {
-                command: "codex",
-                args: [],
-                env: {},
-                preparedLaunchId: remoteLaunchId,
-              }),
+              options.reattachHostProcess ??
+                this.startHostProcess(info, { command: "codex", args: [], env: {}, preparedLaunchId: remoteLaunchId }),
             )
           : Bun.spawn(spawnCmd, {
               cwd: spawnCwd,
@@ -1156,6 +1235,17 @@ export class CliLauncher {
       recoveryRole: info.isOrchestrator ? "leader" : "standard",
       instructionContext,
       failureContextProvider: () => formatStreamTailForError(stderrTail),
+      ...(info.hostId
+        ? {
+            reattach: !!options.reattachHostProcess,
+            unansweredServerRequests: options.reattachHostProcess ? info.hostCodexRequests : undefined,
+            // Saved so a coordinator that restarts while this process keeps running can answer them.
+            onUnansweredServerRequestsChange: (requests) => {
+              info.hostCodexRequests = requests;
+              this.persistState();
+            },
+          }
+        : {}),
     });
     if (stderr && typeof stderr !== "number") {
       this.pipeStream(sessionId, stderr, "stderr", stderrTail, (text) => adapter.handleProcessStderr(text));
@@ -1319,6 +1409,9 @@ export class CliLauncher {
 
       this.processes.delete(sessionId);
     }
+    const waitingHostProcess = this.hostReattach.get(sessionId);
+    this.hostReattach.delete(sessionId);
+    waitingHostProcess?.kill("SIGTERM");
 
     // Mark session as exited regardless of whether a subprocess existed.
     // SDK sessions don't have a subprocess — they use an in-process adapter

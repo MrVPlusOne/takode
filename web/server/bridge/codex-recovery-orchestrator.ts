@@ -231,6 +231,7 @@ export interface CodexRecoveryOrchestratorSessionLike {
   queuedTurnActiveRoutes?: Array<ActiveTurnRoute | null>;
   lastUserMessage?: string;
   lastMessagePreviewAt?: number;
+  pendingPermissions?: Map<string, unknown>;
   codexAdapter: {
     hasNativeCompactionRecovery?: () => boolean;
     getCurrentTurnId(): string | null;
@@ -426,6 +427,13 @@ export function attachCodexAdapterLifecycle(
     session.codexAdapter.disconnect().catch(() => {});
   }
   session.codexAdapter = adapter;
+  if (adapter.reattached && session.pendingPermissions?.size) {
+    // The reattached adapter asks the requests Codex still waits for again, under new ids.
+    for (const [requestId] of session.pendingPermissions) {
+      deps.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: requestId });
+    }
+    session.pendingPermissions.clear();
+  }
   registerCodexNativeSubagentLifecycle(session as any, adapter, {
     persistSession: (targetSession) => deps.persistSession(targetSession as any),
     persistHistoryOwnershipRepair: (targetSession, expectedFrozenCount) =>

@@ -295,7 +295,7 @@ Claude Code messages arrive through the Agent SDK as stream-json objects, while 
 
 ### Session Lifecycle
 
-Sessions persist to disk (`~/.companion/sessions/`) and survive server restarts. Backend processes cannot reattach to a new server: Claude SDK sessions are relaunched on demand, and live Codex processes found by PID are given a grace period before being killed and relaunched. Relaunches resume the backend's own session ID. Sessions saved by the retired Claude WebSocket backend load as Claude SDK sessions.
+Sessions persist to disk (`~/.companion/sessions/`) and survive server restarts. Backend processes cannot reattach to a new server: Claude SDK sessions are relaunched on demand, and live Codex processes found by PID are given a grace period before being killed and relaunched. Relaunches resume the backend's own session ID. Sessions on registered remote hosts are the exception: the host's `takode node` keeps their processes running, and the restarted server takes each one over by its saved process id when the host reconnects (`HostLinkManager.adopt`), so their turns and pending permission requests continue. Sessions saved by the retired Claude WebSocket backend load as Claude SDK sessions.
 
 ### Raw Protocol Recordings
 
