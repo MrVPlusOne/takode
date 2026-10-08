@@ -374,6 +374,7 @@ Before browser/E2E work, you must acquire the appropriate resource lease. Full b
 For normal Takode E2E/browser validation, default to the authorized shared persistent validation state for the dev-server workflow when one is available. Treat that state as shared validation evidence: workers may add useful long conversations, sessions, quests, and scenarios, and should retain newly created state when it is likely to help future validation. Clean up only state that is clearly harmful, misleading, sensitive, destructive, or otherwise not useful. Use isolated temp HOME/state, Playground/browser fixtures, or sanitized copied-live snapshots only when isolation is required, such as destructive tests, privacy-sensitive data, reset-sensitive scenarios, narrow frontend-only checks, or a bug tied to a specific copied history. Always document the profile/state strategy, scenario provenance, and cleanup/retention decision in Execute or validation notes.
 
 Always use the `agent-browser` CLI command to explore the browser.
+E2E UI testing requires the real `agent-browser` program and a headless Chrome on the machine the session runs on. If either is missing, flag it to the user and offer to install it; install only with the user's approval (workers ask their leader). The `takode-ui-e2e-validation` skill has the checks and install commands.
 When running E2E tests, use the dark theme, as it is the primary theme of this app.
 When running E2E tests, use a viewport at least as large as a normal iPhone Pro/Max screen (for example `430x932`).
 

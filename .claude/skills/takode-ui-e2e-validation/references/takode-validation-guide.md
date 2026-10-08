@@ -108,19 +108,22 @@ agent-browser --version
 agent-browser doctor
 ```
 
-Takode installs a stable wrapper at `~/.companion/bin/agent-browser`; that wrapper expects a real `agent-browser` delegate elsewhere on `PATH`, such as `~/.bun/bin/agent-browser`. If the wrapper reports `real agent-browser binary not found outside ~/.companion/bin`, install the delegate:
+Takode installs a stable wrapper at `~/.companion/bin/agent-browser`; that wrapper expects a real `agent-browser` delegate elsewhere on `PATH`, such as `~/.bun/bin/agent-browser`. The wrapper reports `real agent-browser binary not found outside ~/.companion/bin` when the delegate is missing, and `doctor` reports `No Chrome binary found` when headless Chrome is missing.
+
+Both are machine-level installs, so install them only after the user approves (see **Missing Agent Browser Or Chrome** in the skill). With approval, install the delegate, keeping the dependency policy's 3-day release-age minimum:
 
 ```bash
-bun add -g agent-browser@0.27.0
+bun add -g agent-browser@0.27.0 --minimum-release-age=259200
 ```
 
-If `doctor` reports no Chrome binary, populate the cache used by Agent Browser:
+Then populate the Chrome for Testing cache used by Agent Browser. On Linux, add `--with-deps` so it also installs Chrome's system libraries through `apt` (this needs `sudo`):
 
 ```bash
-agent-browser install
+agent-browser install              # macOS
+agent-browser install --with-deps  # Linux
 ```
 
-The expected Chrome for Testing cache is `~/.agent-browser/browsers`, for example `~/.agent-browser/browsers/chrome-148.0.7778.97/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing` after installing Agent Browser `0.27.0` on macOS arm64.
+Confirm with `agent-browser doctor`: its Chrome check and its headless launch test should both pass. The Chrome for Testing cache is `~/.agent-browser/browsers`, for example `~/.agent-browser/browsers/chrome-148.0.7778.97/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing` on macOS arm64, or `~/.agent-browser/browsers/chrome-155.0.8059.39/chrome` on Linux x64.
 
 Typical flow:
 

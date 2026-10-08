@@ -9,7 +9,7 @@ Validate Takode UI changes with `agent-browser`, scoped leases, an explicit stat
 
 ## Non-Negotiables
 
-- Use `agent-browser` for interactive Takode browser validation.
+- Use `agent-browser` for interactive Takode browser validation. It requires the real `agent-browser` program and a headless Chrome on the machine you run on; if either is missing, follow **Missing Agent Browser Or Chrome** instead of skipping browser validation or installing silently.
 - Never stop, kill, restart, bind over, or replace an existing server on `:3456`. In this project, `:3456` is the live/session server agents depend on.
 - Stop a validation server you started with `scripts/validation-server.ts stop` or by its own task, PID or port (`lsof -tiTCP:<port> -sTCP:LISTEN`), never by a command-line pattern such as `pkill -f server/index.ts`: the live `:3456` server runs with the same command line.
 - Default normal Takode E2E/browser validation to the authorized shared persistent validation state when one is documented or explicitly authorized. Treat this as persistent validation state, not as permission to mutate live `:3456`.
@@ -44,6 +44,12 @@ Validate Takode UI changes with `agent-browser`, scoped leases, an explicit stat
 If a lease command queues you behind another session, wait for the Resource Lease message that says you now hold the resource. The queued output includes the current owner and queue details; do not poll unless you need a manual status refresh.
 
 For command patterns, artifact handling, and surface-specific heuristics, read [references/takode-validation-guide.md](references/takode-validation-guide.md).
+
+## Missing Agent Browser Or Chrome
+
+Each machine that runs Takode sessions needs its own `agent-browser` and headless Chrome; a remote host does not share the laptop's. Takode's `~/.companion/bin/agent-browser` wrapper is only a shim: it reports `real agent-browser binary not found outside ~/.companion/bin` when the real program is missing, and `agent-browser doctor` reports `No Chrome binary found` when Chrome is missing.
+
+When either is missing, stop the browser part of the validation and flag it to the user: name the machine, what is missing and the install commands from the guide's **Agent Browser Flow**, and offer to install. These are machine-level installs, so install only after the user approves. Workers ask their leader with `takode notify needs-input`, and the leader brings the decision to the user. Until the tools are installed, do not report the browser validation as done.
 
 ## Lease Slots
 
