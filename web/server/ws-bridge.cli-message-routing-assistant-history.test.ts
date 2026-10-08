@@ -989,6 +989,105 @@ describe("CLI message routing", () => {
     ).toHaveLength(1);
   });
 
+  it("assistant: accepts an answer covering a user message the Claude CLI processed mid-turn", () => {
+    // Reproduces leader #2763 on 2026-10-07: a Wi-Fi drop made Claude Code emit a
+    // "<synthetic>" API-error message, the answer reminder started a new turn, and
+    // the user's follow-up arrived mid-turn. The Claude CLI folds such input into
+    // the running turn, so the answer covering both requests must be accepted, and
+    // the synthetic error must not be treated as unmarked leader text.
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ isOrchestrator: true })),
+    } as any);
+    const result = () =>
+      cli.message(
+        JSON.stringify({
+          type: "result",
+          subtype: "success",
+          result: "",
+          is_error: false,
+          stop_reason: "end_turn",
+          total_cost_usd: 0.01,
+          num_turns: 1,
+          session_id: "s1",
+        }),
+      );
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "My phone is showing 502 again. Please fix it." }),
+    );
+    cli.message(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-synthetic-api-error",
+          type: "message",
+          role: "assistant",
+          model: "<synthetic>",
+          content: [{ type: "text", text: "API Error: Can't reach the API server (ENOTFOUND)" }],
+          stop_reason: "stop_sequence",
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        session_id: "s1",
+      }),
+    );
+    result();
+
+    const session = bridge.getSession("s1")!;
+    // The answer reminder for the still-pending u1 starts the next turn.
+    expect(session.isGenerating).toBe(true);
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({ type: "user_message", content: "Actually never mind, my laptop lost Wi-Fi." }),
+    );
+    const followUp = session.messageHistory.find(
+      (entry: any) => entry.type === "user_message" && entry.leaderUserMessageId === "u2",
+    );
+    expect(session.queuedTurnUserMessageIds.flat()).toContain(session.messageHistory.indexOf(followUp!));
+
+    cli.message(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-answer-after-outage",
+          type: "message",
+          role: "assistant",
+          model: "claude-opus-5-5",
+          content: [
+            {
+              type: "text",
+              text: "[thread:main:A:u1,u2]\nThat fits: the 502 came from the Wi-Fi drop, not the server, and everything is reachable again.",
+            },
+          ],
+          stop_reason: null,
+          usage: { input_tokens: 10, output_tokens: 15, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        session_id: "s1",
+      }),
+    );
+    result();
+
+    const synthetic = session.messageHistory.find(
+      (entry: any) => entry.type === "assistant" && entry.message.id === "msg-synthetic-api-error",
+    ) as any;
+    expect(synthetic.threadRoutingError).toBeUndefined();
+    expect(
+      session.messageHistory.some(
+        (entry: any) =>
+          entry.type === "user_message" && entry.agentSource?.sessionId === "system:thread-routing-reminder",
+      ),
+    ).toBe(false);
+    const answer = session.messageHistory.find(
+      (entry: any) => entry.type === "assistant" && entry.message.id === "msg-answer-after-outage",
+    ) as any;
+    expect(answer.threadRoutingError).toBeUndefined();
+    expect(answer.threadAnswer).toMatchObject({ answerUserMessageIds: ["u1", "u2"] });
+  });
+
   it("assistant: does not inject reminder after SDK leader interrupt (stop_reason=end_turn)", () => {
     // Regression: SDK/Codex sessions route interrupt through the adapter path,
     // which bypasses handleInterrupt and never sets interruptedDuringTurn.

@@ -72,7 +72,9 @@ describe("leader messages rejected for bad thread tags", () => {
     render(<MessageBubble message={message} sessionId="leader-session" />);
 
     const header = screen.getByTestId("rejected-route-message-header");
-    expect(header.textContent).toContain("Unrouted message, resent");
+    expect(header.textContent).toContain("Unrouted message");
+    // No resend is claimed: the row cannot know whether the leader resent it.
+    expect(header.textContent).not.toContain("resent");
     expect(header.textContent).toContain("invalid thread tag");
     expect(header.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByText(/One check is left for you/)).toBeNull();
@@ -130,7 +132,7 @@ describe("leader messages rejected for bad thread tags", () => {
 
     render(<MessageBubble message={message} sessionId="leader-session" />);
 
-    expect(screen.getByTestId("rejected-route-message-header").textContent).toContain("answer not accepted");
+    expect(screen.getByTestId("rejected-route-message-header").textContent).toContain("Rejected answer");
     expect(screen.queryByText(/composer buttons never move/)).toBeNull();
     expect(screen.getAllByText(/takode notify needs-input/).length).toBeGreaterThan(0);
   });

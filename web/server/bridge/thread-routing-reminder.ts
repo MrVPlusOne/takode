@@ -72,10 +72,18 @@ export interface ThreadRoutingReminderSessionLike {
   messageHistory: BrowserIncomingMessage[];
   userMessageIdsThisTurn?: number[];
   messageCountAtTurnStart?: number;
+  backendType?: string;
+  queuedTurnUserMessageIds?: number[][];
 }
 
 export function leaderTurnObservedHistoryLength(session: ThreadRoutingReminderSessionLike): number | undefined {
-  const indexes = (session.userMessageIdsThisTurn ?? []).filter(
+  // The Claude SDK adapter sends input that arrives mid-turn to the CLI at once,
+  // and the CLI folds it into the running turn; its "queued" turns are drained
+  // unstarted at the result. That input is therefore visible to later answers
+  // in the same turn, unlike Codex input that waits for a later turn.
+  const inlineQueuedIndexes =
+    session.backendType === "claude-sdk" ? (session.queuedTurnUserMessageIds ?? []).flat() : [];
+  const indexes = [...(session.userMessageIdsThisTurn ?? []), ...inlineQueuedIndexes].filter(
     (value) => Number.isInteger(value) && value >= 0 && value < session.messageHistory.length,
   );
   if (indexes.length > 0) return Math.max(...indexes) + 1;

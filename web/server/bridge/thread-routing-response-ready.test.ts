@@ -100,6 +100,11 @@ describe("Thread Ready answer coverage gate", () => {
         messageCountAtTurnStart: 2,
       }),
     ).toBe(2);
+    // Claude SDK input queued mid-turn is folded into the running turn by the
+    // CLI, so it counts as observed; Codex keeps queued input for a later turn.
+    const queuedMidTurn = { messageHistory: history, userMessageIdsThisTurn: [1], queuedTurnUserMessageIds: [[2]] };
+    expect(leaderTurnObservedHistoryLength({ ...queuedMidTurn, backendType: "claude-sdk" })).toBe(3);
+    expect(leaderTurnObservedHistoryLength({ ...queuedMidTurn, backendType: "codex" })).toBe(2);
   });
 
   it("invalidates stale Ready state as soon as a covered direct-user message commits", () => {

@@ -420,7 +420,9 @@ export function handleAssistantMessage(
   deps: HandleAssistantMessageDeps,
 ): void {
   const msgId = msg.message?.id;
-  const isLeaderSession = isLeaderSessionForAssistantRouting(session, deps);
+  // Claude Code writes API errors as "<synthetic>" assistant messages. The
+  // leader did not author them, so they carry no thread marker to check.
+  const isLeaderSession = msg.message?.model !== "<synthetic>" && isLeaderSessionForAssistantRouting(session, deps);
   const slackThreadId = session.state.slackThreadChild?.threadId;
 
   if (!msgId) {
