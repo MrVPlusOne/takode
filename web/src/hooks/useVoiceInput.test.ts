@@ -381,6 +381,22 @@ describe("requestVoiceCaptureStream", () => {
     expect(getUserMediaMock.mock.calls[1][0].audio).not.toHaveProperty("deviceId");
   });
 
+  it("makes a single plain request once the browser has shown it has no default device", async () => {
+    // WebKit counts only the first microphone request of a tap as user-initiated. A request
+    // without that re-prompts on iPhone after a minute of idle microphone and, after any
+    // denial, fails without a prompt until reload. Later recordings in Safari must therefore
+    // skip the doomed "default" attempt.
+    getUserMediaMock.mockRejectedValueOnce(
+      Object.assign(new Error("no default device"), { name: "OverconstrainedError" }),
+    );
+    await requestVoiceCaptureStream();
+    getUserMediaMock.mockClear();
+
+    await requestVoiceCaptureStream();
+    expect(getUserMediaMock).toHaveBeenCalledTimes(1);
+    expect(getUserMediaMock.mock.calls[0][0].audio).not.toHaveProperty("deviceId");
+  });
+
   it("does not retry when the user denies microphone access", async () => {
     getUserMediaMock.mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
 

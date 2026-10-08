@@ -710,7 +710,11 @@ export function ComposerMetaToolbar({
         </button>
 
         <button
-          onPointerEnter={warmMicrophone}
+          // Warm up only on mouse hover. A touch's pointerenter is not a user gesture, and on
+          // iPhone a microphone request without one can bring the permission prompt back.
+          onPointerEnter={(e) => {
+            if (e.pointerType === "mouse") warmMicrophone();
+          }}
           onClick={!voiceSupported ? () => toggleVoiceUnsupportedInfo(false) : handleMicClick}
           disabled={voiceButtonDisabled}
           aria-label="Voice input"

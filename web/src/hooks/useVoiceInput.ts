@@ -187,6 +187,9 @@ export function formatInputDeviceLabel(label: string | null | undefined): string
   return name || null;
 }
 
+/** Browsers seen rejecting the exact "default" device, so later requests skip that attempt. */
+const mediaDevicesWithoutDefaultDevice = new WeakSet<MediaDevices>();
+
 /**
  * Opens the microphone selected in the operating system's sound settings.
  *
@@ -195,16 +198,25 @@ export function formatInputDeviceLabel(label: string | null | undefined): string
  * an `ideal` deviceId does not override that ranking. Chrome's "default" device does follow
  * the system input, so request it exactly. Safari and Firefox have no "default" device, reject
  * the exact constraint, and already follow the system input without one.
+ *
+ * After the first rejection, Safari gets a single request per recording. WebKit treats only
+ * the first microphone request of a user gesture as gesture-initiated. Without that, iPhone
+ * asks for permission again once the microphone has been idle for over a minute, and after
+ * any denial WebKit rejects the request without asking until the page reloads.
  */
 export async function requestVoiceCaptureStream(): Promise<MediaStream> {
-  try {
-    return await navigator.mediaDevices.getUserMedia({
-      audio: { ...VOICE_CAPTURE_CONSTRAINTS, deviceId: { exact: "default" } },
-    });
-  } catch (error) {
-    if ((error as { name?: unknown } | null)?.name !== "OverconstrainedError") throw error;
-    return navigator.mediaDevices.getUserMedia({ audio: VOICE_CAPTURE_CONSTRAINTS });
+  const mediaDevices = navigator.mediaDevices;
+  if (!mediaDevicesWithoutDefaultDevice.has(mediaDevices)) {
+    try {
+      return await mediaDevices.getUserMedia({
+        audio: { ...VOICE_CAPTURE_CONSTRAINTS, deviceId: { exact: "default" } },
+      });
+    } catch (error) {
+      if ((error as { name?: unknown } | null)?.name !== "OverconstrainedError") throw error;
+      mediaDevicesWithoutDefaultDevice.add(mediaDevices);
+    }
   }
+  return mediaDevices.getUserMedia({ audio: VOICE_CAPTURE_CONSTRAINTS });
 }
 
 function formatAudioTrackStates(stream: MediaStream | null | undefined): string | undefined {

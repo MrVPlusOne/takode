@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ComposerMetaToolbar } from "./ComposerMetaToolbar.js";
 import { CODEX_PERMISSION_MODES, type ModelOption } from "../utils/backends.js";
@@ -52,6 +52,7 @@ function ToolbarHarness({
   effectiveReported = true,
   onReset = async () => {},
   onSelectClaudeReasoning = () => {},
+  warmMicrophone = () => {},
 }: {
   backend?: "claude" | "codex";
   initialModel?: string;
@@ -61,6 +62,7 @@ function ToolbarHarness({
   effectiveReported?: boolean;
   onReset?: () => Promise<void>;
   onSelectClaudeReasoning?: (effort: string) => void;
+  warmMicrophone?: () => void;
 }) {
   const [model, setModel] = useState(initialModel);
   const [effort, setEffort] = useState(initialEffort);
@@ -122,7 +124,7 @@ function ToolbarHarness({
         collapseAllButton={null}
         pauseControl={null}
         onOpenFilePicker={() => {}}
-        warmMicrophone={() => {}}
+        warmMicrophone={warmMicrophone}
         voiceSupported={true}
         toggleVoiceUnsupportedInfo={() => {}}
         handleMicClick={() => {}}
@@ -299,5 +301,22 @@ describe("ComposerMetaToolbar Claude model selector", () => {
     expect(
       within(screen.getByTestId("composer-model-summary-menu")).queryByRole("menuitem", { name: /Effort/ }),
     ).toBeNull();
+  });
+});
+
+describe("ComposerMetaToolbar microphone warm-up", () => {
+  it("warms the microphone on mouse hover but not when a touch enters the button", () => {
+    // A touch's pointerenter is not a user gesture. On iPhone a microphone request made
+    // outside a gesture re-prompts for permission after a minute of idle microphone, so the
+    // tap's own click must make the request instead.
+    const warmMicrophone = vi.fn();
+    render(<ToolbarHarness warmMicrophone={warmMicrophone} />);
+    const micButton = screen.getByRole("button", { name: "Voice input" });
+
+    fireEvent.pointerEnter(micButton, { pointerType: "touch" });
+    expect(warmMicrophone).not.toHaveBeenCalled();
+
+    fireEvent.pointerEnter(micButton, { pointerType: "mouse" });
+    expect(warmMicrophone).toHaveBeenCalledTimes(1);
   });
 });
