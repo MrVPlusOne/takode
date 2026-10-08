@@ -9,7 +9,7 @@ import {
   type ServerNewSessionDefaults,
   type AppSettings,
 } from "../api.js";
-import { getRecentDirs } from "../utils/recent-dirs.js";
+import { getRecentDirs, hostRecentDirsKey } from "../utils/recent-dirs.js";
 import { queuePendingSession } from "../utils/pending-creation.js";
 import {
   getClaudePermissionMenuOptions,
@@ -53,9 +53,14 @@ function getSavedBranches(): Record<string, string> {
   }
 }
 
-function saveBranch(repoRoot: string, branchName: string) {
+/** Saved-branch key for a repo; a remote host's repo paths are kept apart from this machine's. */
+function savedBranchKey(repoRoot: string, hostId: string): string {
+  return hostId ? `${hostId}:${repoRoot}` : repoRoot;
+}
+
+function saveBranch(key: string, branchName: string) {
   const map = getSavedBranches();
-  map[repoRoot] = branchName;
+  map[key] = branchName;
   const keys = Object.keys(map);
   if (keys.length > 20) {
     delete map[keys[0]];
@@ -169,8 +174,9 @@ export function NewSessionModal({
   const [showCodexPermissionDropdown, setShowCodexPermissionDropdown] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const remoteHosts = useRemoteHosts().hosts;
-  /** Registered remote host to run on; empty for this machine. Its paths are not browsable here. */
+  /** Registered remote host to run on; empty for this machine. Folders and repos are read on that host. */
   const [hostId, setHostId] = useState("");
+  const recentDirsKey = hostId ? hostRecentDirsKey(hostId) : defaultsKey || undefined;
 
   // Git branch state
   const [gitRepoInfo, setGitRepoInfo] = useState<GitRepoInfo | null>(null);
@@ -462,25 +468,29 @@ export function NewSessionModal({
     return () => document.removeEventListener("pointerdown", handleClick);
   }, [open]);
 
-  // Detect git repo when cwd changes; restore saved branch if valid
+  // Detect git repo when cwd or machine changes; restore saved branch if valid
   useEffect(() => {
-    // A remote host's repo is inspected by the server when the session is created.
-    if (!open || !cwd || hostId) {
-      setGitRepoInfo(null);
+    setGitRepoInfo(null);
+    if (!open || !cwd) {
       setRepoInfoLoading(false);
       return;
     }
+    // A remote host answers slowly; ignore answers for a folder or machine no longer selected.
+    let current = true;
+    const host = hostId || undefined;
     setRepoInfoLoading(true);
     api
-      .getRepoInfo(cwd)
+      .getRepoInfo(cwd, host)
       .then((info) => {
+        if (!current) return;
         setGitRepoInfo(info);
         setIsNewBranch(false);
         api
-          .listBranches(info.repoRoot)
+          .listBranches(info.repoRoot, { hostId: host })
           .then((branchList) => {
+            if (!current) return;
             setBranches(branchList);
-            const saved = getSavedBranches()[info.repoRoot];
+            const saved = getSavedBranches()[savedBranchKey(info.repoRoot, hostId)];
             if (saved && branchList.some((b) => b.name === saved)) {
               setSelectedBranch(saved);
             } else {
@@ -488,16 +498,20 @@ export function NewSessionModal({
             }
           })
           .catch(() => {
+            if (!current) return;
             setBranches([]);
             setSelectedBranch(info.currentBranch);
           });
       })
       .catch(() => {
-        setGitRepoInfo(null);
+        if (current) setGitRepoInfo(null);
       })
       .finally(() => {
-        setRepoInfoLoading(false);
+        if (current) setRepoInfoLoading(false);
       });
+    return () => {
+      current = false;
+    };
   }, [open, cwd, hostId]);
 
   // Load CLI sessions when entering resume mode or switching backend
@@ -664,7 +678,7 @@ export function NewSessionModal({
       createOpts,
       cwd: cwdSnapshot || null,
       treeGroupId: treeGroupId || undefined,
-      recentDirsKey: defaultsKey || undefined,
+      recentDirsKey,
     });
   }
 
@@ -673,8 +687,8 @@ export function NewSessionModal({
     setPullError("");
     try {
       if (!gitRepoInfo) throw new Error("No repo info");
-      await api.gitPull(gitRepoInfo.repoRoot);
-      const refreshed = await api.listBranches(gitRepoInfo.repoRoot);
+      await api.gitPull(gitRepoInfo.repoRoot, undefined, hostId || undefined);
+      const refreshed = await api.listBranches(gitRepoInfo.repoRoot, { hostId: hostId || undefined });
       setBranches(refreshed);
       setPullPrompt(null);
       await doCreateSession();
@@ -1191,9 +1205,14 @@ export function NewSessionModal({
                           value={hostId}
                           aria-label="Machine"
                           onChange={(event) => {
-                            setHostId(event.target.value);
-                            // Paths name a folder on one machine only.
-                            setUserSelectedCwd(event.target.value ? "" : defaults.cwd || "");
+                            const nextHostId = event.target.value;
+                            setHostId(nextHostId);
+                            // Paths name a folder on one machine only: start from that machine's latest folder.
+                            setUserSelectedCwd(
+                              nextHostId
+                                ? getRecentDirs(hostRecentDirsKey(nextHostId))[0] || ""
+                                : resolveDefaultCwd(defaults),
+                            );
                           }}
                           className="px-2 py-1 rounded-md bg-cc-input-bg border border-cc-border text-xs text-cc-fg"
                         >
@@ -1208,40 +1227,31 @@ export function NewSessionModal({
                     )}
                     <div data-testid="new-session-workspace-folder-row" className="flex items-end">
                       <NewSessionField label="Folder" className="flex-[1_1_12rem]">
-                        {hostId ? (
-                          <input
-                            value={cwd}
-                            onChange={(event) => setUserSelectedCwd(event.target.value)}
-                            placeholder="Absolute path on that machine"
-                            aria-label="Folder on the selected machine"
-                            className="w-full px-2 py-1 rounded-md bg-cc-input-bg border border-cc-border text-xs font-mono-code text-cc-fg"
-                          />
-                        ) : (
-                          <div>
-                            <button
-                              onClick={() => setShowFolderPicker(true)}
-                              className="flex max-w-full items-center gap-1.5 px-2 py-1 text-xs text-cc-muted hover:text-cc-fg rounded-md hover:bg-cc-hover transition-colors cursor-pointer"
-                            >
-                              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-60 shrink-0">
-                                <path d="M1 3.5A1.5 1.5 0 012.5 2h3.379a1.5 1.5 0 011.06.44l.622.621a.5.5 0 00.353.146H13.5A1.5 1.5 0 0115 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z" />
-                              </svg>
-                              <span className="max-w-[180px] truncate font-mono-code">{dirLabel}</span>
-                              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-50 shrink-0">
-                                <path d="M4 6l4 4 4-4" />
-                              </svg>
-                            </button>
-                            {showFolderPicker && (
-                              <FolderPicker
-                                initialPath={cwd || ""}
-                                recentDirsKey={defaultsKey || undefined}
-                                onSelect={(path) => {
-                                  setUserSelectedCwd(path);
-                                }}
-                                onClose={() => setShowFolderPicker(false)}
-                              />
-                            )}
-                          </div>
-                        )}
+                        <div>
+                          <button
+                            onClick={() => setShowFolderPicker(true)}
+                            className="flex max-w-full items-center gap-1.5 px-2 py-1 text-xs text-cc-muted hover:text-cc-fg rounded-md hover:bg-cc-hover transition-colors cursor-pointer"
+                          >
+                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 opacity-60 shrink-0">
+                              <path d="M1 3.5A1.5 1.5 0 012.5 2h3.379a1.5 1.5 0 011.06.44l.622.621a.5.5 0 00.353.146H13.5A1.5 1.5 0 0115 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z" />
+                            </svg>
+                            <span className="max-w-[180px] truncate font-mono-code">{dirLabel}</span>
+                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-50 shrink-0">
+                              <path d="M4 6l4 4 4-4" />
+                            </svg>
+                          </button>
+                          {showFolderPicker && (
+                            <FolderPicker
+                              initialPath={cwd || ""}
+                              recentDirsKey={recentDirsKey}
+                              hostId={hostId || undefined}
+                              onSelect={(path) => {
+                                setUserSelectedCwd(path);
+                              }}
+                              onClose={() => setShowFolderPicker(false)}
+                            />
+                          )}
+                        </div>
                       </NewSessionField>
                     </div>
 
@@ -1263,11 +1273,11 @@ export function NewSessionModal({
                                     if (branchButtonDisabled) return;
                                     if (!showBranchDropdown && gitRepoInfo) {
                                       api
-                                        .gitFetch(gitRepoInfo.repoRoot)
+                                        .gitFetch(gitRepoInfo.repoRoot, hostId || undefined)
                                         .catch(() => {})
                                         .finally(() => {
                                           api
-                                            .listBranches(gitRepoInfo.repoRoot)
+                                            .listBranches(gitRepoInfo.repoRoot, { hostId: hostId || undefined })
                                             .then(setBranches)
                                             .catch(() => setBranches([]));
                                         });
@@ -1339,7 +1349,8 @@ export function NewSessionModal({
                                                 onClick={() => {
                                                   setSelectedBranch(b.name);
                                                   setIsNewBranch(false);
-                                                  if (gitRepoInfo) saveBranch(gitRepoInfo.repoRoot, b.name);
+                                                  if (gitRepoInfo)
+                                                    saveBranch(savedBranchKey(gitRepoInfo.repoRoot, hostId), b.name);
                                                   setShowBranchDropdown(false);
                                                 }}
                                                 className={`w-full px-3 py-1.5 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer flex items-center gap-2 ${
@@ -1382,7 +1393,8 @@ export function NewSessionModal({
                                                 onClick={() => {
                                                   setSelectedBranch(b.name);
                                                   setIsNewBranch(false);
-                                                  if (gitRepoInfo) saveBranch(gitRepoInfo.repoRoot, b.name);
+                                                  if (gitRepoInfo)
+                                                    saveBranch(savedBranchKey(gitRepoInfo.repoRoot, hostId), b.name);
                                                   setShowBranchDropdown(false);
                                                 }}
                                                 className={`w-full px-3 py-1.5 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer flex items-center gap-2 ${
@@ -1411,7 +1423,8 @@ export function NewSessionModal({
                                                 const name = branchFilter.trim();
                                                 setSelectedBranch(name);
                                                 setIsNewBranch(true);
-                                                if (gitRepoInfo) saveBranch(gitRepoInfo.repoRoot, name);
+                                                if (gitRepoInfo)
+                                                  saveBranch(savedBranchKey(gitRepoInfo.repoRoot, hostId), name);
                                                 setShowBranchDropdown(false);
                                               }}
                                               className="w-full px-3 py-1.5 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer flex items-center gap-2 text-cc-primary"

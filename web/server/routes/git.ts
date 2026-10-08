@@ -1,21 +1,30 @@
 import { Hono } from "hono";
-import { exec as execCb } from "node:child_process";
-import { promisify } from "node:util";
 import * as gitUtils from "../git-utils.js";
-import { GIT_CMD_TIMEOUT, SERVER_GIT_CMD } from "../constants.js";
+import { SERVER_GIT_CMD } from "../constants.js";
+import { onMachine } from "../remote-host/host-operations.js";
+import { machineFor } from "../remote-host/session-machine.js";
+import { remoteHostFailure } from "./session-remote-host.js";
 import type { RouteContext } from "./context.js";
 
 export function createGitRoutes(ctx: RouteContext) {
   const api = new Hono();
   const { launcher, prPoller, execCaptureStdoutAsync, wsBridge } = ctx;
-  const execPromise = promisify(execCb);
 
   // ─── Git operations ─────────────────────────────────────────────────
+
+  // `host` names a registered remote host whose repo to read, for creating a session there.
 
   api.get("/git/repo-info", async (c) => {
     const path = c.req.query("path");
     if (!path) return c.json({ error: "path required" }, 400);
-    const info = await gitUtils.getRepoInfoAsync(path);
+    const host = c.req.query("host") || undefined;
+    let info: Awaited<ReturnType<typeof gitUtils.getRepoInfoAsync>>;
+    try {
+      info = await onMachine(host, "repoInfo", path);
+    } catch (error) {
+      if (!host) throw error;
+      return remoteHostFailure(c, error, host, launcher.remoteHosts?.registry);
+    }
     if (!info) return c.json({ error: "Not a git repository" }, 400);
     return c.json(info);
   });
@@ -24,9 +33,11 @@ export function createGitRoutes(ctx: RouteContext) {
     const repoRoot = c.req.query("repoRoot");
     if (!repoRoot) return c.json({ error: "repoRoot required" }, 400);
     const localOnly = c.req.query("localOnly") === "1";
+    const host = c.req.query("host") || undefined;
     try {
-      return c.json(await gitUtils.listBranchesAsync(repoRoot, { localOnly }));
+      return c.json(await onMachine(host, "listBranches", repoRoot, { localOnly }));
     } catch (e: unknown) {
+      if (host) return remoteHostFailure(c, e, host, launcher.remoteHosts?.registry);
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
   });
@@ -56,9 +67,10 @@ export function createGitRoutes(ctx: RouteContext) {
 
   api.post("/git/fetch", async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const { repoRoot } = body;
+    const { repoRoot, hostId } = body;
     if (!repoRoot) return c.json({ error: "repoRoot required" }, 400);
-    return c.json(await gitUtils.gitFetchAsync(repoRoot));
+    // `hostId` fetches a repo on that registered remote host.
+    return c.json(await gitUtils.gitFetchAsync(repoRoot, hostId ? machineFor(hostId) : undefined));
   });
 
   api.get("/git/worktrees", async (c) => {
@@ -85,27 +97,16 @@ export function createGitRoutes(ctx: RouteContext) {
 
   api.post("/git/pull", async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const { cwd, sessionId } = body;
+    const { cwd, sessionId, hostId } = body;
     if (!cwd) return c.json({ error: "cwd required" }, 400);
-    const result = await gitUtils.gitPullAsync(cwd);
-    // Return refreshed ahead/behind counts
-    let git_ahead = 0,
-      git_behind = 0;
-    try {
-      const { stdout: counts } = await execPromise(
-        `${SERVER_GIT_CMD} rev-list --left-right --count @{upstream}...HEAD`,
-        {
-          cwd,
-          encoding: "utf-8",
-          timeout: GIT_CMD_TIMEOUT,
-        },
-      );
-      const [behind, ahead] = counts.trim().split(/\s+/).map(Number);
-      git_ahead = ahead || 0;
-      git_behind = behind || 0;
-    } catch {
-      /* no upstream */
-    }
+    // `hostId` pulls a repo on that registered remote host.
+    const machine = hostId ? machineFor(hostId) : undefined;
+    const result = await gitUtils.gitPullAsync(cwd, machine);
+    // Return refreshed ahead/behind counts; none without an upstream.
+    const counts = await gitUtils.gitSafeAsync("rev-list --left-right --count @{upstream}...HEAD", cwd, machine);
+    const [behind, ahead] = (counts ?? "").split(/\s+/).map(Number);
+    const git_ahead = ahead || 0;
+    const git_behind = behind || 0;
     // Broadcast updated git counts to all browsers for this session
     if (sessionId) {
       wsBridge.broadcastToSession(sessionId, { type: "session_update", session: { git_ahead, git_behind } } as any);

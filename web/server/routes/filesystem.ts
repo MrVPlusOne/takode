@@ -15,6 +15,8 @@ import { LocalImageVariantStore, type LocalImageVariantKind } from "../local-ima
 import { getLocalPathOpenCapability, openLocalPathContainingFolder } from "../local-path-actions.js";
 import { machineFor, type Machine, type MachineFileStat } from "../remote-host/session-machine.js";
 import { localCopyOfHostFile } from "../remote-host/host-file-cache.js";
+import { onMachine } from "../remote-host/host-operations.js";
+import { remoteHostFailure } from "./session-remote-host.js";
 
 const execPromise = promisify(childProcess.exec);
 
@@ -350,30 +352,17 @@ export function createFilesystemRoutes(ctx: RouteContext) {
 
   // ─── Filesystem browsing ─────────────────────────────────────
 
+  /** Subfolders of `path` on this machine, or on the registered remote host `host` (starting in its home). */
   api.get("/fs/list", async (c) => {
-    const rawPath = c.req.query("path") || homedir();
+    const path = c.req.query("path") || undefined;
     const showHidden = c.req.query("hidden") === "1";
-    const basePath = resolve(expandTilde(rawPath));
+    const host = c.req.query("host") || undefined;
     try {
-      const entries = await readdir(basePath, { withFileTypes: true });
-      const dirs: { name: string; path: string }[] = [];
-      for (const entry of entries) {
-        if (entry.isDirectory() && (showHidden || !entry.name.startsWith("."))) {
-          dirs.push({ name: entry.name, path: join(basePath, entry.name) });
-        }
-      }
-      dirs.sort((a, b) => a.name.localeCompare(b.name));
-      return c.json({ path: basePath, dirs, home: homedir() });
-    } catch {
-      return c.json(
-        {
-          error: "Cannot read directory",
-          path: basePath,
-          dirs: [],
-          home: homedir(),
-        },
-        400,
-      );
+      return c.json(await onMachine(host, "listDirectories", path, showHidden));
+    } catch (error) {
+      if (host) return remoteHostFailure(c, error, host, ctx.launcher.remoteHosts?.registry);
+      const basePath = resolve(expandTilde(path || homedir()));
+      return c.json({ error: "Cannot read directory", path: basePath, dirs: [], home: homedir() }, 400);
     }
   });
 

@@ -6,14 +6,17 @@ import { getRecentDirs, addRecentDir } from "../utils/recent-dirs.js";
 interface FolderPickerProps {
   initialPath: string;
   recentDirsKey?: string;
+  /** Browse this registered remote host's folders instead of this machine's. */
+  hostId?: string;
   onSelect: (path: string) => void;
   onClose: () => void;
 }
 
-export function FolderPicker({ initialPath, recentDirsKey, onSelect, onClose }: FolderPickerProps) {
+export function FolderPicker({ initialPath, recentDirsKey, hostId, onSelect, onClose }: FolderPickerProps) {
   const [browsePath, setBrowsePath] = useState("");
   const [browseDirs, setBrowseDirs] = useState<DirEntry[]>([]);
   const [browseLoading, setBrowseLoading] = useState(false);
+  const [browseError, setBrowseError] = useState("");
   const [dirInput, setDirInput] = useState("");
   const [showDirInput, setShowDirInput] = useState(false);
   const [filter, setFilter] = useState("");
@@ -26,19 +29,22 @@ export function FolderPicker({ initialPath, recentDirsKey, onSelect, onClose }: 
   const loadDirs = useCallback(
     async (path?: string) => {
       setBrowseLoading(true);
+      setBrowseError("");
       setFilter("");
       setFocusIndex(-1);
       try {
-        const result = await api.listDirs(path, { hidden: showHidden });
+        const result = await api.listDirs(path, { hidden: showHidden, hostId });
         setBrowsePath(result.path);
         setBrowseDirs(result.dirs);
-      } catch {
+      } catch (error) {
         setBrowseDirs([]);
+        // A remote host may be offline or unreachable; say so instead of showing an empty folder.
+        setBrowseError(error instanceof Error ? error.message : String(error));
       } finally {
         setBrowseLoading(false);
       }
     },
-    [showHidden],
+    [showHidden, hostId],
   );
 
   useEffect(() => {
@@ -76,7 +82,7 @@ export function FolderPicker({ initialPath, recentDirsKey, onSelect, onClose }: 
       // Cmd/Ctrl+Enter selects current directory
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        selectDir(browsePath);
+        if (browsePath) selectDir(browsePath);
         return;
       }
 
@@ -268,6 +274,10 @@ export function FolderPicker({ initialPath, recentDirsKey, onSelect, onClose }: 
           <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto">
             {browseLoading ? (
               <div className="px-4 py-6 text-xs text-cc-muted text-center">Loading...</div>
+            ) : browseError ? (
+              <div role="alert" className="px-4 py-6 text-xs text-cc-error text-center">
+                {browseError}
+              </div>
             ) : filteredDirs.length === 0 ? (
               <div className="px-4 py-6 text-xs text-cc-muted text-center">
                 {filter ? "No matching directories" : "No subdirectories"}
@@ -303,7 +313,8 @@ export function FolderPicker({ initialPath, recentDirsKey, onSelect, onClose }: 
           </span>
           <button
             onClick={() => selectDir(browsePath)}
-            className="px-4 py-1.5 text-xs font-medium rounded-md bg-cc-primary text-white hover:bg-cc-primary/90 transition-colors cursor-pointer shrink-0"
+            disabled={!browsePath}
+            className="px-4 py-1.5 text-xs font-medium rounded-md bg-cc-primary text-white hover:bg-cc-primary/90 transition-colors cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Open
           </button>

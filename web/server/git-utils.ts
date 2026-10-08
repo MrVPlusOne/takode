@@ -312,9 +312,9 @@ export async function listBranchesAsync(repoRoot: string, opts?: { localOnly?: b
 // ─── Functions ──────────────────────────────────────────────────────────────
 
 /** Async version of gitFetch. Non-blocking for route handlers. */
-export async function gitFetchAsync(cwd: string): Promise<{ success: boolean; output: string }> {
+export async function gitFetchAsync(cwd: string, machine?: Machine): Promise<{ success: boolean; output: string }> {
   try {
-    const output = await gitAsync("fetch --prune", cwd);
+    const output = await gitAsync("fetch --prune", cwd, machine);
     return { success: true, output };
   } catch (e: unknown) {
     return { success: false, output: e instanceof Error ? e.message : String(e) };
@@ -322,9 +322,9 @@ export async function gitFetchAsync(cwd: string): Promise<{ success: boolean; ou
 }
 
 /** Async version of gitPull. Non-blocking for route handlers. */
-export async function gitPullAsync(cwd: string): Promise<{ success: boolean; output: string }> {
+export async function gitPullAsync(cwd: string, machine?: Machine): Promise<{ success: boolean; output: string }> {
   try {
-    const output = await gitAsync("pull", cwd);
+    const output = await gitAsync("pull", cwd, machine);
     return { success: true, output };
   } catch (e: unknown) {
     return { success: false, output: e instanceof Error ? e.message : String(e) };

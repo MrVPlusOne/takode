@@ -21,6 +21,7 @@ const mockApi = {
   getRepoInfo: vi.fn(),
   listBranches: vi.fn(),
   gitPull: vi.fn(),
+  gitFetch: vi.fn(),
   listCliSessions: vi.fn(),
   getNewSessionDefaults: vi.fn(),
   saveNewSessionDefaults: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock("../api.js", () => ({
     getRepoInfo: (...args: unknown[]) => mockApi.getRepoInfo(...args),
     listBranches: (...args: unknown[]) => mockApi.listBranches(...args),
     gitPull: (...args: unknown[]) => mockApi.gitPull(...args),
+    gitFetch: (...args: unknown[]) => mockApi.gitFetch(...args),
     listCliSessions: (...args: unknown[]) => mockApi.listCliSessions(...args),
     getNewSessionDefaults: (...args: unknown[]) => mockApi.getNewSessionDefaults(...args),
     saveNewSessionDefaults: (...args: unknown[]) => mockApi.saveNewSessionDefaults(...args),
@@ -50,6 +52,7 @@ vi.mock("../remote-hosts.js", () => ({
 
 vi.mock("../utils/recent-dirs.js", () => ({
   getRecentDirs: (...args: unknown[]) => mockGetRecentDirs(...args),
+  hostRecentDirsKey: (hostId: string) => `host:${hostId}`,
 }));
 
 vi.mock("../utils/pending-creation.js", () => ({
@@ -73,8 +76,12 @@ vi.mock("./EnvManager.js", () => ({
   EnvManager: () => null,
 }));
 
+let folderPickerProps: { hostId?: string; recentDirsKey?: string; onSelect: (path: string) => void } | null = null;
 vi.mock("./FolderPicker.js", () => ({
-  FolderPicker: () => null,
+  FolderPicker: (props: NonNullable<typeof folderPickerProps>) => {
+    folderPickerProps = props;
+    return null;
+  },
 }));
 
 vi.mock("./CatIcons.js", () => ({
@@ -94,6 +101,7 @@ describe("NewSessionModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRemoteHosts = [];
+    folderPickerProps = null;
     mockGetGlobalNewSessionDefaults.mockReturnValue({
       backend: "claude",
       model: "",
@@ -131,6 +139,7 @@ describe("NewSessionModal", () => {
     mockApi.getRepoInfo.mockRejectedValue(new Error("not a repo"));
     mockApi.listBranches.mockResolvedValue([]);
     mockApi.gitPull.mockResolvedValue({ success: true });
+    mockApi.gitFetch.mockResolvedValue({ success: true, output: "" });
     mockApi.getNewSessionDefaults.mockResolvedValue({ key: "tree-group:team-alpha", defaults: null, updatedAt: null });
     mockApi.saveNewSessionDefaults.mockResolvedValue({
       ok: true,
@@ -780,21 +789,45 @@ describe("NewSessionModal", () => {
     });
   });
 
-  // A session on a remote host names a folder on that host: the dialog takes a
-  // typed path, does not inspect it on this machine, and keeps it out of this
-  // machine's defaults.
-  it("creates a session on a selected remote host with a typed path", async () => {
+  // A session on a remote host names a folder on that host. The dialog starts
+  // from the host's latest folder, browses and inspects the repo on the host
+  // (offering the same worktree and branch options as locally), keeps recent
+  // folders per machine, and keeps the path out of this machine's defaults.
+  it("creates a worktree session in a remote host's repo", async () => {
     const user = userEvent.setup();
     mockRemoteHosts = [{ id: "h1", name: "devbox", online: true }];
+    mockGetRecentDirs.mockImplementation((key?: string) => (key === "host:h1" ? ["/home/coder/app"] : []));
+    mockApi.getRepoInfo.mockImplementation(async (path: string, hostId?: string) => {
+      if (hostId !== "h1") throw new Error("not a repo");
+      return { repoRoot: path, repoName: "app", currentBranch: "main", defaultBranch: "main", isWorktree: false };
+    });
+    mockApi.listBranches.mockResolvedValue([
+      { name: "main", isCurrent: true, isRemote: false, worktreePath: null, ahead: 0, behind: 0 },
+      { name: "feature", isCurrent: false, isRemote: false, worktreePath: null, ahead: 0, behind: 0 },
+    ]);
     render(<NewSessionModal open={true} onClose={() => {}} />);
 
     await user.selectOptions(await screen.findByLabelText("Machine"), "h1");
-    await user.type(screen.getByLabelText("Folder on the selected machine"), "/srv/app");
+    expect(await screen.findByText("app")).toBeInTheDocument();
+    await waitFor(() => expect(mockApi.listBranches).toHaveBeenCalledWith("/home/coder/app", { hostId: "h1" }));
+    expect(mockApi.getRepoInfo).toHaveBeenCalledWith("/home/coder/app", "h1");
+
+    // The folder browser lists the host's folders and its recent folders.
+    await user.click(screen.getByText("app"));
+    expect(folderPickerProps).toEqual(expect.objectContaining({ hostId: "h1", recentDirsKey: "host:h1" }));
+
+    // Worktree and base branch work as they do for a local repo.
+    expect(screen.getByText("Isolation")).toBeInTheDocument();
+    await user.click(await screen.findByTestId("new-session-branch-button"));
+    expect(mockApi.gitFetch).toHaveBeenCalledWith("/home/coder/app", "h1");
+    await user.click(await screen.findByRole("button", { name: /feature/ }));
     await user.click(await screen.findByRole("button", { name: "Create Session" }));
 
     await waitFor(() => expect(mockQueuePendingSession).toHaveBeenCalled());
-    expect(latestQueuedCreateOpts()).toEqual(expect.objectContaining({ hostId: "h1", cwd: "/srv/app" }));
-    expect(mockApi.getRepoInfo).not.toHaveBeenCalledWith("/srv/app");
+    expect(latestQueuedCreateOpts()).toEqual(
+      expect.objectContaining({ hostId: "h1", cwd: "/home/coder/app", useWorktree: true, branch: "feature" }),
+    );
+    expect(mockQueuePendingSession.mock.calls[0][0].recentDirsKey).toBe("host:h1");
     expect(mockApi.saveNewSessionDefaults).not.toHaveBeenCalled();
   });
 
@@ -826,7 +859,7 @@ describe("NewSessionModal", () => {
     render(<NewSessionModal open={true} onClose={() => {}} />);
 
     expect(await screen.findByText("project")).toBeInTheDocument();
-    await waitFor(() => expect(mockApi.listBranches).toHaveBeenCalledWith("/tmp/project"));
+    await waitFor(() => expect(mockApi.listBranches).toHaveBeenCalledWith("/tmp/project", { hostId: undefined }));
 
     await user.click(await screen.findByRole("button", { name: "Create Session" }));
 
@@ -920,7 +953,7 @@ describe("NewSessionModal", () => {
     render(<NewSessionModal open={true} onClose={() => {}} />);
 
     expect(await screen.findByText("project")).toBeInTheDocument();
-    await waitFor(() => expect(mockApi.listBranches).toHaveBeenCalledWith("/tmp/project"));
+    await waitFor(() => expect(mockApi.listBranches).toHaveBeenCalledWith("/tmp/project", { hostId: undefined }));
 
     await user.click(await screen.findByRole("button", { name: "Create Session" }));
 

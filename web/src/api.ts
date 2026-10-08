@@ -158,6 +158,10 @@ async function post<T = unknown>(path: string, body?: object): Promise<T> {
   return res.json();
 }
 
+function hostQuery(hostId: string | undefined): string {
+  return hostId ? `&host=${encodeURIComponent(hostId)}` : "";
+}
+
 async function get<T = unknown>(path: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`${BASE}${path}`, signal ? { signal } : undefined);
   if (!res.ok) {
@@ -1291,10 +1295,12 @@ export const api = {
 
   getSessionInstructionContent,
 
-  listDirs: (path?: string, opts?: { hidden?: boolean }) => {
+  /** Subfolders of `path` on this machine, or on the remote host `hostId` (default: its home folder). */
+  listDirs: (path?: string, opts?: { hidden?: boolean; hostId?: string }) => {
     const params = new URLSearchParams();
     if (path) params.set("path", path);
     if (opts?.hidden) params.set("hidden", "1");
+    if (opts?.hostId) params.set("host", opts.hostId);
     const qs = params.toString();
     return get<DirListResult>(`/fs/list${qs ? `?${qs}` : ""}`);
   },
@@ -1405,23 +1411,26 @@ export const api = {
     get<{ active: boolean; engagedAt: number | null; expiresAt: number | null }>("/caffeinate-status"),
 
   // Git operations
-  getRepoInfo: (path: string) => get<GitRepoInfo>(`/git/repo-info?path=${encodeURIComponent(path)}`),
-  listBranches: (repoRoot: string, opts?: { localOnly?: boolean }) =>
+  // `hostId` names a registered remote host whose repo to read instead of this machine's.
+  getRepoInfo: (path: string, hostId?: string) =>
+    get<GitRepoInfo>(`/git/repo-info?path=${encodeURIComponent(path)}${hostQuery(hostId)}`),
+  listBranches: (repoRoot: string, opts?: { localOnly?: boolean; hostId?: string }) =>
     get<GitBranchInfo[]>(
-      `/git/branches?repoRoot=${encodeURIComponent(repoRoot)}${opts?.localOnly ? "&localOnly=1" : ""}`,
+      `/git/branches?repoRoot=${encodeURIComponent(repoRoot)}${opts?.localOnly ? "&localOnly=1" : ""}${hostQuery(opts?.hostId)}`,
     ),
   getRecentCommits: (repoRoot: string, limit = 20) =>
     get<{ commits: { sha: string; shortSha: string; message: string; timestamp: number }[] }>(
       `/git/commits?repoRoot=${encodeURIComponent(repoRoot)}&limit=${limit}`,
     ),
-  gitFetch: (repoRoot: string) => post<{ success: boolean; output: string }>("/git/fetch", { repoRoot }),
-  gitPull: (cwd: string, sessionId?: string) =>
+  gitFetch: (repoRoot: string, hostId?: string) =>
+    post<{ success: boolean; output: string }>("/git/fetch", { repoRoot, ...(hostId ? { hostId } : {}) }),
+  gitPull: (cwd: string, sessionId?: string, hostId?: string) =>
     post<{
       success: boolean;
       output: string;
       git_ahead: number;
       git_behind: number;
-    }>("/git/pull", { cwd, sessionId }),
+    }>("/git/pull", { cwd, sessionId, ...(hostId ? { hostId } : {}) }),
   refreshSessionGitStatus: (sessionId: string, options?: { force?: boolean }) =>
     post<{
       ok: boolean;

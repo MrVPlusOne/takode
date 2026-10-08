@@ -1,5 +1,6 @@
 import { prepareWorktreeSessionArtifacts } from "../cli-launcher-worktree.js";
-import { ensureWorktreeAsync, getRepoInfoAsync } from "../git-utils.js";
+import { listDirectories } from "../directory-listing.js";
+import { ensureWorktreeAsync, getRepoInfoAsync, listBranchesAsync } from "../git-utils.js";
 import { recreateSessionCheckout } from "../migration.js";
 import { assessWorktreeCleanupSafety, removeWorktreeCheckout } from "../routes/worktree-cleanup.js";
 import { requestOnHost } from "./session-machine.js";
@@ -11,7 +12,10 @@ import { requestOnHost } from "./session-machine.js";
  * Arguments and results must survive JSON.
  */
 const operations = {
+  listDirectories: (path: string | undefined, showHidden: boolean) => listDirectories(path, showHidden),
   repoInfo: (cwd: string) => getRepoInfoAsync(cwd),
+  listBranches: (repoRoot: string, options: Parameters<typeof listBranchesAsync>[1]) =>
+    listBranchesAsync(repoRoot, options),
   ensureWorktree: (repoRoot: string, branch: string, options: Parameters<typeof ensureWorktreeAsync>[2]) =>
     ensureWorktreeAsync(repoRoot, branch, options),
   prepareWorktreeArtifacts: (options: Parameters<typeof prepareWorktreeSessionArtifacts>[0]) =>

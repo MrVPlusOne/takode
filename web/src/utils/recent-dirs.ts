@@ -38,6 +38,14 @@ function parseGroupRecentDirsMap(): Record<string, StoredGroupRecentDirs> {
   }
 }
 
+/**
+ * Recent-folders key for a registered remote host. Its paths name folders on
+ * that machine, so they are kept apart from this machine's recent folders.
+ */
+export function hostRecentDirsKey(hostId: string): string {
+  return `host:${hostId}`;
+}
+
 export function getRecentDirs(groupKey?: string): string[] {
   const key = normalizeGroupKey(groupKey);
   if (key) {
