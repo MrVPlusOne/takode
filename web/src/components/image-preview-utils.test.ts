@@ -157,4 +157,54 @@ describe("image preview item provenance", () => {
     expect(items[1]?.id).toBe("path:/tmp/maybe-missing.png");
     expect(items[1]?.expectedAttachment).toBeUndefined();
   });
+
+  it("finds screenshot paths in leader messages shaped like real stored history", () => {
+    // Text copied from a leader session's stored messages (README screenshots review). A text
+    // block listing bare paths on their own lines, followed by a tool call in the same message,
+    // and an answer linking page images with file: links beside non-image file links. Every
+    // image must yield a thumbnail in order; non-image links and tool input must not.
+    const listed = buildAssistantImagePreviewItems(
+      message({
+        role: "assistant",
+        contentBlocks: [
+          {
+            type: "text",
+            text: [
+              "1. **Hero option A:** a leader's quest tab.",
+              "/tmp/readme-shots/final/leader-quest-thread.jpg",
+              "2. **Hero option B:** the same layout from another leader.",
+              "/tmp/readme-shots/final/leader-quest-thread-alt.jpg",
+            ].join("\n"),
+          },
+          {
+            type: "tool_use",
+            id: "tool-1",
+            name: "Bash",
+            input: { command: "ls /tmp/readme-shots/final/not-shown.jpg" },
+          },
+        ],
+      }),
+      "session-1",
+    );
+    expect(listed.map((item) => item.title)).toEqual([
+      "/tmp/readme-shots/final/leader-quest-thread.jpg",
+      "/tmp/readme-shots/final/leader-quest-thread-alt.jpg",
+    ]);
+
+    const linked = buildAssistantImagePreviewItems(
+      message({
+        role: "assistant",
+        content: [
+          "- **The README draft itself (Markdown):** [README.md](file:/Users/me/worktree/README.md)",
+          "- **The rendered page:** [README.html](file:/tmp/readme-shots/render/README.html)",
+          "- **Page images:** [page 0](file:/tmp/readme-shots/render/page-0.takode-agent.jpeg) (hero), [page 1](file:/tmp/readme-shots/render/page-1.takode-agent.jpeg) (how a leader runs your work).",
+        ].join("\n"),
+      }),
+      "session-1",
+    );
+    expect(linked.map((item) => item.thumbnailUrl)).toEqual([
+      "/api/fs/image?path=%2Ftmp%2Freadme-shots%2Frender%2Fpage-0.takode-agent.jpeg&variant=thumbnail",
+      "/api/fs/image?path=%2Ftmp%2Freadme-shots%2Frender%2Fpage-1.takode-agent.jpeg&variant=thumbnail",
+    ]);
+  });
 });
