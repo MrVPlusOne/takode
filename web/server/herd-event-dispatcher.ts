@@ -246,6 +246,7 @@ const ACTIONABLE_EVENTS = new Set<TakodeEventType>([
   "board_stalled",
   "board_dispatchable",
   "notification_needs_input",
+  "message_delivery",
 ]);
 
 /** Events that must survive inbox overflow — dropping these leaves workers stuck. */
@@ -1610,6 +1611,13 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
       const action = typeof evt.data.action === "string" ? ` | next: ${truncate(evt.data.action, 80)}` : "";
       return `${label} | board_dispatchable | ${quest} | ${truncate(evt.data.summary, 120)}${action}${ageSuffix}`;
     }
+    case "message_delivery": {
+      const outcome =
+        evt.data.status === "delivered"
+          ? "your queued message was delivered"
+          : `your message was not delivered: ${evt.data.reason ?? "unknown reason"} (it stays queued there)`;
+      return `${label} | message_delivery | ${outcome} | ${evt.data.messageId} "${truncate(evt.data.preview, 80)}"${ageSuffix}`;
+    }
     default:
       return `${label} | ${evt.event}${ageSuffix}`;
   }
@@ -1682,6 +1690,7 @@ function questIdFromEvent(event: TakodeEvent): string | undefined {
     case "permission_request":
     case "notification_needs_input":
     case "user_message":
+    case "message_delivery":
       return event.data.questId;
     default:
       return undefined;

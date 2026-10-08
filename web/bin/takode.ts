@@ -38,7 +38,6 @@ import {
   handlePhases,
   handleRename,
   handleSearch,
-  handleSend,
   handleSetBase,
   handleSpawn,
   handleThread,
@@ -46,6 +45,7 @@ import {
   handleUnherd,
   handleWorkerStream,
 } from "./takode-orchestration-commands.js";
+import { handleSend } from "./takode-send.js";
 import { handlePermission } from "./takode-permission-commands.js";
 import { handleReconnect } from "./takode-reconnect.js";
 import { handleWorktreeCleanup } from "./takode-worktree-cleanup.js";
@@ -303,7 +303,8 @@ try {
       printUsage();
       process.exit(1);
   }
-  process.exit(0);
+  // Commands that report a failure without throwing set process.exitCode.
+  process.exit();
 } catch (e) {
   const message = e instanceof Error ? e.message : String(e);
   if (message.includes("ECONNREFUSED") || message.includes("fetch failed")) {

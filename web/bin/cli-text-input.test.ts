@@ -217,7 +217,13 @@ it.each(["companion", "takode"] as const)("streams a large %s message/answer to 
       body:
         entry === "companion"
           ? { content }
-          : { response: content, callerSessionId: "cli-input-fixture", targetId: "pending-request", threadKey: "main" },
+          : {
+              response: content,
+              callerSessionId: "cli-input-fixture",
+              targetId: "pending-request",
+              threadKey: "main",
+              trackDelivery: true,
+            },
     },
   ]);
 });

@@ -176,6 +176,9 @@ const SEND_HELP = `Usage: takode send <session> <message> [--correction] [--json
 
 Send a message to a herded session, or to another leader session.
 A leader's busy state does not block delivery, so --correction is not needed for leaders.
+If the session is not running, waits up to 20s for it to start and reports whether
+the message was delivered. A message still queued after that shows the reason, and a
+message_delivery herd event follows when it is delivered or fails.
 
 Options:
   --stdin       Read the message body from stdin

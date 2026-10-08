@@ -32,6 +32,7 @@ import {
 } from "./takode-core.js";
 import { printSessionLine } from "./takode-session-commands.js";
 import { handleThreadHandoff, THREAD_HANDOFF_HELP } from "./takode-thread-handoff.js";
+import { awaitDelivery, printDelivery, type MessageDelivery } from "./takode-send.js";
 
 const THREAD_HELP = `Usage: takode thread attach <quest-id> --message <index> [more-indices...] [--json]
        takode thread attach <quest-id> --message 174 175 --json
@@ -122,132 +123,6 @@ interface QuestJourneyPhaseCatalogEntry {
   phaseJsonDisplayPath: string;
   leaderBriefDisplayPath: string;
   assigneeBriefDisplayPath: string;
-}
-
-export async function handleSend(base: string, args: string[]): Promise<void> {
-  const sessionRef = args[0];
-  const usage =
-    "Usage: takode send <session> <message> [--correction] [--json]\n       takode send <session> --stdin [--correction] [--json]";
-  const flags = parseFlags(args.slice(1));
-  assertKnownFlags(flags, new Set(["json", "correction", "stdin"]), usage);
-
-  const jsonMode = flags.json === true;
-  const isCorrection = flags.correction === true;
-  const useStdin = flags.stdin === true;
-
-  const messageParts = args.slice(1).filter((arg) => arg !== "--json" && arg !== "--correction" && arg !== "--stdin");
-
-  if (!sessionRef) err(usage);
-  if (useStdin && messageParts.length > 0) {
-    err("Cannot combine --stdin with a positional message.");
-  }
-
-  const cleanContent = useStdin ? await readStdinText() : messageParts.join(" ");
-
-  if (!cleanContent.trim()) err(usage);
-
-  // Guard: orchestrators can only send to herded sessions or other leaders
-  const callerSessionId = getCredentials()?.sessionId;
-  if (callerSessionId) {
-    try {
-      // Resolve target to a full UUID
-      const targetSession = (await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}`)) as {
-        sessionId: string;
-        sessionNum?: number;
-        name?: string;
-        isGenerating?: boolean;
-        archived?: boolean;
-        isOrchestrator?: boolean;
-      };
-      const targetId = targetSession.sessionId;
-      if (targetSession.archived) {
-        const label = targetSession.name
-          ? `#${targetSession.sessionNum ?? "?"} ${targetSession.name}`
-          : `#${targetSession.sessionNum ?? sessionRef}`;
-        err(`Cannot send to archived session ${label}.`);
-      }
-
-      // A peer leader is never herded and is usually mid-turn, so messages to it
-      // skip the busy-session guard and herd check. The server accepts them only from leaders.
-      const isPeerLeader = targetSession.isOrchestrator === true && targetId !== callerSessionId;
-
-      // Guard: block sends to running sessions unless --correction is used
-      if (!isPeerLeader && targetSession.isGenerating && !isCorrection) {
-        const label = targetSession.name
-          ? `#${targetSession.sessionNum ?? "?"} ${targetSession.name}`
-          : `#${targetSession.sessionNum ?? sessionRef}`;
-        err(
-          `Session ${label} is currently working. ` +
-            `Queue this task and send it after the session finishes. ` +
-            `Use "takode send ${sessionRef} <message> --correction" if this is a steering message for the current task.`,
-        );
-      }
-
-      // Check herd membership
-      if (!isPeerLeader) {
-        const herdList = (await apiGet(base, `/sessions/${encodeURIComponent(callerSessionId)}/herd`)) as Array<{
-          sessionId: string;
-        }>;
-        if (!herdList.some((s) => s.sessionId === targetId)) {
-          err(`Cannot send to session ${sessionRef} — not in your herd. Run \`takode herd ${sessionRef}\` first.`);
-        }
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      // If error is from our own guards (herd check, running check), re-throw
-      if (msg.includes("not in your herd") || msg.includes("currently working") || msg.includes("archived session")) {
-        throw e;
-      }
-      // Other errors (session not found, etc.) — let the send call handle it
-    }
-  }
-
-  // Identify the calling session so the receiver can show an agent badge
-  let agentSource: { sessionId: string; sessionLabel?: string } | undefined;
-  if (callerSessionId) {
-    let sessionLabel: string | undefined;
-    try {
-      const sessions = (await apiGet(base, "/takode/sessions")) as Array<{
-        sessionId: string;
-        sessionNum?: number;
-        name?: string;
-      }>;
-      const own = sessions.find((s) => s.sessionId === callerSessionId);
-      if (own) {
-        sessionLabel = own.name
-          ? `#${own.sessionNum ?? "?"} ${own.name}`
-          : `#${own.sessionNum ?? callerSessionId.slice(0, 8)}`;
-      }
-    } catch {
-      // Non-critical — send without label
-    }
-    agentSource = { sessionId: callerSessionId, ...(sessionLabel ? { sessionLabel } : {}) };
-  }
-
-  const result = await apiPost(base, `/sessions/${encodeURIComponent(sessionRef)}/message`, {
-    content: cleanContent,
-    ...(agentSource ? { agentSource } : {}),
-  });
-
-  if (jsonMode) {
-    console.log(JSON.stringify(result, null, 2));
-    return;
-  }
-
-  const delivery = (result as { delivery?: string; paused?: boolean; diagnostic?: string }).delivery;
-  if ((result as { paused?: boolean }).paused) {
-    console.log(
-      `[${formatTime(Date.now())}] ✓ Message held for paused session ${formatInlineText(sessionRef)}. ${
-        (result as { diagnostic?: string }).diagnostic ?? "Unpause to resume delivery."
-      }`,
-    );
-  } else if (delivery === "queued") {
-    console.log(
-      `[${formatTime(Date.now())}] \u2713 Message queued for session ${formatInlineText(sessionRef)} (session restarting)`,
-    );
-  } else {
-    console.log(`[${formatTime(Date.now())}] \u2713 Message sent to session ${formatInlineText(sessionRef)}`);
-  }
 }
 
 export async function handlePause(base: string, args: string[]): Promise<void> {
@@ -1360,6 +1235,7 @@ export async function handleAnswer(base: string, args: string[]): Promise<void> 
     ...(msgIndex !== undefined ? { msgIndex } : {}),
     ...(threadKey ? { threadKey } : {}),
     ...(questId ? { questId } : {}),
+    trackDelivery: true,
   })) as {
     ok: boolean;
     kind?: "permission" | "notification";
@@ -1368,7 +1244,10 @@ export async function handleAnswer(base: string, args: string[]): Promise<void> 
     action?: string;
     feedback?: string;
     error?: string;
+    delivery?: string;
+    messageDelivery?: MessageDelivery;
   };
+  if (result.messageDelivery) result.messageDelivery = await awaitDelivery(base, result.messageDelivery);
 
   if (jsonMode) {
     console.log(JSON.stringify(result, null, 2));
@@ -1377,6 +1256,7 @@ export async function handleAnswer(base: string, args: string[]): Promise<void> 
 
   if (result.kind === "notification" || result.tool_name === "takode.notify") {
     console.log(`[${formatTime(Date.now())}] \u2713 Answered needs-input prompt: "${formatInlineText(result.answer)}"`);
+    if (result.messageDelivery) printDelivery("The answer", result.delivery, result.messageDelivery);
   } else if (result.tool_name === "AskUserQuestion") {
     console.log(`[${formatTime(Date.now())}] \u2713 Answered: "${formatInlineText(result.answer)}"`);
   } else if (result.tool_name === "ExitPlanMode") {

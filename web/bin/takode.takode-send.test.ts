@@ -120,6 +120,7 @@ describe("takode send", () => {
           body: {
             content: "Please add tests",
             agentSource: { sessionId: "leader-send", sessionLabel: "#1 Leader Send" },
+            trackDelivery: true,
           },
         },
       ]);
@@ -191,6 +192,7 @@ describe("takode send", () => {
           body: {
             content: stdinMessage,
             agentSource: { sessionId: "leader-stdin", sessionLabel: "#2 Leader Stdin" },
+            trackDelivery: true,
           },
         },
       ]);
@@ -252,6 +254,7 @@ describe("takode send", () => {
         {
           content: "memory commands will fail",
           agentSource: { sessionId: "leader-a", sessionLabel: "#21 Leader A" },
+          trackDelivery: true,
         },
       ]);
     } finally {

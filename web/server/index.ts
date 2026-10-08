@@ -66,7 +66,7 @@ import { HostLinkManager } from "./remote-host/host-link-manager.js";
 import { hostCanRestart } from "./remote-host/host-restart-gate.js";
 import { configureMachineSettings } from "./remote-host/machine-settings.js";
 import { readCheckoutCommit } from "./remote-host/host-update.js";
-import { configureRemoteMachines } from "./remote-host/session-machine.js";
+import { configureRemoteMachines, hostIsOnline } from "./remote-host/session-machine.js";
 import { configureMachines } from "./remote-host/machines.js";
 import { ThisMachine, thisMachineDetails } from "./machine-identity.js";
 import { stampQuestMachines } from "./quest-machine-stamps.js";
@@ -76,6 +76,7 @@ import { ImageStore } from "./image-store.js";
 import { IdleManager } from "./idle-manager.js";
 import { SleepInhibitor } from "./sleep-inhibitor.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
+import { createMessageDeliveryProbe, MessageDeliveryTracker } from "./message-delivery-tracker.js";
 import { createUnavailableOrchestratorRecoveryWake } from "./unavailable-orchestrator-recovery.js";
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
 import { resumeRestartContinuations } from "./restart-continuation-store.js";
@@ -544,6 +545,28 @@ const herdEventDispatcher = new HerdEventDispatcher(herdBridge, launcher, {
   },
 });
 wsBridge.herdEventDispatcher = herdEventDispatcher;
+const messageDeliveries = new MessageDeliveryTracker({
+  probe: createMessageDeliveryProbe({
+    getLauncherSession: (sessionId) => launcher.getSession(sessionId),
+    getBridgeSession: (sessionId) => wsBridge.getSession(sessionId),
+    hostIsOnline,
+    hostName: async (hostId) => (await hostRegistry.get(hostId))?.name ?? hostId,
+  }),
+  notifySender: (record) =>
+    herdEventDispatcher.emitTakodeEventForOrchestrator(
+      record.senderSessionId,
+      record.targetSessionId,
+      "message_delivery",
+      {
+        messageId: record.id,
+        status: record.status === "delivered" ? "delivered" : "failed",
+        ...(record.reason ? { reason: record.reason } : {}),
+        preview: record.preview,
+        queuedAt: record.queuedAt,
+        ...(record.questId ? { questId: record.questId } : {}),
+      },
+    ),
+});
 launcher.onHerdChange = createLauncherHerdChangeHandler({
   dispatcher: herdEventDispatcher,
   wsBridge,
@@ -608,6 +631,15 @@ wsBridge.onGitInfoReady = (sessionId, cwd, branch) => {
   prPoller.watch(sessionId, cwd, branch);
 };
 
+// A failed relaunch leaves the session stopped with any queued input undelivered:
+// tell the session's viewers, the server log and senders waiting on that input.
+function failRelaunch(sessionId: string, message: string): void {
+  console.error(`[server] Relaunch failed for session ${sessionId}: ${message}`);
+  wsBridge.markCodexAutoRecoveryFailed(sessionId);
+  wsBridge.broadcastToSession(sessionId, { type: "error", message });
+  messageDeliveries.recordLaunchFailure(sessionId, message);
+}
+
 const relaunchQueue = new RelaunchQueue(async (sessionId) => {
   if (serverWorkAdmission.isStopping()) return;
   const info = launcher.getSession(sessionId);
@@ -619,31 +651,17 @@ const relaunchQueue = new RelaunchQueue(async (sessionId) => {
   // If cwd doesn't exist on the session's machine, try to recreate its worktree (e.g. after migration)
   try {
     const wtResult = await recreateWorktreeIfMissing(sessionId, info, { launcher, worktreeTracker, wsBridge });
-    if (wtResult.error) {
-      wsBridge.markCodexAutoRecoveryFailed(sessionId);
-      wsBridge.broadcastToSession(sessionId, { type: "error", message: wtResult.error });
-      return;
-    }
+    if (wtResult.error) return failRelaunch(sessionId, wtResult.error);
     if (wtResult.recreated) {
       console.log(`[server] Recreated worktree for session ${sessionId} before relaunch`);
     }
   } catch (e) {
-    wsBridge.markCodexAutoRecoveryFailed(sessionId);
-    wsBridge.broadcastToSession(sessionId, {
-      type: "error",
-      message: `Failed to recreate worktree: ${e instanceof Error ? e.message : String(e)}`,
-    });
-    return;
+    return failRelaunch(sessionId, `Failed to recreate worktree: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   console.log(`[server] Relaunching session ${sessionId}`);
   const result = await launcher.relaunch(sessionId);
-  if (!result.ok) {
-    wsBridge.markCodexAutoRecoveryFailed(sessionId);
-    if (result.error) {
-      wsBridge.broadcastToSession(sessionId, { type: "error", message: result.error });
-    }
-  }
+  if (!result.ok) failRelaunch(sessionId, result.error ?? "the relaunch failed");
 });
 
 // Auto-relaunch CLI when a browser connects to a session with no CLI
@@ -1072,6 +1090,7 @@ app.route(
       codexSidecarRegistry,
       checkFrontendAvailability: checkCurrentFrontendAvailability,
       webPush: webPushAvailable ? webPush : undefined,
+      messageDeliveries,
     },
     perfTracer,
     sleepInhibitor,

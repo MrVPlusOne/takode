@@ -1067,3 +1067,44 @@ describe("inbox overflow prioritization (q-205)", () => {
     dispatcher.destroy();
   });
 });
+
+// ─── message_delivery follow-ups ─────────────────────────────────────────────
+
+describe("message_delivery events", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reaches the sending leader even when it does not herd the target, on the message's quest thread", () => {
+    // Leader-to-leader sends target sessions outside the sender's herd, so the
+    // follow-up must be addressed to the sender directly.
+    const { bridge, launcher } = createMocks();
+    vi.mocked(launcher.getHerdedSessions).mockReturnValue([]);
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    const dispatcher = new HerdEventDispatcher(bridge, launcher, { getSessionNum: () => 2851 });
+
+    dispatcher.emitTakodeEventForOrchestrator("leader-a", "peer-leader", "message_delivery", {
+      messageId: "msg-1",
+      status: "failed",
+      reason: "relaunch failed: Working directory not found: /x",
+      preview: "Take over the handover",
+      queuedAt: Date.now(),
+      questId: "q-7",
+    });
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    const [target, content, , , route] = vi.mocked(bridge.injectUserMessage).mock.calls[0]!;
+    expect(target).toBe("leader-a");
+    expect(content).toContain(
+      '#2851 | message_delivery | your message was not delivered: relaunch failed: Working directory not found: /x (it stays queued there) | msg-1 "Take over the handover"',
+    );
+    expect(route).toMatchObject({ threadKey: "q-7" });
+
+    dispatcher.destroy();
+  });
+});

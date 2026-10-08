@@ -47,6 +47,7 @@ export interface RouteContext {
     buildIdentity?: TakodeRuntimeBuildIdentity;
     codexSidecarRegistry?: import("../codex-sidecar-auth.js").CodexSidecarRegistry;
     checkFrontendAvailability?: FrontendAvailabilityChecker;
+    messageDeliveries?: import("../message-delivery-tracker.js").MessageDeliveryTracker;
   };
   perfTracer?: PerfTracer;
   checkFrontendAvailability?: FrontendAvailabilityChecker;

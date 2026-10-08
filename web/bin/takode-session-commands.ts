@@ -549,6 +549,17 @@ function printSessionInfo(data: TakodeSessionInfo, hosts: Map<string, HostSummar
   }
 
   console.log(`  Host           ${formatHostDetail(data.hostId, hosts)}`);
+  if (!data.cliConnected && data.lastLaunchError) {
+    const { message, at } = data.lastLaunchError;
+    console.log(`  Launch Error   ${formatInlineText(message)} (${formatRelativeTime(at)})`);
+  }
+  for (const msg of data.undeliveredMessages ?? []) {
+    const sender = msg.senderSessionNum !== null ? `#${msg.senderSessionNum}` : "an agent";
+    const why = msg.reason ? ` (${msg.status === "failed" ? "failed: " : ""}${formatInlineText(msg.reason)})` : "";
+    console.log(
+      `  Undelivered    ${msg.id} from ${sender}, queued ${formatRelativeTime(msg.queuedAt)}: "${truncate(msg.preview, 60)}"${why}`,
+    );
+  }
 
   // ── Working directory ──
   console.log(`  CWD            ${formatInlineText(data.cwd)}`);

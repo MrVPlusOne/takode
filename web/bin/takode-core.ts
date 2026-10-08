@@ -600,6 +600,16 @@ export type TakodeSessionInfo = {
   codexPendingDeliveryDetails?: CodexPendingDeliveryDiagnosticsDetails | null;
   pause?: { pausedAt: number; queuedMessages?: unknown[] } | null;
   pausedInputQueueCount?: number;
+  /** Messages senders sent while the session was not running that have not reached it yet. */
+  undeliveredMessages?: Array<{
+    id: string;
+    senderSessionNum: number | null;
+    preview: string;
+    queuedAt: number;
+    status: string;
+    reason?: string;
+  }>;
+  lastLaunchError?: { message: string; at: number } | null;
 };
 
 export type CodexPendingDeliveryBlockerReason =
@@ -814,6 +824,8 @@ export function buildSessionInfoJson(
     claudeMaxContextLength: session.claudeMaxContextLength ?? null,
     codexPendingDelivery: session.codexPendingDelivery ?? null,
     pausedInputQueueCount: session.pausedInputQueueCount ?? 0,
+    undeliveredMessages: session.undeliveredMessages ?? [],
+    lastLaunchError: session.lastLaunchError ?? null,
     taskHistoryCount: session.taskHistory?.length ?? 0,
     toolsCount: session.tools?.length ?? 0,
     mcpServerCount: session.mcpServers?.length ?? 0,

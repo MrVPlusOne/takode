@@ -1734,7 +1734,8 @@ export type TakodeEventType =
   | "user_message"
   | "board_stalled"
   | "board_dispatchable"
-  | "notification_needs_input";
+  | "notification_needs_input"
+  | "message_delivery";
 
 export interface TakodeTurnEndMsgRange {
   from: number;
@@ -1916,6 +1917,16 @@ export interface TakodeBoardDispatchableEventData {
   action?: string;
 }
 
+/** Outcome of a message the leader sent while the target was not running (see message-delivery-tracker.ts). */
+export interface TakodeMessageDeliveryEventData {
+  messageId: string;
+  status: "delivered" | "failed";
+  reason?: string;
+  preview: string;
+  queuedAt: number;
+  questId?: string;
+}
+
 export interface TakodeHerdBatchSnapshot {
   events: TakodeEvent[];
   renderedLines: string[];
@@ -1948,6 +1959,7 @@ export interface TakodeEventDataByType {
   board_stalled: TakodeBoardStalledEventData;
   board_dispatchable: TakodeBoardDispatchableEventData;
   notification_needs_input: TakodeNotificationNeedsInputEventData;
+  message_delivery: TakodeMessageDeliveryEventData;
 }
 
 interface TakodeEventBase {

@@ -175,6 +175,7 @@ export function createRoutes(
     buildIdentity?: TakodeRuntimeBuildIdentity;
     codexSidecarRegistry?: import("../codex-sidecar-auth.js").CodexSidecarRegistry;
     checkFrontendAvailability?: FrontendAvailabilityChecker;
+    messageDeliveries?: import("../message-delivery-tracker.js").MessageDeliveryTracker;
     webPush?: import("../web-push.js").WebPushChannel;
   },
   perfTracer?: PerfTracer,

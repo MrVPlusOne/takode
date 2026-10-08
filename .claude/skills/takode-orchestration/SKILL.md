@@ -88,6 +88,7 @@ Events from herded sessions are delivered automatically as `[Herd]` user message
 | `permission_resolved` | Worker was unblocked | No action needed |
 | `session_error` | Session-level error | Investigate, decide whether to retry |
 | `user_message [User]` | Human sent directly to worker | May indicate new instructions -- stay aware but don't interfere |
+| `message_delivery` | A message you sent while the target was not running was finally delivered, or failed (reason included; it stays queued there) | On failure, fix the cause (relaunch, host) or resend elsewhere; a later delivery still arrives as another `message_delivery` |
 
 ### Lifecycle Label Legend
 
@@ -385,6 +386,8 @@ You can also send to another **leader** session by its session number, without h
 **Syntax:** The session ID must always be the **first** argument after `send`. Flags (`--correction`, `--json`) go **after** the message or at the end. Putting flags before the session ID will cause parse errors.
 
 Use `--correction` to send a steering message to a session that is currently running (without it, sends to running sessions are blocked).
+
+Delivery is reported, not assumed. A message to a running session prints `delivered`. If the target is not running, `takode send` waits up to 20 seconds for it to start, then prints `delivered`, `NOT delivered: <reason>` (exit code 1), or `queued, NOT delivered yet: <reason>`. Only that last case is followed up later, by one `message_delivery` herd event. `takode info <session>` lists messages not yet delivered and the last launch error. `takode answer` reports the same way for needs-input answers.
 
 ```bash
 takode herd 2

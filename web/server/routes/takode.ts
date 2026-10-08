@@ -58,7 +58,7 @@ import {
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 import { formatReplyContentForAssistant } from "../../shared/reply-context.js";
 import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
-import type { RouteContext } from "./context.js";
+import type { RequiredAuthResult, RouteContext } from "./context.js";
 import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
 import { registerTakodeBoardRoutes } from "./takode-board.js";
 import { registerTakodeNotificationInboxRoutes } from "./takode-notification-inbox.js";
@@ -82,6 +82,35 @@ export function createTakodeRoutes(ctx: RouteContext) {
   const api = new Hono();
   const bridgeAny = ctx.wsBridge as any;
   const { launcher, wsBridge, authenticateTakodeCaller, resolveId, timerManager, pushoverNotifier } = ctx;
+
+  /** Messages senders are still waiting on for a session, with sender numbers for display. */
+  const describeMessageDeliveries = (sessionId: string) => {
+    const described = ctx.options?.messageDeliveries?.describeTarget(sessionId);
+    if (!described) return {};
+    return {
+      undeliveredMessages: described.undeliveredMessages.map((record) => ({
+        ...record,
+        senderSessionNum: launcher.getSessionNum(record.senderSessionId) ?? null,
+      })),
+      lastLaunchError: described.lastLaunchError,
+    };
+  };
+
+  /** When the caller asked for it, track a message that was queued instead of reaching a running backend. */
+  const trackQueuedMessage = (
+    delivery: string,
+    body: { trackDelivery?: unknown },
+    targetSessionId: string,
+    auth: Exclude<RequiredAuthResult, { response: Response }>,
+    content: string,
+    questId: string | undefined,
+  ) => {
+    const tracker = ctx.options?.messageDeliveries;
+    if (delivery !== "queued" || body.trackDelivery !== true || !tracker) return {};
+    const followUp = auth.caller.isOrchestrator === true;
+    const record = tracker.track({ targetSessionId, senderSessionId: auth.callerId, content, questId, followUp });
+    return { messageDelivery: record };
+  };
   const rejectInvalidOptionalTakodeAuth = (c: Parameters<RouteContext["authenticateCompanionCallerOptional"]>[0]) => {
     const auth = ctx.authenticateCompanionCallerOptional(c);
     return auth && "response" in auth ? auth.response : null;
@@ -569,6 +598,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       ...(attention ?? {}),
       taskHistory: currentBridgeSession?.taskHistory ?? [],
       keywords: currentBridgeSession?.keywords ?? [],
+      ...describeMessageDeliveries(sessionId),
     });
   });
 
@@ -985,7 +1015,23 @@ export function createTakodeRoutes(ctx: RouteContext) {
       manualAutoPauseOptions,
     );
     if (delivery === "no_session") return c.json({ error: "Session not found in bridge" }, 404);
-    return c.json({ ok: true, sessionId: id, delivery });
+    return c.json({
+      ok: true,
+      sessionId: id,
+      delivery,
+      ...trackQueuedMessage(delivery, body, id, auth, body.content, threadRoute?.questId),
+    });
+  });
+
+  // Lets a sender learn whether a queued message reached its target (see message-delivery-tracker.ts).
+  api.get("/takode/messages/:id", async (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+    const record = await ctx.options?.messageDeliveries?.status(c.req.param("id"));
+    if (!record || (record.senderSessionId !== auth.callerId && !auth.caller.isOrchestrator)) {
+      return c.json({ error: "Message not found" }, 404);
+    }
+    return c.json(record);
   });
 
   api.post("/sessions/:id/thread/attach", async (c) => {
@@ -1445,6 +1491,14 @@ export function createTakodeRoutes(ctx: RouteContext) {
         action: "answered",
         answer: response,
         delivery,
+        ...trackQueuedMessage(
+          delivery,
+          body,
+          id,
+          auth,
+          response,
+          threadRouteForTarget(target.threadKey ?? "main").questId,
+        ),
       });
     }
 
