@@ -65,7 +65,7 @@ export interface HostAgentOptions {
    * throwing); omit it to keep the coordinator from updating this host.
    */
   update?: (commit: string) => Promise<void>;
-  /** First reconnect delay after a link drop; doubles up to 15s. */
+  /** First reconnect delay after a link drop; doubles up to 15s (2s for a coordinator on this machine). */
   reconnectDelayMs?: number;
   /** Overrides for tests. */
   connect?: (url: string, headers: Record<string, string>) => AgentSocket;
@@ -96,6 +96,8 @@ interface ProcessControl {
 
 const OPEN = 1;
 const MAX_RECONNECT_DELAY_MS = 15_000;
+/** A coordinator on this machine costs nothing to retry, and agent CLIs here wait for the link. */
+const MAX_LOOPBACK_RECONNECT_DELAY_MS = 2_000;
 
 /**
  * The `takode node` side of a host link. It dials out to the coordinator, runs
@@ -119,6 +121,7 @@ export class HostAgent {
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelayMs: number;
+  private readonly maxReconnectDelayMs: number;
   private stopped = false;
   private updating = false;
   /** This machine's settings as the coordinator last sent them. */
@@ -128,6 +131,9 @@ export class HostAgent {
   constructor(private readonly options: HostAgentOptions) {
     this.log = options.log ?? ((message) => console.log(`[takode node] ${message}`));
     this.reconnectDelayMs = options.reconnectDelayMs ?? 1_000;
+    this.maxReconnectDelayMs = isLoopbackHost(new URL(options.coordinatorUrl).hostname)
+      ? MAX_LOOPBACK_RECONNECT_DELAY_MS
+      : MAX_RECONNECT_DELAY_MS;
   }
 
   start(): void {
@@ -193,7 +199,7 @@ export class HostAgent {
   private scheduleReconnect(): void {
     if (this.stopped || this.reconnectTimer) return;
     const delay = this.reconnectDelayMs;
-    this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, MAX_RECONNECT_DELAY_MS);
+    this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, this.maxReconnectDelayMs);
     this.log(`Coordinator link down; reconnecting in ${delay / 1000}s`);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -406,12 +412,17 @@ export class HostAgent {
       return;
     }
     const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...(prepared?.env ?? command.env),
-      // Like on the coordinator, agents find Takode's CLI wrappers and the user's
-      // shell tools first. A prepared Codex launch already built this PATH here.
-      ...(prepared ? {} : { PATH: getEnrichedPath() }),
-      // Agent CLIs on this host reach the coordinator through the local API proxy.
+      ...(command.fullEnv
+        ? command.env
+        : {
+            ...process.env,
+            ...(prepared?.env ?? command.env),
+            // Like on the coordinator, agents find Takode's CLI wrappers and the user's
+            // shell tools first. A prepared Codex launch already built this PATH here.
+            ...(prepared ? {} : { PATH: getEnrichedPath() }),
+          }),
+      // Agent CLIs on this host reach the coordinator through the local API proxy,
+      // which holds their calls while the coordinator restarts.
       COMPANION_PORT: port,
       ...(command.env.TAKODE_API_PORT ? { TAKODE_API_PORT: port } : {}),
     };

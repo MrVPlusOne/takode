@@ -37,6 +37,8 @@ export interface SdkSessionInfo extends SyncedProjectionRestEnvelopeFields {
   hostProcId?: string;
   /** Codex requests the session's host process is still waiting to have answered, for the next coordinator. */
   hostCodexRequests?: import("./codex-jsonrpc-transport.js").JsonRpcRequest[];
+  /** Raw permission requests the session's Claude process on a node still waits on, for the next coordinator. */
+  hostClaudeRequests?: string[];
   state: "starting" | "connected" | "running" | "exited";
   exitCode?: number | null;
   model?: string;

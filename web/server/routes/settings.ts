@@ -56,6 +56,7 @@ import {
 } from "../../shared/session-defaults.js";
 import { normalizeCodexLeaderCompactionMode } from "../../shared/codex-leader-compaction-mode.js";
 import { getCachedCodexModelCatalog } from "../codex-model-catalog.js";
+import { processHostOf } from "../remote-host/host-registry.js";
 import {
   findCodexReasoningEffortSupportIssue,
   formatCodexReasoningEffortSupportIssue,
@@ -131,8 +132,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
   function getRestartBlockingSessions(): RestartBlockingSession[] {
     return launcher.listSessions().flatMap((sessionInfo, originalIndex) => {
       if (sessionInfo.state === "exited") return [];
-      // Its host keeps the process running through the restart, and the next server takes it over.
-      if (sessionInfo.hostId) return [];
+      // Its host's node (or this machine's) keeps the process running through
+      // the restart, and the next server takes it over.
+      if (processHostOf(sessionInfo)) return [];
       const bridgeSession = wsBridge.getSession(sessionInfo.sessionId);
       if (!bridgeSession) return [];
 

@@ -360,20 +360,24 @@ describe("server restart controls", () => {
     expect(requestRestart).not.toHaveBeenCalled();
   });
 
-  it("restarts without interrupting sessions on remote hosts, which keep running", async () => {
+  it("restarts without interrupting sessions run by a host's node, which keep running", async () => {
     // A host keeps its session processes through a coordinator restart and the
     // next server takes them over, so a running or waiting host session neither
     // blocks the restart nor gets interrupted and told to continue afterwards.
     launcher.listSessions.mockReturnValue([
       { sessionId: "remote-worker", state: "connected", name: "Remote worker", hostId: "host-1" },
+      // A session without a host that this machine's own node runs survives too.
+      { sessionId: "local-node-worker", state: "connected", name: "Local node worker", hostProcId: "proc-1" },
     ]);
     attachBlockingSession("remote-worker", { isGenerating: true, pendingPermissionCount: 1 });
+    attachBlockingSession("local-node-worker", { isGenerating: true });
 
     const res = await app.request("/api/server/restart", { method: "POST" });
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({ ok: true, restartRequested: true });
     expect(bridge.getSession("remote-worker")?.isGenerating).toBe(true);
+    expect(bridge.getSession("local-node-worker")?.isGenerating).toBe(true);
     expect(requestRestart).toHaveBeenCalledOnce();
   });
 

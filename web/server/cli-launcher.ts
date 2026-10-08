@@ -27,8 +27,9 @@ import { machineSettingsFor } from "./remote-host/machine-settings.js";
 import { onMachine } from "./remote-host/host-operations.js";
 import { ensureQuestJourneyPhaseDataForCwd } from "./quest-journey-phases.js";
 import type { HostLinkManager, RemoteProcess, RemoteSpawnOptions } from "./remote-host/host-link-manager.js";
-import type { HostRegistry } from "./remote-host/host-registry.js";
+import { LOCAL_HOST_ID, processHostOf, type HostRegistry } from "./remote-host/host-registry.js";
 import { remoteSubprocess } from "./remote-host/remote-subprocess.js";
+import { replayOpenClaudeRequests, trackOpenClaudeRequests } from "./remote-host/claude-open-requests.js";
 
 /** Codex launch preparation on a host can seed a Codex home and caches. */
 const REMOTE_CODEX_PREPARE_TIMEOUT_MS = 120_000;
@@ -80,6 +81,14 @@ type LauncherSettingsSnapshot = {
   sessionDefaults?: { codex?: { model?: string } };
 };
 
+/** The hosts whose nodes run session processes. */
+interface RemoteHosts {
+  registry: HostRegistry;
+  links: HostLinkManager;
+  /** Whether new processes of sessions without a host start under this machine's own node (see `LocalNode`). */
+  useLocalNode?: () => boolean;
+}
+
 export class CliLauncher {
   private sessions = new Map<string, SdkSessionInfo>();
   private processes = new Map<string, Subprocess>();
@@ -109,7 +118,7 @@ export class CliLauncher {
   onHerdChange: ((event: HerdChangeEvent) => void) | null = null;
 
   /** Registered remote hosts and their links (see `setRemoteHosts`); sessions with a `hostId` run there. */
-  remoteHosts: { registry: HostRegistry; links: HostLinkManager } | null = null;
+  remoteHosts: RemoteHosts | null = null;
   /**
    * Host processes the previous coordinator left running, by session, waiting
    * for their host to connect so the session can take them over.
@@ -137,12 +146,13 @@ export class CliLauncher {
    * host processes outlived the previous coordinator take them over when
    * their host connects.
    */
-  setRemoteHosts(remoteHosts: { registry: HostRegistry; links: HostLinkManager }): void {
+  setRemoteHosts(remoteHosts: RemoteHosts): void {
     this.remoteHosts = remoteHosts;
     remoteHosts.links.onStatusChange((status) => {
       if (!status.online) return;
       for (const [sessionId] of this.hostReattach) {
-        if (this.sessions.get(sessionId)?.hostId === status.hostId) void this.relaunch(sessionId);
+        const info = this.sessions.get(sessionId);
+        if (info && processHostOf(info) === status.hostId) void this.relaunch(sessionId);
       }
     });
   }
@@ -153,27 +163,57 @@ export class CliLauncher {
   }
 
   /**
-   * Process spawner for a remote host, in the shape the Agent SDK's custom
+   * The host whose node starts this launch's process: the process being taken
+   * over, the session's remote host, or this machine's node when it runs local
+   * sessions. Undefined when the process starts here, which then outlives no
+   * restart, so any saved host process is forgotten.
+   */
+  private nodeHostForLaunch(info: SdkSessionInfo, options: LaunchOptions): string | undefined {
+    if (options.reattachHostProcess) return processHostOf(info);
+    if (info.hostId) return info.hostId;
+    if (!options.containerId && this.remoteHosts?.useLocalNode?.()) return LOCAL_HOST_ID;
+    delete info.hostProcId;
+    delete info.hostCodexRequests;
+    delete info.hostClaudeRequests;
+    return undefined;
+  }
+
+  /**
+   * Process spawner for a host's node, in the shape the Agent SDK's custom
    * spawn hook expects. It hands over `adopted` when given, and otherwise
    * starts a process and saves its id for a later coordinator to take over.
    */
-  private remoteSpawner(info: SdkSessionInfo, adopted?: RemoteProcess): (options: RemoteSpawnOptions) => RemoteProcess {
-    const links = this.remoteHosts?.links;
-    const hostId = info.hostId!;
-    if (!links) throw new Error(`Remote hosts are not available on this server; cannot run on host ${hostId}`);
+  private nodeSpawner(
+    hostId: string,
+    info: SdkSessionInfo,
+    adopted?: RemoteProcess,
+  ): (options: RemoteSpawnOptions) => RemoteProcess {
     return (options) => {
-      if (!adopted) return this.startHostProcess(info, options);
+      const proc = adopted ?? this.startHostProcess(hostId, info, options);
+      const unanswered = adopted ? (info.hostClaudeRequests ?? []) : [];
+      // Saved so a coordinator that restarts while this process keeps running can ask them again.
+      trackOpenClaudeRequests(proc, unanswered, (open) => {
+        info.hostClaudeRequests = open;
+        this.persistState();
+      });
+      if (!adopted) return proc;
       options.signal?.addEventListener("abort", () => adopted.kill("SIGTERM"), { once: true });
-      // It started long ago; the SDK still waits for the event.
-      queueMicrotask(() => adopted.emit("spawn"));
+      queueMicrotask(() => {
+        // It started long ago; the SDK still waits for the event.
+        adopted.emit("spawn");
+        replayOpenClaudeRequests(adopted, unanswered);
+      });
       return adopted;
     };
   }
 
-  private startHostProcess(info: SdkSessionInfo, options: RemoteSpawnOptions): RemoteProcess {
-    const proc = this.remoteHosts!.links.spawn(info.hostId!, options);
+  private startHostProcess(hostId: string, info: SdkSessionInfo, options: RemoteSpawnOptions): RemoteProcess {
+    const links = this.remoteHosts?.links;
+    if (!links) throw new Error(`Remote hosts are not available on this server; cannot run on host ${hostId}`);
+    const proc = links.spawn(hostId, options);
     info.hostProcId = proc.procId;
     delete info.hostCodexRequests;
+    delete info.hostClaudeRequests;
     this.persistState();
     return proc;
   }
@@ -431,12 +471,14 @@ export class CliLauncher {
         info.herdedBy = (info.herdedBy as unknown as string[])[0] ?? undefined;
       }
 
-      // A remote host keeps the session's process running across a coordinator
-      // restart; the session takes it over when the host connects.
-      if (info.hostId && info.hostProcId && info.state !== "exited" && !info.archived && this.remoteHosts) {
+      // A host's node (a remote host, or this machine's own) keeps the session's
+      // process running across a coordinator restart; the session takes it over
+      // when the node connects.
+      const processHost = processHostOf(info);
+      if (processHost && info.hostProcId && info.state !== "exited" && !info.archived && this.remoteHosts) {
         info.state = "starting";
         this.sessions.set(info.sessionId, info);
-        this.awaitHostProcess(info.sessionId, info.hostId, info.hostProcId);
+        this.awaitHostProcess(info.sessionId, processHost, info.hostProcId);
         recovered++;
         continue;
       }
@@ -1023,6 +1065,7 @@ export class CliLauncher {
     // Starting until the Claude process has actually spawned, so consumers such
     // as cron never treat a failed launch as a connected session.
     info.state = "starting";
+    const nodeHost = this.nodeHostForLaunch(info, options);
     const adapter: ClaudeSdkAdapter = new ClaudeSdkAdapter(sessionId, {
       model: options.model,
       cwd: info.cwd,
@@ -1033,12 +1076,10 @@ export class CliLauncher {
       resumeSessionAt: info.resumeAt,
       env: options.env as Record<string, string | undefined>,
       // A remote host resolves `claude` itself, from its own settings.
-      claudeBinary: info.hostId
-        ? undefined
-        : options.claudeBinary || machineSettingsFor(null).claudeBinary || undefined,
-      ...(info.hostId
+      claudeBinary: info.hostId ? "claude" : options.claudeBinary || machineSettingsFor(null).claudeBinary || undefined,
+      ...(nodeHost
         ? {
-            spawnProcess: this.remoteSpawner(info, options.reattachHostProcess),
+            spawnProcess: this.nodeSpawner(nodeHost, info, options.reattachHostProcess),
             reattach: !!options.reattachHostProcess,
           }
         : {}),
@@ -1089,6 +1130,7 @@ export class CliLauncher {
     let instructionContext: import("./codex-instruction-snapshot.js").CodexInstructionContext | undefined;
     /** Set when the host prepared this launch; the process then runs there. */
     let remoteLaunchId: string | undefined;
+    const nodeHost = this.nodeHostForLaunch(info, options);
     try {
       // A remote host prepares Codex with its own settings; here, this machine's apply.
       const codexOptions = info.hostId
@@ -1167,19 +1209,24 @@ export class CliLauncher {
     let proc: ReturnType<typeof Bun.spawn>;
     try {
       serverWorkAdmission.assertOpen();
-      proc =
-        remoteLaunchId && info.hostId && this.remoteHosts
-          ? remoteSubprocess(
-              options.reattachHostProcess ??
-                this.startHostProcess(info, { command: "codex", args: [], env: {}, preparedLaunchId: remoteLaunchId }),
-            )
-          : Bun.spawn(spawnCmd, {
-              cwd: spawnCwd,
-              env: spawnEnv,
-              stdin: "pipe",
-              stdout: "pipe",
-              stderr: "pipe",
-            });
+      proc = nodeHost
+        ? remoteSubprocess(
+            options.reattachHostProcess ??
+              this.startHostProcess(
+                nodeHost,
+                info,
+                remoteLaunchId
+                  ? { command: "codex", args: [], env: {}, preparedLaunchId: remoteLaunchId }
+                  : { command: spawnCmd[0]!, args: spawnCmd.slice(1), cwd: spawnCwd, env: spawnEnv },
+              ),
+          )
+        : Bun.spawn(spawnCmd, {
+            cwd: spawnCwd,
+            env: spawnEnv,
+            stdin: "pipe",
+            stdout: "pipe",
+            stderr: "pipe",
+          });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[cli-launcher] Failed to spawn Codex for session ${sessionTag(sessionId)}: ${msg}`);
@@ -1233,7 +1280,7 @@ export class CliLauncher {
       recoveryRole: info.isOrchestrator ? "leader" : "standard",
       instructionContext,
       failureContextProvider: () => formatStreamTailForError(stderrTail),
-      ...(info.hostId
+      ...(nodeHost
         ? {
             reattach: !!options.reattachHostProcess,
             unansweredServerRequests: options.reattachHostProcess ? info.hostCodexRequests : undefined,

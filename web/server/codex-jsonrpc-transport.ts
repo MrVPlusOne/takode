@@ -211,6 +211,10 @@ export class JsonRpcTransport {
     if ("id" in msg && msg.id !== undefined) {
       if ("method" in msg && msg.method) {
         if (this.unanswered) {
+          // A taken-over process resends its open requests on `thread/resume`
+          // (seen with app-server 0.153.4), which `redeliverRequests` may already
+          // have handled: ask the user once.
+          if (this.unanswered.has(msg.id as number)) return;
           this.unanswered.set(msg.id as number, msg as JsonRpcRequest);
           this.unansweredChangeCb?.([...this.unanswered.values()]);
         }
@@ -300,7 +304,10 @@ export class JsonRpcTransport {
     this.unansweredChangeCb = onChange;
   }
 
-  /** Handle requests an earlier client of this process received but never answered, as if they just arrived. */
+  /**
+   * Handle requests an earlier client of this process received but never
+   * answered, as if they just arrived. One the process also resends is handled once.
+   */
   redeliverRequests(requests: JsonRpcRequest[]): void {
     for (const request of requests) this.dispatch(request);
   }

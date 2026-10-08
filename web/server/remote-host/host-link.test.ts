@@ -1,6 +1,7 @@
 import { once } from "node:events";
 import { HostAgent } from "./host-agent.js";
 import { HostLinkManager, type RemoteProcess } from "./host-link-manager.js";
+import { LOCAL_HOST_ID } from "./host-registry.js";
 import { FakeHostLink } from "../test-fixtures/fake-host-link.js";
 
 /** A small program that echoes stdin in upper case, and on "LATER" prints a second line after a delay. */
@@ -216,5 +217,71 @@ describe("host link", () => {
 
     await exitOf(manager.adopt(hostId, "proc-adopted-too-late"));
     expect(errors).toEqual(["The host no longer runs this process", "The host no longer runs this process"]);
+  });
+
+  // Remote hosts get only session variables and supply their own machine's
+  // environment. This machine's own node instead runs a process with exactly
+  // the environment the coordinator prepared, as if the coordinator had
+  // started it, except that agent CLIs reach the coordinator through the node.
+  it("runs a process on this machine's node with the coordinator's complete environment", async () => {
+    const program = [
+      "const { PATH, SESSION_VALUE, COMPANION_PORT, NODE_ONLY_VALUE } = process.env;",
+      "console.log(JSON.stringify({ PATH, SESSION_VALUE, COMPANION_PORT, NODE_ONLY_VALUE: NODE_ONLY_VALUE ?? null }));",
+    ].join("\n");
+    process.env.NODE_ONLY_VALUE = "from the node's own environment";
+    try {
+      const local = new HostAgent({
+        coordinatorUrl: "http://127.0.0.1:3456",
+        token: "token",
+        apiProxyPort: 45_678,
+        log: () => {},
+        connect: () => new FakeHostLink(manager, LOCAL_HOST_ID).agentSide,
+      });
+      local.start();
+      agent = local;
+      const proc = manager.spawn(LOCAL_HOST_ID, {
+        command: process.execPath,
+        args: ["-e", program],
+        env: {
+          PATH: "/session/bin",
+          SESSION_VALUE: "1",
+          COMPANION_PORT: "3456",
+          UNSET_VALUE: undefined,
+        },
+      });
+      const output = collect(proc);
+      await once(proc, "exit");
+      expect(JSON.parse(output.text())).toEqual({
+        PATH: "/session/bin",
+        SESSION_VALUE: "1",
+        COMPANION_PORT: "45678",
+        NODE_ONLY_VALUE: null,
+      });
+    } finally {
+      delete process.env.NODE_ONLY_VALUE;
+    }
+  });
+
+  // When a host will not connect again (this machine's node was turned off and
+  // stopped), its processes end, including ones waiting to be taken over, so
+  // their sessions start anew instead of waiting forever.
+  it("ends the processes of a released host", async () => {
+    const queued = manager.spawn(hostId, {
+      command: process.execPath,
+      args: ["-e", ECHO_PROGRAM],
+      env: {},
+    });
+    const adopted = manager.adopt(hostId, "proc-from-before");
+    const errors: string[] = [];
+    for (const proc of [queued, adopted]) proc.on("error", (error) => errors.push(error.message));
+    const exits = Promise.all([queued, adopted].map((proc) => new Promise((resolve) => proc.once("exit", resolve))));
+    manager.release(hostId, "The node is not running");
+    await exits;
+    expect(errors).toEqual(["The node is not running", "The node is not running"]);
+    expect(manager.status(hostId).processes).toBe(0);
+
+    // A later node starts nothing left over from before.
+    agent = startAgent();
+    await waitFor(() => manager.status(hostId).online);
   });
 });

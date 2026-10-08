@@ -52,8 +52,9 @@ describe("CodexAdapter reattaching to a running app-server", () => {
   // After a coordinator restart, a host's app-server is still initialized and
   // has the thread loaded mid-turn. The adapter accepts "Already initialized",
   // joins the loaded thread, keeps its request ids clear of the old client's,
-  // and asks again the approval Codex is still waiting for, answering it under
-  // the original JSON-RPC id. The waiting set is reported for saving throughout.
+  // and asks again the approval Codex is still waiting for (once, although Codex
+  // resends it too), answering it under the original JSON-RPC id. The waiting
+  // set is reported for saving throughout.
   it("joins the loaded thread and answers the request the previous coordinator left open", async () => {
     const mock = createMockProcess();
     const open: JsonRpcRequest = {
@@ -90,6 +91,10 @@ describe("CodexAdapter reattaching to a running app-server", () => {
     if (permission?.type !== "permission_request") throw new Error("No permission request");
     expect(permission.request.input).toMatchObject({ command: "make deploy" });
     expect(saved.at(-1)).toEqual([open]);
+    // The app-server also resends its open request on `thread/resume`; the user is asked once.
+    mock.push(JSON.stringify(open));
+    for (let attempt = 0; attempt < 20; attempt++) await tick();
+    expect(browser.filter((message) => message.type === "permission_request")).toHaveLength(1);
 
     adapter.sendBrowserMessage({
       type: "permission_response",

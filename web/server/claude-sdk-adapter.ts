@@ -59,10 +59,11 @@ export interface ClaudeSdkAdapterOptions {
   /** When resuming, keep only conversation history through this assistant message UUID (Revert). */
   resumeSessionAt?: string;
   env?: Record<string, string | undefined>;
+  /** Claude Code program to run; a bare `claude` for a remote host, which resolves it itself. */
   claudeBinary?: string;
   /**
-   * Start the Claude process somewhere other than this machine (a registered
-   * remote host). The host resolves the `claude` program itself.
+   * Start the Claude process through a host's `takode node` (a registered
+   * remote host, or this machine's own node) instead of as a child here.
    */
   spawnProcess?: (options: {
     command: string;
@@ -73,7 +74,7 @@ export interface ClaudeSdkAdapterOptions {
   }) => unknown;
   /**
    * `spawnProcess` hands over a Claude process a previous coordinator started,
-   * still running on a remote host after a coordinator restart. Claude answers
+   * still running under a host's node after a coordinator restart. Claude answers
    * the SDK's `initialize` with "Already initialized" and the permission
    * requests it is still waiting for, which the SDK then asks again.
    */
@@ -299,12 +300,11 @@ export class ClaudeSdkAdapter
     // approval dialog or question form.
 
     // Resolve the claude binary path — use the configured binary or find it on PATH
-    if (this.options.spawnProcess) {
-      // A bare program name the remote host resolves against its own installation.
-      sessionOptions.pathToClaudeCodeExecutable = "claude";
-      sessionOptions.spawnClaudeCodeProcess = this.options.spawnProcess;
-    } else if (this.options.claudeBinary) {
+    if (this.options.claudeBinary) {
       sessionOptions.pathToClaudeCodeExecutable = this.options.claudeBinary;
+    }
+    if (this.options.spawnProcess) {
+      sessionOptions.spawnClaudeCodeProcess = this.options.spawnProcess;
     }
     if (this.options.debugFile) {
       sessionOptions.debugFile = this.options.debugFile;
@@ -386,12 +386,13 @@ export class ClaudeSdkAdapter
       // maps it to --resume-session-at, which Revert needs to truncate context.
       const patchedResumeSessionAt = this.options.cliSessionId ? this.options.resumeSessionAt : undefined;
       const patchedSpawnProcess = this.options.spawnProcess;
+      const patchedClaudeBinary = this.options.claudeBinary;
       v4Class.prototype.initialize = function patchedV4Initialize(this: any) {
         this.options.settingSources = patchedSettingSources;
         if (patchedSpawnProcess) {
           // The v2 session API does not forward the custom spawn hook either.
           this.options.spawnClaudeCodeProcess = patchedSpawnProcess;
-          this.options.pathToClaudeCodeExecutable = "claude";
+          if (patchedClaudeBinary) this.options.pathToClaudeCodeExecutable = patchedClaudeBinary;
         }
         if (patchedPlugins.length > 0) {
           this.options.plugins = patchedPlugins;

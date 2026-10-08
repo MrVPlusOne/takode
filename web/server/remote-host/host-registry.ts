@@ -22,6 +22,16 @@ export type MachineSettings = HostMachineSettings;
 /** Host id of the coordinator's own machine, which always exists and is not registered. */
 export const LOCAL_HOST_ID = "local";
 
+/**
+ * The host whose `takode node` runs a session's current process, which then
+ * outlives a coordinator restart: the session's remote host, or this
+ * machine's own node for a session without a host that it runs (one with a
+ * saved host process id). Undefined for a process the coordinator started itself.
+ */
+export function processHostOf(session: { hostId?: string; hostProcId?: string }): string | undefined {
+  return session.hostId ?? (session.hostProcId ? LOCAL_HOST_ID : undefined);
+}
+
 const DEFAULT_MACHINE_SETTINGS: MachineSettings = { claudeBinary: "", codexBinary: "" };
 
 interface StoredHost extends RegisteredHost {
@@ -33,7 +43,13 @@ interface StoredHost extends RegisteredHost {
 interface StoredRegistry {
   hosts: StoredHost[];
   /** Settings of the coordinator's own machine. Absent until first written, which also marks the legacy migration as done. */
-  local?: { settings: MachineSettings };
+  local?: {
+    settings: MachineSettings;
+    /** Run this machine's sessions under its own `takode node` (see `local-node.ts`). */
+    nodeEnabled?: boolean;
+    /** SHA-256 of the token this machine's node presents. */
+    nodeTokenSha256?: string;
+  };
 }
 
 const HOST_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/;
@@ -90,12 +106,32 @@ export class HostRegistry {
     return { ...DEFAULT_MACHINE_SETTINGS, ...stored };
   }
 
+  /** Whether this machine's sessions run under its own node. Answers from memory once loaded. */
+  localNodeEnabled(): boolean {
+    return this.local?.nodeEnabled === true;
+  }
+
+  async setLocalNodeEnabled(enabled: boolean): Promise<void> {
+    await this.load();
+    this.local = { ...this.localEntry(), nodeEnabled: enabled };
+    await this.persist();
+  }
+
+  /** Issue a new token for this machine's node, replacing any earlier one. */
+  async issueLocalNodeToken(): Promise<string> {
+    await this.load();
+    const token = randomBytes(32).toString("base64url");
+    this.local = { ...this.localEntry(), nodeTokenSha256: sha256(token) };
+    await this.persist();
+    return token;
+  }
+
   /** Change some of a host's machine settings. Returns null for an unknown host. */
   async updateMachineSettings(hostId: string, patch: Partial<MachineSettings>): Promise<MachineSettings | null> {
     const hosts = await this.load();
     const next = { ...this.machineSettings(hostId), ...definedSettings(patch) };
     if (hostId === LOCAL_HOST_ID) {
-      this.local = { settings: next };
+      this.local = { ...this.localEntry(), settings: next };
     } else {
       const host = hosts.find((candidate) => candidate.id === hostId);
       if (!host) return null;
@@ -139,11 +175,15 @@ export class HostRegistry {
     return true;
   }
 
-  /** The host a token belongs to, or null. */
+  /** The host a token belongs to (`LOCAL_HOST_ID` for this machine's node), or null. */
   async authenticate(token: string): Promise<RegisteredHost | null> {
     const digest = Buffer.from(sha256(token), "hex");
     for (const host of await this.load()) {
       if (timingSafeEqual(digest, Buffer.from(host.tokenSha256, "hex"))) return publicHost(host);
+    }
+    const localDigest = this.local?.nodeTokenSha256;
+    if (localDigest && timingSafeEqual(digest, Buffer.from(localDigest, "hex"))) {
+      return { id: LOCAL_HOST_ID, name: LOCAL_HOST_ID, createdAt: 0 };
     }
     return null;
   }
@@ -154,12 +194,16 @@ export class HostRegistry {
     try {
       const parsed = JSON.parse(await readFile(this.path, "utf-8")) as Partial<StoredRegistry>;
       this.hosts = Array.isArray(parsed.hosts) ? parsed.hosts : [];
-      this.local = parsed.local?.settings ? { settings: parsed.local.settings } : undefined;
+      this.local = parsed.local?.settings ? parsed.local : undefined;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       this.hosts = [];
     }
     return this.hosts;
+  }
+
+  private localEntry(): NonNullable<StoredRegistry["local"]> {
+    return this.local ?? { settings: { ...DEFAULT_MACHINE_SETTINGS } };
   }
 
   private persist(): Promise<void> {

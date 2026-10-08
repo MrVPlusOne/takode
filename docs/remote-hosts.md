@@ -117,6 +117,28 @@ What survives what:
 - **Restarting `takode node`:** ends the sessions it was running. They relaunch
   and resume their conversation the next time they are used.
 
+## Keeping this machine's sessions across restarts
+
+The coordinator's own sessions can survive its restarts the same way. Turn on
+**Keep sessions running across server restarts** under **Settings → Hosts →
+This machine**. The server then starts a `takode node` on its own machine and
+runs the processes of sessions without a host under it. After a restart, the
+new server takes them over when that node reconnects: a turn in progress keeps
+running, its output arrives, and a pending permission prompt is asked again.
+Running sessions move to the node the next time they start.
+
+The server supervises this node itself: it starts it with the server (also
+after a reboot), lets a running one reconnect after a restart, and replaces one
+that has exited or stays disconnected for 30 seconds. The node runs from the
+server's own checkout, so an update restarts it on that checkout's code, only
+while none of its sessions is in a turn. Its log is
+`~/.companion/logs/local-node-<serverId>.log`.
+
+Stopping the server leaves the node and its sessions running, so the next start
+takes them over. Turning the setting off stops the node once no session runs
+on it. To stop it at once, end its process (it is the `takode-node.ts` process
+with `--shared-checkout`); its sessions then relaunch when next used.
+
 ## Updating Takode
 
 The host's checkout should run the same commit as the coordinator. `takode

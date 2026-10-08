@@ -34,6 +34,11 @@ export interface RemoteHost {
 export interface LocalHost {
   id: string;
   settings: MachineSettings;
+  /**
+   * This machine's own `takode node`: when enabled, it runs these sessions so
+   * they outlive server restarts. Carries the same link status as a remote host.
+   */
+  node: Omit<RemoteHost, "id" | "name" | "createdAt" | "settings" | "commandOverrides"> & { enabled: boolean };
 }
 
 const POLL_MS = 10_000;
@@ -76,7 +81,10 @@ export async function refreshRemoteHosts(): Promise<void> {
  * One line describing a host whose Takode build differs from this server's,
  * and what auto-update is doing about it; null when the builds match.
  */
-export function hostBuildWarning(host: RemoteHost, serverBuild: string | null): string | null {
+export function hostBuildWarning(
+  host: Pick<RemoteHost, "build" | "buildMismatch" | "autoUpdate" | "updating" | "updateError">,
+  serverBuild: string | null,
+): string | null {
   if (!host.buildMismatch) return null;
   const mismatch = host.build
     ? `Runs Takode ${shortCommit(host.build)}, this server runs ${serverBuild ? shortCommit(serverBuild) : "another build"}.`
@@ -102,6 +110,22 @@ export async function updateMachineSettings(id: string, patch: Partial<MachineSe
   if (!response.ok || !body.settings) throw new Error(body.error || `HTTP ${response.status}`);
   await refreshRemoteHosts();
   return body.settings;
+}
+
+/** Turn running this machine's sessions under its own node on or off. */
+export async function setLocalNodeEnabled(enabled: boolean): Promise<void> {
+  const response = await fetch("/api/hosts/local/node", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(body.error || `HTTP ${response.status}`);
+  }
+  await refreshRemoteHosts();
 }
 
 /** Register a host; its token is returned only this once. */

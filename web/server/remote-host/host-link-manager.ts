@@ -14,6 +14,7 @@ import {
   type HostResponse,
   type HostToCoordinator,
 } from "../../shared/host-protocol.js";
+import { LOCAL_HOST_ID } from "./host-registry.js";
 import { shortCommit } from "./host-update.js";
 
 /** The host could not be asked: it is offline or the link dropped before it answered. */
@@ -312,15 +313,21 @@ export class HostLinkManager {
     this.enqueue(this.link(hostId), { kind: "write_file", path, data: data.toString("base64") });
   }
 
-  /** Start a process on a host. If the host is away, the process starts when it returns. */
+  /**
+   * Start a process on a host. If the host is away, the process starts when it
+   * returns. This machine's own node (`LOCAL_HOST_ID`) gets the complete
+   * environment, since nothing in it describes another machine.
+   */
   spawn(hostId: string, options: RemoteSpawnOptions): RemoteProcess {
+    const sameMachine = hostId === LOCAL_HOST_ID;
     const proc = this.startProcess(hostId, (procId) => ({
       kind: "spawn",
       procId,
       command: options.command,
       args: options.args,
       ...(options.cwd ? { cwd: options.cwd } : {}),
-      env: sessionEnv(options.env),
+      env: sameMachine ? definedEnv(options.env) : sessionEnv(options.env),
+      ...(sameMachine ? { fullEnv: true } : {}),
       ...(options.preparedLaunchId ? { preparedLaunchId: options.preparedLaunchId } : {}),
     }));
     options.signal?.addEventListener("abort", () => proc.kill("SIGTERM"), { once: true });
@@ -361,6 +368,18 @@ export class HostLinkManager {
     proc.once("exit", () => link.processes.delete(procId));
     if (link.hostInstanceId !== null) queueMicrotask(() => proc.fail("The host no longer runs this process"));
     return proc;
+  }
+
+  /**
+   * Give up on an offline host that will not connect again, such as this
+   * machine's node after it was turned off and stopped: its processes,
+   * including ones waiting to be taken over, end, so their sessions start anew.
+   */
+  release(hostId: string, reason: string): void {
+    const link = this.links.get(hostId);
+    if (!link || link.online) return;
+    link.unacked = link.unacked.filter((queued) => !("procId" in queued.command));
+    for (const proc of [...link.processes.values()]) proc.fail(reason);
   }
 
   private handleHello(
@@ -525,7 +544,8 @@ export class HostLinkManager {
 /**
  * A process running on a remote host, shaped like the Agent SDK's
  * `SpawnedProcess`. Stdin writes become ordered commands; stdout and stderr
- * carry the host's replayed output.
+ * carry the host's replayed output. `input` and `output` events show the
+ * stdin and stdout bytes to observers without consuming the streams.
  */
 export class RemoteProcess extends EventEmitter {
   readonly stdin: Writable;
@@ -546,6 +566,7 @@ export class RemoteProcess extends EventEmitter {
     this.stdin = new Writable({
       write: (chunk: Buffer | string, encoding, callback) => {
         const data = typeof chunk === "string" ? Buffer.from(chunk, encoding) : chunk;
+        this.emit("input", data);
         this.sendCommand({ kind: "stdin", procId, data: data.toString("base64") });
         callback();
       },
@@ -576,9 +597,12 @@ export class RemoteProcess extends EventEmitter {
         this.pid = event.pid;
         this.emit("spawn");
         return;
-      case "stdout":
-        this.stdout.write(Buffer.from(event.data, "base64"));
+      case "stdout": {
+        const data = Buffer.from(event.data, "base64");
+        this.emit("output", data);
+        this.stdout.write(data);
         return;
+      }
       case "stderr":
         this.stderr.write(Buffer.from(event.data, "base64"));
         return;
@@ -611,6 +635,12 @@ export class RemoteProcess extends EventEmitter {
     this.stderr.end();
     this.emit("exit", code, signal);
   }
+}
+
+function definedEnv(env: Record<string, string | undefined>): Record<string, string> {
+  const defined: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) if (typeof value === "string") defined[key] = value;
+  return defined;
 }
 
 function sessionEnv(env: Record<string, string | undefined>): Record<string, string> {

@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HostRegistry, LOCAL_HOST_ID } from "./host-registry.js";
+import { HostRegistry, LOCAL_HOST_ID, processHostOf } from "./host-registry.js";
 
 describe("HostRegistry", () => {
   let dir: string;
@@ -102,5 +102,42 @@ describe("HostRegistry", () => {
       claudeBinary: "/port-a/claude",
       codexBinary: "/port-a/codex",
     });
+  });
+
+  // This machine's node authenticates as the local host with a token the
+  // server issues for it (stored only as a hash); a new token replaces the old
+  // one. Turning the node on persists and keeps this machine's other settings.
+  it("stores this machine's node setting and authenticates its token", async () => {
+    const path = join(dir, "hosts.json");
+    const registry = new HostRegistry(path);
+    await registry.updateMachineSettings(LOCAL_HOST_ID, {
+      claudeBinary: "/opt/claude",
+    });
+    expect(registry.localNodeEnabled()).toBe(false);
+    await registry.setLocalNodeEnabled(true);
+    const first = await registry.issueLocalNodeToken();
+    expect(await readFile(path, "utf-8")).not.toContain(first);
+
+    const reloaded = new HostRegistry(path);
+    expect(await reloaded.authenticate(first)).toMatchObject({
+      id: LOCAL_HOST_ID,
+    });
+    expect(reloaded.localNodeEnabled()).toBe(true);
+    expect(reloaded.machineSettings(LOCAL_HOST_ID).claudeBinary).toBe("/opt/claude");
+    expect(await reloaded.list()).toEqual([]);
+
+    const second = await reloaded.issueLocalNodeToken();
+    expect(await reloaded.authenticate(first)).toBeNull();
+    expect(await reloaded.authenticate(second)).toMatchObject({
+      id: LOCAL_HOST_ID,
+    });
+  });
+
+  // A session's process runs under a node when it has a remote host, or when a
+  // session without one saved a host process id (this machine's node).
+  it("names the host whose node runs a session's process", () => {
+    expect(processHostOf({ hostId: "gpu-box", hostProcId: "p" })).toBe("gpu-box");
+    expect(processHostOf({ hostProcId: "p" })).toBe(LOCAL_HOST_ID);
+    expect(processHostOf({})).toBeUndefined();
   });
 });

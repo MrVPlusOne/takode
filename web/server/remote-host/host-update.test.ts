@@ -177,6 +177,22 @@ describe("hostCanRestart", () => {
     // A turn this coordinator saw start is tracked by the bridge itself.
     expect(check({ ...idle, messageHistory: [{ type: "user_message", timestamp: STARTED_AT + 1 }] })).toBe(true);
   });
+
+  // This machine's node runs sessions that have no host but saved a node
+  // process id; a busy one blocks restarting that node, while a session started
+  // directly here does not.
+  it("counts the sessions this machine's node runs", () => {
+    const busy = { ...idle, isGenerating: true };
+    const local = (session: { sessionId: string; hostProcId?: string }) =>
+      hostCanRestart("local", {
+        sessions: [{ ...session, state: "connected" }],
+        awaitingReattach: () => false,
+        bridgeSession: () => busy,
+        coordinatorStartedAt: STARTED_AT,
+      });
+    expect(local({ sessionId: "on-node", hostProcId: "p" })).toBe(false);
+    expect(local({ sessionId: "direct" })).toBe(true);
+  });
 });
 
 describe("switchCheckoutToCommit", () => {

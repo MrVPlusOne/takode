@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { HostCliSettings } from "./HostCliSettings.js";
+import { SettingsToggle } from "./settings-controls.js";
 import {
   hostBuildWarning,
   registerRemoteHost,
   removeRemoteHost,
+  setLocalNodeEnabled,
   useRemoteHosts,
+  type LocalHost,
   type RemoteHost,
 } from "../remote-hosts.js";
 
@@ -59,6 +62,15 @@ export function SettingsHostsSection() {
           <li className={HOST_CARD} data-testid="settings-local-host">
             <div className="font-medium text-cc-fg">This machine</div>
             <div className="mt-0.5 text-cc-muted">Runs sessions that have no other host. Always present.</div>
+            <div className="mt-2">
+              <SettingsToggle
+                label="Keep sessions running across server restarts"
+                description={localNodeDescription(local.node, serverBuild)}
+                checked={local.node.enabled}
+                disabled={busy}
+                onChange={(enabled) => void run(() => setLocalNodeEnabled(enabled))}
+              />
+            </div>
             <HostCliSettings hostId={local.id} settings={local.settings} local />
           </li>
         )}
@@ -156,4 +168,16 @@ function HostBuildWarning({ host, serverBuild }: { host: RemoteHost; serverBuild
       {warning}
     </div>
   );
+}
+
+/** What the local node setting does, and how this machine's node is doing while it is on. */
+function localNodeDescription(node: LocalHost["node"], serverBuild: string | null): string {
+  const purpose =
+    "Runs this machine's sessions under a takode node, so a server restart does not interrupt them. Running sessions move to it when they next start.";
+  if (!node.enabled) return purpose;
+  const status = node.online
+    ? `Node connected · ${node.processes} process${node.processes === 1 ? "" : "es"}`
+    : "Node starting";
+  const warning = hostBuildWarning(node, serverBuild);
+  return `${purpose} ${status}.${warning ? ` ${warning}` : ""}`;
 }

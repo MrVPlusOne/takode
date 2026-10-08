@@ -61,6 +61,7 @@ import { TimerManager } from "./timer-manager.js";
 import { ResourceLeaseManager } from "./resource-lease-manager.js";
 import { ResourceLeaseStore } from "./resource-lease-store.js";
 import { HostRegistry, LOCAL_HOST_ID } from "./remote-host/host-registry.js";
+import { LocalNode, localCoordinatorUrl } from "./remote-host/local-node.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
 import { hostCanRestart } from "./remote-host/host-restart-gate.js";
 import { configureMachineSettings } from "./remote-host/machine-settings.js";
@@ -261,7 +262,19 @@ hostLinks.canRestartHost = (hostId) =>
   });
 hostLinks.machineSettingsFor = (hostId) => hostRegistry.machineSettings(hostId);
 hostLinks.start();
-launcher.setRemoteHosts({ registry: hostRegistry, links: hostLinks });
+// This machine's own node, which runs local sessions so they outlive server restarts when turned on.
+const localNode = new LocalNode({
+  serverId,
+  coordinatorUrl: localCoordinatorUrl(process.env.COMPANION_HOST || "0.0.0.0", port),
+  nodeScript: join(packageRoot, "bin", "takode-node.ts"),
+  registry: hostRegistry,
+  links: hostLinks,
+});
+launcher.setRemoteHosts({
+  registry: hostRegistry,
+  links: hostLinks,
+  useLocalNode: () => localNode.ready(),
+});
 configureRemoteMachines(hostLinks);
 configureRemoteAttachmentDirectories((sessionId) => {
   const hostId = launcher.getSession(sessionId)?.hostId;
@@ -1018,7 +1031,7 @@ app.route(
     },
   }),
 );
-app.route("/api", createHostRoutes(hostRegistry, hostLinks));
+app.route("/api", createHostRoutes(hostRegistry, hostLinks, localNode));
 app.route(
   "/api",
   createRoutes(
@@ -1175,6 +1188,8 @@ const coordinatorLock = await claimCoordinatorEpoch({
   },
 });
 hostLinks.epoch = coordinatorLock.epoch;
+// Only now can the node connect; until then, sessions it runs wait for it.
+localNode.start();
 
 // Start server→browser heartbeat to prevent idle timeout disconnections
 wsBridge.startHeartbeat();

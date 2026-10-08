@@ -8,7 +8,7 @@
  * on a loopback port so agent CLIs here work unchanged.
  *
  * Usage:
- *   takode-node --coordinator <url> (--token-file <path> | TAKODE_HOST_TOKEN=...) [--api-port <n>] [--claude <path>] [--codex <path>] [--allow-insecure] [--auto-update]
+ *   takode-node --coordinator <url> (--token-file <path> | TAKODE_HOST_TOKEN=...) [--api-port <n>] [--claude <path>] [--codex <path>] [--allow-insecure] [--auto-update] [--shared-checkout]
  *
  * It reports the Git commit of this machine's Takode checkout, so the
  * coordinator can show hosts that run another build. With `--auto-update`, the
@@ -16,6 +16,12 @@
  * host's sessions is in a turn: the node checks out that commit (fetching it
  * if needed, and never over uncommitted changes), runs a frozen install and
  * restarts, which ends its session processes; their sessions relaunch.
+ *
+ * `--shared-checkout` is how a coordinator starts its own machine's node (see
+ * `local-node.ts`): the node runs from the coordinator's checkout, so it leaves
+ * installing the agent CLI wrappers and skills to the coordinator, and an
+ * update restarts it on that checkout's current code instead of switching the
+ * checkout; the coordinator starts it again.
  *
  * Which Claude Code and Codex programs it runs comes from this host's settings
  * on the coordinator (Settings > Hosts). `--claude` and `--codex` override
@@ -45,7 +51,7 @@ import { runPreListenStartupReadiness, STARTUP_SKILL_SYMLINKS } from "../server/
 
 const args = process.argv.slice(2);
 const USAGE =
-  "Usage: takode-node --coordinator <url> (--token-file <path> | TAKODE_HOST_TOKEN=...) [--api-port <n>] [--claude <path>] [--codex <path>] [--allow-insecure] [--auto-update]";
+  "Usage: takode-node --coordinator <url> (--token-file <path> | TAKODE_HOST_TOKEN=...) [--api-port <n>] [--claude <path>] [--codex <path>] [--allow-insecure] [--auto-update] [--shared-checkout]";
 /** Set in the worker process an auto-updating node runs, so it does not supervise itself again. */
 const SUPERVISED_ENV = "TAKODE_NODE_SUPERVISED";
 
@@ -82,39 +88,61 @@ async function main(): Promise<void> {
   if (claude) commands.claude = claude;
   if (codex) commands.codex = codex;
 
+  const sharedCheckout = args.includes("--shared-checkout");
   const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   let agent: HostAgent | null = null;
   // Agent CLIs wait while the coordinator is away (e.g. restarting) instead of failing.
   const proxy = startApiProxy({ coordinatorUrl, port: apiPort, coordinatorConnected: () => agent?.connected ?? false });
   // Agents here need the same CLI wrappers, skills and phase briefs as on the
   // coordinator, installed from this machine's own Takode checkout.
-  await runPreListenStartupReadiness(
-    { ensureQuestmasterIntegration, ensureTakodeIntegration, ensureBuiltInQuestJourneyPhaseData, ensureSkillSymlinks },
-    { port: proxy.port, packageRoot, startupSkillSlugs: STARTUP_SKILL_SYMLINKS },
-  );
+  if (!sharedCheckout) {
+    await runPreListenStartupReadiness(
+      {
+        ensureQuestmasterIntegration,
+        ensureTakodeIntegration,
+        ensureBuiltInQuestJourneyPhaseData,
+        ensureSkillSymlinks,
+      },
+      { port: proxy.port, packageRoot, startupSkillSlugs: STARTUP_SKILL_SYMLINKS },
+    );
+  }
   const build = await readCheckoutCommit(packageRoot);
+  const restart = () => {
+    agent?.stop();
+    proxy.stop();
+    process.exit(NODE_RESTART_EXIT_CODE);
+  };
   agent = new HostAgent({
     coordinatorUrl,
     token,
     apiProxyPort: proxy.port,
     commands,
     build,
-    ...(autoUpdate
+    ...(sharedCheckout
       ? {
-          update: async (commit: string) => {
-            await switchCheckoutToCommit(packageRoot, commit);
-            console.log(`[takode node] Switched to ${commit}; restarting`);
-            agent?.stop();
-            proxy.stop();
-            process.exit(NODE_RESTART_EXIT_CODE);
+          update: async () => {
+            const current = await readCheckoutCommit(packageRoot);
+            if (current === build) {
+              throw new Error("It already runs the checkout's current code; restart the server to match it");
+            }
+            console.log(`[takode node] Restarting to run ${current ?? "the checkout's current code"}`);
+            restart();
           },
         }
-      : {}),
+      : autoUpdate
+        ? {
+            update: async (commit: string) => {
+              await switchCheckoutToCommit(packageRoot, commit);
+              console.log(`[takode node] Switched to ${commit}; restarting`);
+              restart();
+            },
+          }
+        : {}),
   });
   agent.start();
   console.log(
     `[takode node] Serving the coordinator API on 127.0.0.1:${proxy.port}; connecting to ${coordinatorUrl}` +
-      ` (Takode ${build ?? "build unknown"}${autoUpdate ? ", auto-update on" : ""})`,
+      ` (Takode ${build ?? "build unknown"}${autoUpdate || sharedCheckout ? ", auto-update on" : ""})`,
   );
 
   const shutdown = () => {

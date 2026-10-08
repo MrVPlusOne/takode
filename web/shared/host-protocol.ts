@@ -52,6 +52,13 @@ export type HostCommand =
       /** Session-specific variables; the host merges them over its own environment. */
       env: Record<string, string>;
       /**
+       * `env` is the process's complete environment, which the host uses as
+       * is apart from pointing agent CLIs at its API proxy. Sent to a node on
+       * the coordinator's own machine, where the coordinator prepares launches
+       * exactly as for a process it starts itself.
+       */
+      fullEnv?: boolean;
+      /**
        * Start a launch the host prepared itself (`prepare_codex`) instead of
        * `command`/`args`/`cwd`, which are then ignored.
        */

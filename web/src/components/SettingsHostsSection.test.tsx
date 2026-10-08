@@ -27,6 +27,10 @@ function hostRow(overrides: Partial<RemoteHost> & Pick<RemoteHost, "id" | "name"
 function serveHostRoutes(initial: RemoteHost[] = [hostRow({ id: "h1", name: "devbox", processes: 2 })]) {
   let hosts = initial;
   let localSettings: MachineSettings = { claudeBinary: "", codexBinary: "" };
+  let localNode = {
+    ...hostRow({ id: "local", name: "local", online: false, processes: 0 }),
+    enabled: false,
+  };
   const requests: string[] = [];
   vi.stubGlobal(
     "fetch",
@@ -38,6 +42,19 @@ function serveHostRoutes(initial: RemoteHost[] = [hostRow({ id: "h1", name: "dev
         const host = hostRow({ id: "h2", name, online: false, lastSeenAt: null, build: null });
         hosts = [...hosts, host];
         return new Response(JSON.stringify({ host, token: "secret-token" }), { status: 201 });
+      }
+      if (method === "PUT" && url === "/api/hosts/local/node") {
+        // The server starts the node; here it connects at once.
+        const { enabled } = JSON.parse(String(init?.body)) as {
+          enabled: boolean;
+        };
+        localNode = {
+          ...localNode,
+          enabled,
+          online: enabled,
+          processes: enabled ? 1 : 0,
+        };
+        return new Response(JSON.stringify({ enabled }));
       }
       if (method === "PUT") {
         // PUT /api/hosts/:id/settings, as the server answers it.
@@ -55,7 +72,11 @@ function serveHostRoutes(initial: RemoteHost[] = [hostRow({ id: "h1", name: "dev
         return new Response(JSON.stringify({ ok: true }));
       }
       return new Response(
-        JSON.stringify({ hosts, build: SERVER_BUILD, local: { id: "local", settings: localSettings } }),
+        JSON.stringify({
+          hosts,
+          build: SERVER_BUILD,
+          local: { id: "local", settings: localSettings, node: localNode },
+        }),
       );
     }),
   );
@@ -138,5 +159,21 @@ describe("SettingsHostsSection", () => {
 
     expect(screen.getByTestId("host-claude-override").textContent).toContain("/opt/claude-copilot");
     expect(screen.queryByTestId("host-codex-override")).toBeNull();
+  });
+
+  // Keeping sessions across restarts is a switch on This machine; once on, the
+  // card shows how this machine's node is doing.
+  it("turns this machine's node on and shows its status", async () => {
+    const requests = serveHostRoutes([]);
+    render(<SettingsHostsSection />);
+    const toggle = await screen.findByRole("switch", {
+      name: "Keep sessions running across server restarts",
+    });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+
+    await act(async () => fireEvent.click(toggle));
+    await waitFor(() => expect(requests).toContain("PUT /api/hosts/local/node"));
+    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
+    expect(screen.getByTestId("settings-local-host").textContent).toContain("Node connected · 1 process");
   });
 });

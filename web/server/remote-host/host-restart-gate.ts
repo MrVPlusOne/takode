@@ -1,7 +1,10 @@
+import { processHostOf } from "./host-registry.js";
+
 /** What the restart gate needs to know about one session. */
 export interface HostSessionView {
   sessionId: string;
   hostId?: string;
+  hostProcId?: string;
   archived?: boolean;
   /** Launcher state; an `exited` session has no process a restart could end. */
   state: string;
@@ -30,7 +33,7 @@ export function hostCanRestart(
   },
 ): boolean {
   return deps.sessions.every((session) => {
-    if (session.hostId !== hostId || session.archived || session.state === "exited") return true;
+    if (processHostOf(session) !== hostId || session.archived || session.state === "exited") return true;
     if (deps.awaitingReattach(session.sessionId)) return false;
     const bridge = deps.bridgeSession(session.sessionId);
     if (!bridge) return true;
