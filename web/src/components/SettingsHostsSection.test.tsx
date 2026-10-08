@@ -35,7 +35,7 @@ describe("SettingsHostsSection", () => {
   // removing asks for a second click because it revokes the host's token.
   it("lists hosts, registers one with its token, and removes one after confirmation", async () => {
     const requests = serveHostRoutes();
-    render(<SettingsHostsSection sectionSearchProps={{}} />);
+    render(<SettingsHostsSection />);
     await waitFor(() => expect(screen.getByTestId("settings-hosts-list").textContent).toContain("devbox"));
     expect(screen.getByTestId("settings-hosts-list").textContent).toContain("Online · 2 processes");
 

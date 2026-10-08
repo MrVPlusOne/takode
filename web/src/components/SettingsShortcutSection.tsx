@@ -10,8 +10,7 @@ import {
 } from "../shortcuts.js";
 import { useStore } from "../store.js";
 import type { SendKeyScheme } from "../../shared/send-key-scheme.js";
-import { CollapsibleSection } from "./CollapsibleSection.js";
-import type { SettingsSearchResults, SettingsSectionId } from "./settings-search.js";
+import { SettingsSubsection, SettingsToggle } from "./settings-controls.js";
 
 export function SettingsShortcutSection({
   shortcutSettings,
@@ -22,7 +21,7 @@ export function SettingsShortcutSection({
   recordingShortcutActionId,
   setRecordingShortcutActionId,
   shortcutPlatform,
-  sectionSearch,
+  hidden = false,
 }: {
   shortcutSettings: ShortcutSettings;
   setShortcutsEnabled: (enabled: boolean) => void;
@@ -32,10 +31,7 @@ export function SettingsShortcutSection({
   recordingShortcutActionId: ShortcutActionId | null;
   setRecordingShortcutActionId: (actionId: ShortcutActionId | null) => void;
   shortcutPlatform?: string;
-  sectionSearch?: {
-    results: SettingsSearchResults;
-    id: SettingsSectionId;
-  };
+  hidden?: boolean;
 }) {
   const shortcutPresetBindings = getShortcutPresetBindings(shortcutSettings.preset);
   const shortcutPresetIsCustom = SHORTCUT_ACTIONS.some(
@@ -45,24 +41,16 @@ export function SettingsShortcutSection({
   );
 
   return (
-    <CollapsibleSection
-      id="shortcuts"
-      title="Shortcuts"
-      description="Keyboard shortcuts stay off by default. Choose a preset, then optionally override individual actions."
-      hidden={sectionSearch ? !sectionSearch.results.visibleSectionIds.has(sectionSearch.id) : false}
-      searchQuery={sectionSearch?.results.query}
-      matchCount={sectionSearch ? (sectionSearch.results.sectionMatchCounts.get(sectionSearch.id) ?? 0) : 0}
+    <SettingsSubsection
+      title="Keyboard Shortcuts"
+      description="Off by default. Choose a preset, then optionally override individual actions."
+      hidden={hidden}
     >
-      <SendKeySchemeSetting shortcutPlatform={shortcutPlatform} />
-
-      <button
-        type="button"
-        onClick={() => setShortcutsEnabled(!shortcutSettings.enabled)}
-        className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-      >
-        <span>Enabled</span>
-        <span className="text-xs text-cc-muted">{shortcutSettings.enabled ? "On" : "Off"}</span>
-      </button>
+      <SettingsToggle
+        label="Use keyboard shortcuts"
+        checked={shortcutSettings.enabled}
+        onChange={setShortcutsEnabled}
+      />
 
       {shortcutSettings.enabled ? (
         <>
@@ -175,17 +163,23 @@ export function SettingsShortcutSection({
       ) : (
         <p className="text-xs text-cc-muted">Enable shortcuts to edit presets and bindings.</p>
       )}
-    </CollapsibleSection>
+    </SettingsSubsection>
   );
 }
 
-/** Send-key scheme for multi-line send/save boxes. Always active, independent of the shortcut toggle below. */
-function SendKeySchemeSetting({ shortcutPlatform }: { shortcutPlatform?: string }) {
+/** Send-key scheme for multi-line send/save boxes. Always active, independent of the keyboard shortcut toggle. */
+export function SendKeySchemeSetting({
+  shortcutPlatform,
+  hidden = false,
+}: {
+  shortcutPlatform?: string;
+  hidden?: boolean;
+}) {
   const sendKeyScheme = useStore((s) => s.sendKeyScheme);
   const setSendKeyScheme = useStore((s) => s.setSendKeyScheme);
   const modEnter = platformIsMac(shortcutPlatform) ? "⌘+Enter" : "Ctrl+Enter";
   return (
-    <div>
+    <div hidden={hidden}>
       <label className="block text-sm font-medium mb-1.5" htmlFor="send-key-scheme">
         Send Key
       </label>

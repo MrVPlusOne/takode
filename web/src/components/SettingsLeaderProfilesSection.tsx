@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
-import { CollapsibleSection } from "./CollapsibleSection.js";
-import type { SettingsSearchResults, SettingsSectionId } from "./settings-search.js";
+import { SettingsSubsection, SwitchTrack } from "./settings-controls.js";
 import {
   DEFAULT_LEADER_PROFILE_POOLS,
   LEADER_PROFILE_POOLS,
@@ -10,16 +9,13 @@ import {
 } from "../../shared/leader-profile-portraits.js";
 
 interface SettingsLeaderProfilesSectionProps {
-  sectionSearchProps: {
-    results: SettingsSearchResults;
-    id: SettingsSectionId;
-  };
+  hidden?: boolean;
   poolsFromSettings?: LeaderProfilePoolSettings;
   loadOnMount?: boolean;
 }
 
 export function SettingsLeaderProfilesSection({
-  sectionSearchProps,
+  hidden = false,
   poolsFromSettings,
   loadOnMount = true,
 }: SettingsLeaderProfilesSectionProps) {
@@ -85,13 +81,10 @@ export function SettingsLeaderProfilesSection({
   const savingAnyPool = savingPool !== null;
 
   return (
-    <CollapsibleSection
-      id={sectionSearchProps.id}
+    <SettingsSubsection
       title="Leader Profiles"
       description="Built-in portrait pools used for new leader sessions."
-      hidden={!sectionSearchProps.results.visibleSectionIds.has(sectionSearchProps.id)}
-      searchQuery={sectionSearchProps.results.query}
-      matchCount={sectionSearchProps.results.sectionMatchCounts.get(sectionSearchProps.id) ?? 0}
+      hidden={hidden}
     >
       <div className="grid gap-2 sm:grid-cols-2">
         {LEADER_PROFILE_POOLS.map((pool) => {
@@ -101,6 +94,8 @@ export function SettingsLeaderProfilesSection({
             <button
               key={pool.id}
               type="button"
+              role="switch"
+              aria-checked={enabled}
               disabled={loading || savingAnyPool}
               onClick={() => togglePool(pool.id)}
               className={`flex min-w-0 items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors ${
@@ -116,18 +111,7 @@ export function SettingsLeaderProfilesSection({
                   {saving ? " - saving" : ""}
                 </span>
               </span>
-              <span
-                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                  enabled ? "bg-cc-primary" : "bg-cc-border"
-                }`}
-                aria-hidden="true"
-              >
-                <span
-                  className={`absolute top-0.5 h-4 w-4 rounded-full bg-cc-fg transition-transform ${
-                    enabled ? "translate-x-4" : "translate-x-0.5"
-                  }`}
-                />
-              </span>
+              <SwitchTrack checked={enabled} />
             </button>
           );
         })}
@@ -137,6 +121,6 @@ export function SettingsLeaderProfilesSection({
           {error}
         </div>
       )}
-    </CollapsibleSection>
+    </SettingsSubsection>
   );
 }

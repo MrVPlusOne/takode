@@ -5,22 +5,11 @@ type SettingItemMeta = {
   id: string;
   text: string;
   aliases?: string[];
+  /** Subsection that shows this item; a subsection stays visible while any of its items match. */
+  subsection?: string;
 };
 
-export type SettingsSectionId =
-  | "appearance"
-  | "notifications"
-  | "shortcuts"
-  | "cli"
-  | "sessions"
-  | "leader-profiles"
-  | "pushover"
-  | "web-push"
-  | "auto-approval"
-  | "session-namer"
-  | "voice-transcription"
-  | "hosts"
-  | "server";
+export type SettingsSectionId = "appearance" | "input" | "notifications" | "sessions" | "system" | "server";
 
 export type SettingsSectionMeta = {
   id: SettingsSectionId;
@@ -36,174 +25,266 @@ export type SettingsSearchResults = {
   totalMatches: number;
   visibleSectionIds: Set<SettingsSectionId>;
   sectionMatchCounts: Map<SettingsSectionId, number>;
+  /** Matching item ids plus the subsection keys of matching items. */
   visibleItemIds: Map<SettingsSectionId, Set<string>>;
 };
 
 export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     id: "appearance",
-    title: "Appearance & Display",
-    aliases: [
-      "theme",
-      "dark",
-      "light",
-      "zoom",
-      "display",
-      "usage",
-      "sidebar",
-      "diff",
-      "edit",
-      "write",
-      "line height",
-      "quiet mode",
-      "focus mode",
-      "tools",
-    ],
+    title: "Appearance",
+    description: "Theme, size, and how chat content is displayed.",
+    aliases: ["display", "dark", "light", "sidebar", "diff", "quiet mode", "focus mode", "tools"],
     items: [
-      { id: "theme", text: "Theme color theme dark light appearance" },
+      { id: "theme", text: "Theme color scheme dark light VS Code appearance" },
       { id: "zoom", text: "Zoom display scale text size" },
-      { id: "usage-bars", text: "Usage Bars in Sidebar tokens sidebar usage" },
-      { id: "edit-blocks", text: "Expand Edit/Write Blocks diffs tool blocks" },
+      {
+        id: "chat-line-height",
+        text: "Chat Message Line Height message markdown density leading spacing",
+      },
       {
         id: "compact-tool-activity",
         text: "Compact Tool Activity quiet focus mode collapse tool calls commands reads searches",
       },
-      { id: "chat-line-height", text: "Chat Message Line Height message markdown density leading spacing" },
+      { id: "edit-blocks", text: "Expand Edit/Write Blocks diffs tool blocks" },
+      {
+        id: "usage-bars",
+        text: "Usage Bars in Sidebar tokens sidebar usage limits",
+      },
+    ],
+  },
+  {
+    id: "input",
+    title: "Input & Voice",
+    description: "How messages are sent, keyboard shortcuts, and voice dictation.",
+    aliases: ["keyboard", "keys", "hotkeys", "typing", "composer", "voice", "dictation"],
+    items: [
+      {
+        id: "send-key",
+        text: "Send Key Enter Shift+Enter Cmd+Enter Ctrl+Enter new line newline submit save comment",
+      },
+      {
+        id: "shortcuts-enabled",
+        text: "Keyboard Shortcuts enabled hotkeys",
+        subsection: "shortcuts",
+      },
+      {
+        id: "shortcuts-preset",
+        text: "Preset standard vscode vim shortcut preset",
+        aliases: ["vscode"],
+        subsection: "shortcuts",
+      },
+      {
+        id: "shortcuts-bindings",
+        text: "Record shortcut override actions reset bindings",
+        subsection: "shortcuts",
+      },
+      {
+        id: "voice-credentials",
+        text: "Voice Transcription API Key Base URL OpenAI Whisper stt speech transcribe audio",
+        subsection: "voice",
+      },
+      {
+        id: "voice-models",
+        text: "STT Model Enhancement Model expected languages hints",
+        subsection: "voice",
+      },
+      {
+        id: "voice-enhancement",
+        text: "Enhancement Style prose bullet points",
+        subsection: "voice",
+      },
+      {
+        id: "voice-vocabulary",
+        text: "Custom Vocabulary terms model mishears vocabulary hints",
+        subsection: "voice",
+      },
+      {
+        id: "voice-tester",
+        text: "Enhancement Tester debug panel",
+        subsection: "voice",
+      },
     ],
   },
   {
     id: "notifications",
     title: "Notifications",
-    aliases: ["alerts", "desktop", "sound", "permission"],
+    description: "Alerts in this browser and on your phone.",
+    aliases: ["alerts", "push", "phone", "notify"],
     items: [
-      { id: "sound", text: "Sound notification audio alerts" },
-      { id: "desktop-alerts", text: "Desktop Alerts browser notifications permission" },
-    ],
-  },
-  {
-    id: "shortcuts",
-    title: "Shortcuts",
-    description:
-      "Keyboard shortcuts stay off by default. Choose a preset, then optionally override individual actions.",
-    aliases: ["keyboard", "keys", "hotkeys", "vim", "vscode"],
-    items: [
-      { id: "send-key", text: "Send Key Enter Shift+Enter Cmd+Enter Ctrl+Enter new line newline submit save comment" },
-      { id: "enabled", text: "Enabled keyboard shortcuts hotkeys" },
-      { id: "preset", text: "Preset standard vscode vim shortcut preset", aliases: ["vscode"] },
-      { id: "bindings", text: "Record shortcut override actions reset bindings" },
-    ],
-  },
-  {
-    id: "cli",
-    title: "CLI & Backends",
-    description:
-      "Custom path or command for backend CLIs. Leave empty to auto-detect from PATH. New sessions use this immediately; existing sessions pick it up on relaunch.",
-    aliases: ["backend", "claude", "codex", "binary", "path", "editor", "vscode", "cursor", "logs", "environment"],
-    items: [
-      { id: "claude", text: "Claude Code binary path command auto-detect" },
-      { id: "codex", text: "Codex binary path command auto-detect" },
-      { id: "codex-leader-mode", text: "Codex Leader Context Mode recycle compaction compact" },
-      { id: "log-file", text: "Log File server runtime logs" },
-      { id: "editor", text: "File Link Editor VSCode local remote Cursor none editor", aliases: ["vscode"] },
-      { id: "environments", text: "Manage Environments environment defaults" },
+      {
+        id: "sound",
+        text: "Sound notification audio alerts",
+        subsection: "browser",
+      },
+      {
+        id: "desktop-alerts",
+        text: "Desktop Alerts browser notifications permission",
+        subsection: "browser",
+      },
+      {
+        id: "phone-event-types",
+        text: "Phone alert event types needs user input ready for review notify me errors filters",
+        subsection: "phone-alerts",
+      },
+      {
+        id: "phone-delay",
+        text: "Phone alert delay seconds before sending",
+        subsection: "phone-alerts",
+      },
+      {
+        id: "web-push",
+        text: "Web Push enable on this device iPhone Home Screen subscribed devices send test",
+        subsection: "web-push",
+      },
+      {
+        id: "pushover-credentials",
+        text: "Pushover User Key API Token Base URL credentials pushover.net",
+        subsection: "pushover",
+      },
+      {
+        id: "pushover-enabled",
+        text: "Send Pushover alerts enabled",
+        subsection: "pushover",
+      },
+      {
+        id: "pushover-test",
+        text: "Pushover Send Test save configured",
+        subsection: "pushover",
+      },
     ],
   },
   {
     id: "sessions",
     title: "Sessions",
-    aliases: ["keep alive", "worktree", "heavy repo", "sleep", "caffeinate", "import", "export", "defaults"],
+    description: "Defaults and automation for new and running sessions.",
+    aliases: ["defaults", "leader", "worker", "automation"],
     items: [
       {
         id: "session-defaults",
         text: "Session Defaults Worker Defaults Leader Defaults use same as worker model speed service tier reasoning effort internet max context permission mode global usable context estimate",
       },
-      { id: "max-keep-alive", text: "Max Keep-Alive live CLI processes idle sessions" },
-      { id: "heavy-repo", text: "Heavy Repo Mode cached session rows git metadata large repos slow filesystems" },
-      { id: "sleep-inhibitor", text: "Prevent Sleep During Generation caffeinate awake macOS" },
-      { id: "session-data", text: "Session Data Export All Sessions Import Sessions portable archive paths" },
+      {
+        id: "codex-leader-mode",
+        text: "Codex Leader Context Mode recycle compaction compact",
+      },
+      {
+        id: "leader-profiles",
+        text: "Leader Profiles built-in portrait pools Tako Shmi avatars",
+        aliases: ["portrait", "avatar", "profile"],
+      },
+      {
+        id: "namer-enabled",
+        text: "Session Namer auto-name sessions enabled names",
+        subsection: "session-namer",
+      },
+      {
+        id: "namer-backend",
+        text: "Namer Backend Claude CLI OpenAI-compatible API",
+        subsection: "session-namer",
+      },
+      {
+        id: "namer-model",
+        text: "Namer Model API Key Base URL naming backend",
+        subsection: "session-namer",
+      },
+      {
+        id: "namer-debug",
+        text: "Session Namer Debug logs",
+        subsection: "session-namer",
+      },
+      {
+        id: "auto-approval-enabled",
+        text: "Auto-Approval LLM enabled permission requests",
+        subsection: "auto-approval",
+      },
+      {
+        id: "auto-approval-model",
+        text: "Auto-approval Model Haiku Sonnet session model",
+        subsection: "auto-approval",
+      },
+      {
+        id: "auto-approval-limits",
+        text: "Auto-approval Max concurrency timeout seconds",
+        subsection: "auto-approval",
+      },
+      {
+        id: "auto-approval-rules",
+        text: "Auto-approval Project Rules criteria project paths add rule folder",
+        subsection: "auto-approval",
+      },
+      {
+        id: "auto-approval-debug",
+        text: "Auto-approval Debug panel logs",
+        subsection: "auto-approval",
+      },
+      {
+        id: "environments",
+        text: "Manage Environments environment variables profiles",
+      },
     ],
   },
   {
-    id: "leader-profiles",
-    title: "Leader Profiles",
-    description: "Choose which built-in portrait pools can be assigned to leader sessions.",
-    aliases: ["portrait", "avatar", "profile", "leader", "tako", "shmi"],
-    items: [{ id: "pools", text: "Built-in leader profile portrait pools Tako Shmi avatars" }],
-  },
-  {
-    id: "pushover",
-    title: "Push Notifications (Pushover)",
-    description: "Get push notifications on your phone when sessions need attention. Get credentials at pushover.net.",
-    aliases: ["push", "phone", "alerts", "notification", "credentials"],
+    id: "system",
+    title: "System",
+    description: "Backend CLIs, the file-link editor, resource use, and other machines that run sessions.",
+    aliases: ["backend", "binary", "path", "performance", "resources", "remote", "machine"],
     items: [
-      { id: "credentials", text: "User Key API Token Base URL Pushover credentials" },
-      { id: "delay", text: "Delay seconds before sending push notification" },
-      { id: "enabled", text: "Enabled Pushover notifications" },
-      { id: "event-types", text: "Event types needs user input ready for review errors filters" },
-      { id: "test", text: "Send Test save Pushover configured" },
+      {
+        id: "claude",
+        text: "Claude Code binary path command auto-detect CLI",
+        subsection: "cli",
+      },
+      {
+        id: "codex",
+        text: "Codex binary path command auto-detect CLI",
+        subsection: "cli",
+      },
+      {
+        id: "editor",
+        text: "File Link Editor VSCode local remote Cursor none editor",
+        aliases: ["vscode"],
+      },
+      {
+        id: "max-keep-alive",
+        text: "Max Keep-Alive live CLI processes idle sessions",
+      },
+      {
+        id: "heavy-repo",
+        text: "Heavy Repo Mode cached session rows git metadata large repos slow filesystems",
+      },
+      {
+        id: "sleep-inhibitor",
+        text: "Prevent Sleep During Generation caffeinate awake macOS grace period",
+      },
+      {
+        id: "hosts",
+        text: "Hosts other machines remote devbox takode node token coordinator add host remove online offline",
+      },
     ],
-  },
-  {
-    id: "web-push",
-    title: "Phone Notifications (Web Push)",
-    description: "Alerts on this device through the browser, with no third-party app.",
-    aliases: ["push", "phone", "iphone", "alerts", "notification", "home screen", "web push"],
-    items: [{ id: "device", text: "Enable on this device Disable Send Test subscribed devices Home Screen" }],
-  },
-  {
-    id: "auto-approval",
-    title: "Auto-Approval (LLM)",
-    description:
-      "When enabled, permission requests are first evaluated by a fast LLM against your project-specific criteria.",
-    aliases: ["approval", "permission", "llm", "rules", "model", "concurrency", "timeout"],
-    items: [
-      { id: "enabled", text: "Enabled auto approval permission requests" },
-      { id: "model", text: "Model Haiku Sonnet session model LLM" },
-      { id: "limits", text: "Max concurrency timeout seconds" },
-      { id: "project-rules", text: "Project Rules criteria project paths add rule folder" },
-      { id: "debug", text: "Debug panel auto approval logs" },
-    ],
-  },
-  {
-    id: "session-namer",
-    title: "Session Namer",
-    description: "Automatically name sessions based on their content.",
-    aliases: ["auto namer", "name", "naming", "openai", "model", "api key"],
-    items: [
-      { id: "enabled", text: "Enabled auto namer session names" },
-      { id: "backend", text: "Backend Claude CLI OpenAI-compatible API" },
-      { id: "model", text: "Model API Key Base URL naming backend" },
-      { id: "debug", text: "Session Namer Debug logs" },
-    ],
-  },
-  {
-    id: "voice-transcription",
-    title: "Voice Transcription",
-    description: "Configure the OpenAI-compatible Whisper API for voice-to-text input.",
-    aliases: ["voice", "stt", "speech", "transcribe", "whisper", "audio", "dictation"],
-    items: [
-      { id: "credentials", text: "API Key Base URL voice transcription OpenAI Whisper" },
-      { id: "models", text: "STT Model Enhancement Model transcribe" },
-      { id: "enhancement", text: "Enable Enhancement Enhancement Style prose bullet points" },
-      { id: "vocabulary", text: "Custom Vocabulary terms model mishears vocabulary hints" },
-      { id: "tester", text: "Enhancement Tester debug panel" },
-    ],
-  },
-  {
-    id: "hosts",
-    title: "Hosts",
-    description: "Other machines that run sessions for this server.",
-    aliases: ["remote", "machine", "devbox", "takode node", "token", "coordinator"],
-    items: [{ id: "list", text: "Add host Remove online offline token takode node" }],
   },
   {
     id: "server",
-    title: "Server & Diagnostics",
-    aliases: ["logs", "changelog", "release notes", "restart", "diagnostics", "server", "memory", "slug"],
+    title: "Server & Data",
+    description: "Server identity, logs, session backups, and restart.",
+    aliases: ["diagnostics", "server", "data", "backup"],
     items: [
-      { id: "server-slug", text: "Server Slug memory repo session space path prod dev port Takode rename" },
-      { id: "logs", text: "Log Viewer structured server runtime logs filtering Takode CLI" },
-      { id: "changelog", text: "Changelog release notes local repository markdown changes" },
+      {
+        id: "server-slug",
+        text: "Server Slug memory repo session space path prod dev port Takode rename",
+      },
+      {
+        id: "logs",
+        text: "Log Viewer Log File structured server runtime logs filtering Takode CLI",
+      },
+      {
+        id: "changelog",
+        text: "Changelog release notes local repository markdown changes",
+      },
+      {
+        id: "session-data",
+        text: "Session Data Export All Sessions Import Sessions portable archive paths",
+      },
       {
         id: "restart",
         text: "Restart Server process reconnect sessions interrupt restart blockers pending permission",
@@ -220,6 +301,15 @@ function itemSearchText(item: SettingItemMeta): string {
   return [item.text, ...(item.aliases ?? [])].filter(Boolean).join(" ");
 }
 
+function itemKeys(items: SettingItemMeta[]): Set<string> {
+  const keys = new Set<string>();
+  for (const item of items) {
+    keys.add(item.id);
+    if (item.subsection) keys.add(item.subsection);
+  }
+  return keys;
+}
+
 export function computeSettingsSearchResults(query: string): SettingsSearchResults {
   const trimmed = query.trim();
   const visibleSectionIds = new Set<SettingsSectionId>();
@@ -230,9 +320,16 @@ export function computeSettingsSearchResults(query: string): SettingsSearchResul
     for (const section of SETTINGS_SECTIONS) {
       visibleSectionIds.add(section.id);
       sectionMatchCounts.set(section.id, 0);
-      visibleItemIds.set(section.id, new Set(section.items.map((item) => item.id)));
+      visibleItemIds.set(section.id, itemKeys(section.items));
     }
-    return { query: trimmed, hasQuery: false, totalMatches: 0, visibleSectionIds, sectionMatchCounts, visibleItemIds };
+    return {
+      query: trimmed,
+      hasQuery: false,
+      totalMatches: 0,
+      visibleSectionIds,
+      sectionMatchCounts,
+      visibleItemIds,
+    };
   }
 
   let totalMatches = 0;
@@ -245,12 +342,19 @@ export function computeSettingsSearchResults(query: string): SettingsSearchResul
     if (matchCount > 0) {
       visibleSectionIds.add(section.id);
       sectionMatchCounts.set(section.id, matchCount);
-      visibleItemIds.set(section.id, new Set(itemMatches.map((item) => item.id)));
+      visibleItemIds.set(section.id, itemKeys(itemMatches));
       totalMatches += matchCount;
     }
   }
 
-  return { query: trimmed, hasQuery: true, totalMatches, visibleSectionIds, sectionMatchCounts, visibleItemIds };
+  return {
+    query: trimmed,
+    hasQuery: true,
+    totalMatches,
+    visibleSectionIds,
+    sectionMatchCounts,
+    visibleItemIds,
+  };
 }
 
 export function useActiveSettingsSection(
@@ -318,10 +422,7 @@ export function useSettingsSearchNavigation(scrollRef: RefObject<HTMLElement | n
     };
   }
 
-  function childSectionSearch(id: SettingsSectionId) {
-    return { results, id };
-  }
-
+  /** Hide a row or subsection (by item id or subsection key) when search matches other items in its group. */
   function rowHidden(sectionId: SettingsSectionId, itemId: string) {
     if (!results.hasQuery) return false;
     const visibleItems = results.visibleItemIds.get(sectionId);
@@ -334,7 +435,15 @@ export function useSettingsSearchNavigation(scrollRef: RefObject<HTMLElement | n
     document.getElementById(settingsSectionDomId(id))?.scrollIntoView({ block: "start", behavior: "smooth" });
   }
 
-  return { query, setQuery, results, activeSectionId, sectionSearch, childSectionSearch, rowHidden, jumpToSection };
+  return {
+    query,
+    setQuery,
+    results,
+    activeSectionId,
+    sectionSearch,
+    rowHidden,
+    jumpToSection,
+  };
 }
 
 export function SettingsSearchControls({

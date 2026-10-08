@@ -1,15 +1,13 @@
-import { type ComponentProps, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { disableWebPush, enableWebPush, getWebPushSupport, registerTakodeServiceWorker } from "../utils/web-push.js";
-import { CollapsibleSection } from "./CollapsibleSection.js";
-
-type SectionSearchProps = Pick<ComponentProps<typeof CollapsibleSection>, "hidden" | "searchQuery" | "matchCount">;
+import { SettingsSubsection } from "./settings-controls.js";
 
 /**
- * Per-device Web Push enrollment. Delay and event types are shared with the
- * Pushover section because both channels are driven by the same alert scheduler.
+ * Per-device Web Push enrollment. Delay and event types come from the shared
+ * phone alert rules because Web Push and Pushover use the same alert scheduler.
  */
-export function SettingsWebPushSection({ sectionSearchProps }: { sectionSearchProps: SectionSearchProps }) {
+export function SettingsWebPushSection({ hidden = false }: { hidden?: boolean }) {
   const support = getWebPushSupport();
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [serverAvailable, setServerAvailable] = useState(true);
@@ -35,7 +33,12 @@ export function SettingsWebPushSection({ sectionSearchProps }: { sectionSearchPr
         setRegistration(reg);
         setSubscription(await reg.pushManager.getSubscription());
       })
-      .catch((error) => setStatus({ ok: false, text: `Service worker failed: ${errorText(error)}` }));
+      .catch((error) =>
+        setStatus({
+          ok: false,
+          text: `Service worker failed: ${errorText(error)}`,
+        }),
+      );
   }, [support]);
 
   async function run(action: () => Promise<string>) {
@@ -80,17 +83,11 @@ export function SettingsWebPushSection({ sectionSearchProps }: { sectionSearchPr
   const permissionDenied = support === "supported" && Notification.permission === "denied";
 
   return (
-    <CollapsibleSection
-      id="web-push"
-      title="Phone Notifications (Web Push)"
-      description="Alerts on this device through the browser, with no third-party app."
-      {...sectionSearchProps}
+    <SettingsSubsection
+      title="Web Push"
+      description="Alerts on this device through the browser, with no third-party app. Alerts are skipped while Takode is open on the device itself."
+      hidden={hidden}
     >
-      <p className="text-xs text-cc-muted">
-        Uses the delay and event types from the Pushover section. Alerts are skipped while Takode is open on the device
-        itself.
-      </p>
-
       {!serverAvailable && <Notice tone="error">Web Push is unavailable on this server (see server log).</Notice>}
       {support === "needs-home-screen" && (
         <Notice tone="muted">
@@ -135,7 +132,7 @@ export function SettingsWebPushSection({ sectionSearchProps }: { sectionSearchPr
           </div>
         )}
       </div>
-    </CollapsibleSection>
+    </SettingsSubsection>
   );
 }
 

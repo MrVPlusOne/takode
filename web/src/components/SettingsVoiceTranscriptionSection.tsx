@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ComponentProps,
   type Dispatch,
   type KeyboardEvent as ReactKeyboardEvent,
   type SetStateAction,
@@ -12,7 +11,7 @@ import {
 import { api, type TranscriptionConfig } from "../api.js";
 import { GPT_TRANSCRIBE_LANGUAGE_HINTS } from "../../shared/transcription-language-hints.js";
 import { DEFAULT_TRANSCRIPTION_STT_MODEL, TRANSCRIPTION_STT_MODELS } from "../../shared/transcription-models.js";
-import { CollapsibleSection } from "./CollapsibleSection.js";
+import { SettingsSubsection, SettingsToggle } from "./settings-controls.js";
 import { EnhancementTester } from "./EnhancementTester.js";
 import { TranscriptionDebugPanel } from "./TranscriptionDebugPanel.js";
 
@@ -20,11 +19,9 @@ export const DEFAULT_STT_MODEL = DEFAULT_TRANSCRIPTION_STT_MODEL;
 export const CUSTOM_STT_MODEL_VALUE = "__custom__";
 export const BUILT_IN_STT_MODELS = TRANSCRIPTION_STT_MODELS;
 
-type SectionSearchProps = Pick<ComponentProps<typeof CollapsibleSection>, "hidden" | "searchQuery" | "matchCount">;
-
 interface SettingsVoiceTranscriptionSectionProps {
   loading: boolean;
-  sectionSearchProps: SectionSearchProps;
+  hidden?: boolean;
   transcriptionApiKey: string;
   setTranscriptionApiKey: Dispatch<SetStateAction<string>>;
   transcriptionBaseUrl: string;
@@ -53,7 +50,7 @@ interface SettingsVoiceTranscriptionSectionProps {
 
 export function SettingsVoiceTranscriptionSection({
   loading,
-  sectionSearchProps,
+  hidden = false,
   transcriptionApiKey,
   setTranscriptionApiKey,
   transcriptionBaseUrl,
@@ -196,11 +193,10 @@ export function SettingsVoiceTranscriptionSection({
   }
 
   return (
-    <CollapsibleSection
-      id="voice-transcription"
+    <SettingsSubsection
       title="Voice Transcription"
       description="Configure the OpenAI-compatible Whisper API for voice-to-text input. Optionally enable LLM enhancement to clean up transcribed text before sending."
-      {...sectionSearchProps}
+      hidden={hidden}
     >
       <div className="space-y-3 pl-3 border-l-2 border-cc-border">
         <div>
@@ -395,15 +391,12 @@ export function SettingsVoiceTranscriptionSection({
             className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
           />
         </div>
-        <label className="flex items-center gap-2 text-xs text-cc-fg cursor-pointer">
-          <input
-            type="checkbox"
-            checked={transcriptionEnhancement}
-            onChange={(e) => setTranscriptionEnhancement(e.target.checked)}
-            className="accent-cc-primary"
-          />
-          Enable Enhancement
-        </label>
+        <SettingsToggle
+          label="Enable Enhancement"
+          description="Clean up transcribed text with the enhancement model before it is inserted."
+          checked={transcriptionEnhancement}
+          onChange={setTranscriptionEnhancement}
+        />
         {transcriptionEnhancement && (
           <div>
             <label className="block text-xs font-medium text-cc-muted mb-1.5">Enhancement Style</label>
@@ -466,6 +459,6 @@ export function SettingsVoiceTranscriptionSection({
 
       <TranscriptionDebugPanel sttModelOptions={replaySttModelOptions} />
       <EnhancementTester />
-    </CollapsibleSection>
+    </SettingsSubsection>
   );
 }

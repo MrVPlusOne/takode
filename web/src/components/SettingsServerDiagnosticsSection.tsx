@@ -1,6 +1,9 @@
 import type { InterruptRestartBlockersResponse, ServerInterruptResultItem } from "../api.js";
+import type { ComponentProps, ReactNode } from "react";
 import { CollapsibleSection } from "./CollapsibleSection.js";
-import type { SettingsSearchResults, SettingsSectionId } from "./settings-search.js";
+import { SettingsSubsection } from "./settings-controls.js";
+
+type SectionSearchProps = Pick<ComponentProps<typeof CollapsibleSection>, "hidden" | "searchQuery" | "matchCount">;
 
 function ResultList({ items, emptyText }: { items: ServerInterruptResultItem[]; emptyText: string }) {
   if (items.length === 0) {
@@ -149,7 +152,9 @@ export function SettingsServerDiagnosticsSection({
   restarting,
   onSaveServerSlug,
   onRestartServer,
-  sectionSearch,
+  sectionSearchProps,
+  isRowHidden = () => false,
+  children,
 }: {
   logFile: string;
   serverSlug: string;
@@ -162,34 +167,28 @@ export function SettingsServerDiagnosticsSection({
   restarting: boolean;
   onSaveServerSlug: (value: string) => void;
   onRestartServer: () => void;
-  sectionSearch?: {
-    results: SettingsSearchResults;
-    id: SettingsSectionId;
-  };
+  sectionSearchProps?: SectionSearchProps;
+  /** Whether Settings search hides the row or subsection with this item id. */
+  isRowHidden?: (itemId: string) => boolean;
+  /** Extra subsections shown before Restart, such as session export and import. */
+  children?: ReactNode;
 }) {
   const visibleRestartPrepResult = restartPrepResult ?? null;
 
   return (
     <CollapsibleSection
       id="server"
-      title="Server & Diagnostics"
-      hidden={sectionSearch ? !sectionSearch.results.visibleSectionIds.has(sectionSearch.id) : false}
-      searchQuery={sectionSearch?.results.query}
-      matchCount={sectionSearch ? (sectionSearch.results.sectionMatchCounts.get(sectionSearch.id) ?? 0) : 0}
+      title="Server & Data"
+      description="Server identity, logs, session backups, and restart."
+      {...sectionSearchProps}
     >
-      <div className="space-y-3">
-        <div
-          hidden={
-            sectionSearch ? !sectionSearch.results.visibleItemIds.get(sectionSearch.id)?.has("server-slug") : false
-          }
-        >
-          <label className="block text-sm font-medium text-cc-fg mb-1.5" htmlFor="server-slug">
-            Server Slug
-          </label>
+      <SettingsSubsection title="Server Slug" hidden={isRowHidden("server-slug")}>
+        <div>
           <div className="flex gap-2">
             <input
               id="server-slug"
               type="text"
+              aria-label="Server Slug"
               value={serverSlug}
               onChange={(event) => setServerSlug(event.target.value)}
               onBlur={() => onSaveServerSlug(serverSlug)}
@@ -216,14 +215,13 @@ export function SettingsServerDiagnosticsSection({
           </p>
           {serverSlugError && <p className="mt-1.5 text-xs text-cc-error">{serverSlugError}</p>}
         </div>
+      </SettingsSubsection>
 
-        <div>
-          <p className="text-sm font-medium text-cc-fg">Log Viewer</p>
-          <p className="mt-0.5 text-xs text-cc-muted">
-            Structured server/runtime logs with live streaming, filtering, and Takode CLI access.
-          </p>
-        </div>
-
+      <SettingsSubsection
+        title="Log Viewer"
+        description="Structured server/runtime logs with live streaming, filtering, and Takode CLI access."
+        hidden={isRowHidden("logs")}
+      >
         <button
           type="button"
           onClick={() => {
@@ -243,12 +241,13 @@ export function SettingsServerDiagnosticsSection({
         <p className="text-xs text-cc-muted">
           CLI access: <code className="font-mono">takode logs --level warn,error --follow</code>
         </p>
+      </SettingsSubsection>
 
-        <div>
-          <p className="text-sm font-medium text-cc-fg">Changelog</p>
-          <p className="mt-0.5 text-xs text-cc-muted">Repository release notes rendered from the local source file.</p>
-        </div>
-
+      <SettingsSubsection
+        title="Changelog"
+        description="Repository release notes rendered from the local source file."
+        hidden={isRowHidden("changelog")}
+      >
         <button
           type="button"
           onClick={() => {
@@ -258,8 +257,12 @@ export function SettingsServerDiagnosticsSection({
         >
           Open changelog
         </button>
+      </SettingsSubsection>
 
-        <div className="border-t border-cc-border pt-3 space-y-3">
+      {children}
+
+      <SettingsSubsection title="Restart" hidden={isRowHidden("restart")}>
+        <div className="space-y-3">
           <p className="text-xs text-cc-muted">
             Restart the server process. Useful after pulling new code. Sessions reconnect on demand when queued work or
             a response needs a backend. If restart readiness is blocked by active turns or pending permission dialogs,
@@ -299,7 +302,7 @@ export function SettingsServerDiagnosticsSection({
             <RestartPrepResultPanel result={visibleRestartPrepResult} title="Restart Prep Result" />
           )}
         </div>
-      </div>
+      </SettingsSubsection>
     </CollapsibleSection>
   );
 }

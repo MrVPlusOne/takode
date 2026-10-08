@@ -345,7 +345,7 @@ export function SettingsSessionDefaultsSection({
   return (
     <div className="border-b border-cc-border pb-4 space-y-4" data-settings-item-id="session-defaults">
       <div>
-        <h3 className="text-sm font-medium text-cc-fg">Session Defaults</h3>
+        <h3 className="text-sm font-semibold text-cc-fg">Session Defaults</h3>
         <p className="mt-1 text-xs text-cc-muted">
           Applied to future sessions when creation does not specify an override.
         </p>

@@ -1,14 +1,12 @@
-import type { ComponentProps, Dispatch, SetStateAction } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { api, type AutoApprovalConfig } from "../api.js";
 import { AutoApprovalConfigCard } from "./AutoApprovalConfigCard.js";
 import { AutoApprovalDebugPanel } from "./AutoApprovalDebugPanel.js";
-import { CollapsibleSection } from "./CollapsibleSection.js";
 import { FolderPicker } from "./FolderPicker.js";
-
-type SectionSearchProps = Pick<ComponentProps<typeof CollapsibleSection>, "hidden" | "searchQuery" | "matchCount">;
+import { SettingsSubsection, SettingsToggle } from "./settings-controls.js";
 
 interface SettingsAutoApprovalSectionProps {
-  sectionSearchProps: SectionSearchProps;
+  hidden?: boolean;
   aaEnabled: boolean;
   setAaEnabled: Dispatch<SetStateAction<boolean>>;
   aaModel: string;
@@ -41,7 +39,7 @@ interface SettingsAutoApprovalSectionProps {
 }
 
 export function SettingsAutoApprovalSection({
-  sectionSearchProps,
+  hidden = false,
   aaEnabled,
   setAaEnabled,
   aaModel,
@@ -85,7 +83,9 @@ export function SettingsAutoApprovalSection({
     setAaSaving(true);
     setAaError("");
     try {
-      const response = await api.updateSettings({ autoApprovalEnabled: nextEnabled });
+      const response = await api.updateSettings({
+        autoApprovalEnabled: nextEnabled,
+      });
       setAaEnabled(response.autoApprovalEnabled);
     } catch (err: unknown) {
       setAaEnabled(!nextEnabled);
@@ -101,7 +101,9 @@ export function SettingsAutoApprovalSection({
     setAaSaving(true);
     setAaError("");
     try {
-      const response = await api.updateSettings({ autoApprovalModel: nextModel });
+      const response = await api.updateSettings({
+        autoApprovalModel: nextModel,
+      });
       setAaModel(response.autoApprovalModel);
     } catch (err: unknown) {
       setAaModel(previousModel);
@@ -117,7 +119,9 @@ export function SettingsAutoApprovalSection({
     setAaSaving(true);
     setAaError("");
     try {
-      const response = await api.updateSettings({ autoApprovalMaxConcurrency: nextConcurrency });
+      const response = await api.updateSettings({
+        autoApprovalMaxConcurrency: nextConcurrency,
+      });
       setAaMaxConcurrency(response.autoApprovalMaxConcurrency);
     } catch (err: unknown) {
       setAaMaxConcurrency(previousConcurrency);
@@ -133,7 +137,9 @@ export function SettingsAutoApprovalSection({
     setAaSaving(true);
     setAaError("");
     try {
-      const response = await api.updateSettings({ autoApprovalTimeoutSeconds: nextTimeout });
+      const response = await api.updateSettings({
+        autoApprovalTimeoutSeconds: nextTimeout,
+      });
       setAaTimeoutSeconds(response.autoApprovalTimeoutSeconds);
     } catch (err: unknown) {
       setAaTimeoutSeconds(previousTimeout);
@@ -144,25 +150,19 @@ export function SettingsAutoApprovalSection({
   }
 
   return (
-    <CollapsibleSection
-      id="auto-approval"
+    <SettingsSubsection
       title="Auto-Approval (LLM)"
-      description="When enabled, permission requests are first evaluated by a fast LLM against your project-specific criteria. If the LLM approves, the permission is auto-approved. Otherwise, it falls through to you as usual."
-      {...sectionSearchProps}
+      description="Permission requests are first evaluated by a fast LLM against your project-specific criteria. If the LLM approves, the permission is auto-approved. Otherwise, it falls through to you as usual."
+      hidden={hidden}
     >
+      <SettingsToggle
+        label="Auto-approve with LLM"
+        description={aaSaving ? "Saving..." : undefined}
+        checked={aaEnabled}
+        disabled={aaSaving}
+        onChange={(next) => void saveAutoApprovalEnabled(next)}
+      />
       <div className="flex items-center gap-4 flex-wrap">
-        <label className="flex items-center gap-2 text-xs text-cc-fg cursor-pointer">
-          <input
-            type="checkbox"
-            checked={aaEnabled}
-            disabled={aaSaving}
-            onChange={(e) => {
-              void saveAutoApprovalEnabled(e.target.checked);
-            }}
-            className="accent-cc-primary"
-          />
-          Enabled {aaSaving && <span className="text-cc-muted">(saving...)</span>}
-        </label>
         <label className="flex items-center gap-2 text-xs text-cc-fg">
           <span className="text-cc-muted">Model:</span>
           <select
@@ -358,6 +358,6 @@ export function SettingsAutoApprovalSection({
       <div className="border-t border-cc-border pt-4">
         <AutoApprovalDebugPanel />
       </div>
-    </CollapsibleSection>
+    </SettingsSubsection>
   );
 }

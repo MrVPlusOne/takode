@@ -1,14 +1,12 @@
-import { type ComponentProps, useState } from "react";
+import { useState } from "react";
 import { registerRemoteHost, removeRemoteHost, useRemoteHosts, type RemoteHost } from "../remote-hosts.js";
-import { CollapsibleSection } from "./CollapsibleSection.js";
-
-type SectionSearchProps = Pick<ComponentProps<typeof CollapsibleSection>, "hidden" | "searchQuery" | "matchCount">;
+import { SettingsSubsection } from "./settings-controls.js";
 
 /**
  * Machines that run sessions for this server. Each runs `takode node`, which
  * connects out to this server with the token issued here.
  */
-export function SettingsHostsSection({ sectionSearchProps }: { sectionSearchProps: SectionSearchProps }) {
+export function SettingsHostsSection({ hidden = false }: { hidden?: boolean }) {
   const { hosts } = useRemoteHosts();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -46,12 +44,7 @@ export function SettingsHostsSection({ sectionSearchProps }: { sectionSearchProp
   }
 
   return (
-    <CollapsibleSection
-      id="hosts"
-      title="Hosts"
-      description="Other machines that run sessions for this server."
-      {...sectionSearchProps}
-    >
+    <SettingsSubsection title="Hosts" description="Other machines that run sessions for this server." hidden={hidden}>
       {hosts.length === 0 ? (
         <p className="text-xs text-cc-muted">No hosts yet. Sessions run on this machine.</p>
       ) : (
@@ -130,6 +123,6 @@ export function SettingsHostsSection({ sectionSearchProps }: { sectionSearchProp
           </button>
         </div>
       )}
-    </CollapsibleSection>
+    </SettingsSubsection>
   );
 }

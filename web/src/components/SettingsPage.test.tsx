@@ -20,7 +20,12 @@ interface MockStoreState {
   };
   zoomLevel: number;
   currentSessionId: string | null;
-  sdkSessions: Array<{ sessionId: string; createdAt: number; archived?: boolean; cronJobId?: string }>;
+  sdkSessions: Array<{
+    sessionId: string;
+    createdAt: number;
+    archived?: boolean;
+    cronJobId?: string;
+  }>;
   setColorTheme: ReturnType<typeof vi.fn>;
   toggleDarkMode: ReturnType<typeof vi.fn>;
   toggleNotificationSound: ReturnType<typeof vi.fn>;
@@ -87,7 +92,11 @@ const mockApi = {
   getNamerLogs: vi.fn(),
   getNamerLogEntry: vi.fn(),
   testPushover: vi.fn(),
-  getWebPushInfo: vi.fn().mockResolvedValue({ available: true, publicKey: "test-key", subscriptionCount: 0 }),
+  getWebPushInfo: vi.fn().mockResolvedValue({
+    available: true,
+    publicKey: "test-key",
+    subscriptionCount: 0,
+  }),
   getCaffeinateStatus: vi.fn(),
   getAutoApprovalConfigs: vi.fn().mockResolvedValue([]),
   getAutoApprovalConfig: vi.fn(),
@@ -97,9 +106,11 @@ const mockApi = {
   getAutoApprovalLogs: vi.fn().mockResolvedValue([]),
   getAutoApprovalLogEntry: vi.fn(),
 };
-const mockCheckReadinessStatus = vi
-  .fn()
-  .mockResolvedValue({ ok: true, buildId: "development", servedFrontendBuildId: "development" });
+const mockCheckReadinessStatus = vi.fn().mockResolvedValue({
+  ok: true,
+  buildId: "development",
+  servedFrontendBuildId: "development",
+});
 
 const mockApiErrorClass = vi.hoisted(
   () =>
@@ -195,7 +206,12 @@ beforeEach(() => {
     serverSlug: "prod",
     pushoverConfigured: false,
     pushoverEnabled: true,
-    pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
+    pushoverEventFilters: {
+      needsInput: true,
+      review: true,
+      notifyMe: true,
+      error: true,
+    },
     pushoverDelaySeconds: 30,
     pushoverBaseUrl: "",
     restartSupported: true,
@@ -214,7 +230,11 @@ beforeEach(() => {
     sessionDefaults: DEFAULT_SESSION_DEFAULTS,
   });
   mockApi.getBackendModels.mockResolvedValue([]);
-  mockApi.restartServer.mockResolvedValue({ ok: true, restartRequested: true, replacementBuildId: null });
+  mockApi.restartServer.mockResolvedValue({
+    ok: true,
+    restartRequested: true,
+    replacementBuildId: null,
+  });
   mockCheckReadinessStatus.mockResolvedValue({
     ok: true,
     buildId: "development",
@@ -227,7 +247,12 @@ beforeEach(() => {
     serverSlug: "prod",
     pushoverConfigured: false,
     pushoverEnabled: true,
-    pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
+    pushoverEventFilters: {
+      needsInput: true,
+      review: true,
+      notifyMe: true,
+      error: true,
+    },
     pushoverDelaySeconds: 30,
     pushoverBaseUrl: "",
     restartSupported: true,
@@ -246,11 +271,21 @@ beforeEach(() => {
     sessionDefaults: DEFAULT_SESSION_DEFAULTS,
   });
   mockApi.getNamerLogs.mockResolvedValue([]);
-  mockApi.getCaffeinateStatus.mockResolvedValue({ active: false, engagedAt: null, expiresAt: null });
+  mockApi.getCaffeinateStatus.mockResolvedValue({
+    active: false,
+    engagedAt: null,
+    expiresAt: null,
+  });
 });
 
 async function waitForSettingsPage() {
   await screen.findAllByText("Notifications");
+}
+
+/** Typed line-height values apply on blur, so partial text such as "1." is never saved. */
+function typeLineHeight(input: HTMLElement, value: string) {
+  fireEvent.change(input, { target: { value } });
+  fireEvent.blur(input);
 }
 
 function settingsSection(title: string): HTMLElement {
@@ -345,7 +380,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+      expect(settingsSection("Server & Data")).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
       await act(async () => {
@@ -396,7 +431,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+      expect(settingsSection("Server & Data")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
 
       await act(async () => {
@@ -443,7 +478,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+      expect(settingsSection("Server & Data")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
 
       await act(async () => {
@@ -481,7 +516,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+      expect(settingsSection("Server & Data")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
 
       await act(async () => {
@@ -521,7 +556,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+      expect(settingsSection("Server & Data")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
 
       await act(async () => {
@@ -557,7 +592,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+      expect(settingsSection("Server & Data")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
 
       await act(async () => {
@@ -579,8 +614,16 @@ describe("SettingsPage", () => {
   it("consumes restart intent before overlapping readiness probes can reload twice", async () => {
     vi.useFakeTimers();
     const onReloadAfterRestart = vi.fn();
-    const firstProbe = deferred<{ ok: boolean; buildId: string; servedFrontendBuildId: string }>();
-    const secondProbe = deferred<{ ok: boolean; buildId: string; servedFrontendBuildId: string }>();
+    const firstProbe = deferred<{
+      ok: boolean;
+      buildId: string;
+      servedFrontendBuildId: string;
+    }>();
+    const secondProbe = deferred<{
+      ok: boolean;
+      buildId: string;
+      servedFrontendBuildId: string;
+    }>();
     mockApi.restartServer.mockResolvedValue({
       ok: true,
       restartRequested: true,
@@ -596,7 +639,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+      expect(settingsSection("Server & Data")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
 
       await act(async () => {
@@ -606,13 +649,21 @@ describe("SettingsPage", () => {
       expect(mockCheckReadinessStatus).toHaveBeenCalledTimes(2);
 
       await act(async () => {
-        secondProbe.resolve({ ok: true, buildId: "build-target", servedFrontendBuildId: "build-target" });
+        secondProbe.resolve({
+          ok: true,
+          buildId: "build-target",
+          servedFrontendBuildId: "build-target",
+        });
         await Promise.resolve();
       });
       expect(onReloadAfterRestart).toHaveBeenCalledOnce();
 
       await act(async () => {
-        firstProbe.resolve({ ok: true, buildId: "build-target", servedFrontendBuildId: "build-target" });
+        firstProbe.resolve({
+          ok: true,
+          buildId: "build-target",
+          servedFrontendBuildId: "build-target",
+        });
         await Promise.resolve();
       });
       expect(onReloadAfterRestart).toHaveBeenCalledOnce();
@@ -624,7 +675,11 @@ describe("SettingsPage", () => {
   it("cancels a pending initiating-tab reload when Settings unmounts", async () => {
     vi.useFakeTimers();
     const onReloadAfterRestart = vi.fn();
-    const pendingProbe = deferred<{ ok: boolean; buildId: string; servedFrontendBuildId: string }>();
+    const pendingProbe = deferred<{
+      ok: boolean;
+      buildId: string;
+      servedFrontendBuildId: string;
+    }>();
     observeServerBuildIdentity("development", "development", beginBuildIdentityObservation());
     mockApi.restartServer.mockResolvedValue({
       ok: true,
@@ -639,7 +694,7 @@ describe("SettingsPage", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+      expect(settingsSection("Server & Data")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
 
       await act(async () => {
@@ -652,7 +707,11 @@ describe("SettingsPage", () => {
       expect(mockState.setServerRestarting).toHaveBeenLastCalledWith(false);
 
       await act(async () => {
-        pendingProbe.resolve({ ok: true, buildId: "build-target", servedFrontendBuildId: "build-target" });
+        pendingProbe.resolve({
+          ok: true,
+          buildId: "build-target",
+          servedFrontendBuildId: "build-target",
+        });
         await Promise.resolve();
       });
       expect(onReloadAfterRestart).not.toHaveBeenCalled();
@@ -687,12 +746,24 @@ describe("SettingsPage", () => {
       restartRequested: false,
       timedOut: true,
       retryAttempts: [],
-      interrupted: [{ sessionId: "worker-1", label: "Worker session", reasons: ["running"] }],
+      interrupted: [
+        {
+          sessionId: "worker-1",
+          label: "Worker session",
+          reasons: ["running"],
+        },
+      ],
       skipped: [],
       failures: [],
       fallbacks: [],
       protectedLeaders: [{ sessionId: "leader-1", label: "Leader session" }],
-      unresolvedBlockers: [{ sessionId: "approval-1", label: "Approval session", reasons: ["1 pending permission"] }],
+      unresolvedBlockers: [
+        {
+          sessionId: "approval-1",
+          label: "Approval session",
+          reasons: ["1 pending permission"],
+        },
+      ],
       herdDelivery: {
         suppressed: 0,
         held: 0,
@@ -730,8 +801,12 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
 
     await waitForSettingsPage();
-    const shortcutsSection = settingsSection("Shortcuts");
-    expect(within(shortcutsSection as HTMLElement).getByText("Off")).toBeInTheDocument();
+    const shortcutsSection = settingsSection("Keyboard Shortcuts");
+    expect(
+      within(shortcutsSection as HTMLElement).getByRole("switch", {
+        name: "Use keyboard shortcuts",
+      }),
+    ).toHaveAttribute("aria-checked", "false");
     expect(
       within(shortcutsSection as HTMLElement).getByText("Enable shortcuts to edit presets and bindings."),
     ).toBeInTheDocument();
@@ -744,7 +819,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
 
     await waitForSettingsPage();
-    const select = within(settingsSection("Shortcuts") as HTMLElement).getByLabelText("Send Key");
+    const select = within(settingsSection("Input & Voice") as HTMLElement).getByLabelText("Send Key");
     expect(select).toHaveValue("enter");
     fireEvent.change(select, { target: { value: "mod-enter" } });
     expect(mockState.setSendKeyScheme).toHaveBeenCalledWith("mod-enter");
@@ -945,25 +1020,43 @@ describe("SettingsPage", () => {
     const voiceSection = settingsSection("Voice Transcription");
     expect(within(voiceSection).getByText("Expected Languages")).toBeInTheDocument();
     await waitFor(() => {
-      expect(within(voiceSection).getByRole("button", { name: "Remove English (en)" })).toBeInTheDocument();
+      expect(
+        within(voiceSection).getByRole("button", {
+          name: "Remove English (en)",
+        }),
+      ).toBeInTheDocument();
     });
 
-    const trigger = within(voiceSection).getByRole("button", { name: "Add expected language" });
+    const trigger = within(voiceSection).getByRole("button", {
+      name: "Add expected language",
+    });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveAttribute("aria-haspopup", "listbox");
-    expect(within(voiceSection).queryByRole("combobox", { name: "Search expected languages" })).toBeNull();
-    expect(within(voiceSection).queryByRole("listbox", { name: "Expected language options" })).toBeNull();
+    expect(
+      within(voiceSection).queryByRole("combobox", {
+        name: "Search expected languages",
+      }),
+    ).toBeNull();
+    expect(
+      within(voiceSection).queryByRole("listbox", {
+        name: "Expected language options",
+      }),
+    ).toBeNull();
 
     trigger.focus();
     await user.keyboard("{Enter}");
 
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(document.getElementById(trigger.getAttribute("aria-controls")!)).toBeInTheDocument();
-    const languageSearch = within(voiceSection).getByRole("combobox", { name: "Search expected languages" });
+    const languageSearch = within(voiceSection).getByRole("combobox", {
+      name: "Search expected languages",
+    });
     expect(languageSearch).toHaveFocus();
     expect(languageSearch).toHaveAttribute(
       "aria-controls",
-      within(voiceSection).getByRole("listbox", { name: "Expected language options" }).id,
+      within(voiceSection).getByRole("listbox", {
+        name: "Expected language options",
+      }).id,
     );
 
     await user.type(languageSearch, "Chinese");
@@ -971,10 +1064,16 @@ describe("SettingsPage", () => {
 
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveFocus();
-    expect(within(voiceSection).queryByRole("combobox", { name: "Search expected languages" })).toBeNull();
+    expect(
+      within(voiceSection).queryByRole("combobox", {
+        name: "Search expected languages",
+      }),
+    ).toBeNull();
     expect(within(voiceSection).getByRole("button", { name: "Remove English (en)" })).toBeInTheDocument();
     expect(
-      within(voiceSection).getByRole("button", { name: "Remove Chinese (Simplified, China) (zh-cn)" }),
+      within(voiceSection).getByRole("button", {
+        name: "Remove Chinese (Simplified, China) (zh-cn)",
+      }),
     ).toBeInTheDocument();
 
     await user.click(within(voiceSection).getByRole("button", { name: "Save" }));
@@ -997,7 +1096,9 @@ describe("SettingsPage", () => {
     await user.keyboard("{Enter}");
     expect(within(voiceSection).queryByRole("button", { name: /Remove Chinese/ })).toBeNull();
 
-    fireEvent.change(within(voiceSection).getByLabelText("STT Model"), { target: { value: "gpt-4o-transcribe" } });
+    fireEvent.change(within(voiceSection).getByLabelText("STT Model"), {
+      target: { value: "gpt-4o-transcribe" },
+    });
     expect(within(voiceSection).queryByText("Expected Languages")).not.toBeInTheDocument();
   });
 
@@ -1009,33 +1110,55 @@ describe("SettingsPage", () => {
     await waitForSettingsPage();
 
     const voiceSection = settingsSection("Voice Transcription");
-    const trigger = await within(voiceSection).findByRole("button", { name: "Add expected language" });
+    const trigger = await within(voiceSection).findByRole("button", {
+      name: "Add expected language",
+    });
     await waitFor(() => {
       expect(
-        within(voiceSection).getByRole("button", { name: "Remove Chinese (Simplified, China) (zh-cn)" }),
+        within(voiceSection).getByRole("button", {
+          name: "Remove Chinese (Simplified, China) (zh-cn)",
+        }),
       ).toBeInTheDocument();
     });
 
     trigger.focus();
     await user.keyboard(" ");
-    expect(within(voiceSection).getByRole("combobox", { name: "Search expected languages" })).toHaveFocus();
+    expect(
+      within(voiceSection).getByRole("combobox", {
+        name: "Search expected languages",
+      }),
+    ).toHaveFocus();
 
     await user.keyboard("{Escape}");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveFocus();
-    expect(within(voiceSection).queryByRole("listbox", { name: "Expected language options" })).toBeNull();
+    expect(
+      within(voiceSection).queryByRole("listbox", {
+        name: "Expected language options",
+      }),
+    ).toBeNull();
     expect(within(voiceSection).getByRole("button", { name: "Remove English (en)" })).toBeInTheDocument();
 
     await user.click(trigger);
-    expect(within(voiceSection).getByRole("combobox", { name: "Search expected languages" })).toHaveFocus();
+    expect(
+      within(voiceSection).getByRole("combobox", {
+        name: "Search expected languages",
+      }),
+    ).toHaveFocus();
     const enhancementModel = within(voiceSection).getByLabelText("Enhancement Model");
     await user.click(enhancementModel);
 
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(enhancementModel).toHaveFocus();
-    expect(within(voiceSection).queryByRole("combobox", { name: "Search expected languages" })).toBeNull();
     expect(
-      within(voiceSection).getByRole("button", { name: "Remove Chinese (Simplified, China) (zh-cn)" }),
+      within(voiceSection).queryByRole("combobox", {
+        name: "Search expected languages",
+      }),
+    ).toBeNull();
+    expect(
+      within(voiceSection).getByRole("button", {
+        name: "Remove Chinese (Simplified, China) (zh-cn)",
+      }),
     ).toBeInTheDocument();
   });
 
@@ -1048,7 +1171,9 @@ describe("SettingsPage", () => {
       expect(within(voiceSection).getByLabelText("STT Model")).toBeInTheDocument();
     });
 
-    fireEvent.change(within(voiceSection).getByLabelText("STT Model"), { target: { value: "__custom__" } });
+    fireEvent.change(within(voiceSection).getByLabelText("STT Model"), {
+      target: { value: "__custom__" },
+    });
     fireEvent.click(within(voiceSection).getByRole("button", { name: "Save" }));
 
     expect(await within(voiceSection).findByText("Custom STT model is required.")).toBeInTheDocument();
@@ -1062,7 +1187,12 @@ describe("SettingsPage", () => {
       serverSlug: "prod",
       pushoverConfigured: true,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: false, notifyMe: true, error: true },
+      pushoverEventFilters: {
+        needsInput: true,
+        review: false,
+        notifyMe: true,
+        error: true,
+      },
       pushoverDelaySeconds: 30,
       pushoverBaseUrl: "",
       claudeBinary: "",
@@ -1085,7 +1215,12 @@ describe("SettingsPage", () => {
       serverSlug: "prod",
       pushoverConfigured: true,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
+      pushoverEventFilters: {
+        needsInput: true,
+        review: true,
+        notifyMe: true,
+        error: true,
+      },
       pushoverDelaySeconds: 30,
       pushoverBaseUrl: "",
       claudeBinary: "",
@@ -1106,24 +1241,28 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
 
     await waitForSettingsPage();
-    const pushoverForm = settingsSection("Push Notifications (Pushover)");
+    // Event types are shared by Web Push and Pushover, so they live in their own
+    // subsection and save as soon as a box is ticked, without the Pushover Save button.
+    const rules = settingsSection("Phone Alert Rules");
 
-    await waitFor(() => {
-      expect(within(pushoverForm).getAllByRole("checkbox").length).toBeGreaterThanOrEqual(3);
+    const reviewToggle = await within(rules).findByRole("checkbox", {
+      name: /^Ready for review/,
     });
-    const reviewToggle = within(pushoverForm).getAllByRole("checkbox")[1] as HTMLInputElement;
-    expect(reviewToggle).not.toBeChecked();
+    await waitFor(() => expect(reviewToggle).not.toBeChecked());
 
     fireEvent.click(reviewToggle);
-    fireEvent.submit(reviewToggle.closest("form")!);
 
     await waitFor(() => {
-      expect(mockApi.updateSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
-        }),
-      );
+      expect(mockApi.updateSettings).toHaveBeenCalledWith({
+        pushoverEventFilters: {
+          needsInput: true,
+          review: true,
+          notifyMe: true,
+          error: true,
+        },
+      });
     });
+    expect(reviewToggle).toBeChecked();
   });
 
   it("shows error if initial load fails", async () => {
@@ -1137,22 +1276,31 @@ describe("SettingsPage", () => {
   it.each([true, false])("loads and independently saves Notify Me=%s", async (notifyMe) => {
     // Exercise the visible control and server-confirmed save while review stays off.
     const base = await mockApi.getSettings();
-    const filters = { needsInput: false, review: false, notifyMe, error: true };
-    mockApi.getSettings.mockResolvedValue({ ...base, pushoverEventFilters: filters });
-    mockApi.updateSettings.mockResolvedValue({ ...base, pushoverEventFilters: { ...filters, notifyMe: !notifyMe } });
+    const filters = {
+      needsInput: false,
+      review: false,
+      notifyMe,
+      error: true,
+    };
+    mockApi.getSettings.mockResolvedValue({
+      ...base,
+      pushoverEventFilters: filters,
+    });
+    mockApi.updateSettings.mockResolvedValue({
+      ...base,
+      pushoverEventFilters: { ...filters, notifyMe: !notifyMe },
+    });
     render(<SettingsPage />);
     await waitForSettingsPage();
-    const section = within(settingsSection("Push Notifications (Pushover)"));
+    const section = within(settingsSection("Phone Alert Rules"));
     const toggle = section.getByRole("checkbox", { name: /^Notify Me/ });
-    expect(toggle).toHaveProperty("checked", notifyMe);
+    await waitFor(() => expect(toggle).toHaveProperty("checked", notifyMe));
     expect(section.getByRole("checkbox", { name: /^Ready for review/ })).not.toBeChecked();
     fireEvent.click(toggle);
-    fireEvent.submit(toggle.closest("form")!);
     await waitFor(() => {
-      expect(mockApi.updateSettings).toHaveBeenCalledWith(
-        expect.objectContaining({ pushoverEventFilters: { ...filters, notifyMe: !notifyMe } }),
-      );
-      expect(section.getByText("Pushover settings saved.")).toBeInTheDocument();
+      expect(mockApi.updateSettings).toHaveBeenCalledWith({
+        pushoverEventFilters: { ...filters, notifyMe: !notifyMe },
+      });
     });
     expect(toggle).toHaveProperty("checked", !notifyMe);
     expect(section.getByRole("checkbox", { name: /^Ready for review/ })).not.toBeChecked();
@@ -1180,14 +1328,16 @@ describe("SettingsPage", () => {
     expect(mockState.toggleNotificationSound).toHaveBeenCalledTimes(1);
   });
 
-  it("cycles theme from settings", async () => {
+  it("picks a theme directly from the visible options", async () => {
+    // Every theme is shown at once, so choosing one never requires cycling through the others.
     mockState = createMockState({ colorTheme: "light", darkMode: false });
     render(<SettingsPage />);
     await waitForSettingsPage();
 
-    // Click the Theme button — should cycle to next theme ("dark")
-    fireEvent.click(screen.getByText(/^Theme$/));
-    expect(mockState.setColorTheme).toHaveBeenCalledWith("dark");
+    const themes = screen.getByRole("radiogroup", { name: "Theme" });
+    expect(within(themes).getByRole("radio", { name: "Light" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(within(themes).getByRole("radio", { name: "VS Code" }));
+    expect(mockState.setColorTheme).toHaveBeenCalledWith("vscode-dark");
   });
 
   it("updates chat message line height through server settings", async () => {
@@ -1195,18 +1345,20 @@ describe("SettingsPage", () => {
     mockApi.updateSettings.mockResolvedValue(settingsWithChatLineHeight(1.36));
 
     render(<SettingsPage />);
-    const input = await screen.findByLabelText("Chat message line height value");
-    expect(input).toHaveValue(1.5);
-    expect(input).toHaveAttribute("type", "number");
+    const input = await screen.findByLabelText("Chat Message Line Height");
+    await waitFor(() => expect(input).toHaveValue("1.50"));
+    // The value stays a typed field (plus -/+ steps), never a slider.
     expect(input).not.toHaveAttribute("min");
     expect(input).not.toHaveAttribute("max");
     expect(screen.queryByRole("slider", { name: /chat message line height/i })).toBeNull();
     expect(mockState.setChatMessageLineHeight).toHaveBeenCalledWith(1.5);
 
-    fireEvent.change(input, { target: { value: "1.36" } });
+    typeLineHeight(input, "1.36");
 
     await waitFor(() => {
-      expect(mockApi.updateSettings).toHaveBeenCalledWith({ chatMessageLineHeight: 1.36 });
+      expect(mockApi.updateSettings).toHaveBeenCalledWith({
+        chatMessageLineHeight: 1.36,
+      });
     });
     expect(mockState.setChatMessageLineHeight).toHaveBeenCalledWith(1.36);
   });
@@ -1222,32 +1374,39 @@ describe("SettingsPage", () => {
       .mockImplementationOnce(() => correctiveSave.promise);
 
     render(<SettingsPage />);
-    const input = await screen.findByLabelText("Chat message line height value");
-    fireEvent.change(input, { target: { value: "1.50" } });
-    fireEvent.change(input, { target: { value: "1.60" } });
+    const input = await screen.findByLabelText("Chat Message Line Height");
+    await waitFor(() => expect(input).toHaveValue("1.45"));
+    typeLineHeight(input, "1.50");
+    typeLineHeight(input, "1.60");
 
-    expect(mockApi.updateSettings).toHaveBeenNthCalledWith(1, { chatMessageLineHeight: 1.5 });
-    expect(mockApi.updateSettings).toHaveBeenNthCalledWith(2, { chatMessageLineHeight: 1.6 });
+    expect(mockApi.updateSettings).toHaveBeenNthCalledWith(1, {
+      chatMessageLineHeight: 1.5,
+    });
+    expect(mockApi.updateSettings).toHaveBeenNthCalledWith(2, {
+      chatMessageLineHeight: 1.6,
+    });
 
     await act(async () => {
       secondSave.resolve(settingsWithChatLineHeight(1.6));
       await secondSave.promise;
     });
-    expect(input).toHaveValue(1.6);
+    expect(input).toHaveValue("1.60");
 
     await act(async () => {
       firstSave.resolve(settingsWithChatLineHeight(1.5));
       await firstSave.promise;
     });
-    expect(input).toHaveValue(1.6);
+    expect(input).toHaveValue("1.60");
     expect(mockState.setChatMessageLineHeight).toHaveBeenLastCalledWith(1.6);
-    expect(mockApi.updateSettings).toHaveBeenNthCalledWith(3, { chatMessageLineHeight: 1.6 });
+    expect(mockApi.updateSettings).toHaveBeenNthCalledWith(3, {
+      chatMessageLineHeight: 1.6,
+    });
 
     await act(async () => {
       correctiveSave.resolve(settingsWithChatLineHeight(1.6));
       await correctiveSave.promise;
     });
-    expect(input).toHaveValue(1.6);
+    expect(input).toHaveValue("1.60");
   });
 
   it("does not rollback a newer chat line height when an older save fails", async () => {
@@ -1259,15 +1418,16 @@ describe("SettingsPage", () => {
       .mockImplementationOnce(() => secondSave.promise);
 
     render(<SettingsPage />);
-    const input = await screen.findByLabelText("Chat message line height value");
-    fireEvent.change(input, { target: { value: "1.50" } });
-    fireEvent.change(input, { target: { value: "1.60" } });
+    const input = await screen.findByLabelText("Chat Message Line Height");
+    await waitFor(() => expect(input).toHaveValue("1.45"));
+    typeLineHeight(input, "1.50");
+    typeLineHeight(input, "1.60");
 
     await act(async () => {
       firstSave.reject(new Error("older save failed"));
       await firstSave.promise.catch(() => undefined);
     });
-    expect(input).toHaveValue(1.6);
+    expect(input).toHaveValue("1.60");
     expect(screen.queryByText("older save failed")).not.toBeInTheDocument();
     expect(mockState.setChatMessageLineHeight).toHaveBeenLastCalledWith(1.6);
 
@@ -1275,7 +1435,7 @@ describe("SettingsPage", () => {
       secondSave.resolve(settingsWithChatLineHeight(1.6));
       await secondSave.promise;
     });
-    expect(input).toHaveValue(1.6);
+    expect(input).toHaveValue("1.60");
   });
 
   it("rolls back to the stale success value when its corrective save fails", async () => {
@@ -1289,28 +1449,31 @@ describe("SettingsPage", () => {
       .mockImplementationOnce(() => correctiveSave.promise);
 
     render(<SettingsPage />);
-    const input = await screen.findByLabelText("Chat message line height value");
-    fireEvent.change(input, { target: { value: "1.50" } });
-    fireEvent.change(input, { target: { value: "1.60" } });
+    const input = await screen.findByLabelText("Chat Message Line Height");
+    await waitFor(() => expect(input).toHaveValue("1.45"));
+    typeLineHeight(input, "1.50");
+    typeLineHeight(input, "1.60");
 
     await act(async () => {
       secondSave.resolve(settingsWithChatLineHeight(1.6));
       await secondSave.promise;
     });
-    expect(input).toHaveValue(1.6);
+    expect(input).toHaveValue("1.60");
 
     await act(async () => {
       firstSave.resolve(settingsWithChatLineHeight(1.5));
       await firstSave.promise;
     });
-    expect(mockApi.updateSettings).toHaveBeenNthCalledWith(3, { chatMessageLineHeight: 1.6 });
-    expect(input).toHaveValue(1.6);
+    expect(mockApi.updateSettings).toHaveBeenNthCalledWith(3, {
+      chatMessageLineHeight: 1.6,
+    });
+    expect(input).toHaveValue("1.60");
 
     await act(async () => {
       correctiveSave.reject(new Error("corrective save failed"));
       await correctiveSave.promise.catch(() => undefined);
     });
-    expect(input).toHaveValue(1.5);
+    expect(input).toHaveValue("1.50");
     expect(mockState.setChatMessageLineHeight).toHaveBeenLastCalledWith(1.5);
     expect(screen.getByText("corrective save failed")).toBeInTheDocument();
   });
@@ -1368,11 +1531,13 @@ describe("SettingsPage", () => {
     fireEvent.change(select, { target: { value: "cursor" } });
 
     await waitFor(() => {
-      expect(mockApi.updateSettings).toHaveBeenCalledWith({ editorConfig: { editor: "cursor" } });
+      expect(mockApi.updateSettings).toHaveBeenCalledWith({
+        editorConfig: { editor: "cursor" },
+      });
     });
   });
 
-  it("updates heavy repo mode from the Sessions settings section", async () => {
+  it("updates heavy repo mode from the System settings section", async () => {
     mockApi.updateSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
@@ -1389,12 +1554,18 @@ describe("SettingsPage", () => {
     });
 
     render(<SettingsPage />);
-    fireEvent.click(await screen.findByRole("button", { name: /Heavy Repo Mode Off/ }));
+    const toggle = await screen.findByRole("switch", {
+      name: "Heavy Repo Mode",
+    });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(toggle);
 
     await waitFor(() => {
-      expect(mockApi.updateSettings).toHaveBeenCalledWith({ heavyRepoModeEnabled: true });
+      expect(mockApi.updateSettings).toHaveBeenCalledWith({
+        heavyRepoModeEnabled: true,
+      });
     });
-    expect(screen.getByRole("button", { name: /Heavy Repo Mode On/ })).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-checked", "true");
   });
 
   it("ignores stale Sessions collapse state while polling sleep inhibitor status", async () => {
@@ -1605,7 +1776,9 @@ describe("SettingsPage", () => {
 
     fireEvent.click(screen.getByText("Edit"));
 
-    const dialog = screen.getByRole("dialog", { name: "Edit auto-approval rule" });
+    const dialog = screen.getByRole("dialog", {
+      name: "Edit auto-approval rule",
+    });
     expect(dialog).toBeInTheDocument();
 
     fireEvent.change(within(dialog).getByLabelText("Rule criteria"), {
@@ -1655,12 +1828,14 @@ describe("SettingsPage", () => {
 
     fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "vscode" } });
 
-    const cliSection = settingsSection("CLI & Backends");
-    expect(cliSection).toBeVisible();
-    expect(settingsSection("Shortcuts")).toBeVisible();
-    expect(settingsSection("Appearance & Display")).not.toBeVisible();
-    expect(within(cliSection).getByLabelText("Editor")).toBeVisible();
-    expect(within(cliSection).getByLabelText("Claude Code")).not.toBeVisible();
+    // "vscode" matches the editor row and the shortcut preset, so both groups stay
+    // visible while unrelated rows and groups are filtered out.
+    const systemSection = settingsSection("System");
+    expect(systemSection).toBeVisible();
+    expect(settingsSection("Keyboard Shortcuts")).toBeVisible();
+    expect(settingsSection("Appearance")).not.toBeVisible();
+    expect(within(systemSection).getByLabelText("Editor")).toBeVisible();
+    expect(within(systemSection).getByLabelText("Claude Code")).not.toBeVisible();
   });
 
   it("finds role-aware session defaults from worker and leader search terms", async () => {
@@ -1684,7 +1859,7 @@ describe("SettingsPage", () => {
 
     fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "line height" } });
 
-    const appearanceSection = settingsSection("Appearance & Display");
+    const appearanceSection = settingsSection("Appearance");
     expect(appearanceSection).toBeVisible();
     expect(within(appearanceSection).getByLabelText("Chat Message Line Height")).toBeVisible();
     expect(settingsSection("Notifications")).not.toBeVisible();
@@ -1697,10 +1872,12 @@ describe("SettingsPage", () => {
 
     fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "quiet mode" } });
 
-    const appearanceSection = settingsSection("Appearance & Display");
-    const toggle = within(appearanceSection).getByRole("button", { name: /Compact Tool Activity/ });
+    const appearanceSection = settingsSection("Appearance");
+    const toggle = within(appearanceSection).getByRole("switch", {
+      name: "Compact Tool Activity",
+    });
     expect(toggle).toBeVisible();
-    expect(within(toggle).getByText("On")).toBeTruthy();
+    expect(toggle).toHaveAttribute("aria-checked", "true");
     fireEvent.click(toggle);
     expect(mockState.toggleCompactToolActivity).toHaveBeenCalledTimes(1);
   });
@@ -1712,7 +1889,12 @@ describe("SettingsPage", () => {
       serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
+      pushoverEventFilters: {
+        needsInput: true,
+        review: true,
+        notifyMe: true,
+        error: true,
+      },
       pushoverDelaySeconds: 30,
       pushoverBaseUrl: "",
       claudeBinary: "",
@@ -1732,14 +1914,22 @@ describe("SettingsPage", () => {
       serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
-      pushoverEventFilters: { needsInput: true, review: true, notifyMe: true, error: true },
+      pushoverEventFilters: {
+        needsInput: true,
+        review: true,
+        notifyMe: true,
+        error: true,
+      },
       pushoverDelaySeconds: 30,
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
       codexLeaderContextWindowOverrideTokens: 1_200_000,
       codexLeaderRecycleThresholdTokens: 280_000,
-      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 440_000, "gpt-5.5": 320_000 },
+      codexLeaderRecycleThresholdTokensByModel: {
+        "gpt-5.4": 440_000,
+        "gpt-5.5": 320_000,
+      },
       codexLeaderCompactionMode: "recycle",
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
@@ -1749,12 +1939,11 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
 
-    const cliSection = settingsSection("CLI & Backends");
-    expect(within(cliSection).getByText("Codex Leader Context Mode")).toBeInTheDocument();
-    expect(within(cliSection).queryByLabelText("Codex Non-Leader Auto-Compact Threshold")).toBeNull();
-    expect(within(cliSection).queryByLabelText("Codex Leader Context Window")).toBeNull();
-    expect(within(cliSection).queryByLabelText("Codex Leader Recycle Budget")).toBeNull();
-    expect(within(cliSection).queryByText("Codex Leader Model Budget Overrides")).toBeNull();
+    expect(screen.getByRole("radiogroup", { name: "Codex Leader Context Mode" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Codex Non-Leader Auto-Compact Threshold")).toBeNull();
+    expect(screen.queryByLabelText("Codex Leader Context Window")).toBeNull();
+    expect(screen.queryByLabelText("Codex Leader Recycle Budget")).toBeNull();
+    expect(screen.queryByText("Codex Leader Model Budget Overrides")).toBeNull();
 
     expect(mockApi.updateSettings).not.toHaveBeenCalled();
   });
@@ -1763,11 +1952,15 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
 
-    const cliSection = settingsSection("CLI & Backends");
-    fireEvent.click(within(cliSection).getByRole("button", { name: "Compact" }));
+    const modes = screen.getByRole("radiogroup", {
+      name: "Codex Leader Context Mode",
+    });
+    fireEvent.click(within(modes).getByRole("radio", { name: "Compact" }));
 
     await waitFor(() => {
-      expect(mockApi.updateSettings).toHaveBeenCalledWith({ codexLeaderCompactionMode: "compact" });
+      expect(mockApi.updateSettings).toHaveBeenCalledWith({
+        codexLeaderCompactionMode: "compact",
+      });
     });
   });
 
@@ -1779,10 +1972,9 @@ describe("SettingsPage", () => {
       target: { value: "leader model budget" },
     });
 
-    const cliSection = settingsSection("CLI & Backends");
     // The removed leader budget controls should not remain discoverable
     // through the settings search index after the visible rows are removed.
-    expect(cliSection).not.toBeVisible();
+    expect(settingsSection("Sessions")).not.toBeVisible();
     expect(screen.getByText('No settings match "leader model budget".')).toBeInTheDocument();
   });
 
@@ -1797,7 +1989,7 @@ describe("SettingsPage", () => {
     });
 
     expect(screen.getByText('No settings match "non leader auto compact".')).toBeInTheDocument();
-    expect(settingsSection("CLI & Backends")).not.toBeVisible();
+    expect(settingsSection("Sessions")).not.toBeVisible();
   });
 
   it("shows an empty state when no settings match", async () => {
@@ -1825,19 +2017,35 @@ describe("SettingsPage", () => {
     expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(2);
   });
 
-  it("renders all section headings", async () => {
+  it("renders the six groups and their subsections", async () => {
     render(<SettingsPage />);
     await waitForSettingsPage();
 
-    expect(settingsSection("Appearance & Display")).toBeInTheDocument();
-    expect(settingsSection("Notifications")).toBeInTheDocument();
-    expect(settingsSection("CLI & Backends")).toBeInTheDocument();
-    expect(settingsSection("Sessions")).toBeInTheDocument();
-    expect(settingsSection("Push Notifications (Pushover)")).toBeInTheDocument();
-    expect(settingsSection("Auto-Approval (LLM)")).toBeInTheDocument();
-    expect(settingsSection("Session Namer")).toBeInTheDocument();
-    expect(settingsSection("Voice Transcription")).toBeInTheDocument();
-    expect(settingsSection("Server & Diagnostics")).toBeInTheDocument();
+    // The section jump menu lists exactly the top-level groups, in page order.
+    const jump = screen.getByRole("combobox", {
+      name: "Jump to settings section",
+    });
+    expect(
+      within(jump)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Appearance", "Input & Voice", "Notifications", "Sessions", "System", "Server & Data"]);
+    for (const subsection of [
+      "Keyboard Shortcuts",
+      "Voice Transcription",
+      "This Browser",
+      "Phone Alert Rules",
+      "Web Push",
+      "Pushover",
+      "Leader Profiles",
+      "Session Namer",
+      "Auto-Approval (LLM)",
+      "Backend CLIs",
+      "Hosts",
+      "Session Data",
+    ]) {
+      expect(settingsSection(subsection)).toBeInTheDocument();
+    }
   });
 });
 
@@ -1852,10 +2060,16 @@ describe("server-authoritative session defaults updates", () => {
         new CustomEvent("takode:session-defaults-updated", {
           detail: {
             ...DEFAULT_SESSION_DEFAULTS,
-            codex: { ...DEFAULT_SESSION_DEFAULTS.codex, model: "remote-worker-model" },
+            codex: {
+              ...DEFAULT_SESSION_DEFAULTS.codex,
+              model: "remote-worker-model",
+            },
             leaderUsesWorkerDefaults: false,
             leader: {
-              codex: { ...DEFAULT_SESSION_DEFAULTS.leader.codex, model: "remote-leader-model" },
+              codex: {
+                ...DEFAULT_SESSION_DEFAULTS.leader.codex,
+                model: "remote-leader-model",
+              },
               claude: DEFAULT_SESSION_DEFAULTS.leader.claude,
             },
           },

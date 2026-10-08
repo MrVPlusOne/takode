@@ -20,7 +20,6 @@ vi.mock("../api.js", () => ({ api: mockApi }));
 const ENDPOINT = "https://web.push.apple.com/device";
 // base64url of bytes [1, 2, 3, 4]
 const PUBLIC_KEY = "AQIDBA";
-const sectionSearchProps = { hidden: false, searchQuery: "", matchCount: 0 };
 
 function installPushBrowser(existingSubscription: PushSubscription | null = null) {
   const subscription = {
@@ -45,9 +44,19 @@ function installPushBrowser(existingSubscription: PushSubscription | null = null
 describe("SettingsWebPushSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockApi.getWebPushInfo.mockResolvedValue({ available: true, publicKey: PUBLIC_KEY, subscriptionCount: 0 });
-    mockApi.subscribeWebPush.mockResolvedValue({ ok: true, subscriptionCount: 1 });
-    mockApi.unsubscribeWebPush.mockResolvedValue({ ok: true, subscriptionCount: 0 });
+    mockApi.getWebPushInfo.mockResolvedValue({
+      available: true,
+      publicKey: PUBLIC_KEY,
+      subscriptionCount: 0,
+    });
+    mockApi.subscribeWebPush.mockResolvedValue({
+      ok: true,
+      subscriptionCount: 1,
+    });
+    mockApi.unsubscribeWebPush.mockResolvedValue({
+      ok: true,
+      subscriptionCount: 0,
+    });
     mockApi.testWebPush.mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}")));
   });
@@ -62,16 +71,18 @@ describe("SettingsWebPushSection", () => {
     vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
       "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile Safari/604.1",
     );
-    render(<SettingsWebPushSection sectionSearchProps={sectionSearchProps} />);
+    render(<SettingsWebPushSection />);
     expect(await screen.findByText(/add Takode to your Home Screen/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Enable on this device" })).not.toBeInTheDocument();
   });
 
   it("subscribes with the server key, registers the subscription, and starts presence reporting", async () => {
     const { pushManager } = installPushBrowser();
-    render(<SettingsWebPushSection sectionSearchProps={sectionSearchProps} />);
+    render(<SettingsWebPushSection />);
 
-    const enable = await screen.findByRole("button", { name: "Enable on this device" });
+    const enable = await screen.findByRole("button", {
+      name: "Enable on this device",
+    });
     await waitFor(() => expect(enable).toBeEnabled());
     fireEvent.click(enable);
 
@@ -81,10 +92,15 @@ describe("SettingsWebPushSection", () => {
       applicationServerKey: new Uint8Array([1, 2, 3, 4]),
     });
     expect(await screen.findByText("Notifications enabled on this device.")).toBeInTheDocument();
-    expect(mockApi.subscribeWebPush).toHaveBeenCalledWith({ endpoint: ENDPOINT, keys: { p256dh: "p", auth: "a" } });
+    expect(mockApi.subscribeWebPush).toHaveBeenCalledWith({
+      endpoint: ENDPOINT,
+      keys: { p256dh: "p", auth: "a" },
+    });
     expect(fetch).toHaveBeenCalledWith(
       "/api/web-push/presence",
-      expect.objectContaining({ body: JSON.stringify({ endpoint: ENDPOINT, visible: true }) }),
+      expect.objectContaining({
+        body: JSON.stringify({ endpoint: ENDPOINT, visible: true }),
+      }),
     );
     expect(screen.getByText(/1 device subscribed/)).toBeInTheDocument();
   });
@@ -92,8 +108,12 @@ describe("SettingsWebPushSection", () => {
   it("sends a test and can disable an existing subscription", async () => {
     const { subscription } = installPushBrowser();
     installPushBrowser(subscription);
-    mockApi.getWebPushInfo.mockResolvedValue({ available: true, publicKey: PUBLIC_KEY, subscriptionCount: 1 });
-    render(<SettingsWebPushSection sectionSearchProps={sectionSearchProps} />);
+    mockApi.getWebPushInfo.mockResolvedValue({
+      available: true,
+      publicKey: PUBLIC_KEY,
+      subscriptionCount: 1,
+    });
+    render(<SettingsWebPushSection />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Send Test" }));
     expect(await screen.findByText("Test sent.")).toBeInTheDocument();

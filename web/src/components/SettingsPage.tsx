@@ -4,12 +4,10 @@ import {
   ApiError,
   checkReadinessStatus,
   isInterruptRestartBlockersResponse,
-  type ImportStats,
+  type AppSettings,
   type AutoApprovalConfig,
-  type NamerConfig,
   type TranscriptionConfig,
   type EditorKind,
-  type PushoverEventFilters,
   type InterruptRestartBlockersResponse,
 } from "../api.js";
 import { useStore, COLOR_THEMES } from "../store.js";
@@ -20,7 +18,6 @@ import {
 } from "../build-compatibility.js";
 import { createInitiatingTabRestartIntent, type InitiatingTabRestartIntent } from "../server-restart-auto-reload.js";
 import { createShortcutGestureRecorder, type ShortcutActionId } from "../shortcuts.js";
-import { NamerDebugPanel } from "./NamerDebugPanel.js";
 import { CollapsibleSection, isCollapsibleSectionCollapsed } from "./CollapsibleSection.js";
 import { SettingsAutoApprovalSection } from "./SettingsAutoApprovalSection.js";
 import { SettingsLeaderProfilesSection } from "./SettingsLeaderProfilesSection.js";
@@ -28,7 +25,17 @@ import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSec
 import { SettingsSessionDefaultsSection } from "./SettingsSessionDefaultsSection.js";
 import { SettingsWebPushSection } from "./SettingsWebPushSection.js";
 import { SettingsHostsSection } from "./SettingsHostsSection.js";
-import { SettingsShortcutSection } from "./SettingsShortcutSection.js";
+import { SendKeySchemeSetting, SettingsShortcutSection } from "./SettingsShortcutSection.js";
+import { SettingsPhoneAlertRules, SettingsPushoverSection } from "./SettingsPhoneAlertsSection.js";
+import { SettingsSessionDataSection } from "./SettingsSessionDataSection.js";
+import { SettingsSessionNamerSection } from "./SettingsSessionNamerSection.js";
+import {
+  NumberStepper,
+  SegmentedControl,
+  SettingsRow,
+  SettingsSubsection,
+  SettingsToggle,
+} from "./settings-controls.js";
 import {
   BUILT_IN_STT_MODELS,
   CUSTOM_STT_MODEL_VALUE,
@@ -36,8 +43,9 @@ import {
   SettingsVoiceTranscriptionSection,
 } from "./SettingsVoiceTranscriptionSection.js";
 import {
-  CHAT_MESSAGE_LINE_HEIGHT_STEP,
   DEFAULT_CHAT_MESSAGE_LINE_HEIGHT,
+  MAX_CHAT_MESSAGE_LINE_HEIGHT,
+  MIN_CHAT_MESSAGE_LINE_HEIGHT,
   normalizeChatMessageLineHeight,
 } from "../../shared/chat-display-settings.js";
 import {
@@ -58,12 +66,6 @@ import {
 import { navigateToSession, navigateToMostRecentSession } from "../utils/routing.js";
 
 const SCROLL_STORAGE_KEY = "cc-settings-scroll";
-const DEFAULT_PUSHOVER_EVENT_FILTERS: PushoverEventFilters = {
-  needsInput: true,
-  review: true,
-  notifyMe: true,
-  error: true,
-};
 
 interface SettingsPageProps {
   embedded?: boolean;
@@ -82,6 +84,8 @@ export function SettingsPage({
 }: SettingsPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Last settings snapshot from the server; self-contained subsections sync their local form state from it.
+  const [loadedSettings, setLoadedSettings] = useState<AppSettings | null>(null);
   const colorTheme = useStore((s) => s.colorTheme);
   const setColorTheme = useStore((s) => s.setColorTheme);
   const zoomLevel = useStore((s) => s.zoomLevel);
@@ -173,28 +177,10 @@ export function SettingsPage({
   }>({ active: false, engagedAt: null, expiresAt: null });
   const [caffeinateTick, setCaffeinateTick] = useState(0);
   const lifecycleDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [sessionsCollapsed, setSessionsCollapsed] = useState(() => isCollapsibleSectionCollapsed("sessions"));
+  const [systemCollapsed, setSystemCollapsed] = useState(() => isCollapsibleSectionCollapsed("system"));
   const [documentVisible, setDocumentVisible] = useState(
     () => typeof document === "undefined" || document.visibilityState === "visible",
   );
-
-  // Auto-namer toggle state
-  const [namerEnabled, setNamerEnabled] = useState(true);
-  const [namerToggleSaving, setNamerToggleSaving] = useState(false);
-
-  // Pushover state
-  const [poUserKey, setPoUserKey] = useState("");
-  const [poApiToken, setPoApiToken] = useState("");
-  const [poBaseUrl, setPoBaseUrl] = useState("");
-  const [poDelay, setPoDelay] = useState(30);
-  const [poEnabled, setPoEnabled] = useState(true);
-  const [poEventFilters, setPoEventFilters] = useState<PushoverEventFilters>(DEFAULT_PUSHOVER_EVENT_FILTERS);
-  const [poConfigured, setPoConfigured] = useState(false);
-  const [poSaving, setPoSaving] = useState(false);
-  const [poSaved, setPoSaved] = useState(false);
-  const [poError, setPoError] = useState("");
-  const [poTesting, setPoTesting] = useState(false);
-  const [poTestResult, setPoTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
 
   // Server restart state
   const [restarting, setRestarting] = useState(false);
@@ -226,15 +212,6 @@ export function SettingsPage({
   const [aaCreateError, setAaCreateError] = useState("");
   const [showAaFolderPicker, setShowAaFolderPicker] = useState(false);
 
-  // Session auto-namer state
-  const [namerBackend, setNamerBackend] = useState("claude");
-  const [namerApiKey, setNamerApiKey] = useState("");
-  const [namerBaseUrl, setNamerBaseUrl] = useState("");
-  const [namerModel, setNamerModel] = useState("");
-  const [namerSaving, setNamerSaving] = useState(false);
-  const [namerSaved, setNamerSaved] = useState(false);
-  const [namerError, setNamerError] = useState("");
-
   // Voice transcription state
   const [transcriptionApiKey, setTranscriptionApiKey] = useState("");
   const [transcriptionBaseUrl, setTranscriptionBaseUrl] = useState("");
@@ -249,15 +226,7 @@ export function SettingsPage({
   const [transcriptionSaved, setTranscriptionSaved] = useState(false);
   const [transcriptionError, setTranscriptionError] = useState("");
 
-  // Session export/import state
-  const importInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [exporting, setExporting] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [importStep, setImportStep] = useState("");
-  const [importPct, setImportPct] = useState<number | undefined>(undefined);
-  const [importResult, setImportResult] = useState<ImportStats | null>(null);
-  const [importError, setImportError] = useState<string | null>(null);
   const settingsSearch = useSettingsSearchNavigation(scrollRef, isActive);
 
   function navigateBackFromSettings() {
@@ -283,6 +252,7 @@ export function SettingsPage({
     api
       .getSettings()
       .then((s) => {
+        setLoadedSettings(s);
         setClaudeBin(s.claudeBinary || "");
         setCodexBin(s.codexBinary || "");
         setCodexLeaderCompactionMode(normalizeCodexLeaderCompactionMode(s.codexLeaderCompactionMode));
@@ -297,11 +267,6 @@ export function SettingsPage({
         persistedChatMessageLineHeightRef.current = normalizedChatMessageLineHeight;
         setSleepInhibitorEnabled(s.sleepInhibitorEnabled ?? false);
         setSleepInhibitorDuration(s.sleepInhibitorDurationMinutes ?? 5);
-        setPoConfigured(s.pushoverConfigured);
-        setPoEnabled(s.pushoverEnabled);
-        setPoEventFilters(s.pushoverEventFilters ?? DEFAULT_PUSHOVER_EVENT_FILTERS);
-        setPoDelay(s.pushoverDelaySeconds);
-        setPoBaseUrl(s.pushoverBaseUrl || "");
         setRestartSupported(s.restartSupported);
         setServerSlug(s.serverSlug || "");
         setSessionDefaults(normalizeSessionDefaults(s.sessionDefaults));
@@ -309,15 +274,6 @@ export function SettingsPage({
         setAaModel(s.autoApprovalModel ?? "");
         setAaMaxConcurrency(s.autoApprovalMaxConcurrency ?? 4);
         setAaTimeoutSeconds(s.autoApprovalTimeoutSeconds ?? 45);
-        setNamerBackend(s.namerConfig.backend);
-        if (s.namerConfig.backend === "openai") {
-          setNamerApiKey(s.namerConfig.apiKey === "***" ? "***" : s.namerConfig.apiKey || "");
-          setNamerBaseUrl(s.namerConfig.baseUrl || "");
-          setNamerModel(s.namerConfig.model || "");
-        } else {
-          setNamerModel(s.namerConfig.model || "");
-        }
-        setNamerEnabled(s.autoNamerEnabled ?? true);
         if (s.transcriptionConfig) {
           setTranscriptionApiKey(s.transcriptionConfig.apiKey === "***" ? "***" : s.transcriptionConfig.apiKey || "");
           setTranscriptionBaseUrl(s.transcriptionConfig.baseUrl || "");
@@ -401,7 +357,7 @@ export function SettingsPage({
       setCaffeinateStatus({ active: false, engagedAt: null, expiresAt: null });
       return;
     }
-    if (!isActive || sessionsCollapsed || !documentVisible) return;
+    if (!isActive || systemCollapsed || !documentVisible) return;
     let cancelled = false;
     const poll = () => {
       api
@@ -417,15 +373,15 @@ export function SettingsPage({
       cancelled = true;
       clearInterval(id);
     };
-  }, [documentVisible, isActive, sessionsCollapsed, sleepInhibitorEnabled]);
+  }, [documentVisible, isActive, systemCollapsed, sleepInhibitorEnabled]);
 
   // Tick every second to update elapsed/countdown display
   useEffect(() => {
-    if (!isActive || sessionsCollapsed || !documentVisible) return;
+    if (!isActive || systemCollapsed || !documentVisible) return;
     if (!sleepInhibitorEnabled || !caffeinateStatus.active) return;
     const id = setInterval(() => setCaffeinateTick((t) => t + 1), 1_000);
     return () => clearInterval(id);
-  }, [caffeinateStatus.active, documentVisible, isActive, sessionsCollapsed, sleepInhibitorEnabled]);
+  }, [caffeinateStatus.active, documentVisible, isActive, systemCollapsed, sleepInhibitorEnabled]);
 
   // Restore scroll position on mount, save on scroll (debounced) and unmount
   useEffect(() => {
@@ -455,56 +411,6 @@ export function SettingsPage({
       localStorage.setItem(SCROLL_STORAGE_KEY, JSON.stringify(el.scrollTop));
     };
   }, [isActive]);
-
-  async function onSavePushover(e: React.FormEvent) {
-    e.preventDefault();
-    setPoSaving(true);
-    setPoError("");
-    setPoSaved(false);
-    try {
-      const payload: Record<string, unknown> = {
-        pushoverDelaySeconds: poDelay,
-        pushoverEnabled: poEnabled,
-        pushoverEventFilters: poEventFilters,
-        pushoverBaseUrl: poBaseUrl.trim(),
-      };
-      if (poUserKey.trim()) payload.pushoverUserKey = poUserKey.trim();
-      if (poApiToken.trim()) payload.pushoverApiToken = poApiToken.trim();
-
-      const res = await api.updateSettings(payload as Parameters<typeof api.updateSettings>[0]);
-      setPoConfigured(res.pushoverConfigured);
-      setPoEnabled(res.pushoverEnabled);
-      setPoEventFilters(res.pushoverEventFilters ?? DEFAULT_PUSHOVER_EVENT_FILTERS);
-      setPoDelay(res.pushoverDelaySeconds);
-      setPoBaseUrl(res.pushoverBaseUrl || "");
-      setPoUserKey("");
-      setPoApiToken("");
-      setPoSaved(true);
-      setTimeout(() => setPoSaved(false), 1800);
-    } catch (err: unknown) {
-      setPoError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPoSaving(false);
-    }
-  }
-
-  async function onTestPushover() {
-    setPoTesting(true);
-    setPoTestResult(null);
-    try {
-      const res = await api.testPushover();
-      setPoTestResult({ ok: res.ok });
-    } catch (err: unknown) {
-      setPoTestResult({ ok: false, error: err instanceof Error ? err.message : String(err) });
-    } finally {
-      setPoTesting(false);
-      setTimeout(() => setPoTestResult(null), 3000);
-    }
-  }
-
-  function setPoEventFilter<K extends keyof PushoverEventFilters>(key: K, value: boolean) {
-    setPoEventFilters((current) => ({ ...current, [key]: value }));
-  }
 
   // Debounced auto-save for CLI binaries (fires 800ms after last keystroke)
   function debouncedSaveBinaries(newClaude: string, newCodex: string) {
@@ -537,7 +443,10 @@ export function SettingsPage({
       const res = await api.testBinary(binary);
       setResult(res);
     } catch (err: unknown) {
-      setResult({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      setResult({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       setTesting(false);
       setTimeout(() => setResult(null), 5000);
@@ -549,7 +458,9 @@ export function SettingsPage({
     setEditorSaving(true);
     setEditorError("");
     try {
-      const res = await api.updateSettings({ editorConfig: { editor: nextEditor } });
+      const res = await api.updateSettings({
+        editorConfig: { editor: nextEditor },
+      });
       setEditorChoice(res.editorConfig?.editor ?? nextEditor);
     } catch (err: unknown) {
       setEditorError(err instanceof Error ? err.message : String(err));
@@ -745,48 +656,14 @@ export function SettingsPage({
     setServerSlugSaving(true);
     setServerSlugError("");
     try {
-      const res = await api.updateSettings({ serverSlug: nextSlug.trim().toLowerCase() });
+      const res = await api.updateSettings({
+        serverSlug: nextSlug.trim().toLowerCase(),
+      });
       setServerSlug(res.serverSlug || "");
     } catch (err: unknown) {
       setServerSlugError(err instanceof Error ? err.message : String(err));
     } finally {
       setServerSlugSaving(false);
-    }
-  }
-
-  async function handleExport() {
-    setExporting(true);
-    try {
-      const link = document.createElement("a");
-      link.href = api.exportSessionsUrl();
-      link.download = "";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } finally {
-      setTimeout(() => setExporting(false), 2000);
-    }
-  }
-
-  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImporting(true);
-    setImportResult(null);
-    setImportError(null);
-    setImportStep("");
-    setImportPct(undefined);
-    try {
-      const stats = await api.importSessions(file, (_step, message, pct) => {
-        setImportStep(message);
-        setImportPct(pct);
-      });
-      setImportResult(stats);
-    } catch (err) {
-      setImportError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setImporting(false);
-      if (importInputRef.current) importInputRef.current.value = "";
     }
   }
 
@@ -829,6 +706,36 @@ export function SettingsPage({
     };
   }, [recordingShortcutActionId, setShortcutOverride]);
 
+  const errorBox = (message: string) => (
+    <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">{message}</div>
+  );
+  const binaryFields = [
+    {
+      which: "claude" as const,
+      itemId: "claude",
+      label: "Claude Code",
+      value: claudeBin,
+      testing: claudeTesting,
+      test: claudeTest,
+      onChange: (v: string) => {
+        setClaudeBin(v);
+        debouncedSaveBinaries(v, codexBin);
+      },
+    },
+    {
+      which: "codex" as const,
+      itemId: "codex",
+      label: "Codex",
+      value: codexBin,
+      testing: codexTesting,
+      test: codexTest,
+      onChange: (v: string) => {
+        setCodexBin(v);
+        debouncedSaveBinaries(claudeBin, v);
+      },
+    },
+  ];
+
   return (
     <div
       ref={scrollRef}
@@ -837,11 +744,7 @@ export function SettingsPage({
       <div className="max-w-5xl mx-auto px-4 sm:px-8 py-6 sm:py-10 space-y-4">
         <SettingsPageHeader embedded={embedded} onBack={navigateBackFromSettings} />
 
-        {error && (
-          <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-            {error}
-          </div>
-        )}
+        {error && errorBox(error)}
 
         <SettingsSearchControls
           query={settingsSearch.query}
@@ -859,285 +762,328 @@ export function SettingsPage({
           />
 
           <div className="space-y-4">
-            {/* ── 1. Appearance & Display ──────────────────────────── */}
+            {/* ── Appearance ───────────────────────────────────────── */}
             <CollapsibleSection
               id="appearance"
-              title="Appearance & Display"
+              title="Appearance"
+              description="Theme, size, and how chat content is displayed."
               {...settingsSearch.sectionSearch("appearance")}
             >
-              <button
-                type="button"
-                onClick={() => {
-                  const idx = COLOR_THEMES.findIndex((t) => t.id === colorTheme);
-                  const next = COLOR_THEMES[(idx + 1) % COLOR_THEMES.length];
-                  setColorTheme(next.id);
-                }}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-              >
-                <span>Theme</span>
-                <span className="text-xs text-cc-muted">
-                  {COLOR_THEMES.find((t) => t.id === colorTheme)?.label ?? colorTheme}
-                </span>
-              </button>
-              <div className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg">
-                <span>Zoom</span>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setZoomLevel(zoomLevel - 0.1)}
-                    disabled={zoomLevel <= 0.2}
-                    className="w-6 h-6 flex items-center justify-center rounded text-xs font-medium hover:bg-cc-active transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    −
-                  </button>
-                  <input
-                    type="text"
-                    value={Math.round(zoomLevel * 100) + "%"}
-                    onChange={(e) => {
-                      const num = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
-                      if (!isNaN(num)) setZoomLevel(num / 100);
-                    }}
-                    className="w-12 text-center text-xs text-cc-muted bg-transparent border border-cc-border rounded px-1 py-0.5 focus:outline-none focus:border-cc-primary/60"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setZoomLevel(zoomLevel + 0.1)}
-                    disabled={zoomLevel >= 4.0}
-                    className="w-6 h-6 flex items-center justify-center rounded text-xs font-medium hover:bg-cc-active transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={toggleShowUsageBars}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-              >
-                <span>Usage Bars in Sidebar</span>
-                <span className="text-xs text-cc-muted">{showUsageBars ? "On" : "Off"}</span>
-              </button>
-              <button
-                type="button"
-                onClick={toggleEditBlocksExpanded}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-              >
-                <span>Expand Edit/Write Blocks</span>
-                <span className="text-xs text-cc-muted">{editBlocksExpanded ? "On" : "Off"}</span>
-              </button>
-              <button
-                type="button"
-                onClick={toggleCompactToolActivity}
-                hidden={settingsSearch.rowHidden("appearance", "compact-tool-activity")}
-                title="Collapse consecutive tool calls into a concise summary that expands to the full details"
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-              >
-                <span>Compact Tool Activity</span>
-                <span className="text-xs text-cc-muted">{compactToolActivity ? "On" : "Off"}</span>
-              </button>
-              <div
+              <SettingsRow label="Theme" hidden={settingsSearch.rowHidden("appearance", "theme")}>
+                <SegmentedControl
+                  label="Theme"
+                  options={COLOR_THEMES.map((theme) => ({
+                    value: theme.id,
+                    label: theme.label,
+                  }))}
+                  value={colorTheme}
+                  onChange={setColorTheme}
+                />
+              </SettingsRow>
+              <SettingsRow label="Zoom" htmlFor="settings-zoom" hidden={settingsSearch.rowHidden("appearance", "zoom")}>
+                <NumberStepper
+                  id="settings-zoom"
+                  label="zoom"
+                  value={Math.round(zoomLevel * 100)}
+                  step={10}
+                  min={20}
+                  max={400}
+                  suffix="%"
+                  onChange={(percent) => setZoomLevel(percent / 100)}
+                />
+              </SettingsRow>
+              <SettingsRow
+                label="Chat Message Line Height"
+                htmlFor="chat-message-line-height"
                 hidden={settingsSearch.rowHidden("appearance", "chat-line-height")}
-                className="px-3 py-2 rounded-lg bg-cc-hover text-cc-fg"
+                description={
+                  chatMessageLineHeightError ? (
+                    <span className="text-cc-error">{chatMessageLineHeightError}</span>
+                  ) : chatMessageLineHeightSaving ? (
+                    "Saving..."
+                  ) : (
+                    "Spacing between lines of chat text."
+                  )
+                }
               >
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-sm" htmlFor="chat-message-line-height">
-                    Chat Message Line Height
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      id="chat-message-line-height"
-                      type="number"
-                      step={CHAT_MESSAGE_LINE_HEIGHT_STEP}
-                      value={chatMessageLineHeight.toFixed(2)}
-                      onChange={(e) => {
-                        const next = Number(e.target.value);
-                        if (Number.isFinite(next)) void saveChatMessageLineHeight(next);
-                      }}
-                      aria-label="Chat message line height value"
-                      className="w-16 rounded border border-cc-border bg-cc-input-bg px-2 py-1 text-right text-xs text-cc-fg focus:outline-none focus:border-cc-primary/60"
-                    />
-                    <span className="font-mono-code text-[11px] text-cc-muted">x</span>
-                  </div>
-                </div>
-                {chatMessageLineHeightSaving && (
-                  <p className="mt-1 font-mono-code text-[10px] text-cc-muted">Saving...</p>
-                )}
-                {chatMessageLineHeightError && (
-                  <p className="mt-1 text-xs text-cc-error">{chatMessageLineHeightError}</p>
-                )}
-              </div>
+                <NumberStepper
+                  id="chat-message-line-height"
+                  label="chat message line height"
+                  value={chatMessageLineHeight}
+                  step={0.05}
+                  min={MIN_CHAT_MESSAGE_LINE_HEIGHT}
+                  max={MAX_CHAT_MESSAGE_LINE_HEIGHT}
+                  decimals={2}
+                  suffix="×"
+                  onChange={(next) => void saveChatMessageLineHeight(next)}
+                />
+              </SettingsRow>
+              <SettingsToggle
+                label="Compact Tool Activity"
+                description="Collapse consecutive tool calls into a short summary you can expand."
+                checked={compactToolActivity}
+                onChange={toggleCompactToolActivity}
+                hidden={settingsSearch.rowHidden("appearance", "compact-tool-activity")}
+              />
+              <SettingsToggle
+                label="Expand Edit/Write Blocks"
+                description="Show file edit diffs open by default."
+                checked={editBlocksExpanded}
+                onChange={toggleEditBlocksExpanded}
+                hidden={settingsSearch.rowHidden("appearance", "edit-blocks")}
+              />
+              <SettingsToggle
+                label="Usage Bars in Sidebar"
+                checked={showUsageBars}
+                onChange={toggleShowUsageBars}
+                hidden={settingsSearch.rowHidden("appearance", "usage-bars")}
+              />
             </CollapsibleSection>
 
-            {/* ── 2. Notifications ─────────────────────────────────── */}
+            {/* ── Input & Voice ────────────────────────────────────── */}
+            <CollapsibleSection
+              id="input"
+              title="Input & Voice"
+              description="How messages are sent, keyboard shortcuts, and voice dictation."
+              {...settingsSearch.sectionSearch("input")}
+            >
+              <SendKeySchemeSetting
+                shortcutPlatform={shortcutPlatform}
+                hidden={settingsSearch.rowHidden("input", "send-key")}
+              />
+              <SettingsShortcutSection
+                shortcutSettings={shortcutSettings}
+                setShortcutsEnabled={setShortcutsEnabled}
+                setShortcutPreset={setShortcutPreset}
+                setShortcutOverride={setShortcutOverride}
+                resetShortcutOverrides={resetShortcutOverrides}
+                recordingShortcutActionId={recordingShortcutActionId}
+                setRecordingShortcutActionId={setRecordingShortcutActionId}
+                shortcutPlatform={shortcutPlatform}
+                hidden={settingsSearch.rowHidden("input", "shortcuts")}
+              />
+              <SettingsVoiceTranscriptionSection
+                loading={loading}
+                hidden={settingsSearch.rowHidden("input", "voice")}
+                transcriptionApiKey={transcriptionApiKey}
+                setTranscriptionApiKey={setTranscriptionApiKey}
+                transcriptionBaseUrl={transcriptionBaseUrl}
+                setTranscriptionBaseUrl={setTranscriptionBaseUrl}
+                transcriptionModel={transcriptionModel}
+                setTranscriptionModel={setTranscriptionModel}
+                sttModel={sttModel}
+                setSttModel={setSttModel}
+                customSttModel={customSttModel}
+                setCustomSttModel={setCustomSttModel}
+                sttLanguageHints={sttLanguageHints}
+                setSttLanguageHints={setSttLanguageHints}
+                transcriptionEnhancement={transcriptionEnhancement}
+                setTranscriptionEnhancement={setTranscriptionEnhancement}
+                enhancementMode={enhancementMode}
+                setEnhancementMode={setEnhancementMode}
+                transcriptionVocabulary={transcriptionVocabulary}
+                setTranscriptionVocabulary={setTranscriptionVocabulary}
+                transcriptionSaving={transcriptionSaving}
+                setTranscriptionSaving={setTranscriptionSaving}
+                transcriptionSaved={transcriptionSaved}
+                setTranscriptionSaved={setTranscriptionSaved}
+                transcriptionError={transcriptionError}
+                setTranscriptionError={setTranscriptionError}
+              />
+            </CollapsibleSection>
+
+            {/* ── Notifications ────────────────────────────────────── */}
             <CollapsibleSection
               id="notifications"
               title="Notifications"
+              description="Alerts in this browser and on your phone."
               {...settingsSearch.sectionSearch("notifications")}
             >
-              <button
-                type="button"
-                onClick={toggleNotificationSound}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-              >
-                <span>Sound</span>
-                <span className="text-xs text-cc-muted">{notificationSound ? "On" : "Off"}</span>
-              </button>
-              {notificationApiAvailable && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!notificationDesktop) {
-                      if (Notification.permission !== "granted") {
+              <SettingsSubsection title="This Browser" hidden={settingsSearch.rowHidden("notifications", "browser")}>
+                <SettingsToggle
+                  label="Sound"
+                  checked={notificationSound}
+                  onChange={toggleNotificationSound}
+                  hidden={settingsSearch.rowHidden("notifications", "sound")}
+                />
+                {notificationApiAvailable && (
+                  <SettingsToggle
+                    label="Desktop Alerts"
+                    description="Show a system notification when a session needs attention."
+                    checked={notificationDesktop}
+                    hidden={settingsSearch.rowHidden("notifications", "desktop-alerts")}
+                    onChange={async (next) => {
+                      if (next && Notification.permission !== "granted") {
                         const result = await Notification.requestPermission();
                         if (result !== "granted") return;
                       }
-                      setNotificationDesktop(true);
-                    } else {
-                      setNotificationDesktop(false);
-                    }
-                  }}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-                >
-                  <span>Desktop Alerts</span>
-                  <span className="text-xs text-cc-muted">{notificationDesktop ? "On" : "Off"}</span>
-                </button>
-              )}
+                      setNotificationDesktop(next);
+                    }}
+                  />
+                )}
+              </SettingsSubsection>
+              <SettingsPhoneAlertRules
+                settings={loadedSettings}
+                hidden={settingsSearch.rowHidden("notifications", "phone-alerts")}
+              />
+              <SettingsWebPushSection hidden={settingsSearch.rowHidden("notifications", "web-push")} />
+              <SettingsPushoverSection
+                settings={loadedSettings}
+                loading={loading}
+                hidden={settingsSearch.rowHidden("notifications", "pushover")}
+              />
             </CollapsibleSection>
 
-            <SettingsShortcutSection
-              shortcutSettings={shortcutSettings}
-              setShortcutsEnabled={setShortcutsEnabled}
-              setShortcutPreset={setShortcutPreset}
-              setShortcutOverride={setShortcutOverride}
-              resetShortcutOverrides={resetShortcutOverrides}
-              recordingShortcutActionId={recordingShortcutActionId}
-              setRecordingShortcutActionId={setRecordingShortcutActionId}
-              shortcutPlatform={shortcutPlatform}
-              sectionSearch={settingsSearch.childSectionSearch("shortcuts")}
-            />
-
-            {/* ── 4. CLI & Backends ────────────────────────────────── */}
+            {/* ── Sessions ─────────────────────────────────────────── */}
             <CollapsibleSection
-              id="cli"
-              title="CLI & Backends"
-              description="Custom path or command for backend CLIs. Leave empty to auto-detect from PATH. New sessions use this immediately; existing sessions pick it up on relaunch."
-              {...settingsSearch.sectionSearch("cli")}
+              id="sessions"
+              title="Sessions"
+              description="Defaults and automation for new and running sessions."
+              {...settingsSearch.sectionSearch("sessions")}
             >
-              <div hidden={settingsSearch.rowHidden("cli", "claude")}>
-                <label className="block text-sm font-medium mb-1.5" htmlFor="claude-binary">
-                  Claude Code
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    id="claude-binary"
-                    type="text"
-                    value={claudeBin}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setClaudeBin(v);
-                      debouncedSaveBinaries(v, codexBin);
-                    }}
-                    placeholder="claude (auto-detect)"
-                    className="flex-1 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60 font-mono"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onTestBinary("claude")}
-                    disabled={claudeTesting}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
-                      claudeTesting
-                        ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                        : "bg-cc-hover text-cc-fg hover:bg-cc-active cursor-pointer"
-                    }`}
-                  >
-                    {claudeTesting ? "Testing..." : "Test"}
-                  </button>
-                </div>
-                {claudeTest && (
-                  <p className={`mt-1.5 text-xs ${claudeTest.ok ? "text-cc-success" : "text-cc-error"}`}>
-                    {claudeTest.ok ? `${claudeTest.resolvedPath} — ${claudeTest.version}` : claudeTest.error}
-                  </p>
-                )}
+              <div hidden={settingsSearch.rowHidden("sessions", "session-defaults")}>
+                <SettingsSessionDefaultsSection
+                  isActive={isActive}
+                  sessionDefaults={sessionDefaults}
+                  onSaved={setSessionDefaults}
+                />
               </div>
 
-              <div hidden={settingsSearch.rowHidden("cli", "codex")}>
-                <label className="block text-sm font-medium mb-1.5" htmlFor="codex-binary">
-                  Codex
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    id="codex-binary"
-                    type="text"
-                    value={codexBin}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setCodexBin(v);
-                      debouncedSaveBinaries(claudeBin, v);
-                    }}
-                    placeholder="codex (auto-detect)"
-                    className="flex-1 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60 font-mono"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onTestBinary("codex")}
-                    disabled={codexTesting}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
-                      codexTesting
-                        ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                        : "bg-cc-hover text-cc-fg hover:bg-cc-active cursor-pointer"
-                    }`}
-                  >
-                    {codexTesting ? "Testing..." : "Test"}
-                  </button>
-                </div>
-                {codexTest && (
-                  <p className={`mt-1.5 text-xs ${codexTest.ok ? "text-cc-success" : "text-cc-error"}`}>
-                    {codexTest.ok ? `${codexTest.resolvedPath} — ${codexTest.version}` : codexTest.error}
-                  </p>
-                )}
-              </div>
+              <SettingsRow
+                label="Codex Leader Context Mode"
+                hidden={settingsSearch.rowHidden("sessions", "codex-leader-mode")}
+                description="Default for new Codex leaders. Recycling keeps Takode-owned leader recovery; compacting lets Codex use built-in compaction. Manual /compact always compacts; /recycle recycles a leader once. Neither command changes this automatic mode."
+              >
+                <SegmentedControl
+                  label="Codex Leader Context Mode"
+                  options={[
+                    { value: "recycle", label: "Recycle" },
+                    { value: "compact", label: "Compact" },
+                  ]}
+                  value={codexLeaderCompactionMode}
+                  onChange={(mode) => {
+                    setCodexLeaderCompactionMode(mode);
+                    api
+                      .updateSettings({ codexLeaderCompactionMode: mode })
+                      .then((res) =>
+                        setCodexLeaderCompactionMode(normalizeCodexLeaderCompactionMode(res.codexLeaderCompactionMode)),
+                      )
+                      .catch(console.error);
+                  }}
+                />
+              </SettingsRow>
 
-              <div hidden={settingsSearch.rowHidden("cli", "codex-leader-mode")}>
-                <label className="block text-sm font-medium mb-1.5">Codex Leader Context Mode</label>
-                <div className="flex items-center bg-cc-hover/50 rounded-lg p-0.5 w-fit">
-                  {(
-                    [
-                      ["recycle", "Recycle"],
-                      ["compact", "Compact"],
-                    ] as const
-                  ).map(([mode, label]) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => {
-                        setCodexLeaderCompactionMode(mode);
-                        api
-                          .updateSettings({ codexLeaderCompactionMode: mode })
-                          .then((res) =>
-                            setCodexLeaderCompactionMode(
-                              normalizeCodexLeaderCompactionMode(res.codexLeaderCompactionMode),
-                            ),
-                          )
-                          .catch(console.error);
-                      }}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer select-none ${
-                        codexLeaderCompactionMode === mode
-                          ? "bg-cc-primary/15 text-cc-primary"
-                          : "text-cc-muted hover:text-cc-fg"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-1.5 text-xs text-cc-muted">
-                  Default for new Codex leaders. Recycling keeps Takode-owned leader recovery; compacting lets Codex use
-                  built-in compaction. Manual /compact always compacts; /recycle recycles a leader once. Neither command
-                  changes this automatic mode.
-                </p>
-              </div>
+              <SettingsLeaderProfilesSection
+                hidden={settingsSearch.rowHidden("sessions", "leader-profiles")}
+                poolsFromSettings={leaderProfilePools}
+                loadOnMount={false}
+              />
+              <SettingsSessionNamerSection
+                settings={loadedSettings}
+                loading={loading}
+                hidden={settingsSearch.rowHidden("sessions", "session-namer")}
+              />
+              <SettingsAutoApprovalSection
+                hidden={settingsSearch.rowHidden("sessions", "auto-approval")}
+                aaEnabled={aaEnabled}
+                setAaEnabled={setAaEnabled}
+                aaModel={aaModel}
+                setAaModel={setAaModel}
+                aaMaxConcurrency={aaMaxConcurrency}
+                setAaMaxConcurrency={setAaMaxConcurrency}
+                aaTimeoutSeconds={aaTimeoutSeconds}
+                setAaTimeoutSeconds={setAaTimeoutSeconds}
+                aaSaving={aaSaving}
+                setAaSaving={setAaSaving}
+                aaError={aaError}
+                setAaError={setAaError}
+                aaConfigs={aaConfigs}
+                aaConfigsLoading={aaConfigsLoading}
+                aaNewProjectPaths={aaNewProjectPaths}
+                setAaNewProjectPaths={setAaNewProjectPaths}
+                aaNewPathInput={aaNewPathInput}
+                setAaNewPathInput={setAaNewPathInput}
+                aaNewLabel={aaNewLabel}
+                setAaNewLabel={setAaNewLabel}
+                aaNewCriteria={aaNewCriteria}
+                setAaNewCriteria={setAaNewCriteria}
+                aaCreating={aaCreating}
+                setAaCreating={setAaCreating}
+                aaCreateError={aaCreateError}
+                setAaCreateError={setAaCreateError}
+                showAaFolderPicker={showAaFolderPicker}
+                setShowAaFolderPicker={setShowAaFolderPicker}
+                loadAutoApprovalConfigs={loadAutoApprovalConfigs}
+              />
+              <SettingsSubsection
+                title="Environments"
+                description="Reusable environment variable profiles for new sessions."
+                hidden={settingsSearch.rowHidden("sessions", "environments")}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.hash = "#/environments";
+                  }}
+                  className="px-3 py-2 rounded-lg text-sm font-medium bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+                >
+                  Manage Environments
+                </button>
+              </SettingsSubsection>
+            </CollapsibleSection>
 
-              <div hidden={settingsSearch.rowHidden("cli", "editor")}>
+            {/* ── System ───────────────────────────────────────────── */}
+            <CollapsibleSection
+              id="system"
+              title="System"
+              description="Backend CLIs, the file-link editor, resource use, and other machines that run sessions."
+              onCollapsedChange={setSystemCollapsed}
+              {...settingsSearch.sectionSearch("system")}
+            >
+              <SettingsSubsection
+                title="Backend CLIs"
+                description="Custom path or command for each backend CLI. Leave empty to auto-detect from PATH. New sessions use this immediately; existing sessions pick it up on relaunch."
+                hidden={settingsSearch.rowHidden("system", "cli")}
+              >
+                {binaryFields.map((field) => (
+                  <div key={field.which} hidden={settingsSearch.rowHidden("system", field.itemId)}>
+                    <label className="block text-sm font-medium mb-1.5" htmlFor={`${field.which}-binary`}>
+                      {field.label}
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        id={`${field.which}-binary`}
+                        type="text"
+                        value={field.value}
+                        onChange={(e) => field.onChange(e.target.value)}
+                        placeholder={`${field.which} (auto-detect)`}
+                        className="flex-1 min-w-0 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onTestBinary(field.which)}
+                        disabled={field.testing}
+                        className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                          field.testing
+                            ? "bg-cc-hover text-cc-muted cursor-not-allowed"
+                            : "bg-cc-hover text-cc-fg hover:bg-cc-active cursor-pointer"
+                        }`}
+                      >
+                        {field.testing ? "Testing..." : "Test"}
+                      </button>
+                    </div>
+                    {field.test && (
+                      <p className={`mt-1.5 text-xs ${field.test.ok ? "text-cc-success" : "text-cc-error"}`}>
+                        {field.test.ok ? `${field.test.resolvedPath} — ${field.test.version}` : field.test.error}
+                      </p>
+                    )}
+                  </div>
+                ))}
+                {binError && errorBox(binError)}
+                {binSaving && <p className="text-xs text-cc-muted">Saving...</p>}
+              </SettingsSubsection>
+
+              <div hidden={settingsSearch.rowHidden("system", "editor")}>
                 <label className="block text-sm font-medium mb-1.5" htmlFor="editor-preference">
                   Editor
                 </label>
@@ -1156,744 +1102,86 @@ export function SettingsPage({
                   Used for clickable <code className="font-mono">file:</code> links in chat messages. Choose remote to
                   open files through the Takode server's VSCode extension on that machine.
                 </p>
+                {editorError && <div className="mt-1.5">{errorBox(editorError)}</div>}
+                {editorSaving && <p className="mt-1.5 text-xs text-cc-muted">Saving...</p>}
               </div>
 
-              {binError && (
-                <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-                  {binError}
-                </div>
-              )}
-              {editorError && (
-                <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-                  {editorError}
-                </div>
-              )}
-              {(binSaving || editorSaving) && <p className="text-xs text-cc-muted">Saving...</p>}
-
-              <button
-                type="button"
-                onClick={() => {
-                  window.location.hash = "#/environments";
-                }}
-                hidden={settingsSearch.rowHidden("cli", "environments")}
-                className="px-3 py-2 rounded-lg text-sm font-medium bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+              <SettingsRow
+                label="Max Keep-Alive"
+                htmlFor="max-keep-alive"
+                hidden={settingsSearch.rowHidden("system", "max-keep-alive")}
+                description="Maximum number of live CLI processes. Set to 0 for unlimited. Oldest idle sessions are killed first. Busy sessions are never killed."
               >
-                Manage Environments
-              </button>
-            </CollapsibleSection>
-
-            {/* ── 4. Sessions ──────────────────────────────────────── */}
-            <CollapsibleSection
-              id="sessions"
-              title="Sessions"
-              onCollapsedChange={setSessionsCollapsed}
-              {...settingsSearch.sectionSearch("sessions")}
-            >
-              <SettingsSessionDefaultsSection
-                isActive={isActive}
-                sessionDefaults={sessionDefaults}
-                onSaved={setSessionDefaults}
-              />
-
-              {/* Session Lifecycle — auto-saves on change */}
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium mb-1.5" htmlFor="max-keep-alive">
-                    Max Keep-Alive
-                  </label>
-                  <input
-                    id="max-keep-alive"
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={maxKeepAlive}
-                    onChange={(e) => {
-                      const v = Math.max(0, Math.floor(Number(e.target.value) || 0));
-                      setMaxKeepAlive(v);
-                      debouncedSaveLifecycle(v);
-                    }}
-                    className="w-24 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
-                  />
-                  <p className="mt-1.5 text-xs text-cc-muted">
-                    Maximum number of live CLI processes. Set to 0 for unlimited. Oldest idle sessions are killed first.
-                    Busy sessions are never killed.
-                  </p>
-                </div>
-
-                <div className="border-t border-cc-border pt-3 space-y-2">
-                  <div>
-                    <span className="text-sm font-medium text-cc-fg">Heavy Repo Mode</span>
-                    <p className="mt-0.5 text-xs text-cc-muted">
-                      Return cached session rows without list-driven background git refresh. Useful for large repos or
-                      slow filesystems; selected-session and explicit refreshes still update git metadata.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={heavyRepoSaving}
-                    aria-label={`Heavy Repo Mode ${heavyRepoModeEnabled ? "On" : "Off"}`}
-                    onClick={() => {
-                      const next = !heavyRepoModeEnabled;
-                      setHeavyRepoModeEnabled(next);
-                      saveHeavyRepoMode(next);
-                    }}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-                  >
-                    <span>Enabled</span>
-                    <span className="text-xs text-cc-muted">
-                      {heavyRepoSaving ? "..." : heavyRepoModeEnabled ? "On" : "Off"}
-                    </span>
-                  </button>
-                </div>
-
-                {lifecycleError && (
-                  <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-                    {lifecycleError}
-                  </div>
-                )}
-                {heavyRepoError && (
-                  <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-                    {heavyRepoError}
-                  </div>
-                )}
-
-                {(lifecycleSaving || heavyRepoSaving) && <p className="text-xs text-cc-muted">Saving...</p>}
-              </div>
-
-              {/* Sleep Inhibitor (macOS only) */}
-              <div className="border-t border-cc-border pt-3 space-y-3">
-                <div>
-                  <span className="text-sm font-medium text-cc-fg">Prevent Sleep During Generation</span>
-                  <p className="mt-0.5 text-xs text-cc-muted">
-                    Keep your Mac awake while sessions are actively generating. Applies to this server instance -- all
-                    sessions managed by this Takode server share the same setting. Uses macOS caffeinate. No effect on
-                    other platforms.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  disabled={sleepInhibitorSaving}
-                  onClick={() => {
-                    const next = !sleepInhibitorEnabled;
-                    setSleepInhibitorEnabled(next);
-                    saveSleepInhibitor(next, sleepInhibitorDuration);
-                  }}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-                >
-                  <span>Enabled</span>
-                  <span className="text-xs text-cc-muted">
-                    {sleepInhibitorSaving ? "..." : sleepInhibitorEnabled ? "On" : "Off"}
-                  </span>
-                </button>
-
-                {sleepInhibitorEnabled &&
-                  (() => {
-                    // Use caffeinateTick to keep the display alive (re-renders every second)
-                    void caffeinateTick;
-                    const now = Date.now();
-                    const { active, engagedAt, expiresAt } = caffeinateStatus;
-                    const fmtDuration = (ms: number) => {
-                      const totalSec = Math.max(0, Math.floor(ms / 1000));
-                      const m = Math.floor(totalSec / 60);
-                      const s = totalSec % 60;
-                      return m > 0 ? `${m}m ${s}s` : `${s}s`;
-                    };
-                    if (!active || !engagedAt || !expiresAt) {
-                      return (
-                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cc-hover text-xs text-cc-muted">
-                          <span className="w-2 h-2 rounded-full bg-cc-muted/40 shrink-0" />
-                          <span>Idle -- no sessions generating</span>
-                        </div>
-                      );
-                    }
-                    const remaining = expiresAt - now;
-                    if (remaining <= 0) {
-                      return (
-                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cc-hover text-xs text-cc-muted">
-                          <span className="w-2 h-2 rounded-full bg-cc-muted/40 shrink-0" />
-                          <span>Idle -- caffeinate expired</span>
-                        </div>
-                      );
-                    }
-                    const elapsed = now - engagedAt;
-                    return (
-                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cc-hover text-xs text-cc-fg">
-                        <span className="w-2 h-2 rounded-full bg-green-500 shrink-0 animate-pulse" />
-                        <span>
-                          Awake for {fmtDuration(elapsed)} · expires in {fmtDuration(remaining)}
-                        </span>
-                      </div>
-                    );
-                  })()}
-
-                {sleepInhibitorEnabled && (
-                  <div>
-                    <label className="block text-sm font-medium mb-1.5" htmlFor="sleep-inhibitor-duration">
-                      Grace Period (minutes)
-                    </label>
-                    <input
-                      id="sleep-inhibitor-duration"
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={sleepInhibitorDuration}
-                      onChange={(e) => {
-                        const v = Math.max(1, Math.floor(Number(e.target.value) || 5));
-                        setSleepInhibitorDuration(v);
-                        saveSleepInhibitor(sleepInhibitorEnabled, v);
-                      }}
-                      className="w-24 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
-                    />
-                    <p className="mt-1.5 text-xs text-cc-muted">
-                      Grace period in minutes. Each poll (every 60s) resets the timer while any session is generating.
-                    </p>
-                  </div>
-                )}
-
-                {sleepInhibitorError && (
-                  <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-                    {sleepInhibitorError}
-                  </div>
-                )}
-
-                {sleepInhibitorSaving && <p className="text-xs text-cc-muted">Saving...</p>}
-              </div>
-
-              {/* Session Data — export/import */}
-              <div className="border-t border-cc-border pt-3 space-y-3">
-                <div>
-                  <span className="text-sm font-medium text-cc-fg">Session Data</span>
-                  <p className="mt-1 text-xs text-cc-muted">
-                    Export all sessions to a portable archive, or import sessions from another machine. Paths are
-                    automatically rewritten to match this machine.
-                  </p>
-                </div>
-
                 <input
-                  ref={importInputRef}
-                  type="file"
-                  accept=".tar.zst,.zst"
-                  onChange={handleImportFile}
-                  className="hidden"
-                />
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleExport}
-                    disabled={exporting}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      exporting
-                        ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                        : "bg-cc-hover text-cc-fg hover:bg-cc-active cursor-pointer"
-                    }`}
-                  >
-                    {exporting ? "Exporting..." : "Export All Sessions"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => importInputRef.current?.click()}
-                    disabled={importing}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      importing
-                        ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                        : "bg-cc-hover text-cc-fg hover:bg-cc-active cursor-pointer"
-                    }`}
-                  >
-                    {importing ? "Importing..." : "Import Sessions"}
-                  </button>
-                </div>
-
-                {importing && (
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-cc-muted">
-                      <span>{importStep || "Starting import..."}</span>
-                      <span>{importPct != null ? `${importPct}%` : ""}</span>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-cc-hover overflow-hidden">
-                      {importPct != null ? (
-                        <div
-                          className="h-full bg-cc-accent rounded-full transition-[width] duration-200"
-                          style={{ width: `${importPct}%` }}
-                        />
-                      ) : (
-                        <div className="h-full bg-cc-accent rounded-full animate-pulse w-full" />
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {importError && (
-                  <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-                    Import failed: {importError}
-                  </div>
-                )}
-
-                {importResult && (
-                  <div className="px-3 py-2 rounded-lg bg-cc-success/10 border border-cc-success/20 text-xs text-cc-success space-y-0.5">
-                    <div className="font-medium">Import complete</div>
-                    {importResult.sessionsNew > 0 && <div>{importResult.sessionsNew} new sessions imported</div>}
-                    {importResult.sessionsUpdated > 0 && (
-                      <div>{importResult.sessionsUpdated} updated (archive was newer)</div>
-                    )}
-                    {importResult.sessionsSkipped > 0 && (
-                      <div>{importResult.sessionsSkipped} skipped (local was newer)</div>
-                    )}
-                    {importResult.claudeSessionsRestored > 0 && (
-                      <div>
-                        {importResult.claudeSessionsRestored} Claude Code sessions restored (conversation context
-                        preserved)
-                      </div>
-                    )}
-                    {importResult.worktreeSessionsNeedingRecreation > 0 && (
-                      <div>
-                        {importResult.worktreeSessionsNeedingRecreation} worktree sessions will recreate on open
-                      </div>
-                    )}
-                    {importResult.pathsRewritten && <div>Paths rewritten for this machine</div>}
-                  </div>
-                )}
-              </div>
-            </CollapsibleSection>
-
-            <SettingsLeaderProfilesSection
-              sectionSearchProps={settingsSearch.childSectionSearch("leader-profiles")}
-              poolsFromSettings={leaderProfilePools}
-              loadOnMount={false}
-            />
-
-            {/* ── 5. Push Notifications (Pushover) ─────────────────── */}
-            <CollapsibleSection
-              id="pushover"
-              title="Push Notifications (Pushover)"
-              description="Get push notifications on your phone when sessions need attention. Get credentials at pushover.net."
-              as="form"
-              onSubmit={onSavePushover}
-              {...settingsSearch.sectionSearch("pushover")}
-            >
-              <div>
-                <label className="block text-sm font-medium mb-1.5" htmlFor="po-user-key">
-                  User Key
-                </label>
-                <input
-                  id="po-user-key"
-                  type="password"
-                  value={poUserKey}
-                  onChange={(e) => setPoUserKey(e.target.value)}
-                  placeholder={poConfigured ? "Configured. Enter a new key to replace." : "Your Pushover user key"}
-                  className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1.5" htmlFor="po-api-token">
-                  API Token
-                </label>
-                <input
-                  id="po-api-token"
-                  type="password"
-                  value={poApiToken}
-                  onChange={(e) => setPoApiToken(e.target.value)}
-                  placeholder={
-                    poConfigured ? "Configured. Enter a new token to replace." : "Your Pushover API/app token"
-                  }
-                  className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1.5" htmlFor="po-base-url">
-                  Base URL
-                </label>
-                <input
-                  id="po-base-url"
-                  type="text"
-                  value={poBaseUrl}
-                  onChange={(e) => setPoBaseUrl(e.target.value)}
-                  placeholder="http://localhost:3456"
-                  className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
-                />
-                <p className="mt-1.5 text-xs text-cc-muted">
-                  The URL your phone uses to reach this server. Used for deep links in notifications.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1.5" htmlFor="po-delay">
-                  Delay (seconds)
-                </label>
-                <input
-                  id="po-delay"
+                  id="max-keep-alive"
                   type="number"
-                  min={5}
-                  max={300}
-                  value={poDelay}
-                  onChange={(e) => setPoDelay(Number(e.target.value) || 30)}
-                  className="w-24 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
-                />
-                <p className="mt-1.5 text-xs text-cc-muted">
-                  Wait this long before sending a push notification (5-300s).
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setPoEnabled(!poEnabled)}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-              >
-                <span>Enabled</span>
-                <span className="text-xs text-cc-muted">{poEnabled ? "On" : "Off"}</span>
-              </button>
-
-              <div className="space-y-2">
-                <div>
-                  <div className="text-sm font-medium">Event types</div>
-                  <p className="mt-1 text-xs text-cc-muted">
-                    Choose which categories can send a phone notification (Pushover or Web Push).
-                  </p>
-                </div>
-                <div className="rounded-lg border border-cc-border overflow-hidden">
-                  <label className="flex items-start gap-3 px-3 py-3 bg-cc-hover/40 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={poEventFilters.needsInput}
-                      onChange={(e) => setPoEventFilter("needsInput", e.target.checked)}
-                      className="mt-0.5"
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm text-cc-fg">Needs user input</span>
-                      <span className="block text-xs text-cc-muted">Questions and permission requests.</span>
-                    </span>
-                  </label>
-                  <label className="flex items-start gap-3 px-3 py-3 border-t border-cc-border bg-cc-panel cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={poEventFilters.review}
-                      onChange={(e) => setPoEventFilter("review", e.target.checked)}
-                      className="mt-0.5"
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm text-cc-fg">Ready for review</span>
-                      <span className="block text-xs text-cc-muted">Completed turns that need your eyes.</span>
-                    </span>
-                  </label>
-                  <label className="flex items-start gap-3 px-3 py-3 border-t border-cc-border bg-cc-panel cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={poEventFilters.notifyMe}
-                      onChange={(e) => setPoEventFilter("notifyMe", e.target.checked)}
-                      className="mt-0.5"
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm text-cc-fg">Notify Me</span>
-                      <span className="block text-xs text-cc-muted">New results in threads you track.</span>
-                    </span>
-                  </label>
-                  <label className="flex items-start gap-3 px-3 py-3 border-t border-cc-border bg-cc-hover/40 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={poEventFilters.error}
-                      onChange={(e) => setPoEventFilter("error", e.target.checked)}
-                      className="mt-0.5"
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm text-cc-fg">Errors</span>
-                      <span className="block text-xs text-cc-muted">Turn failures that require attention.</span>
-                    </span>
-                  </label>
-                </div>
-              </div>
-
-              {poError && (
-                <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-                  {poError}
-                </div>
-              )}
-
-              {poSaved && (
-                <div className="px-3 py-2 rounded-lg bg-cc-success/10 border border-cc-success/20 text-xs text-cc-success">
-                  Pushover settings saved.
-                </div>
-              )}
-
-              {poTestResult && (
-                <div
-                  className={`px-3 py-2 rounded-lg text-xs ${
-                    poTestResult.ok
-                      ? "bg-cc-success/10 border border-cc-success/20 text-cc-success"
-                      : "bg-cc-error/10 border border-cc-error/20 text-cc-error"
-                  }`}
-                >
-                  {poTestResult.ok ? "Test notification sent!" : `Test failed: ${poTestResult.error}`}
-                </div>
-              )}
-
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-cc-muted">
-                    {loading ? "Loading..." : poConfigured ? "Pushover configured" : "Not configured"}
-                  </span>
-                  {poConfigured && (
-                    <button
-                      type="button"
-                      onClick={onTestPushover}
-                      disabled={poTesting || !poConfigured}
-                      className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                        poTesting || !poConfigured
-                          ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                          : "bg-cc-hover text-cc-fg hover:bg-cc-active cursor-pointer"
-                      }`}
-                    >
-                      {poTesting ? "Sending..." : "Send Test"}
-                    </button>
-                  )}
-                </div>
-                <button
-                  type="submit"
-                  disabled={poSaving || loading}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    poSaving || loading
-                      ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                      : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
-                  }`}
-                >
-                  {poSaving ? "Saving..." : "Save"}
-                </button>
-              </div>
-            </CollapsibleSection>
-
-            <SettingsWebPushSection sectionSearchProps={settingsSearch.sectionSearch("web-push")} />
-
-            <SettingsAutoApprovalSection
-              sectionSearchProps={settingsSearch.sectionSearch("auto-approval")}
-              aaEnabled={aaEnabled}
-              setAaEnabled={setAaEnabled}
-              aaModel={aaModel}
-              setAaModel={setAaModel}
-              aaMaxConcurrency={aaMaxConcurrency}
-              setAaMaxConcurrency={setAaMaxConcurrency}
-              aaTimeoutSeconds={aaTimeoutSeconds}
-              setAaTimeoutSeconds={setAaTimeoutSeconds}
-              aaSaving={aaSaving}
-              setAaSaving={setAaSaving}
-              aaError={aaError}
-              setAaError={setAaError}
-              aaConfigs={aaConfigs}
-              aaConfigsLoading={aaConfigsLoading}
-              aaNewProjectPaths={aaNewProjectPaths}
-              setAaNewProjectPaths={setAaNewProjectPaths}
-              aaNewPathInput={aaNewPathInput}
-              setAaNewPathInput={setAaNewPathInput}
-              aaNewLabel={aaNewLabel}
-              setAaNewLabel={setAaNewLabel}
-              aaNewCriteria={aaNewCriteria}
-              setAaNewCriteria={setAaNewCriteria}
-              aaCreating={aaCreating}
-              setAaCreating={setAaCreating}
-              aaCreateError={aaCreateError}
-              setAaCreateError={setAaCreateError}
-              showAaFolderPicker={showAaFolderPicker}
-              setShowAaFolderPicker={setShowAaFolderPicker}
-              loadAutoApprovalConfigs={loadAutoApprovalConfigs}
-            />
-
-            {/* ── 7. Session Namer ─────────────────────────────────── */}
-            <CollapsibleSection
-              id="session-namer"
-              title="Session Namer"
-              description="Automatically name sessions based on their content. Choose Claude CLI or an OpenAI-compatible API as the naming backend."
-              {...settingsSearch.sectionSearch("session-namer")}
-            >
-              <button
-                type="button"
-                disabled={namerToggleSaving}
-                onClick={async () => {
-                  const newVal = !namerEnabled;
-                  setNamerEnabled(newVal);
-                  setNamerToggleSaving(true);
-                  try {
-                    const res = await api.updateSettings({ autoNamerEnabled: newVal });
-                    setNamerEnabled(res.autoNamerEnabled);
-                  } catch {
-                    setNamerEnabled(!newVal);
-                  } finally {
-                    setNamerToggleSaving(false);
-                  }
-                }}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
-              >
-                <span>Enabled</span>
-                <span className="text-xs text-cc-muted">{namerToggleSaving ? "..." : namerEnabled ? "On" : "Off"}</span>
-              </button>
-
-              <div>
-                <label className="block text-xs font-medium text-cc-muted mb-1.5">Backend</label>
-                <select
-                  value={namerBackend}
-                  onChange={(e) => setNamerBackend(e.target.value)}
-                  className="w-full px-3 py-2 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60"
-                >
-                  <option value="claude">Claude CLI (default)</option>
-                  <option value="openai">OpenAI-compatible API</option>
-                </select>
-              </div>
-
-              {namerBackend === "claude" && (
-                <div className="space-y-3 pl-3 border-l-2 border-cc-border">
-                  <div>
-                    <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="namer-claude-model">
-                      Model
-                    </label>
-                    <input
-                      id="namer-claude-model"
-                      type="text"
-                      value={namerModel}
-                      onChange={(e) => setNamerModel(e.target.value)}
-                      placeholder="haiku"
-                      className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
-                    />
-                    <p className="mt-1 text-xs text-cc-muted">
-                      Claude CLI model name passed to{" "}
-                      <code className="font-mono bg-cc-hover px-1 py-0.5 rounded">--model</code>. Defaults to haiku.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {namerBackend === "openai" && (
-                <div className="space-y-3 pl-3 border-l-2 border-cc-border">
-                  <div>
-                    <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="namer-api-key">
-                      API Key
-                    </label>
-                    <input
-                      id="namer-api-key"
-                      type="password"
-                      value={namerApiKey}
-                      onChange={(e) => setNamerApiKey(e.target.value)}
-                      onFocus={() => {
-                        if (namerApiKey === "***") setNamerApiKey("");
-                      }}
-                      placeholder="sk-..."
-                      className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="namer-base-url">
-                      Base URL
-                    </label>
-                    <input
-                      id="namer-base-url"
-                      type="text"
-                      value={namerBaseUrl}
-                      onChange={(e) => setNamerBaseUrl(e.target.value)}
-                      placeholder="https://api.openai.com/v1"
-                      className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
-                    />
-                    <p className="mt-1 text-xs text-cc-muted">
-                      Leave empty for OpenAI. Use a custom URL for LiteLLM, Ollama, etc.
-                    </p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="namer-model">
-                      Model
-                    </label>
-                    <input
-                      id="namer-model"
-                      type="text"
-                      value={namerModel}
-                      onChange={(e) => setNamerModel(e.target.value)}
-                      placeholder="gpt-4o-mini"
-                      className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {namerError && (
-                <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-                  {namerError}
-                </div>
-              )}
-              {namerSaved && (
-                <div className="px-3 py-2 rounded-lg bg-cc-success/10 border border-cc-success/20 text-xs text-cc-success">
-                  Auto-namer settings saved.
-                </div>
-              )}
-
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  disabled={namerSaving || loading}
-                  onClick={async () => {
-                    setNamerSaving(true);
-                    setNamerError("");
-                    setNamerSaved(false);
-                    try {
-                      let config: NamerConfig;
-                      if (namerBackend === "openai") {
-                        config = {
-                          backend: "openai",
-                          apiKey: namerApiKey === "***" ? "***" : namerApiKey,
-                          baseUrl: namerBaseUrl,
-                          model: namerModel,
-                        };
-                      } else {
-                        config = { backend: "claude", model: namerModel || undefined };
-                      }
-                      await api.updateSettings({ namerConfig: config });
-                      setNamerSaved(true);
-                      setTimeout(() => setNamerSaved(false), 3000);
-                    } catch (err: unknown) {
-                      setNamerError(err instanceof Error ? err.message : String(err));
-                    } finally {
-                      setNamerSaving(false);
-                    }
+                  min={0}
+                  step={1}
+                  value={maxKeepAlive}
+                  onChange={(e) => {
+                    const v = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                    setMaxKeepAlive(v);
+                    debouncedSaveLifecycle(v);
                   }}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    namerSaving || loading
-                      ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                      : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
-                  }`}
-                >
-                  {namerSaving ? "Saving..." : "Save"}
-                </button>
+                  className="w-20 px-2 py-1 text-right text-sm bg-cc-input-bg border border-cc-border rounded-md text-cc-fg focus:outline-none focus:border-cc-primary/60"
+                />
+              </SettingsRow>
+              {lifecycleError && errorBox(lifecycleError)}
+              {lifecycleSaving && <p className="text-xs text-cc-muted">Saving...</p>}
+
+              <SettingsToggle
+                label="Heavy Repo Mode"
+                description="Return cached session rows without list-driven background git refresh. Useful for large repos or slow filesystems; selected-session and explicit refreshes still update git metadata."
+                checked={heavyRepoModeEnabled}
+                disabled={heavyRepoSaving}
+                hidden={settingsSearch.rowHidden("system", "heavy-repo")}
+                onChange={(next) => {
+                  setHeavyRepoModeEnabled(next);
+                  void saveHeavyRepoMode(next);
+                }}
+              />
+              {heavyRepoError && errorBox(heavyRepoError)}
+
+              <div className="space-y-3" hidden={settingsSearch.rowHidden("system", "sleep-inhibitor")}>
+                <SettingsToggle
+                  label="Prevent Sleep During Generation"
+                  description="Keep your Mac awake while sessions are actively generating. Applies to every session on this Takode server. Uses macOS caffeinate; no effect on other platforms."
+                  checked={sleepInhibitorEnabled}
+                  disabled={sleepInhibitorSaving}
+                  onChange={(next) => {
+                    setSleepInhibitorEnabled(next);
+                    void saveSleepInhibitor(next, sleepInhibitorDuration);
+                  }}
+                />
+                {sleepInhibitorEnabled && <CaffeinateStatusLine status={caffeinateStatus} tick={caffeinateTick} />}
+                {sleepInhibitorEnabled && (
+                  <SettingsRow
+                    label="Grace Period"
+                    htmlFor="sleep-inhibitor-duration"
+                    description="Each poll (every 60s) resets the timer while any session is generating."
+                  >
+                    <NumberStepper
+                      id="sleep-inhibitor-duration"
+                      label="grace period"
+                      value={sleepInhibitorDuration}
+                      step={1}
+                      min={1}
+                      max={240}
+                      suffix="min"
+                      onChange={(v) => {
+                        setSleepInhibitorDuration(v);
+                        void saveSleepInhibitor(sleepInhibitorEnabled, v);
+                      }}
+                    />
+                  </SettingsRow>
+                )}
+                {sleepInhibitorError && errorBox(sleepInhibitorError)}
               </div>
 
-              <NamerDebugPanel />
+              <SettingsHostsSection hidden={settingsSearch.rowHidden("system", "hosts")} />
             </CollapsibleSection>
 
-            <SettingsVoiceTranscriptionSection
-              loading={loading}
-              sectionSearchProps={settingsSearch.sectionSearch("voice-transcription")}
-              transcriptionApiKey={transcriptionApiKey}
-              setTranscriptionApiKey={setTranscriptionApiKey}
-              transcriptionBaseUrl={transcriptionBaseUrl}
-              setTranscriptionBaseUrl={setTranscriptionBaseUrl}
-              transcriptionModel={transcriptionModel}
-              setTranscriptionModel={setTranscriptionModel}
-              sttModel={sttModel}
-              setSttModel={setSttModel}
-              customSttModel={customSttModel}
-              setCustomSttModel={setCustomSttModel}
-              sttLanguageHints={sttLanguageHints}
-              setSttLanguageHints={setSttLanguageHints}
-              transcriptionEnhancement={transcriptionEnhancement}
-              setTranscriptionEnhancement={setTranscriptionEnhancement}
-              enhancementMode={enhancementMode}
-              setEnhancementMode={setEnhancementMode}
-              transcriptionVocabulary={transcriptionVocabulary}
-              setTranscriptionVocabulary={setTranscriptionVocabulary}
-              transcriptionSaving={transcriptionSaving}
-              setTranscriptionSaving={setTranscriptionSaving}
-              transcriptionSaved={transcriptionSaved}
-              setTranscriptionSaved={setTranscriptionSaved}
-              transcriptionError={transcriptionError}
-              setTranscriptionError={setTranscriptionError}
-            />
-
-            <SettingsHostsSection sectionSearchProps={settingsSearch.sectionSearch("hosts")} />
-
+            {/* ── Server & Data ────────────────────────────────────── */}
             <SettingsServerDiagnosticsSection
               logFile={logFile}
               serverSlug={serverSlug}
@@ -1906,11 +1194,56 @@ export function SettingsPage({
               restarting={restarting}
               onSaveServerSlug={onSaveServerSlug}
               onRestartServer={onRestartServer}
-              sectionSearch={settingsSearch.childSectionSearch("server")}
-            />
+              sectionSearchProps={settingsSearch.sectionSearch("server")}
+              isRowHidden={(itemId) => settingsSearch.rowHidden("server", itemId)}
+            >
+              <SettingsSessionDataSection hidden={settingsSearch.rowHidden("server", "session-data")} />
+            </SettingsServerDiagnosticsSection>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Live caffeinate state for the sleep inhibitor; `tick` only forces the per-second re-render. */
+function CaffeinateStatusLine({
+  status,
+  tick,
+}: {
+  status: {
+    active: boolean;
+    engagedAt: number | null;
+    expiresAt: number | null;
+  };
+  tick: number;
+}) {
+  void tick;
+  const now = Date.now();
+  const { active, engagedAt, expiresAt } = status;
+  const fmtDuration = (ms: number) => {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  };
+  const remaining = expiresAt ? expiresAt - now : 0;
+  if (!active || !engagedAt || !expiresAt || remaining <= 0) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cc-hover text-xs text-cc-muted">
+        <span className="w-2 h-2 rounded-full bg-cc-muted/40 shrink-0" />
+        <span>
+          {active && engagedAt && expiresAt ? "Idle -- caffeinate expired" : "Idle -- no sessions generating"}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cc-hover text-xs text-cc-fg">
+      <span className="w-2 h-2 rounded-full bg-green-500 shrink-0 animate-pulse" />
+      <span>
+        Awake for {fmtDuration(now - engagedAt)} · expires in {fmtDuration(remaining)}
+      </span>
     </div>
   );
 }
