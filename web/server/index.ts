@@ -109,7 +109,13 @@ import type { ServerWebSocket } from "bun";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = process.env.__COMPANION_PACKAGE_ROOT || resolve(__dirname, "..");
 
-import { DEFAULT_PORT_DEV, DEFAULT_PORT_PROD, RESTART_EXIT_CODE } from "./constants.js";
+import {
+  COORDINATOR_SUPERSEDED_EXIT_CODE,
+  DEFAULT_PORT_DEV,
+  DEFAULT_PORT_PROD,
+  RESTART_EXIT_CODE,
+} from "./constants.js";
+import { claimCoordinatorEpoch } from "./coordinator-lock.js";
 import { checkBackendStartup } from "./backend-startup-check.js";
 import { createLogger, flushServerLogger, initServerLogger } from "./server-logger.js";
 import {
@@ -1021,6 +1027,8 @@ const server = Bun.serve<SocketData>({
     if (opaqueOriginBlock) return opaqueOriginBlock;
 
     if (wsRoute?.kind === "host") {
+      // Hosts are served only once this process holds the coordinator epoch (below).
+      if (!hostLinks.epoch) return new Response("Coordinator is starting", { status: 503 });
       const host = await authenticateHostRequest(req, hostRegistry);
       if (!host) return new Response("Unknown host token", { status: 401 });
       if (server.upgrade(req, { data: { kind: "host" as const, hostId: host.id } })) return undefined;
@@ -1092,6 +1100,19 @@ const server = Bun.serve<SocketData>({
     },
   },
 });
+
+// Claim the coordinator epoch only after binding the port: a second start that
+// cannot listen must not replace a running server, while a restart replaces a
+// predecessor that lingers without its socket.
+const coordinatorLock = await claimCoordinatorEpoch({
+  path: join(homedir(), ".companion", "coordinator", `${serverId}.json`),
+  onSuperseded: (holder) => {
+    serverLog.error("Another server process took over this server's state; stopping without saving", { holder });
+    serverWorkAdmission.stop();
+    void flushServerLogger().finally(() => process.exit(COORDINATOR_SUPERSEDED_EXIT_CODE));
+  },
+});
+hostLinks.epoch = coordinatorLock.epoch;
 
 // Start server→browser heartbeat to prevent idle timeout disconnections
 wsBridge.startHeartbeat();

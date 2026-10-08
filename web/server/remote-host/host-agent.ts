@@ -81,6 +81,8 @@ export class HostAgent {
   readonly instanceId = randomUUID();
   private socket: AgentSocket | null = null;
   private coordinatorInstanceId: string | null = null;
+  /** Highest coordinator epoch seen by this `takode node` process. */
+  private highestEpoch = 0;
   private appliedCommandSeq = 0;
   private readonly processes = new Map<string, HostedProcess>();
   /** Launches prepared by `prepare_codex`, waiting for their `spawn` command. */
@@ -174,6 +176,16 @@ export class HostAgent {
     }
     switch (message.t) {
       case "welcome":
+        if (message.epoch < this.highestEpoch) {
+          // A coordinator that was replaced by a newer start must not drive processes here.
+          this.log(`Refusing coordinator epoch ${message.epoch}; epoch ${this.highestEpoch} has already started`);
+          const socket = this.socket;
+          this.socket = null;
+          socket?.close(4004, "Superseded coordinator");
+          this.scheduleReconnect();
+          return;
+        }
+        this.highestEpoch = message.epoch;
         this.handleWelcome(message.instanceId, message.received);
         return;
       case "command":

@@ -136,6 +136,21 @@ describe("host link", () => {
     expect(errors.map((error) => error.message)).toEqual(["The host restarted and its processes ended"]);
   });
 
+  // A coordinator replaced by a newer start (a lower epoch) must not drive the
+  // host's processes, even if it can still reach the host.
+  it("refuses a coordinator older than one it has seen", async () => {
+    manager = new HostLinkManager({ epoch: 2 });
+    agent = startAgent();
+    await waitFor(() => manager.status(hostId).online);
+
+    manager = new HostLinkManager({ epoch: 1 });
+    links.at(-1)!.drop();
+    const stale = manager.spawn(hostId, { command: process.execPath, args: ["-e", ECHO_PROGRAM], env: {} });
+    // Each attempt is refused and the host retries; the queued process never starts.
+    await waitFor(() => links.length >= 4);
+    expect(stale.started).toBe(false);
+  });
+
   // A restarted coordinator cannot read the old processes, so the host ends them
   // and starts command numbering over for the new coordinator.
   it("ends host processes when the coordinator restarts and accepts the new coordinator's commands", async () => {

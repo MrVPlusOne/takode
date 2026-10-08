@@ -93,7 +93,17 @@ export class HostLinkManager {
   private readonly statusListeners = new Set<(status: HostLinkStatus) => void>();
   private heartbeat: ReturnType<typeof setInterval> | null = null;
 
-  constructor(private readonly now: () => number = Date.now) {}
+  /**
+   * This coordinator's start counter (see `coordinator-lock.ts`); hosts refuse
+   * older ones. Zero until the server has claimed it.
+   */
+  epoch: number;
+  private readonly now: () => number;
+
+  constructor(options: { epoch?: number; now?: () => number } = {}) {
+    this.epoch = options.epoch ?? 0;
+    this.now = options.now ?? Date.now;
+  }
 
   /** Start sending heartbeats and dropping links that went silent. */
   start(): void {
@@ -281,7 +291,7 @@ export class HostLinkManager {
     if (hello.homeDir) link.homeDir = hello.homeDir;
     const received: Record<string, number> = {};
     for (const [procId, proc] of link.processes) received[procId] = proc.lastEventSeq;
-    send(socket, { t: "welcome", instanceId: this.instanceId, received });
+    send(socket, { t: "welcome", instanceId: this.instanceId, epoch: this.epoch, received });
     // Applied sequence numbers only mean something for commands this coordinator instance numbered.
     const applied = hello.appliedFrom === this.instanceId ? hello.appliedCommandSeq : 0;
     for (const queued of link.unacked) {

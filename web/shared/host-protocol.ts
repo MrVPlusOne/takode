@@ -19,7 +19,7 @@
  * settle the affected processes instead of guessing.
  */
 
-export const HOST_PROTOCOL_VERSION = 1;
+export const HOST_PROTOCOL_VERSION = 2;
 
 /** Path the host connects to, with `Authorization: Bearer <host token>`. */
 export const HOST_LINK_PATH = "/ws/host";
@@ -129,6 +129,11 @@ export type CoordinatorToHost =
       t: "welcome";
       /** Changes every time the coordinator starts. */
       instanceId: string;
+      /**
+       * Start counter of this coordinator's state. A host refuses a coordinator
+       * whose epoch is lower than one it has seen: that process was replaced.
+       */
+      epoch: number;
       /** Highest event sequence the coordinator has received, per process it still tracks. */
       received: Record<string, number>;
     }
