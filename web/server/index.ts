@@ -129,12 +129,19 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = process.env.__COMPANION_PACKAGE_ROOT || resolve(__dirname, "..");
 
 import {
+  COORDINATOR_MOVED_EXIT_CODE,
   COORDINATOR_SUPERSEDED_EXIT_CODE,
   DEFAULT_PORT_DEV,
   DEFAULT_PORT_PROD,
   RESTART_EXIT_CODE,
 } from "./constants.js";
-import { claimCoordinatorEpoch } from "./coordinator-lock.js";
+import {
+  claimCoordinatorEpoch,
+  coordinatorLockPath,
+  coordinatorMovedMessage,
+  coordinatorMovePath,
+  readCoordinatorMove,
+} from "./coordinator-lock.js";
 import { checkBackendStartup } from "./backend-startup-check.js";
 import { createLogger, flushServerLogger, initServerLogger } from "./server-logger.js";
 import {
@@ -212,6 +219,14 @@ if (
 }
 
 await initWithPort(port);
+// A coordinator handed off to another machine must not start here, before it touches any shared state.
+const coordinatorMove = await readCoordinatorMove(coordinatorMovePath(getServerId()));
+if (coordinatorMove) {
+  console.error(coordinatorMovedMessage(coordinatorMove, "bun scripts/coordinator-handoff.ts reclaim"));
+  serverLog.error("Not starting: this coordinator was handed off to another machine", { ...coordinatorMove });
+  await flushServerLogger();
+  process.exit(COORDINATOR_MOVED_EXIT_CODE);
+}
 await bootstrapQuestStore({
   log: (message) => serverLog.info(message),
 });
@@ -1228,7 +1243,7 @@ const server = Bun.serve<SocketData>({
 // cannot listen must not replace a running server, while a restart replaces a
 // predecessor that lingers without its socket.
 const coordinatorLock = await claimCoordinatorEpoch({
-  path: join(homedir(), ".companion", "coordinator", `${serverId}.json`),
+  path: coordinatorLockPath(serverId),
   onSuperseded: (holder) => {
     serverLog.error("Another server process took over this server's state; stopping without saving", { holder });
     serverWorkAdmission.stop();

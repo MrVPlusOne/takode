@@ -15,6 +15,7 @@ import { homedir } from "node:os";
 import { isReplayableBufferedEvent } from "./bridge/replay-buffer-policy.js";
 import type { RecoveryDeliveryTransfer } from "./bridge/recovery-delivery-transfer.js";
 import { isModelProvenanceMigrationAcknowledgementStateFile } from "./model-provenance-migration-acknowledgement-store.js";
+import { SESSION_NUMBERS_FILE } from "./constants.js";
 import {
   buildCodexAutoPauseRecoverySearchText,
   CODEX_AUTO_PAUSE_RECOVERY_SEARCH_MAX_LENGTH,
@@ -1215,7 +1216,11 @@ export class SessionStore {
     try {
       const launcherRestoreState = await this.loadLauncherRestoreState(metrics);
       const files = (await readdir(this.dir)).filter(
-        (f) => f !== "launcher.json" && !isModelProvenanceMigrationAcknowledgementStateFile(f) && f.endsWith(".json"),
+        (f) =>
+          f !== "launcher.json" &&
+          f !== SESSION_NUMBERS_FILE &&
+          !isModelProvenanceMigrationAcknowledgementStateFile(f) &&
+          f.endsWith(".json"),
       );
       for (const file of files) {
         const sessionId = file.replace(/\.json$/, "");
@@ -1371,6 +1376,20 @@ export class SessionStore {
       return JSON.parse(raw) as T;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * The lowest number a new session may take; 0 when unset. Sessions that
+   * moved here from another coordinator without their archived predecessors
+   * keep counting from the old maximum, so no #N is reused.
+   */
+  async loadSessionNumberFloor(): Promise<number> {
+    try {
+      const { next } = JSON.parse(await readFile(join(this.dir, SESSION_NUMBERS_FILE), "utf-8")) as { next?: unknown };
+      return Number.isInteger(next) ? (next as number) : 0;
+    } catch {
+      return 0;
     }
   }
 

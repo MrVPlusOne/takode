@@ -5,9 +5,7 @@ import { join } from "node:path";
 import { rewriteAllQuests } from "./quest-store.js";
 import type { QuestDone, QuestFeedbackEntry, QuestmasterTask } from "./quest-types.js";
 import { sessionMachineName } from "./remote-host/machines.js";
-
-/** Written when the migration has run; holds the backup to restore from. */
-const MARKER_FILE = "machine-stamps.json";
+import { QUEST_MACHINE_STAMPS_MARKER } from "./constants.js";
 
 export interface QuestMachineStampResult {
   stampedEntries: number;
@@ -36,7 +34,7 @@ export async function stampQuestMachines(options: {
   machineForSession?: (sessionId: string) => string | undefined;
 }): Promise<QuestMachineStampResult | null> {
   const companionDir = join(homedir(), ".companion");
-  const markerPath = join(companionDir, "questmaster-live", MARKER_FILE);
+  const markerPath = join(companionDir, "questmaster-live", QUEST_MACHINE_STAMPS_MARKER);
   if (await exists(markerPath)) return null;
   const machineForSession = options.machineForSession ?? sessionMachineName;
   const outcome: { result?: QuestMachineStampResult } = {};

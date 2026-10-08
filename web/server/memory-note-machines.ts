@@ -3,6 +3,7 @@ import { access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { MemoryRepoOptions } from "./workstream-memory-types.js";
+import { MEMORY_MACHINE_STAMPS_MARKER } from "./constants.js";
 
 /**
  * Memory notes record the machines they were written on in a `machines:`
@@ -76,8 +77,6 @@ function blockListLines(lines: string[], fieldIndex: number, end: number): strin
   return items;
 }
 
-const MIGRATION_MARKER = "takode-machine-stamps.json";
-
 export interface ExistingNoteStampResult {
   root: string;
   /** "stamped" committed stamps; "done" had nothing to stamp or ran before; "skipped" retries at the next start. */
@@ -120,7 +119,7 @@ export async function stampExistingMemoryNotes(
 ): Promise<ExistingNoteStampResult> {
   const { workstreamMemoryService: memory } = await import("./workstream-memory-service.js");
   const root = memory.resolveRepo(options).root;
-  const markerPath = join(root, ".git", MIGRATION_MARKER);
+  const markerPath = join(root, ".git", MEMORY_MACHINE_STAMPS_MARKER);
   if (await exists(markerPath)) return { root, outcome: "done", notes: 0, reason: "already run" };
   try {
     await memory.acquireLock({ ...options, owner: "takode-machine-stamps", session: "server" });

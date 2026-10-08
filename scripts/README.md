@@ -59,6 +59,14 @@ Run these from the repository root unless noted otherwise.
     - `bun --no-install run scripts/audit-recordings.ts --latest`
     - `bun --no-install run scripts/audit-recordings.ts --session <session-id>`
 
+- [`coordinator-handoff.ts`](./coordinator-handoff.ts)
+  - Moves the coordinator (one server identity) to another machine that
+    already runs its sessions as a host, or takes it back.
+  - `export` on the departing machine (server stopped), `import` on the
+    receiving one, `reclaim` to run it on the departing machine again;
+    `export --rehearsal` packages a copy without stopping the live server.
+  - Guide: [Moving the coordinator to another machine](../docs/remote-hosts.md#moving-the-coordinator-to-another-machine).
+
 - [`migrate-prod-port-3455-to-3456.ts`](./migrate-prod-port-3455-to-3456.ts)
   - One-off operator-run migration for the current local prod state takeover from port `3455` to `3456`.
   - Dry-run / preflight:

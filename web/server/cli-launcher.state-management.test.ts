@@ -13,7 +13,7 @@ vi.mock("./claude-sdk-adapter.js", () => ({
   },
 }));
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 
@@ -400,6 +400,23 @@ describe("state management", () => {
     expect(sessionNum).toBeDefined();
     expect(launcher.resolveSessionId(String(sessionNum))).toBe("test-session-id");
     expect(launcher.resolveSessionId(`#${sessionNum}`)).toBe("test-session-id");
+  });
+
+  it("numbers new sessions above the floor a coordinator handoff leaves", async () => {
+    // A handoff moves only unarchived sessions, so their highest number (5) is
+    // below archived ones left behind; the floor keeps those numbers from being reused.
+    store.saveLauncher([{ sessionId: "moved", state: "exited", cwd: "/tmp", createdAt: 1, sessionNum: 5 }]);
+    await store.flushAll();
+    writeFileSync(join(tempDir, "session-numbers.json"), JSON.stringify({ next: 40 }));
+    const restored = new CliLauncher(3456, { serverId: "test-server-id" });
+    restored.setStore(store);
+    await restored.restoreFromDisk();
+
+    await restored.launch({ cwd: "/tmp" });
+    expect(restored.getSessionNum("moved")).toBe(5);
+    expect(restored.getSessionNum("test-session-id")).toBe(40);
+    // The floor file is not mistaken for a session.
+    expect((await store.loadAll()).map((session) => session.id)).toEqual([]);
   });
 
   it("keeps delegate children out of the public numeric session namespace", async () => {

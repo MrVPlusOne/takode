@@ -450,6 +450,7 @@ export class CliLauncher {
     if (!this.store) return 0;
     const data = await this.store.loadLauncher<SdkSessionInfo[]>();
     if (!data || !Array.isArray(data)) return 0;
+    const sessionNumberFloor = await this.store.loadSessionNumberFloor();
 
     let recovered = 0;
     let memorySessionSpaceBackfilled = false;
@@ -527,7 +528,7 @@ export class CliLauncher {
         if (info.sessionNum > maxNum) maxNum = info.sessionNum;
       }
     }
-    this.nextSessionNum = maxNum + 1;
+    this.nextSessionNum = Math.max(maxNum + 1, sessionNumberFloor);
 
     // Phase 2: Assign new numbers to sessions that don't have one yet (legacy/pre-migration).
     // Hidden delegate children can intentionally opt out so they keep UUID/Codex runtime identity
