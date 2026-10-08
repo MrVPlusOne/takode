@@ -19,7 +19,8 @@ One agent in one terminal is easy to follow. Ten agents across five tabs is not:
 - **Only get pulled in for decisions.** Questions from every session land in one inbox, with reply buttons, and can ping your phone.
 - **Work leaves a record.** Every quest keeps its scope, phase notes, review results, commits, and a final summary you can search later.
 - **Claude Code and Codex, side by side.** Choose the backend per session and manage both from the same UI, on desktop or phone.
-- **Runs on your machine.** No Takode-hosted backend; your code, sessions, and quest history stay local.
+- **One team across several machines.** Run some sessions on a cloud workspace or a GPU box, and keep them under the same leaders, quests, and inbox as the rest.
+- **Runs on your own hardware.** No Takode-hosted backend; your code, sessions, and quest history stay on machines you control.
 
 ---
 
@@ -61,6 +62,18 @@ Takode's main job is keeping many sessions manageable:
 - **Coordination for shared resources.** Agents take turns on shared dev servers and browsers through leases instead of fighting over them.
 - **Search.** Find any session, quest, or message across the workspace.
 
+## Sessions on Other Machines
+
+Some work belongs somewhere else: the cloud workspace where a big repo lives, or the GPU box next to the data. Takode can run sessions there without splitting your workspace in two.
+
+- **One place for everything.** The Takode server you open in the browser keeps all sessions, quests, Work Boards, and memory. Each other machine runs `takode node`, which only runs session processes for it.
+- **Leaders work across machines.** A leader can start a worker on any registered machine and coordinate it like any other: same quests, same inbox, same reviews. Every remote session shows which machine it runs on, and commits travel between machines as Git bundles when they need to land elsewhere.
+- **Work happens where the files are.** Worktrees, Git status, diffs, terminals, and the new-session folder picker all run on the session's own machine.
+- **Nothing to open up.** The node dials out to the server over HTTPS or an SSH tunnel, with a revocable token per machine. Each machine signs in to its own agent CLIs; credentials are never copied around.
+- **Steady over flaky links.** Remote sessions keep running through network drops, host sleep, and server restarts, and their output catches up when the link returns. Hosts can update themselves to the server's version once their sessions are idle.
+
+Setup takes a Takode checkout on each machine and a few commands; see [Running sessions on another machine](docs/remote-hosts.md).
+
 ## Quests Keep the Story
 
 A quest is a durable task: who owns it, which phase it is in, what was decided, and what shipped. Questmaster lists them all.
@@ -89,6 +102,7 @@ Takode runs the real Claude Code and Codex CLIs, so you keep their models, tools
 - durable quests with phases, reviews, commits, and searchable summaries
 - one inbox for questions across all sessions, plus phone alerts
 - Claude Code and Codex sessions in the same workspace
+- sessions on several machines, managed from one place
 - file-based project memory shared by future sessions
 - a mobile-friendly UI you can install on your phone's Home Screen
 - local control, with no Takode-hosted service in between
@@ -117,7 +131,7 @@ Add Takode to your phone's Home Screen over a trusted HTTPS link (for example [T
 
 ## Local Control and Integrations
 
-Takode runs on your machine and works with local project directories. Your sessions, quest state, memory, and history stay under your control, and there is no Takode-hosted backend to trust with your code. The model provider behind the CLI you choose remains the external service.
+Takode runs on your own machines and works with their local project directories. Your sessions, quest state, memory, and history stay under your control, and there is no Takode-hosted backend to trust with your code. The model provider behind the CLI you choose remains the external service.
 
 - **Permission controls**: agent or plan mode, with optional per-tool approvals
 - **VS Code integration**: Takode can install its VS Code extension, and editor selections stream into Takode while the app is open
@@ -185,6 +199,7 @@ Recordings are ephemeral debugging artifacts under `$TMPDIR/companion-recordings
 
 - [Changelog](CHANGELOG.md)
 - [Using Takode with GitHub Copilot](docs/github-copilot.md)
+- [Running sessions on another machine](docs/remote-hosts.md)
 - [WebSocket Protocol Reference](WEBSOCKET_PROTOCOL_REVERSED.md)
 - [Architecture & Contributor Guide](CLAUDE.md)
 - [Dependency and Install Policy](docs/dependency-policy.md)
