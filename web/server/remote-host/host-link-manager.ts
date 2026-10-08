@@ -8,8 +8,24 @@ import {
   type CoordinatorToHost,
   type HostCommand,
   type HostProcessEvent,
+  type HostRequest,
+  type HostResponse,
   type HostToCoordinator,
 } from "../../shared/host-protocol.js";
+
+/** The host could not be asked: it is offline or the link dropped before it answered. */
+export class HostUnavailableError extends Error {
+  constructor(hostName: string) {
+    super(`Host ${hostName} is offline`);
+    this.name = "HostUnavailableError";
+  }
+}
+
+interface PendingRequest {
+  resolve: (response: HostResponse) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
 
 /** The part of a WebSocket the link manager needs. */
 export interface HostLinkSocket {
@@ -51,9 +67,15 @@ interface HostLink {
   lastSeenAt: number | null;
   /** The `takode node` instance currently or last connected. */
   hostInstanceId: string | null;
+  /** Home directory reported by the host. */
+  homeDir: string | null;
+  /** Whether the host last reported a usable network of its own. */
+  network: boolean;
   nextCommandSeq: number;
   unacked: QueuedCommand[];
   processes: Map<string, RemoteProcess>;
+  /** One-shot requests waiting for this host's answer; they fail if the link drops. */
+  requests: Map<string, PendingRequest>;
 }
 
 /**
@@ -134,9 +156,44 @@ export class HostLinkManager {
       case "command_ack":
         link.unacked = link.unacked.filter((queued) => queued.seq > message.seq);
         return;
+      case "response": {
+        const pending = link.requests.get(message.id);
+        if (!pending) return;
+        link.requests.delete(message.id);
+        clearTimeout(pending.timer);
+        if (message.ok) pending.resolve(message.response);
+        else pending.reject(new Error(message.error));
+        return;
+      }
       case "heartbeat":
+        if (typeof message.network === "boolean") link.network = message.network;
         return;
     }
+  }
+
+  /**
+   * Ask a host to perform one operation now. Fails at once with
+   * HostUnavailableError when the host is offline, and fails if it does not
+   * answer within `timeoutMs` or the link drops first.
+   */
+  request<K extends HostRequest["kind"]>(
+    hostId: string,
+    request: Extract<HostRequest, { kind: K }>,
+    timeoutMs: number,
+  ): Promise<Extract<HostResponse, { kind: K }>> {
+    const link = this.links.get(hostId);
+    if (!link?.online || !link.socket) return Promise.reject(new HostUnavailableError(hostId));
+    const socket = link.socket;
+    const id = randomUUID();
+    return new Promise<HostResponse>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        link.requests.delete(id);
+        reject(new Error(`Host ${hostId} did not answer within ${timeoutMs / 1000}s`));
+      }, timeoutMs);
+      timer.unref?.();
+      link.requests.set(id, { resolve, reject, timer });
+      send(socket, { t: "request", id, request });
+    }) as Promise<Extract<HostResponse, { kind: K }>>;
   }
 
   /** Close a host's link, e.g. after its registration is removed. Its processes wait as if it were away. */
@@ -147,6 +204,28 @@ export class HostLinkManager {
     link.socket = null;
     this.setOnline(hostId, link, false);
     socket.close(4003, reason);
+  }
+
+  /**
+   * Whether a host can currently reach the network: connected to this
+   * coordinator and reporting a usable interface of its own.
+   */
+  hasUsableNetwork(hostId: string): boolean {
+    const link = this.links.get(hostId);
+    return Boolean(link?.online && link.network);
+  }
+
+  /** The host's home directory as last reported, or null before it ever connected. */
+  homeDir(hostId: string): string | null {
+    return this.links.get(hostId)?.homeDir ?? null;
+  }
+
+  /**
+   * Write a file on a host in order with later process input. If the host is
+   * away, the write waits with the other commands.
+   */
+  writeFileInOrder(hostId: string, path: string, data: Buffer): void {
+    this.enqueue(this.link(hostId), { kind: "write_file", path, data: data.toString("base64") });
   }
 
   /** Start a process on a host. If the host is away, the process starts when it returns. */
@@ -191,10 +270,12 @@ export class HostLinkManager {
       }
       link.unacked = link.unacked
         .filter((queued) => !("procId" in queued.command) || link.processes.has(queued.command.procId))
+        // File writes are kept: the new host instance still needs them.
         .map((queued, index) => ({ seq: index + 1, command: queued.command }));
       link.nextCommandSeq = link.unacked.length + 1;
       link.hostInstanceId = hello.instanceId;
     }
+    if (hello.homeDir) link.homeDir = hello.homeDir;
     const received: Record<string, number> = {};
     for (const [procId, proc] of link.processes) received[procId] = proc.lastEventSeq;
     send(socket, { t: "welcome", instanceId: this.instanceId, received });
@@ -237,9 +318,12 @@ export class HostLinkManager {
         online: false,
         lastSeenAt: null,
         hostInstanceId: null,
+        homeDir: null,
+        network: true,
         nextCommandSeq: 1,
         unacked: [],
         processes: new Map(),
+        requests: new Map(),
       };
       this.links.set(hostId, link);
     }
@@ -249,6 +333,13 @@ export class HostLinkManager {
   private setOnline(hostId: string, link: HostLink, online: boolean): void {
     if (link.online === online) return;
     link.online = online;
+    if (!online) {
+      for (const pending of link.requests.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(new HostUnavailableError(hostId));
+      }
+      link.requests.clear();
+    }
     const status = this.status(hostId);
     for (const listener of this.statusListeners) listener(status);
   }

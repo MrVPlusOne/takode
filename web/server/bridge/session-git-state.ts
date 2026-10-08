@@ -1,13 +1,17 @@
-import { exec as execCb } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { promisify } from "node:util";
 import { GIT_STATUS_AUTO_REFRESH_STALE_MS } from "../../shared/git-status-freshness.js";
 import { GIT_CMD_TIMEOUT, SERVER_GIT_CMD } from "../constants.js";
 import * as gitUtils from "../git-utils.js";
 import type { BackendType, SessionState } from "../session-types.js";
+import { machineFor } from "../remote-host/session-machine.js";
 
-const execPromise = promisify(execCb);
+/**
+ * Run a Git command for a session on the machine its files live on: this
+ * machine, or the registered remote host in `state.host_id`.
+ */
+function runGit(hostId: string | undefined, command: string, cwd: string): Promise<{ stdout: string; stderr: string }> {
+  return machineFor(hostId).exec(command, { cwd, timeout: GIT_CMD_TIMEOUT });
+}
 const GIT_SHA_REF_RE = /^[0-9a-f]{7,40}$/i;
 const DIFF_STATS_REFRESH_FAILED_ERROR = "Unable to refresh diff stats";
 const DIFF_STATS_COMMIT_DIVERGENCE_LIMIT = 50;
@@ -25,9 +29,10 @@ interface ResolveGitInfoOptions {
 async function resolveUpstreamRef(state: SessionState): Promise<string | null> {
   if (!state.cwd || !state.git_branch || state.git_branch === "HEAD" || state.is_worktree) return null;
   try {
-    const { stdout } = await execPromise(
+    const { stdout } = await runGit(
+      state.host_id,
       `${SERVER_GIT_CMD} rev-parse --abbrev-ref --symbolic-full-name ${state.git_branch}@{upstream} 2>/dev/null`,
-      { cwd: state.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT },
+      state.cwd,
     );
     const upstreamRef = stdout.trim();
     return upstreamRef || null;
@@ -101,28 +106,30 @@ function getSharedAheadBehindKey(state: SessionState): string | null {
   if (!ref) return null;
   const repoKey = state.repo_root || state.cwd;
   const headKey = state.git_head_sha || state.git_branch || "HEAD";
-  return [repoKey, ref, headKey].join("\0");
+  return [state.host_id ?? "", repoKey, ref, headKey].join("\0");
 }
 
-async function readMergeBaseRef(cwd: string, ref: string): Promise<string | null> {
+async function readMergeBaseRef(hostId: string | undefined, cwd: string, ref: string): Promise<string | null> {
   try {
-    const { stdout } = await execPromise(`${SERVER_GIT_CMD} merge-base ${ref} HEAD`, {
-      cwd,
-      timeout: GIT_CMD_TIMEOUT,
-    });
+    const { stdout } = await runGit(hostId, `${SERVER_GIT_CMD} merge-base ${ref} HEAD`, cwd);
     return stdout.trim() || null;
   } catch {
     return null;
   }
 }
 
-async function resolveMergeBaseRef(cwd: string, ref: string, headIdentity: string | null): Promise<string | null> {
-  if (!headIdentity) return readMergeBaseRef(cwd, ref);
+async function resolveMergeBaseRef(
+  hostId: string | undefined,
+  cwd: string,
+  ref: string,
+  headIdentity: string | null,
+): Promise<string | null> {
+  if (!headIdentity) return readMergeBaseRef(hostId, cwd, ref);
 
-  const key = [cwd, ref, headIdentity].join("\0");
+  const key = [hostId ?? "", cwd, ref, headIdentity].join("\0");
   let computation = inFlightMergeBaseRefs.get(key);
   if (!computation) {
-    computation = readMergeBaseRef(cwd, ref).finally(() => {
+    computation = readMergeBaseRef(hostId, cwd, ref).finally(() => {
       if (inFlightMergeBaseRefs.get(key) === computation) {
         inFlightMergeBaseRefs.delete(key);
       }
@@ -132,11 +139,12 @@ async function resolveMergeBaseRef(cwd: string, ref: string, headIdentity: strin
   return computation;
 }
 
-async function readAheadBehindCounts(cwd: string, ref: string): Promise<AheadBehindCounts> {
+async function readAheadBehindCounts(hostId: string | undefined, cwd: string, ref: string): Promise<AheadBehindCounts> {
   try {
-    const { stdout: countsOut } = await execPromise(
+    const { stdout: countsOut } = await runGit(
+      hostId,
       `${SERVER_GIT_CMD} rev-list --left-right --count ${ref}...HEAD 2>/dev/null`,
-      { cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT },
+      cwd,
     );
     const [behind, ahead] = countsOut.trim().split(/\s+/).map(Number);
     return {
@@ -155,7 +163,7 @@ async function resolveAheadBehindDirect(state: SessionState): Promise<void> {
     state.git_behind = 0;
     return;
   }
-  const counts = await readAheadBehindCounts(state.cwd, ref);
+  const counts = await readAheadBehindCounts(state.host_id, state.cwd, ref);
   state.git_ahead = counts.ahead;
   state.git_behind = counts.behind;
 }
@@ -165,29 +173,29 @@ export async function resolveGitInfo(state: SessionState, options: ResolveGitInf
   const computeAheadBehind = options.computeAheadBehind !== false;
   const wasContainerized = state.is_containerized;
   try {
-    const { stdout: branchOut } = await execPromise(`${SERVER_GIT_CMD} rev-parse --abbrev-ref HEAD 2>/dev/null`, {
-      cwd: state.cwd,
-      encoding: "utf-8",
-      timeout: GIT_CMD_TIMEOUT,
-    });
+    const { stdout: branchOut } = await runGit(
+      state.host_id,
+      `${SERVER_GIT_CMD} rev-parse --abbrev-ref HEAD 2>/dev/null`,
+      state.cwd,
+    );
     state.git_branch = branchOut.trim();
     try {
-      const { stdout: headOut } = await execPromise(`${SERVER_GIT_CMD} rev-parse HEAD 2>/dev/null`, {
-        cwd: state.cwd,
-        encoding: "utf-8",
-        timeout: GIT_CMD_TIMEOUT,
-      });
+      const { stdout: headOut } = await runGit(
+        state.host_id,
+        `${SERVER_GIT_CMD} rev-parse HEAD 2>/dev/null`,
+        state.cwd,
+      );
       state.git_head_sha = headOut.trim();
     } catch {
       state.git_head_sha = "";
     }
 
     try {
-      const { stdout: gitDirOut } = await execPromise(`${SERVER_GIT_CMD} rev-parse --git-dir 2>/dev/null`, {
-        cwd: state.cwd,
-        encoding: "utf-8",
-        timeout: GIT_CMD_TIMEOUT,
-      });
+      const { stdout: gitDirOut } = await runGit(
+        state.host_id,
+        `${SERVER_GIT_CMD} rev-parse --git-dir 2>/dev/null`,
+        state.cwd,
+      );
       state.is_worktree = gitDirOut.trim().includes("/worktrees/");
     } catch {
       state.is_worktree = false;
@@ -195,18 +203,18 @@ export async function resolveGitInfo(state: SessionState, options: ResolveGitInf
 
     try {
       if (state.is_worktree) {
-        const { stdout: commonDirOut } = await execPromise(`${SERVER_GIT_CMD} rev-parse --git-common-dir 2>/dev/null`, {
-          cwd: state.cwd,
-          encoding: "utf-8",
-          timeout: GIT_CMD_TIMEOUT,
-        });
+        const { stdout: commonDirOut } = await runGit(
+          state.host_id,
+          `${SERVER_GIT_CMD} rev-parse --git-common-dir 2>/dev/null`,
+          state.cwd,
+        );
         state.repo_root = resolve(state.cwd, commonDirOut.trim(), "..");
       } else {
-        const { stdout: toplevelOut } = await execPromise(`${SERVER_GIT_CMD} rev-parse --show-toplevel 2>/dev/null`, {
-          cwd: state.cwd,
-          encoding: "utf-8",
-          timeout: GIT_CMD_TIMEOUT,
-        });
+        const { stdout: toplevelOut } = await runGit(
+          state.host_id,
+          `${SERVER_GIT_CMD} rev-parse --show-toplevel 2>/dev/null`,
+          state.cwd,
+        );
         state.repo_root = toplevelOut.trim();
       }
     } catch {
@@ -217,7 +225,11 @@ export async function resolveGitInfo(state: SessionState, options: ResolveGitInf
     let legacyDefaultBranch: string | null = null;
     const getLegacyDefaultBranch = async () => {
       if (!legacyDefaultBranch) {
-        legacyDefaultBranch = await gitUtils.resolveDefaultBranchAsync(state.repo_root || state.cwd, state.git_branch);
+        legacyDefaultBranch = await gitUtils.resolveDefaultBranchAsync(
+          state.repo_root || state.cwd,
+          state.git_branch,
+          machineFor(state.host_id),
+        );
       }
       return legacyDefaultBranch;
     };
@@ -269,15 +281,16 @@ export async function resolveGitInfo(state: SessionState, options: ResolveGitInf
   state.is_containerized = wasContainerized;
 }
 
-export async function readWorktreeStateFingerprint(cwd: string): Promise<string | null> {
+export async function readWorktreeStateFingerprint(cwd: string, hostId?: string): Promise<string | null> {
   try {
-    const gitFile = await readFile(join(cwd, ".git"), "utf-8");
+    const machine = machineFor(hostId);
+    const gitFile = (await machine.readFile(join(cwd, ".git"))).toString("utf-8");
     const match = gitFile.match(/^gitdir:\s*(.+)\s*$/m);
     if (!match) return null;
     const gitDir = resolve(cwd, match[1].trim());
     const [headStat, indexStat] = await Promise.all([
-      stat(join(gitDir, "HEAD")).catch(() => null),
-      stat(join(gitDir, "index")).catch(() => null),
+      machine.stat(join(gitDir, "HEAD")).catch(() => null),
+      machine.stat(join(gitDir, "index")).catch(() => null),
     ]);
     return [
       headStat ? `${headStat.mtimeMs}:${headStat.size}` : "missing",
@@ -387,10 +400,11 @@ export async function updateDiffBaseStartSha(session: SessionDiffStateLike, prev
     }
     if (previousHeadSha && previousHeadSha !== currentHeadSha) {
       try {
-        await execPromise(`${SERVER_GIT_CMD} merge-base --is-ancestor ${previousHeadSha} ${currentHeadSha}`, {
+        await runGit(
+          session.state.host_id,
+          `${SERVER_GIT_CMD} merge-base --is-ancestor ${previousHeadSha} ${currentHeadSha}`,
           cwd,
-          timeout: GIT_CMD_TIMEOUT,
-        });
+        );
       } catch {
         session.state.diff_base_start_sha = currentHeadSha;
         return true;
@@ -401,7 +415,7 @@ export async function updateDiffBaseStartSha(session: SessionDiffStateLike, prev
 
   let nextAnchor = currentHeadSha;
   if (ref) {
-    const mergeBase = await resolveMergeBaseRef(cwd, ref, currentHeadSha);
+    const mergeBase = await resolveMergeBaseRef(session.state.host_id, cwd, ref, currentHeadSha);
     if (mergeBase) nextAnchor = mergeBase;
   }
 
@@ -457,20 +471,22 @@ function cacheDiffStatsResult(
 }
 
 function buildDiffStatsInFlightKey(
+  hostId: string | undefined,
   cwd: string,
   diffRef: string,
   cacheKey: string,
   worktreeDirtyEntries: number | null,
 ): string {
   const dirtyState = worktreeDirtyEntries === null ? "repo" : "worktree-clean";
-  return [cwd, diffRef, cacheKey, dirtyState].join("\0");
+  return [hostId ?? "", cwd, diffRef, cacheKey, dirtyState].join("\0");
 }
 
-async function readDiffStatsNumstat(cwd: string, diffRef: string): Promise<DiffStatsNumstatResult> {
-  const { stdout } = await execPromise(`${SERVER_GIT_CMD} diff --numstat ${diffRef}`, {
-    cwd,
-    timeout: GIT_CMD_TIMEOUT,
-  });
+async function readDiffStatsNumstat(
+  hostId: string | undefined,
+  cwd: string,
+  diffRef: string,
+): Promise<DiffStatsNumstatResult> {
+  const { stdout } = await runGit(hostId, `${SERVER_GIT_CMD} diff --numstat ${diffRef}`, cwd);
   let totalLinesAdded = 0;
   let totalLinesRemoved = 0;
   const raw = stdout.trim();
@@ -486,19 +502,20 @@ async function readDiffStatsNumstat(cwd: string, diffRef: string): Promise<DiffS
 }
 
 function computeDiffStatsNumstat(
+  hostId: string | undefined,
   cwd: string,
   diffRef: string,
   cacheKey: string,
   worktreeDirtyEntries: number | null,
 ): Promise<DiffStatsNumstatResult> {
   if (worktreeDirtyEntries !== null && worktreeDirtyEntries > 0) {
-    return readDiffStatsNumstat(cwd, diffRef);
+    return readDiffStatsNumstat(hostId, cwd, diffRef);
   }
 
-  const inFlightKey = buildDiffStatsInFlightKey(cwd, diffRef, cacheKey, worktreeDirtyEntries);
+  const inFlightKey = buildDiffStatsInFlightKey(hostId, cwd, diffRef, cacheKey, worktreeDirtyEntries);
   let computation = inFlightDiffStatsComputations.get(inFlightKey);
   if (!computation) {
-    computation = readDiffStatsNumstat(cwd, diffRef).finally(() => {
+    computation = readDiffStatsNumstat(hostId, cwd, diffRef).finally(() => {
       if (inFlightDiffStatsComputations.get(inFlightKey) === computation) {
         inFlightDiffStatsComputations.delete(inFlightKey);
       }
@@ -508,14 +525,11 @@ function computeDiffStatsNumstat(
   return computation;
 }
 
-async function countTrackedDirtyEntries(cwd: string): Promise<number> {
-  const { stdout } = await execPromise(
+async function countTrackedDirtyEntries(hostId: string | undefined, cwd: string): Promise<number> {
+  const { stdout } = await runGit(
+    hostId,
     `${SERVER_GIT_CMD} status --porcelain=v1 --untracked-files=no --no-renames | awk 'NR <= 501 { print } NR > 501 { exit }'`,
-    {
-      cwd,
-      encoding: "utf-8",
-      timeout: GIT_CMD_TIMEOUT,
-    },
+    cwd,
   );
   const raw = stdout.trim();
   return raw ? raw.split("\n").filter((line) => line.trim()).length : 0;
@@ -551,7 +565,7 @@ async function resolveAheadBehindForRefresh(
 
   const sharedKey = getSharedAheadBehindKey(session.state);
   if (!sharedKey) {
-    const counts = await readAheadBehindCounts(session.state.cwd, ref);
+    const counts = await readAheadBehindCounts(session.state.host_id, session.state.cwd, ref);
     session.state.git_ahead = counts.ahead;
     session.state.git_behind = counts.behind;
     return { sharedKey: null, counts };
@@ -559,7 +573,7 @@ async function resolveAheadBehindForRefresh(
 
   let refresh = deps.nonWorktreeAheadBehindRefreshes.get(sharedKey);
   if (!refresh) {
-    refresh = readAheadBehindCounts(session.state.cwd, ref).finally(() => {
+    refresh = readAheadBehindCounts(session.state.host_id, session.state.cwd, ref).finally(() => {
       if (deps.nonWorktreeAheadBehindRefreshes.get(sharedKey) === refresh) {
         deps.nonWorktreeAheadBehindRefreshes.delete(sharedKey);
       }
@@ -641,10 +655,17 @@ export async function computeDiffStatsAsync(
       return true;
     }
 
-    const worktreeFingerprint = session.state.is_worktree ? (await readWorktreeStateFingerprint(cwd)) || "" : "";
+    const worktreeFingerprint = session.state.is_worktree
+      ? (await readWorktreeStateFingerprint(cwd, session.state.host_id)) || ""
+      : "";
     let diffRef = diffBase;
     if (!session.state.is_worktree) {
-      const mergeBase = await resolveMergeBaseRef(cwd, diffBase, session.state.git_head_sha?.trim() || null);
+      const mergeBase = await resolveMergeBaseRef(
+        session.state.host_id,
+        cwd,
+        diffBase,
+        session.state.git_head_sha?.trim() || null,
+      );
       if (mergeBase) diffRef = mergeBase;
     }
 
@@ -667,7 +688,7 @@ export async function computeDiffStatsAsync(
         return true;
       }
 
-      worktreeDirtyEntries = await countTrackedDirtyEntries(cwd);
+      worktreeDirtyEntries = await countTrackedDirtyEntries(session.state.host_id, cwd);
       if (worktreeDirtyEntries > DIFF_STATS_TRACKED_DIRTY_LIMIT) {
         setSkippedDiffStats(session, cacheKey, `${worktreeDirtyEntries} dirty tracked paths exceeds budget`, {
           cache: false,
@@ -697,6 +718,7 @@ export async function computeDiffStatsAsync(
     }
 
     const { totalLinesAdded, totalLinesRemoved } = await computeDiffStatsNumstat(
+      session.state.host_id,
       cwd,
       diffRef,
       cacheKey,
@@ -904,7 +926,7 @@ async function runWorktreeGitStateRefreshForSnapshot(
   if (!session) return null;
   if (!session.state.is_worktree || !session.state.cwd) return session.state;
 
-  const currentFingerprint = await readWorktreeStateFingerprint(session.state.cwd);
+  const currentFingerprint = await readWorktreeStateFingerprint(session.state.cwd, session.state.host_id);
   const previousFingerprint = session.worktreeStateFingerprint.trim();
   const previousRefreshAt = session.state.git_status_refreshed_at || 0;
   const staleRefresh = Date.now() - previousRefreshAt >= GIT_STATUS_AUTO_REFRESH_STALE_MS;

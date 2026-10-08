@@ -7,12 +7,14 @@ import { promisify } from "node:util";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
 import { expandTilde } from "../path-resolver.js";
 import { getRipgrepPath } from "../ripgrep.js";
-import { SERVER_GIT_CMD } from "../constants.js";
+import { GIT_CMD_TIMEOUT, SERVER_GIT_CMD } from "../constants.js";
 import { normalizeForSearch } from "../../shared/search-utils.js";
 import type { RouteContext } from "./context.js";
 import { requireSharp, isSharpUnavailableError } from "../image-optimizer.js";
 import { LocalImageVariantStore, type LocalImageVariantKind } from "../local-image-variant-store.js";
 import { getLocalPathOpenCapability, openLocalPathContainingFolder } from "../local-path-actions.js";
+import { machineFor, type Machine, type MachineFileStat } from "../remote-host/session-machine.js";
+import { localCopyOfHostFile } from "../remote-host/host-file-cache.js";
 
 const execPromise = promisify(childProcess.exec);
 
@@ -52,6 +54,8 @@ interface FileLinkBaseContext {
   cwd: string | null;
   repoRoot: string | null;
   isWorktree: boolean;
+  /** Remote host holding the session's files; absent for this machine. */
+  hostId?: string;
 }
 
 export interface ResolvedFileLinkPath {
@@ -67,6 +71,8 @@ export interface ResolvedFileLinkPath {
   canOpenContainingFolder: boolean;
   openContainingFolderLabel: string;
   platform: NodeJS.Platform;
+  /** Remote host the file lives on; absent when it is on this machine. */
+  hostId?: string;
 }
 
 function resolveWorktreeDiffAnchor(
@@ -94,12 +100,14 @@ function getFileLinkBaseContext(
         repoRoot?: string;
         is_worktree?: boolean;
         isWorktree?: boolean;
+        host_id?: string;
       }
     | undefined;
   return {
     cwd: state?.cwd ?? null,
     repoRoot: state?.repo_root ?? state?.repoRoot ?? null,
     isWorktree: Boolean(state?.is_worktree ?? state?.isWorktree),
+    ...(state?.host_id ? { hostId: state.host_id } : {}),
   };
 }
 
@@ -144,17 +152,17 @@ function remapStaleWorktreePath(
   return `${root.replace(/[\\/]+$/, "")}${parsed.relativeWithinRepo}`;
 }
 
-async function statIfExists(path: string) {
+async function statIfExists(path: string, machine: Machine): Promise<MachineFileStat | null> {
   try {
-    return await stat(path);
+    return await machine.stat(path);
   } catch {
     return null;
   }
 }
 
-async function chooseExistingFileLinkPath(candidates: string[]): Promise<string> {
+async function chooseExistingFileLinkPath(candidates: string[], machine: Machine): Promise<string> {
   for (const candidate of candidates) {
-    if (await statIfExists(candidate)) return candidate;
+    if (await statIfExists(candidate, machine)) return candidate;
   }
   return candidates[0] ?? "";
 }
@@ -169,6 +177,7 @@ export async function resolveFileLinkPath(
   }
 
   const base = getFileLinkBaseContext(wsBridge, request.sessionId);
+  const machine = machineFor(base.hostId);
   let absolutePath: string;
   if (request.isRelative) {
     const root = getFileLinkRoot(base);
@@ -191,16 +200,19 @@ export async function resolveFileLinkPath(
     const repoRootFallback = remapStaleWorktreePath(requestedPath, base.repoRoot, basename(base.repoRoot || ""));
     absolutePath = await chooseExistingFileLinkPath(
       [currentWorktreePath, requestedPath, repoRootFallback].filter((path): path is string => Boolean(path)),
+      machine,
     );
     absolutePath = resolve(absolutePath);
   }
 
-  const info = await statIfExists(absolutePath);
+  const info = await statIfExists(absolutePath, machine);
   const mimeType = IMAGE_MIME_BY_EXT[extname(absolutePath).toLowerCase()];
-  const isFile = Boolean(info?.isFile());
-  const isDirectory = Boolean(info?.isDirectory());
+  const isFile = Boolean(info?.isFile);
+  const isDirectory = Boolean(info?.isDirectory);
   const openCapability = getLocalPathOpenCapability();
-  const canOpenContainingFolder = Boolean(info && openCapability.canOpenContainingFolder);
+  // Finder and folder actions only reach files on this machine.
+  const local = !base.hostId;
+  const canOpenContainingFolder = Boolean(local && info && openCapability.canOpenContainingFolder);
   return {
     absolutePath,
     requestedPath,
@@ -210,10 +222,11 @@ export async function resolveFileLinkPath(
     isImage: Boolean(isFile && mimeType),
     ...(mimeType ? { mimeType } : {}),
     ...(info ? { size: info.size } : {}),
-    canRevealInFinder: process.platform === "darwin" && Boolean(info),
+    canRevealInFinder: local && process.platform === "darwin" && Boolean(info),
     canOpenContainingFolder,
     openContainingFolderLabel: openCapability.openContainingFolderLabel,
     platform: process.platform,
+    ...(base.hostId ? { hostId: base.hostId } : {}),
   };
 }
 
@@ -248,7 +261,7 @@ async function buildFileLinkPreviewResponse(target: ResolvedFileLinkPath): Promi
   if (!target.isImage || !target.mimeType) {
     throw new Error("file is not a supported image type");
   }
-  const original = (await readFile(target.absolutePath)) as Buffer;
+  const original = await machineFor(target.hostId).readFile(target.absolutePath);
   if (original.byteLength <= FILE_LINK_PREVIEW_COMPRESSION_THRESHOLD_BYTES || target.mimeType === "image/svg+xml") {
     return { data: original, contentType: target.mimeType, compressed: false };
   }
@@ -289,7 +302,50 @@ function localImageVariantHeaders(variant: { contentType: string; cacheHit: bool
 
 export function createFilesystemRoutes(ctx: RouteContext) {
   const api = new Hono();
-  const { wsBridge, execAsync, execCaptureStdoutAsync } = ctx;
+  const { wsBridge } = ctx;
+
+  /**
+   * Shell and file access on the machine that holds a session's files: its
+   * remote host when it has one, otherwise this machine (the original helpers).
+   */
+  const filesFor = (sessionId: string | undefined) => {
+    const hostId = sessionId ? wsBridge.getSession(sessionId)?.state.host_id : undefined;
+    if (!hostId) {
+      return {
+        execAsync: ctx.execAsync,
+        execCaptureStdoutAsync: ctx.execCaptureStdoutAsync,
+        readText: (path: string) => readFile(path, "utf-8"),
+        size: async (path: string) => (await stat(path)).size,
+      };
+    }
+    const machine = machineFor(hostId);
+    const run = (command: string, cwd: string, opts?: { maxBuffer?: number }) =>
+      machine.exec(command, {
+        cwd,
+        timeout: GIT_CMD_TIMEOUT,
+        ...(opts?.maxBuffer ? { maxBuffer: opts.maxBuffer } : {}),
+      });
+    return {
+      execAsync: async (command: string, cwd: string, opts?: { maxBuffer?: number }) =>
+        (await run(command, cwd, opts)).stdout.trim(),
+      // Like the local helper: stdout even when the command exits non-zero.
+      execCaptureStdoutAsync: async (command: string, cwd: string, opts?: { maxBuffer?: number }) => {
+        try {
+          return (await run(command, cwd, opts)).stdout.trim();
+        } catch (error) {
+          const stdout = (error as { stdout?: unknown }).stdout;
+          if (typeof stdout === "string") return stdout.trim();
+          throw error;
+        }
+      },
+      readText: async (path: string) => (await machine.readFile(path)).toString("utf-8"),
+      size: async (path: string) => {
+        const info = await machine.stat(path);
+        if (!info) throw new Error(`No such file: ${path}`);
+        return info.size;
+      },
+    };
+  };
   const localImageVariantStore = ctx.localImageVariantStore ?? new LocalImageVariantStore();
 
   // ─── Filesystem browsing ─────────────────────────────────────
@@ -385,12 +441,12 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     const filePath = c.req.query("path");
     if (!filePath) return c.json({ error: "path required" }, 400);
     const absPath = resolve(filePath);
+    const files = filesFor(c.req.query("sessionId") || undefined);
     try {
-      const info = await stat(absPath);
-      if (info.size > 2 * 1024 * 1024) {
+      if ((await files.size(absPath)) > 2 * 1024 * 1024) {
         return c.json({ error: "File too large (>2MB)" }, 413);
       }
-      const content = await readFile(absPath, "utf-8");
+      const content = await files.readText(absPath);
       return c.json({ path: absPath, content });
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : "Cannot read file" }, 404);
@@ -432,7 +488,11 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       if (!target.isImage || !target.mimeType) {
         return c.json({ error: "file is not a supported image type" }, 400);
       }
-      const variant = await localImageVariantStore.getVariant(target.absolutePath, target.mimeType, variantKind);
+      // Variants are built from a local file; a remote host's image is copied into a local cache first.
+      const localPath = target.hostId
+        ? await localCopyOfHostFile(target.hostId, target.absolutePath, target.size)
+        : target.absolutePath;
+      const variant = await localImageVariantStore.getVariant(localPath, target.mimeType, variantKind);
       return c.body(await readFile(variant.path), 200, localImageVariantHeaders(variant));
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : "Cannot read image file" }, 404);
@@ -515,6 +575,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     const sessionId = c.req.query("sessionId") || undefined;
     const includeContents = c.req.query("includeContents") === "1";
     const absPath = resolve(filePath);
+    const { execAsync, execCaptureStdoutAsync, readText, size } = filesFor(sessionId);
     try {
       const repoRoot = await execAsync(`${SERVER_GIT_CMD} rev-parse --show-toplevel`, dirname(absPath));
       const relPath =
@@ -568,10 +629,9 @@ export function createFilesystemRoutes(ctx: RouteContext) {
         }
 
         try {
-          const fileInfo = await stat(absPath);
           // Avoid sending very large files into the browser diff renderer.
-          if (fileInfo.size <= 1024 * 1024) {
-            const currentContent = await readFile(absPath, "utf-8");
+          if ((await size(absPath)) <= 1024 * 1024) {
+            const currentContent = await readText(absPath);
             newText = currentContent.replace(/\r\n/g, "\n");
           }
         } catch {
@@ -623,6 +683,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       return c.json({ error: "base branch required" }, 400);
     }
     const repoRoot = resolve(body.repoRoot);
+    const { execCaptureStdoutAsync } = filesFor(body.sessionId);
     try {
       // git diff --numstat returns: "additions\tdeletions\tfilepath" per line
       const rootPrefix = `${repoRoot}/`;
@@ -677,6 +738,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     const sessionId = c.req.query("sessionId") || undefined;
 
     const repoRoot = resolve(cwd);
+    const { execCaptureStdoutAsync } = filesFor(sessionId);
     try {
       const diffRef = resolveWorktreeDiffAnchor(wsBridge, sessionId, base);
       // --no-optional-locks avoids NFS lock contention on .git/index.lock

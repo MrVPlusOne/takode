@@ -1094,7 +1094,7 @@ function FileMarkdownLink({
     let openTarget = resolvedTarget;
     if (resolvedTarget.fallbackAbsolutePath) {
       try {
-        await api.readFile(resolvedTarget.absolutePath);
+        await api.readFile(resolvedTarget.absolutePath, actionTarget.sessionId);
       } catch {
         openTarget = {
           ...resolvedTarget,

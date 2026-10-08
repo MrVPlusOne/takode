@@ -50,6 +50,8 @@ import { ResourceLeaseManager } from "./resource-lease-manager.js";
 import { ResourceLeaseStore } from "./resource-lease-store.js";
 import { HostRegistry } from "./remote-host/host-registry.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
+import { configureRemoteMachines } from "./remote-host/session-machine.js";
+import { configureRemoteAttachmentDirectories } from "./attachment-paths.js";
 import { authenticateHostRequest, createHostRoutes } from "./routes/hosts.js";
 import { ImageStore } from "./image-store.js";
 import { IdleManager } from "./idle-manager.js";
@@ -225,6 +227,13 @@ const hostRegistry = HostRegistry.forServer(serverId);
 const hostLinks = new HostLinkManager();
 hostLinks.start();
 launcher.remoteHosts = { registry: hostRegistry, links: hostLinks };
+configureRemoteMachines(hostLinks);
+configureRemoteAttachmentDirectories((sessionId) => {
+  const hostId = launcher.getSession(sessionId)?.hostId;
+  if (!hostId) return null;
+  // `~` is expanded by the host when its home directory is not known yet.
+  return join(hostLinks.homeDir(hostId) ?? "~", ".companion", "images", sessionId);
+});
 
 // ── Performance tracer — event loop lag + slow request/message tracking ──
 import { PerfTracer } from "./perf-tracer.js";

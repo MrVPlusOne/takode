@@ -566,6 +566,9 @@ export function createFileLinkBrowserRoutes(wsBridge: RouteContext["wsBridge"], 
 
     try {
       const target = await resolveFileLinkPath(request, wsBridge);
+      if (target.hostId) {
+        return errorResponse("Cannot open HTML file: files on remote hosts can't be browsed yet", 400);
+      }
       if (!target.exists || !target.isFile) {
         return errorResponse(`Cannot open HTML file: ${target.absolutePath} was not found`, 404);
       }

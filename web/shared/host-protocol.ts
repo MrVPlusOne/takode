@@ -40,6 +40,11 @@ export type HostCommand =
       /** Session-specific variables; the host merges them over its own environment. */
       env: Record<string, string>;
     }
+  /**
+   * Write a file on the host, in order with the other commands, e.g. an image
+   * attachment that a later stdin message refers to. `data` is base64.
+   */
+  | { kind: "write_file"; path: string; data: string }
   | { kind: "stdin"; procId: string; data: string }
   | { kind: "stdin_end"; procId: string }
   | { kind: "kill"; procId: string; signal: string };
@@ -50,6 +55,33 @@ export type HostProcessEvent =
   | { kind: "stderr"; data: string }
   | { kind: "exit"; code: number | null; signal: string | null }
   | { kind: "error"; message: string };
+
+/**
+ * One-shot operations the coordinator asks a host to perform on its machine,
+ * such as Git queries for a session's diff or reading a file for a preview.
+ * Unlike process commands they are not replayed: if the link drops first, the
+ * coordinator reports the host as unavailable and the caller may retry.
+ */
+export type HostRequest =
+  | {
+      kind: "exec";
+      /** Shell command, run with `/bin/sh -c`. */
+      command: string;
+      cwd: string;
+      timeoutMs: number;
+      maxOutputBytes: number;
+    }
+  | { kind: "read_file"; path: string; maxBytes: number }
+  | { kind: "stat"; path: string }
+  /** `data` is base64; missing parent directories are created. */
+  | { kind: "write_file"; path: string; data: string; mode?: number };
+
+export type HostResponse =
+  | { kind: "exec"; code: number | null; signal: string | null; stdout: string; stderr: string; truncated: boolean }
+  /** `data` is base64. */
+  | { kind: "read_file"; data: string; truncated: boolean }
+  | { kind: "stat"; stat: { size: number; isFile: boolean; isDirectory: boolean; mtimeMs: number } | null }
+  | { kind: "write_file" };
 
 export type HostToCoordinator =
   | {
@@ -63,10 +95,15 @@ export type HostToCoordinator =
       appliedFrom: string | null;
       /** Build of the `takode node` code, for diagnostics. */
       build?: string;
+      /** The host user's home directory, for host paths the coordinator writes (attachments). */
+      homeDir?: string;
     }
   | { t: "event"; procId: string; seq: number; event: HostProcessEvent }
   | { t: "command_ack"; seq: number }
-  | { t: "heartbeat" };
+  | { t: "response"; id: string; ok: true; response: HostResponse }
+  | { t: "response"; id: string; ok: false; error: string }
+  /** `network`: whether this host has a usable network interface (see `network-availability.ts`). */
+  | { t: "heartbeat"; network?: boolean };
 
 export type CoordinatorToHost =
   | {
@@ -78,5 +115,6 @@ export type CoordinatorToHost =
     }
   | { t: "command"; seq: number; command: HostCommand }
   | { t: "event_ack"; procId: string; seq: number }
+  | { t: "request"; id: string; request: HostRequest }
   | { t: "heartbeat" }
   | { t: "rejected"; reason: string };

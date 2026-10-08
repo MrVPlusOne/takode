@@ -1434,6 +1434,8 @@ export interface SessionState extends BackendSessionState {
   diff_base_start_sha?: string;
   is_worktree: boolean;
   is_containerized: boolean;
+  /** Registered remote host the session runs on; absent when it runs on the coordinator's machine. */
+  host_id?: string;
   repo_root: string;
   git_ahead: number;
   git_behind: number;

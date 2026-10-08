@@ -357,6 +357,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     applyInitialSessionState(session.sessionId, {
       ...(sessionConfig.containerInfo ? { containerizedHostCwd: sessionConfig.initialCwd } : {}),
+      ...(sessionConfig.launchOptions.hostId ? { hostId: sessionConfig.launchOptions.hostId } : {}),
       cwd: sessionConfig.initialCwd,
       treeGroupId: initialTreeGroupId,
       memorySessionSpaceSlug: sessionConfig.memorySessionSpaceSlug,
@@ -1918,6 +1919,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
       return c.text("File not found", 404);
     }
   });
-  registerSessionImageRoutes(api, { imageStore, resolveId });
+  registerSessionImageRoutes(api, { imageStore, resolveId, launcher });
   return api;
 }

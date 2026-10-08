@@ -1,5 +1,9 @@
 import { spawn as spawnChild, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdir, open, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { hasUsableNetwork } from "../network-availability.js";
+import { dirname } from "node:path";
 import {
   HOST_HEARTBEAT_MS,
   HOST_LINK_PATH,
@@ -8,6 +12,8 @@ import {
   type CoordinatorToHost,
   type HostCommand,
   type HostProcessEvent,
+  type HostRequest,
+  type HostResponse,
   type HostToCoordinator,
 } from "../../shared/host-protocol.js";
 
@@ -112,6 +118,7 @@ export class HostAgent {
         instanceId: this.instanceId,
         appliedCommandSeq: this.appliedCommandSeq,
         appliedFrom: this.coordinatorInstanceId,
+        homeDir: homedir(),
       });
     };
     socket.onmessage = (event) => {
@@ -168,6 +175,9 @@ export class HostAgent {
         this.forgetIfDone(message.procId, hosted);
         return;
       }
+      case "request":
+        void this.answer(message.id, message.request);
+        return;
       case "rejected":
         this.log(`Coordinator rejected this host: ${message.reason}`);
         this.stop();
@@ -207,11 +217,27 @@ export class HostAgent {
     this.log("Reconnected to coordinator");
   }
 
+  private async answer(id: string, request: HostRequest): Promise<void> {
+    try {
+      this.send({ t: "response", id, ok: true, response: await performHostRequest(request) });
+    } catch (error) {
+      this.send({ t: "response", id, ok: false, error: errorMessage(error) });
+    }
+  }
+
   private apply(command: HostCommand): void {
     switch (command.kind) {
       case "spawn":
         this.spawn(command);
         return;
+      case "write_file": {
+        // `~/` stands for this host's home when the coordinator did not know it yet.
+        const path = command.path.startsWith("~/") ? `${homedir()}${command.path.slice(1)}` : command.path;
+        void mkdir(dirname(path), { recursive: true })
+          .then(() => writeFile(path, Buffer.from(command.data, "base64")))
+          .catch((error) => this.log(`Could not write ${path}: ${errorMessage(error)}`));
+        return;
+      }
       case "stdin":
         this.processes.get(command.procId)?.child?.stdin?.write(Buffer.from(command.data, "base64"));
         return;
@@ -288,7 +314,7 @@ export class HostAgent {
       this.scheduleReconnect();
       return;
     }
-    this.send({ t: "heartbeat" });
+    this.send({ t: "heartbeat", network: hasUsableNetwork() });
   }
 
   private send(message: HostToCoordinator): void {
@@ -352,6 +378,84 @@ export function insecureCoordinatorUrlProblem(coordinatorUrl: string, allowInsec
 
 function isLoopbackHost(hostname: string): boolean {
   return hostname === "localhost" || hostname === "[::1]" || hostname === "::1" || /^127\./.test(hostname);
+}
+
+/** Perform one coordinator request on this machine. */
+export async function performHostRequest(request: HostRequest): Promise<HostResponse> {
+  switch (request.kind) {
+    case "exec":
+      return runShell(request);
+    case "read_file": {
+      const handle = await open(request.path, "r");
+      try {
+        const size = (await handle.stat()).size;
+        const length = Math.min(size, request.maxBytes);
+        const buffer = Buffer.alloc(length);
+        await handle.read(buffer, 0, length, 0);
+        return { kind: "read_file", data: buffer.toString("base64"), truncated: size > request.maxBytes };
+      } finally {
+        await handle.close();
+      }
+    }
+    case "stat": {
+      const info = await stat(request.path).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT" || error.code === "ENOTDIR") return null;
+        throw error;
+      });
+      return {
+        kind: "stat",
+        stat: info
+          ? { size: info.size, isFile: info.isFile(), isDirectory: info.isDirectory(), mtimeMs: info.mtimeMs }
+          : null,
+      };
+    }
+    case "write_file":
+      await mkdir(dirname(request.path), { recursive: true });
+      await writeFile(request.path, Buffer.from(request.data, "base64"), { mode: request.mode });
+      return { kind: "write_file" };
+  }
+}
+
+function runShell(request: Extract<HostRequest, { kind: "exec" }>): Promise<HostResponse> {
+  return new Promise((resolve, reject) => {
+    const child = spawnChild("/bin/sh", ["-c", request.command], {
+      cwd: request.cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    let bytes = 0;
+    let truncated = false;
+    const capture = (target: Buffer[]) => (chunk: Buffer) => {
+      if (bytes >= request.maxOutputBytes) {
+        truncated = true;
+        return;
+      }
+      const room = request.maxOutputBytes - bytes;
+      const kept = chunk.length > room ? chunk.subarray(0, room) : chunk;
+      if (kept.length < chunk.length) truncated = true;
+      bytes += kept.length;
+      target.push(kept);
+    };
+    child.stdout?.on("data", capture(out));
+    child.stderr?.on("data", capture(err));
+    const timer = setTimeout(() => child.kill("SIGKILL"), request.timeoutMs);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      resolve({
+        kind: "exec",
+        code,
+        signal,
+        stdout: Buffer.concat(out).toString("utf-8"),
+        stderr: Buffer.concat(err).toString("utf-8"),
+        truncated,
+      });
+    });
+  });
 }
 
 function linkUrl(coordinatorUrl: string): string {

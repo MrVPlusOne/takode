@@ -6,6 +6,7 @@ import { join, basename, resolve } from "node:path";
 import { homedir } from "node:os";
 import { GIT_CMD_TIMEOUT, SERVER_GIT_CMD } from "./constants.js";
 import { captureCreatedWorktreeBranch, type CreatedWorktreeBranch } from "./worktree-branch-retirement.js";
+import type { Machine } from "./remote-host/session-machine.js";
 
 const execPromise = promisify(execCb);
 
@@ -91,7 +92,11 @@ function gitSafe(cmd: string, cwd: string): string | null {
 
 // ─── Async helpers (non-blocking — for hot paths) ────────────────────────────
 
-export async function gitAsync(cmd: string, cwd: string): Promise<string> {
+/** Run a Git command in `cwd`, on another machine when one is given (see `session-machine.ts`). */
+export async function gitAsync(cmd: string, cwd: string, machine?: Machine): Promise<string> {
+  if (machine) {
+    return (await machine.exec(`${SERVER_GIT_CMD} ${cmd}`, { cwd, timeout: GIT_CMD_TIMEOUT })).stdout.trim();
+  }
   const { stdout } = await execPromise(`${SERVER_GIT_CMD} ${cmd}`, {
     cwd,
     encoding: "utf-8",
@@ -100,9 +105,9 @@ export async function gitAsync(cmd: string, cwd: string): Promise<string> {
   return stdout.trim();
 }
 
-export async function gitSafeAsync(cmd: string, cwd: string): Promise<string | null> {
+export async function gitSafeAsync(cmd: string, cwd: string, machine?: Machine): Promise<string | null> {
   try {
-    return await gitAsync(cmd, cwd);
+    return await gitAsync(cmd, cwd, machine);
   } catch {
     return null;
   }
@@ -127,16 +132,24 @@ export async function resetWorktreeToRefAsync(worktreePath: string, ref: string)
  * Async version of findClosestParentBranch. Uses non-blocking exec
  * to avoid stalling the event loop on NFS.
  */
-async function findClosestParentBranchAsync(repoRoot: string, currentBranch: string): Promise<string | null> {
+async function findClosestParentBranchAsync(
+  repoRoot: string,
+  currentBranch: string,
+  machine?: Machine,
+): Promise<string | null> {
   // Fast path: name-based match for worktree branches (e.g. "jiayi-wt-4719" → "jiayi")
   const wtMatch = currentBranch.match(/^(.+)-wt-\d+$/);
   if (wtMatch) {
     const parentName = wtMatch[1];
-    const exists = await gitSafeAsync(`rev-parse --verify refs/heads/${parentName}`, repoRoot);
+    const exists = await gitSafeAsync(`rev-parse --verify refs/heads/${parentName}`, repoRoot, machine);
     if (exists) return parentName;
   }
 
-  const output = await gitSafeAsync("for-each-ref --format=%(refname:short) --contains=HEAD refs/heads/", repoRoot);
+  const output = await gitSafeAsync(
+    "for-each-ref --format=%(refname:short) --contains=HEAD refs/heads/",
+    repoRoot,
+    machine,
+  );
   if (!output) return null;
 
   const candidates = output
@@ -150,7 +163,7 @@ async function findClosestParentBranchAsync(repoRoot: string, currentBranch: str
   let bestBranch = candidates[0];
   let bestCount = Infinity;
   for (const candidate of candidates) {
-    const countStr = await gitSafeAsync(`rev-list --count HEAD..${candidate}`, repoRoot);
+    const countStr = await gitSafeAsync(`rev-list --count HEAD..${candidate}`, repoRoot, machine);
     const count = countStr ? parseInt(countStr, 10) : Infinity;
     if (count < bestCount) {
       bestCount = count;
@@ -162,17 +175,21 @@ async function findClosestParentBranchAsync(repoRoot: string, currentBranch: str
 }
 
 /** Async version of resolveDefaultBranch. Non-blocking for hot paths. */
-export async function resolveDefaultBranchAsync(repoRoot: string, currentBranch?: string): Promise<string> {
+export async function resolveDefaultBranchAsync(
+  repoRoot: string,
+  currentBranch?: string,
+  machine?: Machine,
+): Promise<string> {
   if (currentBranch && currentBranch !== "HEAD") {
-    const closest = await findClosestParentBranchAsync(repoRoot, currentBranch);
+    const closest = await findClosestParentBranchAsync(repoRoot, currentBranch, machine);
     if (closest) return closest;
   }
 
-  const originRef = await gitSafeAsync("symbolic-ref refs/remotes/origin/HEAD", repoRoot);
+  const originRef = await gitSafeAsync("symbolic-ref refs/remotes/origin/HEAD", repoRoot, machine);
   if (originRef) {
     return originRef.replace("refs/remotes/origin/", "");
   }
-  const branches = (await gitSafeAsync("branch --list main master", repoRoot)) || "";
+  const branches = (await gitSafeAsync("branch --list main master", repoRoot, machine)) || "";
   if (branches.includes("main")) return "main";
   if (branches.includes("master")) return "master";
   return "main";

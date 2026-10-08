@@ -1,10 +1,14 @@
+import { readFile } from "node:fs/promises";
 import type { Hono } from "hono";
 import { deriveAttachmentPaths, formatAttachmentPathAnnotation } from "../attachment-paths.js";
 import { getImageUploadSourceName, isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
 import type { RouteContext } from "./context.js";
 
-export function registerSessionImageRoutes(api: Hono, deps: Pick<RouteContext, "imageStore" | "resolveId">): void {
-  const { imageStore, resolveId } = deps;
+export function registerSessionImageRoutes(
+  api: Hono,
+  deps: Pick<RouteContext, "imageStore" | "resolveId" | "launcher">,
+): void {
+  const { imageStore, resolveId, launcher } = deps;
 
   api.post("/sessions/:id/images/prepare-user-message", async (c) => {
     if (!imageStore) return c.json({ error: "Image store not configured" }, 503);
@@ -40,6 +44,16 @@ export function registerSessionImageRoutes(api: Hono, deps: Pick<RouteContext, "
       throw error;
     }
     const paths = deriveAttachmentPaths(id, imageRefs);
+    // A session on a remote host reads its attachments there: copy them over,
+    // in order ahead of the message that will refer to them.
+    const hostId = launcher.getSession(id)?.hostId;
+    const links = launcher.remoteHosts?.links;
+    if (hostId && links) {
+      const sources = await Promise.all(imageRefs.map((ref) => imageStore.getOriginalPath(id, ref.imageId)));
+      for (const [index, source] of sources.entries()) {
+        if (source) links.writeFileInOrder(hostId, paths[index]!, await readFile(source));
+      }
+    }
     return c.json({
       imageRefs,
       paths,

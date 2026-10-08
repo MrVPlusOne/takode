@@ -1,4 +1,5 @@
-import { networkInterfaces } from "node:os";
+import { hasUsableNetwork } from "../network-availability.js";
+import { hostHasUsableNetwork } from "../remote-host/session-machine.js";
 import type { BrowserOutgoingMessage, SessionState } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
 
@@ -63,12 +64,12 @@ export interface ClaudeNetworkWaitSession {
     hasTurnInFlight(): boolean;
     sendBrowserMessage(msg: BrowserOutgoingMessage): boolean;
   } | null;
-  state: Pick<SessionState, "claude_network_wait">;
+  state: Pick<SessionState, "claude_network_wait" | "host_id">;
 }
 
 export interface ClaudeNetworkWaitDeps {
   broadcastToBrowsers: (session: any, msg: Record<string, unknown>) => void;
-  /** Whether the machine has any usable network; injectable for tests. */
+  /** Whether the session's machine has any usable network; injectable for tests. */
   hasNetwork?: () => boolean;
 }
 
@@ -254,7 +255,10 @@ function tryResume(session: ClaudeNetworkWaitSession, deps: ClaudeNetworkWaitDep
     stopClaudeNetworkWait(session, deps);
     return;
   }
-  if (!(deps.hasNetwork ?? hasUsableNetwork)()) {
+  // Claude runs on the session's machine: a remote host reports its own network over the link.
+  const hasNetwork =
+    deps.hasNetwork ?? (session.state.host_id ? () => hostHasUsableNetwork(session.state.host_id!) : hasUsableNetwork);
+  if (!hasNetwork()) {
     scheduleResume(session, deps, OFFLINE_RECHECK_MS);
     return;
   }
@@ -267,18 +271,4 @@ function tryResume(session: ClaudeNetworkWaitSession, deps: ClaudeNetworkWaitDep
       `(continue ${runtime.continues}/${MAX_CONTINUES_PER_OUTAGE})`,
   );
   adapter.sendBrowserMessage({ type: "user_message", content: CLAUDE_NETWORK_RESUME_PROMPT });
-}
-
-/**
- * Cheap offline check: a dropped Wi-Fi link leaves no external interface with a
- * routable address. Link-local addresses remain on idle interfaces, so they
- * do not count. When this passes but the API is still unreachable, Claude's
- * own retries fail again and the backoff applies.
- */
-function hasUsableNetwork(): boolean {
-  return Object.values(networkInterfaces()).some((addresses) =>
-    (addresses ?? []).some(
-      (address) => !address.internal && !address.address.startsWith("169.254.") && !/^fe80:/i.test(address.address),
-    ),
-  );
 }

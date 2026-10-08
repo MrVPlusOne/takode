@@ -315,6 +315,8 @@ export function applyInitialSessionState(
   session: SessionLike,
   options: {
     containerizedHostCwd?: string;
+    /** Remote host the session runs on; its paths and Git state live there. */
+    hostId?: string;
     cwd?: string;
     treeGroupId?: string;
     memorySessionSpaceSlug?: string;
@@ -335,6 +337,10 @@ export function applyInitialSessionState(
   if (options.containerizedHostCwd) {
     session.state.is_containerized = true;
     session.state.cwd = options.containerizedHostCwd;
+  }
+  if (options.hostId && session.state.host_id !== options.hostId) {
+    session.state.host_id = options.hostId;
+    shouldPersist = true;
   }
   if (options.cwd && !session.state.cwd) {
     session.state.cwd = options.cwd;

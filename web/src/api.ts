@@ -1520,7 +1520,11 @@ export const api = {
 
   // Editor filesystem
   getFileTree: (path: string) => get<{ path: string; tree: TreeNode[] }>(`/fs/tree?path=${encodeURIComponent(path)}`),
-  readFile: (path: string) => get<{ path: string; content: string }>(`/fs/read?path=${encodeURIComponent(path)}`),
+  /** Read a text file; pass the session when the file lives on that session's remote host. */
+  readFile: (path: string, sessionId?: string) =>
+    get<{ path: string; content: string }>(
+      `/fs/read?path=${encodeURIComponent(path)}${sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ""}`,
+    ),
   getFsImageUrl: (path: string, variant?: "thumbnail" | "full") => {
     const params = new URLSearchParams({ path });
     if (variant) params.set("variant", variant);
