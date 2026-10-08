@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { retainLocalImagePreviewUrls } from "../local-image-previews.js";
 import type { ImagePreviewItem } from "./image-preview-utils.js";
+import { ZoomableImage } from "./ZoomableImage.js";
 
 interface ImagePreviewGroupProps {
   images: ImagePreviewItem[];
@@ -414,15 +415,13 @@ function ImagePreviewModal({
             </IconButton>
           </div>
         </div>
-        <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-3 sm:px-4 sm:py-4">
-          <img
-            src={image.fullUrl}
-            alt={image.filename}
-            className="max-h-full max-w-full object-contain"
-            draggable={false}
-            data-testid="image-preview-modal-image"
-          />
-        </div>
+        <ZoomableImage
+          src={image.fullUrl}
+          alt={image.filename}
+          className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-3 sm:px-4 sm:py-4"
+          imageClassName="max-h-full max-w-full object-contain"
+          imageTestId="image-preview-modal-image"
+        />
       </div>
     </div>,
     document.body,

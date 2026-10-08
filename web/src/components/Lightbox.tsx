@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { ZoomableImage } from "./ZoomableImage.js";
 
 interface LightboxProps {
   /** The full-size image URL (e.g., data URI or http URL) */
@@ -14,8 +15,8 @@ interface LightboxProps {
  * Full-screen image lightbox modal.
  *
  * Renders as a portal on document.body. The image is displayed at its natural
- * size, constrained to fit the viewport. Click the backdrop or press Escape to
- * close.
+ * size, constrained to fit the viewport, and can be zoomed and panned. Click the
+ * backdrop or press Escape to close.
  */
 export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProps) {
   const handleKeyDown = useCallback(
@@ -49,7 +50,7 @@ export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProp
     >
       {/* Close button in top-right corner */}
       <button
-        className="absolute top-4 right-4 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+        className="absolute top-4 right-4 z-10 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
         onClick={(e) => {
           e.stopPropagation();
           onClose();
@@ -62,14 +63,12 @@ export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProp
         </svg>
       </button>
 
-      {/* Image — click on the image itself also closes, since the backdrop handles it */}
-      <img
+      <ZoomableImage
         src={src}
         alt={alt}
-        className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl select-none"
-        onClick={(e) => e.stopPropagation()}
-        draggable={false}
-        data-testid="lightbox-image"
+        className="absolute inset-0 flex items-center justify-center"
+        imageClassName="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl select-none"
+        imageTestId="lightbox-image"
       />
     </div>,
     document.body,
