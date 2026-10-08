@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { LeaderWorkboardView } from "../store-types.js";
 import {
@@ -351,6 +351,28 @@ describe("TopBar session menu", () => {
     expect(screen.queryByRole("button", { name: "Relaunch" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByTitle("Viewed session"));
     expect(screen.getByTestId("session-info-popover")).toBeInTheDocument();
+  });
+
+  it("opens the menu on touch long-press and keeps it open through iOS's emulated mouse events", () => {
+    // After a long press iOS can still emulate mousedown/mouseup/click at
+    // finger lift; they must not dismiss the menu or toggle session info.
+    vi.useFakeTimers();
+    try {
+      render(<TopBar />);
+      const title = screen.getByTitle("Viewed session");
+      fireEvent.touchStart(title, { touches: [{ clientX: 230, clientY: 35 }] });
+      act(() => vi.advanceTimersByTime(500));
+      expect(screen.getByRole("button", { name: "Relaunch" })).toBeInTheDocument();
+
+      fireEvent.touchEnd(title);
+      fireEvent.mouseDown(title);
+      fireEvent.mouseUp(title);
+      fireEvent.click(title);
+      expect(screen.getByRole("button", { name: "Relaunch" })).toBeInTheDocument();
+      expect(screen.queryByTestId("session-info-popover")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps Configure Session open after the context menu closes", async () => {

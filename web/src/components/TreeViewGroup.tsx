@@ -10,6 +10,8 @@ import { deriveSessionStatus } from "./SessionStatusDot.js";
 import { useStore } from "../store.js";
 import { isTouchDevice } from "../utils/mobile.js";
 import { api } from "../api.js";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
+import { TOUCH_MENU_CONTAINER_CLASS, TOUCH_MENU_ITEM_CLASS } from "./ContextMenu.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
 import {
   DEFAULT_GROUP_VISIBLE_SESSION_LIMIT,
@@ -194,6 +196,8 @@ export function TreeViewGroup({
   const groupNameInputRef = useRef<HTMLInputElement>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  // Long-press on touch, right-click on desktop.
+  const headerLongPress = useLongPress((x, y) => setContextMenu({ x, y }));
 
   const startGroupRename = useCallback(() => {
     if (group.id === "default") return;
@@ -219,7 +223,7 @@ export function TreeViewGroup({
   // Dismiss context menu on click outside or ESC key
   useEffect(() => {
     if (!contextMenu) return;
-    function handleClick(e: MouseEvent) {
+    function handleClick(e: Event) {
       if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
         setContextMenu(null);
       }
@@ -228,9 +232,11 @@ export function TreeViewGroup({
       if (e.key === "Escape") setContextMenu(null);
     }
     document.addEventListener("mousedown", handleClick);
+    document.addEventListener("touchstart", handleClick);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("touchstart", handleClick);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [contextMenu]);
@@ -467,12 +473,10 @@ export function TreeViewGroup({
         className={`w-full px-2 py-1.5 flex items-center gap-1 rounded-md transition-colors ${groupDragging ? "bg-cc-hover/70" : "hover:bg-cc-hover"}`}
       >
         <button
+          {...headerLongPress.handlers}
           onClick={() => onToggleGroupCollapse(group.id)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setContextMenu({ x: e.clientX, y: e.clientY });
-          }}
-          className="min-w-0 flex-1 flex items-center gap-1.5 cursor-pointer"
+          style={headerLongPress.pressStyle}
+          className={`min-w-0 flex-1 flex items-center gap-1.5 cursor-pointer ${LONG_PRESS_TARGET_CLASS}`}
           onDoubleClick={(e) => {
             if (group.id === "default") return;
             e.preventDefault();
@@ -643,7 +647,7 @@ export function TreeViewGroup({
         <div
           ref={contextMenuRef}
           role="menu"
-          className="fixed z-[100] bg-cc-card border border-cc-border rounded-lg shadow-lg py-1 min-w-[120px]"
+          className={`fixed z-[100] bg-cc-card border border-cc-border rounded-lg shadow-lg py-1 min-w-[120px] ${TOUCH_MENU_CONTAINER_CLASS}`}
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <div className="px-3 py-1 text-[10px] font-semibold uppercase text-cc-muted/70">Visible sessions</div>
@@ -651,7 +655,7 @@ export function TreeViewGroup({
             <button
               key={limit}
               role="menuitem"
-              className="w-full px-3 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+              className={`w-full px-3 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer ${TOUCH_MENU_ITEM_CLASS}`}
               onClick={() => {
                 setContextMenu(null);
                 onSetVisibleSessionLimit?.(group.id, limit);
@@ -666,7 +670,7 @@ export function TreeViewGroup({
               <div className="my-1 border-t border-cc-border/70" />
               <button
                 role="menuitem"
-                className="w-full px-3 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+                className={`w-full px-3 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer ${TOUCH_MENU_ITEM_CLASS}`}
                 onClick={() => {
                   setContextMenu(null);
                   startGroupRename();
@@ -676,7 +680,7 @@ export function TreeViewGroup({
               </button>
               <button
                 role="menuitem"
-                className="w-full px-3 py-1.5 text-left text-[11px] text-red-400 hover:bg-cc-hover transition-colors cursor-pointer"
+                className={`w-full px-3 py-1.5 text-left text-[11px] text-red-400 hover:bg-cc-hover transition-colors cursor-pointer ${TOUCH_MENU_ITEM_CLASS}`}
                 onClick={handleDeleteGroup}
               >
                 Delete

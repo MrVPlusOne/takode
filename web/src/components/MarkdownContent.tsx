@@ -8,7 +8,6 @@ import {
   Children,
   type ComponentProps,
   type MouseEvent,
-  type TouchEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -42,6 +41,7 @@ import {
   remarkMathSourceCompatibility,
 } from "../utils/markdown-math.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
+import { useLongPress } from "../hooks/useLongPress.js";
 import { Lightbox } from "./Lightbox.js";
 import {
   buildFileLinkBrowserUrl,
@@ -1051,8 +1051,6 @@ function FileMarkdownLink({
   const [fileInfo, setFileInfo] = useState<FileLinkResolveResponse | null>(null);
   const [fileInfoError, setFileInfoError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const longPressTimerRef = useRef<number | null>(null);
-  const longPressTriggeredRef = useRef(false);
   const basePath = useMemo(
     () => getFileLinkBasePath(sessionId, currentSessionId, sessions, sdkSessions),
     [currentSessionId, sdkSessions, sessionId, sessions],
@@ -1136,11 +1134,6 @@ function FileMarkdownLink({
   const onClick = useCallback(
     (e: MouseEvent<HTMLAnchorElement>) => {
       if (stopPropagation) e.stopPropagation();
-      if (longPressTriggeredRef.current) {
-        longPressTriggeredRef.current = false;
-        e.preventDefault();
-        return;
-      }
       if (opensInBrowser) return;
       e.preventDefault();
       void openDefaultTarget();
@@ -1153,15 +1146,8 @@ function FileMarkdownLink({
   const title = resolvedTarget
     ? `${target.path}${locationSuffix}`
     : `${target.path}${locationSuffix} (unable to resolve repo-relative path)`;
-  const clearLongPressTimer = useCallback(() => {
-    if (longPressTimerRef.current !== null) {
-      window.clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  }, []);
-  const openMenuAt = useCallback((x: number, y: number) => {
-    setMenuPosition({ x, y });
-  }, []);
+  // Long-press on touch, right-click on desktop.
+  const longPress = useLongPress((x, y) => setMenuPosition({ x, y }));
   const openBackendResolvedEditor = useCallback(async () => {
     try {
       const info = await resolveFileLinkAction(actionTarget);
@@ -1238,27 +1224,10 @@ function FileMarkdownLink({
         onClick={(e) => {
           void onClick(e);
         }}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          openMenuAt(e.clientX, e.clientY);
-        }}
-        onTouchStart={(e: TouchEvent<HTMLAnchorElement>) => {
-          clearLongPressTimer();
-          // A real follow-up tap starts with touchstart, while the browser's
-          // synthetic post-long-press click does not. Reset here so a missing
-          // synthetic click cannot leave the next genuine tap suppressed.
-          longPressTriggeredRef.current = false;
-          const touch = e.touches[0];
-          if (!touch) return;
-          longPressTimerRef.current = window.setTimeout(() => {
-            longPressTriggeredRef.current = true;
-            openMenuAt(touch.clientX, touch.clientY);
-          }, 550);
-        }}
-        onTouchMove={clearLongPressTimer}
-        onTouchEnd={clearLongPressTimer}
-        onTouchCancel={clearLongPressTimer}
-        className={`${resolvedTarget ? "text-cc-primary hover:underline" : "text-cc-muted"} ${
+        {...longPress.handlers}
+        // Only the native link callout is disabled: select-none would drop the
+        // link text from copied message selections.
+        className={`[-webkit-touch-callout:none] ${resolvedTarget ? "text-cc-primary hover:underline" : "text-cc-muted"} ${
           wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""
         }`}
         title={title}

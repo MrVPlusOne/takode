@@ -25,6 +25,11 @@ focused, typed interfaces for specific behaviors.
 - `useUsageLimits.ts`
   - Fetches and tracks usage/rate-limit information for sessions.
 
+- `useLongPress.ts`
+  - Touch long-press plus right-click for every mobile context menu target.
+  - Handles iOS quirks: no touch `contextmenu`, and emulated mouse events after
+    a long press that would otherwise dismiss the new menu or activate the target.
+
 - `useVoiceInput.ts`
   - Microphone capture, transcription input handling, and level meter logic.
 

@@ -1,12 +1,21 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+/**
+ * On touch screens menus behave like native iOS menus: they pop in and have
+ * finger-sized rows. Desktop menus stay compact. Exported for menus that
+ * cannot use ContextMenu directly.
+ */
+export const TOUCH_MENU_CONTAINER_CLASS =
+  "pointer-coarse:min-w-44 pointer-coarse:max-h-[calc(100dvh-1rem)] pointer-coarse:overflow-y-auto pointer-coarse:origin-top-left pointer-coarse:motion-safe:animate-[context-menu-pop_180ms_cubic-bezier(0.16,1,0.3,1)]";
+export const TOUCH_MENU_ITEM_CLASS = "pointer-coarse:px-4 pointer-coarse:py-3 pointer-coarse:text-sm";
+
 // Shared styles for menu containers and items, extracted to avoid duplication.
 const MENU_STYLES = {
-  container: "fixed z-50 bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-visible",
+  container: `fixed z-50 bg-cc-card border border-cc-border rounded-lg shadow-lg overflow-visible ${TOUCH_MENU_CONTAINER_CLASS}`,
   submenuContainer:
     "fixed z-[60] w-fit min-w-[120px] max-w-[calc(100vw-1rem)] max-h-[calc(100vh-1rem)] overflow-y-auto bg-cc-card border border-cc-border rounded-lg shadow-lg py-1",
-  item: "w-full max-w-[calc(100vw-1rem)] sm:max-w-80 truncate px-2.5 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer whitespace-nowrap",
+  item: `w-full max-w-[calc(100vw-1rem)] sm:max-w-80 truncate px-2.5 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer whitespace-nowrap ${TOUCH_MENU_ITEM_CLASS}`,
   disabledItem:
     "w-full max-w-72 whitespace-normal break-words px-2.5 py-1.5 text-left text-[11px] text-cc-muted font-mono-code leading-relaxed",
 } as const;
@@ -78,13 +87,15 @@ export function ContextMenu({
   // Clamp to viewport bounds
   useEffect(() => {
     if (!menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
+    // Layout sizes, not getBoundingClientRect: the touch pop-in scales the
+    // menu down while it mounts.
     const el = menuRef.current;
-    if (rect.right > window.innerWidth) {
-      el.style.left = `${window.innerWidth - rect.width - 8}px`;
+    const { offsetWidth, offsetHeight } = el;
+    if (x + offsetWidth > window.innerWidth) {
+      el.style.left = `${window.innerWidth - offsetWidth - 8}px`;
     }
-    if (rect.bottom > window.innerHeight) {
-      el.style.top = `${window.innerHeight - rect.height - 8}px`;
+    if (y + offsetHeight > window.innerHeight) {
+      el.style.top = `${Math.max(8, window.innerHeight - offsetHeight - 8)}px`;
     }
   }, [x, y, confirmingItem]);
 

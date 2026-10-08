@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { ComponentProps, ReactNode } from "react";
 import type { SidebarSessionItem } from "../utils/sidebar-session-item.js";
@@ -284,5 +284,32 @@ describe("TreeViewGroup overflow", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Show 20" }));
 
     expect(onSetVisibleSessionLimit).toHaveBeenCalledWith("default", 20);
+  });
+
+  it("opens the group menu on touch long-press and keeps it open through iOS's emulated mouse events", () => {
+    // After a long press iOS can still emulate mousedown/mouseup/click at
+    // finger lift; they must not dismiss the menu or toggle the group.
+    vi.useFakeTimers();
+    try {
+      const onToggleGroupCollapse = vi.fn();
+      renderGroup({ onToggleGroupCollapse });
+      const header = screen.getAllByRole("button", { name: /Default/ })[0]!;
+      fireEvent.touchStart(header, { touches: [{ clientX: 20, clientY: 20 }] });
+      act(() => vi.advanceTimersByTime(500));
+      expect(screen.getByRole("menuitem", { name: "Show 20" })).toBeInTheDocument();
+
+      fireEvent.touchEnd(header);
+      fireEvent.mouseDown(header);
+      fireEvent.mouseUp(header);
+      fireEvent.click(header);
+      expect(screen.getByRole("menuitem", { name: "Show 20" })).toBeInTheDocument();
+      expect(onToggleGroupCollapse).not.toHaveBeenCalled();
+
+      // A touch outside the menu dismisses it.
+      fireEvent.touchStart(document.body, { touches: [{ clientX: 300, clientY: 300 }] });
+      expect(screen.queryByRole("menuitem", { name: "Show 20" })).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

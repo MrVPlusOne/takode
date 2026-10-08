@@ -155,8 +155,6 @@ describe("thread tab context menu", () => {
     expect(tab("q-7").dataset.pressing).toBe("false");
     // Haptic tick where the platform supports it (Android); iOS has no API.
     expect(vibrate).toHaveBeenCalledWith(10);
-    // Long-press menus get finger-sized rows.
-    expect(screen.getByRole("button", { name: "Close tab" }).className).toContain("!py-3");
 
     // Lifting the finger cancels touchend, but iOS can still emulate
     // mousedown/mouseup/click. The mousedown must not reach the menu's
@@ -187,10 +185,12 @@ describe("thread tab context menu", () => {
     expect(onSelectThread).toHaveBeenCalledWith("q-7");
   });
 
-  it("keeps right-click menus at the desktop size", () => {
+  it("opens the same menu for right-click and long-press; only the pointer type sizes its rows", () => {
+    // Finger-sized rows come from the shared menu's pointer-coarse styles, so
+    // desktop right-click stays compact and touch screens always get big rows.
     const { tab } = renderRail({ tabs: [chip("q-7")], monitoring: {} });
     fireEvent.contextMenu(tab("q-7"));
-    expect(screen.getByRole("button", { name: "Close tab" }).className).not.toContain("!py-3");
+    expect(screen.getByRole("button", { name: "Close tab" }).className).toContain("pointer-coarse:py-3");
   });
 
   it("does not open when the finger moves, so scrolling or dragging is unaffected", () => {

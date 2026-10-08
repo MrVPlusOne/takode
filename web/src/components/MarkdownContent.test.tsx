@@ -1405,6 +1405,9 @@ describe("MarkdownContent quest links", () => {
       });
 
       expect(screen.getByText("Open in Editor")).toBeTruthy();
+      // iOS can also emulate mousedown at finger lift; it must not dismiss the menu.
+      fireEvent.mouseDown(link);
+      expect(screen.getByText("Open in Editor")).toBeTruthy();
       const followUpClick = new MouseEvent("click", { bubbles: true, cancelable: true });
       expect(link.dispatchEvent(followUpClick)).toBe(false);
       expect(followUpClick.defaultPrevented).toBe(true);

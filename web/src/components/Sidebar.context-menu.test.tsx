@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { SessionState, SdkSessionInfo } from "../types.js";
 
@@ -248,6 +248,36 @@ describe("Sidebar session context menu", () => {
     await waitFor(() => {
       expect(mockApi.deleteSession).toHaveBeenCalledWith("s1");
     });
+  });
+
+  it("opens on touch long-press and stays open when iOS emulates mouse events at finger lift", () => {
+    // iOS can send mousedown/mouseup/click after a long press even with
+    // touchend cancelled; they must not dismiss the menu or select the row.
+    vi.useFakeTimers();
+    try {
+      const session = makeSession("s1");
+      mockState = createMockState({
+        sessions: new Map([["s1", session]]),
+        sdkSessions: [makeSdkSession("s1")],
+      });
+      render(<Sidebar />);
+      const sessionButton = screen.getByText("claude-sonnet-4-5-20250929").closest("button")!;
+
+      fireEvent.touchStart(sessionButton, { touches: [{ clientX: 100, clientY: 120 }] });
+      act(() => vi.advanceTimersByTime(500));
+      expect(screen.getByText("Copy Session ID")).toBeInTheDocument();
+
+      const touchEnd = createEvent.touchEnd(sessionButton);
+      fireEvent(sessionButton, touchEnd);
+      expect(touchEnd.defaultPrevented).toBe(true);
+      fireEvent.mouseDown(sessionButton);
+      fireEvent.mouseUp(sessionButton);
+      fireEvent.click(sessionButton);
+      expect(screen.getByText("Copy Session ID")).toBeInTheDocument();
+      // Selecting the row would also close the menu, so this covers both.
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("copies session numbers with a leading hash from the context menu", () => {

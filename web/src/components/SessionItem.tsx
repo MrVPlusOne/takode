@@ -18,6 +18,7 @@ import { SESSION_ATTENTION_PROJECTION } from "../../shared/session-attention-pro
 import { getSyncedProjectionValue } from "../store-synced-projections.js";
 import { selectLeaderActivePhaseSummary } from "../utils/leader-thread-tabs-resolver.js";
 import { HostBadge } from "./HostBadge.js";
+import { useLongPress } from "../hooks/useLongPress.js";
 
 type SearchMatchedField =
   | "session_number"
@@ -299,7 +300,6 @@ function SessionItemComponent({
   useStatusBar,
 }: SessionItemProps) {
   const rowRef = useRef<HTMLElement | null>(null);
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
   const touchStartedOnDragHandle = useRef(false);
   const swipeActive = useRef(false);
@@ -332,87 +332,75 @@ function SessionItemComponent({
   const effectiveAttention = attention ?? null;
   const effectiveHasUnread = !!hasUnread;
 
-  // Long-press to open context menu on touch devices
-  const handleTouchStart = useCallback(
-    (e: React.TouchEvent) => {
-      const touchTarget = e.target as HTMLElement | null;
-      const startedOnDragHandle = !!touchTarget?.closest("[data-session-drag-handle='true']");
-      touchStartedOnDragHandle.current = startedOnDragHandle;
-      if (startedOnDragHandle) {
-        suppressTap.current = true;
-        cancelLongPress();
-        swipeStart.current = null;
-        swipeActive.current = false;
-        setSwipeOffsetPx(0);
-        return;
-      }
+  // Long-press on touch, right-click on desktop.
+  const longPress = useLongPress(
+    onCtxMenu && !reorderMode && !isEditing
+      ? (x, y) =>
+          onCtxMenu(
+            { preventDefault: () => {}, stopPropagation: () => {}, clientX: x, clientY: y } as React.MouseEvent,
+            s.id,
+          )
+      : undefined,
+  );
+  const cancelLongPress = longPress.handlers.onTouchCancel;
 
-      const touch = e.touches[0];
-      swipeStart.current = { x: touch.clientX, y: touch.clientY };
+  const handleTouchStart = (e: React.TouchEvent<HTMLElement>) => {
+    const touchTarget = e.target as HTMLElement | null;
+    const startedOnDragHandle = !!touchTarget?.closest("[data-session-drag-handle='true']");
+    touchStartedOnDragHandle.current = startedOnDragHandle;
+    if (startedOnDragHandle) {
+      suppressTap.current = true;
+      cancelLongPress();
+      swipeStart.current = null;
       swipeActive.current = false;
       setSwipeOffsetPx(0);
-      if (!onCtxMenu || reorderMode) return;
-      const cx = touch.clientX;
-      const cy = touch.clientY;
-      longPressTimer.current = setTimeout(() => {
-        longPressTimer.current = null;
-        suppressTap.current = true;
-        onCtxMenu(
-          { preventDefault: () => {}, stopPropagation: () => {}, clientX: cx, clientY: cy } as React.MouseEvent,
-          s.id,
-        );
-      }, 500);
-    },
-    [onCtxMenu, reorderMode, s.id],
-  );
-
-  const cancelLongPress = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
+      return;
     }
-  }, []);
+
+    const touch = e.touches[0];
+    swipeStart.current = { x: touch.clientX, y: touch.clientY };
+    swipeActive.current = false;
+    setSwipeOffsetPx(0);
+    longPress.handlers.onTouchStart(e);
+  };
 
   const triggerArchiveFromSwipe = useCallback(() => {
     const synthetic = { preventDefault: () => {}, stopPropagation: () => {} } as React.MouseEvent;
     onArchive(synthetic, s.id);
   }, [onArchive, s.id]);
 
-  const handleTouchMove = useCallback(
-    (e: React.TouchEvent) => {
-      if (touchStartedOnDragHandle.current) {
+  const handleTouchMove = (e: React.TouchEvent<HTMLElement>) => {
+    if (touchStartedOnDragHandle.current) {
+      cancelLongPress();
+      return;
+    }
+    const start = swipeStart.current;
+    if (!start) {
+      cancelLongPress();
+      return;
+    }
+    const touch = e.touches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (!swipeActive.current) {
+      const isHorizontalSwipe = Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) + 4;
+      if (isHorizontalSwipe && canSwipeToArchive) {
+        swipeActive.current = true;
+        suppressTap.current = true;
+      }
+      if (isHorizontalSwipe || Math.abs(dy) > 8) {
         cancelLongPress();
-        return;
       }
-      const start = swipeStart.current;
-      if (!start) {
-        cancelLongPress();
-        return;
-      }
-      const touch = e.touches[0];
-      const dx = touch.clientX - start.x;
-      const dy = touch.clientY - start.y;
-      if (!swipeActive.current) {
-        const isHorizontalSwipe = Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) + 4;
-        if (isHorizontalSwipe && canSwipeToArchive) {
-          swipeActive.current = true;
-          suppressTap.current = true;
-        }
-        if (isHorizontalSwipe || Math.abs(dy) > 8) {
-          cancelLongPress();
-        }
-      }
-      if (swipeActive.current) {
-        const clampedDx = Math.max(-120, Math.min(120, dx));
-        setSwipeOffsetPx(clampedDx);
-        e.preventDefault();
-      }
-    },
-    [cancelLongPress, canSwipeToArchive],
-  );
+    }
+    if (swipeActive.current) {
+      const clampedDx = Math.max(-120, Math.min(120, dx));
+      setSwipeOffsetPx(clampedDx);
+      e.preventDefault();
+    }
+  };
 
-  const handleTouchEnd = useCallback(() => {
-    cancelLongPress();
+  const handleTouchEnd = (e: React.TouchEvent<HTMLElement>) => {
+    longPress.handlers.onTouchEnd(e);
     if (touchStartedOnDragHandle.current) {
       touchStartedOnDragHandle.current = false;
       swipeStart.current = null;
@@ -429,15 +417,15 @@ function SessionItemComponent({
       }
     }
     swipeStart.current = null;
-  }, [cancelLongPress, canSwipeToArchive, swipeOffsetPx, triggerArchiveFromSwipe]);
+  };
 
-  const handleTouchCancel = useCallback(() => {
+  const handleTouchCancel = () => {
     cancelLongPress();
     touchStartedOnDragHandle.current = false;
     swipeStart.current = null;
     swipeActive.current = false;
     setSwipeOffsetPx(0);
-  }, [cancelLongPress]);
+  };
 
   const handleSelect = useCallback(() => {
     if (suppressTap.current) {
@@ -1035,13 +1023,10 @@ function SessionItemComponent({
             e.preventDefault();
             onStartRename(s.id, label);
           }}
-          onContextMenu={(e) => {
-            if (onCtxMenu) {
-              e.preventDefault();
-              onCtxMenu(e, s.id);
-            }
+          {...longPress.handlers}
+          onMouseEnter={() => {
+            if (!longPress.isSuppressingMouse()) showParentHoverCard();
           }}
-          onMouseEnter={showParentHoverCard}
           onMouseLeave={() => {
             if (onHoverEnd) onHoverEnd();
           }}
@@ -1049,8 +1034,8 @@ function SessionItemComponent({
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchCancel}
-          style={rowStyle}
-          className={rowClassName}
+          style={{ ...rowStyle, ...longPress.pressStyle }}
+          className={`${rowClassName} [-webkit-touch-callout:none]`}
         >
           {rowContent}
         </button>

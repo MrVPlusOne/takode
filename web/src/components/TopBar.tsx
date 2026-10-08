@@ -21,6 +21,7 @@ import { useQuestCodeCommitShas } from "./QuestCommitDiffView.js";
 import type { BoardRowData } from "./BoardTable.js";
 import type { LeaderWorkboardView } from "../store-types.js";
 import { SessionContextMenu, type SessionMenuTarget } from "./SessionContextMenu.js";
+import { LONG_PRESS_TARGET_CLASS, useLongPress } from "../hooks/useLongPress.js";
 import { SessionArchiveConfirmation } from "./SessionArchiveConfirmation.js";
 import { ContextMenu } from "./ContextMenu.js";
 import { useSessionActions } from "../hooks/useSessionActions.js";
@@ -223,6 +224,16 @@ export function TopBar({
   const sessionMenuPosition = useRef({ x: 0, y: 0 });
   const sessionActions = useSessionActions();
   const { cancelArchive } = sessionActions;
+  // Long-press on touch, right-click on desktop.
+  const sessionTitleLongPress = useLongPress(
+    currentSessionId
+      ? (x, y) => {
+          setInfoOpen(false);
+          sessionMenuPosition.current = { x, y };
+          setSessionMenu({ sessionId: currentSessionId, x, y });
+        }
+      : undefined,
+  );
   const sessionInfoAnchorRef = useRef<HTMLDivElement | null>(null);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
   const isPaused = paused;
@@ -419,18 +430,14 @@ export function TopBar({
               />
             ) : (
               <button
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setInfoOpen(false);
-                  sessionMenuPosition.current = { x: e.clientX, y: e.clientY };
-                  setSessionMenu({ sessionId: currentSessionId, ...sessionMenuPosition.current });
-                }}
+                {...sessionTitleLongPress.handlers}
                 onClick={() => {
                   const nextOpen = !infoOpen;
                   setInfoOpen(nextOpen);
                   if (nextOpen) closeCodexSubagentInspector();
                 }}
-                className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
+                style={sessionTitleLongPress.pressStyle}
+                className={`flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-80 transition-opacity ${LONG_PRESS_TARGET_CLASS}`}
                 aria-label={[
                   isCurrentLeaderSession ? "Leader" : null,
                   typeof sessionNum === "number" ? `#${sessionNum}` : null,
