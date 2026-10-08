@@ -4,6 +4,7 @@ import { useStore } from "../../store.js";
 import { useTextSelection } from "../../hooks/useTextSelection.js";
 import type { ChatMessage, McpServerDetail, TaskItem } from "../../types.js";
 import { BoardBlock } from "../BoardBlock.js";
+import { QuestRecordFetchContext } from "../QuestSummaryCard.js";
 import { CatPawAvatar, YarnBallSpinner } from "../CatIcons.js";
 import { ClaudeMdEditor } from "../ClaudeMdEditor.js";
 import { FolderPicker } from "../FolderPicker.js";
@@ -226,7 +227,8 @@ export function Section({
         <h2 className="text-base font-semibold text-cc-fg">{title}</h2>
         <p className="text-xs text-cc-muted mt-0.5">{description}</p>
       </div>
-      {children}
+      {/* Fixture quest cards show only seeded records, never real quests from the server. */}
+      <QuestRecordFetchContext.Provider value={false}>{children}</QuestRecordFetchContext.Provider>
     </section>
   );
 }

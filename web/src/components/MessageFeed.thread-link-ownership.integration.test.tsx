@@ -19,7 +19,10 @@ import { MessageFeed } from "./MessageFeed.js";
 // show in Main) and the quest as a visibility-only reference; only the
 // answer's authored thread says where it was written.
 
-vi.mock("../api.js", () => ({ api: { getQuestValidated: vi.fn() } }));
+// Leader quest threads load their quest record for the opening description card.
+vi.mock("../api.js", () => ({
+  api: { getQuestValidated: vi.fn().mockResolvedValue({ status: "not-modified", etag: null }) },
+}));
 const sendToSession = vi.hoisted(() => vi.fn(() => true));
 vi.mock("../ws.js", () => ({ sendToSession }));
 vi.mock("../utils/notification-sound.js", () => ({

@@ -15,6 +15,7 @@ import { PlaygroundThreadContinuationSection } from "./playground/PlaygroundThre
 import { PlaygroundOriginalThreadSection } from "./playground/PlaygroundOriginalThreadSection.js";
 import { PlaygroundStateSections } from "./playground/sections-states.js";
 import { usePlaygroundSeed } from "./playground/usePlaygroundSeed.js";
+import { QuestRecordFetchContext } from "./QuestSummaryCard.js";
 import { PlaygroundSessionHeaderMenu } from "./playground/PlaygroundSessionHeaderMenu.js";
 
 function scrollToPlaygroundSection(sectionId: string) {
@@ -98,19 +99,22 @@ export function Playground() {
         </aside>
 
         <main className="space-y-12 min-w-0">
-          <PlaygroundMarkdownReportSection />
-          <PlaygroundAnnotationsSection />
-          <PlaygroundSessionHeaderMenu />
-          <PlaygroundOverviewSections />
-          <PlaygroundInlineQuestPreviewSection />
-          <PlaygroundCommitDeliverySection />
-          <PlaygroundThreadResponseSection />
-          <PlaygroundTurnActivitySection />
-          <PlaygroundWaitingWorkerPreviewSection />
-          <PlaygroundThreadContinuationSection />
-          <PlaygroundOriginalThreadSection />
-          <PlaygroundInteractiveSections />
-          <PlaygroundStateSections />
+          {/* Sections also turn this off; this covers fixtures rendered outside a Section. */}
+          <QuestRecordFetchContext.Provider value={false}>
+            <PlaygroundMarkdownReportSection />
+            <PlaygroundAnnotationsSection />
+            <PlaygroundSessionHeaderMenu />
+            <PlaygroundOverviewSections />
+            <PlaygroundInlineQuestPreviewSection />
+            <PlaygroundCommitDeliverySection />
+            <PlaygroundThreadResponseSection />
+            <PlaygroundTurnActivitySection />
+            <PlaygroundWaitingWorkerPreviewSection />
+            <PlaygroundThreadContinuationSection />
+            <PlaygroundOriginalThreadSection />
+            <PlaygroundInteractiveSections />
+            <PlaygroundStateSections />
+          </QuestRecordFetchContext.Provider>
         </main>
       </div>
     </div>

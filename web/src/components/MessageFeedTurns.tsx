@@ -33,6 +33,7 @@ import { TurnThreadStatusFooter } from "./MessageFeedThreadStatus.js";
 import type { WaitingWorkerTarget } from "./WaitingWorkerPreview.js";
 import type { QuestLinkSurface } from "./quest-link-surface.js";
 import { QuestCompletionSummaryCard, QuestCompletionSummaryContext } from "./QuestCompletionSummaryCard.js";
+import { QuestDescriptionSummaryCard } from "./QuestDescriptionSummaryCard.js";
 import { isQuestThreadKey } from "../../shared/thread-routing.js";
 
 function entryHasModelActivity(entry: FeedEntry): boolean {
@@ -287,6 +288,7 @@ export const TurnEntries = memo(function TurnEntries({
   visibleThreadStatuses,
   workerPreviewTarget = null,
   onThreadStatusLayoutContributionChange,
+  hasOlderSections = false,
   hasNewerSections = false,
 }: {
   sections: FeedSection[];
@@ -310,15 +312,17 @@ export const TurnEntries = memo(function TurnEntries({
   /** Worker the thread waits on; its live preview renders under the status footer. */
   workerPreviewTarget?: WaitingWorkerTarget | null;
   onThreadStatusLayoutContributionChange?: (height: number) => void;
+  /** The loaded window starts after the thread's first section. */
+  hasOlderSections?: boolean;
   /** The loaded window ends before the thread's newest section. */
   hasNewerSections?: boolean;
 }) {
   const turns = useMemo(() => sections.flatMap((section) => section.turns), [sections]);
-  const completionQuestId =
+  const threadQuestId =
     leaderSession && isQuestThreadKey(currentThreadKey.toLowerCase()) ? currentThreadKey.toLowerCase() : null;
   const completionSummaryHost = useMemo(
-    () => (completionQuestId ? questCompletionSummaryHost(turns, completionQuestId, hasNewerSections) : null),
-    [completionQuestId, hasNewerSections, turns],
+    () => (threadQuestId ? questCompletionSummaryHost(turns, threadQuestId, hasNewerSections) : null),
+    [threadQuestId, hasNewerSections, turns],
   );
   const latestThreadResponseUpdatedAt = Math.max(
     0,
@@ -361,6 +365,14 @@ export const TurnEntries = memo(function TurnEntries({
   }, [readyThreadResponsePresentation, turns, turnStates]);
   return (
     <InlineMessageTimingVisibilityContext.Provider value={showInlineMessageTiming}>
+      {/* Opens the thread with what the quest is about, once its first section is loaded. */}
+      {threadQuestId && !hasOlderSections && (
+        <QuestDescriptionSummaryCard
+          questId={threadQuestId}
+          sessionId={sessionId}
+          questLinkSurface={questLinkSurface}
+        />
+      )}
       {(() => {
         let globalIndex = 0;
         return sections.map((section) => (
@@ -414,10 +426,10 @@ export const TurnEntries = memo(function TurnEntries({
               const showThreadStatusFooter = turn.id === threadStatusFooterTurnId;
               const isCompletionHost = completionSummaryHost?.turnId === turn.id;
               const completionSummaryCard =
-                completionQuestId && isCompletionHost && !completionSummaryHost.withQuiz ? (
+                threadQuestId && isCompletionHost && !completionSummaryHost.withQuiz ? (
                   <div className="min-w-0 pl-9">
                     <QuestCompletionSummaryCard
-                      questId={completionQuestId}
+                      questId={threadQuestId}
                       sessionId={sessionId}
                       questLinkSurface={questLinkSurface}
                     />
@@ -442,7 +454,7 @@ export const TurnEntries = memo(function TurnEntries({
               return (
                 <QuestCompletionSummaryContext.Provider
                   key={turn.id}
-                  value={isCompletionHost && completionSummaryHost.withQuiz ? completionQuestId : null}
+                  value={isCompletionHost && completionSummaryHost.withQuiz ? threadQuestId : null}
                 >
                   <div>
                     <div

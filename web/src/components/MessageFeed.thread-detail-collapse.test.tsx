@@ -391,6 +391,8 @@ function resetStore() {
   mockSendToSession.mockReset();
   mockSendToSession.mockReturnValue(true);
   mockGetQuestValidated.mockReset();
+  // Leader quest threads load their quest record for the opening description card.
+  mockGetQuestValidated.mockResolvedValue({ status: "not-modified", etag: null });
   mockStoreValues.messages = new Map();
   mockStoreValues.messageFrozenCounts = new Map();
   mockStoreValues.messageFrozenRevisions = new Map();

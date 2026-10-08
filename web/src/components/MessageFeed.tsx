@@ -1855,6 +1855,7 @@ export function MessageFeed({
                     visibleThreadStatuses={visibleThreadStatuses}
                     workerPreviewTarget={workerPreviewTarget}
                     onThreadStatusLayoutContributionChange={handleThreadStatusLayoutContributionChange}
+                    hasOlderSections={hasOlderSections}
                     hasNewerSections={hasNewerSections}
                   />
                   {hasNewerSections && (

@@ -6,7 +6,7 @@ import { TurnActivityDisclosure } from "../TurnActivitySummary.js";
 import { TurnEntriesExpanded } from "../MessageFeedTurns.js";
 import { Card, PlaygroundSectionGroup, Section } from "./shared.js";
 import { PlaygroundChronologicalAnswers } from "./PlaygroundChronologicalAnswers.js";
-import { PlaygroundQuestCompletionSummary } from "./PlaygroundQuestCompletionSummary.js";
+import { PlaygroundQuestCompletionSummary, PlaygroundQuestDescriptionSummary } from "./PlaygroundQuestSummaryCards.js";
 
 const SESSION_ID = "playground-thread-responses";
 
@@ -501,6 +501,7 @@ export function PlaygroundThreadResponseSection() {
   return (
     <PlaygroundSectionGroup groupId="overview">
       <PlaygroundChronologicalAnswers />
+      <PlaygroundQuestDescriptionSummary />
       <PlaygroundQuestCompletionSummary />
       <Section
         title="Routed Answers"

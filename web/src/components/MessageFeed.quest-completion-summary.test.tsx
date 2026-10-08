@@ -220,18 +220,16 @@ describe("MessageFeed quest completion summary", () => {
     expect(within(turn).getByTestId("quest-completion-summary")).toHaveTextContent(TLDR);
   });
 
-  it("loads the quest record once the leader's completed board shows the quest", async () => {
-    // Open quest threads stay request-free; a completed board row is enough to fetch the debrief.
+  it("loads a missing quest record once and then shows the card", async () => {
+    // The thread's opening description card and this card share one deduped request
+    // for an uncached record; a current cached record needs no request at all.
     vi.mocked(api.getQuestValidated).mockClear();
+    vi.mocked(api.getQuestValidated).mockResolvedValueOnce({ status: "fresh", etag: '"fresh"', data: doneQuest() });
     installHistory(wrapUpHistory("Quest closed."), null);
     render(<MessageFeed sessionId={SESSION_ID} threadKey={QUEST_ID} />);
-    expect(api.getQuestValidated).not.toHaveBeenCalled();
 
-    vi.mocked(api.getQuestValidated).mockResolvedValueOnce({ status: "fresh", etag: '"fresh"', data: doneQuest() });
-    act(() => {
-      useStore.getState().setSessionCompletedBoard(SESSION_ID, [{ questId: QUEST_ID, updatedAt: 3, completedAt: 3 }]);
-    });
     expect(await screen.findByTestId("quest-completion-summary")).toHaveTextContent(TLDR);
+    expect(api.getQuestValidated).toHaveBeenCalledTimes(1);
     expect(api.getQuestValidated).toHaveBeenCalledWith(QUEST_ID, null);
   });
 
