@@ -752,8 +752,7 @@ export class WsBridge {
   /**
    * Kill a session by terminating its backend (subprocess or SDK adapter).
    * Called by the idle manager. Returns true if the session was successfully
-   * terminated. For SDK sessions, this disconnects the in-process adapter
-   * directly (launcher.kill only handles subprocesses).
+   * terminated.
    */
   async killSession(sessionId: string): Promise<boolean> {
     return killSessionController(this.sessions, sessionId, {

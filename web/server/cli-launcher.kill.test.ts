@@ -2,12 +2,13 @@ import { vi } from "vitest";
 
 // Claude sessions launch through the Agent SDK adapter; capture what the
 // launcher hands it instead of starting a real Claude process.
-const sdkAdapterLaunches = vi.hoisted(() => [] as Array<{ sessionId: string; options: any }>);
+const sdkAdapterLaunches = vi.hoisted(() => [] as Array<{ sessionId: string; options: any; adapter: any }>);
 vi.mock("./claude-sdk-adapter.js", () => ({
   ClaudeSdkAdapter: class {
     started = Promise.resolve(true);
+    disconnect = vi.fn(async () => {});
     constructor(sessionId: string, options: any) {
-      sdkAdapterLaunches.push({ sessionId, options });
+      sdkAdapterLaunches.push({ sessionId, options, adapter: this });
     }
   },
 }));
@@ -417,6 +418,19 @@ describe("kill", () => {
     const session = launcher.getSession("test-session-id");
     expect(session?.state).toBe("exited");
     expect(session?.exitCode).toBe(-1);
+  });
+
+  it("disconnects a Claude session's SDK adapter, which ends its process", async () => {
+    // The adapter owns the Claude process (local or on a remote host); without
+    // this disconnect an archived session's process kept running.
+    await launcher.launch({ cwd: "/tmp" });
+    await vi.waitFor(() => expect(sdkAdapterLaunches).toHaveLength(1));
+    const { adapter } = sdkAdapterLaunches[0];
+
+    await launcher.kill("test-session-id");
+
+    expect(adapter.disconnect).toHaveBeenCalledTimes(1);
+    expect(launcher.getSession("test-session-id")?.state).toBe("exited");
   });
 
   it("returns false for unknown session", async () => {

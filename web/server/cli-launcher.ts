@@ -1380,11 +1380,10 @@ export class CliLauncher {
   }
 
   /**
-   * Kill a session's CLI process.
-   * For subprocess-based sessions (claude, codex): sends SIGTERM/SIGKILL.
-   * For SDK sessions: marks the session as exited so the bridge will
-   * disconnect the adapter on its next check. Returns true if the session
-   * was found and marked for termination.
+   * Kill a session's CLI process and mark the session exited.
+   * Codex processes get SIGTERM, then SIGKILL; Claude SDK sessions disconnect
+   * their adapter, which ends the Claude process. Returns true if the session
+   * was found.
    */
   async kill(sessionId: string): Promise<boolean> {
     const session = this.sessions.get(sessionId);
@@ -1412,10 +1411,12 @@ export class CliLauncher {
     const waitingHostProcess = this.hostReattach.get(sessionId);
     this.hostReattach.delete(sessionId);
     waitingHostProcess?.kill("SIGTERM");
+    // A Claude process belongs to the SDK adapter, which ends it on disconnect.
+    // Nothing else stops it: it would outlive an archive, and on a remote host
+    // keep running with no session.
+    await this.claudeSdkAdapters.get(sessionId)?.disconnect();
 
     // Mark session as exited regardless of whether a subprocess existed.
-    // SDK sessions don't have a subprocess — they use an in-process adapter
-    // that the bridge will disconnect when it sees state === "exited".
     session.state = "exited";
     session.exitCode = -1;
     this.persistState();

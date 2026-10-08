@@ -6,6 +6,7 @@ const sdkAdapterLaunches = vi.hoisted(() => [] as Array<{ sessionId: string; opt
 vi.mock("./claude-sdk-adapter.js", () => ({
   ClaudeSdkAdapter: class {
     started = Promise.resolve(true);
+    async disconnect() {}
     constructor(sessionId: string, options: any) {
       sdkAdapterLaunches.push({ sessionId, options });
     }
