@@ -52,6 +52,19 @@ type AcquireResult =
   | (LeaseStatusDetail & { status: "queued"; waiter: WaiterDetail; position: number })
   | (LeaseStatusDetail & { status: "unavailable" });
 
+// A queued or unavailable acquisition must not read as success to `&&` chains:
+// only a held lease exits 0. Codes are distinct from the generic error exit 1.
+const QUEUED_EXIT_CODE = 3;
+const UNAVAILABLE_EXIT_CODE = 4;
+
+const LEASE_EXIT_CODES_HELP = `Exit codes (also with --json):
+  0  you hold the lease (acquired or already holding)
+  ${QUEUED_EXIT_CODE}  queued: you do NOT hold the lease yet; wait for the Resource Lease message
+  ${UNAVAILABLE_EXIT_CODE}  unavailable without --wait: you do NOT hold the lease and are not queued
+Run acquire as its own command; never chain work that needs the resource after a
+command that may queue.
+`;
+
 export const LEASE_HELP = `Usage: takode lease <configure|acquire|status|list|renew|heartbeat|release|wait> ...
 
 Coordinate named global resources such as dev-server:companion or agent-browser.
@@ -70,6 +83,7 @@ Use scoped keys by convention when useful, for example dev-server:companion.
 Unconfigured resources have capacity one. One slot per session per pool.
 Slots are reusable numbers for workflow-owned port/directory mapping, not process limits.
 Default TTL is 30m. Heartbeat while working and release promptly when done.
+acquire and wait exit 0 only when you hold the lease; queued exits ${QUEUED_EXIT_CODE} (see acquire --help).
 `;
 
 export const LEASE_CONFIGURE_HELP = `Usage: takode lease configure <resource> --capacity <count> [--json]
@@ -84,14 +98,16 @@ export const LEASE_ACQUIRE_HELP = `Usage: takode lease acquire <resource> --purp
 Acquire the lowest free numbered slot, after FIFO waiters. Repeated acquisition
 returns your existing slot; child jobs sharing your session share that reservation.
 If full, --wait queues you until a Resource Lease message identifies your slot.
-`;
+
+${LEASE_EXIT_CODES_HELP}`;
 
 export const LEASE_WAIT_HELP = `Usage: takode lease wait <resource> --purpose <text> [--ttl <duration>] [--quest q-N] [--metadata k=v] [--json]
 
 Acquire immediately if the resource is free; otherwise join the FIFO waiter queue.
 When queued, the server will send your session a Resource Lease message when
 the lease is promoted; you do not need to poll.
-`;
+
+${LEASE_EXIT_CODES_HELP}`;
 
 export const LEASE_STATUS_HELP = `Usage: takode lease status [resource] [--json]
        takode lease list [--json]
@@ -188,13 +204,10 @@ async function handleAcquire(args: string[], deps: TakodeLeaseDeps, waitByDefaul
 
   const path = `/resource-leases/${encodeURIComponent(resource)}/${waitByDefault ? "wait" : "acquire"}`;
   const response = (await deps.apiPost(path, payload)) as { result: AcquireResult };
-  const jsonMode = flags.json === true;
-  if (jsonMode) {
-    console.log(JSON.stringify(response, null, 2));
-    return;
-  }
-
-  printAcquireResult(response.result, deps);
+  if (flags.json === true) console.log(JSON.stringify(response, null, 2));
+  else printAcquireResult(response.result, deps);
+  if (response.result.status === "queued") process.exitCode = QUEUED_EXIT_CODE;
+  else if (response.result.status === "unavailable") process.exitCode = UNAVAILABLE_EXIT_CODE;
 }
 
 async function handleStatus(args: string[], deps: TakodeLeaseDeps): Promise<void> {
@@ -272,14 +285,18 @@ function printAcquireResult(result: AcquireResult, deps: TakodeLeaseDeps): void 
   if (result.status === "queued") {
     const waiterCount = Math.max(result.waiters.length, result.position);
     const positionSuffix = waiterCount > 0 ? ` of ${waiterCount}` : "";
-    console.log(`Queued for ${result.waiter.resourceKey} at position ${result.position}${positionSuffix}.`);
+    console.log(
+      `QUEUED for ${result.waiter.resourceKey} at position ${result.position}${positionSuffix}: you do NOT hold this lease yet.`,
+    );
     printStatuses([result], deps, true);
-    console.log("You will receive a Resource Lease message in this session when promoted; no polling is needed.");
+    console.log(
+      "Do not use the resource or continue work that needs it until the Resource Lease message arrives in this session; no polling is needed.",
+    );
     return;
   }
   if (result.status === "unavailable") {
     console.log(
-      `Unavailable: ${result.resourceKey}; ${result.leases.length}/${result.capacity} slots held, ${result.waiters.length} waiting.`,
+      `UNAVAILABLE: ${result.resourceKey}; ${result.leases.length}/${result.capacity} slots held, ${result.waiters.length} waiting. You do NOT hold this lease and are not queued; use --wait to queue.`,
     );
     return;
   }

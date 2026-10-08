@@ -327,13 +327,96 @@ describe("takode lease", () => {
         },
       );
 
-      expect(result.status).toBe(0);
-      expect(result.stdout).toContain("Queued for agent-browser at position 2 of 2.");
+      // A queued caller does not hold the lease, so it must not exit 0: shell
+      // chains such as `acquire --wait && git pull` previously ran while only queued.
+      expect(result.status).toBe(3);
+      expect(result.stdout).toContain("QUEUED for agent-browser at position 2 of 2: you do NOT hold this lease yet.");
       expect(result.stdout).toContain("slot 1 owner: #1370 Questmaster Execute (owner-session-id)");
       expect(result.stdout).toContain("quest: q-1051");
       expect(result.stdout).toContain("purpose: Execute validation for q-1051");
       expect(result.stdout).toContain("Resource Lease message");
       expect(result.stdout).toContain("no polling is needed");
+
+      // Scripts reading JSON get the same exit code alongside the full result.
+      const json = await runTakode(
+        [
+          "lease",
+          "wait",
+          "agent-browser",
+          "--purpose",
+          "Execute q-1060 browser validation",
+          "--json",
+          "--port",
+          String(port),
+        ],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: "worker-self",
+          COMPANION_AUTH_TOKEN: "auth-self",
+        },
+      );
+      expect(json.status).toBe(3);
+      expect(JSON.parse(json.stdout).result.status).toBe("queued");
+    } finally {
+      server.close();
+    }
+  });
+
+  it.each([
+    {
+      json: false,
+      expected: "UNAVAILABLE: agent-browser; 1/1 slots held, 0 waiting. You do NOT hold this lease",
+    },
+    { json: true, expected: '"status": "unavailable"' },
+  ])("exits 4 when acquire without --wait finds the pool full (json=$json)", async ({ json, expected }) => {
+    // Without --wait the caller is neither holding nor queued; that must also
+    // fail a shell chain, with a code distinct from queued (3) and errors (1).
+    const server = createServer((req, res) => {
+      res.setHeader("content-type", "application/json");
+      if (req.method === "GET" && req.url === "/api/takode/me") {
+        res.end(JSON.stringify({ sessionId: "worker-self", isOrchestrator: false }));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/resource-leases/agent-browser/acquire") {
+        const lease = {
+          resourceKey: "agent-browser",
+          slot: 1,
+          ownerSessionId: "owner",
+          purpose: "Inspect UI",
+          metadata: {},
+          acquiredAt: 1,
+          heartbeatAt: 1,
+          ttlMs: 1,
+          expiresAt: 2,
+        };
+        const result = {
+          status: "unavailable",
+          resourceKey: "agent-browser",
+          capacity: 1,
+          available: false,
+        };
+        res.end(
+          JSON.stringify({
+            result: { ...result, leases: [lease], waiters: [] },
+          }),
+        );
+        return;
+      }
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    try {
+      const args = ["lease", "acquire", "agent-browser", "--purpose", "Inspect UI"];
+      if (json) args.push("--json");
+      const result = await runTakode([...args, "--port", String((server.address() as AddressInfo).port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "worker-self",
+        COMPANION_AUTH_TOKEN: "auth-self",
+      });
+      expect(result.status).toBe(4);
+      expect(result.stdout).toContain(expected);
     } finally {
       server.close();
     }
@@ -365,7 +448,11 @@ describe("takode lease", () => {
       expiresAt: now + 1_800_000,
     };
     const responseBody = {
-      result: { released: lease, promoted: { ...lease, ownerSessionId: "next-waiter" }, waiters: [] },
+      result: {
+        released: lease,
+        promoted: { ...lease, ownerSessionId: "next-waiter" },
+        waiters: [],
+      },
     };
     const server = createServer(async (req, res) => {
       res.setHeader("content-type", "application/json");
@@ -420,10 +507,20 @@ describe("takode lease", () => {
       expiresAt: 2,
       ttlMs: 1,
     };
-    const pool = { resourceKey: "test-server", capacity: 3, leases: [lease], waiters: [], available: true };
+    const pool = {
+      resourceKey: "test-server",
+      capacity: 3,
+      leases: [lease],
+      waiters: [],
+      available: true,
+    };
     const deps: TakodeLeaseDeps = {
       apiGet: vi.fn(async () => ({ resources: [pool] })),
-      apiPost: vi.fn(async () => ({ resource: pool, lease, result: { released: lease, promoted: null, waiters: [] } })),
+      apiPost: vi.fn(async () => ({
+        resource: pool,
+        lease,
+        result: { released: lease, promoted: null, waiters: [] },
+      })),
       err: (message) => {
         throw new Error(message);
       },

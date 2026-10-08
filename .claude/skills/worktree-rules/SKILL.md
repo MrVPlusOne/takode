@@ -44,6 +44,8 @@ The target branch is shared by every worker that ports to it, from any machine, 
 takode lease acquire port:<REPO>:<BASE_BRANCH> --purpose "Port <quest or change> to <BASE_BRANCH>" --ttl 30m --wait
 ```
 
+Run this command on its own; never chain fetch, pull or any other port step after it. Exit 0 means you hold the lease. Exit 3 with `QUEUED` means you do not: run nothing against the target, end your turn, and continue from the status check below only after the Resource Lease message says you hold `port:<REPO>:<BASE_BRANCH>`.
+
 While you hold the lease, nothing else lands on the target, so the gate you run in your worktree (step 3) covers exactly what you will push. Renew the lease if the gate runs long. If you stop before landing anything (gate failure, rebase conflict, a question for the user), release the lease, and start again from this step when ready because the target may have moved. If you stop after landing commits but before pushing, keep the lease and report.
 
 Only after the current branch is proven to match `<BASE_BRANCH>`, check status and pull remote changes:

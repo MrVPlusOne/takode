@@ -21,7 +21,7 @@ takode lease acquire agent-browser --purpose "Inspect q-N UI" --ttl 20m --wait
 
 The acquire output names your slot in each pool; the SKILL.md **Lease Slots** table maps it to your ports, state directory and browser session.
 
-If the command queues behind another holder, it prints the owner and queue details, then the server sends a Resource Lease message to your session when you are promoted. Do not poll in a loop; use `takode lease status <resource>` only for an intentional manual refresh.
+Run each acquire as its own command, never chained with work that uses the resource. Exit 0 means you hold the lease. If the command queues behind another holder, it exits 3, prints `QUEUED` with the owner and queue details, and the server sends a Resource Lease message to your session when you are promoted; do not start servers or the browser until then. Do not poll in a loop; use `takode lease status <resource>` only for an intentional manual refresh.
 
 Renew long sessions before leases expire:
 

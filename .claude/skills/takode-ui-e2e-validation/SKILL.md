@@ -41,7 +41,7 @@ Validate Takode UI changes with `agent-browser`, scoped leases, an explicit stat
 7. End by deciding what state to retain or remove. Retain useful new scenarios by default; clean up only state that is clearly harmful, misleading, sensitive, destructive, or not useful. Close Agent Browser/browser resources and clean up only resources you own.
 8. Record what was validated, what passed or failed, state provenance, screenshots/artifacts, retained/removed state, and residual risk in the quest phase notes or final report.
 
-If a lease command queues you behind another session, wait for the Resource Lease message that says you now hold the resource. The queued output includes the current owner and queue details; do not poll unless you need a manual status refresh.
+If a lease command queues you behind another session (it exits 3 and prints `QUEUED`), you do not hold the resource yet: wait for the Resource Lease message that says you now hold it before starting anything that uses it. The queued output includes the current owner and queue details; do not poll unless you need a manual status refresh.
 
 For command patterns, artifact handling, and surface-specific heuristics, read [references/takode-validation-guide.md](references/takode-validation-guide.md).
 
