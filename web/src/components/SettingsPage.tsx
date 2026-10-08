@@ -25,6 +25,7 @@ import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSec
 import { SettingsSessionDefaultsSection } from "./SettingsSessionDefaultsSection.js";
 import { SettingsWebPushSection } from "./SettingsWebPushSection.js";
 import { SettingsHostsSection } from "./SettingsHostsSection.js";
+import { SettingsLoginSection } from "./SettingsLoginSection.js";
 import { SendKeySchemeSetting, SettingsShortcutSection } from "./SettingsShortcutSection.js";
 import { SettingsPhoneAlertRules, SettingsPushoverSection } from "./SettingsPhoneAlertsSection.js";
 import { SettingsSessionDataSection } from "./SettingsSessionDataSection.js";
@@ -1178,6 +1179,7 @@ export function SettingsPage({
                 {sleepInhibitorError && errorBox(sleepInhibitorError)}
               </div>
 
+              <SettingsLoginSection hidden={settingsSearch.rowHidden("system", "login")} />
               <SettingsHostsSection hidden={settingsSearch.rowHidden("system", "hosts")} />
             </CollapsibleSection>
 

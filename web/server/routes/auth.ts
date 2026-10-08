@@ -59,6 +59,18 @@ export function validateCompanionAuth(
   return { callerId, caller };
 }
 
+/** Whether a request carries the valid session headers an agent CLI sends, without resolving the caller further. */
+export function hasValidSessionToken(
+  request: Request,
+  launcher: Pick<CliLauncher, "resolveSessionId" | "verifySessionAuthToken">,
+): boolean {
+  const rawCallerId = request.headers.get(COMPANION_SESSION_ID_HEADER)?.trim();
+  const authToken = request.headers.get(COMPANION_AUTH_TOKEN_HEADER)?.trim();
+  if (!rawCallerId || !authToken) return false;
+  const callerId = launcher.resolveSessionId(rawCallerId);
+  return !!callerId && launcher.verifySessionAuthToken(callerId, authToken);
+}
+
 export function isLoopbackAddress(address: string | null | undefined): boolean {
   if (!address) return false;
   const normalized = address.trim().toLowerCase();

@@ -2,6 +2,8 @@
 
 Use [`scripts/tailscale-serve.sh`](file:/home/jiayiwei/.companion/worktrees/companion/jiayi-wt-2726/scripts/tailscale-serve.sh) to expose Takode over Tailscale HTTPS.
 
+Everyone who can reach the served address can use Takode unless a login password is set; see [Browser login](browser-login.md).
+
 ## Recommended setup
 
 - Production on the default `https://<node>.ts.net/` endpoint

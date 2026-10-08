@@ -1,4 +1,5 @@
-function decodeAndNormalizePathname(url: string): string | null {
+/** The request path decoded and with dot segments resolved, lowercased; null when it cannot be decoded. */
+export function decodeAndNormalizePathname(url: string): string | null {
   let pathname = new URL(url).pathname;
   for (let depth = 0; depth < 3 && /%[0-9a-f]{2}/i.test(pathname); depth += 1) {
     try {

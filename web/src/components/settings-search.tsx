@@ -258,6 +258,11 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         text: "Prevent Sleep During Generation caffeinate awake macOS grace period",
       },
       {
+        id: "login",
+        text: "Login password browser log in log out sign out devices security access remote phone",
+        aliases: ["password", "security"],
+      },
+      {
         id: "hosts",
         text: "Hosts other machines remote devbox takode node token coordinator add host remove online offline",
       },

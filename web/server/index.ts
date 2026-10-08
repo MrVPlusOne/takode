@@ -26,7 +26,10 @@ import { createFileLinkBrowserRoutes } from "./routes/file-link-browser.js";
 import { blockOpaqueOriginApplicationRequest } from "./opaque-origin-guard.js";
 import { createRoutes } from "./routes.js";
 import { CodexSidecarRegistry } from "./codex-sidecar-auth.js";
-import { COMPANION_CLIENT_IP_HEADER } from "./routes/auth.js";
+import { COMPANION_CLIENT_IP_HEADER, hasValidSessionToken } from "./routes/auth.js";
+import { BrowserLogin, loginGate } from "./browser-login.js";
+import { createBrowserLoginRoutes } from "./routes/browser-login.js";
+import { HOST_LINK_PATH } from "../shared/host-protocol.js";
 import { CliLauncher } from "./cli-launcher.js";
 import { WsBridge } from "./ws-bridge.js";
 import { SessionStore } from "./session-store.js";
@@ -219,6 +222,7 @@ const cronScheduler = new CronScheduler(launcher, wsBridge);
 const timerManager = new TimerManager(wsBridge);
 const resourceLeaseManager = new ResourceLeaseManager(wsBridge, new ResourceLeaseStore(serverId));
 const hostRegistry = HostRegistry.forServer(serverId);
+const browserLogin = await BrowserLogin.forServer(serverId);
 const hostLinks = new HostLinkManager();
 hostLinks.start();
 launcher.remoteHosts = { registry: hostRegistry, links: hostLinks };
@@ -965,6 +969,17 @@ const app = new Hono();
 
 app.route("/", createFileLinkBrowserRoutes(wsBridge));
 app.use("/api/*", cors());
+// Browser and terminal sockets authenticate only at upgrade, so revoking logins closes them;
+// browsers that still have a valid login reconnect at once.
+const appSockets = new Set<ServerWebSocket<SocketData>>();
+app.route(
+  "/api",
+  createBrowserLoginRoutes(browserLogin, {
+    onLoginsRevoked: () => {
+      for (const ws of appSockets) ws.close(4401, "Login changed");
+    },
+  }),
+);
 app.route("/api", createHostRoutes(hostRegistry, hostLinks));
 app.route(
   "/api",
@@ -1026,6 +1041,13 @@ const server = Bun.serve<SocketData>({
     });
     if (opaqueOriginBlock) return opaqueOriginBlock;
 
+    const loginRequired = loginGate(req, {
+      login: browserLogin,
+      hasSessionToken: (request) => hasValidSessionToken(request, launcher),
+      selfAuthenticatedPaths: [HOST_LINK_PATH],
+    });
+    if (loginRequired) return loginRequired;
+
     if (wsRoute?.kind === "host") {
       // Hosts are served only once this process holds the coordinator epoch (below).
       if (!hostLinks.epoch) return new Response("Coordinator is starting", { status: 503 });
@@ -1068,6 +1090,7 @@ const server = Bun.serve<SocketData>({
     perMessageDeflate: true, // Compress large payloads (history_sync can be multi-MB JSON)
     open(ws: ServerWebSocket<SocketData>) {
       const data = ws.data;
+      if (data.kind !== "host") appSockets.add(ws);
       if (data.kind === "host") {
         hostLinks.attach(data.hostId, ws);
       } else if (data.kind === "browser") {
@@ -1088,6 +1111,7 @@ const server = Bun.serve<SocketData>({
     },
     close(ws: ServerWebSocket<SocketData>, code: number, reason: string) {
       const data = ws.data;
+      appSockets.delete(ws);
       if (data.kind === "host") {
         hostLinks.detach(data.hostId, ws);
       } else if (data.kind === "browser") {

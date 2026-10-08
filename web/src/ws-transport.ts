@@ -7,6 +7,7 @@ import type {
   SdkSessionInfo,
 } from "./types.js";
 import { scopedGetItem, scopedSetItem } from "./utils/scoped-storage.js";
+import { checkLogin } from "./browser-login.js";
 import {
   beginColdReplayFlushTiming,
   beginHistoryReceiveRenderTiming,
@@ -710,6 +711,8 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
       if (suppressCloseHandling) return;
       if (intentionalCloseSockets.has(ws)) return;
       callbacks.onDisconnected?.(sessionId);
+      // The server closes app connections when it revokes logins; ask whether this browser was signed out.
+      void checkLogin();
       scheduleReconnect(sessionId);
     };
 
