@@ -255,7 +255,7 @@ export const SPAWN_FLAG_USAGE = `Usage: takode spawn [options]
 Options:
   --backend <type>             AI backend: "claude" or "codex" (default: inherit from leader)
   --cwd <path>                 Working directory (default: current directory)
-  --host <name>                Run on a registered remote host; needs --cwd, a checkout on that host
+  --host <name>                Run on that machine (default: yours); another machine needs --cwd there
   --count <n>                  Number of sessions to spawn (default: 1)
   --message <text>             Short inline initial message
   --message-file <path>|-      Read the initial message from a file or stdin
@@ -577,8 +577,6 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   let cwd = explicitCwd ?? process.cwd();
   const hostName = typeof flags.host === "string" ? flags.host.trim() : undefined;
   if (flags.host !== undefined && !hostName) err("--host requires a host name.");
-  // Paths on another machine cannot be inferred from this one.
-  if (hostName && !explicitCwd) err("--host needs --cwd <path>: the repo checkout to work in on that host.");
   const useWorktree = flags["no-worktree"] === true ? false : true;
   const fixedName = typeof flags["fixed-name"] === "string" ? flags["fixed-name"].trim() : "";
   if (flags["fixed-name"] !== undefined && !fixedName) {
@@ -597,9 +595,15 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   const reasoningEffort = resolveReasoningEffort(flags);
   const serviceTierOverride = resolveServiceTier(flags);
   const maxContextOverride = resolveMaxContext(flags);
-  const hostId = hostName ? await resolveHostId(base, hostName) : undefined;
-  // `--host` naming the leader's own machine is a same-machine spawn.
-  const workerOnOtherMachine = hostId !== undefined && hostId !== (leader.hostId || undefined);
+  // Workers run on the leader's machine unless `--host` names another; a
+  // leader without a host is on the coordinator's machine.
+  const leaderHostId = leader.hostId || undefined;
+  const hostId = hostName ? await resolveHostId(base, hostName) : leaderHostId;
+  const workerOnOtherMachine = hostId !== leaderHostId;
+  // This CLI runs on the leader's machine, so it cannot infer a path on another one.
+  if (workerOnOtherMachine && !explicitCwd) {
+    err("--host needs --cwd <path>: the repo checkout to work in on that host.");
+  }
   const leaderWorktreeTargetBranch =
     leader.isWorktree === true ? namedBranch(leader.actualBranch || leader.gitBranch || leader.branch) : undefined;
   const explicitCwdMatchesLeaderWorktree =
@@ -621,8 +625,9 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   const reviewerRaw = flags.reviewer;
   let reviewerOfNum: number | undefined;
   let reviewerParentSession:
-    | { memorySessionSpaceSlug?: string; cwd?: string; sessionNum?: number; archived?: boolean }
+    | { memorySessionSpaceSlug?: string; cwd?: string; sessionNum?: number; archived?: boolean; hostId?: string }
     | undefined;
+  let sessionHostId = hostId;
   if (reviewerRaw !== undefined) {
     const parsed = Number(String(reviewerRaw).replace(/^#/, ""));
     if (!Number.isInteger(parsed) || parsed < 0) {
@@ -688,6 +693,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
         sessionNum?: number;
         cwd?: string;
         memorySessionSpaceSlug?: string;
+        hostId?: string;
       }>;
       const existingReviewer = allSessions.find((s) => !s.archived && s.reviewerOf === reviewerOfNum);
       if (existingReviewer) {
@@ -701,11 +707,13 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
         );
       }
 
-      // Inherit the parent worker's cwd so the reviewer lands in the same
-      // sidebar project group. repoRoot is inferred by the server from cwd.
+      // Inherit the parent worker's cwd, and the machine it is on, so the
+      // reviewer lands in the same sidebar project group. repoRoot is inferred
+      // by the server from cwd.
       reviewerParentSession = allSessions.find((s) => s.sessionNum === reviewerOfNum && !s.archived);
       if (reviewerParentSession?.cwd?.trim() && typeof flags.cwd !== "string") {
         cwd = reviewerParentSession.cwd;
+        if (!hostName) sessionHostId = reviewerParentSession.hostId || undefined;
       }
     } catch (e) {
       // Only re-throw our own errors (from err()); skip API fetch failures
@@ -743,7 +751,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     }
 
     const portTargetBranch = shouldUseLeaderWorktreeTarget ? leaderWorktreeTargetBranch : remotePortTargetBranch;
-    if (hostId) createPayload.hostId = hostId;
+    if (sessionHostId) createPayload.hostId = sessionHostId;
     if (portTargetBranch && reviewerOfNum === undefined) {
       createPayload.branch = portTargetBranch;
       createPayload.worktreePortTarget = {
@@ -1867,11 +1875,17 @@ function namedBranch(branch: string | null | undefined): string | undefined {
   return name && name !== "HEAD" ? name : undefined;
 }
 
-async function resolveHostId(base: string, name: string): Promise<string> {
-  const { hosts } = (await apiGet(base, "/hosts")) as { hosts: Array<{ id: string; name: string }> };
+/** The host id for a machine name; undefined for the coordinator's own machine, whose sessions have no host. */
+async function resolveHostId(base: string, name: string): Promise<string | undefined> {
+  const { hosts, local } = (await apiGet(base, "/hosts")) as {
+    hosts: Array<{ id: string; name: string }>;
+    local?: { name: string };
+  };
+  if (local?.name === name) return undefined;
   const host = hosts.find((candidate) => candidate.name === name);
   if (!host) {
-    err(`Unknown host: ${name}. Registered hosts: ${hosts.map((candidate) => candidate.name).join(", ") || "none"}.`);
+    const names = [local?.name, ...hosts.map((candidate) => candidate.name)].filter(Boolean);
+    err(`Unknown host: ${name}. Machines: ${names.join(", ") || "none"}.`);
   }
   return host.id;
 }

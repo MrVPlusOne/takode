@@ -309,4 +309,83 @@ describe("takode spawn model payloads", () => {
     expect(createBodies[0].branch).toBeUndefined();
     expect(createBodies[0].worktreePortTarget).toBeUndefined();
   });
+
+  // Without --host, a worker runs on the leader's own machine; for a leader on a
+  // host, the default cwd is the CLI's (which runs on that host). --host naming
+  // the coordinator's machine overrides that and is a cross-machine spawn, so
+  // it needs --cwd and ports back to the leader's checkout. A reviewer runs on
+  // its parent worker's machine.
+  it("defaults workers to the leader's machine and resolves the coordinator by name", async () => {
+    const createBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      const route = `${req.method} ${req.url}`;
+      const json = (status: number, body: unknown) => {
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+      if (route === "GET /api/takode/me") return json(200, { sessionId: "remote-leader", isOrchestrator: true });
+      if (route === "GET /api/sessions/remote-leader") {
+        return json(200, {
+          sessionId: "remote-leader",
+          sessionNum: 7,
+          backendType: "claude",
+          cwd: "/home/coder/app",
+          repoRoot: "/home/coder/app",
+          gitBranch: "jiayi",
+          hostId: "host-id-1",
+        });
+      }
+      if (route === "GET /api/hosts") {
+        return json(200, { hosts: [{ id: "host-id-1", name: "devbox" }], local: { id: "local", name: "laptop" } });
+      }
+      if (route === "GET /api/takode/sessions") {
+        return json(200, [
+          { sessionId: "laptop-worker", sessionNum: 60, cwd: "/Users/me/app-wt", hostId: null },
+          { sessionId: "host-worker", sessionNum: 61, cwd: "/home/coder/app-wt", hostId: "host-id-1" },
+        ]);
+      }
+      if (route === "POST /api/sessions/create") {
+        createBodies.push(await readJson(req));
+        return json(200, { sessionId: "new-worker" });
+      }
+      if (route === "GET /api/sessions/new-worker/info") {
+        return json(200, { sessionId: "new-worker", sessionNum: 62, state: "running", cwd: "/somewhere" });
+      }
+      return json(404, { error: "not found" });
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const env = { ...process.env, COMPANION_SESSION_ID: "remote-leader", COMPANION_AUTH_TOKEN: "auth-host" };
+    const spawn = (...args: string[]) => runTakode(["spawn", "--port", String(port), ...args], env);
+    const onLeaderHost = await spawn();
+    const onCoordinatorWithoutCwd = await spawn("--host", "laptop");
+    const onCoordinator = await spawn("--host", "laptop", "--cwd", "/Users/me/app");
+    const unknownHost = await spawn("--host", "nowhere", "--cwd", "/x");
+    const reviewerOfHostWorker = await spawn("--reviewer", "61");
+    const reviewerOfLaptopWorker = await spawn("--reviewer", "60");
+    server.close();
+
+    expect(onLeaderHost.status).toBe(0);
+    expect(onCoordinatorWithoutCwd.stderr).toContain("--host needs --cwd");
+    expect(onCoordinator.status).toBe(0);
+    expect(unknownHost.stderr).toContain("Unknown host: nowhere. Machines: laptop, devbox.");
+    expect(reviewerOfHostWorker.status).toBe(0);
+    expect(reviewerOfLaptopWorker.status).toBe(0);
+    expect(createBodies).toHaveLength(4);
+    const [leaderHostBody, coordinatorBody, hostReviewerBody, laptopReviewerBody] = createBodies;
+    expect(leaderHostBody).toMatchObject({ cwd: process.cwd(), useWorktree: true, hostId: "host-id-1" });
+    expect(leaderHostBody.branch).toBeUndefined();
+    expect(leaderHostBody.worktreePortTarget).toBeUndefined();
+    expect(coordinatorBody).toMatchObject({
+      cwd: "/Users/me/app",
+      branch: "jiayi",
+      worktreePortTarget: { repoRoot: "/home/coder/app", branch: "jiayi", hostId: "host-id-1" },
+    });
+    expect(coordinatorBody.hostId).toBeUndefined();
+    expect(hostReviewerBody).toMatchObject({ cwd: "/home/coder/app-wt", reviewerOf: 61, hostId: "host-id-1" });
+    expect(laptopReviewerBody).toMatchObject({ cwd: "/Users/me/app-wt", reviewerOf: 60 });
+    expect(laptopReviewerBody.hostId).toBeUndefined();
+  });
 });

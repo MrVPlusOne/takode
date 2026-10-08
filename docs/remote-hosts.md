@@ -61,7 +61,8 @@ process it needs.
 
 4. **Start sessions on it.** Pick the host in the **Machine** field of the new
    session dialog, or from a leader run
-   `takode spawn --host <name> --cwd <checkout path on the host>`. With a host
+   `takode spawn --host <name> --cwd <checkout path on the host>`. A leader
+   that itself runs on a host spawns its workers there without `--host`. With a host
    selected, the dialog's folder browser and branch picker read the host's
    folders and repos, and recent folders are kept per machine. Worktrees are
    created on the host. Folder browsing needs the host's `takode node` to run a
