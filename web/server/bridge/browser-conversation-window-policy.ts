@@ -123,15 +123,31 @@ function filterCompletedStreamReplay(events: BufferedBrowserEvent[], throughSeq:
   const completedTextScopes = new Set<string>();
   const completedThinkingScopes = new Set<string>();
   const completedOwners = new Set<string>();
+  const completedToolIds = new Set<string>();
+  let rootResultSeen = false;
   const retained: BufferedBrowserEvent[] = [];
 
   // Snapshot hydration replaces completed history without running the live
   // assistant/result handlers that clear its stream. Mirror those clears in
-  // replay selection, using event order and ownership, never IDs or prose.
+  // replay selection. Streams match by event order and ownership, never IDs or prose.
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index];
     if (event.seq > throughSeq) continue;
     const message = event.message;
+    if (message.type === "tool_result_preview" && !message.codexSubagent) {
+      for (const preview of message.previews) completedToolIds.add(preview.tool_use_id);
+    }
+    // Live tool progress is cleared by the tool's result preview and, for all
+    // tools, by the turn result. Both are history-backed and never replayed,
+    // so progress they cleared would otherwise stick in the running footer.
+    // Codex command output is kept: the browser retains it as the transcript.
+    if (
+      message.type === "tool_progress" &&
+      !message.codexSubagent &&
+      (rootResultSeen || (completedToolIds.has(message.tool_use_id) && !message.output_delta))
+    ) {
+      continue;
+    }
     if (message.type !== "assistant" && message.type !== "stream_event" && message.type !== "result") {
       retained.push(event);
       continue;
@@ -145,6 +161,7 @@ function filterCompletedStreamReplay(events: BufferedBrowserEvent[], throughSeq:
       // A root result also clears legacy parent-keyed streams; native
       // children keep their separate completion authority.
       completedOwners.add(owner);
+      if (!message.codexSubagent) rootResultSeen = true;
       retained.push(event);
       continue;
     }

@@ -1398,6 +1398,88 @@ describe("Browser handlers", () => {
     expect(replayMsg.events).toHaveLength(2);
   });
 
+  it("session_subscribe: does not replay progress for tools that already finished", async () => {
+    // A browser opening a running Claude session gets finished tools from the
+    // history window, but their tool_result_preview (which clears live progress)
+    // is history-backed and never replayed. Replaying their 30s heartbeat would
+    // leave a stale "Terminal 30s" footer entry per finished tool until the turn
+    // ends. Only the tool that is still running may come back as progress.
+    const cli = makeCliSocket("s1");
+    cli.attach(bridge);
+    const heartbeat = (toolUseId: string) =>
+      JSON.stringify({
+        type: "tool_progress",
+        tool_use_id: `${toolUseId}-heartbeat-0`,
+        tool_name: "Bash",
+        parent_tool_use_id: null,
+        elapsed_time_seconds: 30,
+        heartbeat: true,
+        uuid: `${toolUseId}-hb`,
+        session_id: "s1",
+      });
+
+    cli.message(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "asst-tools",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [
+            { type: "tool_use", id: "toolu_done", name: "Bash", input: { command: "sleep 31" } },
+            { type: "tool_use", id: "toolu_running", name: "Bash", input: { command: "sleep 99" } },
+          ],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        uuid: "asst-tools-u",
+        session_id: "s1",
+      }),
+    );
+    cli.message(heartbeat("toolu_done"));
+    cli.message(heartbeat("toolu_running"));
+    cli.message(
+      JSON.stringify({
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "toolu_done", content: "done", is_error: false }],
+        },
+        parent_tool_use_id: null,
+        uuid: "tool-result-u",
+        session_id: "s1",
+      }),
+    );
+    await flushAsync();
+
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "session_subscribe",
+        last_seq: 1,
+        history_window_section_turn_count: 10,
+        history_window_visible_section_count: 3,
+      }),
+    );
+    // The tool rows make the bounded window sync take more yields than flushAsync covers.
+    const replayMsg = await vi.waitFor(() => {
+      const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+      const replay = calls.find((c: any) => c.type === "event_replay");
+      expect(replay).toBeDefined();
+      return replay;
+    });
+    const replayedProgress = replayMsg.events
+      .map((e: any) => e.message)
+      .filter((m: any) => m.type === "tool_progress")
+      .map((m: any) => m.tool_use_id);
+    expect(replayedProgress).toEqual(["toolu_running"]);
+  });
+
   it("session_subscribe: sends the bounded selected window when the replay buffer is empty", async () => {
     // A pruned replay buffer does not force passive full-history delivery; the
     // selected bounded window remains authoritative.

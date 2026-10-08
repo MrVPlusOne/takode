@@ -206,4 +206,34 @@ describe("bounded subscribe stream completion", () => {
     expect(prepare([thinkingStart, pending, thinkingCompletion]).replayEvents).toEqual([]);
     expect(prepare([pending, result()]).replayEvents).toEqual([]);
   });
+
+  it("replays tool progress only where the live browser would still hold it", () => {
+    // Live, a tool's result preview clears its progress and a root result
+    // clears all progress. Neither is replayed, so replay must drop that
+    // progress itself. Codex command output stays as the retained transcript.
+    const progress = (id: string, outputDelta?: string): BrowserIncomingMessage => ({
+      type: "tool_progress",
+      tool_use_id: id,
+      tool_name: "Bash",
+      elapsed_time_seconds: 30,
+      ...(outputDelta ? { output_delta: outputDelta } : {}),
+    });
+    const preview = (id: string): BrowserIncomingMessage => ({
+      type: "tool_result_preview",
+      previews: [
+        { tool_use_id: id, content: "ok", is_error: false, total_size: 2, is_truncated: false, duration_seconds: 30.2 },
+      ],
+    });
+    const replayedProgress = (messages: BrowserIncomingMessage[]) =>
+      prepare(messages).replayEvents.map(({ message }) => message);
+
+    expect(replayedProgress([progress("done"), progress("running"), preview("done")])).toEqual([progress("running")]);
+    expect(replayedProgress([progress("codex-cmd", "line\n"), preview("codex-cmd")])).toEqual([
+      progress("codex-cmd", "line\n"),
+    ]);
+    expect(replayedProgress([progress("old-turn"), progress("old-cmd", "line\n"), result(), progress("new")])).toEqual([
+      progress("new"),
+    ]);
+    expect(replayedProgress([progress("root"), result({ childId: "child" })])).toEqual([progress("root")]);
+  });
 });
