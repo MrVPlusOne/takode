@@ -2,6 +2,7 @@ import { exec as execCallback } from "node:child_process";
 import { mkdir, open, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
+import type { HostRequest, HostResponse } from "../../shared/host-protocol.js";
 import type { HostLinkManager } from "./host-link-manager.js";
 
 const execLocal = promisify(execCallback);
@@ -86,6 +87,16 @@ export function configureRemoteMachines(links: HostLinkManager | null): void {
 /** Whether a remote host is reachable and reports a usable network of its own. */
 export function hostHasUsableNetwork(hostId: string): boolean {
   return hostLinks?.hasUsableNetwork(hostId) ?? false;
+}
+
+/** Send a one-shot request to a remote host; rejects with `HostUnavailableError` while it is offline. */
+export function requestOnHost<K extends HostRequest["kind"]>(
+  hostId: string,
+  request: Extract<HostRequest, { kind: K }>,
+  timeoutMs: number,
+): Promise<Extract<HostResponse, { kind: K }>> {
+  if (!hostLinks) throw new Error(`Remote hosts are not available on this server; cannot reach host ${hostId}`);
+  return hostLinks.request(hostId, request, timeoutMs);
 }
 
 /** The machine for a session: its remote host when it has one, otherwise this machine. */

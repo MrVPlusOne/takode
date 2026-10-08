@@ -31,13 +31,15 @@ describe("resolveRemoteHostForCreate", () => {
   it("returns the host for a valid remote request and nothing for a local one", async () => {
     expect(await resolve({})).toBeUndefined();
     expect(await resolve({ hostId }, "/path/that/exists/only/on/the/host")).toBe(hostId);
+    // Worktree sessions are created on the host itself.
+    expect(await resolve({ hostId, useWorktree: true }, "/srv/repo")).toBe(hostId);
   });
 
   // Anything not yet supported remotely is refused rather than silently run on this machine.
   it("refuses unknown hosts and unsupported remote options", async () => {
     const cwd = "/srv/repo";
     await expect(resolve({ hostId: "missing" }, cwd)).rejects.toThrow("Unknown host");
-    await expect(resolve({ hostId, useWorktree: true }, cwd)).rejects.toThrow("Worktree");
+    await expect(resolve({ hostId, assistantMode: true }, cwd)).rejects.toThrow("Assistant mode");
     await expect(resolve({ hostId }, "relative/path")).rejects.toThrow("absolute working directory");
     await expect(resolve({ hostId }, undefined)).rejects.toThrow("absolute working directory");
   });

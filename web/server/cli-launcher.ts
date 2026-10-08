@@ -23,7 +23,7 @@ import {
   getOrchestratorGuardrails as renderOrchestratorGuardrails,
 } from "./cli-launcher-instructions.js";
 import { MissingCodexBinaryError, prepareCodexSpawn } from "./cli-launcher-codex.js";
-import { prepareWorktreeSessionArtifacts } from "./cli-launcher-worktree.js";
+import { onMachine } from "./remote-host/host-operations.js";
 import { ensureQuestJourneyPhaseDataForCwd } from "./quest-journey-phases.js";
 import type { HostLinkManager, RemoteProcess, RemoteSpawnOptions } from "./remote-host/host-link-manager.js";
 import type { HostRegistry } from "./remote-host/host-registry.js";
@@ -577,12 +577,12 @@ export class CliLauncher {
 
     // Inject backend-specific worktree guardrails.
     if (info.isWorktree && info.branch) {
-      await prepareWorktreeSessionArtifacts({
+      await onMachine(info.hostId, "prepareWorktreeArtifacts", {
         worktreePath: info.cwd,
         branch: info.actualBranch || info.branch,
         repoRoot: info.repoRoot || "",
         backendType,
-      });
+      }).catch((error) => console.warn(`[cli-launcher] Could not prepare worktree files for ${sessionId}:`, error));
     }
 
     // Pre-set cliSessionId for resume so subsequent relaunches also use --resume

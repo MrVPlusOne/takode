@@ -86,7 +86,12 @@ export type HostRequest =
    * (see `prepareCodexSpawn`); the host keeps the resulting command and returns
    * an id for a later `spawn` plus the settings the coordinator's adapter needs.
    */
-  | { kind: "prepare_codex"; sessionId: string; info: unknown; options: unknown };
+  | { kind: "prepare_codex"; sessionId: string; info: unknown; options: unknown }
+  /**
+   * Run one of the named operations a session's machine performs on its own
+   * repos and files (see `host-operations.ts`), with JSON arguments.
+   */
+  | { kind: "operation"; name: string; args: unknown[] };
 
 export type HostResponse =
   | { kind: "exec"; code: number | null; signal: string | null; stdout: string; stderr: string; truncated: boolean }
@@ -94,7 +99,8 @@ export type HostResponse =
   | { kind: "read_file"; data: string; truncated: boolean }
   | { kind: "stat"; stat: { size: number; isFile: boolean; isDirectory: boolean; mtimeMs: number } | null }
   | { kind: "write_file" }
-  | { kind: "prepare_codex"; launchId: string; adapterSettings: Record<string, unknown> };
+  | { kind: "prepare_codex"; launchId: string; adapterSettings: Record<string, unknown> }
+  | { kind: "operation"; result: unknown };
 
 export type HostToCoordinator =
   | {

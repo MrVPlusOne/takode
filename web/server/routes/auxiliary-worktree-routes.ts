@@ -31,6 +31,15 @@ export function registerAuxiliaryWorktreeRoutes(api: Hono, ctx: RouteContext, li
     if ("response" in auth) return auth.response;
     const id = ctx.resolveId(c.req.param("id"));
     if (id !== auth.callerId) return c.json({ error: "Register worktrees only for your own session" }, 403);
+    if (ctx.launcher?.getSession(id)?.hostId) {
+      // Registration inspects and later removes the path on this machine, not on the session's host.
+      return c.json(
+        {
+          error: "Additional worktrees cannot be registered from a session on a remote host; keep and report the path",
+        },
+        409,
+      );
+    }
     const input = await c.req.json().catch(() => null);
     if (
       !input ||

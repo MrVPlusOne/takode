@@ -3,6 +3,7 @@ import * as gitUtils from "../git-utils.js";
 import type { WorktreeMapping, WorktreeTracker } from "../worktree-tracker.js";
 import { retireDisposableWorktreeBranch, type WorktreeBranchUse } from "../worktree-branch-retirement.js";
 import type { AuxiliaryWorktreeRegistration } from "../auxiliary-worktree-registry.js";
+import { onMachine } from "../remote-host/host-operations.js";
 
 export type WorktreeCleanupStatus = "pending" | "done" | "failed";
 export type WorktreeCleanupResult = { cleaned?: boolean; dirty?: boolean; path?: string; reason?: string } | undefined;
@@ -22,6 +23,7 @@ interface WorktreeSessionInfo {
   branch?: string;
   actualBranch?: string;
   disposableBranch?: WorktreeMapping["disposableBranch"];
+  hostId?: string;
 }
 
 interface WorktreeCleanupLauncher {
@@ -76,6 +78,7 @@ export function resolveWorktreeCleanupTarget(
     disposableBranch: session.disposableBranch,
     worktreePath: session.cwd,
     createdAt: Date.now(),
+    ...(session.hostId ? { hostId: session.hostId } : {}),
   };
 }
 
@@ -85,46 +88,45 @@ export async function cleanupWorktree(
   force?: boolean,
   options?: { archiveOwnedBranch?: boolean; branchUsers?: () => WorktreeBranchUse[] },
 ): Promise<WorktreeCleanupResult> {
+  // Paths and branches only identify a checkout together with its machine.
+  const onTargetMachine = (hostId: string | undefined) => (hostId ?? undefined) === (target.hostId ?? undefined);
   const remove = async (registrations: AuxiliaryWorktreeRegistration[] = []): Promise<WorktreeCleanupResult> => {
-    if (worktreeTracker.isWorktreeInUse(target.worktreePath, target.sessionId)) {
+    if (worktreeTracker.isWorktreeInUse(target.worktreePath, target.sessionId, target.hostId)) {
       worktreeTracker.removeBySession(target.sessionId);
       return { cleaned: false, path: target.worktreePath };
     }
-    const dirty = await gitUtils.isWorktreeDirtyAsync(target.worktreePath);
-    if (dirty && !force) return { cleaned: false, dirty: true, path: target.worktreePath };
-    const shouldForceRemove = Boolean(force || dirty);
-    // Original archive force-removal remains independent of branch retention.
-    const result = await gitUtils.removeWorktreeAsync(target.repoRoot, target.worktreePath, {
-      force: shouldForceRemove,
+    const retireBranch =
+      options?.archiveOwnedBranch && target.disposableBranch
+        ? {
+            users: [
+              ...worktreeTracker.load(true),
+              ...(options.branchUsers?.() ?? []).filter(
+                (user) => !user.archived || user.sessionId === target.sessionId,
+              ),
+            ].filter((user) => onTargetMachine(user.hostId)),
+            // Auxiliary registrations are on this machine.
+            registrations: target.hostId ? [] : registrations,
+          }
+        : undefined;
+    const result = await onMachine(target.hostId, "removeWorktreeCheckout", target, {
+      force: Boolean(force),
+      ...(retireBranch ? { retireBranch } : {}),
     });
-    let branchError: string | undefined;
-    if (result.removed && options?.archiveOwnedBranch && target.disposableBranch) {
-      try {
-        const users = [
-          ...worktreeTracker.load(true),
-          ...(options.branchUsers?.() ?? []).filter((user) => !user.archived || user.sessionId === target.sessionId),
-        ];
-        await retireDisposableWorktreeBranch(target, users, registrations);
-      } catch (error) {
-        // Keep the branch on any uncertainty, without leaving the environment behind.
-        branchError = `Checkout removed; branch cleanup failed: ${error instanceof Error ? error.message : String(error)}`;
-      }
-    }
-    if (result.removed) worktreeTracker.removeBySession(target.sessionId);
-    return {
-      cleaned: result.removed,
-      path: target.worktreePath,
-      reason: branchError ?? withCleanupContext(result.reason, target, { force: shouldForceRemove }),
-    };
+    if (result.cleaned) worktreeTracker.removeBySession(target.sessionId);
+    return result;
   };
   if (!worktreeTracker.auxiliary) return remove();
   return worktreeTracker.auxiliary.update(async (records) => {
     const canonicalPath = await canonicalWorktreePath(target.worktreePath);
     const mappings = worktreeTracker.load(true);
     const users = [
-      ...mappings.map((mapping) => ({ sessionId: mapping.sessionId, cwd: mapping.worktreePath })),
+      ...mappings.map((mapping) => ({
+        sessionId: mapping.sessionId,
+        cwd: mapping.worktreePath,
+        hostId: mapping.hostId,
+      })),
       ...(options?.branchUsers?.() ?? []).filter((user) => !user.archived),
-    ];
+    ].filter((user) => onTargetMachine(user.hostId));
     for (const user of users) {
       if (
         user.sessionId !== target.sessionId &&
@@ -135,7 +137,10 @@ export async function cleanupWorktree(
         return { cleaned: false, path: target.worktreePath };
       }
     }
-    if (records.some((record) => record.cleanupStatus !== "done" && pathsOverlap(record.worktreePath, canonicalPath))) {
+    if (
+      !target.hostId &&
+      records.some((record) => record.cleanupStatus !== "done" && pathsOverlap(record.worktreePath, canonicalPath))
+    ) {
       return {
         cleaned: false,
         path: target.worktreePath,
@@ -144,6 +149,42 @@ export async function cleanupWorktree(
     }
     return remove(records);
   });
+}
+
+/**
+ * Remove a session's checkout on the machine it lives on. A dirty checkout is
+ * kept unless `force`. With `retireBranch`, the disposable branch Takode created
+ * for it is retired too, unless one of `users` (other sessions on the same
+ * machine) or `registrations` still uses it.
+ */
+export async function removeWorktreeCheckout(
+  target: WorktreeCleanupTarget,
+  options: {
+    force: boolean;
+    retireBranch?: { users: WorktreeBranchUse[]; registrations: AuxiliaryWorktreeRegistration[] };
+  },
+): Promise<NonNullable<WorktreeCleanupResult>> {
+  const dirty = await gitUtils.isWorktreeDirtyAsync(target.worktreePath);
+  if (dirty && !options.force) return { cleaned: false, dirty: true, path: target.worktreePath };
+  const shouldForceRemove = options.force || dirty;
+  // Original archive force-removal remains independent of branch retention.
+  const result = await gitUtils.removeWorktreeAsync(target.repoRoot, target.worktreePath, {
+    force: shouldForceRemove,
+  });
+  let branchError: string | undefined;
+  if (result.removed && options.retireBranch && target.disposableBranch) {
+    try {
+      await retireDisposableWorktreeBranch(target, options.retireBranch.users, options.retireBranch.registrations);
+    } catch (error) {
+      // Keep the branch on any uncertainty, without leaving the environment behind.
+      branchError = `Checkout removed; branch cleanup failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+  return {
+    cleaned: result.removed,
+    path: target.worktreePath,
+    reason: branchError ?? withCleanupContext(result.reason, target, { force: shouldForceRemove }),
+  };
 }
 
 export async function assessWorktreeCleanupSafety(target: WorktreeCleanupTarget): Promise<WorktreeCleanupSafety> {

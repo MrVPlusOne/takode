@@ -22,8 +22,7 @@ export async function resolveRemoteHostForCreate(options: {
   if (!registry || !(await registry.get(body.hostId))) {
     return fail(`Unknown host: ${body.hostId}`, 400, "resolving_env");
   }
-  // These are not supported on remote hosts yet; refuse rather than run them on this machine.
-  if (body.useWorktree === true) return fail("Worktree sessions are not available on remote hosts yet", 400);
+  // These are not supported on remote hosts; refuse rather than run them on this machine.
   if (body.assistantMode === true) return fail("Assistant mode is not available on remote hosts", 400);
   if (body.container) return fail("Container sessions are not available on remote hosts", 400);
   if (!cwd || !isAbsolute(cwd)) {

@@ -5,6 +5,8 @@ import { resolveBinary, expandTilde } from "../path-resolver.js";
 import { readFile, writeFile, stat, readdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { resolveRemoteHostForCreate } from "./session-remote-host.js";
+import { onMachine } from "../remote-host/host-operations.js";
+import { machineFor } from "../remote-host/session-machine.js";
 import { homedir } from "node:os";
 import { type CliLauncher, type LaunchOptions } from "../cli-launcher.js";
 import * as envManager from "../env-manager.js";
@@ -352,6 +354,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
         disposableBranch: sessionConfig.worktreeInfo.disposableBranch,
         worktreePath: sessionConfig.worktreeInfo.worktreePath,
         createdAt: Date.now(),
+        ...(sessionConfig.launchOptions.hostId ? { hostId: sessionConfig.launchOptions.hostId } : {}),
       });
     }
 
@@ -567,6 +570,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const preparedWorktree = await prepareWorktreeForSessionCreate({
       body,
       cwd,
+      ...(remoteHostId ? { hostId: remoteHostId } : {}),
       isOrchestrator,
       emit,
       throwPreparationError,
@@ -1573,12 +1577,14 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     // Worktree sessions: validate the worktree still exists and isn't used by another session
     if (info.isWorktree && info.repoRoot && info.branch) {
-      const cwdExists = await pathExists(info.cwd);
-      const usedByOther = worktreeTracker.isWorktreeInUse(info.cwd, id);
+      const cwdExists = info.hostId
+        ? (await machineFor(info.hostId).stat(info.cwd)) !== null
+        : await pathExists(info.cwd);
+      const usedByOther = worktreeTracker.isWorktreeInUse(info.cwd, id, info.hostId);
 
       if (!cwdExists || usedByOther) {
         // Recreate the worktree at a new unique path
-        const wt = await gitUtils.ensureWorktreeAsync(info.repoRoot, info.branch, { forceNew: true });
+        const wt = await onMachine(info.hostId, "ensureWorktree", info.repoRoot, info.branch, { forceNew: true });
         info.cwd = wt.worktreePath;
         info.actualBranch = wt.actualBranch;
         info.disposableBranch = info.isOrchestrator ? undefined : wt.createdBranch;
@@ -1594,6 +1600,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
           disposableBranch: info.disposableBranch,
           worktreePath: wt.worktreePath,
           createdAt: Date.now(),
+          ...(info.hostId ? { hostId: info.hostId } : {}),
         });
       } else if (!worktreeTracker.getBySession(id)) {
         // Re-register this session with the tracker (e.g., mapping was lost during archive)
@@ -1605,6 +1612,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
           disposableBranch: info.disposableBranch,
           worktreePath: info.cwd,
           createdAt: Date.now(),
+          ...(info.hostId ? { hostId: info.hostId } : {}),
         });
       }
     }

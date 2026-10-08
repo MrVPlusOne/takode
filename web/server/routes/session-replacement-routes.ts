@@ -110,6 +110,12 @@ async function validateReplacementTarget(
   if (!worker.isWorktree || !worker.repoRoot || !worker.branch || !worker.actualBranch || !worker.cwd) {
     return Response.json({ error: "Replacement requires a worktree-backed worker session" }, { status: 400 });
   }
+  if (worker.hostId) {
+    return Response.json(
+      { error: "Replacing a worker on a remote host is not available; spawn a new worker instead" },
+      { status: 400 },
+    );
+  }
   if (worker.worktreeCleanupStatus === "pending") {
     return Response.json({ error: "Cannot replace a worker while worktree cleanup is pending" }, { status: 409 });
   }

@@ -1,5 +1,5 @@
 import type { CreatedWorktreeBranch } from "../worktree-branch-retirement.js";
-import * as gitUtils from "../git-utils.js";
+import { onMachine } from "../remote-host/host-operations.js";
 import type { CreationStepId } from "../session-types.js";
 import { withProgressHeartbeat } from "./progress-heartbeat.js";
 import type { SessionPreparationStatus } from "./sessions-helpers.js";
@@ -35,11 +35,13 @@ export interface WorktreeSessionInfo {
 export async function prepareWorktreeForSessionCreate(options: {
   body: Record<string, any>;
   cwd: string | undefined;
+  /** Remote host the session runs on; the worktree is created there. */
+  hostId?: string;
   isOrchestrator: boolean;
   emit: EmitCreationProgress;
   throwPreparationError: ThrowPreparationError;
 }): Promise<{ cwd: string; worktreeInfo: WorktreeSessionInfo } | null> {
-  const { body, cwd, isOrchestrator, emit, throwPreparationError: fail } = options;
+  const { body, cwd, hostId, isOrchestrator, emit, throwPreparationError: fail } = options;
   if (body.useWorktree !== true) return null;
 
   if (body.branch && !/^[a-zA-Z0-9/_.\-]+$/.test(body.branch)) {
@@ -51,7 +53,7 @@ export async function prepareWorktreeForSessionCreate(options: {
   }
 
   await emit("creating_worktree", "Creating worktree...", "in_progress");
-  const maybeRepoInfo = await gitUtils.getRepoInfoAsync(worktreeCwd);
+  const maybeRepoInfo = await onMachine(hostId, "repoInfo", worktreeCwd);
   if (!maybeRepoInfo) {
     return fail("Worktree mode requires a git repository", 400, "creating_worktree");
   }
@@ -91,7 +93,7 @@ export async function prepareWorktreeForSessionCreate(options: {
       detail: `Still preparing ${targetBranch}...`,
     },
     () =>
-      gitUtils.ensureWorktreeAsync(repoInfo.repoRoot, targetBranch, {
+      onMachine(hostId, "ensureWorktree", repoInfo.repoRoot, targetBranch, {
         baseBranch: repoInfo.defaultBranch,
         createBranch: body.createBranch,
         forceNew: true,

@@ -4,6 +4,7 @@ import { containerManager } from "../container-manager.js";
 import { getActorSessionId, getArchiveSource } from "./sessions-helpers.js";
 import { broadcastSessionArchived } from "./session-lifecycle-broadcast.js";
 import type { RouteContext } from "./context.js";
+import { machineFor } from "../remote-host/session-machine.js";
 
 type WorktreeCleanupStatus = "pending" | "done" | "failed";
 type QueuedWorktreeCleanupResult = { status: WorktreeCleanupStatus; path?: string } | undefined;
@@ -243,7 +244,10 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
     // For worktree sessions: recreate the worktree if it was deleted during archiving
     let worktreeRecreated = false;
     if (info.isWorktree && info.repoRoot && info.branch) {
-      if (!(await pathExists(info.cwd))) {
+      const checkoutExists = info.hostId
+        ? (await machineFor(info.hostId).stat(info.cwd)) !== null
+        : await pathExists(info.cwd);
+      if (!checkoutExists) {
         try {
           const result = await recreateWorktreeIfMissing(id, info, { launcher, worktreeTracker, wsBridge });
           if (result.error) {
@@ -270,6 +274,7 @@ export function registerSessionsArchiveRoutes(api: Hono, deps: SessionsArchiveRo
           disposableBranch: info.disposableBranch,
           worktreePath: info.cwd,
           createdAt: Date.now(),
+          ...(info.hostId ? { hostId: info.hostId } : {}),
         });
         applyInitialSessionState(id, {
           cwd: info.cwd,

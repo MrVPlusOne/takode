@@ -16,6 +16,8 @@ export interface WorktreeMapping {
   disposableBranch?: CreatedWorktreeBranch;
   worktreePath: string;
   createdAt: number;
+  /** Remote host the checkout is on; absent for this machine. */
+  hostId?: string;
 }
 
 // ─── Paths ──────────────────────────────────────────────────────────────────
@@ -90,7 +92,9 @@ export class WorktreeTracker {
     return this.mappings.filter((m) => m.repoRoot === repoRoot);
   }
 
-  isWorktreeInUse(worktreePath: string, excludeSessionId?: string): boolean {
-    return this.mappings.some((m) => m.worktreePath === worktreePath && m.sessionId !== excludeSessionId);
+  isWorktreeInUse(worktreePath: string, excludeSessionId?: string, hostId?: string): boolean {
+    return this.mappings.some(
+      (m) => m.worktreePath === worktreePath && m.hostId === hostId && m.sessionId !== excludeSessionId,
+    );
   }
 }

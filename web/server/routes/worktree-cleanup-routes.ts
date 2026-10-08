@@ -2,8 +2,9 @@ import { relative, resolve } from "node:path";
 import type { Hono } from "hono";
 import { WORKTREES_BASE } from "../git-utils.js";
 import type { RouteContext } from "./context.js";
+import { onMachine } from "../remote-host/host-operations.js";
+import { machineFor } from "../remote-host/session-machine.js";
 import {
-  assessWorktreeCleanupSafety,
   resolveWorktreeCleanupTarget,
   type WorktreeCleanupSafety,
   type WorktreeCleanupStatus,
@@ -50,9 +51,10 @@ function isUnderPath(child: string, parent: string): boolean {
   return rel === "" || (!!rel && !rel.startsWith("..") && !rel.startsWith("/"));
 }
 
-function ownershipReason(input: { hasMapping: boolean; worktreePath: string }): string | null {
+function ownershipReason(input: { hasMapping: boolean; worktreePath: string; remote: boolean }): string | null {
   if (input.hasMapping) return "tracker";
-  if (isUnderPath(input.worktreePath, WORKTREES_BASE)) return "takode-worktree-root";
+  // The worktree root is this machine's; a remote checkout is owned only through the tracker.
+  if (!input.remote && isUnderPath(input.worktreePath, WORKTREES_BASE)) return "takode-worktree-root";
   return null;
 }
 
@@ -89,7 +91,7 @@ async function buildCandidate(
 
   const mapping = deps.worktreeTracker.getBySession(session.sessionId);
   const worktreePath = mapping?.worktreePath ?? session.cwd;
-  const reason = ownershipReason({ hasMapping: !!mapping, worktreePath });
+  const reason = ownershipReason({ hasMapping: !!mapping, worktreePath, remote: !!session.hostId });
   if (!reason) return null;
   const repoRoot = mapping?.repoRoot ?? session.repoRoot;
   const branch = mapping?.branch ?? session.branch;
@@ -97,14 +99,27 @@ async function buildCandidate(
 
   const trackerUsers = deps.worktreeTracker
     .getSessionsForWorktree(worktreePath)
+    .filter((entry) => entry.hostId === session.hostId)
     .map((entry) => entry.sessionId)
     .filter((id) => id !== session.sessionId);
   const activeUsers = deps.launcher
     .listSessions()
-    .filter((other) => other.sessionId !== session.sessionId && !other.archived && other.cwd === worktreePath)
+    .filter(
+      (other) =>
+        other.sessionId !== session.sessionId &&
+        !other.archived &&
+        other.cwd === worktreePath &&
+        other.hostId === session.hostId,
+    )
     .map((other) => other.sessionId);
   const inUseBy = [...new Set([...trackerUsers, ...activeUsers])];
-  const exists = await deps.pathExists(worktreePath);
+  const exists = session.hostId
+    ? await machineFor(session.hostId)
+        .stat(worktreePath)
+        .then((stat) => stat !== null)
+        // An offline host's checkout cannot be inspected or cleaned now.
+        .catch(() => false)
+    : await deps.pathExists(worktreePath);
 
   const candidate: WorktreeCleanupCandidate = {
     sessionId: session.sessionId,
@@ -170,7 +185,7 @@ export function registerWorktreeCleanupRoutes(api: Hono, deps: WorktreeCleanupRo
     if (!target) return c.json({ error: "Worktree cleanup target could not be resolved", candidate }, 404);
 
     if (candidate.exists) {
-      const safety = await assessWorktreeCleanupSafety(target);
+      const safety = await onMachine(target.hostId, "worktreeCleanupSafety", target);
       if (safety.status !== "safe") {
         return c.json(
           {

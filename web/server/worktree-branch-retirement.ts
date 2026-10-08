@@ -17,6 +17,8 @@ export interface WorktreeBranchUse {
   branch?: string;
   actualBranch?: string;
   worktreePortTarget?: { repoRoot: string; branch: string };
+  /** Remote host the session runs on; absent for this machine. */
+  hostId?: string;
 }
 
 async function git(cwd: string, args: string[], input?: string): Promise<string> {

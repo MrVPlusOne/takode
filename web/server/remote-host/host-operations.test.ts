@@ -1,0 +1,105 @@
+import { execFileSync } from "node:child_process";
+import { access, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { FakeHostLink } from "../test-fixtures/fake-host-link.js";
+import { HostAgent } from "./host-agent.js";
+import { HostLinkManager } from "./host-link-manager.js";
+import { onMachine } from "./host-operations.js";
+import { configureRemoteMachines, requestOnHost } from "./session-machine.js";
+
+async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const started = Date.now();
+  while (!condition()) {
+    if (Date.now() - started > timeoutMs) throw new Error("Timed out waiting for condition");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
+}
+
+/**
+ * Worktree operations for a session on a remote host run on that host. The
+ * "remote" host is an in-process HostAgent reached only through the host link,
+ * and every path lives under a temporary directory.
+ */
+describe("host operations", () => {
+  const hostId = "host-1";
+  let manager: HostLinkManager;
+  let agent: HostAgent;
+  let dir: string;
+  let repo: string;
+  let checkout: string;
+
+  beforeEach(async () => {
+    dir = await realpath(await mkdtemp(join(tmpdir(), "host-operations-")));
+    repo = join(dir, "repo");
+    checkout = join(dir, "checkout");
+    execFileSync("git", ["init", "-q", "-b", "main", repo]);
+    git(
+      repo,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    );
+    git(repo, "worktree", "add", "-q", "-b", "main-wt-1", checkout);
+
+    manager = new HostLinkManager();
+    configureRemoteMachines(manager);
+    agent = new HostAgent({
+      coordinatorUrl: "http://coordinator.test",
+      token: "token",
+      apiProxyPort: 45_678,
+      log: () => {},
+      connect: () => new FakeHostLink(manager, hostId).agentSide,
+    });
+    agent.start();
+    await waitFor(() => manager.status(hostId).online);
+  });
+
+  afterEach(async () => {
+    agent.stop();
+    configureRemoteMachines(null);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  // The same call answers from this machine without a host and from the host
+  // with one, and results survive the trip as JSON.
+  it("inspects a repo and checks cleanup safety on the session's machine", async () => {
+    const local = await onMachine(undefined, "repoInfo", checkout);
+    expect(await onMachine(hostId, "repoInfo", checkout)).toEqual(local);
+    expect(local).toMatchObject({ repoRoot: repo, currentBranch: "main-wt-1", isWorktree: true });
+
+    const target = { sessionId: "s1", repoRoot: repo, branch: "main", worktreePath: checkout, createdAt: 0, hostId };
+    expect(await onMachine(hostId, "worktreeCleanupSafety", target)).toMatchObject({ status: "safe" });
+    await writeFile(join(checkout, "draft.txt"), "unsaved");
+    expect(await onMachine(hostId, "worktreeCleanupSafety", target)).toMatchObject({ status: "blocked", dirty: true });
+  });
+
+  // Archive removes the checkout on the host; a dirty one stays unless forced.
+  it("removes a session's checkout on the host", async () => {
+    const target = { sessionId: "s1", repoRoot: repo, branch: "main", worktreePath: checkout, createdAt: 0, hostId };
+    await writeFile(join(checkout, "draft.txt"), "unsaved");
+    expect(await onMachine(hostId, "removeWorktreeCheckout", target, { force: false })).toMatchObject({
+      cleaned: false,
+      dirty: true,
+    });
+    expect(await onMachine(hostId, "removeWorktreeCheckout", target, { force: true })).toMatchObject({ cleaned: true });
+    await expect(access(checkout)).rejects.toThrow();
+  });
+
+  // The host runs only the named operations, never an arbitrary function.
+  it("refuses an unknown operation", async () => {
+    await expect(requestOnHost(hostId, { kind: "operation", name: "constructor", args: [] }, 5_000)).rejects.toThrow(
+      "Unknown host operation: constructor",
+    );
+  });
+});

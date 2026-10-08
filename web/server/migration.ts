@@ -12,10 +12,11 @@ import {
   renameSync,
 } from "node:fs";
 import { basename, join } from "node:path";
-import { access } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { spawn } from "node:child_process";
 import * as gitUtils from "./git-utils.js";
+import { onMachine } from "./remote-host/host-operations.js";
+import { machineFor } from "./remote-host/session-machine.js";
 import type { SdkSessionInfo } from "./cli-launcher.js";
 import type { CliLauncher } from "./cli-launcher.js";
 import type { WorktreeTracker } from "./worktree-tracker.js";
@@ -472,71 +473,97 @@ export async function recreateWorktreeIfMissing(
   info: SdkSessionInfo,
   deps: { launcher: CliLauncher; worktreeTracker: WorktreeTracker; wsBridge: WsBridge },
 ): Promise<{ recreated: boolean; error?: string }> {
-  try {
-    await access(info.cwd);
-    return { recreated: false };
-  } catch {
-    // Missing cwd: continue to recreation/error handling below.
-  }
+  if ((await machineFor(info.hostId).stat(info.cwd)) !== null) return { recreated: false };
 
   if (!info.isWorktree || !info.repoRoot || !info.branch) {
     return { recreated: false, error: `Working directory not found: ${info.cwd}` };
   }
 
-  const repoInfo = await gitUtils.getRepoInfoAsync(info.repoRoot);
+  const checkout = await onMachine(info.hostId, "recreateSessionCheckout", {
+    oldCwd: info.cwd,
+    repoRoot: info.repoRoot,
+    branch: info.branch,
+    ...(info.actualBranch ? { actualBranch: info.actualBranch } : {}),
+  });
+  if ("error" in checkout) return { recreated: false, error: checkout.error };
+
+  // A restored branch keeps its original ownership proof; a fresh one gets a new one.
+  const disposableBranch = checkout.restored
+    ? info.disposableBranch
+    : info.isOrchestrator
+      ? undefined
+      : checkout.createdBranch;
+  deps.launcher.updateWorktree(sessionId, {
+    cwd: checkout.worktreePath,
+    actualBranch: checkout.actualBranch,
+    disposableBranch,
+  });
+  deps.worktreeTracker.addMapping({
+    sessionId,
+    repoRoot: info.repoRoot,
+    branch: info.branch,
+    actualBranch: checkout.actualBranch,
+    disposableBranch,
+    worktreePath: checkout.worktreePath,
+    createdAt: Date.now(),
+    ...(info.hostId ? { hostId: info.hostId } : {}),
+  });
+  seedWorktreeBridgeState(
+    deps.wsBridge,
+    sessionId,
+    info.repoRoot,
+    checkout.worktreePath,
+    checkout.defaultBranch,
+    info.branch,
+  );
+  console.log(
+    `[migration] ${checkout.restored ? "Restored" : "Recreated"} worktree for session ${sessionId}: ${checkout.worktreePath}`,
+  );
+  return { recreated: true };
+}
+
+/**
+ * Recreate a session's missing checkout on the machine it lives on. The
+ * session's own `-wt-` branch is restored from its archived ref when possible
+ * (`restored`); otherwise a fresh worktree branches from `branch`. Claude Code
+ * transcripts move with the checkout so `--resume` still finds them.
+ */
+export async function recreateSessionCheckout(input: {
+  oldCwd: string;
+  repoRoot: string;
+  branch: string;
+  actualBranch?: string;
+}): Promise<
+  | {
+      worktreePath: string;
+      actualBranch: string;
+      createdBranch?: gitUtils.WorktreeCreateResult["createdBranch"];
+      defaultBranch: string;
+      restored: boolean;
+    }
+  | { error: string }
+> {
+  const repoInfo = await gitUtils.getRepoInfoAsync(input.repoRoot);
   if (!repoInfo) {
-    return {
-      recreated: false,
-      error: `Repository not found at ${info.repoRoot}. Please clone it first, then try again.`,
-    };
+    return { error: `Repository not found at ${input.repoRoot}. Please clone it first, then try again.` };
   }
 
-  const oldCwd = info.cwd;
-
-  // Try to restore the original -wt- branch from its archived ref (q-329).
   // Archive saves branch tips as refs/companion/archived/<branch> so they
   // don't pollute `git branch` output but can be restored here.
-  const actualBranch = info.actualBranch;
-  if (actualBranch && actualBranch !== info.branch) {
+  const { actualBranch } = input;
+  if (actualBranch && actualBranch !== input.branch) {
     const restoredCommit = await gitUtils.restoreArchivedBranchAsync(repoInfo.repoRoot, actualBranch);
     if (restoredCommit) {
       const targetPath = gitUtils.worktreeDir(basename(repoInfo.repoRoot), actualBranch);
       try {
         await gitUtils.gitAsync(`worktree add "${targetPath}" "${actualBranch}"`, repoInfo.repoRoot);
-
-        migrateClaudeProjectDir(oldCwd, targetPath);
-        deps.launcher.updateWorktree(sessionId, {
-          cwd: targetPath,
-          actualBranch,
-          disposableBranch: info.disposableBranch,
-        });
-        deps.worktreeTracker.addMapping({
-          sessionId,
-          repoRoot: info.repoRoot,
-          branch: info.branch,
-          actualBranch,
-          disposableBranch: info.disposableBranch,
-          worktreePath: targetPath,
-          createdAt: Date.now(),
-        });
-        seedWorktreeBridgeState(
-          deps.wsBridge,
-          sessionId,
-          info.repoRoot,
-          targetPath,
-          repoInfo.defaultBranch,
-          info.branch,
-        );
-
-        console.log(
-          `[migration] Restored worktree from archived ref ${actualBranch} for session ${sessionId}: ${targetPath}`,
-        );
-        return { recreated: true };
+        migrateClaudeProjectDir(input.oldCwd, targetPath);
+        return { worktreePath: targetPath, actualBranch, defaultBranch: repoInfo.defaultBranch, restored: true };
       } catch (err) {
         // Branch restored from ref but worktree creation failed (e.g., branch
         // already checked out elsewhere). Fall through to the fresh-branch fallback.
         console.warn(
-          `[migration] Failed to create worktree on restored branch ${actualBranch} for session ${sessionId}, falling back to fresh branch:`,
+          `[migration] Failed to create worktree on restored branch ${actualBranch}, falling back to fresh branch:`,
           err,
         );
       }
@@ -544,43 +571,21 @@ export async function recreateWorktreeIfMissing(
   }
 
   // Fallback: no archived ref exists -- create a fresh worktree from the base branch.
-  const result = await gitUtils.ensureWorktreeAsync(repoInfo.repoRoot, info.branch, {
+  const result = await gitUtils.ensureWorktreeAsync(repoInfo.repoRoot, input.branch, {
     baseBranch: repoInfo.defaultBranch,
     createBranch: false,
     forceNew: true,
   });
-
-  // Move Claude Code JSONL files so --resume can find them at the new project dir.
-  // Claude Code derives the project directory from the cwd, so when the worktree
-  // is recreated with a different -wt-XXXX suffix, the JSONL would otherwise be
-  // stranded at the old project dir path.
-  migrateClaudeProjectDir(oldCwd, result.worktreePath);
-
-  deps.launcher.updateWorktree(sessionId, {
-    cwd: result.worktreePath,
-    actualBranch: result.actualBranch,
-    disposableBranch: info.isOrchestrator ? undefined : result.createdBranch,
-  });
-  deps.worktreeTracker.addMapping({
-    sessionId,
-    repoRoot: info.repoRoot,
-    branch: info.branch,
-    actualBranch: result.actualBranch,
-    disposableBranch: info.isOrchestrator ? undefined : result.createdBranch,
+  // Claude Code derives the project directory from the cwd, so the transcript
+  // would otherwise be stranded at the old project dir path.
+  migrateClaudeProjectDir(input.oldCwd, result.worktreePath);
+  return {
     worktreePath: result.worktreePath,
-    createdAt: Date.now(),
-  });
-  seedWorktreeBridgeState(
-    deps.wsBridge,
-    sessionId,
-    info.repoRoot,
-    result.worktreePath,
-    repoInfo.defaultBranch,
-    info.branch,
-  );
-
-  console.log(`[migration] Recreated worktree for session ${sessionId}: ${result.worktreePath}`);
-  return { recreated: true };
+    actualBranch: result.actualBranch,
+    ...(result.createdBranch ? { createdBranch: result.createdBranch } : {}),
+    defaultBranch: repoInfo.defaultBranch,
+    restored: false,
+  };
 }
 
 function seedWorktreeBridgeState(

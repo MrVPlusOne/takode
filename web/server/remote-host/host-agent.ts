@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { hasUsableNetwork } from "../network-availability.js";
 import { dirname } from "node:path";
 import { getEnrichedPath } from "../path-resolver.js";
+import { performHostOperation } from "./host-operations.js";
 import {
   HOST_HEARTBEAT_MS,
   HOST_LINK_PATH,
@@ -461,6 +462,8 @@ export async function performHostRequest(request: HostRequest): Promise<HostResp
     }
     case "prepare_codex":
       throw new Error("Codex launches are prepared by the host agent");
+    case "operation":
+      return { kind: "operation", result: await performHostOperation(request.name, request.args) };
     case "write_file":
       await mkdir(dirname(request.path), { recursive: true });
       await writeFile(request.path, Buffer.from(request.data, "base64"), { mode: request.mode });
