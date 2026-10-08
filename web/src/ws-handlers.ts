@@ -117,8 +117,9 @@ function mergeLiveAssistantMetadata(
 
   // A completed answer rebroadcast may add automatic visibility or use Main
   // as its source route. Replace proof-bearing route fields so omitted Main
-  // fields do not retain the provisional quest.
-  for (const key of ["threadKey", "questId", "threadRefs"] as const) {
+  // fields do not retain the provisional quest, and a cleared answer-route
+  // rejection does not keep the answer collapsed.
+  for (const key of ["threadKey", "questId", "threadRefs", "threadRoutingError"] as const) {
     if (!incoming || !Object.prototype.hasOwnProperty.call(incoming, key)) delete merged[key];
   }
   return merged;

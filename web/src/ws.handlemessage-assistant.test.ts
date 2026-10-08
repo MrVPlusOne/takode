@@ -432,6 +432,48 @@ describe("handleMessage: assistant", () => {
     expect(answer.metadata).not.toHaveProperty("questId");
   });
 
+  it("drops an earlier answer-route rejection once the same-ID answer is accepted", () => {
+    // The feed collapses rows carrying threadRoutingError. The server clears the
+    // answer-route diagnostic when a retry finalizes the answer, so the accepted
+    // rebroadcast must not inherit the stale rejection from the browser copy.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    const message = {
+      id: "accepted-after-rejection",
+      type: "message",
+      role: "assistant",
+      model: "claude-opus-4-20250514",
+      content: [{ type: "text", text: "Substantive answer" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    };
+    fireMessage({
+      type: "assistant",
+      message,
+      parent_tool_use_id: null,
+      threadKey: "main",
+      leaderThreadRole: "answer",
+      threadRoutingError: {
+        reason: "invalid_answer_route",
+        expected: "Use supplied IDs.",
+        source: "answer_marker",
+      },
+    });
+    fireMessage({
+      type: "assistant",
+      message,
+      parent_tool_use_id: null,
+      threadKey: "main",
+      leaderThreadRole: "answer",
+      threadAnswer: { version: 2, answerUserMessageIds: ["u39"], observedHistoryLength: 39 },
+    });
+
+    const [answer] = useStore.getState().messages.get("s1")!;
+    expect(answer.metadata).toMatchObject({ threadKey: "main", leaderThreadRole: "answer" });
+    expect(answer.metadata).not.toHaveProperty("threadRoutingError");
+  });
+
   it("removes stale root Codex thinking when merging a same-ID assistant update", () => {
     // A live update can merge with pre-fix browser state, so the merge boundary must sanitize both sides.
     wsModule.connectSession("s1");

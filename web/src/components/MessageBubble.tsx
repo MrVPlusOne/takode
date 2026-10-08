@@ -68,6 +68,7 @@ import { reconcileLocalImagePreviewUrls } from "../local-image-previews.js";
 import { useFeedDisplayNotifications } from "./FeedNotificationContext.js";
 import { TimerMessage } from "./TimerMessage.js";
 import { MarkdownReport } from "./MarkdownReport.js";
+import { getRejectedRouteReason, RejectedRouteMessageHeader } from "./RejectedRouteMessageHeader.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
 
@@ -1148,6 +1149,17 @@ function AssistantMessage({
     : renderedGroups.findIndex((group) => group.kind === "content");
   const showRailMarker = !hidePaw || (!readOnly && starred);
   const unstarFromRail = starAction.actionable && starAction.starred ? starAction.toggleStarred : undefined;
+  // Rejected-route text stays one click away; tools and notification chips stay visible.
+  const rejectedRouteReason = hasTextContent ? getRejectedRouteReason(message) : null;
+  const [rejectedRouteExpanded, setRejectedRouteExpanded] = useState(false);
+  const collapseRejectedText = rejectedRouteReason !== null && !rejectedRouteExpanded && !searchHighlight?.isCurrent;
+  const rejectedRouteHeader = rejectedRouteReason && (
+    <RejectedRouteMessageHeader
+      reason={rejectedRouteReason}
+      expanded={!collapseRejectedText}
+      onToggle={() => setRejectedRouteExpanded((value) => !value)}
+    />
+  );
 
   if (!projection.renderable) return null;
 
@@ -1167,31 +1179,38 @@ function AssistantMessage({
             <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />
           )}
           <MessageThreadHeader threadKey={threadKey} onSelectThread={onSelectThread} />
-          {!readOnly && hasTextContent && (
-            <AssistantMessageMenu
-              message={message}
-              contentRef={contentRef}
-              sessionId={sessionId}
-              currentThreadKey={currentThreadKey}
-              showSideChatActions={showSideChatActions}
-            />
+          {rejectedRouteHeader && (
+            <div className={collapseRejectedText ? undefined : "mb-3"}>{rejectedRouteHeader}</div>
           )}
-          {readOnly ? (
-            <MarkdownContent
-              text={projection.fallbackText}
-              sessionId={sessionId}
-              searchHighlight={searchHighlight}
-              fileLinkMode="text-only"
-              questLinkSurface={questLinkSurface}
-            />
-          ) : (
-            <AssistantQuestQuizContent
-              text={projection.fallbackText}
-              sessionId={sessionId}
-              searchHighlight={searchHighlight}
-              enableChatSelectionMenu
-              questLinkSurface={questLinkSurface}
-            />
+          {!collapseRejectedText && (
+            <>
+              {!readOnly && hasTextContent && (
+                <AssistantMessageMenu
+                  message={message}
+                  contentRef={contentRef}
+                  sessionId={sessionId}
+                  currentThreadKey={currentThreadKey}
+                  showSideChatActions={showSideChatActions}
+                />
+              )}
+              {readOnly ? (
+                <MarkdownContent
+                  text={projection.fallbackText}
+                  sessionId={sessionId}
+                  searchHighlight={searchHighlight}
+                  fileLinkMode="text-only"
+                  questLinkSurface={questLinkSurface}
+                />
+              ) : (
+                <AssistantQuestQuizContent
+                  text={projection.fallbackText}
+                  sessionId={sessionId}
+                  searchHighlight={searchHighlight}
+                  enableChatSelectionMenu
+                  questLinkSurface={questLinkSurface}
+                />
+              )}
+            </>
           )}
           <ImagePreviewGroup images={assistantImagePreviewItems} testId="assistant-image-preview-group" />
           {!readOnly && resolvedNotification && (
@@ -1225,7 +1244,8 @@ function AssistantMessage({
       <div ref={contentRef} className="relative flex-1 min-w-0 space-y-3">
         {!readOnly && <AnnotationSourceMarkers sessionId={sessionId} messageId={message.id} contentRef={contentRef} />}
         <MessageThreadHeader threadKey={threadKey} onSelectThread={onSelectThread} />
-        {projection.shouldRenderContentFallback && (
+        {rejectedRouteHeader}
+        {projection.shouldRenderContentFallback && !collapseRejectedText && (
           <div className="flow-root">
             {!readOnly && hasTextContent && (
               <AssistantMessageMenu
@@ -1257,6 +1277,7 @@ function AssistantMessage({
         )}
         {renderedGroups.map((group, i) => {
           if (group.kind === "content") {
+            if (collapseRejectedText) return null;
             const renderedBlock = (
               <ContentBlockRenderer
                 key={i}

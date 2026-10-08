@@ -1226,6 +1226,32 @@ export function PlaygroundThreadRoutingReminderMessage() {
   return <MessageBubble message={message} sessionId="playground-thread-routing-reminder" showTimestamp={false} />;
 }
 
+export function PlaygroundRejectedRouteLeaderMessage() {
+  const message: ChatMessage = {
+    id: "playground-rejected-route-leader-msg",
+    role: "assistant",
+    content:
+      "[thread:q-970](quest:q-970)\n[thread:q-970:C]\n[q-970](quest:q-970) is complete. One check is left for you.",
+    contentBlocks: [
+      {
+        type: "text",
+        text: "[thread:q-970](quest:q-970)\n[thread:q-970:C]\n[q-970](quest:q-970) is complete. One check is left for you.",
+      },
+    ],
+    timestamp: Date.now() - 25_000,
+    metadata: {
+      threadRoutingError: {
+        reason: "invalid",
+        expected: "Start visible leader text with a thread marker.",
+        source: "visible_text",
+        marker: "[thread:q-970]",
+      },
+    },
+  };
+
+  return <MessageBubble message={message} sessionId="playground-rejected-route" showTimestamp={false} />;
+}
+
 export function PlaygroundQuestThreadReminderMessage() {
   const message: ChatMessage = {
     id: "playground-quest-thread-reminder-msg",
