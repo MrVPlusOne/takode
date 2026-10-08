@@ -16,7 +16,11 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
-import { CURRENT_SESSION_SUBSCRIBE, subscribeCurrentBrowser } from "./ws-bridge-current-browser-test-helpers.js";
+import {
+  CURRENT_SESSION_SUBSCRIBE,
+  subscribeCurrentBrowser,
+  waitForBrowserMessage,
+} from "./ws-bridge-current-browser-test-helpers.js";
 import { createClaudeSdkTestBackend } from "./claude-sdk-test-helpers.js";
 import { SessionStore } from "./session-store.js";
 import { RelaunchQueue } from "./relaunch-queue.js";
@@ -99,6 +103,10 @@ function expectAutoPauseProgress(
       }),
     }),
   );
+}
+
+function isStateSnapshot(message: { type?: string }): boolean {
+  return message.type === "state_snapshot";
 }
 
 /** Flush queued ingress, bounded-sync yields, and deferred traffic-stat microtasks. */
@@ -939,13 +947,11 @@ describe("injectUserMessage triggers relaunch for exited sessions", () => {
     const reconnectBrowser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(reconnectBrowser, sid);
     bridge.handleBrowserMessage(reconnectBrowser, CURRENT_SESSION_SUBSCRIBE);
-    await flushAsync();
-    expect(browserEvents(reconnectBrowser)).toContainEqual(
-      expect.objectContaining({
-        type: "state_snapshot",
-        codexAutoPauseRecoveryProgress: "testing",
-      }),
-    );
+    // The subscribe sends its state snapshot only after async bootstrap work
+    // (including a lazy module import), so wait for it instead of a fixed flush.
+    expect(await waitForBrowserMessage(reconnectBrowser, isStateSnapshot)).toMatchObject({
+      codexAutoPauseRecoveryProgress: "testing",
+    });
 
     firstBrowser.send.mockClear();
     adapter.emitTurnStarted("manual-recovery-turn");
@@ -968,10 +974,9 @@ describe("injectUserMessage triggers relaunch for exited sessions", () => {
     const activeReconnect = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(activeReconnect, sid);
     bridge.handleBrowserMessage(activeReconnect, CURRENT_SESSION_SUBSCRIBE);
-    await flushAsync();
-    expect(browserEvents(activeReconnect)).toContainEqual(
-      expect.objectContaining({ type: "state_snapshot", codexAutoPauseRecoveryProgress: "active" }),
-    );
+    expect(await waitForBrowserMessage(activeReconnect, isStateSnapshot)).toMatchObject({
+      codexAutoPauseRecoveryProgress: "active",
+    });
   });
 
   it("retires accepted manual recovery ownership before optimistic user-message timeout becomes idle", async () => {
@@ -1044,13 +1049,9 @@ describe("injectUserMessage triggers relaunch for exited sessions", () => {
     const reconnect = makeBrowserSocket("s-codex-recovery-optimistic-timeout");
     bridge.handleBrowserOpen(reconnect, "s-codex-recovery-optimistic-timeout");
     bridge.handleBrowserMessage(reconnect, CURRENT_SESSION_SUBSCRIBE);
-    await flushAsync();
-    expect(browserEvents(reconnect)).toContainEqual(
-      expect.objectContaining({
-        type: "state_snapshot",
-        codexAutoPauseRecoveryProgress: null,
-      }),
-    );
+    expect(await waitForBrowserMessage(reconnect, isStateSnapshot)).toMatchObject({
+      codexAutoPauseRecoveryProgress: null,
+    });
   });
 
   it.each([
