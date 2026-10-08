@@ -850,6 +850,47 @@ describe("board stall warnings", () => {
     dispatcher.destroy();
   });
 
+  it("routes resource-lease queue waits from the lease manager into the stall check", async () => {
+    // The worker is idle in the lease queue. While the holder has a timer the
+    // wait is legitimate; once the holder has nothing pending the leader is warned
+    // about the holder rather than the queued worker.
+    const { leaderId, workerId, dispatcher, launcherSessions } = setupBoardStallHarness({ workerLiveState: "idle" });
+    launcherSessions.set("lease-holder", {
+      sessionId: "lease-holder",
+      sessionNum: 7,
+      backendType: "claude",
+      cwd: "/repo",
+      lastActivityAt: Date.now() - 5 * 60_000,
+    });
+    let holderHasTimer = true;
+    bridge.setTimerManager({
+      listTimers: vi.fn((sessionId: string) => (holderHasTimer && sessionId === "lease-holder" ? [{ id: "t1" }] : [])),
+    } as any);
+    (bridge as any).resourceLeaseManager = {
+      getLeaseWaits: (sessionId: string) =>
+        sessionId === workerId ? [{ resourceKey: "port:companion:main", holderSessionIds: ["lease-holder"] }] : [],
+    };
+    const injectSpy = vi.spyOn(bridge, "injectUserMessage");
+    const herdCalls = () =>
+      injectSpy.mock.calls.filter(
+        ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
+      );
+
+    bridge.startStuckSessionWatchdog();
+    vi.advanceTimersByTime(181_000);
+    await Promise.resolve();
+    expect(herdCalls()).toHaveLength(0);
+
+    holderHasTimer = false;
+    vi.advanceTimersByTime(121_000);
+    await Promise.resolve();
+    expect(herdCalls()).toHaveLength(1);
+    expect(herdCalls()[0][1]).toContain("worker queued for port:companion:main; lease holder #7");
+
+    injectSpy.mockRestore();
+    dispatcher.destroy();
+  });
+
   it("does not warn when an implementing worker is still connected and generating", async () => {
     const { leaderId, dispatcher } = setupBoardStallHarness({ workerLiveState: "running" });
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");

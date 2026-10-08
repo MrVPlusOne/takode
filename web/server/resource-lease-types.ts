@@ -41,6 +41,12 @@ export interface ResourceLeaseStatus {
   available: boolean;
 }
 
+/** One pool a session is queued for, with the sessions currently holding its slots. */
+export interface ResourceLeaseWait {
+  resourceKey: string;
+  holderSessionIds: string[];
+}
+
 export interface ResourceLeaseAcquireInput {
   resourceKey: string;
   callerSessionId: string;

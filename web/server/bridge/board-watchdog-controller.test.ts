@@ -180,6 +180,145 @@ describe("Work Board stall occurrences", () => {
   });
 });
 
+describe("Work Board stall check for resource-lease waits", () => {
+  // Fixture: an idle Work-stage worker (#10) on the leader's board, plus other
+  // sessions that may hold the lease pools it waits in. Each runtime entry
+  // controls whether that session is generating, has a timer, or went idle when.
+  interface FakeRuntime {
+    sessionNum: number;
+    isGenerating?: boolean;
+    timers?: number;
+    lastActivityAt?: number;
+    archived?: boolean;
+  }
+
+  function setupLeaseWaitStall(runtimes: Record<string, FakeRuntime>, waits: Record<string, Record<string, string[]>>) {
+    const leader = createSession();
+    leader.board.set("q-90", {
+      questId: "q-90",
+      title: "Port behind another landing",
+      status: "WORKING",
+      worker: "worker",
+      workerNum: 10,
+      createdAt: 0,
+      updatedAt: 0,
+    });
+    const emitted: Array<Record<string, unknown>> = [];
+    const deps = {
+      getLauncherSessionInfo: vi.fn((sessionId: string) => {
+        if (sessionId === leader.id) return { isOrchestrator: true };
+        const runtime = runtimes[sessionId];
+        return runtime
+          ? { sessionNum: runtime.sessionNum, lastActivityAt: runtime.lastActivityAt ?? 0, archived: runtime.archived }
+          : undefined;
+      }),
+      getSession: vi.fn((sessionId: string) => {
+        const runtime = runtimes[sessionId];
+        return runtime
+          ? { id: sessionId, isGenerating: !!runtime.isGenerating, pendingPermissions: new Map() }
+          : undefined;
+      }),
+      listSessions: vi.fn(() => []),
+      resolveSessionId: vi.fn(() => undefined),
+      timerCount: vi.fn((sessionId: string) => runtimes[sessionId]?.timers ?? 0),
+      getLeaseWaits: vi.fn((sessionId: string) =>
+        Object.entries(waits[sessionId] ?? {}).map(([resourceKey, holderSessionIds]) => ({
+          resourceKey,
+          holderSessionIds,
+        })),
+      ),
+      backendConnected: vi.fn(() => true),
+      getBoard: vi.fn(() => Array.from(leader.board.values())),
+      emitTakodeEvent: vi.fn((_sessionId: string, _type: string, data: Record<string, unknown>) => emitted.push(data)),
+      markNotificationDone: vi.fn(() => true),
+      isSessionIdle: vi.fn(() => true),
+    } as any;
+    // Two sweeps past the 3-minute threshold: the first records the stall, the second warns.
+    const sweepPastThreshold = () => {
+      sweepBoardStallWarnings([leader], 0, deps);
+      sweepBoardStallWarnings([leader], 180_001, deps);
+    };
+    return { leader, deps, emitted, sweepPastThreshold };
+  }
+
+  it("does not flag a worker queued behind a holder that is still working", () => {
+    // The reported false alarm: the worker ended its turn to wait for the port
+    // lease while the holder was landing another quest.
+    const { emitted, sweepPastThreshold } = setupLeaseWaitStall(
+      { worker: { sessionNum: 10 }, holder: { sessionNum: 11, isGenerating: true } },
+      { worker: { "port:takode:jiayi": ["holder"] } },
+    );
+    sweepPastThreshold();
+    expect(emitted).toHaveLength(0);
+  });
+
+  it("treats a holder with an active timer or its own progressing lease wait as working", () => {
+    // Holder A waits on a timer; holder B is itself queued behind a running C.
+    const { emitted, sweepPastThreshold } = setupLeaseWaitStall(
+      {
+        worker: { sessionNum: 10 },
+        a: { sessionNum: 11, timers: 1 },
+        b: { sessionNum: 12 },
+        c: { sessionNum: 13, isGenerating: true },
+      },
+      { worker: { "port:x": ["a"], "dev-server:x": ["b"] }, b: { "agent-browser": ["c"] } },
+    );
+    sweepPastThreshold();
+    expect(emitted).toHaveLength(0);
+  });
+
+  it("surfaces a queued worker when the lease holder itself has stalled", () => {
+    const { emitted, sweepPastThreshold } = setupLeaseWaitStall(
+      { worker: { sessionNum: 10 }, holder: { sessionNum: 11 } },
+      { worker: { "port:takode:jiayi": ["holder"] } },
+    );
+    sweepPastThreshold();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({
+      questId: "q-90",
+      workerStatus: "idle",
+      reason: "worker queued for port:takode:jiayi; lease holder #11 idle",
+      signature: "q-90|WORKING|lease:port:takode:jiayi|holder|since:0",
+    });
+  });
+
+  it("surfaces a lease deadlock where the holder waits on the worker", () => {
+    // Worker waits for a lease held by #11, which waits for one the worker holds.
+    const { emitted, sweepPastThreshold } = setupLeaseWaitStall(
+      { worker: { sessionNum: 10 }, holder: { sessionNum: 11 } },
+      { worker: { "port:x": ["holder"] }, holder: { "dev-server:x": ["worker"] } },
+    );
+    sweepPastThreshold();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]?.reason).toBe("worker queued for port:x; lease holder #11 idle");
+  });
+
+  it("surfaces an archived holder and counts the stall from the holder's last activity", () => {
+    const { leader, deps, emitted } = setupLeaseWaitStall(
+      { worker: { sessionNum: 10 }, holder: { sessionNum: 11, archived: true, lastActivityAt: 100_000 } },
+      { worker: { "port:x": ["holder"] } },
+    );
+    sweepBoardStallWarnings([leader], 100_000, deps);
+    sweepBoardStallWarnings([leader], 200_000, deps);
+    expect(emitted).toHaveLength(0);
+    sweepBoardStallWarnings([leader], 280_001, deps);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]?.reason).toBe("worker queued for port:x; lease holder #11 missing");
+  });
+
+  it("keeps the ordinary idle-worker alert when the worker is not queued for a lease", () => {
+    // Includes the case where the worker believes it is queued but no longer is,
+    // for example after a promotion message it never acted on.
+    const { emitted, sweepPastThreshold } = setupLeaseWaitStall(
+      { worker: { sessionNum: 10 }, holder: { sessionNum: 11, isGenerating: true } },
+      { holder: {} },
+    );
+    sweepPastThreshold();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({ reason: "worker idle", signature: "q-90|WORKING|idle|since:0" });
+  });
+});
+
 describe("Work Board leader thread tabs", () => {
   it("persists server-owned leader thread tabs when active board rows are created", () => {
     const session = createSession();

@@ -33,6 +33,7 @@ import type {
   TakodeEvent,
   TakodeHerdBatchSnapshot,
 } from "../session-types.js";
+import type { ResourceLeaseWait } from "../resource-lease-types.js";
 import { formatRenderedHerdEventBatch } from "../herd-event-dispatcher.js";
 import { markCodexAutoPauseRecoverySuppressed } from "./codex-auto-pause-recovery-summary.js";
 
@@ -77,6 +78,8 @@ export interface BoardWatchdogDeps {
   listSessions: () => any[];
   resolveSessionId: (ref: string) => string | undefined;
   timerCount: (sessionId: string) => number;
+  /** Lease pools the session is queued for, with their current holders. */
+  getLeaseWaits?: (sessionId: string) => readonly ResourceLeaseWait[];
   backendConnected: (session: SessionLike) => boolean;
   getBoard: (sessionId: string) => BoardRow[];
   getBoardRowsForQuest?: (questId: string) => BoardRow[];
@@ -1717,6 +1720,32 @@ function buildBoardStallCandidate(
 
   if (isActiveWorkerOwnedBoardRow(row)) {
     if (!workerSessionId || workerRuntime.hasActiveTimer || workerRuntime.status === "running") return null;
+    const leaseWait =
+      workerRuntime.status === "missing" ? null : assessLeaseWait(workerSessionId, deps, session, new Set());
+    // A queued worker resumes on the Resource Lease promotion message, so its
+    // wait is legitimate while the pool's holders are still making progress.
+    if (leaseWait === "progressing") return null;
+    if (leaseWait) {
+      const holderIds = leaseWait.holders.map((holder) => holder.sessionId);
+      const holderLabels = leaseWait.holders.map(
+        (holder) => `${formatBoardSessionRef(holder.sessionId, deps)} ${holder.status}`,
+      );
+      return {
+        signature: `${row.questId}|${stage}|lease:${leaseWait.resourceKey}|${[...holderIds].sort().join(",")}`,
+        sourceSessionId: workerSessionId,
+        questId: row.questId,
+        title,
+        stage,
+        workerStatus: workerRuntime.status,
+        reviewerStatus: reviewerRuntime.status,
+        stalledSince: stalledSinceFrom(
+          workerRuntime.lastActivityAt,
+          ...leaseWait.holders.map((holder) => holder.lastActivityAt),
+        ),
+        reason: `worker queued for ${leaseWait.resourceKey}; lease ${holderLabels.length > 1 ? "holders" : "holder"} ${holderLabels.join(", ")}`,
+        action: "inspect the lease holder; get it to finish and release, or force-release the lease",
+      };
+    }
     return {
       signature: `${row.questId}|${stage}|${workerRuntime.status}`,
       sourceSessionId: workerSessionId,
@@ -1815,6 +1844,56 @@ function getBoardParticipantRuntime(
     return { status: "running", lastActivityAt: launcherInfo?.lastActivityAt ?? 0, hasActiveTimer };
   }
   return { status: "idle", lastActivityAt: launcherInfo?.lastActivityAt ?? 0, hasActiveTimer };
+}
+
+interface StuckLeaseWait {
+  resourceKey: string;
+  holders: Array<{ sessionId: string; status: BoardStallStatus; lastActivityAt: number }>;
+}
+
+/**
+ * Classify a session's resource-lease queue wait. Returns null when it is not
+ * queued, "progressing" when every queued pool has a holder that is running,
+ * has an active timer, or is itself in a progressing lease wait, and otherwise
+ * the first pool whose holders have all stopped. `path` holds the sessions
+ * already on this wait chain, so a lease deadlock counts as stuck.
+ */
+function assessLeaseWait(
+  sessionId: string,
+  deps: BoardWatchdogDeps,
+  currentSession: SessionLike,
+  path: ReadonlySet<string>,
+): "progressing" | StuckLeaseWait | null {
+  const waits = deps.getLeaseWaits?.(sessionId) ?? [];
+  if (waits.length === 0) return null;
+  const chain = new Set([...path, sessionId]);
+  for (const wait of waits) {
+    // A pool with a free slot is promoted by the next lease sweep.
+    if (wait.holderSessionIds.length === 0) continue;
+    const holders = wait.holderSessionIds.map((holderId) => ({
+      sessionId: holderId,
+      ...getBoardParticipantRuntime(holderId, deps, currentSession),
+    }));
+    const progressing = holders.some(
+      (holder) =>
+        holder.status === "running" ||
+        holder.hasActiveTimer ||
+        (!chain.has(holder.sessionId) &&
+          assessLeaseWait(holder.sessionId, deps, currentSession, chain) === "progressing"),
+    );
+    if (!progressing) {
+      return {
+        resourceKey: wait.resourceKey,
+        holders: holders.map(({ sessionId, status, lastActivityAt }) => ({ sessionId, status, lastActivityAt })),
+      };
+    }
+  }
+  return "progressing";
+}
+
+function formatBoardSessionRef(sessionId: string, deps: BoardWatchdogDeps): string {
+  const sessionNum = deps.getLauncherSessionInfo(sessionId)?.sessionNum;
+  return typeof sessionNum === "number" ? `#${sessionNum}` : sessionId.slice(0, 8);
 }
 
 function isLiveBoardWatchdogEvent(session: SessionLike, event: TakodeEvent, deps: BoardWatchdogDeps): boolean {

@@ -91,6 +91,28 @@ describe("ResourceLeaseManager", () => {
     );
   });
 
+  it("reports each queued pool with its current holders for the board stall check", async () => {
+    // The stall check decides whether a queued worker's wait is healthy by
+    // inspecting who holds the pool, including every slot of a counted pool.
+    await manager.configure("dev-server:companion", 2);
+    await manager.acquire({ resourceKey: "dev-server:companion", callerSessionId: "holder-1", purpose: "Run" });
+    await manager.acquire({ resourceKey: "dev-server:companion", callerSessionId: "holder-2", purpose: "Run" });
+    await manager.wait({
+      resourceKey: "dev-server:companion",
+      callerSessionId: "waiter",
+      purpose: "Next",
+      waitIfUnavailable: true,
+    });
+
+    expect(manager.getLeaseWaits("waiter")).toEqual([
+      { resourceKey: "dev-server:companion", holderSessionIds: ["holder-1", "holder-2"] },
+    ]);
+    expect(manager.getLeaseWaits("holder-1")).toEqual([]);
+
+    await manager.release("dev-server:companion", "holder-1");
+    expect(manager.getLeaseWaits("waiter")).toEqual([]);
+  });
+
   it("reports queued pools per session and republishes status when waiting starts or ends", async () => {
     // Session rows show lease waits from getWaitingResourceKeys, so every queue
     // entry and promotion must invalidate the waiter's navigation row, and the

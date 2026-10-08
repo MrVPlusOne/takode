@@ -7,6 +7,7 @@ import type {
   ResourceLeaseReleaseResult,
   ResourceLeaseRenewInput,
   ResourceLeaseStatus,
+  ResourceLeaseWait,
   ResourceLeaseWaiter,
   ResourceLeaseWaitInput,
 } from "./resource-lease-types.js";
@@ -170,6 +171,14 @@ export class ResourceLeaseManager {
       .flat()
       .filter((waiter) => waiter.waiterSessionId === sessionId)
       .map((waiter) => waiter.resourceKey);
+  }
+
+  /** Pools the session is queued for and who holds them, read synchronously by the board stall check. */
+  getLeaseWaits(sessionId: string): ResourceLeaseWait[] {
+    return this.getWaitingResourceKeys(sessionId).map((resourceKey) => ({
+      resourceKey,
+      holderSessionIds: this.getLeases(resourceKey).map((lease) => lease.ownerSessionId),
+    }));
   }
 
   async sweepExpiredNow(now = Date.now()): Promise<void> {
