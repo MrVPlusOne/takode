@@ -36,6 +36,8 @@ async function cleanStaleGuardrailsFile(worktreePath: string): Promise<void> {
       console.log(`[cli-launcher] Stripped stale guardrails block from .claude/CLAUDE.md`);
     }
 
+    // Only branches based on commits that still track the file need this; it
+    // fails harmlessly once the file is untracked.
     try {
       await execPromise(`git --no-optional-locks update-index --skip-worktree .claude/CLAUDE.md`, {
         cwd: worktreePath,

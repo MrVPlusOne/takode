@@ -19,6 +19,9 @@ e2e_tests/screenshots/
 .mcp-cmd.json
 .claude/settings.json
 .claude/settings.local.json
+# Repo instructions live in the root CLAUDE.md. Older worktree setup wrote
+# per-worktree guardrails here; a committed copy loads in every checkout.
+.claude/CLAUDE.md
 .claude/session-auth.json
 .codex/session-auth.json
 .companion/session-auth.json
