@@ -13,6 +13,7 @@ export function ComposerStatusBlocks({
   transcriptionPhase,
   volumeLevel,
   volumeHistory = [],
+  inputDeviceLabel,
   voiceCaptureMode,
   voiceUnsupportedInfoOpen,
   voiceUnsupportedMessage,
@@ -41,6 +42,7 @@ export function ComposerStatusBlocks({
   transcriptionPhase: string | null;
   volumeLevel: number;
   volumeHistory?: VoiceLevelSample[];
+  inputDeviceLabel?: string | null;
   voiceCaptureMode: "dictation" | "edit" | "append";
   voiceUnsupportedInfoOpen: boolean;
   voiceUnsupportedMessage: string | null;
@@ -108,6 +110,7 @@ export function ComposerStatusBlocks({
         <VoiceRecordingStatus
           currentLevel={volumeLevel}
           samples={volumeHistory}
+          inputDeviceLabel={inputDeviceLabel}
           className="px-4 pt-2"
           prefix={
             voiceCaptureMode !== "dictation" ? (

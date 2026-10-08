@@ -1285,6 +1285,7 @@ export interface TranscriptionRecordingTiming {
   audioTrackStatesAtStop?: string;
   audioTrackMutedAtStart?: boolean;
   audioTrackMutedAtStop?: boolean;
+  audioInputLabel?: string;
   trackEndedEventCount?: number;
   trackMuteEventCount?: number;
   trackUnmuteEventCount?: number;

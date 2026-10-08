@@ -71,6 +71,8 @@ export interface VoiceRecordingTiming {
   audioTrackStatesAtStop?: string;
   audioTrackMutedAtStart?: boolean;
   audioTrackMutedAtStop?: boolean;
+  /** Browser label of the recorded microphone track, e.g. "Default - MacBook Pro Microphone (Built-in)" */
+  audioInputLabel?: string;
   trackEndedEventCount?: number;
   trackMuteEventCount?: number;
   trackUnmuteEventCount?: number;

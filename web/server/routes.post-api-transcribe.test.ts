@@ -1298,6 +1298,8 @@ describe("POST /api/transcribe", () => {
         trackMuteEventCount: 1,
         trackUnmuteEventCount: 1,
         firstTrackEventAt: 950,
+        // The recorded microphone name is kept so debug records show which input was used.
+        audioInputLabel: "Default - MacBook Pro Microphone (Built-in)",
       },
       clientTiming: {
         transport: "raw",
@@ -1360,6 +1362,7 @@ describe("POST /api/transcribe", () => {
             trackMuteEventCount: 1,
             trackUnmuteEventCount: 1,
             firstTrackEventAt: 950,
+            audioInputLabel: "Default - MacBook Pro Microphone (Built-in)",
           }),
           clientTiming: expect.objectContaining({
             transport: "raw",

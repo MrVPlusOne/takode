@@ -36,6 +36,8 @@ export interface UseVoiceInputReturn {
   volumeLevel: number;
   /** Bounded rolling history of recent normalized volume levels while recording */
   volumeHistory: VoiceLevelSample[];
+  /** Display name of the microphone being recorded, or null when unknown or not recording */
+  inputDeviceLabel: string | null;
   setIsTranscribing: (v: boolean) => void;
   setTranscriptionPhase: (phase: TranscriptionPhase) => void;
   setError: (e: string | null) => void;
@@ -179,6 +181,32 @@ function shouldStoreVoiceLevelHistorySample(timestamp: number, lastSampleTime: n
 
 type VoiceRecordingStopReason = NonNullable<VoiceRecordingTiming["stopReason"]>;
 
+/** Strips Chrome's "Default - " prefix so the UI names the actual microphone. */
+export function formatInputDeviceLabel(label: string | null | undefined): string | null {
+  const name = label?.replace(/^Default - /, "").trim();
+  return name || null;
+}
+
+/**
+ * Opens the microphone selected in the operating system's sound settings.
+ *
+ * Without a device constraint Chrome picks the top mic in its own remembered preference
+ * ranking, which can keep recording the built-in mic while the system input is AirPods, and
+ * an `ideal` deviceId does not override that ranking. Chrome's "default" device does follow
+ * the system input, so request it exactly. Safari and Firefox have no "default" device, reject
+ * the exact constraint, and already follow the system input without one.
+ */
+export async function requestVoiceCaptureStream(): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      audio: { ...VOICE_CAPTURE_CONSTRAINTS, deviceId: { exact: "default" } },
+    });
+  } catch (error) {
+    if ((error as { name?: unknown } | null)?.name !== "OverconstrainedError") throw error;
+    return navigator.mediaDevices.getUserMedia({ audio: VOICE_CAPTURE_CONSTRAINTS });
+  }
+}
+
 function formatAudioTrackStates(stream: MediaStream | null | undefined): string | undefined {
   const states =
     stream
@@ -239,6 +267,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   const [error, setError] = useState<string | null>(null);
   const [volumeLevel, setVolumeLevel] = useState(0);
   const [volumeHistory, setVolumeHistory] = useState<VoiceLevelSample[]>([]);
+  const [inputDeviceLabel, setInputDeviceLabel] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -262,6 +291,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     requestDataError?: string;
     audioTrackStatesAtStart?: string;
     audioTrackMutedAtStart?: boolean;
+    audioInputLabel?: string;
     trackEndedEventCount: number;
     trackMuteEventCount: number;
     trackUnmuteEventCount: number;
@@ -437,8 +467,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     // Clear stale stream ref if tracks ended
     cachedStreamRef.current = null;
 
-    const promise = navigator.mediaDevices
-      .getUserMedia({ audio: VOICE_CAPTURE_CONSTRAINTS })
+    const promise = requestVoiceCaptureStream()
       .then((stream) => {
         cachedStreamRef.current = stream;
         resetIdleTimeout();
@@ -490,7 +519,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       if (!stream) {
         cachedStreamRef.current = null;
         // No cached stream available -- fall back to fresh getUserMedia
-        stream = await navigator.mediaDevices.getUserMedia({ audio: VOICE_CAPTURE_CONSTRAINTS });
+        stream = await requestVoiceCaptureStream();
       }
 
       // Clear idle timeout -- we're using the stream now
@@ -511,6 +540,8 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       const recorderOptions = resolveVoiceRecorderOptions();
       const recorder = new MediaRecorder(stream, recorderOptions);
       recorderRef.current = recorder;
+      const audioInputLabel = stream.getAudioTracks()[0]?.label || undefined;
+      setInputDeviceLabel(formatInputDeviceLabel(audioInputLabel));
       recordingTimingRef.current = {
         startedAt: Date.now(),
         chunkBytes: 0,
@@ -519,6 +550,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         recorderStateAtStart: recorder.state,
         audioTrackStatesAtStart: formatAudioTrackStates(stream),
         audioTrackMutedAtStart: getAudioTrackMuted(stream),
+        audioInputLabel,
         trackEndedEventCount: 0,
         trackMuteEventCount: 0,
         trackUnmuteEventCount: 0,
@@ -552,6 +584,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         streamRef.current = null;
         recorderRef.current = null;
         setIsRecording(false);
+        setInputDeviceLabel(null);
 
         // If cancelled, discard audio without triggering transcription
         if (cancelledRef.current) {
@@ -618,6 +651,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
                     ? { audioTrackMutedAtStart: timing.audioTrackMutedAtStart }
                     : {}),
                   ...(audioTrackMutedAtStop !== undefined ? { audioTrackMutedAtStop } : {}),
+                  ...(timing.audioInputLabel !== undefined ? { audioInputLabel: timing.audioInputLabel } : {}),
                   trackEndedEventCount: timing.trackEndedEventCount,
                   trackMuteEventCount: timing.trackMuteEventCount,
                   trackUnmuteEventCount: timing.trackUnmuteEventCount,
@@ -638,6 +672,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         if (recordingTimingRef.current) recordingTimingRef.current.stopReason = "error";
         setIsRecording(false);
         setIsPreparing(false);
+        setInputDeviceLabel(null);
         stopVolumeMonitor();
         detachTrackListeners();
         streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -709,6 +744,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     error,
     volumeLevel,
     volumeHistory,
+    inputDeviceLabel,
     setIsTranscribing,
     setTranscriptionPhase,
     setError,

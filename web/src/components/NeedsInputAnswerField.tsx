@@ -126,6 +126,7 @@ export function NeedsInputAnswerField({
     toggleRecording,
     volumeLevel,
     volumeHistory,
+    inputDeviceLabel,
   } = useVoiceInput({
     onAudioReady: (blob) => {
       void transcribeAnswer(blob);
@@ -303,7 +304,13 @@ export function NeedsInputAnswerField({
           </svg>
         </button>
       </div>
-      {isRecording && <NeedsInputRecordingStatus volumeLevel={volumeLevel} volumeHistory={volumeHistory} />}
+      {isRecording && (
+        <NeedsInputRecordingStatus
+          volumeLevel={volumeLevel}
+          volumeHistory={volumeHistory}
+          inputDeviceLabel={inputDeviceLabel}
+        />
+      )}
       {error && failedTranscription && !isRecording && !isTranscribing ? (
         <NeedsInputTranscriptionFailureStatus
           message={error}
@@ -364,14 +371,17 @@ export function NeedsInputTranscriptionFailureStatus({
 export function NeedsInputRecordingStatus({
   volumeLevel,
   volumeHistory,
+  inputDeviceLabel,
 }: {
   volumeLevel: number;
   volumeHistory: VoiceLevelSample[];
+  inputDeviceLabel?: string | null;
 }) {
   return (
     <VoiceRecordingStatus
       currentLevel={volumeLevel}
       samples={volumeHistory}
+      inputDeviceLabel={inputDeviceLabel}
       testId="needs-input-recording-status"
       className="mt-1.5 flex-wrap rounded-md border border-cc-primary/20 bg-cc-primary/5 px-2 py-1.5"
       waveformClassName="min-w-[64px] max-w-[112px] flex-1"

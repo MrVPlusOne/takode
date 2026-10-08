@@ -85,6 +85,22 @@ describe("ComposerStatusBlocks voice recording controls", () => {
     expect(props.onSetVoiceModeAppend).toHaveBeenCalledTimes(1);
   });
 
+  it("names the microphone being recorded so a wrong input device is visible", () => {
+    // Takode follows the system input; showing the device makes a mismatch (for example the
+    // laptop mic while wearing AirPods) obvious before the user finishes dictating.
+    renderStatusBlocks({ isRecording: true, inputDeviceLabel: "MacBook Pro Microphone (Built-in)" });
+
+    const label = screen.getByTestId("voice-input-device-label");
+    expect(label.textContent).toBe("MacBook Pro Microphone (Built-in)");
+    expect(label.getAttribute("title")).toBe("Microphone: MacBook Pro Microphone (Built-in)");
+  });
+
+  it("omits the microphone name when it is unknown", () => {
+    renderStatusBlocks({ isRecording: true, inputDeviceLabel: null });
+
+    expect(screen.queryByTestId("voice-input-device-label")).toBeNull();
+  });
+
   it("renders one fixed waveform meter with the current level as the newest sample", () => {
     // The recording row uses one centered waveform surface so the live level
     // and recent history read as a single compact meter.

@@ -8,6 +8,7 @@ import {
   normalizeMeterLevel,
   resolveRecordedMimeType,
   resolveVoiceRecorderOptions,
+  requestVoiceCaptureStream,
   VOICE_LEVEL_HISTORY_MAX_SAMPLES,
   VOICE_LEVEL_HISTORY_SAMPLE_INTERVAL_MS,
   VOICE_LEVEL_HISTORY_WINDOW_MS,
@@ -17,10 +18,11 @@ import {
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
 /** Create a mock MediaStream with configurable track readyState */
-function makeMockStream(trackState: "live" | "ended" = "live"): MediaStream {
+function makeMockStream(trackState: "live" | "ended" = "live", label = ""): MediaStream {
   const listeners = new Map<string, Set<EventListener>>();
   const track = {
     readyState: trackState,
+    label,
     stop: vi.fn(),
     kind: "audio",
     id: "mock-track",
@@ -348,6 +350,8 @@ describe("useVoiceInput — isPreparing", () => {
 
     expect(getUserMediaMock).toHaveBeenCalledWith({
       audio: {
+        // Chrome's "default" device follows the system input instead of Chrome's own mic ranking.
+        deviceId: { exact: "default" },
         channelCount: { ideal: 1 },
         echoCancellation: { ideal: true },
         noiseSuppression: { ideal: true },
@@ -358,6 +362,30 @@ describe("useVoiceInput — isPreparing", () => {
       mimeType: "audio/mp4;codecs=mp4a.40.2",
       audioBitsPerSecond: 48_000,
     });
+  });
+});
+
+describe("requestVoiceCaptureStream", () => {
+  it("falls back to the browser's own choice when it has no system-default device", async () => {
+    // Safari and Firefox have no "default" deviceId and reject the exact constraint; they
+    // already follow the system input, so the plain request is the right fallback.
+    const fallbackStream = makeMockStream();
+    getUserMediaMock
+      .mockRejectedValueOnce(Object.assign(new Error("no default device"), { name: "OverconstrainedError" }))
+      .mockResolvedValueOnce(fallbackStream);
+
+    await expect(requestVoiceCaptureStream()).resolves.toBe(fallbackStream);
+    expect(getUserMediaMock).toHaveBeenNthCalledWith(1, {
+      audio: expect.objectContaining({ deviceId: { exact: "default" } }),
+    });
+    expect(getUserMediaMock.mock.calls[1][0].audio).not.toHaveProperty("deviceId");
+  });
+
+  it("does not retry when the user denies microphone access", async () => {
+    getUserMediaMock.mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
+
+    await expect(requestVoiceCaptureStream()).rejects.toMatchObject({ name: "NotAllowedError" });
+    expect(getUserMediaMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -377,6 +405,8 @@ describe("useVoiceInput — warmMicrophone", () => {
     expect(getUserMediaMock).toHaveBeenCalledTimes(1);
     expect(getUserMediaMock).toHaveBeenCalledWith({
       audio: {
+        // Chrome's "default" device follows the system input instead of Chrome's own mic ranking.
+        deviceId: { exact: "default" },
         channelCount: { ideal: 1 },
         echoCancellation: { ideal: true },
         noiseSuppression: { ideal: true },
@@ -600,6 +630,45 @@ describe("useVoiceInput — onAudioReady", () => {
     );
     expect(MockMediaRecorder.lastInstance?.startTimesliceMs).toBe(1000);
     expect(MockMediaRecorder.lastInstance?.requestData).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the recorded microphone while recording and in the recording timing", async () => {
+    // Chrome labels its system-default device "Default - <name>". The UI shows the bare
+    // device name, while debug timing keeps the raw label as evidence it followed the default.
+    getUserMediaMock.mockResolvedValue(makeMockStream("live", "Default - Otter Pods Pro 3 (Bluetooth)"));
+    const onAudioReady = vi.fn();
+    const { result } = renderHook(() => useVoiceInput({ onAudioReady }));
+    expect(result.current.inputDeviceLabel).toBeNull();
+
+    await act(async () => {
+      result.current.startRecording();
+    });
+    expect(result.current.inputDeviceLabel).toBe("Otter Pods Pro 3 (Bluetooth)");
+
+    await act(async () => {
+      result.current.stopRecording();
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(result.current.inputDeviceLabel).toBeNull();
+    expect(onAudioReady.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ audioInputLabel: "Default - Otter Pods Pro 3 (Bluetooth)" }),
+    );
+  });
+
+  it("omits the microphone name when the browser hides track labels", async () => {
+    const onAudioReady = vi.fn();
+    const { result } = renderHook(() => useVoiceInput({ onAudioReady }));
+
+    await act(async () => {
+      result.current.startRecording();
+    });
+    expect(result.current.inputDeviceLabel).toBeNull();
+
+    await act(async () => {
+      result.current.stopRecording();
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(onAudioReady.mock.calls[0][1]).not.toHaveProperty("audioInputLabel");
   });
 
   it("accumulates periodic, requested, and final non-empty chunks into one blob", async () => {

@@ -217,7 +217,13 @@ export function AnnotationEditor({
             <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words">{hint.text}</pre>
           </details>
         )}
-        {voice.isRecording && <VoiceRecordingStatus currentLevel={voice.volumeLevel} samples={voice.volumeHistory} />}
+        {voice.isRecording && (
+          <VoiceRecordingStatus
+            currentLevel={voice.volumeLevel}
+            samples={voice.volumeHistory}
+            inputDeviceLabel={voice.inputDeviceLabel}
+          />
+        )}
         {voice.isTranscribing && (
           <p role="status" className="py-2 text-xs text-cc-muted">
             {voice.transcriptionPhase === "editing" ? "Editing comment…" : "Transcribing comment…"}

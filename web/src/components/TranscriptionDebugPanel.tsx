@@ -672,6 +672,14 @@ export function TranscriptionDebugPanel({
                                 </span>
                               </span>
                             )}
+                            {expandedEntry.frontendTiming.recordingTiming.audioInputLabel && (
+                              <span className="ml-2">
+                                Mic{" "}
+                                <span className="text-cc-fg">
+                                  {expandedEntry.frontendTiming.recordingTiming.audioInputLabel}
+                                </span>
+                              </span>
+                            )}
                             <span className="ml-2">
                               Blob{" "}
                               <span className="text-cc-fg">

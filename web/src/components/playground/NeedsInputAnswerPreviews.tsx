@@ -45,7 +45,11 @@ export function PlaygroundNeedsInputRecordingPreview() {
           </svg>
         </button>
       </div>
-      <NeedsInputRecordingStatus volumeLevel={0.74} volumeHistory={PLAYGROUND_NEEDS_INPUT_RECORDING_HISTORY} />
+      <NeedsInputRecordingStatus
+        volumeLevel={0.74}
+        volumeHistory={PLAYGROUND_NEEDS_INPUT_RECORDING_HISTORY}
+        inputDeviceLabel="Otter Pods Pro 3 (Bluetooth)"
+      />
       <div className="mt-2 flex justify-end">
         <button type="button" className={NEEDS_INPUT_SEND_BUTTON_CLASS}>
           Reply
