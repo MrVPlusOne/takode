@@ -38,6 +38,7 @@ import { trafficStats } from "../traffic-stats.js";
 import { loadCodexModelCatalog } from "../codex-model-catalog.js";
 import { getClaudeModelCatalog } from "../claude-model-catalog.js";
 import type { FrontendAvailability } from "../frontend-availability.js";
+import { hostIsOnline, machineFor } from "../remote-host/session-machine.js";
 import { getTakodeProcessBuildId, TAKODE_DEVELOPMENT_BUILD_ID } from "../build-identity.js";
 
 function getCodexModelVariantRank(slug: string): number {
@@ -818,8 +819,28 @@ export function createSystemRoutes(ctx: RouteContext) {
   api.post("/terminal/spawn", async (c) => {
     const body = await c.req.json<{ cwd: string; cols?: number; rows?: number; sessionId?: string }>();
     if (!body.cwd) return c.json({ error: "cwd is required" }, 400);
-    const terminalId = terminalManager.spawn(body.sessionId, body.cwd, body.cols, body.rows);
-    return c.json({ terminalId });
+    // A session's terminal opens on the machine that holds its files.
+    const hostId = body.sessionId ? wsBridge.getSession(body.sessionId)?.state.host_id : undefined;
+    if (hostId && !hostIsOnline(hostId)) {
+      return c.json({ error: "This session's host is offline; open the terminal when it reconnects" }, 409);
+    }
+    // A shell that fails on the host would exit before the browser attaches and
+    // could see why, so check the folder first.
+    const hostFolder = hostId
+      ? await machineFor(hostId)
+          .stat(body.cwd)
+          .catch(() => null)
+      : null;
+    if (hostId && !hostFolder?.isDirectory) {
+      const error = `Cannot open a terminal in ${body.cwd}: the folder does not exist on the session's host`;
+      return c.json({ error }, 400);
+    }
+    try {
+      const terminalId = terminalManager.spawn(body.sessionId, body.cwd, body.cols, body.rows, hostId);
+      return c.json({ terminalId });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
   });
 
   api.post("/terminal/kill", async (c) => {

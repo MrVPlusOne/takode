@@ -3,6 +3,8 @@ import { mkdir, open, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
 import type { HostRequest, HostResponse } from "../../shared/host-protocol.js";
+import { coreActionLatency } from "../core-action-latency.js";
+import { spawnLocalTerminal, type TerminalOutput, type TerminalProcess } from "../terminal-process.js";
 import type { HostLinkManager } from "./host-link-manager.js";
 
 const execLocal = promisify(execCallback);
@@ -38,6 +40,8 @@ export interface Machine {
   stat(path: string): Promise<MachineFileStat | null>;
   /** Write a file, creating missing parent directories. */
   writeFile(path: string, data: Buffer, mode?: number): Promise<void>;
+  /** Start the machine user's login shell in a pseudo-terminal. */
+  openTerminal(cwd: string, cols: number, rows: number, output: TerminalOutput): TerminalProcess;
 }
 
 export const localMachine: Machine = {
@@ -75,6 +79,7 @@ export const localMachine: Machine = {
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, data, mode === undefined ? undefined : { mode });
   },
+  openTerminal: spawnLocalTerminal,
 };
 
 let hostLinks: HostLinkManager | null = null;
@@ -154,6 +159,37 @@ function remoteMachine(links: HostLinkManager, hostId: string): Machine {
         { kind: "write_file", path, data: data.toString("base64"), ...(mode === undefined ? {} : { mode }) },
         DEFAULT_TIMEOUT_MS,
       );
+    },
+    openTerminal(cwd, cols, rows, output) {
+      const proc = links.spawnTerminal(hostId, { cwd, cols, rows });
+      const requestedAt = Date.now();
+      proc.once("spawn", () => coreActionLatency.record("host-terminal start", Date.now() - requestedAt));
+      // Time from a keystroke to the next output, usually its echo: the round trip
+      // a remote terminal adds to typing.
+      let inputAt: number | null = null;
+      proc.stdout.on("data", (chunk: Buffer) => {
+        if (inputAt !== null) coreActionLatency.record("host-terminal echo", Date.now() - inputAt);
+        inputAt = null;
+        output.onData(chunk);
+      });
+      // Show why a shell failed to start or was lost, e.g. a missing folder on the host.
+      proc.on("error", (error: Error) => output.onData(Buffer.from(`\r\n[${error.message}]\r\n`)));
+      let exitCode = 0;
+      proc.once("exit", (code: number | null) => {
+        exitCode = code ?? 0;
+      });
+      // Output written before the exit is still in the stream; report the exit after it.
+      proc.stdout.once("end", () => output.onExit(exitCode));
+      return {
+        write: (data) => {
+          inputAt ??= Date.now();
+          proc.stdin.write(data);
+        },
+        resize: (newCols, newRows) => proc.resize(newCols, newRows),
+        kill: (signal) => {
+          proc.kill(signal);
+        },
+      };
     },
   };
 }

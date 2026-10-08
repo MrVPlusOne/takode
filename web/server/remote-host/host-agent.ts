@@ -7,6 +7,7 @@ import { dirname } from "node:path";
 import { getEnrichedPath } from "../path-resolver.js";
 import { HOST_HOP_TIMING_METRIC } from "../latency-log.js";
 import { performHostOperation } from "./host-operations.js";
+import { spawnLocalTerminal, type TerminalProcess } from "../terminal-process.js";
 import {
   HOST_HEARTBEAT_MS,
   HOST_LINK_PATH,
@@ -63,11 +64,19 @@ export interface HostAgentOptions {
 }
 
 interface HostedProcess {
-  child: ChildProcess | null;
+  /** Input, signals and size of the running process; null when it could not start. */
+  control: ProcessControl | null;
   nextSeq: number;
   /** Events the coordinator has not acknowledged yet, oldest first. */
   pending: { seq: number; event: HostProcessEvent }[];
   exited: boolean;
+}
+
+interface ProcessControl {
+  write(data: Buffer): void;
+  end(): void;
+  kill(signal: NodeJS.Signals): void;
+  resize?(cols: number, rows: number): void;
 }
 
 const OPEN = 1;
@@ -116,7 +125,7 @@ export class HostAgent {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.socket?.close(1000, "Host stopping");
     this.socket = null;
-    for (const hosted of this.processes.values()) hosted.child?.kill("SIGTERM");
+    for (const hosted of this.processes.values()) hosted.control?.kill("SIGTERM");
   }
 
   get connected(): boolean {
@@ -225,7 +234,7 @@ export class HostAgent {
       // numbers its commands from 1 again.
       if (this.coordinatorInstanceId !== null)
         this.log("Coordinator restarted; ending processes it can no longer read");
-      for (const hosted of this.processes.values()) hosted.child?.kill("SIGTERM");
+      for (const hosted of this.processes.values()) hosted.control?.kill("SIGTERM");
       this.processes.clear();
       this.coordinatorInstanceId = coordinatorInstanceId;
       this.appliedCommandSeq = 0;
@@ -236,7 +245,7 @@ export class HostAgent {
       const lastReceived = received[procId];
       if (lastReceived === undefined) {
         // The coordinator no longer tracks this process.
-        hosted.child?.kill("SIGTERM");
+        hosted.control?.kill("SIGTERM");
         this.processes.delete(procId);
         continue;
       }
@@ -282,6 +291,9 @@ export class HostAgent {
       case "spawn":
         this.spawn(command);
         return;
+      case "spawn_terminal":
+        this.spawnTerminal(command);
+        return;
       case "write_file": {
         // `~/` stands for this host's home when the coordinator did not know it yet.
         const path = command.path.startsWith("~/") ? `${homedir()}${command.path.slice(1)}` : command.path;
@@ -291,19 +303,22 @@ export class HostAgent {
         return;
       }
       case "stdin":
-        this.processes.get(command.procId)?.child?.stdin?.write(Buffer.from(command.data, "base64"));
+        this.processes.get(command.procId)?.control?.write(Buffer.from(command.data, "base64"));
         return;
       case "stdin_end":
-        this.processes.get(command.procId)?.child?.stdin?.end();
+        this.processes.get(command.procId)?.control?.end();
+        return;
+      case "resize":
+        this.processes.get(command.procId)?.control?.resize?.(command.cols, command.rows);
         return;
       case "kill":
-        this.processes.get(command.procId)?.child?.kill(command.signal as NodeJS.Signals);
+        this.processes.get(command.procId)?.control?.kill(command.signal as NodeJS.Signals);
         return;
     }
   }
 
   private spawn(command: Extract<HostCommand, { kind: "spawn" }>): void {
-    const hosted: HostedProcess = { child: null, nextSeq: 1, pending: [], exited: false };
+    const hosted: HostedProcess = { control: null, nextSeq: 1, pending: [], exited: false };
     this.processes.set(command.procId, hosted);
     const port = String(this.options.apiProxyPort);
     const prepared = command.preparedLaunchId ? this.preparedLaunches.get(command.preparedLaunchId) : undefined;
@@ -335,7 +350,11 @@ export class HostAgent {
       this.emit(command.procId, { kind: "exit", code: null, signal: null });
       return;
     }
-    hosted.child = child;
+    hosted.control = {
+      write: (data) => child.stdin?.write(data),
+      end: () => child.stdin?.end(),
+      kill: (signal) => child.kill(signal),
+    };
     let spawned = false;
     child.once("spawn", () => {
       spawned = true;
@@ -353,6 +372,30 @@ export class HostAgent {
       if (!spawned) this.emit(command.procId, { kind: "exit", code: null, signal: null });
     });
     child.once("close", (code, signal) => this.emit(command.procId, { kind: "exit", code, signal }));
+  }
+
+  private spawnTerminal(command: Extract<HostCommand, { kind: "spawn_terminal" }>): void {
+    const hosted: HostedProcess = { control: null, nextSeq: 1, pending: [], exited: false };
+    this.processes.set(command.procId, hosted);
+    let terminal: TerminalProcess;
+    try {
+      terminal = spawnLocalTerminal(command.cwd, command.cols, command.rows, {
+        onData: (chunk) => this.emit(command.procId, { kind: "stdout", data: Buffer.from(chunk).toString("base64") }),
+        onExit: (code) => this.emit(command.procId, { kind: "exit", code, signal: null }),
+      });
+    } catch (error) {
+      // For example, the folder does not exist on this host.
+      this.emit(command.procId, { kind: "error", message: errorMessage(error) });
+      this.emit(command.procId, { kind: "exit", code: null, signal: null });
+      return;
+    }
+    hosted.control = {
+      write: (data) => terminal.write(data.toString("utf-8")),
+      end: () => {},
+      kill: (signal) => terminal.kill(signal),
+      resize: (cols, rows) => terminal.resize(cols, rows),
+    };
+    this.emit(command.procId, { kind: "spawned" });
   }
 
   /** Record an event for the coordinator and send it if the link is up. */

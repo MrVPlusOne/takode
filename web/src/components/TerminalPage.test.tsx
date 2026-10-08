@@ -7,7 +7,7 @@ interface MockStoreState {
   terminalSessionId: string | null;
   currentSessionId: string | null;
   sessions?: Map<string, { cwd?: string }>;
-  sdkSessions?: Array<{ sessionId: string; cwd?: string }>;
+  sdkSessions?: Array<{ sessionId: string; cwd?: string; hostId?: string }>;
   openTerminal: ReturnType<typeof vi.fn>;
 }
 
@@ -43,11 +43,17 @@ vi.mock("./FolderPicker.js", () => ({
   ),
 }));
 
+let mockHosts: Array<{ id: string; name: string; online: boolean }> = [];
+vi.mock("../remote-hosts.js", () => ({
+  useRemoteHosts: () => ({ hosts: mockHosts, loaded: true }),
+}));
+
 import { TerminalPage } from "./TerminalPage.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockState = createMockState();
+  mockHosts = [];
   window.location.hash = "#/terminal";
 });
 
@@ -82,5 +88,26 @@ describe("TerminalPage", () => {
 
     expect(mockState.openTerminal).toHaveBeenCalledWith("/tmp/terminal-project", null);
     expect(window.location.hash).toBe("#/terminal");
+  });
+
+  // A remote session's terminal runs on its host, which this machine's folder
+  // picker cannot browse, so the page names the host and asks for a path there.
+  it("names the host of a remote session and takes a host path instead of the local picker", () => {
+    mockHosts = [{ id: "host-1", name: "build-box", online: false }];
+    mockState = createMockState({
+      currentSessionId: "s1",
+      sdkSessions: [{ sessionId: "s1", cwd: "/srv/project", hostId: "host-1" }],
+    });
+    render(<TerminalPage />);
+
+    expect(screen.getByTestId("terminal-host")).toHaveTextContent("Runs on build-box, which is offline");
+    fireEvent.click(screen.getByRole("button", { name: "Change Folder" }));
+    expect(screen.queryByTestId("folder-picker")).not.toBeInTheDocument();
+    const input = screen.getByRole("textbox", { name: "Folder on build-box" });
+    expect(input).toHaveValue("/srv/project");
+    fireEvent.change(input, { target: { value: "/srv/other" } });
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+
+    expect(mockState.openTerminal).toHaveBeenCalledWith("/srv/other", "s1");
   });
 });

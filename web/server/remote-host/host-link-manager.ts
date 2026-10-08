@@ -242,12 +242,7 @@ export class HostLinkManager {
 
   /** Start a process on a host. If the host is away, the process starts when it returns. */
   spawn(hostId: string, options: RemoteSpawnOptions): RemoteProcess {
-    const link = this.link(hostId);
-    const procId = randomUUID();
-    const proc = new RemoteProcess(procId, (command) => this.enqueue(link, command));
-    link.processes.set(procId, proc);
-    proc.once("exit", () => link.processes.delete(procId));
-    this.enqueue(link, {
+    const proc = this.startProcess(hostId, (procId) => ({
       kind: "spawn",
       procId,
       command: options.command,
@@ -255,8 +250,27 @@ export class HostLinkManager {
       ...(options.cwd ? { cwd: options.cwd } : {}),
       env: sessionEnv(options.env),
       ...(options.preparedLaunchId ? { preparedLaunchId: options.preparedLaunchId } : {}),
-    });
+    }));
     options.signal?.addEventListener("abort", () => proc.kill("SIGTERM"), { once: true });
+    return proc;
+  }
+
+  /**
+   * Start the host user's login shell in a pseudo-terminal. Like {@link spawn},
+   * it starts when the host returns if the host is away, and its output replays
+   * across link drops.
+   */
+  spawnTerminal(hostId: string, options: { cwd: string; cols: number; rows: number }): RemoteProcess {
+    return this.startProcess(hostId, (procId) => ({ kind: "spawn_terminal", procId, ...options }));
+  }
+
+  private startProcess(hostId: string, startCommand: (procId: string) => HostCommand): RemoteProcess {
+    const link = this.link(hostId);
+    const procId = randomUUID();
+    const proc = new RemoteProcess(procId, (command) => this.enqueue(link, command));
+    link.processes.set(procId, proc);
+    proc.once("exit", () => link.processes.delete(procId));
+    this.enqueue(link, startCommand(procId));
     return proc;
   }
 
@@ -412,6 +426,11 @@ export class RemoteProcess extends EventEmitter {
     this.killed = true;
     this.sendCommand({ kind: "kill", procId: this.procId, signal });
     return true;
+  }
+
+  /** Resize the pseudo-terminal of a process started with `spawnTerminal`. */
+  resize(cols: number, rows: number): void {
+    if (!this.exited) this.sendCommand({ kind: "resize", procId: this.procId, cols, rows });
   }
 
   /** Apply one in-order event from the host. */

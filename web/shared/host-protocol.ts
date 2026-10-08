@@ -19,7 +19,7 @@
  * settle the affected processes instead of guessing.
  */
 
-export const HOST_PROTOCOL_VERSION = 2;
+export const HOST_PROTOCOL_VERSION = 3;
 
 /** Path the host connects to, with `Authorization: Bearer <host token>`. */
 export const HOST_LINK_PATH = "/ws/host";
@@ -50,8 +50,15 @@ export type HostCommand =
    * attachment that a later stdin message refers to. `data` is base64.
    */
   | { kind: "write_file"; path: string; data: string }
+  /**
+   * Start the host user's login shell in a pseudo-terminal, for the terminal
+   * feature. Its output arrives as `stdout` events; `stdin`, `resize` and
+   * `kill` drive it like any other process.
+   */
+  | { kind: "spawn_terminal"; procId: string; cwd: string; cols: number; rows: number }
   | { kind: "stdin"; procId: string; data: string }
   | { kind: "stdin_end"; procId: string }
+  | { kind: "resize"; procId: string; cols: number; rows: number }
   | { kind: "kill"; procId: string; signal: string };
 
 export type HostProcessEvent =

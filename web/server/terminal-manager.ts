@@ -1,21 +1,14 @@
 import type { ServerWebSocket } from "bun";
-import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type { SocketData } from "./ws-bridge.js";
-
-/** Bun's PTY terminal handle exposed on proc when spawned with `terminal` option */
-interface BunTerminalHandle {
-  write(data: string): void;
-  resize(cols: number, rows: number): void;
-  close(): void;
-}
+import { machineFor } from "./remote-host/session-machine.js";
+import type { TerminalProcess } from "./terminal-process.js";
 
 interface TerminalInstance {
   id: string;
   sessionKey: string;
   cwd: string;
-  proc: ReturnType<typeof Bun.spawn>;
-  terminal: BunTerminalHandle;
+  process: TerminalProcess;
   browserSockets: Set<ServerWebSocket<SocketData>>;
   cols: number;
   rows: number;
@@ -26,12 +19,6 @@ interface TerminalInstance {
 
 const GLOBAL_TERMINAL_SESSION_KEY = "__global__";
 const MAX_OUTPUT_BUFFER_BYTES = 128 * 1024;
-
-function resolveShell(): string {
-  if (process.env.SHELL && existsSync(process.env.SHELL)) return process.env.SHELL; // sync-ok: cold path, shell detection at startup
-  if (existsSync("/bin/bash")) return "/bin/bash"; // sync-ok: cold path, shell detection at startup
-  return "/bin/sh";
-}
 
 function toSessionKey(sessionId?: string | null): string {
   return sessionId?.trim() || GLOBAL_TERMINAL_SESSION_KEY;
@@ -99,8 +86,11 @@ export class TerminalManager {
     this.removeInstance(inst);
   }
 
-  /** Spawn or replace the terminal associated with a session key. */
-  spawn(sessionId: string | undefined, cwd: string, cols = 80, rows = 24): string {
+  /**
+   * Spawn or replace the terminal associated with a session key. The shell runs
+   * on `hostId`, the session's remote host, when given, otherwise on this machine.
+   */
+  spawn(sessionId: string | undefined, cwd: string, cols = 80, rows = 24, hostId?: string | null): string {
     const sessionKey = toSessionKey(sessionId);
     const existing = this.getInstanceBySessionKey(sessionKey);
     if (existing) {
@@ -108,43 +98,33 @@ export class TerminalManager {
     }
 
     const id = randomUUID();
-    const shell = resolveShell();
-    const sockets = new Set<ServerWebSocket<SocketData>>();
-
-    const proc = Bun.spawn([shell, "-l"], {
-      cwd,
-      env: { ...process.env, TERM: "xterm-256color", CLAUDECODE: undefined },
-      terminal: {
-        cols,
-        rows,
-        data: (_terminal, data) => {
-          const inst = this.instancesById.get(id);
-          if (!inst) return;
-          const chunk = this.appendOutput(inst, data);
-          for (const ws of inst.browserSockets) {
-            try {
-              ws.sendBinary(chunk);
-            } catch {
-              // socket may have closed
-            }
+    const shell = machineFor(hostId).openTerminal(cwd, cols, rows, {
+      onData: (data) => {
+        const inst = this.instancesById.get(id);
+        if (!inst) return;
+        const chunk = this.appendOutput(inst, data);
+        for (const ws of inst.browserSockets) {
+          try {
+            ws.sendBinary(chunk);
+          } catch {
+            // socket may have closed
           }
-        },
-        exit: () => {
-          const inst = this.instancesById.get(id);
-          if (!inst) return;
-          this.cleanupExitedInstance(inst, proc.exitCode ?? 0);
-        },
+        }
+      },
+      onExit: (exitCode) => {
+        const inst = this.instancesById.get(id);
+        if (!inst) return;
+        console.log(`[terminal] Terminal ${id} exited with code ${exitCode}`);
+        this.cleanupExitedInstance(inst, exitCode);
       },
     });
 
-    const terminal = (proc as any).terminal as BunTerminalHandle;
     const inst: TerminalInstance = {
       id,
       sessionKey,
       cwd,
-      proc,
-      terminal,
-      browserSockets: sockets,
+      process: shell,
+      browserSockets: new Set(),
       cols,
       rows,
       orphanTimer: null,
@@ -153,16 +133,9 @@ export class TerminalManager {
     };
     this.instancesById.set(id, inst);
     this.terminalIdBySessionKey.set(sessionKey, id);
-    console.log(`[terminal] Spawned terminal ${id} for ${sessionKey} in ${cwd} (${shell}, ${cols}x${rows})`);
-
-    proc.exited.then((exitCode) => {
-      const latest = this.instancesById.get(id);
-      if (latest) {
-        console.log(`[terminal] Terminal ${id} exited with code ${exitCode}`);
-        this.cleanupExitedInstance(latest, exitCode ?? 0);
-      }
-    });
-
+    console.log(
+      `[terminal] Spawned terminal ${id} for ${sessionKey} in ${cwd}${hostId ? ` on host ${hostId}` : ""} (${cols}x${rows})`,
+    );
     return id;
   }
 
@@ -174,7 +147,7 @@ export class TerminalManager {
       const str = typeof msg === "string" ? msg : msg.toString();
       const parsed = JSON.parse(str);
       if (parsed.type === "input" && typeof parsed.data === "string") {
-        inst.terminal.write(parsed.data);
+        inst.process.write(parsed.data);
       } else if (parsed.type === "resize" && typeof parsed.cols === "number" && typeof parsed.rows === "number") {
         this.resize(terminalId, parsed.cols, parsed.rows);
       }
@@ -189,11 +162,7 @@ export class TerminalManager {
     if (!inst) return;
     inst.cols = cols;
     inst.rows = rows;
-    try {
-      inst.terminal.resize(cols, rows);
-    } catch {
-      // resize not available or failed
-    }
+    inst.process.resize(cols, rows);
   }
 
   /** Kill the terminal process associated with a session key or the global fallback. */
@@ -203,16 +172,14 @@ export class TerminalManager {
     this.removeInstance(inst);
 
     try {
-      inst.proc.kill();
+      inst.process.kill("SIGTERM");
     } catch {
       // process may have already exited
     }
-
-    const pid = inst.proc.pid;
+    // Interactive shells ignore SIGTERM.
     setTimeout(() => {
       try {
-        process.kill(pid, 0);
-        inst.proc.kill(9);
+        inst.process.kill("SIGKILL");
       } catch {
         // already dead, good
       }
