@@ -954,6 +954,10 @@ export function createTakodeRoutes(ctx: RouteContext) {
         return c.json({ error: "Session is herded — only its leader can send messages" }, 403);
       }
     }
+    // Leader guard: only another leader may message a leader session.
+    if (session.isOrchestrator && auth.callerId !== id && !auth.caller.isOrchestrator) {
+      return c.json({ error: "Only leader sessions can send messages to a leader" }, 403);
+    }
     const manualAutoPauseOptions = { autoPauseSourceKind: "manual" as const };
     if (isSessionPaused(wsBridge.getSession(id))) {
       const delivery = wsBridge.injectUserMessage(

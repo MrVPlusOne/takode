@@ -160,7 +160,8 @@ Export a session's full history to a text file.
 const SEND_HELP = `Usage: takode send <session> <message> [--correction] [--json]
        takode send <session> --stdin [--correction] [--json]
 
-Send a message to a herded session.
+Send a message to a herded session, or to another leader session.
+A leader's busy state does not block delivery, so --correction is not needed for leaders.
 
 Options:
   --stdin       Read the message body from stdin

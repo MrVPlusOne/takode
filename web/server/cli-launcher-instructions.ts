@@ -303,6 +303,7 @@ Use \`--json\` only when you need exact structured fields for a programmatic dec
 - **\`[User HH:MM]\`** -- human operator
 - **\`[Herd HH:MM]\`** -- automatic event summary from herded sessions
 - **\`[Agent #N name HH:MM]\`** -- a message sent by another agent session (via \`takode send\`)
+- **\`[Leader #N name HH:MM]\`** -- a message from another leader session. Your turn output does not reach that leader; if it needs a reply, send one with \`takode send <N>\`. Leaders may message each other directly, but only a worker's own leader can message that worker.
 
 The \`takode-orchestration\` skill has the full event type table and reaction rules inline in its Herd Events section.
 System-interrupted worker \`turn_end\` herd events may be provisional. If an event says \`recovery pending\`, or the worker still appears connected or generating after a stuck-watchdog interruption, inspect \`takode info\`, \`takode peek\`, or \`takode scan\` once, then read and apply \`${getQuestJourneyPhaseLeaderBriefDisplayPath("work")}\` before steering. That brief owns the complete recovery rule.

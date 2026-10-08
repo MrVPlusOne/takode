@@ -40,7 +40,8 @@ export function buildAdapterUserMessageSourcePrefix(
     if (agentSource?.sessionId === "herd-events") return `[Herd ${timeWithDate}] ${threadTag}`;
     if (agentSource) {
       const label = agentSource.sessionLabel || agentSource.sessionId.slice(0, 8);
-      return `[Agent ${label} ${timeWithDate}] ${threadTag}`;
+      const role = getLauncherSessionInfo(agentSource.sessionId)?.isOrchestrator ? "Leader" : "Agent";
+      return `[${role} ${label} ${timeWithDate}] ${threadTag}`;
     }
     const idTag = leaderUserMessageId ? ` id:${leaderUserMessageId}` : "";
     return `[User ${timeWithDate}${idTag}] ${threadTag}`;

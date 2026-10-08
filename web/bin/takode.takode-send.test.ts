@@ -199,6 +199,66 @@ describe("takode send", () => {
     }
   });
 
+  it("sends to another leader without herding or --correction", async () => {
+    // Peer leaders are never herded and are often mid-turn, so the CLI must
+    // skip the herd check and busy guard; the server enforces leader-only access.
+    const messageCalls: JsonObject[] = [];
+    let herdChecked = false;
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+      const json = (body: unknown) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(body));
+      };
+
+      if (method === "GET" && url === "/api/takode/me") return json({ sessionId: "leader-a", isOrchestrator: true });
+      if (method === "GET" && url === "/api/sessions/leader-b") {
+        return json({ sessionId: "leader-b", sessionNum: 22, isOrchestrator: true, isGenerating: true });
+      }
+      if (method === "GET" && url === "/api/sessions/leader-a/herd") {
+        herdChecked = true;
+        return json([]);
+      }
+      if (method === "GET" && url === "/api/takode/sessions") {
+        return json([{ sessionId: "leader-a", sessionNum: 21, name: "Leader A" }]);
+      }
+      if (method === "POST" && url === "/api/sessions/leader-b/message") {
+        messageCalls.push(await readJson(req));
+        return json({ ok: true, sessionId: "leader-b", delivery: "sent" });
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(
+        ["send", "leader-b", "memory", "commands", "will", "fail", "--port", String(port)],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: "leader-a",
+          COMPANION_AUTH_TOKEN: "auth-leader-a",
+        },
+      );
+
+      expect(result.status).toBe(0);
+      expect(herdChecked).toBe(false);
+      expect(messageCalls).toEqual([
+        {
+          content: "memory commands will fail",
+          agentSource: { sessionId: "leader-a", sessionLabel: "#21 Leader A" },
+        },
+      ]);
+    } finally {
+      server.close();
+    }
+  });
+
   it("fails clearly for archived target sessions before attempting delivery", async () => {
     let posted = false;
     const server = createServer(async (req, res) => {

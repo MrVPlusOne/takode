@@ -75,6 +75,7 @@ Events from herded sessions are delivered automatically as `[Herd]` user message
 - **`[Timer reminder HH:MM id:timer-mN]`** -- one actual timer firing; `timer-mN` is its optional answer target, distinct from recurring timer `tN`; inspect it when needed with `takode read <leader-session> timer-mN`
 - **`[Herd HH:MM]`** -- automatic event summary from herded sessions
 - **`[Agent #N name HH:MM]`** -- forwarded from another agent/session
+- **`[Leader #N name HH:MM]`** -- sent by another leader session with `takode send`; your turn output does not reach it, so reply with `takode send <N>` when a reply is needed
 
 ### Event Types and Reactions
 
@@ -378,6 +379,8 @@ These commands require `TAKODE_ROLE=orchestrator`. Non-orchestrator sessions wil
 ### `takode send <session> <message> [--correction]`
 
 Send a message to a **herded** worker session (injected as a user message). Requires herding first.
+
+You can also send to another **leader** session by its session number, without herding. The recipient sees a `[Leader #N name HH:MM]` tag, and its busy state does not block delivery. Only leaders can message a leader, and only a worker's own leader can message that worker.
 
 **Syntax:** The session ID must always be the **first** argument after `send`. Flags (`--correction`, `--json`) go **after** the message or at the end. Putting flags before the session ID will cause parse errors.
 

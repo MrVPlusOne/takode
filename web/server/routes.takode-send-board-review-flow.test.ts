@@ -665,6 +665,48 @@ describe("Takode server-authoritative auth", () => {
     );
   });
 
+  it("lets leaders message other leaders while keeping workers reachable only by their own leader", async () => {
+    // Leader-to-leader messages are allowed, but a non-leader cannot message a
+    // leader and a leader still cannot message another leader's worker.
+    const sessions = setupTakodeSessions();
+    sessions["orch-2"] = {
+      sessionId: "orch-2",
+      state: "running",
+      cwd: "/repo",
+      createdAt: Date.now(),
+      isOrchestrator: true,
+    };
+    bridge._sessions["orch-2"] = { ...bridge._sessions["orch-1"], id: "orch-2" };
+    const tokens: Record<string, string> = { "orch-1": "tok-1", "orch-2": "tok-2", "worker-2": "tok-w2" };
+    launcher.verifySessionAuthToken.mockImplementation((id: string, token: string) => tokens[id] === token);
+    const send = (target: string, caller: string) =>
+      app.request(`/api/sessions/${target}/message`, {
+        method: "POST",
+        headers: authHeaders(caller, tokens[caller]),
+        body: JSON.stringify({ content: "heads up" }),
+      });
+
+    const peerLeader = await send("orch-1", "orch-2");
+    expect(peerLeader.status).toBe(200);
+    expect(bridge.injectUserMessage).toHaveBeenCalledWith(
+      "orch-1",
+      "heads up",
+      { sessionId: "orch-2" },
+      undefined,
+      undefined,
+      { autoPauseSourceKind: "manual" },
+    );
+    bridge.injectUserMessage.mockClear();
+
+    const workerToLeader = await send("orch-1", "worker-2");
+    expect(workerToLeader.status).toBe(403);
+    expect(await workerToLeader.json()).toEqual({ error: "Only leader sessions can send messages to a leader" });
+
+    const otherLeadersWorker = await send("worker-1", "orch-2");
+    expect(otherLeadersWorker.status).toBe(403);
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+  });
+
   it("rejects archived takode message targets before routing", async () => {
     const sessions = setupTakodeSessions();
     sessions["worker-1"].archived = true;

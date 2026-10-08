@@ -242,6 +242,24 @@ describe("leader timer firing ingestion", () => {
   });
 });
 
+describe("leader recipient source tags", () => {
+  it("tags a message from another leader as Leader and other agent sessions as Agent", () => {
+    // Leaders can message each other with takode send; the recipient must be
+    // able to tell a peer leader apart from any other agent-sourced message.
+    const getLauncherSessionInfo = vi.fn((id: string) => ({ isOrchestrator: id !== "worker-7" }));
+    const peerPrefix = buildAdapterUserMessageSourcePrefix(session(), 1_000, getLauncherSessionInfo as any, {
+      sessionId: "leader-2763",
+      sessionLabel: "#2763 Takode Leader",
+    });
+    const agentPrefix = buildAdapterUserMessageSourcePrefix(session(), 1_000, getLauncherSessionInfo as any, {
+      sessionId: "worker-7",
+      sessionLabel: "#7 Worker",
+    });
+    expect(peerPrefix).toMatch(/^\[Leader #2763 Takode Leader .*\] $/);
+    expect(agentPrefix).toMatch(/^\[Agent #7 Worker .*\] $/);
+  });
+});
+
 function session(): AdapterBrowserRoutingSessionLike {
   return {
     id: "leader",

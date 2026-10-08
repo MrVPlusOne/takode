@@ -145,7 +145,7 @@ export async function handleSend(base: string, args: string[]): Promise<void> {
 
   if (!cleanContent.trim()) err(usage);
 
-  // Guard: orchestrators can only send to herded sessions
+  // Guard: orchestrators can only send to herded sessions or other leaders
   const callerSessionId = getCredentials()?.sessionId;
   if (callerSessionId) {
     try {
@@ -156,6 +156,7 @@ export async function handleSend(base: string, args: string[]): Promise<void> {
         name?: string;
         isGenerating?: boolean;
         archived?: boolean;
+        isOrchestrator?: boolean;
       };
       const targetId = targetSession.sessionId;
       if (targetSession.archived) {
@@ -165,8 +166,12 @@ export async function handleSend(base: string, args: string[]): Promise<void> {
         err(`Cannot send to archived session ${label}.`);
       }
 
+      // A peer leader is never herded and is usually mid-turn, so messages to it
+      // skip the busy-session guard and herd check. The server accepts them only from leaders.
+      const isPeerLeader = targetSession.isOrchestrator === true && targetId !== callerSessionId;
+
       // Guard: block sends to running sessions unless --correction is used
-      if (targetSession.isGenerating && !isCorrection) {
+      if (!isPeerLeader && targetSession.isGenerating && !isCorrection) {
         const label = targetSession.name
           ? `#${targetSession.sessionNum ?? "?"} ${targetSession.name}`
           : `#${targetSession.sessionNum ?? sessionRef}`;
@@ -178,11 +183,13 @@ export async function handleSend(base: string, args: string[]): Promise<void> {
       }
 
       // Check herd membership
-      const herdList = (await apiGet(base, `/sessions/${encodeURIComponent(callerSessionId)}/herd`)) as Array<{
-        sessionId: string;
-      }>;
-      if (!herdList.some((s) => s.sessionId === targetId)) {
-        err(`Cannot send to session ${sessionRef} — not in your herd. Run \`takode herd ${sessionRef}\` first.`);
+      if (!isPeerLeader) {
+        const herdList = (await apiGet(base, `/sessions/${encodeURIComponent(callerSessionId)}/herd`)) as Array<{
+          sessionId: string;
+        }>;
+        if (!herdList.some((s) => s.sessionId === targetId)) {
+          err(`Cannot send to session ${sessionRef} — not in your herd. Run \`takode herd ${sessionRef}\` first.`);
+        }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
