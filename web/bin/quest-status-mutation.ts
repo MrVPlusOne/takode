@@ -1,8 +1,8 @@
 import { getQuest } from "../server/quest-store.js";
 import type { QuestmasterTask } from "../server/quest-types.js";
-import { evaluateQuestStatusMutationGuard } from "../server/quest-status-guard.js";
 import { QUEST_LEADER_RECOVERY_WARNING_HEADER } from "../server/quest-recovery.js";
 import { getQuestDisplayOwner, sameQuestOwner, type QuestOwnerRef } from "../shared/quest-owner.js";
+import type { QuestServerClient } from "./quest-server-client.js";
 
 export type QuestStatusMutationOverride = {
   force: boolean;
@@ -10,8 +10,7 @@ export type QuestStatusMutationOverride = {
 };
 
 export type QuestStatusMutationDeps = {
-  companionAuthHeaders: (extra?: Record<string, string>) => Record<string, string>;
-  companionPort: string | undefined;
+  questServer: QuestServerClient;
   currentSessionId: string | undefined;
   codexOwner?: QuestOwnerRef;
   die: (message: string) => never;
@@ -28,36 +27,29 @@ export function parseQuestStatusMutationOverride(deps: QuestStatusMutationDeps):
   return { force, ...(reason ? { reason } : {}) };
 }
 
-export async function guardLocalQuestStatusMutation(
-  deps: QuestStatusMutationDeps,
+/**
+ * Ownership guard for the server's in-process Codex Quest command worker, the
+ * only caller that still writes the quest store from the CLI process.
+ */
+export async function guardDirectCodexQuestStatusMutation(
+  deps: QuestStatusMutationDeps & { codexOwner: QuestOwnerRef },
   questId: string,
   override: QuestStatusMutationOverride,
   options: { targetSessionId?: string; requireOwner?: boolean } = {},
 ): Promise<void> {
   const current = await getQuest(questId);
   if (!current) return;
-  if (deps.codexOwner) {
-    if (override.force) deps.die("Direct Codex quest status changes do not support --force.");
-    if (options.targetSessionId && options.targetSessionId !== deps.codexOwner.sessionId) {
-      deps.die("Direct Codex quest status changes cannot target another session.");
-    }
-    const owner = getQuestDisplayOwner(current);
-    if (options.requireOwner && !owner) {
-      deps.die(`Only the current Codex owner can change ${questId} status.`);
-    }
-    if (owner && !sameQuestOwner(owner, deps.codexOwner)) {
-      deps.die(`Refusing to change ${questId} status: the quest is owned by ${owner.kind} owner ${owner.sessionId}.`);
-    }
-    return;
+  if (override.force) deps.die("Direct Codex quest status changes do not support --force.");
+  if (options.targetSessionId && options.targetSessionId !== deps.codexOwner.sessionId) {
+    deps.die("Direct Codex quest status changes cannot target another session.");
   }
-  const result = evaluateQuestStatusMutationGuard(current, {
-    callerSessionId: deps.currentSessionId,
-    callerIsLeader: process.env.TAKODE_ROLE === "orchestrator",
-    force: override.force,
-    reason: override.reason,
-    targetSessionId: options.targetSessionId,
-  });
-  if (!result.ok) deps.die(result.message);
+  const owner = getQuestDisplayOwner(current);
+  if (options.requireOwner && !owner) {
+    deps.die(`Only the current Codex owner can change ${questId} status.`);
+  }
+  if (owner && !sameQuestOwner(owner, deps.codexOwner)) {
+    deps.die(`Refusing to change ${questId} status: the quest is owned by ${owner.kind} owner ${owner.sessionId}.`);
+  }
 }
 
 export async function postQuestStatusMutation(
@@ -65,28 +57,13 @@ export async function postQuestStatusMutation(
   questId: string,
   endpoint: "transition" | "complete" | "done" | "cancel",
   body: Record<string, unknown>,
-): Promise<QuestmasterTask | null> {
-  if (!deps.companionPort) return null;
-  try {
-    const res = await fetch(
-      `http://localhost:${deps.companionPort}/api/quests/${encodeURIComponent(questId)}/${endpoint}`,
-      {
-        method: "POST",
-        headers: deps.companionAuthHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(5000),
-      },
-    );
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      deps.die((err as { error: string }).error || res.statusText);
-    }
-    const warning = res.headers.get(QUEST_LEADER_RECOVERY_WARNING_HEADER);
-    if (warning) deps.warn?.(warning);
-    return (await res.json()) as QuestmasterTask;
-  } catch (e) {
-    const error = e as Error;
-    if (error.name === "AbortError" || error.message?.includes("timeout")) return null;
-    deps.die(error.message);
-  }
+): Promise<QuestmasterTask> {
+  const { value, headers } = await deps.questServer.request<QuestmasterTask>(
+    "POST",
+    `/quests/${encodeURIComponent(questId)}/${endpoint}`,
+    body,
+  );
+  const warning = headers.get(QUEST_LEADER_RECOVERY_WARNING_HEADER);
+  if (warning) deps.warn?.(warning);
+  return value;
 }

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -9,8 +9,24 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSessionAuthDir, getSessionAuthPath } from "../shared/session-auth.js";
 import { QUEST_LEADER_RECOVERY_WARNING_HEADER } from "./quest-recovery.js";
+import { startCliWriteServer } from "./test-fixtures/cli-write-server-harness.js";
 
 type JsonObject = Record<string, unknown>;
+
+/** Every quest store file under HOME with its contents, for detecting any write. */
+function snapshotQuestStore(home: string): Record<string, string> {
+  const snapshot: Record<string, string> = {};
+  for (const dir of ["questmaster", "questmaster-live"]) {
+    const root = join(home, ".companion", dir);
+    if (!existsSync(root)) continue;
+    for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      const path = join(entry.parentPath, entry.name);
+      snapshot[path] = readFileSync(path, "utf-8");
+    }
+  }
+  return snapshot;
+}
 
 function centralAuthPath(cwd: string, home?: string, serverId = "test-server-id"): string {
   return getSessionAuthPath(cwd, serverId, home);
@@ -76,13 +92,14 @@ describe("quest CLI status safety", () => {
 
   it("creates a refined quest directly with --status refined", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-create-status-refined-"));
+    const server = await startCliWriteServer(tmp);
 
     try {
       const result = await runQuest(
         ["create", "Ready quest", "--desc", "Approved scope", "--status", "refined"],
         {
           ...process.env,
-          COMPANION_PORT: undefined,
+          COMPANION_PORT: String(server.port),
           COMPANION_SESSION_ID: undefined,
           COMPANION_AUTH_TOKEN: undefined,
           HOME: tmp,
@@ -95,19 +112,21 @@ describe("quest CLI status safety", () => {
       expect(result.stdout).toContain('Created q-1: "Ready quest" (refined)');
       expect(result.stdout).toContain("Use this exact quest ID for follow-up commands: q-1");
     } finally {
+      await server.stop();
       rmSync(tmp, { recursive: true, force: true });
     }
   });
 
   it("defaults local quest creation session-space metadata from the session environment", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-create-session-space-env-"));
+    const server = await startCliWriteServer(tmp);
 
     try {
       const result = await runQuest(
         ["create", "Space quest", "--json"],
         {
           ...process.env,
-          COMPANION_PORT: undefined,
+          COMPANION_PORT: String(server.port),
           COMPANION_SESSION_ID: undefined,
           COMPANION_AUTH_TOKEN: undefined,
           COMPANION_MEMORY_SPACE_SLUG: "MSI",
@@ -120,19 +139,21 @@ describe("quest CLI status safety", () => {
       expect(result.stderr).toBe("");
       expect(JSON.parse(result.stdout)).toMatchObject({ questId: "q-1", sessionSpaceSlug: "MSI" });
     } finally {
+      await server.stop();
       rmSync(tmp, { recursive: true, force: true });
     }
   });
 
   it("lets quest create and edit override session-space metadata explicitly", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-session-space-override-"));
+    const server = await startCliWriteServer(tmp);
 
     try {
       const createResult = await runQuest(
         ["create", "Override quest", "--session-space", "Research", "--json"],
         {
           ...process.env,
-          COMPANION_PORT: undefined,
+          COMPANION_PORT: String(server.port),
           COMPANION_SESSION_ID: undefined,
           COMPANION_AUTH_TOKEN: undefined,
           COMPANION_MEMORY_SPACE_SLUG: "MSI",
@@ -147,7 +168,7 @@ describe("quest CLI status safety", () => {
         ["edit", "q-1", "--session-space", "Other", "--json"],
         {
           ...process.env,
-          COMPANION_PORT: undefined,
+          COMPANION_PORT: String(server.port),
           COMPANION_SESSION_ID: undefined,
           COMPANION_AUTH_TOKEN: undefined,
           HOME: tmp,
@@ -158,6 +179,7 @@ describe("quest CLI status safety", () => {
       expect(editResult.stderr).toBe("");
       expect(JSON.parse(editResult.stdout)).toMatchObject({ questId: "q-1", sessionSpaceSlug: "Other" });
     } finally {
+      await server.stop();
       rmSync(tmp, { recursive: true, force: true });
     }
   });
@@ -280,6 +302,7 @@ describe("quest CLI status safety", () => {
     }
   });
 
+  // Forced recovery, like every quest write, never falls back to writing the local store.
   it("refuses local filesystem fallback for forced completion recovery", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-complete-force-local-refuse-"));
 
@@ -297,8 +320,61 @@ describe("quest CLI status safety", () => {
       );
 
       expect(result.status).toBe(1);
-      expect(result.stderr).toContain("quest complete --force requires Companion server auth");
+      expect(result.stderr).toContain("Quest changes are written by the Takode server");
+      expect(existsSync(join(tmp, ".companion", "questmaster-live", "store.json"))).toBe(false);
+      expect(existsSync(join(tmp, ".companion", "questmaster", "_quest_counter.json"))).toBe(false);
     } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  // The server is the only writer of quest data. When it cannot be reached, every write
+  // command fails with a clear error and leaves an existing local store untouched.
+  it("fails writes clearly and never touches the local store when the server is unreachable", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-writes-server-unreachable-"));
+    const server = await startCliWriteServer(tmp);
+    const env = (port: number) => ({
+      ...process.env,
+      COMPANION_PORT: String(port),
+      COMPANION_SESSION_ID: undefined,
+      COMPANION_AUTH_TOKEN: undefined,
+      HOME: tmp,
+    });
+
+    try {
+      const seeded = await runQuest(["create", "Seeded quest", "--desc", "Exists before"], env(server.port), tmp);
+      expect(seeded.status).toBe(0);
+      const deadPort = server.port;
+      await server.stop();
+      const storeBefore = snapshotQuestStore(tmp);
+      expect(Object.keys(storeBefore).length).toBeGreaterThan(0);
+
+      const writes = [
+        ["create", "Second quest"],
+        ["edit", "q-1", "--title", "Renamed"],
+        ["transition", "q-1", "--status", "refined"],
+        ["claim", "q-1", "--session", "worker-1"],
+        ["feedback", "q-1", "--text", "Note", "--author", "human"],
+        ["check", "q-1", "0"],
+        ["later", "q-1"],
+        ["cancel", "q-1"],
+        ["delete", "q-1"],
+      ];
+      for (const args of writes) {
+        const result = await runQuest(args, env(deadPort), tmp);
+        expect({ args, status: result.status }).toEqual({ args, status: 1 });
+        // `check` reads the quest first and stops before writing because it has no review checks.
+        if (args[0] !== "check") {
+          expect(result.stderr).toContain(`Cannot reach the Takode server at http://localhost:${deadPort}`);
+        }
+      }
+
+      expect(snapshotQuestStore(tmp)).toEqual(storeBefore);
+      const reads = await runQuest(["show", "q-1"], env(deadPort), tmp);
+      expect(reads.status).toBe(0);
+      expect(reads.stdout).toContain("Seeded quest");
+    } finally {
+      await server.stop();
       rmSync(tmp, { recursive: true, force: true });
     }
   });

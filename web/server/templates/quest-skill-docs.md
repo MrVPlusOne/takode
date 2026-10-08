@@ -627,7 +627,7 @@ Quests can have attached images at `~/.companion/questmaster/images/`.
 ## Environment
 
 - `COMPANION_SESSION_ID` is set automatically — `quest claim` uses it by default
-- `COMPANION_PORT` is set automatically — the CLI uses it for browser notifications
+- `COMPANION_PORT` is set automatically — it names the Takode server, which makes every quest change. Reads work without it; writes fail with a clear error when no server is named or it can't be reached, and never fall back to writing local files
 - Pass `--json` to any command for machine-parseable output
 - Prefer `quest ...` directly when `quest` is already on PATH (`command -v quest`).
 - Only if `quest` is missing, use the full path fallback: `~/.companion/bin/quest`

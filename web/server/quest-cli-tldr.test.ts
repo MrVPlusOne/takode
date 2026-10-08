@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { getSessionAuthDir, getSessionAuthPath } from "../shared/session-auth.js";
+import { startCliWriteServer } from "./test-fixtures/cli-write-server-harness.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -413,6 +414,7 @@ describe("quest CLI TLDR metadata", () => {
 
   it("supports quest description TLDR flags and warns for long descriptions without TLDR", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-create-tldr-"));
+    const server = await startCliWriteServer(tmp);
     const descPath = join(tmp, "desc.md");
     const tldrPath = join(tmp, "tldr.md");
     const longDescription = "Long quest description. ".repeat(80);
@@ -424,7 +426,7 @@ describe("quest CLI TLDR metadata", () => {
         ["create", "Long quest", "--desc-file", descPath, "--json"],
         {
           ...process.env,
-          COMPANION_PORT: undefined,
+          COMPANION_PORT: String(server.port),
           COMPANION_SESSION_ID: undefined,
           COMPANION_AUTH_TOKEN: undefined,
           HOME: tmp,
@@ -438,7 +440,7 @@ describe("quest CLI TLDR metadata", () => {
         ["create", "Summarized quest", "--desc-file", descPath, "--tldr-file", tldrPath, "--json"],
         {
           ...process.env,
-          COMPANION_PORT: undefined,
+          COMPANION_PORT: String(server.port),
           COMPANION_SESSION_ID: undefined,
           COMPANION_AUTH_TOKEN: undefined,
           HOME: tmp,
@@ -449,6 +451,7 @@ describe("quest CLI TLDR metadata", () => {
       expect(withTldr.stderr).not.toContain("quest description is 1200+ characters");
       expect(JSON.parse(withTldr.stdout)).toMatchObject({ tldr: "Short quest summary" });
     } finally {
+      await server.stop();
       rmSync(tmp, { recursive: true, force: true });
     }
   });

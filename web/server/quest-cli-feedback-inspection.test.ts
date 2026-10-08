@@ -7,6 +7,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { startCliWriteServer } from "./test-fixtures/cli-write-server-harness.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -288,10 +289,13 @@ describe("quest CLI feedback inspection", () => {
       ],
     });
 
+    // Unauthenticated completion goes through the server like every quest write.
+    const server = await startCliWriteServer(tmp);
+
     try {
       const result = await runQuest(
         ["complete", "q-5", "--items", "Run typecheck,Human visual check", "--json"],
-        baseEnv(tmp),
+        { ...baseEnv(tmp), COMPANION_PORT: String(server.port) },
         tmp,
       );
       const parsed = JSON.parse(result.stdout);
@@ -304,6 +308,7 @@ describe("quest CLI feedback inspection", () => {
       expect(result.stderr).toContain("user review check(s) 0 look self-verifiable");
       expect(result.stderr).toContain("reserve user review checks for things the user needs to inspect");
     } finally {
+      await server.stop();
       rmSync(tmp, { recursive: true, force: true });
     }
   });
@@ -324,10 +329,13 @@ describe("quest CLI feedback inspection", () => {
       feedback: [{ author: "agent", text: "Summary: follow-up ready", ts: 20, authorSessionId: "session-test" }],
     });
 
+    // Unauthenticated completion goes through the server like every quest write.
+    const server = await startCliWriteServer(tmp);
+
     try {
       const result = await runQuest(
         ["complete", "q-6", "--items", "Manually test the mobile layout,Run typecheck", "--json"],
-        baseEnv(tmp),
+        { ...baseEnv(tmp), COMPANION_PORT: String(server.port) },
         tmp,
       );
       const parsed = JSON.parse(result.stdout);
@@ -338,6 +346,7 @@ describe("quest CLI feedback inspection", () => {
       expect(result.stderr).toContain("user review check(s) 1 look self-verifiable");
       expect(result.stderr).not.toContain("user review check(s) 0 look self-verifiable");
     } finally {
+      await server.stop();
       rmSync(tmp, { recursive: true, force: true });
     }
   });
@@ -357,6 +366,9 @@ describe("quest CLI feedback inspection", () => {
       feedback: [{ author: "agent", text: "Summary: implementation details recorded", ts: 20 }],
     });
 
+    // Unauthenticated completion goes through the server like every quest write.
+    const server = await startCliWriteServer(tmp);
+
     try {
       const result = await runQuest(
         [
@@ -366,7 +378,7 @@ describe("quest CLI feedback inspection", () => {
           "Synced commit 72e1a401159f3c71105e8b80536a5fb77e44a5c8 was pushed to origin/jiayi,User can confirm the workflow copy reads clearly",
           "--json",
         ],
-        baseEnv(tmp),
+        { ...baseEnv(tmp), COMPANION_PORT: String(server.port) },
         tmp,
       );
       const parsed = JSON.parse(result.stdout);
@@ -377,6 +389,7 @@ describe("quest CLI feedback inspection", () => {
       expect(result.stderr).toContain("use structured --commit/--commits metadata for synced SHAs");
       expect(result.stderr).not.toContain("user review check(s) 1 look like implementation details");
     } finally {
+      await server.stop();
       rmSync(tmp, { recursive: true, force: true });
     }
   });

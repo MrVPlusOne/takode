@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { startCliWriteServer, type CliWriteServer } from "./test-fixtures/cli-write-server-harness.js";
 
 async function runMemory(
   args: string[],
@@ -34,18 +35,30 @@ async function runMemory(
 describe("memory CLI", () => {
   let tempDir: string;
   let env: Record<string, string>;
+  // The server runs every memory command that writes, including catalog reads that record
+  // freshness and handles, so each test gets a real write server over its disposable HOME.
+  const servers: CliWriteServer[] = [];
+
+  /** Start a write server over this test's HOME whose own server slug is `serverSlug`. */
+  async function serverPort(serverSlug: string): Promise<string> {
+    const server = await startCliWriteServer(tempDir, { serverSlug });
+    servers.push(server);
+    return String(server.port);
+  }
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "memory-cli-test-"));
     env = {
+      HOME: tempDir,
       COMPANION_MEMORY_DIR: join(tempDir, "memory"),
       COMPANION_SERVER_ID: "test-server",
       COMPANION_SERVER_SLUG: "test",
-      COMPANION_PORT: "",
+      COMPANION_PORT: await serverPort("test"),
     };
   });
 
   afterEach(async () => {
+    await Promise.all(servers.splice(0).map((server) => server.stop()));
     await rm(tempDir, { recursive: true, force: true });
   });
 
@@ -245,7 +258,8 @@ source:
       HOME: tempDir,
       COMPANION_SERVER_ID: "server-id",
       COMPANION_SERVER_SLUG: "server-slug",
-      COMPANION_PORT: "",
+      COMPANION_PORT: await serverPort("server-slug"),
+      COMPANION_MEMORY_DIR: "",
     };
 
     const path = await runMemory(["repo", "path"], scopedEnv);
@@ -296,7 +310,7 @@ source:
       HOME: tempDir,
       COMPANION_SERVER_ID: "same-server",
       COMPANION_SERVER_SLUG: "prod",
-      COMPANION_PORT: "",
+      COMPANION_PORT: await serverPort("prod"),
       COMPANION_MEMORY_DIR: "",
     };
     const takodeRoot = join(tempDir, ".companion", "memory", "prod", "Takode");
@@ -629,5 +643,40 @@ source:
     expect(help.stdout).not.toContain("workstream");
     expect(help.stdout).not.toContain("upsert");
     expect(help.stdout).not.toMatch(/^  check\b/m);
+  });
+
+  // The server is the only writer of memory data. Without it, writes (including catalog reads,
+  // which record freshness and handles) fail clearly, while plain reads still work locally and
+  // never create, migrate or index a repo.
+  it("runs writes on the server and keeps local reads from creating a repo", async () => {
+    const [server] = servers.splice(0);
+    await server!.stop();
+    const root = join(tempDir, "memory");
+
+    const lock = await runMemory(["lock", "acquire", "--owner", "worker"], env);
+    expect(lock.status).toBe(1);
+    expect(lock.stderr).toContain(`Cannot reach the Takode server at http://localhost:${env.COMPANION_PORT}`);
+    const catalog = await runMemory(["catalog", "show"], env);
+    expect(catalog.status).toBe(1);
+    expect(catalog.stderr).toContain("Memory changes are written by the server");
+    const noServer = await runMemory(["helpful", "voice/a.md"], { ...env, COMPANION_PORT: "" });
+    expect(noServer.status).toBe(1);
+    expect(noServer.stderr).toContain("No Takode server is configured for this command");
+
+    for (const args of [["repo", "path"], ["lint"], ["status"], ["diff"], ["lock", "status"]]) {
+      const result = await runMemory(args, env);
+      expect({ args, status: result.status, stderr: result.stderr }).toEqual({ args, status: 0, stderr: "" });
+    }
+    await expect(readFile(join(root, ".git", "HEAD"), "utf-8")).rejects.toThrow();
+  });
+
+  it("records the authenticated caller session on locks the server takes", async () => {
+    const lock = await runMemory(["lock", "acquire", "--owner", "worker", "--json"], {
+      ...env,
+      COMPANION_SESSION_ID: "session-a",
+      COMPANION_AUTH_TOKEN: "token-a",
+    });
+    expect(lock.status).toBe(0);
+    expect(JSON.parse(lock.stdout)).toMatchObject({ locked: true, owner: "worker", session: "session-a" });
   });
 });

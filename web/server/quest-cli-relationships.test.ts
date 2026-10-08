@@ -4,6 +4,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { startCliWriteServer, type CliWriteServer } from "./test-fixtures/cli-write-server-harness.js";
+
+let server: CliWriteServer;
 
 async function runQuest(
   args: string[],
@@ -14,7 +17,7 @@ async function runQuest(
     env: {
       ...process.env,
       HOME: home,
-      COMPANION_PORT: undefined,
+      COMPANION_PORT: String(server.port),
       COMPANION_SESSION_ID: undefined,
       BUN_INSTALL_CACHE_DIR: process.env.BUN_INSTALL_CACHE_DIR || join(process.env.HOME || "", ".bun/install/cache"),
     },
@@ -35,11 +38,13 @@ async function runQuest(
 describe("quest CLI relationships", () => {
   let home: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     home = mkdtempSync(join(tmpdir(), "quest-cli-relationships-"));
+    server = await startCliWriteServer(home);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await server.stop();
     rmSync(home, { recursive: true, force: true });
   });
 

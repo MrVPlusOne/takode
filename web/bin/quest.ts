@@ -40,9 +40,7 @@ import {
   createQuest,
   completeQuest,
   markDone,
-  cancelQuest,
   transitionQuest,
-  patchQuest,
   patchQuestForOwner,
   checkVerificationItem,
   markQuestVerificationRead,
@@ -94,10 +92,11 @@ import { runClaimCommand, runReassignCommand } from "./quest-ownership-command.j
 import { parseCommaSeparatedTags } from "./quest-tag-options.js";
 import { runFeedbackEditCommand } from "./quest-feedback-edit-command.js";
 import {
-  guardLocalQuestStatusMutation,
+  guardDirectCodexQuestStatusMutation,
   parseQuestStatusMutationOverride,
   postQuestStatusMutation,
 } from "./quest-status-mutation.js";
+import { createQuestServerClient } from "./quest-server-client.js";
 import { COMPANION_MEMORY_SPACE_SLUG_ENV } from "../server/memory-session-space.js";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -142,6 +141,8 @@ const questServerExecution = isQuestServerExecution();
 trackCliLatency("quest", command, args.slice(1), { serverRun: questServerExecution });
 const managedCompanionIdentity = hasManagedCompanionIdentity();
 const directCodexExecution = !!codexInvocation && questServerExecution && !managedCompanionIdentity;
+/** The Codex invocation when this process is the server's own Codex Quest command worker. */
+const directCodex = directCodexExecution ? codexInvocation : null;
 
 function flag(name: string): boolean {
   return args.includes(`--${name}`);
@@ -239,23 +240,6 @@ function companionAuthHeaders(extra: Record<string, string> = {}): Record<string
   };
 }
 
-// ─── Server notification ────────────────────────────────────────────────────
-
-async function notifyServer(): Promise<void> {
-  if (directCodexExecution) return;
-  const port = getCompanionPort();
-  if (!port) return;
-  try {
-    await fetch(`http://localhost:${port}/api/quests/_notify`, {
-      method: "POST",
-      headers: companionAuthHeaders(),
-      signal: AbortSignal.timeout(2000),
-    });
-  } catch {
-    // Best effort — server may not be running
-  }
-}
-
 // ─── Output helpers ─────────────────────────────────────────────────────────
 
 function out(data: unknown): void {
@@ -348,6 +332,9 @@ function requireReviewPendingQuest(quest: QuestmasterTask, questId: string, acti
 
 const currentSessionId = getCurrentSessionId();
 const companionPort = getCompanionPort();
+// Every quest write goes through the server. The only exception is the server's
+// own Codex Quest command worker (`directCodexExecution`), which it runs itself.
+const questServer = createQuestServerClient({ port: companionPort, authHeaders: companionAuthHeaders, die });
 
 let sessionMetadataCache: Map<string, SessionMetadata> | null = null;
 
@@ -795,21 +782,15 @@ async function cmdCreate(): Promise<void> {
   const relationships = parseRelationshipFlags({ option });
 
   try {
-    const uploadedImages =
+    const resolvedImages =
       imagePaths.length > 0
-        ? (() => {
-            if (directCodexExecution) {
-              return Promise.all(imagePaths.map((path) => saveQuestInputImage(path)));
-            }
-            const port = companionPort;
-            if (!port) {
-              die("Companion server port not found. Set COMPANION_PORT env var.");
-            }
-            return Promise.all(imagePaths.map((path) => uploadQuestInputImage(port, path, companionAuthHeaders())));
-          })()
+        ? await Promise.all(
+            imagePaths.map((path) =>
+              directCodex ? saveQuestInputImage(path) : uploadQuestInputImage(questServer, path),
+            ),
+          )
         : undefined;
-    const resolvedImages = uploadedImages ? await uploadedImages : undefined;
-    const quest = await createQuest({
+    const createInput = {
       title: resolvedTitle,
       description,
       ...(status ? { status: status as "idea" | "refined" } : {}),
@@ -818,9 +799,10 @@ async function cmdCreate(): Promise<void> {
       ...(sessionSpaceSlug ? { sessionSpaceSlug } : {}),
       ...(relationships ? { relationships } : {}),
       ...(resolvedImages?.length ? { images: resolvedImages } : {}),
-      ...(directCodexExecution && codexInvocation ? { createdBy: codexQuestProvenance(codexInvocation) } : {}),
-    });
-    await notifyServer();
+    };
+    const quest = directCodex
+      ? await createQuest({ ...createInput, createdBy: codexQuestProvenance(directCodex) })
+      : (await questServer.request<QuestmasterTask>("POST", "/quests", createInput)).value;
     if (jsonOutput) {
       out(quest);
     } else {
@@ -901,65 +883,43 @@ async function cmdComplete(): Promise<void> {
     warnAll(completionHygieneWarnings(currentQuest, items, commitShas));
   }
 
-  const serverQuest = await postQuestStatusMutation(statusMutationCommandDeps(), id, "complete", {
-    verificationItems: items,
-    ...(targetSessionId ? { sessionId: targetSessionId } : {}),
-    ...(commitShas.length > 0 ? { commitShas } : {}),
-    ...(memoryCommitShas.length > 0 ? { memoryCommitShas } : {}),
-    ...(override.force ? { force: true, reason: override.reason } : {}),
-    ...debriefOptions,
-  });
-  if (serverQuest) {
-    if (jsonOutput) {
-      out(serverQuest);
-    } else {
-      console.log(`Completed ${serverQuest.questId} "${serverQuest.title}" with ${items.length} user review checks`);
-      console.log(formatCompletionReminder(serverQuest.questId, { noCode }));
-    }
-    warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
-    return;
-  }
-  if (override.force) {
-    die("Leader recovery via quest complete --force requires Companion server auth.");
-  }
-
-  // Fallback: direct filesystem (no browser notification)
-  try {
-    await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, override, {
-      ...(targetSessionId ? { targetSessionId } : {}),
-      ...(directCodexExecution ? { requireOwner: true } : {}),
-    });
-    const directSessionId = directCodexExecution ? codexInvocation?.sessionId : undefined;
-    const quest = await completeQuest(
-      id,
-      items,
-      commitShas.length > 0 ||
-        memoryCommitShas.length > 0 ||
-        targetSessionId ||
-        directSessionId ||
-        Object.keys(debriefOptions).length > 0
-        ? {
+  const quest = directCodex
+    ? await (async () => {
+        // A direct Codex owner has no Companion server auth for leader recovery.
+        if (override.force) die("Leader recovery via quest complete --force requires Companion server auth.");
+        try {
+          await guardDirectCodexQuestStatusMutation(directCodexStatusDeps(directCodex), id, override, {
+            ...(targetSessionId ? { targetSessionId } : {}),
+            requireOwner: true,
+          });
+          return await completeQuest(id, items, {
             commitShas,
             memoryCommitShas,
-            ...((targetSessionId ?? directSessionId) ? { sessionId: targetSessionId ?? directSessionId } : {}),
-            ...(directCodexExecution ? { ownerKind: "codex" as const } : {}),
-            ...(directCodexExecution && codexInvocation ? { provenance: codexQuestProvenance(codexInvocation) } : {}),
+            sessionId: targetSessionId ?? directCodex.sessionId,
+            ownerKind: "codex",
+            provenance: codexQuestProvenance(directCodex),
             ...debriefOptions,
-          }
-        : undefined,
-    );
-    if (!quest) die(`Quest ${id} not found`);
-    await notifyServer();
-    if (jsonOutput) {
-      out(quest);
-    } else {
-      console.log(`Completed ${quest.questId} "${quest.title}" with ${items.length} user review checks`);
-      console.log(formatCompletionReminder(quest.questId, { noCode }));
-    }
-    warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
-  } catch (e) {
-    die((e as Error).message);
+          });
+        } catch (e) {
+          die((e as Error).message);
+        }
+      })()
+    : await postQuestStatusMutation(statusMutationCommandDeps(), id, "complete", {
+        verificationItems: items,
+        ...(targetSessionId ? { sessionId: targetSessionId } : {}),
+        ...(commitShas.length > 0 ? { commitShas } : {}),
+        ...(memoryCommitShas.length > 0 ? { memoryCommitShas } : {}),
+        ...(override.force ? { force: true, reason: override.reason } : {}),
+        ...debriefOptions,
+      });
+  if (!quest) die(`Quest ${id} not found`);
+  if (jsonOutput) {
+    out(quest);
+  } else {
+    console.log(`Completed ${quest.questId} "${quest.title}" with ${items.length} user review checks`);
+    console.log(formatCompletionReminder(quest.questId, { noCode }));
   }
+  warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
 }
 
 function formatCompletionReminder(questId: string, options: { noCode: boolean }): string {
@@ -1013,33 +973,26 @@ async function cmdDone(): Promise<void> {
   }
 
   try {
-    const serverQuest = await postQuestStatusMutation(statusMutationCommandDeps(), id, "done", {
-      ...(notes ? { notes } : {}),
-      ...debriefOptions,
-      ...(cancelled ? { cancelled: true } : {}),
-      ...(override.force ? { force: true, reason: override.reason } : {}),
-    });
-    if (serverQuest) {
-      if (jsonOutput) out(serverQuest);
-      else {
-        const verb = cancelled ? "Cancelled" : "Marked done";
-        console.log(`${verb} ${serverQuest.questId} "${serverQuest.title}"`);
-      }
-      warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
-      return;
-    }
-    await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, override, {
-      ...(directCodexExecution ? { requireOwner: true } : {}),
-    });
-    const quest = await markDone(id, {
-      notes,
-      cancelled,
-      ...debriefOptions,
-      ...(directCodexExecution ? { ownerKind: "codex" as const } : {}),
-      ...(directCodexExecution && codexInvocation ? { provenance: codexQuestProvenance(codexInvocation) } : {}),
-    });
+    const quest = directCodex
+      ? await (async () => {
+          await guardDirectCodexQuestStatusMutation(directCodexStatusDeps(directCodex), id, override, {
+            requireOwner: true,
+          });
+          return markDone(id, {
+            notes,
+            cancelled,
+            ...debriefOptions,
+            ownerKind: "codex",
+            provenance: codexQuestProvenance(directCodex),
+          });
+        })()
+      : await postQuestStatusMutation(statusMutationCommandDeps(), id, "done", {
+          ...(notes ? { notes } : {}),
+          ...debriefOptions,
+          ...(cancelled ? { cancelled: true } : {}),
+          ...(override.force ? { force: true, reason: override.reason } : {}),
+        });
     if (!quest) die(`Quest ${id} not found`);
-    await notifyServer();
     if (jsonOutput) {
       out(quest);
     } else {
@@ -1065,24 +1018,18 @@ async function cmdCancel(): Promise<void> {
   const override = parseQuestStatusMutationOverride(statusMutationCommandDeps());
 
   try {
-    const serverQuest = await postQuestStatusMutation(statusMutationCommandDeps(), id, "cancel", {
-      ...(notes ? { notes } : {}),
-      ...(override.force ? { force: true, reason: override.reason } : {}),
-    });
-    if (serverQuest) {
-      if (jsonOutput) out(serverQuest);
-      else console.log(`Cancelled ${serverQuest.questId} "${serverQuest.title}"`);
-      return;
-    }
-    await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, override);
-    const quest =
-      directCodexExecution && codexInvocation
-        ? await cancelQuestForOwner(id, codexQuestOwner(codexInvocation), notes, {
-            provenance: codexQuestProvenance(codexInvocation),
-          })
-        : await cancelQuest(id, notes);
+    const quest = directCodex
+      ? await (async () => {
+          await guardDirectCodexQuestStatusMutation(directCodexStatusDeps(directCodex), id, override);
+          return cancelQuestForOwner(id, codexQuestOwner(directCodex), notes, {
+            provenance: codexQuestProvenance(directCodex),
+          });
+        })()
+      : await postQuestStatusMutation(statusMutationCommandDeps(), id, "cancel", {
+          ...(notes ? { notes } : {}),
+          ...(override.force ? { force: true, reason: override.reason } : {}),
+        });
     if (!quest) die(`Quest ${id} not found`);
-    await notifyServer();
     if (jsonOutput) {
       out(quest);
     } else {
@@ -1163,25 +1110,25 @@ async function cmdTransition(): Promise<void> {
       ...(sessionId ? { sessionId } : {}),
       ...(commitShas.length > 0 ? { commitShas } : {}),
       ...(memoryCommitShas.length > 0 ? { memoryCommitShas } : {}),
-      ...(directCodexExecution ? { ownerKind: "codex" as const } : {}),
-      ...(directCodexExecution && codexInvocation ? { lastModifiedBy: codexQuestProvenance(codexInvocation) } : {}),
       ...debriefOptions,
     };
-    const serverQuest = await postQuestStatusMutation(statusMutationCommandDeps(), id, "transition", {
-      ...transitionInput,
-      ...(override.force ? { force: true, reason: override.reason } : {}),
-    });
-    const quest =
-      serverQuest ??
-      (await (async () => {
-        await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, override, {
-          ...(sessionId ? { targetSessionId: sessionId } : {}),
-          ...(directCodexExecution && status === "done" ? { requireOwner: true } : {}),
+    const quest = directCodex
+      ? await (async () => {
+          await guardDirectCodexQuestStatusMutation(directCodexStatusDeps(directCodex), id, override, {
+            ...(sessionId ? { targetSessionId: sessionId } : {}),
+            ...(status === "done" ? { requireOwner: true } : {}),
+          });
+          return transitionQuest(id, {
+            ...transitionInput,
+            ownerKind: "codex",
+            lastModifiedBy: codexQuestProvenance(directCodex),
+          });
+        })()
+      : await postQuestStatusMutation(statusMutationCommandDeps(), id, "transition", {
+          ...transitionInput,
+          ...(override.force ? { force: true, reason: override.reason } : {}),
         });
-        return transitionQuest(id, transitionInput);
-      })());
     if (!quest) die(`Quest ${id} not found`);
-    await notifyServer();
     if (jsonOutput) {
       out(quest);
     } else {
@@ -1199,45 +1146,9 @@ async function cmdLater(): Promise<void> {
   const id = positional(0);
   if (!id) die("Usage: quest later <questId>");
 
-  if (companionPort) {
-    try {
-      const res = await fetch(
-        `http://localhost:${companionPort}/api/quests/${encodeURIComponent(id)}/verification/read`,
-        {
-          method: "POST",
-          headers: companionAuthHeaders(),
-          signal: AbortSignal.timeout(5000),
-        },
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        die((err as { error: string }).error || res.statusText);
-      }
-      const quest = (await res.json()) as QuestmasterTask;
-      requireReviewPendingQuest(quest, id, "later");
-      if (jsonOutput) {
-        out(quest);
-      } else {
-        console.log(`Marked ${quest.questId} as acknowledged (left Review Inbox, stays under review)`);
-      }
-      return;
-    } catch (e) {
-      if ((e as Error).name === "AbortError" || (e as Error).message?.includes("timeout")) {
-        // Server unreachable — fall through to direct filesystem.
-      } else {
-        die((e as Error).message);
-      }
-    }
-  }
-
   try {
-    if (directCodexExecution) {
-      await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, { force: false });
-    }
-    const quest = await markQuestVerificationRead(id);
-    if (!quest) die(`Quest ${id} not found`);
+    const quest = await setReviewInboxState(id, "read");
     requireReviewPendingQuest(quest, id, "later");
-    await notifyServer();
     if (jsonOutput) {
       out(quest);
     } else {
@@ -1253,45 +1164,9 @@ async function cmdInbox(): Promise<void> {
   const id = positional(0);
   if (!id) die("Usage: quest inbox <questId>");
 
-  if (companionPort) {
-    try {
-      const res = await fetch(
-        `http://localhost:${companionPort}/api/quests/${encodeURIComponent(id)}/verification/inbox`,
-        {
-          method: "POST",
-          headers: companionAuthHeaders(),
-          signal: AbortSignal.timeout(5000),
-        },
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        die((err as { error: string }).error || res.statusText);
-      }
-      const quest = (await res.json()) as QuestmasterTask;
-      requireReviewPendingQuest(quest, id, "inbox");
-      if (jsonOutput) {
-        out(quest);
-      } else {
-        console.log(`Moved ${quest.questId} back to Review Inbox`);
-      }
-      return;
-    } catch (e) {
-      if ((e as Error).name === "AbortError" || (e as Error).message?.includes("timeout")) {
-        // Server unreachable — fall through to direct filesystem.
-      } else {
-        die((e as Error).message);
-      }
-    }
-  }
-
   try {
-    if (directCodexExecution) {
-      await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, { force: false });
-    }
-    const quest = await markQuestVerificationInboxUnread(id);
-    if (!quest) die(`Quest ${id} not found`);
+    const quest = await setReviewInboxState(id, "inbox");
     requireReviewPendingQuest(quest, id, "inbox");
-    await notifyServer();
     if (jsonOutput) {
       out(quest);
     } else {
@@ -1300,6 +1175,18 @@ async function cmdInbox(): Promise<void> {
   } catch (e) {
     die((e as Error).message);
   }
+}
+
+async function setReviewInboxState(id: string, state: "read" | "inbox"): Promise<QuestmasterTask> {
+  if (!directCodex) {
+    return (
+      await questServer.request<QuestmasterTask>("POST", `/quests/${encodeURIComponent(id)}/verification/${state}`)
+    ).value;
+  }
+  await guardDirectCodexQuestStatusMutation(directCodexStatusDeps(directCodex), id, { force: false });
+  const quest = state === "read" ? await markQuestVerificationRead(id) : await markQuestVerificationInboxUnread(id);
+  if (!quest) die(`Quest ${id} not found`);
+  return quest;
 }
 
 async function cmdEdit(): Promise<void> {
@@ -1368,14 +1255,14 @@ async function cmdEdit(): Promise<void> {
       ...(tags !== undefined ? { tags } : {}),
       ...(sessionSpaceSlug !== undefined ? { sessionSpaceSlug } : {}),
       ...(relationships !== undefined ? { relationships } : {}),
-      ...(directCodexExecution && codexInvocation ? { lastModifiedBy: codexQuestProvenance(codexInvocation) } : {}),
     };
-    const quest =
-      directCodexExecution && codexInvocation
-        ? await patchQuestForOwner(id, codexQuestOwner(codexInvocation), patch)
-        : await patchQuest(id, patch);
+    const quest = directCodex
+      ? await patchQuestForOwner(id, codexQuestOwner(directCodex), {
+          ...patch,
+          lastModifiedBy: codexQuestProvenance(directCodex),
+        })
+      : (await questServer.request<QuestmasterTask>("PATCH", `/quests/${encodeURIComponent(id)}`, patch)).value;
     if (!quest) die(`Quest ${id} not found`);
-    await notifyServer();
     if (jsonOutput) {
       out(quest);
     } else {
@@ -1405,12 +1292,19 @@ async function cmdCheck(): Promise<void> {
   const newChecked = !items[index].checked;
 
   try {
-    if (directCodexExecution) {
-      await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, { force: false });
-    }
-    const quest = await checkVerificationItem(id, index, newChecked);
+    const quest = directCodex
+      ? await (async () => {
+          await guardDirectCodexQuestStatusMutation(directCodexStatusDeps(directCodex), id, { force: false });
+          return checkVerificationItem(id, index, newChecked);
+        })()
+      : (
+          await questServer.request<QuestmasterTask>(
+            "PATCH",
+            `/quests/${encodeURIComponent(id)}/verification/${index}`,
+            { checked: newChecked },
+          )
+        ).value;
     if (!quest) die(`Quest ${id} not found`);
-    await notifyServer();
     if (jsonOutput) {
       out(quest);
     } else {
@@ -1430,8 +1324,7 @@ async function cmdFeedback(): Promise<void> {
   if (subcommand === "add") return cmdFeedbackAdd({ explicitAdd: true });
   if (subcommand === "edit") {
     return runFeedbackEditCommand({
-      companionPort,
-      companionAuthHeaders,
+      questServer,
       ...(directCodexExecution && codexInvocation
         ? {
             editLocally: (questId: string, index: number, patch: { text?: string; tldr?: string }) =>
@@ -1608,21 +1501,16 @@ async function cmdFeedbackAdd(addOptions: { explicitAdd: boolean }): Promise<voi
     }
   }
 
-  const port = companionPort;
-  if (!port) {
-    die("Companion server port not found. Set COMPANION_PORT env var.");
-  }
-
   try {
     const before = await getQuest(id);
     const uploadedImages =
       imagePaths.length > 0
-        ? await Promise.all(imagePaths.map((path) => uploadQuestInputImage(port, path, companionAuthHeaders())))
+        ? await Promise.all(imagePaths.map((path) => uploadQuestInputImage(questServer, path)))
         : undefined;
-    const res = await fetch(`http://localhost:${port}/api/quests/${encodeURIComponent(id)}/feedback`, {
-      method: "POST",
-      headers: companionAuthHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({
+    const { value: quest, headers } = await questServer.request<QuestmasterTask>(
+      "POST",
+      `/quests/${encodeURIComponent(id)}/feedback`,
+      {
         text: text.trim(),
         ...(normalizedTldr ? { tldr: normalizedTldr } : {}),
         author,
@@ -1636,16 +1524,10 @@ async function cmdFeedbackAdd(addOptions: { explicitAdd: boolean }): Promise<voi
         ...(option("kind") ? { kind: option("kind") } : {}),
         ...(flag("infer-phase") ? { inferPhase: true } : {}),
         ...(flag("no-phase") ? { noPhase: true } : {}),
-      }),
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      die((err as { error: string }).error || res.statusText);
-    }
-    const quest = (await res.json()) as QuestmasterTask;
-    const tldrHeaderWarning = res.headers.get(QUEST_TLDR_WARNING_HEADER);
-    const phaseHeaderWarning = res.headers.get(QUEST_PHASE_DOCUMENTATION_WARNING_HEADER);
+      },
+    );
+    const tldrHeaderWarning = headers.get(QUEST_TLDR_WARNING_HEADER);
+    const phaseHeaderWarning = headers.get(QUEST_PHASE_DOCUMENTATION_WARNING_HEADER);
     const mutationWarnings = feedbackAddWarnings({ before, after: quest, author, text: text.trim() });
     const tldrWarnings = tldrHeaderWarning
       ? [tldrHeaderWarning]
@@ -1686,25 +1568,11 @@ async function cmdAddress(): Promise<void> {
     }
   }
 
-  const port = companionPort;
-  if (!port) {
-    die("Companion server port not found. Set COMPANION_PORT env var.");
-  }
-
   try {
-    const res = await fetch(
-      `http://localhost:${port}/api/quests/${encodeURIComponent(id)}/feedback/${index}/addressed`,
-      {
-        method: "POST",
-        headers: companionAuthHeaders(),
-        signal: AbortSignal.timeout(5000),
-      },
+    const { value: quest } = await questServer.request<QuestmasterTask>(
+      "POST",
+      `/quests/${encodeURIComponent(id)}/feedback/${index}/addressed`,
     );
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      die((err as { error: string }).error || res.statusText);
-    }
-    const quest = (await res.json()) as QuestmasterTask;
     printAddressedFeedbackResult(quest, index);
   } catch (e) {
     die((e as Error).message);
@@ -1754,16 +1622,17 @@ async function cmdDelete(): Promise<void> {
   const id = positional(0);
   if (!id) die("Usage: quest delete <questId>");
 
-  if (directCodexExecution && codexInvocation) {
+  if (directCodex) {
     const current = await getQuest(id);
     const owner = current ? getQuestDisplayOwner(current) : undefined;
-    if (owner && !sameQuestOwner(owner, codexQuestOwner(codexInvocation))) {
+    if (owner && !sameQuestOwner(owner, codexQuestOwner(directCodex))) {
       die(`Cannot delete ${id}: it is owned by ${owner.kind} owner ${owner.sessionId}`);
     }
+    const deleted = await deleteQuest(id);
+    if (!deleted) die(`Quest ${id} not found`);
+  } else {
+    await questServer.request("DELETE", `/quests/${encodeURIComponent(id)}`);
   }
-  const deleted = await deleteQuest(id);
-  if (!deleted) die(`Quest ${id} not found`);
-  await notifyServer();
   if (jsonOutput) {
     out({ deleted: true, questId: id });
   } else {
@@ -1778,11 +1647,10 @@ function ownershipCommandDeps() {
     option,
     flag,
     currentSessionId,
-    codexOwner: directCodexExecution && codexInvocation ? codexQuestOwner(codexInvocation) : undefined,
-    codexProvenance: directCodexExecution && codexInvocation ? codexQuestProvenance(codexInvocation) : undefined,
+    codexOwner: directCodex ? codexQuestOwner(directCodex) : undefined,
+    codexProvenance: directCodex ? codexQuestProvenance(directCodex) : undefined,
     companionPort,
-    companionAuthHeaders,
-    notifyServer,
+    questServer,
     printHumanFeedbackWarning,
     jsonOutput,
     out,
@@ -1792,15 +1660,18 @@ function ownershipCommandDeps() {
 
 function statusMutationCommandDeps() {
   return {
-    companionAuthHeaders,
-    companionPort,
+    questServer,
     currentSessionId,
-    codexOwner: directCodexExecution && codexInvocation ? codexQuestOwner(codexInvocation) : undefined,
+    codexOwner: directCodex ? codexQuestOwner(directCodex) : undefined,
     die,
     flag,
     option,
     warn,
   };
+}
+
+function directCodexStatusDeps(context: NonNullable<typeof directCodex>) {
+  return { ...statusMutationCommandDeps(), codexOwner: codexQuestOwner(context) };
 }
 
 async function proxyCodexMutationToServer(): Promise<boolean> {
@@ -1914,13 +1785,10 @@ async function main(): Promise<void> {
         warn,
         readOptionTextFile,
         getQuest,
-        patchQuest:
-          directCodexExecution && codexInvocation
-            ? (questId, patch) => setCodexQuestQuiz(codexInvocation, questId, patch.quizItems ?? [])
-            : patchQuest,
-        notifyServer,
-        companionPort,
-        companionAuthHeaders,
+        questServer,
+        ...(directCodex
+          ? { setQuizLocally: (questId, quizItems) => setCodexQuestQuiz(directCodex, questId, quizItems) }
+          : {}),
       });
     case "address":
       return cmdAddress();

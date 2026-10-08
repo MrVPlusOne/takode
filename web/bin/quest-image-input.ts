@@ -2,28 +2,15 @@ import { readFile } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
 import { saveQuestImage } from "../server/quest-store.js";
 import type { QuestImage } from "../server/quest-types.js";
+import type { QuestServerClient } from "./quest-server-client.js";
 
 /** Upload a CLI image through the live Takode server. */
-export async function uploadQuestInputImage(
-  port: string,
-  rawPath: string,
-  headers: Record<string, string>,
-): Promise<QuestImage> {
+export async function uploadQuestInputImage(questServer: QuestServerClient, rawPath: string): Promise<QuestImage> {
   const filePath = resolve(rawPath);
   const data = await readFile(filePath);
   const form = new FormData();
   form.set("file", new File([data], basename(filePath), { type: guessMimeType(filePath) }));
-  const response = await fetch(`http://localhost:${port}/api/quests/_images`, {
-    method: "POST",
-    headers,
-    body: form,
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error((error as { error?: string }).error || response.statusText);
-  }
-  return (await response.json()) as QuestImage;
+  return (await questServer.request<QuestImage>("POST", "/quests/_images", form)).value;
 }
 
 /** Save a CLI image in the local Quest store during server-side command execution. */

@@ -3,10 +3,10 @@ import { resolve } from "node:path";
 import type { QuestmasterTask } from "../server/quest-types.js";
 import { QUEST_TLDR_WARNING_HEADER, tldrWarningForContent } from "../server/quest-tldr.js";
 import { questCommandPositionals } from "../shared/quest-command-classification.js";
+import type { QuestServerClient } from "./quest-server-client.js";
 
 type FeedbackEditDeps = {
-  companionPort?: string;
-  companionAuthHeaders: (extra?: Record<string, string>) => Record<string, string>;
+  questServer: QuestServerClient;
   editLocally?: (
     questId: string,
     index: number,
@@ -59,25 +59,12 @@ export async function runFeedbackEditCommand(deps: FeedbackEditDeps): Promise<vo
     return;
   }
 
-  const port = deps.companionPort;
-  if (!port) die("Companion server port not found. Set COMPANION_PORT env var.");
-
-  try {
-    const res = await fetch(`http://localhost:${port}/api/quests/${encodeURIComponent(id)}/feedback/${index}`, {
-      method: "PATCH",
-      headers: deps.companionAuthHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify(patch),
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      die((err as { error: string }).error || res.statusText);
-    }
-    const quest = (await res.json()) as QuestmasterTask;
-    printResult(quest, index, res.headers.get(QUEST_TLDR_WARNING_HEADER));
-  } catch (e) {
-    die((e as Error).message);
-  }
+  const { value: quest, headers } = await deps.questServer.request<QuestmasterTask>(
+    "PATCH",
+    `/quests/${encodeURIComponent(id)}/feedback/${index}`,
+    patch,
+  );
+  printResult(quest, index, headers.get(QUEST_TLDR_WARNING_HEADER));
 }
 
 function printResult(quest: QuestmasterTask, index: number, headerWarning: string | null): void {

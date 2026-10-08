@@ -3,6 +3,8 @@ import type { MemoryLintIssue } from "../workstream-memory-types.js";
 import { memorySessionSpaceSlugsForTreeGroups } from "../session-memory-space.js";
 import * as treeGroupStore from "../tree-group-store.js";
 import type { RouteContext } from "./context.js";
+import { getServerId, getServerSlug } from "../settings-manager.js";
+import type { MemoryServerCommandRequest } from "../../shared/memory-command-transport.js";
 
 interface MemoryIssueCounts {
   errors: number;
@@ -155,5 +157,57 @@ export function createMemoryRoutes(ctx: RouteContext) {
     }
   });
 
+  // The server is the only writer of memory data: the `memory` CLI sends every
+  // command that writes (including catalog bookkeeping) here instead of
+  // touching the repo from its own process.
+  api.post("/memory/command", async (c) => {
+    const auth = ctx.authenticateCompanionCallerOptional(c);
+    if (auth && "response" in auth) return auth.response;
+    const request = parseMemoryCommandRequest(await c.req.json().catch(() => null));
+    if (!request) return c.json({ error: "Expected { args: string[], context: object }" }, 400);
+    const { runMemoryCommand } = await import("../memory-command.js");
+    const { context, files } = request;
+    const result = await runMemoryCommand(request.args, {
+      defaults: { serverId: getServerId(), serverSlug: getServerSlug(), ...context.defaults },
+      ...(auth ? { session: auth.callerId } : context.session ? { session: context.session } : {}),
+      ...(context.catalogSessionKey ? { catalogSessionKey: context.catalogSessionKey } : {}),
+      readTextFile: async (path) => {
+        const content = files?.[path];
+        if (typeof content !== "string") throw new Error(`File was not sent with the command: ${path}`);
+        return content;
+      },
+    });
+    return c.json(result);
+  });
+
   return api;
+}
+
+function parseMemoryCommandRequest(body: unknown): MemoryServerCommandRequest | null {
+  if (!body || typeof body !== "object") return null;
+  const { args, context, files } = body as Record<string, unknown>;
+  if (!Array.isArray(args) || !args.every((arg) => typeof arg === "string")) return null;
+  if (!context || typeof context !== "object" || Array.isArray(context)) return null;
+  const raw = context as Record<string, unknown>;
+  const defaults = raw.defaults && typeof raw.defaults === "object" ? (raw.defaults as Record<string, unknown>) : {};
+  return {
+    args,
+    context: {
+      defaults: {
+        ...stringField(defaults, "root"),
+        ...stringField(defaults, "serverId"),
+        ...stringField(defaults, "sessionSpaceSlug"),
+      },
+      ...stringField(raw, "session"),
+      ...stringField(raw, "catalogSessionKey"),
+    },
+    ...(files && typeof files === "object" && !Array.isArray(files)
+      ? { files: Object.fromEntries(Object.entries(files).filter(([, value]) => typeof value === "string")) }
+      : {}),
+  };
+}
+
+function stringField<K extends string>(record: Record<string, unknown>, key: K): Partial<Record<K, string>> {
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? ({ [key]: value } as Record<K, string>) : {};
 }

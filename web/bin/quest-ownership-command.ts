@@ -3,6 +3,7 @@ import type { QuestInvocationProvenance, QuestmasterTask } from "../server/quest
 import type { QuestOwnerRef } from "../shared/quest-owner.js";
 import { getName } from "../server/session-names.js";
 import { formatSessionLabel } from "./quest-format.js";
+import type { QuestServerClient } from "./quest-server-client.js";
 
 export type QuestOwnershipCommandDeps = {
   validateFlags: (allowed: string[]) => void;
@@ -13,8 +14,7 @@ export type QuestOwnershipCommandDeps = {
   codexOwner?: QuestOwnerRef;
   codexProvenance?: QuestInvocationProvenance;
   companionPort: string | undefined;
-  companionAuthHeaders: (extra?: Record<string, string>) => Record<string, string>;
-  notifyServer: () => Promise<void>;
+  questServer: QuestServerClient;
   printHumanFeedbackWarning: (quest: QuestmasterTask) => void;
   jsonOutput: boolean;
   out: (value: unknown) => void;
@@ -47,11 +47,12 @@ export async function runClaimCommand(deps: QuestOwnershipCommandDeps): Promise<
     if (!deps.companionPort) deps.die("Force claim requires the Companion server.");
   }
 
-  if (deps.companionPort) {
-    await claimViaServer(deps, id, sessionId, force, reason);
+  // Only the server's own Codex Quest command worker writes the store directly.
+  if (deps.codexOwner) {
+    await claimViaFilesystem(deps, id, sessionId);
     return;
   }
-  await claimViaFilesystem(deps, id, sessionId);
+  await claimViaServer(deps, id, sessionId, force, reason);
 }
 
 export async function runReassignCommand(deps: QuestOwnershipCommandDeps): Promise<void> {
@@ -65,24 +66,13 @@ export async function runReassignCommand(deps: QuestOwnershipCommandDeps): Promi
   if (deps.codexOwner) deps.die("Direct Codex tasks cannot reassign Takode quest ownership.");
   if (!deps.companionPort) deps.die("quest reassign requires the Companion server.");
 
-  try {
-    const res = await fetch(`http://localhost:${deps.companionPort}/api/quests/${encodeURIComponent(id)}/reassign`, {
-      method: "POST",
-      headers: deps.companionAuthHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ sessionId, reason }),
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      deps.die((err as { error: string }).error || res.statusText);
-    }
-    const quest = (await res.json()) as QuestmasterTask;
-    if (deps.jsonOutput) deps.out(quest);
-    else
-      console.log(`Reassigned ${quest.questId} "${quest.title}" to ${formatOwner(sessionId, deps.currentSessionId)}`);
-  } catch (e) {
-    deps.die(`Failed to reassign via Companion server: ${(e as Error).message}`);
-  }
+  const { value: quest } = await deps.questServer.request<QuestmasterTask>(
+    "POST",
+    `/quests/${encodeURIComponent(id)}/reassign`,
+    { sessionId, reason },
+  );
+  if (deps.jsonOutput) deps.out(quest);
+  else console.log(`Reassigned ${quest.questId} "${quest.title}" to ${formatOwner(sessionId, deps.currentSessionId)}`);
 }
 
 async function claimViaServer(
@@ -92,25 +82,15 @@ async function claimViaServer(
   force: boolean,
   reason: string | undefined,
 ): Promise<void> {
-  try {
-    const res = await fetch(`http://localhost:${deps.companionPort}/api/quests/${encodeURIComponent(id)}/claim`, {
-      method: "POST",
-      headers: deps.companionAuthHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({
-        ...(sessionId ? { sessionId } : {}),
-        ...(force ? { force: true, reason } : {}),
-      }),
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      deps.die((err as { error: string }).error || res.statusText);
-    }
-    const quest = (await res.json()) as QuestmasterTask;
-    printClaimedQuest(deps, quest, sessionId);
-  } catch (e) {
-    deps.die(`Failed to claim via Companion server: ${(e as Error).message}`);
-  }
+  const { value: quest } = await deps.questServer.request<QuestmasterTask>(
+    "POST",
+    `/quests/${encodeURIComponent(id)}/claim`,
+    {
+      ...(sessionId ? { sessionId } : {}),
+      ...(force ? { force: true, reason } : {}),
+    },
+  );
+  printClaimedQuest(deps, quest, sessionId);
 }
 
 async function claimViaFilesystem(
@@ -125,7 +105,6 @@ async function claimViaFilesystem(
       ...(deps.codexProvenance ? { provenance: deps.codexProvenance } : {}),
     });
     if (!quest) deps.die(`Quest ${id} not found`);
-    await deps.notifyServer();
     printClaimedQuest(deps, quest, sessionId);
   } catch (e) {
     deps.die((e as Error).message);

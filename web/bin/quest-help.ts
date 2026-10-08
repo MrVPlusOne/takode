@@ -55,7 +55,7 @@ Commands:
 Environment:
   COMPANION_SESSION_ID  Session ID (auto-set by Companion)
   COMPANION_AUTH_TOKEN  Session auth token (auto-set by Companion)
-  COMPANION_PORT        Server port for browser notifications
+  COMPANION_PORT        Port of the Takode server, which makes every quest change
 
 Auth fallback:
   .companion/session-auth.json (or legacy .codex/.claude paths)

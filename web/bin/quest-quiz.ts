@@ -1,5 +1,6 @@
 import type { QuestQuizItem, QuestmasterTask } from "../server/quest-types.js";
 import { normalizeQuestQuizItems } from "../server/quest-quiz.js";
+import type { QuestServerClient } from "./quest-server-client.js";
 
 export interface QuestQuizCommandDeps {
   positional: (index: number) => string | undefined;
@@ -11,10 +12,9 @@ export interface QuestQuizCommandDeps {
   warn: (message: string) => void;
   readOptionTextFile: (pathOrDash: string, flagName: string) => Promise<string>;
   getQuest: (questId: string) => Promise<QuestmasterTask | null>;
-  patchQuest: (questId: string, patch: { quizItems?: QuestQuizItem[] }) => Promise<QuestmasterTask | null>;
-  notifyServer: () => Promise<void>;
-  companionPort: string | undefined;
-  companionAuthHeaders: (extra?: Record<string, string>) => Record<string, string>;
+  questServer: QuestServerClient;
+  /** Set only for the server's own Codex Quest command worker, which writes the store directly. */
+  setQuizLocally?: (questId: string, quizItems: QuestQuizItem[]) => Promise<QuestmasterTask | null>;
 }
 
 function parseQuestQuizItems(raw: string, die: (message: string) => never): QuestQuizItem[] {
@@ -50,37 +50,15 @@ async function putQuestQuiz(
   quizItems: QuestQuizItem[],
   deps: QuestQuizCommandDeps,
 ): Promise<QuestmasterTask> {
-  const port = deps.companionPort;
-  if (port) {
-    try {
-      const res = await fetch(`http://localhost:${port}/api/quests/${encodeURIComponent(questId)}/quiz`, {
-        method: "PUT",
-        headers: deps.companionAuthHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ quizItems }),
-        signal: AbortSignal.timeout(5000),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        if (res.status === 404) {
-          deps.warn(
-            (err as { error?: string }).error || "Companion quiz route not found; falling back to local quest store.",
-          );
-        } else {
-          deps.die((err as { error: string }).error || res.statusText);
-        }
-      } else {
-        return (await res.json()) as QuestmasterTask;
-      }
-    } catch (e) {
-      if (!((e as Error).name === "AbortError" || (e as Error).message?.includes("timeout"))) {
-        deps.die((e as Error).message);
-      }
-    }
+  if (!deps.setQuizLocally) {
+    return (
+      await deps.questServer.request<QuestmasterTask>("PUT", `/quests/${encodeURIComponent(questId)}/quiz`, {
+        quizItems,
+      })
+    ).value;
   }
-
-  const quest = await deps.patchQuest(questId, { quizItems });
+  const quest = await deps.setQuizLocally(questId, quizItems);
   if (!quest) deps.die(`Quest ${questId} not found`);
-  await deps.notifyServer();
   return quest;
 }
 

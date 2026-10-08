@@ -407,8 +407,14 @@ export async function lintMemory(
 ): Promise<MemoryCatalog> {
   const catalog = await scanMemoryCatalog(options);
   const health = await checkMemoryRepoHealth(catalog);
+  // Without Git yet (a read-only lint of a new repo), every note is part of the first commit.
   const changedPaths =
-    lintOptions.changedPaths ?? new Set(catalog.repo.initialized ? await changedMemoryPaths(catalog.repo.root) : []);
+    lintOptions.changedPaths ??
+    new Set(
+      catalog.repo.initialized
+        ? await changedMemoryPaths(catalog.repo.root)
+        : catalog.entries.map((entry) => entry.path),
+    );
   const issues = [...catalog.issues, ...health].map((issue) =>
     issue.blocksCommitOfNote && issue.path && changedPaths.has(issue.path)
       ? { ...issue, severity: "error" as const }
@@ -717,7 +723,8 @@ function parseMemoryCommitFileChanges(block: string): MemoryRecentCommit["change
 }
 
 export async function memoryGitDiff(options: MemoryRepoOptions = {}): Promise<string> {
-  const repo = await ensureMemoryRepo(options);
+  const repo = await repoForRead(options);
+  if (options.readOnly && !repo.initialized) return "";
   return runGit(repo.root, ["diff"]);
 }
 
