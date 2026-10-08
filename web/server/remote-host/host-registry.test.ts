@@ -63,17 +63,44 @@ describe("HostRegistry", () => {
   });
 
   // The old global binaries become this machine's settings once; a later start
-  // never overwrites what the user has set since.
+  // never overwrites what is stored since. The answer says whether the caller
+  // may delete its old copy: only when that copy is what this machine now has.
   it("adopts the old global binaries as this machine's settings only once", async () => {
     const path = join(dir, "hosts.json");
     const registry = new HostRegistry(path);
     expect(await registry.adoptLegacyLocalSettings(null)).toBe(false);
-    expect(await registry.adoptLegacyLocalSettings({ claudeBinary: "/old/claude", codexBinary: "" })).toBe(true);
+    expect(await registry.adoptLegacyLocalSettings({ claudeBinary: " /old/claude ", codexBinary: "" })).toBe(true);
     expect(registry.machineSettings(LOCAL_HOST_ID).claudeBinary).toBe("/old/claude");
+    // The same values again (e.g. the delete failed last time) may be dropped.
+    expect(await registry.adoptLegacyLocalSettings({ claudeBinary: "/old/claude", codexBinary: "" })).toBe(true);
 
     await registry.updateMachineSettings(LOCAL_HOST_ID, { claudeBinary: "/new/claude" });
     const reloaded = new HostRegistry(path);
-    expect(await reloaded.adoptLegacyLocalSettings({ claudeBinary: "/old/claude", codexBinary: "" })).toBe(true);
+    expect(await reloaded.adoptLegacyLocalSettings({ claudeBinary: "/old/claude", codexBinary: "" })).toBe(false);
     expect(reloaded.machineSettings(LOCAL_HOST_ID).claudeBinary).toBe("/new/claude");
+  });
+
+  // Settings files are per port but this registry is per server id, so two
+  // ports' files can share it. The second file's different values must not be
+  // reported as moved, or its server would delete them without storing them.
+  it("does not claim another settings file's different values as moved", async () => {
+    const path = join(dir, "hosts.json");
+    expect(
+      await new HostRegistry(path).adoptLegacyLocalSettings({
+        claudeBinary: "/port-a/claude",
+        codexBinary: "/port-a/codex",
+      }),
+    ).toBe(true);
+    const secondServer = new HostRegistry(path);
+    expect(
+      await secondServer.adoptLegacyLocalSettings({
+        claudeBinary: "/port-b/claude-copilot",
+        codexBinary: "/port-a/codex",
+      }),
+    ).toBe(false);
+    expect(secondServer.machineSettings(LOCAL_HOST_ID)).toEqual({
+      claudeBinary: "/port-a/claude",
+      codexBinary: "/port-a/codex",
+    });
   });
 });

@@ -106,15 +106,26 @@ export class HostRegistry {
   }
 
   /**
-   * Once per registry, adopt the Claude/Codex settings that used to be global
-   * server settings as this machine's settings. Returns whether they are now
-   * stored here, so the caller may drop the old copy.
+   * Adopt the Claude/Codex settings that used to be global server settings as
+   * this machine's settings, unless this machine already has settings.
+   * Returns whether `legacy` is now what this machine has stored, moved now
+   * or identical to it, so the caller may drop the old copy. It is false when
+   * there is nothing to move, or when this machine already has different
+   * settings: for example moved earlier from another port's settings file of
+   * the same server, since settings files are per port but this registry is
+   * per server. The old copy must then stay where it is.
    */
   async adoptLegacyLocalSettings(legacy: MachineSettings | null): Promise<boolean> {
     await this.load();
-    if (this.local) return true;
     if (!legacy) return false;
-    this.local = { settings: { ...DEFAULT_MACHINE_SETTINGS, ...definedSettings(legacy) } };
+    const settings = { ...DEFAULT_MACHINE_SETTINGS, ...definedSettings(legacy) };
+    if (this.local) {
+      return (
+        this.local.settings.claudeBinary === settings.claudeBinary &&
+        this.local.settings.codexBinary === settings.codexBinary
+      );
+    }
+    this.local = { settings };
     await this.persist();
     return true;
   }

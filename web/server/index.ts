@@ -47,6 +47,7 @@ import {
   getServerId,
   getServerSlug,
   getSettings,
+  getSettingsFilePath,
   getServerName,
   initWithPort,
 } from "./settings-manager.js";
@@ -59,7 +60,7 @@ import { matchWebSocketRoute } from "./websocket-routes.js";
 import { TimerManager } from "./timer-manager.js";
 import { ResourceLeaseManager } from "./resource-lease-manager.js";
 import { ResourceLeaseStore } from "./resource-lease-store.js";
-import { HostRegistry } from "./remote-host/host-registry.js";
+import { HostRegistry, LOCAL_HOST_ID } from "./remote-host/host-registry.js";
 import { HostLinkManager } from "./remote-host/host-link-manager.js";
 import { hostCanRestart } from "./remote-host/host-restart-gate.js";
 import { configureMachineSettings } from "./remote-host/machine-settings.js";
@@ -234,8 +235,18 @@ const timerManager = new TimerManager(wsBridge);
 const resourceLeaseManager = new ResourceLeaseManager(wsBridge, new ResourceLeaseStore(serverId));
 const hostRegistry = HostRegistry.forServer(serverId);
 // Claude/Codex binaries are per-machine settings now; older builds kept them as
-// global settings, which become this machine's settings once.
-if (await hostRegistry.adoptLegacyLocalSettings(getLegacyMachineSettings())) clearLegacyMachineSettings();
+// global settings, which become this machine's settings once. Values that differ
+// from settings this machine already has stay in the settings file, unused.
+const legacyMachineSettings = getLegacyMachineSettings();
+if (await hostRegistry.adoptLegacyLocalSettings(legacyMachineSettings)) {
+  clearLegacyMachineSettings();
+} else if (legacyMachineSettings) {
+  serverLog.warn("Kept old Claude/Codex settings that differ from this machine's stored settings", {
+    settingsFile: getSettingsFilePath(),
+    oldSettings: legacyMachineSettings,
+    thisMachine: hostRegistry.machineSettings(LOCAL_HOST_ID),
+  });
+}
 configureMachineSettings(hostRegistry);
 const browserLogin = await BrowserLogin.forServer(serverId);
 const hostLinks = new HostLinkManager({ build: await readCheckoutCommit(packageRoot) });

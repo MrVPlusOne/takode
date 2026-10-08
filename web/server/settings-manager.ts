@@ -614,6 +614,11 @@ function readLegacyMachineSettings(raw: Record<string, unknown>): LegacyMachineS
   return claudeBinary || codexBinary ? { claudeBinary, codexBinary } : null;
 }
 
+/** The settings file this server reads and writes. */
+export function getSettingsFilePath(): string {
+  return filePath;
+}
+
 export function getSettings(): CompanionSettings {
   ensureLoaded();
   return { ...settings, serverSlug: settings.serverSlug || defaultServerSlugForPort(settingsPort) };
