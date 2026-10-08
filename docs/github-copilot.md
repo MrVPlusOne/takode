@@ -40,6 +40,10 @@ models were tested with Claude Code 2.1.289 in October 2026.
 The script changes nothing else: it doesn't touch your global Claude Code
 settings, your plain `claude` command or Takode's server.
 
+On a [remote host](remote-hosts.md), run the script on that host and start
+`takode node` with `--claude <launcher path>`. The **Claude Code** setting
+applies only to sessions on the server's own machine.
+
 ## What the settings do
 
 The script installs [`scripts/claude-copilot-settings.json`](../scripts/claude-copilot-settings.json),
