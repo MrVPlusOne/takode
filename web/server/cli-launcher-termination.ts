@@ -10,7 +10,14 @@ export async function terminateKnownProcess(
   proc?: Subprocess,
   reason?: string,
 ): Promise<void> {
-  if (!pid) return;
+  if (!pid) {
+    // A process on a remote host has no local pid; its host stops it.
+    if (proc) {
+      proc.kill("SIGTERM");
+      await Promise.race([proc.exited.catch(() => undefined), new Promise((resolve) => setTimeout(resolve, 2000))]);
+    }
+    return;
+  }
 
   try {
     recordCodexProcessTermination(session, pid, "SIGTERM", reason ?? "launcher.terminateKnownProcess");

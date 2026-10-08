@@ -48,6 +48,8 @@ export interface RemoteSpawnOptions {
   cwd?: string;
   env: Record<string, string | undefined>;
   signal?: AbortSignal;
+  /** A launch the host prepared itself; `command`, `args` and `cwd` are then ignored. */
+  preparedLaunchId?: string;
 }
 
 /**
@@ -242,6 +244,7 @@ export class HostLinkManager {
       args: options.args,
       ...(options.cwd ? { cwd: options.cwd } : {}),
       env: sessionEnv(options.env),
+      ...(options.preparedLaunchId ? { preparedLaunchId: options.preparedLaunchId } : {}),
     });
     options.signal?.addEventListener("abort", () => proc.kill("SIGTERM"), { once: true });
     return proc;

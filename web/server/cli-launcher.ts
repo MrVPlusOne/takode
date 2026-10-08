@@ -27,6 +27,10 @@ import { prepareWorktreeSessionArtifacts } from "./cli-launcher-worktree.js";
 import { ensureQuestJourneyPhaseDataForCwd } from "./quest-journey-phases.js";
 import type { HostLinkManager, RemoteProcess, RemoteSpawnOptions } from "./remote-host/host-link-manager.js";
 import type { HostRegistry } from "./remote-host/host-registry.js";
+import { remoteSubprocess } from "./remote-host/remote-subprocess.js";
+
+/** Codex launch preparation on a host can seed a Codex home and caches. */
+const REMOTE_CODEX_PREPARE_TIMEOUT_MS = 120_000;
 import { isRecoverableCodexInitError } from "./codex-adapter-utils.js";
 import { type CodexTokenRefreshNoiseState } from "./cli-stream-log-classifier.js";
 import { formatStreamTailForError, pipeLauncherStream } from "./cli-launcher-streams.js";
@@ -1001,6 +1005,8 @@ export class CliLauncher {
     let sandboxMode: "read-only" | "workspace-write" | "danger-full-access" | undefined;
     let reasoningSummary: "auto" | "concise" | "detailed" | undefined;
     let instructionContext: import("./codex-instruction-snapshot.js").CodexInstructionContext | undefined;
+    /** Set when the host prepared this launch; the process then runs there. */
+    let remoteLaunchId: string | undefined;
     try {
       const binSettings = this.settingsGetter?.();
       const codexOptions = binSettings
@@ -1008,18 +1014,34 @@ export class CliLauncher {
             ...options,
           }
         : options;
-      const spawnSpec = await prepareCodexSpawn(
-        sessionId,
-        {
-          cwd: info.cwd,
-          cliSessionId: info.cliSessionId,
-          isOrchestrator: info.isOrchestrator,
-          codexLeaderCompactionMode: info.codexLeaderCompactionMode,
-          codexLeaderRecycleThresholdTokens: info.codexLeaderRecycleThresholdTokens,
-          codexLeaderRecycleLineage: info.codexLeaderRecycleLineage,
-        },
-        codexOptions,
-      );
+      const launchInfo = {
+        cwd: info.cwd,
+        cliSessionId: info.cliSessionId,
+        isOrchestrator: info.isOrchestrator,
+        codexLeaderCompactionMode: info.codexLeaderCompactionMode,
+        codexLeaderRecycleThresholdTokens: info.codexLeaderRecycleThresholdTokens,
+        codexLeaderRecycleLineage: info.codexLeaderRecycleLineage,
+      };
+      let spawnSpec: Awaited<ReturnType<typeof prepareCodexSpawn>>;
+      if (info.hostId) {
+        // The host prepares the launch with its own Codex binary, home and configuration.
+        const links = this.remoteHosts?.links;
+        if (!links) throw new Error(`Remote hosts are not available on this server; cannot run on host ${info.hostId}`);
+        const prepared = await links.request(
+          info.hostId,
+          { kind: "prepare_codex", sessionId, info: launchInfo, options: codexOptions },
+          REMOTE_CODEX_PREPARE_TIMEOUT_MS,
+        );
+        remoteLaunchId = prepared.launchId;
+        spawnSpec = {
+          ...(prepared.adapterSettings as Omit<typeof spawnSpec, "spawnCmd" | "spawnEnv" | "spawnCwd">),
+          spawnCmd: ["codex"],
+          spawnEnv: {},
+          spawnCwd: info.cwd,
+        };
+      } else {
+        spawnSpec = await prepareCodexSpawn(sessionId, launchInfo, codexOptions);
+      }
       spawnCmd = spawnSpec.spawnCmd;
       spawnEnv = spawnSpec.spawnEnv;
       spawnCwd = spawnSpec.spawnCwd;
@@ -1040,6 +1062,16 @@ export class CliLauncher {
         this.persistState();
         return;
       }
+      if (info.hostId) {
+        // The host is away or could not prepare Codex; the next message relaunches the session.
+        console.error(
+          `[cli-launcher] Could not prepare Codex on host for session ${sessionTag(sessionId)}: ${err instanceof Error ? err.message : err}`,
+        );
+        info.state = "exited";
+        info.exitCode = 1;
+        this.persistState();
+        return;
+      }
       throw err;
     }
 
@@ -1053,13 +1085,23 @@ export class CliLauncher {
     let proc: ReturnType<typeof Bun.spawn>;
     try {
       serverWorkAdmission.assertOpen();
-      proc = Bun.spawn(spawnCmd, {
-        cwd: spawnCwd,
-        env: spawnEnv,
-        stdin: "pipe",
-        stdout: "pipe",
-        stderr: "pipe",
-      });
+      proc =
+        remoteLaunchId && info.hostId && this.remoteHosts
+          ? remoteSubprocess(
+              this.remoteHosts.links.spawn(info.hostId, {
+                command: "codex",
+                args: [],
+                env: {},
+                preparedLaunchId: remoteLaunchId,
+              }),
+            )
+          : Bun.spawn(spawnCmd, {
+              cwd: spawnCwd,
+              env: spawnEnv,
+              stdin: "pipe",
+              stdout: "pipe",
+              stderr: "pipe",
+            });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[cli-launcher] Failed to spawn Codex for session ${sessionTag(sessionId)}: ${msg}`);
@@ -1071,7 +1113,7 @@ export class CliLauncher {
 
     info.pid = proc.pid;
     this.processes.set(sessionId, proc);
-    void this.logCodexProcessSnapshot(sessionId, proc.pid, "spawn");
+    if (proc.pid) void this.logCodexProcessSnapshot(sessionId, proc.pid, "spawn");
 
     // Pipe stderr for debugging (stdout is used for JSON-RPC)
     const stderr = proc.stderr;

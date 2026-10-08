@@ -40,6 +40,17 @@ export interface HostAgentOptions {
    * coordinator asks for `claude`; a host can map it to its own installation.
    */
   commands?: Record<string, string>;
+  /** Codex launch preparation; the real one (`prepareCodexSpawn`) unless a test supplies another. */
+  prepareCodexLaunch?: (
+    sessionId: string,
+    info: unknown,
+    options: Record<string, unknown>,
+  ) => Promise<{
+    spawnCmd: string[];
+    spawnEnv: Record<string, string | undefined>;
+    spawnCwd: string | undefined;
+    [setting: string]: unknown;
+  }>;
   /** First reconnect delay after a link drop; doubles up to 15s. */
   reconnectDelayMs?: number;
   /** Overrides for tests. */
@@ -70,6 +81,11 @@ export class HostAgent {
   private coordinatorInstanceId: string | null = null;
   private appliedCommandSeq = 0;
   private readonly processes = new Map<string, HostedProcess>();
+  /** Launches prepared by `prepare_codex`, waiting for their `spawn` command. */
+  private readonly preparedLaunches = new Map<
+    string,
+    { argv: string[]; env: Record<string, string | undefined>; cwd: string | undefined }
+  >();
   private lastHeardAt = 0;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -219,10 +235,31 @@ export class HostAgent {
 
   private async answer(id: string, request: HostRequest): Promise<void> {
     try {
-      this.send({ t: "response", id, ok: true, response: await performHostRequest(request) });
+      const response =
+        request.kind === "prepare_codex" ? await this.prepareCodex(request) : await performHostRequest(request);
+      this.send({ t: "response", id, ok: true, response });
     } catch (error) {
       this.send({ t: "response", id, ok: false, error: errorMessage(error) });
     }
+  }
+
+  /**
+   * Prepare a Codex launch here, with this host's Codex binary, home and
+   * configuration, and keep the command for the `spawn` that follows.
+   */
+  private async prepareCodex(request: Extract<HostRequest, { kind: "prepare_codex" }>): Promise<HostResponse> {
+    const options = {
+      ...(request.options as Record<string, unknown>),
+      // The coordinator's binary and Codex home paths describe its own machine.
+      codexBinary: this.options.commands?.codex,
+      codexHome: undefined,
+    };
+    const prepare = this.options.prepareCodexLaunch ?? prepareCodexWithThisInstall;
+    const spec = await prepare(request.sessionId, request.info, options);
+    const launchId = randomUUID();
+    this.preparedLaunches.set(launchId, { argv: spec.spawnCmd, env: spec.spawnEnv, cwd: spec.spawnCwd });
+    const { spawnCmd: _cmd, spawnEnv: _env, spawnCwd: _cwd, ...adapterSettings } = spec;
+    return { kind: "prepare_codex", launchId, adapterSettings: adapterSettings as Record<string, unknown> };
   }
 
   private apply(command: HostCommand): void {
@@ -254,18 +291,27 @@ export class HostAgent {
     const hosted: HostedProcess = { child: null, nextSeq: 1, pending: [], exited: false };
     this.processes.set(command.procId, hosted);
     const port = String(this.options.apiProxyPort);
+    const prepared = command.preparedLaunchId ? this.preparedLaunches.get(command.preparedLaunchId) : undefined;
+    if (command.preparedLaunchId) this.preparedLaunches.delete(command.preparedLaunchId);
+    if (command.preparedLaunchId && !prepared) {
+      this.emit(command.procId, { kind: "error", message: "The prepared launch is gone; the host may have restarted" });
+      this.emit(command.procId, { kind: "exit", code: null, signal: null });
+      return;
+    }
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      ...command.env,
+      ...(prepared?.env ?? command.env),
       // Agent CLIs on this host reach the coordinator through the local API proxy.
       COMPANION_PORT: port,
       ...(command.env.TAKODE_API_PORT ? { TAKODE_API_PORT: port } : {}),
     };
-    const program = this.options.commands?.[command.command] ?? command.command;
+    const program = prepared ? prepared.argv[0]! : (this.options.commands?.[command.command] ?? command.command);
+    const programArgs = prepared ? prepared.argv.slice(1) : command.args;
+    const cwd = prepared ? prepared.cwd : command.cwd;
     const start = this.options.spawnProcess ?? defaultSpawn;
     let child: ChildProcess;
     try {
-      child = start(program, command.args, { ...(command.cwd ? { cwd: command.cwd } : {}), env });
+      child = start(program, programArgs, { ...(cwd ? { cwd } : {}), env });
     } catch (error) {
       this.emit(command.procId, { kind: "error", message: errorMessage(error) });
       this.emit(command.procId, { kind: "exit", code: null, signal: null });
@@ -409,6 +455,8 @@ export async function performHostRequest(request: HostRequest): Promise<HostResp
           : null,
       };
     }
+    case "prepare_codex":
+      throw new Error("Codex launches are prepared by the host agent");
     case "write_file":
       await mkdir(dirname(request.path), { recursive: true });
       await writeFile(request.path, Buffer.from(request.data, "base64"), { mode: request.mode });
@@ -456,6 +504,15 @@ function runShell(request: Extract<HostRequest, { kind: "exec" }>): Promise<Host
       });
     });
   });
+}
+
+async function prepareCodexWithThisInstall(sessionId: string, info: unknown, options: Record<string, unknown>) {
+  const { prepareCodexSpawn } = await import("../cli-launcher-codex.js");
+  return prepareCodexSpawn(
+    sessionId,
+    info as Parameters<typeof prepareCodexSpawn>[1],
+    options as Parameters<typeof prepareCodexSpawn>[2],
+  );
 }
 
 function linkUrl(coordinatorUrl: string): string {

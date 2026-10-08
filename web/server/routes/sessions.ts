@@ -533,7 +533,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     const remoteHostId = await resolveRemoteHostForCreate({
       body,
-      backend,
       cwd,
       registry: launcher.remoteHosts?.registry,
       fail: throwPreparationError,

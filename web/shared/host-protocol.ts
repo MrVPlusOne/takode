@@ -39,6 +39,11 @@ export type HostCommand =
       cwd?: string;
       /** Session-specific variables; the host merges them over its own environment. */
       env: Record<string, string>;
+      /**
+       * Start a launch the host prepared itself (`prepare_codex`) instead of
+       * `command`/`args`/`cwd`, which are then ignored.
+       */
+      preparedLaunchId?: string;
     }
   /**
    * Write a file on the host, in order with the other commands, e.g. an image
@@ -74,14 +79,22 @@ export type HostRequest =
   | { kind: "read_file"; path: string; maxBytes: number }
   | { kind: "stat"; path: string }
   /** `data` is base64; missing parent directories are created. */
-  | { kind: "write_file"; path: string; data: string; mode?: number };
+  | { kind: "write_file"; path: string; data: string; mode?: number }
+  /**
+   * Prepare a Codex launch with the host's own Codex installation, home and
+   * configuration. `info` and `options` are the coordinator's launch inputs
+   * (see `prepareCodexSpawn`); the host keeps the resulting command and returns
+   * an id for a later `spawn` plus the settings the coordinator's adapter needs.
+   */
+  | { kind: "prepare_codex"; sessionId: string; info: unknown; options: unknown };
 
 export type HostResponse =
   | { kind: "exec"; code: number | null; signal: string | null; stdout: string; stderr: string; truncated: boolean }
   /** `data` is base64. */
   | { kind: "read_file"; data: string; truncated: boolean }
   | { kind: "stat"; stat: { size: number; isFile: boolean; isDirectory: boolean; mtimeMs: number } | null }
-  | { kind: "write_file" };
+  | { kind: "write_file" }
+  | { kind: "prepare_codex"; launchId: string; adapterSettings: Record<string, unknown> };
 
 export type HostToCoordinator =
   | {
