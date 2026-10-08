@@ -249,7 +249,7 @@ export interface SessionItemProps {
   isSearchSelected?: boolean;
   /** Indentation level for tree view (0 = root, 1 = worker under leader). */
   indentLevel?: number;
-  /** When true, renders a compact chip (no preview, no herd badge, no shield). Tree view workers only. */
+  /** When true, renders a compact chip (no preview, no herd badge). Tree view workers only. */
   compact?: boolean;
   useStatusBar?: boolean;
 }
@@ -787,35 +787,6 @@ function SessionItemComponent({
                 <span className="text-[9px] font-mono text-current shrink-0">#{s.sessionNum}</span>
               )}
               <img src={backendLogo} alt={backendAlt} className="w-3.5 h-3.5 shrink-0 object-contain opacity-85" />
-              {/* Shield icon: ask permission status (Claude only, hidden in compact/linear modes) */}
-              {!compact && !useStatusBar && s.backendType !== "codex" && s.askPermission === true && (
-                <span title="Permissions: asking before tool use">
-                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 text-cc-primary">
-                    <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
-                    <path
-                      d="M6.5 8.5L7.5 9.5L10 7"
-                      stroke="white"
-                      strokeWidth="1.5"
-                      fill="none"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-              )}
-              {!compact && !useStatusBar && s.backendType !== "codex" && s.askPermission === false && (
-                <span title="Permissions: auto-approving tool use">
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.2"
-                    className="w-2.5 h-2.5 shrink-0 text-cc-muted/50"
-                  >
-                    <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
-                  </svg>
-                </span>
-              )}
               {s.hostId && <HostBadge hostId={s.hostId} />}
               {s.isContainerized && (
                 <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-cc-info bg-cc-info-bg">

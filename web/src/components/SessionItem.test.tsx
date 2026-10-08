@@ -696,6 +696,19 @@ describe("SessionItem leader profiles", () => {
     expect(screen.getByAltText("Claude")).toHaveAttribute("src", "/backend-logos/claude.svg");
   });
 
+  it("does not show a permission-mode icon on Claude session cards", () => {
+    // The sidebar used to show a shield for the ask-permission state. Permission mode
+    // is shown in the composer toolbar instead, so cards stay free of it either way.
+    for (const askPermission of [true, false]) {
+      const { container, unmount } = renderSessionItem({
+        session: makeSession({ backendType: "claude-sdk", askPermission }),
+      });
+      expect(screen.queryByTitle(/^Permissions:/)).not.toBeInTheDocument();
+      expect(container.querySelector("svg path[d^='M8 1L2 4v4']")).toBeNull();
+      unmount();
+    }
+  });
+
   it("opens the profile picker from a leader portrait", () => {
     renderSessionItem({
       session: makeSession({ isOrchestrator: true, leaderProfilePortrait: TAKO_PORTRAIT }),
