@@ -16,7 +16,6 @@ export const STARTUP_SKILL_SYMLINKS = [
   "reviewer-groom",
   "skeptic-review",
   "worktree-rules",
-  "random-memory-ideas",
 ];
 
 export interface PreListenStartupReadinessDeps {

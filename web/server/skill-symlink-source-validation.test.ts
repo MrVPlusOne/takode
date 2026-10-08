@@ -350,4 +350,29 @@ describe("skill source payload validation", () => {
     expect(logs).toContain("[skill-symlink] Installed none; skipped unusable-guide:claude, unusable-guide:agents");
     logSpy.mockRestore();
   });
+
+  it("removes installed links to skills the repo no longer ships, leaving other skills alone", async () => {
+    // Deleting a project skill from the repo leaves its global links dangling,
+    // and startup never re-visits the slug. Startup must retire those links
+    // while keeping user-owned skills and links that point outside the repo.
+    const installation = await makeInstallation();
+    const { claudeSkillsHome, agentsSkillsHome } = installation.roots;
+    const userSkillDir = await writeSkill(claudeSkillsHome, "user-owned", validSkillContent("user-owned", "Mine"));
+    await mkdir(agentsSkillsHome, { recursive: true });
+    const removedClaudeLink = join(claudeSkillsHome, "removed-skill");
+    const removedAgentsLink = join(agentsSkillsHome, "removed-skill");
+    const outsideLink = join(claudeSkillsHome, "outside-skill");
+    await symlink(join(installation.repoClaudeHome, "removed-skill"), removedClaudeLink);
+    await symlink(join(installation.repoAgentsHome, "removed-skill"), removedAgentsLink);
+    await symlink(join(installation.root, "elsewhere", "outside-skill"), outsideLink);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await ensureSkillSymlinks([], installation.roots);
+
+    await expect(lstat(removedClaudeLink)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(removedAgentsLink)).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await lstat(outsideLink)).isSymbolicLink()).toBe(true);
+    expect(await readFile(join(userSkillDir, "SKILL.md"), "utf-8")).toContain("# Mine");
+    vi.restoreAllMocks();
+  });
 });

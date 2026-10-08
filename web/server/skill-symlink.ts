@@ -10,7 +10,7 @@ import {
   type Dirent,
 } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { getLegacyCodexHome } from "./codex-home.js";
@@ -88,6 +88,7 @@ export async function ensureSkillSymlinks(slugs: string[], roots?: SkillSymlinkR
   migrateLegacyCodexSkillsToAgents(legacyCodexSkillsHome, agentsSkillsHome);
   removeDeprecatedProjectSkillSymlinks(claudeSkillsHome, agentsSkillsHome, legacyCodexSkillsHome);
   removeLegacyCodexProjectOwnedSkillCopies(legacyCodexSkillsHome);
+  removeOrphanedRepoSkillSymlinks([claudeSkillsHome, agentsSkillsHome], [repoClaudeSkillsHome, repoAgentsSkillsHome]);
 
   const allSlugs = discoverRepoSkillSlugs(slugs, repoClaudeSkillsHome, repoAgentsSkillsHome);
   const installed: string[] = [];
@@ -318,6 +319,33 @@ function removeDeprecatedProjectSkillSymlinks(
     removeDeprecatedProjectSkillPath(join(claudeSkillsHome, slug));
     removeDeprecatedProjectSkillPath(join(agentsSkillsHome, slug));
     removeDeprecatedProjectSkillPath(join(legacyCodexSkillsHome, slug));
+  }
+}
+
+/**
+ * Removes installed links to repo skills that the repo no longer ships, so
+ * deleting a project skill also retires it from every session. Only symlinks
+ * that point directly into the repo's skill roots and now dangle are removed;
+ * user-owned skills and links elsewhere are left alone.
+ */
+function removeOrphanedRepoSkillSymlinks(installHomes: string[], repoSkillRoots: string[]): void {
+  for (const home of installHomes) {
+    for (const slug of readRepoSkillSlugs(home)) {
+      const linkPath = join(home, slug);
+      let linkTarget: string;
+      try {
+        if (!lstatSync(linkPath).isSymbolicLink()) continue; // sync-ok: startup cold path
+        linkTarget = resolve(home, readlinkSync(linkPath)); // sync-ok: startup cold path
+      } catch (error) {
+        if (!isMissingPathError(error)) {
+          console.warn(`[skill-symlink] Failed to inspect installed skill link: ${linkPath}`, error);
+        }
+        continue;
+      }
+      if (!repoSkillRoots.includes(dirname(linkTarget))) continue;
+      if (existsSync(linkTarget)) continue; // sync-ok: startup cold path
+      unlinkSync(linkPath); // sync-ok: startup cold path
+    }
   }
 }
 
