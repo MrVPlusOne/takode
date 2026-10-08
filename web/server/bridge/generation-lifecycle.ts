@@ -115,6 +115,7 @@ export interface StuckWatchdogSession extends GenerationLifecycleSession {
   state: GenerationLifecycleSession["state"] & {
     backend_state?: string;
     is_compacting?: boolean;
+    claude_network_wait?: { since: number } | null;
     cwd: string;
   };
 }
@@ -695,6 +696,8 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
     // Compaction can be quiet while the provider processes a large history.
     // Silence alone must not turn a live compaction into a relaunch loop.
     if (session.backendType === "codex" && session.state.is_compacting) continue;
+    // A Claude turn waiting for the network is quiet on purpose; it resumes on its own.
+    if (session.state.claude_network_wait) continue;
     if (!session.isGenerating || !session.generationStartedAt) continue;
     if (now - session.generationStartedAt < deps.stuckThresholdMs) continue;
 

@@ -186,8 +186,9 @@ function createSessionRuntime(
   state: any,
   options: SessionRuntimeOptions = {},
 ): SessionLike {
-  // Internal stream retries belong to the current adapter, never a restored process.
+  // Internal stream retries and network waits belong to the current process, never a restored one.
   state.codex_stream_retry = null;
+  state.claude_network_wait = null;
   const processedClientMessageIds = options.processedClientMessageIds ?? [];
   const notifications = options.notifications ?? [];
   const notificationStatusVersion = normalizeStatusNumber(options.notificationStatusVersion, 0);
@@ -850,7 +851,7 @@ export function closeSession(
 }
 
 export function buildPersistedSessionPayload(session: SessionLike): PersistedSession {
-  const { codex_stream_retry: _streamRetry, ...state } = session.state;
+  const { codex_stream_retry: _streamRetry, claude_network_wait: _networkWait, ...state } = session.state;
   return {
     id: session.id,
     state,

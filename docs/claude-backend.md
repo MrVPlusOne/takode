@@ -76,3 +76,12 @@ official pages before relying on any of this.
 - **Permissions.** Takode owns the permission mode. "Always allow" choices are
   passed to Claude as permission updates, and a long `sleep` run in bypass mode
   (where Claude does not ask first) is interrupted with the timer reminder.
+- **Network outages.** When Claude cannot reach the model API (no internet,
+  DNS failure, refused or dropped connection, timeout), the turn is paused
+  rather than failed. Claude retries on its own first; when it gives up, Takode
+  keeps the error out of the feed and herd events, shows the turn as "Waiting
+  for connection", and sends Claude a hidden prompt to continue once the
+  network is back (retrying after 10, 30, then every 60 seconds). Errors that
+  got an HTTP response (authentication, quota, invalid requests), SSL failures
+  and proxy-tunnel refusals stay visible. Raw errors go to the server log.
+  Codex network failures use Codex's own outage recovery.

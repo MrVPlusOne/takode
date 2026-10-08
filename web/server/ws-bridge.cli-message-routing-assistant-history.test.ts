@@ -990,11 +990,14 @@ describe("CLI message routing", () => {
   });
 
   it("assistant: accepts an answer covering a user message the Claude CLI processed mid-turn", () => {
-    // Reproduces leader #2763 on 2026-10-07: a Wi-Fi drop made Claude Code emit a
-    // "<synthetic>" API-error message, the answer reminder started a new turn, and
-    // the user's follow-up arrived mid-turn. The Claude CLI folds such input into
-    // the running turn, so the answer covering both requests must be accepted, and
-    // the synthetic error must not be treated as unmarked leader text.
+    // Reproduces leader #2763 on 2026-10-07: Claude Code emitted a "<synthetic>"
+    // API-error message, the answer reminder started a new turn, and the user's
+    // follow-up arrived mid-turn. The Claude CLI folds such input into the running
+    // turn, so the answer covering both requests must be accepted, and the
+    // synthetic error must not be treated as unmarked leader text. The incident's
+    // error was a network failure, which the outage wait now keeps out of history
+    // entirely (see ws-bridge.claude-sdk-network-outage.test.ts), so this uses a
+    // synthetic error that stays visible.
     bridge.setLauncher({
       touchActivity: vi.fn(),
       touchUserMessage: vi.fn(),
@@ -1026,7 +1029,7 @@ describe("CLI message routing", () => {
           type: "message",
           role: "assistant",
           model: "<synthetic>",
-          content: [{ type: "text", text: "API Error: Can't reach the API server (ENOTFOUND)" }],
+          content: [{ type: "text", text: "API Error: 529 Overloaded" }],
           stop_reason: "stop_sequence",
           usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
         },

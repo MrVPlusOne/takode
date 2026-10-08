@@ -266,6 +266,7 @@ import {
   type UserDispatchTurnTarget,
   trackUserMessageForTurn as trackUserMessageForTurnLifecycle,
 } from "./bridge/generation-lifecycle.js";
+import { stopClaudeNetworkWait } from "./bridge/claude-network-wait.js";
 import {
   computeDiffStatsAsync as computeDiffStatsAsyncController,
   makeDefaultState,
@@ -1828,6 +1829,10 @@ export function getGenerationLifecycleDeps(host: any) {
       );
     },
     onGenerationStopped: (session: Session) => {
+      // A turn that ends for any reason (interrupt, disconnect) no longer waits to resume.
+      if (session.backendType === "claude-sdk") {
+        stopClaudeNetworkWait(session, { broadcastToBrowsers: (target, msg) => host.broadcastToBrowsers(target, msg) });
+      }
       // Recompute message history bytes at turn boundaries (when generation ends)
       // so the UI can show payload size without computing on every push.
       if (session.backendType === "codex" && session.state.codex_image_send_stage) {

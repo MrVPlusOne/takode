@@ -588,6 +588,10 @@ export class ClaudeSdkAdapter
           // Forward compaction boundary markers so the bridge can track
           // compaction state for SDK sessions.
           this.emitBrowserMessage(msg as BrowserIncomingMessage);
+        } else if (msg.subtype === "api_retry") {
+          // Claude retries failed model requests itself; the bridge uses these
+          // to show that a turn is waiting for the network.
+          this.emitBrowserMessage(msg as BrowserIncomingMessage);
         }
         break;
       }

@@ -1,5 +1,6 @@
 import { serverWorkAdmission } from "../server-work-admission.js";
 import { sessionTag } from "../session-tag.js";
+import { handleClaudeNetworkWaitMessage } from "./claude-network-wait.js";
 
 export interface ClaudeSdkAdapterLifecycleDeps {
   getOrCreateSession: (sessionId: string, backendType: "claude-sdk") => any;
@@ -129,6 +130,8 @@ export function attachClaudeSdkAdapterLifecycle(
       session.consecutiveAdapterFailures = 0;
       session.lastAdapterFailureAt = null;
     }
+
+    if (handleClaudeNetworkWaitMessage(session, msg, { broadcastToBrowsers: deps.broadcastToBrowsers })) return;
 
     if (msg.type === "session_init") {
       const initMsg = msg as any;

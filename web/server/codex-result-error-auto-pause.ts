@@ -96,11 +96,7 @@ export function classifyCodexResultError(msg: CLIResultMessage): ClassifiedCodex
     };
   }
 
-  if (
-    normalized.includes("stream disconnected before completion") &&
-    normalized.includes("error sending request") &&
-    normalized.includes("/responses")
-  ) {
+  if (isCodexModelTransportFailure(normalized)) {
     return {
       family: "model_backend_stream_error",
       fingerprint: "model_backend_stream_error:responses",
@@ -615,4 +611,19 @@ function codexAutoPauseCoalesceKey(source: PausedInboundSource, message: Browser
   const thread = message.threadKey ?? message.questId ?? "";
   const herd = message.takodeHerdBatch?.eventKeys?.join(",") ?? "";
   return [source, agent, thread, herd, message.content.trim(), message.timerFiring?.messageId ?? ""].join("\u0000");
+}
+
+/**
+ * Codex's final error after its own retries when the model API could not be
+ * reached: a failed request, a refused/failed connection or a stalled stream.
+ * Deterministic stream endings such as "Incomplete response returned" are not
+ * network failures and stay visible.
+ */
+function isCodexModelTransportFailure(normalized: string): boolean {
+  if (normalized.startsWith("connection failed:")) return normalized.includes("error sending request");
+  if (!normalized.includes("stream disconnected before completion")) return false;
+  return (
+    (normalized.includes("error sending request") && normalized.includes("/responses")) ||
+    normalized.includes("idle timeout waiting for")
+  );
 }

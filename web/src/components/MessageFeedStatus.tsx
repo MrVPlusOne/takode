@@ -51,6 +51,7 @@ export function ElapsedTimer({
   const streamingPauseStartedAt = useStore((s) => s.streamingPauseStartedAt.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const streamRetry = useStore((s) => s.sessions?.get(sessionId)?.codex_stream_retry ?? null);
+  const networkWait = useStore((s) => s.sessions?.get(sessionId)?.claude_network_wait ?? null);
   const activeTurnRoute = useStore((s) => s.activeTurnRoutes?.get(sessionId));
   const bridgeIsOrchestrator = useStore((s) => s.sessions?.get(sessionId)?.isOrchestrator === true);
   const bridgeClaimedQuestId = useStore((s) => s.sessions?.get(sessionId)?.claimedQuestId ?? null);
@@ -86,7 +87,7 @@ export function ElapsedTimer({
     return () => clearInterval(interval);
   }, [streamingStartedAt, sessionStatus, streamingPausedDuration, streamingPauseStartedAt]);
 
-  const showTimer = sessionStatus === "running" && (elapsed > 0 || !!streamRetry);
+  const showTimer = sessionStatus === "running" && (elapsed > 0 || !!streamRetry || !!networkWait);
 
   useLayoutEffect(() => {
     if (!onVisibleHeightChange) return;
@@ -136,20 +137,24 @@ export function ElapsedTimer({
     ? "Session may be stuck"
     : streamingPauseStartedAt
       ? "Napping..."
-      : streamRetry
-        ? "Retrying response..."
-        : formatActiveTurnLabel(activeTurnRoute, currentThreadKey, {
-            isLeaderSession,
-            isReviewerSession: sdkReviewerOf !== null,
-            claimedQuestId: bridgeClaimedQuestId ?? sdkClaimedQuestId,
-            reviewedQuestId,
-          });
-  const retryDetail = streamRetry
-    ? "Codex reported a retryable error and is retrying this response. Its attempt count is unavailable."
-    : undefined;
+      : networkWait
+        ? "Waiting for connection..."
+        : streamRetry
+          ? "Retrying response..."
+          : formatActiveTurnLabel(activeTurnRoute, currentThreadKey, {
+              isLeaderSession,
+              isReviewerSession: sdkReviewerOf !== null,
+              claimedQuestId: bridgeClaimedQuestId ?? sdkClaimedQuestId,
+              reviewedQuestId,
+            });
+  const retryDetail = networkWait
+    ? "The model API can't be reached. Takode will continue this turn automatically once the connection is back."
+    : streamRetry
+      ? "Codex reported a retryable error and is retrying this response. Its attempt count is unavailable."
+      : undefined;
   const dotColor = isStuck
     ? "text-cc-attention"
-    : streamingPauseStartedAt
+    : streamingPauseStartedAt || networkWait
       ? "text-cc-attention"
       : "text-cc-primary animate-pulse";
   const canNavigateActiveTurn =

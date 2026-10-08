@@ -75,6 +75,29 @@ describe("Codex result-error auto-pause", () => {
     expect(classifyCodexResultError(result({ result: "permission denied by user" }))).toBeNull();
   });
 
+  // Network outages also end Codex turns with a refused/failed connection or a
+  // stalled stream; those must enter the same persistent outage recovery. A
+  // deterministic incomplete response is not a network failure and stays visible.
+  it.each([
+    [
+      "failed connection",
+      "Connection failed: error sending request for url (https://api.githubcopilot.com/responses)",
+      true,
+    ],
+    ["stalled SSE stream", "stream disconnected before completion: idle timeout waiting for SSE", true],
+    ["stalled websocket stream", "stream disconnected before completion: idle timeout waiting for websocket", true],
+    [
+      "incomplete response",
+      "stream disconnected before completion: Incomplete response returned, reason: content_filter",
+      false,
+    ],
+    ["HTTP 408 from the provider", "unexpected status 408 Request Timeout: Timed out reading request body", false],
+  ])("classifies %s as a network stream error: %s", (_label, rawResult, expected) => {
+    expect(classifyCodexResultError(result({ result: rawResult }))?.family === "model_backend_stream_error").toBe(
+      expected,
+    );
+  });
+
   it("classifies Copilot auth refresh exhaustion only when all high-confidence markers are present", () => {
     expect(classifyCodexResultError(copilotAuthRefreshResult())).toEqual({
       family: "copilot_auth_refresh_exhausted",

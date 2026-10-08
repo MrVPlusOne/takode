@@ -1052,6 +1052,23 @@ describe("runStuckSessionWatchdogSweep", () => {
     expect(deps.emitTakodeEvent).not.toHaveBeenCalled();
   });
 
+  it("leaves a Claude turn that is waiting for the network to its own resume", () => {
+    // While offline (or across laptop sleep) a waiting turn is quiet on purpose.
+    // Ending it here would report a failed turn and lose the automatic resume.
+    const session = makeStuckWatchdogSession({
+      backendType: "claude-sdk",
+      isGenerating: true,
+      generationStartedAt: 1,
+      lastCliMessageAt: 0,
+      lastToolProgressAt: 0,
+      state: { cwd: "/repo", backend_state: "connected", claude_network_wait: { since: 1 } },
+    });
+    const deps = makeStuckWatchdogDeps();
+    runStuckSessionWatchdogSweep([session], 3_600_000, deps);
+    expect(deps.setGenerating).not.toHaveBeenCalled();
+    expect(deps.emitTakodeEvent).not.toHaveBeenCalled();
+  });
+
   it("terminally clears a provisionally reported connected Codex worker after the recovery window expires", () => {
     const session = makeStuckWatchdogSession({
       isGenerating: true,

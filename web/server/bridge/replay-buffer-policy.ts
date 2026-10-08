@@ -46,14 +46,20 @@ export function isHistoryBackedEvent(msg: ReplayableBrowserIncomingMessage): boo
   );
 }
 
+/** Transient retry/wait presentation; reconnecting browsers get the current value from the session snapshot. */
+const TRANSIENT_SESSION_KEYS = new Set(["codex_stream_retry", "claude_network_wait"]);
+
+function isTransientRetryUpdate(update: object): boolean {
+  const keys = Object.keys(update);
+  return keys.length === 1 && TRANSIENT_SESSION_KEYS.has(keys[0]!);
+}
+
 export function shouldBufferForReplayWithContext(
   msg: BrowserIncomingMessage,
   context?: { isLeaderSession?: boolean },
 ): msg is ReplayableBrowserIncomingMessage {
   if (NON_REPLAYABLE_BROWSER_EVENT_TYPES.has(msg.type)) return false;
-  if (msg.type === "session_update" && "codex_stream_retry" in msg.session && Object.keys(msg.session).length === 1) {
-    return false;
-  }
+  if (msg.type === "session_update" && isTransientRetryUpdate(msg.session)) return false;
   if (context?.isLeaderSession === true && isTopLevelTextStreamDelta(msg)) return false;
   return true;
 }
